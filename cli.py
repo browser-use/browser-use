@@ -17,7 +17,7 @@ async def main():
     try:
         agent = Agent(
             task=task,
-            llm=ChatOpenAI(model="gpt-4"),
+            llm=ChatOpenAI(model="gpt-4-0"),
         )
         
         print("\nExecuting task...")
