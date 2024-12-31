@@ -22,7 +22,6 @@ async def main():
     # Configure browser settings
     browser_config = BrowserConfig(
         headless=True,  # Run in headless mode by default
-        keep_open=False,  # Close browser after completion
         disable_security=False,  # Keep security features enabled
     )
     
