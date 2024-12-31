@@ -39,7 +39,7 @@ async def main():
         async with context:
             agent = Agent(
                 task=task,
-                llm=ChatOpenAI(model="gpt-4"),
+                llm=ChatOpenAI(model="gpt-4o"),
                 controller=controller,
                 browser_context=context
             )
