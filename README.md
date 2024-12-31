@@ -19,8 +19,8 @@ A command-line interface tool that uses AI to automate browser-based tasks.
 
 1. Clone the repository:
 ```bash
-git clone [your-repository-url]
-cd [repository-name]
+git clone https://github.com/PierrunoYT/browser-use-script
+cd browser-use-script
 ```
 
 2. Create and activate a virtual environment:
