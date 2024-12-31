@@ -1,6 +1,6 @@
-langchain>=0.1.0
-langchain-openai>=0.0.2
-python-dotenv>=1.0.0
-browser-use>=0.1.0
-playwright>=1.40.0
-lxml[html_clean]>=5.0.0
+langchain
+langchain-openai
+python-dotenv
+browser-use
+playwright
+lxml[html_clean]
