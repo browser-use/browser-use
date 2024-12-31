@@ -27,6 +27,7 @@ async def main():
     
     # Initialize shared browser instance
     browser = Browser(config=browser_config)
+    
     # Get task from user
     print("\nWelcome to Browser-Use CLI!")
     print("----------------------------")
@@ -34,10 +35,11 @@ async def main():
     
     # Initialize the agent
     try:
-        async with browser.new_context() as context:
+        context = await browser.new_context()
+        async with context:
             agent = Agent(
                 task=task,
-                llm=ChatOpenAI(model="gpt-4o"),
+                llm=ChatOpenAI(model="gpt-4"),
                 controller=controller,
                 browser_context=context
             )
