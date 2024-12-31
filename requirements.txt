@@ -3,4 +3,5 @@ langchain-openai
 python-dotenv
 browser-use
 playwright
-lxml[html_clean]
+lxml
+lxml-html-clean
