@@ -17,7 +17,7 @@ Browser use is the easiest way to connect your AI agents with the browser. If yo
 With pip:
 
 ```bash
-pip install browser-use
+pip install browser-use langchain_openai
 ```
 
 (optional) install playwright:
@@ -59,7 +59,7 @@ ANTHROPIC_API_KEY=
 
 <br/><br/>
 
-[Prompt](https://github.com/browser-use/browser-use/blob/main/examples/find_and_apply_to_jobs.py): Read my CV & find ML jobs, save them to a file, and then start applying for them in new tabs, if you need help, ask me.'
+[Prompt](https://github.com/browser-use/browser-use/blob/main/examples/find_and_apply_to_jobs.py): Read my CV & find ML jobs, save them to a file, and then start applying for them in new tabs, if you need help, ask me.
 
 https://github.com/user-attachments/assets/171fb4d6-0355-46f2-863e-edb04a828d04
 
