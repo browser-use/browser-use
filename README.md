@@ -117,9 +117,9 @@ class JobDetails(BaseModel):
 async def save_job(params: JobDetails, browser: Browser):
 	print(params)
 
-  # use the browser normally
-  page = browser.get_current_page()
-	page.go_to(params.job_link)
+# use the browser normally
+page = browser.get_current_page()
+page.go_to(params.job_link)
 ```
 
 and then run your agent:
