@@ -48,15 +48,15 @@ async def main():
         print("\nExecuting task...")
         history = await agent.run()
         result = history[-1].result if history else "No result"
-            
-            # Print XPath history if requested
-            show_history = input("\nWould you like to see the action history? (yes/no): ").lower()
-            if show_history == 'yes':
-                print("\nAction History:")
-                for entry in history:
-                    print(f"- Action: {entry.action}")
-                    if entry.xpath:
-                        print(f"  XPath: {entry.xpath}")
+        
+        # Print XPath history if requested
+        show_history = input("\nWould you like to see the action history? (yes/no): ").lower()
+        if show_history == 'yes':
+            print("\nAction History:")
+            for entry in history:
+                print(f"- Action: {entry.action}")
+                if entry.xpath:
+                    print(f"  XPath: {entry.xpath}")
         print("\nTask completed!")
         print("\nResult:", result)
         
