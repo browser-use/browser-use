@@ -23,7 +23,21 @@ git clone [your-repository-url]
 cd [repository-name]
 ```
 
-2. Install required packages:
+2. Create and activate a virtual environment:
+
+On Windows:
+```bash
+python -m venv venv
+.\venv\Scripts\activate
+```
+
+On macOS/Linux:
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+3. Install required packages:
 ```bash
 pip install -r requirements.txt
 ```
