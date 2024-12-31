@@ -1,3 +1,4 @@
+langchain>=0.1.0
 langchain-openai>=0.0.2
 python-dotenv>=1.0.0
 browser-use>=0.1.0
