@@ -21,7 +21,7 @@ def ask_human(question: str, display_question: bool = True) -> str:
 async def main():
     # Configure browser settings
     browser_config = BrowserConfig(
-        headless=True,  # Run in headless mode by default
+        headless=False,  # Run in visible mode
         disable_security=False,  # Keep security features enabled
     )
     
