@@ -38,16 +38,16 @@ async def main():
         
         # Initialize the agent
         context = await browser.new_context()
-            agent = Agent(
-                task=task,
-                llm=ChatOpenAI(model="gpt-4o"),
-                controller=controller,
-                browser_context=context
-            )
-            
-            print("\nExecuting task...")
-            history = await agent.run()
-            result = history[-1].result if history else "No result"
+        agent = Agent(
+            task=task,
+            llm=ChatOpenAI(model="gpt-4o"),
+            controller=controller,
+            browser_context=context
+        )
+        
+        print("\nExecuting task...")
+        history = await agent.run()
+        result = history[-1].result if history else "No result"
             
             # Print XPath history if requested
             show_history = input("\nWould you like to see the action history? (yes/no): ").lower()
