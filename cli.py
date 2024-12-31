@@ -1,13 +1,33 @@
 import asyncio
 from langchain_openai import ChatOpenAI
 from browser_use import Agent
+from browser_use.browser.service import Browser, BrowserConfig
+from browser_use.controller.service import Controller
 import os
 from dotenv import load_dotenv
+from typing import Optional
+from pydantic import BaseModel
 
 # Load environment variables from .env file
 load_dotenv()
 
+# Initialize controller for custom actions
+controller = Controller()
+
+@controller.action('Ask user for information')
+def ask_human(question: str, display_question: bool = True) -> str:
+    return input(f'\n{question}\nInput: ') if display_question else input()
+
 async def main():
+    # Configure browser settings
+    browser_config = BrowserConfig(
+        headless=True,  # Run in headless mode by default
+        keep_open=False,  # Close browser after completion
+        disable_security=False,  # Keep security features enabled
+    )
+    
+    # Initialize shared browser instance
+    browser = Browser(config=browser_config)
     # Get task from user
     print("\nWelcome to Browser-Use CLI!")
     print("----------------------------")
@@ -15,13 +35,26 @@ async def main():
     
     # Initialize the agent
     try:
-        agent = Agent(
-            task=task,
-            llm=ChatOpenAI(model="gpt-4o"),
-        )
-        
-        print("\nExecuting task...")
-        result = await agent.run()
+        async with browser.new_context() as context:
+            agent = Agent(
+                task=task,
+                llm=ChatOpenAI(model="gpt-4o"),
+                controller=controller,
+                browser_context=context
+            )
+            
+            print("\nExecuting task...")
+            history = await agent.run()
+            result = history[-1].result if history else "No result"
+            
+            # Print XPath history if requested
+            show_history = input("\nWould you like to see the action history? (yes/no): ").lower()
+            if show_history == 'yes':
+                print("\nAction History:")
+                for entry in history:
+                    print(f"- Action: {entry.action}")
+                    if entry.xpath:
+                        print(f"  XPath: {entry.xpath}")
         print("\nTask completed!")
         print("\nResult:", result)
         
