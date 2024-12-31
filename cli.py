@@ -19,24 +19,25 @@ def ask_human(question: str, display_question: bool = True) -> str:
     return input(f'\n{question}\nInput: ') if display_question else input()
 
 async def main():
-    # Configure browser settings
-    browser_config = BrowserConfig(
-        headless=False,  # Run in visible mode
-        disable_security=False,  # Keep security features enabled
-    )
-    
-    # Initialize shared browser instance
-    browser = Browser(config=browser_config)
-    
-    # Get task from user
-    print("\nWelcome to Browser-Use CLI!")
-    print("----------------------------")
-    task = input("\nPlease enter your task (e.g. 'Find flights from NYC to London'): ")
-    
-    # Initialize the agent
+    browser = None
+    context = None
     try:
+        # Configure browser settings
+        browser_config = BrowserConfig(
+            headless=False,  # Run in visible mode
+            disable_security=False,  # Keep security features enabled
+        )
+        
+        # Initialize shared browser instance
+        browser = Browser(config=browser_config)
+        
+        # Get task from user
+        print("\nWelcome to Browser-Use CLI!")
+        print("----------------------------")
+        task = input("\nPlease enter your task (e.g. 'Find flights from NYC to London'): ")
+        
+        # Initialize the agent
         context = await browser.new_context()
-        async with context:
             agent = Agent(
                 task=task,
                 llm=ChatOpenAI(model="gpt-4o"),
@@ -63,24 +64,37 @@ async def main():
         exit_choice = input("\nDo you want to exit? (yes/no): ").lower()
         if exit_choice != 'yes':
             await main()  # Restart the main function if user doesn't want to exit
-        
+            
     except KeyError as e:
         print(f"\nEnvironment variable error: {str(e)}")
         print("\nPlease make sure you have set up your OPENAI_API_KEY in .env file")
     except ImportError as e:
         print(f"\nDependency error: {str(e)}")
         print("\nPlease make sure you have installed all required dependencies")
+    except KeyboardInterrupt:
+        print("\nOperation cancelled by user")
     except Exception as e:
         print(f"\nUnexpected error: {str(e)}")
         print("\nPlease check:")
         print("1. Your OPENAI_API_KEY is valid")
         print("2. All dependencies are installed")
         print("3. Playwright is installed ('playwright install')")
-        
-        # Ask if user wants to exit even after error
-        exit_choice = input("\nDo you want to exit? (yes/no): ").lower()
-        if exit_choice != 'yes':
-            await main()  # Restart the main function if user doesn't want to exit
+    finally:
+        # Cleanup
+        if context:
+            await context.close()
+        if browser:
+            await browser.close()
+
+async def run_cli():
+    try:
+        await main()
+    except KeyboardInterrupt:
+        print("\nExiting gracefully...")
+    except Exception as e:
+        print(f"\nFatal error: {str(e)}")
+    finally:
+        print("\nGoodbye!")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(run_cli())
