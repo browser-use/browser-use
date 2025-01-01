@@ -23,10 +23,7 @@ async def main():
         # Configure browser settings
         browser_config = BrowserConfig(
             headless=True,  # Run in headless mode
-            disable_security=False,  # Keep security features enabled
-            minimum_wait_page_load_time=1,  # Minimum time to wait for page load
-            wait_for_network_idle_page_load_time=5,  # Wait for network idle
-            maximum_wait_page_load_time=30  # Maximum wait time
+            disable_security=False  # Keep security features enabled
         )
         
         # Initialize shared browser instance with retries
