@@ -23,14 +23,34 @@ async def main():
     context = None
     try:
         # Configure browser settings
+        chrome_paths = [
+            'C:\\Program Files\\Google Chrome\\chrome.exe',
+            'C:\\Program Files (x86)\\Google Chrome\\chrome.exe',
+            os.environ.get('CHROME_PATH')
+        ]
+        
+        chrome_path = None
+        for path in chrome_paths:
+            if path and os.path.exists(path):
+                chrome_path = path
+                break
+                
+        if not chrome_path:
+            raise FileNotFoundError("Could not find Chrome executable. Please set CHROME_PATH environment variable.")
+            
         browser_config = BrowserConfig(
             headless=False,  # Run in visible mode
             disable_security=False,  # Keep security features enabled
-            chrome_instance_path='C:\\Program Files\\Google Chrome\\chrome.exe',  # Windows Chrome path
+            chrome_instance_path=chrome_path
         )
         
         # Initialize shared browser instance
-        browser = Browser(config=browser_config)
+        try:
+            browser = Browser(config=browser_config)
+        except Exception as e:
+            print(f"\nFailed to initialize browser: {str(e)}")
+            print("Please ensure Chrome is completely closed before running this script")
+            return
         
         # Get task from user
         print("\nWelcome to Browser-Use CLI!")
@@ -48,7 +68,7 @@ async def main():
         
         print("\nExecuting task...")
         history = await agent.run()
-        result = history[-1].result if history else "No result"
+        result = history[-1].result if history and len(history) > 0 else "No result"
         
         # Print XPath history if requested
         show_history = input("\nWould you like to see the action history? (yes/no): ").lower()
