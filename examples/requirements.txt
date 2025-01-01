@@ -1,0 +1,7 @@
+langchain
+langchain-openai
+python-dotenv
+browser-use
+playwright
+lxml
+lxml-html-clean
