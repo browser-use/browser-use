@@ -23,26 +23,9 @@ async def main():
     context = None
     try:
         # Configure browser settings
-        chrome_paths = [
-            'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-            'C:\\Program Files\\Google Chrome\\chrome.exe',
-            'C:\\Program Files (x86)\\Google Chrome\\chrome.exe',
-            os.environ.get('CHROME_PATH')
-        ]
-        
-        chrome_path = None
-        for path in chrome_paths:
-            if path and os.path.exists(path):
-                chrome_path = path
-                break
-                
-        if not chrome_path:
-            raise FileNotFoundError("Could not find Chrome executable. Please set CHROME_PATH environment variable.")
-            
         browser_config = BrowserConfig(
-            headless=False,  # Run in visible mode
+            headless=True,  # Run in headless mode
             disable_security=False,  # Keep security features enabled
-            chrome_instance_path=chrome_path,
             minimum_wait_page_load_time=1,  # Minimum time to wait for page load
             wait_for_network_idle_page_load_time=5,  # Wait for network idle
             maximum_wait_page_load_time=30  # Maximum wait time
