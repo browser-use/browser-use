@@ -26,6 +26,7 @@ async def main():
         browser_config = BrowserConfig(
             headless=False,  # Run in visible mode
             disable_security=False,  # Keep security features enabled
+            chrome_instance_path='C:\\Program Files\\Google Chrome\\chrome.exe',  # Windows Chrome path
         )
         
         # Initialize shared browser instance
@@ -42,7 +43,7 @@ async def main():
             task=task,
             llm=ChatOpenAI(model="gpt-4o"),
             controller=controller,
-            browser_context=context
+            browser=browser
         )
         
         print("\nExecuting task...")
