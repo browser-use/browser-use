@@ -24,6 +24,7 @@ async def main():
     try:
         # Configure browser settings
         chrome_paths = [
+            'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
             'C:\\Program Files\\Google Chrome\\chrome.exe',
             'C:\\Program Files (x86)\\Google Chrome\\chrome.exe',
             os.environ.get('CHROME_PATH')
