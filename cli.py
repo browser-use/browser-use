@@ -1,8 +1,8 @@
 import asyncio
 from langchain_openai import ChatOpenAI
-from browser_use import Agent
-from browser_use import Browser, BrowserConfig
-from browser_use import Controller
+from browser_use.agent.service import Agent
+from browser_use.browser.service import Browser, BrowserConfig
+from browser_use.controller.service import Controller
 import os
 from dotenv import load_dotenv
 from typing import Optional
@@ -42,7 +42,10 @@ async def main():
         browser_config = BrowserConfig(
             headless=False,  # Run in visible mode
             disable_security=False,  # Keep security features enabled
-            chrome_instance_path=chrome_path
+            chrome_instance_path=chrome_path,
+            minimum_wait_page_load_time=1,  # Minimum time to wait for page load
+            wait_for_network_idle_page_load_time=5,  # Wait for network idle
+            maximum_wait_page_load_time=30  # Maximum wait time
         )
         
         # Initialize shared browser instance with retries
@@ -73,9 +76,9 @@ async def main():
         context = await browser.new_context()
         agent = Agent(
             task=task,
-            llm=ChatOpenAI(model="gpt-4o"),
+            llm=ChatOpenAI(model="gpt-4"),  # Using standard GPT-4 model name
             controller=controller,
-            browser=browser
+            browser_context=context  # Using context instead of browser directly
         )
         
         print("\nExecuting task...")
