@@ -1,5 +1,5 @@
 """
-Find and apply to jobs.
+Show how to use custom outputs.
 
 @dev You need to add OPENAI_API_KEY to your environment variables.
 """
