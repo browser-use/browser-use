@@ -178,6 +178,8 @@ The most important options are:
 - `minimum_wait_page_load_time`: Minimum time to wait before getting the page state for the LLM input
 - `wait_for_network_idle_page_load_time`: Time to wait for network requests to finish before getting the page state
 - `maximum_wait_page_load_time`: Maximum time to wait for the page to load before proceeding anyway
+- `browserbase_api_key`: API key for Browserbase integration
+- `browserbase_project_id`: Project ID for Browserbase integration
 
 ## More examples
 

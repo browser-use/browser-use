@@ -82,7 +82,7 @@ class BrowserContextConfig:
 	cookies_file: str | None = None
 	minimum_wait_page_load_time: float = 0.5
 	wait_for_network_idle_page_load_time: float = 1
-	maximum_wait_page_load_time: float = 5
+	maximum_wait_page_load_time: float = 20
 	wait_between_actions: float = 1
 
 	disable_security: bool = False
@@ -186,7 +186,7 @@ class BrowserContext:
 			),
 			selector_map={},
 			url=page.url,
-			title=await page.title(),
+			title="about:blank",
 			screenshot=None,
 			tabs=[],
 		)
@@ -223,7 +223,7 @@ class BrowserContext:
 
 	async def _create_context(self, browser: PlaywrightBrowser):
 		"""Creates a new browser context with anti-detection measures and loads cookies if available."""
-		if self.browser.config.chrome_instance_path and len(browser.contexts) > 0:
+		if self.browser.config.browserbase_api_key or self.browser.config.wss_url or (self.browser.config.chrome_instance_path and len(browser.contexts) > 0):
 			# Connect to existing Chrome instance instead of creating new one
 			context = browser.contexts[0]
 		else:
@@ -471,8 +471,8 @@ class BrowserContext:
 		# Wait for page load
 		try:
 			await self._wait_for_stable_network()
-		except Exception:
-			logger.warning('Page load failed, continuing...')
+		except Exception as e:
+			logger.warning(f'Page load failed with error: {str(e)}, continuing...')
 			pass
 
 		# Calculate remaining time to meet minimum WAIT_TIME

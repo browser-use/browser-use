@@ -5,6 +5,7 @@ Playwright browser on steroids.
 import asyncio
 import logging
 from dataclasses import dataclass, field
+from typing import Optional
 
 from playwright._impl._api_structures import ProxySettings
 from playwright.async_api import Browser as PlaywrightBrowser
@@ -39,6 +40,12 @@ class BrowserConfig:
 		chrome_instance_path: None
 			Path to a Chrome instance to use to connect to your normal browser
 			e.g. '/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome'
+
+		browserbase_api_key: None
+			API key for Browserbase integration
+
+		browserbase_project_id: None
+			Project ID for Browserbase integration
 	"""
 
 	headless: bool = False
@@ -46,6 +53,8 @@ class BrowserConfig:
 	extra_chromium_args: list[str] = field(default_factory=list)
 	chrome_instance_path: str | None = None
 	wss_url: str | None = None
+	browserbase_api_key: str | None = None
+	browserbase_project_id: str | None = None
 
 	proxy: ProxySettings | None = field(default=None)
 	new_context_config: BrowserContextConfig = field(default_factory=BrowserContextConfig)
@@ -69,6 +78,7 @@ class Browser:
 		self.config = config
 		self.playwright: Playwright | None = None
 		self.playwright_browser: PlaywrightBrowser | None = None
+		self.browserbase_session = None
 
 	async def new_context(
 		self, config: BrowserContextConfig = BrowserContextConfig()
@@ -95,7 +105,34 @@ class Browser:
 
 	async def _setup_browser(self, playwright: Playwright) -> PlaywrightBrowser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
-		if self.config.wss_url:
+		if self.config.browserbase_api_key and self.config.browserbase_project_id:
+			try:
+				from browserbase import Browserbase
+				
+				bb = Browserbase(api_key=self.config.browserbase_api_key)
+				
+				# Create a session on Browserbase
+				self.browserbase_session = bb.sessions.create(
+					project_id=self.config.browserbase_project_id
+				)
+				logger.info(
+					f"Browserbase session created. Replay URL: https://browserbase.com/sessions/{self.browserbase_session.id}"
+				)
+				
+				# Connect to the remote session
+				browser = await playwright.chromium.connect_over_cdp(
+					self.browserbase_session.connect_url
+				)
+				return browser
+				
+			except ImportError:
+				logger.error("Browserbase package not installed. Please install with: pip install browserbase")
+				raise
+			except Exception as e:
+				logger.error(f"Failed to initialize Browserbase session: {str(e)}")
+				raise
+				
+		elif self.config.wss_url:
 			browser = await playwright.chromium.connect(self.config.wss_url)
 			return browser
 		elif self.config.chrome_instance_path:
@@ -184,11 +221,18 @@ class Browser:
 				await self.playwright_browser.close()
 			if self.playwright:
 				await self.playwright.stop()
+			if self.browserbase_session:
+				# Close browserbase session if it exists
+				try:
+					self.browserbase_session.close()
+				except Exception as e:
+					logger.debug(f'Failed to close browserbase session: {e}')
 		except Exception as e:
 			logger.debug(f'Failed to close browser properly: {e}')
 		finally:
 			self.playwright_browser = None
 			self.playwright = None
+			self.browserbase_session = None
 
 	def __del__(self):
 		"""Async cleanup when object is destroyed"""
