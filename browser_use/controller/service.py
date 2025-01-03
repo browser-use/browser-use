@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import json
 
 from main_content_extractor import MainContentExtractor
 from playwright.async_api import Page
@@ -306,8 +307,9 @@ class Controller:
 
 							formatted_options = []
 							for opt in options['options']:
+								encoded_value = json.dumps(opt['value'])
 								formatted_options.append(
-									f"{opt['index']}: {opt['text']} (value={opt['value']})"
+									f"{opt['index']}: {opt['text']} (value={encoded_value})"
 								)
 
 							all_options.extend(formatted_options)
@@ -333,12 +335,12 @@ class Controller:
 				return ActionResult(extracted_content=msg, include_in_memory=True)
 
 		@self.registry.action(
-			description='Select dropdown option for interactive element index by the text of the option you want to select',
+			description='Select dropdown option for interactive element index by the value of the option you want to select',
 			requires_browser=True,
 		)
 		async def select_dropdown_option(
 			index: int,
-			text: str,
+			value: str,
 			browser: BrowserContext,
 		) -> ActionResult:
 			"""Select dropdown option by the text of the option you want to select"""
@@ -354,7 +356,7 @@ class Controller:
 				msg = f'Cannot select option: Element with index {index} is a {dom_element.tag_name}, not a select'
 				return ActionResult(extracted_content=msg, include_in_memory=True)
 
-			logger.debug(f"Attempting to select '{text}' using xpath: {dom_element.xpath}")
+			logger.debug(f"Attempting to select '{value}' using xpath: {dom_element.xpath}")
 			logger.debug(f'Element attributes: {dom_element.attributes}')
 			logger.debug(f'Element tag: {dom_element.tag_name}')
 
@@ -414,13 +416,13 @@ class Controller:
 										}
 										
 										const option = Array.from(select.options)
-											.find(opt => opt.text.trim() === params.text);
+											.find(opt => opt.value === params.value);
 										
 										if (!option) {
 											return {
 												success: false, 
 												error: 'Option not found',
-												availableOptions: Array.from(select.options).map(o => o.text.trim())
+												availableOptions: Array.from(select.options).map(o => o.value)
 											};
 										}
 										
@@ -437,14 +439,14 @@ class Controller:
 								}
 							"""
 
-							params = {'xpath': dom_element.xpath, 'text': text}
+							params = {'xpath': dom_element.xpath, 'value': value}
 
 							result = await frame.evaluate(select_option_js, params)
 							logger.debug(f'Selection result: {result}')
 
 							if result.get('success'):
 								msg = (
-									f"Selected option '{text}' (value={result.get('selectedValue')}"
+									f"Selected option '{result.get('selectedText')}' (value={result.get('selectedValue')})"
 								)
 								logger.info(msg + f' in frame {frame_index}')
 								return ActionResult(extracted_content=msg, include_in_memory=True)
@@ -460,7 +462,7 @@ class Controller:
 
 					frame_index += 1
 
-				msg = f"Could not select option '{text}' in any frame"
+				msg = f"Could not select option '{value}' in any frame"
 				logger.info(msg)
 				return ActionResult(extracted_content=msg, include_in_memory=True)
 
