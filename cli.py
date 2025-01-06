@@ -18,21 +18,21 @@ def ask_human(question: str, display_question: bool = True) -> str:
 
 async def main(browser=None, context=None):
     try:
+        # Configure browser settings
+        browser_config = BrowserConfig(
+            headless=False,  # Run in visible mode
+            disable_security=False  # Keep security features enabled
+        )
+
         if browser is None:
-            # Configure browser settings
-            browser_config = BrowserConfig(
-                headless=False,  # Run in visible mode
-                disable_security=False  # Keep security features enabled
-            )
             print("\nInitializing browser...")
-        
-        # Initialize shared browser instance with retries
-        max_retries = 3
-        retry_count = 0
-        while retry_count < max_retries:
-            try:
-                browser = Browser(config=browser_config)
-                break
+            # Initialize shared browser instance with retries
+            max_retries = 3
+            retry_count = 0
+            while retry_count < max_retries:
+                try:
+                    browser = Browser(config=browser_config)
+                    break
             except Exception as e:
                 retry_count += 1
                 if retry_count == max_retries:
