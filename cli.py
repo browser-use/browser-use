@@ -51,14 +51,34 @@ async def main(browser=None, context=None):
         print("----------------------------")
         task = input("\nPlease enter your task (e.g. 'Find flights from NYC to London'): ")
         
-        # Initialize the agent
+        # Initialize the agent with task analysis
         context = await browser.new_context()
-        agent = Agent(
-            task=task,
-            llm=ChatOpenAI(model="gpt-4o"),  # Using optimized GPT-4 model
-            controller=controller,
-            browser_context=context  # Using context instead of browser directly
-        )
+        
+        # Analyze if task is just navigation
+        task_lower = task.lower()
+        if task_lower.startswith(('go to ', 'open ', 'navigate to ')):
+            # Extract the website
+            website = task_lower.replace('go to ', '').replace('open ', '').replace('navigate to ', '').strip()
+            # Add https:// if needed
+            if not website.startswith(('http://', 'https://')):
+                website = f'https://www.{website}.com'
+            
+            print(f"\nNavigating to {website}...")
+            page = await context.new_page()
+            await page.goto(website)
+            result = f"Successfully navigated to {website}"
+            history = []  # Empty history for simple navigation
+        else:
+            # Full agent for complex tasks
+            agent = Agent(
+                task=task,
+                llm=ChatOpenAI(model="gpt-4o"),  # Using optimized GPT-4 model
+                controller=controller,
+                browser_context=context  # Using context instead of browser directly
+            )
+            print("\nExecuting task...")
+            history = await agent.run()
+            result = history[-1].result if history and hasattr(history, '__getitem__') else "No result"
         
         print("\nExecuting task...")
         history = await agent.run()
