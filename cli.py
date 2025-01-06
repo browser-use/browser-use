@@ -18,42 +18,8 @@ def ask_human(question: str, display_question: bool = True) -> str:
 
 async def main(browser=None, context=None):
     try:
-        # Configure browser settings
-        # Configure Browser Use settings
-        telemetry_enabled = os.getenv('ANONYMIZED_TELEMETRY', 'true').lower() == 'true'
-        Config.telemetry_enabled = telemetry_enabled
-
-        # Configure browser settings
-        browser_config = BrowserConfig(
-            headless=False,  # Run in visible mode
-            disable_security=False,  # Keep security features enabled
-            viewport={'width': 1280, 'height': 720},
-            locale='en-US'
-        )
-
-        if browser is None or context is None:
-            print("\nInitializing browser...")
-            # Initialize shared browser instance with retries
-            max_retries = 3
-            retry_count = 0
-            while retry_count < max_retries:
-                try:
-                    browser = Browser(config=browser_config)
-                    await browser.start()
-                    context = browser.context
-                    break
-                except Exception as e:
-                    retry_count += 1
-                    if retry_count == max_retries:
-                        print(f"\nFailed to initialize browser after {max_retries} attempts.")
-                        print(f"Error details: {str(e)}")
-                        print("Please ensure:")
-                        print("1. Chrome is completely closed")
-                        print("2. No other Chrome automation scripts are running")
-                        print("3. Chrome is properly installed at the specified path")
-                        return
-                    print(f"\nRetry {retry_count}/{max_retries}: Attempting to initialize browser again...")
-                    await asyncio.sleep(2)  # Wait before retrying
+        # Set telemetry based on environment variable
+        Config.telemetry_enabled = os.getenv('ANONYMIZED_TELEMETRY', 'true').lower() == 'true'
         
         # Get task from user
         print("\nWelcome to Browser-Use CLI!")
@@ -75,12 +41,11 @@ async def main(browser=None, context=None):
             result = f"Successfully navigated to {website}"
             history = []  # Empty history for simple navigation
         else:
-            # Full agent for complex tasks
+            # Initialize agent with task
             agent = Agent(
                 task=task,
-                llm=ChatOpenAI(model="gpt-4o"),  # Using GPT-4o model
-                controller=controller,
-                browser_context=context  # Using context instead of browser directly
+                llm=ChatOpenAI(model="gpt-4"),  # Using standard GPT-4 model
+                controller=controller
             )
             print("\nExecuting task...")
             try:
@@ -133,22 +98,14 @@ async def main(browser=None, context=None):
             await main(browser=browser, context=context)  # Reuse browser and context
             return  # Return here to prevent double cleanup
             
-    except KeyError as e:
-        print(f"\nEnvironment variable error: {str(e)}")
-        print("\nPlease make sure you have set up your OPENAI_API_KEY in .env file")
-    except ImportError as e:
-        print(f"\nDependency error: {str(e)}")
-        print("\nPlease make sure you have installed all required dependencies")
-        print("\nTry running: pip install -r requirements.txt")
-        print("And: playwright install")
-    except KeyboardInterrupt:
-        print("\nOperation cancelled by user")
     except Exception as e:
-        print(f"\nUnexpected error: {str(e)}")
-        print("\nPlease check:")
-        print("1. Your OPENAI_API_KEY is valid")
-        print("2. All dependencies are installed")
-        print("3. Playwright is installed ('playwright install')")
+        print(f"\nError: {str(e)}")
+        if "OPENAI_API_KEY" in str(e):
+            print("\nPlease make sure you have set up your OPENAI_API_KEY in .env file")
+        elif "ModuleNotFoundError" in str(e):
+            print("\nPlease install required dependencies:")
+            print("pip install -r requirements.txt")
+            print("playwright install")
     finally:
         # Cleanup
         if context:
