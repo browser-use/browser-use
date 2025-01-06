@@ -33,18 +33,18 @@ async def main(browser=None, context=None):
                 try:
                     browser = Browser(config=browser_config)
                     break
-            except Exception as e:
-                retry_count += 1
-                if retry_count == max_retries:
-                    print(f"\nFailed to initialize browser after {max_retries} attempts.")
-                    print(f"Error details: {str(e)}")
-                    print("Please ensure:")
-                    print("1. Chrome is completely closed")
-                    print("2. No other Chrome automation scripts are running")
-                    print("3. Chrome is properly installed at the specified path")
-                    return
-                print(f"\nRetry {retry_count}/{max_retries}: Attempting to initialize browser again...")
-                await asyncio.sleep(2)  # Wait before retrying
+                except Exception as e:
+                    retry_count += 1
+                    if retry_count == max_retries:
+                        print(f"\nFailed to initialize browser after {max_retries} attempts.")
+                        print(f"Error details: {str(e)}")
+                        print("Please ensure:")
+                        print("1. Chrome is completely closed")
+                        print("2. No other Chrome automation scripts are running")
+                        print("3. Chrome is properly installed at the specified path")
+                        return
+                    print(f"\nRetry {retry_count}/{max_retries}: Attempting to initialize browser again...")
+                    await asyncio.sleep(2)  # Wait before retrying
         
         # Get task from user
         print("\nWelcome to Browser-Use CLI!")
