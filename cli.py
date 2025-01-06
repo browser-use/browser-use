@@ -54,7 +54,7 @@ async def main():
         context = await browser.new_context()
         agent = Agent(
             task=task,
-            llm=ChatOpenAI(model="gpt-4o"),  # Using optimized GPT-4 model
+            llm=ChatOpenAI(model="gpt-4"),  # Using standard GPT-4 model
             controller=controller,
             browser_context=context  # Using context instead of browser directly
         )
@@ -74,6 +74,17 @@ async def main():
         print("\nTask completed!")
         print("\nResult:", result)
         
+        # Ask if user wants to save result
+        save_choice = input("\nWould you like to save the result to a file? (yes/no): ").lower()
+        if save_choice == 'yes':
+            filename = input("\nEnter filename (default: result.txt): ").strip() or "result.txt"
+            try:
+                with open(filename, 'w', encoding='utf-8') as f:
+                    f.write(str(result))
+                print(f"\nResult saved to {filename}")
+            except Exception as e:
+                print(f"\nError saving file: {str(e)}")
+        
         # Ask if user wants to exit
         exit_choice = input("\nDo you want to exit? (yes/no): ").lower()
         if exit_choice != 'yes':
@@ -85,6 +96,8 @@ async def main():
     except ImportError as e:
         print(f"\nDependency error: {str(e)}")
         print("\nPlease make sure you have installed all required dependencies")
+        print("\nTry running: pip install -r requirements.txt")
+        print("And: playwright install")
     except KeyboardInterrupt:
         print("\nOperation cancelled by user")
     except Exception as e:
