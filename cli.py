@@ -61,7 +61,7 @@ async def main():
         
         print("\nExecuting task...")
         history = await agent.run()
-        result = history[-1].result if history and len(history) > 0 else "No result"
+        result = history[-1].result if history and hasattr(history, '__getitem__') else "No result"
         
         # Print XPath history if requested
         show_history = input("\nWould you like to see the action history? (yes/no): ").lower()
