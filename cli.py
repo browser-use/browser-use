@@ -16,16 +16,15 @@ controller = Controller()
 def ask_human(question: str, display_question: bool = True) -> str:
     return input(f'\n{question}\nInput: ') if display_question else input()
 
-async def main():
-    browser = None
-    context = None
+async def main(browser=None, context=None):
     try:
-        # Configure browser settings
-        browser_config = BrowserConfig(
-            headless=False,  # Run in visible mode
-            disable_security=False  # Keep security features enabled
-        )
-        print("\nInitializing browser...")
+        if browser is None:
+            # Configure browser settings
+            browser_config = BrowserConfig(
+                headless=False,  # Run in visible mode
+                disable_security=False  # Keep security features enabled
+            )
+            print("\nInitializing browser...")
         
         # Initialize shared browser instance with retries
         max_retries = 3
@@ -87,10 +86,11 @@ async def main():
             except Exception as e:
                 print(f"\nError saving file: {str(e)}")
         
-        # Ask if user wants to exit
-        exit_choice = input("\nDo you want to exit? (yes/no): ").lower()
-        if exit_choice != 'yes':
-            await main()  # Restart the main function if user doesn't want to exit
+        # Ask if user wants to continue
+        continue_choice = input("\nDo you want to continue with another task? (yes/no): ").lower()
+        if continue_choice == 'yes':
+            await main(browser=browser, context=context)  # Reuse browser and context
+            return  # Return here to prevent double cleanup
             
     except KeyError as e:
         print(f"\nEnvironment variable error: {str(e)}")
@@ -116,8 +116,10 @@ async def main():
             await browser.close()
 
 async def run_cli():
+    browser = None
+    context = None
     try:
-        await main()
+        await main(browser, context)
     except KeyboardInterrupt:
         print("\nExiting gracefully...")
     except Exception as e:
