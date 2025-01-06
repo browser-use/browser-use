@@ -24,14 +24,15 @@ async def main(browser=None, context=None):
             disable_security=False  # Keep security features enabled
         )
 
-        if browser is None:
+        if browser is None or context is None:
             print("\nInitializing browser...")
             # Initialize shared browser instance with retries
             max_retries = 3
             retry_count = 0
             while retry_count < max_retries:
                 try:
-                    browser = Browser(config=browser_config)
+                    browser = await Browser(config=browser_config).launch()
+                    context = await browser.new_context()
                     break
                 except Exception as e:
                     retry_count += 1
@@ -50,9 +51,6 @@ async def main(browser=None, context=None):
         print("\nWelcome to Browser-Use CLI!")
         print("----------------------------")
         task = input("\nPlease enter your task (e.g. 'Find flights from NYC to London'): ")
-        
-        # Initialize the agent with task analysis
-        context = await browser.new_context()
         
         # Analyze if task is just navigation
         task_lower = task.lower()
