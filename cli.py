@@ -4,8 +4,7 @@ from typing import Optional
 import json
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from browser_use import Agent, Browser, BrowserConfig, Controller
-from browser_use.config import Config as BrowserUseConfig
+from browser_use import Agent, Browser, BrowserConfig, Controller, Config
 
 # Load environment variables from .env file
 load_dotenv()
@@ -22,7 +21,7 @@ async def main(browser=None, context=None):
         # Configure browser settings
         # Configure Browser Use settings
         telemetry_enabled = os.getenv('ANONYMIZED_TELEMETRY', 'true').lower() == 'true'
-        BrowserUseConfig.telemetry_enabled = telemetry_enabled
+        Config.telemetry_enabled = telemetry_enabled
 
         # Configure browser settings
         browser_config = BrowserConfig(
