@@ -79,7 +79,7 @@ async def main(browser=None, context=None):
             # Full agent for complex tasks
             agent = Agent(
                 task=task,
-                llm=ChatOpenAI(model="gpt-4"),  # Using GPT-4 model
+                llm=ChatOpenAI(model="gpt-4o"),  # Using GPT-4o model
                 controller=controller,
                 browser_context=context  # Using context instead of browser directly
             )
