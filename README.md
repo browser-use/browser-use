@@ -1,21 +1,21 @@
-# Browser-Use CLI
+# 🌐 Browser-Use CLI
 
 A command-line interface tool that uses AI to automate browser-based tasks.
 
-## Features
+## ✨ Features
 
 - Interactive CLI interface for task execution
 - Powered by GPT-4 for intelligent browser automation
 - Built with Playwright for reliable web automation
 - Continuous operation mode with exit prompt
 
-## Prerequisites
+## 📋 Prerequisites
 
 - Python 3.8 or higher
 - OpenAI API key
 - Playwright browser automation tool
 
-## Installation
+## 🚀 Installation
 
 1. Clone the repository:
 ```bash
@@ -53,7 +53,7 @@ playwright install
    - (Optional) Add Anthropic API key if using Claude models
    - Configure telemetry settings as needed
 
-## Usage
+## 🎯 Usage
 
 1. Run the CLI:
 ```bash
@@ -70,7 +70,7 @@ python cli.py
    - Continue with another task (enter "no" at exit prompt)
    - Exit the program (enter "yes" at exit prompt)
 
-## Dependencies
+## 📦 Dependencies
 
 All required dependencies are listed in `requirements.txt`:
 - langchain
@@ -81,17 +81,17 @@ All required dependencies are listed in `requirements.txt`:
 - lxml
 - lxml-html-clean
 
-## Error Handling
+## ⚠️ Error Handling
 
 If you encounter errors, ensure:
 1. Your OpenAI API key is correctly set in `.env`
 2. All dependencies are properly installed
 3. Playwright browsers are installed
 
-## Contributing
+## 👥 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## License
+## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
