@@ -22,9 +22,10 @@ async def main():
     try:
         # Configure browser settings
         browser_config = BrowserConfig(
-            headless=True,  # Run in headless mode
+            headless=False,  # Run in visible mode
             disable_security=False  # Keep security features enabled
         )
+        print("\nInitializing browser...")
         
         # Initialize shared browser instance with retries
         max_retries = 3
@@ -36,7 +37,8 @@ async def main():
             except Exception as e:
                 retry_count += 1
                 if retry_count == max_retries:
-                    print(f"\nFailed to initialize browser after {max_retries} attempts: {str(e)}")
+                    print(f"\nFailed to initialize browser after {max_retries} attempts.")
+                    print(f"Error details: {str(e)}")
                     print("Please ensure:")
                     print("1. Chrome is completely closed")
                     print("2. No other Chrome automation scripts are running")
