@@ -92,11 +92,6 @@ async def main(browser=None, context=None):
             except Exception as e:
                 print(f"\nError saving file: {str(e)}")
         
-        # Ask if user wants to continue
-        continue_choice = input("\nDo you want to continue with another task? (yes/no): ").lower()
-        if continue_choice == 'yes':
-            await main(browser=browser, context=context)  # Reuse browser and context
-            return  # Return here to prevent double cleanup
             
     except Exception as e:
         print(f"\nError: {str(e)}")
