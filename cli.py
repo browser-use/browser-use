@@ -1,10 +1,11 @@
 import asyncio
+import os
+from typing import Optional
+import json
+from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from browser_use import Agent, Browser, BrowserConfig, Controller
-import os
-from dotenv import load_dotenv
-from typing import Optional
-from pydantic import BaseModel
+from browser_use.config import Config as BrowserUseConfig
 
 # Load environment variables from .env file
 load_dotenv()
@@ -19,9 +20,16 @@ def ask_human(question: str, display_question: bool = True) -> str:
 async def main(browser=None, context=None):
     try:
         # Configure browser settings
+        # Configure Browser Use settings
+        telemetry_enabled = os.getenv('ANONYMIZED_TELEMETRY', 'true').lower() == 'true'
+        BrowserUseConfig.telemetry_enabled = telemetry_enabled
+
+        # Configure browser settings
         browser_config = BrowserConfig(
             headless=False,  # Run in visible mode
-            disable_security=False  # Keep security features enabled
+            disable_security=False,  # Keep security features enabled
+            viewport={'width': 1280, 'height': 720},
+            locale='en-US'
         )
 
         if browser is None or context is None:
@@ -71,13 +79,22 @@ async def main(browser=None, context=None):
             # Full agent for complex tasks
             agent = Agent(
                 task=task,
-                llm=ChatOpenAI(model="gpt-4o"),  # Using optimized GPT-4 model
+                llm=ChatOpenAI(model="gpt-4"),  # Using GPT-4 model
                 controller=controller,
                 browser_context=context  # Using context instead of browser directly
             )
             print("\nExecuting task...")
-            history = await agent.run()
-            result = history[-1].result if history and hasattr(history, '__getitem__') else "No result"
+            try:
+                history = await agent.run()
+                if not history:
+                    result = "No result returned from agent"
+                else:
+                    # Try to get structured result
+                    try:
+                        result = history[-1].result
+                    except (AttributeError, IndexError):
+                        # Fallback to string representation
+                        result = str(history[-1]) if history else "No result"
         
         # Print XPath history if requested
         show_history = input("\nWould you like to see the action history? (yes/no): ").lower()
@@ -95,8 +112,14 @@ async def main(browser=None, context=None):
         if save_choice == 'yes':
             filename = input("\nEnter filename (default: result.txt): ").strip() or "result.txt"
             try:
-                with open(filename, 'w', encoding='utf-8') as f:
-                    f.write(str(result))
+                # Try to save as JSON if result is structured
+                try:
+                    with open(filename, 'w', encoding='utf-8') as f:
+                        json.dump(result, f, indent=2, ensure_ascii=False)
+                except (TypeError, ValueError):
+                    # Fallback to string if not JSON serializable
+                    with open(filename, 'w', encoding='utf-8') as f:
+                        f.write(str(result))
                 print(f"\nResult saved to {filename}")
             except Exception as e:
                 print(f"\nError saving file: {str(e)}")
