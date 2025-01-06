@@ -64,7 +64,7 @@ async def main(browser=None, context=None):
                 website = f'https://www.{website}.com'
             
             print(f"\nNavigating to {website}...")
-            page = await context.new_page()
+            page = await browser.new_page()
             await page.goto(website)
             result = f"Successfully navigated to {website}"
             history = []  # Empty history for simple navigation
