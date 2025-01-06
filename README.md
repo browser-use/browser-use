@@ -64,17 +64,22 @@ python cli.py
 
 3. The tool will execute your task using browser automation
 
-4. After task completion, choose whether to:
-   - Continue with another task (enter "no")
-   - Exit the program (enter "yes")
+4. After task completion, you can:
+   - View the detailed action history
+   - Save results to a file
+   - Continue with another task (enter "no" at exit prompt)
+   - Exit the program (enter "yes" at exit prompt)
 
 ## Dependencies
 
-- langchain (≥0.1.0)
-- langchain-openai (≥0.0.2)
-- python-dotenv (≥1.0.0)
-- browser-use (≥0.1.0)
-- playwright (≥1.40.0)
+All required dependencies are listed in `requirements.txt`:
+- langchain
+- langchain-openai
+- python-dotenv
+- browser-use
+- playwright
+- lxml
+- lxml-html-clean
 
 ## Error Handling
 
