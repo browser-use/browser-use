@@ -44,7 +44,7 @@ async def main(browser=None, context=None):
             # Initialize agent with task
             agent = Agent(
                 task=task,
-                llm=ChatOpenAI(model="gpt-4"),  # Using standard GPT-4 model
+                llm=ChatOpenAI(model="gpt-4o"),  # Using standard GPT-4 model
                 controller=controller
             )
             print("\nExecuting task...")
