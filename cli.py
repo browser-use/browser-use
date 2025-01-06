@@ -54,7 +54,7 @@ async def main():
         context = await browser.new_context()
         agent = Agent(
             task=task,
-            llm=ChatOpenAI(model="gpt-4"),  # Using standard GPT-4 model
+            llm=ChatOpenAI(model="gpt-4o"),  # Using optimized GPT-4 model
             controller=controller,
             browser_context=context  # Using context instead of browser directly
         )
