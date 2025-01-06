@@ -31,8 +31,9 @@ async def main(browser=None, context=None):
             retry_count = 0
             while retry_count < max_retries:
                 try:
-                    browser = await Browser(config=browser_config).launch()
-                    context = await browser.new_context()
+                    browser = await Browser(config=browser_config).create()
+                    await browser.start()
+                    context = await browser.context
                     break
                 except Exception as e:
                     retry_count += 1
