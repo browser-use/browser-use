@@ -106,10 +106,17 @@ async def main(browser=None, context=None):
             await browser.close()
 
 async def run_cli():
-    browser = None
-    context = None
+    from playwright.async_api import async_playwright
+    
     try:
-        await main(browser, context)
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=False)
+            context = await browser.new_context()
+            try:
+                await main(browser, context)
+            finally:
+                await context.close()
+                await browser.close()
     except KeyboardInterrupt:
         print("\nExiting gracefully...")
     except Exception as e:
