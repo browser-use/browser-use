@@ -95,7 +95,11 @@ async def main(browser=None, context=None):
                     except (AttributeError, IndexError):
                         # Fallback to string representation
                         result = str(history[-1]) if history else "No result"
-        
+            except Exception as e:
+                print(f"\nError during task execution: {str(e)}")
+                result = f"Task failed: {str(e)}"
+                history = []
+
         # Print XPath history if requested
         show_history = input("\nWould you like to see the action history? (yes/no): ").lower()
         if show_history == 'yes':
