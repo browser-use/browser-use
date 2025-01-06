@@ -4,7 +4,7 @@ from typing import Optional
 import json
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from browser_use import Agent, Browser, BrowserConfig, Controller, Config
+from browser_use import Agent, Browser, BrowserConfig, Controller
 
 # Load environment variables from .env file
 load_dotenv()
@@ -18,9 +18,6 @@ def ask_human(question: str, display_question: bool = True) -> str:
 
 async def main(browser=None, context=None):
     try:
-        # Set telemetry based on environment variable
-        Config.telemetry_enabled = os.getenv('ANONYMIZED_TELEMETRY', 'true').lower() == 'true'
-        
         # Get task from user
         print("\nWelcome to Browser-Use CLI!")
         print("----------------------------")
