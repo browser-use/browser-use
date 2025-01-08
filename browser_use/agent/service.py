@@ -592,38 +592,18 @@ class Agent:
 		if not self.history.history:
 			logger.warning('No history to create GIF from')
 			return
-
 		images = []
-		# if history is empty or first screenshot is None, we can't create a gif
-		if not self.history.history or not self.history.history[0].state.screenshot:
-			logger.warning('No history or first screenshot to create GIF from')
-			return
-
-		# Try to load nicer fonts
+		
+		# Simplified font handling with single try/except
 		try:
-			# Try different font options in order of preference
-			font_options = ['Helvetica', 'Arial', 'DejaVuSans', 'Verdana']
-			font_loaded = False
-
-			for font_name in font_options:
-				try:
-					regular_font = ImageFont.truetype(font_name, font_size)
-					title_font = ImageFont.truetype(font_name, title_font_size)
-					goal_font = ImageFont.truetype(font_name, goal_font_size)
-					font_loaded = True
-					break
-				except OSError:
-					continue
-
-			if not font_loaded:
-				raise OSError('No preferred fonts found')
-
+			regular_font = ImageFont.truetype('arial.ttf', font_size)
+			title_font = ImageFont.truetype('arial.ttf', title_font_size)
+			goal_font = ImageFont.truetype('arial.ttf', goal_font_size)
 		except OSError:
+			logger.warning('Could not load Arial font, using default')
 			regular_font = ImageFont.load_default()
-			title_font = ImageFont.load_default()
-
+			title_font = regular_font
 			goal_font = regular_font
-
 		# Load logo if requested
 		logo = None
 		if show_logo:
@@ -636,7 +616,6 @@ class Agent:
 				logo = logo.resize((logo_width, logo_height), Image.Resampling.LANCZOS)
 			except Exception as e:
 				logger.warning(f'Could not load logo: {e}')
-
 		# Create task frame if requested
 		if show_task and self.task:
 			task_frame = self._create_task_frame(
@@ -648,16 +627,13 @@ class Agent:
 				line_spacing,
 			)
 			images.append(task_frame)
-
 		# Process each history item
 		for i, item in enumerate(self.history.history, 1):
 			if not item.state.screenshot:
 				continue
-
 			# Convert base64 screenshot to PIL Image
 			img_data = base64.b64decode(item.state.screenshot)
 			image = Image.open(io.BytesIO(img_data))
-
 			if show_goals and item.model_output:
 				image = self._add_overlay_to_image(
 					image=image,
@@ -668,9 +644,7 @@ class Agent:
 					margin=margin,
 					logo=logo,
 				)
-
 			images.append(image)
-
 		if images:
 			# Save the GIF
 			images[0].save(
@@ -681,7 +655,7 @@ class Agent:
 				loop=0,
 				optimize=False,
 			)
-			logger.info(f'Created GIF at {output_path}')
+			logger.info(f'Created history GIF at {output_path}')
 		else:
 			logger.warning('No images found in history to create GIF')
 
@@ -699,47 +673,46 @@ class Agent:
 		template = Image.open(io.BytesIO(img_data))
 		image = Image.new('RGB', template.size, (0, 0, 0))
 		draw = ImageDraw.Draw(image)
-
 		# Calculate vertical center of image
 		center_y = image.height // 2
-
-		# Draw task text with increased font size
-		margin = 140  # Increased margin
+		# Draw "Task:" title (no font size modification)
+		title = 'Task:'
+		title_bbox = draw.textbbox((0, 0), title, font=title_font)
+		title_width = title_bbox[2] - title_bbox[0]
+		title_x = (image.width - title_width) // 2
+		title_y = center_y - 150
+		draw.text(
+			(title_x, title_y),
+			title,
+			font=title_font,  # Use original font
+			fill=(255, 255, 255),
+		)
+		# Draw task text (no font size modification)
+		margin = 140
 		max_width = image.width - (2 * margin)
-		larger_font = ImageFont.truetype(
-			regular_font.path, regular_font.size + 16
-		)  # Increase font size more
-		wrapped_text = self._wrap_text(task, larger_font, max_width)
-
+		wrapped_text = self._wrap_text(task, regular_font, max_width)
 		# Calculate line height with spacing
-		line_height = larger_font.size * line_spacing
-
+		line_height = regular_font.size * line_spacing
 		# Split text into lines and draw with custom spacing
 		lines = wrapped_text.split('\n')
 		total_height = line_height * len(lines)
-
 		# Start position for first line
-		text_y = center_y - (total_height / 2) + 50  # Shifted down slightly
-
+		text_y = center_y - (total_height / 2) + 50
 		for line in lines:
-			# Get line width for centering
-			line_bbox = draw.textbbox((0, 0), line, font=larger_font)
+			line_bbox = draw.textbbox((0, 0), line, font=regular_font)
 			text_x = (image.width - (line_bbox[2] - line_bbox[0])) // 2
-
 			draw.text(
 				(text_x, text_y),
 				line,
-				font=larger_font,
+				font=regular_font,  # Use original font
 				fill=(255, 255, 255),
 			)
 			text_y += line_height
-
 		# Add logo if provided (top right corner)
 		if logo:
 			logo_margin = 20
 			logo_x = image.width - logo.width - logo_margin
 			image.paste(logo, (logo_x, logo_margin), logo if logo.mode == 'RGBA' else None)
-
 		return image
 
 	def _add_overlay_to_image(
