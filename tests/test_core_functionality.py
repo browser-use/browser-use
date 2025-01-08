@@ -200,3 +200,16 @@ async def test_scroll_down(llm, context):
 	history = agent.history
 	action_names = history.action_names()
 	assert 'scroll_down' in action_names
+
+@pytest.mark.asyncio
+async def test_extract_element_html(llm, context):
+    """Test 'Extract element HTML' action"""
+    agent = Agent(
+        task="Go to 'https://en.wikipedia.org/wiki/Internet' and extract the HTML of the first link.",
+        llm=llm,
+        browser_context=context,
+    )
+    history = await agent.run(max_steps=4)
+    action_names = history.action_names()
+    assert 'go_to_url' in action_names or 'open_tab' in action_names
+    assert 'extract_element_html' in action_names

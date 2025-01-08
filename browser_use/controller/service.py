@@ -18,6 +18,7 @@ from browser_use.controller.views import (
 	SearchGoogleAction,
 	SendKeysAction,
 	SwitchTabAction,
+	ExtractElementHtmlAction
 )
 from browser_use.utils import time_execution_async, time_execution_sync
 
@@ -47,6 +48,37 @@ class Controller:
 			msg = f'🔍  Searched for "{params.query}" in Google'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		@self.registry.action(
+			'Extract element HTML', param_model=ExtractElementHtmlAction, requires_browser=True
+		)
+		async def extract_element_html(params: ExtractElementHtmlAction, browser: BrowserContext):
+			session = await browser.get_session()
+			state = session.cached_state
+
+			if params.index not in state.selector_map:
+				raise Exception(
+					f'Element with index {params.index} does not exist - retry or use alternative actions'
+				)
+
+			element_node = state.selector_map[params.index]
+
+			try:
+				page = await browser.get_current_page()
+				element_handle = await browser.get_locate_element(element_node)
+				html_content = await page.evaluate('(element) => element.outerHTML', element_handle)
+				content = MainContentExtractor.extract(  # type: ignore
+					html=html_content,
+					output_format=params.format,
+				)
+				msg = f'📝 Extracted HTML for index {params.index}:\n{content}'
+				logger.info(msg)
+				return ActionResult(extracted_content=content, include_in_memory=True)
+			except Exception as e:
+				logger.warning(
+					f'Failed to extract HTML for element with index {params.index} - most likely the page changed'
+				)
+				return ActionResult(error=str(e))
 
 		@self.registry.action(
 			'Navigate to URL in the current tab', param_model=GoToUrlAction, requires_browser=True

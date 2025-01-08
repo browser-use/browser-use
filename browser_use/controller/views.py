@@ -45,3 +45,8 @@ class ScrollAction(BaseModel):
 
 class SendKeysAction(BaseModel):
 	keys: str
+
+class ExtractElementHtmlAction(BaseModel):
+	index: int
+	format: Literal['text', 'markdown', 'html'] = 'html'
+	xpath: Optional[str] = None

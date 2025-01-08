@@ -50,7 +50,9 @@ class SystemPrompt:
        {"go_to_url": {"url": "https://example.com"}},
        {"extract_page_content": {}}
      ]
-
+   - Extract element HTML: [
+       {"extract_element_html": {"index": 1}}
+     ]
 
 3. ELEMENT INTERACTION:
    - Only use indexes that exist in the provided element list
