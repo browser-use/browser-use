@@ -182,12 +182,12 @@ Interactive elements:
 			for i, result in enumerate(self.result):
 				if result.extracted_content:
 					state_description += (
-						f'\nResult of action {i + 1}/{len(self.result)}: {result.extracted_content}'
+						f'\nAction result {i + 1}/{len(self.result)}: {result.extracted_content}'
 					)
 				if result.error:
 					# only use last 300 characters of error
 					error = result.error[-self.max_error_length :]
-					state_description += f'\nError of action {i + 1}/{len(self.result)}: ...{error}'
+					state_description += f'\nAction error {i + 1}/{len(self.result)}: ...{error}'
 
 		if self.state.screenshot:
 			# Format message for vision model

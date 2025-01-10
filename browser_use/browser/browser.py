@@ -36,6 +36,9 @@ class BrowserConfig:
 		wss_url: None
 			Connect to a browser instance via WebSocket
 
+		cdp_url: None
+			Connect to a browser instance via CDP
+
 		chrome_instance_path: None
 			Path to a Chrome instance to use to connect to your normal browser
 			e.g. '/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome'
@@ -46,6 +49,7 @@ class BrowserConfig:
 	extra_chromium_args: list[str] = field(default_factory=list)
 	chrome_instance_path: str | None = None
 	wss_url: str | None = None
+	cdp_url: str | None = None
 
 	proxy: ProxySettings | None = field(default=None)
 	new_context_config: BrowserContextConfig = field(default_factory=BrowserContextConfig)
@@ -95,6 +99,11 @@ class Browser:
 
 	async def _setup_browser(self, playwright: Playwright) -> PlaywrightBrowser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
+		if self.config.cdp_url:
+			# Loggin : Connecting to remote browser via CDP
+			logger.info(f"Connecting to remote browser via CDP {self.config.cdp_url}")
+			browser = await playwright.chromium.connect_over_cdp(self.config.cdp_url)
+			return browser
 		if self.config.wss_url:
 			browser = await playwright.chromium.connect(self.config.wss_url)
 			return browser

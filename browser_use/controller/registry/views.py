@@ -45,7 +45,7 @@ class ActionModel(BaseModel):
 		if not params:
 			return None
 		for param in params:
-			if 'index' in param:
+			if param is not None and 'index' in param:
 				return param['index']
 		return None
 

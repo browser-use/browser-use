@@ -1,9 +1,3 @@
-"""
-Simple try of the agent.
-
-@dev You need to add ANTHROPIC_API_KEY to your environment variables.
-"""
-
 import os
 import sys
 
@@ -26,11 +20,15 @@ def get_llm(provider: str):
 		)
 	elif provider == 'openai':
 		return ChatOpenAI(model='gpt-4o', temperature=0.0)
+
 	else:
 		raise ValueError(f'Unsupported provider: {provider}')
 
 
-task = 'Show the solution of y"(z) + sin(y(z)) = 0 from wolframalpha https://www.wolframalpha.com/'
+task = 'go to reddit and search for post about brower-use '
+
+
+controller = Controller()
 
 
 parser = argparse.ArgumentParser()
@@ -55,13 +53,19 @@ browser = Browser(
 )
 
 agent = Agent(
-	task=args.query, llm=llm, controller=Controller(), browser=browser, validate_output=True
+	task=args.query,
+	llm=llm,
+	controller=controller,
+	browser=browser,
+	use_vision=True,
+	max_actions_per_step=1,
 )
 
 
 async def main():
 	await agent.run(max_steps=25)
 
+	input('Press Enter to close the browser...')
 	await browser.close()
 
 

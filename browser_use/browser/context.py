@@ -564,7 +564,7 @@ class BrowserContext:
 				page = session.current_page
 				logger.debug(f'Switched to page: {await page.title()}')
 			else:
-				raise BrowserError('No valid pages available')
+				raise BrowserError('Browser closed: no valid pages available')
 
 		try:
 			await self.remove_highlights()
