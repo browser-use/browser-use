@@ -8,7 +8,6 @@ import os
 import sys
 
 from langchain_aws import ChatBedrock
-from langchain_openai import ChatOpenAI
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import argparse
