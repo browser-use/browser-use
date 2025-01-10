@@ -29,9 +29,9 @@ def get_llm():
 # Define the task for the agent
 task = (
     "Visit cnn.com, navigate to the 'World News' section, and identify the latest headline. "
-    "For each headline, open the first article and summarize its content in 3-4 sentences. "
+    "Open the first article and summarize its content in 3-4 sentences. "
     "Additionally, analyze the sentiment of the article (positive, neutral, or negative) "
-    "and provide a confidence score for the sentiment. Present the results in a tabular format."
+    "and provide a confidence score for the sentiment. Present the result in a tabular format."
 )
 
 parser = argparse.ArgumentParser()
