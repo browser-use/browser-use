@@ -31,7 +31,7 @@ class DomService:
 		js_code = resources.read_text('browser_use.dom', 'buildDomTree.js')
 
 		eval_page = await self.page.evaluate(
-			js_code, [highlight_elements]
+			js_code, (highlight_elements)
 		)  # This is quite big, so be careful
 		html_to_dict = self._parse_node(eval_page)
 
