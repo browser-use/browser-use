@@ -42,7 +42,7 @@ class Controller:
 		)
 		async def search_google(params: SearchGoogleAction, browser: BrowserContext):
 			page = await browser.get_current_page()
-			await page.goto(f'https://www.google.com/search?q={params.query}')
+			await page.goto(f'https://www.google.com/search?q={params.query}&udm=14')
 			await page.wait_for_load_state()
 			msg = f'🔍  Searched for "{params.query}" in Google'
 			logger.info(msg)

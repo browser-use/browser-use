@@ -1,4 +1,8 @@
-<img src="./static/browser-use.png" alt="Browser Use Logo" width="full"/>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./static/browser-use-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="./static/browser-use.png">
+  <img alt="Shows a black Browser Use Logo in light color mode and a white one in dark color mode." src="./static/browser-use.png"  width="full">
+</picture>
 
 <br/>
 
@@ -52,6 +56,20 @@ OPENAI_API_KEY=
 ```
 
 For other settings, models, and more, check out the [documentation 📕](https://docs.browser-use.com).
+
+### Test with UI
+
+You can test [browser-use with a UI repository](https://github.com/browser-use/web-ui)
+
+Or simply run the gradio example:
+
+```
+uv pip install gradio
+```
+
+```bash
+python examples/gradio.py
+```
 
 # Demos
 

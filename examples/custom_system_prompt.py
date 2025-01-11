@@ -21,7 +21,7 @@ class MySystemPrompt(SystemPrompt):
 
 
 async def main():
-	task = 'do google search to find images of Elon Musk's wife'
+	task = "do google search to find images of Elon Musk's wife"
 	model = ChatOpenAI(model='gpt-4o')
 	agent = Agent(task=task, llm=model, system_prompt_class=MySystemPrompt)
 

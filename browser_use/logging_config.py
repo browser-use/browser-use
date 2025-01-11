@@ -1,6 +1,9 @@
 import logging
 import os
 import sys
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def addLoggingLevel(levelName, levelNum, methodName=None):

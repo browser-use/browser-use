@@ -4,7 +4,7 @@ description = "Make websites accessible for AI agents"
 authors = [
     { name = "Gregor Zunic" }
 ]
-version = "0.1.18"
+version = "0.1.19"
 readme = "README.md"
 requires-python = ">=3.11"
 classifiers = [
@@ -20,6 +20,7 @@ dependencies = [
     "langchain-openai>=0.2.14",
     "langchain-anthropic>=0.3.1",
     "langchain-fireworks>=0.2.5",
+    "langchain-aws>=0.2.10",
     "langchain-google-genai>=2.0.8",
     "pydantic>=2.10.4",
     "python-dotenv>=1.0.1",
