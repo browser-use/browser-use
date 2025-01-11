@@ -593,7 +593,9 @@ class Agent:
 			logger.warning('No history to create GIF from')
 			return
 		images = []
-		
+		if not self.history.history[0].state.screenshot:
+			logger.warning('No first screenshot to create GIF from')
+			return
 		# Simplified font handling with single try/except
 		try:
 			regular_font = ImageFont.truetype('arial.ttf', font_size)
