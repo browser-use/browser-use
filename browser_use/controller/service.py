@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 
 from main_content_extractor import MainContentExtractor
 from playwright.async_api import Page
@@ -124,11 +125,17 @@ class Controller:
 				)
 
 			element_node = state.selector_map[params.index]
-			await browser._input_text_element_node(element_node, params.text)
-			msg = f'⌨️  Input "{params.text}" into index {params.index}'
+
+			input_text_to_use = params.text
+			if self.is_all_caps_or_underscore(input_text_to_use):
+				input_text_to_use = os.getenv(input_text_to_use, input_text_to_use)
+
+			await browser._input_text_element_node(element_node, input_text_to_use)
+			msg = f'⌨️  Input "{input_text_to_use}" into index {params.index}'
 			logger.info(msg)
 			logger.debug(f'Element xpath: {element_node.xpath}')
 			return ActionResult(extracted_content=msg, include_in_memory=True)
+
 
 		# Tab Management Actions
 		@self.registry.action('Switch tab', param_model=SwitchTabAction, requires_browser=True)
@@ -531,3 +538,6 @@ class Controller:
 			return ActionResult()
 		except Exception as e:
 			raise e
+
+	def is_all_caps_or_underscore(self, s: str) -> bool:
+		return all(c.isupper() or c == '_' for c in s)
