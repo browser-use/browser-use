@@ -19,6 +19,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
 	BaseMessage,
 	SystemMessage,
+	AIMessage,
 )
 from openai import RateLimitError
 from PIL import Image, ImageDraw, ImageFont
@@ -88,6 +89,7 @@ class Agent:
 		max_error_length: int = 400,
 		max_actions_per_step: int = 10,
 		tool_call_in_content: bool = True,
+		show_token_usage: bool = False,
 	):
 		self.agent_id = str(uuid.uuid4())  # unique identifier for the agent
 
@@ -154,6 +156,10 @@ class Agent:
 
 		if save_conversation_path:
 			logger.info(f'Saving conversation to {save_conversation_path}')
+
+		self.show_token_usage = show_token_usage
+		if self.show_token_usage:
+			self.token_usage = {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0}
 
 	def _setup_action_models(self) -> None:
 		"""Setup dynamic action models from controller's registry"""
@@ -282,6 +288,14 @@ class Agent:
 		if parsed is None:
 			raise ValueError(f'Could not parse response.')
 
+		if self.show_token_usage:
+			raw_message: AIMessage = response['raw']
+			if raw_message is None:
+				raise ValueError(f'Could not parse response.')
+			usage_metadata = raw_message.usage_metadata
+			for key in self.token_usage:
+				self.token_usage[key] += usage_metadata[key]
+
 		# cut the number of actions to max_actions_per_step
 		parsed.action = parsed.action[: self.max_actions_per_step]
 		self._log_response(parsed)
@@ -390,6 +404,9 @@ class Agent:
 
 			if self.generate_gif:
 				self.create_history_gif()
+
+			if self.show_token_usage:
+				logger.info(f'Total Token Usage: {self.token_usage}')
 
 	def _too_many_failures(self) -> bool:
 		"""Check if we should stop due to too many failures"""
