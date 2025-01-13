@@ -15,7 +15,7 @@ from langchain_openai import ChatOpenAI
 
 from browser_use.agent.message_manager.views import MessageHistory, MessageMetadata
 from browser_use.agent.prompts import AgentMessagePrompt, SystemPrompt
-from browser_use.agent.views import ActionResult, AgentOutput, AgentStepInfo
+from browser_use.agent.views import ActionResult, AgentStepInfo
 from browser_use.browser.views import BrowserState
 
 logger = logging.getLogger(__name__)
@@ -132,12 +132,12 @@ class MessageManager:
 		):
 			self.history.remove_message()
 
-	def add_model_output(self, model_output: AgentOutput) -> None:
+	def add_model_output(self, model_output: dict) -> None:
 		"""Add model output as AI message"""
 		tool_calls = [
 			{
 				'name': 'AgentOutput',
-				'args': model_output.model_dump(mode='json', exclude_unset=True),
+				'args': model_output,
 				'id': '',
 				'type': 'tool_call',
 			}
