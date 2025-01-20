@@ -199,7 +199,12 @@ class AgentHistoryList(BaseModel):
 
 	def action_names(self) -> list[str]:
 		"""Get all action names from history"""
-		return [list(action.keys())[0] for action in self.model_actions()]
+		action_names = []
+		for action in self.model_actions():
+			actions = list(action.keys())
+			if actions:
+				action_names.append(actions[0])
+		return action_names
 
 	def model_thoughts(self) -> list[AgentBrain]:
 		"""Get all thoughts from history"""

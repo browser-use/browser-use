@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -121,6 +122,8 @@ def setup_logging():
 		'openai',
 		'httpcore',
 		'charset_normalizer',
+		'anthropic._base_client',
+		'PIL.PngImagePlugin',
 	]:
 		third_party = logging.getLogger(logger)
 		third_party.setLevel(logging.ERROR)

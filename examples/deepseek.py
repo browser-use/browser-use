@@ -28,7 +28,6 @@ async def run_search():
 			model='deepseek-chat',
 			api_key=SecretStr(api_key),
 		),
-		tool_call_in_content=True,
 		use_vision=False,
 	)
 

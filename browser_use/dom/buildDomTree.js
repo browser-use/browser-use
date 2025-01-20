@@ -1,7 +1,11 @@
 (
-    doHighlightElements = true
+    args = { doHighlightElements: true, focusHighlightIndex: -1 }
 ) => {
+    const { doHighlightElements, focusHighlightIndex } = args;
     let highlightIndex = 0; // Reset highlight index
+
+    // Quick check to confirm the script receives focusHighlightIndex
+    console.log('focusHighlightIndex:', focusHighlightIndex);
 
     function highlightElement(element, index, parentIframe = null) {
         // Create or get highlight container
@@ -21,7 +25,7 @@
 
         // Generate a color based on the index
         const colors = [
-            '#FF0000', '#00FF00', '#0000FF', '#FFA500', 
+            '#FF0000', '#00FF00', '#0000FF', '#FFA500',
             '#800080', '#008080', '#FF69B4', '#4B0082',
             '#FF4500', '#2E8B57', '#DC143C', '#4682B4'
         ];
@@ -68,7 +72,7 @@
         // Calculate label position
         const labelWidth = 20; // Approximate width
         const labelHeight = 16; // Approximate height
-        
+
         // Default position (top-right corner inside the box)
         let labelTop = top + 2;
         let labelLeft = left + rect.width - labelWidth - 2;
@@ -151,7 +155,7 @@
             'slider', 'tab', 'tabpanel', 'textbox', 'combobox', 'grid',
             'listbox', 'option', 'progressbar', 'scrollbar', 'searchbox',
             'switch', 'tree', 'treeitem', 'spinbutton', 'tooltip', 'a-button-inner', 'a-dropdown-button', 'click',
-            'menuitemcheckbox', 'menuitemradio', 'a-button-text', 'button-text', 'button-icon', 'button-icon-only', 'button-text-icon-only', 'dropdown', 'combobox' 
+            'menuitemcheckbox', 'menuitemradio', 'a-button-text', 'button-text', 'button-icon', 'button-icon-only', 'button-text-icon-only', 'dropdown', 'combobox'
         ]);
 
         const tagName = element.tagName.toLowerCase();
@@ -377,7 +381,13 @@
             if (isInteractive && isVisible && isTop) {
                 nodeData.highlightIndex = highlightIndex++;
                 if (doHighlightElements) {
-                    highlightElement(node, nodeData.highlightIndex, parentIframe);
+                    if(focusHighlightIndex >= 0){
+                        if(focusHighlightIndex === nodeData.highlightIndex){
+                            highlightElement(node, nodeData.highlightIndex, parentIframe);
+                        }
+                    } else {
+                        highlightElement(node, nodeData.highlightIndex, parentIframe);
+                    }
                 }
             }
         }

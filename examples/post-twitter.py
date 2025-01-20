@@ -77,8 +77,8 @@ def create_twitter_agent(config: TwitterConfig) -> Agent:
 
     # Create the agent with detailed instructions
     return Agent(
-        task=f"""Navigate to Twitter and create a post and reply to a tweet. 
-        
+        task=f"""Navigate to Twitter and create a post and reply to a tweet.
+
         Here are the specific steps:
 
         1. Go to {config.base_url}. See the text input field at the top of the page that says "What's happening?"
@@ -87,11 +87,11 @@ def create_twitter_agent(config: TwitterConfig) -> Agent:
         "{full_message}"
         4. Find and click the "Post" button (look for attributes: 'button' and 'data-testid="tweetButton"')
         5. Do not click on the '+' button which will add another tweet.
-        
+
         6. Navigate to {config.reply_url}
         7. Before replying, understand the context of the tweet by scrolling down and reading the comments.
         8. Reply to the tweet under 50 characters.
-        
+
         Important:
         - Wait for each element to load before interacting
         - Make sure the message is typed exactly as shown
@@ -114,7 +114,7 @@ async def post_tweet(agent: Agent):
         print(f"Error posting tweet: {str(e)}")
 
 
-def main():    
+def main():
     agent = create_twitter_agent(config)
     asyncio.run(post_tweet(agent))
 

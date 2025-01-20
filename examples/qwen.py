@@ -21,7 +21,6 @@ async def run_search():
 			num_ctx=128000,
 		),
 		max_actions_per_step=1,
-		tool_call_in_content=False,
 	)
 
 	await agent.run()

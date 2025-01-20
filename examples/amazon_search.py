@@ -23,8 +23,8 @@ agent = Agent(
 
 
 async def main():
-	await agent.run(max_steps=3)
-	agent.create_history_gif()
+	await agent.run(max_steps=10)
+	input('Press Enter to continue...')
 
 
 asyncio.run(main())

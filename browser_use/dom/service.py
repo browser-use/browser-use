@@ -21,17 +21,22 @@ class DomService:
 		self.xpath_cache = {}
 
 	# region - Clickable elements
-	async def get_clickable_elements(self, highlight_elements: bool = True) -> DOMState:
-		element_tree = await self._build_dom_tree(highlight_elements)
+	async def get_clickable_elements(self, highlight_elements: bool = True, focus_element: int = -1) -> DOMState:
+		element_tree = await self._build_dom_tree(highlight_elements, focus_element)
 		selector_map = self._create_selector_map(element_tree)
 
 		return DOMState(element_tree=element_tree, selector_map=selector_map)
 
-	async def _build_dom_tree(self, highlight_elements: bool) -> DOMElementNode:
+	async def _build_dom_tree(self, highlight_elements: bool, focus_element: int) -> DOMElementNode:
 		js_code = resources.read_text('browser_use.dom', 'buildDomTree.js')
 
+		args = {
+			"doHighlightElements": highlight_elements,
+			"focusHighlightIndex": focus_element,
+		}
+
 		eval_page = await self.page.evaluate(
-			js_code, [highlight_elements]
+			js_code, args
 		)  # This is quite big, so be careful
 		html_to_dict = self._parse_node(eval_page)
 

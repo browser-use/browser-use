@@ -17,7 +17,7 @@ class MySystemPrompt(SystemPrompt):
 		new_rules = 'REMEMBER the most important RULE: ALWAYS open first a new tab and go first to url wikipedia.com no matter the task!!!'
 		return f'{existing_rules}\n{new_rules}'
 
-		# other methods can be overriden as well (not recommended)
+		# other methods can be overridden as well (not recommended)
 
 
 async def main():

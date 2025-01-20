@@ -17,12 +17,6 @@ logger = logging.getLogger(__name__)
 
 POSTHOG_EVENT_SETTINGS = {
 	'process_person_profile': True,
-	'geoip_city_name': None,
-	'geoip_country_name': None,
-	'geoip_country_code': None,
-	'geoip_continent_name': None,
-	'geoip_continent_code': None,
-	'geoip_time_zone': None,
 }
 
 
@@ -49,7 +43,7 @@ class ProductTelemetry:
 			self._posthog_client = None
 		else:
 			logging.info(
-				'Anonymized telemetry enabled. See https://github.com/gregpr07/browser-use for more information.'
+				'Anonymized telemetry enabled. See https://github.com/browser-use/browser-use for more information.'
 			)
 			self._posthog_client = Posthog(
 				project_api_key=self.PROJECT_API_KEY,

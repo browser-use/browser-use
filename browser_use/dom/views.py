@@ -78,10 +78,13 @@ class DOMElementNode(DOMBaseNode):
 
 		return HistoryTreeProcessor._hash_dom_element(self)
 
-	def get_all_text_till_next_clickable_element(self) -> str:
+	def get_all_text_till_next_clickable_element(self, max_depth: int = -1) -> str:
 		text_parts = []
 
-		def collect_text(node: DOMBaseNode) -> None:
+		def collect_text(node: DOMBaseNode, current_depth: int) -> None:
+			if max_depth != -1 and current_depth > max_depth:
+				return
+
 			# Skip this branch if we hit a highlighted element (except for the current node)
 			if (
 				isinstance(node, DOMElementNode)
@@ -94,9 +97,9 @@ class DOMElementNode(DOMBaseNode):
 				text_parts.append(node.text)
 			elif isinstance(node, DOMElementNode):
 				for child in node.children:
-					collect_text(child)
+					collect_text(child, current_depth + 1)
 
-		collect_text(self)
+		collect_text(self, 0)
 		return '\n'.join(text_parts).strip()
 
 	def clickable_elements_to_string(self, include_attributes: list[str] = []) -> str:

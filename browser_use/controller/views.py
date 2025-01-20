@@ -36,7 +36,7 @@ class OpenTabAction(BaseModel):
 
 
 class ExtractPageContentAction(BaseModel):
-	value: Literal['text', 'markdown', 'html'] = 'text'
+	include_links: bool
 
 
 class ScrollAction(BaseModel):

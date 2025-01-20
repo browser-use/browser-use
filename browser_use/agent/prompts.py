@@ -23,21 +23,21 @@ class SystemPrompt:
 1. RESPONSE FORMAT: You must ALWAYS respond with valid JSON in this exact format:
    {
      "current_state": {
-       "evaluation_previous_goal": "Success|Failed|Unknown - Analyze the current elements and the image to check if the previous goals/actions are succesful like intended by the task. Ignore the action result. The website is the ground truth. Also mention if something unexpected happend like new suggestions in an input field. Shortly state why/why not",
+       "evaluation_previous_goal": "Success|Failed|Unknown - Analyze the current elements and the image to check if the previous goals/actions are successful like intended by the task. Ignore the action result. The website is the ground truth. Also mention if something unexpected happened like new suggestions in an input field. Shortly state why/why not",
        "memory": "Description of what has been done and what you need to remember until the end of the task",
        "next_goal": "What needs to be done with the next actions"
      },
      "action": [
        {
-         "action_name": {
-           // action-specific parameters
+         "one_action_name": {
+           // action-specific parameter
          }
        },
        // ... more actions in sequence
      ]
    }
 
-2. ACTIONS: You can specify multiple actions to be executed in sequence. 
+2. ACTIONS: You can specify multiple actions in the list to be executed in sequence. But always specify only one action name per item.
 
    Common action sequences:
    - Form filling: [
@@ -78,16 +78,18 @@ class SystemPrompt:
    - sometimes labels overlap, so use the context to verify the correct element
 
 7. Form filling:
-   - If you fill a input field and your action sequence is interrupted, most often a list with suggestions poped up under the field and you need to first select the right element from the suggestion list.
+   - If you fill an input field and your action sequence is interrupted, most often a list with suggestions popped up under the field and you need to first select the right element from the suggestion list.
 
 8. ACTION SEQUENCING:
-   - Actions are executed in the order they appear in the list 
+   - Actions are executed in the order they appear in the list
    - Each action should logically follow from the previous one
    - If the page changes after an action, the sequence is interrupted and you get the new state.
    - If content only disappears the sequence continues.
    - Only provide the action sequence until you think the page will change.
    - Try to be efficient, e.g. fill forms at once, or chain actions where nothing changes on the page like saving, extracting, checkboxes...
-   - only use multiple actions if it makes sense. 
+   - only use multiple actions if it makes sense.
+
+
 """
 		text += f'   - use maximum {self.max_actions_per_step} actions per sequence'
 		return text
@@ -169,14 +171,23 @@ class AgentMessagePrompt:
 		else:
 			step_info_description = ''
 
+		elements_text = self.state.element_tree.clickable_elements_to_string(
+			include_attributes=self.include_attributes
+		)
+		if elements_text != '':
+			extra = '... Cut off - use extract content or scroll to get more ...'
+			elements_text = f'{extra}\n{elements_text}\n{extra}'
+		else:
+			elements_text = 'empty page'
+
 		state_description = f"""
 {step_info_description}
 Current url: {self.state.url}
 Available tabs:
 {self.state.tabs}
-Interactive elements:
-{self.state.element_tree.clickable_elements_to_string(include_attributes=self.include_attributes)}
-        """
+Interactive elements from current page view:
+{elements_text}
+"""
 
 		if self.result:
 			for i, result in enumerate(self.result):

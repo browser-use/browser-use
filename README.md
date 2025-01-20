@@ -9,9 +9,10 @@
 [![GitHub stars](https://img.shields.io/github/stars/gregpr07/browser-use?style=social)](https://github.com/gregpr07/browser-use/stargazers)
 [![Discord](https://img.shields.io/discord/1303749220842340412?color=7289DA&label=Discord&logo=discord&logoColor=white)](https://link.browser-use.com/discord)
 [![Documentation](https://img.shields.io/badge/Documentation-📕-blue)](https://docs.browser-use.com)
-[![Twitter Follow](https://img.shields.io/twitter/follow/gregpr07?style=social)](https://x.com/gregpr07)
+[![Twitter Follow](https://img.shields.io/twitter/follow/Gregor?style=social)](https://x.com/gregpr07)
+[![Twitter Follow](https://img.shields.io/twitter/follow/Magnus?style=social)](https://x.com/mamagnus00)
 
-Make websites accessible for AI agents 🤖.
+Enable AI to control your browser 🤖.
 
 Browser use is the easiest way to connect your AI agents with the browser. If you have used Browser Use for your project feel free to show it off in our [Discord](https://link.browser-use.com/discord).
 
@@ -25,7 +26,7 @@ With pip:
 pip install browser-use
 ```
 
-(optional) install playwright:
+install playwright:
 
 ```bash
 playwright install
@@ -40,7 +41,7 @@ import asyncio
 
 async def main():
     agent = Agent(
-        task="Find a one-way flight from Bali to Oman on 12 January 2025 on Google Flights. Return me the cheapest option.",
+        task="Go to Reddit, search for 'browser-use' in the search bar, click on the first post and return the first comment.",
         llm=ChatOpenAI(model="gpt-4o"),
     )
     result = await agent.run()
@@ -98,6 +99,10 @@ https://github.com/user-attachments/assets/de73ee39-432c-4b97-b4e8-939fd7f323b3
 ## More examples
 
 For more examples see the [examples](examples) folder or join the [Discord](https://link.browser-use.com/discord) and show off your project.
+
+# Vision
+
+Tell your computer what to do, and it gets it done.
 
 # Contributing
 

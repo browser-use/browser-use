@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 
 from main_content_extractor import MainContentExtractor
@@ -94,7 +95,8 @@ class Controller:
 
 			try:
 				await browser._click_element_node(element_node)
-				msg = f'🖱️  Clicked index {params.index}'
+				msg = f'🖱️  Clicked button with index {params.index}: {element_node.get_all_text_till_next_clickable_element(max_depth=2)}'
+
 				logger.info(msg)
 				logger.debug(f'Element xpath: {element_node.xpath}')
 				if len(session.context.pages) > initial_pages:
@@ -152,18 +154,18 @@ class Controller:
 
 		# Content Actions
 		@self.registry.action(
-			'Extract page content to get the text or markdown ',
+			'Extract page content to get the pure text or markdown with links if include_links is set to true',
 			param_model=ExtractPageContentAction,
 			requires_browser=True,
 		)
 		async def extract_content(params: ExtractPageContentAction, browser: BrowserContext):
 			page = await browser.get_current_page()
-
+			output_format = 'markdown' if params.include_links else 'text'
 			content = MainContentExtractor.extract(  # type: ignore
 				html=await page.content(),
-				output_format=params.value,
+				output_format=output_format,
 			)
-			msg = f'📄  Extracted page content\n: {content}\n'
+			msg = f'📄  Extracted page as {output_format}\n: {content}\n'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg)
 
@@ -285,10 +287,10 @@ class Controller:
 								const select = document.evaluate(xpath, document, null,
 									XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
 								if (!select) return null;
-								
+
 								return {
 									options: Array.from(select.options).map(opt => ({
-										text: opt.text.trim(),
+										text: opt.text, //do not trim, because we are doing exact match in select_dropdown_option
 										value: opt.value,
 										index: opt.index
 									})),
@@ -302,13 +304,13 @@ class Controller:
 
 						if options:
 							logger.debug(f'Found dropdown in frame {frame_index}')
-							logger.debug(f"Dropdown ID: {options['id']}, Name: {options['name']}")
+							logger.debug(f'Dropdown ID: {options["id"]}, Name: {options["name"]}')
 
 							formatted_options = []
 							for opt in options['options']:
-								formatted_options.append(
-									f"{opt['index']}: {opt['text']} (value={opt['value']})"
-								)
+								# encoding ensures AI uses the exact string in select_dropdown_option
+								encoded_text = json.dumps(opt['text'])
+								formatted_options.append(f'{opt["index"]}: text={encoded_text}')
 
 							all_options.extend(formatted_options)
 
@@ -319,6 +321,7 @@ class Controller:
 
 				if all_options:
 					msg = '\n'.join(all_options)
+					msg += '\nUse the exact text string in select_dropdown_option'
 					logger.info(msg)
 					return ActionResult(extracted_content=msg, include_in_memory=True)
 				else:
@@ -357,6 +360,8 @@ class Controller:
 			logger.debug(f"Attempting to select '{text}' using xpath: {dom_element.xpath}")
 			logger.debug(f'Element attributes: {dom_element.attributes}')
 			logger.debug(f'Element tag: {dom_element.tag_name}')
+
+			xpath = '//' + dom_element.xpath
 
 			try:
 				frame_index = 0
@@ -397,61 +402,25 @@ class Controller:
 						if dropdown_info:
 							if not dropdown_info.get('found'):
 								logger.error(
-									f"Frame {frame_index} error: {dropdown_info.get('error')}"
+									f'Frame {frame_index} error: {dropdown_info.get("error")}'
 								)
 								continue
 
 							logger.debug(f'Found dropdown in frame {frame_index}: {dropdown_info}')
 
-							# Rest of the selection code remains the same...
-							select_option_js = """
-								(params) => {
-									try {
-										const select = document.evaluate(params.xpath, document, null,
-											XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-										if (!select || select.tagName.toLowerCase() !== 'select') {
-											return {success: false, error: 'Select not found or invalid element type'};
-										}
-										
-										const option = Array.from(select.options)
-											.find(opt => opt.text.trim() === params.text);
-										
-										if (!option) {
-											return {
-												success: false, 
-												error: 'Option not found',
-												availableOptions: Array.from(select.options).map(o => o.text.trim())
-											};
-										}
-										
-										select.value = option.value;
-										select.dispatchEvent(new Event('change'));
-										return {
-											success: true, 
-											selectedValue: option.value,
-											selectedText: option.text.trim()
-										};
-									} catch (e) {
-										return {success: false, error: e.toString()};
-									}
-								}
-							"""
+							# "label" because we are selecting by text
+							# nth(0) to disable error thrown by strict mode
+							# timeout=1000 because we are already waiting for all network events, therefore ideally we don't need to wait a lot here (default 30s)
+							selected_option_values = (
+								await frame.locator('//' + dom_element.xpath)
+								.nth(0)
+								.select_option(label=text, timeout=1000)
+							)
 
-							params = {'xpath': dom_element.xpath, 'text': text}
+							msg = f'selected option {text} with value {selected_option_values}'
+							logger.info(msg + f' in frame {frame_index}')
 
-							result = await frame.evaluate(select_option_js, params)
-							logger.debug(f'Selection result: {result}')
-
-							if result.get('success'):
-								msg = (
-									f"Selected option '{text}' (value={result.get('selectedValue')}"
-								)
-								logger.info(msg + f' in frame {frame_index}')
-								return ActionResult(extracted_content=msg, include_in_memory=True)
-							else:
-								logger.error(f"Selection failed: {result.get('error')}")
-								if 'availableOptions' in result:
-									logger.error(f"Available options: {result['availableOptions']}")
+							return ActionResult(extracted_content=msg, include_in_memory=True)
 
 					except Exception as frame_e:
 						logger.error(f'Frame {frame_index} attempt failed: {str(frame_e)}')
@@ -496,7 +465,7 @@ class Controller:
 				)
 				if not new_path_hashes.issubset(cached_path_hashes):
 					# next action requires index but there are new elements on the page
-					logger.info(f'Something new appeared after action {i } / {len(actions)}')
+					logger.info(f'Something new appeared after action {i} / {len(actions)}')
 					break
 
 			results.append(await self.act(action, browser_context))

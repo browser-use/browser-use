@@ -22,7 +22,6 @@ async def run_search():
 		),
 		llm=llm,
 		max_actions_per_step=4,
-		tool_call_in_content=False,
 	)
 
 	await agent.run(max_steps=25)

@@ -56,7 +56,6 @@ async def test_qwen_url(llm, context):
 	agent = Agent(
 		task='go_to_url amazon.com',
 		llm=llm,
-		tool_call_in_content=False,
 	)
 
 	history: AgentHistoryList = await agent.run(max_steps=3)
