@@ -256,81 +256,93 @@
 
     // Helper function to check if element is the top element at its position
     function isTopElement(element) {
-        // Find the correct document context and root element
-        let doc = element.ownerDocument;
+    // Special case for Monaco editor textarea
+    if (element.tagName.toLowerCase() === 'textarea' &&
+        (element.classList.contains('inputarea') ||
+         element.classList.contains('monaco-mouse-cursor-text'))) {
+        return true;
+    }
 
-        // If we're in an iframe, elements are considered top by default
-        if (doc !== window.document) {
-            return true;
-        }
+    // Find the correct document context and root element
+    let doc = element.ownerDocument;
 
-        // For shadow DOM, we need to check within its own root context
-        const shadowRoot = element.getRootNode();
-        if (shadowRoot instanceof ShadowRoot) {
-            const rect = element.getBoundingClientRect();
-            const point = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    // If we're in an iframe, elements are considered top by default
+    if (doc !== window.document) {
+        return true;
+    }
 
-            try {
-                // Use shadow root's elementFromPoint to check within shadow DOM context
-                const topEl = shadowRoot.elementFromPoint(point.x, point.y);
-                if (!topEl) return false;
-
-                // Check if the element or any of its parents match our target element
-                let current = topEl;
-                while (current && current !== shadowRoot) {
-                    if (current === element) return true;
-                    current = current.parentElement;
-                }
-                return false;
-            } catch (e) {
-                return true; // If we can't determine, consider it visible
-            }
-        }
-
-        // Regular DOM elements
+    // For shadow DOM, we need to check within its own root context
+    const shadowRoot = element.getRootNode();
+    if (shadowRoot instanceof ShadowRoot) {
         const rect = element.getBoundingClientRect();
+        const point = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
 
-        // If viewportExpansion is -1, check if element is the top one at its position
-        if (viewportExpansion === -1) {
-            return true; // Consider all elements as top elements when expansion is -1
-        }
-
-        // Calculate expanded viewport boundaries including scroll position
-        const scrollX = window.scrollX;
-        const scrollY = window.scrollY;
-        const viewportTop = -viewportExpansion + scrollY;
-        const viewportLeft = -viewportExpansion + scrollX;
-        const viewportBottom = window.innerHeight + viewportExpansion + scrollY;
-        const viewportRight = window.innerWidth + viewportExpansion + scrollX;
-
-        // Get absolute element position
-        const absTop = rect.top + scrollY;
-        const absLeft = rect.left + scrollX;
-        const absBottom = rect.bottom + scrollY;
-        const absRight = rect.right + scrollX;
-
-        // Skip if element is completely outside expanded viewport
-        if (absBottom < viewportTop || 
-            absTop > viewportBottom || 
-            absRight < viewportLeft || 
-            absLeft > viewportRight) {
-            return false;
-        }
-
-        // For elements within expanded viewport, check if they're the top element
         try {
-            const centerX = rect.left + rect.width / 2;
-            const centerY = rect.top + rect.height / 2;
-            
-            // Only clamp the point if it's outside the actual document
-            const point = {
-                x: centerX,
-                y: centerY
-            };
-            
-            if (point.x < 0 || point.x >= window.innerWidth || 
+            // Use shadow root's elementFromPoint to check within shadow DOM context
+            const topEl = shadowRoot.elementFromPoint(point.x, point.y);
+            if (!topEl) return false;
+
+            // Check if the element or any of its parents match our target element
+            let current = topEl;
+            while (current && current !== shadowRoot) {
+                if (current === element) return true;
+                current = current.parentElement;
+            }
+            return false;
+        } catch (e) {
+            return true; // If we can't determine, consider it visible
+        }
+    }
+
+    // Check if element is absolutely positioned or has special z-index
+    const style = window.getComputedStyle(element);
+    if (style.position === 'absolute' || parseInt(style.zIndex, 10) > 0) {
+        return true;
+    }
+
+    const rect = element.getBoundingClientRect();
+
+    // If viewportExpansion is -1, check if element is the top one at its position
+    if (viewportExpansion === -1) {
+        return true; // Consider all elements as top elements when expansion is -1
+    }
+
+    // Calculate expanded viewport boundaries including scroll position
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+    const viewportTop = -viewportExpansion + scrollY;
+    const viewportLeft = -viewportExpansion + scrollX;
+    const viewportBottom = window.innerHeight + viewportExpansion + scrollY;
+    const viewportRight = window.innerWidth + viewportExpansion + scrollX;
+
+    // Get absolute element position
+    const absTop = rect.top + scrollY;
+    const absLeft = rect.left + scrollX;
+    const absBottom = rect.bottom + scrollY;
+    const absRight = rect.right + scrollX;
+
+    // Skip if element is completely outside expanded viewport
+    if (absBottom < viewportTop ||
+        absTop > viewportBottom ||
+        absRight < viewportLeft ||
+        absLeft > viewportRight) {
+        return false;
+    }
+
+    // For elements within expanded viewport, check multiple points
+    try {
+        // Check multiple points in case one point is covered
+        const points = [
+            { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, // Center
+            { x: rect.left + 5, y: rect.top + 5 },                           // Top-left
+            { x: rect.right - 5, y: rect.bottom - 5 }                        // Bottom-right
+        ];
+
+        // Element is considered top if any of the points return this element
+        return points.some(point => {
+            if (point.x < 0 || point.x >= window.innerWidth ||
                 point.y < 0 || point.y >= window.innerHeight) {
-                return true; // Consider elements with center outside viewport as visible
+                return true; // Consider elements with point outside viewport as visible
             }
 
             const topEl = document.elementFromPoint(point.x, point.y);
@@ -342,10 +354,11 @@
                 current = current.parentElement;
             }
             return false;
-        } catch (e) {
-            return true;
-        }
+        });
+    } catch (e) {
+        return true;
     }
+}
 
     // Helper function to check if text node is visible
     function isTextNodeVisible(textNode) {
