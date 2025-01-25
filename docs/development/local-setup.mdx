@@ -1,0 +1,76 @@
+---
+title: "Local Setup"
+description: "Set up Browser Use development environment locally"
+icon: "laptop-code"
+---
+
+## Prerequisites
+
+Browser Use requires Python 3.11 or higher. We recommend using [uv](https://docs.astral.sh/uv/) for Python environment management.
+
+## Clone the Repository
+
+First, clone the Browser Use repository:
+
+```bash
+git clone https://github.com/browser-use/browser-use
+cd browser-use
+```
+
+## Environment Setup
+
+1. Create a virtual environment:
+
+```bash
+uv venv --python 3.11
+```
+
+2. Install dependencies:
+
+```bash
+# Install all dependencies including dev packages
+uv pip install . ."[dev]"
+```
+
+## Configuration
+
+Set up your environment variables:
+
+```bash
+# Copy the example environment file
+cp .env.example .env
+```
+
+Or manually create a `.env` file with your API keys:
+
+```bash .env
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+```
+
+<Note>
+  You can use any LLM model supported by LangChain. See [LangChain
+  Models](/customize/langchain-models) for available options and their specific
+  API key requirements.
+</Note>
+
+## Development
+
+After setup, you can:
+
+- Run tests with `pytest`
+- Build the package with `hatch build`
+- Try the examples in the `examples/` directory
+
+## Getting Help
+
+If you run into any issues:
+
+1. Check our [GitHub Issues](https://github.com/browser-use/browser-use/issues)
+2. Join our [Discord community](https://link.browser-use.com/discord) for support
+
+<Note>
+  We welcome contributions! See our [Contribution
+  Guide](/development/contribution-guide) for guidelines on how to help improve
+  Browser Use.
+</Note>

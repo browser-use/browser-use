@@ -107,7 +107,8 @@ For more examples see the [examples](examples) folder or join the [Discord](http
 Tell your computer what to do, and it gets it done.
 
 ## Roadmap
-- [ ] Improve memory management 
+
+- [ ] Improve memory management
 - [ ] Enhance planning capabilities
 - [ ] Improve self-correction
 - [ ] Fine-tune the model for better performance
@@ -128,20 +129,20 @@ Tell your computer what to do, and it gets it done.
 - [ ] Improve the generated GIF quality
 - [ ] Create various demos for tutorial execution, job application, QA testing, social media, etc.
 
-
 ## Contributing
 
-We love contributions! Feel free to open issues for bugs or feature requests.
+We love contributions! Feel free to open issues for bugs or feature requests. To contribute to the docs, check out the `/docs` folder.
 
 ## Local Setup
 
 To learn more about the library, check out the [local setup 📕](https://docs.browser-use.com/development/local-setup).
 
 ## Cooperations
-We are forming a commission to define best practices for UI/UX design for browser agents. 
-Together, we're exploring how software redesign improves the performance of AI agents and gives these companies a competitive advantage by designing their existing software to be at the forefront of the agent age. 
 
-Email [Toby](mailto:tbiddle@loop11.com?subject=I%20want%20to%20join%20the%20UI/UX%20commission%20for%20AI%20agents&body=Hi%20Toby%2C%0A%0AI%20found%20you%20in%20the%20browser-use%20GitHub%20README.%0A%0A) to apply for a seat on the committee. 
+We are forming a commission to define best practices for UI/UX design for browser agents.
+Together, we're exploring how software redesign improves the performance of AI agents and gives these companies a competitive advantage by designing their existing software to be at the forefront of the agent age.
+
+Email [Toby](mailto:tbiddle@loop11.com?subject=I%20want%20to%20join%20the%20UI/UX%20commission%20for%20AI%20agents&body=Hi%20Toby%2C%0A%0AI%20found%20you%20in%20the%20browser-use%20GitHub%20README.%0A%0A) to apply for a seat on the committee.
 
 ## Citation
 
