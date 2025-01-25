@@ -62,6 +62,7 @@ class Agent:
 		self,
 		task: str,
 		llm: BaseChatModel,
+		file_path = None,
 		browser: Browser | None = None,
 		browser_context: BrowserContext | None = None,
 		controller: Controller = Controller(),
@@ -107,6 +108,7 @@ class Agent:
 		self.include_attributes = include_attributes
 		self.max_error_length = max_error_length
 		self.generate_gif = generate_gif
+		self.file_path=file_path
 
 		# Controller setup
 		self.controller = controller
@@ -154,6 +156,7 @@ class Agent:
 			max_error_length=self.max_error_length,
 			max_actions_per_step=self.max_actions_per_step,
 			message_context=self.message_context,
+			file_path=file_path,
 		)
 
 		# Step callback
@@ -173,6 +176,14 @@ class Agent:
 
 		self._paused = False
 		self._stopped = False
+
+	async def retrieve_context(self, query):
+		"""
+        Retrieve relevant context from the file for RAG.
+        """
+		if self.file_path:
+			return self.message_manager.retrieve_context_from_file(query)
+		return []
 
 	def _set_version_and_source(self) -> None:
 		try:
@@ -228,6 +239,8 @@ class Agent:
 		model_output = None
 		result: list[ActionResult] = []
 
+		query = self.task
+
 		try:
 			state = await self.browser_context.get_state(use_vision=self.use_vision)
 
@@ -235,7 +248,7 @@ class Agent:
 				logger.debug('Agent paused after getting state')
 				raise InterruptedError
 
-			self.message_manager.add_state_message(state, self._last_result, step_info)
+			self.message_manager.add_state_message(state, self._last_result, step_info, query)
 			input_messages = self.message_manager.get_messages()
 
 			try:

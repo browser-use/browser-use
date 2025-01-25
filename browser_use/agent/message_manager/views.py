@@ -25,6 +25,13 @@ class MessageHistory(BaseModel):
 	messages: List[ManagedMessage] = Field(default_factory=list)
 	total_tokens: int = 0
 
+	def add_retrieved_context(self, context: List[str]) -> None:
+		"""
+        Add retrieved context as a separate message.
+        """
+		for ctx in context:
+			self.add_message(HumanMessage(content=f"Retrieved Context: {ctx}"), MessageMetadata(input_tokens=len(ctx)))
+
 	def add_message(self, message: BaseMessage, metadata: MessageMetadata) -> None:
 		"""Add a message with metadata"""
 		self.messages.append(ManagedMessage(message=message, metadata=metadata))

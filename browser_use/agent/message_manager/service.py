@@ -5,6 +5,9 @@ import json
 from datetime import datetime
 from typing import List, Optional, Type
 
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.document_loaders import TextLoader
+
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
@@ -14,6 +17,7 @@ from langchain_core.messages import (
 	ToolMessage,
 )
 from langchain_openai import ChatOpenAI
+from langchain_community.vectorstores import FAISS
 
 from browser_use.agent.message_manager.views import MessageHistory, MessageMetadata
 from browser_use.agent.prompts import AgentMessagePrompt, SystemPrompt
@@ -37,6 +41,8 @@ class MessageManager:
 		max_error_length: int = 400,
 		max_actions_per_step: int = 10,
 		message_context: Optional[str] = None,
+		retriever: Optional[FAISS] = None,
+		file_path: Optional[str] = None,
 	):
 		self.llm = llm
 		self.system_prompt_class = system_prompt_class
@@ -49,6 +55,9 @@ class MessageManager:
 		self.include_attributes = include_attributes
 		self.max_error_length = max_error_length
 		self.message_context = message_context
+		self.retriever = retriever
+		if file_path:
+			self.retriever = self._initialize_file_retriever(file_path)
 
 		system_message = self.system_prompt_class(
 			self.action_descriptions,
@@ -94,6 +103,29 @@ class MessageManager:
 		self._add_message_with_tokens(tool_message)
 		self.tool_id += 1
 
+	def _initialize_file_retriever(self, file_path: str) -> FAISS:
+		"""
+        Load the file and set up a retriever.
+        """
+        # Load the file content
+		loader = TextLoader(file_path)
+		documents = loader.load()
+
+        # Create embeddings and a retriever
+		embedding_model = OpenAIEmbeddings()
+		retriever = FAISS.from_documents(documents, embedding_model)
+
+		return retriever
+	
+	def retrieve_context_from_file(self, query: str) -> List[str]:
+		"""
+        Retrieve context from the indexed file.
+        """
+		if not self.retriever:
+			return []
+		results = self.retriever.similarity_search(query, k=5)
+		return [doc.page_content for doc in results]
+
 	@staticmethod
 	def task_instructions(task: str) -> HumanMessage:
 		content = f'Your ultimate task is: {task}. If you achieved your ultimate task, stop everything and use the done action in the next step to complete the task. If not, continue as usual.'
@@ -104,8 +136,9 @@ class MessageManager:
 		state: BrowserState,
 		result: Optional[List[ActionResult]] = None,
 		step_info: Optional[AgentStepInfo] = None,
+		query: Optional[str] = None,
 	) -> None:
-		"""Add browser state as human message"""
+		"""Add browser state along with retrieved context as a human message."""
 
 		# if keep in memory, add to directly to history and add state without result
 		if result:
@@ -118,6 +151,12 @@ class MessageManager:
 						msg = HumanMessage(content='Action error: ' + str(r.error)[-self.max_error_length :])
 						self._add_message_with_tokens(msg)
 					result = None  # if result in history, we dont want to add it again
+
+		# Retrieve additional context from the file
+		if query and self.retriever:
+			retrieved_context = self.retrieve_context_from_file(query)
+			context = "\n".join([f"- {item}" for item in retrieved_context])
+			self.system_prompt.content += f"\n\nRetrieved Context from File:\n{context}"
 
 		# otherwise add state message and result to next message (which will not stay in memory)
 		state_message = AgentMessagePrompt(
@@ -158,6 +197,17 @@ class MessageManager:
 		)
 		self._add_message_with_tokens(tool_message)
 		self.tool_id += 1
+
+	def retrieve_context(self, query: str) -> List[str]:
+		return self.retriever.similarity_search(query, k=5) if self.retriever else []
+	
+	def add_retrieval_to_prompt(self, retrieval_results: List[str]):
+		"""
+        Add retrieved context to the system prompt.
+        """
+		context = "\n".join([f"- {result}" for result in retrieval_results])
+		self.system_prompt.content += f"\n\nRetrieved Context:\n{context}"
+		self._add_message_with_tokens(self.system_prompt)
 
 	def get_messages(self) -> List[BaseMessage]:
 		"""Get current message list, potentially trimmed to max tokens"""
