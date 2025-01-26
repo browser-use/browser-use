@@ -12,6 +12,7 @@ from browser_use.controller.registry.service import Registry
 from browser_use.controller.registry.views import ActionModel
 from browser_use.controller.service import Controller
 from langchain_core.language_models.chat_models import BaseChatModel
+from playwright.async_api import Page
 from pydantic import BaseModel
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -215,3 +216,42 @@ class TestRegistry:
         # Verify that the action functions were called with correct parameters
         registry.registry.actions['test_action_with_browser'].function.assert_called_once_with(param1='test_value', browser=mock_browser)
         registry.registry.actions['test_action_without_browser'].function.assert_called_once_with(param1='test_value')
+
+class TestController:
+    @pytest.mark.asyncio
+    async def test_scroll_to_text_success(self):
+        """
+        Test the scroll_to_text action when the text is successfully found and scrolled to.
+        This test ensures that:
+        1. The correct locator strategies are attempted.
+        2. The first visible element is scrolled into view.
+        3. The action returns a successful ActionResult.
+        """
+        # Arrange
+        controller = Controller()
+        mock_browser = AsyncMock(spec=BrowserContext)
+        mock_page = AsyncMock(spec=Page)
+        mock_browser.get_current_page.return_value = mock_page
+
+        # Mock locator and element
+        mock_locator = AsyncMock()
+        mock_element = AsyncMock()
+        mock_locator.first = mock_element
+        mock_locator.count.return_value = 1
+        mock_element.is_visible.return_value = True
+
+        # Set up page.get_by_text to return our mock locator
+        mock_page.get_by_text.return_value = mock_locator
+
+        # Act
+        result = await controller.registry.registry.actions['scroll_to_text'].function("test text", mock_browser)
+
+        # Assert
+        mock_page.get_by_text.assert_called_once_with("test text", exact=False)
+        mock_locator.count.assert_called_once()
+        mock_element.is_visible.assert_called_once()
+        mock_element.scroll_into_view_if_needed.assert_called_once()
+
+        assert isinstance(result, ActionResult)
+        assert "Scrolled to text: test text" in result.extracted_content
+        assert result.include_in_memory == True
