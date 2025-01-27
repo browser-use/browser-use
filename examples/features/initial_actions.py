@@ -8,12 +8,12 @@ llm = ChatOpenAI(model='gpt-4o')
 
 initial_actions = [
 	{'open_tab': {'url': 'https://www.google.com'}},
-	{'input_text': {'index': 5, 'text': 'Whats the next hot AI company?'}},
-	{'send_keys': {'keys': 'Enter'}},
-	{'extract_content': {'include_links': True}},
+	{'open_tab': {'url': 'https://en.wikipedia.org/wiki/Randomness'}},
+	{'scroll_down': {'amount': 1000}},
+	{'extract_content': {'include_links': False}},
 ]
 agent = Agent(
-	task='Go to each company and quickly summarize what they do.',
+	task='What theories are displayed on the page?',
 	initial_actions=initial_actions,
 	llm=llm,
 )

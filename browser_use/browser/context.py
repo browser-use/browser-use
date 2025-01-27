@@ -72,6 +72,7 @@ class BrowserContextConfig:
 
 		no_viewport: False
 			Disable viewport
+
 		save_recording_path: None
 			Path to save video recordings
 

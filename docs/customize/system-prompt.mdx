@@ -6,7 +6,7 @@ icon: "message"
 
 ## Overview
 
-You can customize the system prompt by extending the `SystemPrompt` class. Internally, this adds extra instructions to the default system prompt (which is general and quite optimized at this point).
+You can customize the system prompt by extending the `SystemPrompt` class. Internally, this adds extra instructions to the default system prompt.
 
 <Note>
   Custom system prompts allow you to modify the agent's behavior at a
@@ -36,17 +36,6 @@ class MySystemPrompt(SystemPrompt):
         return f'{existing_rules}\n{new_rules}'
 ```
 
-The `important_rules()` are written in format like this. Keeping the format
-consistent helps with redundancy and readability.
-
-```text
-8. ACTION SEQUENCING:
-   - Actions are executed in the order they appear in the list
-   - ...
-```
-
-<Note>Try not to override other methods unless you have a specific need.</Note>
-
 ## Using Custom System Prompt
 
 Apply your custom system prompt when creating an agent:
@@ -55,7 +44,7 @@ Apply your custom system prompt when creating an agent:
 from langchain_openai import ChatOpenAI
 
 # Initialize the model
-model = ChatOpenAI(model='gpt-4')
+model = ChatOpenAI(model='gpt-4o')
 
 # Create agent with custom system prompt
 agent = Agent(

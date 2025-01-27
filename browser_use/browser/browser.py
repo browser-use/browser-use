@@ -151,6 +151,16 @@ class Browser:
 			stdout=subprocess.DEVNULL,
 			stderr=subprocess.DEVNULL,
 		)
+    
+		# Attempt to connect again after starting a new instance
+		for _ in range(10):
+			try:
+				response = requests.get('http://localhost:9222/json/version', timeout=2)
+				if response.status_code == 200:
+					break
+			except requests.ConnectionError:
+				pass
+			await asyncio.sleep(1)
 
 		# Attempt to connect again after starting a new instance
 		try:

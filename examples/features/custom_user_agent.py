@@ -17,9 +17,7 @@ from browser_use.controller.service import Controller
 
 def get_llm(provider: str):
 	if provider == 'anthropic':
-		return ChatAnthropic(
-			model_name='claude-3-5-sonnet-20240620', timeout=25, stop=None, temperature=0.0
-		)
+		return ChatAnthropic(model_name='claude-3-5-sonnet-20240620', timeout=25, stop=None, temperature=0.0)
 	elif provider == 'openai':
 		return ChatOpenAI(model='gpt-4o', temperature=0.0)
 
@@ -27,6 +25,7 @@ def get_llm(provider: str):
 		raise ValueError(f'Unsupported provider: {provider}')
 
 
+# NOTE: This example is to find your current user agent string to use it in the browser_context
 task = 'go to https://whatismyuseragent.com and find the current user agent string '
 
 
@@ -54,18 +53,13 @@ browser = Browser(
 	)
 )
 
-browser_context = BrowserContext(
-	config=BrowserContextConfig(
-		user_agent="foobarfoo"
-	),
-	browser=browser
-)
+browser_context = BrowserContext(config=BrowserContextConfig(user_agent='foobarfoo'), browser=browser)
 
 agent = Agent(
 	task=args.query,
 	llm=llm,
 	controller=controller,
-#	browser=browser,
+	# browser=browser,
 	browser_context=browser_context,
 	use_vision=True,
 	max_actions_per_step=1,

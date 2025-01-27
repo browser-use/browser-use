@@ -16,7 +16,7 @@ from langchain_openai import ChatOpenAI
 
 agent = Agent(
     task="Search for latest news about AI",
-    llm=ChatOpenAI(model="gpt-4"),
+    llm=ChatOpenAI(model="gpt-4o"),
 )
 ```
 
@@ -33,7 +33,7 @@ Control how the agent operates:
 agent = Agent(
     task="your task",
     llm=llm,
-    controller=custom_controller,  # Custom function registry
+    controller=custom_controller,  # For custom tool calling
     use_vision=True,              # Enable vision capabilities
     save_conversation_path="logs/conversation.json"  # Save chat logs
 )
@@ -131,7 +131,7 @@ The agent is executed using the async `run()` method:
 - `max_steps` (default: `100`)  
   Maximum number of steps the agent can take during execution. This prevents infinite loops and helps control execution time.
 
-### Agent History
+## Agent History
 
 The method returns an `AgentHistoryList` object containing the complete execution history. This history is invaluable for debugging, analysis, and creating reproducible scripts.
 
@@ -161,3 +161,24 @@ The `AgentHistoryList` provides many helper methods to analyze the execution:
   capabilities, refer to the [AgentHistoryList source
   code](https://github.com/browser-use/browser-use/blob/main/browser_use/agent/views.py#L111).
 </Note>
+
+
+
+## Run initial actions without LLM
+With [this example](https://github.com/browser-use/browser-use/blob/main/examples/features/initial_actions.py) you can run initial actions without the LLM.
+Specify the action as a dictionary where the key is the action name and the value is the action parameters. You can find all our actions in the [Controller](https://github.com/browser-use/browser-use/blob/main/browser_use/controller/service.py) source code.
+```python
+
+initial_actions = [
+	{'open_tab': {'url': 'https://www.google.com'}},
+	{'open_tab': {'url': 'https://en.wikipedia.org/wiki/Randomness'}},
+	{'scroll_down': {'amount': 1000}},
+	{'extract_content': {'include_links': False}},
+]
+agent = Agent(
+	task='What theories are displayed on the page?',
+	initial_actions=initial_actions,
+	llm=llm,
+)
+```
+

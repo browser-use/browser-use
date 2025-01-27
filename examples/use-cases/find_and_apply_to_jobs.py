@@ -33,7 +33,12 @@ import logging
 logger = logging.getLogger(__name__)
 # full screen mode
 controller = Controller()
+
+# NOTE: This is the path to your cv file
 CV = Path.cwd() / 'cv_04_24.pdf'
+
+if not CV.exists():
+	raise FileNotFoundError(f'You need to set the path to your cv file in the CV variable. CV file not found at {CV}')
 
 
 class Job(BaseModel):
@@ -45,9 +50,7 @@ class Job(BaseModel):
 	salary: Optional[str] = None
 
 
-@controller.action(
-	'Save jobs to file - with a score how well it fits to my profile', param_model=Job
-)
+@controller.action('Save jobs to file - with a score how well it fits to my profile', param_model=Job)
 def save_jobs(job: Job):
 	with open('jobs.csv', 'a', newline='') as f:
 		writer = csv.writer(f)

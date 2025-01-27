@@ -15,22 +15,16 @@ from browser_use.browser.context import BrowserContext
 
 browser = Browser(
 	config=BrowserConfig(
-		headless=False,
 		# NOTE: you need to close your chrome browser - so that this can open your browser in debug mode
 		chrome_instance_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 	)
 )
-controller = Controller()
 
 
 async def main():
-	task = f'In docs.google.com write my Papa a quick thank you for everything letter \n - Magnus'
-	task += f' and save the document as pdf'
-	model = ChatOpenAI(model='gpt-4o')
 	agent = Agent(
-		task=task,
-		llm=model,
-		controller=controller,
+		task='In docs.google.com write my Papa a quick letter',
+		llm=ChatOpenAI(model='gpt-4o'),
 		browser=browser,
 	)
 

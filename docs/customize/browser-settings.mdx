@@ -110,8 +110,23 @@ from browser_use.browser.context import BrowserContextConfig
 config = BrowserContextConfig(
     cookies_file="path/to/cookies.json",
     wait_for_network_idle_page_load_time=3.0,
-    browser_window_size={'width': 1280, 'height': 1100}
+    browser_window_size={'width': 1280, 'height': 1100},
+    locale='en-US',
+    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36',
+    highlight_elements=True,
+    viewport_expansion=500,
+    allowed_domains=['google.com', 'wikipedia.org'],
 )
+
+browser = Browser()
+context = BrowserContext(browser=browser, config=config)
+
+
+async def run_search():
+	agent = Agent(
+		browser_context=context,
+		task='Your task',
+		llm=llm)
 ```
 
 ## Configuration Options
@@ -131,6 +146,22 @@ config = BrowserContextConfig(
 
 - **browser_window_size** (default: `{'width': 1280, 'height': 1100}`)  
   Browser window dimensions. The default size is optimized for general use cases and interaction with common UI elements like cookie banners.
+
+- **locale** (default: `None`)  
+  Specify user locale, for example en-GB, de-DE, etc. Locale will affect navigator.language value, Accept-Language request header value as well as number and date formatting rules. If not provided, defaults to the system default locale.
+
+- **highlight_elements** (default: `True`)  
+  Highlight interactive elements on the screen with colorfull bounding boxes.
+
+- **viewport_expansion** (default: `500`)  
+  Viewport expansion in pixels. With this you can controll how much of the page is included in the context of the LLM. If set to -1, all elements from the entire page will be included (this leads to high token usage). If set to 0, only the elements which are visible in the viewport will be included.
+  Default is 500 pixels, that means that we inlcude a little bit more than the visible viewport inside the context.
+
+### Restrict URLs 
+
+- **allowed_domains** (default: `None`)  
+  List of allowed domains that the agent can access. If None, all domains are allowed. 
+  Example: ['google.com', 'wikipedia.org'] - Here the agent will only be able to access google and wikipedia.
 
 ### Debug and Recording
 

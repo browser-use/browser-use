@@ -133,8 +133,9 @@ GEMINI_API_KEY=
 ```
 
 
-### DeepSeek
-The community likes DeepSeek-V3 for its low price, no rate limits, open-source nature, and good performance.
+### DeepSeek-V3
+The community likes DeepSeek-V3 for its low price, no rate limits, open-source nature, and good performance. 
+The example is available [here](https://github.com/browser-use/browser-use/blob/main/examples/models/deepseek.py).
 
 ```python
 from langchain_openai import ChatOpenAI
@@ -159,11 +160,38 @@ Required environment variables:
 DEEPSEEK_API_KEY=
 ```
 
+### DeepSeek-R1
+We support DeepSeek-R1. Its not fully tested yet, more and more functionality will be added, like e.g. the output of it'sreasoning content.
+The example is available [here](https://github.com/browser-use/browser-use/blob/main/examples/models/deepseek-r1.py).
+It does not support vision. The model is open-source so you could also use it with Ollama, but we have not tested it.
+```python
+from langchain_openai import ChatOpenAI
+from browser_use import Agent
+from pydantic import SecretStr
+
+
+# Initialize the model
+llm=ChatOpenAI(base_url='https://api.deepseek.com/v1', model='deepseek-reasoner', api_key=SecretStr(api_key))
+
+# Create agent with the model
+agent = Agent(
+    task="Your task here",
+    llm=llm,
+    use_vision=False
+)
+```
+
+Required environment variables:
+
+```bash .env
+DEEPSEEK_API_KEY=
+```
+
 ### Ollama
 Many users asked for local models. Here they are. 
 
 1. Download Ollama from [here](https://ollama.ai/download)
-2. Run `ollama pull model_name`. You can pick a model which supports tool-calling from [here](https://ollama.com/search?c=tools)
+2. Run `ollama pull model_name`. Pick a model which supports tool-calling from [here](https://ollama.com/search?c=tools)
 3. Run `ollama start`
 
 ```python
@@ -188,5 +216,4 @@ Required environment variables: None!
 (We are working on it)
 - Groq
 - Github
-- DeepSeek R1
 - Fine-tuned models

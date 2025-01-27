@@ -23,8 +23,8 @@ browser = Browser(
 		# chrome_instance_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 	)
 )
-
-context = BrowserContext(browser=browser, config=BrowserContextConfig(cookies_file='twitter_cookies.txt'))
+file_path = os.path.join(os.path.dirname(__file__), 'twitter_cookies.txt')
+context = BrowserContext(browser=browser, config=BrowserContextConfig(cookies_file=file_path))
 
 
 async def run_search():

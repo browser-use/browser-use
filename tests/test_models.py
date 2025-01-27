@@ -51,6 +51,11 @@ api_key_anthropic = SecretStr(os.getenv('ANTHROPIC_API_KEY') or '')
 @pytest.fixture(
 	params=[
 		# run: ollama start
+		ChatOpenAI(
+			base_url='https://api.deepseek.com/v1',
+			model='deepseek-reasoner',
+			api_key=api_key_deepseek,
+		),
 		ChatOllama(
 			model='qwen2.5:latest',
 			num_ctx=128000,
@@ -86,6 +91,7 @@ api_key_anthropic = SecretStr(os.getenv('ANTHROPIC_API_KEY') or '')
 		),
 	],
 	ids=[
+		'deepseek-reasoner',
 		'qwen2.5:latest',
 		'azure-gpt-4o-mini',
 		'claude-3-5-sonnet',
@@ -109,7 +115,7 @@ async def test_model_search(llm, context):
 	print(f'\nTesting model: {model_name}')
 
 	use_vision = True
-	models_without_vision = ['deepseek-chat']
+	models_without_vision = ['deepseek-chat', 'deepseek-reasoner']
 	if hasattr(llm, 'model') and llm.model in models_without_vision:
 		use_vision = False
 	elif hasattr(llm, 'model_name') and llm.model_name in models_without_vision:
@@ -151,6 +157,4 @@ async def test_model_search(llm, context):
 		passed = False
 	print(f'Model {model_name}: {"✅ PASSED" if passed else "❌ FAILED"}')
 
-	assert passed, (
-		f'Model {model_name} not working\nActions performed: {action_names}\nErrors: {errors}'
-	)
+	assert passed, f'Model {model_name} not working\nActions performed: {action_names}\nErrors: {errors}'

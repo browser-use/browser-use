@@ -124,6 +124,8 @@ def setup_logging():
 		'charset_normalizer',
 		'anthropic._base_client',
 		'PIL.PngImagePlugin',
+		'trafilatura.htmlprocessing',
+		'trafilatura',
 	]:
 		third_party = logging.getLogger(logger)
 		third_party.setLevel(logging.ERROR)

@@ -46,9 +46,11 @@
     {
       "group": "Customize",
       "pages": [
-        "customize/langchain-models",
+        "customize/supported-models",
         "customize/agent-settings",
         "customize/browser-settings",
+        "customize/real-browser",
+        "customize/output-format",
         "customize/system-prompt",
         "customize/custom-functions"
       ]
