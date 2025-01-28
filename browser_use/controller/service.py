@@ -228,7 +228,7 @@ class Controller:
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
 		@self.registry.action(
-			description='If you dont find something which you want to interact with, scroll to it',
+			description='If you find some text which you want to interact with, scroll to it',
 			requires_browser=True,
 		)
 		async def scroll_to_text(text: str, browser: BrowserContext):  # type: ignore
