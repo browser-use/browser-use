@@ -4,6 +4,7 @@ from typing import Optional
 
 from playwright.async_api import Page
 
+from browser_use.dom.manager.highlight_manager import HighlightManager
 from browser_use.dom.views import (
 	DOMBaseNode,
 	DOMElementNode,
@@ -19,6 +20,8 @@ class DomService:
 	def __init__(self, page: Page):
 		self.page = page
 		self.xpath_cache = {}
+		self.highlight_manager = HighlightManager(page)
+
 
 	# region - Clickable elements
 	async def get_clickable_elements(
@@ -47,7 +50,7 @@ class DomService:
 		}
 
 		eval_page = await self.page.evaluate(js_code, args)  # This is quite big, so be careful
-		html_to_dict = self._parse_node(eval_page)
+		html_to_dict = await self._parse_node(eval_page)
 
 		if html_to_dict is None or not isinstance(html_to_dict, DOMElementNode):
 			raise ValueError('Failed to parse HTML to dictionary')
@@ -68,7 +71,7 @@ class DomService:
 		process_node(element_tree)
 		return selector_map
 
-	def _parse_node(
+	async def _parse_node(
 		self,
 		node_data: dict,
 		parent: Optional[DOMElementNode] = None,
@@ -103,11 +106,15 @@ class DomService:
 		children: list[DOMBaseNode] = []
 		for child in node_data.get('children', []):
 			if child is not None:
-				child_node = self._parse_node(child, parent=element_node)
+				child_node = await self._parse_node(child, parent=element_node)
 				if child_node is not None:
 					children.append(child_node)
 
 		element_node.children = children
+
+		# Highlight element using position if available
+		if node_data.get('position'):
+			await self.highlight_manager.highlight_element(node_data.get('position'), node_data.get('highlightIndex'))
 
 		return element_node
 
