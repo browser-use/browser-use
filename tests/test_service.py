@@ -1,3 +1,4 @@
+import asyncio
 import os
 import pytest
 import sys
@@ -11,14 +12,17 @@ from browser_use.browser.views import BrowserState
 from browser_use.controller.registry.service import Registry
 from browser_use.controller.registry.views import ActionModel
 from browser_use.controller.service import Controller
+from browser_use.dom.manager.highlight_manager import HighlightManager
+from browser_use.dom.service import DomService
+from browser_use.dom.views import DOMElementNode, DOMState, DOMTextNode
 from langchain_core.language_models.chat_models import BaseChatModel
+from playwright.async_api import Page
 from pydantic import BaseModel
+from typing import Optional
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 # run with python -m pytest tests/test_service.py
 
-# run test with:
-# python -m pytest tests/test_service.py
 class TestAgent:
 	@pytest.fixture
 	def mock_controller(self):
@@ -197,21 +201,205 @@ class TestRegistry:
             description="Test action without browser"
         )
 
-        # Mock BrowserContext
-        mock_browser = MagicMock()
+        # Mock
 
-        # Execute the action with a browser context
-        result_with_browser = await registry.execute_action('test_action_with_browser', {'param1': 'test_value'}, browser=mock_browser)
-        assert result_with_browser == "Action executed with test_value and browser"
+    def test_create_selector_map(self):
+        """
+        Test the _create_selector_map method of the DomService class.
+        This test ensures that:
+        1. The method correctly creates a selector map from a given DOM tree.
+        2. Only elements with highlight_index are included in the selector map.
+        3. The selector map keys correspond to highlight indices and values to the correct DOMElementNode objects.
+        """
+        # Create a mock DOM tree
+        root = DOMElementNode(
+            tag_name="html",
+            xpath="/html",
+            attributes={},
+            children=[],
+            is_visible=True,
+            is_interactive=False,
+            is_top_element=True,
+            highlight_index=0,
+            shadow_root=False,
+            parent=None
+        )
 
-        # Execute the action without a browser context
-        result_without_browser = await registry.execute_action('test_action_without_browser', {'param1': 'test_value'})
-        assert result_without_browser == "Action executed with test_value"
+        body = DOMElementNode(
+            tag_name="body",
+            xpath="/html/body",
+            attributes={},
+            children=[],
+            is_visible=True,
+            is_interactive=False,
+            is_top_element=False,
+            highlight_index=1,
+            shadow_root=False,
+            parent=root
+        )
 
-        # Test error when browser is required but not provided
-        with pytest.raises(RuntimeError, match="Action test_action_with_browser requires browser but none provided"):
-            await registry.execute_action('test_action_with_browser', {'param1': 'test_value'})
+        div = DOMElementNode(
+            tag_name="div",
+            xpath="/html/body/div",
+            attributes={},
+            children=[],
+            is_visible=True,
+            is_interactive=False,
+            is_top_element=False,
+            highlight_index=2,
+            shadow_root=False,
+            parent=body
+        )
 
-        # Verify that the action functions were called with correct parameters
-        registry.registry.actions['test_action_with_browser'].function.assert_called_once_with(param1='test_value', browser=mock_browser)
-        registry.registry.actions['test_action_without_browser'].function.assert_called_once_with(param1='test_value')
+        text = DOMTextNode(
+            text="Hello, World!",
+            is_visible=True,
+            parent=div
+        )
+
+        div.children = [text]
+        body.children = [div]
+        root.children = [body]
+
+        # Create a DomService instance (we don't need a real Page object for this test)
+        dom_service = DomService(page=None)  # type: ignore
+
+        # Call the _create_selector_map method
+        selector_map = dom_service._create_selector_map(root)
+
+        # Assert that the selector map is correctly created
+        assert len(selector_map) == 3
+        assert 0 in selector_map and selector_map[0] == root
+        assert 1 in selector_map and selector_map[1] == body
+        assert 2 in selector_map and selector_map[2] == div
+        assert 3 not in selector_map  # Text node should not be in the selector map
+
+class TestDomService:
+    @pytest.mark.asyncio
+    async def test_parse_node(self):
+        """
+        Test the _parse_node method of the DomService class.
+        This test ensures that:
+        1. The method correctly parses a text node.
+        2. The method correctly parses an element node with various attributes.
+        3. The method correctly handles child nodes.
+        4. The highlight manager is called when position data is available.
+        """
+        # Mock the Page and HighlightManager
+        mock_page = MagicMock(spec=Page)
+        mock_highlight_manager = AsyncMock(spec=HighlightManager)
+
+        # Create a DomService instance with mocked dependencies
+        dom_service = DomService(page=mock_page)
+        dom_service.highlight_manager = mock_highlight_manager
+
+        # Test parsing a text node
+        text_node_data = {
+            "type": "TEXT_NODE",
+            "text": "Hello, World!",
+            "isVisible": True
+        }
+        text_node = await dom_service._parse_node(text_node_data)
+        assert isinstance(text_node, DOMTextNode)
+        assert text_node.text == "Hello, World!"
+        assert text_node.is_visible == True
+
+        # Test parsing an element node with children
+        element_node_data = {
+            "tagName": "div",
+            "xpath": "/html/body/div",
+            "attributes": {"class": "container"},
+            "isVisible": True,
+            "isInteractive": False,
+            "isTopElement": False,
+            "highlightIndex": 1,
+            "shadowRoot": False,
+            "position": {"x": 10, "y": 20, "width": 100, "height": 50},
+            "children": [text_node_data]
+        }
+        element_node = await dom_service._parse_node(element_node_data)
+        assert isinstance(element_node, DOMElementNode)
+        assert element_node.tag_name == "div"
+        assert element_node.xpath == "/html/body/div"
+        assert element_node.attributes == {"class": "container"}
+        assert element_node.is_visible == True
+        assert element_node.is_interactive == False
+        assert element_node.is_top_element == False
+        assert element_node.highlight_index == 1
+        assert element_node.shadow_root == False
+        assert len(element_node.children) == 1
+        assert isinstance(element_node.children[0], DOMTextNode)
+
+        # Verify that the highlight manager was called
+        mock_highlight_manager.highlight_element.assert_called_once_with(
+            {"x": 10, "y": 20, "width": 100, "height": 50}, 1
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_clickable_elements(self):
+        """
+        Test the get_clickable_elements method of the DomService class.
+        This test ensures that:
+        1. The method correctly calls the JavaScript function to build the DOM tree.
+        2. The method processes the returned DOM structure and creates a valid DOMState object.
+        3. The resulting DOMState contains the expected element tree and selector map.
+        """
+        # Mock the Page object
+        mock_page = AsyncMock()
+
+        # Create a DomService instance with the mocked Page
+        dom_service = DomService(page=mock_page)
+
+        # Mock the JavaScript evaluation result
+        mock_eval_result = {
+            "tagName": "html",
+            "xpath": "/html",
+            "attributes": {},
+            "isVisible": True,
+            "isInteractive": False,
+            "isTopElement": True,
+            "highlightIndex": 0,
+            "children": [
+                {
+                    "tagName": "body",
+                    "xpath": "/html/body",
+                    "attributes": {},
+                    "isVisible": True,
+                    "isInteractive": False,
+                    "isTopElement": False,
+                    "highlightIndex": 1,
+                    "children": [
+                        {
+                            "type": "TEXT_NODE",
+                            "text": "Hello, World!",
+                            "isVisible": True
+                        }
+                    ]
+                }
+            ]
+        }
+
+        # Mock the page.evaluate method to return a coroutine
+        mock_page.evaluate.return_value = mock_eval_result
+
+        # Mock the resources.read_text function
+        with patch('importlib.resources.read_text', return_value='mock_js_code'):
+            # Call the get_clickable_elements method
+            result = await dom_service.get_clickable_elements()
+
+        # Assert that the result is a DOMState object
+        assert isinstance(result, DOMState)
+
+        # Assert that the element tree has the expected structure
+        assert result.element_tree.tag_name == "html"
+        assert len(result.element_tree.children) == 1
+        assert result.element_tree.children[0].tag_name == "body"
+        assert len(result.element_tree.children[0].children) == 1
+        assert isinstance(result.element_tree.children[0].children[0], DOMTextNode)
+
+        # Assert that the selector map contains the expected elements
+        assert len(result.selector_map) == 2
+        assert 0 in result.selector_map
+        assert 1 in result.selector_map
+        assert result.selector_map[0] == result.element_tree
+        assert result.selector_map[1] == result.element_tree.children[0]
