@@ -48,7 +48,7 @@ class DomService:
 		}
 
 		eval_page = await self.page.evaluate(js_code, args)  # This is quite big, so be careful
-		html_to_dict = await self._parse_node(eval_page)
+		html_to_dict = self._parse_node(eval_page)
 
 		if html_to_dict is None or not isinstance(html_to_dict, DOMElementNode):
 			raise ValueError('Failed to parse HTML to dictionary')
@@ -69,7 +69,7 @@ class DomService:
 		process_node(element_tree)
 		return selector_map
 
-	async def _parse_node(
+	def _parse_node(
 		self,
 		node_data: dict,
 		parent: Optional[DOMElementNode] = None,
@@ -113,7 +113,7 @@ class DomService:
 		children: list[DOMBaseNode] = []
 		for child in node_data.get('children', []):
 			if child is not None:
-				child_node = await self._parse_node(child, parent=element_node)
+				child_node = self._parse_node(child, parent=element_node)
 				if child_node is not None:
 					children.append(child_node)
 
