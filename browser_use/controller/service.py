@@ -434,6 +434,74 @@ class Controller:
 				logger.error(msg)
 				return ActionResult(error=msg, include_in_memory=True)
 
+		@self.registry.action(
+			description='Ask for user input',
+			requires_browser=True,
+		)
+		async def ask_for_user_input(prompt: str, browser: BrowserContext) -> ActionResult:
+			page = await browser.get_current_page()
+			user_input = await page.evaluate(f'prompt("{prompt}")')
+			msg = f'User input received: {user_input}'
+			logger.info(msg)
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		@self.registry.action(
+			description='Display notification',
+			requires_browser=True,
+		)
+		async def display_notification(message: str, browser: BrowserContext) -> ActionResult:
+			page = await browser.get_current_page()
+			await page.evaluate(f'alert("{message}")')
+			msg = f'Notification displayed: {message}'
+			logger.info(msg)
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		@self.registry.action(
+			description='Handle file upload',
+			requires_browser=True,
+		)
+		async def handle_file_upload(selector: str, file_path: str, browser: BrowserContext) -> ActionResult:
+			page = await browser.get_current_page()
+			input_element = await page.query_selector(selector)
+			if input_element:
+				await input_element.set_input_files(file_path)
+				msg = f'File uploaded: {file_path}'
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True)
+			else:
+				msg = f'File upload failed: Element not found for selector {selector}'
+				logger.error(msg)
+				return ActionResult(error=msg, include_in_memory=True)
+
+		@self.registry.action(
+			description='Interact with iframes',
+			requires_browser=True,
+		)
+		async def interact_with_iframes(selector: str, action: str, browser: BrowserContext) -> ActionResult:
+			page = await browser.get_current_page()
+			iframe_element = await page.query_selector(selector)
+			if iframe_element:
+				iframe = await iframe_element.content_frame()
+				if iframe:
+					if action == 'click':
+						await iframe.click(selector)
+						msg = f'Clicked element inside iframe: {selector}'
+					elif action == 'type':
+						await iframe.type(selector, 'Sample text')
+						msg = f'Typed text inside iframe: {selector}'
+					else:
+						msg = f'Unknown action: {action}'
+					logger.info(msg)
+					return ActionResult(extracted_content=msg, include_in_memory=True)
+				else:
+					msg = f'Failed to get content frame for iframe: {selector}'
+					logger.error(msg)
+					return ActionResult(error=msg, include_in_memory=True)
+			else:
+				msg = f'Iframe not found for selector: {selector}'
+				logger.error(msg)
+				return ActionResult(error=msg, include_in_memory=True)
+
 	def action(self, description: str, **kwargs):
 		"""Decorator for registering custom actions
 
