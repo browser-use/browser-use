@@ -22,6 +22,7 @@ async def run_search():
 		),
 		llm=llm,
 		max_actions_per_step=4,
+		gif_highlights_enabled=True
 	)
 
 	await agent.run(max_steps=25)

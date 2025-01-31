@@ -12,6 +12,12 @@ class HashedDomElement:
 	attributes_hash: str
 	# text_hash: str
 
+@dataclass(frozen=False)
+class Position:
+    top: int
+    left: int
+    width: int
+    height: int
 
 @dataclass
 class DOMHistoryElement:
@@ -21,6 +27,7 @@ class DOMHistoryElement:
 	entire_parent_branch_path: list[str]
 	attributes: dict[str, str]
 	shadow_root: bool = False
+	position: Optional[Position] = None
 
 	def to_dict(self) -> dict:
 		return {

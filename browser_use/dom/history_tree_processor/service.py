@@ -23,6 +23,7 @@ class HistoryTreeProcessor:
 			parent_branch_path,
 			dom_element.attributes,
 			dom_element.shadow_root,
+			dom_element.position,
 		)
 
 	@staticmethod

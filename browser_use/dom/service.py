@@ -4,12 +4,12 @@ from typing import Optional
 
 from playwright.async_api import Page
 
-from browser_use.dom.manager.highlight_manager import HighlightManager
 from browser_use.dom.views import (
 	DOMBaseNode,
 	DOMElementNode,
 	DOMState,
 	DOMTextNode,
+	Position,
 	SelectorMap,
 )
 
@@ -20,8 +20,6 @@ class DomService:
 	def __init__(self, page: Page):
 		self.page = page
 		self.xpath_cache = {}
-		self.highlight_manager = HighlightManager(page)
-
 
 	# region - Clickable elements
 	async def get_clickable_elements(
@@ -90,6 +88,14 @@ class DomService:
 
 		tag_name = node_data['tagName']
 
+		position_data = node_data.get('position', {})
+		position = Position(
+            top=position_data.get('top', 0),
+            left=position_data.get('left', 0),
+            width=position_data.get('width', 0),
+            height=position_data.get('height', 0)
+        )
+		
 		element_node = DOMElementNode(
 			tag_name=tag_name,
 			xpath=node_data['xpath'],
@@ -101,6 +107,7 @@ class DomService:
 			highlight_index=node_data.get('highlightIndex'),
 			shadow_root=node_data.get('shadowRoot', False),
 			parent=parent,
+			position=position
 		)
 
 		children: list[DOMBaseNode] = []
@@ -111,10 +118,6 @@ class DomService:
 					children.append(child_node)
 
 		element_node.children = children
-
-		# Highlight element using position if available
-		if node_data.get('position'):
-			await self.highlight_manager.highlight_element(node_data.get('position'), node_data.get('highlightIndex'))
 
 		return element_node
 

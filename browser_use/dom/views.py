@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import TYPE_CHECKING, Dict, List, Optional
 
-from browser_use.dom.history_tree_processor.view import HashedDomElement
+from browser_use.dom.history_tree_processor.view import HashedDomElement, Position
 
 # Avoid circular import issues
 if TYPE_CHECKING:
@@ -45,6 +45,7 @@ class DOMElementNode(DOMBaseNode):
 	is_top_element: bool = False
 	shadow_root: bool = False
 	highlight_index: Optional[int] = None
+	position: Optional[Position] = None
 
 	def __repr__(self) -> str:
 		tag_str = f'<{self.tag_name}'
