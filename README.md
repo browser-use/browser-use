@@ -32,6 +32,7 @@ install playwright:
 
 ```bash
 playwright install
+pip install lxml_html_clean
 ```
 
 Spin up your agent:
