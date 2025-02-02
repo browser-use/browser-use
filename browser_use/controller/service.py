@@ -202,9 +202,7 @@ class Controller:
 			worksheet = await asyncio.to_thread(_open)
 			return worksheet
 
-		# -------------------------------------------------------------------
-		# Open Google Spreadsheet
-		# -------------------------------------------------------------------
+
 		@self.registry.action(
 			"Open Google Spreadsheet",
 			param_model=OpenGoogleSpreadsheetAction,
@@ -225,9 +223,6 @@ class Controller:
 			msg = f"Opened Google Spreadsheet: {spreadsheet.title}"
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
-		# -------------------------------------------------------------------
-		# Read Spreadsheet
-		# -------------------------------------------------------------------
 		@self.registry.action(
 			"Read Spreadsheet",
 			param_model=ReadSpreadsheetAction,  # May include 'url' and optional 'sheet_name'
@@ -246,9 +241,6 @@ class Controller:
 			msg = f"Read spreadsheet data: {data}"
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
-		# -------------------------------------------------------------------
-		# Add Row
-		# -------------------------------------------------------------------
 		@self.registry.action(
 			"Add Row",
 			param_model=AddRowAction,  # May include 'url' and optional 'sheet_name'
@@ -267,9 +259,6 @@ class Controller:
 			msg = "Added a new row at the bottom of the worksheet."
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
-		# -------------------------------------------------------------------
-		# Insert Value
-		# -------------------------------------------------------------------
 		@self.registry.action(
 			"Insert Value",
 			param_model=InsertValueAction,  # expects 'url', 'cell' (e.g., "B2") and 'value'
@@ -288,9 +277,6 @@ class Controller:
 			msg = f"Inserted value '{params.value}' into cell {params.cell}."
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
-		# -------------------------------------------------------------------
-		# Insert Function
-		# -------------------------------------------------------------------
 		@self.registry.action(
 			"Insert Function",
 			param_model=InsertFunctionAction,  # expects 'url', 'cell' (e.g., "B2") and 'function'
@@ -309,9 +295,6 @@ class Controller:
 			msg = f"Inserted function '{params.function}' into cell {params.cell}."
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
-		# -------------------------------------------------------------------
-		# Delete Row
-		# -------------------------------------------------------------------
 		@self.registry.action(
 			"Delete Row",
 			param_model=DeleteRowAction,  # expects 'url', 'row' (int) and optional 'sheet_name'
