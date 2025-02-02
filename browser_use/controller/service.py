@@ -10,12 +10,18 @@ from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser.context import BrowserContext
 from browser_use.controller.registry.service import Registry
 from browser_use.controller.views import (
+	AddRowAction,
 	ClickElementAction,
+	DeleteRowAction,
 	DoneAction,
 	GoToUrlAction,
 	InputTextAction,
+	InsertFunctionAction,
+	InsertValueAction,
 	NoParamsAction,
+	OpenGoogleSpreadsheetAction,
 	OpenTabAction,
+	ReadSpreadsheetAction,
 	ScrollAction,
 	SearchGoogleAction,
 	SendKeysAction,
@@ -155,6 +161,254 @@ class Controller:
 			msg = f'🔗  Opened new tab with {params.url}'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		# Google spreadsheet actions
+		@self.registry.action(
+			"Open Google Spreadsheet",
+			param_model=OpenGoogleSpreadsheetAction,
+		)
+		async def open_google_spreadsheet(params: OpenGoogleSpreadsheetAction, browser: BrowserContext):
+			"""
+			Navigates to the provided Google Spreadsheet URL and waits until the sheet is loaded.
+			It waits for a cell element (e.g. one with an aria-label containing "A1") to appear.
+			"""
+			await browser.navigate_to(params.url)
+			# Wait for a known element that indicates the sheet is loaded.
+			page = await browser.get_current_page()
+			await page.wait_for_load_state()
+			msg = f"Opened Google Spreadsheet: {params.url}"
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		@self.registry.action(
+			"Read Spreadsheet",
+			param_model=ReadSpreadsheetAction,  # This model can be empty or include optional parameters.
+		)
+		async def read_spreadsheet(params: ReadSpreadsheetAction, browser: BrowserContext):
+			"""
+			Reads the spreadsheet content from the active sheet via UI automation.
+			
+			This action:
+			1. Waits for a reliable element (e.g. the formula bar) to ensure the sheet is loaded.
+			2. Uses Ctrl+A to select all visible cells.
+			3. Uses Ctrl+C to copy the selection.
+			4. Uses the Clipboard API to read the copied text.
+			5. Parses the text into a 2D list.
+			"""
+			page = await browser.get_current_page()
+
+			# Necessary for reading the clipboard!
+			await page.context.grant_permissions(['clipboard-read'])
+			
+			# Wait for the formula bar to be visible (indicating that the sheet is loaded)
+			try:
+				await page.wait_for_selector("#formula-bar", timeout=10000)
+			except Exception as e:
+				raise Exception("Timeout waiting for the formula bar (#formula-bar) to be visible. "
+								"The spreadsheet may not have loaded correctly.") from e
+
+			# Select all visible cells using Ctrl+A.
+			await page.keyboard.down("Control")
+			await page.keyboard.press("A")
+			await page.keyboard.up("Control")
+			await page.wait_for_timeout(500)
+
+			# Copy the selected cells using Ctrl+C.
+			await page.keyboard.down("Control")
+			await page.keyboard.press("C")
+			await page.keyboard.up("Control")
+			await page.wait_for_timeout(500)
+
+			# Read the clipboard text.
+			clipboard_text = await page.evaluate("""async () => {
+				return await navigator.clipboard.readText();
+			}""")
+			
+			# Parse the clipboard text into rows and columns.
+			rows = clipboard_text.strip().split("\n")
+			data = [row.split("\t") for row in rows if row.strip()]
+			
+			msg = f"Read spreadsheet data: {data}"
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		# --- Add Row ---
+		@self.registry.action(
+			"Add Row",
+			param_model=AddRowAction,
+		)
+		async def add_row(params: AddRowAction, browser: BrowserContext):
+			"""
+			Inserts a new row below the currently selected row.
+			This example simulates the keyboard shortcut Alt+I, then R.
+			(Adjust the keys if needed based on your locale or Google Sheets version.)
+			"""
+			page = await browser.get_current_page()
+			# Simulate the shortcut: Alt+I to open the Insert menu.
+			await page.keyboard.press("Alt+I")
+			await asyncio.sleep(0.2)  # Allow time for the menu to appear.
+			# Press "R" to choose "Row below" (this shortcut may vary).
+			await page.keyboard.press("R")
+			await page.wait_for_load_state()
+			msg = "Added a new row below the current selection."
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+		@self.registry.action(
+			"Insert Value",
+			param_model=InsertValueAction,  # expects 'cell' (e.g., "B2") and 'value'
+		)
+		async def insert_value(params: InsertValueAction, browser: BrowserContext):
+			"""
+			Inserts a text value into the specified cell using the Google Sheets Name Box and Formula Bar.
+
+			Steps:
+			1. Locate the Name Box (the input with id "t-name-box"), click it, fill it with the target cell coordinate,
+				and press Enter to select that cell.
+			2. Wait for the formula bar input element (inside the element with id "t-formula-bar-input") to appear.
+			3. Clear its content, type the new value, and press Enter to commit the change.
+			"""
+			page = await browser.get_current_page()
+
+			# Step 1: Use the Name Box to select the target cell.
+			name_box_selector = "input#t-name-box"
+			try:
+				name_box = await page.wait_for_selector(name_box_selector, timeout=5000)
+			except Exception as e:
+				raise Exception(f"Name Box not found using selector '{name_box_selector}'. Please inspect the DOM and update the selector accordingly.") from e
+
+			await name_box.click()
+			# Clear the name box before filling.
+			await name_box.fill("")
+			await name_box.fill(params.cell)
+			await page.keyboard.press("Enter")
+			await page.wait_for_timeout(500)  # Allow time for the active cell to update.
+
+			# Step 2: Locate the formula bar input element.
+			# In our DOM, the formula bar input is inside the element with id "t-formula-bar-input" and has class "cell-input".
+			formula_input_selector = "#t-formula-bar-input .cell-input"
+			try:
+				formula_input = await page.wait_for_selector(formula_input_selector, timeout=5000)
+			except Exception as e:
+				raise Exception(f"Formula Bar Input not found using selector '{formula_input_selector}'. Please inspect the DOM and update the selector accordingly.") from e
+
+			# Step 3: Clear the formula bar's content and type the new value.
+			await formula_input.click()
+			# Clear the contenteditable element. Since it's contenteditable, we set innerText to an empty string.
+			await formula_input.evaluate("(el) => el.innerText = ''")
+			await formula_input.type(params.value)
+			await page.keyboard.press("Enter")
+			await page.wait_for_timeout(500)  # Wait for the update to propagate.
+
+			msg = f"Inserted value '{params.value}' into cell {params.cell} using the Formula Bar."
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+		@self.registry.action(
+			"Insert Function",
+			param_model=InsertFunctionAction,
+		)
+		async def insert_function(params: InsertFunctionAction, browser: BrowserContext):
+			"""
+			Inserts a formula (function) into the specified cell using the Google Sheets Name Box and Formula Bar.
+
+			Steps:
+			1. Locate the Name Box (the input with id "t-name-box"), click it, fill it with the target cell coordinate (e.g., "B2"),
+				and press Enter to select that cell.
+			2. Wait for the formula bar input element (inside the container with id "t-formula-bar-input") to appear.
+			3. Clear its content, type the new function (formula), and press Enter to commit the change.
+			"""
+			page = await browser.get_current_page()
+
+			# Step 1: Use the Name Box to select the target cell.
+			name_box_selector = "input#t-name-box"
+			try:
+				name_box = await page.wait_for_selector(name_box_selector, timeout=5000)
+			except Exception as e:
+				raise Exception(f"Name Box not found using selector '{name_box_selector}'. Please inspect the DOM and update the selector accordingly.") from e
+
+			await name_box.click()
+			# Clear the name box and type the target cell coordinate.
+			await name_box.fill("")
+			await name_box.fill(params.cell)
+			await page.keyboard.press("Enter")
+			await page.wait_for_timeout(500)  # Allow time for the active cell to update.
+
+			# Step 2: Locate the formula bar input element.
+			formula_input_selector = "#t-formula-bar-input .cell-input"
+			try:
+				formula_input = await page.wait_for_selector(formula_input_selector, timeout=5000)
+			except Exception as e:
+				raise Exception(f"Formula Bar Input not found using selector '{formula_input_selector}'. Please inspect the DOM and update the selector accordingly.") from e
+
+			# Step 3: Clear the formula bar's content and type the new function.
+			await formula_input.click()
+			await formula_input.evaluate("(el) => el.innerText = ''")
+			await formula_input.type(params.function)
+			await page.keyboard.press("Enter")
+			await page.wait_for_timeout(500)  # Wait for the update to propagate.
+
+			msg = f"Inserted function '{params.function}' into cell {params.cell} using the Formula Bar."
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		@self.registry.action(
+			"Delete Row",
+			param_model=DeleteRowAction,
+		)
+		async def delete_row(params: DeleteRowAction, browser: BrowserContext):
+			"""
+			Deletes the specified row from the Google Sheet using the Name Box and keyboard shortcuts.
+
+			Steps:
+			1. Use the Name Box (input with id "t-name-box") to navigate to a cell in the target row.
+				For example, for row 3, navigate to "A3".
+			2. Wait for the active cell to update.
+			3. Press Escape to ensure the cell is not in edit mode.
+			4. Press Shift+Space to select the entire row.
+			5. Attempt to delete the row using the keyboard shortcut Alt+E then D.
+				If that fails, fall back to using Ctrl+–.
+			"""
+			page = await browser.get_current_page()
+
+			# Step 1: Use the Name Box to select a cell in the target row (e.g. "A{row}")
+			target_cell = f"A{params.row}"
+			name_box_selector = "input#t-name-box"
+			try:
+				name_box = await page.wait_for_selector(name_box_selector, timeout=5000)
+			except Exception as e:
+				raise Exception(
+					f"Name Box not found using selector '{name_box_selector}'. Please inspect the DOM and update the selector accordingly."
+				) from e
+
+			await name_box.click()
+			await name_box.fill("")
+			await name_box.fill(target_cell)
+			await page.keyboard.press("Enter")
+			await page.wait_for_timeout(500)  # Allow time for the active cell to update.
+
+			# Step 2: Ensure we're not in edit mode.
+			await page.keyboard.press("Escape")
+			await page.wait_for_timeout(200)
+
+			# Step 3: Select the entire row.
+			await page.keyboard.press("Shift+Space")
+			await page.wait_for_timeout(300)  # Wait for selection to register.
+
+			# Step 4: Attempt to delete the row.
+			try:
+				# Attempt Alt+E then D sequence.
+				await page.keyboard.press("Alt+E")
+				await page.wait_for_timeout(200)
+				await page.keyboard.press("D")
+			except Exception:
+				# Fallback: use Ctrl+- (Control + Minus)
+				await page.keyboard.down("Control")
+				await page.keyboard.press("-")
+				await page.keyboard.up("Control")
+			
+			await page.wait_for_timeout(500)  # Allow time for the deletion to complete.
+
+			msg = f"Deleted row {params.row} using keyboard shortcuts."
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
 
 		# Content Actions
 		@self.registry.action(
