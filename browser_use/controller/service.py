@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from typing import Dict, Optional, Type
+from typing import Callable, Dict, Optional, Type
 
 from langchain_core.prompts import PromptTemplate
 from pydantic import BaseModel
@@ -698,6 +698,7 @@ class Controller:
 		self,
 		actions: list[ActionModel],
 		browser_context: BrowserContext,
+		check_break_if_paused: Callable[[], bool],
 		check_for_new_elements: bool = True,
 		page_extraction_llm: Optional[BaseChatModel] = None,
 		sensitive_data: Optional[Dict[str, str]] = None,
@@ -708,9 +709,14 @@ class Controller:
 		session = await browser_context.get_session()
 		cached_selector_map = session.cached_state.selector_map
 		cached_path_hashes = set(e.hash.branch_path_hash for e in cached_selector_map.values())
+
+		check_break_if_paused()
+
 		await browser_context.remove_highlights()
 
 		for i, action in enumerate(actions):
+			check_break_if_paused()
+
 			if action.get_index() is not None and i != 0:
 				new_state = await browser_context.get_state()
 				new_path_hashes = set(e.hash.branch_path_hash for e in new_state.selector_map.values())
@@ -718,6 +724,8 @@ class Controller:
 					# next action requires index but there are new elements on the page
 					logger.info(f'Something new appeared after action {i} / {len(actions)}')
 					break
+
+			check_break_if_paused()
 
 			results.append(await self.act(action, browser_context, page_extraction_llm, sensitive_data))
 

@@ -68,7 +68,12 @@ def sample_history(action_registry):
 	histories = [
 		AgentHistory(
 			model_output=AgentOutput(
-				current_state=AgentBrain(evaluation_previous_goal='None', memory='Started task', next_goal='Click button'),
+				current_state=AgentBrain(
+					page_summary='I need to find the founders of browser-use',
+					evaluation_previous_goal='None',
+					memory='Started task',
+					next_goal='Click button',
+				),
 				action=[click_action],
 			),
 			result=[ActionResult(is_done=False)],
@@ -107,6 +112,7 @@ def sample_history(action_registry):
 		AgentHistory(
 			model_output=AgentOutput(
 				current_state=AgentBrain(
+					page_summary='I found out that the founders are John Doe and Jane Smith. I need to draft them a message.',
 					evaluation_previous_goal='Extracted content',
 					memory='Content extracted',
 					next_goal='Finish task',
