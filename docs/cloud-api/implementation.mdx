@@ -1,0 +1,85 @@
+---
+title: "Implementing the API"
+description: "Learn how to implement the Browser Use API in Python"
+icon: "code"
+---
+
+This guide shows how to implement common API patterns using Python. We'll create a complete example that creates and monitors a browser automation task.
+
+## Basic Implementation
+
+Here's a simple implementation using Python's `requests` library:
+
+```python
+import requests
+import time
+
+API_KEY = "your_api_key_here"
+BASE_URL = "https://api.browser-use.com/api/v1"
+HEADERS = {"Authorization": f"Bearer {API_KEY}"}
+
+def create_task(instructions):
+    """Create a new browser automation task"""
+    response = requests.post(
+        f"{BASE_URL}/run-task",
+        headers=HEADERS,
+        json={"task": instructions}
+    )
+    return response.json()["id"]
+
+def get_task_status(task_id):
+    """Get current task status"""
+    response = requests.get(
+        f"{BASE_URL}/task/{task_id}/status",
+        headers=HEADERS
+    )
+    return response.json()
+
+def get_task_details(task_id):
+    """Get full task details including output"""
+    response = requests.get(
+        f"{BASE_URL}/task/{task_id}",
+        headers=HEADERS
+    )
+    return response.json()
+
+def wait_for_completion(task_id, poll_interval=2):
+    """Poll task status until completion"""
+    while True:
+        status = get_task_status(task_id)
+        if status in ["finished", "failed", "stopped"]:
+            return get_task_details(task_id)
+        time.sleep(poll_interval)
+```
+
+## Task Control Example
+
+Here's how to implement task control with pause/resume functionality:
+
+```python
+def control_task():
+    # Create a new task
+    task_id = create_task("Go to google.com and search for Browser Use")
+
+    # Wait for 5 seconds
+    time.sleep(5)
+
+    # Pause the task
+    requests.put(f"{BASE_URL}/pause-task?task_id={task_id}", headers=HEADERS)
+    print("Task paused! Check the live preview.")
+
+    # Wait for user input
+    input("Press Enter to resume...")
+
+    # Resume the task
+    requests.put(f"{BASE_URL}/resume-task?task_id={task_id}", headers=HEADERS)
+
+    # Wait for completion
+    result = wait_for_completion(task_id)
+    print(f"Task completed with output: {result['output']}")
+```
+
+<Note>
+  Remember to handle your API key securely and implement proper error handling
+  in production code.
+</Note>

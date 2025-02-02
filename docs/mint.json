@@ -45,10 +45,7 @@
   "navigation": [
     {
       "group": "Get Started",
-      "pages": [
-        "introduction",
-        "quickstart"
-      ]
+      "pages": ["introduction", "quickstart"]
     },
     {
       "group": "Customize",
@@ -71,6 +68,10 @@
         "development/observability",
         "development/roadmap"
       ]
+    },
+    {
+      "group": "Cloud API",
+      "pages": ["cloud-api/quistart", "cloud-api/implementation"]
     }
   ],
   "footerSocials": {
