@@ -38,7 +38,7 @@
   "tabs": [
     {
       "name": "Cloud API",
-      "url": "/cloud-api",
+      "url": "/cloud",
       "openapi": "https://api.browser-use.com/openapi.json"
     }
   ],
@@ -71,7 +71,7 @@
     },
     {
       "group": "Cloud API",
-      "pages": ["cloud-api/quistart", "cloud-api/implementation"]
+      "pages": ["cloud/quistart", "cloud/implementation"]
     }
   ],
   "footerSocials": {
