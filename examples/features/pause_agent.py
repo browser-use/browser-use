@@ -16,7 +16,8 @@ class AgentController:
 	def __init__(self):
 		llm = ChatOpenAI(model='gpt-4o')
 		self.agent = Agent(
-			task="Go to wikipedia.org and search for 'Python programming language', then read the first paragraph", llm=llm
+			task='open in one action https://www.google.com, https://www.wikipedia.org, https://www.youtube.com, https://www.github.com, https://amazon.com',
+			llm=llm,
 		)
 		self.running = False
 

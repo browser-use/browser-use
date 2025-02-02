@@ -82,11 +82,12 @@ class MessageManager:
 				'name': 'AgentOutput',
 				'args': {
 					'current_state': {
-						'evaluation_previous_goal': 'Success - No previous actions to evaluate.',
-						'memory': 'Starting with the new task 0/10 done',
-						'next_goal': 'Start browser',
+						'page_summary': 'On the page are company a,b,c wtih their revenue 1,2,3.',
+						'evaluation_previous_goal': 'Success - I opend the first page',
+						'memory': 'Starting with the new task. I have completed 1/10 steps',
+						'next_goal': 'Click on company a',
 					},
-					'action': [],
+					'action': [{'click_element': {'index': 0}}],
 				},
 				'id': str(self.tool_id),
 				'type': 'tool_call',
@@ -106,7 +107,7 @@ class MessageManager:
 
 		self.tool_id += 1
 
-		placeholder_message = HumanMessage(content='Task history starts here:')
+		placeholder_message = HumanMessage(content='[Your task history memory starts here]')
 		self._add_message_with_tokens(placeholder_message)
 
 	@staticmethod

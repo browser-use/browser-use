@@ -235,6 +235,12 @@ class Agent:
 	def add_new_task(self, new_task: str) -> None:
 		self.message_manager.add_new_task(new_task)
 
+	def _check_if_stopped_or_paused(self) -> bool:
+		if self._stopped or self._paused:
+			logger.debug('Agent paused after getting state')
+			raise InterruptedError
+		return False
+
 	@time_execution_async('--step')
 	async def step(self, step_info: Optional[AgentStepInfo] = None) -> None:
 		"""Execute one step of the task"""
@@ -246,12 +252,12 @@ class Agent:
 		try:
 			state = await self.browser_context.get_state()
 
-			if self._stopped or self._paused:
-				logger.debug('Agent paused after getting state')
-				raise InterruptedError
+			self._check_if_stopped_or_paused()
 
 			self.message_manager.add_state_message(state, self._last_result, step_info, self.use_vision)
 			input_messages = self.message_manager.get_messages()
+
+			self._check_if_stopped_or_paused()
 
 			try:
 				model_output = await self.get_next_action(input_messages)
@@ -262,9 +268,7 @@ class Agent:
 				self._save_conversation(input_messages, model_output)
 				self.message_manager._remove_last_state_message()  # we dont want the whole state in the chat history
 
-				if self._stopped or self._paused:
-					logger.debug('Agent paused after getting next action')
-					raise InterruptedError
+				self._check_if_stopped_or_paused()
 
 				self.message_manager.add_model_output(model_output)
 			except Exception as e:
@@ -277,6 +281,7 @@ class Agent:
 				self.browser_context,
 				page_extraction_llm=self.page_extraction_llm,
 				sensitive_data=self.sensitive_data,
+				check_break_if_paused=lambda: self._check_if_stopped_or_paused(),
 			)
 			self._last_result = result
 
@@ -287,6 +292,11 @@ class Agent:
 
 		except InterruptedError:
 			logger.debug('Agent paused')
+			self._last_result = [
+				ActionResult(
+					error='The agent was paused - now continuing actions might need to be repeated', include_in_memory=True
+				)
+			]
 			return
 		except Exception as e:
 			result = await self._handle_step_error(e)
@@ -412,7 +422,7 @@ class Agent:
 			emoji = '⚠'
 		else:
 			emoji = '🤷'
-
+		logger.debug(f'🤖 {emoji} Page summary: {response.current_state.page_summary}')
 		logger.info(f'{emoji} Eval: {response.current_state.evaluation_previous_goal}')
 		logger.info(f'🧠 Memory: {response.current_state.memory}')
 		logger.info(f'🎯 Next goal: {response.current_state.next_goal}')
@@ -488,6 +498,7 @@ class Agent:
 					self.browser_context,
 					check_for_new_elements=False,
 					page_extraction_llm=self.page_extraction_llm,
+					check_break_if_paused=lambda: self._check_if_stopped_or_paused(),
 				)
 				self._last_result = result
 
