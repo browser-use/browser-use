@@ -17,6 +17,13 @@ class ClickElementAction(BaseModel):
 	xpath: Optional[str] = None
 
 
+class EvaluateJSAction(BaseModel):
+    code: str
+
+class HoverAction(BaseModel):
+    index: int
+    xpath: Optional[str] = None
+
 class InputTextAction(BaseModel):
 	index: int
 	text: str

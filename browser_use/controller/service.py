@@ -12,7 +12,9 @@ from browser_use.controller.registry.service import Registry
 from browser_use.controller.views import (
 	ClickElementAction,
 	DoneAction,
+	EvaluateJSAction,
 	GoToUrlAction,
+	HoverAction,
 	InputTextAction,
 	NoParamsAction,
 	OpenTabAction,
@@ -119,6 +121,57 @@ class Controller:
 			except Exception as e:
 				logger.warning(f'Element not clickable with index {params.index} - most likely the page changed')
 				return ActionResult(error=str(e))
+
+		@self.registry.action(
+			'Evaluate JavaScript on page',
+			param_model=EvaluateJSAction,  # Define this model with a field "code: str"
+		)
+		async def evaluate_js(params: EvaluateJSAction, browser: BrowserContext):
+			"""
+			Executes arbitrary JavaScript code on the current page.
+			Example usage: code = 'alert("alert")'
+			"""
+			page = await browser.get_current_page()
+			try:
+				result = await page.evaluate(params.code)
+				msg = f'✅ Executed JavaScript. Result: {result}'
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True)
+			except Exception as e:
+				err_msg = f'❌ Failed to execute JavaScript: {str(e)}'
+				logger.error(err_msg)
+				raise Exception(err_msg)
+
+
+		@self.registry.action(
+			'Hover over an element',
+			param_model=HoverAction,  # Define this model with at least "index: int" field
+		)
+		async def hover_element(params: HoverAction, browser: BrowserContext):
+			"""
+			Hovers over the element specified by its index from the cached selector map.
+			"""
+			session = await browser.get_session()
+			state = session.cached_state
+
+			if params.index not in state.selector_map:
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+			
+			element_node = state.selector_map[params.index]
+			element_handle = await browser.get_locate_element(element_node)
+			if element_handle is None:
+				raise Exception(f'Failed to locate element with index {params.index}')
+			
+			try:
+				await element_handle.hover()
+				msg = f'🖱️ Hovered over element at index {params.index}'
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True)
+			except Exception as e:
+				err_msg = f'❌ Failed to hover over element: {str(e)}'
+				logger.error(err_msg)
+				raise Exception(err_msg)
+
 
 		@self.registry.action(
 			'Input text into a input interactive element',

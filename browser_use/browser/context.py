@@ -11,7 +11,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, Optional, TypedDict
 
 from playwright.async_api import Browser as PlaywrightBrowser
 from playwright.async_api import (
@@ -1137,3 +1137,34 @@ class BrowserContext:
 			screenshot=None,
 			tabs=[],
 		)
+
+	async def evaluate_code(self, code: str) -> Any:
+		"""
+		Executes the provided JavaScript code on the current page.
+		Example usage:
+		    await browser_context.evaluate_code('alert("alert")')
+		"""
+		page = await self.get_current_page()
+		return await page.evaluate(code)
+
+	async def hover_element_action(self, action) -> None:
+		"""
+		Hovers over an element specified by either its index from the cached state or directly by its xpath.
+		If the HoverAction contains an `xpath`, it will be used to locate the element; otherwise, the element at `index`
+		from the cached state's selector map is used.
+		"""
+		page = await self.get_current_page()
+		element_handle = None
+		# If an xpath is provided, use it directly.
+		if getattr(action, "xpath", None):
+			element_handle = await page.query_selector(action.xpath)
+		else:
+			# Otherwise, use the element index from the cached state.
+			state = await self.get_state()
+			if action.index not in state.selector_map:
+				raise Exception(f'Element index {action.index} does not exist.')
+			element_node = state.selector_map[action.index]
+			element_handle = await self.get_locate_element(element_node)
+		if element_handle is None:
+			raise Exception('Failed to locate the element to hover over.')
+		await element_handle.hover()
