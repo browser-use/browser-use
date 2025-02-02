@@ -19,22 +19,26 @@ class ClickElementAction(BaseModel):
 class OpenGoogleSpreadsheetAction(BaseModel):
     url: str
     
-class ReadSpreadsheetAction(BaseModel):
+class ReadSpreadsheetAction(OpenGoogleSpreadsheetAction):
     pass
 
-class AddRowAction(BaseModel):
+class AddRowAction(OpenGoogleSpreadsheetAction):
     pass
 
-class InsertValueAction(BaseModel):
+class InsertValueAction(OpenGoogleSpreadsheetAction):
     cell: str    # e.g., "B2"
     value: str
 
-class InsertFunctionAction(BaseModel):
+class InsertFunctionAction(OpenGoogleSpreadsheetAction):
     cell: str       # e.g., "C3"
     function: str   # e.g., "=SUM(A1:A10)"
 
-class DeleteRowAction(BaseModel):
+class DeleteRowAction(OpenGoogleSpreadsheetAction):
     row: int   # The 1-indexed row number to delete
+    
+class DeleteRowsAction(OpenGoogleSpreadsheetAction):
+    start_row: int   # The 1-indexed row number to delete
+    end_row: int	 # The last row number to be deleted
 
 class InputTextAction(BaseModel):
 	index: int

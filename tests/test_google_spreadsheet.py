@@ -29,28 +29,20 @@ controller = Controller()
 @pytest.mark.skip(reason="This is for local testing only")
 async def test_google_spreadsheet_actions_agent():
     """
-    Test the Google Spreadsheet actions via an agent.
-
-    This test performs the following actions:
-      1. Opens a Google Spreadsheet.
-      2. Inserts a value into cell B2.
-      3. Inserts a function into cell C3.
-      4. Updates a range starting at D2 with multiple values.
-      5. Adds a new row.
-      6. Deletes row 4.
-
-    Since the Google Sheets UI does not expose cell coordinates as simple aria-labels,
-    we verify that the expected text ("Test Value") appears somewhere in a gridcell.
+    GOOGLE_CREDENTIALS_JSON must be set in .env with the path to google's credentials.json file.
     """
     # Replace with your actual spreadsheet URL.
     spreadsheet_url = "https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit"
+    
+    # Each action now expects at least the 'url'. (If you want to use a sheet
+    # other than the default "Sheet1", include a "sheet_name" parameter.)
     initial_actions = [
         {"open_google_spreadsheet": {"url": spreadsheet_url}},
-        {"insert_value": {"cell": "C2", "value": "3"}},
-        {"insert_value": {"cell": "D2", "value": "5"}},
-        {"insert_function": {"cell": "E2", "function": "=SUM(C2:D2)"}},
-        {"add_row": {}},
-        {"delete_row": {"row": 2}},
+        {"insert_value": {"url": spreadsheet_url, "cell": "C2", "value": "3"}},
+        {"insert_value": {"url": spreadsheet_url, "cell": "D2", "value": "5"}},
+        {"insert_function": {"url": spreadsheet_url, "cell": "E2", "function": "=SUM(C2:D2)"}},
+        {"add_row": {"url": spreadsheet_url}},
+        {"delete_row": {"url": spreadsheet_url, "row": 2}},
     ]
     
     # Set up the browser context.
@@ -60,8 +52,8 @@ async def test_google_spreadsheet_actions_agent():
     
     # Create the agent with the task.
     agent = Agent(
-        task="""
-        1. Write these 3 companies into my Google Sheet: Tesla, Meta, Microsoft.
+        task=f"""
+        1. Open the spreadsheet {spreadsheet_url} and insert values: Tesla in A1, Meta in A2 and Microsoft in A3.
         2. Read this Google Sheet with a list of companies, do a Google search for the first one, and write the website link back into Google Sheets next to the company name.
         """,
         llm=llm,
