@@ -74,20 +74,7 @@ async def test_google_spreadsheet_actions_agent():
     history: AgentHistoryList = await agent.run()
     action_names = history.action_names()
     
-    # # Ensure that all expected actions were executed.
-    # for expected_action in ["open_google_spreadsheet", "insert_value", "insert_function", "update_range", "add_row", "delete_row"]:
-    #     assert expected_action in action_names, f"Expected {expected_action} action to be executed."
-    
-    # # Instead of using a cell coordinate-based selector, search for a grid cell that contains "Test Value".
-    # page = await context.get_current_page()
-    # # This locator finds a cell (with role "gridcell") that includes the text "Test Value".
-    # cell_locator = page.locator("div[role='gridcell'] >> text='Test Value'")
-    # # Wait for up to a few seconds for the cell to appear.
-    # await cell_locator.wait_for(timeout=5000)
-    
-    # # Verify that at least one cell with "Test Value" is visible.
-    # assert await cell_locator.count() > 0, "Expected to find a gridcell containing 'Test Value'."
-    
+    assert "open_google_spreadsheet" in action_names, "Expected open_google_spreadsheet action to be executed."
     await context.close()
 
 
