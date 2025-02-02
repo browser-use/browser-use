@@ -43,7 +43,7 @@ async def test_google_spreadsheet_actions_agent():
     we verify that the expected text ("Test Value") appears somewhere in a gridcell.
     """
     # Replace with your actual spreadsheet URL.
-    spreadsheet_url = "https://docs.google.com/spreadsheets/d/1BhNiBqWiX6u6q61zaXvDC_L9RHf_QJEqXIqQhTSYh0k/edit"
+    spreadsheet_url = "https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit"
     initial_actions = [
         {"open_google_spreadsheet": {"url": spreadsheet_url}},
         {"insert_value": {"cell": "C2", "value": "3"}},
