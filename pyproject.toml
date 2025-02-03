@@ -44,13 +44,20 @@ dev = [
 
 [tool.ruff]
 line-length = 130
+
+[tool.ruff.lint]
 select = ["E", "F", "I"]
-fix = true
+extend-ignore = ["E501"]
 
 [tool.ruff.format]
 quote-style = "single"
 indent-style = "tab"
 docstring-code-format = true
+
+[tool.black]
+line-length = 130
+target-version = ["py311"]
+skip-string-normalization = true
 
 [build-system]
 requires = ["hatchling"]

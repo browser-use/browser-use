@@ -15,8 +15,8 @@ agent = Agent(task=task, llm=llm, page_extraction_llm=small_llm)
 
 
 async def main():
-	await agent.run()
+    await agent.run()
 
 
 if __name__ == '__main__':
-	asyncio.run(main())
+    asyncio.run(main())

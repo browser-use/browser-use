@@ -17,14 +17,14 @@ from browser_use import Agent
 
 llm = ChatOpenAI(model='gpt-4o')
 agent = Agent(
-	task='Go to amazon.com, search for laptop, sort by best rating, and give me the price of the first result',
-	llm=llm,
+    task='Go to amazon.com, search for laptop, sort by best rating, and give me the price of the first result',
+    llm=llm,
 )
 
 
 async def main():
-	await agent.run(max_steps=10)
-	input('Press Enter to continue...')
+    await agent.run(max_steps=10)
+    input('Press Enter to continue...')
 
 
 asyncio.run(main())

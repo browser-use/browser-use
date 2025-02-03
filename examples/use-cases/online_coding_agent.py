@@ -9,6 +9,7 @@ import asyncio
 
 from browser_use import Agent, Browser, Controller
 
+
 async def main():
     browser = Browser()
     async with await browser.new_context() as context:
@@ -34,5 +35,6 @@ async def main():
         await agent1.run()
         await executor.run()
         await coder.run()
+
 
 asyncio.run(main())

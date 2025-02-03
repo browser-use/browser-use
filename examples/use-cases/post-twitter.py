@@ -51,7 +51,7 @@ class TwitterConfig:
 # Customize these settings
 config = TwitterConfig(
     openai_api_key=os.getenv("OPENAI_API_KEY"),
-    chrome_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", # This is for MacOS (Chrome)
+    chrome_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",  # This is for MacOS (Chrome)
     target_user="XXXXX",
     message="XXXXX",
     reply_url="XXXXX",
@@ -117,6 +117,7 @@ async def post_tweet(agent: Agent):
 def main():
     agent = create_twitter_agent(config)
     asyncio.run(post_tweet(agent))
+
 
 if __name__ == "__main__":
     main()

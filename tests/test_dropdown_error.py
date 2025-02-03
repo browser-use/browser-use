@@ -21,23 +21,21 @@ llm = ChatOpenAI(model='gpt-4o')
 # browser = Browser(config=BrowserConfig(headless=False))
 
 agent = Agent(
-	task=(
-		'go to https://codepen.io/shyam-king/pen/emOyjKm and select number "4" and return the output of "selected value"'
-	),
-	llm=llm,
-	browser_context=BrowserContext(
-		browser=Browser(config=BrowserConfig(headless=False, disable_security=True)),
-	),
+    task=('go to https://codepen.io/shyam-king/pen/emOyjKm and select number "4" and return the output of "selected value"'),
+    llm=llm,
+    browser_context=BrowserContext(
+        browser=Browser(config=BrowserConfig(headless=False, disable_security=True)),
+    ),
 )
 
 
 async def test_dropdown():
-	history: AgentHistoryList = await agent.run(20)
-	# await controller.browser.close(force=True)
+    history: AgentHistoryList = await agent.run(20)
+    # await controller.browser.close(force=True)
 
-	result = history.final_result()
-	assert result is not None
-	assert '4' in result
-	print(result)
+    result = history.final_result()
+    assert result is not None
+    assert '4' in result
+    print(result)
 
-	# await browser.close()
+    # await browser.close()

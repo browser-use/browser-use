@@ -16,11 +16,19 @@ logger = logging.getLogger('slack')
 
 app = FastAPI()
 
+
 class SlackBot:
-    def __init__(self, llm: BaseChatModel, bot_token: str, signing_secret: str, ack: bool = False, browser_config: BrowserConfig = BrowserConfig(headless=True)):
+    def __init__(
+        self,
+        llm: BaseChatModel,
+        bot_token: str,
+        signing_secret: str,
+        ack: bool = False,
+        browser_config: BrowserConfig = BrowserConfig(headless=True),
+    ):
         if not bot_token or not signing_secret:
             raise ValueError("Bot token and signing secret must be provided")
-        
+
         self.llm = llm
         self.ack = ack
         self.browser_config = browser_config
@@ -47,10 +55,12 @@ class SlackBot:
             text = event.get('text')
             user_id = event.get('user')
             if text and text.startswith('$bu '):
-                task = text[len('$bu '):].strip()
+                task = text[len('$bu ') :].strip()
                 if self.ack:
                     try:
-                        await self.send_message(event['channel'], f'<@{user_id}> Starting browser use task...', thread_ts=event.get('ts'))
+                        await self.send_message(
+                            event['channel'], f'<@{user_id}> Starting browser use task...', thread_ts=event.get('ts')
+                        )
                     except Exception as e:
                         logger.error(f"Error sending start message: {e}")
 
@@ -86,6 +96,7 @@ class SlackBot:
             await self.client.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts)
         except SlackApiError as e:
             logger.error(f"Error sending message: {e.response['error']}")
+
 
 @app.post("/slack/events")
 async def slack_events(request: Request, slack_bot: SlackBot = Depends()):

@@ -13,13 +13,13 @@ from browser_use.controller.service import Controller as Controller
 from browser_use.dom.service import DomService as DomService
 
 __all__ = [
-	'Agent',
-	'Browser',
-	'BrowserConfig',
-	'Controller',
-	'DomService',
-	'SystemPrompt',
-	'ActionResult',
-	'ActionModel',
-	'AgentHistoryList',
+    'Agent',
+    'Browser',
+    'BrowserConfig',
+    'Controller',
+    'DomService',
+    'SystemPrompt',
+    'ActionResult',
+    'ActionModel',
+    'AgentHistoryList',
 ]

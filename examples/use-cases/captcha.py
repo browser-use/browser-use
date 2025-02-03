@@ -19,14 +19,14 @@ from browser_use import Agent
 # for this example it helps to zoom in.
 llm = ChatOpenAI(model='gpt-4o')
 agent = Agent(
-	task='go to https://captcha.com/demos/features/captcha-demo.aspx and solve the captcha',
-	llm=llm,
+    task='go to https://captcha.com/demos/features/captcha-demo.aspx and solve the captcha',
+    llm=llm,
 )
 
 
 async def main():
-	await agent.run()
-	input('Press Enter to exit')
+    await agent.run()
+    input('Press Enter to exit')
 
 
 asyncio.run(main())

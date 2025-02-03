@@ -47,7 +47,11 @@ browser = Browser(
 )
 
 agent = Agent(
-    task=args.query, llm=llm, controller=Controller(), browser=browser, validate_output=True,
+    task=args.query,
+    llm=llm,
+    controller=Controller(),
+    browser=browser,
+    validate_output=True,
 )
 
 

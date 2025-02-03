@@ -46,23 +46,23 @@ load_dotenv()
 # load credentials from environment variables
 bot_token = os.getenv('DISCORD_BOT_TOKEN')
 if not bot_token:
-	raise ValueError('Discord bot token not found in .env file.')
+    raise ValueError('Discord bot token not found in .env file.')
 
 api_key = os.getenv('GEMINI_API_KEY')
 if not api_key:
-	raise ValueError('GEMINI_API_KEY is not set')
+    raise ValueError('GEMINI_API_KEY is not set')
 
 llm = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=SecretStr(api_key))
 
 bot = DiscordBot(
-	llm=llm,  # required; instance of BaseChatModel
-	prefix='$bu',  # optional; prefix of messages to trigger browser-use, defaults to "$bu"
-	ack=True,  # optional; whether to acknowledge task receipt with a message, defaults to False
-	browser_config=BrowserConfig(
-		headless=False
-	),  # optional; useful for changing headless mode or other browser configs, defaults to headless mode
+    llm=llm,  # required; instance of BaseChatModel
+    prefix='$bu',  # optional; prefix of messages to trigger browser-use, defaults to "$bu"
+    ack=True,  # optional; whether to acknowledge task receipt with a message, defaults to False
+    browser_config=BrowserConfig(
+        headless=False
+    ),  # optional; useful for changing headless mode or other browser configs, defaults to headless mode
 )
 
 bot.run(
-	token=bot_token,  # required; Discord bot token
+    token=bot_token,  # required; Discord bot token
 )
