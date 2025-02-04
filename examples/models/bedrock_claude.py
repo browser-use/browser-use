@@ -7,20 +7,16 @@ Automated news analysis and sentiment scoring using Bedrock.
 import os
 import sys
 
-from langchain_aws import ChatBedrock
-
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import argparse
 import asyncio
 
-from browser_use import Agent
-from browser_use.browser.browser import Browser, BrowserConfig
-from browser_use.controller.service import Controller
+from browser_use import LLM, Agent, Browser, BrowserConfig, Controller
 
 
 def get_llm():
-    return ChatBedrock(
-        model_id="us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+    return LLM(
+        model="bedrock/us.anthropic.claude-3-5-sonnet-20241022-v2:0",
         temperature=0.0,
         max_tokens=None,
     )
@@ -35,7 +31,7 @@ task = (
 )
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--query', type=str, help='The query for the agent to execute', default=task)
+parser.add_argument("--query", type=str, help="The query for the agent to execute", default=task)
 args = parser.parse_args()
 
 llm = get_llm()
@@ -47,7 +43,11 @@ browser = Browser(
 )
 
 agent = Agent(
-    task=args.query, llm=llm, controller=Controller(), browser=browser, validate_output=True,
+    task=args.query,
+    llm=llm,
+    controller=Controller(),
+    browser=browser,
+    validate_output=True,
 )
 
 

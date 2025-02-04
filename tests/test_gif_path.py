@@ -16,28 +16,25 @@ from langchain_openai import ChatOpenAI
 
 from browser_use import Agent, AgentHistoryList, Controller
 
-llm = ChatOpenAI(model='gpt-4o')
+llm = ChatOpenAI(model="gpt-4o")
 
 agent = Agent(
-	task=(
-		'go to google.com and search for text "hi there"'
-	),
-	llm=llm,
-	browser_context=BrowserContext(
-		browser=Browser(config=BrowserConfig(headless=False, disable_security=True)),
-	),
-	generate_gif="./google.gif"
+    task=('go to google.com and search for text "hi there"'),
+    llm=llm,
+    browser_context=BrowserContext(
+        browser=Browser(config=BrowserConfig(headless=False, disable_security=True)),
+    ),
+    generate_gif="./google.gif",
 )
 
 
 async def test_gif_path():
-	if os.path.exists("./google.gif"):
-		os.unlink("./google.gif")
+    if os.path.exists("./google.gif"):
+        os.unlink("./google.gif")
 
-	history: AgentHistoryList = await agent.run(20)
+    history: AgentHistoryList = await agent.run(20)
 
-	result = history.final_result()
-	assert result is not None
+    result = history.final_result()
+    assert result is not None
 
-	assert os.path.exists("./google.gif"), "google.gif was not created"
-
+    assert os.path.exists("./google.gif"), "google.gif was not created"

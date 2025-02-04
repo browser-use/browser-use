@@ -17,20 +17,18 @@ reply_url="XXXXX"
 Any issues, contact me on X @defichemist95
 """
 
+import asyncio
 import os
 import sys
-from typing import Optional
 from dataclasses import dataclass
+
 from dotenv import load_dotenv
+
+from browser_use import LLM, Agent, Browser, BrowserConfig, Controller
 
 load_dotenv()
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import asyncio
-from langchain_openai import ChatOpenAI
-from browser_use.browser.browser import Browser, BrowserConfig
-from browser_use import Agent, Controller
 
 
 # ============ Configuration Section ============
@@ -38,7 +36,6 @@ from browser_use import Agent, Controller
 class TwitterConfig:
     """Configuration for Twitter posting"""
 
-    openai_api_key: str
     chrome_path: str
     target_user: str  # Twitter handle without @
     message: str
@@ -50,8 +47,7 @@ class TwitterConfig:
 
 # Customize these settings
 config = TwitterConfig(
-    openai_api_key=os.getenv("OPENAI_API_KEY"),
-    chrome_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", # This is for MacOS (Chrome)
+    chrome_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",  # This is for MacOS (Chrome)
     target_user="XXXXX",
     message="XXXXX",
     reply_url="XXXXX",
@@ -60,8 +56,7 @@ config = TwitterConfig(
 
 
 def create_twitter_agent(config: TwitterConfig) -> Agent:
-
-    llm = ChatOpenAI(model=config.model, api_key=config.openai_api_key)
+    llm = LLM(model="openai/gpt-4o")
 
     browser = Browser(
         config=BrowserConfig(
@@ -105,7 +100,6 @@ def create_twitter_agent(config: TwitterConfig) -> Agent:
 
 
 async def post_tweet(agent: Agent):
-
     try:
         await agent.run(max_steps=100)
         agent.create_history_gif()
@@ -117,6 +111,7 @@ async def post_tweet(agent: Agent):
 def main():
     agent = create_twitter_agent(config)
     asyncio.run(post_tweet(agent))
+
 
 if __name__ == "__main__":
     main()

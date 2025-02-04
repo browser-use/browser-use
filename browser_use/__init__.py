@@ -9,17 +9,23 @@ from browser_use.agent.views import ActionResult as ActionResult
 from browser_use.agent.views import AgentHistoryList as AgentHistoryList
 from browser_use.browser.browser import Browser as Browser
 from browser_use.browser.browser import BrowserConfig as BrowserConfig
+from browser_use.browser.context import BrowserContext as BrowserContext
+from browser_use.browser.context import BrowserContextConfig as BrowserContextConfig
 from browser_use.controller.service import Controller as Controller
 from browser_use.dom.service import DomService as DomService
+from browser_use.llm import LLM as LLM
 
 __all__ = [
-	'Agent',
-	'Browser',
-	'BrowserConfig',
-	'Controller',
-	'DomService',
-	'SystemPrompt',
-	'ActionResult',
-	'ActionModel',
-	'AgentHistoryList',
+    "Agent",
+    "Browser",
+    "BrowserContext",
+    "BrowserConfig",
+    "BrowserContextConfig",
+    "Controller",
+    "DomService",
+    "SystemPrompt",
+    "ActionResult",
+    "ActionModel",
+    "AgentHistoryList",
+    "LLM",
 ]

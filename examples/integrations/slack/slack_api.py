@@ -1,26 +1,39 @@
 import logging
-from browser_use import BrowserConfig
-from fastapi import FastAPI, Request, HTTPException, Depends
+
 from dotenv import load_dotenv
-from slack_sdk.web.async_client import AsyncWebClient
+from fastapi import Depends, FastAPI, HTTPException, Request
 from slack_sdk.errors import SlackApiError
 from slack_sdk.signature import SignatureVerifier
-from browser_use.agent.service import Agent, Browser
-from langchain_core.language_models.chat_models import BaseChatModel
+from slack_sdk.web.async_client import AsyncWebClient
+
+from browser_use import (
+    LLM,
+    Agent,
+    Browser,
+    BrowserConfig,
+)
 from browser_use.logging_config import setup_logging
 
 load_dotenv()
 
 setup_logging()
-logger = logging.getLogger('slack')
+logger = logging.getLogger("slack")
 
 app = FastAPI()
 
+
 class SlackBot:
-    def __init__(self, llm: BaseChatModel, bot_token: str, signing_secret: str, ack: bool = False, browser_config: BrowserConfig = BrowserConfig(headless=True)):
+    def __init__(
+        self,
+        llm: LLM,
+        bot_token: str,
+        signing_secret: str,
+        ack: bool = False,
+        browser_config: BrowserConfig = BrowserConfig(headless=True),
+    ):
         if not bot_token or not signing_secret:
             raise ValueError("Bot token and signing secret must be provided")
-        
+
         self.llm = llm
         self.ack = ack
         self.browser_config = browser_config
@@ -41,24 +54,36 @@ class SlackBot:
                 return
             self.processed_events.add(event_id)
 
-            if 'subtype' in event and event['subtype'] == 'bot_message':
+            if "subtype" in event and event["subtype"] == "bot_message":
                 return
 
-            text = event.get('text')
-            user_id = event.get('user')
-            if text and text.startswith('$bu '):
-                task = text[len('$bu '):].strip()
+            text = event.get("text")
+            user_id = event.get("user")
+            if text and text.startswith("$bu "):
+                task = text[len("$bu ") :].strip()
                 if self.ack:
                     try:
-                        await self.send_message(event['channel'], f'<@{user_id}> Starting browser use task...', thread_ts=event.get('ts'))
+                        await self.send_message(
+                            event["channel"],
+                            f"<@{user_id}> Starting browser use task...",
+                            thread_ts=event.get("ts"),
+                        )
                     except Exception as e:
                         logger.error(f"Error sending start message: {e}")
 
                 try:
                     agent_message = await self.run_agent(task)
-                    await self.send_message(event['channel'], f'<@{user_id}> {agent_message}', thread_ts=event.get('ts'))
+                    await self.send_message(
+                        event["channel"],
+                        f"<@{user_id}> {agent_message}",
+                        thread_ts=event.get("ts"),
+                    )
                 except Exception as e:
-                    await self.send_message(event['channel'], f'Error during task execution: {str(e)}', thread_ts=event.get('ts'))
+                    await self.send_message(
+                        event["channel"],
+                        f"Error during task execution: {str(e)}",
+                        thread_ts=event.get("ts"),
+                    )
         except Exception as e:
             logger.error(f"Error in handle_event: {str(e)}")
 
@@ -73,19 +98,20 @@ class SlackBot:
                 agent_message = result.history[-1].result[0].extracted_content
 
             if agent_message is None:
-                agent_message = 'Oops! Something went wrong while running Browser-Use.'
+                agent_message = "Oops! Something went wrong while running Browser-Use."
 
             return agent_message
 
         except Exception as e:
             logger.error(f"Error during task execution: {str(e)}")
-            return f'Error during task execution: {str(e)}'
+            return f"Error during task execution: {str(e)}"
 
     async def send_message(self, channel, text, thread_ts=None):
         try:
             await self.client.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts)
         except SlackApiError as e:
             logger.error(f"Error sending message: {e.response['error']}")
+
 
 @app.post("/slack/events")
 async def slack_events(request: Request, slack_bot: SlackBot = Depends()):
@@ -96,12 +122,12 @@ async def slack_events(request: Request, slack_bot: SlackBot = Depends()):
 
         event_data = await request.json()
         logger.info(f"Received event data: {event_data}")
-        if 'challenge' in event_data:
-            return {"challenge": event_data['challenge']}
+        if "challenge" in event_data:
+            return {"challenge": event_data["challenge"]}
 
-        if 'event' in event_data:
+        if "event" in event_data:
             try:
-                await slack_bot.handle_event(event_data.get('event'), event_data.get('event_id'))
+                await slack_bot.handle_event(event_data.get("event"), event_data.get("event_id"))
             except Exception as e:
                 logger.error(f"Error handling event: {str(e)}")
 

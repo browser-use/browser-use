@@ -7,16 +7,19 @@
 # os.environ["OLLAMA_HOST"] = "http://x.x.x.x:11434"
 
 import asyncio
-from browser_use import Agent
-from browser_use.agent.views import AgentHistoryList
-from langchain_ollama import ChatOllama
+
+from browser_use import (
+    LLM,
+    Agent,
+    AgentHistoryList,
+)
 
 
 async def run_search() -> AgentHistoryList:
     agent = Agent(
         task="Search for a 'browser use' post on the r/LocalLLaMA subreddit and open it.",
-        llm=ChatOllama(
-            model="qwen2.5:32b-instruct-q4_K_M",
+        llm=LLM(
+            model="ollama/qwen2.5:32b-instruct-q4_K_M",
             num_ctx=32000,
         ),
     )

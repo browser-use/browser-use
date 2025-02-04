@@ -11,20 +11,21 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
 
-from langchain_openai import ChatOpenAI
-
-from browser_use import Agent
+from browser_use import (
+    LLM,
+    Agent,
+)
 
 # video: https://preview.screen.studio/share/clenCmS6
-llm = ChatOpenAI(model='gpt-4o')
+llm = LLM(model="openai/gpt-4o")
 agent = Agent(
-	task='open 3 tabs with elon musk, trump, and steve jobs, then go back to the first and stop',
-	llm=llm,
+    task="open 3 tabs with elon musk, trump, and steve jobs, then go back to the first and stop",
+    llm=llm,
 )
 
 
 async def main():
-	await agent.run()
+    await agent.run()
 
 
 asyncio.run(main())
