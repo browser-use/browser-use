@@ -17,12 +17,17 @@ dependencies = [
     "beautifulsoup4>=4.12.3",
     "httpx>=0.27.2",
     "langchain==0.3.14",
-    "langchain-openai==0.3.1",
+    "langchain-openai==0.3.2",
     "langchain-anthropic==0.3.3",
     "langchain-ollama==0.2.2",
-    "langchain-fireworks>=0.2.6",
-    "langchain-aws>=0.2.11",
     "langchain-google-genai==2.0.8",
+    "langchain-fireworks==0.2.6",
+    "langchain-aws==0.2.11",
+    "langchain-groq==0.2.3",
+    "langchain-google-vertexai==2.0.12",
+    "langchain-deepseek-official==0.1.0",
+    "langchain-together>=0.3.0",
+    "langchain-huggingface==0.1.2",
     "pydantic>=2.10.4",
     "python-dotenv>=1.0.1",
     "requests>=2.32.3",
@@ -30,7 +35,7 @@ dependencies = [
     "playwright>=1.49.0",
     "setuptools>=75.8.0",
     "lmnr[langchain]>=0.4.53",
-    "markdownify==0.14.1"
+    "markdownify==0.14.1",
 ]
 
 [project.optional-dependencies]
