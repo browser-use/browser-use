@@ -1049,7 +1049,7 @@ class BrowserContext:
 		element_handle = await self.get_locate_element(selector_map[index])
 		return element_handle
 
-	async def get_dom_element_by_index(self, index: int) -> DOMElementNode | None:
+	async def get_dom_element_by_index(self, index: int) -> DOMElementNode:
 		selector_map = await self.get_selector_map()
 		return selector_map[index]
 

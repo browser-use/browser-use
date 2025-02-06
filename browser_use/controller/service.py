@@ -5,6 +5,7 @@ import os
 from typing import Callable, Dict, Optional, Type
 
 from langchain_core.prompts import PromptTemplate
+from lmnr import Laminar, observe
 from pydantic import BaseModel
 
 import gspread
@@ -69,7 +70,7 @@ class Controller:
 
 		# Basic Navigation Actions
 		@self.registry.action(
-			'Search Google in the current tab',
+			'Search the query in Google in the current tab, the query should be a search query like humans search in Google, concrete and not vague or super long. More the single most important items. ',
 			param_model=SearchGoogleAction,
 		)
 		async def search_google(params: SearchGoogleAction, browser: BrowserContext):
@@ -364,7 +365,7 @@ class Controller:
 			if params.amount is not None:
 				await page.evaluate(f'window.scrollBy(0, {params.amount});')
 			else:
-				await page.keyboard.press('PageDown')
+				await page.evaluate('window.scrollBy(0, window.innerHeight);')
 
 			amount = f'{params.amount} pixels' if params.amount is not None else 'one page'
 			msg = f'🔍  Scrolled down the page by {amount}'
@@ -384,7 +385,7 @@ class Controller:
 			if params.amount is not None:
 				await page.evaluate(f'window.scrollBy(0, -{params.amount});')
 			else:
-				await page.keyboard.press('PageUp')
+				await page.evaluate('window.scrollBy(0, -window.innerHeight);')
 
 			amount = f'{params.amount} pixels' if params.amount is not None else 'one page'
 			msg = f'🔍  Scrolled up the page by {amount}'
@@ -615,6 +616,7 @@ class Controller:
 		"""
 		return self.registry.action(description, **kwargs)
 
+	@observe(name='controller.multi_act')
 	@time_execution_async('--multi-act')
 	async def multi_act(
 		self,
@@ -624,6 +626,7 @@ class Controller:
 		check_for_new_elements: bool = True,
 		page_extraction_llm: Optional[BaseChatModel] = None,
 		sensitive_data: Optional[Dict[str, str]] = None,
+		available_file_paths: Optional[list[str]] = None,
 	) -> list[ActionResult]:
 		"""Execute multiple actions"""
 		results = []
@@ -644,12 +647,14 @@ class Controller:
 				new_path_hashes = set(e.hash.branch_path_hash for e in new_state.selector_map.values())
 				if check_for_new_elements and not new_path_hashes.issubset(cached_path_hashes):
 					# next action requires index but there are new elements on the page
-					logger.info(f'Something new appeared after action {i} / {len(actions)}')
+					msg = f'Something new appeared after action {i} / {len(actions)}'
+					logger.info(msg)
+					results.append(ActionResult(extracted_content=msg, include_in_memory=True))
 					break
 
 			check_break_if_paused()
 
-			results.append(await self.act(action, browser_context, page_extraction_llm, sensitive_data))
+			results.append(await self.act(action, browser_context, page_extraction_llm, sensitive_data, available_file_paths))
 
 			logger.debug(f'Executed action {i + 1} / {len(actions)}')
 			if results[-1].is_done or results[-1].error or i == len(actions) - 1:
@@ -667,19 +672,32 @@ class Controller:
 		browser_context: BrowserContext,
 		page_extraction_llm: Optional[BaseChatModel] = None,
 		sensitive_data: Optional[Dict[str, str]] = None,
+		available_file_paths: Optional[list[str]] = None,
 	) -> ActionResult:
 		"""Execute an action"""
+
 		try:
 			for action_name, params in action.model_dump(exclude_unset=True).items():
 				if params is not None:
-					# remove highlights
-					result = await self.registry.execute_action(
-						action_name,
-						params,
-						browser=browser_context,
-						page_extraction_llm=page_extraction_llm,
-						sensitive_data=sensitive_data,
-					)
+					with Laminar.start_as_current_span(
+						name=action_name,
+						input={
+							'action': action_name,
+							'params': params,
+						},
+						span_type='TOOL',
+					):
+						result = await self.registry.execute_action(
+							action_name,
+							params,
+							browser=browser_context,
+							page_extraction_llm=page_extraction_llm,
+							sensitive_data=sensitive_data,
+							available_file_paths=available_file_paths,
+						)
+
+						Laminar.set_span_output(result)
+
 					if isinstance(result, str):
 						return ActionResult(extracted_content=result)
 					elif isinstance(result, ActionResult):

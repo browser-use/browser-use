@@ -115,10 +115,20 @@ class MessageManager:
 		content = f'Your ultimate task is: """{task}""". If you achieved your ultimate task, stop everything and use the done action in the next step to complete the task. If not, continue as usual.'
 		return HumanMessage(content=content)
 
+	def add_file_paths(self, file_paths: list[str]) -> None:
+		content = f'Here are file paths you can use: {file_paths}'
+		msg = HumanMessage(content=content)
+		self._add_message_with_tokens(msg)
+
 	def add_new_task(self, new_task: str) -> None:
 		content = f'Your new ultimate task is: """{new_task}""". Take the previous context into account and finish your new ultimate task. '
 		msg = HumanMessage(content=content)
 		self._add_message_with_tokens(msg)
+
+	def add_plan(self, plan: Optional[str], position: Optional[int] = None) -> None:
+		if plan:
+			msg = AIMessage(content=plan)
+			self._add_message_with_tokens(msg, position)
 
 	def add_state_message(
 		self,
@@ -195,7 +205,7 @@ class MessageManager:
 
 		return msg
 
-	def _add_message_with_tokens(self, message: BaseMessage) -> None:
+	def _add_message_with_tokens(self, message: BaseMessage, position: Optional[int] = None) -> None:
 		"""Add message with token count metadata"""
 
 		# filter out sensitive data from the message
@@ -204,7 +214,7 @@ class MessageManager:
 
 		token_count = self._count_tokens(message)
 		metadata = MessageMetadata(input_tokens=token_count)
-		self.history.add_message(message, metadata)
+		self.history.add_message(message, metadata, position)
 
 	def _filter_sensitive_data(self, message: BaseMessage) -> BaseMessage:
 		"""Filter out sensitive data from the message"""
@@ -325,12 +335,12 @@ class MessageManager:
 				raise ValueError(f'Unknown message type: {type(message)}')
 		return output_messages
 
-	def merge_successive_human_messages(self, messages: list[BaseMessage]) -> list[BaseMessage]:
+	def merge_successive_messages(self, messages: list[BaseMessage], class_to_merge: Type[BaseMessage]) -> list[BaseMessage]:
 		"""Some models like deepseek-reasoner dont allow multiple human messages in a row. This function merges them into one."""
 		merged_messages = []
 		streak = 0
 		for message in messages:
-			if isinstance(message, HumanMessage):
+			if isinstance(message, class_to_merge):
 				streak += 1
 				if streak > 1:
 					if isinstance(message.content, list):

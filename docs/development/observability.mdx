@@ -22,7 +22,7 @@ To get your project API key, you can either:
 - Or spin up a local Laminar instance and get the key from the settings page
 
 ```bash
-pip install lmnr
+pip install 'lmnr[all]'
 export LMNR_PROJECT_API_KEY=<your-project-api-key>
 ```
 
@@ -56,6 +56,7 @@ You can view traces in the Laminar UI by going to the traces tab in your project
 When you select a trace, you can see both the browser session recording and the agent execution steps.
 
 Timeline of the browser session is synced with the agent execution steps, timeline highlights indicate the agent's current step synced with the browser session.
+In the trace view, you can also see the agent's current step, the tool it's using, and the tool's input and output. Tools are highlighted in the timeline with a yellow color.
 
 <img className="block" src="/images/laminar.png" alt="Laminar" />
 

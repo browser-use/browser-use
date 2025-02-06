@@ -32,7 +32,7 @@ class Registry:
 		params = {
 			name: (param.annotation, ... if param.default == param.empty else param.default)
 			for name, param in sig.parameters.items()
-			if name != 'browser' and name != 'page_extraction_llm'
+			if name != 'browser' and name != 'page_extraction_llm' and name != 'available_file_paths'
 		}
 		# TODO: make the types here work
 		return create_model(
@@ -88,6 +88,7 @@ class Registry:
 		browser: Optional[BrowserContext] = None,
 		page_extraction_llm: Optional[BaseChatModel] = None,
 		sensitive_data: Optional[Dict[str, str]] = None,
+		available_file_paths: Optional[list[str]] = None,
 	) -> Any:
 		"""Execute a registered action"""
 		if action_name not in self.registry.actions:
@@ -107,35 +108,23 @@ class Registry:
 			if sensitive_data:
 				validated_params = self._replace_sensitive_data(validated_params, sensitive_data)
 
+			if 'browser' in parameter_names and not browser:
+				raise ValueError(f'Action {action_name} requires browser but none provided.')
+			if 'page_extraction_llm' in parameter_names and not page_extraction_llm:
+				raise ValueError(f'Action {action_name} requires page_extraction_llm but none provided.')
+			if 'available_file_paths' in parameter_names and not available_file_paths:
+				raise ValueError(f'Action {action_name} requires available_file_paths but none provided.')
 			# Prepare arguments based on parameter type
-			if 'browser' in parameter_names and 'page_extraction_llm' in parameter_names:
-				if not browser:
-					raise ValueError(f'Action {action_name} requires browser but none provided.')
-				if not page_extraction_llm:
-					raise ValueError(f'Action {action_name} requires page_extraction_llm but none provided.')
-				if is_pydantic:
-					return await action.function(validated_params, browser=browser, page_extraction_llm=page_extraction_llm)
-				return await action.function(
-					**validated_params.model_dump(), browser=browser, page_extraction_llm=page_extraction_llm
-				)
-
+			extra_args = {}
 			if 'browser' in parameter_names:
-				if not browser:
-					raise ValueError(f'Action {action_name} requires browser but none provided.')
-				if is_pydantic:
-					return await action.function(validated_params, browser=browser)
-				return await action.function(**validated_params.model_dump(), browser=browser)
-
+				extra_args['browser'] = browser
 			if 'page_extraction_llm' in parameter_names:
-				if not page_extraction_llm:
-					raise ValueError(f'Action {action_name} requires page_extraction_llm but none provided.')
-				if is_pydantic:
-					return await action.function(validated_params, page_extraction_llm=page_extraction_llm)
-				return await action.function(**validated_params.model_dump(), page_extraction_llm=page_extraction_llm)
-
+				extra_args['page_extraction_llm'] = page_extraction_llm
+			if 'available_file_paths' in parameter_names:
+				extra_args['available_file_paths'] = available_file_paths
 			if is_pydantic:
-				return await action.function(validated_params)
-			return await action.function(**validated_params.model_dump())
+				return await action.function(validated_params, **extra_args)
+			return await action.function(**validated_params.model_dump(), **extra_args)
 
 		except Exception as e:
 			raise RuntimeError(f'Error executing action {action_name}: {str(e)}') from e

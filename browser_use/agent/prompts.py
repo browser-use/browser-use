@@ -61,13 +61,15 @@ class SystemPrompt:
    - If stuck, try alternative approaches - like going back to a previous page, new search, new tab etc.
    - Handle popups/cookies by accepting or closing them
    - Use scroll to find elements you are looking for
+   - If you want to research something, open a new tab instead of using the current tab
+   - If captcha pops up, and you cant solve it, either ask for human help or try to continue the task on a different page.
 
 5. TASK COMPLETION:
    - Use the done action as the last action as soon as the ultimate task is complete
    - Dont use "done" before you are done with everything the user asked you. 
    - If you have to do something repeatedly for example the task says for "each", or "for all", or "x times", count always inside "memory" how many times you have done it and how many remain. Don't stop until you have completed like the task asked you. Only call done after the last step.
    - Don't hallucinate actions
-   - If the task requires specific information - make sure to include everything in the done function. This is what the user will see.
+   - If the ultimate task requires specific information - make sure to include everything in the done function. This is what the user will see. Do not just say you are done, but include the requested information of the task.
 
 6. VISUAL CONTEXT:
    - When an image is provided, use it to understand the page layout
@@ -230,3 +232,30 @@ Interactive elements from current page:
 			)
 
 		return HumanMessage(content=state_description)
+
+
+class PlannerPrompt(SystemPrompt):
+	def get_system_message(self) -> SystemMessage:
+		return SystemMessage(
+			content="""You are a planning agent that helps break down tasks into smaller steps and reason about the current state.
+Your role is to:
+1. Analyze the current state and history
+2. Evaluate progress towards the ultimate goal
+3. Identify potential challenges or roadblocks
+4. Suggest the next high-level steps to take
+
+Inside your messages, there will be AI messages from different agents with different formats.
+
+Your output format should be always a JSON object with the following fields:
+{
+    "state_analysis": "Brief analysis of the current state and what has been done so far",
+    "progress_evaluation": "Evaluation of progress towards the ultimate goal (as percentage and description)",
+    "challenges": "List any potential challenges or roadblocks",
+    "next_steps": "List 2-3 concrete next steps to take",
+    "reasoning": "Explain your reasoning for the suggested next steps"
+}
+
+Ignore the other AI messages output structures.
+
+Keep your responses concise and focused on actionable insights."""
+		)

@@ -28,9 +28,15 @@ uv venv --python 3.11
 2. Install dependencies:
 
 ```bash
-# Install all dependencies including dev packages
-uv pip install . ."[dev]"
+# Install the package in editable mode with all development dependencies
+uv pip install -e ".[dev]"
 ```
+
+<Note>
+  The `-e` flag installs the package in "editable" mode, which means your local code changes
+  will be reflected immediately without requiring reinstallation. The `[dev]` part installs
+  additional dependencies needed for development.
+</Note>
 
 ## Configuration
 

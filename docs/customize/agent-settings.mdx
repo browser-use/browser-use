@@ -48,6 +48,7 @@ agent = Agent(
   - For GPT-4o, image processing costs approximately 800-1000 tokens (~$0.002 USD) per image (but this depends on the defined screen size)
 - `save_conversation_path`: Path to save the complete conversation history. Useful for debugging.
 - `system_prompt_class`: Custom system prompt class. See <a href="/customize/system-prompt">System Prompt</a> for customization options.
+- 
 
 <Note>
   Vision capabilities are recommended for better web interaction understanding,
@@ -162,8 +163,6 @@ The `AgentHistoryList` provides many helper methods to analyze the execution:
   code](https://github.com/browser-use/browser-use/blob/main/browser_use/agent/views.py#L111).
 </Note>
 
-
-
 ## Run initial actions without LLM
 With [this example](https://github.com/browser-use/browser-use/blob/main/examples/features/initial_actions.py) you can run initial actions without the LLM.
 Specify the action as a dictionary where the key is the action name and the value is the action parameters. You can find all our actions in the [Controller](https://github.com/browser-use/browser-use/blob/main/browser_use/controller/service.py) source code.
@@ -181,3 +180,37 @@ agent = Agent(
 )
 ```
 
+## Run with planner model
+
+You can configure the agent to use a separate planner model for high-level task planning:
+
+```python
+from langchain_openai import ChatOpenAI
+
+# Initialize models
+llm = ChatOpenAI(model='gpt-4o')
+planner_llm = ChatOpenAI(model='o3-mini')
+
+agent = Agent(
+    task="your task",
+    llm=llm,
+    planner_llm=planner_llm,           # Separate model for planning
+    use_vision_for_planner=False,      # Disable vision for planner
+    planner_interval=4                 # Plan every 4 steps
+)
+```
+
+### Planner Parameters
+
+- `planner_llm`: A LangChain chat model instance used for high-level task planning. Can be a smaller/cheaper model than the main LLM.
+- `use_vision_for_planner`: Enable/disable vision capabilities for the planner model. Defaults to `True`.
+- `planner_interval`: Number of steps between planning phases. Defaults to `4`.
+
+Using a separate planner model can help:
+- Reduce costs by using a smaller model for high-level planning
+- Improve task decomposition and strategic thinking
+- Better handle complex, multi-step tasks
+
+<Note>
+  The planner model is optional. If not specified, the agent will not use the planner model.
+</Note>
