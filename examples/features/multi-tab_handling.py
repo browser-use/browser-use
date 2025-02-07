@@ -6,6 +6,9 @@ Simple try of the agent.
 
 import os
 import sys
+from dotenv import load_dotenv
+
+load_dotenv()
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -15,10 +18,14 @@ from langchain_openai import ChatOpenAI
 
 from browser_use import Agent
 
+api_key = os.getenv('OPENAI_API_KEY')
+if not api_key:
+    raise ValueError("OPENAI_API_KEY is not set.")
+
 # video: https://preview.screen.studio/share/clenCmS6
 llm = ChatOpenAI(model='gpt-4o')
 agent = Agent(
-	task='open 3 tabs with elon musk, trump, and steve jobs, then go back to the first and stop',
+	task='open 2 tabs with virat kohli and sachin tendulkar, then go back to the first and stop',
 	llm=llm,
 )
 

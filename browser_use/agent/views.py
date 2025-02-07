@@ -37,7 +37,6 @@ class ActionResult(BaseModel):
 class AgentBrain(BaseModel):
 	"""Current state of the agent"""
 
-	page_summary: str
 	evaluation_previous_goal: str
 	memory: str
 	next_goal: str
@@ -75,7 +74,9 @@ class AgentHistory(BaseModel):
 	model_config = ConfigDict(arbitrary_types_allowed=True, protected_namespaces=())
 
 	@staticmethod
-	def get_interacted_element(model_output: AgentOutput, selector_map: SelectorMap) -> list[DOMHistoryElement | None]:
+	def get_interacted_element(
+		model_output: AgentOutput, selector_map: SelectorMap
+	) -> list[DOMHistoryElement | None]:
 		elements = []
 		for action in model_output.action:
 			index = action.get_index()
@@ -92,7 +93,9 @@ class AgentHistory(BaseModel):
 		# Handle action serialization
 		model_output_dump = None
 		if self.model_output:
-			action_dump = [action.model_dump(exclude_none=True) for action in self.model_output.action]
+			action_dump = [
+				action.model_dump(exclude_none=True) for action in self.model_output.action
+			]
 			model_output_dump = {
 				'current_state': self.model_output.current_state.model_dump(),
 				'action': action_dump,  # This preserves the actual action data
@@ -135,7 +138,9 @@ class AgentHistoryList(BaseModel):
 		}
 
 	@classmethod
-	def load_from_file(cls, filepath: str | Path, output_model: Type[AgentOutput]) -> 'AgentHistoryList':
+	def load_from_file(
+		cls, filepath: str | Path, output_model: Type[AgentOutput]
+	) -> 'AgentHistoryList':
 		"""Load history from JSON file"""
 		with open(filepath, 'r', encoding='utf-8') as f:
 			data = json.load(f)
@@ -172,7 +177,11 @@ class AgentHistoryList(BaseModel):
 
 	def is_done(self) -> bool:
 		"""Check if the agent is done"""
-		if self.history and len(self.history[-1].result) > 0 and self.history[-1].result[-1].is_done:
+		if (
+			self.history
+			and len(self.history[-1].result) > 0
+			and self.history[-1].result[-1].is_done
+		):
 			return self.history[-1].result[-1].is_done
 		return False
 
@@ -212,9 +221,8 @@ class AgentHistoryList(BaseModel):
 
 		for h in self.history:
 			if h.model_output:
-				for action, interacted_element in zip(h.model_output.action, h.state.interacted_element):
+				for action in h.model_output.action:
 					output = action.model_dump(exclude_none=True)
-					output['interacted_element'] = interacted_element
 					outputs.append(output)
 		return outputs
 

@@ -1,4 +1,3 @@
-import datetime
 from datetime import datetime
 from typing import List, Optional
 
@@ -9,8 +8,9 @@ from browser_use.browser.views import BrowserState
 
 
 class SystemPrompt:
-	def __init__(self, action_description: str, max_actions_per_step: int = 10):
+	def __init__(self, action_description: str, current_date: datetime, max_actions_per_step: int = 10):
 		self.default_action_description = action_description
+		self.current_date = current_date
 		self.max_actions_per_step = max_actions_per_step
 
 	def important_rules(self) -> str:
@@ -21,9 +21,8 @@ class SystemPrompt:
 1. RESPONSE FORMAT: You must ALWAYS respond with valid JSON in this exact format:
    {
      "current_state": {
-		"page_summary": "Quick detailed summary of new information from the current page which is not yet in the task history memory. Be specific with details which are important for the task. This is not on the meta level, but should be facts. If all the information is already in the task history memory, leave this empty.",
-		"evaluation_previous_goal": "Success|Failed|Unknown - Analyze the current elements and the image to check if the previous goals/actions are successful like intended by the task. Ignore the action result. The website is the ground truth. Also mention if something unexpected happened like new suggestions in an input field. Shortly state why/why not",
-       "memory": "Description of what has been done and what you need to remember. Be very specific. Count here ALWAYS how many times you have done something and how many remain. E.g. 0 out of 10 websites analyzed. Continue with abc and xyz",
+       "evaluation_previous_goal": "Success|Failed|Unknown - Analyze the current elements and the image to check if the previous goals/actions are successful like intended by the task. Ignore the action result. The website is the ground truth. Also mention if something unexpected happened like new suggestions in an input field. Shortly state why/why not",
+       "memory": "Description of what has been done and what you need to remember until the end of the task",
        "next_goal": "What needs to be done with the next actions"
      },
      "action": [
@@ -53,21 +52,20 @@ class SystemPrompt:
 
 3. ELEMENT INTERACTION:
    - Only use indexes that exist in the provided element list
-   - Each element has a unique index number (e.g., "[33]<button>")
-   - Elements marked with "[]Non-interactive text" are non-interactive (for context only)
+   - Each element has a unique index number (e.g., "33[:]<button>")
+   - Elements marked with "_[:]" are non-interactive (for context only)
 
 4. NAVIGATION & ERROR HANDLING:
    - If no suitable elements exist, use other functions to complete the task
-   - If stuck, try alternative approaches - like going back to a previous page, new search, new tab etc.
+   - If stuck, try alternative approaches
    - Handle popups/cookies by accepting or closing them
    - Use scroll to find elements you are looking for
 
 5. TASK COMPLETION:
-   - Use the done action as the last action as soon as the ultimate task is complete
-   - Dont use "done" before you are done with everything the user asked you. 
-   - If you have to do something repeatedly for example the task says for "each", or "for all", or "x times", count always inside "memory" how many times you have done it and how many remain. Don't stop until you have completed like the task asked you. Only call done after the last step.
+   - Use the done action as the last action as soon as the task is complete
    - Don't hallucinate actions
    - If the task requires specific information - make sure to include everything in the done function. This is what the user will see.
+   - If you are running out of steps (current step), think about speeding it up, and ALWAYS use the done action as the last action.
 
 6. VISUAL CONTEXT:
    - When an image is provided, use it to understand the page layout
@@ -89,12 +87,6 @@ class SystemPrompt:
    - Try to be efficient, e.g. fill forms at once, or chain actions where nothing changes on the page like saving, extracting, checkboxes...
    - only use multiple actions if it makes sense.
 
-9. Long tasks:
-- If the task is long keep track of the status in the memory. If the ultimate task requires multiple subinformation, keep track of the status in the memory.
-- If you get stuck, 
-
-10. Extraction:
-- If your task is to find information or do research - call extract_page_content on the specific pages to get and store the information.
 
 """
 		text += f'   - use maximum {self.max_actions_per_step} actions per sequence'
@@ -112,13 +104,13 @@ INPUT STRUCTURE:
    - element_text: Visible text or element description
 
 Example:
-[33]<button>Submit Form</button>
-[] Non-interactive text
+33[:]<button>Submit Form</button>
+_[:] Non-interactive text
 
 
 Notes:
-- Only elements with numeric indexes inside [] are interactive
-- [] elements provide context but cannot be interacted with
+- Only elements with numeric indexes are interactive
+- _[:] elements provide context but cannot be interacted with
 """
 
 	def get_system_message(self) -> SystemMessage:
@@ -128,12 +120,14 @@ Notes:
 		Returns:
 		    str: Formatted system prompt
 		"""
+		time_str = self.current_date.strftime('%Y-%m-%d %H:%M')
 
 		AGENT_PROMPT = f"""You are a precise browser automation agent that interacts with websites through structured commands. Your role is to:
 1. Analyze the provided webpage elements and structure
-2. Use the given information to accomplish the ultimate task
-3. Respond with valid JSON containing your next action sequence and state assessment
+2. Plan a sequence of actions to accomplish the given task
+3. Respond with valid JSON containing your action sequence and state assessment
 
+Current date and time: {time_str}
 
 {self.input_format()}
 
@@ -160,14 +154,21 @@ class AgentMessagePrompt:
 		include_attributes: list[str] = [],
 		max_error_length: int = 400,
 		step_info: Optional[AgentStepInfo] = None,
+		step_id: Optional[str] = None 
 	):
 		self.state = state
 		self.result = result
 		self.max_error_length = max_error_length
 		self.include_attributes = include_attributes
 		self.step_info = step_info
+		self.step_id = step_id
 
-	def get_user_message(self, use_vision: bool = True) -> HumanMessage:
+	def get_user_message(self) -> HumanMessage:
+		if self.step_info:
+			step_info_description = f'Current step: {self.step_info.step_number + 1}/{self.step_info.max_steps}'
+		else:
+			step_info_description = ''
+
 		elements_text = self.state.element_tree.clickable_elements_to_string(include_attributes=self.include_attributes)
 
 		has_content_above = (self.state.pixels_above or 0) > 0
@@ -189,23 +190,14 @@ class AgentMessagePrompt:
 		else:
 			elements_text = 'empty page'
 
-		if self.step_info:
-			step_info_description = f'Current step: {self.step_info.step_number + 1}/{self.step_info.max_steps}'
-		else:
-			step_info_description = ''
-		time_str = datetime.now().strftime('%Y-%m-%d %H:%M')
-		step_info_description += f'Current date and time: {time_str}'
-
 		state_description = f"""
-[Task history memory ends here]
-[Current state starts here]
-You will see the following only once - if you need to remember it and you dont know it yet, write it down in the memory:
+{step_info_description}
 Current url: {self.state.url}
 Available tabs:
 {self.state.tabs}
-Interactive elements from current page:
+Interactive elements from current page view:
 {elements_text}
-{step_info_description}
+step_id: {self.step_id}
 """
 
 		if self.result:
@@ -217,7 +209,7 @@ Interactive elements from current page:
 					error = result.error[-self.max_error_length :]
 					state_description += f'\nAction error {i + 1}/{len(self.result)}: ...{error}'
 
-		if self.state.screenshot and use_vision == True:
+		if self.state.screenshot:
 			# Format message for vision model
 			return HumanMessage(
 				content=[
@@ -226,7 +218,8 @@ Interactive elements from current page:
 						'type': 'image_url',
 						'image_url': {'url': f'data:image/png;base64,{self.state.screenshot}'},
 					},
-				]
+				],
+				step_id=self.step_id,
 			)
 
-		return HumanMessage(content=state_description)
+		return HumanMessage(content=state_description, step_id=self.step_id)
