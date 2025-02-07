@@ -639,6 +639,9 @@ class Agent:
 			return True
 
 		class ValidationResult(BaseModel):
+			"""
+            Agent Output Validation results.
+            """
 			is_valid: bool
 			reason: str
 

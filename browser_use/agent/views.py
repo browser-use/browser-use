@@ -57,13 +57,14 @@ class AgentOutput(BaseModel):
 	@staticmethod
 	def type_with_custom_actions(custom_actions: Type[ActionModel]) -> Type['AgentOutput']:
 		"""Extend actions with custom actions"""
-		return create_model(
+		model_ = create_model(
 			'AgentOutput',
 			__base__=AgentOutput,
 			action=(list[custom_actions], Field(...)),  # Properly annotated field with no default
 			__module__=AgentOutput.__module__,
 		)
-
+		model_.__doc__ = "AgentOutput model"
+		return model_
 
 class AgentHistory(BaseModel):
 	"""History item for agent actions"""
