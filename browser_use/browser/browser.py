@@ -1,7 +1,8 @@
 """
 Playwright browser on steroids.
 """
-
+import subprocess
+import requests
 import asyncio
 import logging
 from dataclasses import dataclass, field
@@ -125,9 +126,6 @@ class Browser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		if not self.config.chrome_instance_path:
 			raise ValueError('Chrome instance path is required')
-		import subprocess
-
-		import requests
 
 		try:
 			# Check if browser is already running
@@ -143,26 +141,33 @@ class Browser:
 			logger.debug('No existing Chrome instance found, starting a new one')
 
 		# Start a new Chrome instance
-		subprocess.Popen(
-			[
-				self.config.chrome_instance_path,
-				'--remote-debugging-port=9222',
-			],
-			stdout=subprocess.DEVNULL,
-			stderr=subprocess.DEVNULL,
-		)
-    
-		# Attempt to connect again after starting a new instance
-		for _ in range(10):
+		try:
+			subprocess.Popen(
+				[
+					self.config.chrome_instance_path,
+					'--remote-debugging-port=9222',
+				],
+				stdout=subprocess.DEVNULL,
+				stderr=subprocess.DEVNULL,
+			)
+		except Exception as e:
+			logger.error(f'Failed to start Chrome instance: {str(e)}')
+			raise RuntimeError('Failed to start Chrome instance. Please ensure the Chrome path is correct and there are no port conflicts.')
+
+		# Attempt to connect after starting a new instance
+		max_retries = 10
+		retry_delay = 1  # seconds
+		
+		for attempt in range(max_retries):
 			try:
 				response = requests.get('http://localhost:9222/json/version', timeout=2)
 				if response.status_code == 200:
 					break
 			except requests.ConnectionError:
-				pass
-			await asyncio.sleep(1)
+				logger.debug(f'Attempt {attempt + 1}: Chrome instance not ready yet, retrying in {retry_delay} seconds...')
+				await asyncio.sleep(retry_delay)
 
-		# Attempt to connect again after starting a new instance
+		# Final attempt to connect
 		try:
 			browser = await playwright.chromium.connect_over_cdp(
 				endpoint_url='http://localhost:9222',
