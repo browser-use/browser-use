@@ -1,0 +1,103 @@
+---
+title: "Quickstart"
+description: "Learn how to get started with the Browser Use Cloud API"
+icon: "cloud"
+---
+
+The Browser Use Cloud API lets you create and manage browser automation agents programmatically. Each agent can execute tasks and provide real-time feedback through a live preview URL.
+
+## Prerequisites
+
+<Note>
+  You need an active subscription and an API key from
+  [cloud.browser-use.com/billing](https://cloud.browser-use.com/billing)
+</Note>
+
+## Pricing
+
+The Browser Use Cloud API is priced at <b>$0.05 per step</b> that agent executes.
+
+<Note>
+  Since Browser Use has the ability to execute multiple steps at the same time,
+  the price for filling out forms much lower than other services.
+</Note>
+
+## Creating Your First Agent
+
+Create a new browser automation task by providing instructions in natural language:
+
+```bash
+curl -X POST https://api.browser-use.com/api/v1/run-task \
+  -H "Authorization: Bearer your_api_key_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task": "Go to google.com and search for Browser Use"
+  }'
+```
+
+The API returns a task ID that you can use to manage the task and check the live preview URL.
+
+<Note>
+  The task response includes a `live_url` that you can embed in an iframe to
+  watch and control the agent in real-time.
+</Note>
+
+## Managing Tasks
+
+Control running tasks with these operations:
+
+<AccordionGroup>
+  <Accordion title="Pause/Resume Tasks">
+    Temporarily pause task execution with [`/api/v1/pause-task`](/cloud/api-v1/pause-task) and resume with
+    [`/api/v1/resume-task`](/cloud/api-v1/resume-task). Useful for manual inspection or intervention.
+  </Accordion>
+
+  <Accordion title="Stop Tasks">
+    Permanently stop a task using [`/api/v1/stop-task`](/cloud/api-v1/stop-task). The task cannot be
+    resumed after being stopped.
+  </Accordion>
+</AccordionGroup>
+
+For detailed API documentation, see the tabs on the left, which includes the full coverage of the API.
+
+## Building your own client (OpenAPI)
+
+<Note>
+  We recommend this only if you don't need control and only need to run simple
+  tasks.
+</Note>
+
+The best way to build your own client is to use our [OpenAPI specification](http://api.browser-use.com/openapi.json) to generate a type-safe client library.
+
+### Python
+
+Use [openapi-python-client](https://github.com/openapi-generators/openapi-python-client) to generate a modern Python client:
+
+```bash
+# Install the generator
+pipx install openapi-python-client --include-deps
+
+# Generate the client
+openapi-python-client generate --url http://api.browser-use.com/openapi.json
+```
+
+This will create a Python package with full type hints, modern dataclasses, and async support.
+
+### TypeScript/JavaScript
+
+For TypeScript projects, use [openapi-typescript](https://www.npmjs.com/package/openapi-typescript) to generate type definitions:
+
+```bash
+# Install the generator
+npm install -D openapi-typescript
+
+# Generate the types
+npx openapi-typescript http://api.browser-use.com/openapi.json -o browser-use-api.ts
+```
+
+This will create TypeScript definitions that you can use with your preferred HTTP client.
+
+<Note>
+  Need help? Contact our support team at support@browser-use.com or join our
+  [Discord community](https://link.browser-use.com/discord)
+</Note>

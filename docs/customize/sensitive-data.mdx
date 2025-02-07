@@ -1,0 +1,50 @@
+---
+title: "Sensitive Data"
+description: "Handle sensitive information securely by preventing the model from seeing actual passwords."
+icon: "shield"
+---
+
+## Handling Sensitive Data
+
+When working with sensitive information like passwords, you can use the `sensitive_data` parameter to prevent the model from seeing the actual values while still allowing it to reference them in its actions.
+
+Here's an example of how to use sensitive data:
+
+```python
+from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+from browser_use import Agent
+
+load_dotenv()
+
+# Initialize the model
+llm = ChatOpenAI(
+    model='gpt-4o',
+    temperature=0.0,
+)
+
+# Define sensitive data
+# The model will only see the keys (x_name, x_password) but never the actual values
+sensitive_data = {'x_name': 'magnus', 'x_password': '12345678'}
+
+# Use the placeholder names in your task description
+task = 'go to x.com and login with x_name and x_password then write a post about the meaning of life'
+
+# Pass the sensitive data to the agent
+agent = Agent(task=task, llm=llm, sensitive_data=sensitive_data)
+
+async def main():
+    await agent.run()
+
+if __name__ == '__main__':
+    asyncio.run(main())
+```
+
+In this example:
+1. The model only sees `x_name` and `x_password` as placeholders.
+2. When the model wants to use your password it outputs x_password - and we replace it with the actual value.
+3. When your password is visable on the current page, we replace it in the LLM input - so that the model never has it in its state. 
+
+Warning: Vision models still see the image of the page - where the sensitive data might be visible.
+
+This approach ensures that sensitive information remains secure while still allowing the agent to perform tasks that require authentication.

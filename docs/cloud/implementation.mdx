@@ -1,0 +1,105 @@
+---
+title: "Implementing the API"
+description: "Learn how to implement the Browser Use API in Python"
+icon: "code"
+---
+
+This guide shows how to implement common API patterns using Python. We'll create a complete example that creates and monitors a browser automation task.
+
+## Basic Implementation
+
+Here's a simple implementation using Python's `requests` library to stream the task steps:
+
+```python
+import json
+import time
+
+import requests
+
+API_KEY = 'your_api_key_here'
+BASE_URL = 'https://api.browser-use.com/api/v1'
+HEADERS = {'Authorization': f'Bearer {API_KEY}'}
+
+
+def create_task(instructions: str):
+	"""Create a new browser automation task"""
+	response = requests.post(f'{BASE_URL}/run-task', headers=HEADERS, json={'task': instructions})
+	return response.json()['id']
+
+
+def get_task_status(task_id: str):
+	"""Get current task status"""
+	response = requests.get(f'{BASE_URL}/task/{task_id}/status', headers=HEADERS)
+	return response.json()
+
+
+def get_task_details(task_id: str):
+	"""Get full task details including output"""
+	response = requests.get(f'{BASE_URL}/task/{task_id}', headers=HEADERS)
+	return response.json()
+
+
+def wait_for_completion(task_id: str, poll_interval: int = 2):
+	"""Poll task status until completion"""
+	count = 0
+	unique_steps = []
+	while True:
+		details = get_task_details(task_id)
+		new_steps = details['steps']
+		# use only the new steps that are not in unique_steps.
+		if new_steps != unique_steps:
+			for step in new_steps:
+				if step not in unique_steps:
+					print(json.dumps(step, indent=4))
+			unique_steps = new_steps
+		count += 1
+		status = details['status']
+
+		if status in ['finished', 'failed', 'stopped']:
+			return details
+		time.sleep(poll_interval)
+
+
+def main():
+	task_id = create_task('Open https://www.google.com and search for openai')
+	print(f'Task created with ID: {task_id}')
+	task_details = wait_for_completion(task_id)
+	print(f"Final output: {task_details['output']}")
+
+
+if __name__ == '__main__':
+	main()
+
+```
+
+## Task Control Example
+
+Here's how to implement task control with pause/resume functionality:
+
+```python
+def control_task():
+    # Create a new task
+    task_id = create_task("Go to google.com and search for Browser Use")
+
+    # Wait for 5 seconds
+    time.sleep(5)
+
+    # Pause the task
+    requests.put(f"{BASE_URL}/pause-task?task_id={task_id}", headers=HEADERS)
+    print("Task paused! Check the live preview.")
+
+    # Wait for user input
+    input("Press Enter to resume...")
+
+    # Resume the task
+    requests.put(f"{BASE_URL}/resume-task?task_id={task_id}", headers=HEADERS)
+
+    # Wait for completion
+    result = wait_for_completion(task_id)
+    print(f"Task completed with output: {result['output']}")
+```
+
+<Note>
+  Remember to handle your API key securely and implement proper error handling
+  in production code.
+</Note>

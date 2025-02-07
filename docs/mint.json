@@ -1,0 +1,82 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Browser Use",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg",
+    "href": "https://browser-use.com"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#F97316",
+    "light": "#FFF7ED",
+    "dark": "#C2410C",
+    "anchors": {
+      "from": "#F97316",
+      "to": "#FB923C"
+    }
+  },
+  "feedback": {
+    "thumbsRating": true,
+    "raiseIssue": true,
+    "suggestEdit": true
+  },
+  "topbarLinks": [
+    {
+      "name": "Github",
+      "url": "https://github.com/browser-use/browser-use"
+    },
+    {
+      "name": "Twitter",
+      "url": "https://x.com/gregpr07"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Join Discord",
+    "url": "https://link.browser-use.com/discord"
+  },
+  "tabs": [
+    {
+      "name": "Cloud API",
+      "url": "cloud",
+      "openapi": "https://api.browser-use.com/openapi.json"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Get Started",
+      "pages": ["introduction", "quickstart"]
+    },
+    {
+      "group": "Customize",
+      "pages": [
+        "customize/supported-models",
+        "customize/agent-settings",
+        "customize/browser-settings",
+        "customize/real-browser",
+        "customize/output-format",
+        "customize/system-prompt",
+        "customize/sensitive-data",
+        "customize/custom-functions"
+      ]
+    },
+    {
+      "group": "Development",
+      "pages": [
+        "development/local-setup",
+        "development/telemetry",
+        "development/observability",
+        "development/roadmap"
+      ]
+    },
+    {
+      "group": "Cloud API",
+      "pages": ["cloud/quickstart", "cloud/implementation"]
+    }
+  ],
+  "footerSocials": {
+    "x": "https://x.com/gregpr07",
+    "github": "https://github.com/browser-use/browser-use",
+    "linkedin": "https://linkedin.com/company/browser-use"
+  }
+}

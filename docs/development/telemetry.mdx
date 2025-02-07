@@ -1,0 +1,39 @@
+---
+title: "Telemetry"
+description: "Understanding Browser Use's telemetry and privacy settings"
+icon: "chart-mixed"
+---
+
+## Overview
+
+Browser Use collects anonymous usage data to help us understand how the library is being used and to improve the user experience. It also helps us fix bugs faster and prioritize feature development.
+
+## Data Collection
+
+We use [PostHog](https://posthog.com) for telemetry collection. The data is completely anonymized and contains no personally identifiable information.
+
+<Note>
+  We never collect personal information, credentials, or specific content from
+  your browser automation tasks.
+</Note>
+
+## Opting Out
+
+You can disable telemetry by setting an environment variable:
+
+```bash .env
+ANONYMIZED_TELEMETRY=false
+```
+
+Or in your Python code:
+
+```python
+import os
+os.environ["ANONYMIZED_TELEMETRY"] = "false"
+```
+
+<Note>
+  Even when enabled, telemetry has zero impact on the library's performance or
+  functionality. Code is available in [Telemetry
+  Service](https://github.com/browser-use/browser-use/tree/main/browser_use/telemetry).
+</Note>

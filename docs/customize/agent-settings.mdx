@@ -1,0 +1,216 @@
+---
+title: "Agent Settings"
+description: "Learn how to configure the agent"
+icon: "gear"
+---
+
+## Overview
+
+The `Agent` class is the core component of Browser Use that handles browser automation. Here are the main configuration options you can use when initializing an agent.
+
+## Basic Settings
+
+```python
+from browser_use import Agent
+from langchain_openai import ChatOpenAI
+
+agent = Agent(
+    task="Search for latest news about AI",
+    llm=ChatOpenAI(model="gpt-4o"),
+)
+```
+
+### Required Parameters
+
+- `task`: The instruction for the agent to execute
+- `llm`: A LangChain chat model instance. See <a href="/customize/langchain-models">LangChain Models</a> for supported models.
+
+## Agent Behavior
+
+Control how the agent operates:
+
+```python
+agent = Agent(
+    task="your task",
+    llm=llm,
+    controller=custom_controller,  # For custom tool calling
+    use_vision=True,              # Enable vision capabilities
+    save_conversation_path="logs/conversation.json"  # Save chat logs
+)
+```
+
+### Behavior Parameters
+
+- `controller`: Registry of functions the agent can call. Defaults to base Controller. See <a href="/customize/custom-functions">Custom Functions</a> for details.
+- `use_vision`: Enable/disable vision capabilities. Defaults to `True`.
+  - When enabled, the model processes visual information from web pages
+  - Disable to reduce costs or use models without vision support
+  - For GPT-4o, image processing costs approximately 800-1000 tokens (~$0.002 USD) per image (but this depends on the defined screen size)
+- `save_conversation_path`: Path to save the complete conversation history. Useful for debugging.
+- `system_prompt_class`: Custom system prompt class. See <a href="/customize/system-prompt">System Prompt</a> for customization options.
+- 
+
+<Note>
+  Vision capabilities are recommended for better web interaction understanding,
+  but can be disabled to reduce costs or when using models without vision
+  support.
+</Note>
+
+## (Reuse) Browser Configuration
+
+You can configure how the agent interacts with the browser. To see more `Browser` options refer to the <a href="/customize/browser-settings">Browser Settings</a> documentation.
+
+### Reuse Existing Browser
+
+`browser`: A Browser Use Browser instance. When provided, the agent will reuse this browser instance and automatically create new contexts for each `run()`.
+
+```python
+from browser_use import Agent, Browser
+from browser_use.browser.context import BrowserContext
+
+# Reuse existing browser
+browser = Browser()
+agent = Agent(
+    task=task1,
+    llm=llm,
+    browser=browser  # Browser instance will be reused
+)
+
+await agent.run()
+
+# Manually close the browser
+await browser.close()
+```
+
+<Note>
+  Remember: in this scenario the `Browser` will not be closed automatically.
+</Note>
+
+### Reuse Existing Browser Context
+
+`browser_context`: A Playwright browser context. Useful for maintaining persistent sessions. See <a href="/customize/persistent-browser">Persistent Browser</a> for more details.
+
+```python
+from browser_use import Agent, Browser
+from playwright.async_api import BrowserContext
+
+# Use specific browser context (preferred method)
+async with await browser.new_context() as context:
+    agent = Agent(
+        task=task2,
+        llm=llm,
+        browser_context=context  # Use persistent context
+    )
+
+    # Run the agent
+    await agent.run()
+
+    # Pass the context to the next agent
+    next_agent = Agent(
+        task=task2,
+        llm=llm,
+        browser_context=context
+    )
+
+    ...
+
+await browser.close()
+```
+
+For more information about how browser context works, refer to the [Playwright
+documentation](https://playwright.dev/docs/api/class-browsercontext).
+
+<Note>
+  You can reuse the same context for multiple agents. If you do nothing, the
+  browser will be automatically created and closed on `run()` completion.
+</Note>
+
+## Running the Agent
+
+The agent is executed using the async `run()` method:
+
+- `max_steps` (default: `100`)  
+  Maximum number of steps the agent can take during execution. This prevents infinite loops and helps control execution time.
+
+## Agent History
+
+The method returns an `AgentHistoryList` object containing the complete execution history. This history is invaluable for debugging, analysis, and creating reproducible scripts.
+
+```python
+# Example of accessing history
+history = await agent.run()
+
+# Access (some) useful information
+history.urls()              # List of visited URLs
+history.screenshots()       # List of screenshot paths
+history.action_names()      # Names of executed actions
+history.extracted_content() # Content extracted during execution
+history.errors()           # Any errors that occurred
+history.model_actions()     # All actions with their parameters
+```
+
+The `AgentHistoryList` provides many helper methods to analyze the execution:
+
+- `final_result()`: Get the final extracted content
+- `is_done()`: Check if the agent completed successfully
+- `has_errors()`: Check if any errors occurred
+- `model_thoughts()`: Get the agent's reasoning process
+- `action_results()`: Get results of all actions
+
+<Note>
+  For a complete list of helper methods and detailed history analysis
+  capabilities, refer to the [AgentHistoryList source
+  code](https://github.com/browser-use/browser-use/blob/main/browser_use/agent/views.py#L111).
+</Note>
+
+## Run initial actions without LLM
+With [this example](https://github.com/browser-use/browser-use/blob/main/examples/features/initial_actions.py) you can run initial actions without the LLM.
+Specify the action as a dictionary where the key is the action name and the value is the action parameters. You can find all our actions in the [Controller](https://github.com/browser-use/browser-use/blob/main/browser_use/controller/service.py) source code.
+```python
+
+initial_actions = [
+	{'open_tab': {'url': 'https://www.google.com'}},
+	{'open_tab': {'url': 'https://en.wikipedia.org/wiki/Randomness'}},
+	{'scroll_down': {'amount': 1000}},
+]
+agent = Agent(
+	task='What theories are displayed on the page?',
+	initial_actions=initial_actions,
+	llm=llm,
+)
+```
+
+## Run with planner model
+
+You can configure the agent to use a separate planner model for high-level task planning:
+
+```python
+from langchain_openai import ChatOpenAI
+
+# Initialize models
+llm = ChatOpenAI(model='gpt-4o')
+planner_llm = ChatOpenAI(model='o3-mini')
+
+agent = Agent(
+    task="your task",
+    llm=llm,
+    planner_llm=planner_llm,           # Separate model for planning
+    use_vision_for_planner=False,      # Disable vision for planner
+    planner_interval=4                 # Plan every 4 steps
+)
+```
+
+### Planner Parameters
+
+- `planner_llm`: A LangChain chat model instance used for high-level task planning. Can be a smaller/cheaper model than the main LLM.
+- `use_vision_for_planner`: Enable/disable vision capabilities for the planner model. Defaults to `True`.
+- `planner_interval`: Number of steps between planning phases. Defaults to `4`.
+
+Using a separate planner model can help:
+- Reduce costs by using a smaller model for high-level planning
+- Improve task decomposition and strategic thinking
+- Better handle complex, multi-step tasks
+
+<Note>
+  The planner model is optional. If not specified, the agent will not use the planner model.
+</Note>

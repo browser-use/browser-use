@@ -1,0 +1,55 @@
+name: 📚 Documentation Issue
+description: Report an issue in the browser-use documentation
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to improve our documentation! Please fill out the form below to help us understand the issue.
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type of Documentation Issue
+      description: What type of documentation issue is this?
+      options:
+        - Missing documentation
+        - Incorrect documentation
+        - Unclear documentation
+        - Broken link
+        - Other (specify in description)
+    validations:
+      required: true
+
+  - type: input
+    id: page
+    attributes:
+      label: Documentation Page
+      description: Which page or section of the documentation is this about?
+      placeholder: "e.g., https://docs.browser-use.com/getting-started or Installation Guide"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Issue Description
+      description: Describe what's wrong or missing in the documentation
+      placeholder: The documentation should...
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested Changes
+      description: If you have specific suggestions for how to improve the documentation, please share them
+      placeholder: |
+        The documentation could be improved by...
+        
+        Example:
+        ```python
+        # Your suggested code example or text here
+        ```
+    validations:
+      required: true
