@@ -1040,6 +1040,7 @@ class BrowserContext:
 	# endregion
 
 	# region - Helper methods for easier access to the DOM
+			
 	async def get_selector_map(self) -> SelectorMap:
 		session = await self.get_session()
 		return session.cached_state.selector_map
@@ -1137,3 +1138,5 @@ class BrowserContext:
 			screenshot=None,
 			tabs=[],
 		)
+	
+	# endregion
