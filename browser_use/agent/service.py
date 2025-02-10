@@ -448,6 +448,16 @@ class Agent:
 			parsed: AgentOutput | None = response['parsed']
 
 		if parsed is None:
+			# try to parse from raw response.
+			try:
+				message: AIMessage = response['raw']
+				json_content = message.response_metadata['message']['content']
+				parsed_json = json.loads(json_content)
+				parsed: AgentOutput = self.AgentOutput(**parsed_json)
+			except Exception as e:
+				raise ValueError('Could not parse response.') from e
+		
+		if parsed is None:
 			raise ValueError('Could not parse response.')
 
 		# cut the number of actions to max_actions_per_step
