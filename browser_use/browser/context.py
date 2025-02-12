@@ -107,9 +107,6 @@ class BrowserContextConfig:
 
 	    include_dynamic_attributes: bool = True
 	        Include dynamic attributes in the CSS selector. If you want to reuse the css_selectors, it might be better to set this to False.
-
-	    _force_keep_context_alive: bool = False
-			Not recommended to use, unless you know what you are doing.
 	"""
 
 	cookies_file: str | None = None
