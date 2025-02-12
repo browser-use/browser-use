@@ -3,6 +3,7 @@ Playwright browser on steroids.
 """
 
 import asyncio
+import gc
 import logging
 from dataclasses import dataclass, field
 
@@ -54,6 +55,8 @@ class BrowserConfig:
 	proxy: ProxySettings | None = field(default=None)
 	new_context_config: BrowserContextConfig = field(default_factory=BrowserContextConfig)
 
+	_force_keep_browser_alive: bool = False
+
 
 # @singleton: TODO - think about id singleton makes sense here
 # @dev By default this is a singleton, but you can create multiple instances if you need to.
@@ -82,9 +85,7 @@ class Browser:
 				'--disable-features=IsolateOrigins,site-per-process',
 			]
 
-	async def new_context(
-		self, config: BrowserContextConfig = BrowserContextConfig()
-	) -> BrowserContext:
+	async def new_context(self, config: BrowserContextConfig = BrowserContextConfig()) -> BrowserContext:
 		"""Create a browser context"""
 		return BrowserContext(config=config, browser=self)
 
@@ -147,11 +148,12 @@ class Browser:
 			[
 				self.config.chrome_instance_path,
 				'--remote-debugging-port=9222',
-			] + self.config.extra_chromium_args,
+			]
+			+ self.config.extra_chromium_args,
 			stdout=subprocess.DEVNULL,
 			stderr=subprocess.DEVNULL,
 		)
-    
+
 		# Attempt to connect again after starting a new instance
 		for _ in range(10):
 			try:
@@ -220,15 +222,21 @@ class Browser:
 	async def close(self):
 		"""Close the browser instance"""
 		try:
-			if self.playwright_browser:
-				await self.playwright_browser.close()
-			if self.playwright:
-				await self.playwright.stop()
+			if not self.config._force_keep_browser_alive:
+				if self.playwright_browser:
+					await self.playwright_browser.close()
+					del self.playwright_browser
+				if self.playwright:
+					await self.playwright.stop()
+					del self.playwright
+
 		except Exception as e:
 			logger.debug(f'Failed to close browser properly: {e}')
 		finally:
 			self.playwright_browser = None
 			self.playwright = None
+
+			gc.collect()
 
 	def __del__(self):
 		"""Async cleanup when object is destroyed"""
