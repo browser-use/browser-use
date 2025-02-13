@@ -1,20 +1,14 @@
 from __future__ import annotations
 
-import json
 import logging
-from datetime import datetime
 from typing import Dict, List, Optional, Type
 
-from langchain_anthropic import ChatAnthropic
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
 	AIMessage,
 	BaseMessage,
 	HumanMessage,
-	SystemMessage,
 	ToolMessage,
 )
-from langchain_openai import ChatOpenAI
 
 from browser_use.agent.message_manager.views import MessageHistory, MessageMetadata
 from browser_use.agent.prompts import AgentMessagePrompt, SystemPrompt
@@ -27,7 +21,6 @@ logger = logging.getLogger(__name__)
 class MessageManager:
 	def __init__(
 		self,
-		llm: BaseChatModel,
 		task: str,
 		action_descriptions: str,
 		system_prompt_class: Type[SystemPrompt],
@@ -39,9 +32,8 @@ class MessageManager:
 		max_actions_per_step: int = 10,
 		message_context: Optional[str] = None,
 		sensitive_data: Optional[Dict[str, str]] = None,
+		available_file_paths: Optional[List[str]] = None,
 	):
-		self.llm = llm
-		self.system_prompt_class = system_prompt_class
 		self.max_input_tokens = max_input_tokens
 		self.history = MessageHistory()
 		self.task = task
@@ -52,7 +44,8 @@ class MessageManager:
 		self.max_error_length = max_error_length
 		self.message_context = message_context
 		self.sensitive_data = sensitive_data
-		system_message = self.system_prompt_class(
+
+		system_message = system_prompt_class(
 			self.action_descriptions,
 			max_actions_per_step=max_actions_per_step,
 		).get_system_message()
@@ -64,7 +57,9 @@ class MessageManager:
 			context_message = HumanMessage(content='Context for the task' + self.message_context)
 			self._add_message_with_tokens(context_message)
 
-		task_message = self.task_instructions(task)
+		task_message = HumanMessage(
+			content=f'Your ultimate task is: """{task}""". If you achieved your ultimate task, stop everything and use the done action in the next step to complete the task. If not, continue as usual.'
+		)
 		self._add_message_with_tokens(task_message)
 
 		if self.sensitive_data:
@@ -95,12 +90,12 @@ class MessageManager:
 		]
 
 		example_tool_call = AIMessage(
-			content=f'',
+			content='',
 			tool_calls=tool_calls,
 		)
 		self._add_message_with_tokens(example_tool_call)
 		tool_message = ToolMessage(
-			content=f'Browser started',
+			content='Browser started',
 			tool_call_id=str(self.tool_id),
 		)
 		self._add_message_with_tokens(tool_message)
@@ -110,15 +105,9 @@ class MessageManager:
 		placeholder_message = HumanMessage(content='[Your task history memory starts here]')
 		self._add_message_with_tokens(placeholder_message)
 
-	@staticmethod
-	def task_instructions(task: str) -> HumanMessage:
-		content = f'Your ultimate task is: """{task}""". If you achieved your ultimate task, stop everything and use the done action in the next step to complete the task. If not, continue as usual.'
-		return HumanMessage(content=content)
-
-	def add_file_paths(self, file_paths: list[str]) -> None:
-		content = f'Here are file paths you can use: {file_paths}'
-		msg = HumanMessage(content=content)
-		self._add_message_with_tokens(msg)
+		if available_file_paths:
+			filepaths_msg = HumanMessage(content=f'Here are file paths you can use: {available_file_paths}')
+			self._add_message_with_tokens(filepaths_msg)
 
 	def add_new_task(self, new_task: str) -> None:
 		content = f'Your new ultimate task is: """{new_task}""". Take the previous context into account and finish your new ultimate task. '
@@ -313,59 +302,3 @@ class MessageManager:
 		logger.debug(
 			f'Added message with {last_msg.metadata.input_tokens} tokens - total tokens now: {self.history.total_tokens}/{self.max_input_tokens} - total messages: {len(self.history.messages)}'
 		)
-
-	def convert_messages_for_non_function_calling_models(self, input_messages: list[BaseMessage]) -> list[BaseMessage]:
-		"""Convert messages for non-function-calling models"""
-		output_messages = []
-		for message in input_messages:
-			if isinstance(message, HumanMessage):
-				output_messages.append(message)
-			elif isinstance(message, SystemMessage):
-				output_messages.append(message)
-			elif isinstance(message, ToolMessage):
-				output_messages.append(HumanMessage(content=message.content))
-			elif isinstance(message, AIMessage):
-				# check if tool_calls is a valid JSON object
-				if message.tool_calls:
-					tool_calls = json.dumps(message.tool_calls)
-					output_messages.append(AIMessage(content=tool_calls))
-				else:
-					output_messages.append(message)
-			else:
-				raise ValueError(f'Unknown message type: {type(message)}')
-		return output_messages
-
-	def merge_successive_messages(self, messages: list[BaseMessage], class_to_merge: Type[BaseMessage]) -> list[BaseMessage]:
-		"""Some models like deepseek-reasoner dont allow multiple human messages in a row. This function merges them into one."""
-		merged_messages = []
-		streak = 0
-		for message in messages:
-			if isinstance(message, class_to_merge):
-				streak += 1
-				if streak > 1:
-					if isinstance(message.content, list):
-						merged_messages[-1].content += message.content[0]['text']
-					else:
-						merged_messages[-1].content += message.content
-				else:
-					merged_messages.append(message)
-			else:
-				merged_messages.append(message)
-				streak = 0
-		return merged_messages
-
-	def extract_json_from_model_output(self, content: str) -> dict:
-		"""Extract JSON from model output, handling both plain JSON and code-block-wrapped JSON."""
-		try:
-			# If content is wrapped in code blocks, extract just the JSON part
-			if '```' in content:
-				# Find the JSON content between code blocks
-				content = content.split('```')[1]
-				# Remove language identifier if present (e.g., 'json\n')
-				if '\n' in content:
-					content = content.split('\n', 1)[1]
-			# Parse the cleaned content
-			return json.loads(content)
-		except json.JSONDecodeError as e:
-			logger.warning(f'Failed to parse model output: {content} {str(e)}')
-			raise ValueError('Could not parse response.')

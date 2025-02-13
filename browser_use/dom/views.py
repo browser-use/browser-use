@@ -152,11 +152,6 @@ class DOMElementNode(DOMBaseNode):
 
 		return None
 
-	def get_advanced_css_selector(self) -> str:
-		from browser_use.browser.context import BrowserContext
-
-		return BrowserContext._enhanced_css_selector_for_element(self)
-
 
 SelectorMap = dict[int, DOMElementNode]
 

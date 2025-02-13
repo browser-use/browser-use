@@ -1,5 +1,4 @@
 import hashlib
-from dataclasses import dataclass
 from typing import Optional
 
 from browser_use.dom.history_tree_processor.view import DOMHistoryElement, HashedDomElement
@@ -15,8 +14,10 @@ class HistoryTreeProcessor:
 
 	@staticmethod
 	def convert_dom_element_to_history_element(dom_element: DOMElementNode) -> DOMHistoryElement:
+		from browser_use.browser.context import BrowserContext
+
 		parent_branch_path = HistoryTreeProcessor._get_parent_branch_path(dom_element)
-		css_selector = dom_element.get_advanced_css_selector()
+		css_selector = BrowserContext._enhanced_css_selector_for_element(dom_element)
 		return DOMHistoryElement(
 			dom_element.tag_name,
 			dom_element.xpath,

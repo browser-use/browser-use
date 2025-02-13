@@ -19,11 +19,9 @@ from browser_use.dom.views import DOMElementNode, DOMTextNode
 	ids=['gpt-4o-mini', 'gpt-4o', 'claude-3-5-sonnet'],
 )
 def message_manager(request: pytest.FixtureRequest):
-	llm = request.param
 	task = 'Test task'
 	action_descriptions = 'Test actions'
 	return MessageManager(
-		llm=llm,
 		task=task,
 		action_descriptions=action_descriptions,
 		system_prompt_class=SystemPrompt,
@@ -84,7 +82,7 @@ def test_add_state_with_memory_result(message_manager: MessageManager):
 	)
 	result = ActionResult(extracted_content='Important content', include_in_memory=True)
 
-	message_manager.add_state_message(state, result)
+	message_manager.add_state_message(state, [result])
 	messages = message_manager.get_messages()
 
 	# Should have system, task, extracted content, and state messages
@@ -113,7 +111,7 @@ def test_add_state_with_non_memory_result(message_manager: MessageManager):
 	)
 	result = ActionResult(extracted_content='Temporary content', include_in_memory=False)
 
-	message_manager.add_state_message(state, result)
+	message_manager.add_state_message(state, [result])
 	messages = message_manager.get_messages()
 
 	# Should have system, task, and combined state+result message
@@ -163,7 +161,10 @@ def test_token_overflow_handling_with_real_flow(message_manager: MessageManager,
 			)
 
 		# Add state message
-		message_manager.add_state_message(state, result)
+		if result:
+			message_manager.add_state_message(state, [result])
+		else:
+			message_manager.add_state_message(state)
 
 		try:
 			messages = message_manager.get_messages()
