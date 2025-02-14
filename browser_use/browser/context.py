@@ -25,6 +25,7 @@ from playwright.async_api import (
 	Page,
 )
 
+from browser_use.browser.element_click_handler import ElementClickHandler
 from browser_use.browser.views import (
 	BrowserError,
 	BrowserState,
@@ -157,6 +158,7 @@ class BrowserContext:
 
 		# Initialize these as None - they'll be set up when needed
 		self.session: BrowserSession | None = None
+		self._click_handler = None
 
 	async def __aenter__(self):
 		"""Async context manager entry"""
@@ -255,6 +257,11 @@ class BrowserContext:
 		"""Get the current page"""
 		session = await self.get_session()
 		return session.current_page
+	
+	def get_click_handler(self):
+		if not self._click_handler:
+			self._click_handler = ElementClickHandler(self.get_current_page, self._enhanced_css_selector_for_element, self._update_state, self.get_locate_element, self.config)
+		return self._click_handler
 
 	async def _create_context(self, browser: PlaywrightBrowser):
 		"""Creates a new browser context with anti-detection measures and loads cookies if available."""
@@ -972,64 +979,8 @@ class BrowserContext:
 			raise BrowserError(f'Failed to input text into index {element_node.highlight_index}')
 
 	async def _click_element_node(self, element_node: DOMElementNode) -> Optional[str]:
-		"""
-		Optimized method to click an element using xpath.
-		"""
-		page = await self.get_current_page()
-
-		try:
-			# Highlight before clicking
-			if element_node.highlight_index is not None:
-				await self._update_state(focus_element=element_node.highlight_index)
-
-			element_handle = await self.get_locate_element(element_node)
-
-			if element_handle is None:
-				raise Exception(f'Element: {repr(element_node)} not found')
-
-			async def perform_click(click_func):
-				"""Performs the actual click, handling both download
-				and navigation scenarios."""
-				if self.config.save_downloads_path:
-					try:
-						# Try short-timeout expect_download to detect a file download has been been triggered
-						async with page.expect_download(timeout=5000) as download_info:
-							await click_func()
-						download = await download_info.value
-						# Determine file path
-						suggested_filename = download.suggested_filename
-						unique_filename = await self._get_unique_filename(self.config.save_downloads_path, suggested_filename)
-						download_path = os.path.join(self.config.save_downloads_path, unique_filename)
-						await download.save_as(download_path)
-						logger.debug(f'Download triggered. Saved file to: {download_path}')
-						return download_path
-					except TimeoutError:
-						# If no download is triggered, treat as normal click
-						logger.debug('No download triggered within timeout. Checking navigation...')
-						await page.wait_for_load_state()
-						await self._check_and_handle_navigation(page)
-				else:
-					# Standard click logic if no download is expected
-					await click_func()
-					await page.wait_for_load_state()
-					await self._check_and_handle_navigation(page)
-
-			try:
-				return await perform_click(lambda: element_handle.click(timeout=1500))
-			except URLNotAllowedError as e:
-				raise e
-			except Exception:
-				try:
-					return await perform_click(lambda: page.evaluate('(el) => el.click()', element_handle))
-				except URLNotAllowedError as e:
-					raise e
-				except Exception as e:
-					raise Exception(f'Failed to click element: {str(e)}')
-
-		except URLNotAllowedError as e:
-			raise e
-		except Exception as e:
-			raise Exception(f'Failed to click element: {repr(element_node)}. Error: {str(e)}')
+		click_handler = self.get_click_handler()
+		return await click_handler.click_with_retry(element_node)
 
 	async def get_tabs_info(self) -> list[TabInfo]:
 		"""Get information about all tabs"""
