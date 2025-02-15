@@ -836,9 +836,9 @@ class Agent:
 				]
 			elif platform.system() == 'Darwin':  # macOS
 				font_options = [
-					'/System/Library/Fonts/PingFang.ttc',
-					'/System/Library/Fonts/Apple Color Emoji.ttc',
-					'/System/Library/Fonts/Helvetica.ttc',
+					'Hiragino Sans GB',  # Primary font with full Unicode support (CJK + Latin)
+					'.AppleSystemUIFont',  # System UI font as fallback
+					'Apple Color Emoji',  # Emoji and special characters
 				]
 			else:  # Linux and others
 				font_options = [

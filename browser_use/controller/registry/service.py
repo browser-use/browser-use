@@ -122,6 +122,8 @@ class Registry:
 				extra_args['page_extraction_llm'] = page_extraction_llm
 			if 'available_file_paths' in parameter_names:
 				extra_args['available_file_paths'] = available_file_paths
+			if action_name == 'input_text' and sensitive_data:
+				extra_args['has_sensitive_data'] = True
 			if is_pydantic:
 				return await action.function(validated_params, **extra_args)
 			return await action.function(**validated_params.model_dump(), **extra_args)

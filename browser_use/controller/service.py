@@ -125,7 +125,7 @@ class Controller:
 			'Input text into a input interactive element',
 			param_model=InputTextAction,
 		)
-		async def input_text(params: InputTextAction, browser: BrowserContext):
+		async def input_text(params: InputTextAction, browser: BrowserContext, has_sensitive_data: bool = False):
 			session = await browser.get_session()
 			state = session.cached_state
 
@@ -134,7 +134,10 @@ class Controller:
 
 			element_node = state.selector_map[params.index]
 			await browser._input_text_element_node(element_node, params.text)
-			msg = f'⌨️  Input {params.text} into index {params.index}'
+			if not has_sensitive_data:
+				msg = f'⌨️  Input {params.text} into index {params.index}'
+			else:
+				msg = f'⌨️  Input sensitive data into index {params.index}'
 			logger.info(msg)
 			logger.debug(f'Element xpath: {element_node.xpath}')
 			return ActionResult(extracted_content=msg, include_in_memory=True)
