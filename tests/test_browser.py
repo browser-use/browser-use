@@ -27,7 +27,7 @@ async def test_standard_browser_launch(monkeypatch):
         async def start(self):
             return DummyPlaywright()
     monkeypatch.setattr("browser_use.browser.browser.async_playwright", lambda: DummyAsyncPlaywrightContext())
-    config = BrowserConfig(headless=True, disable_security=False, extra_chromium_args=["--test"])
+    config = BrowserConfig(headless=True, disable_security=False, extra_browser_args=["--test"])
     browser_obj = Browser(config=config)
     result_browser = await browser_obj.get_playwright_browser()
     assert isinstance(result_browser, DummyBrowser), "Expected DummyBrowser from _setup_standard_browser"
@@ -114,7 +114,7 @@ async def test_chrome_instance_browser_launch(monkeypatch):
         async def start(self):
             return DummyPlaywright()
     monkeypatch.setattr("browser_use.browser.browser.async_playwright", lambda: DummyAsyncPlaywrightContext())
-    config = BrowserConfig(chrome_instance_path="dummy/chrome", extra_chromium_args=["--dummy-arg"])
+    config = BrowserConfig(browser_instance_path="dummy/chrome", extra_browser_args=["--dummy-arg"])
     browser_obj = Browser(config=config)
     result_browser = await browser_obj.get_playwright_browser()
     assert isinstance(result_browser, DummyBrowser), "Expected DummyBrowser from _setup_browser_with_instance"
@@ -169,7 +169,7 @@ async def test_standard_browser_disable_security_args(monkeypatch):
         async def start(self):
             return DummyPlaywright()
     monkeypatch.setattr("browser_use.browser.browser.async_playwright", lambda: DummyAsyncPlaywrightContext())
-    config = BrowserConfig(headless=True, disable_security=True, extra_chromium_args=extra_args)
+    config = BrowserConfig(headless=True, disable_security=True, extra_browser_args=extra_args)
     browser_obj = Browser(config=config)
     result_browser = await browser_obj.get_playwright_browser()
     assert isinstance(result_browser, DummyBrowser), "Expected DummyBrowser from _setup_standard_browser with disable_security active"
@@ -218,7 +218,7 @@ async def test_chrome_instance_browser_launch_failure(monkeypatch):
         async def start(self):
             return DummyPlaywright()
     monkeypatch.setattr("browser_use.browser.browser.async_playwright", lambda: DummyAsyncPlaywrightContext())
-    config = BrowserConfig(chrome_instance_path="dummy/chrome", extra_chromium_args=["--dummy-arg"])
+    config = BrowserConfig(browser_instance_path="dummy/chrome", extra_browser_args=["--dummy-arg"])
     browser_obj = Browser(config=config)
     with pytest.raises(RuntimeError, match="To start chrome in Debug mode"):
         await browser_obj.get_playwright_browser()
@@ -244,7 +244,7 @@ async def test_get_playwright_browser_caching(monkeypatch):
         async def start(self):
             return DummyPlaywright()
     monkeypatch.setattr("browser_use.browser.browser.async_playwright", lambda: DummyAsyncPlaywrightContext())
-    config = BrowserConfig(headless=True, disable_security=False, extra_chromium_args=["--test"])
+    config = BrowserConfig(headless=True, disable_security=False, extra_browser_args=["--test"])
     browser_obj = Browser(config=config)
     first_browser = await browser_obj.get_playwright_browser()
     second_browser = await browser_obj.get_playwright_browser()

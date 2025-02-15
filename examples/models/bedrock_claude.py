@@ -42,7 +42,7 @@ llm = get_llm()
 
 browser = Browser(
     config=BrowserConfig(
-        # chrome_instance_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        # browser_instance_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     )
 )
 
