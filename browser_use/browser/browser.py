@@ -81,11 +81,11 @@ class Browser:
 
 		self.disable_security_args = []
 		if self.config.disable_security:
-			self.disable_security_args = [
-				'--disable-web-security',
-				'--disable-site-isolation-trials',
-				'--disable-features=IsolateOrigins,site-per-process',
-			]
+			self.disable_security_args = ['--disable-web-security', '--disable-site-isolation-trials']
+			if self.config.browser_class == 'chromium':
+				self.disable_security_args += [
+					'--disable-features=IsolateOrigins,site-per-process',
+				]
 
 	async def new_context(self, config: BrowserContextConfig = BrowserContextConfig()) -> BrowserContext:
 		"""Create a browser context"""
@@ -186,9 +186,8 @@ class Browser:
 	async def _setup_standard_browser(self, playwright: Playwright) -> PlaywrightBrowser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		browser_class = getattr(playwright, self.config.browser_class)
-		browser = await browser_class.launch(
-			headless=self.config.headless,
-			args=[
+		args = {
+			'chromium': [
 				'--no-sandbox',
 				'--disable-blink-features=AutomationControlled',
 				'--disable-infobars',
@@ -202,10 +201,17 @@ class Browser:
 				'--no-default-browser-check',
 				'--no-startup-window',
 				'--window-position=0,0',
-				# '--window-size=1280,1000',
-			]
-			+ self.disable_security_args
-			+ self.config.extra_browser_args,
+			],
+			'firefox': [
+				'-no-remote',
+			],
+			'webkit': [
+				'--no-startup-window',
+			],
+		}
+		browser = await browser_class.launch(
+			headless=self.config.headless,
+			args=args[self.config.browser_class] + self.disable_security_args + self.config.extra_browser_args,
 			proxy=self.config.proxy,
 		)
 		# convert to Browser
