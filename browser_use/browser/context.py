@@ -287,6 +287,12 @@ class BrowserContext:
 				logger.info(f'Loaded {len(cookies)} cookies from {self.config.cookies_file}')
 				await context.add_cookies(cookies)
 
+		current_dir = os.path.dirname(os.path.abspath(__file__))
+		crawl_js_path = os.path.join(current_dir, 'parser.js')
+
+		await context.add_init_script(crawl_js_path)
+		print("Multion Script added")
+		
 		# Expose anti-detection scripts
 		await context.add_init_script(
 			"""
