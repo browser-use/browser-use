@@ -1,22 +1,35 @@
 import asyncio
 import json
 import logging
+import os
 from typing import Callable, Dict, Optional, Type
 
 from langchain_core.prompts import PromptTemplate
 from lmnr import Laminar, observe
 from pydantic import BaseModel
 
+import gspread
+from gspread.utils import ValueRenderOption
+from gspread.client import Client as GcClient
+
+
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser.context import BrowserContext
 from browser_use.controller.registry.service import Registry
 from browser_use.controller.views import (
+	AddRowAction,
 	ClickElementAction,
+	DeleteRowAction,
+	DeleteRowsAction,
 	DoneAction,
 	GoToUrlAction,
 	InputTextAction,
+	InsertFunctionAction,
+	InsertValueAction,
 	NoParamsAction,
+	OpenGoogleSpreadsheetAction,
 	OpenTabAction,
+	ReadSpreadsheetAction,
 	ScrollAction,
 	SearchGoogleAction,
 	SendKeysAction,
@@ -26,6 +39,8 @@ from browser_use.utils import time_execution_async, time_execution_sync
 
 logger = logging.getLogger(__name__)
 from langchain_core.language_models.chat_models import BaseChatModel
+
+import gspread
 
 
 class Controller:
@@ -159,6 +174,167 @@ class Controller:
 			msg = f'🔗  Opened new tab with {params.url}'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		# Google spreadsheet actions
+		from gspread.auth import service_account 
+		# Lazy initializer for the global gspread client.
+		def get_gc() -> GcClient:
+			try:
+				# Try to return a previously initialized client.
+				return get_gc._gc
+			except AttributeError:
+				# If not set, try to initialize using credentials from the env if provided.
+				credentials_file = os.getenv("GOOGLE_CREDENTIALS_JSON")
+				if credentials_file:
+					get_gc._gc = service_account(filename=credentials_file)
+				else:
+					# Fallback to default credentials (which may prompt for OAuth or use a default file).
+					get_gc._gc = service_account()
+				return get_gc._gc
+
+		# Helper: open the spreadsheet and get a worksheet (default to Sheet1)
+		async def get_worksheet(url: str, sheet_name: str):
+			def _open():
+				gc = get_gc()
+				spreadsheet = gc.open_by_url(url)
+				if sheet_name:
+					# Try to select worksheet by title; if not found, raise an error.
+					return spreadsheet.worksheet(sheet_name)
+				else:
+					# Most common: use sheet1
+					return spreadsheet.sheet1
+			worksheet = await asyncio.to_thread(_open)
+			return worksheet
+
+
+		@self.registry.action(
+			"Open Google Spreadsheet",
+			param_model=OpenGoogleSpreadsheetAction,
+		)
+		async def open_google_spreadsheet(params: OpenGoogleSpreadsheetAction):
+			"""
+			Opens a Google Spreadsheet via its URL using gspread.
+			This action returns the title of the spreadsheet.
+			"""
+			def _open():
+				gc = get_gc()
+				return gc.open_by_url(params.url)
+			try:
+				spreadsheet = await asyncio.to_thread(_open)
+			except Exception as e:
+				raise Exception(f"Failed to open spreadsheet using URL {params.url}: {e}") from e
+
+			msg = f"Opened Google Spreadsheet: {spreadsheet.title}"
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		@self.registry.action(
+			"Read Spreadsheet",
+			param_model=ReadSpreadsheetAction,  # May include 'url' and optional 'sheet_name'
+		)
+		async def read_spreadsheet(params: ReadSpreadsheetAction):
+			"""
+			Reads all values from a spreadsheet using gspread.
+			By default, this reads from Sheet1 unless a sheet name is provided.
+			"""
+			try:
+				worksheet = await get_worksheet(params.url, getattr(params, "sheet_name", ""))
+				data = await asyncio.to_thread(worksheet.get_all_values)
+			except Exception as e:
+				raise Exception(f"Failed to read spreadsheet: {e}") from e
+
+			msg = f"Read spreadsheet data: {data}"
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		@self.registry.action(
+			"Add Row",
+			param_model=AddRowAction,  # May include 'url' and optional 'sheet_name'
+		)
+		async def add_row(params: AddRowAction):
+			"""
+			Adds a new (empty) row to the spreadsheet using gspread.
+			In this example we append an empty row at the bottom of the worksheet.
+			"""
+			try:
+				worksheet = await get_worksheet(params.url, getattr(params, "sheet_name", ""))
+				await asyncio.to_thread(worksheet.append_row, [])
+			except Exception as e:
+				raise Exception(f"Failed to add a new row: {e}") from e
+
+			msg = "Added a new row at the bottom of the worksheet."
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		@self.registry.action(
+			"Insert Value",
+			param_model=InsertValueAction,  # expects 'url', 'cell' (e.g., "B2") and 'value'
+		)
+		async def insert_value(params: InsertValueAction):
+			"""
+			Inserts a text value into the specified cell using gspread.
+			This uses update_acell() to update the cell referenced in A1 notation.
+			"""
+			try:
+				worksheet = await get_worksheet(params.url, getattr(params, "sheet_name", ""))
+				await asyncio.to_thread(worksheet.update_acell, params.cell, params.value)
+			except Exception as e:
+				raise Exception(f"Failed to insert value in cell {params.cell}: {e}") from e
+
+			msg = f"Inserted value '{params.value}' into cell {params.cell}."
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		@self.registry.action(
+			"Insert Function",
+			param_model=InsertFunctionAction,  # expects 'url', 'cell' (e.g., "B2") and 'function'
+		)
+		async def insert_function(params: InsertFunctionAction):
+			"""
+			Inserts a formula (function) into the specified cell using gspread.
+			The function (e.g., "=SUM(A1:A10)") is written to the cell.
+			"""
+			try:
+				worksheet = await get_worksheet(params.url, getattr(params, "sheet_name", ""))
+				await asyncio.to_thread(worksheet.update_acell, params.cell, params.function)
+			except Exception as e:
+				raise Exception(f"Failed to insert function in cell {params.cell}: {e}") from e
+
+			msg = f"Inserted function '{params.function}' into cell {params.cell}."
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		@self.registry.action(
+			"Delete Row",
+			param_model=DeleteRowAction,  # expects 'url', 'row' (int) and optional 'sheet_name'
+		)
+		async def delete_row(params: DeleteRowAction):
+			"""
+			Deletes the specified row from the worksheet using gspread.
+			Uses delete_rows() to remove the entire row.
+			"""
+			try:
+				worksheet = await get_worksheet(params.url, getattr(params, "sheet_name", ""))
+				await asyncio.to_thread(worksheet.delete_rows, params.row, params.row + 1)
+			except Exception as e:
+				raise Exception(f"Failed to delete row {params.row}: {e}") from e
+
+			msg = f"Deleted row {params.row} from the worksheet."
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		@self.registry.action(
+			"Delete Rows",
+			param_model=DeleteRowsAction,  # expects 'url', 'start_row' and 'end_row'
+		)
+		async def delete_rows(params: DeleteRowsAction):
+			"""
+			Deletes the specified rows from the worksheet using gspread.
+			Uses delete_rows() to remove the rows.
+			"""
+			try:
+				worksheet = await get_worksheet(params.url, getattr(params, "sheet_name", ""))
+				await asyncio.to_thread(worksheet.delete_rows, params.start_row, params.end_row)
+			except Exception as e:
+				raise Exception(f"Failed to delete rows: {e}") from e
+
+			msg = f"Deleted from row {params.start_row} to row {params.end_row} from the worksheet."
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
 
 		# Content Actions
 		@self.registry.action(

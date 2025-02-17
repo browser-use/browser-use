@@ -30,7 +30,8 @@ dependencies = [
     "playwright>=1.49.0",
     "setuptools>=75.8.0",
     "lmnr[langchain]>=0.4.59",
-    "markdownify==0.14.1"
+    "markdownify==0.14.1",
+    "gspread==6.1.4"
 ]
 
 [project.optional-dependencies]

@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, model_validator
 
@@ -16,6 +16,29 @@ class ClickElementAction(BaseModel):
 	index: int
 	xpath: Optional[str] = None
 
+class OpenGoogleSpreadsheetAction(BaseModel):
+    url: str
+    
+class ReadSpreadsheetAction(OpenGoogleSpreadsheetAction):
+    pass
+
+class AddRowAction(OpenGoogleSpreadsheetAction):
+    pass
+
+class InsertValueAction(OpenGoogleSpreadsheetAction):
+    cell: str    # e.g., "B2"
+    value: str
+
+class InsertFunctionAction(OpenGoogleSpreadsheetAction):
+    cell: str       # e.g., "C3"
+    function: str   # e.g., "=SUM(A1:A10)"
+
+class DeleteRowAction(OpenGoogleSpreadsheetAction):
+    row: int   # The 1-indexed row number to delete
+    
+class DeleteRowsAction(OpenGoogleSpreadsheetAction):
+    start_row: int   # The 1-indexed row number to delete
+    end_row: int	 # The last row number to be deleted
 
 class InputTextAction(BaseModel):
 	index: int
