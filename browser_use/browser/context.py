@@ -266,8 +266,7 @@ class BrowserContext:
 		else:
 			# Original code for creating new context
 			context = await browser.new_context(
-				viewport=self.config.browser_window_size,
-				no_viewport=False,
+				no_viewport=True,
 				user_agent=self.config.user_agent,
 				java_script_enabled=True,
 				bypass_csp=self.config.disable_security,

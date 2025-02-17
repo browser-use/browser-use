@@ -15,6 +15,7 @@ from playwright.async_api import (
 )
 
 from browser_use.browser.context import BrowserContext, BrowserContextConfig
+from browser_use.browser.utils.screen_resolution import get_screen_resolution, get_window_adjustments
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +180,8 @@ class Browser:
 
 	async def _setup_standard_browser(self, playwright: Playwright) -> PlaywrightBrowser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
+		screen_size = get_screen_resolution()
+		offset_x, offset_y = get_window_adjustments()
 		browser = await playwright.chromium.launch(
 			headless=self.config.headless,
 			args=[
@@ -194,8 +197,9 @@ class Browser:
 				'--no-first-run',
 				'--no-default-browser-check',
 				'--no-startup-window',
-				'--window-position=0,0',
-				# '--window-size=1280,1000',
+				f'--window-position={offset_x},{offset_y}',
+				f'--window-size={screen_size["width"]},{screen_size["height"]}',
+        		'--force-device-scale-factor=1',
 			]
 			+ self.disable_security_args
 			+ self.config.extra_chromium_args,
