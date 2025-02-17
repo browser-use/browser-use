@@ -23,7 +23,7 @@ browser = Browser(
 	config=BrowserConfig(
 		headless=False,
 		disable_security=True,
-		extra_chromium_args=['--window-size=2000,2000'],
+		extra_browser_args=['--window-size=2000,2000'],
 	)
 )
 

@@ -110,7 +110,7 @@ async def upload_cv(index: int, browser: BrowserContext):
 
 browser = Browser(
 	config=BrowserConfig(
-		chrome_instance_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+		browser_instance_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 		disable_security=True,
 	)
 )

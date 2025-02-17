@@ -16,7 +16,7 @@ from browser_use.browser.context import BrowserContext
 browser = Browser(
 	config=BrowserConfig(
 		# NOTE: you need to close your chrome browser - so that this can open your browser in debug mode
-		chrome_instance_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+		browser_instance_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 	)
 )
 
