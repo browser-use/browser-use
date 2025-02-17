@@ -267,7 +267,7 @@ class Controller:
 
 			except Exception as e:
 				msg = f"Failed to scroll to text '{text}': {str(e)}"
-				logger.error(msg)
+				logger.info(msg)
 				return ActionResult(error=msg, include_in_memory=True)
 
 		@self.registry.action(
@@ -335,7 +335,7 @@ class Controller:
 					return ActionResult(extracted_content=msg, include_in_memory=True)
 
 			except Exception as e:
-				logger.error(f'Failed to get dropdown options: {str(e)}')
+				logger.info(f'Failed to get dropdown options: {str(e)}')
 				msg = f'Error getting options: {str(e)}'
 				logger.info(msg)
 				return ActionResult(extracted_content=msg, include_in_memory=True)
@@ -355,7 +355,7 @@ class Controller:
 
 			# Validate that we're working with a select element
 			if dom_element.tag_name != 'select':
-				logger.error(f'Element is not a select! Tag: {dom_element.tag_name}, Attributes: {dom_element.attributes}')
+				logger.info(f'Element is not a select! Tag: {dom_element.tag_name}, Attributes: {dom_element.attributes}')
 				msg = f'Cannot select option: Element with index {index} is a {dom_element.tag_name}, not a select'
 				return ActionResult(extracted_content=msg, include_in_memory=True)
 
@@ -403,7 +403,7 @@ class Controller:
 
 						if dropdown_info:
 							if not dropdown_info.get('found'):
-								logger.error(f'Frame {frame_index} error: {dropdown_info.get("error")}')
+								logger.info(f'Frame {frame_index} error: {dropdown_info.get("error")}')
 								continue
 
 							logger.debug(f'Found dropdown in frame {frame_index}: {dropdown_info}')
@@ -421,9 +421,9 @@ class Controller:
 							return ActionResult(extracted_content=msg, include_in_memory=True)
 
 					except Exception as frame_e:
-						logger.error(f'Frame {frame_index} attempt failed: {str(frame_e)}')
-						logger.error(f'Frame type: {type(frame)}')
-						logger.error(f'Frame URL: {frame.url}')
+						logger.info(f'Frame {frame_index} attempt failed: {str(frame_e)}')
+						logger.info(f'Frame type: {type(frame)}')
+						logger.info(f'Frame URL: {frame.url}')
 
 					frame_index += 1
 
@@ -433,7 +433,7 @@ class Controller:
 
 			except Exception as e:
 				msg = f'Selection failed: {str(e)}'
-				logger.error(msg)
+				logger.info(msg)
 				return ActionResult(error=msg, include_in_memory=True)
 
 	def action(self, description: str, **kwargs):

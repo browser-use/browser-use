@@ -52,7 +52,7 @@ class SlackBot:
                     try:
                         await self.send_message(event['channel'], f'<@{user_id}> Starting browser use task...', thread_ts=event.get('ts'))
                     except Exception as e:
-                        logger.error(f"Error sending start message: {e}")
+                        logger.info(f"Error sending start message: {e}")
 
                 try:
                     agent_message = await self.run_agent(task)
@@ -60,7 +60,7 @@ class SlackBot:
                 except Exception as e:
                     await self.send_message(event['channel'], f'Error during task execution: {str(e)}', thread_ts=event.get('ts'))
         except Exception as e:
-            logger.error(f"Error in handle_event: {str(e)}")
+            logger.info(f"Error in handle_event: {str(e)}")
 
     async def run_agent(self, task: str) -> str:
         try:
@@ -78,14 +78,14 @@ class SlackBot:
             return agent_message
 
         except Exception as e:
-            logger.error(f"Error during task execution: {str(e)}")
+            logger.info(f"Error during task execution: {str(e)}")
             return f'Error during task execution: {str(e)}'
 
     async def send_message(self, channel, text, thread_ts=None):
         try:
             await self.client.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts)
         except SlackApiError as e:
-            logger.error(f"Error sending message: {e.response['error']}")
+            logger.info(f"Error sending message: {e.response['error']}")
 
 @app.post("/slack/events")
 async def slack_events(request: Request, slack_bot: SlackBot = Depends()):
@@ -103,9 +103,9 @@ async def slack_events(request: Request, slack_bot: SlackBot = Depends()):
             try:
                 await slack_bot.handle_event(event_data.get('event'), event_data.get('event_id'))
             except Exception as e:
-                logger.error(f"Error handling event: {str(e)}")
+                logger.info(f"Error handling event: {str(e)}")
 
         return {}
     except Exception as e:
-        logger.error(f"Error in slack_events: {str(e)}")
+        logger.info(f"Error in slack_events: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal Server Error")

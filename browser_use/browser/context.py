@@ -548,7 +548,7 @@ class BrowserContext:
 				for allowed_domain in self.config.allowed_domains
 			)
 		except Exception as e:
-			logger.error(f'Error checking URL allowlist: {str(e)}')
+			logger.info(f'Error checking URL allowlist: {str(e)}')
 			return False
 
 	async def _check_and_handle_navigation(self, page: Page) -> None:
@@ -558,7 +558,7 @@ class BrowserContext:
 			try:
 				await self.go_back()
 			except Exception as e:
-				logger.error(f'Failed to go back after detecting non-allowed URL: {str(e)}')
+				logger.info(f'Failed to go back after detecting non-allowed URL: {str(e)}')
 			raise URLNotAllowedError(f'Navigation to non-allowed URL: {page.url}')
 
 	async def navigate_to(self, url: str):
@@ -676,7 +676,7 @@ class BrowserContext:
 
 			return self.current_state
 		except Exception as e:
-			logger.error(f'Failed to update state: {str(e)}')
+			logger.info(f'Failed to update state: {str(e)}')
 			# Return last known good state if available
 			if hasattr(self, 'current_state'):
 				return self.current_state
@@ -929,7 +929,7 @@ class BrowserContext:
 					return element_handle
 				return None
 		except Exception as e:
-			logger.error(f'Failed to locate element: {str(e)}')
+			logger.info(f'Failed to locate element: {str(e)}')
 			return None
 
 	async def _input_text_element_node(self, element_node: DOMElementNode, text: str):

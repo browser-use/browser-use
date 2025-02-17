@@ -81,7 +81,7 @@ class ProductTelemetry:
 				{**event.properties, **POSTHOG_EVENT_SETTINGS},
 			)
 		except Exception as e:
-			logger.error(f'Failed to send telemetry event {event.name}: {e}')
+			logger.info(f'Failed to send telemetry event {event.name}: {e}')
 
 	@property
 	def user_id(self) -> str:

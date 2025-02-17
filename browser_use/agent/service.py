@@ -365,7 +365,7 @@ class Agent:
 		prefix = f'❌ Result failed {self.consecutive_failures + 1}/{self.max_failures} times:\n '
 
 		if isinstance(error, (ValidationError, ValueError)):
-			logger.error(f'{prefix}{error_msg}')
+			logger.info(f'{prefix}{error_msg}')
 			if 'Max token limit reached' in error_msg:
 				# cut tokens from history
 				self.message_manager.max_input_tokens = self.max_input_tokens - 500
@@ -381,7 +381,7 @@ class Agent:
 			await asyncio.sleep(self.retry_delay)
 			self.consecutive_failures += 1
 		else:
-			logger.error(f'{prefix}{error_msg}')
+			logger.info(f'{prefix}{error_msg}')
 			self.consecutive_failures += 1
 
 		return [ActionResult(error=error_msg, include_in_memory=True)]
@@ -603,7 +603,7 @@ class Agent:
 	def _too_many_failures(self) -> bool:
 		"""Check if we should stop due to too many failures"""
 		if self.consecutive_failures >= self.max_failures:
-			logger.error(f'❌ Stopping due to {self.max_failures} consecutive failures')
+			logger.info(f'❌ Stopping due to {self.max_failures} consecutive failures')
 			return True
 		return False
 
@@ -722,7 +722,7 @@ class Agent:
 					retry_count += 1
 					if retry_count == max_retries:
 						error_msg = f'Step {i + 1} failed after {max_retries} attempts: {str(e)}'
-						logger.error(error_msg)
+						logger.info(error_msg)
 						if not skip_failures:
 							results.append(ActionResult(error=error_msg))
 							raise RuntimeError(error_msg)
