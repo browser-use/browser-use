@@ -223,6 +223,8 @@ class MessageManager:
 			if not self.sensitive_data:
 				return value
 			for key, val in self.sensitive_data.items():
+				if not val:
+					continue
 				value = value.replace(val, f'<secret>{key}</secret>')
 			return value
 
