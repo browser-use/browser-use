@@ -449,7 +449,37 @@ class Agent:
 		else:
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True, method=self.tool_calling_method)
 			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
-			parsed: AgentOutput | None = response['parsed']
+			
+		# Handle tool call responses
+		if response.get('parsing_error') and 'raw' in response:
+			raw_msg = response['raw']
+			if hasattr(raw_msg, 'tool_calls') and raw_msg.tool_calls:
+				# Convert tool calls to AgentOutput format
+    
+				tool_call = raw_msg.tool_calls[0]  # Take first tool call
+    
+				# Create current state
+				tool_call_name = tool_call['name']
+				tool_call_args = tool_call['args']
+				
+				current_state = {
+					'page_summary': 'Processing tool call',
+					'evaluation_previous_goal': 'Executing action',
+					'memory': 'Using tool call',
+					'next_goal': f'Execute {tool_call_name}'
+				}
+				
+				# Create action from tool call
+				action = {tool_call_name: tool_call_args}
+
+				parsed = self.AgentOutput(
+					current_state=current_state,
+					action=[self.ActionModel(**action)]
+				)
+			else:
+				parsed = None
+		else:
+			parsed = response['parsed']
 
 		if parsed is None:
 			raise ValueError('Could not parse response.')
