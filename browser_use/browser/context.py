@@ -12,12 +12,16 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional, TypedDict
+from typing import TYPE_CHECKING, Optional, TypedDict, Union
 
 from playwright._impl._errors import TimeoutError
 from playwright.async_api import Browser as PlaywrightBrowser
 from playwright.async_api import (
 	BrowserContext as PlaywrightBrowserContext,
+	ElementHandle,
+	Frame,
+	FrameLocator,
+	Page,
 )
 from playwright.async_api import (
 	ElementHandle,
@@ -891,46 +895,268 @@ class BrowserContext:
 			return f"{tag_name}[highlight_index='{element.highlight_index}']"
 
 	async def get_locate_element(self, element: DOMElementNode) -> Optional[ElementHandle]:
-		current_frame = await self.get_current_page()
-
-		# Start with the target element and collect all parents
-		parents: list[DOMElementNode] = []
+		"""Locate an element, handling iframes if necessary"""
+		page = await self.get_current_page()
+		
+		# Build iframe chain
+		frame_chain = []
 		current = element
 		while current.parent is not None:
-			parent = current.parent
-			parents.append(parent)
-			current = parent
+			if current.parent.tag_name.lower() == 'iframe':
+				frame_chain.append(current.parent)
+			current = current.parent
+		frame_chain.reverse()  # Process from outermost to innermost iframe
 
-		# Reverse the parents list to process from top to bottom
-		parents.reverse()
+		# Start with main page
+		current_context = page
 
-		# Process all iframe parents in sequence
-		iframes = [item for item in parents if item.tag_name == 'iframe']
-		for parent in iframes:
-			css_selector = self._enhanced_css_selector_for_element(
-				parent,
-				include_dynamic_attributes=self.config.include_dynamic_attributes,
-			)
-			current_frame = current_frame.frame_locator(css_selector)
-
-		css_selector = self._enhanced_css_selector_for_element(
-			element, include_dynamic_attributes=self.config.include_dynamic_attributes
-		)
-
-		try:
-			if isinstance(current_frame, FrameLocator):
-				element_handle = await current_frame.locator(css_selector).element_handle()
-				return element_handle
-			else:
-				# Try to scroll into view if hidden
-				element_handle = await current_frame.query_selector(css_selector)
-				if element_handle:
-					await element_handle.scroll_into_view_if_needed()
-					return element_handle
+		# Navigate through iframes if any
+		for iframe in frame_chain:
+			current_context = await self._locate_frame(iframe, current_context)
+			if not current_context:
 				return None
-		except Exception as e:
-			logger.error(f'Failed to locate element: {str(e)}')
+
+		# Now try to locate the target element
+		return await self._locate_element(element, current_context)
+
+	async def _locate_frame(self, iframe: DOMElementNode, current_context: Union[Page, Frame, FrameLocator]) -> Optional[Union[Frame, FrameLocator]]:
+		"""Locate an iframe using multiple strategies"""
+		strategies = self._get_location_strategies(iframe, is_iframe=True)
+		
+		for strategy in strategies:
+			try:
+				if isinstance(current_context, (Page, Frame)):
+					frame_element = await self._get_element_by_strategy(strategy, current_context)
+					if frame_element:
+						frame = await frame_element.content_frame()
+						if frame:
+							logger.debug(f"Found iframe using strategy: {strategy['type']}")
+							return frame
+				else:  # FrameLocator
+					if strategy['type'] == 'css':
+						frame_locator = current_context.frame_locator(strategy['value'])
+						logger.debug(f"Found iframe using strategy: {strategy['type']}")
+						return frame_locator
+				
+			except Exception as e:
+				logger.debug(f"Iframe strategy {strategy['type']} failed: {str(e)}")
+				continue
+		
+		logger.error("Failed to locate iframe using any strategy")
+		return None
+
+	async def _locate_element(self, element: DOMElementNode, current_context: Union[Page, Frame, FrameLocator]) -> Optional[ElementHandle]:
+		"""Locate an element using multiple strategies"""
+		strategies = self._get_location_strategies(element)
+		
+		for strategy in strategies:
+			try:
+				element_handle = await self._get_element_by_strategy(strategy, current_context)
+				if element_handle and await self._verify_element_match(element_handle, element):
+					logger.info(f"Found element using strategy: {strategy['type']}")
+					return element_handle
+			except Exception as e:
+				logger.info(f"Strategy {strategy['type']} failed: {str(e)}")
+				continue
+		
+		return None
+
+	def _get_location_strategies(self, element: DOMElementNode, is_iframe: bool = False) -> list[dict]:
+		"""Get prioritized location strategies for an element"""
+		strategies = []
+		tag_name = element.tag_name.lower()
+		
+		# For iframes, use simpler, more reliable strategies
+		if is_iframe:
+			# 1. Test ID strategy
+			if 'data-testid' in element.attributes:
+				strategies.append({
+					'type': 'testid',
+					'value': element.attributes['data-testid']
+				})
+			
+			# 2. Simple CSS with unique attributes
+			strategies.append({
+				'type': 'css',
+				'is_iframe': True,
+				'attributes': element.attributes
+			})
+			
+			return strategies
+		
+		# For regular elements, use the full strategy set
+		# 1. Test ID strategy (Most stable)
+		test_attrs = [
+			'data-testid', 'data-test-id', 'data-qa', 'data-cy', 'data-automation-id',
+			'data-e2e', 'data-element-id', 'data-auto-id'
+		]
+		for test_attr in test_attrs:
+			if test_attr in element.attributes:
+				strategies.append({
+					'type': 'testid',
+					'value': element.attributes[test_attr]
+				})
+				break
+
+		# 2. Element-specific attributes
+		specific_attrs = ['id', 'name', 'src', 'title'] if is_iframe else {
+			'img': ['src', 'alt'],
+			'a': ['href', 'title'],
+			'iframe': ['src', 'name'],
+			'input': ['name', 'placeholder', 'value', 'type'],
+			'button': ['value', 'name'],
+			'form': ['action', 'name'],
+			'meta': ['name', 'content'],
+			'link': ['rel', 'href'],
+			'video': ['src', 'poster'],
+			'audio': ['src'],
+			'select': ['name', 'form'],
+			'textarea': ['name', 'placeholder', 'form']
+		}.get(tag_name, [])
+		
+		for attr in specific_attrs:
+			if attr in element.attributes and element.attributes[attr]:
+				if attr == 'src':
+					strategies.append({
+						'type': 'css',
+						'value': f'{tag_name}[{attr}*="{element.attributes[attr].split("?")[0]}"]'
+					})
+				else:
+					strategies.append({
+						'type': 'css',
+						'value': f'{tag_name}[{attr}="{element.attributes[attr]}"]'
+					})
+
+		# 3. ARIA attributes
+		aria_attrs = ['aria-label', 'aria-labelledby', 'aria-describedby', 'for']
+		for aria_attr in aria_attrs:
+			if aria_attr in element.attributes:
+				strategies.append({
+					'type': 'label',
+					'value': element.attributes[aria_attr]
+				})
+
+		# 4. Role-based
+		if 'role' in element.attributes:
+			name = element.get_all_text_till_next_clickable_element()
+			strategies.append({
+				'type': 'role',
+				'value': element.attributes['role'],
+				'name': name if name else None
+			})
+
+		# 5. Text content (skip for iframes)
+		if not is_iframe:
+			text = element.get_all_text_till_next_clickable_element()
+			if text and text.strip():
+				strategies.append({
+					'type': 'text',
+					'value': text.strip(),
+					'exact': True
+				})
+				strategies.append({
+					'type': 'text',
+					'value': text.strip(),
+					'exact': False
+				})
+
+		# 6. CSS Selector fallback
+		strategies.append({
+			'type': 'css',
+			'value': self._enhanced_css_selector_for_element(element)
+		})
+		
+		return strategies
+
+	async def _get_element_by_strategy(self, strategy: dict, context: Union[Page, Frame, FrameLocator]) -> Optional[ElementHandle]:
+		"""Get element using a specific strategy"""
+		try:
+			if isinstance(context, (Page, Frame)):
+				if strategy['type'] == 'testid':
+					# Use data-testid directly - most reliable
+					return await context.get_by_test_id(strategy['value']).element_handle()
+				elif strategy['type'] == 'label':
+					# Use aria-label or label text
+					return await context.get_by_label(strategy['value'], exact=True).element_handle()
+				elif strategy['type'] == 'role':
+					# Use ARIA role with text
+					locator = context.get_by_role(strategy['value'])
+					if strategy.get('name'):
+						locator = locator.filter(has_text=strategy['name'])
+					return await locator.element_handle()
+				elif strategy['type'] == 'text':
+					# Text content matching
+					return await context.get_by_text(
+						strategy['value'],
+						exact=strategy.get('exact', True)
+					).element_handle()
+				elif strategy['type'] == 'css':
+					# For iframes, prefer simpler selectors
+					if strategy.get('is_iframe'):
+						# Try to locate iframe by its unique attributes
+						for attr in ['id', 'name', 'title']:
+							if attr in strategy['attributes']:
+								simple_selector = f"iframe[{attr}='{strategy['attributes'][attr]}']"
+								element = await context.query_selector(simple_selector)
+								if element:
+									return element
+						
+						# If src is available, use it without query params
+						if 'src' in strategy['attributes']:
+							base_src = strategy['attributes']['src'].split('?')[0]
+							element = await context.query_selector(f"iframe[src*='{base_src}']")
+							if element:
+								return element
+				
+					# For regular elements or fallback
+					return await context.wait_for_selector(strategy['value'], timeout=2000)
+			else:  # FrameLocator
+				# For FrameLocator, we need to use simpler locators
+				if strategy['type'] == 'testid':
+					return await context.locator(f'[data-testid="{strategy["value"]}"]').element_handle()
+				elif strategy['type'] == 'css':
+					return await context.locator(strategy['value']).element_handle()
+				else:
+					# Convert other strategies to simple attribute selectors
+					if strategy['type'] == 'label':
+						return await context.locator(f'[aria-label="{strategy["value"]}"]').element_handle()
+					elif strategy['type'] == 'role':
+						selector = f'[role="{strategy["value"]}"]'
+						if strategy.get('name'):
+							return await context.locator(selector).filter(has_text=strategy['name']).element_handle()
+						return await context.locator(selector).element_handle()
+				
 			return None
+		except Exception as e:
+			logger.debug(f"Strategy {strategy['type']} failed: {str(e)}")
+			return None
+
+	async def _verify_element_match(self, element_handle: ElementHandle, dom_element: DOMElementNode) -> bool:
+		"""Verify that the found element matches our expected element"""
+		try:
+			# Check tag name
+			tag_name = await element_handle.evaluate('el => el.tagName.toLowerCase()')
+			if tag_name != dom_element.tag_name.lower():
+				return False
+			
+			# Check text content if available
+			if dom_element.get_all_text_till_next_clickable_element():
+				element_text = await element_handle.evaluate('el => el.textContent')
+				if not element_text or dom_element.get_all_text_till_next_clickable_element() not in element_text:
+					return False
+			
+			# Check key attributes if available
+			for attr in ['id', 'name', 'role', 'aria-label', 'data-testid']:
+				if attr in dom_element.attributes:
+					attr_value = await element_handle.get_attribute(attr)
+					if attr_value != dom_element.attributes[attr]:
+						return False
+			
+			return True
+			
+		except Exception as e:
+			logger.debug(f'Element verification failed: {str(e)}')
+			return False
 
 	async def _input_text_element_node(self, element_node: DOMElementNode, text: str):
 		"""
@@ -972,64 +1198,39 @@ class BrowserContext:
 			raise BrowserError(f'Failed to input text into index {element_node.highlight_index}')
 
 	async def _click_element_node(self, element_node: DOMElementNode) -> Optional[str]:
-		"""
-		Optimized method to click an element using xpath.
-		"""
-		page = await self.get_current_page()
-
+		"""Click an element using robust location strategy"""
 		try:
-			# Highlight before clicking
-			if element_node.highlight_index is not None:
-				await self._update_state(focus_element=element_node.highlight_index)
-
 			element_handle = await self.get_locate_element(element_node)
-
-			if element_handle is None:
-				raise Exception(f'Element: {repr(element_node)} not found')
-
-			async def perform_click(click_func):
-				"""Performs the actual click, handling both download
-				and navigation scenarios."""
-				if self.config.save_downloads_path:
-					try:
-						# Try short-timeout expect_download to detect a file download has been been triggered
-						async with page.expect_download(timeout=5000) as download_info:
-							await click_func()
-						download = await download_info.value
-						# Determine file path
-						suggested_filename = download.suggested_filename
-						unique_filename = await self._get_unique_filename(self.config.save_downloads_path, suggested_filename)
-						download_path = os.path.join(self.config.save_downloads_path, unique_filename)
-						await download.save_as(download_path)
-						logger.debug(f'Download triggered. Saved file to: {download_path}')
-						return download_path
-					except TimeoutError:
-						# If no download is triggered, treat as normal click
-						logger.debug('No download triggered within timeout. Checking navigation...')
-						await page.wait_for_load_state()
-						await self._check_and_handle_navigation(page)
-				else:
-					# Standard click logic if no download is expected
-					await click_func()
-					await page.wait_for_load_state()
-					await self._check_and_handle_navigation(page)
-
+			if not element_handle:
+				raise Exception('Element not found using any location strategy')
+				
+			# Ensure element is ready for interaction
 			try:
-				return await perform_click(lambda: element_handle.click(timeout=1500))
-			except URLNotAllowedError as e:
-				raise e
-			except Exception:
+				await element_handle.wait_for_element_state('stable')
+				await element_handle.scroll_into_view_if_needed()
+				
+				# Try multiple click strategies
 				try:
-					return await perform_click(lambda: page.evaluate('(el) => el.click()', element_handle))
-				except URLNotAllowedError as e:
-					raise e
-				except Exception as e:
-					raise Exception(f'Failed to click element: {str(e)}')
-
-		except URLNotAllowedError as e:
-			raise e
+					await element_handle.click(timeout=2000)
+				except Exception as click_error:
+					logger.debug(f'Standard click failed: {click_error}')
+					try:
+						await element_handle.click(force=True)
+					except Exception as force_error:
+						logger.debug(f'Force click failed: {force_error}')
+						# Final fallback: JavaScript click
+						page = await self.get_current_page()
+						await page.evaluate('el => el.click()', element_handle)
+						
+				# Wait for any navigation or network activity
+				await self._wait_for_page_and_frames_load(timeout_overwrite=2)
+				return None
+				
+			except Exception as e:
+				raise Exception(f'Element interaction failed: {str(e)}')
+				
 		except Exception as e:
-			raise Exception(f'Failed to click element: {repr(element_node)}. Error: {str(e)}')
+			raise Exception(f'Failed to click element: {str(e)}')
 
 	async def get_tabs_info(self) -> list[TabInfo]:
 		"""Get information about all tabs"""
