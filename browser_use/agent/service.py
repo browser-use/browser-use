@@ -595,7 +595,20 @@ class Agent:
 				if isinstance(self.generate_gif, str):
 					output_path = self.generate_gif
 
-				self.create_history_gif(output_path=output_path)
+				images = self.create_history_gif()
+				if images:
+					# Save the GIF
+					images[0].save(
+						output_path,
+						save_all=True,
+						append_images=images[1:],
+						duration=duration,
+						loop=0,
+						optimize=False,
+					)
+					logger.info(f'Created GIF at {output_path}')
+				else:
+					logger.warning('No images found in history to create GIF')
 
 	def _too_many_failures(self) -> bool:
 		"""Check if we should stop due to too many failures"""
@@ -802,7 +815,6 @@ class Agent:
 
 	def create_history_gif(
 		self,
-		output_path: str = 'agent_history.gif',
 		duration: int = 3000,
 		show_goals: bool = True,
 		show_task: bool = True,
@@ -812,7 +824,7 @@ class Agent:
 		goal_font_size: int = 44,
 		margin: int = 40,
 		line_spacing: float = 1.5,
-	) -> None:
+	) -> List[Image]:
 		"""Create a GIF from the agent's history with overlaid task and goal text."""
 		if not self.history.history:
 			logger.warning('No history to create GIF from')
@@ -920,19 +932,8 @@ class Agent:
 
 			images.append(image)
 
-		if images:
-			# Save the GIF
-			images[0].save(
-				output_path,
-				save_all=True,
-				append_images=images[1:],
-				duration=duration,
-				loop=0,
-				optimize=False,
-			)
-			logger.info(f'Created GIF at {output_path}')
-		else:
-			logger.warning('No images found in history to create GIF')
+		return images
+
 
 	def _create_task_frame(
 		self,
