@@ -25,7 +25,7 @@ from playwright.async_api import (
 	Page,
 )
 
-from browser_use.browser.element_click_handler import ElementClickHandler
+from browser_use.browser.handlers.element_click_handler import ClickConfig, ClickResult, ElementClickHandler
 from browser_use.browser.views import (
 	BrowserError,
 	BrowserState,
@@ -260,7 +260,19 @@ class BrowserContext:
 	
 	def get_click_handler(self):
 		if not self._click_handler:
-			self._click_handler = ElementClickHandler(self.get_current_page, self._enhanced_css_selector_for_element, self._update_state, self.get_locate_element, self.config)
+			click_config = ClickConfig(
+				max_retries=1,
+				initial_retry_delay=1.0,
+				save_downloads_path=self.config.save_downloads_path,
+			)
+			self._click_handler = ElementClickHandler(
+				get_current_page=self.get_current_page,
+				enhanced_css_selector_for_element=self._enhanced_css_selector_for_element,
+				update_state=self._update_state,
+				get_locate_element=self.get_locate_element,
+				is_url_allowed=self._is_url_allowed,
+				config=click_config,
+			)
 		return self._click_handler
 
 	async def _create_context(self, browser: PlaywrightBrowser):
@@ -978,7 +990,7 @@ class BrowserContext:
 			logger.debug(f'Failed to input text into element: {repr(element_node)}. Error: {str(e)}')
 			raise BrowserError(f'Failed to input text into index {element_node.highlight_index}')
 
-	async def _click_element_node(self, element_node: DOMElementNode) -> Optional[str]:
+	async def _click_element_node(self, element_node: DOMElementNode) -> ClickResult:
 		click_handler = self.get_click_handler()
 		return await click_handler.click_with_retry(element_node)
 
