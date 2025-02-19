@@ -1,6 +1,6 @@
 import asyncio
 from inspect import iscoroutinefunction, signature
-from typing import Any, Callable, Dict, Optional, Type
+from typing import Any, Callable, Dict, Generic, Optional, Type, TypeVar
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, Field, create_model
@@ -17,8 +17,10 @@ from browser_use.telemetry.views import (
 	RegisteredFunction,
 )
 
+Context = TypeVar('Context')
 
-class Registry:
+
+class Registry(Generic[Context]):
 	"""Service for registering and managing actions"""
 
 	def __init__(self, exclude_actions: list[str] = []):
@@ -89,6 +91,8 @@ class Registry:
 		page_extraction_llm: Optional[BaseChatModel] = None,
 		sensitive_data: Optional[Dict[str, str]] = None,
 		available_file_paths: Optional[list[str]] = None,
+		#
+		context: Context | None = None,
 	) -> Any:
 		"""Execute a registered action"""
 		if action_name not in self.registry.actions:
@@ -108,14 +112,21 @@ class Registry:
 			if sensitive_data:
 				validated_params = self._replace_sensitive_data(validated_params, sensitive_data)
 
+			# Check if the action requires browser
 			if 'browser' in parameter_names and not browser:
 				raise ValueError(f'Action {action_name} requires browser but none provided.')
 			if 'page_extraction_llm' in parameter_names and not page_extraction_llm:
 				raise ValueError(f'Action {action_name} requires page_extraction_llm but none provided.')
 			if 'available_file_paths' in parameter_names and not available_file_paths:
 				raise ValueError(f'Action {action_name} requires available_file_paths but none provided.')
+
+			if 'context' in parameter_names and not context:
+				raise ValueError(f'Action {action_name} requires context but none provided.')
+
 			# Prepare arguments based on parameter type
 			extra_args = {}
+			if 'context' in parameter_names:
+				extra_args['context'] = context
 			if 'browser' in parameter_names:
 				extra_args['browser'] = browser
 			if 'page_extraction_llm' in parameter_names:

@@ -184,3 +184,5 @@ gcp-login.json
 *.txt
 *.pdf
 *.csv
+*.json
+*.jsonl

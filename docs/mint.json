@@ -14,6 +14,9 @@
     "anchors": {
       "from": "#F97316",
       "to": "#FB923C"
+    },
+    "background": {
+      "dark": "#0D0A09"
     }
   },
   "feedback": {

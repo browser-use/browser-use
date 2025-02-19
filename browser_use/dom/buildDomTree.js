@@ -17,8 +17,6 @@
 
   const ID = { current: 0 };
 
-  // Quick check to confirm the script receives focusHighlightIndex
-  console.log("focusHighlightIndex:", focusHighlightIndex);
 
   const HIGHLIGHT_CONTAINER_ID = "playwright-highlight-container";
 
@@ -29,17 +27,16 @@
     // Create or get highlight container
     let container = document.getElementById(HIGHLIGHT_CONTAINER_ID);
     if (!container) {
-      container = document.createElement("div");
-      container.id = HIGHLIGHT_CONTAINER_ID;
-      container.style.position = "absolute";
-      container.style.pointerEvents = "none";
-      container.style.top = "0";
-      container.style.left = "0";
-      container.style.width = "100%";
-      container.style.height = "100%";
-      container.style.zIndex = "2147483647"; // Maximum z-index value
-
-      document.body.appendChild(container);
+        container = document.createElement("div");
+        container.id = HIGHLIGHT_CONTAINER_ID;
+        container.style.position = "fixed";
+        container.style.pointerEvents = "none";
+        container.style.top = "0";
+        container.style.left = "0";
+        container.style.width = "100%";
+        container.style.height = "100%";
+        container.style.zIndex = "2147483647";
+        document.body.appendChild(container);
     }
 
     // Generate a color based on the index
@@ -63,53 +60,52 @@
 
     // Create highlight overlay
     const overlay = document.createElement("div");
-    overlay.style.position = "absolute";
+    overlay.style.position = "fixed";
     overlay.style.border = `2px solid ${baseColor}`;
     overlay.style.backgroundColor = backgroundColor;
     overlay.style.pointerEvents = "none";
     overlay.style.boxSizing = "border-box";
 
-    // Position overlay based on element, including scroll position
+    // Get element position
     const rect = element.getBoundingClientRect();
-    let top = rect.top + window.scrollY;
-    let left = rect.left + window.scrollX;
+    let iframeOffset = { x: 0, y: 0 };
 
-    // Adjust position if element is inside an iframe
+    // If element is in an iframe, calculate iframe offset
     if (parentIframe) {
-      const iframeRect = parentIframe.getBoundingClientRect();
-      top += iframeRect.top;
-      left += iframeRect.left;
+        const iframeRect = parentIframe.getBoundingClientRect();
+        iframeOffset.x = iframeRect.left;
+        iframeOffset.y = iframeRect.top;
     }
+
+    // Calculate position
+    const top = rect.top + iframeOffset.y;
+    const left = rect.left + iframeOffset.x;
 
     overlay.style.top = `${top}px`;
     overlay.style.left = `${left}px`;
     overlay.style.width = `${rect.width}px`;
     overlay.style.height = `${rect.height}px`;
 
-    // Create label
+    // Create and position label
     const label = document.createElement("div");
     label.className = "playwright-highlight-label";
-    label.style.position = "absolute";
+    label.style.position = "fixed";
     label.style.background = baseColor;
     label.style.color = "white";
     label.style.padding = "1px 4px";
     label.style.borderRadius = "4px";
-    label.style.fontSize = `${Math.min(12, Math.max(8, rect.height / 2))}px`; // Responsive font size
+    label.style.fontSize = `${Math.min(12, Math.max(8, rect.height / 2))}px`;
     label.textContent = index;
 
-    // Calculate label position
-    const labelWidth = 20; // Approximate width
-    const labelHeight = 16; // Approximate height
+    const labelWidth = 20;
+    const labelHeight = 16;
 
-    // Default position (top-right corner inside the box)
     let labelTop = top + 2;
     let labelLeft = left + rect.width - labelWidth - 2;
 
-    // Adjust if box is too small
     if (rect.width < labelWidth + 4 || rect.height < labelHeight + 4) {
-      // Position outside the box if it's too small
-      labelTop = top - labelHeight - 2;
-      labelLeft = left + rect.width - labelWidth;
+        labelTop = top - labelHeight - 2;
+        labelLeft = left + rect.width - labelWidth;
     }
 
     label.style.top = `${labelTop}px`;
@@ -119,11 +115,48 @@
     container.appendChild(overlay);
     container.appendChild(label);
 
-    // Store reference for cleanup
-    element.setAttribute(
-      "browser-user-highlight-id",
-      `playwright-highlight-${index}`
-    );
+    // Update positions on scroll
+    const updatePositions = () => {
+        const newRect = element.getBoundingClientRect();
+        let newIframeOffset = { x: 0, y: 0 };
+        
+        if (parentIframe) {
+            const iframeRect = parentIframe.getBoundingClientRect();
+            newIframeOffset.x = iframeRect.left;
+            newIframeOffset.y = iframeRect.top;
+        }
+
+        const newTop = newRect.top + newIframeOffset.y;
+        const newLeft = newRect.left + newIframeOffset.x;
+
+        overlay.style.top = `${newTop}px`;
+        overlay.style.left = `${newLeft}px`;
+        overlay.style.width = `${newRect.width}px`;
+        overlay.style.height = `${newRect.height}px`;
+
+        let newLabelTop = newTop + 2;
+        let newLabelLeft = newLeft + newRect.width - labelWidth - 2;
+
+        if (newRect.width < labelWidth + 4 || newRect.height < labelHeight + 4) {
+            newLabelTop = newTop - labelHeight - 2;
+            newLabelLeft = newLeft + newRect.width - labelWidth;
+        }
+
+        label.style.top = `${newLabelTop}px`;
+        label.style.left = `${newLabelLeft}px`;
+    };
+
+    // Add scroll listeners
+    let currentEl = element;
+    while (currentEl) {
+        if (currentEl.scrollHeight > currentEl.clientHeight || 
+            currentEl.scrollWidth > currentEl.clientWidth) {
+            currentEl.addEventListener('scroll', updatePositions);
+        }
+        currentEl = currentEl.parentElement;
+    }
+
+    window.addEventListener('scroll', updatePositions);
 
     return index + 1;
   }
@@ -183,10 +216,19 @@
    * Checks if an element is interactive.
    */
   function isInteractiveElement(element) {
+    const { scrollX, scrollY } = getEffectiveScroll(element);
+    const rect = element.getBoundingClientRect();
+    
+    // Use effective scroll for any position-based checks
+    const absTop = rect.top + scrollY;
+    const absLeft = rect.left + scrollX;
+    const absBottom = rect.bottom + scrollY;
+    const absRight = rect.right + scrollX;
+
     // Immediately return false for body tag
-    if (element.tagName.toLowerCase() === "body") {
-      return false;
-    }
+    // if (element.tagName.toLowerCase() === "body") {
+    //   return false;
+    // }
 
     // Base interactive elements and roles
     const interactiveElements = new Set([
@@ -195,13 +237,14 @@
       "details",
       "embed",
       "input",
-      "label",
+      // "label",
       "menu",
       "menuitem",
       "object",
       "select",
       "textarea",
-      "summary",
+      "canvas",
+      "summary"
     ]);
 
     const interactiveRoles = new Set([
@@ -336,6 +379,12 @@
       element.hasAttribute("aria-selected") ||
       element.hasAttribute("aria-checked");
 
+
+    const isContentEditable = element.getAttribute("contenteditable") === "true" || element.isContentEditable ||
+      element.id === "tinymce" ||
+      element.classList.contains("mce-content-body") ||
+      (element.tagName.toLowerCase() === "body" && element.getAttribute("data-id")?.startsWith("mce_"));
+
     // Check for form-related functionality
     const isFormRelated =
       element.form !== undefined ||
@@ -346,13 +395,13 @@
     const isDraggable =
       element.draggable || element.getAttribute("draggable") === "true";
 
-    // Additional check to prevent body from being marked as interactive
-    if (
-      element.tagName.toLowerCase() === "body" ||
-      element.parentElement?.tagName.toLowerCase() === "body"
-    ) {
-      return false;
-    }
+    // // Additional check to prevent body from being marked as interactive
+    // if (
+    //   element.tagName.toLowerCase() === "body" ||
+    //   element.parentElement?.tagName.toLowerCase() === "body"
+    // ) {
+    //   return false;
+    // }
 
     return (
       hasAriaProps ||
@@ -360,7 +409,8 @@
       hasClickHandler ||
       hasClickListeners ||
       // isFormRelated ||
-      isDraggable
+      isDraggable ||
+      isContentEditable
     );
   }
 
@@ -370,17 +420,24 @@
   function isElementVisible(element) {
     const style = window.getComputedStyle(element);
     return (
-      element.offsetWidth > 0 &&
-      element.offsetHeight > 0 &&
-      style.visibility !== "hidden" &&
-      style.display !== "none"
+        element.offsetWidth > 0 &&
+        element.offsetHeight > 0 &&
+        style.visibility !== "hidden" &&
+        style.display !== "none"
     );
   }
 
   /**
-   * Checks if an element is the top element at its position.
+   * Checks if an element is the topmost element at its position.
    */
   function isTopElement(element) {
+    const { scrollX, scrollY } = getEffectiveScroll(element);
+    const rect = element.getBoundingClientRect();
+    
+    // Use effective scroll for center point calculation
+    const centerX = rect.left + rect.width/2 + scrollX;
+    const centerY = rect.top + rect.height/2 + scrollY;
+
     // Find the correct document context and root element
     let doc = element.ownerDocument;
 
@@ -392,10 +449,9 @@
     // For shadow DOM, we need to check within its own root context
     const shadowRoot = element.getRootNode();
     if (shadowRoot instanceof ShadowRoot) {
-      const rect = element.getBoundingClientRect();
       const point = {
-        x: rect.left + rect.width / 2,
-        y: rect.top + rect.height / 2,
+        x: centerX,
+        y: centerY,
       };
 
       try {
@@ -416,58 +472,51 @@
     }
 
     // Regular DOM elements
-    const rect = element.getBoundingClientRect();
-
-    // If viewportExpansion is -1, check if element is the top one at its position
-    if (viewportExpansion === -1) {
-      return true; // Consider all elements as top elements when expansion is -1
-    }
-
-    // Calculate expanded viewport boundaries including scroll position
-    const scrollX = window.scrollX;
-    const scrollY = window.scrollY;
-    const viewportTop = -viewportExpansion + scrollY;
-    const viewportLeft = -viewportExpansion + scrollX;
-    const viewportBottom = window.innerHeight + viewportExpansion + scrollY;
-    const viewportRight = window.innerWidth + viewportExpansion + scrollX;
-
-    // Get absolute element position
-    const absTop = rect.top + scrollY;
-    const absLeft = rect.left + scrollX;
-    const absBottom = rect.bottom + scrollY;
-    const absRight = rect.right + scrollX;
-
-    // Skip if element is completely outside expanded viewport
-    if (
-      absBottom < viewportTop ||
-      absTop > viewportBottom ||
-      absRight < viewportLeft ||
-      absLeft > viewportRight
-    ) {
-      return false;
-    }
-
-    // For elements within expanded viewport, check if they're the top element
     try {
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
+      // If the element is not in viewport, we need to scroll to it temporarily
+      const isInViewport = (
+        centerX >= 0 &&
+        centerX <= window.innerWidth &&
+        centerY >= 0 &&
+        centerY <= window.innerHeight
+      );
 
-      // Only clamp the point if it's outside the actual document
-      const point = {
-        x: centerX,
-        y: centerY,
-      };
+      if (!isInViewport) {
+        // Save current scroll position
+        const originalScrollX = window.scrollX;
+        const originalScrollY = window.scrollY;
 
-      if (
-        point.x < 0 ||
-        point.x >= window.innerWidth ||
-        point.y < 0 ||
-        point.y >= window.innerHeight
-      ) {
-        return true; // Consider elements with center outside viewport as visible
+        // Calculate scroll position to bring element into view
+        const scrollX = originalScrollX + rect.left - (window.innerWidth / 4);
+        const scrollY = originalScrollY + rect.top - (window.innerHeight / 4);
+
+        // Temporarily scroll to the element
+        window.scrollTo(scrollX, scrollY);
+
+        // Get new coordinates after scroll
+        const newRect = element.getBoundingClientRect();
+        const newCenterX = newRect.left + newRect.width / 2;
+        const newCenterY = newRect.top + newRect.height / 2;
+
+        // Check if element is top at new position
+        const topEl = document.elementFromPoint(newCenterX, newCenterY);
+
+        // Restore original scroll position
+        window.scrollTo(originalScrollX, originalScrollY);
+
+        if (!topEl) return true; // If no element found, consider it top
+
+        // Check if the found element is our target or one of its parents
+        let current = topEl;
+        while (current && current !== document.documentElement) {
+          if (current === element) return true;
+          current = current.parentElement;
+        }
+        return false;
       }
 
-      const topEl = document.elementFromPoint(point.x, point.y);
+      // For elements in viewport, use original logic
+      const topEl = document.elementFromPoint(centerX, centerY);
       if (!topEl) return false;
 
       let current = topEl;
@@ -482,23 +531,100 @@
   }
 
   /**
+   * Checks if an element is within the expanded viewport.
+   */
+  function isInExpandedViewport(element, viewportExpansion) {
+    if (viewportExpansion === -1) {
+      return true;
+    }
+
+    const rect = element.getBoundingClientRect();
+    const { scrollX, scrollY } = getEffectiveScroll(element);  // Use effective scroll
+
+    // Calculate expanded viewport boundaries including effective scroll
+    const viewportTop = -viewportExpansion + scrollY;
+    const viewportLeft = -viewportExpansion + scrollX;
+    const viewportBottom = window.innerHeight + viewportExpansion + scrollY;
+    const viewportRight = window.innerWidth + viewportExpansion + scrollX;
+
+    // Get absolute element position using effective scroll
+    const absTop = rect.top + scrollY;
+    const absLeft = rect.left + scrollX;
+    const absBottom = rect.bottom + scrollY;
+    const absRight = rect.right + scrollX;
+
+    return !(
+      absBottom < viewportTop ||
+      absTop > viewportBottom ||
+      absRight < viewportLeft ||
+      absLeft > viewportRight
+    );
+  }
+
+
+
+  /**
    * Checks if a text node is visible.
    */
   function isTextNodeVisible(textNode) {
     const range = document.createRange();
     range.selectNodeContents(textNode);
     const rect = range.getBoundingClientRect();
+    
+    // Get effective scroll for the text node's parent element
+    const { scrollX, scrollY } = getEffectiveScroll(textNode.parentElement);
+
+    // Calculate expanded viewport boundaries including effective scroll
+    const viewportTop = -viewportExpansion + scrollY;
+    const viewportLeft = -viewportExpansion + scrollX;
+    const viewportBottom = window.innerHeight + viewportExpansion + scrollY;
+    const viewportRight = window.innerWidth + viewportExpansion + scrollX;
+
+    // Get absolute text node position using effective scroll
+    const absTop = rect.top + scrollY;
+    const absLeft = rect.left + scrollX;
+    const absBottom = rect.bottom + scrollY;
+    const absRight = rect.right + scrollX;
+
+    // Check if text node is within expanded viewport
+    const isInExpandedViewport = !(
+      absBottom < viewportTop ||
+      absTop > viewportBottom ||
+      absRight < viewportLeft ||
+      absLeft > viewportRight
+    );
 
     return (
       rect.width !== 0 &&
       rect.height !== 0 &&
-      rect.top >= 0 &&
-      rect.top <= window.innerHeight &&
+      isInExpandedViewport &&
       textNode.parentElement?.checkVisibility({
         checkOpacity: true,
         checkVisibilityCSS: true,
       })
     );
+  }
+
+  // Add this new helper function
+  function getEffectiveScroll(element) {
+    let currentEl = element;
+    let scrollX = 0;
+    let scrollY = 0;
+
+    while (currentEl && currentEl !== document.documentElement) {
+        // Add scroll of any scrollable container
+        if (currentEl.scrollLeft || currentEl.scrollTop) {
+            scrollX += currentEl.scrollLeft;
+            scrollY += currentEl.scrollTop;
+        }
+        currentEl = currentEl.parentElement;
+    }
+
+    // Add main window scroll
+    scrollX += window.scrollX;
+    scrollY += window.scrollY;
+
+    return { scrollX, scrollY };
   }
 
   /**
@@ -519,13 +645,13 @@
     // Special case for text nodes
     if (node.nodeType === Node.TEXT_NODE) {
       const textContent = node.textContent.trim();
-      if (textContent && isTextNodeVisible(node)) {
+      if (textContent ) { // 
         const id = `${ID.current++}`;
 
         DOM_HASH_MAP[id] = {
           type: "TEXT_NODE",
           text: textContent,
-          isVisible: true,
+          isVisible: isTextNodeVisible(node),
         };
 
         return id;
@@ -549,8 +675,7 @@
     // Add coordinates for element nodes
     if (node.nodeType === Node.ELEMENT_NODE) {
       const rect = node.getBoundingClientRect();
-      const scrollX = window.scrollX;
-      const scrollY = window.scrollY;
+      const { scrollX, scrollY } = getEffectiveScroll(node);
 
       // Viewport-relative coordinates (can be negative when scrolled)
       nodeData.viewportCoordinates = {
@@ -604,7 +729,7 @@
         height: Math.round(rect.height),
       };
 
-      // Add viewport and scroll information
+      // Add viewport and scroll information using effective scroll
       nodeData.viewport = {
         scrollX: Math.round(scrollX),
         scrollY: Math.round(scrollY),
@@ -626,14 +751,15 @@
       const isInteractive = isInteractiveElement(node);
       const isVisible = isElementVisible(node);
       const isTop = isTopElement(node);
-
+      const isInViewport = isInExpandedViewport(node, viewportExpansion);
       nodeData.isInteractive = isInteractive;
       nodeData.isVisible = isVisible;
       nodeData.isTopElement = isTop;
-
+      nodeData.isInViewport = isInViewport;
       // Highlight if element meets all criteria and highlighting is enabled
-      if (isInteractive && isVisible && isTop) {
+      if (isInteractive && isVisible && isTop && isInViewport) {
         nodeData.highlightIndex = highlightIndex++;
+        // console.log('highlightIndex', highlightIndex)
         if (doHighlightElements) {
           if (focusHighlightIndex >= 0) {
             if (focusHighlightIndex === nodeData.highlightIndex) {
@@ -667,11 +793,11 @@
     }
 
     // Handle iframes
-    if (node.tagName === "IFRAME") {
+    if (node.tagName && node.tagName.toLowerCase() === "iframe") {
       try {
         const iframeDoc = node.contentDocument || node.contentWindow.document;
         if (iframeDoc) {
-          for (const child of iframeDoc.body.childNodes) {
+          for (const child of iframeDoc.childNodes) {
             const domElement = buildDomTree(child, node);
             if (domElement) {
               nodeData.children.push(domElement);

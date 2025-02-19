@@ -1,11 +1,12 @@
 import datetime
 from datetime import datetime
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from browser_use.agent.views import ActionResult, AgentStepInfo
-from browser_use.browser.views import BrowserState
+if TYPE_CHECKING:
+	from browser_use.agent.views import ActionResult, AgentStepInfo
+	from browser_use.browser.views import BrowserState
 
 
 class SystemPrompt:
@@ -157,15 +158,13 @@ Remember: Your responses must be valid JSON matching the specified format. Each 
 class AgentMessagePrompt:
 	def __init__(
 		self,
-		state: BrowserState,
-		result: Optional[List[ActionResult]] = None,
+		state: 'BrowserState',
+		result: Optional[List['ActionResult']] = None,
 		include_attributes: list[str] = [],
-		max_error_length: int = 400,
-		step_info: Optional[AgentStepInfo] = None,
+		step_info: Optional['AgentStepInfo'] = None,
 	):
 		self.state = state
 		self.result = result
-		self.max_error_length = max_error_length
 		self.include_attributes = include_attributes
 		self.step_info = step_info
 
@@ -205,7 +204,7 @@ You will see the following only once - if you need to remember it and you dont k
 Current url: {self.state.url}
 Available tabs:
 {self.state.tabs}
-Interactive elements from current page:
+Interactive elements from top layer of the current page inside the viewport:
 {elements_text}
 {step_info_description}
 """
@@ -215,8 +214,8 @@ Interactive elements from current page:
 				if result.extracted_content:
 					state_description += f'\nAction result {i + 1}/{len(self.result)}: {result.extracted_content}'
 				if result.error:
-					# only use last 300 characters of error
-					error = result.error[-self.max_error_length :]
+					# only use last line of error
+					error = result.error.split('\n')[-1]
 					state_description += f'\nAction error {i + 1}/{len(self.result)}: ...{error}'
 
 		if self.state.screenshot and use_vision == True:
