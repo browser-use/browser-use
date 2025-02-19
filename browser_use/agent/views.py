@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import json
 import traceback
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Type
+from typing import Any, Dict, List, Literal, Optional, Type
 
+from langchain_core.language_models.chat_models import BaseChatModel
 from openai import RateLimitError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 
+from browser_use.agent.message_manager.views import MessageManagerState
+from browser_use.agent.prompts import SystemPrompt
 from browser_use.browser.views import BrowserStateHistory
 from browser_use.controller.registry.views import ActionModel
 from browser_use.dom.history_tree_processor.service import (
@@ -17,6 +21,61 @@ from browser_use.dom.history_tree_processor.service import (
 	HistoryTreeProcessor,
 )
 from browser_use.dom.views import SelectorMap
+
+ToolCallingMethod = Literal['function_calling', 'auto']
+
+
+class AgentSettings(BaseModel):
+	"""Options for the agent"""
+
+	use_vision: bool = True
+	use_vision_for_planner: bool = False
+	save_conversation_path: Optional[str] = None
+	save_conversation_path_encoding: Optional[str] = 'utf-8'
+	max_failures: int = 3
+	retry_delay: int = 10
+	system_prompt_class: Type[SystemPrompt] = SystemPrompt
+	max_input_tokens: int = 128000
+	validate_output: bool = False
+	message_context: Optional[str] = None
+	generate_gif: bool | str = False
+	available_file_paths: Optional[list[str]] = None
+	include_attributes: list[str] = [
+		'title',
+		'type',
+		'name',
+		'role',
+		'tabindex',
+		'aria-label',
+		'placeholder',
+		'value',
+		'alt',
+		'aria-expanded',
+	]
+	max_actions_per_step: int = 10
+
+	tool_calling_method: Optional[ToolCallingMethod] = 'auto'
+	page_extraction_llm: Optional[BaseChatModel] = None
+	planner_llm: Optional[BaseChatModel] = None
+	planner_interval: int = 1  # Run planner every N steps
+
+
+class AgentState(BaseModel):
+	"""Holds all state information for an Agent"""
+
+	agent_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+	n_steps: int = 1
+	consecutive_failures: int = 0
+	last_result: Optional[List['ActionResult']] = None
+	history: AgentHistoryList = Field(default_factory=lambda: AgentHistoryList(history=[]))
+	last_plan: Optional[str] = None
+	paused: bool = False
+	stopped: bool = False
+
+	message_manager_state: MessageManagerState = Field(default_factory=MessageManagerState)
+
+	# class Config:
+	# 	arbitrary_types_allowed = True
 
 
 @dataclass
@@ -52,7 +111,11 @@ class AgentOutput(BaseModel):
 	model_config = ConfigDict(arbitrary_types_allowed=True)
 
 	current_state: AgentBrain
-	action: list[ActionModel]
+	action: list[ActionModel] = Field(
+		...,  # This means the field is required
+		description="List of actions to execute",
+		min_items=1,  # Ensure at least one action is provided
+	)
 
 	@staticmethod
 	def type_with_custom_actions(custom_actions: Type[ActionModel]) -> Type['AgentOutput']:
@@ -60,10 +123,17 @@ class AgentOutput(BaseModel):
 		model_ = create_model(
 			'AgentOutput',
 			__base__=AgentOutput,
-			action=(list[custom_actions], Field(...)),  # Properly annotated field with no default
+			action=(
+				list[custom_actions],
+				Field(
+					...,
+					description="List of actions to execute",
+					min_items=1
+				)
+			),
 			__module__=AgentOutput.__module__,
 		)
-		model_.__doc__ = "AgentOutput model"
+		model_.__doc__ = 'AgentOutput model with custom actions'
 		return model_
 
 

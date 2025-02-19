@@ -55,7 +55,7 @@ class BrowserContextConfig:
 	    cookies_file: None
 	        Path to cookies file for persistence
 
-	        disable_security: False
+	        disable_security: True
 	                Disable browser security features
 
 	    minimum_wait_page_load_time: 0.5
@@ -115,7 +115,7 @@ class BrowserContextConfig:
 	maximum_wait_page_load_time: float = 5
 	wait_between_actions: float = 1
 
-	disable_security: bool = False
+	disable_security: bool = True
 
 	browser_window_size: BrowserContextWindowSize = field(default_factory=lambda: {'width': 1280, 'height': 1100})
 	no_viewport: Optional[bool] = None
@@ -939,33 +939,30 @@ class BrowserContext:
 		"""
 		try:
 			# Highlight before typing
-			if element_node.highlight_index is not None:
-				await self._update_state(focus_element=element_node.highlight_index)
+			# if element_node.highlight_index is not None:
+			# 	await self._update_state(focus_element=element_node.highlight_index)
 
-			page = await self.get_current_page()
 			element_handle = await self.get_locate_element(element_node)
 
 			if element_handle is None:
 				raise BrowserError(f'Element: {repr(element_node)} not found')
 
 			# Ensure element is ready for input
-			await element_handle.wait_for_element_state('stable', timeout=2000)
-			await element_handle.scroll_into_view_if_needed(timeout=2100)
+			try:
+				await element_handle.wait_for_element_state('stable', timeout=1000)
+				await element_handle.scroll_into_view_if_needed(timeout=1000)
+			except Exception:
+				pass
 
 			# Get element properties to determine input method
 			is_contenteditable = await element_handle.get_property('isContentEditable')
 
 			# Different handling for contenteditable vs input fields
-			try:
-				if await is_contenteditable.json_value():
-					await element_handle.evaluate('el => el.textContent = ""')
-					await element_handle.type(text, delay=5)
-				else:
-					await element_handle.fill(text)
-			except Exception:
-				logger.debug('Could not type text into element. Trying to click and type.')
-				await element_handle.click()
+			if await is_contenteditable.json_value():
+				await element_handle.evaluate('el => el.textContent = ""')
 				await element_handle.type(text, delay=5)
+			else:
+				await element_handle.fill(text)
 
 		except Exception as e:
 			logger.debug(f'Failed to input text into element: {repr(element_node)}. Error: {str(e)}')
@@ -979,8 +976,8 @@ class BrowserContext:
 
 		try:
 			# Highlight before clicking
-			if element_node.highlight_index is not None:
-				await self._update_state(focus_element=element_node.highlight_index)
+			# if element_node.highlight_index is not None:
+			# 	await self._update_state(focus_element=element_node.highlight_index)
 
 			element_handle = await self.get_locate_element(element_node)
 

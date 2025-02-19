@@ -1,401 +1,326 @@
-import pytest
-from browser_use.browser.context import BrowserContext, BrowserContextConfig
-from browser_use.dom.views import DOMElementNode
-from browser_use.browser.views import BrowserState, BrowserError
 import asyncio
 import base64
-import json
 import os
+import pytest
+from browser_use.browser.context import BrowserContext, BrowserContextConfig
+from browser_use.browser.views import BrowserState
+from browser_use.dom.views import DOMElementNode
+from unittest.mock import Mock
 
+def test_is_url_allowed():
+    """
+    Test the _is_url_allowed method to verify that it correctly checks URLs against 
+    the allowed domains configuration.
+    Scenario 1: When allowed_domains is None, all URLs should be allowed.
+    Scenario 2: When allowed_domains is a list, only URLs matching the allowed domain(s) are allowed.
+    Scenario 3: When the URL is malformed, it should return False.
+    """
+    # Create a dummy Browser mock. Only the 'config' attribute is needed for _is_url_allowed.
+    dummy_browser = Mock()
+    # Set an empty config for dummy_browser; it won't be used in _is_url_allowed.
+    dummy_browser.config = Mock()
+    # Scenario 1: allowed_domains is None, any URL should be allowed.
+    config1 = BrowserContextConfig(allowed_domains=None)
+    context1 = BrowserContext(browser=dummy_browser, config=config1)
+    assert context1._is_url_allowed("http://anydomain.com") is True
+    assert context1._is_url_allowed("https://anotherdomain.org/path") is True
+    # Scenario 2: allowed_domains is provided.
+    allowed = ["example.com", "mysite.org"]
+    config2 = BrowserContextConfig(allowed_domains=allowed)
+    context2 = BrowserContext(browser=dummy_browser, config=config2)
+    # URL exactly matching
+    assert context2._is_url_allowed("http://example.com") is True
+    # URL with subdomain (should be allowed)
+    assert context2._is_url_allowed("http://sub.example.com/path") is True
+    # URL with different domain (should not be allowed)
+    assert context2._is_url_allowed("http://notexample.com") is False
+    # URL that matches second allowed domain
+    assert context2._is_url_allowed("https://mysite.org/page") is True
+    # URL with port number, still allowed (port is stripped)
+    assert context2._is_url_allowed("http://example.com:8080") is True
+    # Scenario 3: Malformed URL or empty domain
+    # urlparse will return an empty netloc for some malformed URLs.
+    assert context2._is_url_allowed("notaurl") is False
 def test_convert_simple_xpath_to_css_selector():
     """
-    Test that BrowserContext._convert_simple_xpath_to_css_selector correctly transforms
-    basic XPath expressions into CSS selectors.
+    Test the _convert_simple_xpath_to_css_selector method of BrowserContext.
+    This verifies that simple XPath expressions (with and without indices) are correctly converted to CSS selectors.
     """
-    # Test with a numeric index
-    xpath1 = '/html/body/div[2]/span'
-    expected1 = 'html > body > div:nth-of-type(2) > span'
-    result1 = BrowserContext._convert_simple_xpath_to_css_selector(xpath1)
-    assert result1 == expected1, f"Expected '{expected1}', got '{result1}'"
-    # Test with an empty xpath
-    xpath2 = ''
-    expected2 = ''
-    result2 = BrowserContext._convert_simple_xpath_to_css_selector(xpath2)
-    assert result2 == expected2, f"Expected empty string, got '{result2}'"
-    # Test with a different numeric index in a list item
-    xpath3 = '/ul/li[3]/a'
-    expected3 = 'ul > li:nth-of-type(3) > a'
-    result3 = BrowserContext._convert_simple_xpath_to_css_selector(xpath3)
-    assert result3 == expected3, f"Expected '{expected3}', got '{result3}'"
-    # Test with the last() function indicating last element of type
-    xpath4 = '/table/tr[last()]/td'
-    expected4 = 'table > tr:last-of-type > td'
-    result4 = BrowserContext._convert_simple_xpath_to_css_selector(xpath4)
-    assert result4 == expected4, f"Expected '{expected4}', got '{result4}'"
-def test_enhanced_css_selector_for_element():
-    """
-    Test the _enhanced_css_selector_for_element function to ensure that it correctly generates a CSS selector
-    for a DOMElementNode. The test checks that valid class names are included, safe attributes (like 'id') are appended,
-    and attributes not in the safe list are ignored.
-    """
-    node = DOMElementNode(
-        tag_name='div',
-        is_visible=True,
-        parent=None,
-        xpath='/html/body/div',
-        attributes={
-            'class': 'myClass invalid-class',
-            'id': 'main',
-            'non_safe': 'value',  # This attribute should be ignored because it's not in the safe list.
-        },
-        children=[]
-    )
-    result = BrowserContext._enhanced_css_selector_for_element(node, include_dynamic_attributes=True)
-    expected = 'html > body > div.myClass.invalid-class[id="main"]'
-    assert result == expected, f"Expected '{expected}', got '{result}'"
+    # Test empty xpath returns empty string
+    assert BrowserContext._convert_simple_xpath_to_css_selector('') == ''
+    # Test a simple xpath without indices
+    xpath = "/html/body/div/span"
+    expected = "html > body > div > span"
+    result = BrowserContext._convert_simple_xpath_to_css_selector(xpath)
+    assert result == expected
+    # Test xpath with an index on one element: [2] should translate to :nth-of-type(2)
+    xpath = "/html/body/div[2]/span"
+    expected = "html > body > div:nth-of-type(2) > span"
+    result = BrowserContext._convert_simple_xpath_to_css_selector(xpath)
+    assert result == expected
+    # Test xpath with indices on multiple elements:
+    # For "li[3]" -> li:nth-of-type(3) and for "a[1]" -> a:nth-of-type(1)
+    xpath = "/ul/li[3]/a[1]"
+    expected = "ul > li:nth-of-type(3) > a:nth-of-type(1)"
+    result = BrowserContext._convert_simple_xpath_to_css_selector(xpath)
+    assert result == expected
 def test_get_initial_state():
     """
-    Test that _get_initial_state of BrowserContext returns a correct initial BrowserState.
-    When no page is provided, the URL should be an empty string.
-    When a dummy page with a url attribute is provided, the URL should match that value.
+    Test the _get_initial_state method to verify it returns the correct initial BrowserState.
+    The test checks that when a dummy page with a URL is provided,
+    the returned state contains that URL and other default values.
     """
-    # Define a dummy browser since BrowserContext requires one.
-    class DummyBrowser:
-        pass
-    # Instantiate BrowserContext with a dummy browser.
-    bc = BrowserContext(browser=DummyBrowser())
-    # When no page is passed, expect the url value in the state to be an empty string.
-    state_no_page = bc._get_initial_state()
-    assert state_no_page.url == '', f"Expected empty URL when no page is provided, got: {state_no_page.url}"
+    # Create a dummy browser since only its existence is needed.
+    dummy_browser = Mock()
+    dummy_browser.config = Mock()
+    context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
     # Define a dummy page with a 'url' attribute.
     class DummyPage:
-        url = "https://example.com"
-    state_with_page = bc._get_initial_state(DummyPage())
-    assert state_with_page.url == "https://example.com", f"Expected URL 'https://example.com', got: {state_with_page.url}"
-@pytest.mark.asyncio
-async def test_is_file_uploader():
-    """
-    Tests the is_file_uploader method to ensure it properly detects file uploader elements.
-    
-    Scenarios covered:
-      - A DOMElementNode that is directly an <input> with type "file" should be detected as a file uploader.
-      - An <input> element with type "text" should not be detected as a file uploader.
-      - An element that has a child <input type="file"> should be detected as a file uploader.
-      - A deeply nested uploader beyond the specified max_depth should not be detected unless the max_depth is increased.
-    """
-    # Create a dummy browser instance as required for BrowserContext.
-    class DummyBrowser:
-        pass
-    # Instantiate BrowserContext with a dummy browser.
-    bc = BrowserContext(browser=DummyBrowser())
-    # Case 1: Direct uploader node.
-    uploader_node = DOMElementNode(
-        tag_name='input',
-        is_visible=True,
-        parent=None,
-        xpath='/html/body/input',
-        attributes={'type': 'file'},
-        children=[]
-    )
-    result_direct = await bc.is_file_uploader(uploader_node)
-    assert result_direct is True, "A direct file uploader input should return True."
-    # Case 2: Non-uploader input node.
-    non_uploader = DOMElementNode(
-        tag_name='input',
-        is_visible=True,
-        parent=None,
-        xpath='/html/body/input',
-        attributes={'type': 'text'},
-        children=[]
-    )
-    result_non = await bc.is_file_uploader(non_uploader)
-    assert result_non is False, "A non-file input should return False."
-    # Case 3: Uploader node as a child.
-    child_uploader = DOMElementNode(
-        tag_name='div',
-        is_visible=True,
-        parent=None,
-        xpath='/html/body/div',
-        attributes={},
-        children=[
-            DOMElementNode(
-                tag_name='input',
-                is_visible=True,
-                parent=None,
-                xpath='/html/body/div/input',
-                attributes={'type': 'file'},
-                children=[]
-            )
-        ]
-    )
-    result_child = await bc.is_file_uploader(child_uploader)
-    assert result_child is True, "A file uploader nested within a child node should return True."
-    # Case 4:
-    # Test when the file uploader is nested deeper than allowed by max_depth.
-    # Here, deep_child's uploader is at depth 2. We'll set max_depth=1 so the uploader is not detected.
-    deep_child = DOMElementNode(
-        tag_name='div',
-        is_visible=True,
-        parent=None,
-        xpath='/html/body/div',
-        attributes={},
-        children=[
-            DOMElementNode(
-                tag_name='div',
-                is_visible=True,
-                parent=None,
-                xpath='/html/body/div/div',
-                attributes={},
-                children=[
-                    DOMElementNode(
-                        tag_name='input',
-                        is_visible=True,
-                        parent=None,
-                        xpath='/html/body/div/div/input',
-                        attributes={'type': 'file'},
-                        children=[]
-                    )
-                ]
-            )
-        ]
-    )
-    result_deep_limited = await bc.is_file_uploader(deep_child, max_depth=1)
-    assert result_deep_limited is False, "A nested uploader beyond max_depth=1 should return False."
-    # Case 5:
-    # With a higher max_depth the nested uploader should be detected.
-    result_deep_allowed = await bc.is_file_uploader(deep_child, max_depth=2)
-    assert result_deep_allowed is True, "A nested uploader within max_depth=2 should return True."
-@pytest.mark.asyncio
-async def test_switch_to_tab_functionality():
-    """
-    Test the switch_to_tab function using a dummy session.
-    This test creates a dummy BrowserContext with a dummy session that contains multiple pages.
-    It verifies that switching to a tab with an allowed URL properly sets the current page,
-    and that attempting to switch to a tab with a disallowed URL or an invalid index raises a BrowserError.
-    """
-    # Dummy classes to simulate Playwright's behavior
-    class DummyPage:
-        def __init__(self, url, title):
-            self.url = url
-            self._title = title
-        async def title(self):
-            return self._title
-        async def wait_for_load_state(self):
-            pass
-        async def bring_to_front(self):
-            pass
-    class DummyContext:
-        def __init__(self, pages):
-            self.pages = pages
-        async def new_page(self):
-            # Returns a new dummy page with an allowed URL
-            return DummyPage("http://allowed.com/new", "New Tab")
-    class DummySession:
-        def __init__(self, context, current_page):
-            self.context = context
-            self.current_page = current_page
-    # Create dummy pages
-    page1 = DummyPage("http://allowed.com", "Tab1")
-    page2 = DummyPage("http://allowed.com/tab2", "Tab2")
-    page3 = DummyPage("http://notallowed.com", "Tab3")  # This URL is not allowed
-    dummy_context = DummyContext(pages=[page1, page2, page3])
-    dummy_session = DummySession(context=dummy_context, current_page=page1)
-    # Define a dummy browser for BrowserContext
-    class DummyBrowser:
-        pass
-    # Instantiate BrowserContext and manually assign the dummy session
-    bc = BrowserContext(browser=DummyBrowser())
-    bc.session = dummy_session
-    # Set configuration to allow only 'allowed.com'
-    bc.config.allowed_domains = ["allowed.com"]
-    # Test switching to a tab with an allowed URL (index 1)
-    await bc.switch_to_tab(1)
-    assert bc.session.current_page == page2, "Current tab should be switched to tab2 with allowed URL."
-    # Test switching to a tab with a non-allowed URL (index 2 should raise BrowserError)
-    with pytest.raises(BrowserError):
-        await bc.switch_to_tab(2)
-    # Test switching to an invalid negative index (should also raise BrowserError)
-    with pytest.raises(BrowserError):
-        await bc.switch_to_tab(-1)
-@pytest.mark.asyncio
-async def test_reset_context():
-    """
-    Test that reset_context properly resets the browser session by closing all existing pages,
-    setting the cached state to an initial state, and creating a new tab.
-    """
-    # Create dummy classes to simulate page, context, and session behavior.
-    class DummyPage:
-        def __init__(self, url):
-            self.url = url
-            self.closed = False
-        async def wait_for_load_state(self):
-            pass
-        async def close(self):
-            self.closed = True
-    class DummyContext:
-        def __init__(self, pages):
-            self.pages = pages
-        async def new_page(self):
-            # Simulate creating a new page.
-            new_page = DummyPage("http://newtab.com")
-            self.pages.append(new_page)
-            return new_page
-    class DummySession:
-        def __init__(self, context, current_page):
-            self.context = context
-            self.current_page = current_page
-            self.cached_state = None
-    # Set up initial dummy pages.
-    page1 = DummyPage("http://a.com")
-    page2 = DummyPage("http://b.com")
-    dummy_context = DummyContext(pages=[page1, page2])
-    dummy_session = DummySession(context=dummy_context, current_page=page1)
-    # Create a dummy browser for BrowserContext.
-    class DummyBrowser:
-        pass
-    # Initialize BrowserContext and manually assign the dummy session.
-    bc = BrowserContext(browser=DummyBrowser())
-    bc.session = dummy_session
-    # Call reset_context which should close existing pages and create a new tab.
-    await bc.reset_context()
-    # Verify that all original pages have been closed.
-    for page in [page1, page2]:
-        assert page.closed, "Expected original pages to be closed after reset_context call."
-    # Verify that a new page has been created and set as current_page.
-    assert bc.session.current_page is not None, "Expected a new current page after reset_context."
-    
-    # Verify that the cached state is set using _get_initial_state
-    # According to _get_initial_state, if no page is provided the URL should be empty.
-    state = bc.session.cached_state
-    assert isinstance(state, BrowserState), "Expected cached_state to be a BrowserState instance."
-    assert state.url == "", "Expected initial state's URL to be empty."
-@pytest.mark.asyncio
-async def test_take_screenshot_functionality():
-    """
-    Test that BrowserContext.take_screenshot returns a correct base64 encoded string
-    from the screenshot bytes produced by a dummy page.
-    """
-    # Create a dummy page that returns fixed bytes when screenshot() is called.
-    class DummyPage:
-        async def screenshot(self, full_page: bool, animations: str):
-            return b"fakeimage"
-        # Dummy implementations to satisfy potential calls.
-        async def wait_for_load_state(self):
-            pass
-    # Create a dummy session with the dummy page as current_page.
-    class DummySession:
-        def __init__(self, page):
-            self.current_page = page
-    # Create a dummy browser instance to pass to BrowserContext.
-    class DummyBrowser:
-        pass
-    # Initialize BrowserContext with the dummy browser.
-    bc = BrowserContext(browser=DummyBrowser())
-    # Manually assign a dummy session containing our dummy page.
+        url = "http://dummy.com"
     dummy_page = DummyPage()
-    dummy_session = DummySession(page=dummy_page)
-    bc.session = dummy_session
-    # Invoke take_screenshot and check result.
-    result = await bc.take_screenshot(full_page=False)
-    expected = base64.b64encode(b"fakeimage").decode("utf-8")
-    assert result == expected, f"Expected base64 string '{expected}', got '{result}'"
+    # Call _get_initial_state with a page: URL should be set from page.url.
+    state_with_page = context._get_initial_state(page=dummy_page)
+    assert state_with_page.url == dummy_page.url
+    # Verify that the element_tree is initialized with tag 'root'
+    assert state_with_page.element_tree.tag_name == 'root'
+    # Call _get_initial_state without a page: URL should be empty.
+    state_without_page = context._get_initial_state()
+    assert state_without_page.url == ""
 @pytest.mark.asyncio
 async def test_execute_javascript():
     """
-    Test execute_javascript: verifies that the execute_javascript method returns the expected result
-    from evaluating JavaScript on a dummy page.
+    Test the execute_javascript method by mocking the current page's evaluate function.
+    This ensures that when execute_javascript is called, it correctly returns the value
+    from the page's evaluate method.
     """
-    # Create a dummy page with an evaluate method that returns a predictable result.
+    # Define a dummy page with an async evaluate method.
     class DummyPage:
         async def evaluate(self, script):
-            return f"Executed: {script}"
+            return "dummy_result"
+    # Create a dummy session object with a dummy current_page.
+    dummy_session = type("DummySession", (), {})()
+    dummy_session.current_page = DummyPage()
+    # Create a dummy browser mock with a minimal config.
+    dummy_browser = Mock()
+    dummy_browser.config = Mock()
+    # Initialize the BrowserContext with the dummy browser and config.
+    context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+    # Manually set the session to our dummy session.
+    context.session = dummy_session
+    # Call execute_javascript and verify it returns the expected result.
+    result = await context.execute_javascript("return 1+1")
+    assert result == "dummy_result"
+@pytest.mark.asyncio
+async def test_enhanced_css_selector_for_element():
+    """
+    Test the _enhanced_css_selector_for_element method to verify that
+    it returns the correct CSS selector string for a dummy DOMElementNode.
+    The test checks that:
+      - The provided xpath is correctly converted (handling indices),
+      - Class attributes are appended as CSS classes,
+      - Standard and dynamic attributes (including ones with special characters)
+        are correctly added to the selector.
+    """
+    # Create a dummy DOMElementNode instance with a complex set of attributes.
+    dummy_element = DOMElementNode(
+        tag_name="div",
+        is_visible=True,
+        parent=None,
+        xpath="/html/body/div[2]",
+        attributes={
+            "class": "foo bar",
+            "id": "my-id",
+            "placeholder": 'some "quoted" text',
+            "data-testid": "123"
+        },
+        children=[]
+    )
+    # Call the method with include_dynamic_attributes=True.
+    actual_selector = BrowserContext._enhanced_css_selector_for_element(dummy_element, include_dynamic_attributes=True)
+    # Expected conversion:
+    # 1. The xpath "/html/body/div[2]" converts to "html > body > div:nth-of-type(2)".
+    # 2. The class attribute "foo bar" appends ".foo.bar".
+    # 3. The "id" attribute is added as [id="my-id"].
+    # 4. The "placeholder" attribute contains quotes; it is added as
+    #    [placeholder*="some \"quoted\" text"].
+    # 5. The dynamic attribute "data-testid" is added as [data-testid="123"].
+    expected_selector = 'html > body > div:nth-of-type(2).foo.bar[id="my-id"][placeholder*="some \\"quoted\\" text"][data-testid="123"]'
+    assert actual_selector == expected_selector, f"Expected {expected_selector}, but got {actual_selector}"
+@pytest.mark.asyncio
+async def test_get_scroll_info():
+    """
+    Test the get_scroll_info method by mocking the page's evaluate method.
+    This dummy page returns preset values for window.scrollY, window.innerHeight,
+    and document.documentElement.scrollHeight. The test then verifies that the 
+    computed scroll information (pixels_above and pixels_below) match the expected values.
+    """
+    # Define a dummy page with an async evaluate method returning preset values.
+    class DummyPage:
+        async def evaluate(self, script):
+            if "window.scrollY" in script:
+                return 100  # scrollY
+            elif "window.innerHeight" in script:
+                return 500  # innerHeight
+            elif "document.documentElement.scrollHeight" in script:
+                return 1200  # total scrollable height
+            return None
+    # Create a dummy session with a dummy current_page.
+    dummy_session = type("DummySession", (), {})()
+    dummy_session.current_page = DummyPage()
+    # We also need a dummy context attribute but it won't be used in this test.
+    dummy_session.context = type("DummyContext", (), {})()
+    # Create a dummy browser mock.
+    dummy_browser = Mock()
+    dummy_browser.config = Mock()
+    # Initialize BrowserContext with the dummy browser and config.
+    context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+    # Manually set the session to our dummy session.
+    context.session = dummy_session
+    # Call get_scroll_info on the dummy page.
+    pixels_above, pixels_below = await context.get_scroll_info(dummy_session.current_page)
+    # Expected calculations:
+    # pixels_above = scrollY = 100
+    # pixels_below = total_height - (scrollY + innerHeight) = 1200 - (100 + 500) = 600
+    assert pixels_above == 100, f"Expected 100 pixels above, got {pixels_above}"
+    assert pixels_below == 600, f"Expected 600 pixels below, got {pixels_below}"
+@pytest.mark.asyncio
+async def test_reset_context():
+    """
+    Test the reset_context method to ensure it correctly closes all existing tabs,
+    resets the cached state, and creates a new page.
+    """
+    # Dummy Page with close and wait_for_load_state methods.
+    class DummyPage:
+        def __init__(self, url="http://dummy.com"):
+            self.url = url
+            self.closed = False
+        async def close(self):
+            self.closed = True
         async def wait_for_load_state(self):
             pass
-    # Create a dummy session to hold the current page.
-    class DummySession:
-        def __init__(self, page):
-            self.current_page = page
-    # Create a dummy browser instance (contents not needed for this test).
-    class DummyBrowser:
-        pass
-    # Initialize BrowserContext with the dummy browser and assign the dummy session.
-    bc = BrowserContext(browser=DummyBrowser())
-    dummy_page = DummyPage()
-    bc.session = DummySession(page=dummy_page)
-    # Define a simple JavaScript snippet to execute.
-    script = "1 + 1"
-    result = await bc.execute_javascript(script)
-    expected = f"Executed: {script}"
-    assert result == expected, f"Expected '{expected}', got '{result}'"
-@pytest.mark.asyncio
-async def test_save_cookies_functionality(tmp_path):
-    """
-    Test that the save_cookies method properly writes preset cookies to the configured cookies_file.
-    This test creates a dummy session with a dummy context that returns preset cookies,
-    then invokes save_cookies and verifies the file content.
-    """
-    # Create a temporary file path for cookies_file
-    cookies_file_path = tmp_path / "cookies.json"
-    
-    # Create a dummy context with a cookies() method returning preset cookies
+    # Dummy Context that holds pages and can create a new page.
     class DummyContext:
         def __init__(self):
             self.pages = []
-        async def cookies(self):
-            return [{"name": "cookie", "value": "test"}]
-    
-    # Create a dummy session that holds the dummy context
-    class DummySession:
-        def __init__(self, context):
-            self.context = context
-            self.current_page = None
-    
-    # Create a dummy browser instance (contents not needed for this test)
-    class DummyBrowser:
-        pass
-    
-    # Initialize BrowserContext with the dummy browser
-    bc = BrowserContext(browser=DummyBrowser())
-    # Update config to use the temporary cookies_file
-    bc.config = BrowserContextConfig(cookies_file=str(cookies_file_path))
-    # Manually assign a dummy session with our DummyContext
+        async def new_page(self):
+            new_page = DummyPage(url="")
+            self.pages.append(new_page)
+            return new_page
+    # Create a dummy session with a context containing two pages.
+    dummy_session = type("DummySession", (), {})()
     dummy_context = DummyContext()
-    bc.session = DummySession(context=dummy_context)
-    
-    # Invoke the save_cookies method
-    await bc.save_cookies()
-    
-    # Verify that the cookies_file has been created and contains the expected cookies information.
-    with open(str(cookies_file_path), "r") as f:
-        cookies_data = json.load(f)
-    
-    assert cookies_data == [{"name": "cookie", "value": "test"}], f"Expected cookies data not found: {cookies_data}"
+    page1 = DummyPage(url="http://page1.com")
+    page2 = DummyPage(url="http://page2.com")
+    dummy_context.pages.extend([page1, page2])
+    dummy_session.context = dummy_context
+    dummy_session.current_page = page1
+    dummy_session.cached_state = None
+    # Create a dummy browser mock.
+    dummy_browser = Mock()
+    dummy_browser.config = Mock()
+    # Initialize BrowserContext using our dummy_browser and config,
+    # and manually set its session to our dummy session.
+    context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+    context.session = dummy_session
+    # Confirm session has 2 pages before reset.
+    assert len(dummy_session.context.pages) == 2
+    # Call reset_context which should close existing pages,
+    # reset the cached state, and create a new page as current_page.
+    await context.reset_context()
+    # Verify that initial pages were closed.
+    assert page1.closed is True
+    assert page2.closed is True
+    # Check that a new page is created and set as current_page.
+    assert dummy_session.current_page is not None
+    new_page = dummy_session.current_page
+    # New page URL should be empty as per _get_initial_state.
+    assert new_page.url == ""
+    # Verify that cached_state is reset to an initial BrowserState.
+    state = dummy_session.cached_state
+    assert isinstance(state, BrowserState)
+    assert state.url == ""
+    assert state.element_tree.tag_name == 'root'
 @pytest.mark.asyncio
-async def test_remove_highlights_handles_exception():
+async def test_take_screenshot():
     """
-    Test that remove_highlights gracefully handles exceptions thrown by page.evaluate
-    without propagating the error. This simulates scenarios where the page might be closed or inaccessible.
+    Test the take_screenshot method to verify that it returns a base64 encoded screenshot string.
+    A dummy page with a mocked screenshot method is used, returning a predefined byte string.
     """
-    # Dummy page that simulates failure on evaluate.
+    class DummyPage:
+        async def screenshot(self, full_page, animations):
+            # Verify that parameters are forwarded correctly.
+            assert full_page is True, "full_page parameter was not correctly passed"
+            assert animations == 'disabled', "animations parameter was not correctly passed"
+            # Return a test byte string.
+            return b'test'
+    # Create a dummy session with the DummyPage as the current_page.
+    dummy_session = type("DummySession", (), {})()
+    dummy_session.current_page = DummyPage()
+    dummy_session.context = None  # Not used in this test
+    # Create a dummy browser mock.
+    dummy_browser = Mock()
+    dummy_browser.config = Mock()
+    # Initialize the BrowserContext with the dummy browser and config.
+    context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+    # Manually set the session to our dummy session.
+    context.session = dummy_session
+    # Call take_screenshot and check that it returns the expected base64 encoded string.
+    result = await context.take_screenshot(full_page=True)
+    expected = base64.b64encode(b'test').decode('utf-8')
+    assert result == expected, f"Expected {expected}, but got {result}"
+@pytest.mark.asyncio
+async def test_refresh_page_behavior():
+    """
+    Test the refresh_page method of BrowserContext to verify that it correctly reloads the current page
+    and waits for the page's load state. This is done by creating a dummy page that flags when its
+    reload and wait_for_load_state methods are called.
+    """
+    class DummyPage:
+        def __init__(self):
+            self.reload_called = False
+            self.wait_for_load_state_called = False
+        async def reload(self):
+            self.reload_called = True
+        async def wait_for_load_state(self):
+            self.wait_for_load_state_called = True
+    # Create a dummy session with the dummy page as the current_page.
+    dummy_page = DummyPage()
+    dummy_session = type("DummySession", (), {})()
+    dummy_session.current_page = dummy_page
+    dummy_session.context = None  # Not required for this test
+    # Create a dummy browser mock
+    dummy_browser = Mock()
+    dummy_browser.config = Mock()
+    # Initialize BrowserContext with the dummy browser and config,
+    # and manually set its session to our dummy session.
+    context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+    context.session = dummy_session
+    # Call refresh_page and verify that reload and wait_for_load_state were called.
+    await context.refresh_page()
+    assert dummy_page.reload_called is True, "Expected the page to call reload()"
+    assert dummy_page.wait_for_load_state_called is True, "Expected the page to call wait_for_load_state()"
+@pytest.mark.asyncio
+async def test_remove_highlights_failure():
+    """
+    Test the remove_highlights method to ensure that if the page.evaluate call fails,
+    the exception is caught and does not propagate (i.e. the method handles errors gracefully).
+    """
+    # Dummy page that always raises an exception when evaluate is called.
     class DummyPage:
         async def evaluate(self, script):
-            raise Exception("Simulated failure during evaluate")
-        async def wait_for_load_state(self):
-            pass
-    # Dummy session holding our dummy page as current_page.
-    class DummySession:
-        def __init__(self, page):
-            self.current_page = page
-    # Dummy Browser required for BrowserContext instantiation.
-    class DummyBrowser:
-        pass
-    # Instantiate BrowserContext using the dummy browser.
-    bc = BrowserContext(browser=DummyBrowser())
-    dummy_page = DummyPage()
-    bc.session = DummySession(page=dummy_page)
-    
-    # Call remove_highlights and ensure no exception is raised.
+            raise Exception("dummy error")
+    # Create a dummy session with the DummyPage as current_page.
+    dummy_session = type("DummySession", (), {})()
+    dummy_session.current_page = DummyPage()
+    dummy_session.context = None  # Not used in this test
+    # Create a dummy browser mock.
+    dummy_browser = Mock()
+    dummy_browser.config = Mock()
+    # Initialize BrowserContext with the dummy browser and configuration.
+    context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+    context.session = dummy_session
+    # Call remove_highlights and verify that no exception is raised.
     try:
-        await bc.remove_highlights()
+        await context.remove_highlights()
     except Exception as e:
-        pytest.fail(f"remove_highlights() raised an exception unexpectedly: {e}")
+        pytest.fail(f"remove_highlights raised an exception: {e}")

@@ -1,8 +1,17 @@
+"""
+Show how to use custom outputs.
+
+@dev You need to add OPENAI_API_KEY to your environment variables.
+"""
+
 import json
 import os
 import sys
+from typing import List
 
 import requests
+
+from browser_use.agent.views import ActionResult
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -10,12 +19,23 @@ import asyncio
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
+from pydantic import BaseModel
 
-from browser_use import ActionResult, Agent, Controller
+from browser_use import Agent, Controller
 
 load_dotenv()
 
-controller = Controller(exclude_actions=['search_google'])
+
+class Profile(BaseModel):
+	platform: str
+	profile_url: str
+
+
+class Profiles(BaseModel):
+	profiles: List[Profile]
+
+
+controller = Controller(exclude_actions=['search_google'], output_model=Profiles)
 BEARER_TOKEN = os.getenv('BEARER_TOKEN')
 
 if not BEARER_TOKEN:
@@ -42,11 +62,26 @@ async def search_web(query: str):
 
 
 async def main():
-	task = 'use search_web to find the staff directory page of this team University of Northwestern-St. Paul http://unweagles.com Upper Midwest Athletic Conference retrun me only the link'
+	task = (
+		'Go to this tiktok video url, open it and extract the @username from the resulting url. Then do a websearch for this username to find all his social media profiles. Return me the links to the social media profiles with the platform name.'
+		' https://www.tiktokv.com/share/video/7470981717659110678/  '
+	)
 	model = ChatOpenAI(model='gpt-4o')
 	agent = Agent(task=task, llm=model, controller=controller)
 
-	await agent.run()
+	history = await agent.run()
+
+	result = history.final_result()
+	if result:
+		parsed: Profiles = Profiles.model_validate_json(result)
+
+		for profile in parsed.profiles:
+			print('\n--------------------------------')
+			print(f'Platform:         {profile.platform}')
+			print(f'Profile URL:      {profile.profile_url}')
+
+	else:
+		print('No result')
 
 
 if __name__ == '__main__':

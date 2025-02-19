@@ -43,7 +43,7 @@ class SendKeysAction(BaseModel):
 	keys: str
 
 class ExtractPageContentAction(BaseModel):
-    value: str
+	value: str
 	
 class NoParamsAction(BaseModel):
 	"""
