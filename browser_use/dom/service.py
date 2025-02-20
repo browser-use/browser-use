@@ -1,33 +1,40 @@
 import gc
+import json
 import logging
+from dataclasses import dataclass
 from importlib import resources
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from playwright.async_api import Page
+if TYPE_CHECKING:
+	from playwright.async_api import Page
 
-from browser_use.dom.history_tree_processor.view import Coordinates
 from browser_use.dom.views import (
-	CoordinateSet,
 	DOMBaseNode,
 	DOMElementNode,
 	DOMState,
 	DOMTextNode,
 	SelectorMap,
-	ViewportInfo,
 )
+from browser_use.utils import time_execution_async
 
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class ViewportInfo:
+	width: int
+	height: int
+
+
 class DomService:
-	def __init__(self, page: Page):
+	def __init__(self, page: 'Page'):
 		self.page = page
 		self.xpath_cache = {}
 
 		self.js_code = resources.read_text('browser_use.dom', 'buildDomTree.js')
 
 	# region - Clickable elements
-
+	@time_execution_async('--get_clickable_elements')
 	async def get_clickable_elements(
 		self,
 		highlight_elements: bool = True,
@@ -40,6 +47,7 @@ class DomService:
 
 		return dom_state
 
+	@time_execution_async('--build_dom_tree')
 	async def _build_dom_tree(
 		self,
 		highlight_elements: bool,
@@ -60,6 +68,18 @@ class DomService:
 
 		eval_page = await self.page.evaluate(self.js_code, args)
 
+		# Log performance metrics if they exist
+		if 'perfMetrics' in eval_page:
+			perf_metrics = eval_page['perfMetrics']
+			logger.debug('DOM Tree Building Performance Metrics:\n%s', json.dumps(perf_metrics, indent=2))
+
+		return await self._construct_dom_tree(eval_page)
+
+	@time_execution_async('--construct_dom_tree')
+	async def _construct_dom_tree(
+		self,
+		eval_page: dict,
+	) -> tuple[DOMElementNode, SelectorMap]:
 		js_node_map = eval_page['map']
 		js_root_id = eval_page['rootId']
 
@@ -118,34 +138,11 @@ class DomService:
 			return text_node, []
 
 		# Process coordinates if they exist for element nodes
-		viewport_coordinates = None
-		page_coordinates = None
+
 		viewport_info = None
 
-		if 'viewportCoordinates' in node_data:
-			viewport_coordinates = CoordinateSet(
-				top_left=Coordinates(**node_data['viewportCoordinates']['topLeft']),
-				top_right=Coordinates(**node_data['viewportCoordinates']['topRight']),
-				bottom_left=Coordinates(**node_data['viewportCoordinates']['bottomLeft']),
-				bottom_right=Coordinates(**node_data['viewportCoordinates']['bottomRight']),
-				center=Coordinates(**node_data['viewportCoordinates']['center']),
-				width=node_data['viewportCoordinates']['width'],
-				height=node_data['viewportCoordinates']['height'],
-			)
-		if 'pageCoordinates' in node_data:
-			page_coordinates = CoordinateSet(
-				top_left=Coordinates(**node_data['pageCoordinates']['topLeft']),
-				top_right=Coordinates(**node_data['pageCoordinates']['topRight']),
-				bottom_left=Coordinates(**node_data['pageCoordinates']['bottomLeft']),
-				bottom_right=Coordinates(**node_data['pageCoordinates']['bottomRight']),
-				center=Coordinates(**node_data['pageCoordinates']['center']),
-				width=node_data['pageCoordinates']['width'],
-				height=node_data['pageCoordinates']['height'],
-			)
 		if 'viewport' in node_data:
 			viewport_info = ViewportInfo(
-				scroll_x=node_data['viewport']['scrollX'],
-				scroll_y=node_data['viewport']['scrollY'],
 				width=node_data['viewport']['width'],
 				height=node_data['viewport']['height'],
 			)
@@ -158,11 +155,10 @@ class DomService:
 			is_visible=node_data.get('isVisible', False),
 			is_interactive=node_data.get('isInteractive', False),
 			is_top_element=node_data.get('isTopElement', False),
+			is_in_viewport=node_data.get('isInViewport', False),
 			highlight_index=node_data.get('highlightIndex'),
 			shadow_root=node_data.get('shadowRoot', False),
 			parent=None,
-			viewport_coordinates=viewport_coordinates,
-			page_coordinates=page_coordinates,
 			viewport_info=viewport_info,
 		)
 

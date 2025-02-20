@@ -28,7 +28,7 @@ class BrowserConfig:
 		headless: True
 			Whether to run browser in headless mode
 
-		disable_security: False
+		disable_security: True
 			Disable browser security features
 
 		extra_chromium_args: []

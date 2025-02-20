@@ -1,9 +1,7 @@
 [project]
 name = "browser-use"
 description = "Make websites accessible for AI agents"
-authors = [
-    { name = "Gregor Zunic" }
-]
+authors = [{ name = "Gregor Zunic" }]
 version = "0.1.37"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
@@ -13,24 +11,16 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "MainContentExtractor>=0.0.4",
-    "beautifulsoup4>=4.12.3",
     "httpx>=0.27.2",
-    "langchain==0.3.14",
-    "langchain-openai==0.3.1",
-    "langchain-anthropic==0.3.3",
-    "langchain-ollama==0.2.2",
-    "langchain-fireworks>=0.2.6",
-    "langchain-aws>=0.2.11",
-    "langchain-google-genai==2.0.8",
     "pydantic>=2.10.4",
     "python-dotenv>=1.0.1",
     "requests>=2.32.3",
     "posthog>=3.7.0",
     "playwright>=1.49.0",
     "setuptools>=75.8.0",
-    "lmnr[langchain]>=0.4.59",
-    "markdownify==0.14.1"
+    # "lmnr[langchain]>=0.4.59",
+    "markdownify==0.14.1",
+    "langchain-core>=0.3.35",
 ]
 
 [project.optional-dependencies]
@@ -39,7 +29,17 @@ dev = [
     "hatch>=1.13.0",
     "build>=1.2.2",
     "pytest>=8.3.3",
-    "pytest-asyncio>=0.24.0"
+    "pytest-asyncio>=0.24.0",
+    "fastapi>=0.115.8",
+    "inngest>=0.4.19",
+    "uvicorn>=0.34.0",
+    "langchain>=0.3.18",
+    "langchain-anthropic==0.3.3",
+    "langchain-aws>=0.2.11",
+    "langchain-fireworks>=0.2.6",
+    "langchain-google-genai==2.0.8",
+    "langchain-ollama==0.2.2",
+    "langchain-openai==0.3.1",
 ]
 
 [tool.ruff]

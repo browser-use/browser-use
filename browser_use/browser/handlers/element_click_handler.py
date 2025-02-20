@@ -91,8 +91,8 @@ class ElementClickHandler:
     ) -> ClickResult:
         page = await self.get_current_page()
         try:
-            if element_node.highlight_index is not None:
-                await self.update_state(focus_element=element_node.highlight_index)
+            # if element_node.highlight_index is not None:
+            #     await self.update_state(focus_element=element_node.highlight_index)
             element_handle: ElementHandle = await self.get_locate_element(element_node)
             if not element_handle:
                 return ClickResult(
