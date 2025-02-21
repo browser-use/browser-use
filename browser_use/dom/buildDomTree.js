@@ -458,6 +458,13 @@
    * Checks if an element is interactive.
    */
   function isInteractiveElement(element) {
+  // Immediately return false for the body tag
+  if (element.tagName.toLowerCase() === "body") {
+    return false;
+  }
+    const { scrollX, scrollY } = getEffectiveScroll(element);
+    const rect = element.getBoundingClientRect();
+
     // const { scrollX, scrollY } = getEffectiveScroll(element);
     // const rect = element.getBoundingClientRect();
     
@@ -539,7 +546,113 @@
     if (hasInteractiveRole) return true;
 
     // Get computed style
-    const style = window.getComputedStyle(element);
+    const style = window.getComputedStyle(element)
+  // Base interactive elements and roles
+  const interactiveElements = new Set([
+    "a",
+    "button",
+    "details",
+    "embed",
+    "input",
+    "label",
+    "menu",
+    "menuitem",
+    "object",
+    "select",
+    "textarea",
+    "summary",
+  ]);
+
+  const interactiveRoles = new Set([
+    "button",
+    "menu",
+    "menuitem",
+    "link",
+    "checkbox",
+    "radio",
+    "slider",
+    "tab",
+    "tabpanel",
+    "textbox",
+    "combobox",
+    "grid",
+    "listbox",
+    "option",
+    "progressbar",
+    "scrollbar",
+    "searchbox",
+    "switch",
+    "tree",
+    "treeitem",
+    "spinbutton",
+    "tooltip",
+    "dropdown",
+    "combobox",
+  ]);
+
+  const tagName = element.tagName.toLowerCase();
+  const role = element.getAttribute("role");
+  const ariaRole = element.getAttribute("aria-role");
+  const tabIndex = element.getAttribute("tabindex");
+
+  // Add check for specific class
+  const hasAddressInputClass = element.classList.contains(
+    "address-input__container__input"
+  );
+
+  // Basic role/attribute checks
+  const hasInteractiveRole =
+    hasAddressInputClass ||
+    interactiveElements.has(tagName) ||
+    interactiveRoles.has(role) ||
+    interactiveRoles.has(ariaRole) ||
+    (tabIndex !== null &&
+      tabIndex !== "-1" &&
+      element.parentElement?.tagName.toLowerCase() !== "body") ||
+    element.getAttribute("data-action") === "a-dropdown-select" ||
+    element.getAttribute("data-action") === "a-dropdown-button";
+
+  if (hasInteractiveRole) return true;
+
+  // Get computed style
+  const style = window.getComputedStyle(element);
+
+  // Check for event listeners
+  const hasClickHandler =
+    element.onclick !== null ||
+    element.getAttribute("onclick") !== null ||
+    element.hasAttribute("ng-click") ||
+    element.hasAttribute("@click") ||
+    element.hasAttribute("v-on:click");
+
+  // Helper function to safely get event listeners
+  function getEventListeners(el) {
+    try {
+      return window.getEventListeners?.(el) || {};
+    } catch (e) {
+      const listeners = {};
+      const eventTypes = [
+        "click",
+        "mousedown",
+        "mouseup",
+        "touchstart",
+        "touchend",
+        "keydown",
+        "keyup",
+        "focus",
+        "blur",
+      ];
+
+      for (const type of eventTypes) {
+        const handler = el[`on${type}`];
+        if (handler) {
+          listeners[type] = [
+            {
+              listener: handler,
+              useCapture: false,
+            },
+          ];
+        }
 
     // Check for event listeners
     const hasClickHandler =
@@ -575,9 +688,48 @@
         }
         return listeners;
       }
-    }
 
+      return listeners;
+    }
+  }
+
+
+  const listeners = getEventListeners(element);
+  const hasClickListeners =
+    listeners &&
+    (listeners.click?.length > 0 ||
+      listeners.mousedown?.length > 0 ||
+      listeners.mouseup?.length > 0 ||
+      listeners.touchstart?.length > 0 ||
+      listeners.touchend?.length > 0);
+
+  const hasAriaProps =
+    element.hasAttribute("aria-expanded") ||
+    element.hasAttribute("aria-pressed") ||
+    element.hasAttribute("aria-selected") ||
+    element.hasAttribute("aria-checked");
+
+  const isDraggable =
+    element.draggable || element.getAttribute("draggable") === "true";
+
+  // Recursively check child elements for interactivity
+  for (let child of element.children) {
+    if (isInteractiveElement(child)) {
+      return true;
+    }
+  }
+
+  return (
+    hasAriaProps ||
+    hasClickHandler ||
+    hasClickListeners ||
+    isDraggable
+  );
+}
+);
+    // Check for click-related events on the element itself
     // Check for click-related events
+
     const listeners = getEventListeners(element);
     const hasClickListeners =
       listeners &&
