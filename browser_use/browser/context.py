@@ -365,6 +365,39 @@ class BrowserContext:
 				cookies = json.load(f)
 				logger.info(f'Loaded {len(cookies)} cookies from {self.config.cookies_file}')
 				await context.add_cookies(cookies)
+				
+		# Expose anti-detection scripts
+		await context.add_init_script(
+			"""
+            // Webdriver property
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+            // Languages
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['en-US']
+            });
+            // Plugins
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5]
+            });
+            // Chrome runtime
+            window.chrome = { runtime: {} };
+            // Permissions
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                    Promise.resolve({ state: Notification.permission }) :
+                    originalQuery(parameters)
+            );
+            (function () {
+                const originalAttachShadow = Element.prototype.attachShadow;
+                Element.prototype.attachShadow = function attachShadow(options) {
+                    return originalAttachShadow.call(this, { ...options, mode: "open" });
+                };
+            })();
+            """
+		)
 
 		return context
 

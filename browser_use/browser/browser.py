@@ -54,7 +54,7 @@ class BrowserConfig:
 		enable_adblock: False
 			Whether to automatically download and enable uBlock Lite extension.
 			Will download from GitHub releases on first use and store in system's
-			temporary directory or ~/.cache if available.
+			~/.cache directory.
 	"""
 
 	headless: bool = False
