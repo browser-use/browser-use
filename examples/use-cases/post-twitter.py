@@ -71,7 +71,7 @@ def create_twitter_agent(config: TwitterConfig) -> Agent:
     browser = Browser(
         config=BrowserConfig(
             headless=config.headless,
-            chrome_instance_path=config.chrome_path,
+            browser_instance_path=config.chrome_path,
         )
     )
 

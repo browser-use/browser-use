@@ -36,8 +36,8 @@ config = BrowserConfig(
 
 ### Additional Settings
 
-- **extra_chromium_args** (default: `[]`)
-  Additional arguments passed to the browser at launch. See the [full list of available arguments](https://github.com/browser-use/browser-use/blob/main/browser_use/browser/browser.py#L180).
+- **extra_browser_args** (default: `[]`)  
+  Additional arguments passed to the browser at launch. See the [full list of available arguments](https://github.com/browser-use/browser-use/blob/main/browser_use/browser/browser.py#L154).
 
 - **proxy** (default: `None`)
   Standard Playwright proxy settings for using external proxy services.
@@ -91,12 +91,12 @@ Connect to your existing Chrome installation to access saved states and cookies.
 
 ```python
 config = BrowserConfig(
-    chrome_instance_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    browser_instance_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 )
 ```
 
-- **chrome_instance_path** (default: `None`)
-  Path to connect to an existing Chrome installation. Particularly useful for workflows requiring existing login states or browser preferences.
+- **browser_instance_path** (default: `None`)  
+  Path to connect to an existing Browser installation. Particularly useful for workflows requiring existing login states or browser preferences.
 
 <Note>This will overwrite other browser settings.</Note>
 
