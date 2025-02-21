@@ -362,7 +362,7 @@
       }
 
       const tagName = currentElement.nodeName.toLowerCase();
-      const xpathIndex = index > 0 ? `[${index + 1}]` : "";
+      const xpathIndex = index >= 0 ? `[${index + 1}]` : "";
       segments.unshift(`${tagName}${xpathIndex}`);
 
       currentElement = currentElement.parentNode;
