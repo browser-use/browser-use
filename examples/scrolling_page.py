@@ -1,15 +1,21 @@
+# Goal: Automates webpage scrolling with various scrolling actions and text search functionality.
+
 import os
 import sys
-
-from browser_use.browser.browser import Browser, BrowserConfig
+import asyncio
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import asyncio
-
 from langchain_openai import ChatOpenAI
-
 from browser_use import Agent
+from dotenv import load_dotenv
+
+from browser_use.browser.browser import Browser, BrowserConfig
+
+# Load environment variables
+load_dotenv()
+if not os.getenv('OPENAI_API_KEY'):
+	raise ValueError('OPENAI_API_KEY is not set')
 
 """
 Example: Using the 'Scroll down' action.
@@ -22,15 +28,22 @@ llm = ChatOpenAI(model='gpt-4o')
 
 agent = Agent(
 	# task="Navigate to 'https://en.wikipedia.org/wiki/Internet' and scroll down by one page - then scroll up by 100 pixels - then scroll down by 100 pixels - then scroll down by 10000 pixels.",
-	task="Navigate to 'https://en.wikipedia.org/wiki/Internet' and to the string 'The vast majority of computer'",
+	task="Navigate to 'https://en.wikipedia.org/wiki/Internet' and scroll to the string 'The vast majority of computer'",
 	llm=llm,
 	browser=Browser(config=BrowserConfig(headless=False)),
 )
 
-
 async def main():
-	await agent.run()
+    try:
+        await agent.run()
+    finally:
+        # Ensure proper cleanup of resources
+        await agent.browser.close()
 
-
-if __name__ == '__main__':
-	asyncio.run(main())
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nScript interrupted by user")
+    except Exception as e:
+        print(f"An error occurred: {e}")
