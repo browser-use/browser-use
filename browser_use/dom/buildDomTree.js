@@ -397,9 +397,7 @@
       element.getAttribute("data-action") === "a-dropdown-button";
 
     if (hasInteractiveRole) return true;
-
-    // Get computed style
-    const style = window.getComputedStyle(element)
+    
   // Base interactive elements and roles
   const interactiveElements = new Set([
     "a",
