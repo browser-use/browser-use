@@ -31,8 +31,8 @@ class DomService:
 		self.page = page
 		self.xpath_cache = {}
 
-		self.js_code = resources.read_text('browser_use.dom', 'buildDomTree.js')
-
+		# self.js_code = resources.read_text('browser_use.dom', 'buildDomTree.js')
+		self.js_code = resources.read_text('browser_use.dom', 'buildMultionDomTree.js')
 	# region - Clickable elements
 	@time_execution_async('--get_clickable_elements')
 	async def get_clickable_elements(
@@ -42,6 +42,7 @@ class DomService:
 		viewport_expansion: int = 0,
 	) -> DOMState:
 		element_tree, selector_map = await self._build_dom_tree(highlight_elements, focus_element, viewport_expansion)
+		print("element_tree", element_tree)
 		return DOMState(element_tree=element_tree, selector_map=selector_map)
 
 	@time_execution_async('--build_dom_tree')
@@ -82,35 +83,43 @@ class DomService:
 		self,
 		eval_page: dict,
 	) -> tuple[DOMElementNode, SelectorMap]:
-		js_node_map = eval_page['map']
-		js_root_id = eval_page['rootId']
+		try:
+			js_node_map = eval_page['map']
+			js_root_id = eval_page['rootId']
+		except KeyError as e:
+			raise ValueError(f"Missing required key in eval_page: {e}")
 
 		selector_map = {}
 		node_map = {}
 
 		for id, node_data in js_node_map.items():
-			node, children_ids = self._parse_node(node_data)
-			if node is None:
-				continue
+			try:
+				node, children_ids = self._parse_node(node_data)
+				if node is None:
+					continue
 
-			node_map[id] = node
+				node_map[str(id)] = node
 
-			if isinstance(node, DOMElementNode) and node.highlight_index is not None:
-				selector_map[node.highlight_index] = node
+				if isinstance(node, DOMElementNode) and node.highlight_index is not None:
+					selector_map[node.highlight_index] = node
 
-			# NOTE: We know that we are building the tree bottom up
-			#       and all children are already processed.
-			if isinstance(node, DOMElementNode):
-				for child_id in children_ids:
-					if child_id not in node_map:
-						continue
+				if isinstance(node, DOMElementNode):
+					for child_id in children_ids:
+						if str(child_id) not in node_map:
+							continue
 
-					child_node = node_map[child_id]
+						child_node = node_map[str(child_id)]
 
-					child_node.parent = node
-					node.children.append(child_node)
+						child_node.parent = node
+						node.children.append(child_node)
+			except Exception as e:
+				logger.error(f"Error processing node {id}: {e}")
+				raise
 
-		html_to_dict = node_map[str(js_root_id)]
+		try:
+			html_to_dict = node_map[str(js_root_id)]
+		except KeyError:
+			raise ValueError(f"Root node with id {js_root_id} not found in node map")
 
 		del node_map
 		del js_node_map
@@ -121,49 +130,61 @@ class DomService:
 		if html_to_dict is None or not isinstance(html_to_dict, DOMElementNode):
 			raise ValueError('Failed to parse HTML to dictionary')
 
+		logger.debug(f"Constructed DOM tree with {len(selector_map)} interactive elements")
 		return html_to_dict, selector_map
-
 	def _parse_node(
 		self,
 		node_data: dict,
-	) -> tuple[Optional[DOMBaseNode], list[int]]:
-		if not node_data:
-			return None, []
+	) -> tuple[Optional[DOMBaseNode], list[str]]:
+		try:
+			if not node_data:
+				return None, []
 
-		# Process text nodes immediately
-		if node_data.get('type') == 'TEXT_NODE':
-			text_node = DOMTextNode(
-				text=node_data['text'],
-				is_visible=node_data['isVisible'],
+			# Process text nodes immediately
+			if node_data.get('type') == 'TEXT_NODE':
+				text_node = DOMTextNode(
+					text=node_data['text'],
+					is_visible=node_data['isVisible'],
+					parent=None,
+				)
+				return text_node, []
+
+			# Process coordinates if they exist for element nodes
+			viewport_info = None
+
+			if 'viewport' in node_data:
+				viewport_info = ViewportInfo(
+					width=node_data['viewport']['width'],
+					height=node_data['viewport']['height'],
+				)
+
+			# Convert attributes to a hashable type (tuple of key-value pairs)
+			attributes = {}
+			for key, value in node_data.get('attributes', {}).items():
+				if isinstance(value, (str, int, float, bool, type(None))):
+					attributes[key] = value
+				else:
+					attributes[key] = str(value)  # Convert non-hashable types to strings
+
+			element_node = DOMElementNode(
+				tag_name=node_data['tagName'],
+				xpath=node_data['xpath'],
+				attributes=attributes,
+				children=[],
+				is_visible=node_data.get('isVisible', False),
+				is_interactive=node_data.get('isInteractive', False),
+				is_top_element=node_data.get('isTopElement', False),
+				is_in_viewport=node_data.get('isInViewport', False),
+				highlight_index=node_data.get('highlightIndex'),
+				shadow_root=node_data.get('shadowRoot', False),
 				parent=None,
-			)
-			return text_node, []
-
-		# Process coordinates if they exist for element nodes
-
-		viewport_info = None
-
-		if 'viewport' in node_data:
-			viewport_info = ViewportInfo(
-				width=node_data['viewport']['width'],
-				height=node_data['viewport']['height'],
+				viewport_info=viewport_info,
 			)
 
-		element_node = DOMElementNode(
-			tag_name=node_data['tagName'],
-			xpath=node_data['xpath'],
-			attributes=node_data.get('attributes', {}),
-			children=[],
-			is_visible=node_data.get('isVisible', False),
-			is_interactive=node_data.get('isInteractive', False),
-			is_top_element=node_data.get('isTopElement', False),
-			is_in_viewport=node_data.get('isInViewport', False),
-			highlight_index=node_data.get('highlightIndex'),
-			shadow_root=node_data.get('shadowRoot', False),
-			parent=None,
-			viewport_info=viewport_info,
-		)
+			children_ids = [str(child_id) for child_id in node_data.get('children', [])]
 
-		children_ids = node_data.get('children', [])
+			return element_node, children_ids
 
-		return element_node, children_ids
+		except Exception as e:
+			logger.error(f"Error parsing node: {e}")
+			raise

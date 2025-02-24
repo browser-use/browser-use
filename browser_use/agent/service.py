@@ -320,6 +320,8 @@ class Agent(Generic[Context]):
 
 			input_messages = self._message_manager.get_messages()
 
+			# print(input_messages)
+
 			try:
 				model_output = await self.get_next_action(input_messages)
 
@@ -474,6 +476,9 @@ class Agent(Generic[Context]):
 			parsed: AgentOutput | None = response['parsed']
 		else:
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True, method=self.tool_calling_method)
+
+			logger.info("input_messages: " + str(input_messages))
+
 			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
 			parsed: AgentOutput | None = response['parsed']
 

@@ -141,11 +141,8 @@ async def main():
 		# + 'go to https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/Taiwan%2C-Remote/Fulfillment-Analyst---New-College-Graduate-2025_JR1988949/apply/autofillWithResume?workerSubType=0c40f6bd1d8f10adf6dae42e46d44a17&workerSubType=ab40a98049581037a3ada55b087049b7 NVIDIA',
 		# ground_task + '\n' + 'Meta',
 	]
-	model = AzureChatOpenAI(
+	model = ChatOpenAI(
 		model='gpt-4o',
-		api_version='2024-10-21',
-		azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT', ''),
-		api_key=SecretStr(os.getenv('AZURE_OPENAI_KEY', '')),
 	)
 
 	agents = []

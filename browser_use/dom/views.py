@@ -151,6 +151,7 @@ class DOMElementNode(DOMBaseNode):
 							line += f'{text}'
 					line += '/>'
 					formatted_text.append(line)
+				
 
 				# Process children regardless
 				for child in node.children:

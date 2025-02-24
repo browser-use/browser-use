@@ -375,6 +375,11 @@ class BrowserContext:
             """
 		)
 
+		# current_dir = os.path.dirname(os.path.abspath(__file__))
+		# crawl_js_path = os.path.join(current_dir, 'parser.js')
+		# logger.debug(f'Adding init script from {crawl_js_path}')
+		# await context.add_init_script(path=crawl_js_path)
+
 		return context
 
 	async def _wait_for_stable_network(self):
@@ -681,6 +686,58 @@ class BrowserContext:
 			asyncio.create_task(self.save_cookies())
 
 		return session.cached_state
+	
+	async def multionDOM(
+		self,
+        page,
+		focused_element: str | None = None,
+        current_viewport_only: bool = True,
+        replace_links: bool = True,
+        show_link_preview: bool = False,
+        dom_stabilization_timeout: int = 300,
+		retryCount: int = 0):
+
+
+			response = await page.evaluate(
+				"crawlEvaluate",
+				{
+					"url": page.url,
+					"hide_not_in_viewpoint": current_viewport_only,
+					"hide_aria_hidden": False,
+					"specific_element_xpath": focused_element,
+					"show_link_preview": show_link_preview,
+					"dom_stabilization_timeout": dom_stabilization_timeout,
+				},
+			)
+
+			bounding_boxes_dict = response.get("bounding_boxes")
+			dom = response.get("dom")
+			active_elements = response.get("active_elements")
+			modal_elements = response.get("modal_elements")
+			link_dict = response.get("link_dict")
+			x_path_dict = response.get("xpath_dict")
+
+			# THIS IS ALREADY DONE IN THE CRAWLER
+			# if len(modal_elements) > 0:
+			#     modal_elements = "\n".join(modal_elements)
+			#     return modal_elements, bounding_boxes_dict
+			#
+			# dom = dom + active_elements
+
+			logger.debug(f"Focused element: {focused_element}")
+
+			domString = "\n".join(dom)
+			# print(domString)
+
+			return dict(
+				dom=domString,
+				domMap=dom,
+				bboxes=bounding_boxes_dict,
+				link_dict=link_dict,
+				active_elements=active_elements,
+				modal_elements=modal_elements,
+				x_path_dict=x_path_dict,
+			)
 
 	async def _update_state(self, focus_element: int = -1) -> BrowserState:
 		"""Update and return state."""
@@ -710,6 +767,14 @@ class BrowserContext:
 				viewport_expansion=self.config.viewport_expansion,
 				highlight_elements=self.config.highlight_elements,
 			)
+
+			# print(content)
+
+			# multionState = await self.multionDOM(page)
+			# if not multionState.get("x_path_dict"):
+			# 	raise BrowserError("No x_path_dict found")
+
+			# print(multionState)
 
 			screenshot_b64 = await self.take_screenshot()
 			pixels_above, pixels_below = await self.get_scroll_info(page)
