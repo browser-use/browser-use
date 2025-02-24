@@ -15,6 +15,7 @@ class GoToUrlAction(BaseModel):
 class ClickElementAction(BaseModel):
 	index: int
 	xpath: Optional[str] = None
+	right_click: Optional[bool] = False
 
 
 class InputTextAction(BaseModel):

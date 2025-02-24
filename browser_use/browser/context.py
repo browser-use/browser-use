@@ -1027,11 +1027,14 @@ class BrowserContext:
 			raise BrowserError(f'Failed to input text into index {element_node.highlight_index}')
 
 	@time_execution_async('--click_element_node')
-	async def _click_element_node(self, element_node: DOMElementNode) -> Optional[str]:
+	async def _click_element_node(self, element_node: DOMElementNode, right_click: bool) -> Optional[str]:
 		"""
 		Optimized method to click an element using xpath.
 		"""
 		page = await self.get_current_page()
+
+		if right_click is None:
+			right_click = False
 
 		try:
 			# Highlight before clicking
@@ -1071,7 +1074,10 @@ class BrowserContext:
 					await self._check_and_handle_navigation(page)
 
 			try:
-				return await perform_click(lambda: element_handle.click(timeout=1500))
+				button = 'left'
+				if right_click is True:
+					button = 'right'
+				return await perform_click(lambda: element_handle.click(timeout=1500, button=button))
 			except URLNotAllowedError as e:
 				raise e
 			except Exception:
