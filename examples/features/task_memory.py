@@ -7,6 +7,9 @@ from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import SecretStr
 
+from browser_use.browser.browser import Browser, BrowserConfig
+from browser_use.browser.context import BrowserContextConfig
+
 load_dotenv()
 api_key = os.getenv('GEMINI_API_KEY')
 if not api_key:
@@ -19,12 +22,20 @@ memory_config = TaskMemoryConfig(
 	local_qdrant_path='./qdrant_storage',
 )
 
-task = 'Go to amazon.com, search for iphone, sort by best rating, and give me the price of the first result'
+task = 'Go to amazon.com, search for laptop, sort by best rating, and give me the price of the first result'
 
+browser = Browser(
+		config=BrowserConfig(
+			new_context_config=BrowserContextConfig(
+				wait_between_actions=5,
+			),
+		),
+	)
 agent = Agent(
 	task=task, 
 	llm=llm,
-	task_memory_config=memory_config
+	task_memory_config=memory_config,
+	browser=browser,
 )
 
 async def main():

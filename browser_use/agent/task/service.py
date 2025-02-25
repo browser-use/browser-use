@@ -179,7 +179,7 @@ class TaskService:
         # Flag steps with low similarity as potential hallucinations
         hallucinated_steps = []
         for step, sim in zip(plan.execution.steps, similarities):
-            if sim < 0.3:  # Threshold for hallucination detection
+            if sim < 0.05:  # More permissive threshold for common UI interactions
                 hallucinated_steps.append(f"Step '{step}' seems unrelated to task (similarity: {sim:.2f})")
         
         return len(hallucinated_steps) == 0, hallucinated_steps

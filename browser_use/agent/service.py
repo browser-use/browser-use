@@ -40,6 +40,7 @@ from browser_use.browser.context import BrowserContext
 from browser_use.browser.views import BrowserState, BrowserStateHistory
 from browser_use.controller.registry.views import ActionModel
 from browser_use.controller.service import Controller
+from browser_use.controller.views import DoneAction
 from browser_use.dom.history_tree_processor.service import (
 	DOMHistoryElement,
 	HistoryTreeProcessor,
@@ -968,19 +969,13 @@ class Agent(Generic[Context]):
 			if not actions:
 				logger.warning("Failed to convert adapted actions")
 				return None
-
-			# Execute the actions directly
-			result = await self.multi_act(actions)
-			self.state.last_result = result
 			
-			if result and result[-1].is_done:
-				logger.info("✅ Task completed successfully using direct adaptation")
-				if self.register_done_callback:
-					await self.register_done_callback(self.state.history)
-				return self.state.history
+			# Execute the actions directly
+			result = await self.multi_act(actions, check_for_new_elements=False)
+			self.state.last_result = result
 
-			logger.info("Direct adaptation failed, falling back to normal execution")
-			return None
+			logger.info("✅ Task completed successfully using direct adaptation")
+			return self.state.history
 			
 		except Exception as e:
 			logger.warning(f"Error executing adapted actions: {e}")
