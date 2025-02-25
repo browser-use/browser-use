@@ -88,15 +88,20 @@ async def test_focus_vs_all_elements():
 
 	browser = Browser(
 		config=BrowserConfig(
-			chrome_instance_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+			# chrome_instance_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 		)
 	)
 	context = BrowserContext(browser=browser, config=config)  # noqa: F821
 
 	websites = [
+		'https://immobilienscout24.de',
+		'https://www.zeiss.com/career/en/job-search.html?page=1',
+		'https://www.mlb.com/yankees/stats/',
+		'https://www.amazon.com/s?k=laptop&s=review-rank&crid=1RZCEJ289EUSI&qid=1740202453&sprefix=laptop%2Caps%2C166&ref=sr_st_review-rank&ds=v1%3A4EnYKXVQA7DIE41qCvRZoNB4qN92Jlztd3BPsTFXmxU',
+		'https://codepen.io/geheimschriftstift/pen/mPLvQz',
+		'https://reddit.com',
 		'https://www.google.com/search?q=google+hi&oq=google+hi&gs_lcrp=EgZjaHJvbWUyBggAEEUYOTIGCAEQRRhA0gEIMjI2NmowajSoAgCwAgE&sourceid=chrome&ie=UTF-8',
 		'https://kayak.com/flights',
-		'https://immobilienscout24.de',
 		'https://google.com',
 		'https://amazon.com',
 		'https://github.com',

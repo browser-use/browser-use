@@ -43,15 +43,26 @@ class Controller(Generic[Context]):
 		"""Register all default browser actions"""
 
 		if output_model is not None:
+			# Create a new model that extends the output model with success parameter
+			class ExtendedOutputModel(output_model):  # type: ignore
+				success: bool = True
 
-			@self.registry.action('Complete task', param_model=output_model)
-			async def done(params: BaseModel):
-				return ActionResult(is_done=True, extracted_content=params.model_dump_json())
+			@self.registry.action(
+				'Complete task - with return text and if the task is finished (success=True) or not yet  completly finished (success=False), because last step is reached',
+				param_model=ExtendedOutputModel,
+			)
+			async def done(params: ExtendedOutputModel):
+				# Exclude success from the output JSON since it's an internal parameter
+				output_dict = params.model_dump(exclude={'success'})
+				return ActionResult(is_done=True, success=params.success, extracted_content=json.dumps(output_dict))
 		else:
 
-			@self.registry.action('Complete task', param_model=DoneAction)
+			@self.registry.action(
+				'Complete task - with return text and if the task is finished (success=True) or not yet  completly finished (success=False), because last step is reached',
+				param_model=DoneAction,
+			)
 			async def done(params: DoneAction):
-				return ActionResult(is_done=True, extracted_content=params.text)
+				return ActionResult(is_done=True, success=params.success, extracted_content=params.text)
 
 		# Basic Navigation Actions
 		@self.registry.action(
@@ -80,6 +91,14 @@ class Controller(Generic[Context]):
 			await browser.go_back()
 			msg = '🔙  Navigated back'
 			logger.info(msg)
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		# wait for x seconds
+		@self.registry.action('Wait for x seconds default 3')
+		async def wait(seconds: int = 3):
+			msg = f'🕒  Waiting for {seconds} seconds'
+			logger.info(msg)
+			await asyncio.sleep(seconds)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
 		# Element Interaction Actions

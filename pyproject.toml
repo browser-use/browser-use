@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.1.39"
+version = "0.1.40"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -25,6 +25,7 @@ dependencies = [
     "langchain-anthropic==0.3.3",
     "langchain-ollama==0.2.2",
 ]
+urls = { "Repository" = "https://github.com/browser-use/browser-use" }
 
 [project.optional-dependencies]
 dev = [

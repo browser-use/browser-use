@@ -171,7 +171,7 @@ class Registry(Generic[Context]):
 		return params
 
 	@time_execution_sync('--create_action_model')
-	def create_action_model(self) -> Type[ActionModel]:
+	def create_action_model(self, include_actions: Optional[list[str]] = None) -> Type[ActionModel]:
 		"""Creates a Pydantic model from registered actions"""
 		fields = {
 			name: (
@@ -179,6 +179,7 @@ class Registry(Generic[Context]):
 				Field(default=None, description=action.description),
 			)
 			for name, action in self.registry.actions.items()
+			if include_actions is None or name in include_actions
 		}
 
 		self.telemetry.capture(
@@ -186,6 +187,7 @@ class Registry(Generic[Context]):
 				registered_functions=[
 					RegisteredFunction(name=name, params=action.param_model.model_json_schema())
 					for name, action in self.registry.actions.items()
+					if include_actions is None or name in include_actions
 				]
 			)
 		)

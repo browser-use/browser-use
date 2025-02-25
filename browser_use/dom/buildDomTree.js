@@ -75,7 +75,7 @@
   // Simple timing helper that only runs in debug mode
   function measureTime(fn) {
     if (!debugMode) return fn;
-    return function(...args) {
+    return function (...args) {
       const start = performance.now();
       const result = fn.apply(this, args);
       const duration = performance.now() - start;
@@ -86,16 +86,16 @@
   // Helper to measure DOM operations
   function measureDomOperation(operation, name) {
     if (!debugMode) return operation();
-    
+
     const start = performance.now();
     const result = operation();
     const duration = performance.now() - start;
-    
+
     if (PERF_METRICS && name in PERF_METRICS.buildDomTreeBreakdown.domOperations) {
       PERF_METRICS.buildDomTreeBreakdown.domOperations[name] += duration;
       PERF_METRICS.buildDomTreeBreakdown.domOperationCounts[name]++;
     }
-    
+
     return result;
   }
 
@@ -112,7 +112,7 @@
   // Cache helper functions
   function getCachedBoundingRect(element) {
     if (!element) return null;
-    
+
     if (DOM_CACHE.boundingRects.has(element)) {
       if (debugMode && PERF_METRICS) {
         PERF_METRICS.cacheMetrics.boundingRectCacheHits++;
@@ -123,7 +123,7 @@
     if (debugMode && PERF_METRICS) {
       PERF_METRICS.cacheMetrics.boundingRectCacheMisses++;
     }
-    
+
     let rect;
     if (debugMode) {
       const start = performance.now();
@@ -136,7 +136,7 @@
     } else {
       rect = element.getBoundingClientRect();
     }
-    
+
     if (rect) {
       DOM_CACHE.boundingRects.set(element, rect);
     }
@@ -145,7 +145,7 @@
 
   function getCachedComputedStyle(element) {
     if (!element) return null;
-    
+
     if (DOM_CACHE.computedStyles.has(element)) {
       if (debugMode && PERF_METRICS) {
         PERF_METRICS.cacheMetrics.computedStyleCacheHits++;
@@ -156,7 +156,7 @@
     if (debugMode && PERF_METRICS) {
       PERF_METRICS.cacheMetrics.computedStyleCacheMisses++;
     }
-    
+
     let style;
     if (debugMode) {
       const start = performance.now();
@@ -169,7 +169,7 @@
     } else {
       style = window.getComputedStyle(element);
     }
-    
+
     if (style) {
       DOM_CACHE.computedStyles.set(element, style);
     }
@@ -197,16 +197,16 @@
       // Create or get highlight container
       let container = document.getElementById(HIGHLIGHT_CONTAINER_ID);
       if (!container) {
-          container = document.createElement("div");
-          container.id = HIGHLIGHT_CONTAINER_ID;
-          container.style.position = "fixed";
-          container.style.pointerEvents = "none";
-          container.style.top = "0";
-          container.style.left = "0";
-          container.style.width = "100%";
-          container.style.height = "100%";
-          container.style.zIndex = "2147483647";
-          document.body.appendChild(container);
+        container = document.createElement("div");
+        container.id = HIGHLIGHT_CONTAINER_ID;
+        container.style.position = "fixed";
+        container.style.pointerEvents = "none";
+        container.style.top = "0";
+        container.style.left = "0";
+        container.style.width = "100%";
+        container.style.height = "100%";
+        container.style.zIndex = "2147483647";
+        document.body.appendChild(container);
       }
 
       // Get element position
@@ -214,7 +214,7 @@
         () => element.getBoundingClientRect(),
         'getBoundingClientRect'
       );
-      
+
       if (!rect) return index;
 
       // Generate a color based on the index
@@ -249,9 +249,9 @@
 
       // If element is in an iframe, calculate iframe offset
       if (parentIframe) {
-          const iframeRect = parentIframe.getBoundingClientRect();
-          iframeOffset.x = iframeRect.left;
-          iframeOffset.y = iframeRect.top;
+        const iframeRect = parentIframe.getBoundingClientRect();
+        iframeOffset.x = iframeRect.left;
+        iframeOffset.y = iframeRect.top;
       }
 
       // Calculate position
@@ -281,8 +281,8 @@
       let labelLeft = left + rect.width - labelWidth - 2;
 
       if (rect.width < labelWidth + 4 || rect.height < labelHeight + 4) {
-          labelTop = top - labelHeight - 2;
-          labelLeft = left + rect.width - labelWidth;
+        labelTop = top - labelHeight - 2;
+        labelLeft = left + rect.width - labelWidth;
       }
 
       label.style.top = `${labelTop}px`;
@@ -294,33 +294,33 @@
 
       // Update positions on scroll
       const updatePositions = () => {
-          const newRect = element.getBoundingClientRect();
-          let newIframeOffset = { x: 0, y: 0 };
-          
-          if (parentIframe) {
-              const iframeRect = parentIframe.getBoundingClientRect();
-              newIframeOffset.x = iframeRect.left;
-              newIframeOffset.y = iframeRect.top;
-          }
+        const newRect = element.getBoundingClientRect();
+        let newIframeOffset = { x: 0, y: 0 };
 
-          const newTop = newRect.top + newIframeOffset.y;
-          const newLeft = newRect.left + newIframeOffset.x;
+        if (parentIframe) {
+          const iframeRect = parentIframe.getBoundingClientRect();
+          newIframeOffset.x = iframeRect.left;
+          newIframeOffset.y = iframeRect.top;
+        }
 
-          overlay.style.top = `${newTop}px`;
-          overlay.style.left = `${newLeft}px`;
-          overlay.style.width = `${newRect.width}px`;
-          overlay.style.height = `${newRect.height}px`;
+        const newTop = newRect.top + newIframeOffset.y;
+        const newLeft = newRect.left + newIframeOffset.x;
 
-          let newLabelTop = newTop + 2;
-          let newLabelLeft = newLeft + newRect.width - labelWidth - 2;
+        overlay.style.top = `${newTop}px`;
+        overlay.style.left = `${newLeft}px`;
+        overlay.style.width = `${newRect.width}px`;
+        overlay.style.height = `${newRect.height}px`;
 
-          if (newRect.width < labelWidth + 4 || newRect.height < labelHeight + 4) {
-              newLabelTop = newTop - labelHeight - 2;
-              newLabelLeft = newLeft + newRect.width - labelWidth;
-          }
+        let newLabelTop = newTop + 2;
+        let newLabelLeft = newLeft + newRect.width - labelWidth - 2;
 
-          label.style.top = `${newLabelTop}px`;
-          label.style.left = `${newLabelLeft}px`;
+        if (newRect.width < labelWidth + 4 || newRect.height < labelHeight + 4) {
+          newLabelTop = newTop - labelHeight - 2;
+          newLabelLeft = newLeft + newRect.width - labelWidth;
+        }
+
+        label.style.top = `${newLabelTop}px`;
+        label.style.left = `${newLabelLeft}px`;
       };
 
       window.addEventListener('scroll', updatePositions);
@@ -379,18 +379,18 @@
       const range = document.createRange();
       range.selectNodeContents(textNode);
       const rect = range.getBoundingClientRect();
-      
+
       // Simple size check
       if (rect.width === 0 || rect.height === 0) {
-          return false;
+        return false;
       }
 
       // Simple viewport check without scroll calculations
       const isInViewport = !(
-          rect.bottom < -viewportExpansion ||
-          rect.top > window.innerHeight + viewportExpansion ||
-          rect.right < -viewportExpansion ||
-          rect.left > window.innerWidth + viewportExpansion
+        rect.bottom < -viewportExpansion ||
+        rect.top > window.innerHeight + viewportExpansion ||
+        rect.right < -viewportExpansion ||
+        rect.left > window.innerWidth + viewportExpansion
       );
 
       // Check parent visibility
@@ -405,10 +405,10 @@
       } catch (e) {
         // Fallback if checkVisibility is not supported
         const style = window.getComputedStyle(parentElement);
-        return isInViewport && 
-               style.display !== 'none' && 
-               style.visibility !== 'hidden' &&
-               style.opacity !== '0';
+        return isInViewport &&
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          style.opacity !== '0';
       }
     } catch (e) {
       console.warn('Error checking text node visibility:', e);
@@ -419,13 +419,13 @@
   // Helper function to check if element is accepted
   function isElementAccepted(element) {
     if (!element || !element.tagName) return false;
-    
+
     // Always accept body and common container elements
     const alwaysAccept = new Set([
       "body", "div", "main", "article", "section", "nav", "header", "footer"
     ]);
     const tagName = element.tagName.toLowerCase();
-    
+
     if (alwaysAccept.has(tagName)) return true;
 
     const leafElementDenyList = new Set([
@@ -437,7 +437,7 @@
       "noscript",
       "template",
     ]);
-    
+
     return !leafElementDenyList.has(tagName);
   }
 
@@ -447,10 +447,10 @@
   function isElementVisible(element) {
     const style = getCachedComputedStyle(element);
     return (
-        element.offsetWidth > 0 &&
-        element.offsetHeight > 0 &&
-        style.visibility !== "hidden" &&
-        style.display !== "none"
+      element.offsetWidth > 0 &&
+      element.offsetHeight > 0 &&
+      style.visibility !== "hidden" &&
+      style.display !== "none"
     );
   }
 
@@ -458,61 +458,18 @@
    * Checks if an element is interactive.
    */
   function isInteractiveElement(element) {
-    // const { scrollX, scrollY } = getEffectiveScroll(element);
-    // const rect = element.getBoundingClientRect();
-    
+    if (!element || element.nodeType !== Node.ELEMENT_NODE) {
+      return false;
+    }
+
     // Base interactive elements and roles
     const interactiveElements = new Set([
-      "a",
-      "button",
-      "details",
-      "embed",
-      "input",
-      "menu",
-      "menuitem",
-      "object",
-      "select",
-      "textarea",
-      "canvas",
-      "summary"
+      "a", "button", "details", "embed", "input", "menu", "menuitem",
+      "object", "select", "textarea", "canvas", "summary", "dialog",
+      "banner"
     ]);
 
-    const interactiveRoles = new Set([
-      "button",
-      "menu",
-      "menuitem",
-      "link",
-      "checkbox",
-      "radio",
-      "slider",
-      "tab",
-      "tabpanel",
-      "textbox",
-      "combobox",
-      "grid",
-      "listbox",
-      "option",
-      "progressbar",
-      "scrollbar",
-      "searchbox",
-      "switch",
-      "tree",
-      "treeitem",
-      "spinbutton",
-      "tooltip",
-      "a-button-inner",
-      "a-dropdown-button",
-      "click",
-      "menuitemcheckbox",
-      "menuitemradio",
-      "a-button-text",
-      "button-text",
-      "button-icon",
-      "button-icon-only",
-      "button-text-icon-only",
-      "dropdown",
-      "combobox",
-    ]);
+    const interactiveRoles = new Set(['button-icon', 'dialog', 'button-text-icon-only', 'treeitem', 'alert', 'grid', 'progressbar', 'radio', 'checkbox', 'menuitem', 'option', 'switch', 'dropdown', 'scrollbar', 'combobox', 'a-button-text', 'button', 'region', 'textbox', 'tabpanel', 'tab', 'click', 'button-text', 'spinbutton', 'a-button-inner', 'link', 'menu', 'slider', 'listbox', 'a-dropdown-button', 'button-icon-only', 'searchbox', 'menuitemradio', 'tooltip', 'tree', 'menuitemcheckbox']);
 
     const tagName = element.tagName.toLowerCase();
     const role = element.getAttribute("role");
@@ -520,9 +477,20 @@
     const tabIndex = element.getAttribute("tabindex");
 
     // Add check for specific class
-    const hasAddressInputClass = element.classList.contains(
-      "address-input__container__input"
+    const hasAddressInputClass = element.classList && (
+      element.classList.contains("address-input__container__input") ||
+      element.classList.contains("nav-btn") ||
+      element.classList.contains("pull-left")
     );
+
+    // Added enhancement to capture dropdown interactive elements
+    if (element.classList && (
+      element.classList.contains('dropdown-toggle') ||
+      element.getAttribute('data-toggle') === 'dropdown' ||
+      element.getAttribute('aria-haspopup') === 'true'
+    )) {
+      return true;
+    }
 
     // Basic role/attribute checks
     const hasInteractiveRole =
@@ -537,6 +505,9 @@
       element.getAttribute("data-action") === "a-dropdown-button";
 
     if (hasInteractiveRole) return true;
+
+
+
 
     // Get computed style
     const style = window.getComputedStyle(element);
@@ -594,7 +565,7 @@
       element.hasAttribute("aria-selected") ||
       element.hasAttribute("aria-checked");
 
-    const isContentEditable = element.getAttribute("contenteditable") === "true" || 
+    const isContentEditable = element.getAttribute("contenteditable") === "true" ||
       element.isContentEditable ||
       element.id === "tinymce" ||
       element.classList.contains("mce-content-body") ||
@@ -618,17 +589,17 @@
    */
   function isTopElement(element) {
     const rect = getCachedBoundingRect(element);
-    
+
     // If element is not in viewport, consider it top
     const isInViewport = (
-        rect.left < window.innerWidth &&
-        rect.right > 0 &&
-        rect.top < window.innerHeight &&
-        rect.bottom > 0
+      rect.left < window.innerWidth &&
+      rect.right > 0 &&
+      rect.top < window.innerHeight &&
+      rect.bottom > 0
     );
 
     if (!isInViewport) {
-        return true;
+      return true;
     }
 
     // Find the correct document context and root element
@@ -636,49 +607,49 @@
 
     // If we're in an iframe, elements are considered top by default
     if (doc !== window.document) {
-        return true;
+      return true;
     }
 
     // For shadow DOM, we need to check within its own root context
     const shadowRoot = element.getRootNode();
     if (shadowRoot instanceof ShadowRoot) {
-        const centerX = rect.left + rect.width/2;
-        const centerY = rect.top + rect.height/2;
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
 
-        try {
-            const topEl = measureDomOperation(
-                () => shadowRoot.elementFromPoint(centerX, centerY),
-                'elementFromPoint'
-            );
-            if (!topEl) return false;
-
-            let current = topEl;
-            while (current && current !== shadowRoot) {
-                if (current === element) return true;
-                current = current.parentElement;
-            }
-            return false;
-        } catch (e) {
-            return true;
-        }
-    }
-
-    // For elements in viewport, check if they're topmost
-    const centerX = rect.left + rect.width/2;
-    const centerY = rect.top + rect.height/2;
-    
-    try {
-        const topEl = document.elementFromPoint(centerX, centerY);
+      try {
+        const topEl = measureDomOperation(
+          () => shadowRoot.elementFromPoint(centerX, centerY),
+          'elementFromPoint'
+        );
         if (!topEl) return false;
 
         let current = topEl;
-        while (current && current !== document.documentElement) {
-            if (current === element) return true;
-            current = current.parentElement;
+        while (current && current !== shadowRoot) {
+          if (current === element) return true;
+          current = current.parentElement;
         }
         return false;
-    } catch (e) {
+      } catch (e) {
         return true;
+      }
+    }
+
+    // For elements in viewport, check if they're topmost
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+
+    try {
+      const topEl = document.elementFromPoint(centerX, centerY);
+      if (!topEl) return false;
+
+      let current = topEl;
+      while (current && current !== document.documentElement) {
+        if (current === element) return true;
+        current = current.parentElement;
+      }
+      return false;
+    } catch (e) {
+      return true;
     }
   }
 
@@ -687,17 +658,17 @@
    */
   function isInExpandedViewport(element, viewportExpansion) {
     if (viewportExpansion === -1) {
-        return true;
+      return true;
     }
 
     const rect = getCachedBoundingRect(element);
-    
+
     // Simple viewport check without scroll calculations
     return !(
-        rect.bottom < -viewportExpansion ||
-        rect.top > window.innerHeight + viewportExpansion ||
-        rect.right < -viewportExpansion ||
-        rect.left > window.innerWidth + viewportExpansion
+      rect.bottom < -viewportExpansion ||
+      rect.top > window.innerHeight + viewportExpansion ||
+      rect.right < -viewportExpansion ||
+      rect.left > window.innerWidth + viewportExpansion
     );
   }
 
@@ -706,14 +677,14 @@
     let currentEl = element;
     let scrollX = 0;
     let scrollY = 0;
-    
+
     return measureDomOperation(() => {
       while (currentEl && currentEl !== document.documentElement) {
-          if (currentEl.scrollLeft || currentEl.scrollTop) {
-              scrollX += currentEl.scrollLeft;
-              scrollY += currentEl.scrollTop;
-          }
-          currentEl = currentEl.parentElement;
+        if (currentEl.scrollLeft || currentEl.scrollTop) {
+          scrollX += currentEl.scrollLeft;
+          scrollY += currentEl.scrollTop;
+        }
+        currentEl = currentEl.parentElement;
       }
 
       scrollX += window.scrollX;
@@ -728,16 +699,16 @@
     if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
 
     const tagName = element.tagName.toLowerCase();
-    
+
     // Fast-path for common interactive elements
     const interactiveElements = new Set([
       "a", "button", "input", "select", "textarea", "details", "summary"
     ]);
-    
+
     if (interactiveElements.has(tagName)) return true;
 
     // Quick attribute checks without getting full lists
-    const hasQuickInteractiveAttr = element.hasAttribute("onclick") || 
+    const hasQuickInteractiveAttr = element.hasAttribute("onclick") ||
       element.hasAttribute("role") ||
       element.hasAttribute("tabindex") ||
       element.hasAttribute("aria-") ||
@@ -748,11 +719,11 @@
 
   function quickVisibilityCheck(element) {
     // Fast initial check before expensive getComputedStyle
-    return element.offsetWidth > 0 && 
-           element.offsetHeight > 0 && 
-           !element.hasAttribute("hidden") &&
-           element.style.display !== "none" &&
-           element.style.visibility !== "hidden";
+    return element.offsetWidth > 0 &&
+      element.offsetHeight > 0 &&
+      !element.hasAttribute("hidden") &&
+      element.style.display !== "none" &&
+      element.style.visibility !== "hidden";
   }
 
   /**
@@ -818,7 +789,7 @@
       return id;
     }
 
-    // Quick checks for element nodes
+    // Quick checks for element nodes - skip filtering for OneTrust elements
     if (node.nodeType === Node.ELEMENT_NODE && !isElementAccepted(node)) {
       if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
       return null;
@@ -827,12 +798,16 @@
     // Check viewport if needed
     if (viewportExpansion !== -1) {
       const rect = getCachedBoundingRect(node);
-      if (!rect || (
-          rect.bottom < -viewportExpansion ||
-          rect.top > window.innerHeight + viewportExpansion ||
-          rect.right < -viewportExpansion ||
-          rect.left > window.innerWidth + viewportExpansion
-      )) {
+      const style = getCachedComputedStyle(node);
+
+      // Skip viewport check for OneTrust elements, fixed/sticky position elements, or if element has no rect
+      const isOneTrust = node.id?.includes('onetrust-') || node.closest('#onetrust-consent-sdk');
+      if (!rect || (!isOneTrust && !style?.position?.match(/fixed|sticky/) && (
+        rect.bottom < -viewportExpansion ||
+        rect.top > window.innerHeight + viewportExpansion ||
+        rect.right < -viewportExpansion ||
+        rect.left > window.innerWidth + viewportExpansion
+      ))) {
         if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
         return null;
       }
@@ -846,15 +821,11 @@
       children: [],
     };
 
-    // Get attributes for interactive elements or potential text containers
-    if (isInteractiveCandidate(node) || node.tagName.toLowerCase() === 'iframe' || node.tagName.toLowerCase() === 'body') {
-      const attributeNames = node.getAttributeNames?.() || [];
-      for (const name of attributeNames) {
-        nodeData.attributes[name] = node.getAttribute(name);
-      }
+    // Get attributes
+    const attributeNames = node.getAttributeNames?.() || [];
+    for (const name of attributeNames) {
+      nodeData.attributes[name] = node.getAttribute(name);
     }
-
-    // if (isInteractiveCandidate(node)) {
 
     // Check interactivity
     if (node.nodeType === Node.ELEMENT_NODE) {
@@ -881,16 +852,39 @@
       }
     }
 
-    // Process children, with special handling for iframes and rich text editors
+    // Process children, with special handling for iframes, shadow DOM, and custom elements
     if (node.tagName) {
       const tagName = node.tagName.toLowerCase();
-      
+
+      // Handle shadow DOM
+      if (node.shadowRoot) {
+        const shadowChildren = Array.from(node.shadowRoot.children);
+        for (const child of shadowChildren) {
+          const domElement = buildDomTree(child, parentIframe);
+          if (domElement) nodeData.children.push(domElement);
+        }
+      }
+
+      // Handle custom elements that might have shadow roots
+      if (tagName.includes('-')) {
+        // Try to access shadow root even if not directly exposed
+        const shadowRoot = node.shadowRoot || node.openOrClosedShadowRoot;
+        if (shadowRoot) {
+          const shadowChildren = Array.from(shadowRoot.children);
+          for (const child of shadowChildren) {
+            const domElement = buildDomTree(child, parentIframe);
+            if (domElement) nodeData.children.push(domElement);
+          }
+        }
+      }
+
       // Handle iframes
       if (tagName === "iframe") {
         try {
           const iframeDoc = node.contentDocument || node.contentWindow?.document;
           if (iframeDoc) {
-            for (const child of iframeDoc.childNodes) {
+            const iframeChildren = Array.from(iframeDoc.body.children);
+            for (const child of iframeChildren) {
               const domElement = buildDomTree(child, node);
               if (domElement) nodeData.children.push(domElement);
             }
@@ -898,42 +892,14 @@
         } catch (e) {
           console.warn("Unable to access iframe:", e);
         }
-      } 
-      // Handle rich text editors and contenteditable elements
-      else if (
-        node.isContentEditable || 
-        node.getAttribute("contenteditable") === "true" ||
-        node.id === "tinymce" ||
-        node.classList.contains("mce-content-body") ||
-        (tagName === "body" && node.getAttribute("data-id")?.startsWith("mce_"))
-      ) {
-        // Process all child nodes to capture formatted text
-        for (const child of node.childNodes) {
-          const domElement = buildDomTree(child, parentIframe);
-          if (domElement) nodeData.children.push(domElement);
-        }
       }
-      // Handle shadow DOM
-      else if (node.shadowRoot) {
-        nodeData.shadowRoot = true;
-        for (const child of node.shadowRoot.childNodes) {
-          const domElement = buildDomTree(child, parentIframe);
-          if (domElement) nodeData.children.push(domElement);
-        }
-      }
-      // Handle regular elements
-      else {
-        for (const child of node.childNodes) {
-          const domElement = buildDomTree(child, parentIframe);
-          if (domElement) nodeData.children.push(domElement);
-        }
-      }
-    }
 
-    // Skip empty anchor tags
-    if (nodeData.tagName === 'a' && nodeData.children.length === 0 && !nodeData.attributes.href) {
-      if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
-      return null;
+      // Process regular children
+      const children = Array.from(node.children);
+      for (const child of children) {
+        const domElement = buildDomTree(child, parentIframe);
+        if (domElement) nodeData.children.push(domElement);
+      }
     }
 
     const id = `${ID.current++}`;
@@ -963,7 +929,7 @@
     Object.keys(PERF_METRICS.timings).forEach(key => {
       PERF_METRICS.timings[key] = PERF_METRICS.timings[key] / 1000;
     });
-    
+
     Object.keys(PERF_METRICS.buildDomTreeBreakdown).forEach(key => {
       if (typeof PERF_METRICS.buildDomTreeBreakdown[key] === 'number') {
         PERF_METRICS.buildDomTreeBreakdown[key] = PERF_METRICS.buildDomTreeBreakdown[key] / 1000;
@@ -972,11 +938,11 @@
 
     // Add some useful derived metrics
     if (PERF_METRICS.buildDomTreeBreakdown.buildDomTreeCalls > 0) {
-      PERF_METRICS.buildDomTreeBreakdown.averageTimePerNode = 
+      PERF_METRICS.buildDomTreeBreakdown.averageTimePerNode =
         PERF_METRICS.buildDomTreeBreakdown.totalTime / PERF_METRICS.buildDomTreeBreakdown.buildDomTreeCalls;
     }
 
-    PERF_METRICS.buildDomTreeBreakdown.timeInChildCalls = 
+    PERF_METRICS.buildDomTreeBreakdown.timeInChildCalls =
       PERF_METRICS.buildDomTreeBreakdown.totalTime - PERF_METRICS.buildDomTreeBreakdown.totalSelfTime;
 
     // Add average time per operation to the metrics
@@ -991,23 +957,23 @@
     // Calculate cache hit rates
     const boundingRectTotal = PERF_METRICS.cacheMetrics.boundingRectCacheHits + PERF_METRICS.cacheMetrics.boundingRectCacheMisses;
     const computedStyleTotal = PERF_METRICS.cacheMetrics.computedStyleCacheHits + PERF_METRICS.cacheMetrics.computedStyleCacheMisses;
-    
+
     if (boundingRectTotal > 0) {
       PERF_METRICS.cacheMetrics.boundingRectHitRate = PERF_METRICS.cacheMetrics.boundingRectCacheHits / boundingRectTotal;
     }
-    
+
     if (computedStyleTotal > 0) {
       PERF_METRICS.cacheMetrics.computedStyleHitRate = PERF_METRICS.cacheMetrics.computedStyleCacheHits / computedStyleTotal;
     }
-    
+
     if ((boundingRectTotal + computedStyleTotal) > 0) {
-      PERF_METRICS.cacheMetrics.overallHitRate = 
+      PERF_METRICS.cacheMetrics.overallHitRate =
         (PERF_METRICS.cacheMetrics.boundingRectCacheHits + PERF_METRICS.cacheMetrics.computedStyleCacheHits) /
         (boundingRectTotal + computedStyleTotal);
     }
   }
 
-  return debugMode ? 
-    { rootId, map: DOM_HASH_MAP, perfMetrics: PERF_METRICS } : 
+  return debugMode ?
+    { rootId, map: DOM_HASH_MAP, perfMetrics: PERF_METRICS } :
     { rootId, map: DOM_HASH_MAP };
 };

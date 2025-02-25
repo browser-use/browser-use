@@ -4,7 +4,7 @@ description: "Configure browser behavior and context settings"
 icon: "globe"
 ---
 
-Browser Use allows you to customize how the browser behaves through two main configuration classes: `BrowserConfig` and `BrowserContextConfig`. These settings control everything from headless mode to proxy settings and page load behavior.
+Browser Use allows you to customize the browser's behavior through two main configuration classes: `BrowserConfig` and `BrowserContextConfig`. These settings control everything from headless mode to proxy settings and page load behavior.
 
 <Note>
   We are currently working on improving how browser contexts are managed. The
@@ -24,6 +24,13 @@ config = BrowserConfig(
     headless=False,
     disable_security=True
 )
+
+browser = Browser(config=config)
+
+agent = Agent(
+    browser=browser,
+    # ...
+)
 ```
 
 ## Core Settings
@@ -37,7 +44,7 @@ config = BrowserConfig(
 ### Additional Settings
 
 - **extra_chromium_args** (default: `[]`)
-  Additional arguments passed to the browser at launch. See the [full list of available arguments](https://github.com/browser-use/browser-use/blob/main/browser_use/browser/browser.py#L180).
+  Additional arguments are passed to the browser at launch. See the [full list of available arguments](https://github.com/browser-use/browser-use/blob/main/browser_use/browser/browser.py#L180).
 
 - **proxy** (default: `None`)
   Standard Playwright proxy settings for using external proxy services.
@@ -148,10 +155,10 @@ async def run_search():
   Browser window dimensions. The default size is optimized for general use cases and interaction with common UI elements like cookie banners.
 
 - **locale** (default: `None`)
-  Specify user locale, for example en-GB, de-DE, etc. Locale will affect navigator.language value, Accept-Language request header value as well as number and date formatting rules. If not provided, defaults to the system default locale.
+  Specify user locale, for example en-GB, de-DE, etc. Locale will affect the navigator. Language value, Accept-Language request header value as well as number and date formatting rules. If not provided, defaults to the system default locale.
 
 - **highlight_elements** (default: `True`)
-  Highlight interactive elements on the screen with colorfull bounding boxes.
+  Highlight interactive elements on the screen with colorful bounding boxes.
 
 - **viewport_expansion** (default: `500`)
   Viewport expansion in pixels. With this you can controll how much of the page is included in the context of the LLM. If set to -1, all elements from the entire page will be included (this leads to high token usage). If set to 0, only the elements which are visible in the viewport will be included.

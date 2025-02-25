@@ -97,7 +97,7 @@ class Browser:
 
 		return self.playwright_browser
 
-	@time_execution_async('--init browser')
+	@time_execution_async('--init (browser)')
 	async def _init(self):
 		"""Initialize the browser session"""
 		playwright = await async_playwright().start()

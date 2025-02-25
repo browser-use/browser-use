@@ -76,7 +76,6 @@ class MessageManager:
 				'name': 'AgentOutput',
 				'args': {
 					'current_state': {
-						'page_summary': 'On the page are company a,b,c wtih their revenue 1,2,3.',
 						'evaluation_previous_goal': 'Success - I opend the first page',
 						'memory': 'Starting with the new task. I have completed 1/10 steps',
 						'next_goal': 'Click on company a',
@@ -126,6 +125,10 @@ class MessageManager:
 						msg = HumanMessage(content='Action result: ' + str(r.extracted_content))
 						self._add_message_with_tokens(msg)
 					if r.error:
+						# if endswith \n, remove it
+						if r.error.endswith('\n'):
+							r.error = r.error[:-1]
+						# get only last line of error
 						last_line = r.error.split('\n')[-1]
 						msg = HumanMessage(content='Action error: ' + last_line)
 						self._add_message_with_tokens(msg)
@@ -160,7 +163,7 @@ class MessageManager:
 		# empty tool response
 		self.add_tool_message(content='')
 
-	def add_plan(self, plan: Optional[str], position: int = -1) -> None:
+	def add_plan(self, plan: Optional[str], position: int | None = None) -> None:
 		if plan:
 			msg = AIMessage(content=plan)
 			self._add_message_with_tokens(msg, position)
@@ -203,8 +206,10 @@ class MessageManager:
 
 		return msg
 
-	def _add_message_with_tokens(self, message: BaseMessage, position: int = -1) -> None:
-		"""Add message with token count metadata"""
+	def _add_message_with_tokens(self, message: BaseMessage, position: int | None = None) -> None:
+		"""Add message with token count metadata
+		position: None for last, -1 for second last, etc.
+		"""
 
 		# filter out sensitive data from the message
 		if self.settings.sensitive_data:
@@ -259,7 +264,7 @@ class MessageManager:
 
 	def cut_messages(self):
 		"""Get current message list, potentially trimmed to max tokens"""
-		diff = self.state.history.total_tokens - self.settings.max_input_tokens
+		diff = self.state.history.current_tokens - self.settings.max_input_tokens
 		if diff <= 0:
 			return None
 
@@ -273,9 +278,9 @@ class MessageManager:
 					msg.message.content.remove(item)
 					diff -= self.settings.image_tokens
 					msg.metadata.tokens -= self.settings.image_tokens
-					self.state.history.total_tokens -= self.settings.image_tokens
+					self.state.history.current_tokens -= self.settings.image_tokens
 					logger.debug(
-						f'Removed image with {self.settings.image_tokens} tokens - total tokens now: {self.state.history.total_tokens}/{self.settings.max_input_tokens}'
+						f'Removed image with {self.settings.image_tokens} tokens - total tokens now: {self.state.history.current_tokens}/{self.settings.max_input_tokens}'
 					)
 				elif 'text' in item and isinstance(item, dict):
 					text += item['text']
@@ -311,7 +316,7 @@ class MessageManager:
 		last_msg = self.state.history.messages[-1]
 
 		logger.debug(
-			f'Added message with {last_msg.metadata.tokens} tokens - total tokens now: {self.state.history.total_tokens}/{self.settings.max_input_tokens} - total messages: {len(self.state.history.messages)}'
+			f'Added message with {last_msg.metadata.tokens} tokens - total tokens now: {self.state.history.current_tokens}/{self.settings.max_input_tokens} - total messages: {len(self.state.history.messages)}'
 		)
 
 	def _remove_last_state_message(self) -> None:

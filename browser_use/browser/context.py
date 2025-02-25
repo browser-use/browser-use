@@ -110,10 +110,10 @@ class BrowserContextConfig:
 	"""
 
 	cookies_file: str | None = None
-	minimum_wait_page_load_time: float = 0.5
-	wait_for_network_idle_page_load_time: float = 1
+	minimum_wait_page_load_time: float = 0.25
+	wait_for_network_idle_page_load_time: float = 0.5
 	maximum_wait_page_load_time: float = 5
-	wait_between_actions: float = 1
+	wait_between_actions: float = 0.5
 
 	disable_security: bool = True
 
@@ -668,6 +668,77 @@ class BrowserContext:
 		"""Execute JavaScript code on the page"""
 		page = await self.get_current_page()
 		return await page.evaluate(script)
+
+	async def get_page_structure(self) -> str:
+		"""Get a debug view of the page structure including iframes"""
+		debug_script = """(() => {
+			function getPageStructure(element = document, depth = 0, maxDepth = 10) {
+				if (depth >= maxDepth) return '';
+				
+				const indent = '  '.repeat(depth);
+				let structure = '';
+				
+				// Skip certain elements that clutter the output
+				const skipTags = new Set(['script', 'style', 'link', 'meta', 'noscript']);
+				
+				// Add current element info if it's not the document
+				if (element !== document) {
+					const tagName = element.tagName.toLowerCase();
+					
+					// Skip uninteresting elements
+					if (skipTags.has(tagName)) return '';
+					
+					const id = element.id ? `#${element.id}` : '';
+					const classes = element.className && typeof element.className === 'string' ? 
+						`.${element.className.split(' ').filter(c => c).join('.')}` : '';
+					
+					// Get additional useful attributes
+					const attrs = [];
+					if (element.getAttribute('role')) attrs.push(`role="${element.getAttribute('role')}"`);
+					if (element.getAttribute('aria-label')) attrs.push(`aria-label="${element.getAttribute('aria-label')}"`);
+					if (element.getAttribute('type')) attrs.push(`type="${element.getAttribute('type')}"`);
+					if (element.getAttribute('name')) attrs.push(`name="${element.getAttribute('name')}"`);
+					if (element.getAttribute('src')) {
+						const src = element.getAttribute('src');
+						attrs.push(`src="${src.substring(0, 50)}${src.length > 50 ? '...' : ''}"`);
+					}
+					
+					// Add element info
+					structure += `${indent}${tagName}${id}${classes}${attrs.length ? ' [' + attrs.join(', ') + ']' : ''}\\n`;
+					
+					// Handle iframes specially
+					if (tagName === 'iframe') {
+						try {
+							const iframeDoc = element.contentDocument || element.contentWindow?.document;
+							if (iframeDoc) {
+								structure += `${indent}  [IFRAME CONTENT]:\\n`;
+								structure += getPageStructure(iframeDoc, depth + 2, maxDepth);
+							} else {
+								structure += `${indent}  [IFRAME: No access - likely cross-origin]\\n`;
+							}
+						} catch (e) {
+							structure += `${indent}  [IFRAME: Access denied - ${e.message}]\\n`;
+						}
+					}
+				}
+				
+				// Get all child elements
+				const children = element.children || element.childNodes;
+				for (const child of children) {
+					if (child.nodeType === 1) { // Element nodes only
+						structure += getPageStructure(child, depth + 1, maxDepth);
+					}
+				}
+				
+				return structure;
+			}
+			
+			return getPageStructure();
+		})()"""
+
+		page = await self.get_current_page()
+		structure = await page.evaluate(debug_script)
+		return structure
 
 	@time_execution_sync('--get_state')  # This decorator might need to be updated to handle async
 	async def get_state(self) -> BrowserState:
