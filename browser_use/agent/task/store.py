@@ -28,7 +28,7 @@ class TaskStore:
             ]
         )
 
-    async def search_similar_tasks(self, task: str, limit: int = 5, min_similarity: float = 0.5) -> list[tuple[TaskVector, float]] | None:
+    async def search_similar_tasks(self, task: str, limit: int = 5, context_threshold: float = 0.5) -> list[tuple[TaskVector, float]] | None:
         """Search for similar tasks and return with similarity scores"""
         try:
             task_embedding = self.vector_db.encode_text(task)
@@ -36,7 +36,7 @@ class TaskStore:
                 collection_name=self.vector_db.collection_name,
                 query_vector=task_embedding,
                 limit=limit,
-                score_threshold=min_similarity
+                score_threshold=context_threshold
             )
             
             if not search_result:

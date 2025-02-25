@@ -21,7 +21,7 @@ class TaskService:
                  retry_on_hallucination: bool = False):
         self.task_llm = llm
         self.task = task
-        self.task_store = task_store
+        self.task_store: TaskStore | None = task_store
         self.adaptation_threshold = adaptation_threshold
         self.context_threshold = context_threshold
         self.task_prompt = TaskPrompt()
@@ -121,7 +121,7 @@ class TaskService:
         if not self.task_store:
             return None
         
-        similar_tasks = await self.task_store.search_similar_tasks(self.task)
+        similar_tasks = await self.task_store.search_similar_tasks(self.task, context_threshold=self.context_threshold)
         if not similar_tasks:
             return None
 
