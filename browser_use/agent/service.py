@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import json
 import logging
 import re
@@ -22,6 +23,7 @@ from browser_use.agent.gif import create_history_gif
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
 from browser_use.agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation
 from browser_use.agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
+from browser_use.agent.task.views import TaskVector, TaskAnalysis, TaskMemoryConfig, Plan
 from browser_use.agent.views import (
 	ActionResult,
 	AgentError,
@@ -49,6 +51,8 @@ from browser_use.telemetry.views import (
 	AgentStepTelemetryEvent,
 )
 from browser_use.utils import time_execution_async, time_execution_sync
+from browser_use.agent.task.service import TaskService
+from browser_use.agent.task.store import TaskStore
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -123,8 +127,10 @@ class Agent(Generic[Context]):
 		planner_interval: int = 1,  # Run planner every N steps
 		# Inject state
 		injected_agent_state: Optional[AgentState] = None,
-		#
+		# Context
 		context: Context | None = None,
+		# Task Memory Config
+		task_memory_config: TaskMemoryConfig | None = None,
 	):
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
@@ -207,6 +213,25 @@ class Agent(Generic[Context]):
 
 		# Telemetry
 		self.telemetry = ProductTelemetry()
+
+		# Task memory setup
+		self.task_store = None
+		if task_memory_config:
+			self.task_store = TaskStore.create(
+				use_local=task_memory_config.use_local_qdrant,
+				local_path=task_memory_config.local_qdrant_path,
+				url=task_memory_config.qdrant_url,
+				api_key=task_memory_config.qdrant_api_key
+			)
+
+		self.task_service = TaskService(
+			llm=llm,
+			task=task,
+			adaptation_threshold=task_memory_config.adaptation_threshold if task_memory_config else 0.92,
+			context_threshold=task_memory_config.context_threshold if task_memory_config else 0.5,
+			task_store=self.task_store,
+			retry_on_hallucination=task_memory_config.retry_on_hallucination if task_memory_config else False,
+		)
 
 		if self.settings.save_conversation_path:
 			logger.info(f'Saving conversation to {self.settings.save_conversation_path}')
@@ -510,8 +535,24 @@ class Agent(Generic[Context]):
 	@time_execution_async('--run (agent)')
 	async def run(self, max_steps: int = 100) -> AgentHistoryList:
 		"""Execute the task with maximum number of steps"""
+		start_time = time.time()
 		try:
 			self._log_agent_run()
+
+			analysis_result = await self.task_service.analyze_task()
+			if not analysis_result:
+				logger.warning("Failed to create initial plan")
+				return self.state.history
+
+			if analysis_result.type == "actions":
+				result = await self._execute_adapted_actions(analysis_result)
+				if result:
+					return result
+			elif analysis_result.type == "plan":
+				if isinstance(analysis_result.content, Plan):
+					self._message_manager.add_task_plan(analysis_result.content)
+				else:
+					logger.warning("Plan content is not a TaskPlanOutput, skipping plan addition")
 
 			# Execute initial actions if provided
 			if self.initial_actions:
@@ -547,6 +588,9 @@ class Agent(Generic[Context]):
 					break
 			else:
 				logger.info('❌ Failed to complete task in maximum steps')
+				
+			if isinstance(analysis_result.content, Plan):
+				await self._store_successful_task(analysis_result.content, time.time() - start_time)
 
 			return self.state.history
 		finally:
@@ -878,3 +922,67 @@ class Agent(Generic[Context]):
 	@property
 	def message_manager(self) -> MessageManager:
 		return self._message_manager
+
+	async def _store_successful_task(self, plan: Plan | None, execution_time: float) -> None:
+		"""Store successful task execution in task memory"""
+		if not (self.state.history.is_done() 
+			and self.task_store and plan):
+			return
+		try:
+			analysis = plan.analysis
+			history = self.state.history
+			steps, actions = history.get_steps_and_actions()
+			
+			task_vector = TaskVector(
+				# Core info
+				task=self.task,
+				steps=steps,
+				actions=actions,
+				tags=analysis.tags,
+				difficulty=analysis.difficulty,
+				final_result=str(history.final_result()),
+				
+				# Execution details
+				execution_time=execution_time,
+				step_count=len(history.history),
+				error_count=len(history.errors()),
+				
+				# System info
+				llm_name=self.model_name,
+			)
+			
+			await self.task_store.store_task(task_vector)
+			logger.info(f"Task stored in memory: {task_vector}")
+		except Exception as e:
+			logger.warning(f"Failed to store task in task memory: {e}")
+
+	async def _execute_adapted_actions(self, analysis_result: TaskAnalysis) -> AgentHistoryList | None:
+		"""Execute actions adapted from a similar task"""
+		try:
+			if not isinstance(analysis_result.content, list):
+				logger.warning("Plan content is not a list of actions")
+				return None
+
+			# Convert action dicts to ActionModels
+			actions = self._convert_initial_actions(analysis_result.content)
+			if not actions:
+				logger.warning("Failed to convert adapted actions")
+				return None
+
+			# Execute the actions directly
+			result = await self.multi_act(actions)
+			self.state.last_result = result
+			
+			if result and result[-1].is_done:
+				logger.info("✅ Task completed successfully using direct adaptation")
+				if self.register_done_callback:
+					await self.register_done_callback(self.state.history)
+				return self.state.history
+
+			logger.info("Direct adaptation failed, falling back to normal execution")
+			return None
+			
+		except Exception as e:
+			logger.warning(f"Error executing adapted actions: {e}")
+			return None
+

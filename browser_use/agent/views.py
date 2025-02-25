@@ -114,7 +114,7 @@ class AgentOutput(BaseModel):
 	action: list[ActionModel] = Field(
 		...,  # This means the field is required
 		description='List of actions to execute',
-		min_items=1,  # Ensure at least one action is provided
+		min_length=1
 	)
 
 	@staticmethod
@@ -123,7 +123,7 @@ class AgentOutput(BaseModel):
 		model_ = create_model(
 			'AgentOutput',
 			__base__=AgentOutput,
-			action=(list[custom_actions], Field(..., description='List of actions to execute', min_items=1)),
+			action=(list[custom_actions], Field(..., description='List of actions to execute', min_length=1)),
 			__module__=AgentOutput.__module__,
 		)
 		model_.__doc__ = 'AgentOutput model with custom actions'
@@ -168,7 +168,6 @@ class AgentHistory(BaseModel):
 			'result': [r.model_dump(exclude_none=True) for r in self.result],
 			'state': self.state.to_dict(),
 		}
-
 
 class AgentHistoryList(BaseModel):
 	"""List of agent history items"""
@@ -282,6 +281,20 @@ class AgentHistoryList(BaseModel):
 					output['interacted_element'] = interacted_element
 					outputs.append(output)
 		return outputs
+	
+	def get_steps_and_actions(self) -> tuple[list[str], list[dict]]:
+		"""Get task steps and actions separately"""
+		steps = []
+		actions = []
+		
+		for h in self.history:
+			if h.model_output:
+				step = h.model_output.current_state.next_goal
+				for action in h.model_output.action:
+					steps.append(step)
+					actions.append(action.model_dump(exclude_none=True))
+		
+		return steps, actions
 
 	def action_results(self) -> list[ActionResult]:
 		"""Get all results from history"""
