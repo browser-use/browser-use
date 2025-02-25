@@ -1,3 +1,4 @@
+import { domCache } from './domCache.js';
 (
     args = { doHighlightElements: true, focusHighlightIndex: -1, viewportExpansion: 0 }
 ) => {
@@ -379,8 +380,13 @@
 
     // Function to traverse the DOM and create nested JSON
     function buildDomTree(node, parentIframe = null) {
+        
         if (!node) return null;
 
+        const cachedTree = domCache.getCachedDom(node);
+        if (cachedTree) {
+            return cachedTree;
+        }
         // Special case for text nodes
         if (node.nodeType === Node.TEXT_NODE) {
             const textContent = node.textContent.trim();
@@ -543,6 +549,8 @@
             );
             nodeData.children.push(...children);
         }
+
+        domCache.cacheDomTree(node, nodeData);
 
         return nodeData;
     }
