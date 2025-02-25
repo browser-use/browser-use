@@ -25,6 +25,7 @@ dependencies = [
     "langchain-anthropic==0.3.3",
     "langchain-ollama==0.2.2",
 ]
+urls = { "Repository" = "https://github.com/browser-use/browser-use" }
 
 [project.optional-dependencies]
 dev = [
