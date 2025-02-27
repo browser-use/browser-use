@@ -4,8 +4,27 @@ import json
 import pytest
 
 from browser_use.browser.browser import Browser, BrowserConfig
-from browser_use.dom.views import ElementTreeSerializer
+from browser_use.dom.views import DOMBaseNode, DOMElementNode, DOMTextNode
 from browser_use.utils import time_execution_sync
+
+
+class ElementTreeSerializer:
+	@staticmethod
+	def dom_element_node_to_json(element_tree: DOMElementNode) -> dict:
+		def node_to_dict(node: DOMBaseNode) -> dict:
+			if isinstance(node, DOMTextNode):
+				return {'type': 'text', 'text': node.text}
+			elif isinstance(node, DOMElementNode):
+				return {
+					'type': 'element',
+					'tag_name': node.tag_name,
+					'attributes': node.attributes,
+					'highlight_index': node.highlight_index,
+					'children': [node_to_dict(child) for child in node.children],
+				}
+			return {}
+
+		return node_to_dict(element_tree)
 
 
 # run with: pytest browser_use/browser/tests/test_clicks.py

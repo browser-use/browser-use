@@ -4,10 +4,8 @@ Simple try of the agent.
 @dev You need to add OPENAI_API_KEY to your environment variables.
 """
 
-import json
 import os
 import sys
-from doctest import OutputChecker
 from pprint import pprint
 
 import pytest
@@ -15,12 +13,10 @@ import pytest
 from browser_use.browser.browser import Browser, BrowserConfig
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import asyncio
 
 from langchain_openai import ChatOpenAI
 
-from browser_use import ActionModel, Agent, AgentHistoryList, Controller
-from browser_use.agent.views import AgentOutput
+from browser_use import Agent, AgentHistoryList, Controller
 
 llm = ChatOpenAI(model='gpt-4o')
 controller = Controller()

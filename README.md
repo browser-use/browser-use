@@ -21,9 +21,11 @@
 
 🌩️ Skip the setup - try our hosted version for instant browser automation! [Try it now](https://cloud.browser-use.com).
 
+
 # Quick start
 
-With pip:
+
+With pip (Python>=3.11):
 
 ```bash
 pip install browser-use
@@ -46,7 +48,7 @@ load_dotenv()
 
 async def main():
     agent = Agent(
-        task="Go to Reddit, search for 'browser-use', click on the first post and return the first comment.",
+        task="Compare the price of gpt-4o and DeepSeek-V3",
         llm=ChatOpenAI(model="gpt-4o"),
     )
     result = await agent.run()
@@ -80,9 +82,25 @@ python examples/ui/gradio_demo.py
 
 # Demos
 
-[Prompt](https://github.com/browser-use/browser-use/blob/main/examples/browser/real_browser.py): Write a letter in Google Docs to my Papa, thanking him for everything, and save the document as a PDF.
 
-![Letter to Papa](https://github.com/user-attachments/assets/242ade3e-15bc-41c2-988f-cbc5415a66aa)
+
+
+
+
+
+<br/><br/>
+
+[Task](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/shopping.py): Add grocery items to cart, and checkout.
+
+[![AI Did My Groceries](https://github.com/user-attachments/assets/d9359085-bde6-41d4-aa4e-6520d0221872)](https://www.youtube.com/watch?v=L2Ya9PYNns8)
+
+
+<br/><br/>
+
+
+Prompt: Add my latest LinkedIn follower to my leads in Salesforce.
+
+![LinkedIn to Salesforce](https://github.com/user-attachments/assets/1440affc-a552-442e-b702-d0d3b277b0ae)
 
 <br/><br/>
 
@@ -92,15 +110,19 @@ https://github.com/user-attachments/assets/171fb4d6-0355-46f2-863e-edb04a828d04
 
 <br/><br/>
 
-Prompt: Find flights on kayak.com from Zurich to Beijing from 25.12.2024 to 02.02.2025.
+[Prompt](https://github.com/browser-use/browser-use/blob/main/examples/browser/real_browser.py): Write a letter in Google Docs to my Papa, thanking him for everything, and save the document as a PDF.
 
-![flight search 8x 10fps](https://github.com/user-attachments/assets/ea605d4a-90e6-481e-a569-f0e0db7e6390)
+![Letter to Papa](https://github.com/user-attachments/assets/242ade3e-15bc-41c2-988f-cbc5415a66aa)
 
 <br/><br/>
 
 [Prompt](https://github.com/browser-use/browser-use/blob/main/examples/custom-functions/save_to_file_hugging_face.py): Look up models with a license of cc-by-sa-4.0 and sort by most likes on Hugging face, save top 5 to file.
 
 https://github.com/user-attachments/assets/de73ee39-432c-4b97-b4e8-939fd7f323b3
+
+
+<br/><br/>
+
 
 ## More examples
 
@@ -112,24 +134,27 @@ Tell your computer what to do, and it gets it done.
 
 ## Roadmap
 
-- [ ] Improve memory management
-- [ ] Enhance planning capabilities
-- [ ] Improve self-correction
-- [ ] Fine-tune the model for better performance
+### Agent
+- [ ] Improve agent memory (summarize, compress, RAG, etc.)
+- [ ] Enhance planning capabilities (load website specific context)
+- [ ] Reduce token consumption (system prompt, DOM state)
+
+### DOM Extraction
+- [ ] Improve extraction for datepickers, dropdowns, special elements
+- [ ] Improve state representation for UI elements
+
+### Rerunning tasks
+- [ ] LLM as fallback
+- [ ] Make it easy to define workfows templates where LLM fills in the details
+- [ ] Return playwright script from the agent
+
+### Datasets
 - [ ] Create datasets for complex tasks
-- [ ] Sandbox browser-use for specific websites
-- [ ] Implement deterministic script rerun with LLM fallback
-- [ ] Cloud-hosted version
-- [ ] Add stop/pause functionality
-- [ ] Improve authentication handling
-- [ ] Reduce token consumption
-- [ ] Implement long-term memory
-- [ ] Handle repetitive tasks reliably
-- [ ] Third-party integrations (Slack, etc.)
-- [ ] Include more interactive elements
-- [ ] Human-in-the-loop execution
 - [ ] Benchmark various models against each other
-- [ ] Let the user record a workflow and browser-use will execute it
+- [ ] Fine-tuning models for specific tasks
+
+### User Experience
+- [ ] Human-in-the-loop execution
 - [ ] Improve the generated GIF quality
 - [ ] Create various demos for tutorial execution, job application, QA testing, social media, etc.
 

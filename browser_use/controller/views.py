@@ -25,6 +25,7 @@ class InputTextAction(BaseModel):
 
 class DoneAction(BaseModel):
 	text: str
+	success: bool
 
 
 class SwitchTabAction(BaseModel):
@@ -52,6 +53,10 @@ class GroupTabsAction(BaseModel):
 
 class UngroupTabsAction(BaseModel):
     tab_ids: list[int] = Field(..., description="List of tab IDs to ungroup")
+
+class ExtractPageContentAction(BaseModel):
+	value: str
+
 
 class NoParamsAction(BaseModel):
 	"""

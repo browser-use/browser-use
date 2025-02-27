@@ -1,10 +1,12 @@
 import asyncio
 import json
 import logging
-from typing import Callable, Dict, Optional, Type
+from typing import Dict, Generic, Optional, Type, TypeVar
 
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
-from lmnr import Laminar, observe
+
+# from lmnr.sdk.laminar import Laminar
 from pydantic import BaseModel
 
 from browser_use.agent.views import ActionModel, ActionResult
@@ -24,36 +26,45 @@ from browser_use.controller.views import (
 	SwitchTabAction,
 	UngroupTabsAction,
 )
-from browser_use.utils import time_execution_async, time_execution_sync
+from browser_use.utils import time_execution_sync
 
 logger = logging.getLogger(__name__)
-from langchain_core.language_models.chat_models import BaseChatModel
 
 
-class Controller:
+Context = TypeVar('Context')
+
+
+class Controller(Generic[Context]):
 	def __init__(
 		self,
 		exclude_actions: list[str] = [],
 		output_model: Optional[Type[BaseModel]] = None,
 	):
-		self.exclude_actions = exclude_actions
-		self.output_model = output_model
-		self.registry = Registry(exclude_actions)
-		self._register_default_actions()
+		self.registry = Registry[Context](exclude_actions)
 
-	def _register_default_actions(self):
 		"""Register all default browser actions"""
 
-		if self.output_model is not None:
+		if output_model is not None:
+			# Create a new model that extends the output model with success parameter
+			class ExtendedOutputModel(output_model):  # type: ignore
+				success: bool = True
 
-			@self.registry.action('Complete task', param_model=self.output_model)
-			async def done(params: BaseModel):
-				return ActionResult(is_done=True, extracted_content=params.model_dump_json())
+			@self.registry.action(
+				'Complete task - with return text and if the task is finished (success=True) or not yet  completly finished (success=False), because last step is reached',
+				param_model=ExtendedOutputModel,
+			)
+			async def done(params: ExtendedOutputModel):
+				# Exclude success from the output JSON since it's an internal parameter
+				output_dict = params.model_dump(exclude={'success'})
+				return ActionResult(is_done=True, success=params.success, extracted_content=json.dumps(output_dict))
 		else:
 
-			@self.registry.action('Complete task', param_model=DoneAction)
+			@self.registry.action(
+				'Complete task - with return text and if the task is finished (success=True) or not yet  completly finished (success=False), because last step is reached',
+				param_model=DoneAction,
+			)
 			async def done(params: DoneAction):
-				return ActionResult(is_done=True, extracted_content=params.text)
+				return ActionResult(is_done=True, success=params.success, extracted_content=params.text)
 
 		# Basic Navigation Actions
 		@self.registry.action(
@@ -84,16 +95,23 @@ class Controller:
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
+		# wait for x seconds
+		@self.registry.action('Wait for x seconds default 3')
+		async def wait(seconds: int = 3):
+			msg = f'🕒  Waiting for {seconds} seconds'
+			logger.info(msg)
+			await asyncio.sleep(seconds)
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
 		# Element Interaction Actions
 		@self.registry.action('Click element', param_model=ClickElementAction)
 		async def click_element(params: ClickElementAction, browser: BrowserContext):
 			session = await browser.get_session()
-			state = session.cached_state
 
-			if params.index not in state.selector_map:
+			if params.index not in await browser.get_selector_map():
 				raise Exception(f'Element with index {params.index} does not exist - retry or use alternative actions')
 
-			element_node = state.selector_map[params.index]
+			element_node = await browser.get_dom_element_by_index(params.index)
 			initial_pages = len(session.context.pages)
 
 			# if element has file uploader then dont click
@@ -127,16 +145,16 @@ class Controller:
 			'Input text into a input interactive element',
 			param_model=InputTextAction,
 		)
-		async def input_text(params: InputTextAction, browser: BrowserContext):
-			session = await browser.get_session()
-			state = session.cached_state
-
-			if params.index not in state.selector_map:
+		async def input_text(params: InputTextAction, browser: BrowserContext, has_sensitive_data: bool = False):
+			if params.index not in await browser.get_selector_map():
 				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
 
-			element_node = state.selector_map[params.index]
+			element_node = await browser.get_dom_element_by_index(params.index)
 			await browser._input_text_element_node(element_node, params.text)
-			msg = f'⌨️  Input {params.text} into index {params.index}'
+			if not has_sensitive_data:
+				msg = f'⌨️  Input {params.text} into index {params.index}'
+			else:
+				msg = f'⌨️  Input sensitive data into index {params.index}'
 			logger.info(msg)
 			logger.debug(f'Element xpath: {element_node.xpath}')
 			return ActionResult(extracted_content=msg, include_in_memory=True)
@@ -223,13 +241,25 @@ class Controller:
 
 		# send keys
 		@self.registry.action(
-			'Send strings of special keys like Backspace, Insert, PageDown, Delete, Enter, Shortcuts such as `Control+o`, `Control+Shift+T` are supported as well. This gets used in keyboard.press. Be aware of different operating systems and their shortcuts',
+			'Send strings of special keys like Escape,Backspace, Insert, PageDown, Delete, Enter, Shortcuts such as `Control+o`, `Control+Shift+T` are supported as well. This gets used in keyboard.press. ',
 			param_model=SendKeysAction,
 		)
 		async def send_keys(params: SendKeysAction, browser: BrowserContext):
 			page = await browser.get_current_page()
 
-			await page.keyboard.press(params.keys)
+			try:
+				await page.keyboard.press(params.keys)
+			except Exception as e:
+				if 'Unknown key' in str(e):
+					# loop over the keys and try to send each one
+					for key in params.keys:
+						try:
+							await page.keyboard.press(key)
+						except Exception as e:
+							logger.debug(f'Error sending key {key}: {str(e)}')
+							raise e
+				else:
+					raise e
 			msg = f'⌨️  Sent keys: {params.keys}'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
@@ -435,6 +465,8 @@ class Controller:
 				logger.error(msg)
 				return ActionResult(error=msg, include_in_memory=True)
 
+	# Register ---------------------------------------------------------------
+
 	def action(self, description: str, **kwargs):
 		"""Decorator for registering custom actions
 
@@ -442,87 +474,44 @@ class Controller:
 		"""
 		return self.registry.action(description, **kwargs)
 
-	@observe(name='controller.multi_act')
-	@time_execution_async('--multi-act')
-	async def multi_act(
-		self,
-		actions: list[ActionModel],
-		browser_context: BrowserContext,
-		check_break_if_paused: Callable[[], bool],
-		check_for_new_elements: bool = True,
-		page_extraction_llm: Optional[BaseChatModel] = None,
-		sensitive_data: Optional[Dict[str, str]] = None,
-		available_file_paths: Optional[list[str]] = None,
-	) -> list[ActionResult]:
-		"""Execute multiple actions"""
-		results = []
-
-		session = await browser_context.get_session()
-		cached_selector_map = session.cached_state.selector_map
-		cached_path_hashes = set(e.hash.branch_path_hash for e in cached_selector_map.values())
-
-		check_break_if_paused()
-
-		await browser_context.remove_highlights()
-
-		for i, action in enumerate(actions):
-			check_break_if_paused()
-
-			if action.get_index() is not None and i != 0:
-				new_state = await browser_context.get_state()
-				new_path_hashes = set(e.hash.branch_path_hash for e in new_state.selector_map.values())
-				if check_for_new_elements and not new_path_hashes.issubset(cached_path_hashes):
-					# next action requires index but there are new elements on the page
-					msg = f'Something new appeared after action {i} / {len(actions)}'
-					logger.info(msg)
-					results.append(ActionResult(extracted_content=msg, include_in_memory=True))
-					break
-
-			check_break_if_paused()
-
-			results.append(await self.act(action, browser_context, page_extraction_llm, sensitive_data, available_file_paths))
-
-			logger.debug(f'Executed action {i + 1} / {len(actions)}')
-			if results[-1].is_done or results[-1].error or i == len(actions) - 1:
-				break
-
-			await asyncio.sleep(browser_context.config.wait_between_actions)
-			# hash all elements. if it is a subset of cached_state its fine - else break (new elements on page)
-
-		return results
+	# Act --------------------------------------------------------------------
 
 	@time_execution_sync('--act')
 	async def act(
 		self,
 		action: ActionModel,
 		browser_context: BrowserContext,
+		#
 		page_extraction_llm: Optional[BaseChatModel] = None,
 		sensitive_data: Optional[Dict[str, str]] = None,
 		available_file_paths: Optional[list[str]] = None,
+		#
+		context: Context | None = None,
 	) -> ActionResult:
 		"""Execute an action"""
 
 		try:
 			for action_name, params in action.model_dump(exclude_unset=True).items():
 				if params is not None:
-					with Laminar.start_as_current_span(
-						name=action_name,
-						input={
-							'action': action_name,
-							'params': params,
-						},
-						span_type='TOOL',
-					):
-						result = await self.registry.execute_action(
-							action_name,
-							params,
-							browser=browser_context,
-							page_extraction_llm=page_extraction_llm,
-							sensitive_data=sensitive_data,
-							available_file_paths=available_file_paths,
-						)
+					# with Laminar.start_as_current_span(
+					# 	name=action_name,
+					# 	input={
+					# 		'action': action_name,
+					# 		'params': params,
+					# 	},
+					# 	span_type='TOOL',
+					# ):
+					result = await self.registry.execute_action(
+						action_name,
+						params,
+						browser=browser_context,
+						page_extraction_llm=page_extraction_llm,
+						sensitive_data=sensitive_data,
+						available_file_paths=available_file_paths,
+						context=context,
+					)
 
-						Laminar.set_span_output(result)
+					# Laminar.set_span_output(result)
 
 					if isinstance(result, str):
 						return ActionResult(extracted_content=result)

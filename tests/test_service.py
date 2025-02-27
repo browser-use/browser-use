@@ -1,14 +1,11 @@
-import os
-import sys
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel
 
-from browser_use.agent.message_manager.service import MessageManager
 from browser_use.agent.service import Agent
-from browser_use.agent.views import ActionResult, AgentOutput
+from browser_use.agent.views import ActionResult
 from browser_use.browser.browser import Browser
 from browser_use.browser.context import BrowserContext
 from browser_use.browser.views import BrowserState

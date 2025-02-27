@@ -1,16 +1,8 @@
 import asyncio
-import os
 
-from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from pydantic import SecretStr
 
 from browser_use import Agent
-
-load_dotenv()
-api_key = os.getenv('DEEPSEEK_API_KEY', '')
-if not api_key:
-	raise ValueError('DEEPSEEK_API_KEY is not set')
 
 
 llm = ChatOpenAI(model='gpt-4o', temperature=0.0)

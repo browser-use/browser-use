@@ -1,15 +1,11 @@
 import asyncio
-import os
 
 import pytest
 from langchain_ollama import ChatOllama
-from langchain_openai import AzureChatOpenAI
-from pydantic import BaseModel, SecretStr
 
 from browser_use.agent.service import Agent
 from browser_use.agent.views import AgentHistoryList
 from browser_use.browser.browser import Browser, BrowserConfig
-from browser_use.browser.views import BrowserState
 
 
 @pytest.fixture

@@ -3,8 +3,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
 
-from browser_use.agent.message_manager.service import MessageManager
-from browser_use.agent.prompts import SystemPrompt
+from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
 from browser_use.agent.views import ActionResult
 from browser_use.browser.views import BrowserState, TabInfo
 from browser_use.dom.views import DOMElementNode, DOMTextNode
@@ -19,17 +18,16 @@ from browser_use.dom.views import DOMElementNode, DOMTextNode
 	ids=['gpt-4o-mini', 'gpt-4o', 'claude-3-5-sonnet'],
 )
 def message_manager(request: pytest.FixtureRequest):
-	llm = request.param
 	task = 'Test task'
 	action_descriptions = 'Test actions'
 	return MessageManager(
-		llm=llm,
 		task=task,
-		action_descriptions=action_descriptions,
-		system_prompt_class=SystemPrompt,
-		max_input_tokens=1000,
-		estimated_characters_per_token=3,
-		image_tokens=800,
+		system_message=SystemMessage(content=action_descriptions),
+		settings=MessageManagerSettings(
+			max_input_tokens=1000,
+			estimated_characters_per_token=3,
+			image_tokens=800,
+		),
 	)
 
 
@@ -84,7 +82,7 @@ def test_add_state_with_memory_result(message_manager: MessageManager):
 	)
 	result = ActionResult(extracted_content='Important content', include_in_memory=True)
 
-	message_manager.add_state_message(state, result)
+	message_manager.add_state_message(state, [result])
 	messages = message_manager.get_messages()
 
 	# Should have system, task, extracted content, and state messages
@@ -113,7 +111,7 @@ def test_add_state_with_non_memory_result(message_manager: MessageManager):
 	)
 	result = ActionResult(extracted_content='Temporary content', include_in_memory=False)
 
-	message_manager.add_state_message(state, result)
+	message_manager.add_state_message(state, [result])
 	messages = message_manager.get_messages()
 
 	# Should have system, task, and combined state+result message
@@ -127,7 +125,7 @@ def test_add_state_with_non_memory_result(message_manager: MessageManager):
 def test_token_overflow_handling_with_real_flow(message_manager: MessageManager, max_tokens):
 	"""Test handling of token overflow in a realistic message flow"""
 	# Set more realistic token limit
-	message_manager.max_input_tokens = max_tokens
+	message_manager.settings.max_input_tokens = max_tokens
 
 	# Create a long sequence of interactions
 	for i in range(200):  # Simulate 40 steps of interaction
@@ -163,7 +161,10 @@ def test_token_overflow_handling_with_real_flow(message_manager: MessageManager,
 			)
 
 		# Add state message
-		message_manager.add_state_message(state, result)
+		if result:
+			message_manager.add_state_message(state, [result])
+		else:
+			message_manager.add_state_message(state)
 
 		try:
 			messages = message_manager.get_messages()
@@ -173,13 +174,13 @@ def test_token_overflow_handling_with_real_flow(message_manager: MessageManager,
 			else:
 				raise e
 
-		assert message_manager.history.total_tokens <= message_manager.max_input_tokens + 100
+		assert message_manager.state.history.current_tokens <= message_manager.settings.max_input_tokens + 100
 
 		last_msg = messages[-1]
 		assert isinstance(last_msg, HumanMessage)
 
 		if i % 4 == 0:
-			assert isinstance(message_manager.history.messages[-2].message, HumanMessage)
+			assert isinstance(message_manager.state.history.messages[-2].message, HumanMessage)
 		if i % 2 == 0 and not i % 4 == 0:
 			if isinstance(last_msg.content, list):
 				assert 'Current url: https://test' in last_msg.content[0]['text']
@@ -192,7 +193,6 @@ def test_token_overflow_handling_with_real_flow(message_manager: MessageManager,
 
 		output = AgentOutput(
 			current_state=AgentBrain(
-				page_summary=f'Thought process from step {i}',
 				evaluation_previous_goal=f'Success in step {i}',
 				memory=f'Memory from step {i}',
 				next_goal=f'Goal for step {i + 1}',
@@ -203,7 +203,7 @@ def test_token_overflow_handling_with_real_flow(message_manager: MessageManager,
 		message_manager.add_model_output(output)
 
 		# Get messages and verify after each addition
-		messages = [m.message for m in message_manager.history.messages]
+		messages = [m.message for m in message_manager.state.history.messages]
 
 		# Verify token limit is respected
 
@@ -217,21 +217,21 @@ def test_token_overflow_handling_with_real_flow(message_manager: MessageManager,
 		assert f'step {i}' in messages[-1].content  # Should contain current step info
 
 		# Log token usage for debugging
-		token_usage = message_manager.history.total_tokens
-		token_limit = message_manager.max_input_tokens
+		token_usage = message_manager.state.history.current_tokens
+		token_limit = message_manager.settings.max_input_tokens
 		# print(f'Step {i}: Using {token_usage}/{token_limit} tokens')
 
 		# go through all messages and verify that the token count and total tokens is correct
 		total_tokens = 0
 		real_tokens = []
 		stored_tokens = []
-		for msg in message_manager.history.messages:
-			total_tokens += msg.metadata.input_tokens
-			stored_tokens.append(msg.metadata.input_tokens)
+		for msg in message_manager.state.history.messages:
+			total_tokens += msg.metadata.tokens
+			stored_tokens.append(msg.metadata.tokens)
 			real_tokens.append(message_manager._count_tokens(msg.message))
 		assert total_tokens == sum(real_tokens)
 		assert stored_tokens == real_tokens
-		assert message_manager.history.total_tokens == total_tokens
+		assert message_manager.state.history.current_tokens == total_tokens
 
 
 # pytest -s browser_use/agent/message_manager/tests.py
