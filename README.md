@@ -123,6 +123,39 @@ https://github.com/user-attachments/assets/de73ee39-432c-4b97-b4e8-939fd7f323b3
 
 <br/><br/>
 
+## Advanced Features
+
+### OmniParser Integration
+
+Browser-use includes integration with Microsoft's OmniParser for enhanced UI element detection, which helps your AI agent handle complex scenarios:
+
+- **CAPTCHA Detection**: Automatically identify and handle CAPTCHA challenges that traditional DOM extraction might miss
+- **Complex UI Elements**: Better handle dynamic elements, carousels, modals, and other JavaScript-heavy components
+- **Hybrid Extraction**: Combines traditional DOM-based extraction with vision-based parsing for the best results
+
+To enable OmniParser in your agent:
+
+```python
+from browser_use.browser.config import BrowserExtractionConfig
+from browser_use.omniparser.views import OmniParserSettings
+
+# Configure browser with OmniParser
+context_config = BrowserContextConfig(
+    extraction_config=BrowserExtractionConfig(
+        use_hybrid_extraction=True,
+        omniparser=OmniParserSettings(
+            enabled=True,
+            captcha_detection=True,
+            merge_with_dom=True
+        )
+    )
+)
+
+# Use this configuration with your browser
+context = await browser.new_context(config=context_config)
+```
+
+For detailed usage examples and configuration options, see the [OmniParser documentation](./docs/omniparser_integration.md).
 
 ## More examples
 
@@ -140,6 +173,8 @@ Tell your computer what to do, and it gets it done.
 - [ ] Reduce token consumption (system prompt, DOM state)
 
 ### DOM Extraction
+- [x] Hybrid extraction with OmniParser for improved detection of complex UI elements
+- [x] Advanced CAPTCHA detection using vision-based parsing
 - [ ] Improve extraction for datepickers, dropdowns, special elements
 - [ ] Improve state representation for UI elements
 
@@ -200,7 +235,3 @@ If you use Browser Use in your research or project, please cite:
 <div align="center">
 Made with ❤️ in Zurich and San Francisco
  </div> 
-
-
-
-

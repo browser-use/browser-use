@@ -25,6 +25,7 @@ from playwright.async_api import (
 	Page,
 )
 
+from browser_use.browser.config import BrowserExtractionConfig
 from browser_use.browser.views import (
 	BrowserError,
 	BrowserState,
@@ -32,7 +33,7 @@ from browser_use.browser.views import (
 	URLNotAllowedError,
 )
 from browser_use.dom.service import DomService
-from browser_use.dom.views import DOMElementNode, SelectorMap
+from browser_use.dom.views import DOMElementNode, SelectorMap, DOMState
 from browser_use.utils import time_execution_async, time_execution_sync
 
 if TYPE_CHECKING:
@@ -107,8 +108,10 @@ class BrowserContextConfig:
 
 	    include_dynamic_attributes: bool = True
 	        Include dynamic attributes in the CSS selector. If you want to reuse the css_selectors, it might be better to set this to False.
+		
+		extraction_config: BrowserExtractionConfig = None
+			Configuration for extraction methods, including OmniParser integration.
 	"""
-
 	cookies_file: str | None = None
 	minimum_wait_page_load_time: float = 0.25
 	wait_for_network_idle_page_load_time: float = 0.5
@@ -125,14 +128,14 @@ class BrowserContextConfig:
 	trace_path: str | None = None
 	locale: str | None = None
 	user_agent: str = (
-		'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36  (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36'
-	)
+			'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36  (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36'
+		)
 
 	highlight_elements: bool = True
 	viewport_expansion: int = 500
 	allowed_domains: list[str] | None = None
 	include_dynamic_attributes: bool = True
-
+	extraction_config: 'BrowserExtractionConfig' = field(default_factory=lambda: BrowserExtractionConfig())
 	_force_keep_context_alive: bool = False
 
 
@@ -168,6 +171,10 @@ class BrowserContext:
 
 		# Initialize these as None - they'll be set up when needed
 		self.session: BrowserSession | None = None
+		
+		# Initialize OmniParser related fields
+		self._dom_service = None
+		self._hybrid_extractor = None
 
 	async def __aenter__(self):
 		"""Async context manager entry"""
@@ -775,19 +782,14 @@ class BrowserContext:
 
 		try:
 			await self.remove_highlights()
-			dom_service = DomService(page)
-			content = await dom_service.get_clickable_elements(
-				focus_element=focus_element,
-				viewport_expansion=self.config.viewport_expansion,
-				highlight_elements=self.config.highlight_elements,
-			)
+			page_state = await self._get_dom_state(page, focus_element)
 
 			screenshot_b64 = await self.take_screenshot()
 			pixels_above, pixels_below = await self.get_scroll_info(page)
 
 			self.current_state = BrowserState(
-				element_tree=content.element_tree,
-				selector_map=content.selector_map,
+				element_tree=page_state.element_tree,
+				selector_map=page_state.selector_map,
 				url=page.url,
 				title=await page.title(),
 				tabs=await self.get_tabs_info(),
@@ -803,6 +805,56 @@ class BrowserContext:
 			if hasattr(self, 'current_state'):
 				return self.current_state
 			raise
+
+	async def _get_dom_state(self, page: Page, focus_element: int = -1) -> DOMState:
+		"""Get DOM state using the appropriate extraction method."""
+		from browser_use.dom.views import DOMState
+		
+		if self.config.extraction_config.use_hybrid_extraction:
+			# Use hybrid extraction (DOM + OmniParser)
+			try:
+				extractor = await self._get_hybrid_extractor(page)
+				result = await extractor.get_elements(
+					highlight_elements=self.config.highlight_elements,
+					focus_element=focus_element,
+					viewport_expansion=self.config.viewport_expansion
+				)
+				return result
+			except Exception as e:
+				logger.error(f"Hybrid extraction failed, falling back to DOM-based extraction: {str(e)}")
+				# Fall back to DOM-based extraction
+		
+		# Use DOM-based extraction only (or as fallback)
+		dom_service = await self._get_dom_service(page)
+		return await dom_service.get_clickable_elements(
+			highlight_elements=self.config.highlight_elements,
+			focus_element=focus_element,
+			viewport_expansion=self.config.viewport_expansion
+		)
+
+	async def _get_dom_service(self, page: Page) -> DomService:
+		"""Get or create a DOM service for the current page."""
+		if self._dom_service is None or self._dom_service.page != page:
+			self._dom_service = DomService(page)
+		return self._dom_service
+
+	async def _get_hybrid_extractor(self, page: Page) -> 'HybridExtractor':
+		"""Get or create a hybrid extractor for the current page."""
+		if self._hybrid_extractor is None or self._hybrid_extractor.dom_service.page != page:
+			# Get DOM service first
+			dom_service = await self._get_dom_service(page)
+			
+			# Import here to avoid circular imports
+			from browser_use.omniparser.hybrid_extractor import HybridExtractor
+			from browser_use.omniparser.views import OmniParserSettings
+			
+			# Use the configured settings or create default ones
+			settings = self.config.extraction_config.omniparser
+			
+			# Create the hybrid extractor
+			self._hybrid_extractor = HybridExtractor(dom_service, settings)
+			
+		return self._hybrid_extractor
 
 	# region - Browser Actions
 	@time_execution_async('--take_screenshot')
@@ -1317,6 +1369,29 @@ class BrowserContext:
 
 		session.cached_state = None
 		self.state.target_id = None
+
+	async def capture_screenshot_for_omniparser(self) -> str:
+		"""
+		Capture a screenshot specifically formatted for OmniParser analysis.
+		
+		Returns:
+			Base64-encoded screenshot
+		"""
+		session = await self.get_session()
+		page = self._get_current_page(session)
+		
+		try:
+			# Take screenshot using Playwright
+			screenshot_bytes = await page.screenshot(
+				type="png",
+				full_page=False  # We want the viewport only for UI detection
+			)
+			
+			# Convert to base64
+			return base64.b64encode(screenshot_bytes).decode('utf-8')
+		except Exception as e:
+			logger.error(f"Failed to capture screenshot for OmniParser: {str(e)}")
+			raise
 
 	async def _get_unique_filename(self, directory, filename):
 		"""Generate a unique filename by appending (1), (2), etc., if a file already exists."""

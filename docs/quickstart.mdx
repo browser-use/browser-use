@@ -74,3 +74,35 @@ ANTHROPIC_API_KEY=
 ```
 
 For other LLM models you can refer to the [Langchain documentation](https://python.langchain.com/docs/integrations/chat/) to find how to set them up with their specific API keys.
+
+## Advanced Features
+
+Once you're comfortable with the basics, Browser Use offers advanced features for more complex scenarios:
+
+### Enhanced UI Element Detection with OmniParser
+
+Browser Use integrates with Microsoft's OmniParser to help your agent handle complex UI elements like CAPTCHAs and dynamic JavaScript components:
+
+```python
+from browser_use.browser.config import BrowserExtractionConfig
+from browser_use.omniparser.views import OmniParserSettings
+
+# Create a browser with OmniParser enabled
+browser = Browser(
+    config=BrowserConfig(
+        new_context_config=BrowserContextConfig(
+            extraction_config=BrowserExtractionConfig(
+                use_hybrid_extraction=True,
+                omniparser=OmniParserSettings(enabled=True)
+            )
+        )
+    )
+)
+
+agent = Agent(
+    browser=browser,
+    # other agent settings
+)
+```
+
+Learn more in the [OmniParser Integration Guide](/omniparser_integration).
