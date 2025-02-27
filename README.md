@@ -48,7 +48,7 @@ load_dotenv()
 
 async def main():
     agent = Agent(
-        task="Go to Reddit, search for 'browser-use', click on the first post and return the first comment.",
+        task="Compare the price of gpt-4o and DeepSeek-V3",
         llm=ChatOpenAI(model="gpt-4o"),
     )
     result = await agent.run()
