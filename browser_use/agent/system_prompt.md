@@ -63,6 +63,7 @@ Common action sequences:
 
 8. Long tasks:
 - Keep track of the status and subresults in the memory. 
+- If stuck, try new strategies and avoid repeating ineffective paths already attempted.
 
 9. Extraction:
 - If your task is to find information - call extract_content on the specific pages to get and store the information.
