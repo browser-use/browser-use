@@ -50,6 +50,7 @@ class BrowserConfig:
 	disable_security: bool = True
 	extra_chromium_args: list[str] = field(default_factory=list)
 	chrome_instance_path: str | None = None
+	is_chrome_guest: bool | None = True
 	wss_url: str | None = None
 	cdp_url: str | None = None
 
@@ -146,6 +147,13 @@ class Browser:
 			logger.debug('No existing Chrome instance found, starting a new one')
 
 		# Start a new Chrome instance
+		if self.config.is_chrome_guest:
+			is_chrome_guest = True
+			for entry in self.config.extra_chromium_args:
+				if entry.startswith("--user-data-dir"):
+					is_chrome_guest = False
+			if is_chrome_guest:
+				self.config.extra_chromium_args.append("--guest")
 		subprocess.Popen(
 			[
 				self.config.chrome_instance_path,
