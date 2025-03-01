@@ -107,6 +107,10 @@ class BrowserContextConfig:
 
 	    include_dynamic_attributes: bool = True
 	        Include dynamic attributes in the CSS selector. If you want to reuse the css_selectors, it might be better to set this to False.
+		
+		http_credentials: None
+            Dictionary with HTTP authentication credentials, e.g.
+            {"username": "bill", "password": "pa55w0rd"}
 	"""
 
 	cookies_file: str | None = None
@@ -132,6 +136,7 @@ class BrowserContextConfig:
 	viewport_expansion: int = 500
 	allowed_domains: list[str] | None = None
 	include_dynamic_attributes: bool = True
+	http_credentials: dict[str, str] | None = None
 
 	_force_keep_context_alive: bool = False
 
@@ -326,6 +331,7 @@ class BrowserContext:
 				record_video_dir=self.config.save_recording_path,
 				record_video_size=self.config.browser_window_size,
 				locale=self.config.locale,
+				http_credentials=self.config.http_credentials,
 			)
 
 		if self.config.trace_path:
