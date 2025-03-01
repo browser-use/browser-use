@@ -19,6 +19,8 @@ from browser_use.utils import time_execution_async
 
 logger = logging.getLogger(__name__)
 
+CAMOUFOX = True
+
 
 @dataclass
 class BrowserConfig:
@@ -181,6 +183,12 @@ class Browser:
 
 	async def _setup_standard_browser(self, playwright: Playwright) -> PlaywrightBrowser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
+		if CAMOUFOX:
+			from camoufox.async_api import AsyncCamoufox
+
+			browser = await AsyncCamoufox(proxy=self.config.proxy, geoip=True).start()
+			return browser
+
 		browser = await playwright.chromium.launch(
 			headless=self.config.headless,
 			args=[
