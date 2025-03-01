@@ -356,8 +356,10 @@ class AgentHistoryList(BaseModel):
 			content.extend([r.extracted_content for r in h.result if r.extracted_content])
 		return content
 
-	def model_actions_filtered(self, include: list[str] = []) -> list[dict]:
+	def model_actions_filtered(self, include: list[str] | None = None) -> list[dict]:
 		"""Get all model actions from history as JSON"""
+		if include is None:
+			include = []
 		outputs = self.model_actions()
 		result = []
 		for o in outputs:
