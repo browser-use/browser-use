@@ -31,7 +31,9 @@ pip install browser-use
 install playwright:
 
 ```bash
+npm install -g playwright
 playwright install
+pip install playwright
 ```
 
 Spin up your agent:
