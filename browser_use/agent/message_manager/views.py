@@ -68,9 +68,9 @@ class MessageHistory(BaseModel):
 
 	model_config = ConfigDict(arbitrary_types_allowed=True)
 
-	def add_message(self, message: BaseMessage, metadata: MessageMetadata, position: int = -1) -> None:
+	def add_message(self, message: BaseMessage, metadata: MessageMetadata, position: int | None = None) -> None:
 		"""Add message with metadata to history"""
-		if position == -1:
+		if position is None:
 			self.messages.append(ManagedMessage(message=message, metadata=metadata))
 		else:
 			self.messages.insert(position, ManagedMessage(message=message, metadata=metadata))

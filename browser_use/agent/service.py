@@ -6,7 +6,7 @@ import logging
 import re
 import time
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, Type, TypeVar
+from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, TypeVar
 
 from dotenv import load_dotenv
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -100,7 +100,8 @@ class Agent(Generic[Context]):
 		save_conversation_path_encoding: Optional[str] = 'utf-8',
 		max_failures: int = 3,
 		retry_delay: int = 10,
-		system_prompt_class: Type[SystemPrompt] = SystemPrompt,
+		override_system_message: Optional[str] = None,
+		extend_system_message: Optional[str] = None,
 		max_input_tokens: int = 128000,
 		validate_output: bool = False,
 		message_context: Optional[str] = None,
@@ -145,7 +146,8 @@ class Agent(Generic[Context]):
 			save_conversation_path_encoding=save_conversation_path_encoding,
 			max_failures=max_failures,
 			retry_delay=retry_delay,
-			system_prompt_class=system_prompt_class,
+			override_system_message=override_system_message,
+			extend_system_message=extend_system_message,
 			max_input_tokens=max_input_tokens,
 			validate_output=validate_output,
 			message_context=message_context,
@@ -159,6 +161,9 @@ class Agent(Generic[Context]):
 			planner_interval=planner_interval,
 		)
 
+		# Initialize state
+		self.state = injected_agent_state or AgentState()
+
 		# Action setup
 		self._setup_action_models()
 		self._set_browser_use_version_and_source()
@@ -166,26 +171,21 @@ class Agent(Generic[Context]):
 
 		# Model setup
 		self._set_model_names()
-		self.tool_calling_method = self.set_tool_calling_method(self.settings.tool_calling_method)
-
-		# Initialize state
-		self.state = injected_agent_state or AgentState()
 
 		# for models without tool calling, add available actions to context
-		available_actions = controller.registry.get_prompt_description()
-		if self.model_name == 'deepseek-reasoner' or self.model_name.startswith('deepseek-r1'):
-			# add to context that we are using deepseek
-			if message_context:
-				message_context += f'\n\nAvailable actions: {available_actions}'
-			else:
-				message_context = f'Available actions: {available_actions}'
+		self.available_actions = self.controller.registry.get_prompt_description()
+
+		self.tool_calling_method = self._set_tool_calling_method()
+		self.settings.message_context = self._set_message_context()
 
 		# Initialize message manager with state
 		self._message_manager = MessageManager(
 			task=task,
-			system_message=self.settings.system_prompt_class(
-				available_actions,
+			system_message=SystemPrompt(
+				action_description=self.available_actions,
 				max_actions_per_step=self.settings.max_actions_per_step,
+				override_system_message=override_system_message,
+				extend_system_message=extend_system_message,
 			).get_system_message(),
 			settings=MessageManagerSettings(
 				max_input_tokens=self.settings.max_input_tokens,
@@ -223,22 +223,40 @@ class Agent(Generic[Context]):
 		if self.settings.save_conversation_path:
 			logger.info(f'Saving conversation to {self.settings.save_conversation_path}')
 
+	def _set_message_context(self) -> str | None:
+		if self.tool_calling_method == 'raw':
+			if self.settings.message_context:
+				self.settings.message_context += f'\n\nAvailable actions: {self.available_actions}'
+			else:
+				self.settings.message_context = f'Available actions: {self.available_actions}'
+		return self.settings.message_context
+
 	def _set_browser_use_version_and_source(self) -> None:
 		"""Get the version and source of the browser-use package (git or pip in a nutshell)"""
 		try:
-			import pkg_resources
+			# First check for repository-specific files
+			repo_files = ['.git', 'README.md', 'docs', 'examples']
+			package_root = Path(__file__).parent.parent.parent
 
-			version = pkg_resources.get_distribution('browser-use').version
-			source = 'pip'
-		except Exception:
-			try:
-				import subprocess
+			# If all of these files/dirs exist, it's likely from git
+			if all(Path(package_root / file).exists() for file in repo_files):
+				try:
+					import subprocess
 
-				version = subprocess.check_output(['git', 'describe', '--tags']).decode('utf-8').strip()
+					version = subprocess.check_output(['git', 'describe', '--tags']).decode('utf-8').strip()
+				except Exception:
+					version = 'unknown'
 				source = 'git'
-			except Exception:
-				version = 'unknown'
-				source = 'unknown'
+			else:
+				# If no repo files found, try getting version from pip
+				import pkg_resources
+
+				version = pkg_resources.get_distribution('browser-use').version
+				source = 'pip'
+		except Exception:
+			version = 'unknown'
+			source = 'unknown'
+
 		logger.debug(f'Version: {version}, Source: {source}')
 		self.version = version
 		self.source = source
@@ -269,9 +287,16 @@ class Agent(Generic[Context]):
 		# Create output model with the dynamic actions
 		self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
 
-	def set_tool_calling_method(self, tool_calling_method: Optional[ToolCallingMethod]) -> Optional[ToolCallingMethod]:
+		# used to force the done action when max_steps is reached
+		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'])
+		self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
+
+	def _set_tool_calling_method(self) -> Optional[ToolCallingMethod]:
+		tool_calling_method = self.settings.tool_calling_method
 		if tool_calling_method == 'auto':
-			if self.chat_model_library == 'ChatGoogleGenerativeAI':
+			if self.model_name == 'deepseek-reasoner' or self.model_name.startswith('deepseek-r1'):
+				return 'raw'
+			elif self.chat_model_library == 'ChatGoogleGenerativeAI':
 				return None
 			elif self.chat_model_library == 'ChatOpenAI':
 				return 'function_calling'
@@ -305,6 +330,7 @@ class Agent(Generic[Context]):
 		model_output = None
 		result: list[ActionResult] = []
 		step_start_time = time.time()
+		tokens = 0
 
 		try:
 			state = await self.browser_context.get_state()
@@ -319,7 +345,18 @@ class Agent(Generic[Context]):
 				# add plan before last state message
 				self._message_manager.add_plan(plan, position=-1)
 
+			if step_info and step_info.is_last_step():
+				# Add last step warning if needed
+				msg = 'Now comes your last step. Use only the "done" action now. No other actions - so here your action sequence musst have length 1.'
+				msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false! E.g. if not all steps are fully completed.'
+				msg += '\nIf the task is fully finished, set success in "done" to true.'
+				msg += '\nInclude everything you found out for the ultimate task in the done text.'
+				logger.info('Last step finishing up')
+				self._message_manager._add_message_with_tokens(HumanMessage(content=msg))
+				self.AgentOutput = self.DoneAgentOutput
+
 			input_messages = self._message_manager.get_messages()
+			tokens = self._message_manager.state.history.current_tokens
 
 			try:
 				model_output = await self.get_next_action(input_messages)
@@ -384,7 +421,7 @@ class Agent(Generic[Context]):
 					step_number=self.state.n_steps,
 					step_start_time=step_start_time,
 					step_end_time=step_end_time,
-					input_tokens=self._message_manager.state.history.current_tokens,
+					input_tokens=tokens,
 				)
 				self._make_history_item(model_output, state, result, metadata)
 
@@ -455,20 +492,29 @@ class Agent(Generic[Context]):
 		"""Remove think tags from text"""
 		return re.sub(self.THINK_TAGS, '', text)
 
+	def _convert_input_messages(self, input_messages: list[BaseMessage]) -> list[BaseMessage]:
+		"""Convert input messages to the correct format"""
+		if self.model_name == 'deepseek-reasoner' or self.model_name.startswith('deepseek-r1'):
+			return convert_input_messages(input_messages, self.model_name)
+		else:
+			return input_messages
+
 	@time_execution_async('--get_next_action (agent)')
 	async def get_next_action(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get next action from LLM based on current state"""
-		if self.model_name == 'deepseek-reasoner' or self.model_name.startswith('deepseek-r1'):
-			converted_input_messages = convert_input_messages(input_messages, self.model_name)
-			output = self.llm.invoke(converted_input_messages)
-			output.content = self._remove_think_tags(str(output.content))
+		input_messages = self._convert_input_messages(input_messages)
+
+		if self.tool_calling_method == 'raw':
+			output = self.llm.invoke(input_messages)
 			# TODO: currently invoke does not return reasoning_content, we should override invoke
+			output.content = self._remove_think_tags(str(output.content))
 			try:
 				parsed_json = extract_json_from_model_output(output.content)
 				parsed = self.AgentOutput(**parsed_json)
 			except (ValueError, ValidationError) as e:
 				logger.warning(f'Failed to parse model output: {output} {str(e)}')
 				raise ValueError('Could not parse response.')
+
 		elif self.tool_calling_method is None:
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True)
 			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
@@ -481,8 +527,9 @@ class Agent(Generic[Context]):
 		if parsed is None:
 			raise ValueError('Could not parse response.')
 
-		# cut the number of actions to max_actions_per_step
-		parsed.action = parsed.action[: self.settings.max_actions_per_step]
+		# cut the number of actions to max_actions_per_step if needed
+		if len(parsed.action) > self.settings.max_actions_per_step:
+			parsed.action = parsed.action[: self.settings.max_actions_per_step]
 
 		log_response(parsed)
 
@@ -518,8 +565,7 @@ class Agent(Generic[Context]):
 				if not await self._validate_output():
 					return True, False
 
-			logger.info('✅ Task completed successfully')
-
+			await self.log_completion()
 			if self.register_done_callback:
 				await self.register_done_callback(self.state.history)
 
@@ -555,16 +601,15 @@ class Agent(Generic[Context]):
 					if self.state.stopped:  # Allow stopping while paused
 						break
 
-				await self.step()
+				step_info = AgentStepInfo(step_number=step, max_steps=max_steps)
+				await self.step(step_info)
 
 				if self.state.history.is_done():
 					if self.settings.validate_output and step < max_steps - 1:
 						if not await self._validate_output():
 							continue
 
-					logger.info('✅ Task completed successfully')
-					if self.register_done_callback:
-						await self.register_done_callback(self.state.history)
+					await self.log_completion()
 					break
 			else:
 				error_message = 'Failed to complete task in maximum steps'
@@ -592,10 +637,13 @@ class Agent(Generic[Context]):
 			self.telemetry.capture(
 				AgentEndTelemetryEvent(
 					agent_id=self.state.agent_id,
-					success=self.state.history.is_done(),
+					is_done=self.state.history.is_done(),
+					success=self.state.history.is_successful(),
 					steps=self.state.n_steps,
 					max_steps_reached=self.state.n_steps >= max_steps,
 					errors=self.state.history.errors(),
+					total_input_tokens=self.state.history.total_input_tokens(),
+					total_duration_seconds=self.state.history.total_duration_seconds(),
 				)
 			)
 
@@ -704,6 +752,17 @@ class Agent(Generic[Context]):
 		else:
 			logger.info(f'✅ Validator decision: {parsed.reason}')
 		return is_valid
+
+	async def log_completion(self) -> None:
+		"""Log the completion of the task"""
+		logger.info('✅ Task completed')
+		if self.state.history.is_successful():
+			logger.info('✅ Successfully')
+		else:
+			logger.info('❌ Unfinished')
+
+		if self.register_done_callback:
+			await self.register_done_callback(self.state.history)
 
 	async def rerun_history(
 		self,
@@ -881,15 +940,15 @@ class Agent(Generic[Context]):
 		]
 
 		if not self.settings.use_vision_for_planner and self.settings.use_vision:
-			last_state_message = planner_messages[-1]
+			last_state_message: HumanMessage = planner_messages[-1]
 			# remove image from last state message
 			new_msg = ''
 			if isinstance(last_state_message.content, list):
 				for msg in last_state_message.content:
-					if msg['type'] == 'text':
-						new_msg += msg['text']
-					elif msg['type'] == 'image_url':
-						continue
+					if msg['type'] == 'text':  # type: ignore
+						new_msg += msg['text']  # type: ignore
+					elif msg['type'] == 'image_url':  # type: ignore
+						continue  # type: ignore
 			else:
 				new_msg = last_state_message.content
 

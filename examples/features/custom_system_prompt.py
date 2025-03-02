@@ -8,22 +8,19 @@ import asyncio
 
 from langchain_openai import ChatOpenAI
 
-from browser_use import Agent, SystemPrompt
+from browser_use import Agent
 
+extend_system_message = (
+	'REMEMBER the most important RULE: ALWAYS open first a new tab and go first to url wikipedia.com no matter the task!!!'
+)
 
-class MySystemPrompt(SystemPrompt):
-	def important_rules(self) -> str:
-		existing_rules = super().important_rules()
-		new_rules = 'REMEMBER the most important RULE: ALWAYS open first a new tab and go first to url wikipedia.com no matter the task!!!'
-		return f'{existing_rules}\n{new_rules}'
-
-		# other methods can be overridden as well (not recommended)
+# or use override_system_message to completely override the system prompt
 
 
 async def main():
 	task = "do google search to find images of Elon Musk's wife"
 	model = ChatOpenAI(model='gpt-4o')
-	agent = Agent(task=task, llm=model, system_prompt_class=MySystemPrompt)
+	agent = Agent(task=task, llm=model, extend_system_message=extend_system_message)
 
 	print(
 		json.dumps(

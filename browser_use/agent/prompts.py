@@ -11,10 +11,26 @@ if TYPE_CHECKING:
 
 
 class SystemPrompt:
-	def __init__(self, action_description: str, max_actions_per_step: int = 10):
+	def __init__(
+		self,
+		action_description: str,
+		max_actions_per_step: int = 10,
+		override_system_message: Optional[str] = None,
+		extend_system_message: Optional[str] = None,
+	):
 		self.default_action_description = action_description
 		self.max_actions_per_step = max_actions_per_step
-		self._load_prompt_template()
+		prompt = ''
+		if override_system_message:
+			prompt = override_system_message
+		else:
+			self._load_prompt_template()
+			prompt = self.prompt_template.format(max_actions=self.max_actions_per_step)
+
+		if extend_system_message:
+			prompt += f'\n{extend_system_message}'
+
+		self.system_message = SystemMessage(content=prompt)
 
 	def _load_prompt_template(self) -> None:
 		"""Load the prompt template from the markdown file."""
@@ -32,8 +48,7 @@ class SystemPrompt:
 		Returns:
 		    SystemMessage: Formatted system prompt
 		"""
-		prompt = self.prompt_template.format(max_actions=self.max_actions_per_step)
-		return SystemMessage(content=prompt)
+		return self.system_message
 
 
 # Functions:

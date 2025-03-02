@@ -162,7 +162,7 @@ class MessageManager:
 		# empty tool response
 		self.add_tool_message(content='')
 
-	def add_plan(self, plan: Optional[str], position: int = -1) -> None:
+	def add_plan(self, plan: Optional[str], position: int | None = None) -> None:
 		if plan:
 			msg = AIMessage(content=plan)
 			self._add_message_with_tokens(msg, position)
@@ -182,8 +182,10 @@ class MessageManager:
 
 		return msg
 
-	def _add_message_with_tokens(self, message: BaseMessage, position: int = -1) -> None:
-		"""Add message with token count metadata"""
+	def _add_message_with_tokens(self, message: BaseMessage, position: int | None = None) -> None:
+		"""Add message with token count metadata
+		position: None for last, -1 for second last, etc.
+		"""
 
 		# filter out sensitive data from the message
 		if self.settings.sensitive_data:

@@ -47,12 +47,20 @@ api_key_anthropic = SecretStr(os.getenv('ANTHROPIC_API_KEY') or '')
 # pytest -s -v tests/test_models.py
 @pytest.fixture(
 	params=[
-		# run: ollama start
-		ChatOpenAI(
-			base_url='https://api.deepseek.com/v1',
-			model='deepseek-reasoner',
-			api_key=api_key_deepseek,
+		ChatOpenAI(model='gpt-4o'),
+		ChatOpenAI(model='gpt-4o-mini'),
+		AzureChatOpenAI(
+			model='gpt-4o',
+			api_version='2024-10-21',
+			azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT', ''),
+			api_key=SecretStr(os.getenv('AZURE_OPENAI_KEY', '')),
 		),
+		# ChatOpenAI(
+		# base_url='https://api.deepseek.com/v1',
+		# model='deepseek-reasoner',
+		# api_key=api_key_deepseek,
+		# ),
+		# run: ollama start
 		ChatOllama(
 			model='qwen2.5:latest',
 			num_ctx=128000,
@@ -70,14 +78,6 @@ api_key_anthropic = SecretStr(os.getenv('ANTHROPIC_API_KEY') or '')
 			stop=None,
 			api_key=api_key_anthropic,
 		),
-		ChatOpenAI(model='gpt-4o'),
-		ChatOpenAI(model='gpt-4o-mini'),
-		AzureChatOpenAI(
-			model='gpt-4o',
-			api_version='2024-10-21',
-			azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT', ''),
-			api_key=SecretStr(os.getenv('AZURE_OPENAI_KEY', '')),
-		),
 		ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=api_key_gemini),
 		ChatGoogleGenerativeAI(model='gemini-1.5-pro', api_key=api_key_gemini),
 		ChatGoogleGenerativeAI(model='gemini-1.5-flash-latest', api_key=api_key_gemini),
@@ -88,13 +88,13 @@ api_key_anthropic = SecretStr(os.getenv('ANTHROPIC_API_KEY') or '')
 		),
 	],
 	ids=[
-		'deepseek-reasoner',
-		'qwen2.5:latest',
-		'azure-gpt-4o-mini',
-		'claude-3-5-sonnet',
 		'gpt-4o',
 		'gpt-4o-mini',
 		'azure-gpt-4o',
+		#'deepseek-reasoner',
+		'qwen2.5:latest',
+		'azure-gpt-4o-mini',
+		'claude-3-5-sonnet',
 		'gemini-2.0-flash-exp',
 		'gemini-1.5-pro',
 		'gemini-1.5-flash-latest',
@@ -138,9 +138,11 @@ async def test_model_search(llm, context):
 		use_vision=use_vision,
 	)
 	history: AgentHistoryList = await agent.run(max_steps=2)
+	done = history.is_done()
+	successful = history.is_successful()
 	action_names = history.action_names()
 	print(f'Actions performed: {action_names}')
-	errors = history.errors()
+	errors = [e for e in history.errors() if e is not None]
 	errors = '\n'.join(errors)
 	passed = False
 	if 'search_google' in action_names:
@@ -152,6 +154,6 @@ async def test_model_search(llm, context):
 
 	else:
 		passed = False
-	print(f'Model {model_name}: {"✅ PASSED" if passed else "❌ FAILED"}')
+	print(f'Model {model_name}: {"✅ PASSED - " if passed else "❌ FAILED - "} Done: {done} Successful: {successful}')
 
 	assert passed, f'Model {model_name} not working\nActions performed: {action_names}\nErrors: {errors}'

@@ -12,7 +12,6 @@ from openai import RateLimitError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 
 from browser_use.agent.message_manager.views import MessageManagerState
-from browser_use.agent.prompts import SystemPrompt
 from browser_use.browser.views import BrowserStateHistory
 from browser_use.controller.registry.views import ActionModel
 from browser_use.dom.history_tree_processor.service import (
@@ -22,7 +21,7 @@ from browser_use.dom.history_tree_processor.service import (
 )
 from browser_use.dom.views import SelectorMap
 
-ToolCallingMethod = Literal['function_calling', 'auto']
+ToolCallingMethod = Literal['function_calling', 'json_mode', 'raw', 'auto']
 
 
 class AgentSettings(BaseModel):
@@ -34,12 +33,13 @@ class AgentSettings(BaseModel):
 	save_conversation_path_encoding: Optional[str] = 'utf-8'
 	max_failures: int = 3
 	retry_delay: int = 10
-	system_prompt_class: Type[SystemPrompt] = SystemPrompt
 	max_input_tokens: int = 128000
 	validate_output: bool = False
 	message_context: Optional[str] = None
 	generate_gif: bool | str = False
 	available_file_paths: Optional[list[str]] = None
+	override_system_message: Optional[str] = None
+	extend_system_message: Optional[str] = None
 	include_attributes: list[str] = [
 		'title',
 		'type',
@@ -83,11 +83,16 @@ class AgentStepInfo:
 	step_number: int
 	max_steps: int
 
+	def is_last_step(self) -> bool:
+		"""Check if this is the last step"""
+		return self.step_number >= self.max_steps - 1
+
 
 class ActionResult(BaseModel):
 	"""Result of executing an action"""
 
 	is_done: Optional[bool] = False
+	success: Optional[bool] = None
 	extracted_content: Optional[str] = None
 	error: Optional[str] = None
 	include_in_memory: bool = False  # whether to include in past messages as context or not
@@ -125,9 +130,9 @@ class AgentOutput(BaseModel):
 
 	current_state: AgentBrain
 	action: list[ActionModel] = Field(
-		...,  # This means the field is required
+		...,
 		description='List of actions to execute',
-		min_items=1,  # Ensure at least one action is provided
+		json_schema_extra={'min_items': 1},  # Ensure at least one action is provided
 	)
 
 	@staticmethod
@@ -136,7 +141,10 @@ class AgentOutput(BaseModel):
 		model_ = create_model(
 			'AgentOutput',
 			__base__=AgentOutput,
-			action=(list[custom_actions], Field(..., description='List of actions to execute', min_items=1)),
+			action=(
+				list[custom_actions],
+				Field(..., description='List of actions to execute', json_schema_extra={'min_items': 1}),
+			),
 			__module__=AgentOutput.__module__,
 		)
 		model_.__doc__ = 'AgentOutput model with custom actions'
@@ -279,21 +287,30 @@ class AgentHistoryList(BaseModel):
 
 	def is_done(self) -> bool:
 		"""Check if the agent is done"""
-		if self.history and len(self.history[-1].result) > 0 and self.history[-1].result[-1].is_done:
-			return self.history[-1].result[-1].is_done
+		if self.history and len(self.history[-1].result) > 0:
+			last_result = self.history[-1].result[-1]
+			return last_result.is_done is True
 		return False
+
+	def is_successful(self) -> bool | None:
+		"""Check if the agent completed successfully - the agent decides in the last step if it was successful or not. None if not done yet."""
+		if self.history and len(self.history[-1].result) > 0:
+			last_result = self.history[-1].result[-1]
+			if last_result.is_done is True:
+				return last_result.success
+		return None
 
 	def has_errors(self) -> bool:
 		"""Check if the agent has any non-None errors"""
 		return any(error is not None for error in self.errors())
 
-	def urls(self) -> list[str]:
+	def urls(self) -> list[str | None]:
 		"""Get all unique URLs from history"""
-		return [h.state.url for h in self.history if h.state.url]
+		return [h.state.url if h.state.url is not None else None for h in self.history]
 
-	def screenshots(self) -> list[str]:
+	def screenshots(self) -> list[str | None]:
 		"""Get all screenshots from history"""
-		return [h.state.screenshot for h in self.history if h.state.screenshot]
+		return [h.state.screenshot if h.state.screenshot is not None else None for h in self.history]
 
 	def action_names(self) -> list[str]:
 		"""Get all action names from history"""

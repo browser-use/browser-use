@@ -54,6 +54,10 @@ class AgentEndTelemetryEvent(BaseTelemetryEvent):
 	agent_id: str
 	steps: int
 	max_steps_reached: bool
-	success: bool
+	is_done: bool
+	success: bool | None
+	total_input_tokens: int
+	total_duration_seconds: float
+
 	errors: Sequence[str | None]
 	name: str = 'agent_end'
