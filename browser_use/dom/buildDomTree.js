@@ -927,6 +927,15 @@
     if (node.tagName) {
       const tagName = node.tagName.toLowerCase();
 
+      // Handle shadow DOM
+      if (node.shadowRoot) {
+        nodeData.shadowRoot = true;
+        for (const child of node.shadowRoot.childNodes) {
+          const domElement = buildDomTree(child, parentIframe);
+          if (domElement) nodeData.children.push(domElement);
+        }
+      }
+
       // Handle iframes
       if (tagName === "iframe") {
         try {
@@ -951,14 +960,6 @@
       ) {
         // Process all child nodes to capture formatted text
         for (const child of node.childNodes) {
-          const domElement = buildDomTree(child, parentIframe);
-          if (domElement) nodeData.children.push(domElement);
-        }
-      }
-      // Handle shadow DOM
-      else if (node.shadowRoot) {
-        nodeData.shadowRoot = true;
-        for (const child of node.shadowRoot.childNodes) {
           const domElement = buildDomTree(child, parentIframe);
           if (domElement) nodeData.children.push(domElement);
         }
