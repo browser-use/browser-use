@@ -653,6 +653,17 @@
   function isTopElement(element) {
     const rect = getCachedBoundingRect(element);
 
+    if interactiveElements(element) {
+      const rect = getCachedBoundingRect(element);
+      if (!rect) return false;
+      
+      return rect.width > 0 && 
+             rect.height > 0 && 
+             rect.left < window.innerWidth &&
+             rect.right > 0 &&
+             rect.top < window.innerHeight &&
+             rect.bottom > 0;
+    }
     // If element is not in viewport, consider it top
     const isInViewport = (
       rect.left < window.innerWidth &&
