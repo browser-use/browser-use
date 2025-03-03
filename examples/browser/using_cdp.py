@@ -13,7 +13,7 @@ To test this locally, follow these steps:
 
 import os
 import sys
-
+import requests
 from dotenv import load_dotenv
 from pydantic import SecretStr
 
@@ -26,22 +26,37 @@ from browser_use import Agent, Controller
 from browser_use.browser.browser import Browser, BrowserConfig
 
 load_dotenv()
-api_key = os.getenv('GEMINI_API_KEY')
+api_key = 'AIzaSyCkgWIHP5Fsjf8PXpVm3SKbaKZVsta7Ddw'
 if not api_key:
 	raise ValueError('GEMINI_API_KEY is not set')
+
+payload = {
+    "headless": True,
+    "timeout": 2,
+    "idle_timeout": 2
+}
+headers = {
+    "anchor-api-key": "sk-6aab7609751e26167b4de4d217f280f9",
+    "Content-Type": "application/json"
+}
+
+response = requests.request("POST", "https://api.anchorbrowser.io/api/sessions", headers=headers, json=payload)
+response = response.json()
+session_id = response["id"]
+print(response['livew_view_url'])
+cdp_url = f"wss://connect.anchorbrowser.io?sessionId={session_id}"
 
 browser = Browser(
 	config=BrowserConfig(
 		headless=False,
-		cdp_url='http://localhost:9222',
+		cdp_url=cdp_url,
 	)
 )
 controller = Controller()
 
 
 async def main():
-	task = 'In docs.google.com write my Papa a quick thank you for everything letter \n - Magnus'
-	task += ' and save the document as pdf'
+	task = 'Go to https://coned.com/ ,insert the username test@example.com and password "1234" and login, return what was the webiste reaction to the login attempt'
 	model = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=SecretStr(str(api_key)))
 	agent = Agent(
 		task=task,
