@@ -18,7 +18,6 @@ dependencies = [
     "posthog>=3.7.0",
     "playwright>=1.49.0",
     "setuptools>=75.8.0",
-    # "lmnr[langchain]>=0.4.59",
     "markdownify==0.14.1",
     "langchain-core>=0.3.35",
     "langchain-openai==0.3.1",

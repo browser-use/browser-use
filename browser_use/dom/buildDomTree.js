@@ -858,15 +858,23 @@
       return null;
     }
 
-    // Check viewport if needed
+    // Early viewport check - only filter out elements clearly outside viewport
     if (viewportExpansion !== -1) {
       const rect = getCachedBoundingRect(node);
-      if (!rect || (
+      const style = getCachedComputedStyle(node);
+
+      // Skip viewport check for fixed/sticky elements as they may appear anywhere
+      const isFixedOrSticky = style && (style.position === 'fixed' || style.position === 'sticky');
+
+      // Check if element has actual dimensions
+      const hasSize = node.offsetWidth > 0 || node.offsetHeight > 0;
+
+      if (!rect || (!isFixedOrSticky && !hasSize && (
         rect.bottom < -viewportExpansion ||
         rect.top > window.innerHeight + viewportExpansion ||
         rect.right < -viewportExpansion ||
         rect.left > window.innerWidth + viewportExpansion
-      )) {
+      ))) {
         if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
         return null;
       }
