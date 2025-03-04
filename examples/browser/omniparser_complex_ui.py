@@ -46,7 +46,7 @@ async def main():
                 confidence_threshold=0.4,     # Lower threshold for complex UIs
                 captcha_detection=True,       # Enable specialized CAPTCHA detection
                 merge_with_dom=True,          # Combine DOM and OmniParser results
-                prefer_over_dom=False,        # Whether to prefer OmniParser over DOM
+                prefer_over_dom=True,        # Force OmniParser usage over DOM
                 use_api=True                  # Use the hosted API if local installation is not available
             )
         )

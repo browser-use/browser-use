@@ -20,7 +20,7 @@ from PIL import Image
 
 # Import when OmniParser is installed
 try:
-    from omniparser import OmniParser
+    from omniparser import OmniParser # type: ignore
     OMNIPARSER_AVAILABLE = True
 except ImportError:
     OMNIPARSER_AVAILABLE = False
@@ -63,6 +63,7 @@ class OmniParserService:
         self.api_endpoint = "https://api.screenparse.ai/v1/screen/parse"
         self._omniparser = None
         self._initialized = False
+        self._last_processed_elements = []  # Cache last processed elements to avoid reprocessing
 
     def is_available(self) -> bool:
         """Check if OmniParser is available."""
@@ -332,3 +333,58 @@ class OmniParserService:
         except Exception as e:
             logger.error(f"Error creating DOM state with OmniParser: {str(e)}")
             return None
+
+    async def find_element(self, 
+                          screenshot_base64: str,
+                          element_type: Optional[str] = None,
+                          description_keywords: Optional[List[str]] = None,
+                          confidence_threshold: float = 0.5) -> Optional[Dict[str, Any]]:
+        """Find a specific element in the screenshot using OmniParser.
+        
+        This is a targeted approach that only processes the screenshot when needed,
+        specifically looking for elements matching the given criteria.
+        
+        Args:
+            screenshot_base64: Base64-encoded screenshot image
+            element_type: Type of element to look for (e.g., "button", "input", etc.)
+            description_keywords: List of keywords to match in element descriptions
+            confidence_threshold: Minimum confidence score for detection
+            
+        Returns:
+            Matching element details if found, None otherwise
+        """
+        # First check if we have cached results to avoid reprocessing
+        if not self._last_processed_elements:
+            elements = await self.detect_interactive_elements(
+                screenshot_base64,
+                confidence_threshold=confidence_threshold
+            )
+            self._last_processed_elements = elements
+        else:
+            elements = self._last_processed_elements
+
+        # Filter elements based on criteria
+        matching_elements = []
+        for element in elements:
+            matches = True
+            
+            if element_type and element["type"].lower() != element_type.lower():
+                matches = False
+                
+            if description_keywords:
+                desc = element["description"].lower()
+                if not any(keyword.lower() in desc for keyword in description_keywords):
+                    matches = False
+                    
+            if matches and element["confidence"] >= confidence_threshold:
+                matching_elements.append(element)
+
+        # Sort by confidence and return the best match
+        if matching_elements:
+            return sorted(matching_elements, key=lambda x: x["confidence"], reverse=True)[0]
+            
+        return None
+
+    def clear_cache(self):
+        """Clear the cached elements from the last processing."""
+        self._last_processed_elements = []

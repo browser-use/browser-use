@@ -30,6 +30,13 @@ class OmniParserSettings:
     # Whether to merge OmniParser results with DOM-based results
     merge_with_dom: bool = True
     
+    # Whether to use OmniParser only as a fallback when DOM extraction is insufficient
+    use_as_fallback: bool = True
+    
+    # Minimum number of interactive elements expected in DOM extraction
+    # If fewer elements are found, OmniParser will be used as fallback
+    min_expected_elements: int = 1
+    
     # Whether to use the hosted OmniParser API when local installation is not available
     use_api: bool = False
     

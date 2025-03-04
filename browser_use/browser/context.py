@@ -12,7 +12,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional, TypedDict
+from typing import TYPE_CHECKING, Optional, TypedDict, List, Any
 
 from playwright._impl._errors import TimeoutError
 from playwright.async_api import Browser as PlaywrightBrowser
@@ -35,6 +35,7 @@ from browser_use.browser.views import (
 from browser_use.dom.service import DomService
 from browser_use.dom.views import DOMElementNode, SelectorMap, DOMState
 from browser_use.utils import time_execution_async, time_execution_sync
+from browser_use.omniparser.hybrid_extractor import HybridExtractor
 
 if TYPE_CHECKING:
 	from browser_use.browser.browser import Browser
@@ -1420,3 +1421,63 @@ class BrowserContext:
 		except Exception as e:
 			logger.debug(f'Failed to get CDP targets: {e}')
 			return []
+
+	async def find_element(self, 
+						  selector: str,
+						  element_type: Optional[str] = None,
+						  description_keywords: Optional[List[str]] = None,
+						  use_omniparser_fallback: bool = True) -> Optional[ElementHandle]:
+		"""
+		Find an element using DOM selectors with optional OmniParser fallback.
+		
+		Args:
+			selector: DOM selector to try first
+			element_type: Type of element to look for with OmniParser fallback
+			description_keywords: Keywords to match in element descriptions
+			use_omniparser_fallback: Whether to use OmniParser as fallback
+			
+		Returns:
+			ElementHandle if found, None otherwise
+		"""
+		page = await self.get_current_page()
+		if not isinstance(page, Page):
+			return None
+		
+		try:
+			# First try DOM selector
+			element = await page.wait_for_selector(selector, timeout=5000)
+			if element:
+				return element
+		except Exception as e:
+			logger.debug(f"DOM selector failed: {str(e)}")
+			
+		# If DOM failed and fallback enabled, try OmniParser
+		if use_omniparser_fallback and self.config.extraction_config.use_hybrid_extraction:
+			try:
+				# Get current DOM state
+				dom_state = await self._get_dom_state(page)
+				
+				# Get hybrid extractor
+				extractor = await self._get_hybrid_extractor(page)
+				
+				# Try to find element with OmniParser
+				element = await extractor.find_specific_element(
+					dom_state=dom_state,
+					element_type=element_type,
+					description_keywords=description_keywords
+				)
+				
+				if element:
+					logger.info("Found element using OmniParser fallback")
+					# Click the element using its coordinates
+					if element.page_coordinates and element.page_coordinates.center:
+						await page.mouse.click(
+							element.page_coordinates.center.x,
+							element.page_coordinates.center.y
+						)
+						return await page.wait_for_selector(element.xpath)
+						
+			except Exception as e:
+				logger.error(f"OmniParser fallback failed: {str(e)}")
+				
+		return None
