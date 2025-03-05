@@ -40,7 +40,14 @@ class OmniParserSettings:
     # Whether to use the hosted OmniParser API when local installation is not available
     use_api: bool = False
     
-    # API key for the hosted OmniParser service
+    # Custom endpoint for OmniParser service (optional)
+    # If None, will use default based on use_api setting:
+    # - Local server: "http://localhost:8000/screen/parse"
+    # - Hosted API: "https://api.screenparse.ai/v1/screen/parse"
+    endpoint: Optional[str] = None
+    
+    # API key for authentication with the OmniParser service (optional)
+    # Required only if using an endpoint that needs authentication
     api_key: Optional[str] = None
     
     # List of required element types for LLM prediction

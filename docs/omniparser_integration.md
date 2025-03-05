@@ -187,14 +187,92 @@ print(state.json(indent=2))
 
 ## Requirements
 
-- The OmniParser integration requires the installation of the `omniparser` Python package.
-- For optimal performance, the Microsoft OmniParser 2.0 model weights should be downloaded.
+OmniParser can be used in two ways:
+
+1. **Local Server (Recommended)**:
+   
+   First, set up OmniParser locally:
+   ```bash
+   # Clone the repository
+   git clone https://github.com/microsoft/OmniParser
+   cd OmniParser
+   
+   # Create and activate conda environment
+   conda create -n "omni" python==3.12
+   conda activate omni
+   
+   # Install requirements
+   pip install -r requirements.txt
+   
+   # Download model weights
+   for f in icon_detect/{train_args.yaml,model.pt,model.yaml} icon_caption/{config.json,generation_config.json,model.safetensors}; do huggingface-cli download microsoft/OmniParser-v2.0 "$f" --local-dir weights; done
+   mv weights/icon_caption weights/icon_caption_florence
+   ```
+
+   Then run the FastAPI server (see examples/omniparser/fastapi_server.py):
+   ```bash
+   python examples/omniparser/fastapi_server.py
+   ```
+
+   Configure your agent to use the local server:
+   ```python
+   from browser_use.browser.config import BrowserExtractionConfig
+   from browser_use.omniparser.views import OmniParserSettings
+
+   # Configure browser with local OmniParser server (default)
+   context_config = BrowserContextConfig(
+       extraction_config=BrowserExtractionConfig(
+           use_hybrid_extraction=True,
+           omniparser=OmniParserSettings(
+               enabled=True,
+               use_api=False,  # Use local server
+               endpoint="http://localhost:8000/screen/parse",  # Optional: specify custom endpoint
+               captcha_detection=True,
+               merge_with_dom=True
+           )
+       )
+   )
+   ```
+
+2. **Hosted API Service**:
+   
+   Alternatively, you can use the hosted API service:
+   ```python
+   context_config = BrowserContextConfig(
+       extraction_config=BrowserExtractionConfig(
+           use_hybrid_extraction=True,
+           omniparser=OmniParserSettings(
+               enabled=True,
+               use_api=True,  # Use hosted API service
+               endpoint=None,  # Optional: will use default API endpoint
+               captcha_detection=True,
+               merge_with_dom=True
+           )
+       )
+   )
+   ```
+
+   Or specify a custom API endpoint:
+   ```python
+   context_config = BrowserContextConfig(
+       extraction_config=BrowserExtractionConfig(
+           use_hybrid_extraction=True,
+           omniparser=OmniParserSettings(
+               enabled=True,
+               use_api=True,
+               endpoint="https://custom-api.example.com/v1/screen/parse",
+               captcha_detection=True,
+               merge_with_dom=True
+           )
+       )
+   )
+   ```
 
 ## Limitations
 
-- Vision-based processing adds computational overhead.
-- May produce false positives or negatives in complex UIs.
-- Currently focused on CAPTCHA detection, with more specialized detection planned for future versions.
+- Local server requires GPU for optimal performance
+- Hosted API service requires an active internet connection
+- Currently focused on CAPTCHA detection, with more specialized detection planned for future versions
 
 ## Future Improvements
 

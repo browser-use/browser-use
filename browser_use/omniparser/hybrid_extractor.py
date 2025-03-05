@@ -34,9 +34,9 @@ class HybridExtractor:
         self.dom_service = dom_service
         self.settings = settings or OmniParserSettings()
         self.omniparser = OmniParserService(
-            weights_dir=self.settings.weights_dir,
-            api_key=self.settings.api_key,
-            use_api=self.settings.use_api
+            endpoint=self.settings.endpoint,  # Use configured endpoint
+            use_api=self.settings.use_api,
+            api_key=self.settings.api_key  # Pass API key if configured
         )
         
         # Initialize CAPTCHA detector if setting enabled

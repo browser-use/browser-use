@@ -2,33 +2,23 @@
 OmniParser service implementation.
 
 This service provides methods to use Microsoft's OmniParser 2.0 for processing
-screenshots and detecting interactive UI elements, particularly those that are
-challenging for traditional DOM-based extraction.
+screenshots and detecting interactive UI elements via its API service or local server.
 """
 
 import base64
 import io
 import logging
-import os
 import json
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union, Any
 
 import requests
 from PIL import Image
 
-# Import when OmniParser is installed
-try:
-    from omniparser import OmniParser # type: ignore
-    OMNIPARSER_AVAILABLE = True
-except ImportError:
-    OMNIPARSER_AVAILABLE = False
-
 from browser_use.dom.views import DOMElementNode, DOMState, SelectorMap
 
+# Set up logging
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class DetectedElement:
@@ -45,52 +35,32 @@ class DetectedElement:
 class OmniParserService:
     """Service for integrating with Microsoft OmniParser."""
 
-    def __init__(self, 
-                 weights_dir: Optional[str] = None, 
-                 api_key: Optional[str] = None,
-                 use_api: bool = True):
+    def __init__(self, endpoint: Optional[str] = None, use_api: bool = False, api_key: Optional[str] = None):
         """Initialize the OmniParser service.
         
         Args:
-            weights_dir: Directory containing the OmniParser model weights.
-                         If None, will use the default location.
-            api_key: API key for the hosted OmniParser service.
-            use_api: Whether to use the hosted API when local installation is not available.
+            endpoint: API endpoint for OmniParser service. Can be:
+                     - Hosted API: "https://api.screenparse.ai/v1/screen/parse"
+                     - Local server: "http://localhost:8000/screen/parse"
+                     If None and use_api is True, defaults to hosted API.
+            use_api: Whether to use the hosted API service. If True and endpoint is None,
+                    uses the default hosted API endpoint.
+            api_key: Optional API key for authentication with the endpoint.
         """
-        self.weights_dir = weights_dir
+        if use_api and endpoint is None:
+            self.api_endpoint = "https://api.screenparse.ai/v1/screen/parse"
+        elif endpoint is not None:
+            self.api_endpoint = endpoint
+        else:
+            self.api_endpoint = "http://localhost:8000/screen/parse"
+            
         self.api_key = api_key
-        self.use_api = use_api
-        self.api_endpoint = "https://api.screenparse.ai/v1/screen/parse"
-        self._omniparser = None
-        self._initialized = False
         self._last_processed_elements = []  # Cache last processed elements to avoid reprocessing
 
     def is_available(self) -> bool:
-        """Check if OmniParser is available."""
-        return OMNIPARSER_AVAILABLE or (self.use_api and self.api_endpoint is not None)
+        """Check if OmniParser endpoint is available."""
+        return self.api_endpoint is not None
 
-    def _ensure_initialized(self) -> bool:
-        """Ensure OmniParser is initialized."""
-        if OMNIPARSER_AVAILABLE:
-            if not self._initialized:
-                try:
-                    # If weights_dir is None, OmniParser will use its default location
-                    self._omniparser = OmniParser(model_dir=self.weights_dir)
-                    self._initialized = True
-                    logger.info("OmniParser initialized successfully (local)")
-                except Exception as e:
-                    logger.error(f"Failed to initialize local OmniParser: {str(e)}")
-                    if not self.use_api:
-                        return False
-                    logger.info("Falling back to hosted OmniParser API")
-            return True
-        elif self.use_api:
-            logger.info("Using hosted OmniParser API (local installation not available)")
-            return True
-        else:
-            logger.warning("OmniParser is not available. Install it with 'pip install omniparser' or enable API usage")
-            return False
-    
     def process_screenshot(self, screenshot_base64: str) -> List[DetectedElement]:
         """Process a screenshot using OmniParser.
         
@@ -100,63 +70,34 @@ class OmniParserService:
         Returns:
             List of detected elements
         """
-        if not self._ensure_initialized():
-            logger.warning("OmniParser is not initialized, returning empty results")
-            return []
-        
         try:
-            if OMNIPARSER_AVAILABLE and self._omniparser:
-                # Use local OmniParser
-                return self._process_local(screenshot_base64)
-            elif self.use_api:
-                # Use hosted API
-                return self._process_api(screenshot_base64)
-            else:
-                return []
+            return self._process_api(screenshot_base64)
         except Exception as e:
             logger.error(f"Error processing screenshot with OmniParser: {str(e)}")
             return []
     
-    def _process_local(self, screenshot_base64: str) -> List[DetectedElement]:
-        """Process a screenshot using local OmniParser installation."""
-        # Decode base64 image
-        image_bytes = base64.b64decode(screenshot_base64)
-        image = Image.open(io.BytesIO(image_bytes))
-        
-        # Process image with OmniParser
-        raw_results = self._omniparser.parse_image(image)
-        
-        # Convert results to DetectedElement objects
-        elements = []
-        for raw_element in raw_results:
-            element = DetectedElement(
-                type=raw_element.get('element_type', 'unknown'),
-                description=raw_element.get('text', ''),
-                x1=raw_element.get('x', 0),
-                y1=raw_element.get('y', 0),
-                x2=raw_element.get('x', 0) + raw_element.get('width', 0),
-                y2=raw_element.get('y', 0) + raw_element.get('height', 0),
-                confidence=raw_element.get('confidence', 0.0)
-            )
-            elements.append(element)
-        
-        return elements
-    
     def _process_api(self, screenshot_base64: str) -> List[DetectedElement]:
-        """Process a screenshot using the hosted OmniParser API."""
+        """Process a screenshot using the OmniParser endpoint."""
+        # Prepare image URL (data URL in this case)
+        image_url = f"data:image/png;base64,{screenshot_base64}"
+        
+        # Prepare request headers
         headers = {}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        
-        # Prepare image URL (data URL in this case)
-        image_url = f"data:image/png;base64,{screenshot_base64}"
         
         # Make API request
         try:
             response = requests.post(
                 self.api_endpoint, 
-                json={"image_url": image_url},
-                headers=headers
+                headers=headers,
+                json={
+                    "image_url": image_url,
+                    "box_threshold": 0.05,
+                    "iou_threshold": 0.1,
+                    "use_paddleocr": True,
+                    "imgsz": 640
+                }
             )
             response.raise_for_status()
             data = response.json()
@@ -172,13 +113,12 @@ class OmniParserService:
                     y1=bbox[1],
                     x2=bbox[2],
                     y2=bbox[3],
-                    # Set confidence to 0.9 for interactive elements, 0.7 for non-interactive
                     confidence=0.9 if element.get("is_interactive", False) else 0.7
                 ))
             
             return elements
         except Exception as e:
-            logger.error(f"Error calling OmniParser API: {str(e)}")
+            logger.error(f"Error calling OmniParser endpoint: {str(e)}")
             return []
 
     async def detect_interactive_elements(
@@ -262,8 +202,7 @@ class OmniParserService:
             safe_description = element.description.replace('"', '').replace("'", "")
             element_xpath = f"//omniparser-element[@description='{safe_description}']"
             
-            # Calculate viewport coordinates
-            # (normalize to match DOMElementNode expected format)
+            # Create element node
             element_node = DOMElementNode(
                 tag_name="omniparser-element",
                 xpath=element_xpath,
@@ -315,7 +254,7 @@ class OmniParserService:
                 image = Image.open(io.BytesIO(image_data))
                 image_width, image_height = image.size
             
-            # Process with OmniParser
+            # Process with OmniParser API
             detected_elements = self.process_screenshot(screenshot_base64)
             
             if not detected_elements:
@@ -340,9 +279,6 @@ class OmniParserService:
                           description_keywords: Optional[List[str]] = None,
                           confidence_threshold: float = 0.5) -> Optional[Dict[str, Any]]:
         """Find a specific element in the screenshot using OmniParser.
-        
-        This is a targeted approach that only processes the screenshot when needed,
-        specifically looking for elements matching the given criteria.
         
         Args:
             screenshot_base64: Base64-encoded screenshot image

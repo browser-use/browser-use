@@ -119,18 +119,44 @@ Browser-use includes integration with Microsoft's OmniParser for enhanced UI ele
 - **Complex UI Elements**: Better handle dynamic elements, carousels, modals, and other JavaScript-heavy components
 - **Hybrid Extraction**: Combines traditional DOM-based extraction with vision-based parsing for the best results
 
-To enable OmniParser in your agent:
+To use OmniParser:
 
+1. Set up OmniParser locally (recommended):
+```bash
+# Clone the repository
+git clone https://github.com/microsoft/OmniParser
+cd OmniParser
+
+# Create and activate conda environment
+conda create -n "omni" python==3.12
+conda activate omni
+
+# Install requirements
+pip install -r requirements.txt
+
+# Download model weights
+for f in icon_detect/{train_args.yaml,model.pt,model.yaml} icon_caption/{config.json,generation_config.json,model.safetensors}; do huggingface-cli download microsoft/OmniParser-v2.0 "$f" --local-dir weights; done
+mv weights/icon_caption weights/icon_caption_florence
+```
+
+2. Run the FastAPI server (see examples/omniparser/fastapi_server.py):
+```bash
+python examples/omniparser/fastapi_server.py
+```
+
+3. Configure your agent:
 ```python
 from browser_use.browser.config import BrowserExtractionConfig
 from browser_use.omniparser.views import OmniParserSettings
 
-# Configure browser with OmniParser
+# Configure browser with local OmniParser server (default)
 context_config = BrowserContextConfig(
     extraction_config=BrowserExtractionConfig(
         use_hybrid_extraction=True,
         omniparser=OmniParserSettings(
             enabled=True,
+            use_api=False,  # Use local server
+            endpoint="http://localhost:8000/screen/parse",  # Optional: specify custom endpoint
             captcha_detection=True,
             merge_with_dom=True
         )
@@ -139,6 +165,17 @@ context_config = BrowserContextConfig(
 
 # Use this configuration with your browser
 context = await browser.new_context(config=context_config)
+```
+
+Alternatively, you can use the hosted API service by setting `use_api=True`:
+```python
+omniparser=OmniParserSettings(
+    enabled=True,
+    use_api=True,  # Use hosted API service
+    endpoint=None,  # Optional: will use default API endpoint
+    captcha_detection=True,
+    merge_with_dom=True
+)
 ```
 
 For detailed usage examples and configuration options, see the [OmniParser documentation](./docs/omniparser_integration.md).
