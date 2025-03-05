@@ -1422,11 +1422,36 @@ class BrowserContext:
 			logger.debug(f'Failed to get CDP targets: {e}')
 			return []
 
+	async def get_dom_state(self, required_elements: Optional[List[str]] = None) -> Optional[DOMState]:
+		"""
+		Get the current DOM state with optional required elements check.
+		
+		Args:
+			required_elements: Optional list of required element types for LLM prediction
+			
+		Returns:
+			DOMState if successful, None otherwise
+		"""
+		page = await self.get_current_page()
+		if not isinstance(page, Page):
+			return None
+		
+		try:
+			# Get hybrid extractor
+			extractor = await self._get_hybrid_extractor(page)
+			
+			# Get DOM state with required elements check
+			return await extractor.get_elements(required_elements=required_elements)
+		except Exception as e:
+			logger.error(f"Error getting DOM state: {str(e)}")
+			return None
+
 	async def find_element(self, 
 						  selector: str,
 						  element_type: Optional[str] = None,
 						  description_keywords: Optional[List[str]] = None,
-						  use_omniparser_fallback: bool = True) -> Optional[ElementHandle]:
+						  use_omniparser_fallback: bool = True,
+						  required_elements: Optional[List[str]] = None) -> Optional[ElementHandle]:
 		"""
 		Find an element using DOM selectors with optional OmniParser fallback.
 		
@@ -1435,6 +1460,7 @@ class BrowserContext:
 			element_type: Type of element to look for with OmniParser fallback
 			description_keywords: Keywords to match in element descriptions
 			use_omniparser_fallback: Whether to use OmniParser as fallback
+			required_elements: Optional list of required element types for LLM prediction
 			
 		Returns:
 			ElementHandle if found, None otherwise
@@ -1454,8 +1480,11 @@ class BrowserContext:
 		# If DOM failed and fallback enabled, try OmniParser
 		if use_omniparser_fallback and self.config.extraction_config.use_hybrid_extraction:
 			try:
-				# Get current DOM state
-				dom_state = await self._get_dom_state(page)
+				# Get current DOM state with required elements check
+				dom_state = await self.get_dom_state(required_elements=required_elements)
+				
+				if not dom_state:
+					return None
 				
 				# Get hybrid extractor
 				extractor = await self._get_hybrid_extractor(page)

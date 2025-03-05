@@ -42,3 +42,8 @@ class OmniParserSettings:
     
     # API key for the hosted OmniParser service
     api_key: Optional[str] = None
+    
+    # List of required element types for LLM prediction
+    # If specified and any of these elements are missing in DOM extraction,
+    # OmniParser will be used as fallback
+    required_elements: Optional[List[str]] = None

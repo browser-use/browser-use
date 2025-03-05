@@ -47,12 +47,13 @@ class HybridExtractor:
         # Cache for last screenshot to avoid reprocessing
         self._last_screenshot: Optional[str] = None
     
-    def _is_dom_extraction_sufficient(self, dom_state: DOMState) -> bool:
+    def _is_dom_extraction_sufficient(self, dom_state: DOMState, required_elements: Optional[List[str]] = None) -> bool:
         """
         Evaluate if the DOM extraction provided sufficient results.
         
         Args:
             dom_state: The DOM state to evaluate
+            required_elements: Optional list of required element types for LLM prediction
             
         Returns:
             bool: True if DOM extraction is sufficient, False otherwise
@@ -61,15 +62,29 @@ class HybridExtractor:
             return False
             
         # Check if we have the minimum number of expected elements
-        interactive_elements = len([
+        interactive_elements = [
             elem for elem in dom_state.selector_map.values() 
             if elem.is_interactive and elem.is_visible
-        ])
+        ]
         
-        return interactive_elements >= self.settings.min_expected_elements
+        # If specific elements are required for LLM prediction
+        if required_elements:
+            # Check if all required element types are present
+            found_types = set()
+            for elem in interactive_elements:
+                elem_type = elem.tag_name.lower()
+                if 'type' in elem.attributes:
+                    elem_type = elem.attributes['type'].lower()
+                found_types.add(elem_type)
+                
+            # Return False if any required element type is missing
+            if not all(req.lower() in found_types for req in required_elements):
+                return False
+        
+        return len(interactive_elements) >= self.settings.min_expected_elements
     
     async def get_elements(self, highlight_elements: bool = True, focus_element: int = -1, 
-                          viewport_expansion: int = 500) -> DOMState:
+                          viewport_expansion: int = 500, required_elements: Optional[List[str]] = None) -> DOMState:
         """
         Get UI elements using the hybrid approach.
         
@@ -77,6 +92,7 @@ class HybridExtractor:
             highlight_elements: Whether to highlight elements in the browser
             focus_element: Index of element to focus on
             viewport_expansion: Pixels to expand viewport by for element detection
+            required_elements: Optional list of required element types for LLM prediction
             
         Returns:
             DOM state with detected elements
@@ -95,7 +111,7 @@ class HybridExtractor:
         # Check if we should use OmniParser
         should_use_omniparser = (
             not self.settings.use_as_fallback or  # Always use if not in fallback mode
-            not self._is_dom_extraction_sufficient(dom_state)  # Use as fallback if DOM insufficient
+            not self._is_dom_extraction_sufficient(dom_state, required_elements)  # Use as fallback if DOM insufficient
         )
         
         if not should_use_omniparser:
