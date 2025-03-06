@@ -4,6 +4,7 @@ Playwright browser on steroids.
 
 import asyncio
 import gc
+import os
 import logging
 from dataclasses import dataclass, field
 
@@ -114,6 +115,12 @@ class Browser:
 			raise ValueError('CDP URL is required')
 		logger.info(f'Connecting to remote browser via CDP {self.config.cdp_url}')
 		browser = await playwright.chromium.connect_over_cdp(self.config.cdp_url)
+		cdp_session = await browser.new_browser_cdp_session()
+		await cdp_session.send("Browser.setDownloadBehavior", {
+			"behavior": "allow",
+			"downloadPath": os.path.join(os.path.expanduser('~'), 'downloads'),
+			"eventsEnabled": True
+		})
 		return browser
 
 	async def _setup_wss(self, playwright: Playwright) -> PlaywrightBrowser:
