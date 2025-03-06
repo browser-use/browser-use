@@ -4,7 +4,6 @@ Playwright browser on steroids.
 
 import asyncio
 import gc
-import os
 import logging
 from dataclasses import dataclass, field
 
