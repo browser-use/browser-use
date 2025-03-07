@@ -346,7 +346,7 @@ class Agent(Generic[Context]):
 
 			if step_info and step_info.is_last_step():
 				# Add last step warning if needed
-				msg = 'Now comes your last step. Use only the "done" action now. No other actions - so here your action sequence musst have length 1.'
+				msg = 'Now comes your last step. Use only the "done" action now. No other actions - so here your action sequence must have length 1.'
 				msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false! E.g. if not all steps are fully completed.'
 				msg += '\nIf the task is fully finished, set success in "done" to true.'
 				msg += '\nInclude everything you found out for the ultimate task in the done text.'
