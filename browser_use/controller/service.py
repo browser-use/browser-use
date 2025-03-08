@@ -18,6 +18,7 @@ from browser_use.controller.views import (
 	GoToUrlAction,
 	InputTextAction,
 	NoParamsAction,
+	GetMfaCodeAction,
 	OpenTabAction,
 	ScrollAction,
 	SearchGoogleAction,
@@ -296,6 +297,25 @@ class Controller(Generic[Context]):
 				msg = f"Failed to scroll to text '{text}': {str(e)}"
 				logger.error(msg)
 				return ActionResult(error=msg, include_in_memory=True)
+
+		@self.registry.action(
+			description='Ask user to input MFA code through the CLI',
+			param_model=GetMfaCodeAction,
+		)
+		async def get_mfa_code(params: GetMfaCodeAction):
+			msg = params.prompt_message
+			logger.info(msg)
+			code = input(msg)
+			
+			# Validate code is not empty
+			while not code.strip():
+				logger.warning("Empty MFA code provided.")
+				code = input("MFA code cannot be empty. Please enter the code: ")
+
+			return ActionResult(
+				success=True, 
+				extracted_content=f"MFA code received: Code: {code}"
+			)
 
 		@self.registry.action(
 			description='Get all options from a native dropdown',

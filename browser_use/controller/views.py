@@ -48,6 +48,15 @@ class ExtractPageContentAction(BaseModel):
 	value: str
 
 
+class GetMfaCodeAction(BaseModel):
+	"""
+	Model for getting MFA code from user
+	"""
+	prompt_message: str = 'Please enter the MFA code: '
+	source: Optional[str] = None  # Optional source like 'email', 'sms', 'authenticator_app'
+	target_element_index: Optional[int] = None  # Optional element index to fill after getting code
+
+
 class NoParamsAction(BaseModel):
 	"""
 	Accepts absolutely anything in the incoming data
