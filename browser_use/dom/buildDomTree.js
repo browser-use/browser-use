@@ -1,5 +1,5 @@
 import { domCache } from './domCache.js';
-(
+const buildDomTree = (
   args = {
     doHighlightElements: true,
     focusHighlightIndex: -1,
@@ -985,7 +985,6 @@ import { domCache } from './domCache.js';
     return id;
   }
 
-<<<<<<< HEAD
     // Function to traverse the DOM and create nested JSON
     function buildDomTree(node, parentIframe = null) {
         
@@ -1007,19 +1006,6 @@ import { domCache } from './domCache.js';
             }
             return null;
         }
-=======
-  // After all functions are defined, wrap them with performance measurement
-  // Remove buildDomTree from here as we measure it separately
-  highlightElement = measureTime(highlightElement);
-  isInteractiveElement = measureTime(isInteractiveElement);
-  isElementVisible = measureTime(isElementVisible);
-  isTopElement = measureTime(isTopElement);
-  isInExpandedViewport = measureTime(isInExpandedViewport);
-  isTextNodeVisible = measureTime(isTextNodeVisible);
-  getEffectiveScroll = measureTime(getEffectiveScroll);
-
-  const rootId = buildDomTree(document.body);
->>>>>>> upstream/main
 
   // Clear the cache before starting
   DOM_CACHE.clearCache();
@@ -1037,7 +1023,6 @@ import { domCache } from './domCache.js';
       }
     });
 
-<<<<<<< HEAD
             // Add viewport and scroll information
             nodeData.viewport = {
                 scrollX: Math.round(scrollX),
@@ -1121,12 +1106,6 @@ import { domCache } from './domCache.js';
         domCache.cacheDomTree(node, nodeData);
 
         return nodeData;
-=======
-    // Add some useful derived metrics
-    if (PERF_METRICS.buildDomTreeBreakdown.buildDomTreeCalls > 0) {
-      PERF_METRICS.buildDomTreeBreakdown.averageTimePerNode =
-        PERF_METRICS.buildDomTreeBreakdown.totalTime / PERF_METRICS.buildDomTreeBreakdown.buildDomTreeCalls;
->>>>>>> upstream/main
     }
 
     PERF_METRICS.buildDomTreeBreakdown.timeInChildCalls =
@@ -1163,4 +1142,4 @@ import { domCache } from './domCache.js';
   return debugMode ?
     { rootId, map: DOM_HASH_MAP, perfMetrics: PERF_METRICS } :
     { rootId, map: DOM_HASH_MAP };
-};
+
