@@ -1142,16 +1142,22 @@ class BrowserContext:
 					await self._check_and_handle_navigation(page)
 
 			try:
-				return await perform_click(lambda: element_handle.click(timeout=1500))
+				async def _click():
+					try:
+						await perform_click(lambda: element_handle.click(timeout=1500))
+					except TimeoutError:
+						try:
+							return await perform_click(lambda: page.evaluate('(el) => el.click()', element_handle))
+						except URLNotAllowedError as e:
+							raise e
+						except Exception as e:
+							raise Exception(f'Failed to click element: {str(e)}')
+
+				return await _click()
 			except URLNotAllowedError as e:
 				raise e
-			except Exception:
-				try:
-					return await perform_click(lambda: page.evaluate('(el) => el.click()', element_handle))
-				except URLNotAllowedError as e:
-					raise e
-				except Exception as e:
-					raise Exception(f'Failed to click element: {str(e)}')
+			except Exception as e:
+				raise Exception(f'Failed to click element: {str(e)}')
 
 		except URLNotAllowedError as e:
 			raise e
