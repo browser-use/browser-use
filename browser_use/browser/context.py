@@ -1148,8 +1148,6 @@ class BrowserContext:
 					except Exception:
 						try:
 							return await page.evaluate('(el) => el.click()', element_handle)
-						except URLNotAllowedError as e:
-							raise e
 						except Exception as e:
 							raise Exception(f'Failed to click element: {str(e)}')
 
