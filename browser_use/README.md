@@ -12,7 +12,7 @@ Just a brief document about how we should structure our backend codebase.
 src/
 /<service name>/
 models.py
-services.py
+service.py
 prompts.py
 views.py
 utils.py
