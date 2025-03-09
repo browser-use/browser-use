@@ -1144,16 +1144,16 @@ class BrowserContext:
 			try:
 				async def _click():
 					try:
-						await perform_click(lambda: element_handle.click(timeout=1500))
-					except TimeoutError:
+						await element_handle.click(timeout=1500)
+					except Exception:
 						try:
-							return await perform_click(lambda: page.evaluate('(el) => el.click()', element_handle))
+							return await page.evaluate('(el) => el.click()', element_handle)
 						except URLNotAllowedError as e:
 							raise e
 						except Exception as e:
 							raise Exception(f'Failed to click element: {str(e)}')
 
-				return await _click()
+				return await perform_click(_click)
 			except URLNotAllowedError as e:
 				raise e
 			except Exception as e:
