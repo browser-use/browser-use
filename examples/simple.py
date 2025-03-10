@@ -1,20 +1,20 @@
 import asyncio
 
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
+from langchain_openai import AzureChatOpenAI
 
-from browser_use import Agent
+from supatest.agent.service import SupatestAgent
 
 load_dotenv()
 
 # Initialize the model
-llm = ChatOpenAI(
+llm = AzureChatOpenAI(
 	model='gpt-4o',
 	temperature=0.0,
 )
 task = 'Find the founders of browser-use and draft them a short personalized message'
 
-agent = Agent(task=task, llm=llm)
+agent = SupatestAgent(task=task, llm=llm)
 
 
 async def main():
