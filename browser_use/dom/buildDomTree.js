@@ -494,7 +494,7 @@
     const interactiveElements = new Set([
       "a", "button", "details", "embed", "input", "menu", "menuitem",
       "object", "select", "textarea", "canvas", "summary", "dialog",
-      "banner"
+      "banner", "label",
     ]);
 
     const interactiveRoles = new Set(['button-icon', 'dialog', 'button-text-icon-only', 'treeitem', 'alert', 'grid', 'progressbar', 'radio', 'checkbox', 'menuitem', 'option', 'switch', 'dropdown', 'scrollbar', 'combobox', 'a-button-text', 'button', 'region', 'textbox', 'tabpanel', 'tab', 'click', 'button-text', 'spinbutton', 'a-button-inner', 'link', 'menu', 'slider', 'listbox', 'a-dropdown-button', 'button-icon-only', 'searchbox', 'menuitemradio', 'tooltip', 'tree', 'menuitemcheckbox']);
