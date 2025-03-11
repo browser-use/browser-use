@@ -633,11 +633,7 @@ class Agent(Generic[Context]):
 				)
 			)
 
-			if not self.injected_browser_context:
-				await self.browser_context.close()
-
-			if not self.injected_browser and self.browser:
-				await self.browser.close()
+			await self.close()
 
 			if self.settings.generate_gif:
 				output_path: str = 'agent_history.gif'
@@ -962,3 +958,40 @@ class Agent(Generic[Context]):
 	@property
 	def message_manager(self) -> MessageManager:
 		return self._message_manager
+
+	async def cleanup_httpx_clients(self):
+		"""Cleanup all httpx clients"""
+		import httpx
+		import gc
+
+		# Force garbage collection to make sure all clients are in memory
+		gc.collect()
+		
+		# Get all httpx clients
+		clients = [obj for obj in gc.get_objects() if isinstance(obj, httpx.AsyncClient)]
+		
+		# Close all clients
+		for client in clients:
+			if not client.is_closed:
+				try:
+					await client.aclose()
+				except Exception as e:
+					logger.debug(f"Error closing httpx client: {e}")
+
+	async def close(self):
+		"""Close all resources"""
+		try:
+			# First close browser resources
+			if self.browser_context and not self.injected_browser_context:
+				await self.browser_context.close()
+			if self.browser and not self.injected_browser:
+				await self.browser.close()
+			
+			# Then cleanup httpx clients
+			await self.cleanup_httpx_clients()
+			
+			# Force garbage collection
+			gc.collect()
+			
+		except Exception as e:
+			logger.error(f"Error during cleanup: {e}")
