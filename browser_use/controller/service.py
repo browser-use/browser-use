@@ -17,6 +17,7 @@ from browser_use.controller.views import (
 	ClickElementAction,
 	DoneAction,
 	GoToUrlAction,
+	GroupTabsAction,
 	InputTextAction,
 	NoParamsAction,
 	OpenTabAction,
@@ -24,6 +25,7 @@ from browser_use.controller.views import (
 	SearchGoogleAction,
 	SendKeysAction,
 	SwitchTabAction,
+	UngroupTabsAction,
 )
 from browser_use.utils import time_execution_sync
 

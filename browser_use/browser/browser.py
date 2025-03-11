@@ -197,6 +197,7 @@ class Browser:
 				'--no-default-browser-check',
 				'--no-startup-window',
 				'--window-position=0,0',
+                '--enable-experimental-extension-apis',
 				# '--window-size=1280,1000',
 			]
 			+ self.disable_security_args
