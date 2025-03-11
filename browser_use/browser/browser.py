@@ -7,9 +7,9 @@ import gc
 import logging
 from dataclasses import dataclass, field
 
-from playwright._impl._api_structures import ProxySettings
-from playwright.async_api import Browser as PlaywrightBrowser
-from playwright.async_api import (
+from rebrowser_playwright._impl._api_structures import ProxySettings
+from rebrowser_playwright.async_api import Browser as PlaywrightBrowser
+from rebrowser_playwright.async_api import (
 	Playwright,
 	async_playwright,
 )
@@ -48,7 +48,7 @@ class BrowserConfig:
 
 	headless: bool = False
 	disable_security: bool = True
-	extra_chromium_args: list[str] = field(default_factory=list)
+	extra_chromium_args: list[str] = field(default_factory=lambda: ['--disable-blink-features=AutomationControlled'])
 	chrome_instance_path: str | None = None
 	wss_url: str | None = None
 	cdp_url: str | None = None
@@ -183,24 +183,8 @@ class Browser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		browser = await playwright.chromium.launch(
 			headless=self.config.headless,
-			args=[
-				'--no-sandbox',
-				'--disable-blink-features=AutomationControlled',
-				'--disable-infobars',
-				'--disable-background-timer-throttling',
-				'--disable-popup-blocking',
-				'--disable-backgrounding-occluded-windows',
-				'--disable-renderer-backgrounding',
-				'--disable-window-activation',
-				'--disable-focus-on-load',
-				'--no-first-run',
-				'--no-default-browser-check',
-				'--no-startup-window',
-				'--window-position=0,0',
-				# '--window-size=1280,1000',
-			]
-			+ self.disable_security_args
-			+ self.config.extra_chromium_args,
+			channel='chrome',
+			args=self.disable_security_args + self.config.extra_chromium_args,
 			proxy=self.config.proxy,
 		)
 		# convert to Browser

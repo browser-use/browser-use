@@ -16,7 +16,7 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "requests>=2.32.3",
     "posthog>=3.7.0",
-    "playwright>=1.49.0",
+    "rebrowser-playwright>=1.49.0",
     "setuptools>=75.8.0",
     "markdownify==0.14.1",
     "langchain-core>=0.3.35",
