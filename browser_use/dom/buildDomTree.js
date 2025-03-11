@@ -955,16 +955,16 @@
           if (domElement) nodeData.children.push(domElement);
         }
       }
-      // Handle shadow DOM
-      else if (node.shadowRoot) {
-        nodeData.shadowRoot = true;
-        for (const child of node.shadowRoot.childNodes) {
-          const domElement = buildDomTree(child, parentIframe);
-          if (domElement) nodeData.children.push(domElement);
-        }
-      }
-      // Handle regular elements
       else {
+        // Handle shadow DOM
+        if (node.shadowRoot) {
+          nodeData.shadowRoot = true;
+          for (const child of node.shadowRoot.childNodes) {
+            const domElement = buildDomTree(child, parentIframe);
+            if (domElement) nodeData.children.push(domElement);
+          }
+        }
+        // Handle regular elements
         for (const child of node.childNodes) {
           const domElement = buildDomTree(child, parentIframe);
           if (domElement) nodeData.children.push(domElement);
