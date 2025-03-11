@@ -927,6 +927,17 @@
     if (node.tagName) {
       const tagName = node.tagName.toLowerCase();
 
+      // Handle shadow DOM
+      // Process shadowRoot separately because other elements can exist alongside the shadowRoot element,
+      // and they would be ignored if it were processed as part of else if branch below
+      if (node.shadowRoot) {
+        nodeData.shadowRoot = true;
+        for (const child of node.shadowRoot.childNodes) {
+          const domElement = buildDomTree(child, parentIframe);
+          if (domElement) nodeData.children.push(domElement);
+        }
+      }
+
       // Handle iframes
       if (tagName === "iframe") {
         try {
@@ -951,14 +962,6 @@
       ) {
         // Process all child nodes to capture formatted text
         for (const child of node.childNodes) {
-          const domElement = buildDomTree(child, parentIframe);
-          if (domElement) nodeData.children.push(domElement);
-        }
-      }
-      // Handle shadow DOM
-      else if (node.shadowRoot) {
-        nodeData.shadowRoot = true;
-        for (const child of node.shadowRoot.childNodes) {
           const domElement = buildDomTree(child, parentIframe);
           if (domElement) nodeData.children.push(domElement);
         }
