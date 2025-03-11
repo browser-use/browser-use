@@ -391,7 +391,7 @@
         rect.top > window.innerHeight + viewportExpansion ||
         rect.right < -viewportExpansion ||
         rect.left > window.innerWidth + viewportExpansion
-      );
+      ) || viewportExpansion === -1;
 
       // Check parent visibility
       const parentElement = textNode.parentElement;
