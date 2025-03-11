@@ -205,6 +205,30 @@ class Controller(Generic[Context]):
 				msg = f'📄  Extracted from page\n: {content}\n'
 				logger.info(msg)
 				return ActionResult(extracted_content=msg)
+		
+		# HTML Download
+		@self.registry.action(
+			'Download the full HTML content of the current page',
+			param_model=NoParamsAction,
+		)
+		async def download_html(_: NoParamsAction, browser: BrowserContext) -> ActionResult:
+			"""Retrieves and returns the full HTML content of the current page"""
+			try:
+				page = await browser.get_current_page()
+				html_content = await page.content()
+				msg = f'📄 Page HTML content\n: {html_content}\n'
+				logger.info(f'Successfully retrieved page HTML: {msg}')
+				return ActionResult(
+					extracted_content=html_content,  # Return raw HTML
+					is_done=True,
+					include_in_memory=False
+				)
+			except Exception as e:
+				logger.error(f'Failed to get HTML content: {str(e)}')
+				return ActionResult(
+					error=f'Error retrieving HTML: {str(e)}',
+					extracted_content=''
+				)
 
 		@self.registry.action(
 			'Scroll down the page by pixel amount - if no amount is specified, scroll down one page',
