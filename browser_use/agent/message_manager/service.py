@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from browser_use.agent.message_manager.views import MessageMetadata
 from browser_use.agent.prompts import AgentMessagePrompt
+from browser_use.agent.task.views import Plan
 from browser_use.agent.views import ActionResult, AgentOutput, AgentStepInfo, MessageManagerState
 from browser_use.browser.views import BrowserState
 from browser_use.utils import time_execution_sync
@@ -166,6 +167,29 @@ class MessageManager:
 		if plan:
 			msg = AIMessage(content=plan)
 			self._add_message_with_tokens(msg, position)
+
+	def add_task_plan(self, plan: Plan | None) -> None:
+		"""Add structured task plan analysis to message history"""
+		if not plan:
+			return
+		
+		# Convert TaskPlanOutput to formatted string
+		plan_str = (
+			"Here's the plan I've created for this task:\n\n"
+			"Analysis:\n"
+			f"- Summary: {plan.analysis.task_summary}\n"
+			f"- Tags: {', '.join(plan.analysis.tags)}\n"
+			f"- Difficulty: {plan.analysis.difficulty}/10\n"
+			f"- Potential Challenges: {', '.join(plan.analysis.potential_challenges)}\n\n"
+			"Execution Plan:\n"
+			f"- Steps:\n  - " + "\n  - ".join(plan.execution.steps) + "\n"
+			f"- Success Criteria: {plan.execution.success_criteria}\n"
+			f"- Fallback Strategies:\n  - " + "\n  - ".join(plan.execution.fallback_strategies)
+		)
+		
+		self._add_message_with_tokens(
+			AIMessage(content=plan_str)
+		)
 
 	@time_execution_sync('--get_messages')
 	def get_messages(self) -> List[BaseMessage]:

@@ -1,0 +1,166 @@
+---
+title: 'Task Memory'
+description: 'Learn how to use task memory to improve agent performance through learning from past executions'
+---
+
+# Task Memory
+
+Task Memory allows the agent to learn from previous task executions and reuse successful patterns. It stores task executions in a vector database (Qdrant) and uses semantic similarity to find and adapt similar tasks.
+
+## Benefits
+
+1. **Improved Efficiency**
+   - Reuses successful execution patterns
+   - Reduces redundant planning for similar tasks
+   - Minimizes LLM token usage by adapting existing solutions
+
+2. **Better Reliability**
+   - Learns from successful executions
+   - Avoids repeating failed approaches
+   - Uses proven action sequences
+
+3. **Intelligent Adaptation**
+   - Automatically identifies similar tasks
+   - Adapts previous solutions to new contexts
+   - Maintains successful patterns while updating necessary details
+
+4. **Quality Control**
+   - Detects and prevents hallucinations in plans
+   - Verifies semantic relevance of steps
+   - Provides fallback strategies from similar tasks
+
+5. **Performance Optimization**
+   - Stores execution metrics for analysis
+   - Tracks success rates and error patterns
+   - Helps identify most effective approaches
+
+## Configuration
+
+Task memory is configured through the `TaskMemoryConfig` class:
+
+```python
+from browser_use.agent.task.views import TaskMemoryConfig
+
+memory_config = TaskMemoryConfig(
+    # Vector DB Configuration
+    use_local_qdrant=True,                  # Whether to use local Qdrant instance
+    local_qdrant_path='./qdrant_storage',   # Path for local storage
+    qdrant_url=None,                        # URL for remote Qdrant (if not local)
+    qdrant_api_key=None,                    # API key for remote Qdrant
+
+    # Similarity Thresholds
+    adaptation_threshold=0.92,              # Threshold for direct task adaptation (0.0-1.0)
+    context_threshold=0.5,                  # Threshold for finding similar tasks for context (0.0-1.0)
+
+    # Hallucination Prevention
+    retry_on_hallucination=False,           # Whether to retry if hallucinations detected in plan
+)
+```
+
+### Configuration Fields
+
+#### Vector Database Settings
+- `use_local_qdrant` (bool, default=False): Whether to use a local Qdrant instance
+- `local_qdrant_path` (str, optional): Path to local Qdrant storage directory
+- `qdrant_url` (str, optional): URL for remote Qdrant instance
+- `qdrant_api_key` (str, optional): API key for remote Qdrant instance
+
+#### Similarity Thresholds
+- `adaptation_threshold` (float, default=0.92): Minimum similarity score required to directly adapt a previous task's actions. Higher values mean stricter matching.
+  - 0.92-1.0: Nearly identical tasks
+  - 0.85-0.92: Very similar tasks with minor variations
+  - Below 0.85: Too different for direct adaptation
+
+- `context_threshold` (float, default=0.5): Minimum similarity score for finding tasks to use as context.
+  - 0.7-1.0: Highly similar tasks
+  - 0.5-0.7: Related tasks with useful patterns
+  - Below 0.5: Too different to provide useful context
+
+## Setup Options
+
+### Using Cloud Qdrant
+
+1. Sign up at [Qdrant Cloud](https://cloud.qdrant.io/)
+2. Create a new cluster
+3. Get your credentials from the dashboard:
+   - API key
+   - URL (looks like: `https://xxx-xxx-xxx.aws.cloud.qdrant.io`)
+4. Add them to your `.env` file:
+   ```bash
+   QDRANT_URL=https://xxx-xxx-xxx.aws.cloud.qdrant.io
+   QDRANT_API_KEY=your_api_key_here
+   ```
+
+### Using Local Qdrant
+
+1. First, install Qdrant locally using Docker:
+```bash
+# Pull Qdrant image
+docker pull qdrant/qdrant
+
+# Run Qdrant container
+docker run -p 6333:6333 \
+    -v /absolute/path/to/qdrant_storage:/qdrant/storage \
+    qdrant/qdrant
+```
+
+> **Note**: Make sure to use an absolute path for the storage volume
+
+## Example Usage
+
+```python
+from browser_use import Agent
+from browser_use.agent.task.views import TaskMemoryConfig
+
+# Configure task memory
+memory_config = TaskMemoryConfig(
+    use_local_qdrant=True,
+    local_qdrant_path='./qdrant_storage',
+    adaptation_threshold=0.92,  # Strict matching for adaptation
+    context_threshold=0.5,      # Broader matching for context
+    retry_on_hallucination=True # Enable hallucination prevention
+)
+
+# Create agent with task memory
+agent = Agent(
+    task="Go to amazon.com and search for laptop",
+    llm=llm,
+    task_memory_config=memory_config
+)
+
+# Run agent
+await agent.run()
+```
+
+## Best Practices
+
+1. **Choose the Right Setup**:
+   - Use cloud for production (better reliability)
+   - Use local for development and testing
+
+2. **Security**:
+   - Never commit API keys to version control
+   - Use environment variables for sensitive data
+   - Keep your local storage path secure
+
+3. **Maintenance**:
+   - Regularly backup your local Qdrant storage
+   - Monitor storage usage in cloud deployments
+   - Clean up old or irrelevant task data periodically
+
+## Troubleshooting
+
+Common issues and solutions:
+
+1. **Connection Failed**:
+   - For cloud: Verify API key and URL
+   - For local: Check if Qdrant is running on port 6333
+
+2. **Storage Issues**:
+   - Check disk space for local storage
+   - Verify write permissions
+   - Ensure valid storage path
+
+3. **No Similar Tasks Found**:
+   - This is normal for unique tasks
+   - The agent will create a new plan using the LLM 
