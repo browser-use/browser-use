@@ -95,7 +95,7 @@ class BrowserContextConfig:
 	    user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36'
 	        custom user agent to use.
 
-	    highlight_elements: True
+	    highlight_elements: False
 	        Highlight elements in the DOM on the screen
 
 	    viewport_expansion: 500
@@ -128,7 +128,7 @@ class BrowserContextConfig:
 		'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36  (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36'
 	)
 
-	highlight_elements: bool = True
+	highlight_elements: bool = False
 	viewport_expansion: int = 500
 	allowed_domains: list[str] | None = None
 	include_dynamic_attributes: bool = True
