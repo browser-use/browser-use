@@ -122,6 +122,7 @@ class BrowserContextConfig:
 
 	save_recording_path: str | None = None
 	save_downloads_path: str | None = None
+	save_har_path: str | None = None
 	trace_path: str | None = None
 	locale: str | None = None
 	user_agent: str = (
@@ -325,6 +326,7 @@ class BrowserContext:
 				ignore_https_errors=self.config.disable_security,
 				record_video_dir=self.config.save_recording_path,
 				record_video_size=self.config.browser_window_size,
+				record_har_path = self.config.save_har_path,
 				locale=self.config.locale,
 			)
 
