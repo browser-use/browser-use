@@ -11,7 +11,7 @@ from langchain_core.messages import (
 	ToolMessage,
 )
 from pydantic import BaseModel
-
+from mem0 import Memory
 from browser_use.agent.message_manager.views import MessageMetadata
 from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.agent.views import ActionResult, AgentOutput, AgentStepInfo, MessageManagerState
@@ -29,6 +29,7 @@ class MessageManagerSettings(BaseModel):
 	message_context: Optional[str] = None
 	sensitive_data: Optional[Dict[str, str]] = None
 	available_file_paths: Optional[List[str]] = None
+	memory_config: Optional[dict] | None = None
 
 
 class MessageManager:
@@ -43,7 +44,6 @@ class MessageManager:
 		self.settings = settings
 		self.state = state
 		self.system_prompt = system_message
-
 		# Only initialize messages if state is empty
 		if len(self.state.history.messages) == 0:
 			self._init_messages()
@@ -304,3 +304,15 @@ class MessageManager:
 		msg = ToolMessage(content=content, tool_call_id=str(self.state.tool_id))
 		self.state.tool_id += 1
 		self._add_message_with_tokens(msg)
+
+	def add_user_long_term_memory(self, user_id: str) -> None:
+		"""Add user long term memory of the user to history"""
+		default_config = {"vector_store": {"provider": "chroma", "config": {"path": "/tmp/mem0"}}}
+		config = self.settings.memory_config or default_config
+		memory_store = Memory.from_config(config_dict=config)
+		if user_id:
+			memories = memory_store.get_all(user_id=user_id)
+			if memories.get('results'):
+				memories_str = "\n".join([f'- {m["memory"]}' for m in memories['results']])  # type: ignore
+			msg = HumanMessage(content=f'User\'s long-term memories:\n{memories_str}')
+			self._add_message_with_tokens(msg)

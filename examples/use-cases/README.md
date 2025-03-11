@@ -2,6 +2,7 @@
 
 | File Name | Description |
 |-----------|------------|
+| `personal_travel_planner.py` | A travel planner agent that uses memory to remember user preferences and plans trips accordingly. |
 | `captcha.py` | Automates CAPTCHA solving on a demo website. |
 | `check_appointment.py` | Checks for available visa appointment slots on the Greece MFA website. |
 | `find_and_apply_to_jobs.py` | Searches for job listings, evaluates relevance based on a CV, and applies automatically. |
@@ -10,6 +11,3 @@
 | `scrolling_page.py` | Automates webpage scrolling with various scrolling actions and text search functionality. |
 | `twitter_post_using_cookies.py` | Automates posting on X (Twitter) using stored authentication cookies. |
 | `web_voyager_agent.py` | A general-purpose web navigation agent for tasks like flight booking and course searching. |
-
-
-
