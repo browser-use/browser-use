@@ -658,6 +658,31 @@ class BrowserContext:
 			await self.switch_to_tab(0)
 
 		# otherwise the browser will be closed
+				
+	async def close_intermediate_tabs(self):
+		"""Closes all but the last opened tab."""
+		session = await self.get_session()
+		context = session.context
+
+		# Check if there are multiple pages
+		if len(context.pages) <= 1:
+			return  # No intermediate tabs to close
+
+		# Keep track of the last page
+		last_page = context.pages[-1] if context.pages else None
+
+		# Close all other pages except the last one
+		for page in context.pages[:-1]:
+			try:
+				if not page.is_closed():  # Ensure page is still open before closing
+					await page.close()
+					logger.debug(f'Closed intermediate tab')
+			except Exception as e:
+				logger.warning(f'Failed to close tab: {str(e)}')
+
+		# Update the current page only if last_page exists
+		if last_page and not last_page.is_closed():
+			session.current_page = last_page
 
 	async def get_page_html(self) -> str:
 		"""Get the current page HTML content"""
