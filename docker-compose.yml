@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    ports:
+      - "18000:18000"
+    environment:
+      - API_PORT=18000
+      - API_HOST=0.0.0.0
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - FASTEST_HOST=${FASTEST_HOST}
+      - SELF_HOST=${SELF_HOST}
+    volumes:
+      - .:/app
+    restart: unless-stopped 
