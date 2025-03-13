@@ -119,6 +119,7 @@ class BrowserContextConfig:
 
 	browser_window_size: BrowserContextWindowSize = field(default_factory=lambda: {'width': 1280, 'height': 1100})
 	no_viewport: Optional[bool] = None
+	full_page_screenshots: bool = False
 
 	save_recording_path: str | None = None
 	save_downloads_path: str | None = None
@@ -782,7 +783,7 @@ class BrowserContext:
 				highlight_elements=self.config.highlight_elements,
 			)
 
-			screenshot_b64 = await self.take_screenshot()
+			screenshot_b64 = await self.take_screenshot(full_page=self.config.full_page_screenshots)
 			pixels_above, pixels_below = await self.get_scroll_info(page)
 
 			self.current_state = BrowserState(
