@@ -1125,7 +1125,7 @@ class BrowserContext:
 				and navigation scenarios."""
 				if self.config.save_downloads_path:
 					try:
-						# Try short-timeout expect_download to detect a file download has been been triggered
+						# Try short-timeout expect_download to detect a file download has been triggered
 						async with page.expect_download(timeout=5000) as download_info:
 							await click_func()
 						download = await download_info.value

@@ -40,7 +40,7 @@ async def done(text: str) -> str:
 
 
 agent = Agent(
-	task='call explain_screen all the time the user asks you questions e.g. about the page like bbox which you see are labels  - your task is to expalin it and get the next question',
+	task='call explain_screen all the time the user asks you questions e.g. about the page like bbox which you see are labels  - your task is to explain it and get the next question',
 	llm=llm,
 	controller=controller,
 	browser=Browser(config=BrowserConfig(disable_security=True, headless=False)),
