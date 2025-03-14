@@ -190,5 +190,5 @@ https://github.com/user-attachments/assets/de73ee39-432c-4b97-b4e8-939fd7f323b3
  </div>
 
 <div align="center">
-用❤️打造于苏黎世与旧金山
+用❤️在苏黎世与旧金山构建
  </div>
