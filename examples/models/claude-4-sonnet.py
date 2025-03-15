@@ -12,11 +12,15 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from dotenv import load_dotenv
 from lmnr import Laminar
 
+import lucidicai as lai
+
 load_dotenv()
 Laminar.initialize()
 
 from browser_use import Agent
 from browser_use.llm import ChatAnthropic
+
+lai.init("Amazon Search")
 
 llm = ChatAnthropic(model='claude-4-sonnet-20250514', temperature=0.0)
 
@@ -27,7 +31,10 @@ agent = Agent(
 
 
 async def main():
+	handler = lai.LucidicLangchainHandler()
+	handler.attach_to_llms(agent)
 	await agent.run(max_steps=10)
+	lai.end_session()
 
 
 asyncio.run(main())

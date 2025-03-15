@@ -16,11 +16,15 @@ Laminar.initialize()
 from browser_use import Agent
 from browser_use.llm import ChatGroq
 
+import lucidicai as lai
+
 groq_api_key = os.environ.get('GROQ_API_KEY')
 llm = ChatGroq(
 	model='meta-llama/llama-4-maverick-17b-128e-instruct',
 	# temperature=0.1,
 )
+
+lai.init("Broseruse founders")
 
 # llm = ChatGroq(
 # 	model='meta-llama/llama-4-maverick-17b-128e-instruct',
@@ -36,7 +40,12 @@ async def main():
 		task=task,
 		llm=llm,
 	)
+	handler = lai.LucidicLangchainHandler()
+	handler.attach_to_llms(agent)
 	await agent.run()
+	
+	lai.end_session()
+
 
 
 if __name__ == '__main__':

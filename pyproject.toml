@@ -36,6 +36,7 @@ dependencies = [
     "anthropic>=0.54.0",
     "groq>=0.28.0",
     "ollama>=0.5.1",
+    "lucidicai>=1.2.15",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
