@@ -12,8 +12,11 @@ from lmnr import Laminar
 from browser_use import Agent
 from browser_use.llm import ChatOpenAI
 
+import lucidicai as lai
+
 load_dotenv()
 
+lai.init("Example search")
 
 Laminar.initialize()
 
@@ -26,8 +29,13 @@ agent = Agent(
 
 
 async def main():
+	handler = lai.LucidicLangchainHandler()
+	handler.attach_to_llms(agent)
 	await agent.run(max_steps=10)
 	input('Press Enter to continue...')
+
+	lai.end_session()
+
 
 
 asyncio.run(main())
