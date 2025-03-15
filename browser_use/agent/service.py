@@ -52,6 +52,8 @@ from browser_use.telemetry.views import (
 )
 from browser_use.utils import time_execution_async, time_execution_sync
 
+import lucidicai as lai
+
 load_dotenv()
 logger = logging.getLogger(__name__)
 
@@ -219,6 +221,10 @@ class Agent(Generic[Context]):
 		# Telemetry
 		self.telemetry = ProductTelemetry()
 
+		# Lucidic AI
+		self.nextgoal = None
+		self.lucidic_step_history = []
+
 		if self.settings.save_conversation_path:
 			logger.info(f'Saving conversation to {self.settings.save_conversation_path}')
 
@@ -330,7 +336,7 @@ class Agent(Generic[Context]):
 		result: list[ActionResult] = []
 		step_start_time = time.time()
 		tokens = 0
-
+		self.lucidic_step_history.append(lai.create_step(goal=self.nextgoal))
 		try:
 			state = await self.browser_context.get_state()
 
@@ -359,6 +365,12 @@ class Agent(Generic[Context]):
 
 			try:
 				model_output = await self.get_next_action(input_messages)
+
+				if len(self.lucidic_step_history) > 1:
+					self.lucidic_step_history[-2].update_step(
+						eval_description=model_output.current_state.evaluation_previous_goal,
+						is_successful=("Success" in model_output.current_state.evaluation_previous_goal[:15])
+					)
 
 				self.state.n_steps += 1
 
@@ -423,6 +435,20 @@ class Agent(Generic[Context]):
 					input_tokens=tokens,
 				)
 				self._make_history_item(model_output, state, result, metadata)
+
+			if model_output is not None:
+				lai.end_step(
+					is_successful=(self.state.consecutive_failures == 0),
+					state=model_output.current_state.memory,
+					action=str([action.model_dump(exclude_unset=True) for action in model_output.action]),
+					screenshot=state.screenshot if state else None,
+				)
+			else:
+				lai.end_step(
+					is_successful=False,
+				)
+
+			self.nextgoal = model_output.current_state.next_goal if model_output else None
 
 	@time_execution_async('--handle_step_error (agent)')
 	async def _handle_step_error(self, error: Exception) -> list[ActionResult]:
