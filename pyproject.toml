@@ -35,6 +35,10 @@ dependencies = [
     "psutil>=7.0.0",
     "faiss-cpu>=1.9.0",
     "mem0ai==0.1.93",
+    "rich>=14.0.0",
+    "click>=8.1.8",
+    "textual>=3.2.0",
+    "lucidicai",
 ]
 # pydantic: >2.11 introduces many pydantic deprecation warnings until langchain-core upgrades their pydantic support lets keep it on 2.10
 # google-api-core: only used for Google LLM APIs
