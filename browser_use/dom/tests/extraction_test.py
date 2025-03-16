@@ -42,7 +42,7 @@ async def test_process_html_file():
 				print(f'\n{description}:')
 				dom_state = await time_execution_sync(f'get_clickable_elements ({description})')(
 					dom_service.get_clickable_elements
-				)(highlight_elements=True, viewport_expansion=expansion)
+				)(highlight_elements=False, viewport_expansion=expansion)
 
 				elements = dom_state.element_tree
 				selector_map = dom_state.selector_map
