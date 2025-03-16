@@ -58,6 +58,7 @@ class AgentSettings(BaseModel):
 	page_extraction_llm: Optional[BaseChatModel] = None
 	planner_llm: Optional[BaseChatModel] = None
 	planner_interval: int = 1  # Run planner every N steps
+	memory_config: Optional[dict] | None = None
 
 
 class AgentState(BaseModel):

@@ -128,6 +128,8 @@ class Agent(Generic[Context]):
 		injected_agent_state: Optional[AgentState] = None,
 		#
 		context: Context | None = None,
+		user_id: str | None = None,
+		memory_config: dict | None = None,
 	):
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
@@ -136,6 +138,7 @@ class Agent(Generic[Context]):
 		self.task = task
 		self.llm = llm
 		self.controller = controller
+		self.user_id = user_id
 		self.sensitive_data = sensitive_data
 
 		self.settings = AgentSettings(
@@ -158,6 +161,7 @@ class Agent(Generic[Context]):
 			page_extraction_llm=page_extraction_llm,
 			planner_llm=planner_llm,
 			planner_interval=planner_interval,
+			memory_config=memory_config,
 		)
 
 		# Initialize state
@@ -192,9 +196,13 @@ class Agent(Generic[Context]):
 				message_context=self.settings.message_context,
 				sensitive_data=sensitive_data,
 				available_file_paths=self.settings.available_file_paths,
+				memory_config=self.settings.memory_config,
 			),
 			state=self.state.message_manager_state,
 		)
+
+		if self.user_id:
+			self._message_manager.add_user_long_term_memory(self.user_id)
 
 		# Browser setup
 		self.injected_browser = browser is not None
