@@ -1137,3 +1137,77 @@ class BrowserContext:
 			screenshot=None,
 			tabs=[],
 		)
+
+	async def click_element(self, element_idx: int):
+		"""Click on an element based on its index."""
+		session = await self.get_session()
+		page = session.current_page
+		
+		# Log what we're trying to click
+		logger.debug(f"Attempting to click element with index {element_idx}")
+		
+		# Get the element from the selector map
+		element_node = session.cached_state.selector_map.get(element_idx)
+		if not element_node:
+			logger.error(f"Element with index {element_idx} not found in selector map")
+			raise BrowserError(f'Element with index {element_idx} not found')
+		
+		logger.debug(f"Found element in selector map: {element_node.tag_name} with XPath: {element_node.xpath}")
+		
+		# If the element is in an iframe or frame, log this
+		if "frame" in element_node.xpath or "iframe" in element_node.xpath:
+			logger.debug(f"Element appears to be in a frame. XPath: {element_node.xpath}")
+		
+		try:
+			# Log the locator we're using
+			logger.debug(f"Using XPath to locate element: {element_node.xpath}")
+			
+			# Attempt the click
+			await page.click(f"xpath={element_node.xpath}")
+			logger.debug(f"Successfully clicked element {element_idx}")
+			
+			# Wait for network to stabilize and update state
+			await self._wait_for_stable_network()
+			await self._update_state()
+			
+			return True
+		except Exception as e:
+			logger.error(f"Failed to click element {element_idx}: {str(e)}")
+			
+			# Try an alternative approach for frames
+			if "frame" in element_node.xpath or "iframe" in element_node.xpath:
+				logger.debug("Attempting alternative frame handling approach")
+				try:
+					# Log our alternative strategy
+					logger.debug("Trying to evaluate JavaScript to find and click the element")
+					
+					# Try direct JavaScript approach
+					result = await page.evaluate(f"""
+						(() => {{
+							const frameElements = document.querySelectorAll('iframe, frame');
+							for (const frame of frameElements) {{
+								try {{
+									if (frame.contentDocument) {{
+										const element = frame.contentDocument.querySelector('a[href*="clientsummary.esp"]');
+										if (element) {{
+											element.click();
+											return true;
+										}}
+									}}
+								}} catch (e) {{
+									console.error('Frame access error:', e);
+								}}
+							}}
+							return false;
+						}})()
+					""")
+					logger.debug(f"JavaScript click approach result: {result}")
+					
+					if result:
+						await self._wait_for_stable_network()
+						await self._update_state()
+						return True
+				except Exception as js_error:
+					logger.error(f"Alternative frame click also failed: {str(js_error)}")
+				
+			raise BrowserError(f'Failed to click on element {element_idx}: {str(e)}')

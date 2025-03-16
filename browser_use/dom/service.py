@@ -17,11 +17,15 @@ from browser_use.dom.views import (
 
 logger = logging.getLogger(__name__)
 
+# Set this to make sure logs appear
+logger.setLevel(logging.DEBUG)
+
 
 class DomService:
 	def __init__(self, page: Page):
 		self.page = page
 		self.xpath_cache = {}
+		logger.debug("DomService initialized with page")
 
 	# region - Clickable elements
 	async def get_clickable_elements(
@@ -30,10 +34,19 @@ class DomService:
 		focus_element: int = -1,
 		viewport_expansion: int = 0,
 	) -> DOMState:
+		logger.debug(f"Getting clickable elements. highlight={highlight_elements}, focus={focus_element}")
 		element_tree = await self._build_dom_tree(highlight_elements, focus_element, viewport_expansion)
+		logger.debug(f"DOM tree built with {self._count_elements(element_tree)} nodes")
 		selector_map = self._create_selector_map(element_tree)
+		logger.debug(f"Selector map created with {len(selector_map)} elements")
 
 		return DOMState(element_tree=element_tree, selector_map=selector_map)
+
+	def _count_elements(self, node: DOMBaseNode) -> int:
+		"""Count elements for debugging"""
+		if not isinstance(node, DOMElementNode):
+			return 0
+		return 1 + sum(self._count_elements(child) for child in node.children)
 
 	async def _build_dom_tree(
 		self,
@@ -42,6 +55,7 @@ class DomService:
 		viewport_expansion: int,
 	) -> DOMElementNode:
 		js_code = resources.read_text('browser_use.dom', 'buildDomTree.js')
+		logger.debug(f"Executing buildDomTree.js with highlight={highlight_elements}, focus={focus_element}")
 
 		args = {
 			'doHighlightElements': highlight_elements,
@@ -49,10 +63,13 @@ class DomService:
 			'viewportExpansion': viewport_expansion,
 		}
 
-		eval_page = await self.page.evaluate(js_code, args)  # This is quite big, so be careful
+		eval_page = await self.page.evaluate(js_code, args)
+		logger.debug(f"DOM tree data received, size: {len(str(eval_page))} characters")
+		
 		html_to_dict = self._parse_node(eval_page)
 
 		if html_to_dict is None or not isinstance(html_to_dict, DOMElementNode):
+			logger.error("Failed to parse HTML to dictionary")
 			raise ValueError('Failed to parse HTML to dictionary')
 
 		return html_to_dict
@@ -64,11 +81,13 @@ class DomService:
 			if isinstance(node, DOMElementNode):
 				if node.highlight_index is not None:
 					selector_map[node.highlight_index] = node
+					logger.debug(f"Added to selector map: idx={node.highlight_index}, tag={node.tag_name}, xpath={node.xpath}")
 
 				for child in node.children:
 					process_node(child)
 
 		process_node(element_tree)
+		logger.debug(f"Created selector map with {len(selector_map)} elements")
 		return selector_map
 
 	def _parse_node(
@@ -79,6 +98,14 @@ class DomService:
 		if not node_data:
 			return None
 
+		# Log interesting XPaths especially ones involving frames
+		if node_data.get('xpath') and ('frame' in node_data.get('xpath') or 'iframe' in node_data.get('xpath')):
+			logger.debug(f"Frame-related XPath: {node_data.get('xpath')}")
+			
+		# Log interactive elements
+		if node_data.get('isInteractive') and node_data.get('isVisible') and node_data.get('isTopElement'):
+			logger.debug(f"Interactive element: {node_data.get('tagName')} - highlight={node_data.get('highlightIndex')}, xpath={node_data.get('xpath')}")
+
 		if node_data.get('type') == 'TEXT_NODE':
 			text_node = DOMTextNode(
 				text=node_data['text'],
@@ -88,6 +115,12 @@ class DomService:
 			return text_node
 
 		tag_name = node_data['tagName']
+		
+		# Log frame elements
+		if tag_name in ['iframe', 'frame', 'frameset']:
+			logger.debug(f"Processing {tag_name} element with xpath: {node_data.get('xpath')}")
+			if 'frameContent' in node_data:
+				logger.debug(f"Frame content: {node_data['frameContent']}")
 
 		# Parse coordinates if they exist
 		viewport_coordinates = None
