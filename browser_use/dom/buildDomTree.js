@@ -250,6 +250,16 @@
             return false;
         }
 
+        // Add check for interactive children
+        const hasInteractiveChild = Array.from(element.children).some(child => 
+            isInteractiveElement(child)
+        );
+
+        // If element has an interactive child, it should not be considered interactive itself
+        if (hasInteractiveChild) {
+            return false;
+        }
+
         return hasAriaProps ||
             // hasClickStyling ||
             hasClickHandler ||
@@ -524,18 +534,84 @@
             nodeData.children.push(...shadowChildren);
         }
 
-        // Handle iframes
-        if (node.tagName === 'IFRAME') {
+        // Handle frames and framesets
+        if (node.tagName === 'IFRAME' || node.tagName === 'FRAME' || node.tagName === 'FRAMESET') {
             try {
-                const iframeDoc = node.contentDocument || node.contentWindow.document;
-                if (iframeDoc) {
-                    const iframeChildren = Array.from(iframeDoc.body.childNodes).map(child =>
-                        buildDomTree(child, node)
-                    );
-                    nodeData.children.push(...iframeChildren);
+                let frameDoc;
+                if (node.tagName === 'FRAMESET') {
+                    // Handle framesets by processing all frame children
+                    const frameElements = Array.from(node.getElementsByTagName('frame'));
+                    nodeData.frameContent = {
+                        type: 'frameset',
+                        accessible: true,
+                        frames: frameElements.length
+                    };
+                    
+                    // Process each frame in the frameset
+                    for (const frameElement of frameElements) {
+                        try {
+                            const childFrameDoc = frameElement.contentDocument || frameElement.contentWindow?.document;
+                            if (childFrameDoc?.body) {
+                                // Create a node data object for the frame itself
+                                const frameNodeData = {
+                                    tagName: frameElement.tagName.toLowerCase(),
+                                    attributes: {},
+                                    children: []
+                                };
+
+                                // Check if the frame itself is interactive
+                                const isInteractive = isInteractiveElement(frameElement);
+                                const isVisible = isElementVisible(frameElement);
+                                const isTop = isTopElement(frameElement);
+
+                                if (isInteractive && isVisible && isTop) {
+                                    frameNodeData.highlightIndex = highlightIndex++;
+                                    if (doHighlightElements) {
+                                        if (focusHighlightIndex >= 0) {
+                                            if (focusHighlightIndex === frameNodeData.highlightIndex) {
+                                                highlightElement(frameElement, frameNodeData.highlightIndex, parentIframe);
+                                            }
+                                        } else {
+                                            highlightElement(frameElement, frameNodeData.highlightIndex, parentIframe);
+                                        }
+                                    }
+                                }
+
+                                // Process frame contents
+                                const frameChildren = Array.from(childFrameDoc.body.childNodes).map(child =>
+                                    buildDomTree(child, frameElement)
+                                );
+                                frameNodeData.children.push(...frameChildren);
+                                
+                                // Add the frame's node data to the parent's children
+                                nodeData.children.push(frameNodeData);
+                            }
+                        } catch (frameErr) {
+                            console.warn(`Unable to access frame in frameset:`, frameErr);
+                        }
+                    }
+                } else {
+                    // Handle individual frames and iframes
+                    frameDoc = node.contentDocument || node.contentWindow?.document;
+                    if (frameDoc?.body) {
+                        nodeData.frameContent = {
+                            type: node.tagName.toLowerCase(),
+                            src: node.getAttribute('src'),
+                            accessible: true
+                        };
+                        const frameChildren = Array.from(frameDoc.body.childNodes).map(child =>
+                            buildDomTree(child, node)
+                        );
+                        nodeData.children.push(...frameChildren);
+                    }
                 }
             } catch (e) {
-                console.warn('Unable to access iframe:', node);
+                nodeData.frameContent = {
+                    type: node.tagName.toLowerCase(),
+                    src: node.getAttribute('src'),
+                    accessible: false,
+                    error: 'Cross-origin access denied'
+                };
             }
         } else {
             const children = Array.from(node.childNodes).map(child =>
