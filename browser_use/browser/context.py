@@ -311,7 +311,7 @@ class BrowserContext:
 		"""Creates a new browser context with anti-detection measures and loads cookies if available."""
 		if self.browser.config.cdp_url and len(browser.contexts) > 0:
 			context = browser.contexts[0]
-		elif self.browser.config.chrome_instance_path and len(browser.contexts) > 0:
+		elif self.browser.config.browser_instance_path and len(browser.contexts) > 0:
 			# Connect to existing Chrome instance instead of creating new one
 			context = browser.contexts[0]
 		else:
