@@ -908,10 +908,32 @@ class BrowserContext:
 				
 			logger.debug(f"Frame context updated: {current_context}")
 		
-		# Now find element in final frame context
+		# Now find element in final frame context using a more specific selector
 		try:
-			logger.debug(f"\nLocating element using XPath: {element.xpath}")
-			element_handle = await current_context.locator(f"xpath={element.xpath}").element_handle()
+			# Try ID first if available
+			if element.attributes.get('id'):
+				logger.debug(f"Locating by ID: #{element.attributes['id']}")
+				element_handle = await current_context.locator(f"#{element.attributes['id']}").element_handle()
+			# Try name attribute next
+			elif element.attributes.get('name'):
+				logger.debug(f"Locating by name: [name='{element.attributes['name']}']")
+				element_handle = await current_context.locator(f"[name='{element.attributes['name']}']").element_handle()
+			# Try role and name combination for buttons
+			elif element.tag_name.lower() in ['button', 'input']:
+				value = element.attributes.get('value', '')
+				logger.debug(f"Locating button by role and name: {value}")
+				element_handle = await current_context.get_by_role("button", name=value).element_handle()
+			# Fallback to XPath but make it more specific
+			else:
+				logger.debug(f"Locating using XPath with additional attributes")
+				# Build a more specific XPath using available attributes
+				xpath = element.xpath
+				for attr, value in element.attributes.items():
+					if attr in ['id', 'name', 'value', 'type']:
+						xpath = f"{xpath}[@{attr}='{value}']"
+				logger.debug(f"Enhanced XPath: {xpath}")
+				element_handle = await current_context.locator(f"xpath={xpath}").element_handle()
+			
 			logger.debug("Element found successfully")
 			return element_handle
 		except Exception as e:
