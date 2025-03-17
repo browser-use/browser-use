@@ -107,6 +107,28 @@ class DOMElementNode(DOMBaseNode):
 		"""Convert the processed DOM content to HTML."""
 		formatted_text = []
 
+		# Add frame identification section at the beginning
+		frames = []
+		def collect_frames(node):
+			if isinstance(node, DOMElementNode) and node.is_frame_boundary:
+				frame_id = node.attributes.get('id', '')
+				frame_name = node.attributes.get('name', '')
+				frame_type = node.tag_name
+				identifier = frame_id or frame_name or f"{frame_type}_{node.highlight_index}"
+				frames.append(f"[Frame: {identifier}] ({frame_type}{' id=\"'+frame_id+'\"' if frame_id else ''}{' name=\"'+frame_name+'\"' if frame_name else ''})")
+			
+			# Only DOMElementNode has children to process
+			if isinstance(node, DOMElementNode):
+				for child in node.children:
+					collect_frames(child)
+		
+		collect_frames(self)
+		
+		# Initialize result variable unconditionally
+		result = ""
+		if frames:
+			result = "Available frames for scrolling:\n" + "\n".join(frames) + "\n\n"
+
 		def process_node(node: DOMBaseNode, depth: int) -> None:
 			if isinstance(node, DOMElementNode):
 				# Add element with highlight_index
@@ -130,7 +152,8 @@ class DOMElementNode(DOMBaseNode):
 					formatted_text.append(f'[]{node.text}')
 
 		process_node(self, 0)
-		return '\n'.join(formatted_text)
+		result += '\n'.join(formatted_text)
+		return result
 
 	def get_file_upload_element(self, check_siblings: bool = True) -> Optional['DOMElementNode']:
 		# Check if current element is a file input

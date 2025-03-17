@@ -142,7 +142,12 @@ Notes:
 Functions:
 {self.default_action_description}
 
-Remember: Your responses must be valid JSON matching the specified format. Each action in the sequence must be valid."""
+Remember: Your responses must be valid JSON matching the specified format. Each action in the sequence must be valid.
+
+You can:
+- Scroll the page or a specific frame
+
+"""
 		return SystemMessage(content=AGENT_PROMPT)
 
 

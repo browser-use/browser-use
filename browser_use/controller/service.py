@@ -182,43 +182,247 @@ class Controller:
 				return ActionResult(extracted_content=msg)
 
 		@self.registry.action(
-			'Scroll down the page by pixel amount - if no amount is specified, scroll down one page',
+			'Scroll down the page or a specific frame by pixel amount - if no amount is specified, scroll down one page',
 			param_model=ScrollAction,
 		)
 		async def scroll_down(params: ScrollAction, browser: BrowserContext):
 			page = await browser.get_current_page()
-			if params.amount is not None:
-				await page.evaluate(f'window.scrollBy(0, {params.amount});')
-			else:
-				await page.keyboard.press('PageDown')
-
-			amount = f'{params.amount} pixels' if params.amount is not None else 'one page'
-			msg = f'🔍  Scrolled down the page by {amount}'
-			logger.info(msg)
-			return ActionResult(
-				extracted_content=msg,
-				include_in_memory=True,
-			)
+			
+			# More robust script with proper error handling, waiting, and fallbacks
+			script = """
+			async (args) => {
+				// Helper to safely get computed heights
+				function safeGetHeight(win) {
+					try {
+						return win.document.body.scrollHeight || 
+							   win.document.documentElement.scrollHeight || 
+							   win.innerHeight;
+					} catch (e) {
+						return win.innerHeight || 600; // Fallback height
+					}
+				}
+				
+				// Wait for frames to be accessible
+				await new Promise(r => setTimeout(r, 300));
+				
+				if (args.frameId) {
+					// Find the frame (with multiple strategies)
+					let frame = null;
+					
+					// Method 1: Direct ID
+					try { frame = document.getElementById(args.frameId); } catch (e) {}
+					
+					// Method 2: Name
+					if (!frame) {
+						try {
+							frame = Array.from(document.querySelectorAll('iframe, frame'))
+								.find(f => f.name === args.frameId);
+						} catch (e) {}
+					}
+					
+					// Method 3: Try a CSS selector
+					if (!frame) {
+						try {
+							frame = document.querySelector(args.frameId);
+						} catch (e) {}
+					}
+					
+					// If frame found, scroll it with retries
+					if (frame) {
+						let scrolled = false;
+						let retries = 0;
+						
+						while (!scrolled && retries < 3) {
+							try {
+								// Wait for frame to be fully loaded
+								await new Promise(r => setTimeout(r, 100 * (retries + 1)));
+								
+								if (!frame.contentWindow) {
+									return { 
+										success: false, 
+										error: 'Frame has no content window - might be cross-origin restricted' 
+									};
+								}
+								
+								// Get scroll amount (default: 80% of frame height for more reliable scrolling)
+								const frameWin = frame.contentWindow;
+								const amount = args.amount !== null ? 
+									args.amount : 
+									Math.floor(frameWin.innerHeight * 0.8);
+								
+								// Get current position to verify scroll worked
+								const beforeScroll = frameWin.scrollY || 0;
+								
+								// Execute scroll
+								frameWin.scrollBy({
+									top: amount,
+									behavior: 'auto'  // Use 'auto' instead of 'smooth' for reliability
+								});
+								
+								// Small delay to allow scroll to complete
+								await new Promise(r => setTimeout(r, 100));
+								
+								// Verify scroll occurred
+								const afterScroll = frameWin.scrollY || 0;
+								scrolled = (afterScroll > beforeScroll) || 
+										  (beforeScroll >= safeGetHeight(frameWin) - frameWin.innerHeight);
+									  
+								if (scrolled) {
+									return { 
+										success: true, 
+										context: 'frame', 
+										id: frame.id || frame.name || 'unnamed frame',
+										scrollAmount: afterScroll - beforeScroll,
+										scrollMax: afterScroll >= safeGetHeight(frameWin) - frameWin.innerHeight
+									};
+								}
+							} catch (e) {
+								retries++;
+								if (retries >= 3) {
+									return { 
+										success: false, 
+										error: `Frame access error: ${e.toString()}. This may be due to cross-origin restrictions.` 
+									};
+								}
+							}
+						}
+						
+						return { 
+							success: false, 
+							error: 'Failed to scroll frame after multiple attempts' 
+						};
+					} else {
+						return { 
+							success: false, 
+							error: `Frame not found: ${args.frameId}` 
+						};
+					}
+				} else {
+					// Scroll main window with verification
+					try {
+						const beforeScroll = window.scrollY;
+						const amount = args.amount !== null ? args.amount : window.innerHeight;
+						
+						window.scrollBy({
+							top: amount,
+							behavior: 'auto'
+						});
+						
+						// Small delay to allow scroll to complete
+						await new Promise(r => setTimeout(r, 100));
+						
+						// Verify scroll occurred
+						const afterScroll = window.scrollY;
+						const scrolled = (afterScroll > beforeScroll) || 
+									   (beforeScroll >= document.documentElement.scrollHeight - window.innerHeight);
+									   
+						return { 
+							success: scrolled, 
+							context: 'main',
+							scrollAmount: afterScroll - beforeScroll,
+							scrollMax: afterScroll >= document.documentElement.scrollHeight - window.innerHeight
+						};
+					} catch (e) {
+						return { success: false, error: e.toString() };
+					}
+				}
+			}
+			"""
+			
+			try:
+				result = await page.evaluate(script, {
+					'frameId': params.frame_id,
+					'amount': params.amount
+				})
+				
+				if result.get('success'):
+					context = result.get('context', 'page')
+					target = f" in {context}" if context == 'frame' else ""
+					frame_id = f" '{result.get('id')}'" if context == 'frame' else ""
+					amt_text = "" if params.amount is None else f" {params.amount}px"
+					
+					# Add scroll position details
+					position_text = ""
+					if result.get('scrollMax'):
+						position_text = " (reached bottom)"
+					elif result.get('scrollAmount') is not None:
+						position_text = f" ({result.get('scrollAmount')}px)"
+						
+					msg = f'⬇️  Scrolled down{amt_text}{target}{frame_id}{position_text}'
+				else:
+					error = result.get('error', 'unknown error')
+					msg = f'❌ Failed to scroll: {error}'
+					
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True)
+			except Exception as e:
+				logger.error(f"Scroll operation failed: {str(e)}")
+				return ActionResult(
+					error=f"Scroll operation failed: {str(e)}",
+					include_in_memory=True
+				)
 
 		# scroll up
 		@self.registry.action(
-			'Scroll up the page by pixel amount - if no amount is specified, scroll up one page',
+			'Scroll up the page or a specific frame by pixel amount - if no amount is specified, scroll up one page',
 			param_model=ScrollAction,
 		)
 		async def scroll_up(params: ScrollAction, browser: BrowserContext):
 			page = await browser.get_current_page()
-			if params.amount is not None:
-				await page.evaluate(f'window.scrollBy(0, -{params.amount});')
+			
+			# Simple script that only handles direct frame lookup
+			script = """
+			(args) => {
+				if (args.frameId) {
+					// Find the frame (try ID first, then name)
+					let frame = document.getElementById(args.frameId);
+					if (!frame) {
+						frame = Array.from(document.querySelectorAll('iframe, frame'))
+							.find(f => f.name === args.frameId);
+					}
+					
+					// If frame found, scroll it
+					if (frame && frame.contentWindow) {
+						try {
+							const amount = args.amount !== null ? args.amount : frame.contentWindow.innerHeight;
+							frame.contentWindow.scrollBy(0, -amount);  // Negative for upward scroll
+							return { 
+								success: true, 
+								context: 'frame', 
+								id: frame.id || frame.name || 'unnamed frame'
+							};
+						} catch (e) {
+							return { success: false, error: e.toString() };
+						}
+					} else {
+						return { success: false, error: 'Frame not found' };
+					}
+				} else {
+					// Scroll main window
+					const amount = args.amount !== null ? args.amount : window.innerHeight;
+					window.scrollBy(0, -amount);  // Negative for upward scroll
+					return { success: true, context: 'main' };
+				}
+			}
+			"""
+			
+			result = await page.evaluate(script, {
+				'frameId': params.frame_id,
+				'amount': params.amount
+			})
+			
+			if result.get('success'):
+				context = result.get('context', 'page')
+				target = f" in {context}" if context == 'frame' else ""
+				frame_id = f" '{result.get('id')}'" if context == 'frame' else ""
+				amt_text = "" if params.amount is None else f" {params.amount}px"
+				msg = f'⬆️  Scrolled up{amt_text}{target}{frame_id}'
 			else:
-				await page.keyboard.press('PageUp')
-
-			amount = f'{params.amount} pixels' if params.amount is not None else 'one page'
-			msg = f'🔍  Scrolled up the page by {amount}'
+				error = result.get('error', 'unknown error')
+				msg = f'❌ Failed to scroll: {error}'
+			
 			logger.info(msg)
-			return ActionResult(
-				extracted_content=msg,
-				include_in_memory=True,
-			)
+			return ActionResult(extracted_content=msg, include_in_memory=True)
 
 		# send keys
 		@self.registry.action(
