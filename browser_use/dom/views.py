@@ -48,6 +48,8 @@ class DOMElementNode(DOMBaseNode):
 	viewport_coordinates: Optional[CoordinateSet] = None
 	page_coordinates: Optional[CoordinateSet] = None
 	viewport_info: Optional[ViewportInfo] = None
+	frame_info: Optional[dict] = None
+	is_frame_boundary: bool = False
 
 	def __repr__(self) -> str:
 		tag_str = f'<{self.tag_name}'
@@ -156,6 +158,17 @@ class DOMElementNode(DOMBaseNode):
 		from browser_use.browser.context import BrowserContext
 
 		return BrowserContext._enhanced_css_selector_for_element(self)
+
+	@property
+	def frame_hierarchy(self) -> list['DOMElementNode']:
+		"""Get list of parent frames in order from top to bottom"""
+		frames = []
+		current = self
+		while current.parent:
+			if current.parent.is_frame_boundary:
+				frames.append(current.parent)
+			current = current.parent
+		return list(reversed(frames))
 
 
 class ElementTreeSerializer:

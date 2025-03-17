@@ -24,6 +24,8 @@ from browser_use.controller.views import (
 from browser_use.utils import time_execution_async, time_execution_sync
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
 from langchain_core.language_models.chat_models import BaseChatModel
 
 

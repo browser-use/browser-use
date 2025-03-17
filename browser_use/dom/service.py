@@ -16,8 +16,6 @@ from browser_use.dom.views import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Set this to make sure logs appear
 logger.setLevel(logging.DEBUG)
 
 
@@ -161,13 +159,15 @@ class DomService:
 			tag_name=tag_name,
 			xpath=node_data['xpath'],
 			attributes=node_data.get('attributes', {}),
-			children=[],  # Initialize empty, will fill later
+			children=[],
 			is_visible=node_data.get('isVisible', False),
 			is_interactive=node_data.get('isInteractive', False),
 			is_top_element=node_data.get('isTopElement', False),
 			highlight_index=node_data.get('highlightIndex'),
 			shadow_root=node_data.get('shadowRoot', False),
 			parent=parent,
+			frame_info=node_data.get('frameInfo'),
+			is_frame_boundary=node_data.get('isFrameBoundary', False),
 			viewport_coordinates=viewport_coordinates,
 			page_coordinates=page_coordinates,
 			viewport_info=viewport_info,

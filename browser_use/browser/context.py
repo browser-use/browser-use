@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 	from browser_use.browser.browser import Browser
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class BrowserContextWindowSize(TypedDict):
@@ -717,27 +718,33 @@ class BrowserContext:
 	@classmethod
 	def _convert_simple_xpath_to_css_selector(cls, xpath: str) -> str:
 		"""Converts simple XPath expressions to CSS selectors."""
-		if not xpath:
-			return ''
+		logger.debug(f"\n=== XPath to CSS Conversion ===")
+		logger.debug(f"Input XPath: {xpath}")
 
 		# Remove leading slash if present
 		xpath = xpath.lstrip('/')
+		logger.debug(f"After removing leading slash: {xpath}")
 
 		# Split into parts
 		parts = xpath.split('/')
+		logger.debug(f"Split parts: {parts}")
 		css_parts = []
 
 		for part in parts:
 			if not part:
+				logger.debug("Skipping empty part")
 				continue
 
 			# Handle index notation [n]
 			if '[' in part:
+				logger.debug(f"Processing indexed part: {part}")
 				base_part = part[: part.find('[')]
 				index_part = part[part.find('[') :]
+				logger.debug(f"Base: {base_part}, Index part: {index_part}")
 
 				# Handle multiple indices
 				indices = [i.strip('[]') for i in index_part.split(']')[:-1]]
+				logger.debug(f"Found indices: {indices}")
 
 				for idx in indices:
 					try:
@@ -840,9 +847,11 @@ class BrowserContext:
 
 				# Skip invalid attribute names
 				if not attribute.strip():
+					logger.debug(f"Skipping empty attribute name")
 					continue
 
 				if attribute not in SAFE_ATTRIBUTES:
+					logger.debug(f"Skipping unsafe attribute: {attribute}")
 					continue
 
 				# Escape special characters in attribute names
@@ -851,62 +860,62 @@ class BrowserContext:
 				# Handle different value cases
 				if value == '':
 					css_selector += f'[{safe_attribute}]'
+					logger.debug(f"Added empty attribute selector: {css_selector}")
 				elif any(char in value for char in '"\'<>`\n\r\t'):
 					# Use contains for values with special characters
-					# Regex-substitute *any* whitespace with a single space, then strip.
 					collapsed_value = re.sub(r'\s+', ' ', value).strip()
-					# Escape embedded double-quotes.
 					safe_value = collapsed_value.replace('"', '\\"')
 					css_selector += f'[{safe_attribute}*="{safe_value}"]'
+					logger.debug(f"Added contains attribute selector: {css_selector}")
 				else:
 					css_selector += f'[{safe_attribute}="{value}"]'
+					logger.debug(f"Added exact attribute selector: {css_selector}")
 
+			logger.debug(f"Original XPath (BEFORE): {element.xpath}")
+			logger.debug(f"Final CSS selector (AFTER): {css_selector}")
 			return css_selector
 
-		except Exception:
+		except Exception as e:
+			logger.error(f"Failed to generate CSS selector: {e}")
 			# Fallback to a more basic selector if something goes wrong
 			tag_name = element.tag_name or '*'
-			return f"{tag_name}[highlight_index='{element.highlight_index}']"
+			fallback = f"{tag_name}[highlight_index='{element.highlight_index}']"
+			logger.debug(f"Using fallback selector (AFTER): {fallback}")
+			return fallback
 
 	async def get_locate_element(self, element: DOMElementNode) -> Optional[ElementHandle]:
-		current_frame = await self.get_current_page()
-
-		# Start with the target element and collect all parents
-		parents: list[DOMElementNode] = []
-		current = element
-		while current.parent is not None:
-			parent = current.parent
-			parents.append(parent)
-			current = parent
-
-		# Reverse the parents list to process from top to bottom
-		parents.reverse()
-
-		# Process all iframe parents in sequence
-		iframes = [item for item in parents if item.tag_name == 'iframe']
-		for parent in iframes:
-			css_selector = self._enhanced_css_selector_for_element(
-				parent, include_dynamic_attributes=self.config.include_dynamic_attributes
-			)
-			current_frame = current_frame.frame_locator(css_selector)
-
-		css_selector = self._enhanced_css_selector_for_element(
-			element, include_dynamic_attributes=self.config.include_dynamic_attributes
-		)
-
-		try:
-			if isinstance(current_frame, FrameLocator):
-				element_handle = await current_frame.locator(css_selector).element_handle()
-				return element_handle
+		"""Locate element by traversing frames first, then finding element in final frame"""
+		page = await self.get_current_page()
+		logger.debug("\n=== Element Location Start ===")
+		logger.debug(f"Looking for element: {element}")
+		
+		current_context = page
+		
+		# First traverse through frames
+		for frame in element.frame_hierarchy:
+			logger.debug(f"\nProcessing frame: {frame.tag_name}")
+			logger.debug(f"Frame attributes: {frame.attributes}")
+			
+			# Use ID if available (most reliable)
+			if frame.attributes.get('id'):
+				frame_id = frame.attributes['id']
+				logger.debug(f"Using frame ID selector: #{frame_id}")
+				current_context = current_context.frame_locator(f"#{frame_id}")
 			else:
-				# Try to scroll into view if hidden
-				element_handle = await current_frame.query_selector(css_selector)
-				if element_handle:
-					await element_handle.scroll_into_view_if_needed()
-					return element_handle
-				return None
+				# Fallback to basic frame selector
+				logger.debug(f"Using basic frame selector: {frame.tag_name}")
+				current_context = current_context.frame_locator(frame.tag_name)
+				
+			logger.debug(f"Frame context updated: {current_context}")
+		
+		# Now find element in final frame context
+		try:
+			logger.debug(f"\nLocating element using XPath: {element.xpath}")
+			element_handle = await current_context.locator(f"xpath={element.xpath}").element_handle()
+			logger.debug("Element found successfully")
+			return element_handle
 		except Exception as e:
-			logger.error(f'Failed to locate element: {str(e)}')
+			logger.error(f"Failed to locate element: {e}")
 			return None
 
 	async def _input_text_element_node(self, element_node: DOMElementNode, text: str):
@@ -941,13 +950,13 @@ class BrowserContext:
 				await self._update_state(focus_element=element_node.highlight_index)
 
 			element_handle = await self.get_locate_element(element_node)
+			logger.debug(f"Located element handle: {element_handle}")
 
 			if element_handle is None:
 				raise Exception(f'Element: {repr(element_node)} not found')
 
 			async def perform_click(click_func):
-				"""Performs the actual click, handling both download
-				and navigation scenarios."""
+				"""Performs the actual click, handling both download and navigation scenarios."""
 				if self.config.save_downloads_path:
 					try:
 						# Try short-timeout expect_download to detect a file download has been been triggered
@@ -966,7 +975,31 @@ class BrowserContext:
 						await self._check_and_handle_navigation(page)
 				else:
 					# Standard click logic if no download is expected
-					await click_func()
+					logger.debug('Performing standard click...')
+					try:
+						await click_func()
+					except Exception as e:
+						logger.debug(f"Standard click failed: {e}, trying XPath evaluation...")
+						# Fall back to XPath evaluation approach that worked in Chrome
+						result = await page.evaluate(f"""
+							(() => {{
+								const elements = document.evaluate(
+									'{element_node.xpath}',
+									document,
+									null,
+									XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+									null
+								);
+								if (elements.snapshotLength > 0) {{
+									const element = elements.snapshotItem(0);
+									element.click();
+									return true;
+								}}
+								return false;
+							}})()
+						""")
+						if not result:
+							raise Exception("Element found but click failed")
 					await page.wait_for_load_state()
 					await self._check_and_handle_navigation(page)
 
@@ -1143,71 +1176,40 @@ class BrowserContext:
 		session = await self.get_session()
 		page = session.current_page
 		
-		# Log what we're trying to click
-		logger.debug(f"Attempting to click element with index {element_idx}")
-		
-		# Get the element from the selector map
 		element_node = session.cached_state.selector_map.get(element_idx)
 		if not element_node:
-			logger.error(f"Element with index {element_idx} not found in selector map")
 			raise BrowserError(f'Element with index {element_idx} not found')
 		
-		logger.debug(f"Found element in selector map: {element_node.tag_name} with XPath: {element_node.xpath}")
+		logger.debug(f"Attempting to click element using XPath: {element_node.xpath}")
 		
-		# If the element is in an iframe or frame, log this
-		if "frame" in element_node.xpath or "iframe" in element_node.xpath:
-			logger.debug(f"Element appears to be in a frame. XPath: {element_node.xpath}")
-		
+		# Use the exact approach that worked in Chrome debugger
 		try:
-			# Log the locator we're using
-			logger.debug(f"Using XPath to locate element: {element_node.xpath}")
+			result = await page.evaluate(f"""
+				(() => {{
+					const elements = document.evaluate(
+						'{element_node.xpath}',
+						document,
+						null,
+						XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+						null
+					);
+					if (elements.snapshotLength > 0) {{
+						const element = elements.snapshotItem(0);
+						element.click();
+						return true;
+					}}
+					return false;
+				}})()
+			""")
 			
-			# Attempt the click
-			await page.click(f"xpath={element_node.xpath}")
-			logger.debug(f"Successfully clicked element {element_idx}")
+			logger.debug(f"JavaScript click result: {result}")
 			
-			# Wait for network to stabilize and update state
-			await self._wait_for_stable_network()
-			await self._update_state()
-			
-			return True
-		except Exception as e:
-			logger.error(f"Failed to click element {element_idx}: {str(e)}")
-			
-			# Try an alternative approach for frames
-			if "frame" in element_node.xpath or "iframe" in element_node.xpath:
-				logger.debug("Attempting alternative frame handling approach")
-				try:
-					# Log our alternative strategy
-					logger.debug("Trying to evaluate JavaScript to find and click the element")
-					
-					# Try direct JavaScript approach
-					result = await page.evaluate(f"""
-						(() => {{
-							const frameElements = document.querySelectorAll('iframe, frame');
-							for (const frame of frameElements) {{
-								try {{
-									if (frame.contentDocument) {{
-										const element = frame.contentDocument.querySelector('a[href*="clientsummary.esp"]');
-										if (element) {{
-											element.click();
-											return true;
-										}}
-									}}
-								}} catch (e) {{
-									console.error('Frame access error:', e);
-								}}
-							}}
-							return false;
-						}})()
-					""")
-					logger.debug(f"JavaScript click approach result: {result}")
-					
-					if result:
-						await self._wait_for_stable_network()
-						await self._update_state()
-						return True
-				except Exception as js_error:
-					logger.error(f"Alternative frame click also failed: {str(js_error)}")
+			if result:
+				await self._wait_for_stable_network()
+				await self._update_state()
+				return True
 				
-			raise BrowserError(f'Failed to click on element {element_idx}: {str(e)}')
+			raise BrowserError(f'Element found but click failed')
+		except Exception as e:
+			logger.error(f"Click failed: {str(e)}")
+			raise BrowserError(f'Failed to click element: {str(e)}')

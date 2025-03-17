@@ -594,14 +594,18 @@
                     // Handle individual frames and iframes
                     frameDoc = node.contentDocument || node.contentWindow?.document;
                     if (frameDoc?.body) {
-                        nodeData.frameContent = {
+                        nodeData.frameInfo = {
                             type: node.tagName.toLowerCase(),
-                            src: node.getAttribute('src'),
-                            accessible: true
+                            id: node.id,
+                            name: node.name,
+                            src: node.getAttribute('src')
                         };
+                        // Process frame contents while preserving hierarchy
                         const frameChildren = Array.from(frameDoc.body.childNodes).map(child =>
                             buildDomTree(child, node)
                         );
+                        // Add frame boundary marker
+                        nodeData.isFrameBoundary = true;
                         nodeData.children.push(...frameChildren);
                     }
                 }
