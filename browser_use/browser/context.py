@@ -1087,7 +1087,7 @@ class BrowserContext:
 			logger.error(f'Failed to locate element by XPath {xpath}: {str(e)}')
 			return None
 
-	@time_execution_async('--get_locate_element_css_selector')
+	@time_execution_async('--get_locate_element_by_css_selector')
 	async def get_locate_element_by_css_selector(self, css_selector: str) -> Optional[ElementHandle]:
 		"""
 		Locates an element on the page using the provided CSS selector.
