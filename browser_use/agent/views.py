@@ -116,6 +116,8 @@ class AgentBrain(BaseModel):
 	"""Current state of the agent"""
 
 	evaluation_previous_goal: str
+	evaluation_question: str
+	evaluation_response: str
 	memory: str
 	next_goal: str
 

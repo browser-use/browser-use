@@ -13,17 +13,11 @@ from browser_use import Agent, Controller
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext
 
-browser = Browser(
-	config=BrowserConfig(
-		# NOTE: you need to close your chrome browser - so that this can open your browser in debug mode
-		chrome_instance_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-	)
-)
-
+browser = Browser(config=BrowserConfig(chrome_instance_path='/usr/bin/google-chrome-stable',))
 
 async def main():
 	agent = Agent(
-		task='In docs.google.com write my Papa a quick letter',
+		task='Go to www.cnn.com',
 		llm=ChatOpenAI(model='gpt-4o'),
 		browser=browser,
 	)

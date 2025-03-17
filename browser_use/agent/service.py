@@ -59,14 +59,14 @@ logger = logging.getLogger(__name__)
 def log_response(response: AgentOutput) -> None:
 	"""Utility function to log the model's response."""
 
-	if 'Success' in response.current_state.evaluation_previous_goal:
+	if response.current_state.evaluation_response == 'Yes':
 		emoji = '👍'
-	elif 'Failed' in response.current_state.evaluation_previous_goal:
-		emoji = '⚠'
 	else:
-		emoji = '🤷'
+		emoji = '⚠'
 
-	logger.info(f'{emoji} Eval: {response.current_state.evaluation_previous_goal}')
+	logger.info(f'{emoji} Eval Question: {response.current_state.evaluation_question}')
+	logger.info(f'{emoji} Eval Response: {response.current_state.evaluation_response}')
+	logger.info(f'{emoji} Eval Reasoning: {response.current_state.evaluation_previous_goal}')
 	logger.info(f'🧠 Memory: {response.current_state.memory}')
 	logger.info(f'🎯 Next goal: {response.current_state.next_goal}')
 	for i, action in enumerate(response.action):

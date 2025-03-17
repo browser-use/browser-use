@@ -254,7 +254,8 @@ class Controller(Generic[Context]):
 			page = await browser.get_current_page()
 
 			try:
-				await page.keyboard.press(params.keys)
+				for key in params.keys.split():
+					await page.keyboard.press(key)
 			except Exception as e:
 				if 'Unknown key' in str(e):
 					# loop over the keys and try to send each one
