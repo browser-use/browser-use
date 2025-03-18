@@ -448,6 +448,11 @@ class Controller:
 					page.get_by_text(text, exact=False),
 					page.locator(f'text={text}'),
 					page.locator(f"//*[contains(text(), '{text}')]"),
+					# Add strategies for data-icon-caption
+					page.locator(f"//*[@data-icon-caption='{text}']"),
+					page.locator(f"//*[contains(@data-icon-caption, '{text}')]"),
+					# Try case-insensitive match
+					page.locator(f"//*[translate(@data-icon-caption, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='{text.lower()}']")
 				]
 
 				for locator in locators:

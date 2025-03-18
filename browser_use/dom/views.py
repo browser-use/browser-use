@@ -50,6 +50,7 @@ class DOMElementNode(DOMBaseNode):
 	viewport_info: Optional[ViewportInfo] = None
 	frame_info: Optional[dict] = None
 	is_frame_boundary: bool = False
+	text: Optional[str] = None  # Add field for direct text content
 
 	def __repr__(self) -> str:
 		tag_str = f'<{self.tag_name}'
@@ -97,6 +98,14 @@ class DOMElementNode(DOMBaseNode):
 			if isinstance(node, DOMTextNode):
 				text_parts.append(node.text)
 			elif isinstance(node, DOMElementNode):
+				# Include direct text content (like data-icon-caption)
+				if node.text:
+					text_parts.append(node.text)
+					
+				# Include relevant attribute text
+				if node.attributes.get('data-icon-caption'):
+					text_parts.append(node.attributes['data-icon-caption'])
+				
 				for child in node.children:
 					collect_text(child, current_depth + 1)
 
@@ -131,16 +140,23 @@ class DOMElementNode(DOMBaseNode):
 
 		def process_node(node: DOMBaseNode, depth: int) -> None:
 			if isinstance(node, DOMElementNode):
-				# Add element with highlight_index
 				if node.highlight_index is not None:
 					attributes_str = ''
 					if include_attributes:
 						attributes_str = ' ' + ' '.join(
 							f'{key}="{value}"' for key, value in node.attributes.items() if key in include_attributes
 						)
-					formatted_text.append(
-						f'[{node.highlight_index}]<{node.tag_name}{attributes_str}>{node.get_all_text_till_next_clickable_element()}</{node.tag_name}>'
-					)
+					
+					# Handle any list item with a caption
+					if node.tag_name.lower() == 'li' and node.attributes.get('data-icon-caption'):
+						caption = node.attributes.get('data-icon-caption', '')
+						formatted_text.append(
+							f'[{node.highlight_index}]<{node.tag_name}{attributes_str}>{caption}</{node.tag_name}>'
+						)
+					else:
+						formatted_text.append(
+							f'[{node.highlight_index}]<{node.tag_name}{attributes_str}>{node.get_all_text_till_next_clickable_element()}</{node.tag_name}>'
+						)
 
 				# Process children regardless
 				for child in node.children:

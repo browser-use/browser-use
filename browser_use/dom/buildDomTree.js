@@ -178,10 +178,13 @@
         // Get computed style
         const style = window.getComputedStyle(element);
 
-        // Check if element has click-like styling
-        // const hasClickStyling = style.cursor === 'pointer' ||
-        //     element.style.cursor === 'pointer' ||
-        //     style.pointerEvents !== 'none';
+        // Check for pointer cursor style - strong indicator of clickability
+        const hasClickStyling = style.cursor === 'pointer';
+
+        // If element has pointer cursor, it's likely interactive
+        if (hasClickStyling) {
+            return true;
+        }
 
         // Check for event listeners
         const hasClickHandler = element.onclick !== null ||
@@ -260,11 +263,17 @@
             return false;
         }
 
+        // Check for interactive list items
+        if (element.tagName.toLowerCase() === 'li') {
+            // Check for caption attribute
+            if (element.hasAttribute('data-icon-caption')) {
+                return true;
+            }
+        }
+
         return hasAriaProps ||
-            // hasClickStyling ||
             hasClickHandler ||
             hasClickListeners ||
-            // isFormRelated ||
             isDraggable;
     }
 
@@ -512,6 +521,19 @@
                     } else {
                         highlightElement(node, nodeData.highlightIndex, parentIframe);
                     }
+                }
+            }
+
+            // Include data-icon-caption in the element's text content for navigation items
+            if (node.tagName === 'LI') {
+                const caption = node.getAttribute('data-icon-caption');
+                if (caption) {
+                    // Add caption as direct text content
+                    nodeData.text = caption.trim();
+                    // Also add it as a visible attribute
+                    nodeData.attributes['data-icon-caption'] = caption.trim();
+                    // Add it to textContent for better searchability
+                    nodeData.textContent = caption.trim();
                 }
             }
         }
