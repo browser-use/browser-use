@@ -35,6 +35,7 @@ from browser_use.agent.views import (
 	StepMetadata,
 	ToolCallingMethod,
 )
+from browser_use.agent.captcha_solver import CaptchaSolverProtocol
 from browser_use.browser.browser import Browser
 from browser_use.browser.context import BrowserContext
 from browser_use.browser.views import BrowserState, BrowserStateHistory
@@ -128,6 +129,7 @@ class Agent(Generic[Context]):
 		injected_agent_state: Optional[AgentState] = None,
 		#
 		context: Context | None = None,
+		captcha_solver: Optional[CaptchaSolverProtocol] = None,
 	):
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
@@ -218,6 +220,9 @@ class Agent(Generic[Context]):
 
 		# Telemetry
 		self.telemetry = ProductTelemetry()
+
+		# Custom captcha solver
+		self.captcha_solver = captcha_solver
 
 		if self.settings.save_conversation_path:
 			logger.info(f'Saving conversation to {self.settings.save_conversation_path}')
@@ -356,6 +361,12 @@ class Agent(Generic[Context]):
 
 			input_messages = self._message_manager.get_messages()
 			tokens = self._message_manager.state.history.current_tokens
+
+			if self.captcha_solver:
+				logger.info('Run captcha_solver.solve_captcha()')
+				await self.captcha_solver.solve_captcha(self)
+			else:
+				logger.info('captcha_solver is empty, skipped')
 
 			try:
 				model_output = await self.get_next_action(input_messages)
