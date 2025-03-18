@@ -79,7 +79,7 @@ class DomService:
 			if isinstance(node, DOMElementNode):
 				if node.highlight_index is not None:
 					selector_map[node.highlight_index] = node
-					logger.debug(f"Added to selector map: idx={node.highlight_index}, tag={node.tag_name}, xpath={node.xpath}")
+					# logger.debug(f"Added to selector map: idx={node.highlight_index}, tag={node.tag_name}, xpath={node.xpath}")
 
 				for child in node.children:
 					process_node(child)
@@ -95,14 +95,6 @@ class DomService:
 	) -> Optional[DOMBaseNode]:
 		if not node_data:
 			return None
-
-		# Log interesting XPaths especially ones involving frames
-		if node_data.get('xpath') and ('frame' in node_data.get('xpath') or 'iframe' in node_data.get('xpath')):
-			logger.debug(f"Frame-related XPath: {node_data.get('xpath')}")
-			
-		# Log interactive elements
-		if node_data.get('isInteractive') and node_data.get('isVisible') and node_data.get('isTopElement'):
-			logger.debug(f"Interactive element: {node_data.get('tagName')} - highlight={node_data.get('highlightIndex')}, xpath={node_data.get('xpath')}")
 
 		if node_data.get('type') == 'TEXT_NODE':
 			text_node = DOMTextNode(
