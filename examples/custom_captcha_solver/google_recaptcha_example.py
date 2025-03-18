@@ -20,7 +20,7 @@ browser = Browser(
 async def main():
     task = (
         "Open this website https://www.google.com/recaptcha/api2/demo"
-        " check is captcha solved by me each second"
+        " check is recaptcha solved"
         " click 'Submit' button if solved"
         " finish the task"
     )
