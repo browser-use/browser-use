@@ -9,7 +9,6 @@ from examples.custom_captcha_solver.captcha_solver import ReCaptchaSolver
 
 load_dotenv()
 
-
 browser = Browser(
     config=BrowserConfig(
         disable_security=True,
