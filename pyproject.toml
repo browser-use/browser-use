@@ -17,7 +17,6 @@ dependencies = [
     "requests>=2.32.3",
     "posthog>=3.7.0",
     "playwright>=1.49.0",
-    "setuptools>=75.8.0",
     "markdownify==0.14.1",
     "langchain-core>=0.3.35",
     "langchain-openai==0.3.1",
@@ -29,7 +28,6 @@ urls = { "Repository" = "https://github.com/browser-use/browser-use" }
 [project.optional-dependencies]
 dev = [
     "tokencost>=0.1.16",
-    "hatch>=1.13.0",
     "build>=1.2.2",
     "pytest>=8.3.3",
     "pytest-asyncio>=0.24.0",
@@ -55,3 +53,9 @@ docstring-code-format = true
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build]
+include = [
+  "browser_use/dom/buildDomTree.js",
+]
+
