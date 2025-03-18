@@ -525,9 +525,13 @@ class Agent(Generic[Context]):
 			parsed: AgentOutput | None = response['parsed']
 		else:
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True, method=self.tool_calling_method)
-			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
+			try:
+				response: dict[str, Any] = await structured_llm.ainvoke(input_messages) 
+			except Exception as e:
+				logger.info("error during llm invocation")
+				logger.error(e)
 			parsed: AgentOutput | None = response['parsed']
-
+			
 		if parsed is None:
 			raise ValueError('Could not parse response.')
 
