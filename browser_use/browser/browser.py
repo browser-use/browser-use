@@ -146,11 +146,14 @@ class Browser:
 			logger.debug('No existing Chrome instance found, starting a new one')
 
 		# Start a new Chrome instance
-		subprocess.Popen(
-			[
+		args = [
 				self.config.chrome_instance_path,
 				'--remote-debugging-port=9222',
 			]
+		if self.config.headless:
+			args.append('--headless')
+		subprocess.Popen(
+			args
 			+ self.config.extra_chromium_args,
 			stdout=subprocess.DEVNULL,
 			stderr=subprocess.DEVNULL,
