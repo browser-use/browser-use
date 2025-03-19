@@ -226,11 +226,12 @@ class DebugService:
                 focus_element=-1
             )
             
-            return {
+            return JSONResponse(content={
                 "session_id": session_id,
                 "status": "success",
-                "url": request.url
-            }
+                "url": request.url,
+                "redirect_url": f"/api/debug/session/{session_id}"
+            })
             
         except Exception as e:
             logger.exception("Error creating debug session")
@@ -432,7 +433,26 @@ class DebugService:
 
     def get_bookmarklet(self):
         """Get a bookmarklet for creating debug sessions from the browser"""
-        bookmarklet_html = f"""
+        bookmarklet = f"""
+        javascript:(function(){{
+            const url = window.location.href;
+            fetch('http://localhost:{PORT}/api/debug/session/create', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{url: url}})
+            }})
+            .then(response => response.json())
+            .then(data => {{
+                if (data.redirect_url) {{
+                    window.location.href = 'http://localhost:{PORT}' + data.redirect_url;
+                }}
+            }})
+            .catch(err => console.error('Error creating debug session:', err));
+        }})();
+        """
+        
+        # The HTML page that shows the bookmarklet
+        html_content = f"""
         <!DOCTYPE html>
         <html>
         <head>
@@ -456,34 +476,13 @@ class DebugService:
                     cursor: pointer;
                 }}
             </style>
-            <script>
-                async function navigate(sessionId, action, url = null) {{
-                    const endpoint = url ? 
-                        `/api/debug/session/${{sessionId}}/navigate` :
-                        `/api/debug/session/${{sessionId}}/${{action}}`;
-                    
-                    try {{
-                        const response = await fetch(endpoint, {{
-                            method: 'POST',
-                            headers: {{ 'Content-Type': 'application/json' }},
-                            body: url ? JSON.stringify({{ url }}) : null
-                        }});
-                        
-                        if (!response.ok) throw new Error(`HTTP error! status: ${{response.status}}`);
-                        location.reload();
-                    }} catch (err) {{
-                        console.error(`Navigation failed: ${{err}}`);
-                        alert(`Navigation failed: ${{err.message}}`);
-                    }}
-                }}
-            </script>
         </head>
         <body>
             <h1>Browser-Use Debug Bookmarklet</h1>
             
             <div class="bookmarklet">
                 <p>Drag this to your bookmarks bar:</p>
-                <a href="{bookmarklet_html}" style="padding: 10px; background: #f0f0f0; border: 1px solid #ccc; text-decoration: none; color: black;">
+                <a href="{bookmarklet}" style="padding: 10px; background: #f0f0f0; border: 1px solid #ccc; text-decoration: none; color: black;">
                     Browser-Use Debug
                 </a>
             </div>
@@ -495,28 +494,19 @@ class DebugService:
                     <li>Drag the bookmarklet to your bookmarks bar</li>
                     <li>Navigate to any web page you want to analyze</li>
                     <li>Click the bookmarklet</li>
-                    <li>A new tab will open showing how browser-use would process the page</li>
+                    <li>The page will be replaced with the browser-use debug view</li>
                 </ol>
             </div>
             
             <div class="code">
                 <h2>Bookmarklet Code</h2>
-                <pre>{bookmarklet_html}</pre>
-            </div>
-            
-            <div class="nav-controls">
-                <h3>Navigation Controls</h3>
-                <button class="nav-button" onclick="navigate(sessionId, 'back')">← Back</button>
-                <button class="nav-button" onclick="navigate(sessionId, 'forward')">Forward →</button>
-                <button class="nav-button" onclick="navigate(sessionId, 'refresh')">Refresh</button>
-                <input type="text" id="nav-url" placeholder="Enter URL to navigate">
-                <button class="nav-button" onclick="navigate(sessionId, 'navigate', document.getElementById('nav-url').value)">Go</button>
+                <pre>{bookmarklet}</pre>
             </div>
         </body>
         </html>
         """
         
-        return HTMLResponse(content=bookmarklet_html)
+        return HTMLResponse(content=html_content)
 
     async def get_sessions_overview(self):
         """Get an overview of all active debug sessions and URL input"""
@@ -608,13 +598,8 @@ class DebugService:
                         
                         const data = await response.json();
                         if (data.success) {
-                            // Open debug view in new window
-                            window.open('/api/debug/session/' + data.session_id, 
-                                'browser_use_debug',
-                                'width=600,height=800,right=0,top=0'
-                            );
-                            // Refresh the sessions list
-                            location.reload();
+                            // Redirect to debug view instead of opening popup
+                            window.location.href = data.redirect_url;
                         } else {
                             statusDiv.textContent = data.message;
                             statusDiv.className = 'error';
@@ -673,7 +658,7 @@ class DebugService:
             return JSONResponse(content={
                 "success": True,
                 "session_id": session_id,
-                "message": "Created new tab and connected"
+                "redirect_url": f"/api/debug/session/{session_id}"
             })
             
         except Exception as e:
