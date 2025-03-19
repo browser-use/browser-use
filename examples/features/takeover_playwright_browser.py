@@ -61,7 +61,7 @@ async def main():
         characters_tab = page.locator("#mvl-flyout-button-2")
         await characters_tab.click()
 
-        # Wait for a few seconds to allow search results to load
+        # Wait for a few seconds to allow the content to load
         await page.wait_for_timeout(5000)
 
         # Close the browser
