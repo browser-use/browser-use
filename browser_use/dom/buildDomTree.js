@@ -265,8 +265,8 @@
 
         // Check for interactive list items
         if (element.tagName.toLowerCase() === 'li') {
-            // Check for caption attribute
-            if (element.hasAttribute('data-icon-caption')) {
+            // Check for search-result class and data-id
+            if (element.classList.contains('search-result') && element.hasAttribute('data-id')) {
                 return true;
             }
         }
