@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from browser_use.browser.browser import Browser, BrowserConfig
-from browser_use.browser.context import BrowserContext
+from browser_use.browser.context import BrowserContext, BrowserContextConfig
 from browser_use.dom.service import DomService
 from browser_use.agent.message_manager.service import MessageManager
 from browser_use.agent.prompts import SystemPrompt
@@ -153,17 +153,15 @@ class DebugService:
         self.app.post("/api/debug/session/{session_id}/refresh")(self.refresh_debug_session)
         self.app.delete("/api/debug/session/{session_id}")(self.delete_debug_session)
         self.app.get("/ui/debug/bookmarklet")(self.get_bookmarklet)
+        self.app.get("/ui/debug/sessions")(self.get_sessions_overview)
 
     async def create_debug_session(self, request: UrlRequest):
         """Create a new debug session for the current tab"""
         try:
             session_id = str(uuid.uuid4())
             
-            # Use provided browser or create new one
-            browser = self.browser or Browser(config=BrowserConfig(
-                chrome_instance_path=get_chrome_path(),
-                connect_to_running_chrome=True  # Connect to existing Chrome
-            ))
+            # Use provided browser or create new one with CDP connection
+            browser = self.browser
             
             # Create new context using browser-use's pattern
             context = await browser.new_context()
@@ -342,6 +340,197 @@ class DebugService:
         
         return HTMLResponse(content=html_content)
 
+    async def get_sessions_overview(self):
+        """Get an overview of all active debug sessions"""
+        html_content = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Browser-Use Debug Sessions</title>
+            <style>
+                body { 
+                    font-family: Arial, sans-serif; 
+                    margin: 0; 
+                    padding: 20px;
+                    background: #f5f5f5;
+                }
+                .container {
+                    max-width: 1200px;
+                    margin: 0 auto;
+                }
+                .header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 20px;
+                }
+                .session-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+                    gap: 20px;
+                }
+                .session-card {
+                    background: white;
+                    border-radius: 8px;
+                    padding: 20px;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                }
+                .session-card h3 {
+                    margin: 0 0 10px 0;
+                    color: #333;
+                }
+                .session-url {
+                    color: #666;
+                    font-size: 0.9em;
+                    margin-bottom: 15px;
+                    word-break: break-all;
+                }
+                .session-time {
+                    color: #999;
+                    font-size: 0.8em;
+                    margin-bottom: 15px;
+                }
+                .button-group {
+                    display: flex;
+                    gap: 10px;
+                }
+                .button {
+                    padding: 8px 12px;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 0.9em;
+                    text-decoration: none;
+                    text-align: center;
+                }
+                .view-btn {
+                    background: #007bff;
+                    color: white;
+                }
+                .refresh-btn {
+                    background: #28a745;
+                    color: white;
+                }
+                .delete-btn {
+                    background: #dc3545;
+                    color: white;
+                }
+                .button:hover {
+                    opacity: 0.9;
+                }
+                .no-sessions {
+                    text-align: center;
+                    padding: 40px;
+                    background: white;
+                    border-radius: 8px;
+                    color: #666;
+                }
+                .auto-refresh {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    margin-bottom: 20px;
+                }
+            </style>
+            <script>
+                function refreshSession(sessionId) {
+                    fetch(`/api/debug/session/${sessionId}/refresh`, { method: 'POST' })
+                        .then(() => window.location.reload());
+                }
+                
+                function deleteSession(sessionId) {
+                    if (confirm('Are you sure you want to end this session?')) {
+                        fetch(`/api/debug/session/${sessionId}`, { method: 'DELETE' })
+                            .then(() => window.location.reload());
+                    }
+                }
+                
+                function toggleAutoRefresh() {
+                    const checkbox = document.getElementById('auto-refresh');
+                    if (checkbox.checked) {
+                        window.refreshInterval = setInterval(() => {
+                            window.location.reload();
+                        }, 5000);
+                    } else {
+                        clearInterval(window.refreshInterval);
+                    }
+                }
+                
+                // Initialize tooltips for timestamps
+                document.addEventListener('DOMContentLoaded', () => {
+                    const times = document.querySelectorAll('.session-time');
+                    times.forEach(time => {
+                        const timestamp = parseInt(time.dataset.timestamp);
+                        const date = new Date(timestamp * 1000);
+                        time.title = date.toLocaleString();
+                    });
+                });
+            </script>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>Active Debug Sessions</h1>
+                    <div class="auto-refresh">
+                        <label>
+                            <input type="checkbox" id="auto-refresh" onchange="toggleAutoRefresh()">
+                            Auto refresh (5s)
+                        </label>
+                    </div>
+                </div>
+        """
+        
+        if not self.active_sessions:
+            html_content += """
+                <div class="no-sessions">
+                    <h2>No Active Sessions</h2>
+                    <p>Create a new session by using the bookmarklet on any webpage.</p>
+                    <a href="/ui/debug/bookmarklet" class="button view-btn">Get Bookmarklet</a>
+                </div>
+            """
+        else:
+            html_content += '<div class="session-grid">'
+            
+            for session_id, session in self.active_sessions.items():
+                time_ago = int(time.time() - session.last_accessed)
+                if time_ago < 60:
+                    time_str = f"{time_ago} seconds ago"
+                elif time_ago < 3600:
+                    time_str = f"{time_ago // 60} minutes ago"
+                else:
+                    time_str = f"{time_ago // 3600} hours ago"
+                
+                html_content += f"""
+                    <div class="session-card">
+                        <h3>Session {session_id[:8]}...</h3>
+                        <div class="session-url">{session.url}</div>
+                        <div class="session-time" data-timestamp="{int(session.last_accessed)}">
+                            Last accessed: {time_str}
+                        </div>
+                        <div class="button-group">
+                            <a href="/api/debug/session/{session_id}" class="button view-btn" target="_blank">
+                                View
+                            </a>
+                            <button onclick="refreshSession('{session_id}')" class="button refresh-btn">
+                                Refresh
+                            </button>
+                            <button onclick="deleteSession('{session_id}')" class="button delete-btn">
+                                End
+                            </button>
+                        </div>
+                    </div>
+                """
+            
+            html_content += '</div>'
+        
+        html_content += """
+            </div>
+        </body>
+        </html>
+        """
+        
+        return HTMLResponse(content=html_content)
+
 # Create service instance
 def create_debug_service(browser: Optional[Browser] = None) -> FastAPI:
     service = DebugService(browser)
@@ -371,11 +560,10 @@ def get_chrome_path():
     # raise Exception("Chrome/Chromium not found in standard locations")
 
 browser = Browser(
-                config=BrowserConfig(
-                    chrome_instance_path=get_chrome_path(),
-                    # launch_args=launch_args
-                )
-            )
+    config=BrowserConfig(
+        chrome_instance_path=get_chrome_path(),
+    )
+)
 app = create_debug_service(browser)
 
 @app.on_event("startup")
