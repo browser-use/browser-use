@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from browser_use.browser.browser import Browser, BrowserConfig
-from browser_use.browser.context import BrowserContext, BrowserContextConfig
+from browser_use.browser.context import BrowserContext, BrowserContextConfig, BrowserSession
 from browser_use.dom.service import DomService
 from browser_use.agent.message_manager.service import MessageManager
 from browser_use.agent.prompts import SystemPrompt
@@ -640,12 +640,38 @@ class DebugService:
         try:
             # Get the browser instance first
             playwright_browser = await self.browser.get_playwright_browser()
-            # Create new context with the browser's default context config
-            context = await self.browser.new_context()
             
-            # Navigate using the proper navigation method
-            await context.navigate_to(request.url)
-            await context._wait_for_page_and_frames_load()
+            # Look for existing context/page with our URL
+            target_page = None
+            target_context = None
+            
+            # Search through existing contexts for our URL
+            for context in playwright_browser.contexts:
+                for page in context.pages:
+                    if page.url == request.url:
+                        target_page = page
+                        target_context = context
+                        break
+                if target_page:
+                    break
+
+            if target_page:
+                # Use existing page/context
+                context = BrowserContext(
+                    config=BrowserContextConfig(),
+                    browser=self.browser,
+                )
+                # Initialize session with existing context/page
+                context.session = BrowserSession(
+                    context=target_context,
+                    current_page=target_page,
+                    cached_state=context._get_initial_state(target_page)
+                )
+            else:
+                # If no existing page found, create new context
+                context = await self.browser.new_context()
+                await context.navigate_to(request.url)
+                await context._wait_for_page_and_frames_load()
             
             # Create session ID
             session_id = str(uuid.uuid4())
