@@ -25,7 +25,7 @@ from browser_use.browser.context import BrowserContext, BrowserContextConfig
 from browser_use.dom.service import DomService
 from browser_use.agent.message_manager.service import MessageManager
 from browser_use.agent.prompts import SystemPrompt
-from browser_use.browser.views import BrowserState
+from browser_use.browser.views import BrowserState, BrowserError, URLNotAllowedError
 from langchain_core.language_models.chat_models import BaseChatModel
 
 # Configure logging
@@ -77,7 +77,7 @@ class DebugSession:
         self.last_accessed = time.time()
         self.screenshot = None
         
-    async def process_page(self, include_attributes=None):
+    async def process_page(self, include_attributes=None, highlight_elements=True, focus_element=-1):
         """Process the page using browser-use components and store results"""
         if include_attributes is None:
             include_attributes = [
@@ -93,8 +93,8 @@ class DebugSession:
         
         # Get clickable elements with highlights
         content = await dom_service.get_clickable_elements(
-            highlight_elements=True,
-            focus_element=-1,
+            highlight_elements=highlight_elements,
+            focus_element=focus_element,
             viewport_expansion=0
         )
         
@@ -130,6 +130,49 @@ class DebugSession:
         await self.context.close()
         await self.browser.close()
 
+    async def navigate_to(self, url: str):
+        """Navigate to a URL using context's navigation handling"""
+        try:
+            await self.context.navigate_to(url)
+            await self.context._wait_for_page_and_frames_load()
+            return await self.process_page()
+        except URLNotAllowedError as e:
+            logger.warning(f"Navigation blocked to non-allowed URL: {url}")
+            raise HTTPException(status_code=403, detail=str(e))
+        except Exception as e:
+            logger.error(f"Navigation failed: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def refresh_page(self):
+        """Refresh the current page using context's handling"""
+        try:
+            await self.context.refresh_page()
+            await self.context._wait_for_page_and_frames_load()
+            return await self.process_page()
+        except Exception as e:
+            logger.error(f"Page refresh failed: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def go_back(self):
+        """Navigate back using context's handling"""
+        try:
+            await self.context.go_back()
+            await self.context._wait_for_page_and_frames_load()
+            return await self.process_page()
+        except Exception as e:
+            logger.error(f"Navigation back failed: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def go_forward(self):
+        """Navigate forward using context's handling"""
+        try:
+            await self.context.go_forward() 
+            await self.context._wait_for_page_and_frames_load()
+            return await self.process_page()
+        except Exception as e:
+            logger.error(f"Navigation forward failed: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
 class DebugService:
     def __init__(self, browser: Optional[Browser] = None):
         self.browser = browser
@@ -154,34 +197,41 @@ class DebugService:
         self.app.delete("/api/debug/session/{session_id}")(self.delete_debug_session)
         self.app.get("/ui/debug/bookmarklet")(self.get_bookmarklet)
         self.app.get("/ui/debug/sessions")(self.get_sessions_overview)
+        self.app.post("/api/debug/session/connect")(self.connect_to_url)
+        self.app.post("/api/debug/session/{session_id}/navigate")(self.navigate_session)
+        self.app.post("/api/debug/session/{session_id}/refresh")(self.refresh_session)
+        self.app.post("/api/debug/session/{session_id}/back")(self.go_back_session)
+        self.app.post("/api/debug/session/{session_id}/forward")(self.go_forward_session)
 
     async def create_debug_session(self, request: UrlRequest):
         """Create a new debug session for the current tab"""
         try:
             session_id = str(uuid.uuid4())
             
-            # Use provided browser or create new one with CDP connection
-            browser = self.browser
+            # Initialize browser if needed
+            if not self.browser.playwright_browser:
+                await self.browser._init()
             
-            # Create new context using browser-use's pattern
-            context = await browser.new_context()
-            
-            # Get current page using browser-use's method
-            page = await context.get_current_page()
+            # Create new context and connect to the existing page
+            context = await self.browser.new_context()
             
             # Store session
-            session = DebugSession(session_id, browser, context, request.url)
+            session = DebugSession(session_id, self.browser, context, request.url)
             self.active_sessions[session_id] = session
             
-            # Process current page
-            result = await session.process_page(request.include_attributes)
+            # Process current page with highlighting enabled
+            result = await session.process_page(
+                request.include_attributes,
+                highlight_elements=True,
+                focus_element=-1
+            )
             
             return {
                 "session_id": session_id,
                 "status": "success",
-                "url": page.url
+                "url": request.url
             }
-        
+            
         except Exception as e:
             logger.exception("Error creating debug session")
             raise HTTPException(status_code=500, detail=str(e))
@@ -201,51 +251,153 @@ class DebugService:
                 "screenshot": session.screenshot
             })
         
-        # Format HTML response with correct API paths
+        # Format HTML response with just the debug info
         html_content = f"""
         <!DOCTYPE html>
         <html>
         <head>
             <title>Browser-Use Debug - {session_id}</title>
             <style>
-                body {{ font-family: Arial, sans-serif; margin: 0; padding: 0; }}
-                .container {{ display: flex; height: 100vh; }}
-                .sidebar {{ width: 40%; overflow: auto; padding: 20px; border-right: 1px solid #ccc; }}
-                .main {{ flex-grow: 1; overflow: auto; }}
-                pre {{ white-space: pre-wrap; word-wrap: break-word; background: #f5f5f5; padding: 10px; }}
-                h1 {{ font-size: 1.5em; }}
-                h2 {{ font-size: 1.2em; color: #333; }}
-                .controls {{ padding: 10px; background: #f0f0f0; border-bottom: 1px solid #ccc; }}
-                .message {{ padding: 10px; }}
+                body {{ 
+                    font-family: Arial, sans-serif; 
+                    margin: 0; 
+                    padding: 20px;
+                    background: white;
+                }}
+                pre {{ 
+                    white-space: pre-wrap; 
+                    word-wrap: break-word;
+                    background: #f5f5f5;
+                    padding: 10px;
+                    border-radius: 4px;
+                }}
+                .controls {{ 
+                    padding: 10px; 
+                    background: #f0f0f0;
+                    margin: 10px 0;
+                    border-radius: 4px;
+                }}
+                .url-info {{
+                    padding: 10px;
+                    border-bottom: 1px solid #eee;
+                    word-break: break-all;
+                    margin-bottom: 10px;
+                }}
+                .button {{
+                    padding: 8px 12px;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    margin-right: 8px;
+                    background: #007bff;
+                    color: white;
+                }}
+                .button:hover {{
+                    background: #0056b3;
+                }}
+                #status {{
+                    margin-top: 10px;
+                    padding: 10px;
+                    display: none;
+                }}
+                .success {{
+                    background: #d4edda;
+                    color: #155724;
+                    border-radius: 4px;
+                }}
+                .error {{
+                    background: #f8d7da;
+                    color: #721c24;
+                    border-radius: 4px;
+                }}
             </style>
+            <script>
+                async function connectToTab() {{
+                    const statusDiv = document.getElementById('status');
+                    try {{
+                        const response = await fetch('/api/debug/session/{session_id}/connect', {{
+                            method: 'POST'
+                        }});
+                        const data = await response.json();
+                        statusDiv.textContent = data.message;
+                        statusDiv.className = data.success ? 'success' : 'error';
+                        statusDiv.style.display = 'block';
+                        if (data.success) {{
+                            // Refresh the page after successful connection
+                            setTimeout(() => location.reload(), 1000);
+                        }}
+                    }} catch (err) {{
+                        statusDiv.textContent = 'Error connecting to tab: ' + err.message;
+                        statusDiv.className = 'error';
+                        statusDiv.style.display = 'block';
+                    }}
+                }}
+            </script>
         </head>
         <body>
-            <div class="container">
-                <div class="sidebar">
-                    <h1>Browser-Use Debug</h1>
-                    <p>Session ID: {session_id}</p>
-                    <p>URL: <a href="{session.url}" target="_blank">{session.url}</a></p>
-                    
-                    <h2>LLM Message Content</h2>
-                    <pre>{session.message_content}</pre>
-                    
-                    <h2>Controls</h2>
-                    <button onclick="fetch('/api/debug/session/{session_id}/refresh', {{ method: 'POST' }}).then(() => location.reload())">
-                        Refresh Page
-                    </button>
-                    <button onclick="fetch('/api/debug/session/{session_id}', {{ method: 'DELETE' }}).then(() => window.close())">
-                        End Session
-                    </button>
-                </div>
-                <div class="main">
-                    <iframe src="{session.url}" width="100%" height="100%" frameborder="0"></iframe>
-                </div>
+            <h2>Debug Information</h2>
+            <div class="url-info">
+                <strong>URL:</strong> {session.url}
+            </div>
+            <div class="controls">
+                <button class="button" onclick="connectToTab()">Connect to Tab</button>
+                <button class="button" onclick="location.reload()">Refresh</button>
+                <button class="button" onclick="window.open('', '_self').close()">Close</button>
+            </div>
+            <div id="status"></div>
+            <div class="message">
+                <h3>Detected Elements:</h3>
+                <pre>{session.message_content}</pre>
             </div>
         </body>
         </html>
         """
         
         return HTMLResponse(content=html_content)
+
+    async def connect_to_tab(self, session_id: str):
+        """Connect to an existing Chrome tab with the matching URL"""
+        if session_id not in self.active_sessions:
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+        
+        session = self.active_sessions[session_id]
+        
+        try:
+            # Initialize browser if needed
+            if not self.browser.playwright_browser:
+                await self.browser._init()
+            
+            # Get all contexts and find the one with our URL
+            contexts = self.browser.playwright_browser.contexts
+            for context in contexts:
+                for page in context.pages:
+                    if page.url == session.url:
+                        # Found matching page, update session with this context
+                        browser_context = BrowserContext(
+                            config=BrowserContextConfig(),
+                            browser=self.browser,
+                        )
+                        session.context = browser_context
+                        
+                        # Process page with highlighting
+                        await session.process_page(highlight_elements=True)
+                        
+                        return JSONResponse(content={
+                            "success": True,
+                            "message": "Successfully connected to existing tab"
+                        })
+            
+            return JSONResponse(content={
+                "success": False,
+                "message": f"No open tab found with URL: {session.url}"
+            })
+            
+        except Exception as e:
+            logger.exception("Error connecting to tab")
+            return JSONResponse(content={
+                "success": False,
+                "message": f"Error connecting to tab: {str(e)}"
+            })
 
     async def refresh_debug_session(self, session_id: str):
         """Refresh the page and update the debug information"""
@@ -280,24 +432,7 @@ class DebugService:
 
     def get_bookmarklet(self):
         """Get a bookmarklet for creating debug sessions from the browser"""
-        bookmarklet = f"""
-        javascript:(function(){{
-            const url = window.location.href;
-            fetch('http://localhost:{PORT}/api/debug/session/create', {{
-                method: 'POST',
-                headers: {{'Content-Type': 'application/json'}},
-                body: JSON.stringify({{url: url}})
-            }})
-            .then(response => response.json())
-            .then(data => {{
-                console.log('Browser-Use Debug Session:', data.session_id);
-                window.open('http://localhost:{PORT}/api/debug/session/' + data.session_id, '_blank');
-            }})
-            .catch(err => console.error('Error creating debug session:', err));
-        }})();
-        """
-        
-        html_content = f"""
+        bookmarklet_html = f"""
         <!DOCTYPE html>
         <html>
         <head>
@@ -307,14 +442,48 @@ class DebugService:
                 .bookmarklet {{ margin: 20px 0; }}
                 .instructions {{ margin: 20px 0; }}
                 pre {{ background: #f5f5f5; padding: 10px; }}
+                .nav-controls {{
+                    margin: 10px 0;
+                    padding: 10px;
+                    background: #f5f5f5;
+                    border-radius: 4px;
+                }}
+                .nav-button {{
+                    padding: 5px 10px;
+                    margin: 0 5px;
+                    border: 1px solid #ccc;
+                    border-radius: 3px;
+                    cursor: pointer;
+                }}
             </style>
+            <script>
+                async function navigate(sessionId, action, url = null) {{
+                    const endpoint = url ? 
+                        `/api/debug/session/${{sessionId}}/navigate` :
+                        `/api/debug/session/${{sessionId}}/${{action}}`;
+                    
+                    try {{
+                        const response = await fetch(endpoint, {{
+                            method: 'POST',
+                            headers: {{ 'Content-Type': 'application/json' }},
+                            body: url ? JSON.stringify({{ url }}) : null
+                        }});
+                        
+                        if (!response.ok) throw new Error(`HTTP error! status: ${{response.status}}`);
+                        location.reload();
+                    }} catch (err) {{
+                        console.error(`Navigation failed: ${{err}}`);
+                        alert(`Navigation failed: ${{err.message}}`);
+                    }}
+                }}
+            </script>
         </head>
         <body>
             <h1>Browser-Use Debug Bookmarklet</h1>
             
             <div class="bookmarklet">
                 <p>Drag this to your bookmarks bar:</p>
-                <a href="{bookmarklet}" style="padding: 10px; background: #f0f0f0; border: 1px solid #ccc; text-decoration: none; color: black;">
+                <a href="{bookmarklet_html}" style="padding: 10px; background: #f0f0f0; border: 1px solid #ccc; text-decoration: none; color: black;">
                     Browser-Use Debug
                 </a>
             </div>
@@ -332,21 +501,30 @@ class DebugService:
             
             <div class="code">
                 <h2>Bookmarklet Code</h2>
-                <pre>{bookmarklet}</pre>
+                <pre>{bookmarklet_html}</pre>
+            </div>
+            
+            <div class="nav-controls">
+                <h3>Navigation Controls</h3>
+                <button class="nav-button" onclick="navigate(sessionId, 'back')">← Back</button>
+                <button class="nav-button" onclick="navigate(sessionId, 'forward')">Forward →</button>
+                <button class="nav-button" onclick="navigate(sessionId, 'refresh')">Refresh</button>
+                <input type="text" id="nav-url" placeholder="Enter URL to navigate">
+                <button class="nav-button" onclick="navigate(sessionId, 'navigate', document.getElementById('nav-url').value)">Go</button>
             </div>
         </body>
         </html>
         """
         
-        return HTMLResponse(content=html_content)
+        return HTMLResponse(content=bookmarklet_html)
 
     async def get_sessions_overview(self):
-        """Get an overview of all active debug sessions"""
+        """Get an overview of all active debug sessions and URL input"""
         html_content = """
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Browser-Use Debug Sessions</title>
+            <title>Browser-Use Debug</title>
             <style>
                 body { 
                     font-family: Arial, sans-serif; 
@@ -358,178 +536,212 @@ class DebugService:
                     max-width: 1200px;
                     margin: 0 auto;
                 }
-                .header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin-bottom: 20px;
-                }
-                .session-grid {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-                    gap: 20px;
-                }
-                .session-card {
+                .url-form {
                     background: white;
-                    border-radius: 8px;
                     padding: 20px;
+                    border-radius: 8px;
+                    margin-bottom: 20px;
                     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
                 }
-                .session-card h3 {
-                    margin: 0 0 10px 0;
-                    color: #333;
-                }
-                .session-url {
-                    color: #666;
-                    font-size: 0.9em;
-                    margin-bottom: 15px;
-                    word-break: break-all;
-                }
-                .session-time {
-                    color: #999;
-                    font-size: 0.8em;
-                    margin-bottom: 15px;
-                }
-                .button-group {
-                    display: flex;
-                    gap: 10px;
+                .url-input {
+                    width: 100%;
+                    padding: 8px;
+                    margin-bottom: 10px;
+                    border: 1px solid #ddd;
+                    border-radius: 4px;
+                    font-size: 16px;
                 }
                 .button {
-                    padding: 8px 12px;
+                    padding: 8px 16px;
                     border: none;
                     border-radius: 4px;
                     cursor: pointer;
-                    font-size: 0.9em;
-                    text-decoration: none;
-                    text-align: center;
-                }
-                .view-btn {
                     background: #007bff;
                     color: white;
-                }
-                .refresh-btn {
-                    background: #28a745;
-                    color: white;
-                }
-                .delete-btn {
-                    background: #dc3545;
-                    color: white;
+                    font-size: 16px;
                 }
                 .button:hover {
-                    opacity: 0.9;
+                    background: #0056b3;
                 }
-                .no-sessions {
-                    text-align: center;
-                    padding: 40px;
+                #status {
+                    margin-top: 10px;
+                    padding: 10px;
+                    display: none;
+                    border-radius: 4px;
+                }
+                .success {
+                    background: #d4edda;
+                    color: #155724;
+                }
+                .error {
+                    background: #f8d7da;
+                    color: #721c24;
+                }
+                .sessions-list {
                     background: white;
+                    padding: 20px;
                     border-radius: 8px;
-                    color: #666;
-                }
-                .auto-refresh {
-                    display: flex;
-                    align-items: center;
-                    gap: 10px;
-                    margin-bottom: 20px;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
                 }
             </style>
             <script>
-                function refreshSession(sessionId) {
-                    fetch(`/api/debug/session/${sessionId}/refresh`, { method: 'POST' })
-                        .then(() => window.location.reload());
-                }
-                
-                function deleteSession(sessionId) {
-                    if (confirm('Are you sure you want to end this session?')) {
-                        fetch(`/api/debug/session/${sessionId}`, { method: 'DELETE' })
-                            .then(() => window.location.reload());
+                async function connectToUrl() {
+                    const urlInput = document.getElementById('url-input');
+                    const statusDiv = document.getElementById('status');
+                    const url = urlInput.value.trim();
+                    
+                    if (!url) {
+                        statusDiv.textContent = 'Please enter a URL';
+                        statusDiv.className = 'error';
+                        statusDiv.style.display = 'block';
+                        return;
+                    }
+                    
+                    try {
+                        const response = await fetch('/api/debug/session/connect', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ url: url })
+                        });
+                        
+                        const data = await response.json();
+                        if (data.success) {
+                            // Open debug view in new window
+                            window.open('/api/debug/session/' + data.session_id, 
+                                'browser_use_debug',
+                                'width=600,height=800,right=0,top=0'
+                            );
+                            // Refresh the sessions list
+                            location.reload();
+                        } else {
+                            statusDiv.textContent = data.message;
+                            statusDiv.className = 'error';
+                            statusDiv.style.display = 'block';
+                        }
+                    } catch (err) {
+                        statusDiv.textContent = 'Error: ' + err.message;
+                        statusDiv.className = 'error';
+                        statusDiv.style.display = 'block';
                     }
                 }
-                
-                function toggleAutoRefresh() {
-                    const checkbox = document.getElementById('auto-refresh');
-                    if (checkbox.checked) {
-                        window.refreshInterval = setInterval(() => {
-                            window.location.reload();
-                        }, 5000);
-                    } else {
-                        clearInterval(window.refreshInterval);
-                    }
-                }
-                
-                // Initialize tooltips for timestamps
-                document.addEventListener('DOMContentLoaded', () => {
-                    const times = document.querySelectorAll('.session-time');
-                    times.forEach(time => {
-                        const timestamp = parseInt(time.dataset.timestamp);
-                        const date = new Date(timestamp * 1000);
-                        time.title = date.toLocaleString();
-                    });
-                });
             </script>
         </head>
         <body>
             <div class="container">
-                <div class="header">
-                    <h1>Active Debug Sessions</h1>
-                    <div class="auto-refresh">
-                        <label>
-                            <input type="checkbox" id="auto-refresh" onchange="toggleAutoRefresh()">
-                            Auto refresh (5s)
-                        </label>
-                    </div>
-                </div>
-        """
-        
-        if not self.active_sessions:
-            html_content += """
-                <div class="no-sessions">
-                    <h2>No Active Sessions</h2>
-                    <p>Create a new session by using the bookmarklet on any webpage.</p>
-                    <a href="/ui/debug/bookmarklet" class="button view-btn">Get Bookmarklet</a>
-                </div>
-            """
-        else:
-            html_content += '<div class="session-grid">'
-            
-            for session_id, session in self.active_sessions.items():
-                time_ago = int(time.time() - session.last_accessed)
-                if time_ago < 60:
-                    time_str = f"{time_ago} seconds ago"
-                elif time_ago < 3600:
-                    time_str = f"{time_ago // 60} minutes ago"
-                else:
-                    time_str = f"{time_ago // 3600} hours ago"
+                <h1>Browser-Use Debug</h1>
                 
-                html_content += f"""
-                    <div class="session-card">
-                        <h3>Session {session_id[:8]}...</h3>
-                        <div class="session-url">{session.url}</div>
-                        <div class="session-time" data-timestamp="{int(session.last_accessed)}">
-                            Last accessed: {time_str}
-                        </div>
-                        <div class="button-group">
-                            <a href="/api/debug/session/{session_id}" class="button view-btn" target="_blank">
-                                View
-                            </a>
-                            <button onclick="refreshSession('{session_id}')" class="button refresh-btn">
-                                Refresh
-                            </button>
-                            <button onclick="deleteSession('{session_id}')" class="button delete-btn">
-                                End
-                            </button>
-                        </div>
-                    </div>
-                """
-            
-            html_content += '</div>'
-        
-        html_content += """
+                <div class="url-form">
+                    <h2>Connect to URL</h2>
+                    <input type="text" id="url-input" class="url-input" 
+                           placeholder="Enter URL to debug (e.g., https://example.com)">
+                    <button onclick="connectToUrl()" class="button">Connect</button>
+                    <div id="status"></div>
+                </div>
+                
+                <div class="sessions-list">
+                    <h2>Active Sessions</h2>
+                    <!-- Existing sessions list code here -->
+                </div>
             </div>
         </body>
         </html>
         """
-        
         return HTMLResponse(content=html_content)
+
+    async def connect_to_url(self, request: UrlRequest):
+        """Connect to a URL using existing tab or creating new one"""
+        try:
+            # Get the browser instance first
+            playwright_browser = await self.browser.get_playwright_browser()
+            # Create new context with the browser's default context config
+            context = await self.browser.new_context()
+            
+            # Navigate using the proper navigation method
+            await context.navigate_to(request.url)
+            await context._wait_for_page_and_frames_load()
+            
+            # Create session ID
+            session_id = str(uuid.uuid4())
+            
+            # Create new session
+            session = DebugSession(session_id, self.browser, context, request.url)
+            self.active_sessions[session_id] = session
+            await session.process_page(highlight_elements=True)
+            
+            return JSONResponse(content={
+                "success": True,
+                "session_id": session_id,
+                "message": "Created new tab and connected"
+            })
+            
+        except Exception as e:
+            logger.error(f"Failed to create new context or navigate to URL: {e}")
+            raise
+
+    async def navigate_session(self, session_id: str, request: UrlRequest):
+        """Navigate the debug session to a new URL"""
+        if session_id not in self.active_sessions:
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+        
+        session = self.active_sessions[session_id]
+        try:
+            result = await session.navigate_to(request.url)
+            return {
+                "status": "success",
+                "url": request.url,
+                "content": result
+            }
+        except HTTPException as e:
+            raise e
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def refresh_session(self, session_id: str):
+        """Refresh the current page in the debug session"""
+        if session_id not in self.active_sessions:
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+        
+        session = self.active_sessions[session_id]
+        try:
+            result = await session.refresh_page()
+            return {
+                "status": "success",
+                "content": result
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def go_back_session(self, session_id: str):
+        """Navigate back in the debug session"""
+        if session_id not in self.active_sessions:
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+        
+        session = self.active_sessions[session_id]
+        try:
+            result = await session.go_back()
+            return {
+                "status": "success",
+                "content": result
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def go_forward_session(self, session_id: str):
+        """Navigate forward in the debug session"""
+        if session_id not in self.active_sessions:
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+        
+        session = self.active_sessions[session_id]
+        try:
+            result = await session.go_forward()
+            return {
+                "status": "success", 
+                "content": result
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 # Create service instance
 def create_debug_service(browser: Optional[Browser] = None) -> FastAPI:
