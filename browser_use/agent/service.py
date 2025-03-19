@@ -512,8 +512,7 @@ class Agent(Generic[Context]):
 			try:
 				output = self.llm.invoke(input_messages)
 			except Exception as e:
-				logger.info("error during llm invocation")
-				logger.error(e)
+				logger.error(f"Error during LLM invocation: {e}")
 			# TODO: currently invoke does not return reasoning_content, we should override invoke
 			output.content = self._remove_think_tags(str(output.content))
 			try:
@@ -528,16 +527,14 @@ class Agent(Generic[Context]):
 			try:
 				response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
 			except Exception as e:
-				logger.info("error during llm invocation")
-				logger.error(e)
+				logger.error(f"Error during LLM invocation: {e}")
 			parsed: AgentOutput | None = response['parsed']
 		else:
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True, method=self.tool_calling_method)
 			try:
 				response: dict[str, Any] = await structured_llm.ainvoke(input_messages) 
 			except Exception as e:
-				logger.info("error during llm invocation")
-				logger.error(e)
+				logger.error(f"Error during LLM invocation: {e}")
 			parsed: AgentOutput | None = response['parsed']
 			
 		if parsed is None:
