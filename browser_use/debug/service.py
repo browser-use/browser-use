@@ -12,6 +12,7 @@ import asyncio
 import logging
 import uuid
 import time
+import base64
 from typing import Dict, List, Optional
 
 import uvicorn
@@ -73,57 +74,53 @@ class DebugSession:
         self.context = context
         self.url = url
         self.state: Optional[BrowserState] = None
-        self.message_content: Optional[str] = None
+        self.message_content = None
         self.last_accessed = time.time()
         self.screenshot = None
         
-    async def process_page(self, include_attributes=None, highlight_elements=True, focus_element=-1):
-        """Process the page using browser-use components and store results"""
-        if include_attributes is None:
-            include_attributes = [
-                'title', 'type', 'name', 'role', 'tabindex', 
-                'aria-label', 'placeholder', 'value', 'alt', 
-                'aria-expanded', 'class', 'data-view-classes',
-                'data-chart-section-id', 'data-metric-location'
-            ]
+    async def process_page(self, include_attributes=None, highlight_elements=False, focus_element=-1):
+        """Process the current page and update session data"""
+        try:
+            logger.info(f"Processing page for session {self.session_id}")
             
-        # Get current page and process using DomService
-        page = await self.context.get_current_page()
-        dom_service = DomService(page)
-        
-        # Get clickable elements with highlights
-        content = await dom_service.get_clickable_elements(
-            highlight_elements=highlight_elements,
-            focus_element=focus_element,
-            viewport_expansion=0
-        )
-        
-        # Store state
-        self.state = await self.context._update_state()
-        self.screenshot = self.state.screenshot
-        
-        # Create message manager with required arguments including dummy LLM
-        message_manager = MessageManager(
-            llm=DummyLLM(),
-            task="Debug preview of browser-use DOM processing",
-            action_descriptions={},  # Empty dict since we're just viewing
-            system_prompt_class=SystemPrompt,
-            max_input_tokens=100000,
-            include_attributes=include_attributes
-        )
-        
-        # Add state message to get formatted content
-        message_manager.add_state_message(self.state)
-        
-        # Get the formatted message from the last message added
-        self.message_content = message_manager.history.messages[-1].message.content
-        self.last_accessed = time.time()
-        
-        return {
-            "url": self.url,
-            "title": await page.title(),
-            "message": self.message_content,
-        }
+            # Create message manager with correct initialization parameters
+            message_manager = MessageManager(
+                llm=DummyLLM(),
+                task="Debug preview of browser-use DOM processing",
+                action_descriptions={},  # Empty dict since we're just viewing
+                system_prompt_class=SystemPrompt,
+                max_input_tokens=100000,
+                include_attributes=include_attributes
+            )
+            logger.info("Created message manager")
+
+            # Get current page
+            page = await self.context.get_current_page()
+
+            # Get screenshot first
+            screenshot_bytes = await page.screenshot(type='png', full_page=True)
+            self.screenshot = base64.b64encode(screenshot_bytes).decode('utf-8')
+            logger.info("Got screenshot")
+
+            # Create browser state
+            self.state = await self.context._update_state()
+            
+            # Add state message to get formatted content
+            message_manager.add_state_message(self.state)
+            
+            # Get the formatted message from the last message added
+            self.message_content = message_manager.history.messages[-1].message.content
+            logger.info(f"Formatted message content: {self.message_content}")
+
+            return {
+                "url": self.url,
+                "message_content": self.message_content,
+                "screenshot": self.screenshot
+            }
+
+        except Exception as e:
+            logger.error(f"Error processing page: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
     
     async def release(self):
         """Close browser and clean up resources"""
@@ -244,15 +241,14 @@ class DebugService:
         
         session = self.active_sessions[session_id]
         session.last_accessed = time.time()
-        
+
         if format == "json":
             return JSONResponse(content={
                 "url": session.url,
                 "message_content": session.message_content,
                 "screenshot": session.screenshot
             })
-        
-        # Format HTML response with just the debug info
+
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -271,6 +267,8 @@ class DebugService:
                     background: #f5f5f5;
                     padding: 10px;
                     border-radius: 4px;
+                    max-height: 500px;
+                    overflow-y: auto;
                 }}
                 .controls {{ 
                     padding: 10px; 
@@ -283,6 +281,19 @@ class DebugService:
                     border-bottom: 1px solid #eee;
                     word-break: break-all;
                     margin-bottom: 10px;
+                }}
+                .message-section {{
+                    margin: 20px 0;
+                }}
+                .message-section h3 {{
+                    margin-bottom: 10px;
+                    color: #333;
+                }}
+                .screenshot {{
+                    max-width: 100%;
+                    border: 1px solid #ddd;
+                    margin: 10px 0;
+                    border-radius: 4px;
                 }}
                 .button {{
                     padding: 8px 12px;
@@ -301,16 +312,6 @@ class DebugService:
                     padding: 10px;
                     display: none;
                 }}
-                .success {{
-                    background: #d4edda;
-                    color: #155724;
-                    border-radius: 4px;
-                }}
-                .error {{
-                    background: #f8d7da;
-                    color: #721c24;
-                    border-radius: 4px;
-                }}
             </style>
             <script>
                 async function connectToTab() {{
@@ -324,7 +325,6 @@ class DebugService:
                         statusDiv.className = data.success ? 'success' : 'error';
                         statusDiv.style.display = 'block';
                         if (data.success) {{
-                            // Refresh the page after successful connection
                             setTimeout(() => location.reload(), 1000);
                         }}
                     }} catch (err) {{
@@ -340,15 +340,22 @@ class DebugService:
             <div class="url-info">
                 <strong>URL:</strong> {session.url}
             </div>
+            
             <div class="controls">
                 <button class="button" onclick="connectToTab()">Connect to Tab</button>
                 <button class="button" onclick="location.reload()">Refresh</button>
                 <button class="button" onclick="window.open('', '_self').close()">Close</button>
             </div>
             <div id="status"></div>
-            <div class="message">
-                <h3>Detected Elements:</h3>
+
+            <div class="message-section">
+                <h3>Message Content for LLM:</h3>
                 <pre>{session.message_content}</pre>
+            </div>
+
+            <div class="message-section">
+                <h3>Page Screenshot:</h3>
+                <img src="data:image/png;base64,{session.screenshot}" class="screenshot" alt="Page screenshot">
             </div>
         </body>
         </html>
