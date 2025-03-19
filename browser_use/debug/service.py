@@ -28,6 +28,10 @@ from browser_use.agent.message_manager.service import MessageManager
 from browser_use.agent.prompts import SystemPrompt
 from browser_use.browser.views import BrowserState, BrowserError, URLNotAllowedError
 from langchain_core.language_models.chat_models import BaseChatModel
+from browser_use.controller.service import Controller
+
+import json
+import html
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -83,38 +87,29 @@ class DebugSession:
         try:
             logger.info(f"Processing page for session {self.session_id}")
             
-            # Create message manager with correct initialization parameters
-            message_manager = MessageManager(
-                llm=DummyLLM(),
-                task="Debug preview of browser-use DOM processing",
-                action_descriptions={},  # Empty dict since we're just viewing
-                system_prompt_class=SystemPrompt,
-                max_input_tokens=100000,
-                include_attributes=include_attributes
-            )
-            logger.info("Created message manager")
-
             # Get current page
             page = await self.context.get_current_page()
 
-            # Get screenshot first
+            # Create DOM service with the page
+            dom_service = DomService(page=page)
+            logger.info("Created DOM service")
+
+            # Get the raw string output from get_clickable_elements
+            self.message_content = str(await dom_service.get_clickable_elements(
+                highlight_elements=highlight_elements,
+                focus_element=focus_element,
+                viewport_expansion=0
+            ))
+            logger.info("Got clickable elements")
+            
+            # Get screenshot
             screenshot_bytes = await page.screenshot(type='png', full_page=True)
             self.screenshot = base64.b64encode(screenshot_bytes).decode('utf-8')
             logger.info("Got screenshot")
 
-            # Create browser state
-            self.state = await self.context._update_state()
-            
-            # Add state message to get formatted content
-            message_manager.add_state_message(self.state)
-            
-            # Get the formatted message from the last message added
-            self.message_content = message_manager.history.messages[-1].message.content
-            logger.info(f"Formatted message content: {self.message_content}")
-
             return {
                 "url": self.url,
-                "message_content": self.message_content,
+                "message_content": self.message_content,  # Now just a string
                 "screenshot": self.screenshot
             }
 
@@ -245,7 +240,8 @@ class DebugService:
         if format == "json":
             return JSONResponse(content={
                 "url": session.url,
-                "message_content": session.message_content,
+                "message_content": json.dumps(session.message_content, indent=2),
+                "raw_state": session.state.dict() if session.state else None,
                 "screenshot": session.screenshot
             })
 
@@ -312,6 +308,11 @@ class DebugService:
                     padding: 10px;
                     display: none;
                 }}
+                .raw-state {{
+                    font-size: 12px;
+                    background: #2b2b2b;
+                    color: #e6e6e6;
+                }}
             </style>
             <script>
                 async function connectToTab() {{
@@ -349,8 +350,13 @@ class DebugService:
             <div id="status"></div>
 
             <div class="message-section">
-                <h3>Message Content for LLM:</h3>
-                <pre>{session.message_content}</pre>
+                <h3>Formatted Message for LLM:</h3>
+                <pre class="message-content">{html.escape(session.message_content)}</pre>
+            </div>
+
+            <div class="message-section">
+                <h3>Raw Browser State:</h3>
+                <pre class="raw-state">{session.state.json(indent=2) if session.state else 'No state available'}</pre>
             </div>
 
             <div class="message-section">
