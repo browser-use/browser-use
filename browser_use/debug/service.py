@@ -510,38 +510,55 @@ class DebugService:
 
     async def get_sessions_overview(self):
         """Get an overview of all active debug sessions and URL input"""
-        html_content = """
+        # Get active sessions info
+        sessions_html = ""
+        for session_id, session in self.active_sessions.items():
+            sessions_html += f"""
+            <div class="session-item">
+                <div class="session-info">
+                    <strong>Session ID:</strong> {session_id}<br>
+                    <strong>URL:</strong> {session.url}<br>
+                    <strong>Last Accessed:</strong> {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(session.last_accessed))}
+                </div>
+                <div class="session-actions">
+                    <button onclick="window.location.href='/api/debug/session/{session_id}'" class="button">View</button>
+                    <button onclick="deleteSession('{session_id}')" class="button delete">Delete</button>
+                </div>
+            </div>
+            """
+
+        html_content = f"""
         <!DOCTYPE html>
         <html>
         <head>
             <title>Browser-Use Debug</title>
             <style>
-                body { 
+                body {{ 
                     font-family: Arial, sans-serif; 
                     margin: 0; 
                     padding: 20px;
                     background: #f5f5f5;
-                }
-                .container {
+                }}
+                .container {{
                     max-width: 1200px;
                     margin: 0 auto;
-                }
-                .url-form {
+                }}
+                .url-form {{
                     background: white;
                     padding: 20px;
                     border-radius: 8px;
                     margin-bottom: 20px;
                     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                }
-                .url-input {
+                }}
+                .url-input {{
                     width: 100%;
                     padding: 8px;
                     margin-bottom: 10px;
                     border: 1px solid #ddd;
                     border-radius: 4px;
                     font-size: 16px;
-                }
-                .button {
+                }}
+                .button {{
                     padding: 8px 16px;
                     border: none;
                     border-radius: 4px;
@@ -549,68 +566,113 @@ class DebugService:
                     background: #007bff;
                     color: white;
                     font-size: 16px;
-                }
-                .button:hover {
+                    margin-right: 8px;
+                }}
+                .button:hover {{
                     background: #0056b3;
-                }
-                #status {
+                }}
+                .button.delete {{
+                    background: #dc3545;
+                }}
+                .button.delete:hover {{
+                    background: #c82333;
+                }}
+                #status {{
                     margin-top: 10px;
                     padding: 10px;
                     display: none;
                     border-radius: 4px;
-                }
-                .success {
+                }}
+                .success {{
                     background: #d4edda;
                     color: #155724;
-                }
-                .error {
+                }}
+                .error {{
                     background: #f8d7da;
                     color: #721c24;
-                }
-                .sessions-list {
+                }}
+                .sessions-list {{
                     background: white;
                     padding: 20px;
                     border-radius: 8px;
                     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                }
+                }}
+                .session-item {{
+                    padding: 15px;
+                    border-bottom: 1px solid #eee;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }}
+                .session-item:last-child {{
+                    border-bottom: none;
+                }}
+                .session-info {{
+                    flex: 1;
+                }}
+                .session-actions {{
+                    display: flex;
+                    gap: 10px;
+                }}
+                .no-sessions {{
+                    color: #666;
+                    font-style: italic;
+                    padding: 20px;
+                    text-align: center;
+                }}
             </style>
             <script>
-                async function connectToUrl() {
+                async function connectToUrl() {{
                     const urlInput = document.getElementById('url-input');
                     const statusDiv = document.getElementById('status');
                     const url = urlInput.value.trim();
                     
-                    if (!url) {
+                    if (!url) {{
                         statusDiv.textContent = 'Please enter a URL';
                         statusDiv.className = 'error';
                         statusDiv.style.display = 'block';
                         return;
-                    }
+                    }}
                     
-                    try {
-                        const response = await fetch('/api/debug/session/connect', {
+                    try {{
+                        const response = await fetch('/api/debug/session/connect', {{
                             method: 'POST',
-                            headers: {
+                            headers: {{
                                 'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({ url: url })
-                        });
+                            }},
+                            body: JSON.stringify({{ url: url }})
+                        }});
                         
                         const data = await response.json();
-                        if (data.success) {
-                            // Redirect to debug view instead of opening popup
+                        if (data.success) {{
                             window.location.href = data.redirect_url;
-                        } else {
+                        }} else {{
                             statusDiv.textContent = data.message;
                             statusDiv.className = 'error';
                             statusDiv.style.display = 'block';
-                        }
-                    } catch (err) {
+                        }}
+                    }} catch (err) {{
                         statusDiv.textContent = 'Error: ' + err.message;
                         statusDiv.className = 'error';
                         statusDiv.style.display = 'block';
-                    }
-                }
+                    }}
+                }}
+
+                async function deleteSession(sessionId) {{
+                    try {{
+                        const response = await fetch(`/api/debug/session/${{sessionId}}`, {{
+                            method: 'DELETE'
+                        }});
+                        if (response.ok) {{
+                            // Refresh the page to update the sessions list
+                            location.reload();
+                        }} else {{
+                            alert('Failed to delete session');
+                        }}
+                    }} catch (err) {{
+                        alert('Error deleting session: ' + err.message);
+                    }}
+                }}
             </script>
         </head>
         <body>
@@ -627,7 +689,7 @@ class DebugService:
                 
                 <div class="sessions-list">
                     <h2>Active Sessions</h2>
-                    <!-- Existing sessions list code here -->
+                    {sessions_html if sessions_html else '<div class="no-sessions">No active sessions</div>'}
                 </div>
             </div>
         </body>
