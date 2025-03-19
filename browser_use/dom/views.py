@@ -124,7 +124,13 @@ class DOMElementNode(DOMBaseNode):
 				frame_name = node.attributes.get('name', '')
 				frame_type = node.tag_name
 				identifier = frame_id or frame_name or f"{frame_type}_{node.highlight_index}"
-				frames.append(f"[Frame: {identifier}] ({frame_type}{' id=\"'+frame_id+'\"' if frame_id else ''}{' name=\"'+frame_name+'\"' if frame_name else ''})")
+				frame_attrs = []
+				if frame_id:
+					frame_attrs.append(f'id="{frame_id}"')
+				if frame_name:  
+					frame_attrs.append(f'name="{frame_name}"')
+				attrs_str = ' ' + ' '.join(frame_attrs) if frame_attrs else ''
+				frames.append(f"[Frame: {identifier}] ({frame_type}{attrs_str})")
 			
 			# Only DOMElementNode has children to process
 			if isinstance(node, DOMElementNode):
