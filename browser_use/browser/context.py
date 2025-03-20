@@ -1239,6 +1239,12 @@ class BrowserContext:
 	async def _get_current_page(self, session: BrowserSession) -> Page:
 		pages = session.context.pages
 
+		# Try by checking pages for focused+visible first
+		for page in pages:
+			visibility = await self.get_page_visibility(page)
+			if visibility['page_is_focused']:
+				return page
+
 		# Try to find page by target ID if using CDP
 		if self.browser.config.cdp_url and self.state.target_id:
 			targets = await self._get_cdp_targets()
@@ -1274,7 +1280,7 @@ class BrowserContext:
 		await cdp_session.detach()
 	
 		return {
-		"target_id": target_id,
+			"target_id": target_id,
 			"window_id": window_id,
 			"window_state": window_state,
 			"window_bounds": window_bounds,
