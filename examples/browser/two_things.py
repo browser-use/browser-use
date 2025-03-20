@@ -10,10 +10,12 @@ from pydantic import SecretStr
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from browser_use import Agent, Controller
-from browser_use.browser.browser import Browser, BrowserConfig
+from browser_use.browser.browser import Browser, BrowserConfig, BrowserContextConfig
 from playwright.async_api import BrowserContext
+# Go to peek and configure a new availability for the 'test' activity . Make it have a variable start time,a duration of 2 hours a start time of 11:58 am and an end time of 12:59pm
+os.environ["ANONYMIZED_TELEMETRY"] = "false"
 
-browser = Browser(config=BrowserConfig(chrome_instance_path='/usr/bin/google-chrome-stable',))
+browser = Browser(config=BrowserConfig(chrome_instance_path='/usr/bin/google-chrome-stable',disable_security=True,extra_chromium_args=['--profile-directory=Sandbox']))
 prompt = """
 - Go to https://pro-app.peek.com/-/activities. If necessary, log in with username vikram@elvity.ai and password 'udk.VBE2pex1zmj.mcp'. 
 - Click on the new Activity Button.
@@ -38,6 +40,7 @@ async def main():
                         max_actions_per_step=2,
                         task=user_input,
                         llm=ChatGoogleGenerativeAI(model='gemini-2.0-flash', api_key=SecretStr(os.getenv('GEMINI_API_KEY', ''))),
+#                        planner_llm=ChatGoogleGenerativeAI(model='gemini-2.0-flash', api_key=SecretStr(os.getenv('GEMINI_API_KEY', ''))),
                         browser_context=context
                 )
                 await agent.run()

@@ -17,6 +17,9 @@ from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.agent.views import ActionResult, AgentOutput, AgentStepInfo, MessageManagerState
 from browser_use.browser.views import BrowserState
 from browser_use.utils import time_execution_sync
+import os
+import base64
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +54,8 @@ class MessageManager:
 	def _init_messages(self) -> None:
 		"""Initialize the message history with system message, context, task, and other initial messages"""
 		self._add_message_with_tokens(self.system_prompt)
+
+
 
 		if self.settings.message_context:
 			context_message = HumanMessage(content='Context for the task' + self.settings.message_context)
@@ -105,6 +110,44 @@ class MessageManager:
 		msg = HumanMessage(content=content)
 		self._add_message_with_tokens(msg)
 		self.task = new_task
+
+
+	def load_reference_images(self) -> None:
+		"""
+		Load reference images from ~/tmp/reference_images, base64 encode them,
+		and add them as a HumanMessage to the message history.
+		"""
+		reference_dir = Path.home() / "tmp" / "reference_images"
+		if not reference_dir.exists():
+			logger.warning(f"Reference image directory {reference_dir} does not exist.")
+			return
+
+		image_content = [{
+			"type": "text",
+			"text": f"The following images are reference images that can be used to identify fields in screenshots while executing tasks"
+		}]
+
+		for file in reference_dir.iterdir():
+			if file.suffix.lower() in ('.png', '.jpg', '.jpeg'):
+				with open(file, 'rb') as img_file:
+					img_data = base64.b64encode(img_file.read()).decode('utf-8')
+					image_content.append({
+						"type": "image_url",
+						"image_url": {
+							"url": f"data:image/{file.suffix[1:]};base64,{img_data}"
+						}
+					})
+					image_content.append({
+						"type": "text",
+						"text": f"Image name: {file.name}"
+					})
+
+		if image_content:
+			reference_message = HumanMessage(content=image_content)
+			self._add_message_with_tokens(reference_message)
+			logger.info(f"Added {len(image_content) // 2} reference images to message history.")
+		else:
+			logger.info("No reference images found.")
 
 	@time_execution_sync('--add_state_message')
 	def add_state_message(

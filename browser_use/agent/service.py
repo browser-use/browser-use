@@ -64,9 +64,10 @@ def log_response(response: AgentOutput) -> None:
 	else:
 		emoji = '⚠'
 
+	logger.info(f'{emoji} Previous Goal: {response.current_state.current_goal}')
 	logger.info(f'{emoji} Eval Question: {response.current_state.evaluation_question}')
 	logger.info(f'{emoji} Eval Response: {response.current_state.evaluation_response}')
-	logger.info(f'{emoji} Eval Reasoning: {response.current_state.evaluation_previous_goal}')
+	logger.info(f'{emoji} Eval Reasoning: {response.current_state.evaluation_rationale}')
 	logger.info(f'🧠 Memory: {response.current_state.memory}')
 	logger.info(f'🎯 Next goal: {response.current_state.next_goal}')
 	for i, action in enumerate(response.action):
@@ -382,7 +383,7 @@ class Agent(Generic[Context]):
 			result: list[ActionResult] = await self.multi_act(model_output.action)
 
 			self.state.last_result = result
-
+			logger.info('---------------------------------------')
 			if len(result) > 0 and result[-1].is_done:
 				logger.info(f'📄 Result: {result[-1].extracted_content}')
 

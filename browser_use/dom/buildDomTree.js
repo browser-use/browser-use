@@ -6,6 +6,9 @@
     debugMode: false,
   }
 ) => {
+  if (!window['disableDebug']) {
+    debugger;
+  }
   const { doHighlightElements, focusHighlightIndex, viewportExpansion, debugMode } = args;
   let highlightIndex = 0; // Reset highlight index
 
@@ -362,7 +365,10 @@
       }
 
       const tagName = currentElement.nodeName.toLowerCase();
-      const xpathIndex = index > 0 ? `[${index + 1}]` : "";
+      const siblingsWithSameName = Array.from(currentElement.parentNode.children).filter(
+        (sibling) => sibling.nodeName.toLowerCase() === tagName
+      )
+      const xpathIndex = siblingsWithSameName.length > 0 ? `[${index + 1}]` : "";
       segments.unshift(`${tagName}${xpathIndex}`);
 
       currentElement = currentElement.parentNode;
@@ -508,6 +514,7 @@
     const hasAddressInputClass = element.classList && (
       element.classList.contains("address-input__container__input") ||
       element.classList.contains("nav-btn") ||
+      element.classList.contains("ember-power-select-clear-btn") ||
       element.classList.contains("pull-left")
     );
 

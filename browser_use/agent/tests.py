@@ -69,7 +69,7 @@ def sample_history(action_registry):
 		AgentHistory(
 			model_output=AgentOutput(
 				current_state=AgentBrain(
-					evaluation_previous_goal='None',
+					evaluation_rationale='None',
 					memory='Started task',
 					next_goal='Click button',
 				),
@@ -87,7 +87,7 @@ def sample_history(action_registry):
 		AgentHistory(
 			model_output=AgentOutput(
 				current_state=AgentBrain(
-					evaluation_previous_goal='Clicked button',
+					evaluation_rationale='Clicked button',
 					memory='Button clicked',
 					next_goal='Extract content',
 				),
@@ -111,7 +111,7 @@ def sample_history(action_registry):
 		AgentHistory(
 			model_output=AgentOutput(
 				current_state=AgentBrain(
-					evaluation_previous_goal='Extracted content',
+					evaluation_rationale='Extracted content',
 					memory='Content extracted',
 					next_goal='Finish task',
 				),

@@ -36,7 +36,7 @@ class ProductTelemetry:
 	_curr_user_id = None
 
 	def __init__(self) -> None:
-		telemetry_disabled = os.getenv('ANONYMIZED_TELEMETRY', 'true').lower() == 'false'
+		telemetry_disabled = True
 		self.debug_logging = os.getenv('BROWSER_USE_LOGGING_LEVEL', 'info').lower() == 'debug'
 
 		if telemetry_disabled:

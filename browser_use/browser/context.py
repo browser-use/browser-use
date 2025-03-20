@@ -982,6 +982,7 @@ class BrowserContext:
 					'data-qa',
 					'data-cy',
 					'data-testid',
+					'data-option-index',
 					'data-ember-action'
 				}
 				SAFE_ATTRIBUTES.update(dynamic_attributes)
