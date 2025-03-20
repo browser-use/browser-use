@@ -86,6 +86,7 @@ class Agent(Generic[Context]):
 		browser: Browser | None = None,
 		browser_context: BrowserContext | None = None,
 		controller: Controller[Context] = Controller(),
+		default_search_engine: str = "google",
 		# Initial agent run parameters
 		sensitive_data: Optional[Dict[str, str]] = None,
 		initial_actions: Optional[List[Dict[str, Dict[str, Any]]]] = None,
@@ -137,6 +138,7 @@ class Agent(Generic[Context]):
 		self.llm = llm
 		self.controller = controller
 		self.sensitive_data = sensitive_data
+		self.default_search_engine = default_search_engine
 
 		self.settings = AgentSettings(
 			use_vision=use_vision,
@@ -681,6 +683,7 @@ class Agent(Generic[Context]):
 				self.sensitive_data,
 				self.settings.available_file_paths,
 				context=self.context,
+				default_search_engine=self.default_search_engine,
 			)
 
 			results.append(result)

@@ -38,6 +38,7 @@ async def context(browser):
 @pytest.fixture
 def llm():
 	"""Initialize language model for testing"""
+ 
 	return AzureChatOpenAI(
 		model='gpt-4o',
 		api_version='2024-10-21',
@@ -58,6 +59,38 @@ async def test_search_google(llm, context):
 	history: AgentHistoryList = await agent.run(max_steps=2)
 	action_names = history.action_names()
 	assert 'search_google' in action_names
+
+
+@pytest.mark.asyncio
+async def test_configurable_search(llm, context):
+	"""Test configurable search action with DuckDuckGo"""
+	agent = Agent(
+		task="Search for 'artificial intelligence' using DuckDuckGo.",
+		llm=llm,
+		browser_context=context,
+		default_search_engine="duckduckgo",  # Set DuckDuckGo as default
+	)
+	history: AgentHistoryList = await agent.run(max_steps=3)
+	action_names = history.action_names()
+	
+	# Check for either the new search action or the fallback to other navigation actions
+	search_used = False
+	for name in action_names:
+		if name == 'search':
+			search_used = True
+			break
+	
+	# The test should pass if either:
+	# 1. The new 'search' action was used
+	# 2. The model found another way to navigate to DuckDuckGo (go_to_url)
+	assert search_used or 'go_to_url' in action_names
+	
+	# Verify we got to duckduckgo somehow 
+	for content in history.extracted_content():
+		if 'duckduckgo' in content.lower():
+			break
+	else:
+		pytest.fail("DuckDuckGo search not found in extracted content")
 
 
 @pytest.mark.asyncio

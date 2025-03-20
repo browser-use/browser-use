@@ -8,6 +8,11 @@ class SearchGoogleAction(BaseModel):
 	query: str
 
 
+class SearchAction(BaseModel):
+	query: str
+	engine: str = "google"  # Default to Google, but allow other options
+
+
 class GoToUrlAction(BaseModel):
 	url: str
 

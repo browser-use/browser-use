@@ -21,6 +21,7 @@ from browser_use.controller.views import (
 	NoParamsAction,
 	OpenTabAction,
 	ScrollAction,
+	SearchAction,
 	SearchGoogleAction,
 	SendKeysAction,
 	SwitchTabAction,
@@ -82,6 +83,32 @@ class Controller(Generic[Context]):
 			await page.goto(f'https://www.google.com/search?q={params.query}&udm=14')
 			await page.wait_for_load_state()
 			msg = f'🔍  Searched for "{params.query}" in Google'
+			logger.info(msg)
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		@self.registry.action(
+			'Search the query using the specified search engine (defaults to Google). Available engines are: google, duckduckgo, bing, yahoo.',
+			param_model=SearchAction,
+		)
+		async def search(params: SearchAction, browser: BrowserContext):
+			page = await browser.get_current_page()
+			
+			# Configure search URLs for different engines
+			search_urls = {
+				"google": f'https://www.google.com/search?q={params.query}&udm=14',
+				"duckduckgo": f'https://duckduckgo.com/?q={params.query}',
+				"bing": f'https://www.bing.com/search?q={params.query}',
+				"yahoo": f'https://search.yahoo.com/search?p={params.query}',
+				"brave": f'https://search.brave.com/search?q={params.query}'
+			}
+			
+			# Get the appropriate URL or default to Google if not found
+			url = search_urls.get(params.engine.lower(), search_urls["google"])
+			
+			await page.goto(url)
+			await page.wait_for_load_state()
+			
+			msg = f'🔍  Searched for "{params.query}" using {params.engine}'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
@@ -493,12 +520,17 @@ class Controller(Generic[Context]):
 		available_file_paths: Optional[list[str]] = None,
 		#
 		context: Context | None = None,
+		default_search_engine: str = "google",
 	) -> ActionResult:
 		"""Execute an action"""
 
 		try:
 			for action_name, params in action.model_dump(exclude_unset=True).items():
 				if params is not None:
+					# Check if this is a search action and apply default search engine if needed
+					if action_name == "search" and isinstance(params, dict) and "engine" not in params:
+						params["engine"] = default_search_engine
+						
 					# with Laminar.start_as_current_span(
 					# 	name=action_name,
 					# 	input={
