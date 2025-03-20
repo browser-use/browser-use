@@ -784,6 +784,13 @@ class BrowserContext:
 			# Get base selector from XPath
 			css_selector = cls._convert_simple_xpath_to_css_selector(element.xpath)
 
+			# Add parent context if available
+			if 'parent_context' in element.attributes:
+				logger.debug(f"Adding parent context: {element.attributes['parent_context']}")
+				parent_selectors = element.attributes['parent_context'].split(' > ')
+				for parent_selector in parent_selectors:
+					css_selector = f".{parent_selector.replace(' ', '.')} {css_selector}"
+
 			# Handle class attributes
 			if 'class' in element.attributes and element.attributes['class'] and include_dynamic_attributes:
 				# Define a regex pattern for valid class names in CSS
@@ -887,7 +894,17 @@ class BrowserContext:
 		"""Locate element by traversing frames first, then finding element in final frame"""
 		page = await self.get_current_page()
 		logger.debug("\n=== Element Location Start ===")
+		logger.debug("\nTrace:")
+		logger.debug(f"Element tag: {element.tag_name}")
+		logger.debug(f"Element attributes: {element.attributes}")
+		logger.debug(f"Element xpath: {element.xpath}")
+		logger.debug(f"Element frame hierarchy: {[f.tag_name for f in element.frame_hierarchy]}")
+		logger.debug(f"Element highlight index: {element.highlight_index}")
 		logger.debug(f"Looking for element: {element}")
+		
+		import traceback
+		logger.debug("\nStack trace:")
+		logger.debug(''.join(traceback.format_stack()))
 		
 		current_context = page
 		
@@ -910,8 +927,15 @@ class BrowserContext:
 		
 		# Now find element in final frame context using a more specific selector
 		try:
-			# Try ID first if available
-			if element.attributes.get('id'):
+			# Try highlight ID first if available
+			if element.highlight_index is not None:
+				logger.debug(f"Locating by highlight ID: playwright-highlight-{element.highlight_index}")
+				element_handle = await current_context.locator(
+					f"[browser-user-highlight-id='playwright-highlight-{element.highlight_index}']"
+				).element_handle()
+				logger.debug(f"Found element by highlight ID: {element_handle}")
+			# Try ID if available
+			elif element.attributes.get('id'):
 				logger.debug(f"Locating by ID: #{element.attributes['id']}")
 				element_handle = await current_context.locator(f"#{element.attributes['id']}").element_handle()
 			# Try name attribute next
@@ -961,14 +985,12 @@ class BrowserContext:
 			raise Exception(f'Failed to input text into element: {repr(element_node)}. Error: {str(e)}')
 
 	async def _click_element_node(self, element_node: DOMElementNode) -> Optional[str]:
-		"""
-		Optimized method to click an element using xpath.
-		"""
 		page = await self.get_current_page()
 
 		try:
 			# Highlight before clicking
 			if element_node.highlight_index is not None:
+				logger.debug(f"Highlighting element before click, index: {element_node.highlight_index}")
 				await self._update_state(focus_element=element_node.highlight_index)
 
 			element_handle = await self.get_locate_element(element_node)
@@ -980,6 +1002,7 @@ class BrowserContext:
 			async def perform_click(click_func):
 				"""Performs the actual click, handling both download and navigation scenarios."""
 				if self.config.save_downloads_path:
+					logger.debug("Attempting download-aware click...")
 					try:
 						# Try short-timeout expect_download to detect a file download has been been triggered
 						async with page.expect_download(timeout=5000) as download_info:
@@ -1014,7 +1037,7 @@ class BrowserContext:
 								);
 								if (elements.snapshotLength > 0) {{
 									const element = elements.snapshotItem(0);
-									element.click();
+									element.click({{force: true}});
 									return true;
 								}}
 								return false;
@@ -1217,7 +1240,7 @@ class BrowserContext:
 					);
 					if (elements.snapshotLength > 0) {{
 						const element = elements.snapshotItem(0);
-						element.click();
+						element.click({force: true});
 						return true;
 					}}
 					return false;

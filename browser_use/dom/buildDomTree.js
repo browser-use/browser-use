@@ -538,6 +538,31 @@
             }
         }
 
+        // Add parent context to attributes if element is within specific containers
+        if (node.nodeType === Node.ELEMENT_NODE) {
+            // Only collect parent context for streamlined add buttons
+            if (node.classList.contains('icon-streamlined-add') && 
+                node.classList.contains('clickable')) {
+                const parentContext = [];
+                let current = node;
+                let depth = 0;
+                const maxDepth = 5; // Customizable depth limit
+                
+                while (current && current.parentElement && depth < maxDepth) {
+                    const viewClasses = current.parentElement.getAttribute('data-view-classes');
+                    if (viewClasses) {
+                        parentContext.unshift(viewClasses);
+                    }
+                    current = current.parentElement;
+                    depth++;
+                }
+                
+                if (parentContext.length > 0) {
+                    nodeData.attributes['parent_context'] = parentContext.join(' > ');
+                }
+            }
+        }
+
         // Only add iframeContext if we're inside an iframe
         // if (parentIframe) {
         //     nodeData.iframeContext = `iframe[src="${parentIframe.src || ''}"]`;
