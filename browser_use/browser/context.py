@@ -676,7 +676,7 @@ class BrowserContext:
 
 		screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
 
-		# await self.remove_highlights()
+		await self.remove_highlights()
 
 		return screenshot_b64
 
@@ -699,6 +699,7 @@ class BrowserContext:
                     // Remove highlight attributes from elements
                     const highlightedElements = document.querySelectorAll('[browser-user-highlight-id^="playwright-highlight-"]');
                     highlightedElements.forEach(el => {
+						console.log('Removing highlight ID:', el.getAttribute('browser-user-highlight-id'));
                         el.removeAttribute('browser-user-highlight-id');
                     });
                 } catch (e) {
@@ -929,13 +930,18 @@ class BrowserContext:
 		try:
 			# Try highlight ID first if available
 			if element.highlight_index is not None:
-				logger.debug(f"Locating by highlight ID: playwright-highlight-{element.highlight_index}")
-				element_handle = await current_context.locator(
-					f"[browser-user-highlight-id='playwright-highlight-{element.highlight_index}']"
-				).element_handle()
-				logger.debug(f"Found element by highlight ID: {element_handle}")
+				try:
+					logger.debug(f"Attempting to locate by highlight ID: playwright-highlight-{element.highlight_index}")
+					element_handle = await current_context.locator(
+						f"[browser-user-highlight-id='playwright-highlight-{element.highlight_index}']"
+					).element_handle()
+					logger.debug(f"Found element by highlight ID: {element_handle}")
+					return element_handle
+				except Exception as e:
+					logger.debug(f"Highlight ID location failed: {e}, trying other methods...")
+				
 			# Try ID if available
-			elif element.attributes.get('id'):
+			if element.attributes.get('id'):
 				logger.debug(f"Locating by ID: #{element.attributes['id']}")
 				element_handle = await current_context.locator(f"#{element.attributes['id']}").element_handle()
 			# Try name attribute next
@@ -1037,7 +1043,7 @@ class BrowserContext:
 								);
 								if (elements.snapshotLength > 0) {{
 									const element = elements.snapshotItem(0);
-									element.click({{force: true}});
+									element.click();
 									return true;
 								}}
 								return false;
@@ -1240,7 +1246,7 @@ class BrowserContext:
 					);
 					if (elements.snapshotLength > 0) {{
 						const element = elements.snapshotItem(0);
-						element.click({force: true});
+						element.click();
 						return true;
 					}}
 					return false;

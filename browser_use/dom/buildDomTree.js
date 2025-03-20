@@ -540,7 +540,7 @@
 
         // Add parent context to attributes if element is within specific containers
         if (node.nodeType === Node.ELEMENT_NODE) {
-            // Only collect parent context for streamlined add buttons
+            // Collect parent context for streamlined add buttons
             if (node.classList.contains('icon-streamlined-add') && 
                 node.classList.contains('clickable')) {
                 const parentContext = [];
@@ -555,6 +555,22 @@
                     }
                     current = current.parentElement;
                     depth++;
+                }
+                
+                if (parentContext.length > 0) {
+                    nodeData.attributes['parent_context'] = parentContext.join(' > ');
+                }
+            }
+            
+            // Collect all parent classes for search inputs
+            if (node.classList.contains('search-input')) {
+                const parentContext = [];
+                let current = node;
+                while (current && current.parentElement) {
+                    if (current.parentElement.classList.length > 0) {
+                        parentContext.unshift(current.parentElement.classList.value);
+                    }
+                    current = current.parentElement;
                 }
                 
                 if (parentContext.length > 0) {
