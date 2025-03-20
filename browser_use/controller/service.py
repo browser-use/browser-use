@@ -707,7 +707,7 @@ class Controller:
 		try:
 			for action_name, params in action.model_dump(exclude_unset=True).items():
 				if params is not None:
-					# remove highlights
+					logger.debug(f"WILL EXECUTE ACTION: {action_name}")
 					result = await self.registry.execute_action(
 						action_name,
 						params,

@@ -81,6 +81,69 @@ class DebugSession:
         self.message_content = None
         self.last_accessed = time.time()
         self.screenshot = None
+        # Add new field for input messages
+        self.input_messages = None
+        
+        # Create message manager with dummy LLM
+        self.message_manager = MessageManager(
+            llm=DummyLLM(),
+            task="Debug session",
+            action_descriptions=Controller().registry.get_prompt_description(),
+            system_prompt_class=SystemPrompt,
+            max_input_tokens=128000,
+            include_attributes=[
+                'title',
+			'type',
+			'name',
+			'role',
+			'tabindex',
+			'aria-label',
+			'placeholder',
+			'value',
+			'alt',
+			'aria-expanded',
+			'aria-selected',
+			'aria-disabled',
+			'aria-controls',
+			'aria-labelledby',
+			'aria-describedby',
+			'aria-autocomplete',
+			'aria-haspopup',
+			'aria-owns',
+			'aria-hidden',
+			'data-view-classes',
+			'data-view-id',
+			'data-view-name',
+			'data-view-type',
+			'data-view-version',
+			'data-section',
+			'data-toggle',
+			'data-target',
+			'data-placement',
+			'data-original-title',
+			'data-original-content',
+			'data-original-href',
+			'data-original-href-text',
+			'data-buttonkey',
+			'data-content',
+			'data-testid',
+			'data-section',
+			'data-value',
+			'data-scroll-container',
+			'data-view-manager-id',
+			'data-view-rendered',
+			'data-content-confidential',
+			'data-rttab',
+			'data-show-ob-gyn',
+				'data-patient-age-in-years',
+				'data-has-ob-episode',
+				'data-plan-id',
+				'data-subsection',
+				'data-always-on'
+            ],
+            max_error_length=400,
+            max_actions_per_step=10,
+        )
         
     async def process_page(self, include_attributes=None, highlight_elements=False, focus_element=-1):
         """Process the current page and update session data"""
@@ -107,10 +170,22 @@ class DebugSession:
             self.screenshot = base64.b64encode(screenshot_bytes).decode('utf-8')
             logger.info("Got screenshot")
 
+            # Get state and generate input messages
+            try:
+                self.state = await self.context.get_state()
+                self.message_manager.add_state_message(self.state, None, None, True)
+                self.input_messages = self.message_manager.get_messages()
+                # Remove state message to keep history clean
+                self.message_manager._remove_last_state_message()
+            except Exception as e:
+                logger.error(f"Error generating input messages: {e}")
+                self.input_messages = None
+
             return {
                 "url": self.url,
-                "message_content": self.message_content,  # Now just a string
-                "screenshot": self.screenshot
+                "message_content": self.message_content,
+                "screenshot": self.screenshot,
+                "input_messages": self.input_messages
             }
 
         except Exception as e:
@@ -241,9 +316,24 @@ class DebugService:
             return JSONResponse(content={
                 "url": session.url,
                 "message_content": json.dumps(session.message_content, indent=2),
-                "raw_state": session.state.dict() if session.state else None,
-                "screenshot": session.screenshot
+                # "raw_state": session.state.dict() if session.state else None,
+                "screenshot": session.screenshot,
+                "input_messages": [msg.dict() for msg in session.input_messages] if session.input_messages else None
             })
+
+        # Format input messages for display
+        input_messages_formatted = ""
+        if session.input_messages:
+            for msg in session.input_messages:
+                input_messages_formatted += f"\n--- {msg.__class__.__name__} ---\n"
+                if isinstance(msg.content, list):
+                    for item in msg.content:
+                        if isinstance(item, dict):
+                            input_messages_formatted += json.dumps(item, indent=2) + "\n"
+                        else:
+                            input_messages_formatted += str(item) + "\n"
+                else:
+                    input_messages_formatted += str(msg.content) + "\n"
 
         html_content = f"""
         <!DOCTYPE html>
@@ -350,13 +440,13 @@ class DebugService:
             <div id="status"></div>
 
             <div class="message-section">
-                <h3>Formatted Message for LLM:</h3>
-                <pre class="message-content">{html.escape(session.message_content)}</pre>
+                <h3>Input Messages for LLM:</h3>
+                <pre class="message-content">{html.escape(input_messages_formatted)}</pre>
             </div>
 
             <div class="message-section">
-                <h3>Raw Browser State:</h3>
-                <pre class="raw-state">{session.state.json(indent=2) if session.state else 'No state available'}</pre>
+                <h3>Formatted Message for LLM:</h3>
+                <pre class="message-content">{html.escape(session.message_content)}</pre>
             </div>
 
             <div class="message-section">

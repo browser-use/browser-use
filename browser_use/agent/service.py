@@ -55,6 +55,7 @@ from browser_use.utils import time_execution_async
 
 load_dotenv()
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -89,6 +90,44 @@ class Agent:
 			'value',
 			'alt',
 			'aria-expanded',
+			'aria-selected',
+			'aria-disabled',
+			'aria-controls',
+			'aria-labelledby',
+			'aria-describedby',
+			'aria-autocomplete',
+			'aria-haspopup',
+			'aria-owns',
+			'aria-hidden',
+			'data-view-classes',
+			'data-view-id',
+			'data-view-name',
+			'data-view-type',
+			'data-view-version',
+			'data-section',
+			'data-toggle',
+			'data-target',
+			'data-placement',
+			'data-original-title',
+			'data-original-content',
+			'data-original-href',
+			'data-original-href-text',
+			'data-buttonkey',
+			'data-content',
+			'data-testid',
+			'data-section',
+			'data-value',
+			'data-scroll-container',
+			'data-view-manager-id',
+			'data-view-rendered',
+			'data-content-confidential',
+			'data-rttab',
+			'data-show-ob-gyn',
+			'data-patient-age-in-years',
+			'data-has-ob-episode',
+			'data-plan-id',
+			'data-subsection',
+			'data-always-on'
 		],
 		max_error_length: int = 400,
 		max_actions_per_step: int = 10,
@@ -255,11 +294,14 @@ class Agent:
 			self._check_if_stopped_or_paused()
 
 			self.message_manager.add_state_message(state, self._last_result, step_info, self.use_vision)
+			# ambar - this is the message we need to be debugging. 
 			input_messages = self.message_manager.get_messages()
 
 			self._check_if_stopped_or_paused()
 
 			try:
+				# ambar - this is one interaction with the LLM.
+				logger.debug(f"INPUT MESSAGES: {input_messages}")
 				model_output = await self.get_next_action(input_messages)
 
 				if self.register_new_step_callback:

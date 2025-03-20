@@ -172,6 +172,7 @@ class AgentMessagePrompt:
 		self.include_attributes = include_attributes
 		self.step_info = step_info
 
+	# ambar - this is where the message to the LLM gets crafted.
 	def get_user_message(self, use_vision: bool = True) -> HumanMessage:
 		elements_text = self.state.element_tree.clickable_elements_to_string(include_attributes=self.include_attributes)
 
