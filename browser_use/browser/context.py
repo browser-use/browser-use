@@ -676,37 +676,63 @@ class BrowserContext:
 
 		screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
 
-		await self.remove_highlights()
+		# await self.remove_highlights()
 
 		return screenshot_b64
 
 	async def remove_highlights(self):
 		"""
 		Removes all highlight overlays and labels created by the highlightElement function.
-		Handles cases where the page might be closed or inaccessible.
+		Traverses main document, shadow DOM, and frames to match buildDomTree.js scope.
 		"""
+		page = await self.get_current_page()
 		try:
-			page = await self.get_current_page()
-			await page.evaluate(
-				"""
-                try {
-                    // Remove the highlight container and all its contents
-                    const container = document.getElementById('playwright-highlight-container');
-                    if (container) {
-                        container.remove();
-                    }
+			await page.evaluate("""
+				() => {
+					function removeHighlightsInContext(root) {
+						try {
+							// Remove container if we're in the main document
+							if (root === document) {
+								const container = document.getElementById('playwright-highlight-container');
+								if (container) {
+									container.remove();
+								}
+							}
 
-                    // Remove highlight attributes from elements
-                    const highlightedElements = document.querySelectorAll('[browser-user-highlight-id^="playwright-highlight-"]');
-                    highlightedElements.forEach(el => {
-						console.log('Removing highlight ID:', el.getAttribute('browser-user-highlight-id'));
-                        el.removeAttribute('browser-user-highlight-id');
-                    });
-                } catch (e) {
-                    console.error('Failed to remove highlights:', e);
-                }
-                """
-			)
+							// Remove highlight attributes from elements in this context
+							const highlightedElements = root.querySelectorAll('[browser-user-highlight-id]');
+							highlightedElements.forEach(el => {
+								el.removeAttribute('browser-user-highlight-id');
+							});
+
+							// Handle shadow DOM
+							root.querySelectorAll('*').forEach(el => {
+								if (el.shadowRoot) {
+									removeHighlightsInContext(el.shadowRoot);
+								}
+							});
+
+							// Handle frames and iframes
+							root.querySelectorAll('iframe, frame').forEach(frame => {
+								try {
+									const frameDoc = frame.contentDocument || frame.contentWindow?.document;
+									if (frameDoc) {
+										removeHighlightsInContext(frameDoc);
+									}
+								} catch (frameErr) {
+									// Skip inaccessible frames (e.g., cross-origin)
+									console.debug('Could not access frame:', frameErr);
+								}
+							});
+						} catch (e) {
+							console.error('Failed to remove highlights in context:', e);
+						}
+					}
+
+					// Start removal from main document
+					removeHighlightsInContext(document);
+				}
+			""")
 		except Exception as e:
 			logger.debug(f'Failed to remove highlights (this is usually ok): {str(e)}')
 			# Don't raise the error since this is not critical functionality
