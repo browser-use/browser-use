@@ -37,6 +37,7 @@ class AgentSettings(BaseModel):
 	validate_output: bool = False
 	message_context: Optional[str] = None
 	generate_gif: bool | str = False
+	gif_output_path: Optional[str] = 'agent_history.gif'
 	available_file_paths: Optional[list[str]] = None
 	override_system_message: Optional[str] = None
 	extend_system_message: Optional[str] = None

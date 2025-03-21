@@ -106,6 +106,7 @@ class Agent(Generic[Context]):
 		validate_output: bool = False,
 		message_context: Optional[str] = None,
 		generate_gif: bool | str = False,
+		gif_output_path: Optional[str] = 'agent_history.gif',
 		available_file_paths: Optional[list[str]] = None,
 		include_attributes: list[str] = [
 			'title',
@@ -151,6 +152,7 @@ class Agent(Generic[Context]):
 			validate_output=validate_output,
 			message_context=message_context,
 			generate_gif=generate_gif,
+			gif_output_path=gif_output_path,
 			available_file_paths=available_file_paths,
 			include_attributes=include_attributes,
 			max_actions_per_step=max_actions_per_step,
@@ -640,7 +642,7 @@ class Agent(Generic[Context]):
 				await self.browser.close()
 
 			if self.settings.generate_gif:
-				output_path: str = 'agent_history.gif'
+				output_path = self.settings.gif_output_path
 				if isinstance(self.settings.generate_gif, str):
 					output_path = self.settings.generate_gif
 
