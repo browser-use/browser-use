@@ -31,6 +31,7 @@ from browser_use.browser.views import (
 	BrowserState,
 	TabInfo,
 	URLNotAllowedError,
+	ElementNotFoundError,
 )
 from browser_use.dom.service import DomService
 from browser_use.dom.views import DOMElementNode, SelectorMap, DOMState
@@ -1301,7 +1302,13 @@ class BrowserContext:
 		return element_handle
 
 	async def get_dom_element_by_index(self, index: int) -> DOMElementNode:
+		"""Get DOM element by index from selector map."""
 		selector_map = await self.get_selector_map()
+		if index not in selector_map:
+			raise ElementNotFoundError(
+				f"Element with index {index} does not exist in selector map",
+				selector=str(index)
+			)
 		return selector_map[index]
 
 	async def save_cookies(self):
@@ -1378,17 +1385,18 @@ class BrowserContext:
 		Returns:
 			Base64-encoded screenshot
 		"""
-		session = await self.get_session()
-		page = self._get_current_page(session)
-		
 		try:
+			# Get current page and ensure it's loaded
+			page = await self.get_current_page()
+			await page.wait_for_load_state()
+			
 			# Take screenshot using Playwright
 			screenshot_bytes = await page.screenshot(
 				type="png",
-				full_page=False  # We want the viewport only for UI detection
+				full_page=False,
+				animations="disabled"
 			)
 			
-			# Convert to base64
 			return base64.b64encode(screenshot_bytes).decode('utf-8')
 		except Exception as e:
 			logger.error(f"Failed to capture screenshot for OmniParser: {str(e)}")
@@ -1446,67 +1454,107 @@ class BrowserContext:
 			logger.error(f"Error getting DOM state: {str(e)}")
 			return None
 
-	async def find_element(self, 
-						  selector: str,
-						  element_type: Optional[str] = None,
-						  description_keywords: Optional[List[str]] = None,
-						  use_omniparser_fallback: bool = True,
-						  required_elements: Optional[List[str]] = None) -> Optional[ElementHandle]:
+	async def find_element(
+		self,
+		selector: str,
+		element_type: Optional[str] = None,
+		description_keywords: Optional[List[str]] = None,
+		use_omniparser_fallback: bool = True,
+		required_elements: Optional[List[str]] = None
+	) -> ElementHandle:
 		"""
 		Find an element using DOM selectors with optional OmniParser fallback.
 		
 		Args:
-			selector: DOM selector to try first
-			element_type: Type of element to look for with OmniParser fallback
-			description_keywords: Keywords to match in element descriptions
-			use_omniparser_fallback: Whether to use OmniParser as fallback
-			required_elements: Optional list of required element types for LLM prediction
+			selector: The CSS/XPath selector to find the element
+			element_type: Optional type of element to find (e.g. 'button', 'input')
+			description_keywords: Optional list of keywords that should be present in element description
+			use_omniparser_fallback: Whether to use OmniParser as fallback if element not found
+			required_elements: Optional list of required elements that should be present
 			
 		Returns:
-			ElementHandle if found, None otherwise
+			ElementHandle if found
+			
+		Raises:
+			ElementNotFoundError: If element not found even after fallback, with detailed context
 		"""
 		page = await self.get_current_page()
-		if not isinstance(page, Page):
-			return None
+		dom_error = None
 		
 		try:
-			# First try DOM selector
-			element = await page.wait_for_selector(selector, timeout=5000)
+			# First try regular DOM-based element location
+			element = await page.wait_for_selector(selector, timeout=1000)
 			if element:
 				return element
+		except TimeoutError as e:
+			dom_error = str(e)
+			logger.debug(f"DOM selector failed: {dom_error}")
 		except Exception as e:
-			logger.debug(f"DOM selector failed: {str(e)}")
+			dom_error = str(e)
+			logger.debug(f"Unexpected error in DOM selection: {dom_error}")
+		
+		if use_omniparser_fallback:
+			logger.debug(f"Element not found with selector {selector}, trying OmniParser fallback")
 			
-		# If DOM failed and fallback enabled, try OmniParser
-		if use_omniparser_fallback and self.config.extraction_config.use_hybrid_extraction:
 			try:
-				# Get current DOM state with required elements check
-				dom_state = await self.get_dom_state(required_elements=required_elements)
-				
+				# Get DOM state using OmniParser
+				dom_state = await self.get_dom_state(required_elements)
 				if not dom_state:
-					return None
+					raise ElementNotFoundError(
+						f"Element not found with selector: {selector}. DOM extraction failed and OmniParser could not create DOM state.",
+						selector=selector,
+						element_type=element_type,
+						description_keywords=description_keywords
+					)
 				
-				# Get hybrid extractor
-				extractor = await self._get_hybrid_extractor(page)
-				
-				# Try to find element with OmniParser
-				element = await extractor.find_specific_element(
+				# Use hybrid extractor to find element
+				hybrid_extractor = await self._get_hybrid_extractor(page)
+				element = await hybrid_extractor.find_specific_element(
 					dom_state=dom_state,
 					element_type=element_type,
 					description_keywords=description_keywords
 				)
 				
-				if element:
-					logger.info("Found element using OmniParser fallback")
-					# Click the element using its coordinates
-					if element.page_coordinates and element.page_coordinates.center:
-						await page.mouse.click(
-							element.page_coordinates.center.x,
-							element.page_coordinates.center.y
+				# Convert OmniParser element to Playwright ElementHandle
+				try:
+					element_handle = await page.wait_for_selector(element.xpath, timeout=1000)
+					if not element_handle:
+						raise ElementNotFoundError(
+							f"Element found by OmniParser but not in DOM: {element.xpath}. This may indicate a dynamic element or timing issue.",
+							selector=selector,
+							element_type=element_type,
+							description_keywords=description_keywords
 						)
-						return await page.wait_for_selector(element.xpath)
-						
-			except Exception as e:
-				logger.error(f"OmniParser fallback failed: {str(e)}")
+					return element_handle
+				except TimeoutError as e:
+					raise ElementNotFoundError(
+						f"Element found by OmniParser but timed out waiting for DOM: {element.xpath}. Error: {str(e)}",
+						selector=selector,
+						element_type=element_type,
+						description_keywords=description_keywords
+					)
 				
-		return None
+			except ElementNotFoundError:
+				# Re-raise ElementNotFoundError with original context
+				raise
+			except Exception as e:
+				raise ElementNotFoundError(
+					f"OmniParser fallback failed: {str(e)}. Original DOM error: {dom_error}",
+					selector=selector,
+					element_type=element_type,
+					description_keywords=description_keywords
+				)
+		
+		# If we get here, both DOM and OmniParser (if enabled) failed
+		error_msg = f"Element not found with selector: {selector}"
+		if dom_error:
+			error_msg += f". DOM error: {dom_error}"
+		if not use_omniparser_fallback:
+			error_msg += ". OmniParser fallback was disabled"
+		
+		raise ElementNotFoundError(
+			error_msg,
+			selector=selector,
+			element_type=element_type,
+			description_keywords=description_keywords
+		)

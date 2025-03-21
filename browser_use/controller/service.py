@@ -25,6 +25,7 @@ from browser_use.controller.views import (
 	SwitchTabAction,
 )
 from browser_use.utils import time_execution_sync
+from browser_use.browser.views import ElementNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -106,56 +107,88 @@ class Controller(Generic[Context]):
 		async def click_element(params: ClickElementAction, browser: BrowserContext):
 			session = await browser.get_session()
 
-			if params.index not in await browser.get_selector_map():
-				raise Exception(f'Element with index {params.index} does not exist - retry or use alternative actions')
-
-			element_node = await browser.get_dom_element_by_index(params.index)
-			initial_pages = len(session.context.pages)
-
-			# if element has file uploader then dont click
-			if await browser.is_file_uploader(element_node):
-				msg = f'Index {params.index} - has an element which opens file upload dialog. To upload files please use a specific function to upload files '
-				logger.info(msg)
-				return ActionResult(extracted_content=msg, include_in_memory=True)
-
-			msg = None
-
 			try:
-				download_path = await browser._click_element_node(element_node)
-				if download_path:
-					msg = f'💾  Downloaded file to {download_path}'
-				else:
-					msg = f'🖱️  Clicked button with index {params.index}: {element_node.get_all_text_till_next_clickable_element(max_depth=2)}'
+				element_node = await browser.get_dom_element_by_index(params.index)
+				initial_pages = len(session.context.pages)
 
-				logger.info(msg)
-				logger.debug(f'Element xpath: {element_node.xpath}')
-				if len(session.context.pages) > initial_pages:
-					new_tab_msg = 'New tab opened - switching to it'
-					msg += f' - {new_tab_msg}'
-					logger.info(new_tab_msg)
-					await browser.switch_to_tab(-1)
-				return ActionResult(extracted_content=msg, include_in_memory=True)
-			except Exception as e:
-				logger.warning(f'Element not clickable with index {params.index} - most likely the page changed')
-				return ActionResult(error=str(e))
+				# if element has file uploader then dont click
+				if await browser.is_file_uploader(element_node):
+					msg = f'Index {params.index} - has an element which opens file upload dialog. To upload files please use a specific function to upload files '
+					logger.info(msg)
+					return ActionResult(extracted_content=msg, include_in_memory=True)
+
+				msg = None
+
+				try:
+					download_path = await browser._click_element_node(element_node)
+					if download_path:
+						msg = f'💾  Downloaded file to {download_path}'
+					else:
+						msg = f'🖱️  Clicked button with index {params.index}: {element_node.get_all_text_till_next_clickable_element(max_depth=2)}'
+
+					logger.info(msg)
+					logger.debug(f'Element xpath: {element_node.xpath}')
+					if len(session.context.pages) > initial_pages:
+						new_tab_msg = 'New tab opened - switching to it'
+						msg += f' - {new_tab_msg}'
+						logger.info(new_tab_msg)
+						await browser.switch_to_tab(-1)
+					return ActionResult(extracted_content=msg, include_in_memory=True)
+				except ElementNotFoundError as e:
+					# Enhanced error logging with full context
+					error_msg = f"Failed to click element: {str(e)}"
+					if e.selector:
+						error_msg += f"\nSelector: {e.selector}"
+					if e.element_type:
+						error_msg += f"\nElement type: {e.element_type}"
+					if e.description_keywords:
+						error_msg += f"\nDescription keywords: {', '.join(e.description_keywords)}"
+					logger.warning(error_msg)
+					return ActionResult(error=error_msg)
+				except Exception as e:
+					logger.warning(f'Element not clickable with index {params.index} - most likely the page changed')
+					return ActionResult(error=str(e))
+			except ElementNotFoundError as e:
+				# Enhanced error logging with full context
+				error_msg = f"Element not found: {str(e)}"
+				if e.selector:
+					error_msg += f"\nSelector: {e.selector}"
+				if e.element_type:
+					error_msg += f"\nElement type: {e.element_type}"
+				if e.description_keywords:
+					error_msg += f"\nDescription keywords: {', '.join(e.description_keywords)}"
+				logger.warning(error_msg)
+				return ActionResult(error=error_msg)
 
 		@self.registry.action(
 			'Input text into a input interactive element',
 			param_model=InputTextAction,
 		)
 		async def input_text(params: InputTextAction, browser: BrowserContext, has_sensitive_data: bool = False):
-			if params.index not in await browser.get_selector_map():
-				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
-
-			element_node = await browser.get_dom_element_by_index(params.index)
-			await browser._input_text_element_node(element_node, params.text)
-			if not has_sensitive_data:
-				msg = f'⌨️  Input {params.text} into index {params.index}'
-			else:
-				msg = f'⌨️  Input sensitive data into index {params.index}'
-			logger.info(msg)
-			logger.debug(f'Element xpath: {element_node.xpath}')
-			return ActionResult(extracted_content=msg, include_in_memory=True)
+			try:
+				element_node = await browser.get_dom_element_by_index(params.index)
+				await browser._input_text_element_node(element_node, params.text)
+				if not has_sensitive_data:
+					msg = f'⌨️  Input {params.text} into index {params.index}'
+				else:
+					msg = f'⌨️  Input sensitive data into index {params.index}'
+				logger.info(msg)
+				logger.debug(f'Element xpath: {element_node.xpath}')
+				return ActionResult(extracted_content=msg, include_in_memory=True)
+			except ElementNotFoundError as e:
+				# Enhanced error logging with full context
+				error_msg = f"Element not found: {str(e)}"
+				if e.selector:
+					error_msg += f"\nSelector: {e.selector}"
+				if e.element_type:
+					error_msg += f"\nElement type: {e.element_type}"
+				if e.description_keywords:
+					error_msg += f"\nDescription keywords: {', '.join(e.description_keywords)}"
+				logger.warning(error_msg)
+				return ActionResult(error=error_msg)
+			except Exception as e:
+				logger.warning(f'Failed to input text: {str(e)}')
+				return ActionResult(error=str(e))
 
 		# Tab Management Actions
 		@self.registry.action('Switch tab', param_model=SwitchTabAction)

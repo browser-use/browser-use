@@ -51,3 +51,12 @@ class BrowserError(Exception):
 
 class URLNotAllowedError(BrowserError):
 	"""Error raised when a URL is not allowed"""
+
+
+class ElementNotFoundError(BrowserError):
+	"""Exception raised when an element is not found in the DOM."""
+	def __init__(self, message: str, selector: Optional[str] = None, element_type: Optional[str] = None, description_keywords: Optional[list[str]] = None):
+		super().__init__(message)
+		self.selector = selector
+		self.element_type = element_type
+		self.description_keywords = description_keywords

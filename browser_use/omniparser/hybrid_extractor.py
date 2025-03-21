@@ -13,6 +13,7 @@ from browser_use.omniparser.captcha import CaptchaDetector
 from browser_use.omniparser.service import OmniParserService
 from browser_use.omniparser.views import OmniParserSettings
 from browser_use.dom.history_tree_processor.view import CoordinateSet, Coordinates
+from browser_use.browser.views import ElementNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +145,7 @@ class HybridExtractor:
                                   dom_state: DOMState,
                                   element_type: Optional[str] = None,
                                   description_keywords: Optional[List[str]] = None,
-                                  confidence_threshold: float = 0.5) -> Optional[DOMElementNode]:
+                                  confidence_threshold: float = 0.5) -> DOMElementNode:
         """
         Find a specific element using OmniParser when DOM extraction fails.
         
@@ -155,10 +156,24 @@ class HybridExtractor:
             confidence_threshold: Minimum confidence threshold
             
         Returns:
-            Matching DOM element if found, None otherwise
+            Matching DOM element
+            
+        Raises:
+            ElementNotFoundError: If element cannot be found or if OmniParser is disabled
         """
-        if not self.settings.enabled or not self._last_screenshot:
-            return None
+        if not self.settings.enabled:
+            raise ElementNotFoundError(
+                "OmniParser is disabled - cannot perform visual element search",
+                element_type=element_type,
+                description_keywords=description_keywords
+            )
+            
+        if not self._last_screenshot:
+            raise ElementNotFoundError(
+                "No screenshot available for OmniParser analysis",
+                element_type=element_type,
+                description_keywords=description_keywords
+            )
             
         try:
             # Use targeted element detection
@@ -176,8 +191,17 @@ class HybridExtractor:
                 
         except Exception as e:
             logger.error(f"Error finding specific element with OmniParser: {str(e)}")
+            raise ElementNotFoundError(
+                f"OmniParser failed to find element: {str(e)}",
+                element_type=element_type,
+                description_keywords=description_keywords
+            )
             
-        return None
+        raise ElementNotFoundError(
+            "Element not found by OmniParser visual analysis",
+            element_type=element_type,
+            description_keywords=description_keywords
+        )
     
     def _convert_to_dom_element(self, omni_element: Dict[str, Any], dom_state: DOMState) -> DOMElementNode:
         """Convert an OmniParser element to a DOM element."""
