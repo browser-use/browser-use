@@ -136,11 +136,60 @@ class BrowserContextConfig:
 	_force_keep_context_alive: bool = False
 
 
-@dataclass
 class BrowserSession:
-	context: PlaywrightBrowserContext
-	cached_state: BrowserState | None
+	
+	def __init__(
+			self,
+			context: PlaywrightBrowserContext,
+			cached_state: BrowserState | None=None
+		):
+		init_script = """
+			(() => {
+				if (!window.getEventListeners) {
+					window.getEventListeners = function (node) {
+						return node.__listeners || {};
+					};
 
+					// Save the original addEventListener
+					const originalAddEventListener = Element.prototype.addEventListener;
+
+					const eventProxy = {
+						addEventListener: function (type, listener, options = {}) {
+							// Initialize __listeners if not exists
+							const defaultOptions = { once: false, passive: false, capture: false };
+							if(typeof options === 'boolean') {
+								options = { capture: options };
+							}
+							options = { ...defaultOptions, ...options };
+							if (!this.__listeners) {
+								this.__listeners = {};
+							}
+
+							// Initialize array for this event type if not exists
+							if (!this.__listeners[type]) {
+								this.__listeners[type] = [];
+							}
+							
+
+							// Add the listener to __listeners
+							this.__listeners[type].push({
+								listener: listener,
+								type: type,
+								...options
+							});
+
+							// Call original addEventListener using the saved reference
+							return originalAddEventListener.call(this, type, listener, options);
+						}
+					};
+
+					Element.prototype.addEventListener = eventProxy.addEventListener;
+				}
+			})()
+			"""
+		self.context = context
+		self.cached_state = cached_state
+		self.context.on('page', lambda page: page.add_init_script(init_script))
 
 @dataclass
 class BrowserContextState:
