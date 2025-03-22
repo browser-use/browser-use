@@ -121,6 +121,7 @@ class Agent(Generic[Context]):
 		],
 		max_actions_per_step: int = 10,
 		tool_calling_method: Optional[ToolCallingMethod] = 'auto',
+		non_function_calling_models: Optional[bool] = False,
 		page_extraction_llm: Optional[BaseChatModel] = None,
 		planner_llm: Optional[BaseChatModel] = None,
 		planner_interval: int = 1,  # Run planner every N steps
@@ -158,6 +159,7 @@ class Agent(Generic[Context]):
 			page_extraction_llm=page_extraction_llm,
 			planner_llm=planner_llm,
 			planner_interval=planner_interval,
+			non_function_calling_models=non_function_calling_models,
 		)
 
 		# Initialize state
@@ -498,8 +500,8 @@ class Agent(Generic[Context]):
 
 	def _convert_input_messages(self, input_messages: list[BaseMessage]) -> list[BaseMessage]:
 		"""Convert input messages to the correct format"""
-		if self.model_name == 'deepseek-reasoner' or 'deepseek-r1' in self.model_name:
-			return convert_input_messages(input_messages, self.model_name)
+		if self.settings.non_function_calling_models:
+			return convert_input_messages(input_messages, self.model_name, self.settings.non_function_calling_models)
 		else:
 			return input_messages
 
