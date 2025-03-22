@@ -171,13 +171,15 @@ class MessageManager:
 	def get_messages(self) -> List[BaseMessage]:
 		"""Get current message list, potentially trimmed to max tokens"""
 
-		msg = [m.message for m in self.state.history.messages]
+		msg = self.state.history.messages
 		# debug which messages are in history with token count # log
 		total_input_tokens = 0
 		logger.debug(f'Messages in history: {len(self.state.history.messages)}:')
 		for m in self.state.history.messages:
-			total_input_tokens += m.metadata.tokens
-			logger.debug(f'{m.message.__class__.__name__} - Token count: {m.metadata.tokens}')
+			# Check if the message has metadata attribute
+			token_count = getattr(m, "metadata", {}).get("tokens", 0)
+			total_input_tokens += token_count
+			logger.debug(f'{m.__class__.__name__} - Token count: {token_count}')
 		logger.debug(f'Total input tokens: {total_input_tokens}')
 
 		return msg
@@ -193,7 +195,12 @@ class MessageManager:
 
 		token_count = self._count_tokens(message)
 		metadata = MessageMetadata(tokens=token_count)
-		self.state.history.add_message(message, metadata, position)
+		if position is not None:
+			# Insert at specific position
+			self.state.history.messages.insert(position, message)
+		else:
+			# Add to the end
+			self.state.history.add_message(message, token_count)
 
 	@time_execution_sync('--filter_sensitive_data')
 	def _filter_sensitive_data(self, message: BaseMessage) -> BaseMessage:
@@ -247,20 +254,19 @@ class MessageManager:
 		msg = self.state.history.messages[-1]
 
 		# if list with image remove image
-		if isinstance(msg.message.content, list):
+		if isinstance(msg.content, list):
 			text = ''
-			for item in msg.message.content:
+			for item in msg.content:
 				if 'image_url' in item:
-					msg.message.content.remove(item)
+					msg.content.remove(item)
 					diff -= self.settings.image_tokens
-					msg.metadata.tokens -= self.settings.image_tokens
 					self.state.history.current_tokens -= self.settings.image_tokens
 					logger.debug(
 						f'Removed image with {self.settings.image_tokens} tokens - total tokens now: {self.state.history.current_tokens}/{self.settings.max_input_tokens}'
 					)
 				elif 'text' in item and isinstance(item, dict):
 					text += item['text']
-			msg.message.content = text
+			msg.content = text
 			self.state.history.messages[-1] = msg
 
 		if diff <= 0:
@@ -268,17 +274,18 @@ class MessageManager:
 
 		# if still over, remove text from state message proportionally to the number of tokens needed with buffer
 		# Calculate the proportion of content to remove
-		proportion_to_remove = diff / msg.metadata.tokens
+		token_count = getattr(msg, "metadata", {}).get("tokens", 0)
+		proportion_to_remove = diff / token_count if token_count > 0 else 1.0
 		if proportion_to_remove > 0.99:
 			raise ValueError(
 				f'Max token limit reached - history is too long - reduce the system prompt or task. '
 				f'proportion_to_remove: {proportion_to_remove}'
 			)
 		logger.debug(
-			f'Removing {proportion_to_remove * 100:.2f}% of the last message  {proportion_to_remove * msg.metadata.tokens:.2f} / {msg.metadata.tokens:.2f} tokens)'
+			f'Removing {proportion_to_remove * 100:.2f}% of the last message  {proportion_to_remove * token_count:.2f} / {token_count:.2f} tokens)'
 		)
 
-		content = msg.message.content
+		content = msg.content
 		characters_to_remove = int(len(content) * proportion_to_remove)
 		content = content[:-characters_to_remove]
 
@@ -292,7 +299,7 @@ class MessageManager:
 		last_msg = self.state.history.messages[-1]
 
 		logger.debug(
-			f'Added message with {last_msg.metadata.tokens} tokens - total tokens now: {self.state.history.current_tokens}/{self.settings.max_input_tokens} - total messages: {len(self.state.history.messages)}'
+			f'Added message with {getattr(last_msg, "metadata", {}).get("tokens", 0)} tokens - total tokens now: {self.state.history.current_tokens}/{self.settings.max_input_tokens} - total messages: {len(self.state.history.messages)}'
 		)
 
 	def _remove_last_state_message(self) -> None:
