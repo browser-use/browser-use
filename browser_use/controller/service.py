@@ -22,6 +22,7 @@ from browser_use.controller.views import (
 	OpenTabAction,
 	ScrollAction,
 	SearchGoogleAction,
+	SavePDFAction,
 	SendKeysAction,
 	SwitchTabAction,
 )
@@ -163,6 +164,20 @@ class Controller(Generic[Context]):
 				msg = f'⌨️  Input sensitive data into index {params.index}'
 			logger.info(msg)
 			logger.debug(f'Element xpath: {element_node.xpath}')
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+		
+		# Save PDF
+		@self.registry.action(
+			'Save the current page as a PDF file',
+			param_model=SavePDFAction,
+		)
+		async def save_pdf(params: SavePDFAction, browser: BrowserContext):
+			page = await browser.get_current_page()
+			await page.emulate_media(params.media_type)
+			await page.pdf(path=params.file_path, format=params.format, print_background=params.print_background)
+
+			msg = f"Saving page with URL {page.url} as PDF to {params.file_path}"
+			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
 		# Tab Management Actions

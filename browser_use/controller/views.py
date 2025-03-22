@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Literal
 
 from pydantic import BaseModel, model_validator
 
@@ -46,6 +46,13 @@ class SendKeysAction(BaseModel):
 
 class ExtractPageContentAction(BaseModel):
 	value: str
+
+
+class SavePDFAction(BaseModel):
+	file_path: str
+	media_type: Literal['screen', 'print'] = 'screen'
+	format: Literal['A4', 'A3', 'A5', 'Legal', 'Letter'] = 'A4'
+	print_background: bool = False
 
 
 class NoParamsAction(BaseModel):
