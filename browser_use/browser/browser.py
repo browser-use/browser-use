@@ -6,9 +6,10 @@ import asyncio
 import gc
 import logging
 from dataclasses import dataclass, field
+from typing import Optional
 
 from playwright._impl._api_structures import ProxySettings
-from playwright.async_api import Browser as PlaywrightBrowser
+from playwright.async_api import Browser as PlaywrightBrowser, BrowserContext as PlaywrightBrowserContext, Page
 from playwright.async_api import (
 	Playwright,
 	async_playwright,
@@ -72,12 +73,13 @@ class Browser:
 	def __init__(
 		self,
 		config: BrowserConfig = BrowserConfig(),
+        page: Optional[Page] = None
 	):
 		logger.debug('Initializing new browser')
 		self.config = config
-		self.playwright: Playwright | None = None
-		self.playwright_browser: PlaywrightBrowser | None = None
-
+		self.playwright: Optional[Playwright] = None
+		self.playwright_browser: Optional[PlaywrightBrowser] = None
+		self.page = page
 		self.disable_security_args = []
 		if self.config.disable_security:
 			self.disable_security_args = [
@@ -88,13 +90,35 @@ class Browser:
 
 	async def new_context(self, config: BrowserContextConfig = BrowserContextConfig()) -> BrowserContext:
 		"""Create a browser context"""
+		if config is None:
+			config = self.config.new_context_config
+		elif self.config._force_keep_browser_alive:
+			config._force_keep_context_alive = True
+
+		# If we have a playwright page instance, we can access it's context and browser
+		if self.page is not None:
+			self.playwright_browser = self.page.context.browser
+			logger.debug("Wrapping provided PlaywrightBrowserContext in BrowserContext.")
+			custom_context = BrowserContext(config=config, browser=self)
+			# Manually create a session from the existing Playwright context.
+			from browser_use.browser.context import BrowserSession
+			custom_context.session = BrowserSession(context=self.page.context, cached_state=None)
+			return custom_context
+		else:
+			logger.debug("Creating a new BrowserContext")
 		return BrowserContext(config=config, browser=self)
 
 	async def get_playwright_browser(self) -> PlaywrightBrowser:
-		"""Get a browser context"""
+		"""
+		Get a browser instance. If an externally provided browser, context or page is available,
+		use it; otherwise, initialize a new one.
+		"""
+		# If we set a page, we'll use the page's browser
+		if self.page is not None:
+			self.playwright_browser = self.page.context.browser
+			logger.debug("Using browser from existing page.")
 		if self.playwright_browser is None:
-			return await self._init()
-
+			self.playwright_browser = await self._init()
 		return self.playwright_browser
 
 	@time_execution_async('--init (browser)')
