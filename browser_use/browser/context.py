@@ -107,6 +107,21 @@ class BrowserContextConfig:
 
 	    include_dynamic_attributes: bool = True
 	        Include dynamic attributes in the CSS selector. If you want to reuse the css_selectors, it might be better to set this to False.
+
+	    is_mobile: None
+	        Whether the meta viewport tag is taken into account and touch events are enabled.
+
+	    has_touch: None
+	        Whether to enable touch events in the browser.
+
+	    geolocation: None
+	        Geolocation to be used in the browser context. Example: {'latitude': 59.95, 'longitude': 30.31667}
+
+	    permissions: None
+	        Browser permissions to grant. Values might include: ['geolocation', 'notifications']
+
+	    timezone_id: None
+	        Changes the timezone of the browser. Example: 'Europe/Berlin'
 	"""
 
 	cookies_file: str | None = None
@@ -134,6 +149,11 @@ class BrowserContextConfig:
 	include_dynamic_attributes: bool = True
 
 	_force_keep_context_alive: bool = False
+	is_mobile: bool | None = None
+	has_touch: bool | None = None
+	geolocation: dict | None = None
+	permissions: list[str] | None = None
+	timezone_id: str | None = None
 
 
 @dataclass
@@ -326,6 +346,11 @@ class BrowserContext:
 				record_video_dir=self.config.save_recording_path,
 				record_video_size=self.config.browser_window_size,
 				locale=self.config.locale,
+				is_mobile=self.config.is_mobile,
+				has_touch=self.config.has_touch,
+				geolocation=self.config.geolocation,
+				permissions=self.config.permissions,
+				timezone_id=self.config.timezone_id,
 			)
 
 		if self.config.trace_path:
