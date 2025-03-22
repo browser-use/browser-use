@@ -334,9 +334,23 @@ class BrowserContext:
 		# Load cookies if they exist
 		if self.config.cookies_file and os.path.exists(self.config.cookies_file):
 			with open(self.config.cookies_file, 'r') as f:
-				cookies = json.load(f)
-				logger.info(f'Loaded {len(cookies)} cookies from {self.config.cookies_file}')
-				await context.add_cookies(cookies)
+				try:
+					cookies = json.load(f)
+
+					valid_same_site_values = ['Strict', 'Lax', 'None']
+					for cookie in cookies:
+						if 'sameSite' in cookie:
+							if cookie['sameSite'] not in valid_same_site_values:
+								logger.warning(
+									f"Fixed invalid sameSite value '{cookie['sameSite']}' to 'None' for cookie {cookie.get('name')}"
+								)
+								cookie['sameSite'] = 'None'
+
+					logger.info(f'Loaded {len(cookies)} cookies from {self.config.cookies_file}')
+					await context.add_cookies(cookies)
+
+				except json.JSONDecodeError as e:
+					logger.error(f'Failed to parse cookies file: {str(e)}')
 
 		# Expose anti-detection scripts
 		await context.add_init_script(
