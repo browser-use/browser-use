@@ -1,0 +1,122 @@
+---
+title: 'n8n Integration'
+description: 'Learn how to integrate Browser Use with n8n workflows'
+---
+
+# Browser Use n8n Integration
+
+Browser Use can be integrated with [n8n](https://n8n.io), a workflow automation platform, using our community node. This integration allows you to trigger browser automation tasks directly from your n8n workflows.
+
+## Installing the n8n Community Node
+
+There are several ways to install the Browser Use community node in n8n:
+
+### Using n8n Desktop or Cloud
+
+1. Navigate to **Settings > Community Nodes**
+2. Click on **Install**
+3. Enter `n8n-nodes-browser-use` in the **Name** field
+4. Click **Install**
+
+### Using a Self-hosted n8n Instance
+
+Run the following command in your n8n installation directory:
+
+```bash
+npm install n8n-nodes-browser-use
+```
+
+### For Development
+
+If you want to develop with the n8n node:
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/draphonix/n8n-nodes-browser-use.git
+   ```
+2. Install dependencies:
+   ```bash
+   cd n8n-nodes-browser-use
+   npm install
+   ```
+3. Build the code:
+   ```bash
+   npm run build
+   ```
+4. Link to your n8n installation:
+   ```bash
+   npm link
+   ```
+5. In your n8n installation directory:
+   ```bash
+   npm link n8n-nodes-browser-use
+   ```
+
+## Setting Up Browser Use Cloud API Credentials
+
+To use the Browser Use node in n8n, you need to configure API credentials:
+
+1. Sign up for an account at [Browser Use Cloud](https://cloud.browser-use.com)
+2. Navigate to the Settings or API section
+3. Generate or copy your API key
+4. In n8n, create a new credential:
+   - Go to **Credentials** tab
+   - Click **Create New**
+   - Select **Browser Use Cloud API**
+   - Enter your API key
+   - Save the credential
+
+## Using the Browser Use Node
+
+Once installed, you can add the Browser Use node to your workflows:
+
+1. In your workflow editor, search for "Browser Use" in the nodes panel
+2. Add the node to your workflow
+3. Set-up the credentials
+4. Choose your saved credentials
+5. Select an operation:
+   - **Run Task**: Execute a browser automation task with natural language instructions
+   - **Get Task**: Retrieve task details
+   - **Get Task Status**: Check task execution status
+   - **Pause/Resume/Stop Task**: Control running tasks
+   - **Get Task Media**: Retrieve screenshots, videos, or PDFs
+   - **List Tasks**: Get a list of tasks
+
+### Example: Running a Browser Task
+
+Here's a simple example of how to use the Browser Use node to run a browser task:
+
+1. Add the Browser Use node to your workflow
+2. Select the "Run Task" operation
+3. In the "Instructions" field, enter a natural language description of what you want the browser to do, for example:
+   ```
+   Go to example.com, take a screenshot of the homepage, and extract all the main heading texts
+   ```
+4. Optionally enable "Save Browser Data" to preserve cookies and session information
+5. Connect the node to subsequent nodes to process the results
+
+## Workflow Examples
+
+The Browser Use n8n node enables various automation scenarios:
+
+- **Web Scraping**: Extract data from websites on a schedule
+- **Form Filling**: Automate data entry across web applications
+- **Monitoring**: Check website status and capture visual evidence
+- **Report Generation**: Generate PDFs or screenshots of web dashboards
+- **Multi-step Processes**: Chain browser tasks together using session persistence
+
+## Troubleshooting
+
+If you encounter issues with the Browser Use node:
+
+- Verify your API key is valid and has sufficient credits
+- Check that your instructions are clear and specific
+- For complex tasks, consider breaking them into multiple steps
+- Refer to the [Browser Use documentation](https://docs.browser-use.com) for instruction best practices
+
+## Resources
+
+- [n8n Community Nodes Documentation](https://docs.n8n.io/integrations/community-nodes/)
+- [Browser Use Documentation](https://docs.browser-use.com)
+- [Browser Use Cloud](https://cloud.browser-use.com)
+- [n8n-nodes-browser-use GitHub Repository](https://github.com/draphonix/n8n-nodes-browser-use) 
