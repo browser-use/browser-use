@@ -192,7 +192,6 @@ class AgentHistory(BaseModel):
 			'metadata': self.metadata.model_dump() if self.metadata else None,
 		}
 
-
 class AgentHistoryList(BaseModel):
 	"""List of agent history items"""
 
@@ -341,6 +340,20 @@ class AgentHistoryList(BaseModel):
 					output['interacted_element'] = interacted_element
 					outputs.append(output)
 		return outputs
+	
+	def get_steps_and_actions(self) -> tuple[list[str], list[dict]]:
+		"""Get task steps and actions separately"""
+		steps = []
+		actions = []
+		
+		for h in self.history:
+			if h.model_output:
+				step = h.model_output.current_state.next_goal
+				for action in h.model_output.action:
+					steps.append(step)
+					actions.append(action.model_dump(exclude_none=True))
+		
+		return steps, actions
 
 	def action_results(self) -> list[ActionResult]:
 		"""Get all results from history"""
