@@ -15,7 +15,13 @@ class TabInfo(BaseModel):
 	url: str
 	title: str
 
+class GroupTabsAction(BaseModel):
+    tab_ids: list[int]
+    title: str
+    color: Optional[str] = "blue"
 
+class UngroupTabsAction(BaseModel):
+    tab_ids: list[int]
 @dataclass
 class BrowserState(DOMState):
 	url: str

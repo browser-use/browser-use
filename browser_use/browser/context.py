@@ -1330,33 +1330,23 @@ class BrowserContext:
 		for page in pages:
 			await page.close()
 
-		session.cached_state = None
-		self.state.target_id = None
+		session.cached_state = self._get_initial_state()
+		session.current_page = await session.context.new_page()
 
-	async def _get_unique_filename(self, directory, filename):
-		"""Generate a unique filename by appending (1), (2), etc., if a file already exists."""
-		base, ext = os.path.splitext(filename)
-		counter = 1
-		new_filename = filename
-		while os.path.exists(os.path.join(directory, new_filename)):
-			new_filename = f'{base} ({counter}){ext}'
-			counter += 1
-		return new_filename
-
-	async def _get_cdp_targets(self) -> list[dict]:
-		"""Get all CDP targets directly using CDP protocol"""
-		if not self.browser.config.cdp_url or not self.session:
-			return []
-
-		try:
-			pages = self.session.context.pages
-			if not pages:
-				return []
-
-			cdp_session = await pages[0].context.new_cdp_session(pages[0])
-			result = await cdp_session.send('Target.getTargets')
-			await cdp_session.detach()
-			return result.get('targetInfos', [])
-		except Exception as e:
-			logger.debug(f'Failed to get CDP targets: {e}')
-			return []
+	def _get_initial_state(self, page: Optional[Page] = None) -> BrowserState:
+		"""Get the initial state of the browser"""
+		return BrowserState(
+			element_tree=DOMElementNode(
+				tag_name='root',
+				is_visible=True,
+				parent=None,
+				xpath='',
+				attributes={},
+				children=[],
+			),
+			selector_map={},
+			url=page.url if page else '',
+			title='',
+			screenshot=None,
+			tabs=[],
+		)
