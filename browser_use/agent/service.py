@@ -496,9 +496,9 @@ class Agent(Generic[Context]):
 		text = re.sub(self.STRAY_CLOSE_TAG, '', text)
 		return text.strip()
 
-	def _convert_input_messages(self, input_messages: list[BaseMessage]) -> list[BaseMessage]:
+	def _convert_input_messages(self, input_messages: list[BaseMessage], force:bool=False) -> list[BaseMessage]:
 		"""Convert input messages to the correct format"""
-		if self.model_name == 'deepseek-reasoner' or 'deepseek-r1' in self.model_name:
+		if force or self.model_name == 'deepseek-reasoner' or 'deepseek-r1' in self.model_name:
 			return convert_input_messages(input_messages, self.model_name)
 		else:
 			return input_messages
@@ -520,9 +520,13 @@ class Agent(Generic[Context]):
 				raise ValueError('Could not parse response.')
 
 		elif self.tool_calling_method is None:
-			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True)
-			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
-			parsed: AgentOutput | None = response['parsed']
+            structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True)
+            try:
+                response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
+            except Exception as e:
+                input_messages = self._convert_input_messages(input_messages, force=True)
+                response: dict[str, Any] = await structured_llm.ainvoke(input_messages)
+            parsed: AgentOutput | None = response['parsed']
 		else:
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True, method=self.tool_calling_method)
 			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
