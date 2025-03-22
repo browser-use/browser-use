@@ -187,11 +187,15 @@ class Controller(Generic[Context]):
 		@self.registry.action(
 			'Extract page content to retrieve specific information from the page, e.g. all company names, a specifc description, all information about, links with companies in structured format or simply links',
 		)
-		async def extract_content(goal: str, browser: BrowserContext, page_extraction_llm: BaseChatModel):
+		async def extract_content(goal: str, should_strip_link_urls: bool, browser: BrowserContext, page_extraction_llm: BaseChatModel):
 			page = await browser.get_current_page()
 			import markdownify
 
-			content = markdownify.markdownify(await page.content())
+			strip = []
+			if should_strip_link_urls:
+				strip = ['a', 'img']
+
+			content = markdownify.markdownify(await page.content(), strip=strip)
 
 			prompt = 'Your task is to extract the content of the page. You will be given a page and a goal and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format. Extraction goal: {goal}, Page: {page}'
 			template = PromptTemplate(input_variables=['goal', 'page'], template=prompt)
