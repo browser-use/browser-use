@@ -12,7 +12,7 @@ from openai import RateLimitError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 
 from browser_use.agent.message_manager.views import MessageManagerState
-from browser_use.browser.views import BrowserStateHistory
+from browser_use.browser.views import BrowserState, BrowserStateHistory
 from browser_use.controller.registry.views import ActionModel
 from browser_use.dom.history_tree_processor.service import (
 	DOMElementNode,
@@ -20,6 +20,9 @@ from browser_use.dom.history_tree_processor.service import (
 	HistoryTreeProcessor,
 )
 from browser_use.dom.views import SelectorMap
+import logging
+
+logger = logging.getLogger(__name__)
 
 ToolCallingMethod = Literal['function_calling', 'json_mode', 'raw', 'auto']
 
@@ -80,12 +83,26 @@ class AgentState(BaseModel):
 
 @dataclass
 class AgentStepInfo:
-	step_number: int
+	step: int
 	max_steps: int
+	browser_state: BrowserState
+	errors: List[str]
+	
+	@property
+	def recent_actions(self) -> List[str]:
+		# Get the last 5 actions from browser state history
+		if not self.browser_state:
+			return []
+		# Just return an empty list for now until we determine the correct attribute
+		return []
+	
+	@property
+	def has_errors(self) -> bool:
+		return len(self.errors) > 0
 
 	def is_last_step(self) -> bool:
 		"""Check if this is the last step"""
-		return self.step_number >= self.max_steps - 1
+		return self.step >= self.max_steps
 
 
 class ActionResult(BaseModel):
@@ -391,3 +408,43 @@ class AgentError:
 		if include_trace:
 			return f'{str(error)}\nStacktrace:\n{traceback.format_exc()}'
 		return f'{str(error)}'
+
+
+@dataclass
+class PlanningResult:
+	"""Result of planning operation"""
+	state_analysis: str
+	progress_evaluation: str
+	next_steps: str
+	challenges: Optional[str] = None
+	reasoning: Optional[str] = None
+	
+	@classmethod
+	def from_json(cls, json_str: str) -> "PlanningResult":
+		"""Create PlanningResult from JSON string"""
+		try:
+			data = json.loads(json_str)
+			return cls(
+				state_analysis=data.get("state_analysis", ""),
+				progress_evaluation=data.get("progress_evaluation", ""),
+				next_steps=data.get("next_steps", ""),
+				challenges=data.get("challenges", None),
+				reasoning=data.get("reasoning", None)
+			)
+		except Exception as e:
+			logger.error(f"Error parsing planning result: {e}")
+			return cls(
+				state_analysis="Error parsing planning result",
+				progress_evaluation="Unknown",
+				next_steps="Continue with task",
+			)
+	
+	def to_dict(self) -> Dict[str, Any]:
+		"""Convert to dictionary"""
+		return {
+			"state_analysis": self.state_analysis,
+			"progress_evaluation": self.progress_evaluation,
+			"next_steps": self.next_steps,
+			"challenges": self.challenges,
+			"reasoning": self.reasoning
+		}

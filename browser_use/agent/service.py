@@ -34,6 +34,7 @@ from browser_use.agent.views import (
 	AgentStepInfo,
 	StepMetadata,
 	ToolCallingMethod,
+	PlanningResult,
 )
 from browser_use.browser.browser import Browser
 from browser_use.browser.context import BrowserContext
@@ -51,6 +52,7 @@ from browser_use.telemetry.views import (
 	AgentStepTelemetryEvent,
 )
 from browser_use.utils import time_execution_async, time_execution_sync
+from browser_use.agent.planning.service import PlanningService
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -95,7 +97,7 @@ class Agent(Generic[Context]):
 		register_external_agent_status_raise_error_callback: Callable[[], Awaitable[bool]] | None = None,
 		# Agent settings
 		use_vision: bool = True,
-		use_vision_for_planner: bool = False,
+		use_vision_for_planner: bool = True,
 		save_conversation_path: Optional[str] = None,
 		save_conversation_path_encoding: Optional[str] = 'utf-8',
 		max_failures: int = 3,
@@ -123,11 +125,12 @@ class Agent(Generic[Context]):
 		tool_calling_method: Optional[ToolCallingMethod] = 'auto',
 		page_extraction_llm: Optional[BaseChatModel] = None,
 		planner_llm: Optional[BaseChatModel] = None,
-		planner_interval: int = 1,  # Run planner every N steps
+		planner_interval: int = 5,
 		# Inject state
 		injected_agent_state: Optional[AgentState] = None,
 		#
 		context: Context | None = None,
+		telemetry_service=None,
 	):
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
@@ -162,6 +165,9 @@ class Agent(Generic[Context]):
 
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
+
+		# Initialize errors list
+		self._errors = []
 
 		# Action setup
 		self._setup_action_models()
@@ -218,6 +224,18 @@ class Agent(Generic[Context]):
 
 		# Telemetry
 		self.telemetry = ProductTelemetry()
+
+		# Initialize planning service
+		self._planning_service = PlanningService(
+			message_manager=self._message_manager,
+			agent_llm=llm,
+			planner_llm=planner_llm,
+			use_vision_for_planner=use_vision_for_planner,
+			planner_interval=planner_interval,
+		)
+
+		# Initialize telemetry service
+		self._telemetry_service = telemetry_service or self.telemetry
 
 		if self.settings.save_conversation_path:
 			logger.info(f'Saving conversation to {self.settings.save_conversation_path}')
@@ -544,13 +562,13 @@ class Agent(Generic[Context]):
 		logger.info(f'🚀 Starting task: {self.task}')
 
 		logger.debug(f'Version: {self.version}, Source: {self.source}')
-		self.telemetry.capture(
+		self._telemetry_service.capture(
 			AgentRunTelemetryEvent(
 				agent_id=self.state.agent_id,
-				use_vision=self.settings.use_vision,
 				task=self.task,
 				model_name=self.model_name,
 				chat_model_library=self.chat_model_library,
+				use_vision=self.settings.use_vision,
 				version=self.version,
 				source=self.source,
 			)
@@ -579,72 +597,110 @@ class Agent(Generic[Context]):
 
 	# @observe(name='agent.run', ignore_output=True)
 	@time_execution_async('--run (agent)')
-	async def run(self, max_steps: int = 100) -> AgentHistoryList:
-		"""Execute the task with maximum number of steps"""
+	async def run(self, max_steps: int = 20) -> AgentHistoryList:
+		"""Run the agent to complete the task
+		
+		Args:
+			max_steps: Maximum number of steps to run
+			
+		Returns:
+			AgentHistoryList: History of agent actions
+		"""
+		self._telemetry_service.capture(
+			AgentRunTelemetryEvent(
+				agent_id=self.state.agent_id,
+				task=self.task,
+				model_name=self.model_name,
+				chat_model_library=self.chat_model_library,
+				use_vision=self.settings.use_vision,
+				version=self.version,
+				source=self.source,
+			)
+		)
+		
 		try:
-			self._log_agent_run()
-
-			# Execute initial actions if provided
-			if self.initial_actions:
-				result = await self.multi_act(self.initial_actions, check_for_new_elements=False)
-				self.state.last_result = result
-
-			for step in range(max_steps):
-				# Check if we should stop due to too many failures
-				if self.state.consecutive_failures >= self.settings.max_failures:
-					logger.error(f'❌ Stopping due to {self.settings.max_failures} consecutive failures')
+			step = 0
+			start_time = time.time()
+			
+			while step < max_steps:
+				step += 1
+				step_start_time = time.time()
+				
+				# Get browser state
+				browser_state = await self._get_browser_state()
+				
+				# Create step info
+				step_info = AgentStepInfo(
+					step=step,
+					max_steps=max_steps,
+					browser_state=browser_state,
+					errors=self._errors,
+				)
+				
+				# Run planning if needed
+				if step % self._planning_service._planner_interval == 0:
+					plan = await self._plan_next_steps(step_info)
+					if plan:
+						# Add plan to history if available
+						self._message_manager.add_tool_message(f"Planning result:\n{plan}")
+				
+				# Get agent action
+				action_result = await self._get_agent_action(step_info)
+				
+				# Check if we're done
+				if action_result.is_done:
 					break
-
-				# Check control flags before each step
-				if self.state.stopped:
-					logger.info('Agent stopped')
+				
+				# Execute action
+				await self._execute_action(action_result)
+				
+				# Record step duration
+				step_duration = time.time() - step_start_time
+				logger.debug(f"Step {step} took {step_duration:.2f} seconds")
+				
+				# Check if we've reached max steps
+				if step >= max_steps:
+					logger.info(f"Reached maximum steps ({max_steps})")
 					break
-
-				while self.state.paused:
-					await asyncio.sleep(0.2)  # Small delay to prevent CPU spinning
-					if self.state.stopped:  # Allow stopping while paused
-						break
-
-				step_info = AgentStepInfo(step_number=step, max_steps=max_steps)
-				await self.step(step_info)
-
-				if self.state.history.is_done():
-					if self.settings.validate_output and step < max_steps - 1:
-						if not await self._validate_output():
-							continue
-
-					await self.log_completion()
-					break
-			else:
-				logger.info('❌ Failed to complete task in maximum steps')
-
-			return self.state.history
-		finally:
-			self.telemetry.capture(
+				
+			# Calculate total duration
+			total_duration = time.time() - start_time
+			logger.info(f"Agent ran for {total_duration:.2f} seconds")
+			
+			# Get final result
+			result = self._message_manager.state.history.final_result()
+			
+			# Send telemetry
+			self._telemetry_service.capture(
 				AgentEndTelemetryEvent(
 					agent_id=self.state.agent_id,
-					is_done=self.state.history.is_done(),
-					success=self.state.history.is_successful(),
-					steps=self.state.n_steps,
-					max_steps_reached=self.state.n_steps >= max_steps,
-					errors=self.state.history.errors(),
-					total_input_tokens=self.state.history.total_input_tokens(),
-					total_duration_seconds=self.state.history.total_duration_seconds(),
+					steps=step,
+					max_steps_reached=step >= max_steps,
+					is_done=bool(action_result.is_done) if 'action_result' in locals() else False,
+					success=False,  # Default to False if we don't know
+					total_input_tokens=self._message_manager.state.history.total_tokens(),
+					total_duration_seconds=time.time() - start_time,
+					errors=self._errors,
 				)
 			)
-
-			if not self.injected_browser_context:
-				await self.browser_context.close()
-
-			if not self.injected_browser and self.browser:
-				await self.browser.close()
-
-			if self.settings.generate_gif:
-				output_path: str = 'agent_history.gif'
-				if isinstance(self.settings.generate_gif, str):
-					output_path = self.settings.generate_gif
-
-				create_history_gif(task=self.task, history=self.state.history, output_path=output_path)
+			
+			return self.state.history
+			
+		except Exception as e:
+			logger.exception(f"Error running agent: {e}")
+			self._telemetry_service.capture(
+				AgentEndTelemetryEvent(
+					agent_id=self.state.agent_id,
+					steps=step if 'step' in locals() else 0,
+					max_steps_reached=False,
+					is_done=False,
+					success=False,
+					total_input_tokens=self._message_manager.state.history.total_tokens(),
+					total_duration_seconds=time.time() - start_time if 'start_time' in locals() else 0,
+					errors=[str(e)] + self._errors,
+				)
+			)
+			raise
 
 	# @observe(name='controller.multi_act')
 	@time_execution_async('--multi-act (agent)')
@@ -921,7 +977,7 @@ class Agent(Generic[Context]):
 
 		# Create planner message history using full message history
 		planner_messages = [
-			PlannerPrompt(self.controller.registry.get_prompt_description()).get_system_message(),
+			SystemMessage(content=PlannerPrompt(action_description=self.controller.registry.get_prompt_description()).get_system_message()),
 			*self._message_manager.get_messages()[1:],  # Use full message history except the first
 		]
 
@@ -959,6 +1015,55 @@ class Agent(Generic[Context]):
 
 		return plan
 
+	async def _plan_next_steps(self, step_info: AgentStepInfo) -> Optional[str]:
+		"""Plan next steps using the planning service"""
+		browser_state = await self._get_browser_state()
+		return await self._planning_service.plan_next_steps(step_info, browser_state)
+
+	@property
+	def last_plan(self) -> Optional[PlanningResult]:
+		"""Get the last planning result"""
+		if hasattr(self, "_planning_service"):
+			return self._planning_service.last_plan
+		return None
+
 	@property
 	def message_manager(self) -> MessageManager:
 		return self._message_manager
+
+	async def _get_browser_state(self) -> BrowserState:
+		"""Get the current browser state"""
+		return await self.browser_context.get_state()
+
+	async def _get_agent_action(self, step_info: AgentStepInfo) -> ActionResult:
+		"""Get the next action from the agent"""
+		# Get browser state
+		state = await self._get_browser_state()
+		
+		# Add state message to message manager
+		self._message_manager.add_state_message(state, self.state.last_result, step_info, self.settings.use_vision)
+		
+		# Get messages for model
+		input_messages = self._message_manager.get_messages()
+		
+		# Get model output
+		model_output = await self.get_next_action(input_messages)
+		
+		# Execute actions
+		result = await self.multi_act(model_output.action)
+		
+		# Update state
+		self.state.last_result = result
+		
+		# Return the last result
+		return result[-1] if result else ActionResult(error="No action taken")
+
+	async def _execute_action(self, action_result: ActionResult) -> None:
+		"""Execute an action result"""
+		# If the action result has an error, add it to the errors list
+		if action_result.error:
+			self._errors.append(action_result.error)
+		
+		# If the action is done, log it
+		if action_result.is_done:
+			logger.info(f"Task completed: {action_result.extracted_content}")

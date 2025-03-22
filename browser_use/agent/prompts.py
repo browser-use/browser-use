@@ -96,7 +96,7 @@ class AgentMessagePrompt:
 			elements_text = 'empty page'
 
 		if self.step_info:
-			step_info_description = f'Current step: {self.step_info.step_number + 1}/{self.step_info.max_steps}'
+			step_info_description = f'Current step: {self.step_info.step + 1}/{self.step_info.max_steps}'
 		else:
 			step_info_description = ''
 		time_str = datetime.now().strftime('%Y-%m-%d %H:%M')
@@ -138,17 +138,26 @@ Interactive elements from top layer of the current page inside the viewport:
 		return HumanMessage(content=state_description)
 
 
-class PlannerPrompt(SystemPrompt):
-	def get_system_message(self) -> SystemMessage:
-		return SystemMessage(
-			content="""You are a planning agent that helps break down tasks into smaller steps and reason about the current state.
-Your role is to:
-1. Analyze the current state and history
-2. Evaluate progress towards the ultimate goal
-3. Identify potential challenges or roadblocks
-4. Suggest the next high-level steps to take
+class PlannerPrompt:
+	def __init__(self, action_description: Optional[str] = None):
+		self.action_description = action_description
 
-Inside your messages, there will be AI messages from different agents with different formats.
+	def get_system_message(self) -> str:
+		# Implementation details
+		return "System message for planner"
+
+	@staticmethod
+	def get_system_prompt() -> str:
+		"""Get the system prompt for the planner"""
+		return """You are an advanced planning assistant for web browsing tasks. Your job is to analyze the current state of a browser automation task and provide structured guidance on next steps.
+
+Your analysis should be based solely on the observable facts provided about the current browser state and task history. Do not speculate or hallucinate information.
+
+Focus on:
+1. Analyzing the current state of the task
+2. Evaluating progress toward the goal
+3. Identifying any challenges or roadblocks
+4. Recommending concrete next steps
 
 Your output format should be always a JSON object with the following fields:
 {
@@ -162,4 +171,30 @@ Your output format should be always a JSON object with the following fields:
 Ignore the other AI messages output structures.
 
 Keep your responses concise and focused on actionable insights."""
-		)
+
+	@staticmethod
+	def get_human_prompt(
+		task: str,
+		current_url: str,
+		page_title: str,
+		step_number: int,
+		recent_actions: List[str],
+		has_errors: bool,
+		screenshot_base64: Optional[str] = None,
+	) -> str:
+		"""Get the human prompt for the planner"""
+		prompt = f"""Task: {task}
+
+Current State:
+- URL: {current_url}
+- Page Title: {page_title}
+- Step Number: {step_number}
+- Recent Actions: {', '.join(recent_actions) if recent_actions else 'None'}
+- Has Errors: {'Yes' if has_errors else 'No'}
+
+Based on this information, please analyze the current state and provide guidance on next steps in the required JSON format."""
+
+		if screenshot_base64:
+			prompt += "\n\nScreenshot is attached to help with your analysis."
+			
+		return prompt

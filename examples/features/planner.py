@@ -9,7 +9,7 @@ llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
 planner_llm = ChatOpenAI(
 	model='o3-mini',
 )
-task = 'your task'
+task = 'Go to Wikipedia and find information about artificial intelligence. Then go to Google and search for the latest AI news.'
 
 
 agent = Agent(task=task, llm=llm, planner_llm=planner_llm, use_vision_for_planner=False, planner_interval=1)
