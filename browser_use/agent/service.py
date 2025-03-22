@@ -527,6 +527,13 @@ class Agent(Generic[Context]):
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True, method=self.tool_calling_method)
 			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
 			parsed: AgentOutput | None = response['parsed']
+			if not parsed:
+				try:
+					parsed_json = extract_json_from_model_output(response["raw"].content)
+					parsed = self.AgentOutput(**parsed_json)
+				except:
+					logger.warning(f'Failed to parse model output: {response["raw"].content} {str(e)}')
+					raise ValueError('Could not parse response.')
 
 		if parsed is None:
 			raise ValueError('Could not parse response.')
