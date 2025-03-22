@@ -315,6 +315,10 @@ class BrowserContext:
 			# Connect to existing Chrome instance instead of creating new one
 			context = browser.contexts[0]
 		else:
+			# camofoux
+			if True:
+				return await browser.new_context()
+
 			# Original code for creating new context
 			context = await browser.new_context(
 				viewport=self.config.browser_window_size,
