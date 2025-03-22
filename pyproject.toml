@@ -23,6 +23,7 @@ dependencies = [
     "langchain-openai==0.3.1",
     "langchain-anthropic==0.3.3",
     "langchain-ollama==0.2.2",
+    "google-api-core>=2.24.0",
 ]
 urls = { "Repository" = "https://github.com/browser-use/browser-use" }
 
