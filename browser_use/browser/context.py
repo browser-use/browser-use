@@ -1239,6 +1239,12 @@ class BrowserContext:
 	async def _get_current_page(self, session: BrowserSession) -> Page:
 		pages = session.context.pages
 
+		# Try by checking pages for focused+visible first
+		for page in pages:
+			visibility = await self.get_page_visibility(page)
+			if visibility['page_is_focused']:
+				return page
+
 		# Try to find page by target ID if using CDP
 		if self.browser.config.cdp_url and self.state.target_id:
 			targets = await self._get_cdp_targets()
@@ -1250,6 +1256,39 @@ class BrowserContext:
 
 		# Fallback to last page
 		return pages[-1] if pages else await session.context.new_page()
+
+	async def get_page_visibility(page):
+		cdp_session = await page.context.new_cdp_session(page)
+		target_info = await cdp_session.send("Target.getTargetInfo")
+		target_id = target_info["targetInfo"]["targetId"]
+	
+		window_info = await cdp_session.send("Browser.getWindowForTarget", {"targetId": target_id})
+		window_id = window_info["windowId"]
+		window_bounds = await cdp_session.send("Browser.getWindowBounds", {"windowId": window_id})
+		window_state = window_bounds.get("bounds", {}).get("windowState")	 # The state can be "normal", "minimized", "maximized", "fullscreen"
+		is_foreground = window_state != "minimized"
+	
+		is_visible = await cdp_session.send("Runtime.evaluate", {
+			"expression": "document.visibilityState === 'visible'",
+			"returnByValue": True
+		})
+		is_focused = await cdp_session.send("Runtime.evaluate", {
+			"expression": "document.hasFocus()",
+			"returnByValue": True
+		})
+		page_bounds = await cdp_session.send("Page.getLayoutMetrics")  # https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-getLayoutMetrics
+		await cdp_session.detach()
+	
+		return {
+			"target_id": target_id,
+			"window_id": window_id,
+			"window_state": window_state,
+			"window_bounds": window_bounds,
+			"window_is_visible": is_foreground,
+			"page_is_visible": is_visible,
+			"page_is_focused": is_focused,
+			"page_bounds": page_bounds,
+		}
 
 	async def get_selector_map(self) -> SelectorMap:
 		session = await self.get_session()
