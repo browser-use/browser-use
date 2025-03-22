@@ -12,14 +12,12 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional, TypedDict
+from typing import TYPE_CHECKING, Optional, TypedDict, List
 
 from playwright._impl._errors import TimeoutError
-from playwright.async_api import Browser as PlaywrightBrowser
 from playwright.async_api import (
+	Browser as PlaywrightBrowser,
 	BrowserContext as PlaywrightBrowserContext,
-)
-from playwright.async_api import (
 	ElementHandle,
 	FrameLocator,
 	Page,
@@ -42,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 
 class BrowserContextWindowSize(TypedDict):
+	"""Type definition for browser window size."""
 	width: int
 	height: int
 
@@ -51,75 +50,35 @@ class BrowserContextConfig:
 	"""
 	Configuration for the BrowserContext.
 
-	Default values:
-	    cookies_file: None
-	        Path to cookies file for persistence
-
-	        disable_security: True
-	                Disable browser security features
-
-	    minimum_wait_page_load_time: 0.5
-	        Minimum time to wait before getting page state for LLM input
-
-	        wait_for_network_idle_page_load_time: 1.0
-	                Time to wait for network requests to finish before getting page state.
-	                Lower values may result in incomplete page loads.
-
-	    maximum_wait_page_load_time: 5.0
-	        Maximum time to wait for page load before proceeding anyway
-
-	    wait_between_actions: 1.0
-	        Time to wait between multiple per step actions
-
-	    browser_window_size: {
-	            'width': 1280,
-	            'height': 1100,
-	        }
-	        Default browser window size
-
-	    no_viewport: False
-	        Disable viewport
-
-	    save_recording_path: None
-	        Path to save video recordings
-
-	    save_downloads_path: None
-	        Path to save downloads to
-
-	    trace_path: None
-	        Path to save trace files. It will auto name the file with the TRACE_PATH/{context_id}.zip
-
-	    locale: None
-	        Specify user locale, for example en-GB, de-DE, etc. Locale will affect navigator.language value, Accept-Language request header value as well as number and date formatting rules. If not provided, defaults to the system default locale.
-
-	    user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36'
-	        custom user agent to use.
-
-	    highlight_elements: True
-	        Highlight elements in the DOM on the screen
-
-	    viewport_expansion: 500
-	        Viewport expansion in pixels. This amount will increase the number of elements which are included in the state what the LLM will see. If set to -1, all elements will be included (this leads to high token usage). If set to 0, only the elements which are visible in the viewport will be included.
-
-	    allowed_domains: None
-	        List of allowed domains that can be accessed. If None, all domains are allowed.
-	        Example: ['example.com', 'api.example.com']
-
-	    include_dynamic_attributes: bool = True
-	        Include dynamic attributes in the CSS selector. If you want to reuse the css_selectors, it might be better to set this to False.
+	Args:
+		cookies_file: Path to cookies file for persistence (default: None)
+		disable_security: Disable browser security features (default: True)
+		minimum_wait_page_load_time: Minimum time to wait before getting page state for LLM input (default: 0.25)
+		wait_for_network_idle_page_load_time: Time to wait for network requests to finish before getting page state. Lower values may result in incomplete page loads. (default: 0.5)
+		maximum_wait_page_load_time: Maximum time to wait for page load before proceeding anyway (default: 5)
+		wait_between_actions: Time to wait between multiple per step actions (default: 0.5)
+		browser_window_size: Default browser window size (default: {'width': 1280, 'height': 1100})
+		no_viewport: Disable viewport (default: False)
+		save_recording_path: Path to save video recordings (default: None)
+		save_downloads_path: Path to save downloads to (default: None)
+		trace_path: Path to save trace files. It will auto name the file with the TRACE_PATH/{context_id}.zip (default: None)
+		locale: Specify user locale, for example en-GB, de-DE, etc. Locale will affect navigator.language value, Accept-Language request header value as well as number and date formatting rules. If not provided, defaults to the system default locale. (default: None)
+		user_agent: Custom user agent to use (default: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36')
+		highlight_elements: Highlight elements in the DOM on the screen (default: True)
+		viewport_expansion: Viewport expansion in pixels. This amount will increase the number of elements which are included in the state what the LLM will see. If set to -1, all elements will be included (this leads to high token usage). If set to 0, only the elements which are visible in the viewport will be included. (default: 500)
+		allowed_domains: List of allowed domains that can be accessed. If None, all domains are allowed. Example: ['example.com', 'api.example.com'] (default: None)
+		include_dynamic_attributes: Include dynamic attributes in the CSS selector. If you want to reuse the css_selectors, it might be better to set this to False. (default: True)
+		_force_keep_context_alive: Force context to stay alive (default: False)
 	"""
 
 	cookies_file: str | None = None
+	disable_security: bool = True
 	minimum_wait_page_load_time: float = 0.25
 	wait_for_network_idle_page_load_time: float = 0.5
 	maximum_wait_page_load_time: float = 5
 	wait_between_actions: float = 0.5
-
-	disable_security: bool = True
-
 	browser_window_size: BrowserContextWindowSize = field(default_factory=lambda: {'width': 1280, 'height': 1100})
 	no_viewport: Optional[bool] = None
-
 	save_recording_path: str | None = None
 	save_downloads_path: str | None = None
 	trace_path: str | None = None
@@ -127,37 +86,36 @@ class BrowserContextConfig:
 	user_agent: str = (
 		'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36  (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36'
 	)
-
 	highlight_elements: bool = True
 	viewport_expansion: int = 500
 	allowed_domains: list[str] | None = None
 	include_dynamic_attributes: bool = True
-
 	_force_keep_context_alive: bool = False
 
 
 @dataclass
 class BrowserSession:
+	"""Holds the browser context and its cached state."""
 	context: PlaywrightBrowserContext
 	cached_state: BrowserState | None
 
 
 @dataclass
 class BrowserContextState:
-	"""
-	State of the browser context
-	"""
-
+	"""State of the browser context"""
 	target_id: str | None = None  # CDP target ID
 
 
 class BrowserContext:
+	"""Manages a Playwright browser context"""
+
 	def __init__(
-		self,
-		browser: 'Browser',
-		config: BrowserContextConfig = BrowserContextConfig(),
-		state: Optional[BrowserContextState] = None,
+			self,
+			browser: 'Browser',
+			config: BrowserContextConfig = BrowserContextConfig(),
+			state: Optional[BrowserContextState] = None,
 	):
+		"""Initialize a new browser context."""
 		self.context_id = str(uuid.uuid4())
 		logger.debug(f'Initializing new browser context with id: {self.context_id}')
 
@@ -169,7 +127,7 @@ class BrowserContext:
 		# Initialize these as None - they'll be set up when needed
 		self.session: BrowserSession | None = None
 
-	async def __aenter__(self):
+	async def __aenter__(self) -> "BrowserContext":
 		"""Async context manager entry"""
 		await self._initialize_session()
 		return self
@@ -183,11 +141,11 @@ class BrowserContext:
 		"""Close the browser instance"""
 		logger.debug('Closing browser context')
 
-		try:
-			if self.session is None:
-				return
+		if not self.session:
+			return
 
-			# Then remove CDP protocol listeners
+		try:
+			# Remove CDP protocol listeners
 			if self._page_event_handler and self.session.context:
 				try:
 					# This actually sends a CDP command to unsubscribe
@@ -200,16 +158,17 @@ class BrowserContext:
 
 			if self.config.trace_path:
 				try:
-					await self.session.context.tracing.stop(path=os.path.join(self.config.trace_path, f'{self.context_id}.zip'))
+					trace_file = os.path.join(self.config.trace_path, f"{self.context_id}.zip")
+					await self.session.context.tracing.stop(path=trace_file)
 				except Exception as e:
 					logger.debug(f'Failed to stop tracing: {e}')
 
 			# This is crucial - it closes the CDP connection
 			if not self.config._force_keep_context_alive:
-				try:
-					await self.session.context.close()
-				except Exception as e:
-					logger.debug(f'Failed to close context: {e}')
+				await self.session.context.close()
+
+		except Exception as e:
+			logger.debug(f'Failed to close context: {e}')
 
 		finally:
 			# Dereference everything
@@ -231,7 +190,7 @@ class BrowserContext:
 				logger.warning(f'Failed to force close browser context: {e}')
 
 	@time_execution_async('--initialize_session')
-	async def _initialize_session(self):
+	async def _initialize_session(self) -> BrowserSession:
 		"""Initialize the browser session"""
 		logger.debug('Initializing browser context')
 
@@ -241,77 +200,20 @@ class BrowserContext:
 
 		# Get or create a page to use
 		pages = context.pages
+		active_page = self._get_or_create_active_page(pages)
 
 		self.session = BrowserSession(
 			context=context,
 			cached_state=None,
 		)
 
-		active_page = None
-		if self.browser.config.cdp_url:
-			# If we have a saved target ID, try to find and activate it
-			if self.state.target_id:
-				targets = await self._get_cdp_targets()
-				for target in targets:
-					if target['targetId'] == self.state.target_id:
-						# Find matching page by URL
-						for page in pages:
-							if page.url == target['url']:
-								active_page = page
-								break
-						break
-
-		# If no target ID or couldn't find it, use existing page or create new
-		if not active_page:
-			if pages:
-				active_page = pages[0]
-				logger.debug('Using existing page')
-			else:
-				active_page = await context.new_page()
-				logger.debug('Created new page')
-
-			# Get target ID for the active page
-			if self.browser.config.cdp_url:
-				targets = await self._get_cdp_targets()
-				for target in targets:
-					if target['url'] == active_page.url:
-						self.state.target_id = target['targetId']
-						break
-
-		# Bring page to front
 		await active_page.bring_to_front()
 		await active_page.wait_for_load_state('load')
-
 		return self.session
-
-	def _add_new_page_listener(self, context: PlaywrightBrowserContext):
-		async def on_page(page: Page):
-			if self.browser.config.cdp_url:
-				await page.reload()  # Reload the page to avoid timeout errors
-			await page.wait_for_load_state()
-			logger.debug(f'New page opened: {page.url}')
-			if self.session is not None:
-				self.state.target_id = None
-
-		self._page_event_handler = on_page
-		context.on('page', on_page)
-
-	async def get_session(self) -> BrowserSession:
-		"""Lazy initialization of the browser and related components"""
-		if self.session is None:
-			return await self._initialize_session()
-		return self.session
-
-	async def get_current_page(self) -> Page:
-		"""Get the current page"""
-		session = await self.get_session()
-		return await self._get_current_page(session)
 
 	async def _create_context(self, browser: PlaywrightBrowser):
 		"""Creates a new browser context with anti-detection measures and loads cookies if available."""
-		if self.browser.config.cdp_url and len(browser.contexts) > 0:
-			context = browser.contexts[0]
-		elif self.browser.config.browser_instance_path and len(browser.contexts) > 0:
+		if (self.browser.config.cdp_url or self.browser.config.chrome_instance_path) and len(browser.contexts) > 0:
 			# Connect to existing Chrome instance instead of creating new one
 			context = browser.contexts[0]
 		else:
@@ -328,58 +230,111 @@ class BrowserContext:
 				locale=self.config.locale,
 			)
 
-		if self.config.trace_path:
-			await context.tracing.start(screenshots=True, snapshots=True, sources=True)
+			if self.config.trace_path:
+				await context.tracing.start(screenshots=True, snapshots=True, sources=True)
 
-		# Load cookies if they exist
-		if self.config.cookies_file and os.path.exists(self.config.cookies_file):
-			with open(self.config.cookies_file, 'r') as f:
-				cookies = json.load(f)
-				logger.info(f'Loaded {len(cookies)} cookies from {self.config.cookies_file}')
-				await context.add_cookies(cookies)
+			# Load cookies if they exist
+			if self.config.cookies_file and os.path.exists(self.config.cookies_file):
+				with open(self.config.cookies_file, 'r') as f:
+					cookies = json.load(f)
+					logger.info(f'Loaded {len(cookies)} cookies from {self.config.cookies_file}')
+					await context.add_cookies(cookies)
 
-		# Expose anti-detection scripts
-		await context.add_init_script(
-			"""
-            // Webdriver property
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            });
+			# Expose anti-detection scripts
+			await context.add_init_script(
+				"""
+	            // Webdriver property
+	            Object.defineProperty(navigator, 'webdriver', {
+	                get: () => undefined
+	            });
 
-            // Languages
-            Object.defineProperty(navigator, 'languages', {
-                get: () => ['en-US']
-            });
+	            // Languages
+	            Object.defineProperty(navigator, 'languages', {
+	                get: () => ['en-US']
+	            });
 
-            // Plugins
-            Object.defineProperty(navigator, 'plugins', {
-                get: () => [1, 2, 3, 4, 5]
-            });
+	            // Plugins
+	            Object.defineProperty(navigator, 'plugins', {
+	                get: () => [1, 2, 3, 4, 5]
+	            });
 
-            // Chrome runtime
-            window.chrome = { runtime: {} };
+	            // Chrome runtime
+	            window.chrome = { runtime: {} };
 
-            // Permissions
-            const originalQuery = window.navigator.permissions.query;
-            window.navigator.permissions.query = (parameters) => (
-                parameters.name === 'notifications' ?
-                    Promise.resolve({ state: Notification.permission }) :
-                    originalQuery(parameters)
-            );
-            (function () {
-                const originalAttachShadow = Element.prototype.attachShadow;
-                Element.prototype.attachShadow = function attachShadow(options) {
-                    return originalAttachShadow.call(this, { ...options, mode: "open" });
-                };
-            })();
-            """
-		)
+	            // Permissions
+	            const originalQuery = window.navigator.permissions.query;
+	            window.navigator.permissions.query = (parameters) => (
+	                parameters.name === 'notifications' ?
+	                    Promise.resolve({ state: Notification.permission }) :
+	                    originalQuery(parameters)
+	            );
+	            (function () {
+	                const originalAttachShadow = Element.prototype.attachShadow;
+	                Element.prototype.attachShadow = function attachShadow(options) {
+	                    return originalAttachShadow.call(this, { ...options, mode: "open" });
+	                };
+	            })();
+	            """
+			)
 
 		return context
 
-	async def _wait_for_stable_network(self):
-		page = await self.get_current_page()
+	async def _get_or_create_active_page(self, pages: List[Page]) -> Page:
+		"""Get or create an active page, handling CDP target IDs."""
+		# If we have a saved target ID, try to find and activate it
+		if self.browser.config.cdp_url and self.state.target_id:
+			targets = await self._get_cdp_targets()
+			for target in targets:
+				if target["targetId"] == self.state.target_id:
+					for page in pages:
+						if page.url == target["url"]:
+							return page
+		# If no target ID or couldn't find it, use existing page or create new
+		active_page = None
+		if pages:
+			active_page = pages[0]
+			logger.debug("Using existing page")
+		else:
+			active_page = await self.session.context.new_page()
+			logger.debug("Created new page")
+		# Get target ID for the active page
+		if self.browser.config.cdp_url and not self.state.target_id:
+			targets = await self._get_cdp_targets()
+			for target in targets:
+				if target["url"] == active_page.url:
+					self.state.target_id = target["targetId"]
+					break
 
+		return active_page
+
+	def _add_new_page_listener(self, context: PlaywrightBrowserContext):
+		"""Add listener for new page events."""
+
+		async def on_page(page: Page):
+			if self.browser.config.cdp_url:
+				await page.reload()  # Reload the page to avoid timeout errors
+			await page.wait_for_load_state()
+			logger.debug(f'New page opened: {page.url}')
+			if self.session:
+				self.state.target_id = None
+
+		self._page_event_handler = on_page
+		context.on('page', on_page)
+
+	async def get_session(self) -> BrowserSession:
+		"""Lazy initialization of the browser and related components"""
+		if self.session is None:
+			return await self._initialize_session()
+		return self.session
+
+	async def get_current_page(self) -> Page:
+		"""Get the current page"""
+		session = await self.get_session()
+		return await self._get_current_page(session)
+
+	async def _wait_for_stable_network(self):
+		"""Wait for network activity to stabilize."""
+		page = await self.get_current_page()
 		pending_requests = set()
 		last_activity = asyncio.get_event_loop().time()
 
@@ -477,7 +432,8 @@ class BrowserContext:
 			nonlocal last_activity
 			pending_requests.add(request)
 			last_activity = asyncio.get_event_loop().time()
-			# logger.debug(f'Request started: {request.url} ({request.resource_type})')
+
+		# logger.debug(f'Request started: {request.url} ({request.resource_type})')
 
 		async def on_response(response):
 			request = response.request
@@ -489,17 +445,17 @@ class BrowserContext:
 
 			# Skip if content type indicates streaming or real-time data
 			if any(
-				t in content_type
-				for t in [
-					'streaming',
-					'video',
-					'audio',
-					'webm',
-					'mp4',
-					'event-stream',
-					'websocket',
-					'protobuf',
-				]
+					t in content_type
+					for t in [
+						'streaming',
+						'video',
+						'audio',
+						'webm',
+						'mp4',
+						'event-stream',
+						'websocket',
+						'protobuf',
+					]
 			):
 				pending_requests.remove(request)
 				return
@@ -518,7 +474,8 @@ class BrowserContext:
 			nonlocal last_activity
 			pending_requests.remove(request)
 			last_activity = asyncio.get_event_loop().time()
-			# logger.debug(f'Request resolved: {request.url} ({content_type})')
+
+		# logger.debug(f'Request resolved: {request.url} ({content_type})')
 
 		# Attach event listeners
 		page.on('request', on_request)
@@ -530,7 +487,8 @@ class BrowserContext:
 			while True:
 				await asyncio.sleep(0.1)
 				now = asyncio.get_event_loop().time()
-				if len(pending_requests) == 0 and (now - last_activity) >= self.config.wait_for_network_idle_page_load_time:
+				if len(pending_requests) == 0 and (
+						now - last_activity) >= self.config.wait_for_network_idle_page_load_time:
 					break
 				if now - start_time > self.config.maximum_wait_page_load_time:
 					logger.debug(
@@ -587,11 +545,8 @@ class BrowserContext:
 			from urllib.parse import urlparse
 
 			parsed_url = urlparse(url)
-			domain = parsed_url.netloc.lower()
-
-			# Remove port number if present
-			if ':' in domain:
-				domain = domain.split(':')[0]
+			# Get domain without port number
+			domain = parsed_url.netloc.lower().split(':')[0]
 
 			# Check if domain matches any allowed domain pattern
 			return any(
@@ -633,7 +588,7 @@ class BrowserContext:
 		try:
 			# 10 ms timeout
 			await page.go_back(timeout=10, wait_until='domcontentloaded')
-			# await self._wait_for_page_and_frames_load(timeout_overwrite=1.0)
+		# await self._wait_for_page_and_frames_load(timeout_overwrite=1.0)
 		except Exception as e:
 			# Continue even if its not fully loaded, because we wait later for the page to load
 			logger.debug(f'During go_back: {e}')
@@ -657,7 +612,7 @@ class BrowserContext:
 		if session.context.pages:
 			await self.switch_to_tab(0)
 
-		# otherwise the browser will be closed
+	# otherwise the browser will be closed
 
 	async def get_page_html(self) -> str:
 		"""Get the current page HTML content"""
@@ -754,7 +709,7 @@ class BrowserContext:
 		return session.cached_state
 
 	async def _update_state(self, focus_element: int = -1) -> BrowserState:
-		"""Update and return state."""
+		"""Update and return current state."""
 		session = await self.get_session()
 
 		# Check if current page is still valid, if not switch to another available page
@@ -820,11 +775,7 @@ class BrowserContext:
 			animations='disabled',
 		)
 
-		screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
-
-		# await self.remove_highlights()
-
-		return screenshot_b64
+		return base64.b64encode(screenshot).decode('utf-8')
 
 	@time_execution_async('--remove_highlights')
 	async def remove_highlights(self):
@@ -891,7 +842,7 @@ class BrowserContext:
 				# Handle custom elements with colons in the base part
 				if ':' in base_part:
 					base_part = base_part.replace(':', r'\:')
-				index_part = part[part.find('[') :]
+				index_part = part[part.find('['):]
 
 				# Handle multiple indices
 				indices = [i.strip('[]') for i in index_part.split(']')[:-1]]
@@ -921,7 +872,8 @@ class BrowserContext:
 
 	@classmethod
 	@time_execution_sync('--enhanced_css_selector_for_element')
-	def _enhanced_css_selector_for_element(cls, element: DOMElementNode, include_dynamic_attributes: bool = True) -> str:
+	def _enhanced_css_selector_for_element(cls, element: DOMElementNode,
+	                                       include_dynamic_attributes: bool = True) -> str:
 		"""
 		Creates a CSS selector for a DOM element, handling various edge cases and special characters.
 
@@ -1140,7 +1092,8 @@ class BrowserContext:
 						download = await download_info.value
 						# Determine file path
 						suggested_filename = download.suggested_filename
-						unique_filename = await self._get_unique_filename(self.config.save_downloads_path, suggested_filename)
+						unique_filename = await self._get_unique_filename(self.config.save_downloads_path,
+						                                                  suggested_filename)
 						download_path = os.path.join(self.config.save_downloads_path, unique_filename)
 						await download.save_as(download_path)
 						logger.debug(f'Download triggered. Saved file to: {download_path}')
@@ -1296,7 +1249,8 @@ class BrowserContext:
 
 		# Check for file input attributes
 		if element_node.tag_name == 'input':
-			is_uploader = element_node.attributes.get('type') == 'file' or element_node.attributes.get('accept') is not None
+			is_uploader = element_node.attributes.get('type') == 'file' or element_node.attributes.get(
+				'accept') is not None
 
 		if is_uploader:
 			return True
