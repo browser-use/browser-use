@@ -107,7 +107,7 @@ config = BrowserConfig(
 
 <Note>This will overwrite other browser settings.</Note>
 
-# Context Configuration
+# Browser Context Configuration
 
 The `BrowserContextConfig` class controls settings for individual browser contexts.
 
@@ -177,3 +177,46 @@ async def run_search():
 
 - **trace_path** (default: `None`)
   Directory path for saving trace files. Files are automatically named as `{trace_path}/{context_id}.zip`.
+
+## Extraction Configuration
+
+Control how page content is extracted and processed.
+
+```python
+from browser_use.browser.config import BrowserExtractionConfig
+from browser_use.omniparser.views import OmniParserSettings
+
+extraction_config = BrowserExtractionConfig(
+    # Enable/disable element extraction
+    extract_elements=True,
+    
+    # Enable hybrid extraction with OmniParser
+    use_hybrid_extraction=True,
+    
+    # Configure OmniParser settings
+    omniparser=OmniParserSettings(
+        enabled=True,
+        captcha_detection=True,
+        confidence_threshold=0.5
+    )
+)
+
+context_config = BrowserContextConfig(
+    extraction_config=extraction_config
+)
+```
+
+### OmniParser Integration
+
+Browser Use integrates with Microsoft's OmniParser for enhanced UI element detection, particularly for challenging scenarios like CAPTCHAs and complex JavaScript UIs.
+
+- **use_hybrid_extraction** (default: `False`)
+  Enables the hybrid extraction approach that combines traditional DOM extraction with OmniParser's vision-based extraction.
+
+- **omniparser** (default: `OmniParserSettings()`)
+  Configuration for the OmniParser integration. See [OmniParser Integration](/omniparser_integration) for detailed documentation.
+
+### Core Extraction Settings
+
+- **extract_elements** (default: `True`)
+  Enables or disables element extraction.

@@ -12,7 +12,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional, TypedDict
+from typing import TYPE_CHECKING, Optional, TypedDict, List, Any
 
 from playwright._impl._errors import TimeoutError
 from playwright.async_api import Browser as PlaywrightBrowser
@@ -25,15 +25,18 @@ from playwright.async_api import (
 	Page,
 )
 
+from browser_use.browser.config import BrowserExtractionConfig
 from browser_use.browser.views import (
 	BrowserError,
 	BrowserState,
 	TabInfo,
 	URLNotAllowedError,
+	ElementNotFoundError,
 )
 from browser_use.dom.service import DomService
-from browser_use.dom.views import DOMElementNode, SelectorMap
+from browser_use.dom.views import DOMElementNode, SelectorMap, DOMState
 from browser_use.utils import time_execution_async, time_execution_sync
+from browser_use.omniparser.hybrid_extractor import HybridExtractor
 
 if TYPE_CHECKING:
 	from browser_use.browser.browser import Browser
@@ -107,8 +110,10 @@ class BrowserContextConfig:
 
 	    include_dynamic_attributes: bool = True
 	        Include dynamic attributes in the CSS selector. If you want to reuse the css_selectors, it might be better to set this to False.
+		
+		extraction_config: BrowserExtractionConfig = None
+			Configuration for extraction methods, including OmniParser integration.
 	"""
-
 	cookies_file: str | None = None
 	minimum_wait_page_load_time: float = 0.25
 	wait_for_network_idle_page_load_time: float = 0.5
@@ -125,14 +130,14 @@ class BrowserContextConfig:
 	trace_path: str | None = None
 	locale: str | None = None
 	user_agent: str = (
-		'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36  (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36'
-	)
+			'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36  (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36'
+		)
 
 	highlight_elements: bool = True
 	viewport_expansion: int = 500
 	allowed_domains: list[str] | None = None
 	include_dynamic_attributes: bool = True
-
+	extraction_config: 'BrowserExtractionConfig' = field(default_factory=lambda: BrowserExtractionConfig())
 	_force_keep_context_alive: bool = False
 
 
@@ -168,6 +173,10 @@ class BrowserContext:
 
 		# Initialize these as None - they'll be set up when needed
 		self.session: BrowserSession | None = None
+		
+		# Initialize OmniParser related fields
+		self._dom_service = None
+		self._hybrid_extractor = None
 
 	async def __aenter__(self):
 		"""Async context manager entry"""
@@ -775,19 +784,14 @@ class BrowserContext:
 
 		try:
 			await self.remove_highlights()
-			dom_service = DomService(page)
-			content = await dom_service.get_clickable_elements(
-				focus_element=focus_element,
-				viewport_expansion=self.config.viewport_expansion,
-				highlight_elements=self.config.highlight_elements,
-			)
+			page_state = await self._get_dom_state(page, focus_element)
 
 			screenshot_b64 = await self.take_screenshot()
 			pixels_above, pixels_below = await self.get_scroll_info(page)
 
 			self.current_state = BrowserState(
-				element_tree=content.element_tree,
-				selector_map=content.selector_map,
+				element_tree=page_state.element_tree,
+				selector_map=page_state.selector_map,
 				url=page.url,
 				title=await page.title(),
 				tabs=await self.get_tabs_info(),
@@ -803,6 +807,56 @@ class BrowserContext:
 			if hasattr(self, 'current_state'):
 				return self.current_state
 			raise
+
+	async def _get_dom_state(self, page: Page, focus_element: int = -1) -> DOMState:
+		"""Get DOM state using the appropriate extraction method."""
+		from browser_use.dom.views import DOMState
+		
+		if self.config.extraction_config.use_hybrid_extraction:
+			# Use hybrid extraction (DOM + OmniParser)
+			try:
+				extractor = await self._get_hybrid_extractor(page)
+				result = await extractor.get_elements(
+					highlight_elements=self.config.highlight_elements,
+					focus_element=focus_element,
+					viewport_expansion=self.config.viewport_expansion
+				)
+				return result
+			except Exception as e:
+				logger.error(f"Hybrid extraction failed, falling back to DOM-based extraction: {str(e)}")
+				# Fall back to DOM-based extraction
+		
+		# Use DOM-based extraction only (or as fallback)
+		dom_service = await self._get_dom_service(page)
+		return await dom_service.get_clickable_elements(
+			highlight_elements=self.config.highlight_elements,
+			focus_element=focus_element,
+			viewport_expansion=self.config.viewport_expansion
+		)
+
+	async def _get_dom_service(self, page: Page) -> DomService:
+		"""Get or create a DOM service for the current page."""
+		if self._dom_service is None or self._dom_service.page != page:
+			self._dom_service = DomService(page)
+		return self._dom_service
+
+	async def _get_hybrid_extractor(self, page: Page) -> 'HybridExtractor':
+		"""Get or create a hybrid extractor for the current page."""
+		if self._hybrid_extractor is None or self._hybrid_extractor.dom_service.page != page:
+			# Get DOM service first
+			dom_service = await self._get_dom_service(page)
+			
+			# Import here to avoid circular imports
+			from browser_use.omniparser.hybrid_extractor import HybridExtractor
+			from browser_use.omniparser.views import OmniParserSettings
+			
+			# Use the configured settings or create default ones
+			settings = self.config.extraction_config.omniparser
+			
+			# Create the hybrid extractor
+			self._hybrid_extractor = HybridExtractor(dom_service, settings)
+			
+		return self._hybrid_extractor
 
 	# region - Browser Actions
 	@time_execution_async('--take_screenshot')
@@ -1263,7 +1317,13 @@ class BrowserContext:
 		return element_handle
 
 	async def get_dom_element_by_index(self, index: int) -> DOMElementNode:
+		"""Get DOM element by index from selector map."""
 		selector_map = await self.get_selector_map()
+		if index not in selector_map:
+			raise ElementNotFoundError(
+				f"Element with index {index} does not exist in selector map",
+				selector=str(index)
+			)
 		return selector_map[index]
 
 	async def save_cookies(self):
@@ -1333,6 +1393,30 @@ class BrowserContext:
 		session.cached_state = None
 		self.state.target_id = None
 
+	async def capture_screenshot_for_omniparser(self) -> str:
+		"""
+		Capture a screenshot specifically formatted for OmniParser analysis.
+		
+		Returns:
+			Base64-encoded screenshot
+		"""
+		try:
+			# Get current page and ensure it's loaded
+			page = await self.get_current_page()
+			await page.wait_for_load_state()
+			
+			# Take screenshot using Playwright
+			screenshot_bytes = await page.screenshot(
+				type="png",
+				full_page=False,
+				animations="disabled"
+			)
+			
+			return base64.b64encode(screenshot_bytes).decode('utf-8')
+		except Exception as e:
+			logger.error(f"Failed to capture screenshot for OmniParser: {str(e)}")
+			raise
+
 	async def _get_unique_filename(self, directory, filename):
 		"""Generate a unique filename by appending (1), (2), etc., if a file already exists."""
 		base, ext = os.path.splitext(filename)
@@ -1360,3 +1444,132 @@ class BrowserContext:
 		except Exception as e:
 			logger.debug(f'Failed to get CDP targets: {e}')
 			return []
+
+	async def get_dom_state(self, required_elements: Optional[List[str]] = None) -> Optional[DOMState]:
+		"""
+		Get the current DOM state with optional required elements check.
+		
+		Args:
+			required_elements: Optional list of required element types for LLM prediction
+			
+		Returns:
+			DOMState if successful, None otherwise
+		"""
+		page = await self.get_current_page()
+		if not isinstance(page, Page):
+			return None
+		
+		try:
+			# Get hybrid extractor
+			extractor = await self._get_hybrid_extractor(page)
+			
+			# Get DOM state with required elements check
+			return await extractor.get_elements(required_elements=required_elements)
+		except Exception as e:
+			logger.error(f"Error getting DOM state: {str(e)}")
+			return None
+
+	async def find_element(
+		self,
+		selector: str,
+		element_type: Optional[str] = None,
+		description_keywords: Optional[List[str]] = None,
+		use_omniparser_fallback: bool = True,
+		required_elements: Optional[List[str]] = None
+	) -> ElementHandle:
+		"""
+		Find an element using DOM selectors with optional OmniParser fallback.
+		
+		Args:
+			selector: The CSS/XPath selector to find the element
+			element_type: Optional type of element to find (e.g. 'button', 'input')
+			description_keywords: Optional list of keywords that should be present in element description
+			use_omniparser_fallback: Whether to use OmniParser as fallback if element not found
+			required_elements: Optional list of required elements that should be present
+			
+		Returns:
+			ElementHandle if found
+			
+		Raises:
+			ElementNotFoundError: If element not found even after fallback, with detailed context
+		"""
+		page = await self.get_current_page()
+		dom_error = None
+		
+		try:
+			# First try regular DOM-based element location
+			element = await page.wait_for_selector(selector, timeout=1000)
+			if element:
+				return element
+		except TimeoutError as e:
+			dom_error = str(e)
+			logger.debug(f"DOM selector failed: {dom_error}")
+		except Exception as e:
+			dom_error = str(e)
+			logger.debug(f"Unexpected error in DOM selection: {dom_error}")
+		
+		if use_omniparser_fallback:
+			logger.debug(f"Element not found with selector {selector}, trying OmniParser fallback")
+			
+			try:
+				# Get DOM state using OmniParser
+				dom_state = await self.get_dom_state(required_elements)
+				if not dom_state:
+					raise ElementNotFoundError(
+						f"Element not found with selector: {selector}. DOM extraction failed and OmniParser could not create DOM state.",
+						selector=selector,
+						element_type=element_type,
+						description_keywords=description_keywords
+					)
+				
+				# Use hybrid extractor to find element
+				hybrid_extractor = await self._get_hybrid_extractor(page)
+				element = await hybrid_extractor.find_specific_element(
+					dom_state=dom_state,
+					element_type=element_type,
+					description_keywords=description_keywords
+				)
+				
+				# Convert OmniParser element to Playwright ElementHandle
+				try:
+					element_handle = await page.wait_for_selector(element.xpath, timeout=1000)
+					if not element_handle:
+						raise ElementNotFoundError(
+							f"Element found by OmniParser but not in DOM: {element.xpath}. This may indicate a dynamic element or timing issue.",
+							selector=selector,
+							element_type=element_type,
+							description_keywords=description_keywords
+						)
+					return element_handle
+				except TimeoutError as e:
+					raise ElementNotFoundError(
+						f"Element found by OmniParser but timed out waiting for DOM: {element.xpath}. Error: {str(e)}",
+						selector=selector,
+						element_type=element_type,
+						description_keywords=description_keywords
+					)
+				
+			except ElementNotFoundError:
+				# Re-raise ElementNotFoundError with original context
+				raise
+			except Exception as e:
+				raise ElementNotFoundError(
+					f"OmniParser fallback failed: {str(e)}. Original DOM error: {dom_error}",
+					selector=selector,
+					element_type=element_type,
+					description_keywords=description_keywords
+				)
+		
+		# If we get here, both DOM and OmniParser (if enabled) failed
+		error_msg = f"Element not found with selector: {selector}"
+		if dom_error:
+			error_msg += f". DOM error: {dom_error}"
+		if not use_omniparser_fallback:
+			error_msg += ". OmniParser fallback was disabled"
+		
+		raise ElementNotFoundError(
+			error_msg,
+			selector=selector,
+			element_type=element_type,
+			description_keywords=description_keywords
+		)
