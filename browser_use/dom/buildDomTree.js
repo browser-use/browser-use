@@ -462,6 +462,23 @@
       return false;
     }
 
+    function doesElementHaveInteractivePointer(element) {
+      if (element.tagName.toLowerCase() === "html") return false;
+      const style = window.getComputedStyle(element);
+
+      let interactiveCursors = ["pointer", "move", "text", "grab", "cell"];
+
+      if (interactiveCursors.includes(style.cursor)) return true;
+
+      return false;
+    }
+
+    let isInteractiveCursor = doesElementHaveInteractivePointer(element);
+
+    if (isInteractiveCursor) {
+      return true;
+    }
+
     // Special handling for cookie banner elements
     const isCookieBannerElement =
       (typeof element.closest === 'function') && (
@@ -571,9 +588,6 @@
     )) {
       return true;
     }
-
-    // Get computed style
-    const style = window.getComputedStyle(element);
 
     // Check for event listeners
     const hasClickHandler =
