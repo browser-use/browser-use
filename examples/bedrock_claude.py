@@ -16,7 +16,7 @@ import asyncio
 from browser_use import Agent
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.controller.service import Controller
-
+from browser_use.utils import BrowserSessionManager, with_error_handling
 
 def get_llm():
     return ChatBedrock(
@@ -51,9 +51,15 @@ agent = Agent(
 )
 
 
+
+
 async def main():
-    await agent.run(max_steps=30)
-    await browser.close()
+    async with BrowserSessionManager.manage_browser_session(agent) as managed_agent:
+        await managed_agent.run()
 
+@with_error_handling()
+async def run_script():
+    await main()
 
-asyncio.run(main())
+if __name__ == "__main__":
+    run_script()

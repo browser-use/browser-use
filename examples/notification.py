@@ -10,6 +10,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 from browser_use import ActionResult, Agent, Controller
+from browser_use.utils import BrowserSessionManager, with_error_handling
 
 load_dotenv()
 
@@ -34,13 +35,14 @@ async def done(text: str):
 	return ActionResult(is_done=True, extracted_content='Email sent!')
 
 
-async def main():
-	task = 'go to brower-use.com and then done'
-	model = ChatOpenAI(model='gpt-4o')
-	agent = Agent(task=task, llm=model, controller=controller)
+@with_error_handling()
+async def run_script():
+    task = 'go to brower-use.com and then done'
+    model = ChatOpenAI(model='gpt-4o')
+    agent = Agent(task=task, llm=model, controller=controller)
 
-	await agent.run()
-
+    async with BrowserSessionManager.manage_browser_session(agent) as managed_agent:
+        await managed_agent.run()
 
 if __name__ == '__main__':
-	asyncio.run(main())
+    run_script()

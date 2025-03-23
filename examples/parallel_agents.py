@@ -9,6 +9,7 @@ from langchain_openai import ChatOpenAI
 from browser_use.agent.service import Agent
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContextConfig
+from browser_use.utils import BrowserSessionManager, with_error_handling
 
 browser = Browser(
 	config=BrowserConfig(
@@ -20,36 +21,27 @@ browser = Browser(
 llm = ChatOpenAI(model='gpt-4o')
 
 
-async def main():
-	agents = [
-		Agent(task=task, llm=llm, browser=browser)
-		for task in [
-			'Search Google for weather in Tokyo',
-			'Check Reddit front page title',
-			'Look up Bitcoin price on Coinbase',
-			'Find NASA image of the day',
-			# 'Check top story on CNN',
-			# 'Search latest SpaceX launch date',
-			# 'Look up population of Paris',
-			# 'Find current time in Sydney',
-			# 'Check who won last Super Bowl',
-			# 'Search trending topics on Twitter',
-		]
-	]
+@with_error_handling()
+async def run_script():
+    agents = [
+        Agent(task=task, llm=llm, browser=browser)
+        for task in [
+            'Search Google for weather in Tokyo',
+            'Check Reddit front page title',
+            'Look up Bitcoin price on Coinbase',
+            'Find NASA image of the day',
+        ]
+    ]
 
-	await asyncio.gather(*[agent.run() for agent in agents])
+    agentX = Agent(
+        task='Go to apple.com and return the title of the page',
+        llm=llm,
+        browser=browser,
+    )
 
-	# async with await browser.new_context() as context:
-	agentX = Agent(
-		task='Go to apple.com and return the title of the page',
-		llm=llm,
-		browser=browser,
-		# browser_context=context,
-	)
-	await agentX.run()
-
-	await browser.close()
-
+    async with BrowserSessionManager.manage_browser_session(agentX) as managed_agent:
+        await asyncio.gather(*[agent.run() for agent in agents])
+        await managed_agent.run()
 
 if __name__ == '__main__':
-	asyncio.run(main())
+    run_script()

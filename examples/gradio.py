@@ -11,6 +11,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from browser_use import Agent
+from browser_use.utils import BrowserSessionManager, with_error_handling
 
 load_dotenv()
 
@@ -62,13 +63,18 @@ async def run_browser_task(
 	try:
 		agent = Agent(
 			task=task,
-			llm=ChatOpenAI(model='gpt-4o'),
+			llm=ChatOpenAI(model=model),
 		)
-		result = await agent.run()
-		#  TODO: The result cloud be parsed better
-		return result
+		return await run_script(agent)  # Pass the agent to run_script
 	except Exception as e:
 		return f'Error: {str(e)}'
+
+
+@with_error_handling()
+async def run_script(agent):
+    async with BrowserSessionManager.manage_browser_session(agent) as managed_agent:
+        result = await managed_agent.run()
+        return result
 
 
 def create_ui():

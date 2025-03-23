@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from browser_use.agent.service import Agent
 from browser_use.controller.service import Controller
+from browser_use.utils import BrowserSessionManager, with_error_handling
 
 # Initialize controller first
 controller = Controller()
@@ -35,14 +36,15 @@ def save_models(params: Models):
 
 
 # video: https://preview.screen.studio/share/EtOhIk0P
-async def main():
-	task = f'Look up models with a license of cc-by-sa-4.0 and sort by most likes on Hugging face, save top 5 to file.'
 
+@with_error_handling()
+async def run_script():
+	task = f'Look up models with a license of cc-by-sa-4.0 and sort by most likes on Hugging face, save top 5 to file.'
 	model = ChatOpenAI(model='gpt-4o')
 	agent = Agent(task=task, llm=model, controller=controller)
-
-	await agent.run()
-
+	
+	async with BrowserSessionManager.manage_browser_session(agent) as managed_agent:
+		await managed_agent.run()
 
 if __name__ == '__main__':
-	asyncio.run(main())
+    run_script()

@@ -26,6 +26,7 @@ from pydantic import BaseModel, SecretStr
 
 from browser_use import ActionResult, Agent, Controller
 from browser_use.browser.context import BrowserContext
+from browser_use.utils import BrowserSessionManager, with_error_handling
 
 load_dotenv()
 import logging
@@ -113,45 +114,44 @@ browser = Browser(
 )
 
 
+# Define agents in the global scope
+ground_task = (
+	'You are a professional job finder. '
+	'1. Read my cv with read_cv'
+	'find ml internships in and save them to a file'
+	'search at company:'
+)
+tasks = [
+	ground_task + '\n' + 'Google',
+	# ground_task + '\n' + 'Amazon',
+	# ground_task + '\n' + 'Apple',
+	# ground_task + '\n' + 'Microsoft',
+	# ground_task
+	# + '\n'
+	# + 'go to https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/Taiwan%2C-Remote/Fulfillment-Analyst---New-College-Graduate-2025_JR1988949/apply/autofillWithResume?workerSubType=0c40f6bd1d8f10adf6dae42e46d44a17&workerSubType=ab40a98049581037a3ada55b087049b7 NVIDIA',
+	# ground_task + '\n' + 'Meta',
+]
+model = AzureChatOpenAI(
+	model='gpt-4o',
+	api_version='2024-10-21',
+	azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT', ''),
+	api_key=SecretStr(os.getenv('AZURE_OPENAI_KEY', '')),
+)
+
+agents = []
+for task in tasks:
+	agent = Agent(task=task, llm=model, controller=controller, browser=browser)
+	agents.append(agent)
+
 async def main():
-	# ground_task = (
-	# 	'You are a professional job finder. '
-	# 	'1. Read my cv with read_cv'
-	# 	'2. Read the saved jobs file '
-	# 	'3. start applying to the first link of Amazon '
-	# 	'You can navigate through pages e.g. by scrolling '
-	# 	'Make sure to be on the english version of the page'
-	# )
-	ground_task = (
-		'You are a professional job finder. '
-		'1. Read my cv with read_cv'
-		'find ml internships in and save them to a file'
-		'search at company:'
-	)
-	tasks = [
-		ground_task + '\n' + 'Google',
-		# ground_task + '\n' + 'Amazon',
-		# ground_task + '\n' + 'Apple',
-		# ground_task + '\n' + 'Microsoft',
-		# ground_task
-		# + '\n'
-		# + 'go to https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/Taiwan%2C-Remote/Fulfillment-Analyst---New-College-Graduate-2025_JR1988949/apply/autofillWithResume?workerSubType=0c40f6bd1d8f10adf6dae42e46d44a17&workerSubType=ab40a98049581037a3ada55b087049b7 NVIDIA',
-		# ground_task + '\n' + 'Meta',
-	]
-	model = AzureChatOpenAI(
-		model='gpt-4o',
-		api_version='2024-10-21',
-		azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT', ''),
-		api_key=SecretStr(os.getenv('AZURE_OPENAI_KEY', '')),
-	)
-
-	agents = []
-	for task in tasks:
-		agent = Agent(task=task, llm=model, controller=controller, browser=browser)
-		agents.append(agent)
-
 	await asyncio.gather(*[agent.run() for agent in agents])
 
 
+@with_error_handling()
+async def run_script(agents):
+	for agent in agents:
+		async with BrowserSessionManager.manage_browser_session(agent) as managed_agent:
+			await managed_agent.run()
+
 if __name__ == '__main__':
-	asyncio.run(main())
+	asyncio.run(run_script(agents))

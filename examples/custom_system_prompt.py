@@ -9,6 +9,7 @@ import asyncio
 from langchain_openai import ChatOpenAI
 
 from browser_use import Agent, SystemPrompt
+from browser_use.utils import BrowserSessionManager, with_error_handling
 
 
 class MySystemPrompt(SystemPrompt):
@@ -19,21 +20,20 @@ class MySystemPrompt(SystemPrompt):
 
 		# other methods can be overriden as well (not recommended)
 
-
-async def main():
-	task = "do google search to find images of Elon Musk's wife"
-	model = ChatOpenAI(model='gpt-4o')
-	agent = Agent(task=task, llm=model, system_prompt_class=MySystemPrompt)
-
-	print(
+@with_error_handling()
+async def run_script():
+    task = "do google search to find images of Elon Musk's wife"
+    model = ChatOpenAI(model='gpt-4o')
+    agent = Agent(task=task, llm=model, system_prompt_class=MySystemPrompt)
+    print(
 		json.dumps(
 			agent.message_manager.system_prompt.model_dump(exclude_unset=True),
 			indent=4,
 		)
 	)
 
-	await agent.run()
-
+    async with BrowserSessionManager.manage_browser_session(agent) as managed_agent:
+        await managed_agent.run()
 
 if __name__ == '__main__':
-	asyncio.run(main())
+    run_script()

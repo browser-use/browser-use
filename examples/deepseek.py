@@ -6,6 +6,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
 from browser_use import Agent
+from browser_use.utils import BrowserSessionManager, with_error_handling
 
 # dotenv
 load_dotenv()
@@ -15,7 +16,8 @@ if not api_key:
 	raise ValueError('DEEPSEEK_API_KEY is not set')
 
 
-async def run_search():
+@with_error_handling()
+async def run_script():
 	agent = Agent(
 		task=(
 			'1. Go to https://www.reddit.com/r/LocalLLaMA '
@@ -31,9 +33,8 @@ async def run_search():
 		tool_call_in_content=True,
 		use_vision=False,
 	)
-
-	await agent.run()
-
+	async with BrowserSessionManager.manage_browser_session(agent) as managed_agent:
+		await managed_agent.run()
 
 if __name__ == '__main__':
-	asyncio.run(run_search())
+    run_script()

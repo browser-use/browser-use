@@ -31,6 +31,7 @@ import asyncio
 from langchain_openai import ChatOpenAI
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use import Agent, Controller
+from browser_use.utils import BrowserSessionManager, with_error_handling
 
 
 # ============ Configuration Section ============
@@ -114,9 +115,11 @@ async def post_tweet(agent: Agent):
         print(f"Error posting tweet: {str(e)}")
 
 
-def main():    
+@with_error_handling()
+async def run_script():
     agent = create_twitter_agent(config)
-    asyncio.run(post_tweet(agent))
+    async with BrowserSessionManager.manage_browser_session(agent) as managed_agent:
+        await post_tweet(managed_agent)
 
 if __name__ == "__main__":
-    main()
+    run_script()

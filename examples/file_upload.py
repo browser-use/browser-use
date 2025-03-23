@@ -12,6 +12,7 @@ from langchain_openai import ChatOpenAI
 from browser_use import Agent, Controller
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext
+from browser_use.utils import BrowserSessionManager, with_error_handling
 
 CV = Path.cwd() / 'examples/test_cv.txt'
 import logging
@@ -67,7 +68,8 @@ async def close_file_dialog(browser: BrowserContext):
 	await page.keyboard.press('Escape')
 
 
-async def main():
+@with_error_handling()
+async def run_script():
 	task = (
 		f'go to https://kzmpmkh2zfk1ojnpxfn1.lite.vusercontent.net/'
 		f' and upload to each upload field my file'
@@ -81,12 +83,11 @@ async def main():
 		browser=browser,
 	)
 
-	await agent.run()
-
+	async with BrowserSessionManager.manage_browser_session(agent) as managed_agent:
+		await managed_agent.run()
 	await browser.close()
 
 	input('Press Enter to close...')
-
-
+ 
 if __name__ == '__main__':
-	asyncio.run(main())
+    run_script()

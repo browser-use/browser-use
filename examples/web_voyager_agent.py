@@ -11,6 +11,7 @@ from pydantic import SecretStr
 
 from browser_use.agent.service import Agent
 from browser_use.browser.browser import Browser, BrowserConfig, BrowserContextConfig
+from browser_use.utils import BrowserSessionManager, with_error_handling
 
 browser = Browser(
 	config=BrowserConfig(
@@ -47,15 +48,20 @@ Find and book a hotel in Paris with suitable accommodations for a family of four
 
 
 async def main():
-	agent = Agent(
-		task=TASK,
-		llm=llm,
-		browser=browser,
-		validate_output=True,
-	)
-	history = await agent.run(max_steps=50)
-	history.save_to_file('./tmp/history.json')
+    async with BrowserSessionManager.manage_browser_session(
+        Agent(
+            task=TASK,
+            llm=llm,
+            browser=browser,
+            validate_output=True,
+        )
+    ) as managed_agent:
+        history = await managed_agent.run(max_steps=50)
+        history.save_to_file('./tmp/history.json')
 
+@with_error_handling()
+async def run_script():
+    await main()
 
 if __name__ == '__main__':
-	asyncio.run(main())
+    run_script()

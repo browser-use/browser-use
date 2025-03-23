@@ -11,6 +11,7 @@ import asyncio
 from browser_use import Agent
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.controller.service import Controller
+from browser_use.utils import BrowserSessionManager, with_error_handling
 
 
 def get_llm(provider: str):
@@ -63,10 +64,15 @@ agent = Agent(
 
 
 async def main():
-	await agent.run(max_steps=25)
+    async with BrowserSessionManager.manage_browser_session(agent) as managed_agent:
+        await managed_agent.run(max_steps=25)
 
-	input('Press Enter to close the browser...')
-	await browser.close()
+    input('Press Enter to close the browser...')
+    await browser.close()
 
+@with_error_handling()
+async def run_script():
+    await main()
 
-asyncio.run(main())
+if __name__ == '__main__':
+    run_script()

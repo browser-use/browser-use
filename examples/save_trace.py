@@ -9,13 +9,13 @@ import asyncio
 from browser_use.agent.service import Agent
 from browser_use.browser.browser import Browser
 from browser_use.browser.context import BrowserContextConfig
+from browser_use.utils import BrowserSessionManager, with_error_handling
 
 llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
 
-
-async def main():
+@with_error_handling()
+async def run_script():
 	browser = Browser()
-
 	async with await browser.new_context(
 		config=BrowserContextConfig(trace_path='./tmp/traces/')
 	) as context:
@@ -24,9 +24,9 @@ async def main():
 			llm=llm,
 			browser_context=context,
 		)
-		await agent.run()
-
+		async with BrowserSessionManager.manage_browser_session(agent) as managed_agent:
+			await managed_agent.run()
 	await browser.close()
 
-
-asyncio.run(main())
+if __name__ == '__main__':
+    run_script()

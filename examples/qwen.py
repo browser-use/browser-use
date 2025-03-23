@@ -4,9 +4,10 @@ import os
 from langchain_ollama import ChatOllama
 
 from browser_use import Agent
+from browser_use.utils import BrowserSessionManager, with_error_handling
 
-
-async def run_search():
+@with_error_handling()
+async def run_script():
 	agent = Agent(
 		task=(
 			'1. Go to https://www.reddit.com/r/LocalLLaMA'
@@ -23,9 +24,8 @@ async def run_search():
 		max_actions_per_step=1,
 		tool_call_in_content=False,
 	)
-
-	await agent.run()
-
+	async with BrowserSessionManager.manage_browser_session(agent) as managed_agent:
+		await managed_agent.run()
 
 if __name__ == '__main__':
-	asyncio.run(run_search())
+    run_script()

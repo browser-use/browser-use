@@ -29,6 +29,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from browser_use import Agent, Controller
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext
+from browser_use.utils import BrowserSessionManager, with_error_handling
 
 load_dotenv()
 api_key = os.getenv('GEMINI_API_KEY')
@@ -55,11 +56,12 @@ async def main():
 		browser=browser,
 	)
 
-	await agent.run()
-	await browser.close()
+	async with BrowserSessionManager.manage_browser_session(agent) as managed_agent:
+		await managed_agent.run()
 
-	input('Press Enter to close...')
-
+@with_error_handling()
+async def run_script():
+	await main()
 
 if __name__ == '__main__':
-	asyncio.run(main())
+	run_script()

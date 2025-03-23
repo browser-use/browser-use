@@ -6,6 +6,7 @@ Simple try of the agent.
 
 import os
 import sys
+from browser_use.utils import BrowserSessionManager, with_error_handling
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -25,8 +26,12 @@ agent = Agent(
 
 
 async def main():
-	await agent.run()
-	input('Press Enter to exit')
+    async with BrowserSessionManager.manage_browser_session(agent) as managed_agent:
+        await managed_agent.run()
 
+@with_error_handling()
+async def run_script():
+    await main()
 
-asyncio.run(main())
+if __name__ == "__main__":
+    run_script()

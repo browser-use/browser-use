@@ -2,6 +2,11 @@ import logging
 import time
 from functools import wraps
 from typing import Any, Callable, Coroutine, ParamSpec, TypeVar
+import asyncio
+import functools
+from contextlib import asynccontextmanager
+from typing import Optional, Callable
+from browser_use import Agent
 
 logger = logging.getLogger(__name__)
 
@@ -52,3 +57,32 @@ def singleton(cls):
 		return instance[0]
 
 	return wrapper
+
+
+class BrowserSessionManager:
+    @staticmethod
+    @asynccontextmanager
+    async def manage_browser_session(agent: Agent):
+        """Context manager for browser session handling with proper cleanup"""
+        try:
+            yield agent
+        finally:
+            if agent and getattr(agent, 'browser', None):
+                await agent.browser.close()
+
+def with_error_handling(cleanup_callback: Optional[Callable] = None):
+    """Decorator for handling common errors in browser automation scripts"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return asyncio.run(func(*args, **kwargs))
+            except KeyboardInterrupt:
+                print("\nScript interrupted by user")
+            except Exception as e:
+                print(f"An error occurred: {str(e)}")
+            finally:
+                if cleanup_callback:
+                    cleanup_callback()
+        return wrapper
+    return decorator

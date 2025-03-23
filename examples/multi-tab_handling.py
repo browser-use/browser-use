@@ -14,6 +14,7 @@ import asyncio
 from langchain_openai import ChatOpenAI
 
 from browser_use import Agent
+from browser_use.utils import BrowserSessionManager, with_error_handling
 
 # video: https://preview.screen.studio/share/clenCmS6
 llm = ChatOpenAI(model='gpt-4o')
@@ -23,8 +24,10 @@ agent = Agent(
 )
 
 
-async def main():
-	await agent.run()
+@with_error_handling()
+async def run_script():
+    async with BrowserSessionManager.manage_browser_session(agent) as managed_agent:
+        await managed_agent.run()
 
-
-asyncio.run(main())
+if __name__ == '__main__':
+    run_script()

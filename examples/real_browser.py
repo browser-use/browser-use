@@ -12,6 +12,7 @@ from langchain_openai import ChatOpenAI
 from browser_use import Agent, Controller
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext
+from browser_use.utils import BrowserSessionManager, with_error_handling
 
 browser = Browser(
 	config=BrowserConfig(
@@ -22,8 +23,8 @@ browser = Browser(
 )
 controller = Controller()
 
-
-async def main():
+@with_error_handling()
+async def run_script():
 	task = f'In docs.google.com write my Papa a quick thank you for everything letter \n - Magnus'
 	task += f' and save the document as pdf'
 	model = ChatOpenAI(model='gpt-4o')
@@ -33,12 +34,10 @@ async def main():
 		controller=controller,
 		browser=browser,
 	)
-
-	await agent.run()
+	async with BrowserSessionManager.manage_browser_session(agent) as managed_agent:
+		await managed_agent.run()
 	await browser.close()
-
 	input('Press Enter to close...')
 
-
 if __name__ == '__main__':
-	asyncio.run(main())
+    run_script()

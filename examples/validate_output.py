@@ -16,6 +16,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 from browser_use import ActionResult, Agent, Controller
+from browser_use.utils import BrowserSessionManager, with_error_handling
 
 load_dotenv()
 
@@ -41,10 +42,14 @@ async def done(params: DoneResult):
 async def main():
 	task = 'Go to hackernews hn and give me the top 1 post'
 	model = ChatOpenAI(model='gpt-4o')
-	agent = Agent(task=task, llm=model, controller=controller, validate_output=True)
-	# NOTE: this should fail to demonstrate the validator
-	await agent.run(max_steps=5)
+	async with BrowserSessionManager.manage_browser_session(
+		Agent(task=task, llm=model, controller=controller, validate_output=True)
+	) as managed_agent:
+		await managed_agent.run(max_steps=5)
 
+@with_error_handling()
+async def run_script():
+	await main()
 
 if __name__ == '__main__':
-	asyncio.run(main())
+	run_script()

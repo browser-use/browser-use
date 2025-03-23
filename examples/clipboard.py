@@ -13,6 +13,7 @@ from langchain_openai import ChatOpenAI
 from browser_use import Agent, Controller
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext
+from browser_use.utils import BrowserSessionManager, with_error_handling
 
 browser = Browser(
 	config=BrowserConfig(
@@ -37,8 +38,8 @@ async def paste_from_clipboard(browser: BrowserContext):
 
 	return ActionResult(extracted_content=text)
 
-
-async def main():
+@with_error_handling()
+async def run_script():
 	task = (
 		f'Copy the text "Hello, world!" to the clipboard, then go to google.com and paste the text'
 	)
@@ -50,11 +51,10 @@ async def main():
 		browser=browser,
 	)
 
-	await agent.run()
-	await browser.close()
-
-	input('Press Enter to close...')
-
+	async with BrowserSessionManager.manage_browser_session(agent) as managed_agent:
+		await managed_agent.run()
+		await browser.close()
+		input('Press Enter to close...')
 
 if __name__ == '__main__':
-	asyncio.run(main())
+    run_script()
