@@ -74,6 +74,17 @@ def log_response(response: AgentOutput) -> None:
 	for i, action in enumerate(response.action):
 		logger.info(f'🛠️  Action {i + 1}/{len(response.action)}: {action.model_dump_json(exclude_unset=True)}')
 
+	event_content = f"""
+{emoji} Eval: {response.current_state.evaluation_previous_goal}
+🧠 Memory: {response.current_state.memory}
+🎯 Next goal: {response.current_state.next_goal}
+"""
+	for i, action in enumerate(response.action):
+		event_content += '🛠️  Action {i + 1}/{len(response.action)}: {action.model_dump_json(exclude_unset=True)}\n'
+	
+	lai.create_event(description=event_content)
+	lai.end_event(True)
+
 
 Context = TypeVar('Context')
 
