@@ -1360,3 +1360,23 @@ class BrowserContext:
 		except Exception as e:
 			logger.debug(f'Failed to get CDP targets: {e}')
 			return []
+
+	async def apply_anti_fingerprint_patches(self):
+		"""Apply anti-fingerprinting patches to this context"""
+		if not self.browser.config.anti_fingerprint:
+			return
+			
+		session = await self.get_session()
+		if session and session.context:
+			await self.browser._apply_anti_fingerprint_patches_to_all_pages(session.context)
+
+	async def new_page(self):
+		"""Create a new page in the browser context"""
+		session = await self.get_session()
+		page = await session.context.new_page()
+		
+		# Apply anti-fingerprinting patches if enabled
+		if self.browser.config.anti_fingerprint:
+			await self.apply_anti_fingerprint_patches()
+		
+		return page

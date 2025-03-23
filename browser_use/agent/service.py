@@ -20,7 +20,7 @@ from langchain_core.messages import (
 from pydantic import BaseModel, ValidationError
 
 from browser_use.agent.gif import create_history_gif
-from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
+from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings, MessageManagerState
 from browser_use.agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation
 from browser_use.agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
 from browser_use.agent.views import (
@@ -53,6 +53,8 @@ from browser_use.telemetry.views import (
 )
 from browser_use.utils import time_execution_async, time_execution_sync
 from browser_use.agent.planning.service import PlanningService
+from browser_use.cache.service import CacheService
+from browser_use.cache.views import CacheKey, CacheSettings, CacheStats, CacheStrategy
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -84,10 +86,12 @@ class Agent(Generic[Context]):
 		self,
 		task: str,
 		llm: BaseChatModel,
+		browser_context: BrowserContext,
+		controller: Controller,
+		settings: AgentSettings = AgentSettings(),
+		cache_settings: CacheSettings = CacheSettings(),
 		# Optional parameters
 		browser: Browser | None = None,
-		browser_context: BrowserContext | None = None,
-		controller: Controller[Context] = Controller(),
 		# Initial agent run parameters
 		sensitive_data: Optional[Dict[str, str]] = None,
 		initial_actions: Optional[List[Dict[str, Dict[str, Any]]]] = None,
@@ -141,27 +145,7 @@ class Agent(Generic[Context]):
 		self.controller = controller
 		self.sensitive_data = sensitive_data
 
-		self.settings = AgentSettings(
-			use_vision=use_vision,
-			use_vision_for_planner=use_vision_for_planner,
-			save_conversation_path=save_conversation_path,
-			save_conversation_path_encoding=save_conversation_path_encoding,
-			max_failures=max_failures,
-			retry_delay=retry_delay,
-			override_system_message=override_system_message,
-			extend_system_message=extend_system_message,
-			max_input_tokens=max_input_tokens,
-			validate_output=validate_output,
-			message_context=message_context,
-			generate_gif=generate_gif,
-			available_file_paths=available_file_paths,
-			include_attributes=include_attributes,
-			max_actions_per_step=max_actions_per_step,
-			tool_calling_method=tool_calling_method,
-			page_extraction_llm=page_extraction_llm,
-			planner_llm=planner_llm,
-			planner_interval=planner_interval,
-		)
+		self.settings = settings
 
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
@@ -199,7 +183,7 @@ class Agent(Generic[Context]):
 				sensitive_data=sensitive_data,
 				available_file_paths=self.settings.available_file_paths,
 			),
-			state=self.state.message_manager_state,
+			state=MessageManagerState(**self.state.message_manager_state) if self.state.message_manager_state else MessageManagerState(),
 		)
 
 		# Browser setup
@@ -236,6 +220,20 @@ class Agent(Generic[Context]):
 
 		# Initialize telemetry service
 		self._telemetry_service = telemetry_service or self.telemetry
+
+		self.cache_settings = cache_settings
+		self.cache_service = CacheService()
+		
+		# Check if we have a cached history for this task
+		if (
+			self.cache_settings.strategy in [CacheStrategy.READ_ONLY, CacheStrategy.READ_WRITE] 
+			and self.cache_settings.cache_agent_history
+		):
+			cached_history = self.cache_service.get_cached_agent_history(task)
+			if cached_history:
+				logger.info(f"Using cached agent history for task: {task}")
+				self.state.history = cached_history
+				self.state.cached_run = True
 
 		if self.settings.save_conversation_path:
 			logger.info(f'Saving conversation to {self.settings.save_conversation_path}')
@@ -501,7 +499,7 @@ class Agent(Generic[Context]):
 
 		history_item = AgentHistory(model_output=model_output, result=result, state=state_history, metadata=metadata)
 
-		self.state.history.history.append(history_item)
+		self.state.history.items.append(history_item)
 
 	THINK_TAGS = re.compile(r'<think>.*?</think>', re.DOTALL)
 	STRAY_CLOSE_TAG = re.compile(r'.*?</think>', re.DOTALL)
@@ -526,36 +524,77 @@ class Agent(Generic[Context]):
 		"""Get next action from LLM based on current state"""
 		input_messages = self._convert_input_messages(input_messages)
 
-		if self.tool_calling_method == 'raw':
-			output = self.llm.invoke(input_messages)
-			# TODO: currently invoke does not return reasoning_content, we should override invoke
-			output.content = self._remove_think_tags(str(output.content))
-			try:
-				parsed_json = extract_json_from_model_output(output.content)
-				parsed = self.AgentOutput(**parsed_json)
-			except (ValueError, ValidationError) as e:
-				logger.warning(f'Failed to parse model output: {output} {str(e)}')
+		# Check cache first if enabled
+		if self.cache_settings.enabled:
+			browser_state = await self.browser_context.get_state()
+			cache_key = self.cache_service.get_cache_key(self.task, browser_state, self.state.n_steps)
+			cached_output = self.cache_service.get(cache_key, self.cache_settings)
+			
+			if cached_output:
+				logger.info("Using cached LLM response")
+				return self._process_cached_output(cached_output)
+		
+		# No cache hit, call the LLM
+		try:
+			if self.tool_calling_method == 'raw':
+				output = self.llm.invoke(input_messages)
+				# TODO: currently invoke does not return reasoning_content, we should override invoke
+				output.content = self._remove_think_tags(str(output.content))
+				try:
+					parsed_json = extract_json_from_model_output(output.content)
+					parsed = self.AgentOutput(**parsed_json)
+				except (ValueError, ValidationError) as e:
+					logger.warning(f'Failed to parse model output: {output} {str(e)}')
+					raise ValueError('Could not parse response.')
+
+			elif self.tool_calling_method is None:
+				structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True)
+				response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
+				parsed: AgentOutput | None = response['parsed']
+			else:
+				structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True, method=self.tool_calling_method)
+				response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
+				parsed: AgentOutput | None = response['parsed']
+
+			if parsed is None:
 				raise ValueError('Could not parse response.')
 
-		elif self.tool_calling_method is None:
-			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True)
-			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
-			parsed: AgentOutput | None = response['parsed']
+			# cut the number of actions to max_actions_per_step if needed
+			if len(parsed.action) > self.settings.max_actions_per_step:
+				parsed.action = parsed.action[: self.settings.max_actions_per_step]
+
+			log_response(parsed)
+
+			# Cache the response if enabled
+			if self.cache_settings.enabled:
+				browser_state = await self.browser_context.get_state()
+				cache_key = self.cache_service.get_cache_key(self.task, browser_state, self.state.n_steps)
+				self.cache_service.set(cache_key, parsed, self.cache_settings)
+
+			return parsed
+		except Exception as e:
+			# model call failed, remove last state message from history
+			self._message_manager._remove_last_state_message()
+			raise e
+
+	def _process_cached_output(self, cached_output: Any) -> AgentOutput:
+		"""Process a cached output into an AgentOutput"""
+		# Convert the cached output back to an AgentOutput
+		
+		if isinstance(cached_output, dict):
+			# If we cached a dictionary representation
+			return self.AgentOutput.model_validate(cached_output)
+		elif isinstance(cached_output, self.AgentOutput):
+			# If we cached the AgentOutput directly
+			return cached_output
 		else:
-			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True, method=self.tool_calling_method)
-			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
-			parsed: AgentOutput | None = response['parsed']
-
-		if parsed is None:
-			raise ValueError('Could not parse response.')
-
-		# cut the number of actions to max_actions_per_step if needed
-		if len(parsed.action) > self.settings.max_actions_per_step:
-			parsed.action = parsed.action[: self.settings.max_actions_per_step]
-
-		log_response(parsed)
-
-		return parsed
+			# If we cached something else, try to convert it
+			try:
+				return self.AgentOutput.model_validate(cached_output)
+			except Exception as e:
+				logger.error(f"Failed to convert cached output to AgentOutput: {e}")
+				# Fall back to normal LLM call
+				raise ValueError("Invalid cached output format")
 
 	def _log_agent_run(self) -> None:
 		"""Log the agent run"""
@@ -606,6 +645,11 @@ class Agent(Generic[Context]):
 		Returns:
 			AgentHistoryList: History of agent actions
 		"""
+		# If we're using a cached run, just return the history
+		if hasattr(self.state, 'cached_run') and self.state.cached_run:
+			logger.info("Using cached run, skipping execution")
+			return self.state.history
+		
 		self._telemetry_service.capture(
 			AgentRunTelemetryEvent(
 				agent_id=self.state.agent_id,
@@ -683,6 +727,13 @@ class Agent(Generic[Context]):
 					errors=self._errors,
 				)
 			)
+			
+			# Cache the history if enabled
+			if (
+				self.cache_settings.strategy in [CacheStrategy.WRITE_ONLY, CacheStrategy.READ_WRITE] 
+				and self.cache_settings.cache_agent_history
+			):
+				self.cache_service.cache_agent_history(self.task, self.state.history)
 			
 			return self.state.history
 			
@@ -832,9 +883,9 @@ class Agent(Generic[Context]):
 
 		results = []
 
-		for i, history_item in enumerate(history.history):
+		for i, history_item in enumerate(history.items):
 			goal = history_item.model_output.current_state.next_goal if history_item.model_output else ''
-			logger.info(f'Replaying step {i + 1}/{len(history.history)}: goal: {goal}')
+			logger.info(f'Replaying step {i + 1}/{len(history.items)}: goal: {goal}')
 
 			if (
 				not history_item.model_output
@@ -1067,3 +1118,14 @@ class Agent(Generic[Context]):
 		# If the action is done, log it
 		if action_result.is_done:
 			logger.info(f"Task completed: {action_result.extracted_content}")
+
+	def get_cache_stats(self) -> CacheStats:
+		"""Get cache statistics"""
+		if hasattr(self, 'cache_service'):
+			return self.cache_service.get_stats()
+		return CacheStats()
+
+	def clear_cache(self) -> None:
+		"""Clear the agent's cache"""
+		if hasattr(self, 'cache_service'):
+			self.cache_service.clear()

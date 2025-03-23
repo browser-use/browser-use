@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import traceback
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Type
 
@@ -64,21 +64,17 @@ class AgentSettings(BaseModel):
 
 
 class AgentState(BaseModel):
-	"""Holds all state information for an Agent"""
-
+	"""State of the agent"""
 	agent_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-	n_steps: int = 1
+	n_steps: int = 0
 	consecutive_failures: int = 0
+	stopped: bool = False
 	last_result: Optional[List['ActionResult']] = None
-	history: AgentHistoryList = Field(default_factory=lambda: AgentHistoryList(history=[]))
+	history: AgentHistoryList = Field(default_factory=lambda: AgentHistoryList(items=[]))
 	last_plan: Optional[str] = None
 	paused: bool = False
-	stopped: bool = False
-
-	message_manager_state: MessageManagerState = Field(default_factory=MessageManagerState)
-
-	# class Config:
-	# 	arbitrary_types_allowed = True
+	message_manager_state: Optional[Dict[str, Any]] = None
+	cached_run: bool = False
 
 
 @dataclass
@@ -209,16 +205,26 @@ class AgentHistory(BaseModel):
 			'metadata': self.metadata.model_dump() if self.metadata else None,
 		}
 
+	def to_dict(self) -> Dict[str, Any]:
+		"""Convert to dictionary"""
+		return self.model_dump()
 
-class AgentHistoryList(BaseModel):
+
+@dataclass
+class AgentHistoryList:
 	"""List of agent history items"""
-
-	history: list[AgentHistory]
+	items: List[AgentHistory] = field(default_factory=list)
+	
+	def to_dict(self) -> Dict[str, Any]:
+		"""Convert to dictionary"""
+		return {
+			"items": [item.to_dict() for item in self.items]
+		}
 
 	def total_duration_seconds(self) -> float:
 		"""Get total duration of all steps in seconds"""
 		total = 0.0
-		for h in self.history:
+		for h in self.items:
 			if h.metadata:
 				total += h.metadata.duration_seconds
 		return total
@@ -230,14 +236,14 @@ class AgentHistoryList(BaseModel):
 		For accurate token counting, use tools like LangChain Smith or OpenAI's token counters.
 		"""
 		total = 0
-		for h in self.history:
+		for h in self.items:
 			if h.metadata:
 				total += h.metadata.input_tokens
 		return total
 
 	def input_token_usage(self) -> list[int]:
 		"""Get token usage for each step"""
-		return [h.metadata.input_tokens for h in self.history if h.metadata]
+		return [h.metadata.input_tokens for h in self.items if h.metadata]
 
 	def __str__(self) -> str:
 		"""Representation of the AgentHistoryList object"""
@@ -251,7 +257,7 @@ class AgentHistoryList(BaseModel):
 		"""Save history to JSON file with proper serialization"""
 		try:
 			Path(filepath).parent.mkdir(parents=True, exist_ok=True)
-			data = self.model_dump()
+			data = self.to_dict()
 			with open(filepath, 'w', encoding='utf-8') as f:
 				json.dump(data, f, indent=2)
 		except Exception as e:
@@ -260,7 +266,7 @@ class AgentHistoryList(BaseModel):
 	def model_dump(self, **kwargs) -> Dict[str, Any]:
 		"""Custom serialization that properly uses AgentHistory's model_dump"""
 		return {
-			'history': [h.model_dump(**kwargs) for h in self.history],
+			'items': [h.model_dump(**kwargs) for h in self.items],
 		}
 
 	@classmethod
@@ -268,8 +274,10 @@ class AgentHistoryList(BaseModel):
 		"""Load history from JSON file"""
 		with open(filepath, 'r', encoding='utf-8') as f:
 			data = json.load(f)
-		# loop through history and validate output_model actions to enrich with custom actions
-		for h in data['history']:
+		
+		# Process the data to create AgentHistory objects
+		history_items = []
+		for h in data['items']:
 			if h['model_output']:
 				if isinstance(h['model_output'], dict):
 					h['model_output'] = output_model.model_validate(h['model_output'])
@@ -277,19 +285,24 @@ class AgentHistoryList(BaseModel):
 					h['model_output'] = None
 			if 'interacted_element' not in h['state']:
 				h['state']['interacted_element'] = None
-		history = cls.model_validate(data)
-		return history
+			
+			# Create AgentHistory object
+			history_item = AgentHistory.model_validate(h)
+			history_items.append(history_item)
+		
+		# Create and return AgentHistoryList
+		return cls(items=history_items)
 
 	def last_action(self) -> None | dict:
 		"""Last action in history"""
-		if self.history and self.history[-1].model_output:
-			return self.history[-1].model_output.action[-1].model_dump(exclude_none=True)
+		if self.items and self.items[-1].model_output:
+			return self.items[-1].model_output.action[-1].model_dump(exclude_none=True)
 		return None
 
 	def errors(self) -> list[str | None]:
 		"""Get all errors from history, with None for steps without errors"""
 		errors = []
-		for h in self.history:
+		for h in self.items:
 			step_errors = [r.error for r in h.result if r.error]
 
 			# each step can have only one error
@@ -298,21 +311,21 @@ class AgentHistoryList(BaseModel):
 
 	def final_result(self) -> None | str:
 		"""Final result from history"""
-		if self.history and self.history[-1].result[-1].extracted_content:
-			return self.history[-1].result[-1].extracted_content
+		if self.items and self.items[-1].result[-1].extracted_content:
+			return self.items[-1].result[-1].extracted_content
 		return None
 
 	def is_done(self) -> bool:
 		"""Check if the agent is done"""
-		if self.history and len(self.history[-1].result) > 0:
-			last_result = self.history[-1].result[-1]
+		if self.items and len(self.items[-1].result) > 0:
+			last_result = self.items[-1].result[-1]
 			return last_result.is_done is True
 		return False
 
 	def is_successful(self) -> bool | None:
 		"""Check if the agent completed successfully - the agent decides in the last step if it was successful or not. None if not done yet."""
-		if self.history and len(self.history[-1].result) > 0:
-			last_result = self.history[-1].result[-1]
+		if self.items and len(self.items[-1].result) > 0:
+			last_result = self.items[-1].result[-1]
 			if last_result.is_done is True:
 				return last_result.success
 		return None
@@ -323,11 +336,11 @@ class AgentHistoryList(BaseModel):
 
 	def urls(self) -> list[str | None]:
 		"""Get all unique URLs from history"""
-		return [h.state.url if h.state.url is not None else None for h in self.history]
+		return [h.state.url if h.state.url is not None else None for h in self.items]
 
 	def screenshots(self) -> list[str | None]:
 		"""Get all screenshots from history"""
-		return [h.state.screenshot if h.state.screenshot is not None else None for h in self.history]
+		return [h.state.screenshot if h.state.screenshot is not None else None for h in self.items]
 
 	def action_names(self) -> list[str]:
 		"""Get all action names from history"""
@@ -340,18 +353,18 @@ class AgentHistoryList(BaseModel):
 
 	def model_thoughts(self) -> list[AgentBrain]:
 		"""Get all thoughts from history"""
-		return [h.model_output.current_state for h in self.history if h.model_output]
+		return [h.model_output.current_state for h in self.items if h.model_output]
 
 	def model_outputs(self) -> list[AgentOutput]:
 		"""Get all model outputs from history"""
-		return [h.model_output for h in self.history if h.model_output]
+		return [h.model_output for h in self.items if h.model_output]
 
 	# get all actions with params
 	def model_actions(self) -> list[dict]:
 		"""Get all actions from history"""
 		outputs = []
 
-		for h in self.history:
+		for h in self.items:
 			if h.model_output:
 				for action, interacted_element in zip(h.model_output.action, h.state.interacted_element):
 					output = action.model_dump(exclude_none=True)
@@ -362,14 +375,14 @@ class AgentHistoryList(BaseModel):
 	def action_results(self) -> list[ActionResult]:
 		"""Get all results from history"""
 		results = []
-		for h in self.history:
+		for h in self.items:
 			results.extend([r for r in h.result if r])
 		return results
 
 	def extracted_content(self) -> list[str]:
 		"""Get all extracted content from history"""
 		content = []
-		for h in self.history:
+		for h in self.items:
 			content.extend([r.extracted_content for r in h.result if r.extracted_content])
 		return content
 
@@ -387,7 +400,7 @@ class AgentHistoryList(BaseModel):
 
 	def number_of_steps(self) -> int:
 		"""Get the number of steps in the history"""
-		return len(self.history)
+		return len(self.items)
 
 
 class AgentError:
