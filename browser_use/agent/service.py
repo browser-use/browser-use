@@ -345,14 +345,42 @@ class Agent(Generic[Context]):
 				self._message_manager.add_plan(plan, position=-1)
 
 			if step_info and step_info.is_last_step():
-				# Add last step warning if needed
-				msg = 'Now comes your last step. Use only the "done" action now. No other actions - so here your action sequence must have length 1.'
-				msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false! E.g. if not all steps are fully completed.'
-				msg += '\nIf the task is fully finished, set success in "done" to true.'
-				msg += '\nInclude everything you found out for the ultimate task in the done text.'
-				logger.info('Last step finishing up')
-				self._message_manager._add_message_with_tokens(HumanMessage(content=msg))
-				self.AgentOutput = self.DoneAgentOutput
+				# Ask user if they want to continue with more steps before finishing
+				logger.info('Approaching last step - checking if user wants to continue')
+				user_input = input('You are approaching the last step. Do you want to continue with more steps? (y/n): ')
+				
+				if user_input.lower() in ['y', 'yes']:
+					try:
+						additional_steps = int(input('How many more steps? (default: 20): ') or '20')
+						# Update the step_info to reflect the additional steps
+						new_max_steps = step_info.max_steps + additional_steps
+						step_info = AgentStepInfo(step_number=step_info.step_number, max_steps=new_max_steps)
+						logger.info(f'Continuing with {additional_steps} more steps')
+						# Reset consecutive failures to give it a fresh start
+						self.state.consecutive_failures = 0
+						# Set the flags to communicate with the run method
+						self._additional_steps_added = True
+						self._new_max_steps = new_max_steps
+						logger.info(f'Updated max_steps to {new_max_steps}')
+					except ValueError:
+						logger.error('Invalid number of steps provided, proceeding with last step')
+						# Add last step warning
+						msg = 'Now comes your last step. Use only the "done" action now. No other actions - so here your action sequence must have length 1.'
+						msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false! E.g. if not all steps are fully completed.'
+						msg += '\nIf the task is fully finished, set success in "done" to true.'
+						msg += '\nInclude everything you found out for the ultimate task in the done text.'
+						logger.info('Last step finishing up')
+						self._message_manager._add_message_with_tokens(HumanMessage(content=msg))
+						self.AgentOutput = self.DoneAgentOutput
+				else:
+					# Add last step warning
+					msg = 'Now comes your last step. Use only the "done" action now. No other actions - so here your action sequence must have length 1.'
+					msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false! E.g. if not all steps are fully completed.'
+					msg += '\nIf the task is fully finished, set success in "done" to true.'
+					msg += '\nInclude everything you found out for the ultimate task in the done text.'
+					logger.info('Last step finishing up')
+					self._message_manager._add_message_with_tokens(HumanMessage(content=msg))
+					self.AgentOutput = self.DoneAgentOutput
 
 			input_messages = self._message_manager.get_messages()
 			tokens = self._message_manager.state.history.current_tokens
@@ -583,13 +611,22 @@ class Agent(Generic[Context]):
 		"""Execute the task with maximum number of steps"""
 		try:
 			self._log_agent_run()
+			
+			# Add instance variables to track additional steps
+			self._additional_steps_added = False
+			self._new_max_steps = max_steps
 
 			# Execute initial actions if provided
 			if self.initial_actions:
 				result = await self.multi_act(self.initial_actions, check_for_new_elements=False)
 				self.state.last_result = result
 
-			for step in range(max_steps):
+			# Continue running until we reach max_steps or task is done
+			current_step = 0
+			while current_step < max_steps:
+				# Reset the additional_steps_added flag at the start of each iteration
+				self._additional_steps_added = False
+				
 				# Check if we should stop due to too many failures
 				if self.state.consecutive_failures >= self.settings.max_failures:
 					logger.error(f'❌ Stopping due to {self.settings.max_failures} consecutive failures')
@@ -605,16 +642,24 @@ class Agent(Generic[Context]):
 					if self.state.stopped:  # Allow stopping while paused
 						break
 
-				step_info = AgentStepInfo(step_number=step, max_steps=max_steps)
+				step_info = AgentStepInfo(step_number=current_step, max_steps=max_steps)
 				await self.step(step_info)
+				
+				# If additional steps were added in the step method, update max_steps
+				if self._additional_steps_added:
+					max_steps = self._new_max_steps
+					logger.info(f'Updated max_steps to {max_steps}')
 
 				if self.state.history.is_done():
-					if self.settings.validate_output and step < max_steps - 1:
+					if self.settings.validate_output and current_step < max_steps - 1:
 						if not await self._validate_output():
+							current_step += 1
 							continue
 
 					await self.log_completion()
 					break
+				
+				current_step += 1
 			else:
 				logger.info('❌ Failed to complete task in maximum steps')
 
@@ -983,9 +1028,26 @@ class Agent(Generic[Context]):
 		try:
 			# First close browser resources
 			if self.browser_context and not self.injected_browser_context:
-				await self.browser_context.close()
+				# Check if the browser context is already closed
+				if hasattr(self.browser_context, 'is_closed') and not self.browser_context.is_closed():
+					await self.browser_context.close()
+				elif not hasattr(self.browser_context, 'is_closed'):
+					# If the is_closed attribute doesn't exist, try closing it anyway
+					try:
+						await self.browser_context.close()
+					except Exception:
+						pass  # Silently ignore errors
+					
 			if self.browser and not self.injected_browser:
-				await self.browser.close()
+				# Check if the browser is already closed
+				if hasattr(self.browser, 'is_connected') and self.browser.is_connected():
+					await self.browser.close()
+				elif not hasattr(self.browser, 'is_connected'):
+					# If the is_connected attribute doesn't exist, try closing it anyway
+					try:
+						await self.browser.close()
+					except Exception:
+						pass  # Silently ignore errors
 			
 			# Then cleanup httpx clients
 			await self.cleanup_httpx_clients()
