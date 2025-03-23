@@ -80,7 +80,7 @@ def log_response(response: AgentOutput) -> None:
 🎯 Next goal: {response.current_state.next_goal}
 """
 	for i, action in enumerate(response.action):
-		event_content += '🛠️  Action {i + 1}/{len(response.action)}: {action.model_dump_json(exclude_unset=True)}\n'
+		event_content += f'🛠️  Action {i + 1}/{len(response.action)}: {action.model_dump_json(exclude_unset=True)}\n'
 	
 	lai.create_event(description=event_content)
 	lai.end_event(True)
