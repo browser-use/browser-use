@@ -1,16 +1,13 @@
+# Goal: Automates webpage scrolling with various scrolling actions and text search functionality.
+
 import os
 import sys
-
-from browser_use.browser.browser import Browser, BrowserConfig
+import asyncio
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import asyncio
-
 from langchain_openai import ChatOpenAI
-
 from browser_use import Agent
-from browser_use.utils import BrowserSessionManager, with_error_handling
 
 """
 Example: Using the 'Scroll down' action.
@@ -23,16 +20,14 @@ llm = ChatOpenAI(model='gpt-4o')
 
 agent = Agent(
 	# task="Navigate to 'https://en.wikipedia.org/wiki/Internet' and scroll down by one page - then scroll up by 100 pixels - then scroll down by 100 pixels - then scroll down by 10000 pixels.",
-	task="Navigate to 'https://en.wikipedia.org/wiki/Internet' and to the string 'The vast majority of computer'",
+	task="Navigate to 'https://en.wikipedia.org/wiki/Internet' and scroll to the string 'The vast majority of computer'",
 	llm=llm,
 	browser=Browser(config=BrowserConfig(headless=False)),
 )
 
+async def main():
+	await agent.run()
 
-@with_error_handling()
-async def run_script():
-    async with BrowserSessionManager.manage_browser_session(agent) as managed_agent:
-        await managed_agent.run()
 
 if __name__ == '__main__':
-    run_script()
+	asyncio.run(main())
