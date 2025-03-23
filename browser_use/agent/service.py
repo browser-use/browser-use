@@ -367,7 +367,8 @@ class Agent(Generic[Context]):
 				model_output = await self.get_next_action(input_messages)
 
 				if len(self.lucidic_step_history) > 1:
-					self.lucidic_step_history[-2].update_step(
+					lai.update_previous_step(
+						-2,
 						eval_description=model_output.current_state.evaluation_previous_goal,
 						is_successful=("Success" in model_output.current_state.evaluation_previous_goal[:15])
 					)
