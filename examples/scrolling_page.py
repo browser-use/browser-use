@@ -8,7 +8,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from langchain_openai import ChatOpenAI
 from browser_use import Agent
-
+from browser_use.utils import BrowserSessionManager, with_error_handling
+from browser_use.browser.browser import Browser, BrowserConfig
 """
 Example: Using the 'Scroll down' action.
 
@@ -26,8 +27,12 @@ agent = Agent(
 )
 
 async def main():
-	await agent.run()
+    async with BrowserSessionManager.manage_browser_session(agent) as managed_agent:
+        await managed_agent.run()
 
+@with_error_handling()
+async def run_script():
+    await main()
 
-if __name__ == '__main__':
-	asyncio.run(main())
+if __name__ == "__main__":
+    run_script()
