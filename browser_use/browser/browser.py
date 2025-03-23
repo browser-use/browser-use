@@ -235,6 +235,8 @@ class Browser:
 		except Exception as e:
 			logger.debug(f'Failed to close browser properly: {e}')
 		finally:
+			self.playwright_browser = None
+			self.playwright = None
 			gc.collect()
 
 	def __del__(self) -> None:
