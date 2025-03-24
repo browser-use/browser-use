@@ -1,5 +1,7 @@
 import asyncio
+import re
 import json
+import enum
 import logging
 from typing import Dict, Generic, Optional, Type, TypeVar
 
@@ -44,8 +46,9 @@ class Controller(Generic[Context]):
 
 		if output_model is not None:
 			# Create a new model that extends the output model with success parameter
-			class ExtendedOutputModel(output_model):  # type: ignore
+			class ExtendedOutputModel(BaseModel):  # type: ignore
 				success: bool = True
+				data: output_model
 
 			@self.registry.action(
 				'Complete task - with return text and if the task is finished (success=True) or not yet  completly finished (success=False), because last step is reached',
@@ -53,7 +56,13 @@ class Controller(Generic[Context]):
 			)
 			async def done(params: ExtendedOutputModel):
 				# Exclude success from the output JSON since it's an internal parameter
-				output_dict = params.model_dump(exclude={'success'})
+				output_dict = params.data.model_dump()
+
+				# Enums are not serializable, convert to string
+				for key, value in output_dict.items():
+					if isinstance(value, enum.Enum):
+						output_dict[key] = value.value
+
 				return ActionResult(is_done=True, success=params.success, extracted_content=json.dumps(output_dict))
 		else:
 
@@ -155,6 +164,22 @@ class Controller(Generic[Context]):
 				msg = f'⌨️  Input sensitive data into index {params.index}'
 			logger.info(msg)
 			logger.debug(f'Element xpath: {element_node.xpath}')
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+		
+		# Save PDF
+		@self.registry.action(
+			'Save the current page as a PDF file',
+		)
+		async def save_pdf(browser: BrowserContext):
+			page = await browser.get_current_page()
+			short_url = re.sub(r'^https?://(?:www\.)?|/$', '', page.url)
+			slug = re.sub(r'[^a-zA-Z0-9]+', '-', short_url).strip('-').lower()
+			sanitized_filename = f'{slug}.pdf'
+
+			await page.emulate_media('screen')
+			await page.pdf(path=sanitized_filename, format='A4', print_background=False)
+			msg = f"Saving page with URL {page.url} as PDF to ./{sanitized_filename}"
+			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
 		# Tab Management Actions

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
+import gc
 import json
 import logging
 import re
 import time
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, TypeVar
+from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, TypeVar, Union
 
 from dotenv import load_dotenv
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -90,8 +92,16 @@ class Agent(Generic[Context]):
 		sensitive_data: Optional[Dict[str, str]] = None,
 		initial_actions: Optional[List[Dict[str, Dict[str, Any]]]] = None,
 		# Cloud Callbacks
-		register_new_step_callback: Callable[['BrowserState', 'AgentOutput', int], Awaitable[None]] | None = None,
-		register_done_callback: Callable[['AgentHistoryList'], Awaitable[None]] | None = None,
+		register_new_step_callback: Union[
+            Callable[['BrowserState', 'AgentOutput', int], None],  # Sync callback
+            Callable[['BrowserState', 'AgentOutput', int], Awaitable[None]],  # Async callback
+            None
+        ] = None,
+		register_done_callback: Union[
+			Callable[['AgentHistoryList'], Awaitable[None]], # Async Callback
+			Callable[['AgentHistoryList'], None], #Sync Callback
+			None
+		] = None,
 		register_external_agent_status_raise_error_callback: Callable[[], Awaitable[bool]] | None = None,
 		# Agent settings
 		use_vision: bool = True,
@@ -199,14 +209,12 @@ class Agent(Generic[Context]):
 		# Browser setup
 		self.injected_browser = browser is not None
 		self.injected_browser_context = browser_context is not None
-		self.browser = browser if browser is not None else (None if browser_context else Browser())
 		if browser_context:
+			self.browser = browser
 			self.browser_context = browser_context
-		elif self.browser:
-			self.browser_context = BrowserContext(browser=self.browser, config=self.browser.config.new_context_config)
 		else:
-			self.browser = Browser()
-			self.browser_context = BrowserContext(browser=self.browser)
+			self.browser = browser or Browser()
+			self.browser_context = BrowserContext(browser=self.browser, config=self.browser.config.new_context_config)
 
 		# Callbacks
 		self.register_new_step_callback = register_new_step_callback
@@ -293,7 +301,7 @@ class Agent(Generic[Context]):
 	def _set_tool_calling_method(self) -> Optional[ToolCallingMethod]:
 		tool_calling_method = self.settings.tool_calling_method
 		if tool_calling_method == 'auto':
-			if self.model_name == 'deepseek-reasoner' or self.model_name.startswith('deepseek-r1'):
+			if 'deepseek-reasoner' in self.model_name or 'deepseek-r1' in self.model_name:
 				return 'raw'
 			elif self.chat_model_library == 'ChatGoogleGenerativeAI':
 				return None
@@ -363,8 +371,10 @@ class Agent(Generic[Context]):
 				self.state.n_steps += 1
 
 				if self.register_new_step_callback:
-					await self.register_new_step_callback(state, model_output, self.state.n_steps)
-
+					if inspect.iscoroutinefunction(self.register_new_step_callback):
+						await self.register_new_step_callback(state, model_output, self.state.n_steps)
+					else:
+						self.register_new_step_callback(state, model_output, self.state.n_steps)
 				if self.settings.save_conversation_path:
 					target = self.settings.save_conversation_path + f'_{self.state.n_steps}.txt'
 					save_conversation(input_messages, model_output, target, self.settings.save_conversation_path_encoding)
@@ -486,14 +496,19 @@ class Agent(Generic[Context]):
 		self.state.history.history.append(history_item)
 
 	THINK_TAGS = re.compile(r'<think>.*?</think>', re.DOTALL)
+	STRAY_CLOSE_TAG = re.compile(r'.*?</think>', re.DOTALL)
 
 	def _remove_think_tags(self, text: str) -> str:
-		"""Remove think tags from text"""
-		return re.sub(self.THINK_TAGS, '', text)
+		# Step 1: Remove well-formed <think>...</think>
+		text = re.sub(self.THINK_TAGS, '', text)
+		# Step 2: If there's an unmatched closing tag </think>,
+		#         remove everything up to and including that.
+		text = re.sub(self.STRAY_CLOSE_TAG, '', text)
+		return text.strip()
 
 	def _convert_input_messages(self, input_messages: list[BaseMessage]) -> list[BaseMessage]:
 		"""Convert input messages to the correct format"""
-		if self.model_name == 'deepseek-reasoner' or self.model_name.startswith('deepseek-r1'):
+		if self.model_name == 'deepseek-reasoner' or 'deepseek-r1' in self.model_name:
 			return convert_input_messages(input_messages, self.model_name)
 		else:
 			return input_messages
@@ -522,6 +537,13 @@ class Agent(Generic[Context]):
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True, method=self.tool_calling_method)
 			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
 			parsed: AgentOutput | None = response['parsed']
+			if not parsed:
+				try:
+					parsed_json = extract_json_from_model_output(response["raw"].content)
+					parsed = self.AgentOutput(**parsed_json)
+				except:
+					logger.warning(f'Failed to parse model output: {response["raw"].content} {str(e)}')
+					raise ValueError('Could not parse response.')
 
 		if parsed is None:
 			raise ValueError('Could not parse response.')
@@ -566,8 +588,10 @@ class Agent(Generic[Context]):
 
 			await self.log_completion()
 			if self.register_done_callback:
-				await self.register_done_callback(self.state.history)
-
+				if inspect.iscoroutinefunction(self.register_done_callback):
+					await self.register_done_callback(self.state.history)
+				else:
+					self.register_done_callback(self.state.history)
 			return True, True
 
 		return False, False
@@ -628,11 +652,7 @@ class Agent(Generic[Context]):
 				)
 			)
 
-			if not self.injected_browser_context:
-				await self.browser_context.close()
-
-			if not self.injected_browser and self.browser:
-				await self.browser.close()
+			await self.close()
 
 			if self.settings.generate_gif:
 				output_path: str = 'agent_history.gif'
@@ -743,7 +763,10 @@ class Agent(Generic[Context]):
 			logger.info('❌ Unfinished')
 
 		if self.register_done_callback:
-			await self.register_done_callback(self.state.history)
+			if inspect.iscoroutinefunction(self.register_done_callback):
+				await self.register_done_callback(self.state.history)
+			else:
+				self.register_done_callback(self.state.history)
 
 	async def rerun_history(
 		self,
@@ -941,7 +964,7 @@ class Agent(Generic[Context]):
 		response = await self.settings.planner_llm.ainvoke(planner_messages)
 		plan = str(response.content)
 		# if deepseek-reasoner, remove think tags
-		if self.planner_model_name == 'deepseek-reasoner':
+		if self.planner_model_name and ('deepseek-r1' in self.planner_model_name or 'deepseek-reasoner' in self.planner_model_name):
 			plan = self._remove_think_tags(plan)
 		try:
 			plan_json = json.loads(plan)
@@ -957,3 +980,40 @@ class Agent(Generic[Context]):
 	@property
 	def message_manager(self) -> MessageManager:
 		return self._message_manager
+
+	async def cleanup_httpx_clients(self):
+		"""Cleanup all httpx clients"""
+		import httpx
+		import gc
+
+		# Force garbage collection to make sure all clients are in memory
+		gc.collect()
+		
+		# Get all httpx clients
+		clients = [obj for obj in gc.get_objects() if isinstance(obj, httpx.AsyncClient)]
+		
+		# Close all clients
+		for client in clients:
+			if not client.is_closed:
+				try:
+					await client.aclose()
+				except Exception as e:
+					logger.debug(f"Error closing httpx client: {e}")
+
+	async def close(self):
+		"""Close all resources"""
+		try:
+			# First close browser resources
+			if self.browser_context and not self.injected_browser_context:
+				await self.browser_context.close()
+			if self.browser and not self.injected_browser:
+				await self.browser.close()
+			
+			# Then cleanup httpx clients
+			await self.cleanup_httpx_clients()
+			
+			# Force garbage collection
+			gc.collect()
+			
+		except Exception as e:
+			logger.error(f"Error during cleanup: {e}")

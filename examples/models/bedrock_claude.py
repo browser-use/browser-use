@@ -7,7 +7,7 @@ Automated news analysis and sentiment scoring using Bedrock.
 import os
 import sys
 
-from langchain_aws import ChatBedrock
+from langchain_aws import ChatBedrockConverse
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import argparse
@@ -19,7 +19,7 @@ from browser_use.controller.service import Controller
 
 
 def get_llm():
-    return ChatBedrock(
+    return ChatBedrockConverse(
         model_id="us.anthropic.claude-3-5-sonnet-20241022-v2:0",
         temperature=0.0,
         max_tokens=None,
@@ -42,7 +42,7 @@ llm = get_llm()
 
 browser = Browser(
     config=BrowserConfig(
-        # chrome_instance_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        # browser_instance_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     )
 )
 
