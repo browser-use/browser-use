@@ -160,6 +160,7 @@
         const role = element.getAttribute('role');
         const ariaRole = element.getAttribute('aria-role');
         const tabIndex = element.getAttribute('tabindex');
+        const hasHistoryType = element.hasAttribute('data-history-type');
 
         // Add check for specific class
         const hasAddressInputClass = element.classList.contains('address-input__container__input');
@@ -169,6 +170,7 @@
             interactiveElements.has(tagName) ||
             interactiveRoles.has(role) ||
             interactiveRoles.has(ariaRole) ||
+            hasHistoryType ||
             (tabIndex !== null && tabIndex !== '-1' && element.parentElement?.tagName.toLowerCase() !== 'body') ||
             element.getAttribute('data-action') === 'a-dropdown-select' ||
             element.getAttribute('data-action') === 'a-dropdown-button';

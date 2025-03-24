@@ -129,7 +129,8 @@ class Agent:
 			'data-has-ob-episode',
 			'data-plan-id',
 			'data-subsection',
-			'data-always-on'
+			'data-always-on',
+			'data-history-type'
 		],
 		max_error_length: int = 400,
 		max_actions_per_step: int = 10,
