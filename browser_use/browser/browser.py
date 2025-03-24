@@ -121,7 +121,7 @@ class Browser:
 		cdp_session = await browser.new_browser_cdp_session()
 		await cdp_session.send("Browser.setDownloadBehavior", {
 			"behavior": "allow",
-			"downloadPath": os.path.join(os.path.expanduser('~'), 'downloads'),
+			"downloadPath": 'downloads',
 			"eventsEnabled": True
 		})
 		return browser
