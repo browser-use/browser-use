@@ -166,7 +166,7 @@ class AgentHistory(BaseModel):
 		elements = []
 		for action in model_output.action:
 			index = action.get_index()
-			if index and index in selector_map:
+			if index is not None and index in selector_map:
 				el: DOMElementNode = selector_map[index]
 				elements.append(HistoryTreeProcessor.convert_dom_element_to_history_element(el))
 			else:

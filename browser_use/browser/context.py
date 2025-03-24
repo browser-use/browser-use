@@ -113,6 +113,21 @@ class BrowserContextConfig:
 		
 		extraction_config: BrowserExtractionConfig = None
 			Configuration for extraction methods, including OmniParser integration.
+
+	    is_mobile: None
+	        Whether the meta viewport tag is taken into account and touch events are enabled.
+
+	    has_touch: None
+	        Whether to enable touch events in the browser.
+
+	    geolocation: None
+	        Geolocation to be used in the browser context. Example: {'latitude': 59.95, 'longitude': 30.31667}
+
+	    permissions: None
+	        Browser permissions to grant. Values might include: ['geolocation', 'notifications']
+
+	    timezone_id: None
+	        Changes the timezone of the browser. Example: 'Europe/Berlin'
 	"""
 	cookies_file: str | None = None
 	minimum_wait_page_load_time: float = 0.25
@@ -139,6 +154,11 @@ class BrowserContextConfig:
 	include_dynamic_attributes: bool = True
 	extraction_config: 'BrowserExtractionConfig' = field(default_factory=lambda: BrowserExtractionConfig())
 	_force_keep_context_alive: bool = False
+	is_mobile: bool | None = None
+	has_touch: bool | None = None
+	geolocation: dict | None = None
+	permissions: list[str] | None = None
+	timezone_id: str | None = None
 
 
 @dataclass
@@ -320,7 +340,7 @@ class BrowserContext:
 		"""Creates a new browser context with anti-detection measures and loads cookies if available."""
 		if self.browser.config.cdp_url and len(browser.contexts) > 0:
 			context = browser.contexts[0]
-		elif self.browser.config.chrome_instance_path and len(browser.contexts) > 0:
+		elif self.browser.config.browser_instance_path and len(browser.contexts) > 0:
 			# Connect to existing Chrome instance instead of creating new one
 			context = browser.contexts[0]
 		else:
@@ -335,6 +355,11 @@ class BrowserContext:
 				record_video_dir=self.config.save_recording_path,
 				record_video_size=self.config.browser_window_size,
 				locale=self.config.locale,
+				is_mobile=self.config.is_mobile,
+				has_touch=self.config.has_touch,
+				geolocation=self.config.geolocation,
+				permissions=self.config.permissions,
+				timezone_id=self.config.timezone_id,
 			)
 
 		if self.config.trace_path:
@@ -933,9 +958,18 @@ class BrowserContext:
 			if not part:
 				continue
 
+			# Handle custom elements with colons by escaping them
+			if ':' in part and '[' not in part:
+				base_part = part.replace(':', r'\:')
+				css_parts.append(base_part)
+				continue
+
 			# Handle index notation [n]
 			if '[' in part:
 				base_part = part[: part.find('[')]
+				# Handle custom elements with colons in the base part
+				if ':' in base_part:
+					base_part = base_part.replace(':', r'\:')
 				index_part = part[part.find('[') :]
 
 				# Handle multiple indices
@@ -1138,10 +1172,16 @@ class BrowserContext:
 				pass
 
 			# Get element properties to determine input method
+			tag_handle = await element_handle.get_property("tagName")
+			tag_name = (await tag_handle.json_value()).lower()
 			is_contenteditable = await element_handle.get_property('isContentEditable')
+			readonly_handle = await element_handle.get_property("readOnly")
+			disabled_handle = await element_handle.get_property("disabled")
 
-			# Different handling for contenteditable vs input fields
-			if await is_contenteditable.json_value():
+			readonly = await readonly_handle.json_value() if readonly_handle else False
+			disabled = await disabled_handle.json_value() if disabled_handle else False
+
+			if (await is_contenteditable.json_value() or tag_name == 'input') and not (readonly or disabled):
 				await element_handle.evaluate('el => el.textContent = ""')
 				await element_handle.type(text, delay=5)
 			else:

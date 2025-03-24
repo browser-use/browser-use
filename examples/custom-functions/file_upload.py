@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 browser = Browser(
 	config=BrowserConfig(
 		headless=False,
-		chrome_instance_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+		browser_instance_path=='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 	)
 )
 controller = Controller()
