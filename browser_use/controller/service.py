@@ -433,8 +433,14 @@ class Controller:
 		)
 		async def send_keys(params: SendKeysAction, browser: BrowserContext):
 			page = await browser.get_current_page()
-
-			await page.keyboard.press(params.keys)
+			
+			# ambar - wytf is llama adding this?
+			# Handle special key formatting - remove curly braces if present
+			key = params.keys
+			if key.startswith('{') and key.endswith('}'):
+				key = key[1:-1]
+			
+			await page.keyboard.press(key)
 			msg = f'⌨️  Sent keys: {params.keys}'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
