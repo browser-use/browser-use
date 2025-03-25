@@ -18,7 +18,7 @@ class SystemPrompt:
 		Returns the important rules for the agent.
 		"""
 		text = """
-1. RESPONSE FORMAT: You must ALWAYS respond with valid JSON in this exact format:
+1. RESPONSE FORMAT: You must ALWAYS respond with valid JSON. Do not include non-JSON text (like introductions to the JSON) in your response. You must respond with valid JSON in this exact format:
    {
      "current_state": {
 		"page_summary": "Quick detailed summary of new information from the current page which is not yet in the task history memory. Be specific with details which are important for the task. This is not on the meta level, but should be facts. If all the information is already in the task history memory, leave this empty.",
