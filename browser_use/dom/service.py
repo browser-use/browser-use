@@ -32,11 +32,11 @@ class DomService:
 		focus_element: int = -1,
 		viewport_expansion: int = 0,
 	) -> DOMState:
-		logger.debug(f"Getting clickable elements. highlight={highlight_elements}, focus={focus_element}")
+		#logger.debug(f"Getting clickable elements. highlight={highlight_elements}, focus={focus_element}")
 		element_tree = await self._build_dom_tree(highlight_elements, focus_element, viewport_expansion)
-		logger.debug(f"DOM tree built with {self._count_elements(element_tree)} nodes")
+		#logger.debug(f"DOM tree built with {self._count_elements(element_tree)} nodes")
 		selector_map = self._create_selector_map(element_tree)
-		logger.debug(f"Selector map created with {len(selector_map)} elements")
+		#logger.debug(f"Selector map created with {len(selector_map)} elements")
 
 		return DOMState(element_tree=element_tree, selector_map=selector_map)
 
@@ -53,7 +53,7 @@ class DomService:
 		viewport_expansion: int,
 	) -> DOMElementNode:
 		js_code = resources.read_text('browser_use.dom', 'buildDomTree.js')
-		logger.debug(f"Executing buildDomTree.js with highlight={highlight_elements}, focus={focus_element}")
+		# logger.debug(f"Executing buildDomTree.js with highlight={highlight_elements}, focus={focus_element}")
 
 		args = {
 			'doHighlightElements': highlight_elements,
@@ -62,7 +62,7 @@ class DomService:
 		}
 
 		eval_page = await self.page.evaluate(js_code, args)
-		logger.debug(f"DOM tree data received, size: {len(str(eval_page))} characters")
+		# logger.debug(f"DOM tree data received, size: {len(str(eval_page))} characters")
 		
 		html_to_dict = self._parse_node(eval_page)
 
@@ -107,10 +107,10 @@ class DomService:
 		tag_name = node_data['tagName']
 		
 		# Log frame elements
-		if tag_name in ['iframe', 'frame', 'frameset']:
-			logger.debug(f"Processing {tag_name} element with xpath: {node_data.get('xpath')}")
-			if 'frameContent' in node_data:
-				logger.debug(f"Frame content: {node_data['frameContent']}")
+		#if tag_name in ['iframe', 'frame', 'frameset']:
+			# logger.debug(f"Processing {tag_name} element with xpath: {node_data.get('xpath')}")
+		#	if 'frameContent' in node_data:
+		#		logger.debug(f"Frame content: {node_data['frameContent']}")
 
 		# Parse coordinates if they exist
 		viewport_coordinates = None

@@ -346,16 +346,49 @@ class MessageManager:
 
 	def extract_json_from_model_output(self, content: str) -> dict:
 		"""Extract JSON from model output, handling both plain JSON and code-block-wrapped JSON."""
+		# logger.debug(f"\n=== RAW LLAMA RESPONSE ===\n{content}\n=== END RAW RESPONSE ===\n")  # Comment out large response
 		try:
 			# If content is wrapped in code blocks, extract just the JSON part
 			if '```' in content:
-				# Find the JSON content between code blocks
 				content = content.split('```')[1]
-				# Remove language identifier if present (e.g., 'json\n')
 				if '\n' in content:
 					content = content.split('\n', 1)[1]
-			# Parse the cleaned content
-			return json.loads(content)
+			parsed = json.loads(content)
+			
+			# Log only evaluation-related info
+			logger.debug(f"\n!!! EVAL CHECK !!!\n" + 
+						f"Eval: {parsed.get('current_state', {}).get('evaluation_previous_goal', 'MISSING')}\n" +
+						f"Memory: {parsed.get('current_state', {}).get('memory', 'MISSING')}\n" +
+						f"Next action: {[list(action.keys())[0] for action in parsed.get('action', [])]}\n")
+			
+			# Add violation checks but only log violations
+			if "current_state" not in parsed:
+				logger.error("!!! VIOLATION: Missing current_state in response")
+				
+			if "page_summary" not in parsed.get("current_state", {}):
+				logger.error("!!! VIOLATION: Missing page_summary in current_state")
+				
+			if "evaluation_previous_goal" not in parsed.get("current_state", {}):
+				logger.error("!!! VIOLATION: Missing evaluation_previous_goal in current_state")
+				
+			if "memory" not in parsed.get("current_state", {}):
+				logger.error("!!! VIOLATION: Missing memory in current_state")
+				
+			if "next_goal" not in parsed.get("current_state", {}):
+				logger.error("!!! VIOLATION: Missing next_goal in current_state")
+				
+			if "action" not in parsed:
+				logger.error("!!! VIOLATION: Missing action in response")
+			elif not isinstance(parsed["action"], list):
+				logger.error("!!! VIOLATION: Action must be a list")
+				
+			# Add task completion violation check
+			if (parsed.get("current_state", {}).get("evaluation_previous_goal", "").startswith("Success")):
+				memory = parsed.get("current_state", {}).get("memory", "")
+				if "0 out of" not in memory and "done" not in [list(action.keys())[0] for action in parsed.get("action", [])]:
+					logger.error("!!! VIOLATION: Final success evaluation but no done action")
+				
+			return parsed
 		except json.JSONDecodeError as e:
-			logger.warning(f'Failed to parse model output: {content} {str(e)}')
+			logger.error(f"!!! VIOLATION: Failed to parse JSON: {str(e)}")
 			raise ValueError('Could not parse response.')

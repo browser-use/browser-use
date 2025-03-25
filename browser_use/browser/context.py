@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 	from browser_use.browser.browser import Browser
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+# logger.setLevel(logging.DEBUG)
 
 
 class BrowserContextWindowSize(TypedDict):
@@ -903,10 +903,10 @@ class BrowserContext:
 					logger.debug(f"Added contains attribute selector: {css_selector}")
 				else:
 					css_selector += f'[{safe_attribute}="{value}"]'
-					logger.debug(f"Added exact attribute selector: {css_selector}")
+					# logger.debug(f"Added exact attribute selector: {css_selector}")
 
-			logger.debug(f"Original XPath (BEFORE): {element.xpath}")
-			logger.debug(f"Final CSS selector (AFTER): {css_selector}")
+			# logger.debug(f"Original XPath (BEFORE): {element.xpath}")
+			#logger.debug(f"Final CSS selector (AFTER): {css_selector}")
 			return css_selector
 
 		except Exception as e:
@@ -914,24 +914,24 @@ class BrowserContext:
 			# Fallback to a more basic selector if something goes wrong
 			tag_name = element.tag_name or '*'
 			fallback = f"{tag_name}[highlight_index='{element.highlight_index}']"
-			logger.debug(f"Using fallback selector (AFTER): {fallback}")
+			# logger.debug(f"Using fallback selector (AFTER): {fallback}")
 			return fallback
 
 	async def get_locate_element(self, element: DOMElementNode) -> Optional[ElementHandle]:
 		"""Locate element by traversing frames first, then finding element in final frame"""
 		page = await self.get_current_page()
-		logger.debug("\n=== Element Location Start ===")
-		logger.debug("\nTrace:")
-		logger.debug(f"Element tag: {element.tag_name}")
-		logger.debug(f"Element attributes: {element.attributes}")
-		logger.debug(f"Element xpath: {element.xpath}")
-		logger.debug(f"Element frame hierarchy: {[f.tag_name for f in element.frame_hierarchy]}")
-		logger.debug(f"Element highlight index: {element.highlight_index}")
-		logger.debug(f"Looking for element: {element}")
+		# logger.debug("\n=== Element Location Start ===")
+		# logger.debug("\nTrace:")
+		# logger.debug(f"Element tag: {element.tag_name}")
+		# logger.debug(f"Element attributes: {element.attributes}")
+		# logger.debug(f"Element xpath: {element.xpath}")
+		# logger.debug(f"Element frame hierarchy: {[f.tag_name for f in element.frame_hierarchy]}")
+		# logger.debug(f"Element highlight index: {element.highlight_index}")
+		# logger.debug(f"Looking for element: {element}")
 		
-		import traceback
-		logger.debug("\nStack trace:")
-		logger.debug(''.join(traceback.format_stack()))
+		# import traceback
+		# logger.debug("\nStack trace:")
+		# logger.debug(''.join(traceback.format_stack()))
 		
 		current_context = page
 		

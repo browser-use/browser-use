@@ -111,7 +111,7 @@ class Controller:
 					msg = f'🖱️  Clicked button with index {params.index}: {element_node.get_all_text_till_next_clickable_element(max_depth=2)}'
 
 				logger.info(msg)
-				logger.debug(f'Element xpath: {element_node.xpath}')
+				# logger.debug(f'Element xpath: {element_node.xpath}')
 				if len(session.context.pages) > initial_pages:
 					new_tab_msg = 'New tab opened - switching to it'
 					msg += f' - {new_tab_msg}'
@@ -137,7 +137,7 @@ class Controller:
 			await browser._input_text_element_node(element_node, params.text)
 			msg = f'⌨️  Input {params.text} into index {params.index}'
 			logger.info(msg)
-			logger.debug(f'Element xpath: {element_node.xpath}')
+			#logger.debug(f'Element xpath: {element_node.xpath}')
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
 		# Tab Management Actions
@@ -167,18 +167,20 @@ class Controller:
 			import markdownify
 
 			content = markdownify.markdownify(await page.content())
-
-			prompt = 'Your task is to extract the content of the page. You will be given a page and a goal and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format. Extraction goal: {goal}, Page: {page}'
+			# ambar - LLama believes it has to extract; that's OK -- that's promptable. but why are its evals stuck?
+			prompt = 'Your task is to extract the content of the page. You will be given a page and a goal and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format. DO NOT include any non-JSON text in your response, including introductions to the JSON, or extraneous markdown formatting. Extraction goal: {goal}, Page: {page}'
+			# ambar - this uses prompt template from langchain. if we're using llama, how does that affect
 			template = PromptTemplate(input_variables=['goal', 'page'], template=prompt)
 			try:
 				output = page_extraction_llm.invoke(template.format(goal=goal, page=content))
 				msg = f'📄  Extracted from page\n: {output.content}\n'
-				logger.info(msg)
 				return ActionResult(extracted_content=msg, include_in_memory=True)
 			except Exception as e:
-				logger.debug(f'Error extracting content: {e}')
+				# ambar - is this a false error? red herring?
+				logger.error(f'Error extracting content: {e}')
+				# logger.debug(f'Error extracting content: {e}, {output.content}')
 				msg = f'📄  Extracted from page\n: {content}\n'
-				logger.info(msg)
+				# logger.info(msg)
 				return ActionResult(extracted_content=msg)
 
 		@self.registry.action(

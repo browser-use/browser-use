@@ -304,7 +304,7 @@ class Agent:
 
 			try:
 				# ambar - this is one interaction with the LLM.
-				logger.debug(f"INPUT MESSAGES: {input_messages}")
+				# logger.debug(f"INPUT MESSAGES: {input_messages}")
 				model_output = await self.get_next_action(input_messages)
 
 				if self.register_new_step_callback:
@@ -316,8 +316,11 @@ class Agent:
 				self._check_if_stopped_or_paused()
 
 				self.message_manager.add_model_output(model_output)
+				logger.debug("completed a step without an error")
 			except Exception as e:
 				# model call failed, remove last state message from history
+
+				logger.debug(f"ERROR parsing: {e}")
 				self.message_manager._remove_last_state_message()
 				raise e
 
