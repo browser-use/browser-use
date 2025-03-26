@@ -69,7 +69,6 @@ def sample_history(action_registry):
 		AgentHistory(
 			model_output=AgentOutput(
 				current_state=AgentBrain(
-					page_summary='I need to find the founders of browser-use',
 					evaluation_previous_goal='None',
 					memory='Started task',
 					next_goal='Click button',
@@ -88,7 +87,6 @@ def sample_history(action_registry):
 		AgentHistory(
 			model_output=AgentOutput(
 				current_state=AgentBrain(
-					page_summary="This is a sample page summary.",
 					evaluation_previous_goal='Clicked button',
 					memory='Button clicked',
 					next_goal='Extract content',
@@ -113,7 +111,6 @@ def sample_history(action_registry):
 		AgentHistory(
 			model_output=AgentOutput(
 				current_state=AgentBrain(
-					page_summary='I found out that the founders are John Doe and Jane Smith. I need to draft them a message.',
 					evaluation_previous_goal='Extracted content',
 					memory='Content extracted',
 					next_goal='Finish task',
@@ -167,12 +164,12 @@ def test_all_screenshots(sample_history: AgentHistoryList):
 
 def test_all_model_outputs(sample_history: AgentHistoryList):
 	outputs = sample_history.model_actions()
-	print(f"DEBUG: {outputs[0]}")
+	print(f'DEBUG: {outputs[0]}')
 	assert len(outputs) == 3
 	# get first key value pair
 	assert dict([next(iter(outputs[0].items()))]) == {'click_element': {'index': 1}}
-	assert dict([next(iter(outputs[1].items()))])  == {'extract_page_content': {'value': 'text'}}
-	assert dict([next(iter(outputs[2].items()))])  == {'done': {'text': 'Task completed'}}
+	assert dict([next(iter(outputs[1].items()))]) == {'extract_page_content': {'value': 'text'}}
+	assert dict([next(iter(outputs[2].items()))]) == {'done': {'text': 'Task completed'}}
 
 
 def test_all_model_outputs_filtered(sample_history: AgentHistoryList):

@@ -16,6 +16,7 @@ from browser_use.telemetry.views import (
 	ControllerRegisteredFunctionsTelemetryEvent,
 	RegisteredFunction,
 )
+from browser_use.utils import time_execution_async, time_execution_sync
 
 Context = TypeVar('Context')
 
@@ -23,11 +24,12 @@ Context = TypeVar('Context')
 class Registry(Generic[Context]):
 	"""Service for registering and managing actions"""
 
-	def __init__(self, exclude_actions: list[str] = []):
+	def __init__(self, exclude_actions: list[str] | None = None):
 		self.registry = ActionRegistry()
 		self.telemetry = ProductTelemetry()
-		self.exclude_actions = exclude_actions
+		self.exclude_actions = exclude_actions if exclude_actions is not None else []
 
+	@time_execution_sync('--create_param_model')
 	def _create_param_model(self, function: Callable) -> Type[BaseModel]:
 		"""Creates a Pydantic model from function signature"""
 		sig = signature(function)
@@ -83,6 +85,7 @@ class Registry(Generic[Context]):
 
 		return decorator
 
+	@time_execution_async('--execute_action')
 	async def execute_action(
 		self,
 		action_name: str,
@@ -167,7 +170,8 @@ class Registry(Generic[Context]):
 			params.__dict__[key] = replace_secrets(value)
 		return params
 
-	def create_action_model(self) -> Type[ActionModel]:
+	@time_execution_sync('--create_action_model')
+	def create_action_model(self, include_actions: Optional[list[str]] = None) -> Type[ActionModel]:
 		"""Creates a Pydantic model from registered actions"""
 		fields = {
 			name: (
@@ -175,6 +179,7 @@ class Registry(Generic[Context]):
 				Field(default=None, description=action.description),
 			)
 			for name, action in self.registry.actions.items()
+			if include_actions is None or name in include_actions
 		}
 
 		self.telemetry.capture(
@@ -182,6 +187,7 @@ class Registry(Generic[Context]):
 				registered_functions=[
 					RegisteredFunction(name=name, params=action.param_model.model_json_schema())
 					for name, action in self.registry.actions.items()
+					if include_actions is None or name in include_actions
 				]
 			)
 		)

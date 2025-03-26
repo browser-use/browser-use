@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Optional
 
 from pydantic import BaseModel
@@ -14,8 +15,15 @@ class TabInfo(BaseModel):
 	page_id: int
 	url: str
 	title: str
+	parent_page_id: Optional[int] = None  # parent page that contains this popup or cross-origin iframe
 
+class GroupTabsAction(BaseModel):
+    tab_ids: list[int]
+    title: str
+    color: Optional[str] = "blue"
 
+class UngroupTabsAction(BaseModel):
+    tab_ids: list[int]
 @dataclass
 class BrowserState(DOMState):
 	url: str
@@ -51,3 +59,29 @@ class BrowserError(Exception):
 
 class URLNotAllowedError(BrowserError):
 	"""Error raised when a URL is not allowed"""
+
+
+class ClickStatus(Enum):
+    SUCCESS = "success"
+    NAVIGATION_SUCCESS = "navigation_success"
+    ERROR = "error"
+    DOWNLOAD_SUCCESS = "download_success"
+    NAVIGATION_DISALLOWED = "navigation_disallowed"
+	
+@dataclass
+class ClickConfig:
+    timeouts: dict[str, int] = field(default_factory=lambda: {
+        'click': 2,
+        'download': 5,
+        'navigation': 5,
+        'popup': 2
+    })
+    max_retries: int = 1
+    initial_retry_delay: float = 1.0
+
+@dataclass
+class ClickResult:
+    status: ClickStatus
+    message: Optional[str] = None
+    download_path: Optional[str] = None
+    navigated_url: Optional[str] = None

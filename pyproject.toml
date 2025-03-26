@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.1.37"
+version = "0.1.40"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -16,17 +16,19 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "requests>=2.32.3",
     "posthog>=3.7.0",
-    "playwright>=1.49.0",
-    "setuptools>=75.8.0",
-    # "lmnr[langchain]>=0.4.59",
-    "markdownify==0.14.1",
-    "langchain-core>=0.3.35",
+    "playwright>=1.51.0",
+    "markdownify==1.1.0",
+    "langchain-core==0.3.35",
+    "langchain-openai==0.3.1",
+    "langchain-anthropic==0.3.3",
+    "langchain-ollama==0.2.2",
+    "pyperclip>=1.9.0",   # only used for examples
 ]
+urls = { "Repository" = "https://github.com/browser-use/browser-use" }
 
 [project.optional-dependencies]
 dev = [
     "tokencost>=0.1.16",
-    "hatch>=1.13.0",
     "build>=1.2.2",
     "pytest>=8.3.3",
     "pytest-asyncio>=0.24.0",
@@ -34,12 +36,9 @@ dev = [
     "inngest>=0.4.19",
     "uvicorn>=0.34.0",
     "langchain>=0.3.18",
-    "langchain-anthropic==0.3.3",
     "langchain-aws>=0.2.11",
     "langchain-fireworks>=0.2.6",
     "langchain-google-genai==2.0.8",
-    "langchain-ollama==0.2.2",
-    "langchain-openai==0.3.1",
 ]
 
 [tool.ruff]
@@ -55,3 +54,9 @@ docstring-code-format = true
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build]
+include = [
+  "browser_use/dom/buildDomTree.js",
+]
+

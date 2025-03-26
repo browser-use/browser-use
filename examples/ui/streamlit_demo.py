@@ -21,6 +21,9 @@ from browser_use.controller.service import Controller
 # Load environment variables
 load_dotenv()
 
+if os.name == 'nt':
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    
 # Function to get the LLM based on provider
 def get_llm(provider: str):
     if provider == 'anthropic':

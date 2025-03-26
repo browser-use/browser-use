@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
+import gc
 import json
 import logging
 import re
+import time
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, Type, TypeVar
+from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, TypeVar, Union
 
 from dotenv import load_dotenv
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -31,6 +34,7 @@ from browser_use.agent.views import (
 	AgentSettings,
 	AgentState,
 	AgentStepInfo,
+	StepMetadata,
 	ToolCallingMethod,
 )
 from browser_use.browser.browser import Browser
@@ -48,7 +52,7 @@ from browser_use.telemetry.views import (
 	AgentRunTelemetryEvent,
 	AgentStepTelemetryEvent,
 )
-from browser_use.utils import time_execution_async
+from browser_use.utils import time_execution_async, time_execution_sync
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -63,7 +67,7 @@ def log_response(response: AgentOutput) -> None:
 		emoji = '⚠'
 	else:
 		emoji = '🤷'
-	logger.debug(f'🤖 {emoji} Page summary: {response.current_state.page_summary}')
+
 	logger.info(f'{emoji} Eval: {response.current_state.evaluation_previous_goal}')
 	logger.info(f'🧠 Memory: {response.current_state.memory}')
 	logger.info(f'🎯 Next goal: {response.current_state.next_goal}')
@@ -75,6 +79,7 @@ Context = TypeVar('Context')
 
 
 class Agent(Generic[Context]):
+	@time_execution_sync('--init (agent)')
 	def __init__(
 		self,
 		task: str,
@@ -87,9 +92,17 @@ class Agent(Generic[Context]):
 		sensitive_data: Optional[Dict[str, str]] = None,
 		initial_actions: Optional[List[Dict[str, Dict[str, Any]]]] = None,
 		# Cloud Callbacks
-		register_new_step_callback: Callable[['BrowserState', 'AgentOutput', int], Awaitable[None]] | None = None,
-		register_done_callback: Callable[['AgentHistoryList'], Awaitable[None]] | None = None,
-		register_external_agent_status_callback: Callable[[str], Awaitable[None]] | None = None,
+		register_new_step_callback: Union[
+            Callable[['BrowserState', 'AgentOutput', int], None],  # Sync callback
+            Callable[['BrowserState', 'AgentOutput', int], Awaitable[None]],  # Async callback
+            None
+        ] = None,
+		register_done_callback: Union[
+			Callable[['AgentHistoryList'], Awaitable[None]], # Async Callback
+			Callable[['AgentHistoryList'], None], #Sync Callback
+			None
+		] = None,
+		register_external_agent_status_raise_error_callback: Callable[[], Awaitable[bool]] | None = None,
 		# Agent settings
 		use_vision: bool = True,
 		use_vision_for_planner: bool = False,
@@ -97,7 +110,8 @@ class Agent(Generic[Context]):
 		save_conversation_path_encoding: Optional[str] = 'utf-8',
 		max_failures: int = 3,
 		retry_delay: int = 10,
-		system_prompt_class: Type[SystemPrompt] = SystemPrompt,
+		override_system_message: Optional[str] = None,
+		extend_system_message: Optional[str] = None,
 		max_input_tokens: int = 128000,
 		validate_output: bool = False,
 		message_context: Optional[str] = None,
@@ -125,6 +139,15 @@ class Agent(Generic[Context]):
 		#
 		context: Context | None = None,
 	):
+		if page_extraction_llm is None:
+			page_extraction_llm = llm
+
+		# Core components
+		self.task = task
+		self.llm = llm
+		self.controller = controller
+		self.sensitive_data = sensitive_data
+
 		self.settings = AgentSettings(
 			use_vision=use_vision,
 			use_vision_for_planner=use_vision_for_planner,
@@ -132,7 +155,8 @@ class Agent(Generic[Context]):
 			save_conversation_path_encoding=save_conversation_path_encoding,
 			max_failures=max_failures,
 			retry_delay=retry_delay,
-			system_prompt_class=system_prompt_class,
+			override_system_message=override_system_message,
+			extend_system_message=extend_system_message,
 			max_input_tokens=max_input_tokens,
 			validate_output=validate_output,
 			message_context=message_context,
@@ -149,12 +173,28 @@ class Agent(Generic[Context]):
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
 
+		# Action setup
+		self._setup_action_models()
+		self._set_browser_use_version_and_source()
+		self.initial_actions = self._convert_initial_actions(initial_actions) if initial_actions else None
+
+		# Model setup
+		self._set_model_names()
+
+		# for models without tool calling, add available actions to context
+		self.available_actions = self.controller.registry.get_prompt_description()
+
+		self.tool_calling_method = self._set_tool_calling_method()
+		self.settings.message_context = self._set_message_context()
+
 		# Initialize message manager with state
 		self._message_manager = MessageManager(
 			task=task,
-			system_message=self.settings.system_prompt_class(
-				controller.registry.get_prompt_description(),
+			system_message=SystemPrompt(
+				action_description=self.available_actions,
 				max_actions_per_step=self.settings.max_actions_per_step,
+				override_system_message=override_system_message,
+				extend_system_message=extend_system_message,
 			).get_system_message(),
 			settings=MessageManagerSettings(
 				max_input_tokens=self.settings.max_input_tokens,
@@ -166,36 +206,20 @@ class Agent(Generic[Context]):
 			state=self.state.message_manager_state,
 		)
 
-		# Core components
-		self.task = task
-		self.llm = llm
-		self.controller = controller
-		self.sensitive_data = sensitive_data
-
 		# Browser setup
 		self.injected_browser = browser is not None
 		self.injected_browser_context = browser_context is not None
-		self.browser = browser if browser is not None else (None if browser_context else Browser())
 		if browser_context:
+			self.browser = browser
 			self.browser_context = browser_context
-		elif self.browser:
-			self.browser_context = BrowserContext(browser=self.browser, config=self.browser.config.new_context_config)
 		else:
-			self.browser = Browser()
-			self.browser_context = BrowserContext(browser=self.browser)
+			self.browser = browser or Browser()
+			self.browser_context = BrowserContext(browser=self.browser, config=self.browser.config.new_context_config)
 
 		# Callbacks
 		self.register_new_step_callback = register_new_step_callback
 		self.register_done_callback = register_done_callback
-
-		# Action setup
-		self._setup_action_models()
-		self._set_browser_use_version_and_source()
-		self.initial_actions = self._convert_initial_actions(initial_actions) if initial_actions else None
-
-		# Model setup
-		self._set_model_names()
-		self.tool_calling_method = self.set_tool_calling_method(self.settings.tool_calling_method)
+		self.register_external_agent_status_raise_error_callback = register_external_agent_status_raise_error_callback
 
 		# Context
 		self.context = context
@@ -206,22 +230,40 @@ class Agent(Generic[Context]):
 		if self.settings.save_conversation_path:
 			logger.info(f'Saving conversation to {self.settings.save_conversation_path}')
 
+	def _set_message_context(self) -> str | None:
+		if self.tool_calling_method == 'raw':
+			if self.settings.message_context:
+				self.settings.message_context += f'\n\nAvailable actions: {self.available_actions}'
+			else:
+				self.settings.message_context = f'Available actions: {self.available_actions}'
+		return self.settings.message_context
+
 	def _set_browser_use_version_and_source(self) -> None:
 		"""Get the version and source of the browser-use package (git or pip in a nutshell)"""
 		try:
-			import pkg_resources
+			# First check for repository-specific files
+			repo_files = ['.git', 'README.md', 'docs', 'examples']
+			package_root = Path(__file__).parent.parent.parent
 
-			version = pkg_resources.get_distribution('browser-use').version
-			source = 'pip'
-		except Exception:
-			try:
-				import subprocess
+			# If all of these files/dirs exist, it's likely from git
+			if all(Path(package_root / file).exists() for file in repo_files):
+				try:
+					import subprocess
 
-				version = subprocess.check_output(['git', 'describe', '--tags']).decode('utf-8').strip()
+					version = subprocess.check_output(['git', 'describe', '--tags']).decode('utf-8').strip()
+				except Exception:
+					version = 'unknown'
 				source = 'git'
-			except Exception:
-				version = 'unknown'
-				source = 'unknown'
+			else:
+				# If no repo files found, try getting version from pip
+				import pkg_resources
+
+				version = pkg_resources.get_distribution('browser-use').version
+				source = 'pip'
+		except Exception:
+			version = 'unknown'
+			source = 'unknown'
+
 		logger.debug(f'Version: {version}, Source: {source}')
 		self.version = version
 		self.source = source
@@ -252,9 +294,16 @@ class Agent(Generic[Context]):
 		# Create output model with the dynamic actions
 		self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
 
-	def set_tool_calling_method(self, tool_calling_method: Optional[ToolCallingMethod]) -> Optional[ToolCallingMethod]:
+		# used to force the done action when max_steps is reached
+		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'])
+		self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
+
+	def _set_tool_calling_method(self) -> Optional[ToolCallingMethod]:
+		tool_calling_method = self.settings.tool_calling_method
 		if tool_calling_method == 'auto':
-			if self.chat_model_library == 'ChatGoogleGenerativeAI':
+			if 'deepseek-reasoner' in self.model_name or 'deepseek-r1' in self.model_name:
+				return 'raw'
+			elif self.chat_model_library == 'ChatGoogleGenerativeAI':
 				return None
 			elif self.chat_model_library == 'ChatOpenAI':
 				return 'function_calling'
@@ -268,25 +317,32 @@ class Agent(Generic[Context]):
 	def add_new_task(self, new_task: str) -> None:
 		self._message_manager.add_new_task(new_task)
 
-	def _raise_if_stopped_or_paused(self) -> None:
+	async def _raise_if_stopped_or_paused(self) -> None:
 		"""Utility function that raises an InterruptedError if the agent is stopped or paused."""
+
+		if self.register_external_agent_status_raise_error_callback:
+			if await self.register_external_agent_status_raise_error_callback():
+				raise InterruptedError
+
 		if self.state.stopped or self.state.paused:
 			logger.debug('Agent paused after getting state')
 			raise InterruptedError
 
 	# @observe(name='agent.step', ignore_output=True, ignore_input=True)
-	@time_execution_async('--step')
+	@time_execution_async('--step (agent)')
 	async def step(self, step_info: Optional[AgentStepInfo] = None) -> None:
 		"""Execute one step of the task"""
 		logger.info(f'📍 Step {self.state.n_steps}')
 		state = None
 		model_output = None
 		result: list[ActionResult] = []
+		step_start_time = time.time()
+		tokens = 0
 
 		try:
 			state = await self.browser_context.get_state()
 
-			self._raise_if_stopped_or_paused()
+			await self._raise_if_stopped_or_paused()
 
 			self._message_manager.add_state_message(state, self.state.last_result, step_info, self.settings.use_vision)
 
@@ -296,9 +352,18 @@ class Agent(Generic[Context]):
 				# add plan before last state message
 				self._message_manager.add_plan(plan, position=-1)
 
-			input_messages = self._message_manager.get_messages()
+			if step_info and step_info.is_last_step():
+				# Add last step warning if needed
+				msg = 'Now comes your last step. Use only the "done" action now. No other actions - so here your action sequence must have length 1.'
+				msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false! E.g. if not all steps are fully completed.'
+				msg += '\nIf the task is fully finished, set success in "done" to true.'
+				msg += '\nInclude everything you found out for the ultimate task in the done text.'
+				logger.info('Last step finishing up')
+				self._message_manager._add_message_with_tokens(HumanMessage(content=msg))
+				self.AgentOutput = self.DoneAgentOutput
 
-			self._raise_if_stopped_or_paused()
+			input_messages = self._message_manager.get_messages()
+			tokens = self._message_manager.state.history.current_tokens
 
 			try:
 				model_output = await self.get_next_action(input_messages)
@@ -306,15 +371,17 @@ class Agent(Generic[Context]):
 				self.state.n_steps += 1
 
 				if self.register_new_step_callback:
-					await self.register_new_step_callback(state, model_output, self.state.n_steps)
-
+					if inspect.iscoroutinefunction(self.register_new_step_callback):
+						await self.register_new_step_callback(state, model_output, self.state.n_steps)
+					else:
+						self.register_new_step_callback(state, model_output, self.state.n_steps)
 				if self.settings.save_conversation_path:
 					target = self.settings.save_conversation_path + f'_{self.state.n_steps}.txt'
 					save_conversation(input_messages, model_output, target, self.settings.save_conversation_path_encoding)
 
 				self._message_manager._remove_last_state_message()  # we dont want the whole state in the chat history
 
-				self._raise_if_stopped_or_paused()
+				await self._raise_if_stopped_or_paused()
 
 				self._message_manager.add_model_output(model_output)
 			except Exception as e:
@@ -344,6 +411,7 @@ class Agent(Generic[Context]):
 			self.state.last_result = result
 
 		finally:
+			step_end_time = time.time()
 			actions = [a.model_dump(exclude_unset=True) for a in model_output.action] if model_output else []
 			self.telemetry.capture(
 				AgentStepTelemetryEvent(
@@ -358,8 +426,15 @@ class Agent(Generic[Context]):
 				return
 
 			if state:
-				self._make_history_item(model_output, state, result)
+				metadata = StepMetadata(
+					step_number=self.state.n_steps,
+					step_start_time=step_start_time,
+					step_end_time=step_end_time,
+					input_tokens=tokens,
+				)
+				self._make_history_item(model_output, state, result, metadata)
 
+	@time_execution_async('--handle_step_error (agent)')
 	async def _handle_step_error(self, error: Exception) -> list[ActionResult]:
 		"""Handle all types of errors that can occur during a step"""
 		include_trace = logger.isEnabledFor(logging.DEBUG)
@@ -399,6 +474,7 @@ class Agent(Generic[Context]):
 		model_output: AgentOutput | None,
 		state: BrowserState,
 		result: list[ActionResult],
+		metadata: Optional[StepMetadata] = None,
 	) -> None:
 		"""Create and store history item"""
 
@@ -415,30 +491,44 @@ class Agent(Generic[Context]):
 			screenshot=state.screenshot,
 		)
 
-		history_item = AgentHistory(model_output=model_output, result=result, state=state_history)
+		history_item = AgentHistory(model_output=model_output, result=result, state=state_history, metadata=metadata)
 
 		self.state.history.history.append(history_item)
 
 	THINK_TAGS = re.compile(r'<think>.*?</think>', re.DOTALL)
+	STRAY_CLOSE_TAG = re.compile(r'.*?</think>', re.DOTALL)
 
 	def _remove_think_tags(self, text: str) -> str:
-		"""Remove think tags from text"""
-		return re.sub(self.THINK_TAGS, '', text)
+		# Step 1: Remove well-formed <think>...</think>
+		text = re.sub(self.THINK_TAGS, '', text)
+		# Step 2: If there's an unmatched closing tag </think>,
+		#         remove everything up to and including that.
+		text = re.sub(self.STRAY_CLOSE_TAG, '', text)
+		return text.strip()
 
-	@time_execution_async('--get_next_action')
+	def _convert_input_messages(self, input_messages: list[BaseMessage]) -> list[BaseMessage]:
+		"""Convert input messages to the correct format"""
+		if self.model_name == 'deepseek-reasoner' or 'deepseek-r1' in self.model_name:
+			return convert_input_messages(input_messages, self.model_name)
+		else:
+			return input_messages
+
+	@time_execution_async('--get_next_action (agent)')
 	async def get_next_action(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get next action from LLM based on current state"""
-		if self.model_name == 'deepseek-reasoner' or self.model_name.startswith('deepseek-r1'):
-			converted_input_messages = convert_input_messages(input_messages, self.model_name)
-			output = self.llm.invoke(converted_input_messages)
-			output.content = self._remove_think_tags(str(output.content))
+		input_messages = self._convert_input_messages(input_messages)
+
+		if self.tool_calling_method == 'raw':
+			output = self.llm.invoke(input_messages)
 			# TODO: currently invoke does not return reasoning_content, we should override invoke
+			output.content = self._remove_think_tags(str(output.content))
 			try:
 				parsed_json = extract_json_from_model_output(output.content)
 				parsed = self.AgentOutput(**parsed_json)
 			except (ValueError, ValidationError) as e:
 				logger.warning(f'Failed to parse model output: {output} {str(e)}')
 				raise ValueError('Could not parse response.')
+
 		elif self.tool_calling_method is None:
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True)
 			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
@@ -447,12 +537,20 @@ class Agent(Generic[Context]):
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True, method=self.tool_calling_method)
 			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
 			parsed: AgentOutput | None = response['parsed']
+			if not parsed:
+				try:
+					parsed_json = extract_json_from_model_output(response["raw"].content)
+					parsed = self.AgentOutput(**parsed_json)
+				except:
+					logger.warning(f'Failed to parse model output: {response["raw"].content} {str(e)}')
+					raise ValueError('Could not parse response.')
 
 		if parsed is None:
 			raise ValueError('Could not parse response.')
 
-		# cut the number of actions to max_actions_per_step
-		parsed.action = parsed.action[: self.settings.max_actions_per_step]
+		# cut the number of actions to max_actions_per_step if needed
+		if len(parsed.action) > self.settings.max_actions_per_step:
+			parsed.action = parsed.action[: self.settings.max_actions_per_step]
 
 		log_response(parsed)
 
@@ -488,16 +586,18 @@ class Agent(Generic[Context]):
 				if not await self._validate_output():
 					return True, False
 
-			logger.info('✅ Task completed successfully')
-
+			await self.log_completion()
 			if self.register_done_callback:
-				await self.register_done_callback(self.state.history)
-
+				if inspect.iscoroutinefunction(self.register_done_callback):
+					await self.register_done_callback(self.state.history)
+				else:
+					self.register_done_callback(self.state.history)
 			return True, True
 
 		return False, False
 
 	# @observe(name='agent.run', ignore_output=True)
+	@time_execution_async('--run (agent)')
 	async def run(self, max_steps: int = 100) -> AgentHistoryList:
 		"""Execute the task with maximum number of steps"""
 		try:
@@ -524,16 +624,15 @@ class Agent(Generic[Context]):
 					if self.state.stopped:  # Allow stopping while paused
 						break
 
-				await self.step()
+				step_info = AgentStepInfo(step_number=step, max_steps=max_steps)
+				await self.step(step_info)
 
 				if self.state.history.is_done():
 					if self.settings.validate_output and step < max_steps - 1:
 						if not await self._validate_output():
 							continue
 
-					logger.info('✅ Task completed successfully')
-					if self.register_done_callback:
-						await self.register_done_callback(self.state.history)
+					await self.log_completion()
 					break
 			else:
 				logger.info('❌ Failed to complete task in maximum steps')
@@ -543,18 +642,17 @@ class Agent(Generic[Context]):
 			self.telemetry.capture(
 				AgentEndTelemetryEvent(
 					agent_id=self.state.agent_id,
-					success=self.state.history.is_done(),
+					is_done=self.state.history.is_done(),
+					success=self.state.history.is_successful(),
 					steps=self.state.n_steps,
 					max_steps_reached=self.state.n_steps >= max_steps,
 					errors=self.state.history.errors(),
+					total_input_tokens=self.state.history.total_input_tokens(),
+					total_duration_seconds=self.state.history.total_duration_seconds(),
 				)
 			)
 
-			if not self.injected_browser_context:
-				await self.browser_context.close()
-
-			if not self.injected_browser and self.browser:
-				await self.browser.close()
+			await self.close()
 
 			if self.settings.generate_gif:
 				output_path: str = 'agent_history.gif'
@@ -564,7 +662,7 @@ class Agent(Generic[Context]):
 				create_history_gif(task=self.task, history=self.state.history, output_path=output_path)
 
 	# @observe(name='controller.multi_act')
-	@time_execution_async('--multi-act')
+	@time_execution_async('--multi-act (agent)')
 	async def multi_act(
 		self,
 		actions: list[ActionModel],
@@ -573,17 +671,12 @@ class Agent(Generic[Context]):
 		"""Execute multiple actions"""
 		results = []
 
-		session = await self.browser_context.get_session()
-		cached_selector_map = session.cached_state.selector_map
+		cached_selector_map = await self.browser_context.get_selector_map()
 		cached_path_hashes = set(e.hash.branch_path_hash for e in cached_selector_map.values())
-
-		self._raise_if_stopped_or_paused()
 
 		await self.browser_context.remove_highlights()
 
 		for i, action in enumerate(actions):
-			self._raise_if_stopped_or_paused()
-
 			if action.get_index() is not None and i != 0:
 				new_state = await self.browser_context.get_state()
 				new_path_hashes = set(e.hash.branch_path_hash for e in new_state.selector_map.values())
@@ -594,7 +687,7 @@ class Agent(Generic[Context]):
 					results.append(ActionResult(extracted_content=msg, include_in_memory=True))
 					break
 
-			self._raise_if_stopped_or_paused()
+			await self._raise_if_stopped_or_paused()
 
 			result = await self.controller.act(
 				action,
@@ -660,6 +753,20 @@ class Agent(Generic[Context]):
 		else:
 			logger.info(f'✅ Validator decision: {parsed.reason}')
 		return is_valid
+
+	async def log_completion(self) -> None:
+		"""Log the completion of the task"""
+		logger.info('✅ Task completed')
+		if self.state.history.is_successful():
+			logger.info('✅ Successfully')
+		else:
+			logger.info('❌ Unfinished')
+
+		if self.register_done_callback:
+			if inspect.iscoroutinefunction(self.register_done_callback):
+				await self.register_done_callback(self.state.history)
+			else:
+				self.register_done_callback(self.state.history)
 
 	async def rerun_history(
 		self,
@@ -837,15 +944,15 @@ class Agent(Generic[Context]):
 		]
 
 		if not self.settings.use_vision_for_planner and self.settings.use_vision:
-			last_state_message = planner_messages[-1]
+			last_state_message: HumanMessage = planner_messages[-1]
 			# remove image from last state message
 			new_msg = ''
 			if isinstance(last_state_message.content, list):
 				for msg in last_state_message.content:
-					if msg['type'] == 'text':
-						new_msg += msg['text']
-					elif msg['type'] == 'image_url':
-						continue
+					if msg['type'] == 'text':  # type: ignore
+						new_msg += msg['text']  # type: ignore
+					elif msg['type'] == 'image_url':  # type: ignore
+						continue  # type: ignore
 			else:
 				new_msg = last_state_message.content
 
@@ -857,7 +964,7 @@ class Agent(Generic[Context]):
 		response = await self.settings.planner_llm.ainvoke(planner_messages)
 		plan = str(response.content)
 		# if deepseek-reasoner, remove think tags
-		if self.planner_model_name == 'deepseek-reasoner':
+		if self.planner_model_name and ('deepseek-r1' in self.planner_model_name or 'deepseek-reasoner' in self.planner_model_name):
 			plan = self._remove_think_tags(plan)
 		try:
 			plan_json = json.loads(plan)
@@ -873,3 +980,18 @@ class Agent(Generic[Context]):
 	@property
 	def message_manager(self) -> MessageManager:
 		return self._message_manager
+
+	async def close(self):
+		"""Close all resources"""
+		try:
+			# First close browser resources
+			if self.browser_context and not self.injected_browser_context:
+				await self.browser_context.close()
+			if self.browser and not self.injected_browser:
+				await self.browser.close()
+			
+			# Force garbage collection
+			gc.collect()
+			
+		except Exception as e:
+			logger.error(f"Error during cleanup: {e}")
