@@ -17,7 +17,6 @@ from browser_use.browser.context import BrowserContext, BrowserContextConfig
 
 logger = logging.getLogger(__name__)
 
-
 @dataclass
 class BrowserConfig:
 	"""

@@ -13,6 +13,7 @@ import uuid
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Type, TypeVar
+from datetime import datetime
 
 from dotenv import load_dotenv
 from google.api_core.exceptions import ResourceExhausted
@@ -25,6 +26,7 @@ from lmnr import observe
 from openai import RateLimitError
 from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel, ValidationError
+import logging.handlers
 
 from browser_use.agent.message_manager.service import MessageManager
 from browser_use.agent.prompts import AgentMessagePrompt, SystemPrompt
@@ -59,6 +61,38 @@ logger.setLevel(logging.DEBUG)
 
 T = TypeVar('T', bound=BaseModel)
 
+llm_file_handler = logging.handlers.RotatingFileHandler(
+	'llm_interactions.log',
+	maxBytes=10*1024*1024,  # 10MB
+	backupCount=5
+)
+llm_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+
+def log_interaction(message: str):
+	"""Log both to console and file"""
+	logger.debug(message)  # Existing console logging
+	llm_file_handler.stream.write(f"{message}\n")
+	llm_file_handler.stream.flush()
+
+def get_timestamp():
+	"""Get current timestamp in consistent format"""
+	return datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+
+def story_start():
+	"""Generate timestamped story start delimiter"""
+	return f"\n🔵 [{get_timestamp()}] [STORY START] " + "="*80
+
+def story_end():
+	"""Generate timestamped story end delimiter"""
+	return f"\n🔴 [{get_timestamp()}] [STORY END] " + "="*80 + "\n"
+
+def sub_story_start(section: str):
+	"""Generate timestamped sub-story start delimiter"""
+	return f"\n📎 [{get_timestamp()}] [SUB-STORY START: {section}] " + "-"*40
+
+def sub_story_end(section: str):
+	"""Generate timestamped sub-story end delimiter"""
+	return f"\n🔗 [{get_timestamp()}] [SUB-STORY END: {section}] " + "-"*40 + "\n"
 
 class Agent:
 	def __init__(
@@ -431,12 +465,41 @@ class Agent:
 	@time_execution_async('--get_next_action')
 	async def get_next_action(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get next action from LLM based on current state"""
+		# Start of story
+		log_interaction(story_start())
+
+		# Message history section
+		section = "MESSAGE HISTORY"
+		log_interaction(sub_story_start(section))
+		for i, msg in enumerate(self.message_manager.history.messages):
+			log_interaction(f"\nMessage {i}:")
+			log_interaction(f"Role: {msg.message.__class__.__name__}")
+			if isinstance(msg.message.content, list):
+				for item in msg.message.content:
+					if isinstance(item, dict):
+						log_interaction(f"Content: {json.dumps(item, indent=2)}")
+					else:
+						log_interaction(f"Content: {str(item)}")
+			else:
+				log_interaction(f"Content: {msg.message.content}")
+		log_interaction(sub_story_end(section))
+
 		if self.model_name == 'deepseek-reasoner' or self.model_name.startswith('deepseek-r1'):
 			converted_input_messages = self.message_manager.convert_messages_for_non_function_calling_models(input_messages)
 			merged_input_messages = self.message_manager.merge_successive_human_messages(converted_input_messages)
 			output = self.llm.invoke(merged_input_messages)
+			
+			section = "DEEPSEEK INTERACTION"
+			log_interaction(sub_story_start(section))
+			log_interaction("--- Input Messages ---")
+			for msg in merged_input_messages:
+				log_interaction(f"Role: {msg.__class__.__name__}")
+				log_interaction(f"Content: {msg.content}")
+			log_interaction("--- Raw Output ---")
+			log_interaction(output.content)
+			log_interaction(sub_story_end(section))
+			
 			output.content = self._remove_think_tags(output.content)
-			# TODO: currently invoke does not return reasoning_content, we should override invoke
 			try:
 				parsed_json = self.message_manager.extract_json_from_model_output(output.content)
 				parsed = self.AgentOutput(**parsed_json)
@@ -446,10 +509,50 @@ class Agent:
 		elif self.tool_calling_method is None:
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True)
 			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
+			
+			section = "NO TOOL CALLING INTERACTION"
+			log_interaction(sub_story_start(section))
+			log_interaction("--- Input Messages ---")
+			for msg in input_messages:
+				log_interaction(f"Role: {msg.__class__.__name__}")
+				if isinstance(msg.content, list):
+					for item in msg.content:
+						if isinstance(item, dict):
+							log_interaction(f"Content: {json.dumps(item, indent=2)}")
+				else:
+					log_interaction(f"Content: {msg.content}")
+			log_interaction("--- Raw Output ---")
+			raw_output = response.get('raw', {})
+			if isinstance(raw_output, BaseMessage):
+				log_interaction(raw_output.content)
+			else:
+				log_interaction(str(raw_output))
+			log_interaction(sub_story_end(section))
+			
 			parsed: AgentOutput | None = response['parsed']
 		else:
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True, method=self.tool_calling_method)
 			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
+			
+			section = "TOOL CALLING INTERACTION"
+			log_interaction(sub_story_start(section))
+			log_interaction("--- Input Messages ---")
+			for msg in input_messages:
+				log_interaction(f"Role: {msg.__class__.__name__}")
+				if isinstance(msg.content, list):
+					for item in msg.content:
+						if isinstance(item, dict):
+							log_interaction(f"Content: {json.dumps(item, indent=2)}")
+				else:
+					log_interaction(f"Content: {msg.content}")
+			log_interaction("--- Raw Output ---")
+			raw_output = response.get('raw', {})
+			if isinstance(raw_output, BaseMessage):
+				log_interaction(raw_output.content)
+			else:
+				log_interaction(str(raw_output))
+			log_interaction(sub_story_end(section))
+			
 			parsed: AgentOutput | None = response['parsed']
 
 		if parsed is None:
@@ -457,6 +560,16 @@ class Agent:
 
 		# cut the number of actions to max_actions_per_step
 		parsed.action = parsed.action[: self.max_actions_per_step]
+		
+		# Final output section
+		section = "FINAL PARSED OUTPUT"
+		log_interaction(sub_story_start(section))
+		log_interaction(json.dumps(json.loads(parsed.model_dump_json()), indent=2))
+		log_interaction(sub_story_end(section))
+		
+		# End of story
+		log_interaction(story_end())
+		
 		self._log_response(parsed)
 		self.n_steps += 1
 

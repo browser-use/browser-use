@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 	from browser_use.browser.browser import Browser
 
 logger = logging.getLogger(__name__)
-# logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.DEBUG)
 
 
 class BrowserContextWindowSize(TypedDict):
@@ -472,7 +472,7 @@ class BrowserContext:
 			page.remove_listener('request', on_request)
 			page.remove_listener('response', on_response)
 
-		logger.debug(f'Network stabilized for {self.config.wait_for_network_idle_page_load_time} seconds')
+		# logger.debug(f'Network stabilized for {self.config.wait_for_network_idle_page_load_time} seconds')
 
 	async def _wait_for_page_and_frames_load(self, timeout_overwrite: float | None = None):
 		"""
@@ -500,7 +500,7 @@ class BrowserContext:
 		elapsed = time.time() - start_time
 		remaining = max((timeout_overwrite or self.config.minimum_wait_page_load_time) - elapsed, 0)
 
-		logger.debug(f'--Page loaded in {elapsed:.2f} seconds, waiting for additional {remaining:.2f} seconds')
+		# logger.debug(f'--Page loaded in {elapsed:.2f} seconds, waiting for additional {remaining:.2f} seconds')
 
 		# Sleep remaining time if needed
 		if remaining > 0:
@@ -614,13 +614,14 @@ class BrowserContext:
 		"""Update and return state."""
 		session = await self.get_session()
 
-		# Check if current page is still valid, if not switch to another available page
 		try:
 			page = await self.get_current_page()
+			# logger.debug("Starting page accessibility check...")
 			# Test if page is still accessible
 			await page.evaluate('1')
+			# logger.debug("Page is accessible")
 		except Exception as e:
-			logger.debug(f'Current page is no longer accessible: {str(e)}')
+			# logger.debug(f'Current page is no longer accessible: {str(e)}')
 			# Get all available pages
 			pages = session.context.pages
 			if pages:
@@ -631,31 +632,50 @@ class BrowserContext:
 				raise BrowserError('Browser closed: no valid pages available')
 
 		try:
+			# logger.debug("Starting state update process...")
+			logger.debug(f"Current URL: {page.url}")
+			
+			# logger.debug("Removing highlights...")
 			await self.remove_highlights()
+			
+			logger.debug("Initializing DOM service...")
 			dom_service = DomService(page)
+			
+			# logger.debug(f"Getting clickable elements (focus_element={focus_element}, viewport_expansion={self.config.viewport_expansion})")
 			content = await dom_service.get_clickable_elements(
 				focus_element=focus_element,
 				viewport_expansion=self.config.viewport_expansion,
 				highlight_elements=self.config.highlight_elements,
 			)
+			logger.debug(f"Found {len(content.selector_map)} clickable elements")
 
+			# logger.debug("Taking screenshot...")
 			screenshot_b64 = await self.take_screenshot()
+			
+			# logger.debug("Getting scroll info...")
 			pixels_above, pixels_below = await self.get_scroll_info(page)
+			# logger.debug(f"Scroll position: {pixels_above}px above, {pixels_below}px below")
 
+			# logger.debug("Getting tabs info...")
+			tabs = await self.get_tabs_info()
+			# logger.debug(f"Found {len(tabs)} tabs")
+
+			# logger.debug("Creating browser state...")
 			self.current_state = BrowserState(
 				element_tree=content.element_tree,
 				selector_map=content.selector_map,
 				url=page.url,
 				title=await page.title(),
-				tabs=await self.get_tabs_info(),
+				tabs=tabs,
 				screenshot=screenshot_b64,
 				pixels_above=pixels_above,
 				pixels_below=pixels_below,
 			)
+			# logger.debug("State update completed successfully")
 
 			return self.current_state
 		except Exception as e:
-			logger.error(f'Failed to update state: {str(e)}')
+			# logger.error(f'Failed to update state: {str(e)}')
 			# Return last known good state if available
 			if hasattr(self, 'current_state'):
 				return self.current_state
@@ -745,16 +765,16 @@ class BrowserContext:
 	@classmethod
 	def _convert_simple_xpath_to_css_selector(cls, xpath: str) -> str:
 		"""Converts simple XPath expressions to CSS selectors."""
-		logger.debug(f"\n=== XPath to CSS Conversion ===")
-		logger.debug(f"Input XPath: {xpath}")
+		# logger.debug(f"\n=== XPath to CSS Conversion ===")
+		# logger.debug(f"Input XPath: {xpath}")
 
 		# Remove leading slash if present
 		xpath = xpath.lstrip('/')
-		logger.debug(f"After removing leading slash: {xpath}")
+		# logger.debug(f"After removing leading slash: {xpath}")
 
 		# Split into parts
 		parts = xpath.split('/')
-		logger.debug(f"Split parts: {parts}")
+		# logger.debug(f"Split parts: {parts}")
 		css_parts = []
 
 		for part in parts:
@@ -764,14 +784,14 @@ class BrowserContext:
 
 			# Handle index notation [n]
 			if '[' in part:
-				logger.debug(f"Processing indexed part: {part}")
+				# logger.debug(f"Processing indexed part: {part}")
 				base_part = part[: part.find('[')]
 				index_part = part[part.find('[') :]
-				logger.debug(f"Base: {base_part}, Index part: {index_part}")
+				# logger.debug(f"Base: {base_part}, Index part: {index_part}")
 
 				# Handle multiple indices
 				indices = [i.strip('[]') for i in index_part.split(']')[:-1]]
-				logger.debug(f"Found indices: {indices}")
+				# logger.debug(f"Found indices: {indices}")
 
 				for idx in indices:
 					try:
@@ -885,7 +905,7 @@ class BrowserContext:
 					continue
 
 				if attribute not in SAFE_ATTRIBUTES:
-					logger.debug(f"Skipping unsafe attribute: {attribute}")
+					# logger.debug(f"Skipping unsafe attribute: {attribute}")
 					continue
 
 				# Escape special characters in attribute names
@@ -960,7 +980,7 @@ class BrowserContext:
 					logger.debug(f"Attempting to locate by highlight ID: playwright-highlight-{element.highlight_index}")
 					element_handle = await current_context.locator(
 						f"[browser-user-highlight-id='playwright-highlight-{element.highlight_index}']"
-					).element_handle()
+					).element_handle(timeout=2500)
 					logger.debug(f"Found element by highlight ID: {element_handle}")
 					return element_handle
 				except Exception as e:
