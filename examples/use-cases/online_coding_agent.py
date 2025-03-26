@@ -1,13 +1,13 @@
 # Goal: Implements a multi-agent system for online code editors, with separate agents for coding and execution.
 
+import asyncio
 import os
 import sys
-import asyncio
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
 
 from browser_use import Agent, Browser
 

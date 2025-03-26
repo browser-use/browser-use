@@ -1,21 +1,19 @@
 
 import os
 import sys
-from pathlib import Path
 
 from browser_use.agent.views import ActionResult
 from browser_use.browser.views import GroupTabsAction, UngroupTabsAction
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import asyncio
-import logging
 
 from langchain_openai import ChatOpenAI
 
 from browser_use import Agent, Controller
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext
-    
+
 # async def group_tabs(self, tab_ids: list[int] , title: str, color: str = "blue"):
 #     """Reset the browser session
 #     Call this when you don't want to kill the context but just kill the state
@@ -25,7 +23,7 @@ from browser_use.browser.context import BrowserContext
 
 #     js = f"""
 #         chrome.tabs.group({{ tabIds: {tab_ids} }}, (groupId) => {{
-#             chrome.tabGroups.update(groupId, {{ 
+#             chrome.tabGroups.update(groupId, {{
 #                 title: "{title}",
 #                 color: "{color}"
 #             }});
@@ -47,7 +45,7 @@ from browser_use.browser.context import BrowserContext
 #             }}
 #         """
 
-#     await page.evaluate(js)  
+#     await page.evaluate(js)
 
 
 # Initialize controller first
@@ -99,11 +97,11 @@ async def ungroup_tabs(params: UngroupTabsAction, browser: BrowserContext):
         )
     except Exception as e:
         return ActionResult(error=f"Failed to ungroup tabs: {str(e)}")
-    
-async def main():
-	task = f'Group tabs 1 and 2 into a "Research" group, then ungroup them.'
 
-	
+async def main():
+	task = 'Group tabs 1 and 2 into a "Research" group, then ungroup them.'
+
+
 
 	model = ChatOpenAI(model='gpt-4o')
 	agent = Agent(
@@ -121,4 +119,4 @@ async def main():
 
 
 if __name__ == '__main__':
-	asyncio.run(main())    
+	asyncio.run(main())

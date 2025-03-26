@@ -3,11 +3,6 @@ repos:
     rev: v0.3.0
     hooks:
       - id: ruff
-        args: [
-            --line-length=130,
-            --select=E,F,I,
-            --fix,
-        ]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0

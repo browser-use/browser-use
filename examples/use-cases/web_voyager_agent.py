@@ -1,15 +1,15 @@
 # Goal: A general-purpose web navigation agent for tasks like flight booking and course searching.
 
+import asyncio
 import os
 import sys
-import asyncio
 
 # Adjust Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
-from pydantic import SecretStr
 from langchain_openai import AzureChatOpenAI
+from pydantic import SecretStr
 
 from browser_use.agent.service import Agent
 from browser_use.browser.browser import Browser, BrowserConfig, BrowserContextConfig

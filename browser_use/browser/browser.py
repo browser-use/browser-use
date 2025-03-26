@@ -157,7 +157,7 @@ class Browser:
 		except requests.ConnectionError:
 			logger.debug('No existing Chrome instance found, starting a new one')
 
-		# Start a new Chrome instance      
+		# Start a new Chrome instance
 		args = [
 				self.config.browser_instance_path,
 				'--remote-debugging-port=9222',
@@ -166,7 +166,7 @@ class Browser:
 			args.append('--headless')
 		subprocess.Popen(
 			args
-			+ self.config.extra_browser_args,      
+			+ self.config.extra_browser_args,
 			stdout=subprocess.DEVNULL,
 			stderr=subprocess.DEVNULL,
 		)
@@ -226,6 +226,7 @@ class Browser:
 				'--no-startup-window',
 			],
 		}
+		browser_class = getattr(playwright, self.config.browser_class)
 		browser = await browser_class.launch(
 			headless=self.config.headless,
 			args=args[self.config.browser_class] + self.disable_security_args + self.config.extra_browser_args,
@@ -283,15 +284,16 @@ class Browser:
 
 	async def cleanup_httpx_clients(self):
 		"""Cleanup all httpx clients"""
-		import httpx
 		import gc
+
+		import httpx
 
 		# Force garbage collection to make sure all clients are in memory
 		gc.collect()
-		
+
 		# Get all httpx clients
 		clients = [obj for obj in gc.get_objects() if isinstance(obj, httpx.AsyncClient)]
-		
+
 		# Close all clients
 		for client in clients:
 			if not client.is_closed:

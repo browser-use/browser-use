@@ -40,4 +40,3 @@ async def test_gif_path():
 	assert result is not None
 
 	assert os.path.exists("./google.gif"), "google.gif was not created"
-

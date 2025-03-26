@@ -1,6 +1,8 @@
-from langchain_openai import ChatOpenAI
-from browser_use import Agent, Browser, BrowserConfig
 from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+
+from browser_use import Agent, Browser
+
 load_dotenv()
 
 import asyncio
@@ -8,7 +10,7 @@ import asyncio
 task="""
    ### Prompt for Shopping Agent – Migros Online Grocery Order
 
-**Objective:**  
+**Objective:**
 Visit [Migros Online](https://www.migros.ch/en), search for the required grocery items, add them to the cart, select an appropriate delivery window, and complete the checkout process using TWINT.
 
 **Important:**
@@ -89,8 +91,8 @@ At this stage, check the basket on the top right (indicates the price) and check
 - Proceed to checkout.
 - Select **TWINT** as the payment method.
 - Check out.
-- 
-- if it's needed the username is: nikoskalio.dev@gmail.com 
+-
+- if it's needed the username is: nikoskalio.dev@gmail.com
 - and the password is : TheCircuit.Migros.dev!
 ---
 

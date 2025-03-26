@@ -1,4 +1,4 @@
-# Goal: Automates posting on X (Twitter) using stored authentication cookies. 
+# Goal: Automates posting on X (Twitter) using stored authentication cookies.
 
 import asyncio
 import os

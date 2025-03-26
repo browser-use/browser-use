@@ -4,7 +4,6 @@ from pprint import pprint
 
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import (
-	BrowserContext,
 	BrowserContextConfig,
 	BrowserContextWindowSize,
 )
@@ -16,7 +15,6 @@ from langchain_openai import ChatOpenAI
 
 from browser_use import Agent
 from browser_use.agent.views import AgentHistoryList
-from browser_use.controller.service import Controller
 
 llm = ChatOpenAI(model='gpt-4o')
 browser = Browser(

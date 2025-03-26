@@ -1,10 +1,13 @@
 import asyncio
+import subprocess
+
 import pytest
 import requests
-import subprocess
+from playwright._impl._api_structures import ProxySettings
+
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext, BrowserContextConfig
-from playwright._impl._api_structures import ProxySettings
+
 
 @pytest.mark.asyncio
 async def test_standard_browser_launch(monkeypatch):
@@ -35,7 +38,7 @@ async def test_standard_browser_launch(monkeypatch):
 @pytest.mark.asyncio
 async def test_cdp_browser_launch(monkeypatch):
     """
-    Test that when a CDP URL is provided in the configuration, the Browser uses _setup_cdp 
+    Test that when a CDP URL is provided in the configuration, the Browser uses _setup_cdp
     and returns the expected DummyBrowser.
     """
     class DummyBrowser:
@@ -87,7 +90,7 @@ async def test_wss_browser_launch(monkeypatch):
 @pytest.mark.asyncio
 async def test_chrome_instance_browser_launch(monkeypatch):
     """
-    Test that when a chrome instance path is provided the Browser class uses 
+    Test that when a chrome instance path is provided the Browser class uses
     _setup_browser_with_instance branch and returns the expected DummyBrowser object
     by reusing an existing Chrome instance.
     """

@@ -47,7 +47,7 @@ async def test_process_html_file():
 				elements = dom_state.element_tree
 				selector_map = dom_state.selector_map
 				element_count = len(selector_map.keys())
-				token_count = count_string_tokens(elements.clickable_elements_to_string(), model='gpt-4o')
+				token_count = count_string_tokens(elements.clickable_elements_to_string(), model='gpt-4o')  # noqa: F821
 
 				print(f'Number of elements: {element_count}')
 				print(f'Token count: {token_count}')

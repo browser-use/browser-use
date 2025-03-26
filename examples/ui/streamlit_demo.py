@@ -5,9 +5,10 @@ python -m streamlit run streamlit_demo.py
 
 """
 
+import asyncio
 import os
 import sys
-import asyncio
+
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -23,7 +24,7 @@ load_dotenv()
 
 if os.name == 'nt':
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-    
+
 # Function to get the LLM based on provider
 def get_llm(provider: str):
     if provider == 'anthropic':
@@ -32,7 +33,7 @@ def get_llm(provider: str):
         if not api_key:
             st.error("Error: ANTHROPIC_API_KEY is not set. Please provide a valid API key.")
             st.stop()
-        
+
         return ChatAnthropic(
             model_name='claude-3-5-sonnet-20240620', timeout=25, stop=None, temperature=0.0
         )
@@ -42,7 +43,7 @@ def get_llm(provider: str):
         if not api_key:
             st.error("Error: OPENAI_API_KEY is not set. Please provide a valid API key.")
             st.stop()
-        
+
         return ChatOpenAI(model='gpt-4o', temperature=0.0)
     else:
         st.error(f'Unsupported provider: {provider}')

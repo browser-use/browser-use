@@ -1,5 +1,6 @@
 import sys
 
+
 def get_screen_resolution():
     if sys.platform == "darwin":  # macOS
         try:

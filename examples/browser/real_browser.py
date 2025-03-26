@@ -1,17 +1,13 @@
 import os
 import sys
-from pathlib import Path
-
-from browser_use.agent.views import ActionResult
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import asyncio
 
 from langchain_openai import ChatOpenAI
 
-from browser_use import Agent, Controller
+from browser_use import Agent
 from browser_use.browser.browser import Browser, BrowserConfig
-from browser_use.browser.context import BrowserContext
 
 browser = Browser(
 	config=BrowserConfig(

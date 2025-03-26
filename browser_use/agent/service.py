@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import gc
+import inspect
 import json
 import logging
 import re
@@ -541,7 +541,7 @@ class Agent(Generic[Context]):
 				try:
 					parsed_json = extract_json_from_model_output(response["raw"].content)
 					parsed = self.AgentOutput(**parsed_json)
-				except:
+				except Exception as e:
 					logger.warning(f'Failed to parse model output: {response["raw"].content} {str(e)}')
 					raise ValueError('Could not parse response.')
 
@@ -989,9 +989,9 @@ class Agent(Generic[Context]):
 				await self.browser_context.close()
 			if self.browser and not self.injected_browser:
 				await self.browser.close()
-			
+
 			# Force garbage collection
 			gc.collect()
-			
+
 		except Exception as e:
 			logger.error(f"Error during cleanup: {e}")

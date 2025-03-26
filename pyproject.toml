@@ -43,13 +43,18 @@ dev = [
 
 [tool.ruff]
 line-length = 130
-select = ["E", "F", "I"]
+
+
 fix = true
 
 [tool.ruff.format]
 quote-style = "single"
 indent-style = "tab"
 docstring-code-format = true
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E101", "E402", "E501", "E721", "F841"]
 
 [build-system]
 requires = ["hatchling"]
@@ -59,4 +64,3 @@ build-backend = "hatchling.build"
 include = [
   "browser_use/dom/buildDomTree.js",
 ]
-
