@@ -6,6 +6,10 @@ from langchain_core.load import dumpd, load
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
+from warnings import filterwarnings
+from langchain_core._api import LangChainBetaWarning
+filterwarnings("ignore", category=LangChainBetaWarning)
+
 if TYPE_CHECKING:
 	from browser_use.agent.views import AgentOutput
 

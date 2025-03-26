@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass
 from importlib import resources
 from typing import TYPE_CHECKING, Optional
+from urllib.parse import urlparse
 
 if TYPE_CHECKING:
 	from playwright.async_api import Page
@@ -44,6 +45,24 @@ class DomService:
 		element_tree, selector_map = await self._build_dom_tree(highlight_elements, focus_element, viewport_expansion)
 		return DOMState(element_tree=element_tree, selector_map=selector_map)
 
+	@time_execution_async('--get_cross_origin_iframes')
+	async def get_cross_origin_iframes(self) -> list[str]:
+		# invisible cross-origin iframes are used for ads and tracking, dont open those
+		hidden_frame_urls = await self.page.locator('iframe').filter(visible=False).evaluate_all('e => e.map(e => e.src)')
+
+		is_ad_url = lambda url: any(
+			domain in urlparse(url).netloc for domain in ('doubleclick.net', 'adroll.com', 'googletagmanager.com')
+		)
+
+		return [
+			frame.url
+			for frame in self.page.frames
+			if urlparse(frame.url).netloc  # exclude data:urls and about:blank
+			and urlparse(frame.url).netloc != urlparse(self.page.url).netloc  # exclude same-origin iframes
+			and frame.url not in hidden_frame_urls  # exclude hidden frames
+			and not is_ad_url(frame.url)  # exclude most common ad network tracker frame URLs
+		]
+
 	@time_execution_async('--build_dom_tree')
 	async def _build_dom_tree(
 		self,
@@ -53,6 +72,20 @@ class DomService:
 	) -> tuple[DOMElementNode, SelectorMap]:
 		if await self.page.evaluate('1+1') != 2:
 			raise ValueError('The page cannot evaluate javascript code properly')
+
+		if self.page.url == 'about:blank':
+			# short-circuit if the page is a new empty tab for speed, no need to inject buildDomTree.js
+			return (
+				DOMElementNode(
+					tag_name='body',
+					xpath='',
+					attributes={},
+					children=[],
+					is_visible=False,
+					parent=None,
+				),
+				{},
+			)
 
 		# NOTE: We execute JS code in the browser to extract important DOM information.
 		#       The returned hash map contains information about the DOM tree and the
@@ -66,14 +99,18 @@ class DomService:
 		}
 
 		try:
-			eval_page = await self.page.evaluate(self.js_code, args)
+			eval_page: dict = await self.page.evaluate(self.js_code, args)
 		except Exception as e:
 			logger.error('Error evaluating JavaScript: %s', e)
 			raise
 
 		# Only log performance metrics in debug mode
 		if debug_mode and 'perfMetrics' in eval_page:
-			logger.debug('DOM Tree Building Performance Metrics:\n%s', json.dumps(eval_page['perfMetrics'], indent=2))
+			logger.debug(
+				'DOM Tree Building Performance Metrics for: %s\n%s',
+				self.page.url,
+				json.dumps(eval_page['perfMetrics'], indent=2),
+			)
 
 		return await self._construct_dom_tree(eval_page)
 

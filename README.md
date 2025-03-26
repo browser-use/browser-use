@@ -28,10 +28,9 @@ With pip (Python>=3.11):
 pip install browser-use
 ```
 
-install playwright:
-
+Install Playwright: 
 ```bash
-playwright install
+playwright install chromium
 ```
 
 Spin up your agent:
@@ -181,7 +180,8 @@ If you use Browser Use in your research or project, please cite:
 }
 ```
 
- <div align="center"> <img src="https://github.com/user-attachments/assets/402b2129-b6ac-44d3-a217-01aea3277dce" width="400"/> 
+ <div align="center"> <img src="https://github.com/user-attachments/assets/06fa3078-8461-4560-b434-445510c1766f" width="400"/> 
+
  
 [![Twitter Follow](https://img.shields.io/twitter/follow/Gregor?style=social)](https://x.com/gregpr07)
 [![Twitter Follow](https://img.shields.io/twitter/follow/Magnus?style=social)](https://x.com/mamagnus00)

@@ -91,7 +91,8 @@ def save_conversation(input_messages: list[BaseMessage], response: Any, target: 
 	"""Save conversation history to file."""
 
 	# create folders if not exists
-	os.makedirs(os.path.dirname(target), exist_ok=True)
+	if dirname := os.path.dirname(target):
+		os.makedirs(dirname, exist_ok=True)
 
 	with open(
 		target,

@@ -107,6 +107,21 @@ class BrowserContextConfig:
 
 	    include_dynamic_attributes: bool = True
 	        Include dynamic attributes in the CSS selector. If you want to reuse the css_selectors, it might be better to set this to False.
+
+	    is_mobile: None
+	        Whether the meta viewport tag is taken into account and touch events are enabled.
+
+	    has_touch: None
+	        Whether to enable touch events in the browser.
+
+	    geolocation: None
+	        Geolocation to be used in the browser context. Example: {'latitude': 59.95, 'longitude': 30.31667}
+
+	    permissions: None
+	        Browser permissions to grant. Values might include: ['geolocation', 'notifications']
+
+	    timezone_id: None
+	        Changes the timezone of the browser. Example: 'Europe/Berlin'
 	"""
 
 	cookies_file: str | None = None
@@ -134,6 +149,11 @@ class BrowserContextConfig:
 	include_dynamic_attributes: bool = True
 
 	_force_keep_context_alive: bool = False
+	is_mobile: bool | None = None
+	has_touch: bool | None = None
+	geolocation: dict | None = None
+	permissions: list[str] | None = None
+	timezone_id: str | None = None
 
 
 @dataclass
@@ -263,12 +283,18 @@ class BrowserContext:
 
 		# If no target ID or couldn't find it, use existing page or create new
 		if not active_page:
-			if pages:
+			if (
+				pages
+				and pages[0].url
+				and not pages[0].url.startswith('chrome://')
+				and not pages[0].url.startswith('chrome-extension://')
+			):
 				active_page = pages[0]
-				logger.debug('Using existing page')
+				logger.debug('Using existing page: %s', active_page.url)
 			else:
 				active_page = await context.new_page()
-				logger.debug('Created new page')
+				await active_page.goto('about:blank')
+				logger.debug('Created new page: %s', active_page.url)
 
 			# Get target ID for the active page
 			if self.browser.config.cdp_url:
@@ -279,6 +305,7 @@ class BrowserContext:
 						break
 
 		# Bring page to front
+		logger.debug('Bringing tab to front: %s', active_page)
 		await active_page.bring_to_front()
 		await active_page.wait_for_load_state('load')
 
@@ -311,7 +338,7 @@ class BrowserContext:
 		"""Creates a new browser context with anti-detection measures and loads cookies if available."""
 		if self.browser.config.cdp_url and len(browser.contexts) > 0:
 			context = browser.contexts[0]
-		elif self.browser.config.chrome_instance_path and len(browser.contexts) > 0:
+		elif self.browser.config.browser_instance_path and len(browser.contexts) > 0:
 			# Connect to existing Chrome instance instead of creating new one
 			context = browser.contexts[0]
 		else:
@@ -326,6 +353,11 @@ class BrowserContext:
 				record_video_dir=self.config.save_recording_path,
 				record_video_size=self.config.browser_window_size,
 				locale=self.config.locale,
+				is_mobile=self.config.is_mobile,
+				has_touch=self.config.has_touch,
+				geolocation=self.config.geolocation,
+				permissions=self.config.permissions,
+				timezone_id=self.config.timezone_id,
 			)
 
 		if self.config.trace_path:
@@ -589,6 +621,10 @@ class BrowserContext:
 			parsed_url = urlparse(url)
 			domain = parsed_url.netloc.lower()
 
+			# Special case: Allow 'about:blank' explicitly
+			if url == 'about:blank':
+				return True
+
 			# Remove port number if present
 			if ':' in domain:
 				domain = domain.split(':')[0]
@@ -782,6 +818,26 @@ class BrowserContext:
 				highlight_elements=self.config.highlight_elements,
 			)
 
+			tabs_info = await self.get_tabs_info()
+
+			# Get all cross-origin iframes within the page and open them in new tabs
+			# mark the titles of the new tabs so the LLM knows to check them for additional content
+			iframe_urls = await dom_service.get_cross_origin_iframes()
+			for url in iframe_urls:
+				if url in [tab.url for tab in tabs_info]:
+					continue  # skip if the iframe if we already have it open in a tab
+				new_page_id = tabs_info[-1].page_id + 1
+				logger.debug(f'Opening cross-origin iframe in new tab #{new_page_id}: {url}')
+				await self.create_new_tab(url)
+				tabs_info.append(
+					TabInfo(
+						page_id=new_page_id,
+						url=url,
+						title=f'iFrame opened as new tab, treat as if embedded inside page #{self.state.target_id}: {page.url}',
+						parent_page_id=self.state.target_id,
+					)
+				)
+
 			screenshot_b64 = await self.take_screenshot()
 			pixels_above, pixels_below = await self.get_scroll_info(page)
 
@@ -790,7 +846,7 @@ class BrowserContext:
 				selector_map=content.selector_map,
 				url=page.url,
 				title=await page.title(),
-				tabs=await self.get_tabs_info(),
+				tabs=tabs_info,
 				screenshot=screenshot_b64,
 				pixels_above=pixels_above,
 				pixels_below=pixels_below,
@@ -879,9 +935,18 @@ class BrowserContext:
 			if not part:
 				continue
 
+			# Handle custom elements with colons by escaping them
+			if ':' in part and '[' not in part:
+				base_part = part.replace(':', r'\:')
+				css_parts.append(base_part)
+				continue
+
 			# Handle index notation [n]
 			if '[' in part:
 				base_part = part[: part.find('[')]
+				# Handle custom elements with colons in the base part
+				if ':' in base_part:
+					base_part = base_part.replace(':', r'\:')
 				index_part = part[part.find('[') :]
 
 				# Handle multiple indices
@@ -1084,11 +1149,11 @@ class BrowserContext:
 				pass
 
 			# Get element properties to determine input method
-			tag_handle = await element_handle.get_property("tagName")
+			tag_handle = await element_handle.get_property('tagName')
 			tag_name = (await tag_handle.json_value()).lower()
 			is_contenteditable = await element_handle.get_property('isContentEditable')
-			readonly_handle = await element_handle.get_property("readOnly")
-			disabled_handle = await element_handle.get_property("disabled")
+			readonly_handle = await element_handle.get_property('readOnly')
+			disabled_handle = await element_handle.get_property('disabled')
 
 			readonly = await readonly_handle.json_value() if readonly_handle else False
 			disabled = await disabled_handle.json_value() if disabled_handle else False
@@ -1171,7 +1236,13 @@ class BrowserContext:
 
 		tabs_info = []
 		for page_id, page in enumerate(session.context.pages):
-			tab_info = TabInfo(page_id=page_id, url=page.url, title=await page.title())
+			try:
+				tab_info = TabInfo(page_id=page_id, url=page.url, title=await asyncio.wait_for(page.title(), timeout=1))
+			except asyncio.TimeoutError:
+				# page.title() can hang forever on tabs that are crashed/dissapeared/about:blank
+				# we dont want to try automating those tabs because they will hang the whole script
+				logger.debug('Failed to get tab info for tab #%s: %s (ignoring)', page_id, page.url)
+				tab_info = TabInfo(page_id=page_id, url='about:blank', title='ignore this tab and do not use it')
 			tabs_info.append(tab_info)
 
 		return tabs_info

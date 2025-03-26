@@ -179,6 +179,20 @@ agent = Agent(
 )
 ```
 
+## Run with message context
+
+You can configure the agent and provide a separate message to help the LLM understand the task better.
+
+```python 
+from langchain_openai import ChatOpenAI
+
+agent = Agent(
+    task="your task",
+    message_context="Additional information about the task",
+    llm = ChatOpenAI(model='gpt-4o')
+)
+```
+
 ## Run with planner model
 
 You can configure the agent to use a separate planner model for high-level task planning:
@@ -213,3 +227,12 @@ Using a separate planner model can help:
 <Note>
   The planner model is optional. If not specified, the agent will not use the planner model.
 </Note>
+
+### Optional Parameters
+
+- `message_context`: Additional information about the task to help the LLM understand the task better.
+- `initial_actions`: List of initial actions to run before the main task.
+- `max_actions_per_step`: Maximum number of actions to run in a step. Defaults to `10`.
+- `max_failures`: Maximum number of failures before giving up. Defaults to `3`.
+- `retry_delay`: Time to wait between retries in seconds when rate limited. Defaults to `10`.
+- `generate_gif`: Enable/disable GIF generation. Defaults to `False`. Set to `True` or a string path to save the GIF.

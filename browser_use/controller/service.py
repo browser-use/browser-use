@@ -1,7 +1,8 @@
 import asyncio
-import json
 import enum
+import json
 import logging
+import re
 from typing import Dict, Generic, Optional, Type, TypeVar
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -17,6 +18,7 @@ from browser_use.controller.views import (
 	ClickElementAction,
 	DoneAction,
 	GoToUrlAction,
+	GroupTabsAction,
 	InputTextAction,
 	NoParamsAction,
 	OpenTabAction,
@@ -24,6 +26,7 @@ from browser_use.controller.views import (
 	SearchGoogleAction,
 	SendKeysAction,
 	SwitchTabAction,
+	UngroupTabsAction,
 )
 from browser_use.utils import time_execution_sync
 
@@ -165,6 +168,22 @@ class Controller(Generic[Context]):
 			logger.debug(f'Element xpath: {element_node.xpath}')
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
+		# Save PDF
+		@self.registry.action(
+			'Save the current page as a PDF file',
+		)
+		async def save_pdf(browser: BrowserContext):
+			page = await browser.get_current_page()
+			short_url = re.sub(r'^https?://(?:www\.)?|/$', '', page.url)
+			slug = re.sub(r'[^a-zA-Z0-9]+', '-', short_url).strip('-').lower()
+			sanitized_filename = f'{slug}.pdf'
+
+			await page.emulate_media('screen')
+			await page.pdf(path=sanitized_filename, format='A4', print_background=False)
+			msg = f'Saving page with URL {page.url} as PDF to ./{sanitized_filename}'
+			logger.info(msg)
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
 		# Tab Management Actions
 		@self.registry.action('Switch tab', param_model=SwitchTabAction)
 		async def switch_tab(params: SwitchTabAction, browser: BrowserContext):
@@ -192,6 +211,12 @@ class Controller(Generic[Context]):
 			import markdownify
 
 			content = markdownify.markdownify(await page.content())
+
+			# manually append iframe text into the content so it's readable by the LLM (includes cross-origin iframes)
+			for iframe in page.frames:
+				if iframe.url != page.url and not iframe.url.startswith('data:'):
+					content += f'\n\nIFRAME {iframe.url}:\n'
+					content += markdownify.markdownify(await iframe.content())
 
 			prompt = 'Your task is to extract the content of the page. You will be given a page and a goal and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format. Extraction goal: {goal}, Page: {page}'
 			template = PromptTemplate(input_variables=['goal', 'page'], template=prompt)
