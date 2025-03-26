@@ -144,14 +144,14 @@ class Browser:
 		try:
 			subprocess.Popen(
 				[
-					self.config.chrome_instance_path,
+					self.config.browser_instance_path,
 					'--remote-debugging-port=9222',
 				],
 				stdout=subprocess.DEVNULL,
 				stderr=subprocess.DEVNULL,
 			)
 		except Exception as e:
-			logger.error(f'Failed to start Chrome instance: {str(e)}')
+			logger.error(f'Failed to start Chrome ({self.config.browser_instance_path}): {e}')
 			raise RuntimeError('Failed to start Chrome instance. Please ensure the Chrome path is correct and there are no port conflicts.')
 
 		# Attempt to connect after starting a new instance
