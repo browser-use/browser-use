@@ -197,6 +197,7 @@ class Browser:
 
 	async def _setup_standard_browser(self, playwright: Playwright) -> PlaywrightBrowser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
+		browser_class = getattr(playwright, self.config.browser_class)
 		screen_size = get_screen_resolution()
 		offset_x, offset_y = get_window_adjustments()
 		args = {
