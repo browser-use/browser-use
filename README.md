@@ -89,7 +89,7 @@ uv venv --python 3.11
 
 ```bash
 # Install all dependencies including dev packages
-uv pip install . ."[dev]"
+uv sync
 ```
 
 ## Configuration
