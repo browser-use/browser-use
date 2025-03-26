@@ -4,6 +4,7 @@ Playwright browser on steroids.
 
 import asyncio
 import gc
+import os
 import logging
 from dataclasses import dataclass, field
 from typing import Literal
@@ -113,17 +114,17 @@ class Browser:
 		return self.playwright_browser
 
 	async def _setup_cdp(self, playwright: Playwright) -> PlaywrightBrowser:
-		"""Sets up and returns a Playwright Browser instance with anti-detection measures. Firefox has no longer CDP support."""
-		if 'firefox' not in self.config.browser_instance_path.lower():
-			if not self.config.cdp_url:
-				raise ValueError('CDP URL is required')
-			logger.info(f'Connecting to remote browser via CDP {self.config.cdp_url}')
-			browser_class = getattr(playwright, self.config.browser_class)
-			browser = await browser_class.connect_over_cdp(self.config.cdp_url)
-		else:
-			raise ValueError(
-				'CDP has been deprecated for firefox, check: https://fxdx.dev/deprecating-cdp-support-in-firefox-embracing-the-future-with-webdriver-bidi/'
-			)
+		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
+		if not self.config.cdp_url:
+			raise ValueError('CDP URL is required')
+		logger.info(f'Connecting to remote browser via CDP {self.config.cdp_url}')
+		browser = await playwright.chromium.connect_over_cdp(self.config.cdp_url)
+		cdp_session = await browser.new_browser_cdp_session()
+		await cdp_session.send("Browser.setDownloadBehavior", {
+			"behavior": "allow",
+			"downloadPath": 'downloads',
+			"eventsEnabled": True
+		})
 		return browser
 
 	async def _setup_wss(self, playwright: Playwright) -> PlaywrightBrowser:
