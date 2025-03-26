@@ -192,7 +192,6 @@ class BrowserContext:
 
 		# Initialize these as None - they'll be set up when needed
 		self.session: BrowserSession | None = None
-		self._click_handler = None
 
 	async def __aenter__(self):
 		"""Async context manager entry"""
