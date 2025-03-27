@@ -1370,30 +1370,6 @@ class BrowserContext:
 			logger.debug(f'Failed to get CDP targets: {e}')
 			return []
 
-	async def _handle_popups(self, page: Page) -> None:
-		popup_selectors = [
-            '[id*="cookie"] button',
-            '[class*="popup"] button',
-            '[id*="consent"] button',
-            '[role="dialog"] button',
-            '[class*="modal"] button[class*="close"]',
-        ]
-
-		for selector in popup_selectors:
-			try:
-				popup = await page.query_selector(selector)
-				if popup and await popup.is_visible():
-					await popup.click(timeout=self.config.click_config.timeouts["popup"]*1000)
-					await page.wait_for_timeout(500)
-					logger.debug(
-						f"Successfully dismissed popup with selector: {selector}"
-					)
-			except Exception as e:
-				logger.debug(
-					f"Popup handling skipped for selector {selector}: {str(e)}"
-				)
-				continue
-
 	async def _check_element_state(
 		self,
 		element_handle: ElementHandle,
@@ -1424,7 +1400,7 @@ class BrowserContext:
 				return ClickResult(
 					status=ClickStatus.ERROR, message="Unable to locate element handle"
 				)
-			await self._handle_popups(page)
+			
 			if not await self._check_element_state(element_handle):
 				return ClickResult(
 					status=ClickStatus.ERROR, message="Element not in clickable state"
