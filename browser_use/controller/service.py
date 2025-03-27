@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser.context import BrowserContext
-from browser_use.browser.enums.click_status import ClickStatus
+from browser_use.browser.views import ClickStatus
 from browser_use.controller.registry.service import Registry
 from browser_use.controller.views import (
 	ClickElementAction,
