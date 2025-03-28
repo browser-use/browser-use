@@ -399,12 +399,6 @@ class BrowserContext:
                     Promise.resolve({ state: Notification.permission }) :
                     originalQuery(parameters)
             );
-            (function () {
-                const originalAttachShadow = Element.prototype.attachShadow;
-                Element.prototype.attachShadow = function attachShadow(options) {
-                    return originalAttachShadow.call(this, { ...options, mode: "open" });
-                };
-            })();
             """
 		)
 
