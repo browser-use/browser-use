@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 browser = Browser(
 	config=BrowserConfig(
-          headless=False
 		# NOTE: you need to close your chrome browser - so that this can open your browser in debug mode
 		#browser_binary_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 	)
