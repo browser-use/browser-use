@@ -466,7 +466,7 @@
       if (element.tagName.toLowerCase() === "html") return false;
       const style = window.getComputedStyle(element);
 
-      let interactiveCursors = ["pointer", "move", "text", "grab", "cell"];
+      const interactiveCursors = ["pointer", "move", "text", "grab", "cell"];
 
       if (interactiveCursors.includes(style.cursor)) return true;
 
@@ -484,8 +484,7 @@
       if (!(element instanceof HTMLLabelElement)) return false;
 
       const forAttr = element.getAttribute("for");
-      if (!forAttr || forAttr.trim() === "") return false;
-
+      if (forAttr && forAttr.trim() !== "") {
       const targetElement = document.getElementById(forAttr);
       if (!targetElement) return false;
 
@@ -495,6 +494,10 @@
         targetElement instanceof HTMLSelectElement ||
         targetElement instanceof HTMLButtonElement
       );
+      }
+
+      const hasChildInput = element.querySelector("input, textarea, select, button") !== null;
+      return hasChildInput;
     }
 
     let isInteractiveLabelElement = isInteractiveLabel(element);
