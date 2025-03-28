@@ -485,15 +485,15 @@
 
       const forAttr = element.getAttribute("for");
       if (forAttr && forAttr.trim() !== "") {
-      const targetElement = document.getElementById(forAttr);
-      if (!targetElement) return false;
-
-      return (
-        targetElement instanceof HTMLInputElement ||
-        targetElement instanceof HTMLTextAreaElement ||
-        targetElement instanceof HTMLSelectElement ||
-        targetElement instanceof HTMLButtonElement
-      );
+	      const targetElement = document.getElementById(forAttr);
+	      if (!targetElement) return false;
+	
+	      return (
+	        targetElement instanceof HTMLInputElement ||
+	        targetElement instanceof HTMLTextAreaElement ||
+	        targetElement instanceof HTMLSelectElement ||
+	        targetElement instanceof HTMLButtonElement
+	      );
       }
 
       const hasChildInput = element.querySelector("input, textarea, select, button") !== null;
