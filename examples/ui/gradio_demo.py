@@ -67,8 +67,22 @@ async def run_browser_task(
 			llm=ChatOpenAI(model='gpt-4o'),
 		)
 		result = await agent.run()
-		#  TODO: The result cloud be parsed better
-		return result
+  
+		if isinstance(result, AgentHistoryList):
+			total_duration = result.total_duration_seconds()
+			total_input_tokens = result.total_input_tokens()
+			token_usage = result.input_token_usage()
+   
+			result_str = f"""
+   				Task completed with {len(result.history)} steps.\n
+       			Total Duration: {total_duration:.2f} seconds\n
+				Total Input Tokens: {total_input_tokens}\n
+				Token usage per step: {token_usage}\n
+   			"""
+
+			return result_str
+		return f'Error: ({type(result)}), unexpected result type returned from agent.run()'
+
 	except Exception as e:
 		return f'Error: {str(e)}'
 
