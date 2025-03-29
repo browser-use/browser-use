@@ -1,20 +1,30 @@
-name: Lint
+name: ci
 on:
   push:
   pull_request:
   workflow_dispatch:
 jobs:
-  ruff:
+  pre-commit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv run ruff format
       - run: uv run pre-commit run --all-files
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv venv
+      - run: uv pip install --editable .
+      - run: uv run playwright install --with-deps chromium
       # TODO: Fix the ignored pytests.
       # openai.OpenAIError: The api_key client option must be set either by passing
       # api_key to the client or by setting the OPENAI_API_KEY environment variable
-      - run: uv run --with=dotenv pytest
+      - env:
+          headless: true
+          # OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: xvfb-run uv run --with=dotenv pytest
                 --ignore=tests/test_dropdown_error.py
                 --ignore=tests/test_gif_path.py
                 --ignore=tests/test_models.py

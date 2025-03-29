@@ -1,8 +1,18 @@
 import asyncio
 
+import pytest
 from playwright.async_api import async_playwright
 
 
+@pytest.mark.parametrize(
+	'start_fullscreen,maximize',
+	[
+		(True, True),
+		(True, False),
+		(False, True),
+		(False, False),
+	],
+)
 async def test_full_screen(start_fullscreen: bool, maximize: bool):
 	async with async_playwright() as p:
 		browser = await p.chromium.launch(
