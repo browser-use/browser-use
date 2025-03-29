@@ -63,6 +63,7 @@ Common action sequences:
 
 8. Long tasks:
 - Keep track of the status and subresults in the memory.
+- You are provided with procedural memory summaries that condense previous task history (every N steps). Use these summaries to maintain context about completed actions, current progress, and next steps. The summaries appear in chronological order and contain key information about navigation history, findings, errors encountered, and current state. Refer to these summaries to avoid repeating actions and to ensure consistent progress toward the task goal.
 
 9. Extraction:
 - If your task is to find information - call extract_content on the specific pages to get and store the information.

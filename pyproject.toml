@@ -31,6 +31,8 @@ dependencies = [
     "screeninfo>=0.8.1; platform_system != 'darwin'",
     "typing-extensions>=4.12.2",
     "psutil>=7.0.0",
+    "mem0ai==0.1.78",
+    "chromadb==0.6.3",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste

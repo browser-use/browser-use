@@ -18,6 +18,7 @@ class MessageMetadata(BaseModel):
 	"""Metadata for a message"""
 
 	tokens: int = 0
+	message_type: str | None = None
 
 
 class ManagedMessage(BaseModel):
