@@ -466,7 +466,7 @@
       if (element.tagName.toLowerCase() === "html") return false;
       const style = window.getComputedStyle(element);
 
-      let interactiveCursors = ["pointer", "move", "text", "grab", "cell"];
+      const interactiveCursors = ["pointer", "move", "text", "grab", "cell"];
 
       if (interactiveCursors.includes(style.cursor)) return true;
 
@@ -478,6 +478,30 @@
     if (isInteractiveCursor) {
       return true;
     }
+
+    // special handling for element which is an interactive label (generally toggles radio/checkbox )
+    function isInteractiveLabel(element) {
+      if (!(element instanceof HTMLLabelElement)) return false;
+
+      const forAttr = element.getAttribute("for");
+      if (forAttr && forAttr.trim() !== "") {
+	      const targetElement = document.getElementById(forAttr);
+	      if (!targetElement) return false;
+	
+	      return (
+	        targetElement instanceof HTMLInputElement ||
+	        targetElement instanceof HTMLTextAreaElement ||
+	        targetElement instanceof HTMLSelectElement ||
+	        targetElement instanceof HTMLButtonElement
+	      );
+      }
+
+      const hasChildInput = element.querySelector("input, textarea, select, button") !== null;
+      return hasChildInput;
+    }
+
+    let isInteractiveLabelElement = isInteractiveLabel(element);
+    if (isInteractiveLabelElement) return true;
 
     // Special handling for cookie banner elements
     const isCookieBannerElement =
