@@ -17,8 +17,10 @@ class WaitForElementAction(BaseModel):
     timeout: Optional[int] = 10000  # Timeout in milliseconds
 
 class ClickElementAction(BaseModel):
-	index: int
-	xpath: Optional[str] = None
+	index: Optional[int] = None  # Index of the element to click
+	text: Optional[str] = None   # Text to search for
+	nth: Optional[int] = 0       # Which occurrence of text (0-based)
+	element_type: Optional[str] = None  # Optional element type filter
  
 class ClickElementByXpathAction(BaseModel):
     xpath: str

@@ -129,42 +129,88 @@ class Controller(Generic[Context]):
 				raise Exception(err_msg)
 
 		# Element Interaction Actions
-		@self.registry.action('Click element by index', param_model=ClickElementAction)
-		async def click_element_by_index(params: ClickElementAction, browser: BrowserContext):
+		@self.registry.action('Click on element', param_model=ClickElementAction)
+		async def click_element(params: ClickElementAction, browser: BrowserContext):
 			session = await browser.get_session()
-
-			if params.index not in await browser.get_selector_map():
-				raise Exception(f'Element with index {params.index} does not exist - retry or use alternative actions')
-
-			element_node = await browser.get_dom_element_by_index(params.index)
-			initial_pages = len(session.context.pages)
-
-			# if element has file uploader then dont click
-			if await browser.is_file_uploader(element_node):
-				msg = f'Index {params.index} - has an element which opens file upload dialog. To upload files please use a specific function to upload files '
-				logger.info(msg)
-				return ActionResult(extracted_content=msg, include_in_memory=True)
-
+			element_node = None
 			msg = None
+			
+			# First attempt: Try by index if provided
+			if params.index is not None:
+				try:
+					if params.index not in await browser.get_selector_map():
+						raise Exception(f'Element with index {params.index} does not exist')
+						
+					element_node = await browser.get_dom_element_by_index(params.index)
+					initial_pages = len(session.context.pages)
+					
+					# Check if it's a file uploader
+					if await browser.is_file_uploader(element_node):
+						msg = f'Index {params.index} - has an element which opens file upload dialog. To upload files please use a specific function to upload files'
+						logger.info(msg)
+						return ActionResult(extracted_content=msg, include_in_memory=True)
+						
+					try:
+						download_path = await browser._click_element_node(element_node)
+						if download_path:
+							msg = f'💾  Downloaded file to {download_path}'
+						else:
+							msg = f'🖱️  Clicked button with index {params.index}: {element_node.get_all_text_till_next_clickable_element(max_depth=2)}'
+							
+						logger.info(msg)
+						logger.debug(f'Element xpath: {element_node.xpath}')
+						if len(session.context.pages) > initial_pages:
+							new_tab_msg = 'New tab opened - switching to it'
+							msg += f' - {new_tab_msg}'
+							logger.info(new_tab_msg)
+							await browser.switch_to_tab(-1)
+						return ActionResult(extracted_content=msg, include_in_memory=True)
+					except Exception as e:
+						logger.warning(f'Element not clickable with index {params.index} - {str(e)}')
+						# Don't return yet, fall through to try by text
+						
+				except Exception as e:
+					logger.info(f'Index method failed: {str(e)}, attempting text method')
 
-			try:
-				download_path = await browser._click_element_node(element_node)
-				if download_path:
-					msg = f'💾  Downloaded file to {download_path}'
-				else:
-					msg = f'🖱️  Clicked button with index {params.index}: {element_node.get_all_text_till_next_clickable_element(max_depth=2)}'
+			# Second attempt: Try by text if provided
+			if params.text is not None:
+				try:
+					element_node = await browser.get_locate_element_by_text(
+						text=params.text,
+						nth=params.nth or 0,
+						element_type=params.element_type
+					)
+					
+					if element_node:
+						try:
+							await element_node.scroll_into_view_if_needed()
+							await element_node.click(timeout=1500, force=True)
+							msg = f'🖱️  Clicked on element with text "{params.text}"'
+						except Exception:
+							try:
+								# Fallback to JS click
+								await element_node.evaluate('el => el.click()')
+								msg = f'🖱️  Clicked on element with text "{params.text}" (via JS)'
+							except Exception as e:
+								logger.warning(f"Element not clickable with text '{params.text}' - {e}")
+								return ActionResult(error=str(e))
+								
+						logger.info(msg)
+						return ActionResult(extracted_content=msg, include_in_memory=True)
+					else:
+						return ActionResult(error=f"No element found for text '{params.text}'")
+						
+				except Exception as e:
+					logger.warning(f"Element not clickable with text '{params.text}' - {e}")
+					return ActionResult(error=str(e))
+			
+			# If neither index nor text provided
+			if params.index is None and params.text is None:
+				return ActionResult(error="Please provide either an index or text to click an element")
+			
+			# If we get here, both methods failed
+			return ActionResult(error="Failed to click element using both index and text methods")
 
-				logger.info(msg)
-				logger.debug(f'Element xpath: {element_node.xpath}')
-				if len(session.context.pages) > initial_pages:
-					new_tab_msg = 'New tab opened - switching to it'
-					msg += f' - {new_tab_msg}'
-					logger.info(new_tab_msg)
-					await browser.switch_to_tab(-1)
-				return ActionResult(extracted_content=msg, include_in_memory=True)
-			except Exception as e:
-				logger.warning(f'Element not clickable with index {params.index} - most likely the page changed')
-				return ActionResult(error=str(e))
 
 		@self.registry.action('Click element by selector', param_model=ClickElementBySelectorAction)
 		async def click_element_by_selector(params: ClickElementBySelectorAction, browser: BrowserContext):
@@ -208,33 +254,6 @@ class Controller(Generic[Context]):
 				logger.warning(f'Element not clickable with xpath {params.xpath} - most likely the page changed')
 				return ActionResult(error=str(e))
 
-		@self.registry.action('Click element with text', param_model=ClickElementByTextAction)
-		async def click_element_by_text(params: ClickElementByTextAction, browser: BrowserContext):
-			try:
-				element_node = await browser.get_locate_element_by_text(
-					text=params.text,
-					nth=params.nth,
-					element_type=params.element_type
-				)
-
-				if element_node:
-					try:
-						await element_node.scroll_into_view_if_needed()
-						await element_node.click(timeout=1500, force=True)
-					except Exception:
-						try:
-							# Handle with js evaluate if fails to click using playwright
-							await element_node.evaluate('el => el.click()')
-						except Exception as e:
-							logger.warning(f"Element not clickable with text '{params.text}' - {e}")
-							return ActionResult(error=str(e))
-					msg = f'🖱️  Clicked on element with text "{params.text}"'
-					return ActionResult(extracted_content=msg, include_in_memory=True)
-				else:
-					return ActionResult(error=f"No element found for text '{params.text}'")
-			except Exception as e:
-				logger.warning(f"Element not clickable with text '{params.text}' - {e}")
-				return ActionResult(error=str(e))
 
 		@self.registry.action(
 			'Input text into a input interactive element',
