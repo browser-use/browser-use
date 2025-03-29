@@ -64,7 +64,7 @@ async def main():
 	llm = ChatOpenAI(model_name='gpt-4o')
 
 	# Create the agent
-	agent = Agent(  # disco mode will not be triggered on apple.com because the LLM wont be able to see that action available, it should work on Google.com though.
+	agent = Agent(  # disco mode will not be triggered on apple.com because the LLM won't be able to see that action available, it should work on Google.com though.
 		task="""
             Go to apple.com and trigger disco mode (if dont know how to do that, then just move on).
             Then go to google.com and trigger disco mode.

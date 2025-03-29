@@ -41,6 +41,10 @@ dependencies = [
 urls = { "Repository" = "https://github.com/browser-use/browser-use" }
 
 
+[tool.codespell]
+ignore-words-list = "bu"
+skip = "*.json"
+
 [tool.ruff]
 line-length = 130
 fix = true

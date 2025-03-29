@@ -137,7 +137,7 @@ Tell your computer what to do, and it gets it done.
 ### Rerunning tasks
 
 - [ ] LLM as fallback
-- [ ] Make it easy to define workfow templates where LLM fills in the details
+- [ ] Make it easy to define workflow templates where LLM fills in the details
 - [ ] Return playwright script from the agent
 
 ### Datasets
