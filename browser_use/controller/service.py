@@ -1,10 +1,11 @@
 import asyncio
+import datetime
 import enum
 import json
 import logging
 import re
 from typing import Dict, Generic, Optional, Type, TypeVar
-import datetime
+
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
 
@@ -330,7 +331,7 @@ class Controller(Generic[Context]):
 				msg = f'📄  Extracted from page\n: {content}\n'
 				logger.info(msg)
 				return ActionResult(extracted_content=msg)
-		
+
 		# HTML Download
 		@self.registry.action(
 			'Save the raw HTML content of the current page to a local file',
@@ -341,31 +342,25 @@ class Controller(Generic[Context]):
 			try:
 				page = await browser.get_current_page()
 				html_content = await page.content()
-				
+
 				# Create a filename based on the page URL
 				short_url = re.sub(r'^https?://(?:www\.)?|/$', '', page.url)
 				slug = re.sub(r'[^a-zA-Z0-9]+', '-', short_url).strip('-').lower()[:64]
-				timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+				timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 				sanitized_filename = f'{slug}_{timestamp}.html'
-				
+
 				# Save HTML to file
-				with open(sanitized_filename, "w", encoding="utf-8") as f:
+				with open(sanitized_filename, 'w', encoding='utf-8') as f:
 					f.write(html_content)
-				
-				msg = f"Saved HTML content of page with URL {page.url} to ./{sanitized_filename}"
-				
+
+				msg = f'Saved HTML content of page with URL {page.url} to ./{sanitized_filename}'
+
 				logger.info(msg)
-				return ActionResult(
-					extracted_content=msg,
-					include_in_memory=True
-				)
+				return ActionResult(extracted_content=msg, include_in_memory=True)
 			except Exception as e:
 				error_msg = f'Failed to save HTML content: {str(e)}'
 				logger.error(error_msg)
-				return ActionResult(
-					error=error_msg,
-					extracted_content=''
-				)
+				return ActionResult(error=error_msg, extracted_content='')
 
 		@self.registry.action(
 			'Scroll down the page by pixel amount - if no amount is specified, scroll down one page',
