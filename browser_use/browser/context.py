@@ -872,7 +872,7 @@ class BrowserContext:
 			# Get all cross-origin iframes within the page and open them in new tabs
 			# mark the titles of the new tabs so the LLM knows to check them for additional content
 			# unfortunately too buggy for now, too many sites use invisible cross-origin iframes for ads, tracking, youtube videos, social media, etc.
-			# and it distracts the bot by openeing a lot of new tabs
+			# and it distracts the bot by opening a lot of new tabs
 			# iframe_urls = await dom_service.get_cross_origin_iframes()
 			# for url in iframe_urls:
 			# 	if url in [tab.url for tab in tabs_info]:
@@ -1362,7 +1362,7 @@ class BrowserContext:
 			try:
 				tab_info = TabInfo(page_id=page_id, url=page.url, title=await asyncio.wait_for(page.title(), timeout=1))
 			except asyncio.TimeoutError:
-				# page.title() can hang forever on tabs that are crashed/dissapeared/about:blank
+				# page.title() can hang forever on tabs that are crashed/disappeared/about:blank
 				# we dont want to try automating those tabs because they will hang the whole script
 				logger.debug('⚠  Failed to get tab info for tab #%s: %s (ignoring)', page_id, page.url)
 				tab_info = TabInfo(page_id=page_id, url='about:blank', title='ignore this tab and do not use it')

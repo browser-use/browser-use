@@ -77,7 +77,7 @@ At this stage, check the basket on the top right (indicates the price) and check
 - If the total order **is below CHF 99**, add **a liquid soap refill** to reach the minimum. If it;s still you can buy some bread, dark chockolate.
 - At this step, check if you have bought MORE items than needed. If the price is more then CHF200, you MUST remove items.
 - If an item is not available, choose an alternative.
-- if an age verification is needed, remove alchoholic products, we haven't verified yet.
+- if an age verification is needed, remove alcoholic products, we haven't verified yet.
 
 ---
 

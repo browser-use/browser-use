@@ -23,3 +23,10 @@ repos:
       - id: detect-private-key
       - id: mixed-line-ending
       - id: fix-byte-order-marker
+
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.1
+    hooks:
+      - id: codespell # See pyproject.toml for args
+        additional_dependencies:
+          - tomli

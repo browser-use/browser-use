@@ -71,7 +71,7 @@ CHROME_DETERMINISTIC_RENDERING_ARGS = [
 	# chrome://gpu
 	'--enable-webgl',  # enable web-gl graphics support
 	'--font-render-hinting=none',  # make rendering more deterministic by ignoring OS font hints, may also need css override, try:    * {text-rendering: geometricprecision !important; -webkit-font-smoothing: antialiased;}
-	'--force-color-profile=srgb',  # make rendering more deterministic by using consitent color profile, if browser looks weird, try: generic-rgb
+	'--force-color-profile=srgb',  # make rendering more deterministic by using consistent color profile, if browser looks weird, try: generic-rgb
 	'--disable-partial-raster',  # make rendering more deterministic (TODO: verify if still needed)
 	'--disable-skia-runtime-opts',  # make rendering more deterministic by avoiding Skia hot path runtime optimizations
 	'--disable-2d-canvas-clip-aa',  # make rendering more deterministic by disabling antialiasing on 2d canvas clips

@@ -43,7 +43,7 @@ if __name__ == '__main__':
 In this example:
 1. The model only sees `x_name` and `x_password` as placeholders.
 2. When the model wants to use your password it outputs x_password - and we replace it with the actual value.
-3. When your password is visable on the current page, we replace it in the LLM input - so that the model never has it in its state.
+3. When your password is visible on the current page, we replace it in the LLM input - so that the model never has it in its state.
 
 Warning: Vision models still see the image of the page - where the sensitive data might be visible.
 

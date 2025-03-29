@@ -13,7 +13,7 @@ from browser_use.browser.browser import Browser, BrowserConfig
 
 llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
 task = (
-	'go to google.com and search for openai.com and click on the first link then extract content and scroll down - whats there?'
+	"go to google.com and search for openai.com and click on the first link then extract content and scroll down - what's there?"
 )
 
 allowed_domains = ['google.com']
