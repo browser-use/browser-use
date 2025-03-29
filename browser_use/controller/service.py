@@ -148,7 +148,7 @@ class Controller(Generic[Context]):
 			msg = None
 
 			try:
-				download_path = await browser._click_element_node(element_node)
+				download_path = await browser._click_element_node(element_node, params.right_click)
 				if download_path:
 					msg = f'💾  Downloaded file to {download_path}'
 				else:
