@@ -28,7 +28,7 @@ With pip (Python>=3.11):
 pip install browser-use
 ```
 
-Install Playwright: 
+Install Playwright:
 ```bash
 playwright install chromium
 ```

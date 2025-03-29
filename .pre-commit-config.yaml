@@ -14,5 +14,15 @@ repos:
     hooks:
       - id: check-toml
       - id: check-yaml
+      - id: check-json
       - id: end-of-file-fixer
-      - id: trailing-whitespace
+      - id: check-merge-conflict
+      - id: check-illegal-windows-names
+      - id: check-case-conflict
+      - id: check-added-large-files
+      - id: check-shebang-scripts-are-executable
+      - id: check-symlinks
+      - id: destroyed-symlinks
+      - id: detect-private-key
+      - id: mixed-line-ending
+      - id: fix-byte-order-marker

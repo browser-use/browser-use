@@ -80,4 +80,3 @@ dev-dependencies = [
     "ipdb>=0.13.13",
     "pre-commit>=4.2.0",
 ]
-
