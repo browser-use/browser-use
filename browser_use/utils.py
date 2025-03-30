@@ -73,22 +73,23 @@ class SignalHandler:
 		setattr(self.loop, 'waiting_for_input', False)
 
 	def register(self) -> None:
-		"""Register signal handlers for SIGINT and SIGTERM."""
-		if self.is_windows:
-			# On Windows, use simple signal handling with immediate exit on Ctrl+C
-			def windows_handler(sig, frame):
-				print('\n\n🛑 Got Ctrl+C. Exiting immediately on Windows...\n', file=stderr)
-				# Run the custom exit callback if provided
-				if self.custom_exit_callback:
-					self.custom_exit_callback()
-				os._exit(0)
+		# """Register signal handlers for SIGINT and SIGTERM."""
+		# if self.is_windows:
+		# 	# On Windows, use simple signal handling with immediate exit on Ctrl+C
+		# 	def windows_handler(sig, frame):
+		# 		print('\n\n🛑 Got Ctrl+C. Exiting immediately on Windows...\n', file=stderr)
+		# 		# Run the custom exit callback if provided
+		# 		if self.custom_exit_callback:
+		# 			self.custom_exit_callback()
+		# 		os._exit(0)
 
-			self.original_sigint_handler = signal.signal(signal.SIGINT, windows_handler)
-		else:
-			# On Unix-like systems, use asyncio's signal handling for smoother experience
-			self.original_sigint_handler = self.loop.add_signal_handler(signal.SIGINT, lambda: self.sigint_handler())
-			self.original_sigterm_handler = self.loop.add_signal_handler(signal.SIGTERM, lambda: self.sigterm_handler())
-
+		# 	self.original_sigint_handler = signal.signal(signal.SIGINT, windows_handler)
+		# else:
+		# 	# On Unix-like systems, use asyncio's signal handling for smoother experience
+		# 	self.original_sigint_handler = self.loop.add_signal_handler(signal.SIGINT, lambda: self.sigint_handler())
+		# 	self.original_sigterm_handler = self.loop.add_signal_handler(signal.SIGTERM, lambda: self.sigterm_handler())
+		pass
+		
 	def unregister(self) -> None:
 		"""Unregister signal handlers and restore original handlers if possible."""
 		try:
