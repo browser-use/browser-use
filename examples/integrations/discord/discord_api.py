@@ -55,9 +55,7 @@ class DiscordBot(commands.Bot):
 		intents.members = True  # Enable members intent for user info
 
 		# Initialize the bot with a command prefix and intents.
-		super().__init__(
-			command_prefix='!', intents=intents
-		)  # You may not need prefix, just here for flexibility
+		super().__init__(command_prefix='!', intents=intents)  # You may not need prefix, just here for flexibility
 
 		# self.tree = app_commands.CommandTree(self) # Initialize command tree for slash commands.
 
@@ -86,12 +84,8 @@ class DiscordBot(commands.Bot):
 						print(f'Error sending start message: {e}')
 
 				try:
-					agent_message = await self.run_agent(
-						message.content.replace(f'{self.prefix} ', '').strip()
-					)
-					await message.channel.send(
-						content=f'{agent_message}', reference=message, mention_author=True
-					)
+					agent_message = await self.run_agent(message.content.replace(f'{self.prefix} ', '').strip())
+					await message.channel.send(content=f'{agent_message}', reference=message, mention_author=True)
 				except Exception as e:
 					await message.channel.send(
 						content=f'Error during task execution: {str(e)}',

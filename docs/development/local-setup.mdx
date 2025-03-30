@@ -19,24 +19,19 @@ cd browser-use
 
 ## Environment Setup
 
-1. Create a virtual environment:
+1. Create and activate a virtual environment:
 
 ```bash
 uv venv --python 3.11
+source .venv/bin/activate
 ```
 
 2. Install dependencies:
 
 ```bash
 # Install the package in editable mode with all development dependencies
-uv pip install -e ".[dev]"
+uv sync
 ```
-
-<Note>
-  The `-e` flag installs the package in "editable" mode, which means your local code changes
-  will be reflected immediately without requiring reinstallation. The `[dev]` part installs
-  additional dependencies needed for development.
-</Note>
 
 ## Configuration
 
@@ -47,16 +42,20 @@ Set up your environment variables:
 cp .env.example .env
 ```
 
-Or manually create a `.env` file with your API keys:
+Or manually create a `.env` file with the API key for the models you want to use set:
 
 ```bash .env
-OPENAI_API_KEY=
+OPENAI_API_KEY=...
 ANTHROPIC_API_KEY=
+AZURE_ENDPOINT=
+AZURE_OPENAI_API_KEY=
+GEMINI_API_KEY=
+DEEPSEEK_API_KEY=
 ```
 
 <Note>
-  You can use any LLM model supported by LangChain. See [LangChain
-  Models](/customize/supported-models) for available options and their specific
+  You can use any LLM model supported by LangChain. See 
+  [LangChain Models](/customize/supported-models) for available options and their specific
   API key requirements.
 </Note>
 
@@ -64,9 +63,10 @@ ANTHROPIC_API_KEY=
 
 After setup, you can:
 
-- Run tests with `pytest`
-- Build the package with `python -m build`
-- Try the examples in the `examples/` directory
+- Try demos in the example library with `uv run examples/simple.py`
+- Run the linter/formatter with `uv run ruff format examples/some/file.py`
+- Run tests with `uv run pytest`
+- Build the package with `uv build`
 
 ## Getting Help
 
@@ -76,7 +76,6 @@ If you run into any issues:
 2. Join our [Discord community](https://link.browser-use.com/discord) for support
 
 <Note>
-  We welcome contributions! See our [Contribution
-  Guide](/development/contribution-guide) for guidelines on how to help improve
+  We welcome contributions! See our [Contribution Guide](/development/contribution-guide) for guidelines on how to help improve
   Browser Use.
 </Note>

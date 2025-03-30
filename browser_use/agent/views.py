@@ -22,6 +22,13 @@ from browser_use.dom.history_tree_processor.service import (
 from browser_use.dom.views import SelectorMap
 
 ToolCallingMethod = Literal['function_calling', 'json_mode', 'raw', 'auto']
+REQUIRED_LLM_API_ENV_VARS = {
+	'ChatOpenAI': ['OPENAI_API_KEY'],
+	'AzureOpenAI': ['AZURE_ENDPOINT', 'AZURE_OPENAI_API_KEY'],
+	'ChatBedrockConverse': ['ANTHROPIC_API_KEY'],
+	'ChatAnthropic': ['ANTHROPIC_API_KEY'],
+	'ChatGoogleGenerativeAI': ['GEMINI_API_KEY'],
+}
 
 
 class AgentSettings(BaseModel):
@@ -58,6 +65,7 @@ class AgentSettings(BaseModel):
 	page_extraction_llm: Optional[BaseChatModel] = None
 	planner_llm: Optional[BaseChatModel] = None
 	planner_interval: int = 1  # Run planner every N steps
+	is_planner_reasoning: bool = False  # type: ignore
 
 
 class AgentState(BaseModel):

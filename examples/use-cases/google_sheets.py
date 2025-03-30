@@ -15,7 +15,7 @@ from browser_use.browser.browser import Browser, BrowserConfig
 
 browser = Browser(
 	config=BrowserConfig(
-		browser_instance_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+		browser_binary_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 	),
 )
 
@@ -32,12 +32,6 @@ def is_google_sheet(page) -> bool:
 	return page.url.startswith('https://docs.google.com/spreadsheets/')
 
 
-# TODO: refactor if not is_google_sheet(page): checks below to something like this:
-# @controller.registry.action('Do something with a Google Sheet', page_filter=is_google_sheet)
-# async def some_google_sheet_action(browser: BrowserContext):
-# 	...
-
-
 @controller.registry.action('Google Sheets: Open a specific Google Sheet')
 async def open_google_sheet(browser: BrowserContext, google_sheet_url: str):
 	page = await browser.get_current_page()
@@ -49,11 +43,9 @@ async def open_google_sheet(browser: BrowserContext, google_sheet_url: str):
 	return ActionResult(extracted_content=f'Opened Google Sheet {google_sheet_url}', include_in_memory=False)
 
 
-@controller.registry.action('Google Sheets: Get the contents of the entire sheet')
+@controller.registry.action('Google Sheets: Get the contents of the entire sheet', page_filter=is_google_sheet)
 async def get_sheet_contents(browser: BrowserContext):
 	page = await browser.get_current_page()
-	if not is_google_sheet(page):
-		return ActionResult(error='Current page is not a Google Sheet')
 
 	# select all cells
 	await page.keyboard.press('Enter')
@@ -65,11 +57,9 @@ async def get_sheet_contents(browser: BrowserContext):
 	return ActionResult(extracted_content=extracted_tsv, include_in_memory=True)
 
 
-@controller.registry.action('Google Sheets: Select a specific cell or range of cells')
+@controller.registry.action('Google Sheets: Select a specific cell or range of cells', page_filter=is_google_sheet)
 async def select_cell_or_range(browser: BrowserContext, cell_or_range: str):
 	page = await browser.get_current_page()
-	if not is_google_sheet(page):
-		return ActionResult(error='Current page is not a Google Sheet')
 
 	await page.keyboard.press('Enter')  # make sure we dont delete current cell contents if we were last editing
 	await page.keyboard.press('Escape')  # to clear current focus (otherwise select range popup is additive)
@@ -87,11 +77,9 @@ async def select_cell_or_range(browser: BrowserContext, cell_or_range: str):
 	return ActionResult(extracted_content=f'Selected cell {cell_or_range}', include_in_memory=False)
 
 
-@controller.registry.action('Google Sheets: Get the contents of a specific cell or range of cells')
+@controller.registry.action('Google Sheets: Get the contents of a specific cell or range of cells', page_filter=is_google_sheet)
 async def get_range_contents(browser: BrowserContext, cell_or_range: str):
 	page = await browser.get_current_page()
-	if not is_google_sheet(page):
-		return ActionResult(error='Current page is not a Google Sheet')
 
 	await select_cell_or_range(browser, cell_or_range)
 
@@ -101,21 +89,17 @@ async def get_range_contents(browser: BrowserContext, cell_or_range: str):
 	return ActionResult(extracted_content=extracted_tsv, include_in_memory=True)
 
 
-@controller.registry.action('Google Sheets: Clear the currently selected cells')
+@controller.registry.action('Google Sheets: Clear the currently selected cells', page_filter=is_google_sheet)
 async def clear_selected_range(browser: BrowserContext):
 	page = await browser.get_current_page()
-	if not is_google_sheet(page):
-		return ActionResult(error='Current page is not a Google Sheet')
 
 	await page.keyboard.press('Backspace')
 	return ActionResult(extracted_content='Cleared selected range', include_in_memory=False)
 
 
-@controller.registry.action('Google Sheets: Input text into the currently selected cell')
+@controller.registry.action('Google Sheets: Input text into the currently selected cell', page_filter=is_google_sheet)
 async def input_selected_cell_text(browser: BrowserContext, text: str):
 	page = await browser.get_current_page()
-	if not is_google_sheet(page):
-		return ActionResult(error='Current page is not a Google Sheet')
 
 	await page.keyboard.type(text, delay=0.1)
 	await page.keyboard.press('Enter')  # make sure to commit the input so it doesnt get overwritten by the next action
@@ -123,11 +107,9 @@ async def input_selected_cell_text(browser: BrowserContext, text: str):
 	return ActionResult(extracted_content=f'Inputted text {text}', include_in_memory=False)
 
 
-@controller.registry.action('Google Sheets: Batch update a range of cells')
+@controller.registry.action('Google Sheets: Batch update a range of cells', page_filter=is_google_sheet)
 async def update_range_contents(browser: BrowserContext, range: str, new_contents_tsv: str):
 	page = await browser.get_current_page()
-	if not is_google_sheet(page):
-		return ActionResult(error='Current page is not a Google Sheet')
 
 	await select_cell_or_range(browser, range)
 

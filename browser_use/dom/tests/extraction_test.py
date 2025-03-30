@@ -1,10 +1,18 @@
 import asyncio
 import time
 
+from langchain_openai import ChatOpenAI
+
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext, BrowserContextConfig
 from browser_use.dom.service import DomService
 from browser_use.utils import time_execution_sync
+
+
+def count_string_tokens(string: str, model: str) -> int:
+	"""Count the number of tokens in a string using a specified model."""
+	llm = ChatOpenAI(model=model)
+	return llm.count_tokens(string)
 
 
 async def test_process_html_file():
@@ -88,7 +96,7 @@ async def test_focus_vs_all_elements():
 
 	browser = Browser(
 		config=BrowserConfig(
-			# browser_instance_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+			# browser_binary_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 		)
 	)
 	context = BrowserContext(browser=browser, config=config)  # noqa: F821

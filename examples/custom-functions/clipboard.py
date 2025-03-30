@@ -1,6 +1,5 @@
 import os
 import sys
-from pathlib import Path
 
 from browser_use.agent.views import ActionResult
 
@@ -39,7 +38,7 @@ async def paste_from_clipboard(browser: BrowserContext):
 
 
 async def main():
-	task = f'Copy the text "Hello, world!" to the clipboard, then go to google.com and paste the text'
+	task = 'Copy the text "Hello, world!" to the clipboard, then go to google.com and paste the text'
 	model = ChatOpenAI(model='gpt-4o')
 	agent = Agent(
 		task=task,

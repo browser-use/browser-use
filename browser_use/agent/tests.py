@@ -147,7 +147,7 @@ def test_final_result(sample_history: AgentHistoryList):
 
 
 def test_is_done(sample_history: AgentHistoryList):
-	assert sample_history.is_done() == True
+	assert sample_history.is_done() is True
 
 
 def test_urls(sample_history: AgentHistoryList):
@@ -182,7 +182,7 @@ def test_empty_history():
 	empty_history = AgentHistoryList(history=[])
 	assert empty_history.last_action() is None
 	assert empty_history.final_result() is None
-	assert empty_history.is_done() == False
+	assert empty_history.is_done() is False
 	assert len(empty_history.urls()) == 0
 
 

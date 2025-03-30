@@ -83,7 +83,7 @@ async def test_random_samples(test_cases: List[Dict[str, Any]], llm, context, va
 	samples = random.sample(test_cases, 1)
 
 	for i, case in enumerate(samples, 1):
-		task = f"Go to {case['website']}.com and {case['confirmed_task']}"
+		task = f'Go to {case["website"]}.com and {case["confirmed_task"]}'
 		logger.info(f'--- Random Sample {i}/{len(samples)} ---')
 		logger.info(f'Task: {task}\n')
 

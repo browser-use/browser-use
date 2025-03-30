@@ -12,9 +12,28 @@ class GoToUrlAction(BaseModel):
 	url: str
 
 
+class WaitForElementAction(BaseModel):
+	selector: str
+	timeout: Optional[int] = 10000  # Timeout in milliseconds
+
+
 class ClickElementAction(BaseModel):
 	index: int
 	xpath: Optional[str] = None
+
+
+class ClickElementByXpathAction(BaseModel):
+	xpath: str
+
+
+class ClickElementBySelectorAction(BaseModel):
+	css_selector: str
+
+
+class ClickElementByTextAction(BaseModel):
+	text: str
+	element_type: Optional[str]
+	nth: int = 0
 
 
 class InputTextAction(BaseModel):
@@ -36,6 +55,10 @@ class OpenTabAction(BaseModel):
 	url: str
 
 
+class CloseTabAction(BaseModel):
+	page_id: int
+
+
 class ScrollAction(BaseModel):
 	amount: Optional[int] = None  # The number of pixels to scroll. If None, scroll down/up one page
 
@@ -43,16 +66,19 @@ class ScrollAction(BaseModel):
 class SendKeysAction(BaseModel):
 	keys: str
 
+
 class GroupTabsAction(BaseModel):
-    tab_ids: list[int] = Field(..., description="List of tab IDs to group")
-    title: str = Field(..., description="Name for the tab group")
-    color: Optional[str] = Field(
-        "blue",
-        description="Color for the group (grey/blue/red/yellow/green/pink/purple/cyan)",
-    )
+	tab_ids: list[int] = Field(..., description='List of tab IDs to group')
+	title: str = Field(..., description='Name for the tab group')
+	color: Optional[str] = Field(
+		'blue',
+		description='Color for the group (grey/blue/red/yellow/green/pink/purple/cyan)',
+	)
+
 
 class UngroupTabsAction(BaseModel):
-    tab_ids: list[int] = Field(..., description="List of tab IDs to ungroup")
+	tab_ids: list[int] = Field(..., description='List of tab IDs to ungroup')
+
 
 class ExtractPageContentAction(BaseModel):
 	value: str

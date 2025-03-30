@@ -14,23 +14,27 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
-from langchain_openai import ChatOpenAI
-from browser_use import Agent
+
 from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+
+from browser_use import Agent
 
 # Load environment variables
 load_dotenv()
 if not os.getenv('OPENAI_API_KEY'):
-    raise ValueError('OPENAI_API_KEY is not set. Please add it to your environment variables.')
+	raise ValueError('OPENAI_API_KEY is not set. Please add it to your environment variables.')
+
 
 async def main():
-    llm = ChatOpenAI(model='gpt-4o')
-    agent = Agent(
+	llm = ChatOpenAI(model='gpt-4o')
+	agent = Agent(
 		task='go to https://captcha.com/demos/features/captcha-demo.aspx and solve the captcha',
 		llm=llm,
 	)
-    await agent.run()
-    input('Press Enter to exit')
+	await agent.run()
+	input('Press Enter to exit')
 
-if __name__ == "__main__":
-    asyncio.run(main())
+
+if __name__ == '__main__':
+	asyncio.run(main())

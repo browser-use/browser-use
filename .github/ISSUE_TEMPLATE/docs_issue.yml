@@ -46,7 +46,7 @@ body:
       description: If you have specific suggestions for how to improve the documentation, please share them
       placeholder: |
         The documentation could be improved by...
-        
+
         Example:
         ```python
         # Your suggested code example or text here

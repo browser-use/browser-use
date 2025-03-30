@@ -48,11 +48,11 @@ Common action sequences:
 
 5. TASK COMPLETION:
 - Use the done action as the last action as soon as the ultimate task is complete
-- Dont use "done" before you are done with everything the user asked you, except you reach the last step of max_steps. 
+- Dont use "done" before you are done with everything the user asked you, except you reach the last step of max_steps.
 - If you reach your last step, use the done action even if the task is not fully finished. Provide all the information you have gathered so far. If the ultimate task is completly finished set success to true. If not everything the user asked for is completed set success in done to false!
 - If you have to do something repeatedly for example the task says for "each", or "for all", or "x times", count always inside "memory" how many times you have done it and how many remain. Don't stop until you have completed like the task asked you. Only call done after the last step.
 - Don't hallucinate actions
-- Make sure you include everything you found out for the ultimate task in the done text parameter. Do not just say you are done, but include the requested information of the task. 
+- Make sure you include everything you found out for the ultimate task in the done text parameter. Do not just say you are done, but include the requested information of the task.
 
 6. VISUAL CONTEXT:
 - When an image is provided, use it to understand the page layout
@@ -62,8 +62,8 @@ Common action sequences:
 - If you fill an input field and your action sequence is interrupted, most often something changed e.g. suggestions popped up under the field.
 
 8. Long tasks:
-- Keep track of the status and subresults in the memory. 
+- Keep track of the status and subresults in the memory.
 
 9. Extraction:
 - If your task is to find information - call extract_content on the specific pages to get and store the information.
-Your responses must be always JSON with the specified format. 
+Your responses must be always JSON with the specified format.

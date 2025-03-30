@@ -1,14 +1,16 @@
-from langchain_openai import ChatOpenAI
-from browser_use import Agent, Browser, BrowserConfig
 from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+
+from browser_use import Agent, Browser
+
 load_dotenv()
 
 import asyncio
 
-task="""
+task = """
    ### Prompt for Shopping Agent – Migros Online Grocery Order
 
-**Objective:**  
+**Objective:**
 Visit [Migros Online](https://www.migros.ch/en), search for the required grocery items, add them to the cart, select an appropriate delivery window, and complete the checkout process using TWINT.
 
 **Important:**
@@ -105,15 +107,17 @@ At this stage, check the basket on the top right (indicates the price) and check
 browser = Browser()
 
 agent = Agent(
-   task=task,
-    llm=ChatOpenAI(model="gpt-4o"),
-    browser=browser,
-    )
+	task=task,
+	llm=ChatOpenAI(model='gpt-4o'),
+	browser=browser,
+)
+
 
 async def main():
-    await agent.run()
-    input("Press Enter to close the browser...")
-    await browser.close()
+	await agent.run()
+	input('Press Enter to close the browser...')
+	await browser.close()
+
 
 if __name__ == '__main__':
-    asyncio.run(main())
+	asyncio.run(main())

@@ -122,7 +122,7 @@ class TestAgent:
 			assert len(agent._last_result) == 1
 			assert isinstance(agent._last_result[0], ActionResult)
 			assert 'Test error' in agent._last_result[0].error
-			assert agent._last_result[0].include_in_memory == True
+			assert agent._last_result[0].include_in_memory is True
 
 
 class TestRegistry:

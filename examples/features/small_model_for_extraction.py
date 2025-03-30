@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
 from browser_use import Agent
-from browser_use.controller.service import Controller
 
 load_dotenv()
 

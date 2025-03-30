@@ -98,11 +98,11 @@ Connect to your existing Chrome installation to access saved states and cookies.
 
 ```python
 config = BrowserConfig(
-    browser_instance_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    browser_binary_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 )
 ```
 
-- **browser_instance_path** (default: `None`)
+- **browser_binary_path** (default: `None`)
   Path to connect to an existing Browser installation. Particularly useful for workflows requiring existing login states or browser preferences.
 
 <Note>This will overwrite other browser settings.</Note>

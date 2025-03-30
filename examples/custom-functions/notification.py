@@ -7,7 +7,6 @@ import asyncio
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel
 
 from browser_use import ActionResult, Agent, Controller
 

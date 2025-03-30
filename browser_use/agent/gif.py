@@ -158,13 +158,13 @@ def _create_task_frame(
 	# Draw task text with dynamic font size based on task length
 	margin = 140  # Increased margin
 	max_width = image.width - (2 * margin)
-	
+
 	# Dynamic font size calculation based on task length
 	# Start with base font size (regular + 16)
 	base_font_size = regular_font.size + 16
 	min_font_size = max(regular_font.size - 10, 16)  # Don't go below 16pt
 	max_font_size = base_font_size  # Cap at the base font size
-	
+
 	# Calculate dynamic font size based on text length and complexity
 	# Longer texts get progressively smaller fonts
 	text_length = len(task)
@@ -173,9 +173,9 @@ def _create_task_frame(
 		font_size = max(base_font_size - int(10 * (text_length / 200)), min_font_size)
 	else:
 		font_size = base_font_size
-	
+
 	larger_font = ImageFont.truetype(regular_font.path, font_size)
-	
+
 	# Generate wrapped text with the calculated font size
 	wrapped_text = _wrap_text(task, larger_font, max_width)
 
