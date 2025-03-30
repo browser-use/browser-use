@@ -18,7 +18,7 @@ from playwright.async_api import (
 	Playwright,
 	async_playwright,
 )
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import TypedDict
 
 load_dotenv()
@@ -85,7 +85,7 @@ class BrowserConfig(BaseModel):
 	cdp_url: str | None = None
 
 	browser_class: Literal['chromium', 'firefox', 'webkit'] = 'chromium'
-	browser_binary_path: str | None = Field(default=None, alias=AliasChoices('browser_instance_path', 'chrome_instance_path'))
+	browser_binary_path: str | None = Field(default=None)
 	extra_browser_args: list[str] = Field(default_factory=list)
 
 	headless: bool = False
@@ -95,6 +95,22 @@ class BrowserConfig(BaseModel):
 
 	proxy: ProxySettings | None = None
 	new_context_config: BrowserContextConfig = Field(default_factory=BrowserContextConfig)
+
+	@property
+	def browser_instance_path(self) -> str | None:
+		return self.browser_binary_path
+		
+	@browser_instance_path.setter
+	def browser_instance_path(self, value: str | None):
+		self.browser_binary_path = value
+		
+	@property
+	def chrome_instance_path(self) -> str | None:
+		return self.browser_binary_path
+		
+	@chrome_instance_path.setter
+	def chrome_instance_path(self, value: str | None):
+		self.browser_binary_path = value
 
 
 # @singleton: TODO - think about id singleton makes sense here
