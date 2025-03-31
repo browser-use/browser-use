@@ -8,12 +8,9 @@ import logging
 import os
 import socket
 import subprocess
-from typing import Literal
+from typing import Literal, List
 import os
 from pathlib import Path
-import tempfile
-import json
-import shutil
 import requests
 from zipfile import ZipFile
 
@@ -27,6 +24,8 @@ from playwright.async_api import (
 )
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from typing_extensions import TypedDict
+
+from browser_use.browser.views import ExtensionConfig
 
 load_dotenv()
 
@@ -79,10 +78,8 @@ class BrowserConfig(BaseModel):
 			Path to a Browser instance to use to connect to your normal browser
 			e.g. '/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome'
 
-		enable_adblock: False
-			Whether to automatically download and enable uBlock Lite extension.
-			Will download from GitHub releases on first use and store in system's
-			~/.cache directory.
+		extensions: []
+			List of extensions to install. Each extension is defined by an ExtensionConfig object.
 
 		keep_alive: False
 			Keep the browser alive after the agent has finished running
@@ -102,10 +99,10 @@ class BrowserConfig(BaseModel):
 
 	wss_url: str | None = None
 	cdp_url: str | None = None
-	enable_adblock: bool = False
 	browser_class: Literal['chromium', 'firefox', 'webkit'] = 'chromium'
 	browser_binary_path: str | None = Field(default=None, alias=AliasChoices('browser_instance_path', 'chrome_instance_path'))
 	extra_browser_args: list[str] = Field(default_factory=list)
+	extensions: List[ExtensionConfig] = Field(default_factory=list)
 
 	headless: bool = False
 	disable_security: bool = True
@@ -126,7 +123,6 @@ class Browser:
 	It is recommended to use only one instance of Browser per your application (RAM usage will grow otherwise).
 	"""
 
-	UBLOCK_RELEASE_URL = "https://api.github.com/repos/uBlockOrigin/uBOL-home/releases/latest"
 
 	def __init__(
 		self,
@@ -138,11 +134,27 @@ class Browser:
 		self.playwright_browser: PlaywrightBrowser | None = None
 
 	@property
-	def _ublock_cache_dir(self) -> Path:
-		"""Get the cache directory for uBlock extension"""
-		cache_dir = Path.home() / ".cache" / "browser-use" / "extensions" / "ublock-lite"
+	def _extensions_cache_dir(self) -> Path:
+		"""Get the cache directory for extensions"""
+		cache_dir = Path.home() / ".cache" / "browser-use" / "extensions"
 		cache_dir.mkdir(parents=True, exist_ok=True)
 		return cache_dir
+
+	def _get_extension_dir(self, extension: ExtensionConfig) -> Path:
+		"""Get the directory for a specific extension"""
+		ext_dir = self._extensions_cache_dir / f"{extension.name.lower().replace(' ', '-')}-{extension.extension_id}"
+		ext_dir.mkdir(parents=True, exist_ok=True)
+		return ext_dir
+
+	def _get_extension_crx_path(self, extension: ExtensionConfig) -> Path:
+		"""Get the path for an extension's CRX file"""
+		return self._extensions_cache_dir / f"{extension.name.lower().replace(' ', '-')}-{extension.extension_id}.crx"
+
+	def _get_extension_url(self, extension: ExtensionConfig) -> str:
+		"""Get the download URL for an extension"""
+		if extension.custom_url:
+			return extension.custom_url
+		return f"https://clients2.google.com/service/update2/crx?response=redirect&prodversion=1230&acceptformat=crx3&x=id%3D{extension.extension_id}%26uc"
 
 	@property
 	def _user_data_dir(self) -> Path:
@@ -151,52 +163,64 @@ class Browser:
 		data_dir.mkdir(parents=True, exist_ok=True)
 		return data_dir
 
-	async def _get_ublock_path(self) -> Path:
+	async def _get_extension_path(self, extension: ExtensionConfig) -> Path:
 		"""
-		Download and extract uBlock Lite if not already present.
+		Download and extract extension CRX if not already present.
 		Returns path to the extension directory.
 		"""
+		ext_dir = self._get_extension_dir(extension)
+		
 		# If extension already exists and has manifest.json, use it
-		if self._ublock_cache_dir.exists() and (self._ublock_cache_dir / "manifest.json").exists():
-			logger.debug("Using cached uBlock Lite extension")
-			return self._ublock_cache_dir
+		if ext_dir.exists() and (ext_dir / "manifest.json").exists():
+			logger.debug(f"Using cached extension: {extension.name}")
+			return ext_dir
 		
 		# Download if not present
-		logger.info("Downloading uBlock Lite extension...")
+		logger.info(f"Downloading extension: {extension.name}")
 		try:
-			# Get latest release info
-			response = requests.get(self.UBLOCK_RELEASE_URL)
+			# Create parent directory if it doesn't exist
+			ext_dir.parent.mkdir(parents=True, exist_ok=True)
+			
+			# Download CRX file
+			crx_path = self._get_extension_crx_path(extension)
+			extension_url = self._get_extension_url(extension)
+			response = requests.get(extension_url)
 			response.raise_for_status()
-			release_data = response.json()
 			
-			# Find the chromium zip asset
-			zip_asset = next(
-				asset for asset in release_data["assets"] 
-				if asset["name"].endswith(".chromium.mv3.zip")
-			)
+			# Save CRX file
+			with open(crx_path, "wb") as f:
+				f.write(response.content)
 			
-			# Create a temporary directory for extraction
-			with tempfile.TemporaryDirectory() as temp_dir:
-				# Download zip file
-				zip_path = os.path.join(temp_dir, "extension.zip")
-				response = requests.get(zip_asset["browser_download_url"])
-				response.raise_for_status()
+			logger.info(f"Downloaded {extension.name} CRX to {crx_path}")
+			
+			# Extract CRX file
+			self._extract_crx(crx_path, ext_dir)
+			
+			# Verify extraction worked
+			if not (ext_dir / "manifest.json").exists():
+				raise RuntimeError(f"Failed to extract {extension.name} extension: manifest.json not found")
 				
-				# Save zip file
-				with open(zip_path, "wb") as f:
-					f.write(response.content)
-				
-				# Extract to cache directory
-				with ZipFile(zip_path) as zip_file:
-					zip_file.extractall(str(self._ublock_cache_dir))
-				
-				logger.info("Successfully installed uBlock Lite")
+			logger.info(f"Successfully installed {extension.name} extension")
 		
 		except Exception as e:
-			logger.error(f"Failed to download uBlock Lite: {e}")
-			raise RuntimeError("Failed to download uBlock Lite extension") from e
+			logger.error(f"Failed to download {extension.name} extension: {e}")
+			raise RuntimeError(f"Failed to download {extension.name} extension") from e
 		
-		return self._ublock_cache_dir
+		return ext_dir
+
+	def _extract_crx(self, crx_path: Path, target_dir: Path) -> None:
+		"""Extract a Chrome extension CRX file to the target directory"""
+		logger.info(f"Extracting {crx_path} to {target_dir}")
+		
+		# Ensure target directory exists
+		target_dir.mkdir(parents=True, exist_ok=True)
+
+		try:
+			with ZipFile(crx_path) as zip_file:
+				zip_file.extractall(str(target_dir))
+		except Exception as e:
+			logger.error(f"Failed to extract CRX with ZipFile: {e}")
+			raise RuntimeError(f"Could not extract CRX file: {e}") from e
 
 	async def new_context(self, config: BrowserContextConfig | None = None) -> BrowserContext:
 		"""Create a browser context"""
@@ -242,7 +266,7 @@ class Browser:
 		browser = await browser_class.connect(self.config.wss_url)
 		return browser
 
-	async def _setup_user_provided_browser(self, playwright: Playwright) -> PlaywrightBrowser:
+	async def _setup_user_provided_browser(self, playwright: Playwright, extension_paths: List[str] = None) -> PlaywrightBrowser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		if not self.config.browser_binary_path:
 			raise ValueError('A browser_binary_path is required')
@@ -266,17 +290,24 @@ class Browser:
 			logger.debug('🌎  No existing Chrome instance found, starting a new one')
 
 		# Start a new Chrome instance
+		chrome_args = {
+			*CHROME_ARGS,
+			*(CHROME_DOCKER_ARGS if IN_DOCKER else []),
+			*(CHROME_HEADLESS_ARGS if self.config.headless else []),
+			*(CHROME_DISABLE_SECURITY_ARGS if self.config.disable_security else []),
+			*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.config.deterministic_rendering else []),
+			*self.config.extra_browser_args,
+		}
+		
+		# Add extensions if provided
+		if extension_paths:
+			chrome_args.add(f'--load-extension={",".join(extension_paths)}')
+			
 		chrome_launch_cmd = [
 			self.config.browser_binary_path,
-			*{  # remove duplicates (usually preserves the order, but not guaranteed)
-				*CHROME_ARGS,
-				*(CHROME_DOCKER_ARGS if IN_DOCKER else []),
-				*(CHROME_HEADLESS_ARGS if self.config.headless else []),
-				*(CHROME_DISABLE_SECURITY_ARGS if self.config.disable_security else []),
-				*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.config.deterministic_rendering else []),
-				*self.config.extra_browser_args,
-			},
+			*chrome_args,
 		]
+		
 		self._chrome_subprocess = psutil.Process(
 			subprocess.Popen(
 				chrome_launch_cmd,
@@ -310,7 +341,7 @@ class Browser:
 				'To start chrome in Debug mode, you need to close all existing Chrome instances and try again otherwise we can not connect to the instance.'
 			)
 
-	async def _setup_builtin_browser(self, playwright: Playwright) -> PlaywrightBrowser:
+	async def _setup_builtin_browser(self, playwright: Playwright, extension_paths: List[str] = None) -> PlaywrightBrowser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		assert self.config.browser_binary_path is None, 'browser_binary_path should be None if trying to use the builtin browsers'
 
@@ -355,18 +386,33 @@ class Browser:
 			],
 		}
 
-		browser = await browser_class.launch(
-			headless=self.config.headless,
-			args=args[self.config.browser_class],
-			proxy=self.config.proxy,
-			handle_sigterm=False,
-			handle_sigint=False,
-		)
+		# Add extensions for Chromium
+		launch_options = {
+			'headless': self.config.headless,
+			'args': args[self.config.browser_class],
+			'proxy': self.config.proxy,
+			'handle_sigterm': False,
+			'handle_sigint': False,
+		}
+		
+		# Only add extensions for Chromium
+		if self.config.browser_class == 'chromium' and extension_paths:
+			launch_options['args'].extend([f'--load-extension={",".join(extension_paths)}'])
+
+		browser = await browser_class.launch(**launch_options)
 		return browser
 
 	async def _setup_browser(self, playwright: Playwright) -> PlaywrightBrowser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		try:
+			# Process extensions if any are configured
+			extension_paths = []
+			if self.config.extensions:
+				for extension in self.config.extensions:
+					ext_path = await self._get_extension_path(extension)
+					extension_paths.append(str(ext_path))
+					
+			# Continue with the existing browser setup logic
 			if self.config.cdp_url:
 				return await self._setup_remote_cdp_browser(playwright)
 			if self.config.wss_url:
@@ -376,9 +422,9 @@ class Browser:
 				logger.warning('⚠️ Headless mode is not recommended. Many sites will detect and block all headless browsers.')
 
 			if self.config.browser_binary_path:
-				return await self._setup_user_provided_browser(playwright)
+				return await self._setup_user_provided_browser(playwright, extension_paths)
 			else:
-				return await self._setup_builtin_browser(playwright)
+				return await self._setup_builtin_browser(playwright, extension_paths)
 		except Exception as e:
 			logger.error(f'Failed to initialize Playwright browser: {e}')
 			raise
