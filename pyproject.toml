@@ -55,8 +55,3 @@ docstring-code-format = true
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.hatch.build]
-include = [
-  "browser_use/dom/buildDomTree.js",
-]
-

@@ -301,7 +301,12 @@ class Agent(Generic[Context]):
 	def _set_tool_calling_method(self) -> Optional[ToolCallingMethod]:
 		tool_calling_method = self.settings.tool_calling_method
 		if tool_calling_method == 'auto':
-			if 'deepseek-reasoner' in self.model_name or 'deepseek-r1' in self.model_name:
+			if (
+				self.model_name == "deepseek-reasoner"
+				or "deepseek-r1" in self.model_name
+				or "gemma" in self.model_name
+				and "-it" in self.model_name
+			):
 				return 'raw'
 			elif self.chat_model_library == 'ChatGoogleGenerativeAI':
 				return None
@@ -516,7 +521,7 @@ class Agent(Generic[Context]):
 	@time_execution_async('--get_next_action (agent)')
 	async def get_next_action(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get next action from LLM based on current state"""
-		input_messages = self._convert_input_messages(input_messages)
+		input_messages = convert_input_messages(input_messages, self.model_name)
 
 		if self.tool_calling_method == 'raw':
 			output = self.llm.invoke(input_messages)
