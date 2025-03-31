@@ -399,59 +399,13 @@ class BrowserContext:
 		session = await self.get_session()
 		return await self._get_current_page(session)
 
-	async def _create_context(self, browser: PlaywrightBrowser):
+	async def _create_context(self, browser: PlaywrightBrowser | PlaywrightBrowserContext):
 		"""Creates a new browser context with anti-detection measures and loads cookies if available."""
 
-		if self.browser.config.enable_adblock:
-			# Get extension path
-			extension_path = await self.browser._get_ublock_path()
-			logger.info(f'Loading extension from: {extension_path}')
-
-			# Get Playwright instance
-			if not self.browser.playwright:
-				raise BrowserError('Playwright instance not found')
-
-			# Create persistent context with extension
-			context = await self.browser.playwright.chromium.launch_persistent_context(
-				user_data_dir=str(self.browser._user_data_dir),
-				channel='chromium',
-				headless=self.browser.config.headless,
-				ignore_default_args=['--disable-extensions'],
-				args=[
-					'--no-sandbox',
-					'--disable-blink-features=AutomationControlled',
-					'--disable-infobars',
-					'--no-first-run',
-					'--no-default-browser-check',
-					f'--load-extension={extension_path}',
-				]
-				+ self.browser.disable_security_args
-				+ self.browser.config.extra_chromium_args,
-				proxy=self.browser.config.proxy,
-			)
-		elif self.browser.config.cdp_url and len(browser.contexts) > 0:
-			context = browser.contexts[0]
-		elif self.browser.config.browser_binary_path and len(browser.contexts) > 0:
-			# Connect to existing Chrome instance instead of creating new one
-			context = browser.contexts[0]
-		else:
-			# Original code for creating new context
-			context = await browser.new_context(
-				no_viewport=True,
-				user_agent=self.config.user_agent,
-				java_script_enabled=True,
-				bypass_csp=self.config.disable_security,
-				ignore_https_errors=self.config.disable_security,
-				record_video_dir=self.config.save_recording_path,
-				record_video_size=self.config.browser_window_size,
-				record_har_path=self.config.save_har_path,
-				locale=self.config.locale,
-				is_mobile=self.config.is_mobile,
-				has_touch=self.config.has_touch,
-				geolocation=self.config.geolocation,
-				permissions=self.config.permissions,
-				timezone_id=self.config.timezone_id,
-			)
+		if isinstance(browser, PlaywrightBrowser) and len(browser.contexts) > 0:
+			context= browser.contexts[0]
+		elif isinstance(browser, PlaywrightBrowserContext):
+			context = browser
 
 		if self.config.trace_path:
 			await context.tracing.start(screenshots=True, snapshots=True, sources=True)

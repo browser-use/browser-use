@@ -17,7 +17,7 @@ from zipfile import ZipFile
 import psutil
 import requests
 from dotenv import load_dotenv
-from playwright.async_api import Browser as PlaywrightBrowser
+from playwright.async_api import Browser as PlaywrightBrowser, BrowserContext as PlaywrightBrowserContext
 from playwright.async_api import (
 	Playwright,
 	async_playwright,
@@ -130,7 +130,7 @@ class Browser:
 		logger.debug('🌎  Initializing new browser')
 		self.config = config or BrowserConfig()
 		self.playwright: Playwright | None = None
-		self.playwright_browser: PlaywrightBrowser | None = None
+		self.playwright_browser: PlaywrightBrowser | PlaywrightBrowserContext | None = None
 
 	@property
 	def _extensions_cache_dir(self) -> Path:
@@ -151,8 +151,6 @@ class Browser:
 
 	def _get_extension_url(self, extension: ExtensionConfig) -> str:
 		"""Get the download URL for an extension"""
-		if extension.custom_url:
-			return extension.custom_url
 		return f'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=1230&acceptformat=crx3&x=id%3D{extension.extension_id}%26uc'
 
 	@property
@@ -225,7 +223,7 @@ class Browser:
 		"""Create a browser context"""
 		return BrowserContext(config=config or self.config, browser=self)
 
-	async def get_playwright_browser(self) -> PlaywrightBrowser:
+	async def get_playwright_browser(self) -> PlaywrightBrowser | PlaywrightBrowserContext:
 		"""Get a browser context"""
 		if self.playwright_browser is None:
 			return await self._init()
@@ -333,7 +331,7 @@ class Browser:
 				'To start chrome in Debug mode, you need to close all existing Chrome instances and try again otherwise we can not connect to the instance.'
 			)
 
-	async def _setup_builtin_browser(self, playwright: Playwright) -> PlaywrightBrowser:
+	async def _setup_builtin_browser(self, playwright: Playwright) -> PlaywrightBrowser | PlaywrightBrowserContext:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		assert self.config.browser_binary_path is None, 'browser_binary_path should be None if trying to use the builtin browsers'
 
@@ -342,7 +340,7 @@ class Browser:
 			for extension in self.config.extensions:
 				ext_path = await self._get_extension_path(extension)
 				extension_paths.append(str(ext_path))
-				
+
 		if self.config.headless:
 			screen_size = {'width': 1920, 'height': 1080}
 			offset_x, offset_y = 0, 0
@@ -396,11 +394,9 @@ class Browser:
 		# Only add extensions for Chromium
 		if self.config.browser_class == 'chromium' and extension_paths:
 			launch_options['args'].extend([f'--load-extension={",".join(extension_paths)}'])
+		return await playwright.chromium.launch_persistent_context(**launch_options)
 
-		browser = await browser_class.launch(**launch_options)
-		return browser
-
-	async def _setup_browser(self, playwright: Playwright) -> PlaywrightBrowser:
+	async def _setup_browser(self, playwright: Playwright) -> PlaywrightBrowser | PlaywrightBrowserContext:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		try:
 			if self.config.cdp_url:
