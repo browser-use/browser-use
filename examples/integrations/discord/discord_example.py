@@ -29,7 +29,7 @@ Five Steps to create and invite a Discord bot:
     *   Click “Authorize”.
    -->  Note: The person adding the bot needs "Manage Server" permissions.
 6. Run the code below to start the bot with your bot token.
-7. Write e.g. "/bu whats the weather in Tokyo?" to start a browser-use task and get a response inside the Discord channel.
+7. Write e.g. "/bu what's the weather in Tokyo?" to start a browser-use task and get a response inside the Discord channel.
 """
 
 import os

@@ -236,3 +236,48 @@ Using a separate planner model can help:
 - `max_failures`: Maximum number of failures before giving up. Defaults to `3`.
 - `retry_delay`: Time to wait between retries in seconds when rate limited. Defaults to `10`.
 - `generate_gif`: Enable/disable GIF generation. Defaults to `False`. Set to `True` or a string path to save the GIF.
+## Memory Management
+
+Browser Use includes a procedural memory system using [Mem0](https://mem0.ai) that automatically summarizes the agent's conversation history at regular intervals to optimize context window usage during long tasks.
+
+```python
+agent = Agent(
+    task="your task",
+    llm=llm,
+    enable_memory=True,
+    memory_interval=10, # create procedural memory every 10 steps
+)
+```
+
+### Memory Parameters
+
+- `enable_memory`: Enable/disable the procedural memory system. Defaults to `True`.
+- `memory_interval`: Number of steps between memory summarization. Defaults to `10`.
+- `memory_config`: Optional configuration dictionary for the underlying memory system.
+
+### How Memory Works
+
+When enabled, the agent periodically compresses its conversation history into concise summaries:
+
+1. Every `memory_interval` steps, the agent reviews its recent interactions
+2. It creates a procedural memory summary using the same LLM as the agent
+3. The original messages are replaced with the summary, reducing token usage
+4. This process helps maintain important context while freeing up the context window
+
+### Disabling Memory
+
+If you want to disable the memory system (for debugging or for shorter tasks), set `enable_memory` to `False`:
+
+```python
+agent = Agent(
+    task="your task",
+    llm=llm,
+    enable_memory=False
+)
+```
+
+<Note>
+  Disabling memory may be useful for debugging or short tasks, but for longer
+  tasks, it can lead to context window overflow as the conversation history
+  grows. The memory system helps maintain performance during extended sessions.
+</Note>

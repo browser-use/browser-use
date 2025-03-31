@@ -57,7 +57,7 @@ class Controller(Generic[Context]):
 				data: output_model
 
 			@self.registry.action(
-				'Complete task - with return text and if the task is finished (success=True) or not yet  completly finished (success=False), because last step is reached',
+				'Complete task - with return text and if the task is finished (success=True) or not yet  completely finished (success=False), because last step is reached',
 				param_model=ExtendedOutputModel,
 			)
 			async def done(params: ExtendedOutputModel):
@@ -73,7 +73,7 @@ class Controller(Generic[Context]):
 		else:
 
 			@self.registry.action(
-				'Complete task - with return text and if the task is finished (success=True) or not yet  completly finished (success=False), because last step is reached',
+				'Complete task - with return text and if the task is finished (success=True) or not yet  completely finished (success=False), because last step is reached',
 				param_model=DoneAction,
 			)
 			async def done(params: DoneAction):
@@ -299,7 +299,7 @@ class Controller(Generic[Context]):
 
 		# Content Actions
 		@self.registry.action(
-			'Extract page content to retrieve specific information from the page, e.g. all company names, a specifc description, all information about, links with companies in structured format or simply links',
+			'Extract page content to retrieve specific information from the page, e.g. all company names, a specific description, all information about, links with companies in structured format or simply links',
 		)
 		async def extract_content(
 			goal: str, should_strip_link_urls: bool, browser: BrowserContext, page_extraction_llm: BaseChatModel

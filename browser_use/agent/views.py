@@ -28,6 +28,8 @@ REQUIRED_LLM_API_ENV_VARS = {
 	'ChatBedrockConverse': ['ANTHROPIC_API_KEY'],
 	'ChatAnthropic': ['ANTHROPIC_API_KEY'],
 	'ChatGoogleGenerativeAI': ['GEMINI_API_KEY'],
+	'ChatDeepSeek': ['DEEPSEEK_API_KEY'],
+	'ChatOllama': [],
 }
 
 
@@ -66,6 +68,11 @@ class AgentSettings(BaseModel):
 	planner_llm: Optional[BaseChatModel] = None
 	planner_interval: int = 1  # Run planner every N steps
 	is_planner_reasoning: bool = False  # type: ignore
+
+	# Procedural memory settings
+	enable_memory: bool = True
+	memory_interval: int = 10
+	memory_config: Optional[dict] = None
 
 
 class AgentState(BaseModel):

@@ -23,6 +23,7 @@ from langchain_core.messages import (
 from pydantic import BaseModel, ValidationError
 
 from browser_use.agent.gif import create_history_gif
+from browser_use.agent.memory.service import Memory, MemorySettings
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
 from browser_use.agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation
 from browser_use.agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
@@ -146,6 +147,10 @@ class Agent(Generic[Context]):
 		injected_agent_state: Optional[AgentState] = None,
 		#
 		context: Context | None = None,
+		# Memory settings
+		enable_memory: bool = True,
+		memory_interval: int = 10,
+		memory_config: Optional[dict] = None,
 	):
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
@@ -177,6 +182,9 @@ class Agent(Generic[Context]):
 			planner_llm=planner_llm,
 			planner_interval=planner_interval,
 			is_planner_reasoning=is_planner_reasoning,
+			enable_memory=enable_memory,
+			memory_interval=memory_interval,
+			memory_config=memory_config,
 		)
 
 		# Initialize state
@@ -189,10 +197,14 @@ class Agent(Generic[Context]):
 
 		# Model setup
 		self._set_model_names()
+		logger.info(
+			f'🧠 Starting an agent with main_model={self.model_name}, planner_model={self.planner_model_name}, '
+			f'extraction_model={self.settings.page_extraction_llm.model_name if hasattr(self.settings.page_extraction_llm, "model_name") else None}'
+		)
 
 		# LLM API connection setup
-		llm_api_env_vars = REQUIRED_LLM_API_ENV_VARS[self.llm.__class__.__name__]
-		if not check_env_variables(llm_api_env_vars):
+		llm_api_env_vars = REQUIRED_LLM_API_ENV_VARS.get(self.llm.__class__.__name__, [])
+		if llm_api_env_vars and not check_env_variables(llm_api_env_vars):
 			logger.error(f'Environment variables not set for {self.llm.__class__.__name__}')
 			raise ValueError('Environment variables not set')
 
@@ -226,15 +238,29 @@ class Agent(Generic[Context]):
 			state=self.state.message_manager_state,
 		)
 
+		if self.settings.enable_memory:
+			memory_settings = MemorySettings(
+				agent_id=self.state.agent_id,
+				interval=self.settings.memory_interval,
+				config=self.settings.memory_config,
+			)
+
+			# Initialize memory
+			self.memory = Memory(
+				message_manager=self._message_manager,
+				llm=self.llm,
+				settings=memory_settings,
+			)
+		else:
+			self.memory = None
+
 		# Browser setup
 		self.injected_browser = browser is not None
 		self.injected_browser_context = browser_context is not None
-		if browser_context:
-			self.browser = browser
-			self.browser_context = browser_context
-		else:
-			self.browser = browser or Browser()
-			self.browser_context = BrowserContext(browser=self.browser, config=self.browser.config.new_context_config)
+		self.browser = browser or Browser()
+		self.browser_context = browser_context or BrowserContext(
+			browser=self.browser, config=self.browser.config.new_context_config
+		)
 
 		# Callbacks
 		self.register_new_step_callback = register_new_step_callback
@@ -364,6 +390,10 @@ class Agent(Generic[Context]):
 		try:
 			state = await self.browser_context.get_state()
 			active_page = await self.browser_context.get_current_page()
+
+			# generate procedural memory if needed
+			if self.settings.enable_memory and self.memory and self.state.n_steps % self.settings.memory_interval == 0:
+				self.memory.create_procedural_memory(self.state.n_steps)
 
 			await self._raise_if_stopped_or_paused()
 
@@ -529,10 +559,18 @@ class Agent(Generic[Context]):
 
 			self.state.consecutive_failures += 1
 		else:
+			from anthropic import RateLimitError as AnthropicRateLimitError
 			from google.api_core.exceptions import ResourceExhausted
 			from openai import RateLimitError
 
-			if isinstance(error, RateLimitError) or isinstance(error, ResourceExhausted):
+			# Define a tuple of rate limit error types for easier maintenance
+			RATE_LIMIT_ERRORS = (
+				RateLimitError,  # OpenAI
+				ResourceExhausted,  # Google
+				AnthropicRateLimitError,  # Anthropic
+			)
+
+			if isinstance(error, RATE_LIMIT_ERRORS):
 				logger.warning(f'{prefix}{error_msg}')
 				await asyncio.sleep(self.settings.retry_delay)
 				self.state.consecutive_failures += 1
@@ -1124,7 +1162,7 @@ class Agent(Generic[Context]):
 
 			if test_answer in response_text:
 				logger.debug(
-					f'🧠  LLM API keys {", ".join(required_keys)} verified, {llm.__class__.__name__} model is connected and responding correctly.'
+					f'🧠 LLM API keys {", ".join(required_keys)} verified, {llm.__class__.__name__} model is connected and responding correctly.'
 				)
 				llm._verified_api_keys = True
 				return True
@@ -1150,11 +1188,11 @@ class Agent(Generic[Context]):
 			return None
 
 		# Get current state to filter actions by page
-		state = await self.browser_context.get_state()
+		page = await self.browser_context.get_current_page()
 
 		# Get all standard actions (no filter) and page-specific actions
 		standard_actions = self.controller.registry.get_prompt_description()  # No page = system prompt actions
-		page_actions = self.controller.registry.get_prompt_description(state.page)  # Page-specific actions
+		page_actions = self.controller.registry.get_prompt_description(page)  # Page-specific actions
 
 		# Combine both for the planner
 		all_actions = standard_actions

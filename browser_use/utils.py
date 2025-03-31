@@ -74,20 +74,28 @@ class SignalHandler:
 
 	def register(self) -> None:
 		"""Register signal handlers for SIGINT and SIGTERM."""
-		if self.is_windows:
-			# On Windows, use simple signal handling with immediate exit on Ctrl+C
-			def windows_handler(sig, frame):
-				print('\n\n🛑 Got Ctrl+C. Exiting immediately on Windows...\n', file=stderr)
-				# Run the custom exit callback if provided
-				if self.custom_exit_callback:
-					self.custom_exit_callback()
-				os._exit(0)
+		try:
+			if self.is_windows:
+				# On Windows, use simple signal handling with immediate exit on Ctrl+C
+				def windows_handler(sig, frame):
+					print('\n\n🛑 Got Ctrl+C. Exiting immediately on Windows...\n', file=stderr)
+					# Run the custom exit callback if provided
+					if self.custom_exit_callback:
+						self.custom_exit_callback()
+					os._exit(0)
 
-			self.original_sigint_handler = signal.signal(signal.SIGINT, windows_handler)
-		else:
-			# On Unix-like systems, use asyncio's signal handling for smoother experience
-			self.original_sigint_handler = self.loop.add_signal_handler(signal.SIGINT, lambda: self.sigint_handler())
-			self.original_sigterm_handler = self.loop.add_signal_handler(signal.SIGTERM, lambda: self.sigterm_handler())
+				self.original_sigint_handler = signal.signal(signal.SIGINT, windows_handler)
+			else:
+				# On Unix-like systems, use asyncio's signal handling for smoother experience
+				self.original_sigint_handler = self.loop.add_signal_handler(signal.SIGINT, lambda: self.sigint_handler())
+				self.original_sigterm_handler = self.loop.add_signal_handler(signal.SIGTERM, lambda: self.sigterm_handler())
+
+		except Exception:
+			# there are situations where signal handlers are not supported, e.g.
+			# - when running in a thread other than the main thread
+			# - some operating systems
+			# - inside jupyter notebooks
+			pass
 
 	def unregister(self) -> None:
 		"""Unregister signal handlers and restore original handlers if possible."""
@@ -219,7 +227,12 @@ class SignalHandler:
 		# Temporarily restore default signal handling for SIGINT
 		# This ensures KeyboardInterrupt will be raised during input()
 		original_handler = signal.getsignal(signal.SIGINT)
-		signal.signal(signal.SIGINT, signal.default_int_handler)
+		try:
+			signal.signal(signal.SIGINT, signal.default_int_handler)
+		except ValueError:
+			# we are running in a thread other than the main thread
+			# or signal handlers are not supported for some other reason
+			pass
 
 		green = '\x1b[32;1m'
 		red = '\x1b[31m'
