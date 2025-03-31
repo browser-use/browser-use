@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from warnings import filterwarnings
 
+from langchain_core._api import LangChainBetaWarning
 from langchain_core.load import dumpd, load
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
+
+filterwarnings('ignore', category=LangChainBetaWarning)
 
 if TYPE_CHECKING:
 	from browser_use.agent.views import AgentOutput
@@ -14,6 +18,7 @@ class MessageMetadata(BaseModel):
 	"""Metadata for a message"""
 
 	tokens: int = 0
+	message_type: str | None = None
 
 
 class ManagedMessage(BaseModel):
@@ -56,6 +61,7 @@ class ManagedMessage(BaseModel):
 		"""
 		if isinstance(value, dict) and 'message' in value:
 			# NOTE: We use langchain's load to convert the JSON string back into a BaseMessage object.
+			filterwarnings('ignore', category=LangChainBetaWarning)
 			value['message'] = load(value['message'])
 		return value
 
@@ -64,17 +70,17 @@ class MessageHistory(BaseModel):
 	"""History of messages with metadata"""
 
 	messages: list[ManagedMessage] = Field(default_factory=list)
-	total_tokens: int = 0
+	current_tokens: int = 0
 
 	model_config = ConfigDict(arbitrary_types_allowed=True)
 
-	def add_message(self, message: BaseMessage, metadata: MessageMetadata, position: int = -1) -> None:
+	def add_message(self, message: BaseMessage, metadata: MessageMetadata, position: int | None = None) -> None:
 		"""Add message with metadata to history"""
-		if position == -1:
+		if position is None:
 			self.messages.append(ManagedMessage(message=message, metadata=metadata))
 		else:
 			self.messages.insert(position, ManagedMessage(message=message, metadata=metadata))
-		self.total_tokens += metadata.tokens
+		self.current_tokens += metadata.tokens
 
 	def add_model_output(self, output: 'AgentOutput') -> None:
 		"""Add model output as AI message"""
@@ -103,20 +109,20 @@ class MessageHistory(BaseModel):
 
 	def get_total_tokens(self) -> int:
 		"""Get total tokens in history"""
-		return self.total_tokens
+		return self.current_tokens
 
 	def remove_oldest_message(self) -> None:
 		"""Remove oldest non-system message"""
 		for i, msg in enumerate(self.messages):
 			if not isinstance(msg.message, SystemMessage):
-				self.total_tokens -= msg.metadata.tokens
+				self.current_tokens -= msg.metadata.tokens
 				self.messages.pop(i)
 				break
 
 	def remove_last_state_message(self) -> None:
 		"""Remove last state message from history"""
 		if len(self.messages) > 2 and isinstance(self.messages[-1].message, HumanMessage):
-			self.total_tokens -= self.messages[-1].metadata.tokens
+			self.current_tokens -= self.messages[-1].metadata.tokens
 			self.messages.pop()
 
 

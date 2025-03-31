@@ -4,7 +4,6 @@ from langchain_openai import ChatOpenAI
 
 from browser_use import Agent
 
-
 llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
 planner_llm = ChatOpenAI(
 	model='o3-mini',

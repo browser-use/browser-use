@@ -186,3 +186,5 @@ gcp-login.json
 *.csv
 *.json
 *.jsonl
+
+uv.lock

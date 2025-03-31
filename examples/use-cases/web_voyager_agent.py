@@ -1,15 +1,15 @@
 # Goal: A general-purpose web navigation agent for tasks like flight booking and course searching.
 
+import asyncio
 import os
 import sys
-import asyncio
 
 # Adjust Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
-from pydantic import SecretStr
 from langchain_openai import AzureChatOpenAI
+from pydantic import SecretStr
 
 from browser_use.agent.service import Agent
 from browser_use.browser.browser import Browser, BrowserConfig, BrowserContextConfig
@@ -18,10 +18,10 @@ from browser_use.browser.browser import Browser, BrowserConfig, BrowserContextCo
 load_dotenv()
 
 # Validate required environment variables
-required_env_vars = ["AZURE_OPENAI_KEY", "AZURE_OPENAI_ENDPOINT"]
+required_env_vars = ['AZURE_OPENAI_KEY', 'AZURE_OPENAI_ENDPOINT']
 for var in required_env_vars:
-    if not os.getenv(var):
-        raise ValueError(f"{var} is not set. Please add it to your environment variables.")
+	if not os.getenv(var):
+		raise ValueError(f'{var} is not set. Please add it to your environment variables.')
 
 browser = Browser(
 	config=BrowserConfig(
@@ -68,5 +68,5 @@ async def main():
 	history.save_to_file('./tmp/history.json')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
 	asyncio.run(main())
