@@ -12,7 +12,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
 from playwright.async_api import Browser as PlaywrightBrowser
 from playwright.async_api import (
@@ -1295,8 +1295,10 @@ class BrowserContext:
 			raise BrowserError(f'Failed to input text into index {element_node.highlight_index}')
 
 	@time_execution_async('--click_element_node')
-	async def _click_element_node(self, element_node: DOMElementNode) -> ClickResult:
-		return await self.click_with_retry(element_node)
+	async def _click_element_node(
+		self, element_node: DOMElementNode, button: Literal['left', 'right', 'middle'] = 'left'
+	) -> ClickResult:
+		return await self.click_with_retry(element_node, button)
 
 	@time_execution_async('--get_tabs_info')
 	async def get_tabs_info(self) -> list[TabInfo]:
@@ -1537,19 +1539,20 @@ class BrowserContext:
 
 			if not await self._check_element_state(element_handle):
 				return ClickResult(status=ClickStatus.ERROR, message='Element not in clickable state')
-			return await self.handle_click(page, element_handle)
+			return await self.handle_click(page, element_handle, button)
 		except Exception as e:
 			return ClickResult(status=ClickStatus.ERROR, message=str(e))
 
 	async def click_with_retry(
 		self,
 		element_node: DOMElementNode,
+		button: Literal['left', 'right', 'middle'] = 'left',
 	) -> ClickResult:
 		delay = self.config.click_config.initial_retry_delay
 		error_message: set[str] = set()
 		for attempt in range(1, self.config.click_config.max_retries + 1):
 			try:
-				result: ClickResult = await self.click_element_node(element_node)
+				result: ClickResult = await self.click_element_node(element_node, button)
 				if result.status in {
 					ClickStatus.DOWNLOAD_SUCCESS,
 					ClickStatus.SUCCESS,
@@ -1572,7 +1575,9 @@ class BrowserContext:
 		logger.error(f'Click failed after all attempts: {", ".join(error_message)}')
 		return ClickResult(status=ClickStatus.ERROR, message=', '.join(error_message))
 
-	async def handle_click(self, page: Page, element: ElementHandle) -> ClickResult:
+	async def handle_click(
+		self, page: Page, element: ElementHandle, button: Literal['left', 'right', 'middle'] = 'left'
+	) -> ClickResult:
 		"""Handle click, checking for both navigation and download events"""
 		start_time = time.time()
 		previous_url = page.url
@@ -1584,7 +1589,7 @@ class BrowserContext:
 
 		# Perform the click
 		try:
-			await element.click(timeout=self.config.click_config.timeouts['click'] * 1000, no_wait_after=True)
+			await element.click(timeout=self.config.click_config.timeouts['click'] * 1000, no_wait_after=True, button=button)
 			click_succeeded = True
 		except Exception as ex:
 			logger.warning(f'Standard click failed, attempting JavaScript click str{ex}')

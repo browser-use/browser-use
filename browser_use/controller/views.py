@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -18,11 +18,20 @@ class WaitForElementAction(BaseModel):
 
 
 class ClickElementAction(BaseModel):
-	index: Optional[int] = None  # Index of the element to click
-	text: Optional[str] = None   # Text to search for
-	nth: Optional[int] = 0       # Which occurrence of text (0-based)
-	element_type: Optional[str] = None  # Optional element type filter
- 
+	index: Optional[int] = Field(default=None, description='Index of the element to click in the DOM tree')
+	text: Optional[str] = Field(default=None, description='The text content to search for within elements')
+	nth: Optional[int] = Field(
+		default=0, description="When using 'text', specifies which occurrence to click (0-based indexing)."
+	)
+	element_type: Optional[str] = Field(
+		default=None, description='Optional filter to only consider elements of a specific HTML tag type.'
+	)
+	button: Literal['left', 'right', 'middle'] = Field(
+		default='left',
+		description="The mouse button to use for the click action: 'left' for standard click, 'right' for context menu, 'middle' for middle-button click.",
+	)
+
+
 class ClickElementByXpathAction(BaseModel):
 	xpath: str
 
