@@ -147,7 +147,7 @@ CHROME_ARGS = [
 	'--no-pings',
 	'--no-first-run',
 	'--no-default-browser-check',
-	'--no-startup-window',
+	# '--no-startup-window',
 	'--disable-default-apps',
 	'--ash-no-nudges',
 	'--disable-infobars',

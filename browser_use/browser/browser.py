@@ -352,14 +352,15 @@ class Browser:
 			f'--window-position={offset_x},{offset_y}',
 			f'--window-size={screen_size["width"]},{screen_size["height"]}',
 			f'--load-extension={",".join(extension_paths)}',
+			f'--disable-extensions-except={",".join(extension_paths)}',
 			*self.config.extra_browser_args,
 		}
 
 		# check if port 9222 is already taken, if so remove the remote-debugging-port arg to prevent conflicts
 		with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 			if s.connect_ex(('localhost', 9222)) == 0:
-				chrome_args.remove('--remote-debugging-port=9222')
-				chrome_args.remove('--remote-debugging-address=0.0.0.0')
+				chrome_args.discard('--remote-debugging-port=9222')
+				chrome_args.discard('--remote-debugging-address=0.0.0.0')
 
 		browser_class: BrowserType = getattr(playwright, self.config.browser_class)
 		args = {
