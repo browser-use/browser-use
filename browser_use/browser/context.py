@@ -157,7 +157,7 @@ class BrowserContextConfig(BaseModel):
 	geolocation: dict | None = None
 	permissions: list[str] | None = None
 	timezone_id: str | None = None
-	click_config: ClickConfig = field(default_factory=lambda: ClickConfig())
+	click_config: ClickConfig = Field(default_factory=lambda: ClickConfig())
 
 
 class BrowserSession:
