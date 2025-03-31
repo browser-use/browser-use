@@ -8,17 +8,17 @@ import logging
 import os
 import socket
 import subprocess
-from typing import Literal, List
-import os
 from pathlib import Path
-import requests
+from typing import List, Literal
 from zipfile import ZipFile
 
 import psutil
 import requests
 from dotenv import load_dotenv
-from playwright.async_api import Browser as PlaywrightBrowser, BrowserContext as PlaywrightBrowserContext, BrowserType
+from playwright.async_api import Browser as PlaywrightBrowser
+from playwright.async_api import BrowserContext as PlaywrightBrowserContext
 from playwright.async_api import (
+	BrowserType,
 	Playwright,
 	async_playwright,
 )

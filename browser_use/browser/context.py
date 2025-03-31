@@ -19,7 +19,7 @@ from playwright.async_api import Browser as PlaywrightBrowser
 from playwright.async_api import (
 	BrowserContext as PlaywrightBrowserContext,
 )
-from playwright.async_api import ElementHandle, FrameLocator, Page, Geolocation
+from playwright.async_api import ElementHandle, FrameLocator, Geolocation, Page
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import TypedDict
 
