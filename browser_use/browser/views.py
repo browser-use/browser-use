@@ -75,7 +75,7 @@ class ClickStatus(Enum):
 
 @dataclass
 class ClickConfig:
-	timeouts: dict[str, int] = field(default_factory=lambda: {'click': 2, 'download': 5, 'navigation': 5, 'popup': 2})
+	timeouts: dict[str, int] = field(default_factory=lambda: {'click': 2, 'download': 5, 'navigation': 5})
 	max_retries: int = 1
 	initial_retry_delay: float = 1.0
 

@@ -18,7 +18,7 @@ if not api_key:
 llm = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=SecretStr(api_key))
 
 click_config = ClickConfig(
-	timeouts={'click': 1, 'download': 1, 'navigation': 1, 'popup': 1},
+	timeouts={'click': 1, 'download': 1, 'navigation': 1},
 	max_retries=3,
 	initial_retry_delay=1.0,
 )
