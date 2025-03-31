@@ -39,7 +39,7 @@
                 "-v",
                 "-k",
                 "test_captcha_solver",
-                "--capture=no",
+                "--capture=no"
             ],
             "console": "integratedTerminal",
             "justMyCode": false
@@ -54,7 +54,7 @@
                 "-v",
                 "-k",
                 "test_ecommerce_interaction",
-                "--capture=no",
+                "--capture=no"
             ],
             "console": "integratedTerminal",
             "justMyCode": false

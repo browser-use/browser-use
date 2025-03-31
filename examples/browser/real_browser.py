@@ -1,22 +1,20 @@
 import os
 import sys
-from pathlib import Path
-
-from browser_use.agent.views import ActionResult
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import asyncio
 
+import dotenv
 from langchain_openai import ChatOpenAI
 
-from browser_use import Agent, Controller
-from browser_use.browser.browser import Browser, BrowserConfig
-from browser_use.browser.context import BrowserContext
+from browser_use import Agent, Browser, BrowserConfig
+
+dotenv.load_dotenv()
 
 browser = Browser(
 	config=BrowserConfig(
 		# NOTE: you need to close your chrome browser - so that this can open your browser in debug mode
-		chrome_instance_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+		browser_binary_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 	)
 )
 

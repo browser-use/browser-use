@@ -391,7 +391,7 @@
         rect.top > window.innerHeight + viewportExpansion ||
         rect.right < -viewportExpansion ||
         rect.left > window.innerWidth + viewportExpansion
-      );
+      ) || viewportExpansion === -1;
 
       // Check parent visibility
       const parentElement = textNode.parentElement;
@@ -462,6 +462,23 @@
       return false;
     }
 
+    function doesElementHaveInteractivePointer(element) {
+      if (element.tagName.toLowerCase() === "html") return false;
+      const style = window.getComputedStyle(element);
+
+      let interactiveCursors = ["pointer", "move", "text", "grab", "cell"];
+
+      if (interactiveCursors.includes(style.cursor)) return true;
+
+      return false;
+    }
+
+    let isInteractiveCursor = doesElementHaveInteractivePointer(element);
+
+    if (isInteractiveCursor) {
+      return true;
+    }
+
     // Special handling for cookie banner elements
     const isCookieBannerElement =
       (typeof element.closest === 'function') && (
@@ -513,7 +530,9 @@
 
     // Added enhancement to capture dropdown interactive elements
     if (element.classList && (
+      element.classList.contains("button") ||
       element.classList.contains('dropdown-toggle') ||
+      element.getAttribute('data-index') ||
       element.getAttribute('data-toggle') === 'dropdown' ||
       element.getAttribute('aria-haspopup') === 'true'
     )) {
@@ -536,18 +555,18 @@
 
     // Additional checks for cookie banners and consent UI
     const isCookieBanner =
-      element.id?.toLowerCase().includes('cookie') ||
-      element.id?.toLowerCase().includes('consent') ||
-      element.id?.toLowerCase().includes('notice') ||
+      element.id?.toString().toLowerCase().includes('cookie') ||
+      element.id?.toString().toLowerCase().includes('consent') ||
+      element.id?.toString().toLowerCase().includes('notice') ||
       (element.classList && (
         element.classList.contains('otCenterRounded') ||
         element.classList.contains('ot-sdk-container')
       )) ||
       element.getAttribute('data-nosnippet') === 'true' ||
-      element.getAttribute('aria-label')?.toLowerCase().includes('cookie') ||
-      element.getAttribute('aria-label')?.toLowerCase().includes('consent') ||
+      element.getAttribute('aria-label')?.toString().toLowerCase().includes('cookie') ||
+      element.getAttribute('aria-label')?.toString().toLowerCase().includes('consent') ||
       (element.tagName.toLowerCase() === 'div' && (
-        element.id?.includes('onetrust') ||
+        element.id?.toString().toLowerCase().includes('onetrust') ||
         (element.classList && (
           element.classList.contains('onetrust') ||
           element.classList.contains('cookie') ||
@@ -571,9 +590,6 @@
     )) {
       return true;
     }
-
-    // Get computed style
-    const style = window.getComputedStyle(element);
 
     // Check for event listeners
     const hasClickHandler =
@@ -775,7 +791,8 @@
       element.hasAttribute("role") ||
       element.hasAttribute("tabindex") ||
       element.hasAttribute("aria-") ||
-      element.hasAttribute("data-action");
+      element.hasAttribute("data-action") ||
+      element.getAttribute("contenteditable") == "true";
 
     return hasQuickInteractiveAttr;
   }
@@ -955,16 +972,16 @@
           if (domElement) nodeData.children.push(domElement);
         }
       }
-      // Handle shadow DOM
-      else if (node.shadowRoot) {
-        nodeData.shadowRoot = true;
-        for (const child of node.shadowRoot.childNodes) {
-          const domElement = buildDomTree(child, parentIframe);
-          if (domElement) nodeData.children.push(domElement);
-        }
-      }
-      // Handle regular elements
       else {
+        // Handle shadow DOM
+        if (node.shadowRoot) {
+          nodeData.shadowRoot = true;
+          for (const child of node.shadowRoot.childNodes) {
+            const domElement = buildDomTree(child, parentIframe);
+            if (domElement) nodeData.children.push(domElement);
+          }
+        }
+        // Handle regular elements
         for (const child of node.childNodes) {
           const domElement = buildDomTree(child, parentIframe);
           if (domElement) nodeData.children.push(domElement);

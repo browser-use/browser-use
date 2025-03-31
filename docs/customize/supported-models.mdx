@@ -113,15 +113,13 @@ AZURE_OPENAI_KEY=
 ```python
 from langchain_google_genai import ChatGoogleGenerativeAI
 from browser_use import Agent
-from pydantic import SecretStr
-import os
 from dotenv import load_dotenv
+
+# Read GOOGLE_API_KEY into env
 load_dotenv()
 
-api_key = os.getenv("GEMINI_API_KEY")
-
 # Initialize the model
-llm = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=SecretStr(os.getenv('GEMINI_API_KEY')))
+llm = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp')
 
 # Create agent with the model
 agent = Agent(
@@ -133,19 +131,22 @@ agent = Agent(
 Required environment variables:
 
 ```bash .env
-GEMINI_API_KEY=
+GOOGLE_API_KEY=
 ```
 
 
 ### DeepSeek-V3
-The community likes DeepSeek-V3 for its low price, no rate limits, open-source nature, and good performance. 
+The community likes DeepSeek-V3 for its low price, no rate limits, open-source nature, and good performance.
 The example is available [here](https://github.com/browser-use/browser-use/blob/main/examples/models/deepseek.py).
 
 ```python
 from langchain_openai import ChatOpenAI
 from browser_use import Agent
 from pydantic import SecretStr
+from dotenv import load_dotenv
 
+load_dotenv()
+api_key = os.getenv("DEEPSEEK_API_KEY")
 
 # Initialize the model
 llm=ChatOpenAI(base_url='https://api.deepseek.com/v1', model='deepseek-chat', api_key=SecretStr(api_key))
@@ -172,7 +173,10 @@ It does not support vision. The model is open-source so you could also use it wi
 from langchain_openai import ChatOpenAI
 from browser_use import Agent
 from pydantic import SecretStr
+from dotenv import load_dotenv
 
+load_dotenv()
+api_key = os.getenv("DEEPSEEK_API_KEY")
 
 # Initialize the model
 llm=ChatOpenAI(base_url='https://api.deepseek.com/v1', model='deepseek-reasoner', api_key=SecretStr(api_key))
@@ -192,7 +196,7 @@ DEEPSEEK_API_KEY=
 ```
 
 ### Ollama
-Many users asked for local models. Here they are. 
+Many users asked for local models. Here they are.
 
 1. Download Ollama from [here](https://ollama.ai/download)
 2. Run `ollama pull model_name`. Pick a model which supports tool-calling from [here](https://ollama.com/search?c=tools)

@@ -12,40 +12,49 @@ classifiers = [
 ]
 dependencies = [
     "httpx>=0.27.2",
-    "pydantic>=2.10.4",
+    "pydantic>=2.10.4,<2.11.0",
     "python-dotenv>=1.0.1",
     "requests>=2.32.3",
     "posthog>=3.7.0",
-    "playwright>=1.49.0",
-    "setuptools>=75.8.0",
-    "markdownify==0.14.1",
-    "langchain-core>=0.3.35",
-    "langchain-openai==0.3.1",
+    "playwright>=1.51.0",
+    "markdownify==1.1.0",
+    "langchain-core==0.3.49",
+    "langchain-openai==0.3.11",
     "langchain-anthropic==0.3.3",
-    "langchain-ollama==0.2.2",
+    "langchain-ollama==0.3.0",
+    "langchain-google-genai==2.1.2",
+    "langchain>=0.3.21",
+    "langchain-aws>=0.2.11",
+    "botocore>=1.37.23",
+    "google-api-core>=2.24.0",
+    "pyperclip>=1.9.0",
+    "pyobjc>=11.0; platform_system == 'darwin'",
+    "screeninfo>=0.8.1; platform_system != 'darwin'",
+    "typing-extensions>=4.12.2",
+    "psutil>=7.0.0",
+    "faiss-cpu>=1.10.0",
+    "mem0ai==0.1.81",
 ]
+
+# botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py 
+# pydantic: >2.11 introduces many pydantic deprecation warnings until langchain-core upgrades their pydantic support lets keep it on 2.10
+# google-api-core: only used for Google LLM APIs
+# pyperclip: only used for examples that use copy/paste
+# pyobjc: only used to get screen resolution on macOS
+# screeninfo: only used to get screen resolution on Linux/Windows
+# markdownify: used for page text content extraction for passing to LLM
+# openai: datalib,voice-helpers are actually NOT NEEDED but openai produces noisy errors on exit without them TODO: fix
 urls = { "Repository" = "https://github.com/browser-use/browser-use" }
 
-[project.optional-dependencies]
-dev = [
-    "tokencost>=0.1.16",
-    "hatch>=1.13.0",
-    "build>=1.2.2",
-    "pytest>=8.3.3",
-    "pytest-asyncio>=0.24.0",
-    "fastapi>=0.115.8",
-    "inngest>=0.4.19",
-    "uvicorn>=0.34.0",
-    "langchain>=0.3.18",
-    "langchain-aws>=0.2.11",
-    "langchain-fireworks>=0.2.6",
-    "langchain-google-genai==2.0.8",
-]
 
 [tool.ruff]
 line-length = 130
-select = ["E", "F", "I"]
 fix = true
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "PLE"]
+ignore = ["E101", "E402", "E501", "F841", "E731"]
+unfixable = ["E101", "E402", "E501", "F841", "E731"]
 
 [tool.ruff.format]
 quote-style = "single"
@@ -55,3 +64,27 @@ docstring-code-format = true
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build]
+include = [
+    "browser_use/**/*.py",
+    "!browser_use/**/tests/*.py",
+    "!browser_use/**/tests.py",
+    "browser_use/agent/system_prompt.md",
+    "browser_use/dom/buildDomTree.js",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "ruff>=0.11.2",
+    "tokencost>=0.1.16",
+    "build>=1.2.2",
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.24.0",
+    "fastapi>=0.115.8",
+    "inngest>=0.4.19",
+    "uvicorn>=0.34.0",
+    "langchain-fireworks>=0.2.6",
+    "ipdb>=0.13.13",
+    "pre-commit>=4.2.0",
+]

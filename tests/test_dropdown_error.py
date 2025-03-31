@@ -20,9 +20,7 @@ llm = ChatOpenAI(model='gpt-4o')
 # browser = Browser(config=BrowserConfig(headless=False))
 
 agent = Agent(
-	task=(
-		'go to https://codepen.io/shyam-king/pen/emOyjKm and select number "4" and return the output of "selected value"'
-	),
+	task=('go to https://codepen.io/shyam-king/pen/emOyjKm and select number "4" and return the output of "selected value"'),
 	llm=llm,
 	browser_context=BrowserContext(
 		browser=Browser(config=BrowserConfig(headless=False, disable_security=True)),
