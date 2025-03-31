@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Optional
 
 from pydantic import BaseModel
@@ -62,3 +63,26 @@ class BrowserError(Exception):
 
 class URLNotAllowedError(BrowserError):
 	"""Error raised when a URL is not allowed"""
+
+
+class ClickStatus(Enum):
+	SUCCESS = 'success'
+	NAVIGATION_SUCCESS = 'navigation_success'
+	ERROR = 'error'
+	DOWNLOAD_SUCCESS = 'download_success'
+	NAVIGATION_DISALLOWED = 'navigation_disallowed'
+
+
+@dataclass
+class ClickConfig:
+	timeouts: dict[str, int] = field(default_factory=lambda: {'click': 2, 'download': 5, 'navigation': 5})
+	max_retries: int = 1
+	initial_retry_delay: float = 1.0
+
+
+@dataclass
+class ClickResult:
+	status: ClickStatus
+	message: Optional[str] = None
+	download_path: Optional[str] = None
+	navigated_url: Optional[str] = None
