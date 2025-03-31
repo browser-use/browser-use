@@ -1,7 +1,6 @@
 import asyncio
 import os
 
-from browser_use.browser.views import ClickConfig
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import SecretStr
@@ -9,6 +8,7 @@ from pydantic import SecretStr
 from browser_use import Agent, BrowserConfig
 from browser_use.browser.browser import Browser
 from browser_use.browser.context import BrowserContextConfig
+from browser_use.browser.views import ClickConfig
 
 load_dotenv()
 api_key = os.getenv('GEMINI_API_KEY')
@@ -18,7 +18,7 @@ if not api_key:
 llm = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=SecretStr(api_key))
 
 click_config = ClickConfig(
-	timeouts={"click": 1, "download": 1, "navigation": 1, "popup": 1},
+	timeouts={'click': 1, 'download': 1, 'navigation': 1, 'popup': 1},
 	max_retries=3,
 	initial_retry_delay=1.0,
 )
