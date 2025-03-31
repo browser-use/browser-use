@@ -123,7 +123,6 @@ class Browser:
 	It is recommended to use only one instance of Browser per your application (RAM usage will grow otherwise).
 	"""
 
-
 	def __init__(
 		self,
 		config: BrowserConfig | None = None,
@@ -136,30 +135,30 @@ class Browser:
 	@property
 	def _extensions_cache_dir(self) -> Path:
 		"""Get the cache directory for extensions"""
-		cache_dir = Path.home() / ".cache" / "browser-use" / "extensions"
+		cache_dir = Path.home() / '.cache' / 'browser-use' / 'extensions'
 		cache_dir.mkdir(parents=True, exist_ok=True)
 		return cache_dir
 
 	def _get_extension_dir(self, extension: ExtensionConfig) -> Path:
 		"""Get the directory for a specific extension"""
-		ext_dir = self._extensions_cache_dir / f"{extension.name.lower().replace(' ', '-')}-{extension.extension_id}"
+		ext_dir = self._extensions_cache_dir / f'{extension.name.lower().replace(" ", "-")}-{extension.extension_id}'
 		ext_dir.mkdir(parents=True, exist_ok=True)
 		return ext_dir
 
 	def _get_extension_crx_path(self, extension: ExtensionConfig) -> Path:
 		"""Get the path for an extension's CRX file"""
-		return self._extensions_cache_dir / f"{extension.name.lower().replace(' ', '-')}-{extension.extension_id}.crx"
+		return self._extensions_cache_dir / f'{extension.name.lower().replace(" ", "-")}-{extension.extension_id}.crx'
 
 	def _get_extension_url(self, extension: ExtensionConfig) -> str:
 		"""Get the download URL for an extension"""
 		if extension.custom_url:
 			return extension.custom_url
-		return f"https://clients2.google.com/service/update2/crx?response=redirect&prodversion=1230&acceptformat=crx3&x=id%3D{extension.extension_id}%26uc"
+		return f'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=1230&acceptformat=crx3&x=id%3D{extension.extension_id}%26uc'
 
 	@property
 	def _user_data_dir(self) -> Path:
 		"""Get the user data directory for persistent context"""
-		data_dir = Path.home() / ".cache" / "browser-use" / "user-data"
+		data_dir = Path.home() / '.cache' / 'browser-use' / 'user-data'
 		data_dir.mkdir(parents=True, exist_ok=True)
 		return data_dir
 
@@ -169,49 +168,49 @@ class Browser:
 		Returns path to the extension directory.
 		"""
 		ext_dir = self._get_extension_dir(extension)
-		
+
 		# If extension already exists and has manifest.json, use it
-		if ext_dir.exists() and (ext_dir / "manifest.json").exists():
-			logger.debug(f"Using cached extension: {extension.name}")
+		if ext_dir.exists() and (ext_dir / 'manifest.json').exists():
+			logger.debug(f'Using cached extension: {extension.name}')
 			return ext_dir
-		
+
 		# Download if not present
-		logger.info(f"Downloading extension: {extension.name}")
+		logger.info(f'Downloading extension: {extension.name}')
 		try:
 			# Create parent directory if it doesn't exist
 			ext_dir.parent.mkdir(parents=True, exist_ok=True)
-			
+
 			# Download CRX file
 			crx_path = self._get_extension_crx_path(extension)
 			extension_url = self._get_extension_url(extension)
 			response = requests.get(extension_url)
 			response.raise_for_status()
-			
+
 			# Save CRX file
-			with open(crx_path, "wb") as f:
+			with open(crx_path, 'wb') as f:
 				f.write(response.content)
-			
-			logger.info(f"Downloaded {extension.name} CRX to {crx_path}")
-			
+
+			logger.info(f'Downloaded {extension.name} CRX to {crx_path}')
+
 			# Extract CRX file
 			self._extract_crx(crx_path, ext_dir)
-			
+
 			# Verify extraction worked
-			if not (ext_dir / "manifest.json").exists():
-				raise RuntimeError(f"Failed to extract {extension.name} extension: manifest.json not found")
-				
-			logger.info(f"Successfully installed {extension.name} extension")
-		
+			if not (ext_dir / 'manifest.json').exists():
+				raise RuntimeError(f'Failed to extract {extension.name} extension: manifest.json not found')
+
+			logger.info(f'Successfully installed {extension.name} extension')
+
 		except Exception as e:
-			logger.error(f"Failed to download {extension.name} extension: {e}")
-			raise RuntimeError(f"Failed to download {extension.name} extension") from e
-		
+			logger.error(f'Failed to download {extension.name} extension: {e}')
+			raise RuntimeError(f'Failed to download {extension.name} extension') from e
+
 		return ext_dir
 
 	def _extract_crx(self, crx_path: Path, target_dir: Path) -> None:
 		"""Extract a Chrome extension CRX file to the target directory"""
-		logger.info(f"Extracting {crx_path} to {target_dir}")
-		
+		logger.info(f'Extracting {crx_path} to {target_dir}')
+
 		# Ensure target directory exists
 		target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -219,8 +218,8 @@ class Browser:
 			with ZipFile(crx_path) as zip_file:
 				zip_file.extractall(str(target_dir))
 		except Exception as e:
-			logger.error(f"Failed to extract CRX with ZipFile: {e}")
-			raise RuntimeError(f"Could not extract CRX file: {e}") from e
+			logger.error(f'Failed to extract CRX with ZipFile: {e}')
+			raise RuntimeError(f'Could not extract CRX file: {e}') from e
 
 	async def new_context(self, config: BrowserContextConfig | None = None) -> BrowserContext:
 		"""Create a browser context"""
@@ -266,7 +265,7 @@ class Browser:
 		browser = await browser_class.connect(self.config.wss_url)
 		return browser
 
-	async def _setup_user_provided_browser(self, playwright: Playwright, extension_paths: List[str] = None) -> PlaywrightBrowser:
+	async def _setup_user_provided_browser(self, playwright: Playwright) -> PlaywrightBrowser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		if not self.config.browser_binary_path:
 			raise ValueError('A browser_binary_path is required')
@@ -289,25 +288,18 @@ class Browser:
 		except requests.ConnectionError:
 			logger.debug('🌎  No existing Chrome instance found, starting a new one')
 
-		# Start a new Chrome instance
-		chrome_args = {
-			*CHROME_ARGS,
-			*(CHROME_DOCKER_ARGS if IN_DOCKER else []),
-			*(CHROME_HEADLESS_ARGS if self.config.headless else []),
-			*(CHROME_DISABLE_SECURITY_ARGS if self.config.disable_security else []),
-			*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.config.deterministic_rendering else []),
-			*self.config.extra_browser_args,
-		}
-		
-		# Add extensions if provided
-		if extension_paths:
-			chrome_args.add(f'--load-extension={",".join(extension_paths)}')
-			
 		chrome_launch_cmd = [
 			self.config.browser_binary_path,
-			*chrome_args,
+			*{  # remove duplicates (usually preserves the order, but not guaranteed)
+				*CHROME_ARGS,
+				*(CHROME_DOCKER_ARGS if IN_DOCKER else []),
+				*(CHROME_HEADLESS_ARGS if self.config.headless else []),
+				*(CHROME_DISABLE_SECURITY_ARGS if self.config.disable_security else []),
+				*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.config.deterministic_rendering else []),
+				*self.config.extra_browser_args,
+			},
 		]
-		
+
 		self._chrome_subprocess = psutil.Process(
 			subprocess.Popen(
 				chrome_launch_cmd,
@@ -394,7 +386,7 @@ class Browser:
 			'handle_sigterm': False,
 			'handle_sigint': False,
 		}
-		
+
 		# Only add extensions for Chromium
 		if self.config.browser_class == 'chromium' and extension_paths:
 			launch_options['args'].extend([f'--load-extension={",".join(extension_paths)}'])
@@ -411,7 +403,7 @@ class Browser:
 				for extension in self.config.extensions:
 					ext_path = await self._get_extension_path(extension)
 					extension_paths.append(str(ext_path))
-					
+
 			# Continue with the existing browser setup logic
 			if self.config.cdp_url:
 				return await self._setup_remote_cdp_browser(playwright)
@@ -422,7 +414,7 @@ class Browser:
 				logger.warning('⚠️ Headless mode is not recommended. Many sites will detect and block all headless browsers.')
 
 			if self.config.browser_binary_path:
-				return await self._setup_user_provided_browser(playwright, extension_paths)
+				return await self._setup_user_provided_browser(playwright)
 			else:
 				return await self._setup_builtin_browser(playwright, extension_paths)
 		except Exception as e:

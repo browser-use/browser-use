@@ -405,30 +405,30 @@ class BrowserContext:
 		if self.browser.config.enable_adblock:
 			# Get extension path
 			extension_path = await self.browser._get_ublock_path()
-			logger.info(f"Loading extension from: {extension_path}")
-			
+			logger.info(f'Loading extension from: {extension_path}')
+
 			# Get Playwright instance
 			if not self.browser.playwright:
 				raise BrowserError('Playwright instance not found')
-			
+
 			# Create persistent context with extension
 			context = await self.browser.playwright.chromium.launch_persistent_context(
 				user_data_dir=str(self.browser._user_data_dir),
-				channel="chromium",
+				channel='chromium',
 				headless=self.browser.config.headless,
-				ignore_default_args=["--disable-extensions"],
+				ignore_default_args=['--disable-extensions'],
 				args=[
 					'--no-sandbox',
 					'--disable-blink-features=AutomationControlled',
 					'--disable-infobars',
 					'--no-first-run',
 					'--no-default-browser-check',
-					f"--load-extension={extension_path}",
+					f'--load-extension={extension_path}',
 				]
 				+ self.browser.disable_security_args
 				+ self.browser.config.extra_chromium_args,
 				proxy=self.browser.config.proxy,
-			)		
+			)
 		elif self.browser.config.cdp_url and len(browser.contexts) > 0:
 			context = browser.contexts[0]
 		elif self.browser.config.browser_binary_path and len(browser.contexts) > 0:
@@ -462,7 +462,7 @@ class BrowserContext:
 				cookies = json.load(f)
 				logger.info(f'🍪  Loaded {len(cookies)} cookies from {self.config.cookies_file}')
 				await context.add_cookies(cookies)
-		
+
 		# Expose anti-detection scripts
 		await context.add_init_script(
 			"""
