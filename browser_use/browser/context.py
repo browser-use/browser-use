@@ -19,12 +19,7 @@ from playwright.async_api import Browser as PlaywrightBrowser
 from playwright.async_api import (
 	BrowserContext as PlaywrightBrowserContext,
 )
-from playwright.async_api import (
-	ElementHandle,
-	FrameLocator,
-	Page,
-	Geolocation
-)
+from playwright.async_api import ElementHandle, FrameLocator, Page, Geolocation
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import TypedDict
 
@@ -404,7 +399,7 @@ class BrowserContext:
 		"""Creates a new browser context with anti-detection measures and loads cookies if available."""
 
 		if isinstance(browser, PlaywrightBrowser) and len(browser.contexts) > 0:
-			context= browser.contexts[0]
+			context = browser.contexts[0]
 		elif isinstance(browser, PlaywrightBrowserContext):
 			context = browser
 

@@ -182,7 +182,7 @@ class Browser:
 			# Extract CRX file
 			self._extract_crx(crx_path, ext_dir)
 
-			#Remove the crx file
+			# Remove the crx file
 			os.remove(crx_path)
 
 			# Verify extraction worked
@@ -215,7 +215,9 @@ class Browser:
 		"""Create a browser context"""
 		return BrowserContext(config=config or self.config, browser=self)
 
-	async def get_playwright_browser(self, browser_context_config: BrowserContextConfig | None = None) -> PlaywrightBrowser | PlaywrightBrowserContext:
+	async def get_playwright_browser(
+		self, browser_context_config: BrowserContextConfig | None = None
+	) -> PlaywrightBrowser | PlaywrightBrowserContext:
 		"""Get a browser context"""
 		if self.playwright_browser is None:
 			return await self._init(browser_context_config)
@@ -323,14 +325,16 @@ class Browser:
 				'To start chrome in Debug mode, you need to close all existing Chrome instances and try again otherwise we can not connect to the instance.'
 			)
 
-	async def _setup_builtin_browser(self, playwright: Playwright, browser_context_config: BrowserContextConfig | None = None) -> PlaywrightBrowser | PlaywrightBrowserContext:
+	async def _setup_builtin_browser(
+		self, playwright: Playwright, browser_context_config: BrowserContextConfig | None = None
+	) -> PlaywrightBrowser | PlaywrightBrowserContext:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		assert self.config.browser_binary_path is None, 'browser_binary_path should be None if trying to use the builtin browsers'
 		assert browser_context_config is not None, 'browser_context_config is required'
 
 		if self.config.browser_class == 'chromium':
 			extension_paths = []
-			extension_paths.append(str(Path(__file__).parent.parent.parent / "extension"))
+			extension_paths.append(str(Path(__file__).parent.parent.parent / 'extension'))
 			if self.config.extensions:
 				for extension in self.config.extensions:
 					ext_path = await self._get_extension_path(extension)
@@ -404,7 +408,9 @@ class Browser:
 		)
 		return browser
 
-	async def _setup_browser(self, playwright: Playwright, browser_context_config: BrowserContextConfig | None = None) -> PlaywrightBrowser | PlaywrightBrowserContext:
+	async def _setup_browser(
+		self, playwright: Playwright, browser_context_config: BrowserContextConfig | None = None
+	) -> PlaywrightBrowser | PlaywrightBrowserContext:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		try:
 			if self.config.cdp_url:
