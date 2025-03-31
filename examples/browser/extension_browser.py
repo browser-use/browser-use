@@ -18,7 +18,7 @@ llm = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=SecretStr(api
 
 browser = Browser(
 	config=BrowserConfig(
-		extensions=[ExtensionConfig(name='uBlock', extension_id='cjpalhdlnbpafiamejdnhcphjbkeiagm', browser_type='chromium')]
+		extensions=[ExtensionConfig(name='uBlock', extension_id='cjpalhdlnbpafiamejdnhcphjbkeiagm')]
 	)
 )
 

@@ -23,6 +23,7 @@ from playwright.async_api import (
 	ElementHandle,
 	FrameLocator,
 	Page,
+	Geolocation
 )
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import TypedDict
@@ -159,7 +160,7 @@ class BrowserContextConfig(BaseModel):
 	keep_alive: bool = Field(default=False, alias='_force_keep_context_alive')  # used to be called _force_keep_context_alive
 	is_mobile: bool | None = None
 	has_touch: bool | None = None
-	geolocation: dict | None = None
+	geolocation: Geolocation | None = None
 	permissions: list[str] | None = None
 	timezone_id: str | None = None
 

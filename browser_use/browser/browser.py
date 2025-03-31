@@ -19,7 +19,7 @@ import pkg_resources
 import psutil
 import requests
 from dotenv import load_dotenv
-from playwright.async_api import Browser as PlaywrightBrowser, BrowserContext as PlaywrightBrowserContext
+from playwright.async_api import Browser as PlaywrightBrowser, BrowserContext as PlaywrightBrowserContext, BrowserType
 from playwright.async_api import (
 	Playwright,
 	async_playwright,
@@ -147,14 +147,6 @@ class Browser:
 		ext_dir.mkdir(parents=True, exist_ok=True)
 		return ext_dir
 
-	def _get_extension_crx_path(self, extension: ExtensionConfig) -> Path:
-		"""Get the path for an extension's CRX file"""
-		return self._extensions_cache_dir / f'{extension.extension_id}.crx'
-
-	def _get_extension_url(self, extension: ExtensionConfig) -> str:
-		"""Get the download URL for an extension"""
-		return f'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=1230&acceptformat=crx3&x=id%3D{extension.extension_id}%26uc'
-
 	@property
 	def _user_data_dir(self) -> Path:
 		"""Get the user data directory for persistent context"""
@@ -178,8 +170,8 @@ class Browser:
 		logger.info(f'Downloading extension: {extension.name}')
 		try:
 			# Download CRX file
-			crx_path = self._get_extension_crx_path(extension)
-			extension_url = self._get_extension_url(extension)
+			crx_path = self._extensions_cache_dir / f'{extension.extension_id}.crx'
+			extension_url = f'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=1230&acceptformat=crx3&x=id%3D{extension.extension_id}%26uc'
 			response = requests.get(extension_url)
 			response.raise_for_status()
 
@@ -191,6 +183,9 @@ class Browser:
 
 			# Extract CRX file
 			self._extract_crx(crx_path, ext_dir)
+
+			#Remove the crx file
+			os.remove(crx_path)
 
 			# Verify extraction worked
 			if not (ext_dir / 'manifest.json').exists():
@@ -330,17 +325,18 @@ class Browser:
 				'To start chrome in Debug mode, you need to close all existing Chrome instances and try again otherwise we can not connect to the instance.'
 			)
 
-	async def _setup_builtin_browser(self, playwright: Playwright, browser_context_config: BrowserContextConfig | None = None) -> PlaywrightBrowser:
+	async def _setup_builtin_browser(self, playwright: Playwright, browser_context_config: BrowserContextConfig | None = None) -> PlaywrightBrowser | PlaywrightBrowserContext:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		assert self.config.browser_binary_path is None, 'browser_binary_path should be None if trying to use the builtin browsers'
 		assert browser_context_config is not None, 'browser_context_config is required'
 
-		extension_paths = []
-		extension_paths.append(str(Path(__file__).parent.parent.parent / "extension"))
-		if self.config.extensions:
-			for extension in self.config.extensions:
-				ext_path = await self._get_extension_path(extension)
-				extension_paths.append(str(ext_path))
+		if self.config.browser_class == 'chromium':
+			extension_paths = []
+			extension_paths.append(str(Path(__file__).parent.parent.parent / "extension"))
+			if self.config.extensions:
+				for extension in self.config.extensions:
+					ext_path = await self._get_extension_path(extension)
+					extension_paths.append(str(ext_path))
 
 		if self.config.headless:
 			screen_size = {'width': 1920, 'height': 1080}
@@ -357,11 +353,9 @@ class Browser:
 			*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.config.deterministic_rendering else []),
 			f'--window-position={offset_x},{offset_y}',
 			f'--window-size={screen_size["width"]},{screen_size["height"]}',
+			f'--load-extension={",".join(extension_paths)}',
 			*self.config.extra_browser_args,
 		}
-
-		# Add extension loading argument
-		chrome_args.add(f'--load-extension={",".join(extension_paths)}')
 
 		# check if port 9222 is already taken, if so remove the remote-debugging-port arg to prevent conflicts
 		with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -369,7 +363,7 @@ class Browser:
 				chrome_args.remove('--remote-debugging-port=9222')
 				chrome_args.remove('--remote-debugging-address=0.0.0.0')
 
-		browser_class = getattr(playwright, self.config.browser_class)
+		browser_class: BrowserType = getattr(playwright, self.config.browser_class)
 		args = {
 			'chromium': list(chrome_args),
 			'firefox': [

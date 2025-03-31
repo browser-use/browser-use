@@ -70,4 +70,3 @@ class ExtensionConfig:
 
 	name: str
 	extension_id: str
-	browser_type: Optional[str] = 'chromium'
