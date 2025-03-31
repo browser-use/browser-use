@@ -1530,6 +1530,7 @@ class BrowserContext:
 	async def click_element_node(
 		self,
 		element_node: DOMElementNode,
+		button: Literal['left', 'right', 'middle'] = 'left',
 	) -> ClickResult:
 		page = await self.get_current_page()
 		try:
