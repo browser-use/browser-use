@@ -62,3 +62,11 @@ class BrowserError(Exception):
 
 class URLNotAllowedError(BrowserError):
 	"""Error raised when a URL is not allowed"""
+
+@dataclass
+class ExtensionConfig:
+	"""Configuration for a browser extension"""
+	name: str
+	extension_id: str
+	# Optional custom URL, if not provided will use Chrome Web Store
+	custom_url: Optional[str] = None
