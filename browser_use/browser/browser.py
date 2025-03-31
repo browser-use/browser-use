@@ -13,6 +13,8 @@ import os
 from pathlib import Path
 import requests
 from zipfile import ZipFile
+import json
+import pkg_resources
 
 import psutil
 import requests
@@ -141,13 +143,13 @@ class Browser:
 
 	def _get_extension_dir(self, extension: ExtensionConfig) -> Path:
 		"""Get the directory for a specific extension"""
-		ext_dir = self._extensions_cache_dir / f'{extension.name.lower().replace(" ", "-")}-{extension.extension_id}'
+		ext_dir = self._extensions_cache_dir / extension.extension_id
 		ext_dir.mkdir(parents=True, exist_ok=True)
 		return ext_dir
 
 	def _get_extension_crx_path(self, extension: ExtensionConfig) -> Path:
 		"""Get the path for an extension's CRX file"""
-		return self._extensions_cache_dir / f'{extension.name.lower().replace(" ", "-")}-{extension.extension_id}.crx'
+		return self._extensions_cache_dir / f'{extension.extension_id}.crx'
 
 	def _get_extension_url(self, extension: ExtensionConfig) -> str:
 		"""Get the download URL for an extension"""
@@ -175,9 +177,6 @@ class Browser:
 		# Download if not present
 		logger.info(f'Downloading extension: {extension.name}')
 		try:
-			# Create parent directory if it doesn't exist
-			ext_dir.parent.mkdir(parents=True, exist_ok=True)
-
 			# Download CRX file
 			crx_path = self._get_extension_crx_path(extension)
 			extension_url = self._get_extension_url(extension)
@@ -223,18 +222,18 @@ class Browser:
 		"""Create a browser context"""
 		return BrowserContext(config=config or self.config, browser=self)
 
-	async def get_playwright_browser(self) -> PlaywrightBrowser | PlaywrightBrowserContext:
+	async def get_playwright_browser(self, browser_context_config: BrowserContextConfig | None = None) -> PlaywrightBrowser | PlaywrightBrowserContext:
 		"""Get a browser context"""
 		if self.playwright_browser is None:
-			return await self._init()
+			return await self._init(browser_context_config)
 
 		return self.playwright_browser
 
 	@time_execution_async('--init (browser)')
-	async def _init(self):
+	async def _init(self, browser_context_config: BrowserContextConfig | None = None):
 		"""Initialize the browser session"""
 		playwright = await async_playwright().start()
-		browser = await self._setup_browser(playwright)
+		browser = await self._setup_browser(playwright, browser_context_config)
 
 		self.playwright = playwright
 		self.playwright_browser = browser
@@ -331,11 +330,13 @@ class Browser:
 				'To start chrome in Debug mode, you need to close all existing Chrome instances and try again otherwise we can not connect to the instance.'
 			)
 
-	async def _setup_builtin_browser(self, playwright: Playwright) -> PlaywrightBrowser | PlaywrightBrowserContext:
+	async def _setup_builtin_browser(self, playwright: Playwright, browser_context_config: BrowserContextConfig | None = None) -> PlaywrightBrowser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		assert self.config.browser_binary_path is None, 'browser_binary_path should be None if trying to use the builtin browsers'
+		assert browser_context_config is not None, 'browser_context_config is required'
 
 		extension_paths = []
+		extension_paths.append(str(Path(__file__).parent.parent.parent / "extension"))
 		if self.config.extensions:
 			for extension in self.config.extensions:
 				ext_path = await self._get_extension_path(extension)
@@ -358,6 +359,9 @@ class Browser:
 			f'--window-size={screen_size["width"]},{screen_size["height"]}',
 			*self.config.extra_browser_args,
 		}
+
+		# Add extension loading argument
+		chrome_args.add(f'--load-extension={",".join(extension_paths)}')
 
 		# check if port 9222 is already taken, if so remove the remote-debugging-port arg to prevent conflicts
 		with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -382,21 +386,32 @@ class Browser:
 			],
 		}
 
-		# Add extensions for Chromium
-		launch_options = {
-			'headless': self.config.headless,
-			'args': args[self.config.browser_class],
-			'proxy': self.config.proxy,
-			'handle_sigterm': False,
-			'handle_sigint': False,
-		}
+		browser = await browser_class.launch_persistent_context(
+			user_data_dir=str(self._user_data_dir),
+			headless=self.config.headless,
+			args=args[self.config.browser_class],
+			proxy=self.config.proxy,
+			handle_sigterm=False,
+			handle_sigint=False,
+			no_viewport=True,
+			java_script_enabled=True,
+			user_agent=browser_context_config.user_agent,
+			bypass_csp=browser_context_config.disable_security,
+			ignore_https_errors=browser_context_config.disable_security,
+			record_video_dir=browser_context_config.save_recording_path,
+			record_video_size=browser_context_config.browser_window_size,
+			record_har_path=browser_context_config.save_har_path,
+			locale=browser_context_config.locale,
+			is_mobile=browser_context_config.is_mobile,
+			has_touch=browser_context_config.has_touch,
+			geolocation=browser_context_config.geolocation,
+			permissions=browser_context_config.permissions,
+			timezone_id=browser_context_config.timezone_id,
+			ignore_default_args=['--disable-extensions'],
+		)
+		return browser
 
-		# Only add extensions for Chromium
-		if self.config.browser_class == 'chromium' and extension_paths:
-			launch_options['args'].extend([f'--load-extension={",".join(extension_paths)}'])
-		return await playwright.chromium.launch_persistent_context(**launch_options)
-
-	async def _setup_browser(self, playwright: Playwright) -> PlaywrightBrowser | PlaywrightBrowserContext:
+	async def _setup_browser(self, playwright: Playwright, browser_context_config: BrowserContextConfig | None = None) -> PlaywrightBrowser | PlaywrightBrowserContext:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		try:
 			if self.config.cdp_url:
@@ -410,7 +425,7 @@ class Browser:
 			if self.config.browser_binary_path:
 				return await self._setup_user_provided_browser(playwright)
 			else:
-				return await self._setup_builtin_browser(playwright)
+				return await self._setup_builtin_browser(playwright, browser_context_config)
 		except Exception as e:
 			logger.error(f'Failed to initialize Playwright browser: {e}')
 			raise

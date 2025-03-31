@@ -310,7 +310,7 @@ class BrowserContext:
 		"""Initialize the browser session"""
 		logger.debug(f'🌎  Initializing new browser context with id: {self.context_id}')
 
-		playwright_browser = await self.browser.get_playwright_browser()
+		playwright_browser = await self.browser.get_playwright_browser(self.config)
 		context = await self._create_context(playwright_browser)
 		self._page_event_handler = None
 
