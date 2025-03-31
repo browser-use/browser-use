@@ -333,10 +333,16 @@ class Browser:
 				'To start chrome in Debug mode, you need to close all existing Chrome instances and try again otherwise we can not connect to the instance.'
 			)
 
-	async def _setup_builtin_browser(self, playwright: Playwright, extension_paths: List[str] = None) -> PlaywrightBrowser:
+	async def _setup_builtin_browser(self, playwright: Playwright) -> PlaywrightBrowser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		assert self.config.browser_binary_path is None, 'browser_binary_path should be None if trying to use the builtin browsers'
 
+		extension_paths = []
+		if self.config.extensions:
+			for extension in self.config.extensions:
+				ext_path = await self._get_extension_path(extension)
+				extension_paths.append(str(ext_path))
+				
 		if self.config.headless:
 			screen_size = {'width': 1920, 'height': 1080}
 			offset_x, offset_y = 0, 0
@@ -397,14 +403,6 @@ class Browser:
 	async def _setup_browser(self, playwright: Playwright) -> PlaywrightBrowser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		try:
-			# Process extensions if any are configured
-			extension_paths = []
-			if self.config.extensions:
-				for extension in self.config.extensions:
-					ext_path = await self._get_extension_path(extension)
-					extension_paths.append(str(ext_path))
-
-			# Continue with the existing browser setup logic
 			if self.config.cdp_url:
 				return await self._setup_remote_cdp_browser(playwright)
 			if self.config.wss_url:
@@ -416,7 +414,7 @@ class Browser:
 			if self.config.browser_binary_path:
 				return await self._setup_user_provided_browser(playwright)
 			else:
-				return await self._setup_builtin_browser(playwright, extension_paths)
+				return await self._setup_builtin_browser(playwright)
 		except Exception as e:
 			logger.error(f'Failed to initialize Playwright browser: {e}')
 			raise
