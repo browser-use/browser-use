@@ -13,8 +13,6 @@ import os
 from pathlib import Path
 import requests
 from zipfile import ZipFile
-import json
-import pkg_resources
 
 import psutil
 import requests
