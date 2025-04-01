@@ -501,7 +501,7 @@ class Agent(Generic[Context]):
 			]
 			return
 		except asyncio.CancelledError:
-			# Directly handle the case where the step is cancelled at a higher level
+			# Directly handle the case where the step is canceled at a higher level
 			# logger.debug('Task cancelled - agent was paused with Ctrl+C')
 			self.state.last_result = [ActionResult(error='The agent was paused with Ctrl+C', include_in_memory=False)]
 			raise InterruptedError('Step cancelled by user')
@@ -750,7 +750,7 @@ class Agent(Generic[Context]):
 	async def run(
 		self, max_steps: int = 100, on_step_start: AgentHookFunc | None = None, on_step_end: AgentHookFunc | None = None
 	) -> AgentHistoryList:
-		"""Execute the task with maximum number of steps"""
+		"""Execute the task with a maximum number of steps"""
 
 		loop = asyncio.get_event_loop()
 
@@ -901,7 +901,7 @@ class Agent(Generic[Context]):
 				# Gracefully handle task cancellation
 				logger.info(f'Action {i + 1} was cancelled due to Ctrl+C')
 				if not results:
-					# Add a result for the cancelled action
+					# Add a result for the canceled action
 					results.append(ActionResult(error='The action was cancelled due to Ctrl+C', include_in_memory=True))
 				raise InterruptedError('Action cancelled by user')
 
@@ -911,7 +911,7 @@ class Agent(Generic[Context]):
 		"""Validate the output of the last action is what the user wanted"""
 		system_msg = (
 			f'You are a validator of an agent who interacts with a browser. '
-			f'Validate if the output of last action is what the user wanted and if the task is completed. '
+			f'Validate if the output of the last action is what the user wanted and if the task is completed. '
 			f'If the task is unclear defined, you can let it pass. But if something is missing or the image does not show what was requested dont let it pass. '
 			f'Try to understand the page and help the model with suggestions like scroll, do x, ... to get the solution right. '
 			f'Task to validate: {self.task}. Return a JSON object with 2 keys: is_valid and reason. '
@@ -1055,7 +1055,7 @@ class Agent(Generic[Context]):
 		current_state: BrowserState,
 	) -> Optional[ActionModel]:
 		"""
-		Update action indices based on current page state.
+		Update action indices based on the current page state.
 		Returns updated action or None if element cannot be found.
 		"""
 		if not historical_element or not current_state.element_tree:
@@ -1110,7 +1110,7 @@ class Agent(Generic[Context]):
 		# through its reset() method when called from run()
 
 		# playwright browser is always immediately killed by the first Ctrl+C (no way to stop that)
-		# so we need to restart the browser if user wants to continue
+		# so we need to restart the browser if the user wants to continue
 		if self.browser:
 			logger.info('🌎 Restarting/reconnecting to browser...')
 			loop = asyncio.get_event_loop()
