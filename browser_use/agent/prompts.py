@@ -142,7 +142,7 @@ class PlannerPrompt(SystemPrompt):
 		planner_prompt_text = """You are a planning agent that helps break down tasks into smaller steps and reason about the current state.
 Your role is to:
 1. Analyze the current state and history
-2. Evaluate progress towards the ultimate goal
+2. Evaluate progress toward the ultimate goal
 3. Identify potential challenges or roadblocks
 4. Suggest the next high-level steps to take
 
