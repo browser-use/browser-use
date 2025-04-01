@@ -106,6 +106,10 @@ class BrowserContextConfig(BaseModel):
 	    include_dynamic_attributes: bool = True
 	        Include dynamic attributes in the CSS selector. If you want to reuse the css_selectors, it might be better to set this to False.
 
+		  http_credentials: None
+	  Dictionary with HTTP basic authentication credentials for corporate intranets (only supports one set of credentials for all URLs at the moment), e.g.
+	  {"username": "bill", "password": "pa55w0rd"}
+
 	    is_mobile: None
 	        Whether the meta viewport tag is taken into account and touch events are enabled.
 
@@ -155,6 +159,7 @@ class BrowserContextConfig(BaseModel):
 	viewport_expansion: int = 500
 	allowed_domains: list[str] | None = None
 	include_dynamic_attributes: bool = True
+	http_credentials: dict[str, str] | None = None
 
 	keep_alive: bool = Field(default=False, alias='_force_keep_context_alive')  # used to be called _force_keep_context_alive
 	is_mobile: bool | None = None
@@ -418,6 +423,7 @@ class BrowserContext:
 				record_video_size=self.config.browser_window_size,
 				record_har_path=self.config.save_har_path,
 				locale=self.config.locale,
+				http_credentials=self.config.http_credentials,
 				is_mobile=self.config.is_mobile,
 				has_touch=self.config.has_touch,
 				geolocation=self.config.geolocation,

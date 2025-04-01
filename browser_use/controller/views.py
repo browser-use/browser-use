@@ -96,3 +96,30 @@ class NoParamsAction(BaseModel):
 	def ignore_all_inputs(cls, values):
 		# No matter what the user sends, discard it and return empty.
 		return {}
+
+
+class Position(BaseModel):
+	x: int
+	y: int
+
+
+class DragDropAction(BaseModel):
+	# Element-based approach
+	element_source: Optional[str] = Field(None, description='CSS selector or XPath of the element to drag from')
+	element_target: Optional[str] = Field(None, description='CSS selector or XPath of the element to drop onto')
+	element_source_offset: Optional[Position] = Field(
+		None, description='Precise position within the source element to start drag (in pixels from top-left corner)'
+	)
+	element_target_offset: Optional[Position] = Field(
+		None, description='Precise position within the target element to drop (in pixels from top-left corner)'
+	)
+
+	# Coordinate-based approach (used if selectors not provided)
+	coord_source_x: Optional[int] = Field(None, description='Absolute X coordinate on page to start drag from (in pixels)')
+	coord_source_y: Optional[int] = Field(None, description='Absolute Y coordinate on page to start drag from (in pixels)')
+	coord_target_x: Optional[int] = Field(None, description='Absolute X coordinate on page to drop at (in pixels)')
+	coord_target_y: Optional[int] = Field(None, description='Absolute Y coordinate on page to drop at (in pixels)')
+
+	# Common options
+	steps: Optional[int] = Field(10, description='Number of intermediate points for smoother movement (5-20 recommended)')
+	delay_ms: Optional[int] = Field(5, description='Delay in milliseconds between steps (0 for fastest, 10-20 for more natural)')
