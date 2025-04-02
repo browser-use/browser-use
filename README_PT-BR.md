@@ -30,7 +30,7 @@ Com pip (Python>=3.11):
 pip install browser-use
 ```
 
-Install Playwright:
+Instale o Playwright:
 ```bash
 playwright install chromium
 ```
