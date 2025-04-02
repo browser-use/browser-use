@@ -1,3 +1,5 @@
+English Version | [Versão em Português](README_PT-BR.md)
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="./static/browser-use-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="./static/browser-use.png">
