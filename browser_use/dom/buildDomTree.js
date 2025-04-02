@@ -156,6 +156,11 @@
             'menuitemcheckbox', 'menuitemradio', 'a-button-text', 'button-text', 'button-icon', 'button-icon-only', 'button-text-icon-only', 'dropdown', 'combobox'
         ]);
 
+        // Add specific class check for your element
+        if (element.classList.contains('pb_c_demogrpahic-drawer')) {
+            return true;
+        }
+
         const tagName = element.tagName.toLowerCase();
         const role = element.getAttribute('role');
         const ariaRole = element.getAttribute('aria-role');
