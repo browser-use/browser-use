@@ -1,4 +1,4 @@
-Versão em Português | [English Version](READ_ME.md)
+Versão em Português | [English Version](README.md)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="./static/browser-use-dark.png">
