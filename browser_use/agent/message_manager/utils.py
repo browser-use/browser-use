@@ -37,7 +37,9 @@ def convert_input_messages(input_messages: list[BaseMessage], model_name: Option
 	"""Convert input messages to a format that is compatible with the planner model"""
 	if model_name is None:
 		return input_messages
-	if model_name == 'deepseek-reasoner' or 'deepseek-r1' in model_name:
+	if (model_name == 'deepseek-reasoner' or 
+		'deepseek-r1' in model_name or 
+		('gemma' in model_name and '-it' in model_name)):
 		converted_input_messages = _convert_messages_for_non_function_calling_models(input_messages)
 		merged_input_messages = _merge_successive_messages(converted_input_messages, HumanMessage)
 		merged_input_messages = _merge_successive_messages(merged_input_messages, AIMessage)
@@ -87,7 +89,7 @@ def _merge_successive_messages(messages: list[BaseMessage], class_to_merge: Type
 	return merged_messages
 
 
-def save_conversation(input_messages: list[BaseMessage], response: Any, target: str, encoding: Optional[str] = None) -> None:
+def save_conversation(input_messages: list[BaseMessage], response: Any, target: str, encoding: Optional[str] = 'utf-8') -> None:
 	"""Save conversation history to file."""
 
 	# create folders if not exists
