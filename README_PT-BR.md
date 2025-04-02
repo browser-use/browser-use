@@ -156,7 +156,7 @@ Diga ao seu computador o que fazer, e ele fará.
 
 ## Contribuição
 
-Nós amamos contribuições. Sinta-se à vontade para abrir problemas para bugs ou solicitações de recursos. Para contribuir com a documentação, verifique a pasta `/docs`.
+Nós amamos contribuições. Sinta-se à vontade para cogitar problemas de bugs ou solicitações. Para contribuir com a documentação, verifique a pasta `/docs`.
 
 ## Configuração Local
 
