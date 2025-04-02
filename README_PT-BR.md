@@ -1,10 +1,12 @@
+Versão em Português | [English Version](READ_ME.md)
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="./static/browser-use-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="./static/browser-use.png">
   <img alt="Shows a black Browser Use Logo in light color mode and a white one in dark color mode." src="./static/browser-use.png"  width="full">
 </picture>
 
-<h1 align="center">Enable AI to control your browser 🤖</h1>
+<h1 align="center">Habilite a IA para controlar seu navegador 🤖</h1>
 
 [![GitHub stars](https://img.shields.io/github/stars/gregpr07/browser-use?style=social)](https://github.com/gregpr07/browser-use/stargazers)
 [![Discord](https://img.shields.io/discord/1303749220842340412?color=7289DA&label=Discord&logo=discord&logoColor=white)](https://link.browser-use.com/discord)
@@ -14,15 +16,15 @@
 [![Twitter Follow](https://img.shields.io/twitter/follow/Magnus?style=social)](https://x.com/mamagnus00)
 [![Weave Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fapp.workweave.ai%2Fapi%2Frepository%2Fbadge%2Forg_T5Pvn3UBswTHIsN1dWS3voPg%2F881458615&labelColor=#EC6341)](https://app.workweave.ai/reports/repository/org_T5Pvn3UBswTHIsN1dWS3voPg/881458615)
 
-🌐 Browser-use is the easiest way to connect your AI agents with the browser.
+🌐 Browser-use é a forma mais fácil de conectar seus agentes de IA com o navegador.
 
-💡 See what others are building and share your projects in our [Discord](https://link.browser-use.com/discord)! Want Swag? Check out our [Merch store](https://browsermerch.com).
+💡 Veja o que os outros estão construindo e compartilhe seus projetos em nosso [Discord](https://link.browser-use.com/discord)! Quer estilo? Confira o nosso [Merch store](https://browsermerch.com).
 
-🌤️ Skip the setup - try our <b>hosted version</b> for instant browser automation! <b>[Try the cloud ☁︎](https://cloud.browser-use.com)</b>.
+🌤️ Pule a configuração - tente nossa <b>versão hospedada</b> para automação instantânea do navegador! <b>[Try the cloud ☁︎](https://cloud.browser-use.com)</b>.
 
-# Quick start
+# Início Rápido
 
-With pip (Python>=3.11):
+Com pip (Python>=3.11):
 
 ```bash
 pip install browser-use
@@ -33,7 +35,7 @@ Install Playwright:
 playwright install chromium
 ```
 
-Spin up your agent:
+Inicie seu agente:
 
 ```python
 from langchain_openai import ChatOpenAI
@@ -52,7 +54,7 @@ async def main():
 asyncio.run(main())
 ```
 
-Add your API keys for the provider you want to use to your `.env` file.
+Adicione suas chaves de API para o provedor que você deseja usar ao seu arquivo `.env`.
 
 ```bash
 OPENAI_API_KEY=
@@ -63,13 +65,13 @@ GEMINI_API_KEY=
 DEEPSEEK_API_KEY=
 ```
 
-For other settings, models, and more, check out the [documentation 📕](https://docs.browser-use.com).
+Para outras configurações, modelos e mais, verifique a [documentation 📕](https://docs.browser-use.com).
 
-### Test with UI
+### Teste com uma interface do usuário
 
-You can test [browser-use with a UI repository](https://github.com/browser-use/web-ui)
+Você pode testar em [browser-use with a UI repository](https://github.com/browser-use/web-ui)
 
-Or simply run the gradio example:
+Ou simplesmente executar o exemplo do gradio:
 
 ```
 uv pip install gradio
@@ -79,106 +81,106 @@ uv pip install gradio
 python examples/ui/gradio_demo.py
 ```
 
-# Demos
+# Demonstrações
 
 <br/><br/>
 
-[Task](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/shopping.py): Add grocery items to cart, and checkout.
+[Task](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/shopping.py): Adicione itens de supermercado ao carrinho e finalize a compra.
 
 [![AI Did My Groceries](https://github.com/user-attachments/assets/d9359085-bde6-41d4-aa4e-6520d0221872)](https://www.youtube.com/watch?v=L2Ya9PYNns8)
 
 <br/><br/>
 
-Prompt: Add my latest LinkedIn follower to my leads in Salesforce.
+Prompt: Adicione meu último seguidor do LinkedIn aos meus leads no Salesforce.
 
 ![LinkedIn to Salesforce](https://github.com/user-attachments/assets/1440affc-a552-442e-b702-d0d3b277b0ae)
 
 <br/><br/>
 
-[Prompt](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/find_and_apply_to_jobs.py): Read my CV & find ML jobs, save them to a file, and then start applying for them in new tabs, if you need help, ask me.'
+[Prompt](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/find_and_apply_to_jobs.py): Leia meu currículo, encontre vagas de ML, salve-as em um arquivo e, em seguida, comece a se candidatar a elas em novas abas.'
 
 https://github.com/user-attachments/assets/171fb4d6-0355-46f2-863e-edb04a828d04
 
 <br/><br/>
 
-[Prompt](https://github.com/browser-use/browser-use/blob/main/examples/browser/real_browser.py): Write a letter in Google Docs to my Papa, thanking him for everything, and save the document as a PDF.
+[Prompt](https://github.com/browser-use/browser-use/blob/main/examples/browser/real_browser.py): Escreva uma carta no Google Docs para o papai, agradecendo a ele por tudo, e salve o documento como um PDF.
 
 ![Letter to Papa](https://github.com/user-attachments/assets/242ade3e-15bc-41c2-988f-cbc5415a66aa)
 
 <br/><br/>
 
-[Prompt](https://github.com/browser-use/browser-use/blob/main/examples/custom-functions/save_to_file_hugging_face.py): Look up models with a license of cc-by-sa-4.0 and sort by most likes on Hugging face, save top 5 to file.
+[Prompt](https://github.com/browser-use/browser-use/blob/main/examples/custom-functions/save_to_file_hugging_face.py): Procure modelos com uma licença de cc-by-sa-4.0 e organize por número de curtidas no Hugging Face, salve os 5 principais em um arquivo.
 
 https://github.com/user-attachments/assets/de73ee39-432c-4b97-b4e8-939fd7f323b3
 
 <br/><br/>
 
-## More examples
+## Mais exemplos
 
-For more examples see the [examples](examples) folder or join the [Discord](https://link.browser-use.com/discord) and show off your project.
+Para mais exemplos, veja a pasta [examples](examples) ou junte-se ao [Discord](https://link.browser-use.com/discord) e mostre seu projeto.
 
-# Vision
+# Visão
 
-Tell your computer what to do, and it gets it done.
+Diga ao seu computador o que fazer, e ele fará.
 
 ## Roadmap
 
-### Agent
+### Agente
 
-- [ ] Improve agent memory (summarize, compress, RAG, etc.)
-- [ ] Enhance planning capabilities (load website specific context)
-- [ ] Reduce token consumption (system prompt, DOM state)
+- [ ] Melhore a memória do agente (resumir, comprimir, RAG, etc.).
+- [ ] Aprimore as capacidades de planejamento (carregar contexto específico do site)
+- [ ] Reduza o consumo de tokens (prompt do sistema, estado do DOM)
 
-### DOM Extraction
+### Extração DOM
 
-- [ ] Improve extraction for datepickers, dropdowns, special elements
-- [ ] Improve state representation for UI elements
+- [ ] Melhore extração para seletores de datas, menus suspensos, elementos especiais
+- [ ] Melhore a representação do estado para elementos de interface do usuário
 
-### Rerunning tasks
+### Reexecutando tarefas
 
-- [ ] LLM as fallback
-- [ ] Make it easy to define workflow templates where LLM fills in the details
-- [ ] Return playwright script from the agent
+- [ ] LLM como fallback
+- [ ] Torne fácil definir modelos de fluxo de trabalho onde o LLM preenche os detalhes
+- [ ] Retorne o script playwright a partir do agente
 
 ### Datasets
 
-- [ ] Create datasets for complex tasks
-- [ ] Benchmark various models against each other
-- [ ] Fine-tuning models for specific tasks
+- [ ] Crie conjuntos de dados para tarefas complexas
+- [ ] Compare vários modelos
+- [ ] Ajuste fino de modelos para tarefas específicas.
 
-### User Experience
+### Experiência do Usuário
 
-- [ ] Human-in-the-loop execution
-- [ ] Improve the generated GIF quality
-- [ ] Create various demos for tutorial execution, job application, QA testing, social media, etc.
+- [ ] Execução com intervenção humana
+- [ ] Melhore a qualidade do GIF gerado
+- [ ] Crie várias demonstrações para execução de tutoriais, inscrição em vagas de emprego, teste de QA, mídias sociais, etc.
 
-## Contributing
+## Contribuição
 
-We love contributions! Feel free to open issues for bugs or feature requests. To contribute to the docs, check out the `/docs` folder.
+Nós amamos contribuições. Sinta-se à vontade para abrir problemas para bugs ou solicitações de recursos. Para contribuir com a documentação, verifique a pasta `/docs`.
 
-## Local Setup
+## Configuração Local
 
-To learn more about the library, check out the [local setup 📕](https://docs.browser-use.com/development/local-setup).
+Para saber mais sobre a biblioteca, confira o [local setup 📕](https://docs.browser-use.com/development/local-setup).
 
 
-`main` is the primary development branch with frequent changes. For production use, install a stable [versioned release](https://github.com/browser-use/browser-use/releases) instead.
+`main` é o ramo de desenvolvimento principal com alterações frequentes. Para uso em produção, instale uma versão estável: [versioned release](https://github.com/browser-use/browser-use/releases).
 
 ---
 
-## Cooperations
+## Cooperação
 
-We are forming a commission to define best practices for UI/UX design for browser agents.
-Together, we're exploring how software redesign improves the performance of AI agents and gives these companies a competitive advantage by designing their existing software to be at the forefront of the agent age.
+Estamos formando uma comissão para definir as melhores práticas para design de UI/UX para agentes de navegador.
+Juntos, estamos explorando como o redesign de software melhora o desempenho de agentes de IA e dá a essas empresas uma vantagem competitiva ao projetar seus softwares existentes para estarem à frente da era dos agentes.
 
-Email [Toby](mailto:tbiddle@loop11.com?subject=I%20want%20to%20join%20the%20UI/UX%20commission%20for%20AI%20agents&body=Hi%20Toby%2C%0A%0AI%20found%20you%20in%20the%20browser-use%20GitHub%20README.%0A%0A) to apply for a seat on the committee.
+Mande um e-mail para [Toby](mailto:tbiddle@loop11.com?subject=I%20want%20to%20join%20the%20UI/UX%20commission%20for%20AI%20agents&body=Hi%20Toby%2C%0A%0AI%20found%20you%20in%20the%20browser-use%20GitHub%20README.%0A%0A) para candidatar-se a uma vaga no comitê.
 
-## Swag
+## Estilo
 
-Want to show off your Browser-use swag? Check out our [Merch store](https://browsermerch.com). Good contributors will receive swag for free 👀.
+Quer exibir seu estilo Browser-use? Confira o nossa loja: [Merch store](https://browsermerch.com). Contribuintes bons receberão um brinde de graça 👀.
 
-## Citation
+## Citação
 
-If you use Browser Use in your research or project, please cite:
+Caso você use Browser Use em sua pesquisa ou projeto, por favor cite:
 
 ```bibtex
 @software{browser_use2024,
@@ -198,5 +200,5 @@ If you use Browser Use in your research or project, please cite:
  </div>
 
 <div align="center">
-Made with ❤️ in Zurich and San Francisco
+Feito com ❤️ em Zurique e São Francisco
  </div>
