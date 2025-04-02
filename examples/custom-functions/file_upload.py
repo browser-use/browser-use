@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 browser = Browser(
 	config=BrowserConfig(
 		headless=False,
-		chrome_instance_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+		browser_binary_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 	)
 )
 controller = Controller()
@@ -84,7 +84,7 @@ def create_file(file_type: str = 'txt'):
 
 
 async def main():
-	task = f'Go to https://kzmpmkh2zfk1ojnpxfn1.lite.vusercontent.net/ and - read the file content and upload them to fields'
+	task = 'Go to https://kzmpmkh2zfk1ojnpxfn1.lite.vusercontent.net/ and - read the file content and upload them to fields'
 
 	available_file_paths = [create_file('txt'), create_file('pdf'), create_file('csv')]
 

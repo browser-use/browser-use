@@ -1,4 +1,4 @@
-# Goal: Automates posting on X (Twitter) using stored authentication cookies. 
+# Goal: Automates posting on X (Twitter) using stored authentication cookies.
 
 import asyncio
 import os
@@ -21,7 +21,7 @@ llm = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=SecretStr(api
 
 browser = Browser(
 	config=BrowserConfig(
-		# chrome_instance_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+		# browser_binary_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 	)
 )
 file_path = os.path.join(os.path.dirname(__file__), 'twitter_cookies.txt')
@@ -39,5 +39,5 @@ async def main():
 	input('Press Enter to close the browser...')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
 	asyncio.run(main())

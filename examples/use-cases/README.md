@@ -10,6 +10,3 @@
 | `scrolling_page.py` | Automates webpage scrolling with various scrolling actions and text search functionality. |
 | `twitter_post_using_cookies.py` | Automates posting on X (Twitter) using stored authentication cookies. |
 | `web_voyager_agent.py` | A general-purpose web navigation agent for tasks like flight booking and course searching. |
-
-
-

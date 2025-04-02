@@ -1,11 +1,14 @@
 import asyncio
-import json
+import datetime
 import enum
+import json
 import logging
-from typing import Dict, Generic, Optional, Type, TypeVar
+import re
+from typing import Dict, Generic, Optional, Tuple, Type, TypeVar, cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
+from playwright.async_api import ElementHandle, Page
 
 # from lmnr.sdk.laminar import Laminar
 from pydantic import BaseModel
@@ -15,15 +18,22 @@ from browser_use.browser.context import BrowserContext
 from browser_use.controller.registry.service import Registry
 from browser_use.controller.views import (
 	ClickElementAction,
+	ClickElementBySelectorAction,
+	ClickElementByTextAction,
+	ClickElementByXpathAction,
+	CloseTabAction,
 	DoneAction,
+	DragDropAction,
 	GoToUrlAction,
 	InputTextAction,
 	NoParamsAction,
 	OpenTabAction,
+	Position,
 	ScrollAction,
 	SearchGoogleAction,
 	SendKeysAction,
 	SwitchTabAction,
+	WaitForElementAction,
 )
 from browser_use.utils import time_execution_sync
 
@@ -50,7 +60,7 @@ class Controller(Generic[Context]):
 				data: output_model
 
 			@self.registry.action(
-				'Complete task - with return text and if the task is finished (success=True) or not yet  completly finished (success=False), because last step is reached',
+				'Complete task - with return text and if the task is finished (success=True) or not yet  completely finished (success=False), because last step is reached',
 				param_model=ExtendedOutputModel,
 			)
 			async def done(params: ExtendedOutputModel):
@@ -66,7 +76,7 @@ class Controller(Generic[Context]):
 		else:
 
 			@self.registry.action(
-				'Complete task - with return text and if the task is finished (success=True) or not yet  completly finished (success=False), because last step is reached',
+				'Complete task - with return text and if the task is finished (success=True) or not yet  completely finished (success=False), because last step is reached',
 				param_model=DoneAction,
 			)
 			async def done(params: DoneAction):
@@ -109,9 +119,22 @@ class Controller(Generic[Context]):
 			await asyncio.sleep(seconds)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
+		@self.registry.action('Wait for element to be visible', param_model=WaitForElementAction)
+		async def wait_for_element(params: WaitForElementAction, browser: BrowserContext):
+			"""Waits for the element specified by the CSS selector to become visible within the given timeout."""
+			try:
+				await browser.wait_for_element(params.selector, params.timeout)
+				msg = f'👀  Element with selector "{params.selector}" became visible within {params.timeout}ms.'
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True)
+			except Exception as e:
+				err_msg = f'❌  Failed to wait for element "{params.selector}" within {params.timeout}ms: {str(e)}'
+				logger.error(err_msg)
+				raise Exception(err_msg)
+
 		# Element Interaction Actions
-		@self.registry.action('Click element', param_model=ClickElementAction)
-		async def click_element(params: ClickElementAction, browser: BrowserContext):
+		@self.registry.action('Click element by index', param_model=ClickElementAction)
+		async def click_element_by_index(params: ClickElementAction, browser: BrowserContext):
 			session = await browser.get_session()
 
 			if params.index not in await browser.get_selector_map():
@@ -147,6 +170,74 @@ class Controller(Generic[Context]):
 				logger.warning(f'Element not clickable with index {params.index} - most likely the page changed')
 				return ActionResult(error=str(e))
 
+		@self.registry.action('Click element by selector', param_model=ClickElementBySelectorAction)
+		async def click_element_by_selector(params: ClickElementBySelectorAction, browser: BrowserContext):
+			try:
+				element_node = await browser.get_locate_element_by_css_selector(params.css_selector)
+				if element_node:
+					try:
+						await element_node.scroll_into_view_if_needed()
+						await element_node.click(timeout=1500, force=True)
+					except Exception:
+						try:
+							# Handle with js evaluate if fails to click using playwright
+							await element_node.evaluate('el => el.click()')
+						except Exception as e:
+							logger.warning(f"Element not clickable with css selector '{params.css_selector}' - {e}")
+							return ActionResult(error=str(e))
+					msg = f'🖱️  Clicked on element with text "{params.css_selector}"'
+					return ActionResult(extracted_content=msg, include_in_memory=True)
+			except Exception as e:
+				logger.warning(f'Element not clickable with selector {params.css_selector} - most likely the page changed')
+				return ActionResult(error=str(e))
+
+		@self.registry.action('Click on element by xpath', param_model=ClickElementByXpathAction)
+		async def click_element_by_xpath(params: ClickElementByXpathAction, browser: BrowserContext):
+			try:
+				element_node = await browser.get_locate_element_by_xpath(params.xpath)
+				if element_node:
+					try:
+						await element_node.scroll_into_view_if_needed()
+						await element_node.click(timeout=1500, force=True)
+					except Exception:
+						try:
+							# Handle with js evaluate if fails to click using playwright
+							await element_node.evaluate('el => el.click()')
+						except Exception as e:
+							logger.warning(f"Element not clickable with xpath '{params.xpath}' - {e}")
+							return ActionResult(error=str(e))
+					msg = f'🖱️  Clicked on element with text "{params.xpath}"'
+					return ActionResult(extracted_content=msg, include_in_memory=True)
+			except Exception as e:
+				logger.warning(f'Element not clickable with xpath {params.xpath} - most likely the page changed')
+				return ActionResult(error=str(e))
+
+		@self.registry.action('Click element with text', param_model=ClickElementByTextAction)
+		async def click_element_by_text(params: ClickElementByTextAction, browser: BrowserContext):
+			try:
+				element_node = await browser.get_locate_element_by_text(
+					text=params.text, nth=params.nth, element_type=params.element_type
+				)
+
+				if element_node:
+					try:
+						await element_node.scroll_into_view_if_needed()
+						await element_node.click(timeout=1500, force=True)
+					except Exception:
+						try:
+							# Handle with js evaluate if fails to click using playwright
+							await element_node.evaluate('el => el.click()')
+						except Exception as e:
+							logger.warning(f"Element not clickable with text '{params.text}' - {e}")
+							return ActionResult(error=str(e))
+					msg = f'🖱️  Clicked on element with text "{params.text}"'
+					return ActionResult(extracted_content=msg, include_in_memory=True)
+				else:
+					return ActionResult(error=f"No element found for text '{params.text}'")
+			except Exception as e:
+				logger.warning(f"Element not clickable with text '{params.text}' - {e}")
+				return ActionResult(error=str(e))
+
 		@self.registry.action(
 			'Input text into a input interactive element',
 			param_model=InputTextAction,
@@ -163,6 +254,22 @@ class Controller(Generic[Context]):
 				msg = f'⌨️  Input sensitive data into index {params.index}'
 			logger.info(msg)
 			logger.debug(f'Element xpath: {element_node.xpath}')
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		# Save PDF
+		@self.registry.action(
+			'Save the current page as a PDF file',
+		)
+		async def save_pdf(browser: BrowserContext):
+			page = await browser.get_current_page()
+			short_url = re.sub(r'^https?://(?:www\.)?|/$', '', page.url)
+			slug = re.sub(r'[^a-zA-Z0-9]+', '-', short_url).strip('-').lower()
+			sanitized_filename = f'{slug}.pdf'
+
+			await page.emulate_media('screen')
+			await page.pdf(path=sanitized_filename, format='A4', print_background=False)
+			msg = f'Saving page with URL {page.url} as PDF to ./{sanitized_filename}'
+			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
 		# Tab Management Actions
@@ -183,15 +290,37 @@ class Controller(Generic[Context]):
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
+		@self.registry.action('Close an existing tab', param_model=CloseTabAction)
+		async def close_tab(params: CloseTabAction, browser: BrowserContext):
+			await browser.switch_to_tab(params.page_id)
+			page = await browser.get_current_page()
+			url = page.url
+			await page.close()
+			msg = f'❌  Closed tab #{params.page_id} with url {url}'
+			logger.info(msg)
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
 		# Content Actions
 		@self.registry.action(
-			'Extract page content to retrieve specific information from the page, e.g. all company names, a specifc description, all information about, links with companies in structured format or simply links',
+			'Extract page content to retrieve specific information from the page, e.g. all company names, a specific description, all information about, links with companies in structured format or simply links',
 		)
-		async def extract_content(goal: str, browser: BrowserContext, page_extraction_llm: BaseChatModel):
+		async def extract_content(
+			goal: str, should_strip_link_urls: bool, browser: BrowserContext, page_extraction_llm: BaseChatModel
+		):
 			page = await browser.get_current_page()
 			import markdownify
 
-			content = markdownify.markdownify(await page.content())
+			strip = []
+			if should_strip_link_urls:
+				strip = ['a', 'img']
+
+			content = markdownify.markdownify(await page.content(), strip=strip)
+
+			# manually append iframe text into the content so it's readable by the LLM (includes cross-origin iframes)
+			for iframe in page.frames:
+				if iframe.url != page.url and not iframe.url.startswith('data:'):
+					content += f'\n\nIFRAME {iframe.url}:\n'
+					content += markdownify.markdownify(await iframe.content())
 
 			prompt = 'Your task is to extract the content of the page. You will be given a page and a goal and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format. Extraction goal: {goal}, Page: {page}'
 			template = PromptTemplate(input_variables=['goal', 'page'], template=prompt)
@@ -205,6 +334,36 @@ class Controller(Generic[Context]):
 				msg = f'📄  Extracted from page\n: {content}\n'
 				logger.info(msg)
 				return ActionResult(extracted_content=msg)
+
+		# HTML Download
+		@self.registry.action(
+			'Save the raw HTML content of the current page to a local file',
+			param_model=NoParamsAction,
+		)
+		async def save_html_to_file(_: NoParamsAction, browser: BrowserContext) -> ActionResult:
+			"""Retrieves and returns the full HTML content of the current page to a file"""
+			try:
+				page = await browser.get_current_page()
+				html_content = await page.content()
+
+				# Create a filename based on the page URL
+				short_url = re.sub(r'^https?://(?:www\.)?|/$', '', page.url)
+				slug = re.sub(r'[^a-zA-Z0-9]+', '-', short_url).strip('-').lower()[:64]
+				timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+				sanitized_filename = f'{slug}_{timestamp}.html'
+
+				# Save HTML to file
+				with open(sanitized_filename, 'w', encoding='utf-8') as f:
+					f.write(html_content)
+
+				msg = f'Saved HTML content of page with URL {page.url} to ./{sanitized_filename}'
+
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True)
+			except Exception as e:
+				error_msg = f'Failed to save HTML content: {str(e)}'
+				logger.error(error_msg)
+				return ActionResult(error=error_msg, extracted_content='')
 
 		@self.registry.action(
 			'Scroll down the page by pixel amount - if no amount is specified, scroll down one page',
@@ -470,6 +629,220 @@ class Controller(Generic[Context]):
 				msg = f'Selection failed: {str(e)}'
 				logger.error(msg)
 				return ActionResult(error=msg, include_in_memory=True)
+
+		@self.registry.action(
+			'Drag and drop elements or between coordinates on the page - useful for canvas drawing, sortable lists, sliders, file uploads, and UI rearrangement',
+			param_model=DragDropAction,
+		)
+		async def drag_drop(params: DragDropAction, browser: BrowserContext) -> ActionResult:
+			"""
+			Performs a precise drag and drop operation between elements or coordinates.
+			"""
+
+			async def get_drag_elements(
+				page: Page,
+				source_selector: str,
+				target_selector: str,
+			) -> Tuple[Optional[ElementHandle], Optional[ElementHandle]]:
+				"""Get source and target elements with appropriate error handling."""
+				source_element = None
+				target_element = None
+
+				try:
+					# page.locator() auto-detects CSS and XPath
+					source_locator = page.locator(source_selector)
+					target_locator = page.locator(target_selector)
+
+					# Check if elements exist
+					source_count = await source_locator.count()
+					target_count = await target_locator.count()
+
+					if source_count > 0:
+						source_element = await source_locator.first.element_handle()
+						logger.debug(f'Found source element with selector: {source_selector}')
+					else:
+						logger.warning(f'Source element not found: {source_selector}')
+
+					if target_count > 0:
+						target_element = await target_locator.first.element_handle()
+						logger.debug(f'Found target element with selector: {target_selector}')
+					else:
+						logger.warning(f'Target element not found: {target_selector}')
+
+				except Exception as e:
+					logger.error(f'Error finding elements: {str(e)}')
+
+				return source_element, target_element
+
+			async def get_element_coordinates(
+				source_element: ElementHandle,
+				target_element: ElementHandle,
+				source_position: Optional[Position],
+				target_position: Optional[Position],
+			) -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
+				"""Get coordinates from elements with appropriate error handling."""
+				source_coords = None
+				target_coords = None
+
+				try:
+					# Get source coordinates
+					if source_position:
+						source_coords = (source_position.x, source_position.y)
+					else:
+						source_box = await source_element.bounding_box()
+						if source_box:
+							source_coords = (
+								int(source_box['x'] + source_box['width'] / 2),
+								int(source_box['y'] + source_box['height'] / 2),
+							)
+
+					# Get target coordinates
+					if target_position:
+						target_coords = (target_position.x, target_position.y)
+					else:
+						target_box = await target_element.bounding_box()
+						if target_box:
+							target_coords = (
+								int(target_box['x'] + target_box['width'] / 2),
+								int(target_box['y'] + target_box['height'] / 2),
+							)
+				except Exception as e:
+					logger.error(f'Error getting element coordinates: {str(e)}')
+
+				return source_coords, target_coords
+
+			async def execute_drag_operation(
+				page: Page,
+				source_x: int,
+				source_y: int,
+				target_x: int,
+				target_y: int,
+				steps: int,
+				delay_ms: int,
+			) -> Tuple[bool, str]:
+				"""Execute the drag operation with comprehensive error handling."""
+				try:
+					# Try to move to source position
+					try:
+						await page.mouse.move(source_x, source_y)
+						logger.debug(f'Moved to source position ({source_x}, {source_y})')
+					except Exception as e:
+						logger.error(f'Failed to move to source position: {str(e)}')
+						return False, f'Failed to move to source position: {str(e)}'
+
+					# Press mouse button down
+					await page.mouse.down()
+
+					# Move to target position with intermediate steps
+					for i in range(1, steps + 1):
+						ratio = i / steps
+						intermediate_x = int(source_x + (target_x - source_x) * ratio)
+						intermediate_y = int(source_y + (target_y - source_y) * ratio)
+
+						await page.mouse.move(intermediate_x, intermediate_y)
+
+						if delay_ms > 0:
+							await asyncio.sleep(delay_ms / 1000)
+
+					# Move to final target position
+					await page.mouse.move(target_x, target_y)
+
+					# Move again to ensure dragover events are properly triggered
+					await page.mouse.move(target_x, target_y)
+
+					# Release mouse button
+					await page.mouse.up()
+
+					return True, 'Drag operation completed successfully'
+
+				except Exception as e:
+					return False, f'Error during drag operation: {str(e)}'
+
+			page = await browser.get_current_page()
+
+			try:
+				# Initialize variables
+				source_x: Optional[int] = None
+				source_y: Optional[int] = None
+				target_x: Optional[int] = None
+				target_y: Optional[int] = None
+
+				# Normalize parameters
+				steps = max(1, params.steps or 10)
+				delay_ms = max(0, params.delay_ms or 5)
+
+				# Case 1: Element selectors provided
+				if params.element_source and params.element_target:
+					logger.debug('Using element-based approach with selectors')
+
+					source_element, target_element = await get_drag_elements(
+						page,
+						params.element_source,
+						params.element_target,
+					)
+
+					if not source_element or not target_element:
+						error_msg = f'Failed to find {"source" if not source_element else "target"} element'
+						return ActionResult(error=error_msg, include_in_memory=True)
+
+					source_coords, target_coords = await get_element_coordinates(
+						source_element, target_element, params.element_source_offset, params.element_target_offset
+					)
+
+					if not source_coords or not target_coords:
+						error_msg = f'Failed to determine {"source" if not source_coords else "target"} coordinates'
+						return ActionResult(error=error_msg, include_in_memory=True)
+
+					source_x, source_y = source_coords
+					target_x, target_y = target_coords
+
+				# Case 2: Coordinates provided directly
+				elif all(
+					coord is not None
+					for coord in [params.coord_source_x, params.coord_source_y, params.coord_target_x, params.coord_target_y]
+				):
+					logger.debug('Using coordinate-based approach')
+					source_x = params.coord_source_x
+					source_y = params.coord_source_y
+					target_x = params.coord_target_x
+					target_y = params.coord_target_y
+				else:
+					error_msg = 'Must provide either source/target selectors or source/target coordinates'
+					return ActionResult(error=error_msg, include_in_memory=True)
+
+				# Validate coordinates
+				if any(coord is None for coord in [source_x, source_y, target_x, target_y]):
+					error_msg = 'Failed to determine source or target coordinates'
+					return ActionResult(error=error_msg, include_in_memory=True)
+
+				# Perform the drag operation
+				success, message = await execute_drag_operation(
+					page,
+					cast(int, source_x),
+					cast(int, source_y),
+					cast(int, target_x),
+					cast(int, target_y),
+					steps,
+					delay_ms,
+				)
+
+				if not success:
+					logger.error(f'Drag operation failed: {message}')
+					return ActionResult(error=message, include_in_memory=True)
+
+				# Create descriptive message
+				if params.element_source and params.element_target:
+					msg = f"🖱️ Dragged element '{params.element_source}' to '{params.element_target}'"
+				else:
+					msg = f'🖱️ Dragged from ({source_x}, {source_y}) to ({target_x}, {target_y})'
+
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True)
+
+			except Exception as e:
+				error_msg = f'Failed to perform drag and drop: {str(e)}'
+				logger.error(error_msg)
+				return ActionResult(error=error_msg, include_in_memory=True)
 
 	# Register ---------------------------------------------------------------
 

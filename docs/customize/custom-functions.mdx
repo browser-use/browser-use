@@ -43,13 +43,19 @@ agent = Agent(
 
 For actions that need browser access, simply add the `browser` parameter inside the function parameters:
 
+<Note>
+  Please note that browser-use’s `Browser` class is a wrapper class around
+  Playwright’s `Browser`. The `Browser.playwright_browser` attr can be used
+  to directly access the Playwright browser object if needed.
+</Note>
+
 ```python
 from browser_use import Browser, Controller, ActionResult
 
 controller = Controller()
 @controller.action('Open website')
 async def open_website(url: str, browser: Browser):
-    page = browser.get_current_page()
+    page = await browser.get_current_page()
     await page.goto(url)
     return ActionResult(extracted_content='Website opened')
 ```
@@ -125,4 +131,3 @@ controller = Controller(exclude_actions=['open_tab', 'search_google'])
 
 
 For more examples like file upload or notifications, visit [examples/custom-functions](https://github.com/browser-use/browser-use/tree/main/examples/custom-functions).
-

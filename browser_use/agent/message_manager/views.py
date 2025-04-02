@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from warnings import filterwarnings
 
+from langchain_core._api import LangChainBetaWarning
 from langchain_core.load import dumpd, load
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
+
+filterwarnings('ignore', category=LangChainBetaWarning)
 
 if TYPE_CHECKING:
 	from browser_use.agent.views import AgentOutput
@@ -14,6 +18,7 @@ class MessageMetadata(BaseModel):
 	"""Metadata for a message"""
 
 	tokens: int = 0
+	message_type: str | None = None
 
 
 class ManagedMessage(BaseModel):
@@ -56,6 +61,7 @@ class ManagedMessage(BaseModel):
 		"""
 		if isinstance(value, dict) and 'message' in value:
 			# NOTE: We use langchain's load to convert the JSON string back into a BaseMessage object.
+			filterwarnings('ignore', category=LangChainBetaWarning)
 			value['message'] = load(value['message'])
 		return value
 
