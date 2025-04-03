@@ -539,6 +539,7 @@ class Agent(Generic[Context]):
 		include_trace = logger.isEnabledFor(logging.DEBUG)
 		error_msg = AgentError.format_error(error, include_trace=include_trace)
 		prefix = f'❌ Result failed {self.state.consecutive_failures + 1}/{self.settings.max_failures} times:\n '
+		self.state.consecutive_failures += 1
 
 		if 'Browser closed' in error_msg:
 			logger.error('❌  Browser is closed or disconnected, unable to proceed')
@@ -557,7 +558,6 @@ class Agent(Generic[Context]):
 				# give model a hint how output should look like
 				error_msg += '\n\nReturn a valid JSON object with the required fields.'
 
-			self.state.consecutive_failures += 1
 		else:
 			from anthropic import RateLimitError as AnthropicRateLimitError
 			from google.api_core.exceptions import ResourceExhausted
@@ -573,10 +573,8 @@ class Agent(Generic[Context]):
 			if isinstance(error, RATE_LIMIT_ERRORS):
 				logger.warning(f'{prefix}{error_msg}')
 				await asyncio.sleep(self.settings.retry_delay)
-				self.state.consecutive_failures += 1
 			else:
 				logger.error(f'{prefix}{error_msg}')
-				self.state.consecutive_failures += 1
 
 		return [ActionResult(error=error_msg, include_in_memory=True)]
 
