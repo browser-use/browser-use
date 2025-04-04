@@ -1272,7 +1272,7 @@ class BrowserContext:
 			return None
 
 	@time_execution_async('--input_text_element_node')
-	async def _input_text_element_node(self, element_node: DOMElementNode, text: str):
+	async def input_text_element_node(self, element_node: DOMElementNode, text: str):
 		"""
 		Input text into an element with proper error handling and state management.
 		Handles different types of input fields and ensures proper element state before input.

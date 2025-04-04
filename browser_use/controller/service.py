@@ -247,7 +247,7 @@ class Controller(Generic[Context]):
 				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
 
 			element_node = await browser.get_dom_element_by_index(params.index)
-			await browser._input_text_element_node(element_node, params.text)
+			await browser.input_text_element_node(element_node, params.text)
 			if not has_sensitive_data:
 				msg = f'⌨️  Input {params.text} into index {params.index}'
 			else:
