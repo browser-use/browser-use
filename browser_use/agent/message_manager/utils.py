@@ -33,16 +33,17 @@ def extract_json_from_model_output(content: str) -> dict:
 		raise ValueError('Could not parse response.')
 
 
-def convert_input_messages(input_messages: list[BaseMessage], model_name: Optional[str]) -> list[BaseMessage]:
-	"""Convert input messages to a format that is compatible with the planner model"""
-	if model_name is None:
-		return input_messages
-	if model_name == 'deepseek-reasoner' or 'deepseek-r1' in model_name:
-		converted_input_messages = _convert_messages_for_non_function_calling_models(input_messages)
-		merged_input_messages = _merge_successive_messages(converted_input_messages, HumanMessage)
-		merged_input_messages = _merge_successive_messages(merged_input_messages, AIMessage)
-		return merged_input_messages
-	return input_messages
+def convert_input_messages(input_messages: list[BaseMessage], model_name: Optional[str], force: bool = False) -> list[
+    BaseMessage]:
+    """Convert input messages to a format that is compatible with the planner model"""
+    if model_name is None:
+        return input_messages
+    if force or model_name == 'deepseek-reasoner' or 'deepseek-r1' in model_name:
+        converted_input_messages = _convert_messages_for_non_function_calling_models(input_messages)
+        merged_input_messages = _merge_successive_messages(converted_input_messages, HumanMessage)
+        merged_input_messages = _merge_successive_messages(merged_input_messages, AIMessage)
+        return merged_input_messages
+    return input_messages
 
 
 def _convert_messages_for_non_function_calling_models(input_messages: list[BaseMessage]) -> list[BaseMessage]:
