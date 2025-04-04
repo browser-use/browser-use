@@ -77,6 +77,16 @@ class BrowserConfig(BaseModel):
 
 		deterministic_rendering: False
 			Enable deterministic rendering (makes GPU/font rendering consistent across different OS's and docker)
+			
+		user_data_dir: None
+			Path to a User Data Directory, which stores browser session data like cookies and local storage.
+			When specified, the browser will use this directory to store all profile data.
+
+		profile_directory: None
+			Name of the profile directory to use within the user_data_dir.
+			For example, "Default" or "Profile 1" for Chrome/Chromium browsers.
+			Only applicable when user_data_dir is specified.
+			Note: This option is only supported with Chromium browsers.
 	"""
 
 	model_config = ConfigDict(
@@ -90,6 +100,8 @@ class BrowserConfig(BaseModel):
 
 	wss_url: str | None = None
 	cdp_url: str | None = None
+	user_data_dir: str | None = None
+	profile_directory: str | None = None
 
 	browser_class: Literal['chromium', 'firefox', 'webkit'] = 'chromium'
 	browser_binary_path: str | None = Field(default=None, alias=AliasChoices('browser_instance_path', 'chrome_instance_path'))
@@ -122,6 +134,7 @@ class Browser:
 		self.config = config or BrowserConfig()
 		self.playwright: Playwright | None = None
 		self.playwright_browser: PlaywrightBrowser | None = None
+		self._persistent_context = None
 
 	async def new_context(self, config: BrowserContextConfig | None = None) -> BrowserContext:
 		"""Create a browser context"""
@@ -133,6 +146,12 @@ class Browser:
 			return await self._init()
 
 		return self.playwright_browser
+
+	async def get_persistent_context(self):
+		"""Get the persistent context if using user_data_dir"""
+		if self._persistent_context is None and self.playwright is None:
+			await self._init()
+		return self._persistent_context
 
 	@time_execution_async('--init (browser)')
 	async def _init(self):
@@ -279,14 +298,90 @@ class Browser:
 			],
 		}
 
-		browser = await browser_class.launch(
-			headless=self.config.headless,
-			args=args[self.config.browser_class],
-			proxy=self.config.proxy,
-			handle_sigterm=False,
-			handle_sigint=False,
-		)
-		return browser
+		# Add robust user_data_dir handling
+		if self.config.user_data_dir:
+			import os
+			
+			logger.info(f'Using user data directory: {self.config.user_data_dir}')
+			
+			# Check if profile_directory is specified but not using Chromium
+			if self.config.profile_directory and self.config.browser_class != 'chromium':
+				logger.warning(f"profile_directory '{self.config.profile_directory}' is only supported with Chromium browsers. It will be ignored.")
+			
+			# Check if user_data_dir folder exists already
+			if os.path.exists(self.config.user_data_dir):
+				# Make sure profile_directory exists inside of it already if specified
+				if self.config.profile_directory:
+					profile_path = os.path.join(self.config.user_data_dir, self.config.profile_directory)
+					if not os.path.exists(profile_path):
+						logger.warning(f"Profile directory '{self.config.profile_directory}' doesn't exist in user_data_dir. It will be created.")
+				
+				# Check for SingletonLock file which indicates Chrome is already running with this profile
+				singleton_lock = os.path.join(self.config.user_data_dir, 'SingletonLock')
+				if os.path.exists(singleton_lock):
+					try:
+						os.remove(singleton_lock)
+						logger.warning("Detected multiple Chrome processes may be sharing a single user_data_dir! "
+									  "This is not recommended and may lead to errors and failure to launch Chrome.")
+					except Exception as e:
+						logger.error(f"Failed to remove SingletonLock file: {e}")
+			else:
+				# user_data_dir does not exist yet
+				parent_dir = os.path.dirname(self.config.user_data_dir)
+				
+				# Make sure parent dir exists and is writable
+				if not os.path.exists(parent_dir):
+					logger.warning(f"Parent directory of user_data_dir doesn't exist: {parent_dir}")
+					try:
+						os.makedirs(parent_dir, exist_ok=True)
+						logger.info(f"Created parent directory: {parent_dir}")
+					except Exception as e:
+						logger.error(f"Failed to create parent directory: {e}")
+						raise RuntimeError(f"Cannot create parent directory for user_data_dir: {e}")
+				
+				# Remove --no-first-run from the chrome args as it will likely prevent creating a new user data dir
+				if '--no-first-run' in args['chromium']:
+					args['chromium'].remove('--no-first-run')
+					logger.info("Removed --no-first-run flag to allow creation of new user data directory")
+				
+			# Create user_data_dir if it doesn't exist
+			os.makedirs(self.config.user_data_dir, exist_ok=True)
+
+		# Add profile directory to args if specified for Chromium
+		if self.config.profile_directory and self.config.browser_class == 'chromium':
+			args['chromium'].append(f'--profile-directory={self.config.profile_directory}')
+			logger.debug(f'Using profile directory: {self.config.profile_directory}')
+		elif self.config.profile_directory:
+			# This should never happen as we already logged a warning, but just in case
+			logger.warning(f"profile_directory '{self.config.profile_directory}' ignored for non-Chromium browser: {self.config.browser_class}")
+
+		# Base launch options for both methods
+		common_options = {
+			'headless': self.config.headless,
+			'args': args[self.config.browser_class],
+			'timeout': 60000,  # 60 second timeout to prevent hanging
+		}
+
+		if self.config.proxy:
+			common_options['proxy'] = self.config.proxy
+
+		try:
+			if self.config.user_data_dir:
+				# When using user_data_dir, we create a persistent context
+				# instead of a regular browser
+				self._persistent_context = await browser_class.launch_persistent_context(
+					user_data_dir=self.config.user_data_dir,
+					**common_options
+				)
+				
+				# Return None since context initialization will use the persistent context
+				return None
+			else:
+				# Standard browser launch
+				return await browser_class.launch(**common_options)
+		except Exception as e:
+			logger.error(f'Failed to initialize browser: {str(e)}')
+			raise
 
 	async def _setup_browser(self, playwright: Playwright) -> PlaywrightBrowser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
@@ -308,34 +403,47 @@ class Browser:
 			raise
 
 	async def close(self):
-		"""Close the browser instance"""
-		if self.config.keep_alive:
-			return
-
+		"""Close the browser."""
 		try:
-			if self.playwright_browser:
-				await self.playwright_browser.close()
-				del self.playwright_browser
-			if self.playwright:
-				await self.playwright.stop()
-				del self.playwright
-			if chrome_proc := getattr(self, '_chrome_subprocess', None):
-				try:
-					# always kill all children processes, otherwise chrome leaves a bunch of zombie processes
-					for proc in chrome_proc.children(recursive=True):
-						proc.kill()
-					chrome_proc.kill()
-				except Exception as e:
-					logger.debug(f'Failed to terminate chrome subprocess: {e}')
+			if not self.config.keep_alive:
+				# Close persistent context first if it exists
+				if self._persistent_context:
+					try:
+						await self._persistent_context.close()
+					except Exception as e:
+						logger.debug(f'Failed to close persistent context: {e}')
+					self._persistent_context = None
+
+				# Then close the browser if it exists
+				if self.playwright_browser:
+					try:
+						await self.playwright_browser.close()
+					except Exception as e:
+						logger.debug(f'Failed to close playwright browser: {e}')
+					self.playwright_browser = None
+
+				# Then close playwright
+				if self.playwright:
+					await self.playwright.stop()
+					del self.playwright
+				
+				if chrome_proc := getattr(self, '_chrome_subprocess', None):
+					try:
+						# always kill all children processes, otherwise chrome leaves a bunch of zombie processes
+						for proc in chrome_proc.children(recursive=True):
+							proc.kill()
+						chrome_proc.kill()
+					except Exception as e:
+						logger.debug(f'Failed to terminate chrome subprocess: {e}')
 
 			# Then cleanup httpx clients
 			await self.cleanup_httpx_clients()
 		except Exception as e:
 			logger.debug(f'Failed to close browser properly: {e}')
-
 		finally:
 			self.playwright_browser = None
 			self.playwright = None
+			self._persistent_context = None
 			self._chrome_subprocess = None
 			gc.collect()
 
