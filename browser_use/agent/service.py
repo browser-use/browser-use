@@ -143,6 +143,7 @@ class Agent(Generic[Context]):
 		planner_llm: Optional[BaseChatModel] = None,
 		planner_interval: int = 1,  # Run planner every N steps
 		is_planner_reasoning: bool = False,
+		extend_planner_system_message: Optional[str] = None,
 		# Inject state
 		injected_agent_state: Optional[AgentState] = None,
 		#
@@ -182,6 +183,7 @@ class Agent(Generic[Context]):
 			planner_llm=planner_llm,
 			planner_interval=planner_interval,
 			is_planner_reasoning=is_planner_reasoning,
+			extend_planner_system_message=extend_planner_system_message,
 			enable_memory=enable_memory,
 			memory_interval=memory_interval,
 			memory_config=memory_config,
@@ -1214,7 +1216,10 @@ class Agent(Generic[Context]):
 
 		# Create planner message history using full message history with all available actions
 		planner_messages = [
-			PlannerPrompt(all_actions).get_system_message(self.settings.is_planner_reasoning),
+			PlannerPrompt(all_actions).get_system_message(
+				is_planner_reasoning=self.settings.is_planner_reasoning,
+				extended_planner_system_prompt=self.settings.extend_planner_system_message,
+			),
 			*self._message_manager.get_messages()[1:],  # Use full message history except the first
 		]
 
