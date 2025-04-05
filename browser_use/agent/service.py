@@ -261,6 +261,7 @@ class Agent(Generic[Context]):
 		self.browser_context = browser_context or BrowserContext(
 			browser=self.browser, config=self.browser.config.new_context_config
 		)
+		self.browser_context.memory = self.memory
 
 		# Callbacks
 		self.register_new_step_callback = register_new_step_callback

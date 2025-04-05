@@ -21,12 +21,6 @@ browser = Browser(
 	)
 )
 
-memory_config = {
-	'vector_store': {'provider': 'faiss', 'config': {'embedding_model_dims': 768}},
-	'llm': {'provider': 'gemini', 'config': {'model': 'gemini-2.0-flash'}},
-	'embedder': {'provider': 'gemini'},
-}
-
 async def run_memory_test():
 	agent = Agent(
 		task="""
@@ -43,7 +37,6 @@ async def run_memory_test():
 		max_actions_per_step=1,
 		browser=browser,
 		enable_memory=True,
-		# memory_config=memory_config,
 		memory_interval=15,
 	)
 

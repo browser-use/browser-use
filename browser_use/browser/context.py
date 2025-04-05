@@ -27,6 +27,7 @@ from playwright.async_api import (
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import TypedDict
 
+from browser_use.agent.memory.service import Memory
 from browser_use.browser.views import (
 	BrowserError,
 	BrowserState,
@@ -247,6 +248,7 @@ class BrowserContext:
 		# Initialize these as None - they'll be set up when needed
 		self.session: BrowserSession | None = None
 		self.active_tab: Page | None = None
+		self.memory: Memory | None = None
 
 	async def __aenter__(self):
 		"""Async context manager entry"""
