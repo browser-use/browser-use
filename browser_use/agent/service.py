@@ -23,7 +23,7 @@ from pydantic import BaseModel, ValidationError
 
 from browser_use.agent.gif import create_history_gif
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
-from browser_use.agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation
+from browser_use.agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation, is_model_without_tool_support
 from browser_use.agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
 from browser_use.agent.views import (
 	ActionResult,
@@ -301,7 +301,7 @@ class Agent(Generic[Context]):
 	def _set_tool_calling_method(self) -> Optional[ToolCallingMethod]:
 		tool_calling_method = self.settings.tool_calling_method
 		if tool_calling_method == 'auto':
-			if 'deepseek-reasoner' in self.model_name or 'deepseek-r1' in self.model_name:
+			if (is_model_without_tool_support(self.model_name)):
 				return 'raw'
 			elif self.chat_model_library == 'ChatGoogleGenerativeAI':
 				return None
@@ -508,7 +508,7 @@ class Agent(Generic[Context]):
 
 	def _convert_input_messages(self, input_messages: list[BaseMessage]) -> list[BaseMessage]:
 		"""Convert input messages to the correct format"""
-		if self.model_name == 'deepseek-reasoner' or 'deepseek-r1' in self.model_name:
+		if is_model_without_tool_support(self.model_name):
 			return convert_input_messages(input_messages, self.model_name)
 		else:
 			return input_messages
