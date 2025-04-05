@@ -258,6 +258,7 @@ class Agent(Generic[Context]):
 		self.injected_browser = browser is not None
 		self.injected_browser_context = browser_context is not None
 		self.browser = browser or Browser()
+		self.browser.config.new_context_config.disable_security = self.browser.config.disable_security
 		self.browser_context = browser_context or BrowserContext(
 			browser=self.browser, config=self.browser.config.new_context_config
 		)

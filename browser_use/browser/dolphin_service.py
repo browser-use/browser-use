@@ -3,7 +3,7 @@ import os
 from typing import List, Optional
 
 import aiohttp
-from playwright.async_api import Page, async_playwright
+from patchright.async_api import Page, async_playwright
 
 from browser_use.browser.service import Browser
 from browser_use.browser.views import BrowserState, TabInfo
