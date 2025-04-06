@@ -19,21 +19,27 @@ You can customize the system prompt by extending the `SystemPrompt` class. Inter
 Create a custom system prompt by inheriting from the base class.
 
 ```python
-from browser_use import Agent, SystemPrompt
-
+from browser_use import SystemPrompt
+from langchain_core.messages import SystemMessage
+from overrides import overrides
 class MySystemPrompt(SystemPrompt):
-    def important_rules(self) -> str:
+    @overrides
+    def get_system_message(self) -> SystemMessage:
+        
         # Get existing rules from parent class
-        existing_rules = super().important_rules()
+        existing_prompt = self.prompt_template.format(max_actions=self.max_actions_per_step)
 
         # Add your custom rules
-        new_rules = """
-9. MOST IMPORTANT RULE:
-- ALWAYS open first a new tab and go to wikipedia.com no matter the task!!!
-"""
+        new_prompt = """
+            10. MOST IMPORTANT RULE:
+            - You must response, think, reason Only Korean
+            - You must find "ReactModal__Overlay" attribute when you search sections
+            - You must search another apporach, another section, another actions even you faced retry the situations over twice times
+        """
 
         # Make sure to use this pattern otherwise the exiting rules will be lost
-        return f'{existing_rules}\n{new_rules}'
+        return SystemMessage(content=f'{existing_prompt}\n{new_prompt}')
+
 ```
 
 ## Using Custom System Prompt
