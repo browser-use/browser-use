@@ -25,7 +25,6 @@ dependencies = [
     "langchain-google-genai==2.1.2",
     "langchain>=0.3.21",
     "langchain-aws>=0.2.11",
-    "botocore>=1.37.23",
     "google-api-core>=2.24.0",
     "pyperclip>=1.9.0",
     "pyobjc>=11.0; platform_system == 'darwin'",
@@ -36,7 +35,6 @@ dependencies = [
     "mem0ai==0.1.81",
 ]
 
-# botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py 
 # pydantic: >2.11 introduces many pydantic deprecation warnings until langchain-core upgrades their pydantic support lets keep it on 2.10
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
