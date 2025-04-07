@@ -7,6 +7,8 @@ Show how to use custom outputs.
 import os
 import sys
 
+import anyio
+
 from browser_use.agent.views import AgentState
 from browser_use.browser.browser import Browser, BrowserConfig
 
@@ -54,13 +56,13 @@ async def main():
 		agent_state.history.history = []
 
 		# Save state to file
-		with open('agent_state.json', 'w') as f:
+		async with await anyio.open_file('agent_state.json', 'w') as f:
 			serialized = agent_state.model_dump_json(exclude={'history'})
-			f.write(serialized)
+			await f.write(serialized)
 
 		# Load state back from file
-		with open('agent_state.json', 'r') as f:
-			loaded_json = f.read()
+		async with await anyio.open_file('agent_state.json', 'r') as f:
+			loaded_json = await f.read()
 			agent_state = AgentState.model_validate_json(loaded_json)
 
 		break

@@ -9,7 +9,7 @@ import os
 import sys
 from typing import List
 
-import requests
+import httpx
 
 from browser_use.agent.views import ActionResult
 
@@ -48,11 +48,16 @@ if not BEARER_TOKEN:
 async def search_web(query: str):
 	keys_to_use = ['url', 'title', 'content', 'author', 'score']
 	headers = {'Authorization': f'Bearer {BEARER_TOKEN}'}
-	response = requests.post('https://asktessa.ai/api/search', headers=headers, json={'query': query})
+	async with httpx.AsyncClient() as client:
+		response = await client.post(
+			'https://asktessa.ai/api/search',
+			headers=headers,
+			json={'query': query},
+		)
 
 	final_results = [
 		{key: source[key] for key in keys_to_use if key in source}
-		for source in response.json()['sources']
+		for source in await response.json()['sources']
 		if source['score'] >= 0.2
 	]
 	# print(json.dumps(final_results, indent=4))

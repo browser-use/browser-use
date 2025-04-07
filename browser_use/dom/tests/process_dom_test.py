@@ -1,6 +1,9 @@
+import asyncio
 import json
 import os
 import time
+
+import anyio
 
 from browser_use.browser.browser import Browser, BrowserConfig
 
@@ -15,10 +18,10 @@ async def test_process_dom():
 		# await page.goto('https://immobilienscout24.de')
 		# await page.goto('https://seleniumbase.io/w3schools/iframes')
 
-		time.sleep(3)
+		await asyncio.sleep(3)
 
-		with open('browser_use/dom/buildDomTree.js', 'r') as f:
-			js_code = f.read()
+		async with await anyio.open_file('browser_use/dom/buildDomTree.js', 'r') as f:
+			js_code = await f.read()
 
 		start = time.time()
 		dom_tree = await page.evaluate(js_code)
@@ -28,8 +31,8 @@ async def test_process_dom():
 		print(f'Time: {end - start:.2f}s')
 
 		os.makedirs('./tmp', exist_ok=True)
-		with open('./tmp/dom.json', 'w') as f:
-			json.dump(dom_tree, f, indent=1)
+		async with await anyio.open_file('./tmp/dom.json', 'w') as f:
+			await f.write(json.dumps(dom_tree, indent=1))
 
 		# both of these work for immobilienscout24.de
 		# await page.click('.sc-dcJsrY.ezjNCe')

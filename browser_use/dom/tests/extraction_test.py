@@ -1,7 +1,7 @@
 import asyncio
 import os
-import time
 
+import anyio
 from langchain_openai import ChatOpenAI
 
 from browser_use.agent.prompts import AgentMessagePrompt
@@ -86,7 +86,7 @@ async def test_focus_vs_all_elements():
 		for website in websites:
 			# sleep 2
 			await page.goto(website)
-			time.sleep(1)
+			asyncio.sleep(1)
 
 			last_clicked_index = None  # Track the index for text input
 			while True:
@@ -112,8 +112,8 @@ async def test_focus_vs_all_elements():
 					# Write the user message to a file for analysis
 					user_message = prompt.get_user_message(use_vision=False).content
 					os.makedirs('./tmp', exist_ok=True)
-					with open('./tmp/user_message.txt', 'w', encoding='utf-8') as f:
-						f.write(user_message)
+					async with await anyio.open_file('./tmp/user_message.txt', 'w', encoding='utf-8') as f:
+						await f.write(user_message)
 
 					token_count, price = count_string_tokens(user_message, model='gpt-4o')
 					print(f'Prompt token count: {token_count}, price: {round(price, 4)} USD')
