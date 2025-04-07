@@ -6,6 +6,7 @@ import logging
 import re
 from typing import Dict, Generic, Optional, Tuple, Type, TypeVar, cast
 
+import anyio
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
 from playwright.async_api import ElementHandle, Page
@@ -353,8 +354,8 @@ class Controller(Generic[Context]):
 				sanitized_filename = f'{slug}_{timestamp}.html'
 
 				# Save HTML to file
-				with open(sanitized_filename, 'w', encoding='utf-8') as f:
-					f.write(html_content)
+				async with await anyio.open_file(sanitized_filename, 'w', encoding='utf-8') as f:
+					await f.write(html_content)
 
 				msg = f'Saved HTML content of page with URL {page.url} to ./{sanitized_filename}'
 

@@ -10,8 +10,8 @@ import socket
 import subprocess
 from typing import Literal
 
+import httpx
 import psutil
-import requests
 from dotenv import load_dotenv
 from playwright.async_api import Browser as PlaywrightBrowser
 from playwright.async_api import (
@@ -186,16 +186,17 @@ class Browser:
 
 		try:
 			# Check if browser is already running
-			response = requests.get('http://localhost:9222/json/version', timeout=2)
-			if response.status_code == 200:
-				logger.info('🔌  Reusing existing browser found running on http://localhost:9222')
-				browser_class = getattr(playwright, self.config.browser_class)
-				browser = await browser_class.connect_over_cdp(
-					endpoint_url='http://localhost:9222',
-					timeout=20000,  # 20 second timeout for connection
-				)
-				return browser
-		except requests.ConnectionError:
+			async with httpx.AsyncClient() as client:
+				response = await client.get('http://localhost:9222/json/version', timeout=2)
+				if response.status == 200:
+					logger.info('🔌  Reusing existing browser found running on http://localhost:9222')
+					browser_class = getattr(playwright, self.config.browser_class)
+					browser = await browser_class.connect_over_cdp(
+						endpoint_url='http://localhost:9222',
+						timeout=20000,  # 20 second timeout for connection
+					)
+					return browser
+		except httpx.RequestError:
 			logger.debug('🌎  No existing Chrome instance found, starting a new one')
 
 		# Start a new Chrome instance
@@ -211,7 +212,7 @@ class Browser:
 			},
 		]
 		self._chrome_subprocess = psutil.Process(
-			subprocess.Popen(
+			asyncio.create_subprocess_shell(
 				chrome_launch_cmd,
 				stdout=subprocess.DEVNULL,
 				stderr=subprocess.DEVNULL,
@@ -222,10 +223,11 @@ class Browser:
 		# Attempt to connect again after starting a new instance
 		for _ in range(10):
 			try:
-				response = requests.get('http://localhost:9222/json/version', timeout=2)
-				if response.status_code == 200:
-					break
-			except requests.ConnectionError:
+				async with httpx.AsyncClient() as client:
+					response = await client.get('http://localhost:9222/json/version', timeout=2)
+					if response.status == 200:
+						break
+			except httpx.RequestError:
 				pass
 			await asyncio.sleep(1)
 
