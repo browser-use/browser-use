@@ -154,7 +154,7 @@ class PlannerPrompt(SystemPrompt):
 		    SystemMessage or HumanMessage depending on is_planner_reasoning
 		"""
 
-		system_prompt = """
+		planner_prompt_text = """
 You are a planning agent that helps break down tasks into smaller steps and reason about the current state.
 Your role is to:
 1. Analyze the current state and history
@@ -182,9 +182,9 @@ Keep your responses concise and focused on actionable insights.
 """
 
 		if extended_planner_system_prompt:
-			system_prompt += f'\n{extended_planner_system_prompt}'
+			planner_prompt_text += f'\n{extended_planner_system_prompt}'
 
 		if is_planner_reasoning:
-			return HumanMessage(content=system_prompt)
+			return HumanMessage(content=planner_prompt_text)
 		else:
-			return SystemMessage(content=system_prompt)
+			return SystemMessage(content=planner_prompt_text)

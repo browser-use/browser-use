@@ -22,21 +22,10 @@ You can customize the system prompt in two ways:
 To add additional instructions to the default system prompt:
 
 ```python
-from browser_use import Agent
-from langchain_openai import ChatOpenAI
-
-# Add your custom instructions
 extend_system_message = """
 REMEMBER the most important RULE:
 ALWAYS open first a new tab and go first to url wikipedia.com no matter the task!!!
 """
-
-# Create agent with extended system prompt
-agent = Agent(
-    task="Your task here",
-    llm=ChatOpenAI(model='gpt-4'),
-    extend_system_message=extend_system_message
-)
 ```
 
 ### Override System Prompt
@@ -62,5 +51,27 @@ agent = Agent(
     task="Your task here",
     llm=ChatOpenAI(model='gpt-4'),
     override_system_message=override_system_message
+)
+```
+
+### Extend Planner System Prompt
+
+You can customize the behavior of the planning agent by extending its system prompt:
+
+```python
+extend_planner_system_message = """
+PRIORITIZE gathering information before taking any action.
+Always suggest exploring multiple options before making a decision.
+"""
+
+# Create agent with extended planner system prompt
+llm = ChatOpenAI(model='gpt-4o')
+planner_llm = ChatOpenAI(model='gpt-4o-mini')
+
+agent = Agent(
+  task="Your task here",
+  llm=llm,
+  planner_llm=planner_llm,
+  extend_planner_system_message=extend_planner_system_message
 )
 ```
