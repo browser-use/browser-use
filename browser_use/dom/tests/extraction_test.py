@@ -1,5 +1,4 @@
 import asyncio
-import time
 
 from langchain_openai import ChatOpenAI
 
@@ -44,7 +43,7 @@ async def test_process_html_file():
 		for website in websites:
 			print(f'\n{"=" * 50}\nTesting {website}\n{"=" * 50}')
 			await page.goto(website)
-			time.sleep(2)  # Additional wait for dynamic content
+			await asyncio.sleep(2)  # Additional wait for dynamic content
 
 			async def test_viewport(expansion: int, description: str):
 				print(f'\n{description}:')
@@ -126,12 +125,12 @@ async def test_focus_vs_all_elements():
 		for website in websites:
 			# sleep 2
 			await page.goto(website)
-			time.sleep(2)
+			await asyncio.sleep(2)
 
 			while True:
 				try:
 					print(f'\n{"=" * 50}\nTesting {website}\n{"=" * 50}')
-					# time.sleep(2)  # Additional wait for dynamic content
+					# await asyncio.sleep(2)  # Additional wait for dynamic content
 
 					# First get all elements
 					print('\nGetting all elements:')
