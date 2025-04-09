@@ -19,7 +19,6 @@ from playwright.async_api import (
 	async_playwright,
 )
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
-from typing_extensions import TypedDict
 
 load_dotenv()
 
@@ -39,13 +38,22 @@ logger = logging.getLogger(__name__)
 IN_DOCKER = os.environ.get('IN_DOCKER', 'false').lower()[0] in 'ty1'
 
 
-class ProxySettings(TypedDict, total=False):
-	"""the same as playwright.sync_api.ProxySettings, but with typing_extensions.TypedDict so pydantic can validate it"""
+class ProxySettings(BaseModel):
+	"""the same as playwright.sync_api.ProxySettings, but now as a Pydantic BaseModel so pydantic can validate it"""
 
 	server: str
-	bypass: str | None
-	username: str | None
-	password: str | None
+	bypass: str | None = None
+	username: str | None = None
+	password: str | None = None
+
+	model_config = ConfigDict(populate_by_name=True, from_attributes=True)
+
+	# Support dict-like behavior for compatibility with Playwright's ProxySettings
+	def __getitem__(self, key):
+		return getattr(self, key)
+
+	def get(self, key, default=None):
+		return getattr(self, key, default)
 
 
 class BrowserConfig(BaseModel):
@@ -332,7 +340,12 @@ class Browser:
 				# Make sure parent dir exists and is writable
 				if not os.path.exists(parent_dir):
 					logger.warning(f"Parent directory of user_data_dir doesn't exist: {parent_dir}")
-					raise ValueError(f'user_data_dir={self.config.user_data_dir} is invalid (path does not exist)')
+					try:
+						os.makedirs(parent_dir, exist_ok=True)
+						logger.info(f"Created parent directory: {parent_dir}")
+					except Exception as e:
+						logger.error(f"Failed to create parent directory: {e}")
+						raise RuntimeError(f"Cannot create parent directory for user_data_dir: {e}")
 				
 				# Remove --no-first-run from the chrome args as it will likely prevent creating a new user data dir
 				if '--no-first-run' in args['chromium']:
@@ -350,30 +363,37 @@ class Browser:
 			# This should never happen as we already logged a warning, but just in case
 			logger.warning(f"profile_directory '{self.config.profile_directory}' ignored for non-Chromium browser: {self.config.browser_class}")
 
-		# Base launch options for both methods
-		common_options = {
-			'headless': self.config.headless,
-			'args': args[self.config.browser_class],
-			'timeout': 60000,  # 60 second timeout to prevent hanging
-		}
-
-		if self.config.proxy:
-			common_options['proxy'] = self.config.proxy
-
+		# Combine both approaches: use persistent context if user_data_dir is specified,
+		# otherwise use the improved launch method from upstream
 		try:
 			if self.config.user_data_dir:
 				# When using user_data_dir, we create a persistent context
 				# instead of a regular browser
+				common_options = {
+					'headless': self.config.headless,
+					'args': args[self.config.browser_class],
+					'proxy': self.config.proxy.model_dump() if self.config.proxy else None,
+					'handle_sigterm': False,
+					'handle_sigint': False,
+					'timeout': 60000,  # 60 second timeout to prevent hanging
+				}
 				self._persistent_context = await browser_class.launch_persistent_context(
 					user_data_dir=self.config.user_data_dir,
 					**common_options
 				)
-				
+
 				# Return None since context initialization will use the persistent context
 				return None
 			else:
-				# Standard browser launch
-				return await browser_class.launch(**common_options)
+				# Standard browser launch using upstream's improved method
+				browser = await browser_class.launch(
+					headless=self.config.headless,
+					args=args[self.config.browser_class],
+					proxy=self.config.proxy.model_dump() if self.config.proxy else None,
+					handle_sigterm=False,
+					handle_sigint=False,
+				)
+				return browser
 		except Exception as e:
 			logger.error(f'Failed to initialize browser: {str(e)}')
 			raise
@@ -398,43 +418,43 @@ class Browser:
 			raise
 
 	async def close(self):
-		"""Close the browser."""
+		"""Close the browser instance"""
+		if self.config.keep_alive:
+			return
+
 		try:
-			if not self.config.keep_alive:
-				# Close persistent context first if it exists
-				if self._persistent_context:
-					try:
-						await self._persistent_context.close()
-					except Exception as e:
-						logger.debug(f'Failed to close persistent context: {e}')
-					self._persistent_context = None
+			# Close persistent context first if it exists
+			if self._persistent_context:
+				try:
+					await self._persistent_context.close()
+				except Exception as e:
+					logger.debug(f'Failed to close persistent context: {e}')
+				self._persistent_context = None
 
-				# Then close the browser if it exists
-				if self.playwright_browser:
-					try:
-						await self.playwright_browser.close()
-					except Exception as e:
-						logger.debug(f'Failed to close playwright browser: {e}')
-					self.playwright_browser = None
-
-				# Then close playwright
-				if self.playwright:
-					await self.playwright.stop()
-					del self.playwright
-				
-				if chrome_proc := getattr(self, '_chrome_subprocess', None):
-					try:
-						# always kill all children processes, otherwise chrome leaves a bunch of zombie processes
-						for proc in chrome_proc.children(recursive=True):
-							proc.kill()
-						chrome_proc.kill()
-					except Exception as e:
-						logger.debug(f'Failed to terminate chrome subprocess: {e}')
+			# Then close the browser if it exists
+			if self.playwright_browser:
+				await self.playwright_browser.close()
+				del self.playwright_browser
+			
+			# Then close playwright
+			if self.playwright:
+				await self.playwright.stop()
+				del self.playwright
+			
+			if chrome_proc := getattr(self, '_chrome_subprocess', None):
+				try:
+					# always kill all children processes, otherwise chrome leaves a bunch of zombie processes
+					for proc in chrome_proc.children(recursive=True):
+						proc.kill()
+					chrome_proc.kill()
+				except Exception as e:
+					logger.debug(f'Failed to terminate chrome subprocess: {e}')
 
 			# Then cleanup httpx clients
 			await self.cleanup_httpx_clients()
 		except Exception as e:
 			logger.debug(f'Failed to close browser properly: {e}')
+
 		finally:
 			self.playwright_browser = None
 			self.playwright = None
