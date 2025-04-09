@@ -85,7 +85,7 @@ class BrowserConfig(BaseModel):
 
 		deterministic_rendering: False
 			Enable deterministic rendering (makes GPU/font rendering consistent across different OS's and docker)
-			
+
 		user_data_dir: None
 			Path to a User Data Directory, which stores browser session data like cookies and local storage.
 			When specified, the browser will use this directory to store all profile data.
@@ -309,49 +309,55 @@ class Browser:
 		# Add robust user_data_dir handling
 		if self.config.user_data_dir:
 			import os
-			
+
 			logger.info(f'Using user data directory: {self.config.user_data_dir}')
-			
+
 			# Check if profile_directory is specified but not using Chromium
 			if self.config.profile_directory and self.config.browser_class != 'chromium':
-				logger.warning(f"profile_directory '{self.config.profile_directory}' is only supported with Chromium browsers. It will be ignored.")
-			
+				logger.warning(
+					f"profile_directory '{self.config.profile_directory}' is only supported with Chromium browsers. It will be ignored."
+				)
+
 			# Check if user_data_dir folder exists already
 			if os.path.exists(self.config.user_data_dir):
 				# Make sure profile_directory exists inside of it already if specified
 				if self.config.profile_directory:
 					profile_path = os.path.join(self.config.user_data_dir, self.config.profile_directory)
 					if not os.path.exists(profile_path):
-						logger.warning(f"Profile directory '{self.config.profile_directory}' doesn't exist in user_data_dir. It will be created.")
-				
+						logger.warning(
+							f"Profile directory '{self.config.profile_directory}' doesn't exist in user_data_dir. It will be created."
+						)
+
 				# Check for SingletonLock file which indicates Chrome is already running with this profile
 				singleton_lock = os.path.join(self.config.user_data_dir, 'SingletonLock')
 				if os.path.exists(singleton_lock):
 					try:
 						os.remove(singleton_lock)
-						logger.warning("Detected multiple Chrome processes may be sharing a single user_data_dir! "
-									  "This is not recommended and may lead to errors and failure to launch Chrome.")
+						logger.warning(
+							'Detected multiple Chrome processes may be sharing a single user_data_dir! '
+							'This is not recommended and may lead to errors and failure to launch Chrome.'
+						)
 					except Exception as e:
-						logger.error(f"Failed to remove SingletonLock file: {e}")
+						logger.error(f'Failed to remove SingletonLock file: {e}')
 			else:
 				# user_data_dir does not exist yet
 				parent_dir = os.path.dirname(self.config.user_data_dir)
-				
+
 				# Make sure parent dir exists and is writable
 				if not os.path.exists(parent_dir):
 					logger.warning(f"Parent directory of user_data_dir doesn't exist: {parent_dir}")
 					try:
 						os.makedirs(parent_dir, exist_ok=True)
-						logger.info(f"Created parent directory: {parent_dir}")
+						logger.info(f'Created parent directory: {parent_dir}')
 					except Exception as e:
-						logger.error(f"Failed to create parent directory: {e}")
-						raise RuntimeError(f"Cannot create parent directory for user_data_dir: {e}")
-				
+						logger.error(f'Failed to create parent directory: {e}')
+						raise RuntimeError(f'Cannot create parent directory for user_data_dir: {e}')
+
 				# Remove --no-first-run from the chrome args as it will likely prevent creating a new user data dir
 				if '--no-first-run' in args['chromium']:
 					args['chromium'].remove('--no-first-run')
-					logger.info("Removed --no-first-run flag to allow creation of new user data directory")
-				
+					logger.info('Removed --no-first-run flag to allow creation of new user data directory')
+
 			# Create user_data_dir if it doesn't exist
 			os.makedirs(self.config.user_data_dir, exist_ok=True)
 
@@ -361,7 +367,9 @@ class Browser:
 			logger.debug(f'Using profile directory: {self.config.profile_directory}')
 		elif self.config.profile_directory:
 			# This should never happen as we already logged a warning, but just in case
-			logger.warning(f"profile_directory '{self.config.profile_directory}' ignored for non-Chromium browser: {self.config.browser_class}")
+			logger.warning(
+				f"profile_directory '{self.config.profile_directory}' ignored for non-Chromium browser: {self.config.browser_class}"
+			)
 
 		# Combine both approaches: use persistent context if user_data_dir is specified,
 		# otherwise use the improved launch method from upstream
@@ -378,8 +386,7 @@ class Browser:
 					'timeout': 60000,  # 60 second timeout to prevent hanging
 				}
 				self._persistent_context = await browser_class.launch_persistent_context(
-					user_data_dir=self.config.user_data_dir,
-					**common_options
+					user_data_dir=self.config.user_data_dir, **common_options
 				)
 
 				# Return None since context initialization will use the persistent context
@@ -435,12 +442,12 @@ class Browser:
 			if self.playwright_browser:
 				await self.playwright_browser.close()
 				del self.playwright_browser
-			
+
 			# Then close playwright
 			if self.playwright:
 				await self.playwright.stop()
 				del self.playwright
-			
+
 			if chrome_proc := getattr(self, '_chrome_subprocess', None):
 				try:
 					# always kill all children processes, otherwise chrome leaves a bunch of zombie processes
