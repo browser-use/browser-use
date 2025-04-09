@@ -332,12 +332,7 @@ class Browser:
 				# Make sure parent dir exists and is writable
 				if not os.path.exists(parent_dir):
 					logger.warning(f"Parent directory of user_data_dir doesn't exist: {parent_dir}")
-					try:
-						os.makedirs(parent_dir, exist_ok=True)
-						logger.info(f"Created parent directory: {parent_dir}")
-					except Exception as e:
-						logger.error(f"Failed to create parent directory: {e}")
-						raise RuntimeError(f"Cannot create parent directory for user_data_dir: {e}")
+					raise ValueError(f'user_data_dir={self.config.user_data_dir} is invalid (path does not exist)')
 				
 				# Remove --no-first-run from the chrome args as it will likely prevent creating a new user data dir
 				if '--no-first-run' in args['chromium']:
