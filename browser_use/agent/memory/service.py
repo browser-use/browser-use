@@ -70,7 +70,8 @@ class Memory:
 			if isinstance(msg, ManagedMessage) and msg.metadata.message_type in set(['init', 'memory']):
 				new_messages.append(msg)
 			else:
-				messages_to_process.append(msg)
+				if len(msg.message.content) > 0:
+					messages_to_process.append(msg)
 
 		if len(messages_to_process) <= 1:
 			logger.info('Not enough non-memory messages to summarize')
