@@ -366,8 +366,7 @@ class Browser:
 				f"profile_directory '{self.config.profile_directory}' ignored for non-Chromium browser: {self.config.browser_class}"
 			)
 
-		# Combine both approaches: use persistent context if user_data_dir is specified,
-		# otherwise use the improved launch method from upstream
+		# Conditional browser launch based on user_data_dir
 		try:
 			if self.config.user_data_dir:
 				# When using user_data_dir, we create a persistent context
@@ -387,7 +386,7 @@ class Browser:
 				# Return None since context initialization will use the persistent context
 				return None
 			else:
-				# Standard browser launch using upstream's improved method
+				# Standard browser launch
 				browser = await browser_class.launch(
 					headless=self.config.headless,
 					args=args[self.config.browser_class],
