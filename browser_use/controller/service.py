@@ -1,9 +1,11 @@
 import asyncio
-import datetime
+from datetime import datetime
 import enum
 import json
 import logging
 import re
+import os
+import aiohttp
 from typing import Dict, Generic, Optional, Tuple, Type, TypeVar, cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -383,6 +385,60 @@ class Controller(Generic[Context]):
 				extracted_content=msg,
 				include_in_memory=True,
 			)
+
+		class ImageDownloadParams(BaseModel):
+			urls: list[str]
+			save_path: str | None = None
+
+		@self.registry.action(
+			'Download and save a list of image URLs to local files',
+			param_model=ImageDownloadParams,
+		)
+		async def download_images(params: ImageDownloadParams, browser: BrowserContext) -> ActionResult:
+			"""Downloads a list of image URLs asynchronously and saves them as files."""
+			try:
+				save_path = params.save_path or os.getcwd()
+				os.makedirs(save_path, exist_ok=True)
+
+				results = []
+				async with aiohttp.ClientSession() as session:  # Create an async HTTP session
+					tasks = []
+					for url in params.urls:
+						tasks.append(fetch_and_save(session, url, save_path, results))
+
+					# Run all downloads concurrently
+					await asyncio.gather(*tasks)
+
+				msg = '\n'.join(results)
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True)
+
+			except Exception as e:
+				error_msg = f'Failed to download images: {str(e)}'
+				logger.error(error_msg)
+				return ActionResult(error=error_msg, extracted_content='')
+
+		async def fetch_and_save(session: aiohttp.ClientSession, url: str, save_path: str, results: list):
+			"""Helper function to fetch and save a single image asynchronously."""
+			try:
+				async with session.get(url) as response:
+					response.raise_for_status()
+
+					# Create a filename based on the URL
+					short_url = re.sub(r'^https?://(?:www\.)?|/$', '', url)
+					slug = re.sub(r'[^a-zA-Z0-9]+', '-', short_url).strip('-').lower()[:64]
+					ext = url.split('.')[-1].split('?')[0]
+					timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+					sanitized_filename = f'{slug}_{timestamp}.{ext}'
+					full_path = os.path.join(save_path, sanitized_filename)
+
+					# Save the image
+					with open(full_path, 'wb') as f:
+						f.write(await response.read())  # Read the full response asynchronously
+
+					results.append(f'Saved image from {url} to ./{sanitized_filename}')
+			except Exception as e:
+				results.append(f'Failed to save image from {url}: {str(e)}')
 
 		# scroll up
 		@self.registry.action(
