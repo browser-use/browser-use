@@ -1157,7 +1157,7 @@ class Agent(Generic[Context]):
 
 		return converted_actions
 
-	async def _verify_llm_connection(self, llm: BaseChatModel) -> bool:
+	def _verify_llm_connection(self, llm: BaseChatModel) -> bool:
 		"""
 		Verify that the LLM API keys are working properly by sending a simple test prompt
 		and checking that the response contains the expected answer.
@@ -1170,7 +1170,7 @@ class Agent(Generic[Context]):
 		test_answer = 'paris'
 		required_keys = REQUIRED_LLM_API_ENV_VARS.get(llm.__class__.__name__, ['OPENAI_API_KEY'])
 		try:
-			response = await llm.ainvoke([HumanMessage(content=test_prompt)])
+			response = llm.invoke([HumanMessage(content=test_prompt)])
 			response_text = str(response.content).lower()
 
 			if test_answer in response_text:
@@ -1192,7 +1192,6 @@ class Agent(Generic[Context]):
 				f'\n\n❌  LLM {llm.__class__.__name__} connection test failed. Check that {", ".join(required_keys)} is set correctly in .env and that the LLM API account has sufficient funding.\n'
 			)
 			raise Exception(f'LLM API connection test failed: {e}') from e
-		return False
 
 	async def _run_planner(self) -> Optional[str]:
 		"""Run the planner to analyze state and suggest next steps"""
