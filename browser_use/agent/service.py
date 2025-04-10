@@ -70,9 +70,10 @@ llm_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
 
 def log_interaction(message: str):
 	"""Log both to console and file"""
-	logger.debug(message)  # Existing console logging
-	llm_file_handler.stream.write(f"{message}\n")
-	llm_file_handler.stream.flush()
+	return
+	# logger.debug(message)  # Existing console logging
+	# llm_file_handler.stream.write(f"{message}\n")
+	# llm_file_handler.stream.flush()
 
 def get_timestamp():
 	"""Get current timestamp in consistent format"""
