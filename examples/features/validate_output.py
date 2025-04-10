@@ -1,5 +1,5 @@
 """
-Demostrate output validator.
+Demonstrate output validator.
 
 @dev You need to add OPENAI_API_KEY to your environment variables.
 """

@@ -60,7 +60,8 @@
         "customize/output-format",
         "customize/system-prompt",
         "customize/sensitive-data",
-        "customize/custom-functions"
+        "customize/custom-functions",
+        "customize/hooks"
       ]
     },
     {

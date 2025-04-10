@@ -1,5 +1,5 @@
-import os
 import asyncio
+import os
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -85,9 +85,7 @@ def create_ui():
 					placeholder='E.g., Find flights from New York to London for next week',
 					lines=3,
 				)
-				model = gr.Dropdown(
-					choices=['gpt-4', 'gpt-3.5-turbo'], label='Model', value='gpt-4'
-				)
+				model = gr.Dropdown(choices=['gpt-4', 'gpt-3.5-turbo'], label='Model', value='gpt-4')
 				headless = gr.Checkbox(label='Run Headless', value=True)
 				submit_btn = gr.Button('Run Task')
 

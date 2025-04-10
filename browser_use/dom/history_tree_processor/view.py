@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 from pydantic import BaseModel
 

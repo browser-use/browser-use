@@ -13,13 +13,14 @@ from browser_use.controller.service import Controller
 # Load environment variables
 load_dotenv()
 if not os.getenv('OPENAI_API_KEY'):
-    raise ValueError('OPENAI_API_KEY is not set. Please add it to your environment variables.')
+	raise ValueError('OPENAI_API_KEY is not set. Please add it to your environment variables.')
 
 controller = Controller()
 
 
 class WebpageInfo(BaseModel):
 	"""Model for webpage link."""
+
 	link: str = 'https://appointment.mfa.gr/en/reservations/aero/ireland-grcon-dub/'
 
 
@@ -43,5 +44,5 @@ async def main():
 	await agent.run()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
 	asyncio.run(main())

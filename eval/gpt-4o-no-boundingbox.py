@@ -3,21 +3,14 @@ import asyncio
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
-from browser_use import Agent, BrowserConfig
-from browser_use.browser.browser import Browser
-from browser_use.browser.context import BrowserContextConfig
+from browser_use import Agent, Browser
 
 load_dotenv()
 
 
-async def run_agent(task: str, max_steps: int = 38):
-	browser = Browser(
-		config=BrowserConfig(
-			new_context_config=BrowserContextConfig(
-				highlight_elements=False,
-			),
-		),
-	)
+async def run_agent(task: str, browser: Browser | None = None, max_steps: int = 38):
+	browser = browser or Browser()
+	browser.config.new_context_config.highlight_elements = False
 	llm = ChatOpenAI(
 		model='gpt-4o',
 		temperature=0.0,

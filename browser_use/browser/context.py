@@ -11,8 +11,8 @@ import os
 import re
 import time
 import uuid
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional, TypedDict
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Optional
 
 from playwright._impl._errors import TimeoutError
 from playwright.async_api import Browser as PlaywrightBrowser
@@ -24,6 +24,7 @@ from playwright.async_api import (
 	FrameLocator,
 	Page,
 )
+from pydantic import BaseModel, ConfigDict, Field
 
 from browser_use.browser.views import (
 	BrowserError,
@@ -41,13 +42,27 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class BrowserContextWindowSize(TypedDict):
+class BrowserContextWindowSize(BaseModel):
+	"""Window size configuration for browser context"""
+
 	width: int
 	height: int
 
+	model_config = ConfigDict(
+		extra='allow',  # Allow extra fields to ensure compatibility with dictionary
+		populate_by_name=True,
+		from_attributes=True,
+	)
 
-@dataclass
-class BrowserContextConfig:
+	# Support dict-like behavior for compatibility
+	def __getitem__(self, key):
+		return getattr(self, key)
+
+	def get(self, key, default=None):
+		return getattr(self, key, default)
+
+
+class BrowserContextConfig(BaseModel):
 	"""
 	Configuration for the BrowserContext.
 
@@ -55,15 +70,15 @@ class BrowserContextConfig:
 	    cookies_file: None
 	        Path to cookies file for persistence
 
-	        disable_security: True
-	                Disable browser security features
+		disable_security: False
+			Disable browser security features (dangerous, but cross-origin iframe support requires it)
 
 	    minimum_wait_page_load_time: 0.5
 	        Minimum time to wait before getting page state for LLM input
 
-	        wait_for_network_idle_page_load_time: 1.0
-	                Time to wait for network requests to finish before getting page state.
-	                Lower values may result in incomplete page loads.
+		wait_for_network_idle_page_load_time: 1.0
+			Time to wait for network requests to finish before getting page state.
+			Lower values may result in incomplete page loads.
 
 	    maximum_wait_page_load_time: 5.0
 	        Maximum time to wait for page load before proceeding anyway
@@ -71,10 +86,7 @@ class BrowserContextConfig:
 	    wait_between_actions: 1.0
 	        Time to wait between multiple per step actions
 
-	    browser_window_size: {
-	            'width': 1280,
-	            'height': 1100,
-	        }
+	    browser_window_size: {'width': 1280, 'height': 1100}
 	        Default browser window size
 
 	    no_viewport: False
@@ -98,7 +110,7 @@ class BrowserContextConfig:
 	    highlight_elements: True
 	        Highlight elements in the DOM on the screen
 
-	    viewport_expansion: 500
+	    viewport_expansion: 0
 	        Viewport expansion in pixels. This amount will increase the number of elements which are included in the state what the LLM will see. If set to -1, all elements will be included (this leads to high token usage). If set to 0, only the elements which are visible in the viewport will be included.
 
 	    allowed_domains: None
@@ -107,6 +119,10 @@ class BrowserContextConfig:
 
 	    include_dynamic_attributes: bool = True
 	        Include dynamic attributes in the CSS selector. If you want to reuse the css_selectors, it might be better to set this to False.
+
+		  http_credentials: None
+	  Dictionary with HTTP basic authentication credentials for corporate intranets (only supports one set of credentials for all URLs at the moment), e.g.
+	  {"username": "bill", "password": "pa55w0rd"}
 
 	    is_mobile: None
 	        Whether the meta viewport tag is taken into account and touch events are enabled.
@@ -124,19 +140,31 @@ class BrowserContextConfig:
 	        Changes the timezone of the browser. Example: 'Europe/Berlin'
 	"""
 
+	model_config = ConfigDict(
+		arbitrary_types_allowed=True,
+		extra='ignore',
+		populate_by_name=True,
+		from_attributes=True,
+		validate_assignment=True,
+		revalidate_instances='subclass-instances',
+	)
+
 	cookies_file: str | None = None
 	minimum_wait_page_load_time: float = 0.25
 	wait_for_network_idle_page_load_time: float = 0.5
 	maximum_wait_page_load_time: float = 5
 	wait_between_actions: float = 0.5
 
-	disable_security: bool = True
+	disable_security: bool = False  # disable_security=True is dangerous as any malicious URL visited could embed an iframe for the user's bank, and use their cookies to steal money
 
-	browser_window_size: BrowserContextWindowSize = field(default_factory=lambda: {'width': 1280, 'height': 1100})
+	browser_window_size: BrowserContextWindowSize = Field(
+		default_factory=lambda: BrowserContextWindowSize(width=1280, height=1100)
+	)
 	no_viewport: Optional[bool] = None
 
 	save_recording_path: str | None = None
 	save_downloads_path: str | None = None
+	save_har_path: str | None = None
 	trace_path: str | None = None
 	locale: str | None = None
 	user_agent: str = (
@@ -144,11 +172,12 @@ class BrowserContextConfig:
 	)
 
 	highlight_elements: bool = True
-	viewport_expansion: int = 500
+	viewport_expansion: int = 0
 	allowed_domains: list[str] | None = None
 	include_dynamic_attributes: bool = True
+	http_credentials: dict[str, str] | None = None
 
-	_force_keep_context_alive: bool = False
+	keep_alive: bool = Field(default=False, alias='_force_keep_context_alive')  # used to be called _force_keep_context_alive
 	is_mobile: bool | None = None
 	has_touch: bool | None = None
 	geolocation: dict | None = None
@@ -156,10 +185,56 @@ class BrowserContextConfig:
 	timezone_id: str | None = None
 
 
-@dataclass
 class BrowserSession:
-	context: PlaywrightBrowserContext
-	cached_state: BrowserState | None
+	def __init__(self, context: PlaywrightBrowserContext, cached_state: BrowserState | None = None):
+		init_script = """
+			(() => {
+				if (!window.getEventListeners) {
+					window.getEventListeners = function (node) {
+						return node.__listeners || {};
+					};
+
+					// Save the original addEventListener
+					const originalAddEventListener = Element.prototype.addEventListener;
+
+					const eventProxy = {
+						addEventListener: function (type, listener, options = {}) {
+							// Initialize __listeners if not exists
+							const defaultOptions = { once: false, passive: false, capture: false };
+							if(typeof options === 'boolean') {
+								options = { capture: options };
+							}
+							options = { ...defaultOptions, ...options };
+							if (!this.__listeners) {
+								this.__listeners = {};
+							}
+
+							// Initialize array for this event type if not exists
+							if (!this.__listeners[type]) {
+								this.__listeners[type] = [];
+							}
+							
+
+							// Add the listener to __listeners
+							this.__listeners[type].push({
+								listener: listener,
+								type: type,
+								...options
+							});
+
+							// Call original addEventListener using the saved reference
+							return originalAddEventListener.call(this, type, listener, options);
+						}
+					};
+
+					Element.prototype.addEventListener = eventProxy.addEventListener;
+				}
+			})()
+			"""
+		self.active_tab = None
+		self.context = context
+		self.cached_state = cached_state
+		self.context.on('page', lambda page: page.add_init_script(init_script))
 
 
 @dataclass
@@ -175,19 +250,19 @@ class BrowserContext:
 	def __init__(
 		self,
 		browser: 'Browser',
-		config: BrowserContextConfig = BrowserContextConfig(),
+		config: BrowserContextConfig | None = None,
 		state: Optional[BrowserContextState] = None,
 	):
 		self.context_id = str(uuid.uuid4())
-		logger.debug(f'Initializing new browser context with id: {self.context_id}')
 
-		self.config = config
+		self.config = config or BrowserContextConfig(**(browser.config.model_dump() if browser.config else {}))
 		self.browser = browser
 
 		self.state = state or BrowserContextState()
 
 		# Initialize these as None - they'll be set up when needed
 		self.session: BrowserSession | None = None
+		self.active_tab: Page | None = None
 
 	async def __aenter__(self):
 		"""Async context manager entry"""
@@ -201,7 +276,6 @@ class BrowserContext:
 	@time_execution_async('--close')
 	async def close(self):
 		"""Close the browser instance"""
-		logger.debug('Closing browser context')
 
 		try:
 			if self.session is None:
@@ -225,7 +299,8 @@ class BrowserContext:
 					logger.debug(f'Failed to stop tracing: {e}')
 
 			# This is crucial - it closes the CDP connection
-			if not self.config._force_keep_context_alive:
+			if not self.config.keep_alive:
+				logger.debug('Closing browser context')
 				try:
 					await self.session.context.close()
 				except Exception as e:
@@ -233,12 +308,13 @@ class BrowserContext:
 
 		finally:
 			# Dereference everything
+			self.active_tab = None
 			self.session = None
 			self._page_event_handler = None
 
 	def __del__(self):
 		"""Cleanup when object is destroyed"""
-		if not self.config._force_keep_context_alive and self.session is not None:
+		if not self.config.keep_alive and self.session is not None:
 			logger.debug('BrowserContext was not properly closed before destruction')
 			try:
 				# Use sync Playwright method for force cleanup
@@ -253,7 +329,7 @@ class BrowserContext:
 	@time_execution_async('--initialize_session')
 	async def _initialize_session(self):
 		"""Initialize the browser session"""
-		logger.debug('Initializing browser context')
+		logger.debug(f'🌎  Initializing new browser context with id: {self.context_id}')
 
 		playwright_browser = await self.browser.get_playwright_browser()
 		context = await self._create_context(playwright_browser)
@@ -283,12 +359,18 @@ class BrowserContext:
 
 		# If no target ID or couldn't find it, use existing page or create new
 		if not active_page:
-			if pages:
+			if (
+				pages
+				and pages[0].url
+				and not pages[0].url.startswith('chrome://')  # skip chrome internal pages e.g. settings, history, etc
+				and not pages[0].url.startswith('chrome-extension://')  # skip hidden extension background pages
+			):
 				active_page = pages[0]
-				logger.debug('Using existing page')
+				logger.debug('🔍  Using existing page: %s', active_page.url)
 			else:
 				active_page = await context.new_page()
-				logger.debug('Created new page')
+				await active_page.goto('about:blank')
+				logger.debug('🆕  Created new page: %s', active_page.url)
 
 			# Get target ID for the active page
 			if self.browser.config.cdp_url:
@@ -299,8 +381,11 @@ class BrowserContext:
 						break
 
 		# Bring page to front
+		logger.debug('🫨  Bringing tab to front: %s', active_page)
 		await active_page.bring_to_front()
 		await active_page.wait_for_load_state('load')
+
+		self.active_tab = active_page
 
 		return self.session
 
@@ -309,7 +394,11 @@ class BrowserContext:
 			if self.browser.config.cdp_url:
 				await page.reload()  # Reload the page to avoid timeout errors
 			await page.wait_for_load_state()
-			logger.debug(f'New page opened: {page.url}')
+			logger.debug(f'📑  New page opened: {page.url}')
+
+			if not page.url.startswith('chrome-extension://') and not page.url.startswith('chrome://'):
+				self.active_tab = page
+
 			if self.session is not None:
 				self.state.target_id = None
 
@@ -319,7 +408,11 @@ class BrowserContext:
 	async def get_session(self) -> BrowserSession:
 		"""Lazy initialization of the browser and related components"""
 		if self.session is None:
-			return await self._initialize_session()
+			try:
+				return await self._initialize_session()
+			except Exception as e:
+				logger.error(f'❌  Failed to create new browser session: {e} (did the browser process quit?)')
+				raise e
 		return self.session
 
 	async def get_current_page(self) -> Page:
@@ -331,21 +424,22 @@ class BrowserContext:
 		"""Creates a new browser context with anti-detection measures and loads cookies if available."""
 		if self.browser.config.cdp_url and len(browser.contexts) > 0:
 			context = browser.contexts[0]
-		elif self.browser.config.browser_instance_path and len(browser.contexts) > 0:
+		elif self.browser.config.browser_binary_path and len(browser.contexts) > 0:
 			# Connect to existing Chrome instance instead of creating new one
 			context = browser.contexts[0]
 		else:
 			# Original code for creating new context
 			context = await browser.new_context(
-				viewport=self.config.browser_window_size,
-				no_viewport=False,
+				no_viewport=True,
 				user_agent=self.config.user_agent,
 				java_script_enabled=True,
 				bypass_csp=self.config.disable_security,
 				ignore_https_errors=self.config.disable_security,
 				record_video_dir=self.config.save_recording_path,
-				record_video_size=self.config.browser_window_size,
+				record_video_size=self.config.browser_window_size.model_dump(),
+				record_har_path=self.config.save_har_path,
 				locale=self.config.locale,
+				http_credentials=self.config.http_credentials,
 				is_mobile=self.config.is_mobile,
 				has_touch=self.config.has_touch,
 				geolocation=self.config.geolocation,
@@ -359,9 +453,22 @@ class BrowserContext:
 		# Load cookies if they exist
 		if self.config.cookies_file and os.path.exists(self.config.cookies_file):
 			with open(self.config.cookies_file, 'r') as f:
-				cookies = json.load(f)
-				logger.info(f'Loaded {len(cookies)} cookies from {self.config.cookies_file}')
-				await context.add_cookies(cookies)
+				try:
+					cookies = json.load(f)
+
+					valid_same_site_values = ['Strict', 'Lax', 'None']
+					for cookie in cookies:
+						if 'sameSite' in cookie:
+							if cookie['sameSite'] not in valid_same_site_values:
+								logger.warning(
+									f"Fixed invalid sameSite value '{cookie['sameSite']}' to 'None' for cookie {cookie.get('name')}"
+								)
+								cookie['sameSite'] = 'None'
+					logger.info(f'🍪  Loaded {len(cookies)} cookies from {self.config.cookies_file}')
+					await context.add_cookies(cookies)
+
+				except json.JSONDecodeError as e:
+					logger.error(f'Failed to parse cookies file: {str(e)}')
 
 		# Expose anti-detection scripts
 		await context.add_init_script(
@@ -569,7 +676,7 @@ class BrowserContext:
 			page.remove_listener('request', on_request)
 			page.remove_listener('response', on_response)
 
-		logger.debug(f'Network stabilized for {self.config.wait_for_network_idle_page_load_time} seconds')
+		logger.debug(f'⚖️  Network stabilized for {self.config.wait_for_network_idle_page_load_time} seconds')
 
 	async def _wait_for_page_and_frames_load(self, timeout_overwrite: float | None = None):
 		"""
@@ -590,7 +697,7 @@ class BrowserContext:
 		except URLNotAllowedError as e:
 			raise e
 		except Exception:
-			logger.warning('Page load failed, continuing...')
+			logger.warning('⚠️  Page load failed, continuing...')
 			pass
 
 		# Calculate remaining time to meet minimum WAIT_TIME
@@ -614,6 +721,10 @@ class BrowserContext:
 			parsed_url = urlparse(url)
 			domain = parsed_url.netloc.lower()
 
+			# Special case: Allow 'about:blank' explicitly
+			if url == 'about:blank':
+				return True
+
 			# Remove port number if present
 			if ':' in domain:
 				domain = domain.split(':')[0]
@@ -624,17 +735,17 @@ class BrowserContext:
 				for allowed_domain in self.config.allowed_domains
 			)
 		except Exception as e:
-			logger.error(f'Error checking URL allowlist: {str(e)}')
+			logger.error(f'⛔️  Error checking URL allowlist: {str(e)}')
 			return False
 
 	async def _check_and_handle_navigation(self, page: Page) -> None:
 		"""Check if current page URL is allowed and handle if not."""
 		if not self._is_url_allowed(page.url):
-			logger.warning(f'Navigation to non-allowed URL detected: {page.url}')
+			logger.warning(f'⛔️  Navigation to non-allowed URL detected: {page.url}')
 			try:
 				await self.go_back()
 			except Exception as e:
-				logger.error(f'Failed to go back after detecting non-allowed URL: {str(e)}')
+				logger.error(f'⛔️  Failed to go back after detecting non-allowed URL: {str(e)}')
 			raise URLNotAllowedError(f'Navigation to non-allowed URL: {page.url}')
 
 	async def navigate_to(self, url: str):
@@ -661,7 +772,7 @@ class BrowserContext:
 			# await self._wait_for_page_and_frames_load(timeout_overwrite=1.0)
 		except Exception as e:
 			# Continue even if its not fully loaded, because we wait later for the page to load
-			logger.debug(f'During go_back: {e}')
+			logger.debug(f'⏮️  Error during go_back: {e}')
 
 	async def go_forward(self):
 		"""Navigate forward in history"""
@@ -670,17 +781,18 @@ class BrowserContext:
 			await page.go_forward(timeout=10, wait_until='domcontentloaded')
 		except Exception as e:
 			# Continue even if its not fully loaded, because we wait later for the page to load
-			logger.debug(f'During go_forward: {e}')
+			logger.debug(f'⏭️  Error during go_forward: {e}')
 
 	async def close_current_tab(self):
 		"""Close the current tab"""
 		session = await self.get_session()
 		page = await self._get_current_page(session)
 		await page.close()
-
+		self.active_tab = None
 		# Switch to the first available tab if any exist
 		if session.context.pages:
 			await self.switch_to_tab(0)
+			self.active_tab = session.context.pages[0]
 
 		# otherwise the browser will be closed
 
@@ -699,24 +811,24 @@ class BrowserContext:
 		debug_script = """(() => {
 			function getPageStructure(element = document, depth = 0, maxDepth = 10) {
 				if (depth >= maxDepth) return '';
-				
+
 				const indent = '  '.repeat(depth);
 				let structure = '';
-				
+
 				// Skip certain elements that clutter the output
 				const skipTags = new Set(['script', 'style', 'link', 'meta', 'noscript']);
-				
+
 				// Add current element info if it's not the document
 				if (element !== document) {
 					const tagName = element.tagName.toLowerCase();
-					
+
 					// Skip uninteresting elements
 					if (skipTags.has(tagName)) return '';
-					
+
 					const id = element.id ? `#${element.id}` : '';
-					const classes = element.className && typeof element.className === 'string' ? 
+					const classes = element.className && typeof element.className === 'string' ?
 						`.${element.className.split(' ').filter(c => c).join('.')}` : '';
-					
+
 					// Get additional useful attributes
 					const attrs = [];
 					if (element.getAttribute('role')) attrs.push(`role="${element.getAttribute('role')}"`);
@@ -727,10 +839,10 @@ class BrowserContext:
 						const src = element.getAttribute('src');
 						attrs.push(`src="${src.substring(0, 50)}${src.length > 50 ? '...' : ''}"`);
 					}
-					
+
 					// Add element info
 					structure += `${indent}${tagName}${id}${classes}${attrs.length ? ' [' + attrs.join(', ') + ']' : ''}\\n`;
-					
+
 					// Handle iframes specially
 					if (tagName === 'iframe') {
 						try {
@@ -746,7 +858,7 @@ class BrowserContext:
 						}
 					}
 				}
-				
+
 				// Get all child elements
 				const children = element.children || element.childNodes;
 				for (const child of children) {
@@ -754,10 +866,10 @@ class BrowserContext:
 						structure += getPageStructure(child, depth + 1, maxDepth);
 					}
 				}
-				
+
 				return structure;
 			}
-			
+
 			return getPageStructure();
 		})()"""
 
@@ -788,13 +900,13 @@ class BrowserContext:
 			# Test if page is still accessible
 			await page.evaluate('1')
 		except Exception as e:
-			logger.debug(f'Current page is no longer accessible: {str(e)}')
+			logger.debug(f'👋  Current page is no longer accessible: {str(e)}')
 			# Get all available pages
 			pages = session.context.pages
 			if pages:
 				self.state.target_id = None
 				page = await self._get_current_page(session)
-				logger.debug(f'Switched to page: {await page.title()}')
+				logger.debug(f'🔄  Switched to page: {await page.title()}')
 			else:
 				raise BrowserError('Browser closed: no valid pages available')
 
@@ -807,6 +919,28 @@ class BrowserContext:
 				highlight_elements=self.config.highlight_elements,
 			)
 
+			tabs_info = await self.get_tabs_info()
+
+			# Get all cross-origin iframes within the page and open them in new tabs
+			# mark the titles of the new tabs so the LLM knows to check them for additional content
+			# unfortunately too buggy for now, too many sites use invisible cross-origin iframes for ads, tracking, youtube videos, social media, etc.
+			# and it distracts the bot by opening a lot of new tabs
+			# iframe_urls = await dom_service.get_cross_origin_iframes()
+			# for url in iframe_urls:
+			# 	if url in [tab.url for tab in tabs_info]:
+			# 		continue  # skip if the iframe if we already have it open in a tab
+			# 	new_page_id = tabs_info[-1].page_id + 1
+			# 	logger.debug(f'Opening cross-origin iframe in new tab #{new_page_id}: {url}')
+			# 	await self.create_new_tab(url)
+			# 	tabs_info.append(
+			# 		TabInfo(
+			# 			page_id=new_page_id,
+			# 			url=url,
+			# 			title=f'iFrame opened as new tab, treat as if embedded inside page #{self.state.target_id}: {page.url}',
+			# 			parent_page_id=self.state.target_id,
+			# 		)
+			# 	)
+
 			screenshot_b64 = await self.take_screenshot()
 			pixels_above, pixels_below = await self.get_scroll_info(page)
 
@@ -815,7 +949,7 @@ class BrowserContext:
 				selector_map=content.selector_map,
 				url=page.url,
 				title=await page.title(),
-				tabs=await self.get_tabs_info(),
+				tabs=tabs_info,
 				screenshot=screenshot_b64,
 				pixels_above=pixels_above,
 				pixels_below=pixels_below,
@@ -823,7 +957,7 @@ class BrowserContext:
 
 			return self.current_state
 		except Exception as e:
-			logger.error(f'Failed to update state: {str(e)}')
+			logger.error(f'❌  Failed to update state: {str(e)}')
 			# Return last known good state if available
 			if hasattr(self, 'current_state'):
 				return self.current_state
@@ -879,7 +1013,7 @@ class BrowserContext:
                 """
 			)
 		except Exception as e:
-			logger.debug(f'Failed to remove highlights (this is usually ok): {str(e)}')
+			logger.debug(f'⚠  Failed to remove highlights (this is usually ok): {str(e)}')
 			# Don't raise the error since this is not critical functionality
 			pass
 
@@ -1091,7 +1225,79 @@ class BrowserContext:
 					return element_handle
 				return None
 		except Exception as e:
-			logger.error(f'Failed to locate element: {str(e)}')
+			logger.error(f'❌  Failed to locate element: {str(e)}')
+			return None
+
+	@time_execution_async('--get_locate_element_by_xpath')
+	async def get_locate_element_by_xpath(self, xpath: str) -> Optional[ElementHandle]:
+		"""
+		Locates an element on the page using the provided XPath.
+		"""
+		current_frame = await self.get_current_page()
+
+		try:
+			# Use XPath to locate the element
+			element_handle = await current_frame.query_selector(f'xpath={xpath}')
+			if element_handle:
+				await element_handle.scroll_into_view_if_needed()
+				return element_handle
+			return None
+		except Exception as e:
+			logger.error(f'❌  Failed to locate element by XPath {xpath}: {str(e)}')
+			return None
+
+	@time_execution_async('--get_locate_element_by_css_selector')
+	async def get_locate_element_by_css_selector(self, css_selector: str) -> Optional[ElementHandle]:
+		"""
+		Locates an element on the page using the provided CSS selector.
+		"""
+		current_frame = await self.get_current_page()
+
+		try:
+			# Use CSS selector to locate the element
+			element_handle = await current_frame.query_selector(css_selector)
+			if element_handle:
+				await element_handle.scroll_into_view_if_needed()
+				return element_handle
+			return None
+		except Exception as e:
+			logger.error(f'❌  Failed to locate element by CSS selector {css_selector}: {str(e)}')
+			return None
+
+	@time_execution_async('--get_locate_element_by_text')
+	async def get_locate_element_by_text(
+		self, text: str, nth: Optional[int] = 0, element_type: Optional[str] = None
+	) -> Optional[ElementHandle]:
+		"""
+		Locates an element on the page using the provided text.
+		If `nth` is provided, it returns the nth matching element (0-based).
+		If `element_type` is provided, filters by tag name (e.g., 'button', 'span').
+		"""
+		current_frame = await self.get_current_page()
+		try:
+			# handle also specific element type or use any type.
+			selector = f'{element_type or "*"}:text("{text}")'
+			elements = await current_frame.query_selector_all(selector)
+			# considering only visible elements
+			elements = [el for el in elements if await el.is_visible()]
+
+			if not elements:
+				logger.error(f"No visible element with text '{text}' found.")
+				return None
+
+			if nth is not None:
+				if 0 <= nth < len(elements):
+					element_handle = elements[nth]
+				else:
+					logger.error(f"Visible element with text '{text}' not found at index {nth}.")
+					return None
+			else:
+				element_handle = elements[0]
+
+			await element_handle.scroll_into_view_if_needed()
+			return element_handle
+		except Exception as e:
+			logger.error(f"❌  Failed to locate element by text '{text}': {str(e)}")
 			return None
 
 	@time_execution_async('--input_text_element_node')
@@ -1118,23 +1324,23 @@ class BrowserContext:
 				pass
 
 			# Get element properties to determine input method
-			tag_handle = await element_handle.get_property("tagName")
+			tag_handle = await element_handle.get_property('tagName')
 			tag_name = (await tag_handle.json_value()).lower()
 			is_contenteditable = await element_handle.get_property('isContentEditable')
-			readonly_handle = await element_handle.get_property("readOnly")
-			disabled_handle = await element_handle.get_property("disabled")
+			readonly_handle = await element_handle.get_property('readOnly')
+			disabled_handle = await element_handle.get_property('disabled')
 
 			readonly = await readonly_handle.json_value() if readonly_handle else False
 			disabled = await disabled_handle.json_value() if disabled_handle else False
 
 			if (await is_contenteditable.json_value() or tag_name == 'input') and not (readonly or disabled):
-				await element_handle.evaluate('el => el.textContent = ""')
+				await element_handle.evaluate('el => {el.textContent = ""; el.value = "";}')
 				await element_handle.type(text, delay=5)
 			else:
 				await element_handle.fill(text)
 
 		except Exception as e:
-			logger.debug(f'Failed to input text into element: {repr(element_node)}. Error: {str(e)}')
+			logger.debug(f'❌  Failed to input text into element: {repr(element_node)}. Error: {str(e)}')
 			raise BrowserError(f'Failed to input text into index {element_node.highlight_index}')
 
 	@time_execution_async('--click_element_node')
@@ -1168,7 +1374,7 @@ class BrowserContext:
 						unique_filename = await self._get_unique_filename(self.config.save_downloads_path, suggested_filename)
 						download_path = os.path.join(self.config.save_downloads_path, unique_filename)
 						await download.save_as(download_path)
-						logger.debug(f'Download triggered. Saved file to: {download_path}')
+						logger.debug(f'⬇️  Download triggered. Saved file to: {download_path}')
 						return download_path
 					except TimeoutError:
 						# If no download is triggered, treat as normal click
@@ -1205,7 +1411,13 @@ class BrowserContext:
 
 		tabs_info = []
 		for page_id, page in enumerate(session.context.pages):
-			tab_info = TabInfo(page_id=page_id, url=page.url, title=await page.title())
+			try:
+				tab_info = TabInfo(page_id=page_id, url=page.url, title=await asyncio.wait_for(page.title(), timeout=1))
+			except asyncio.TimeoutError:
+				# page.title() can hang forever on tabs that are crashed/disappeared/about:blank
+				# we dont want to try automating those tabs because they will hang the whole script
+				logger.debug('⚠  Failed to get tab info for tab #%s: %s (ignoring)', page_id, page.url)
+				tab_info = TabInfo(page_id=page_id, url='about:blank', title='ignore this tab and do not use it')
 			tabs_info.append(tab_info)
 
 		return tabs_info
@@ -1233,6 +1445,7 @@ class BrowserContext:
 					self.state.target_id = target['targetId']
 					break
 
+		self.active_tab = page
 		await page.bring_to_front()
 		await page.wait_for_load_state()
 
@@ -1244,6 +1457,9 @@ class BrowserContext:
 
 		session = await self.get_session()
 		new_page = await session.context.new_page()
+
+		self.active_tab = new_page
+
 		await new_page.wait_for_load_state()
 
 		if url:
@@ -1273,8 +1489,27 @@ class BrowserContext:
 						if page.url == target['url']:
 							return page
 
-		# Fallback to last page
-		return pages[-1] if pages else await session.context.new_page()
+		if self.active_tab and self.active_tab in session.context.pages and not self.active_tab.is_closed():
+			return self.active_tab
+
+		# fall back to most recently opened non-extension page (extensions are almost always invisible background targets)
+		non_extension_pages = [
+			page for page in pages if not page.url.startswith('chrome-extension://') and not page.url.startswith('chrome://')
+		]
+		if non_extension_pages:
+			return non_extension_pages[-1]
+
+		# Fallback to opening a new tab in the active window
+		try:
+			return await session.context.new_page()
+		except Exception:
+			# there is no browser window available (perhaps the user closed it?)
+			# reopen a new window in the browser and try again
+			logger.warning('⚠️  No browser window available, opening a new window')
+			await self._initialize_session()
+			page = await session.context.new_page()
+			self.active_tab = page
+			return page
 
 	async def get_selector_map(self) -> SelectorMap:
 		session = await self.get_session()
@@ -1296,7 +1531,7 @@ class BrowserContext:
 		if self.session and self.session.context and self.config.cookies_file:
 			try:
 				cookies = await self.session.context.cookies()
-				logger.debug(f'Saving {len(cookies)} cookies to {self.config.cookies_file}')
+				logger.debug(f'🍪  Saving {len(cookies)} cookies to {self.config.cookies_file}')
 
 				# Check if the path is a directory and create it if necessary
 				dirname = os.path.dirname(self.config.cookies_file)
@@ -1306,7 +1541,7 @@ class BrowserContext:
 				with open(self.config.cookies_file, 'w') as f:
 					json.dump(cookies, f)
 			except Exception as e:
-				logger.warning(f'Failed to save cookies: {str(e)}')
+				logger.warning(f'❌  Failed to save cookies: {str(e)}')
 
 	async def is_file_uploader(self, element_node: DOMElementNode, max_depth: int = 3, current_depth: int = 0) -> bool:
 		"""Check if element or its children are file uploaders"""
@@ -1355,6 +1590,7 @@ class BrowserContext:
 		for page in pages:
 			await page.close()
 
+		self.active_tab = None
 		session.cached_state = None
 		self.state.target_id = None
 
@@ -1385,3 +1621,17 @@ class BrowserContext:
 		except Exception as e:
 			logger.debug(f'Failed to get CDP targets: {e}')
 			return []
+
+	async def wait_for_element(self, selector: str, timeout: float) -> None:
+		"""
+		Waits for an element matching the given CSS selector to become visible.
+
+		Args:
+		    selector (str): The CSS selector of the element.
+		    timeout (float): The maximum time to wait for the element to be visible (in milliseconds).
+
+		Raises:
+		    TimeoutError: If the element does not become visible within the specified timeout.
+		"""
+		page = await self.get_current_page()
+		await page.wait_for_selector(selector, state='visible', timeout=timeout)
