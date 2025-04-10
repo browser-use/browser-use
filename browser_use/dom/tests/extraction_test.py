@@ -1,97 +1,57 @@
 import asyncio
+import os
 import time
 
 from langchain_openai import ChatOpenAI
 
+from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext, BrowserContextConfig
 from browser_use.dom.service import DomService
-from browser_use.utils import time_execution_sync
 
 
-def count_string_tokens(string: str, model: str) -> int:
+def count_string_tokens(string: str, model: str) -> tuple[int, float]:
 	"""Count the number of tokens in a string using a specified model."""
+
+	def get_price_per_token(model: str) -> float:
+		"""Get the price per token for a specified model.
+
+		@todo: move to utils, use a package or sth
+		"""
+		prices = {
+			'gpt-4o': 2.5 / 1e6,
+			'gpt-4o-mini': 0.15 / 1e6,
+		}
+		return prices[model]
+
 	llm = ChatOpenAI(model=model)
-	return llm.count_tokens(string)
+	token_count = llm.get_num_tokens(string)
+	price = token_count * get_price_per_token(model)
+	return token_count, price
 
 
-async def test_process_html_file():
-	config = BrowserContextConfig(
-		cookies_file='cookies3.json',
-		disable_security=True,
-		wait_for_network_idle_page_load_time=2,
-	)
+TIMEOUT = 60
 
-	browser = Browser(
-		config=BrowserConfig(
-			# chrome_instance_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-		)
-	)
-	context = BrowserContext(browser=browser, config=config)  # noqa: F821
-
-	websites = [
-		'https://kayak.com/flights',
-		'https://immobilienscout24.de',
-		'https://google.com',
-		'https://amazon.com',
-		'https://github.com',
-	]
-
-	async with context as context:
-		page = await context.get_current_page()
-		dom_service = DomService(page)
-
-		for website in websites:
-			print(f'\n{"=" * 50}\nTesting {website}\n{"=" * 50}')
-			await page.goto(website)
-			time.sleep(2)  # Additional wait for dynamic content
-
-			async def test_viewport(expansion: int, description: str):
-				print(f'\n{description}:')
-				dom_state = await time_execution_sync(f'get_clickable_elements ({description})')(
-					dom_service.get_clickable_elements
-				)(highlight_elements=True, viewport_expansion=expansion)
-
-				elements = dom_state.element_tree
-				selector_map = dom_state.selector_map
-				element_count = len(selector_map.keys())
-				token_count = count_string_tokens(elements.clickable_elements_to_string(), model='gpt-4o')
-
-				print(f'Number of elements: {element_count}')
-				print(f'Token count: {token_count}')
-				return element_count, token_count
-
-			expansions = [0, 100, 200, 300, 400, 500, 600, 1000, -1, -200]
-			results = []
-
-			for i, expansion in enumerate(expansions):
-				description = (
-					f'{i + 1}. Expansion {expansion}px' if expansion >= 0 else f'{i + 1}. All elements ({expansion} expansion)'
-				)
-				count, tokens = await test_viewport(expansion, description)
-				results.append((count, tokens))
-				input('Press Enter to continue...')
-				await page.evaluate('document.getElementById("playwright-highlight-container")?.remove()')
-
-			# Print comparison summary
-			print('\nComparison Summary:')
-			for i, (count, tokens) in enumerate(results):
-				expansion = expansions[i]
-				description = f'Expansion {expansion}px' if expansion >= 0 else 'All elements (-1)'
-				initial_count, initial_tokens = results[0]
-				print(f'{description}: {count} elements (+{count - initial_count}), {tokens} tokens')
-
-			input('\nPress Enter to continue to next website...')
-
-			# Clear highlights before next website
-			await page.evaluate('document.getElementById("playwright-highlight-container")?.remove()')
+DEFAULT_INCLUDE_ATTRIBUTES = [
+	'id',
+	'title',
+	'type',
+	'name',
+	'role',
+	'aria-label',
+	'placeholder',
+	'value',
+	'alt',
+	'aria-expanded',
+	'data-date-format',
+]
 
 
 async def test_focus_vs_all_elements():
 	config = BrowserContextConfig(
 		# cookies_file='cookies3.json',
 		disable_security=True,
-		wait_for_network_idle_page_load_time=2,
+		wait_for_network_idle_page_load_time=1,
 	)
 
 	browser = Browser(
@@ -102,18 +62,18 @@ async def test_focus_vs_all_elements():
 	context = BrowserContext(browser=browser, config=config)  # noqa: F821
 
 	websites = [
-		'https://en.wikipedia.org/wiki/Humanist_Party_of_Ontario',
-		'https://www.google.com/travel/flights?tfs=CBwQARoJagcIARIDTEpVGglyBwgBEgNMSlVAAUgBcAGCAQsI____________AZgBAQ&tfu=KgIIAw&hl=en-US&gl=US',
-		# 'https://www.concur.com/?&cookie_preferences=cpra',
-		'https://immobilienscout24.de',
+		'https://kayak.com/flights',
+		# 'https://en.wikipedia.org/wiki/Humanist_Party_of_Ontario',
+		# 'https://www.google.com/travel/flights?tfs=CBwQARoJagcIARIDTEpVGglyBwgBEgNMSlVAAUgBcAGCAQsI____________AZgBAQ&tfu=KgIIAw&hl=en-US&gl=US',
+		# # 'https://www.concur.com/?&cookie_preferences=cpra',
+		# 'https://immobilienscout24.de',
 		'https://docs.google.com/spreadsheets/d/1INaIcfpYXlMRWO__de61SHFCaqt1lfHlcvtXZPItlpI/edit',
 		'https://www.zeiss.com/career/en/job-search.html?page=1',
 		'https://www.mlb.com/yankees/stats/',
 		'https://www.amazon.com/s?k=laptop&s=review-rank&crid=1RZCEJ289EUSI&qid=1740202453&sprefix=laptop%2Caps%2C166&ref=sr_st_review-rank&ds=v1%3A4EnYKXVQA7DIE41qCvRZoNB4qN92Jlztd3BPsTFXmxU',
-		'https://codepen.io/geheimschriftstift/pen/mPLvQz',
 		'https://reddit.com',
+		'https://codepen.io/geheimschriftstift/pen/mPLvQz',
 		'https://www.google.com/search?q=google+hi&oq=google+hi&gs_lcrp=EgZjaHJvbWUyBggAEEUYOTIGCAEQRRhA0gEIMjI2NmowajSoAgCwAgE&sourceid=chrome&ie=UTF-8',
-		'https://kayak.com/flights',
 		'https://google.com',
 		'https://amazon.com',
 		'https://github.com',
@@ -126,36 +86,95 @@ async def test_focus_vs_all_elements():
 		for website in websites:
 			# sleep 2
 			await page.goto(website)
-			time.sleep(2)
+			time.sleep(1)
 
+			last_clicked_index = None  # Track the index for text input
 			while True:
 				try:
 					print(f'\n{"=" * 50}\nTesting {website}\n{"=" * 50}')
-					# time.sleep(2)  # Additional wait for dynamic content
 
-					# First get all elements
-					print('\nGetting all elements:')
-					all_elements_state = await time_execution_sync('get_all_elements')(dom_service.get_clickable_elements)(
-						highlight_elements=True, viewport_expansion=1000
-					)
+					# Get/refresh the state (includes removing old highlights)
+					print('\nGetting page state...')
+					all_elements_state = await context.get_state(True)
 
 					selector_map = all_elements_state.selector_map
 					total_elements = len(selector_map.keys())
 					print(f'Total number of elements: {total_elements}')
 
-					print(all_elements_state.element_tree.clickable_elements_to_string())
+					# print(all_elements_state.element_tree.clickable_elements_to_string())
+					prompt = AgentMessagePrompt(
+						state=all_elements_state,
+						result=None,
+						include_attributes=DEFAULT_INCLUDE_ATTRIBUTES,
+						step_info=None,
+					)
+					# print(prompt.get_user_message(use_vision=False).content)
+					# Write the user message to a file for analysis
+					user_message = prompt.get_user_message(use_vision=False).content
+					os.makedirs('./tmp', exist_ok=True)
+					with open('./tmp/user_message.txt', 'w', encoding='utf-8') as f:
+						f.write(user_message)
 
-					answer = input('Press Enter to clear highlights and continue...')
-					if answer == 'q':
+					token_count, price = count_string_tokens(user_message, model='gpt-4o')
+					print(f'Prompt token count: {token_count}, price: {round(price, 4)} USD')
+					print('User message written to ./tmp/user_message.txt')
+
+					# also save all_elements_state.element_tree.clickable_elements_to_string() to a file
+					# with open('./tmp/clickable_elements.json', 'w', encoding='utf-8') as f:
+					# 	f.write(json.dumps(all_elements_state.element_tree.__json__(), indent=2))
+					# print('Clickable elements written to ./tmp/clickable_elements.json')
+
+					answer = input("Enter element index to click, 'index,text' to input, or 'q' to quit: ")
+
+					if answer.lower() == 'q':
 						break
 
-					await page.evaluate('document.getElementById("playwright-highlight-container")?.remove()')
+					try:
+						if ',' in answer:
+							# Input text format: index,text
+							parts = answer.split(',', 1)
+							if len(parts) == 2:
+								try:
+									target_index = int(parts[0].strip())
+									text_to_input = parts[1]
+									if target_index in selector_map:
+										element_node = selector_map[target_index]
+										print(
+											f"Inputting text '{text_to_input}' into element {target_index}: {element_node.tag_name}"
+										)
+										await context._input_text_element_node(element_node, text_to_input)
+										print('Input successful.')
+									else:
+										print(f'Invalid index: {target_index}')
+								except ValueError:
+									print(f'Invalid index format: {parts[0]}')
+							else:
+								print("Invalid input format. Use 'index,text'.")
+						else:
+							# Click element format: index
+							try:
+								clicked_index = int(answer)
+								if clicked_index in selector_map:
+									element_node = selector_map[clicked_index]
+									print(f'Clicking element {clicked_index}: {element_node.tag_name}')
+									await context._click_element_node(element_node)
+									print('Click successful.')
+								else:
+									print(f'Invalid index: {clicked_index}')
+							except ValueError:
+								print(f"Invalid input: '{answer}'. Enter an index, 'index,text', or 'q'.")
+
+					except Exception as action_e:
+						print(f'Action failed: {action_e}')
+
+				# No explicit highlight removal here, get_state handles it at the start of the loop
 
 				except Exception as e:
-					print(f'Error: {e}')
-					pass
+					print(f'Error in loop: {e}')
+					# Optionally add a small delay before retrying
+					await asyncio.sleep(1)
 
 
 if __name__ == '__main__':
 	asyncio.run(test_focus_vs_all_elements())
-	asyncio.run(test_process_html_file())
+	# asyncio.run(test_process_html_file()) # Commented out the other test

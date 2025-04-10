@@ -388,7 +388,7 @@ class Agent(Generic[Context]):
 		tokens = 0
 
 		try:
-			state = await self.browser_context.get_state()
+			state = await self.browser_context.get_state(cache_clickable_elements_hashes=True)
 			active_page = await self.browser_context.get_current_page()
 
 			# generate procedural memory if needed
@@ -867,7 +867,7 @@ class Agent(Generic[Context]):
 
 		for i, action in enumerate(actions):
 			if action.get_index() is not None and i != 0:
-				new_state = await self.browser_context.get_state()
+				new_state = await self.browser_context.get_state(cache_clickable_elements_hashes=False)
 				new_selector_map = new_state.selector_map
 
 				# Detect index change after previous action
@@ -934,7 +934,7 @@ class Agent(Generic[Context]):
 		)
 
 		if self.browser_context.session:
-			state = await self.browser_context.get_state()
+			state = await self.browser_context.get_state(cache_clickable_elements_hashes=False)
 			content = AgentMessagePrompt(
 				state=state,
 				result=self.state.last_result,
@@ -1041,7 +1041,7 @@ class Agent(Generic[Context]):
 
 	async def _execute_history_step(self, history_item: AgentHistory, delay: float) -> list[ActionResult]:
 		"""Execute a single step from history with element validation"""
-		state = await self.browser_context.get_state()
+		state = await self.browser_context.get_state(cache_clickable_elements_hashes=False)
 		if not state or not history_item.model_output:
 			raise ValueError('Invalid state or model output')
 		updated_actions = []

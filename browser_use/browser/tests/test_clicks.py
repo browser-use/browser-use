@@ -48,7 +48,7 @@ async def test_highlight_elements():
 		while True:
 			try:
 				# await asyncio.sleep(10)
-				state = await context.get_state()
+				state = await context.get_state(True)
 
 				with open('./tmp/page.json', 'w') as f:
 					json.dump(

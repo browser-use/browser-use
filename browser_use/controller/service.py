@@ -212,7 +212,7 @@ class Controller(Generic[Context]):
 				logger.warning(f'Element not clickable with xpath {params.xpath} - most likely the page changed')
 				return ActionResult(error=str(e))
 
-		@self.registry.action('Click element with text', param_model=ClickElementByTextAction)
+		@self.registry.action('Click element with text (use only as a backup)', param_model=ClickElementByTextAction)
 		async def click_element_by_text(params: ClickElementByTextAction, browser: BrowserContext):
 			try:
 				element_node = await browser.get_locate_element_by_text(
