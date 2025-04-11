@@ -176,7 +176,9 @@ class Controller(Generic[Context]):
 				element_node = await browser.get_locate_element_by_css_selector(params.css_selector)
 				if element_node:
 					try:
-						await element_node.scroll_into_view_if_needed()
+						is_hidden = await element_node.is_hidden()
+						if not is_hidden:
+							await element_node.scroll_into_view_if_needed()
 						await element_node.click(timeout=1500, force=True)
 					except Exception:
 						try:
@@ -197,7 +199,9 @@ class Controller(Generic[Context]):
 				element_node = await browser.get_locate_element_by_xpath(params.xpath)
 				if element_node:
 					try:
-						await element_node.scroll_into_view_if_needed()
+						is_hidden = await element_node.is_hidden()
+						if not is_hidden:
+							await element_node.scroll_into_view_if_needed()
 						await element_node.click(timeout=1500, force=True)
 					except Exception:
 						try:
@@ -221,7 +225,9 @@ class Controller(Generic[Context]):
 
 				if element_node:
 					try:
-						await element_node.scroll_into_view_if_needed()
+						is_hidden = await element_node.is_hidden()
+						if not is_hidden:
+							await element_node.scroll_into_view_if_needed()
 						await element_node.click(timeout=1500, force=True)
 					except Exception:
 						try:

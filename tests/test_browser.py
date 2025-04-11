@@ -20,9 +20,8 @@ async def test_builtin_browser_launch(monkeypatch):
 		pass
 
 	class DummyChromium:
-		async def launch(self, headless, args, proxy=None):
+		async def launch(self, headless, args, proxy=None, handle_sigterm=False, handle_sigint=False):
 			return DummyBrowser()
-
 	class DummyPlaywright:
 		def __init__(self):
 			self.chromium = DummyChromium()
@@ -192,7 +191,7 @@ async def test_builtin_browser_disable_security_args(monkeypatch):
 		pass
 
 	class DummyChromium:
-		async def launch(self, headless, args, proxy=None):
+		async def launch(self, headless, args, proxy=None, handle_sigterm=False, handle_sigint=False):
 			# Expected args is the base args plus disable security args and the extra args.
 			expected_args = base_args + disable_security_args + extra_args
 			assert headless is True, 'Expected headless to be True'
@@ -295,7 +294,7 @@ async def test_get_playwright_browser_caching(monkeypatch):
 		pass
 
 	class DummyChromium:
-		async def launch(self, headless, args, proxy=None):
+		async def launch(self, headless, args, proxy=None, handle_sigterm=False, handle_sigint=False):
 			return DummyBrowser()
 
 	class DummyPlaywright:
@@ -358,7 +357,7 @@ async def test_standard_browser_launch_with_proxy(monkeypatch):
 	dummy_proxy = ProxySettings(server='http://dummy.proxy')
 
 	class DummyChromium:
-		async def launch(self, headless, args, proxy=None):
+		async def launch(self, headless, args, proxy=None, handle_sigterm=False, handle_sigint=False):
 			# Assert that the proxy passed equals the dummy proxy provided in the configuration.
 			assert isinstance(proxy, dict) and proxy['server'] == 'http://dummy.proxy', (
 				f'Expected proxy {dummy_proxy} but got {proxy}'
@@ -402,7 +401,7 @@ async def test_browser_window_size(monkeypatch):
 		async def goto(self, url):
 			pass
 
-		async def wait_for_load_state(self):
+		async def wait_for_load_state(self, state):
 			pass
 
 		async def title(self):

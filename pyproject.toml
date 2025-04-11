@@ -32,7 +32,7 @@ dependencies = [
     "typing-extensions>=4.12.2",
     "psutil>=7.0.0",
     "faiss-cpu>=1.10.0",
-    "mem0ai==0.1.81",
+    "mem0ai==0.1.88",
 ]
 
 # pydantic: >2.11 introduces many pydantic deprecation warnings until langchain-core upgrades their pydantic support lets keep it on 2.10
