@@ -51,6 +51,13 @@ class DOMHistoryElement:
 	viewport_coordinates: Optional[CoordinateSet] = None
 	viewport_info: Optional[ViewportInfo] = None
 
+	locator_str: Optional[str] = None
+	"""
+	Playwright locator string for the element.
+
+	It only gets set if playwright locator codegen is enabled, and the element has an xpath.
+	"""
+
 	def to_dict(self) -> dict:
 		page_coordinates = self.page_coordinates.model_dump() if self.page_coordinates else None
 		viewport_coordinates = self.viewport_coordinates.model_dump() if self.viewport_coordinates else None
@@ -67,4 +74,5 @@ class DOMHistoryElement:
 			'page_coordinates': page_coordinates,
 			'viewport_coordinates': viewport_coordinates,
 			'viewport_info': viewport_info,
+			'locator_str': self.locator_str,
 		}
