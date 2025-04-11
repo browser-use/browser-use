@@ -86,7 +86,7 @@ class BrowserContextConfig(BaseModel):
 	    wait_between_actions: 1.0
 	        Time to wait between multiple per step actions
 
-	    browser_window_size: {'width': 1280, 'height': 1100}
+	    browser_window_size: BrowserContextWindowSize
 	        Default browser window size
 
 	    no_viewport: False

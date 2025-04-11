@@ -8,20 +8,31 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
-from langchain_openai import AzureChatOpenAI
+from langchain_openai import AzureChatOpenAI, ChatOpenAI
 from pydantic import SecretStr
 
 from browser_use.agent.service import Agent
 from browser_use.browser.browser import Browser, BrowserConfig, BrowserContextConfig
+from browser_use.browser.context import BrowserContextWindowSize
 
 # Load environment variables
 load_dotenv()
 
-# Validate required environment variables
-required_env_vars = ['AZURE_OPENAI_KEY', 'AZURE_OPENAI_ENDPOINT']
-for var in required_env_vars:
-	if not os.getenv(var):
-		raise ValueError(f'{var} is not set. Please add it to your environment variables.')
+# Set LLM based on defined environment variables
+if os.getenv('OPENAI_API_KEY'):
+	llm = ChatOpenAI(
+		model='gpt-4o',
+	)
+elif os.getenv('AZURE_OPENAI_KEY') and os.getenv('AZURE_OPENAI_ENDPOINT'):
+	llm = AzureChatOpenAI(
+		model='gpt-4o',
+		api_version='2024-10-21',
+		azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT', ''),
+		api_key=SecretStr(os.getenv('AZURE_OPENAI_KEY', '')),
+	)
+else:
+	raise ValueError('No LLM found. Please set OPENAI_API_KEY or AZURE_OPENAI_KEY and AZURE_OPENAI_ENDPOINT.')
+
 
 browser = Browser(
 	config=BrowserConfig(
@@ -32,19 +43,10 @@ browser = Browser(
 			minimum_wait_page_load_time=1,  # 3 on prod
 			maximum_wait_page_load_time=10,  # 20 on prod
 			# no_viewport=True,
-			browser_window_size={
-				'width': 1280,
-				'height': 1100,
-			},
+			browser_window_size=BrowserContextWindowSize(width=1280, height=1100),
 			# trace_path='./tmp/web_voyager_agent',
 		),
 	)
-)
-llm = AzureChatOpenAI(
-	model='gpt-4o',
-	api_version='2024-10-21',
-	azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT', ''),
-	api_key=SecretStr(os.getenv('AZURE_OPENAI_KEY', '')),
 )
 
 # TASK = """
@@ -56,13 +58,13 @@ TASK = """
 Find and book a hotel in Paris with suitable accommodations for a family of four (two adults and two children) offering free cancellation for the dates of February 14-21, 2025. on https://www.booking.com/
 """
 
-
 async def main():
 	agent = Agent(
 		task=TASK,
 		llm=llm,
 		browser=browser,
 		validate_output=True,
+		enable_memory=False,
 	)
 	history = await agent.run(max_steps=50)
 	history.save_to_file('./tmp/history.json')
