@@ -42,6 +42,7 @@ async def context(browser):
 api_key_gemini = SecretStr(os.getenv('GEMINI_API_KEY') or '')
 api_key_deepseek = SecretStr(os.getenv('DEEPSEEK_API_KEY') or '')
 api_key_anthropic = SecretStr(os.getenv('ANTHROPIC_API_KEY') or '')
+api_key_novita = SecretStr(os.getenv('NOVITA_API_KEY') or '')
 
 
 # pytest -s -v tests/test_models.py
@@ -86,6 +87,11 @@ api_key_anthropic = SecretStr(os.getenv('ANTHROPIC_API_KEY') or '')
 			model='deepseek-chat',
 			api_key=api_key_deepseek,
 		),
+    ChatOpenAI(
+			base_url='https://api.novita.ai/v3/openai',
+			model='qwen/qwq-32b',
+			api_key=api_key_novita,
+		),
 	],
 	ids=[
 		'gpt-4o',
@@ -99,6 +105,7 @@ api_key_anthropic = SecretStr(os.getenv('ANTHROPIC_API_KEY') or '')
 		'gemini-1.5-pro',
 		'gemini-1.5-flash-latest',
 		'deepseek-chat',
+    'qwen/qwq-32b',
 	],
 )
 async def llm(request):

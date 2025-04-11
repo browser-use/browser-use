@@ -61,6 +61,7 @@ AZURE_ENDPOINT=
 AZURE_OPENAI_API_KEY=
 GEMINI_API_KEY=
 DEEPSEEK_API_KEY=
+NOVITA_API_KEY=
 ```
 
 For other settings, models, and more, check out the [documentation 📕](https://docs.browser-use.com).
