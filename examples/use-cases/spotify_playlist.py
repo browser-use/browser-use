@@ -1,9 +1,6 @@
 #Creates a playlist on spotify with the top 5 songs of a given artist
 import asyncio
-import logging
-import os
-from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
