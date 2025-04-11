@@ -11,7 +11,7 @@ from browser_use import Agent
 # HUGGINGFACE_ENDPOINT_URL=https://api-inference.huggingface.co/models/<your-model-name>
 # HUGGINGFACE_API_TOKEN=hf_XXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #  Get your API token from: https://huggingface.co/settings/tokens
-#  Create an inference endpoint at: https://huggingface.co/inference-endpoints
+#  Create an inference endpoint at: https://huggingface.co/inference-endpoints OR you can use opensourced inference endpoints.
 
 load_dotenv()
 hf_endpoint = os.getenv("HUGGINGFACE_ENDPOINT_URL", "")
