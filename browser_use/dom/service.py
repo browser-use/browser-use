@@ -16,7 +16,7 @@ from browser_use.dom.views import (
 )
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+# logger.setLevel(logging.DEBUG)
 
 
 class DomService:

@@ -57,7 +57,7 @@ from browser_use.utils import time_execution_async
 
 load_dotenv()
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+# logger.setLevel(logging.DEBUG)
 
 T = TypeVar('T', bound=BaseModel)
 

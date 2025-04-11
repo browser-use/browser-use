@@ -35,7 +35,7 @@ import html
 
 # Configure logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+# logger.setLevel(logging.DEBUG)
 
 # Store active debug sessions
 active_sessions: Dict[str, Dict] = {}

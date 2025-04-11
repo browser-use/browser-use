@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 	from browser_use.browser.browser import Browser
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+# logger.setLevel(logging.DEBUG)
 
 
 class BrowserContextWindowSize(TypedDict):
