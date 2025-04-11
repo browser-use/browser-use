@@ -160,6 +160,7 @@ class Agent(Generic[Context]):
 		self.llm = llm
 		self.controller = controller
 		self.sensitive_data = sensitive_data
+        
 
 		self.settings = AgentSettings(
 			use_vision=use_vision,
@@ -815,7 +816,25 @@ class Agent(Generic[Context]):
 					await self.log_completion()
 					break
 			else:
-				logger.info('❌ Failed to complete task in maximum steps')
+				error_message = 'Failed to complete task in maximum steps'
+				
+				self.state.history.history.append(
+					AgentHistory(
+						model_output=None,
+						result=[ActionResult(error=error_message, include_in_memory=True)],
+						state=BrowserStateHistory(
+							url="",
+							title="",
+							tabs=[],
+							interacted_element=[],
+							screenshot=None,
+						),
+						metadata=None
+					)
+				)
+
+				logger.info(f'❌ {error_message}')
+
 
 			return self.state.history
 
