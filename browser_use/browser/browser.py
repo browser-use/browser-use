@@ -146,9 +146,9 @@ class Browser:
 	async def _init(self):
 		"""Initialize the browser session"""
 		playwright = await async_playwright().start()
-		browser = await self._setup_browser(playwright)
-
 		self.playwright = playwright
+
+		browser = await self._setup_browser(playwright)
 		self.playwright_browser = browser
 
 		return self.playwright_browser
