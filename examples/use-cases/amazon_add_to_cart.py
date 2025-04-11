@@ -26,8 +26,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 controller = Controller()
-
-# Path to your wishlist file
+#Make a wishlist.txt file in the same directory as the script and add the products you want to add to the cart
 WISHLIST_FILE = Path.cwd() / 'wishlist.txt'
 
 if not WISHLIST_FILE.exists():
@@ -46,7 +45,6 @@ def read_wishlist():
 
 @controller.action('Save product to file after adding to cart', param_model=Product)
 def save_product(product: Product):
-    # This could be enhanced to track which products were added
     return ActionResult(extracted_content=f"Processed product: {product.name}")
 
 @controller.action('Add product to Amazon cart')
@@ -62,18 +60,14 @@ async def add_to_cart(product_name: str, browser: BrowserContext):
             await search_box.press("Enter")
         else:
             return ActionResult(error="Could not find Amazon search box")
-        
-        # Wait for results to load
         await asyncio.sleep(2)
         
-        # Click on the first product
         first_product = await browser.get_dom_element_by_xpath("//div[@data-component-type='s-search-result']//a[@class='a-link-normal s-no-outline']")
         if first_product:
             await first_product.click()
         else:
             return ActionResult(error="Could not find product in search results")
         
-        # Wait for product page to load
         await asyncio.sleep(2)
         
         # Handle "Add to Cart" button
@@ -87,7 +81,6 @@ async def add_to_cart(product_name: str, browser: BrowserContext):
             await add_to_cart_btn.click()
             await asyncio.sleep(2)
             
-            # Check if added successfully
             confirmation = await browser.get_dom_element_by_id("NATC_SMART_WAGON_CONF_MSG_SUCCESS")
             if confirmation:
                 return ActionResult(

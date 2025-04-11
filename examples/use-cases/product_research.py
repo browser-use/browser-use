@@ -36,6 +36,7 @@ class Product(BaseModel):
     seller: Optional[str] = None
     rating: Optional[float] = None
 
+#saves the product research results in a csv file with the product name, price, platform, url and rating
 @controller.action('Save product research results', param_model=Product)
 def save_product(product: Product):
     with open('products.csv', 'a', newline='') as f:
@@ -44,11 +45,13 @@ def save_product(product: Product):
                         product.url, product.seller, product.rating])
     return 'Saved product data'
 
+#reads the product research results from a csv file with the product name, price, platform, url and rating
 @controller.action('Read existing research data')
 def read_products():
     with open('products.csv', 'r') as f:
         return f.read()
 
+#Gets the price and seller from the page of amazon and flipkart
 async def get_price_from_page(browser: BrowserContext, platform: str):
     # Different selectors for different e-commerce platforms
     selectors = {
@@ -64,6 +67,7 @@ async def get_price_from_page(browser: BrowserContext, platform: str):
         'seller': await seller_el.get_text() if seller_el else None
     }
 
+#Checks the price and seller from amazon
 @controller.action('Check Amazon price for product')
 async def check_amazon(product_name: str, browser: BrowserContext):
     await browser.goto('https://www.amazon.in')
@@ -90,6 +94,7 @@ async def check_amazon(product_name: str, browser: BrowserContext):
         seller=price_info['seller']
     )))
 
+#Checks the price and seller from flipkart  
 @controller.action('Check Flipkart price for product')
 async def check_flipkart(product_name: str, browser: BrowserContext):
     await browser.goto('https://www.flipkart.com')
@@ -125,6 +130,8 @@ browser = Browser(
 
 async def main():
     # Read wishlist from file
+    #Make a wishlist.txt file in the same directory as the script and add the products you want to research on
+
     with open('wishlist.txt', 'r') as f:
         wishlist = [line.strip() for line in f.readlines() if line.strip()]
 

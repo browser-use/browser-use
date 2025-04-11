@@ -1,3 +1,4 @@
+# Gives you the cheapest flight from mumbai to delhi on 20th april 2025
 import asyncio
 import os
 from datetime import datetime
@@ -130,6 +131,10 @@ browser = Browser(
     )
 )
 
+source = "Mumbai (BOM)"
+destination = "Delhi (DEL)"
+date = "2025-04-20"
+
 async def main():
     model = ChatOpenAI(
         model='gpt-4o',
@@ -137,17 +142,17 @@ async def main():
     )
 
     agent = Agent(
-        task="Goibibo Flight Search Workflow:\n"
-             "1. Navigate to Goibibo flights page\n"
-             "Skip the initial popup if it appears\n"
-             "Skip the phone number signup if it appears\n"
-             "2. Set Mumbai as source\n"
-             "3. Set Delhi as destination\n"
-             "4. Select 20 April 2025\n"
-             "5. Initiate search\n"
-             "6. Parse results page\n"
-             "7. Find cheapest flight option\n"
-             "8. Return flight details",
+        task=f"Goibibo Flight Search Workflow:\n"
+             f"1. Navigate to Goibibo flights page\n"
+             f"Skip the initial popup if it appears\n"
+             f"Skip the phone number signup if it appears\n"
+             f"2. Set {source} as source\n"
+             f"3. Set {destination} as destination\n"
+             f"4. Select {date}\n"
+             f"5. Initiate search\n"
+             f"6. Parse results page\n"
+             f"7. Find cheapest flight option\n"
+             f"8. Return flight details",
         llm=model,
         controller=controller,
         browser=browser,

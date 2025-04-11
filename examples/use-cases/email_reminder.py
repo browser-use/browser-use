@@ -12,7 +12,9 @@ from pydantic import BaseModel, SecretStr
 from browser_use import ActionResult, Agent, Controller
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext
-
+#Make sure to set your google credentials in the .env file
+# GOOGLE_EMAIL=your_email@gmail.com
+# GOOGLE_PASSWORD=your_password
 load_dotenv()
 controller = Controller()
 
@@ -33,7 +35,7 @@ def read_credentials():
         "email": os.getenv("GOOGLE_EMAIL"),
         "password": os.getenv("GOOGLE_PASSWORD")
     }
-
+#Make a email.txt file in the same directory as the script and add the email you want to send the reminder to
 @controller.action('Read recipient email')
 def read_recipient():
     try:
@@ -68,6 +70,7 @@ async def perform_google_login(browser: BrowserContext):
     await browser.click_element('#passwordNext')
     await asyncio.sleep(3)
 
+#Gets the  upcoming meetings from the calendar
 async def get_calendar_meetings(browser: BrowserContext) -> List[Meeting]:
     await browser.goto('https://calendar.google.com')
     
@@ -103,6 +106,7 @@ async def get_calendar_meetings(browser: BrowserContext) -> List[Meeting]:
     
     return meetings
 
+#Sends the reminder email
 @controller.action('Send calendar reminder')
 async def send_reminder(browser: BrowserContext):
     recipient = read_recipient()
@@ -137,6 +141,7 @@ Don't forget to prepare!
         await send_button.click()
         await asyncio.sleep(2)
 
+#Creates the browser
 browser = Browser(
     config=BrowserConfig(
         headless=False

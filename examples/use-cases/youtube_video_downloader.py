@@ -1,4 +1,5 @@
-#for this file initially run this command : pip install yt-dlp
+#Downloads the top viewed youtube video of a given query and saves it to the downloads folder in the current directory
+#for this file initially run this command to install yt-dlp : pip install yt-dlp
 import asyncio
 import os
 import subprocess

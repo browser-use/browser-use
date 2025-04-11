@@ -1,3 +1,4 @@
+# verifies the news articles from a list of urls , uses google search to find related articles and then uses llm to verify the news article and makes a report out of it 
 import asyncio
 import csv
 import logging
@@ -258,6 +259,7 @@ async def main():
             writer.writerow(['Title', 'Source', 'URL', 'Verdict', 'Confidence'])
     
     # Read URLs from links.txt
+    #Make a links.txt file in the same directory as the script and add the urls of the news articles you want to verify
     try:
         with open('links.txt', 'r') as f:
             news_links = [line.strip() for line in f.readlines() if line.strip()]

@@ -1,3 +1,4 @@
+#Creates a playlist on spotify with the top 5 songs of a given artist
 import asyncio
 import logging
 import os
@@ -22,6 +23,7 @@ class Track(BaseModel):
     name: str
     artist: str
 
+#Make a artists.txt file in the same directory as the script and add the artists you want to create a playlist for 
 @controller.action('Read artist list')
 def read_artists():
     try:
@@ -30,7 +32,7 @@ def read_artists():
         return ActionResult(artists=artists)
     except FileNotFoundError:
         # Create a sample file if it doesn't exist
-        sample_artists = ["Taylor Swift", "Ed Sheeran", "Billie Eilish", "The Weeknd", "Dua Lipa"]
+        sample_artists = ["Playboi Carti", "Travis Scott", "Drake", "The Weeknd", "Dua Lipa"]
         with open('artists.txt', 'w') as f:
             f.write('\n'.join(sample_artists))
         return ActionResult(artists=sample_artists)
@@ -51,6 +53,7 @@ async def open_spotify(browser: BrowserContext):
     
     return "Opened Spotify successfully"
 
+#Searches for the artist on spotify
 @controller.action('Search artist')
 async def search_artist(browser: BrowserContext, artist_name: str):
     search_btn = await browser.get_dom_element_by_selector('[data-testid="search-input"]')
@@ -76,6 +79,7 @@ async def search_artist(browser: BrowserContext, artist_name: str):
     except Exception as e:
         return ActionResult(error=f"Error finding artist: {str(e)}")
 
+#Gets the top 5 songs of the artist
 @controller.action('Get top songs')
 async def get_top_songs(browser: BrowserContext):
     # Get popular tracks
@@ -94,6 +98,7 @@ async def get_top_songs(browser: BrowserContext):
     except Exception as e:
         return ActionResult(error=f"Error getting songs: {str(e)}")
 
+#Creates the browser
 browser = Browser(
     config=BrowserConfig(
         chrome_instance_path='C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe',
@@ -101,6 +106,7 @@ browser = Browser(
     )
 )
 
+#Creates the agent
 async def main():
     model = ChatOpenAI(model='gpt-4o')
     

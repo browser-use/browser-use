@@ -1,3 +1,4 @@
+#Opens twitch and starts playing the top viewed stream of minecraft or any other game of your choice 
 import asyncio
 from pathlib import Path
 from dotenv import load_dotenv
@@ -21,12 +22,12 @@ async def go_to_twitch(browser):
     except:
         pass
     return "Reached Twitch homepage"
-
+game = "Minecraft"
 @controller.action('Search for Minecraft category')
 async def search_minecraft(browser):
-    await browser.goto('https://www.twitch.tv/directory/game/Minecraft')
+    await browser.goto(f'https://www.twitch.tv/directory/game/{game}')
     await asyncio.sleep(5)
-    return "Loaded Minecraft category"
+    return f"Loaded {game} category"
 
 @controller.action('Select most viewed stream')
 async def select_top_stream(browser):
@@ -65,12 +66,12 @@ async def main():
     )
 
     agent = Agent(
-        task="Twitch Automation:\n"
-             "1. Navigate to Twitch.tv\n"
-             "2. Load Minecraft category\n"
-             "3. Sort by the view count\n"
-             "4. Select the top stream\n"
-             "5. Start playback",
+        task=f"Twitch Automation:\n"
+             f"1. Navigate to Twitch.tv\n"
+             f"2. Load {game} category\n"
+             f"3. Sort by the view count\n"
+             f"4. Select the top stream\n"
+             f"5. Start playback",
         llm=llm,  # Add this required parameter
         controller=controller,
         browser=browser,

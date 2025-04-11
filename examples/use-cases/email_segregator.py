@@ -1,3 +1,6 @@
+# An email segregator that segregates your latest top 10 emails and moves the promotional ones to trash 
+
+
 import asyncio
 import os
 from dotenv import load_dotenv
