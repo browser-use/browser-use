@@ -539,6 +539,7 @@ class Agent(Generic[Context]):
 		include_trace = logger.isEnabledFor(logging.DEBUG)
 		error_msg = AgentError.format_error(error, include_trace=include_trace)
 		prefix = f'❌ Result failed {self.state.consecutive_failures + 1}/{self.settings.max_failures} times:\n '
+		self.state.consecutive_failures += 1
 
 		if 'Browser closed' in error_msg:
 			logger.error('❌  Browser is closed or disconnected, unable to proceed')
@@ -557,7 +558,6 @@ class Agent(Generic[Context]):
 				# give model a hint how output should look like
 				error_msg += '\n\nReturn a valid JSON object with the required fields.'
 
-			self.state.consecutive_failures += 1
 		else:
 			from anthropic import RateLimitError as AnthropicRateLimitError
 			from google.api_core.exceptions import ResourceExhausted
@@ -573,10 +573,8 @@ class Agent(Generic[Context]):
 			if isinstance(error, RATE_LIMIT_ERRORS):
 				logger.warning(f'{prefix}{error_msg}')
 				await asyncio.sleep(self.settings.retry_delay)
-				self.state.consecutive_failures += 1
 			else:
 				logger.error(f'{prefix}{error_msg}')
-				self.state.consecutive_failures += 1
 
 		return [ActionResult(error=error_msg, include_in_memory=True)]
 
@@ -633,6 +631,7 @@ class Agent(Generic[Context]):
 			logger.debug(f'Using {self.tool_calling_method} for {self.chat_model_library}')
 			try:
 				output = self.llm.invoke(input_messages)
+				response = {'raw': output, 'parsed': None}
 			except Exception as e:
 				logger.error(f'Failed to invoke model: {str(e)}')
 				raise LLMException(401, 'LLM API call failed') from e
@@ -641,6 +640,7 @@ class Agent(Generic[Context]):
 			try:
 				parsed_json = extract_json_from_model_output(output.content)
 				parsed = self.AgentOutput(**parsed_json)
+				response['parsed'] = parsed
 			except (ValueError, ValidationError) as e:
 				logger.warning(f'Failed to parse model output: {output} {str(e)}')
 				raise ValueError('Could not parse response.')
@@ -868,7 +868,20 @@ class Agent(Generic[Context]):
 		for i, action in enumerate(actions):
 			if action.get_index() is not None and i != 0:
 				new_state = await self.browser_context.get_state()
-				new_path_hashes = set(e.hash.branch_path_hash for e in new_state.selector_map.values())
+				new_selector_map = new_state.selector_map
+
+				# Detect index change after previous action
+				orig_target = cached_selector_map.get(action.get_index())  # type: ignore
+				orig_target_hash = orig_target.hash.branch_path_hash if orig_target else None
+				new_target = new_selector_map.get(action.get_index())  # type: ignore
+				new_target_hash = new_target.hash.branch_path_hash if new_target else None
+				if orig_target_hash != new_target_hash:
+					msg = f'Element index changed after action {i} / {len(actions)}, because page changed.'
+					logger.info(msg)
+					results.append(ActionResult(extracted_content=msg, include_in_memory=True))
+					break
+
+				new_path_hashes = set(e.hash.branch_path_hash for e in new_selector_map.values())
 				if check_for_new_elements and not new_path_hashes.issubset(cached_path_hashes):
 					# next action requires index but there are new elements on the page
 					msg = f'Something new appeared after action {i} / {len(actions)}'

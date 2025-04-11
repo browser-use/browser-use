@@ -37,6 +37,10 @@ class Memory:
 	yet comprehensive memory constructs that preserve essential operational knowledge.
 	"""
 
+	# Default configuration values as class constants
+	DEFAULT_VECTOR_STORE = {'provider': 'faiss', 'config': {'embedding_model_dims': 384}}
+	DEFAULT_EMBEDDER = {'provider': 'huggingface', 'config': {'model': 'all-MiniLM-L6-v2'}}
+
 	def __init__(
 		self,
 		message_manager: MessageManager,
@@ -46,8 +50,17 @@ class Memory:
 		self.message_manager = message_manager
 		self.llm = llm
 		self.settings = settings
-		self._memory_config = self.settings.config or {'vector_store': {'provider': 'faiss'}}
+		self._memory_config = self.settings.config or self._get_default_config(llm)
 		self.mem0 = Mem0Memory.from_config(config_dict=self._memory_config)
+
+	@staticmethod
+	def _get_default_config(llm: BaseChatModel) -> dict:
+		"""Returns the default configuration for memory."""
+		return {
+			'vector_store': Memory.DEFAULT_VECTOR_STORE,
+			'llm': {'provider': 'langchain', 'config': {'model': llm}},
+			'embedder': Memory.DEFAULT_EMBEDDER,
+		}
 
 	@time_execution_sync('--create_procedural_memory')
 	def create_procedural_memory(self, current_step: int) -> None:
@@ -62,45 +75,45 @@ class Memory:
 		# Get all messages
 		all_messages = self.message_manager.state.history.messages
 
-		# Filter out messages that are marked as memory in metadata
-		messages_to_process = []
+		# Separate messages into those to keep as-is and those to process for memory
 		new_messages = []
+		messages_to_process = []
+
 		for msg in all_messages:
-			# Exclude system message and initial messages
-			if isinstance(msg, ManagedMessage) and msg.metadata.message_type in set(['init', 'memory']):
+			if isinstance(msg, ManagedMessage) and msg.metadata.message_type in {'init', 'memory'}:
+				# Keep system and memory messages as they are
 				new_messages.append(msg)
 			else:
-				messages_to_process.append(msg)
+				if len(msg.message.content) > 0:
+					messages_to_process.append(msg)
 
+		# Need at least 2 messages to create a meaningful summary
 		if len(messages_to_process) <= 1:
 			logger.info('Not enough non-memory messages to summarize')
 			return
+		# Create a procedural memory
+		memory_content = self._create([m.message for m in messages_to_process], current_step)
 
-		# Create a summary
-		summary = self._create([m.message for m in messages_to_process], current_step)
-
-		if not summary:
-			logger.warning('Failed to create summary')
+		if not memory_content:
+			logger.warning('Failed to create procedural memory')
 			return
 
-		# Replace the summarized messages with the summary
-		summary_message = HumanMessage(content=summary)
-		summary_tokens = self.message_manager._count_tokens(summary_message)
-		summary_metadata = MessageMetadata(tokens=summary_tokens, message_type='memory')
+		# Replace the processed messages with the consolidated memory
+		memory_message = HumanMessage(content=memory_content)
+		memory_tokens = self.message_manager._count_tokens(memory_message)
+		memory_metadata = MessageMetadata(tokens=memory_tokens, message_type='memory')
 
 		# Calculate the total tokens being removed
 		removed_tokens = sum(m.metadata.tokens for m in messages_to_process)
 
-		# Add the summary message
-		new_messages.append(ManagedMessage(message=summary_message, metadata=summary_metadata))
+		# Add the memory message
+		new_messages.append(ManagedMessage(message=memory_message, metadata=memory_metadata))
 
 		# Update the history
 		self.message_manager.state.history.messages = new_messages
 		self.message_manager.state.history.current_tokens -= removed_tokens
-		self.message_manager.state.history.current_tokens += summary_tokens
-
-		logger.info(f'Memories summarized: {len(messages_to_process)} messages converted to procedural memory')
-		logger.info(f'Token reduction: {removed_tokens - summary_tokens} tokens')
+		self.message_manager.state.history.current_tokens += memory_tokens
+		logger.info(f'Messages consolidated: {len(messages_to_process)} messages converted to procedural memory')
 
 	def _create(self, messages: List[BaseMessage], current_step: int) -> Optional[str]:
 		parsed_messages = convert_to_openai_messages(messages)
@@ -108,7 +121,6 @@ class Memory:
 			results = self.mem0.add(
 				messages=parsed_messages,
 				agent_id=self.settings.agent_id,
-				llm=self.llm,
 				memory_type='procedural_memory',
 				metadata={'step': current_step},
 			)

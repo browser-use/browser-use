@@ -3,9 +3,8 @@ import subprocess
 
 import pytest
 import requests
-from playwright._impl._api_structures import ProxySettings
 
-from browser_use.browser.browser import Browser, BrowserConfig
+from browser_use.browser.browser import Browser, BrowserConfig, ProxySettings
 from browser_use.browser.context import BrowserContext, BrowserContextConfig
 
 
@@ -21,9 +20,8 @@ async def test_builtin_browser_launch(monkeypatch):
 		pass
 
 	class DummyChromium:
-		async def launch(self, headless, args, proxy=None):
+		async def launch(self, headless, args, proxy=None, handle_sigterm=False, handle_sigint=False):
 			return DummyBrowser()
-
 	class DummyPlaywright:
 		def __init__(self):
 			self.chromium = DummyChromium()
@@ -193,7 +191,7 @@ async def test_builtin_browser_disable_security_args(monkeypatch):
 		pass
 
 	class DummyChromium:
-		async def launch(self, headless, args, proxy=None):
+		async def launch(self, headless, args, proxy=None, handle_sigterm=False, handle_sigint=False):
 			# Expected args is the base args plus disable security args and the extra args.
 			expected_args = base_args + disable_security_args + extra_args
 			assert headless is True, 'Expected headless to be True'
@@ -296,7 +294,7 @@ async def test_get_playwright_browser_caching(monkeypatch):
 		pass
 
 	class DummyChromium:
-		async def launch(self, headless, args, proxy=None):
+		async def launch(self, headless, args, proxy=None, handle_sigterm=False, handle_sigint=False):
 			return DummyBrowser()
 
 	class DummyPlaywright:
@@ -359,9 +357,11 @@ async def test_standard_browser_launch_with_proxy(monkeypatch):
 	dummy_proxy = ProxySettings(server='http://dummy.proxy')
 
 	class DummyChromium:
-		async def launch(self, headless, args, proxy=None):
+		async def launch(self, headless, args, proxy=None, handle_sigterm=False, handle_sigint=False):
 			# Assert that the proxy passed equals the dummy proxy provided in the configuration.
-			assert proxy == dummy_proxy, f'Expected proxy {dummy_proxy} but got {proxy}'
+			assert isinstance(proxy, dict) and proxy['server'] == 'http://dummy.proxy', (
+				f'Expected proxy {dummy_proxy} but got {proxy}'
+			)
 			# We can also verify some base parameters if needed (headless, args) but our focus is proxy.
 			return DummyBrowser()
 
@@ -384,4 +384,114 @@ async def test_standard_browser_launch_with_proxy(monkeypatch):
 	# Call get_playwright_browser and verify that the returned browser is as expected.
 	result_browser = await browser_obj.get_playwright_browser()
 	assert isinstance(result_browser, DummyBrowser), 'Expected DummyBrowser from _setup_builtin_browser with proxy provided'
+	await browser_obj.close()
+
+
+@pytest.mark.asyncio
+async def test_browser_window_size(monkeypatch):
+	"""
+	Test that when a browser_window_size is provided in BrowserContextConfig,
+	it's properly converted to a dictionary when passed to Playwright.
+	"""
+
+	class DummyPage:
+		def __init__(self):
+			self.url = 'about:blank'
+
+		async def goto(self, url):
+			pass
+
+		async def wait_for_load_state(self, state):
+			pass
+
+		async def title(self):
+			return 'Test Page'
+
+		async def bring_to_front(self):
+			pass
+
+		async def evaluate(self, script):
+			return True
+
+		def is_closed(self):
+			return False
+
+	class DummyContext:
+		def __init__(self):
+			self.pages = [DummyPage()]
+			self.tracing = self
+
+		async def new_page(self):
+			return DummyPage()
+
+		async def add_init_script(self, script):
+			pass
+
+		async def start(self):
+			pass
+
+		async def stop(self, path=None):
+			pass
+
+		def on(self, event, handler):
+			pass
+
+		async def close(self):
+			pass
+
+	class DummyBrowser:
+		def __init__(self):
+			self.contexts = []
+
+		async def new_context(self, **kwargs):
+			# Assert that record_video_size is a dictionary with expected values
+			assert isinstance(kwargs['record_video_size'], dict), (
+				f'Expected record_video_size to be a dictionary, got {type(kwargs["record_video_size"])}'
+			)
+			assert kwargs['record_video_size']['width'] == 1280, (
+				f'Expected width to be 1280, got {kwargs["record_video_size"].get("width")}'
+			)
+			assert kwargs['record_video_size']['height'] == 1100, (
+				f'Expected height to be 1100, got {kwargs["record_video_size"].get("height")}'
+			)
+
+			context = DummyContext()
+			self.contexts.append(context)
+			return context
+
+		async def close(self):
+			pass
+
+	class DummyPlaywright:
+		def __init__(self):
+			self.chromium = self
+
+		async def launch(self, **kwargs):
+			return DummyBrowser()
+
+		async def stop(self):
+			pass
+
+	class DummyAsyncPlaywrightContext:
+		async def start(self):
+			return DummyPlaywright()
+
+	# Monkeypatch async_playwright to return our dummy async playwright context
+	monkeypatch.setattr('browser_use.browser.browser.async_playwright', lambda: DummyAsyncPlaywrightContext())
+
+	# Create browser with default config
+	browser_obj = Browser()
+
+	# Get browser instance
+	playwright_browser = await browser_obj.get_playwright_browser()
+
+	# Create context config with specific window size
+	context_config = BrowserContextConfig(browser_window_size={'width': 1280, 'height': 1100})
+
+	# Create browser context - this will test if browser_window_size is properly converted
+	browser_context = BrowserContext(browser=browser_obj, config=context_config)
+	await browser_context._initialize_session()
+
+	# Clean up
+	await browser_context.close()
 	await browser_obj.close()

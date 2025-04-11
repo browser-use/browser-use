@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.1.40"
+version = "0.1.41rc2"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -33,7 +33,7 @@ dependencies = [
     "typing-extensions>=4.12.2",
     "psutil>=7.0.0",
     "faiss-cpu>=1.10.0",
-    "mem0ai==0.1.81",
+    "mem0ai==0.1.88",
 ]
 
 # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py 

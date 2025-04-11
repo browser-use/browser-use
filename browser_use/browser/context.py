@@ -25,7 +25,6 @@ from playwright.async_api import (
 	Page,
 )
 from pydantic import BaseModel, ConfigDict, Field
-from typing_extensions import TypedDict
 
 from browser_use.browser.views import (
 	BrowserError,
@@ -43,9 +42,24 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class BrowserContextWindowSize(TypedDict):
+class BrowserContextWindowSize(BaseModel):
+	"""Window size configuration for browser context"""
+
 	width: int
 	height: int
+
+	model_config = ConfigDict(
+		extra='allow',  # Allow extra fields to ensure compatibility with dictionary
+		populate_by_name=True,
+		from_attributes=True,
+	)
+
+	# Support dict-like behavior for compatibility
+	def __getitem__(self, key):
+		return getattr(self, key)
+
+	def get(self, key, default=None):
+		return getattr(self, key, default)
 
 
 class BrowserContextConfig(BaseModel):
@@ -56,8 +70,8 @@ class BrowserContextConfig(BaseModel):
 	    cookies_file: None
 	        Path to cookies file for persistence
 
-		disable_security: True
-			Disable browser security features
+		disable_security: False
+			Disable browser security features (dangerous, but cross-origin iframe support requires it)
 
 	    minimum_wait_page_load_time: 0.5
 	        Minimum time to wait before getting page state for LLM input
@@ -96,7 +110,7 @@ class BrowserContextConfig(BaseModel):
 	    highlight_elements: True
 	        Highlight elements in the DOM on the screen
 
-	    viewport_expansion: 500
+	    viewport_expansion: 0
 	        Viewport expansion in pixels. This amount will increase the number of elements which are included in the state what the LLM will see. If set to -1, all elements will be included (this leads to high token usage). If set to 0, only the elements which are visible in the viewport will be included.
 
 	    allowed_domains: None
@@ -141,9 +155,11 @@ class BrowserContextConfig(BaseModel):
 	maximum_wait_page_load_time: float = 5
 	wait_between_actions: float = 0.5
 
-	disable_security: bool = True
+	disable_security: bool = False  # disable_security=True is dangerous as any malicious URL visited could embed an iframe for the user's bank, and use their cookies to steal money
 
-	browser_window_size: BrowserContextWindowSize = Field(default_factory=lambda: {'width': 1280, 'height': 1100})
+	browser_window_size: BrowserContextWindowSize = Field(
+		default_factory=lambda: BrowserContextWindowSize(width=1280, height=1100)
+	)
 	no_viewport: Optional[bool] = None
 
 	save_recording_path: str | None = None
@@ -156,7 +172,7 @@ class BrowserContextConfig(BaseModel):
 	)
 
 	highlight_elements: bool = True
-	viewport_expansion: int = 500
+	viewport_expansion: int = 0
 	allowed_domains: list[str] | None = None
 	include_dynamic_attributes: bool = True
 	http_credentials: dict[str, str] | None = None
@@ -239,7 +255,7 @@ class BrowserContext:
 	):
 		self.context_id = str(uuid.uuid4())
 
-		self.config = config or BrowserContextConfig(**browser.config)
+		self.config = config or BrowserContextConfig(**(browser.config.model_dump() if browser.config else {}))
 		self.browser = browser
 
 		self.state = state or BrowserContextState()
@@ -420,7 +436,7 @@ class BrowserContext:
 				bypass_csp=self.config.disable_security,
 				ignore_https_errors=self.config.disable_security,
 				record_video_dir=self.config.save_recording_path,
-				record_video_size=self.config.browser_window_size,
+				record_video_size=self.config.browser_window_size.model_dump(),
 				record_har_path=self.config.save_har_path,
 				locale=self.config.locale,
 				http_credentials=self.config.http_credentials,
@@ -437,9 +453,22 @@ class BrowserContext:
 		# Load cookies if they exist
 		if self.config.cookies_file and os.path.exists(self.config.cookies_file):
 			with open(self.config.cookies_file, 'r') as f:
-				cookies = json.load(f)
-				logger.info(f'🍪  Loaded {len(cookies)} cookies from {self.config.cookies_file}')
-				await context.add_cookies(cookies)
+				try:
+					cookies = json.load(f)
+
+					valid_same_site_values = ['Strict', 'Lax', 'None']
+					for cookie in cookies:
+						if 'sameSite' in cookie:
+							if cookie['sameSite'] not in valid_same_site_values:
+								logger.warning(
+									f"Fixed invalid sameSite value '{cookie['sameSite']}' to 'None' for cookie {cookie.get('name')}"
+								)
+								cookie['sameSite'] = 'None'
+					logger.info(f'🍪  Loaded {len(cookies)} cookies from {self.config.cookies_file}')
+					await context.add_cookies(cookies)
+
+				except json.JSONDecodeError as e:
+					logger.error(f'Failed to parse cookies file: {str(e)}')
 
 		# Expose anti-detection scripts
 		await context.add_init_script(
