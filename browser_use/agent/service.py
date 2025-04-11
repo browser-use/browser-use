@@ -37,6 +37,7 @@ from browser_use.agent.views import (
 	AgentSettings,
 	AgentState,
 	AgentStepInfo,
+	PlaywrightLocatorLanguage,
 	StepMetadata,
 	ToolCallingMethod,
 )
@@ -49,6 +50,7 @@ from browser_use.dom.history_tree_processor.service import (
 	DOMHistoryElement,
 	HistoryTreeProcessor,
 )
+from browser_use.dom.views import SelectorMap
 from browser_use.exceptions import LLMException
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import (
@@ -138,6 +140,7 @@ class Agent(Generic[Context]):
 			'data-date-format',
 		],
 		max_actions_per_step: int = 10,
+		playwright_locator_language: Optional[PlaywrightLocatorLanguage] = None,
 		tool_calling_method: Optional[ToolCallingMethod] = 'auto',
 		page_extraction_llm: Optional[BaseChatModel] = None,
 		planner_llm: Optional[BaseChatModel] = None,
@@ -177,6 +180,7 @@ class Agent(Generic[Context]):
 			available_file_paths=available_file_paths,
 			include_attributes=include_attributes,
 			max_actions_per_step=max_actions_per_step,
+			playwright_locator_language=playwright_locator_language,
 			tool_calling_method=tool_calling_method,
 			page_extraction_llm=page_extraction_llm,
 			planner_llm=planner_llm,
@@ -446,8 +450,15 @@ class Agent(Generic[Context]):
 			input_messages = self._message_manager.get_messages()
 			tokens = self._message_manager.state.history.current_tokens
 
+			interacted_elements: list[Optional[DOMHistoryElement]] = [None]
+
 			try:
 				model_output = await self.get_next_action(input_messages)
+
+				if state:
+					interacted_elements = await self._get_interacted_elements(
+						model_output, state.selector_map, self.settings.playwright_locator_language
+					)
 
 				# Check again for paused/stopped state after getting model output
 				# This is needed in case Ctrl+C was pressed during the get_next_action call
@@ -531,7 +542,7 @@ class Agent(Generic[Context]):
 					step_end_time=step_end_time,
 					input_tokens=tokens,
 				)
-				self._make_history_item(model_output, state, result, metadata)
+				self._make_history_item(model_output, interacted_elements, state, result, metadata)
 
 	@time_execution_async('--handle_step_error (agent)')
 	async def _handle_step_error(self, error: Exception) -> list[ActionResult]:
@@ -578,19 +589,76 @@ class Agent(Generic[Context]):
 
 		return [ActionResult(error=error_msg, include_in_memory=True)]
 
+	async def _get_interacted_elements(
+		self,
+		model_output: AgentOutput,
+		selector_map: SelectorMap,
+		playwright_locator_language: Optional[PlaywrightLocatorLanguage],
+	) -> list[Optional[DOMHistoryElement]]:
+		"""
+		Return a list of interacted elements, taken from the model output and the selector map.
+
+		Also generates a playwright locator for each element, if it has an xpath and playwright_locator_language is set.
+		"""
+
+		interacted_elements = AgentHistory.get_interacted_element(model_output, selector_map)
+
+		for elem_index, elem in enumerate(interacted_elements):
+			if elem and elem.xpath and playwright_locator_language:
+				try:
+					locator_str: str = await self._generate_playwright_locator(elem.xpath, playwright_locator_language)
+					logger.info(f'Playwright locator for "{elem.xpath}": "{locator_str}"')
+
+					if locator_str:
+						elem.locator_str = locator_str
+						interacted_elements[elem_index] = elem
+				except Exception as e:
+					logger.error(f'Error generating playwright locator for "{elem.xpath}": {e}')
+
+		return interacted_elements
+
+	async def _generate_playwright_locator(self, xpath: str, playwright_locator_language: PlaywrightLocatorLanguage) -> str:
+		"""
+		Generate a playwright locator for an element.
+
+		Requires playwright to be defined in the browser context. See Playwright's
+		[Test generator](https://playwright.dev/docs/codegen#record-using-custom-setup)
+		for a starting point, which launchs chromium and pauses playwright, which opens a codegen window
+		and makes playwright accessible to the browser context.
+
+		Args:
+			xpath (str): The xpath of the element.
+
+		Returns:
+			str: The playwright locator for the element, if found.
+		"""
+
+		args = {'language': playwright_locator_language, 'xpath': xpath}
+
+		locator_str: str = await self.browser_context.execute_javascript(
+			"""
+		(() => {{
+			if (!playwright?.generateLocator) return ''
+
+			const el = document.evaluate('{xpath}', document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue
+			if (!el) return ''
+
+			return playwright.generateLocator(el, '{language}')
+		}})()
+		""".format(**args)
+		)
+
+		return locator_str
+
 	def _make_history_item(
 		self,
 		model_output: AgentOutput | None,
+		interacted_elements: list[Optional[DOMHistoryElement]],
 		state: BrowserState,
 		result: list[ActionResult],
 		metadata: Optional[StepMetadata] = None,
 	) -> None:
 		"""Create and store history item"""
-
-		if model_output:
-			interacted_elements = AgentHistory.get_interacted_element(model_output, state.selector_map)
-		else:
-			interacted_elements = [None]
 
 		state_history = BrowserStateHistory(
 			url=state.url,
