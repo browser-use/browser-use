@@ -98,7 +98,7 @@ class Controller(Generic[Context]):
 		@self.registry.action('Navigate to URL in the current tab', param_model=GoToUrlAction)
 		async def go_to_url(params: GoToUrlAction, browser: BrowserContext):
 			page = await browser.get_current_page()
-			await page.goto(params.url)
+			await page.goto(params.url, timeout=params.timeout)
 			await page.wait_for_load_state()
 			msg = f'🔗  Navigated to {params.url}'
 			logger.info(msg)
