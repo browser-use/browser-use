@@ -13,11 +13,8 @@ from typing import Literal
 import psutil
 import requests
 from dotenv import load_dotenv
-from playwright.async_api import Browser as PlaywrightBrowser
-from playwright.async_api import (
-	Playwright,
-	async_playwright,
-)
+from patchright.async_api import Browser as PlaywrightBrowser
+from patchright.async_api import Playwright, async_playwright
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 load_dotenv()
@@ -100,7 +97,9 @@ class BrowserConfig(BaseModel):
 	cdp_url: str | None = None
 
 	browser_class: Literal['chromium', 'firefox', 'webkit'] = 'chromium'
-	browser_binary_path: str | None = Field(default=None, alias=AliasChoices('browser_instance_path', 'chrome_instance_path'))
+	browser_binary_path: str | None = Field(
+		default=None, validation_alias=AliasChoices('browser_instance_path', 'chrome_instance_path')
+	)
 	extra_browser_args: list[str] = Field(default_factory=list)
 
 	headless: bool = False
@@ -133,7 +132,7 @@ class Browser:
 
 	async def new_context(self, config: BrowserContextConfig | None = None) -> BrowserContext:
 		"""Create a browser context"""
-		return BrowserContext(config=config or self.config, browser=self)
+		return BrowserContext(config=config or self.config.new_context_config, browser=self)
 
 	async def get_playwright_browser(self) -> PlaywrightBrowser:
 		"""Get a browser context"""
@@ -289,6 +288,7 @@ class Browser:
 
 		browser = await browser_class.launch(
 			headless=self.config.headless,
+			channel='chrome',
 			args=args[self.config.browser_class],
 			proxy=self.config.proxy.model_dump() if self.config.proxy else None,
 			handle_sigterm=False,
