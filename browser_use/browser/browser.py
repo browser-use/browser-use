@@ -306,11 +306,13 @@ class Browser:
 			],
 		}
 
-		# Add robust user_data_dir handling
+		# Add robust user_data_dir handling with security improvements
 		if self.config.user_data_dir:
 			import os
 
-			logger.info(f'Using user data directory: {self.config.user_data_dir}')
+			# Sanitize user_data_dir path to prevent path traversal attacks
+			sanitized_user_data_dir = os.path.abspath(self.config.user_data_dir)
+			logger.info(f'Using user data directory: {sanitized_user_data_dir}')
 
 			# Check if profile_directory is specified but not using Chromium
 			if self.config.profile_directory and self.config.browser_class != 'chromium':
@@ -319,17 +321,17 @@ class Browser:
 				)
 
 			# Check if user_data_dir folder exists already
-			if os.path.exists(self.config.user_data_dir):
+			if os.path.exists(sanitized_user_data_dir):
 				# Make sure profile_directory exists inside of it already if specified
 				if self.config.profile_directory:
-					profile_path = os.path.join(self.config.user_data_dir, self.config.profile_directory)
+					profile_path = os.path.join(sanitized_user_data_dir, self.config.profile_directory)
 					if not os.path.exists(profile_path):
 						logger.warning(
 							f"Profile directory '{self.config.profile_directory}' doesn't exist in user_data_dir. It will be created."
 						)
 
 				# Check for SingletonLock file which indicates Chrome is already running with this profile
-				singleton_lock = os.path.join(self.config.user_data_dir, 'SingletonLock')
+				singleton_lock = os.path.join(sanitized_user_data_dir, 'SingletonLock')
 				if os.path.exists(singleton_lock):
 					try:
 						os.remove(singleton_lock)
@@ -341,12 +343,12 @@ class Browser:
 						logger.error(f'Failed to remove SingletonLock file: {e}')
 			else:
 				# user_data_dir does not exist yet
-				parent_dir = os.path.dirname(self.config.user_data_dir)
+				parent_dir = os.path.dirname(sanitized_user_data_dir)
 
 				# Make sure parent dir exists and is writable
 				if not os.path.exists(parent_dir):
 					logger.warning(f"Parent directory of user_data_dir doesn't exist: {parent_dir}")
-					raise ValueError(f'user_data_dir={self.config.user_data_dir} is invalid (path does not exist)')
+					raise ValueError(f'user_data_dir={sanitized_user_data_dir} is invalid (path does not exist)')
 
 				# Remove --no-first-run from the chrome args as it will likely prevent creating a new user data dir
 				if '--no-first-run' in args['chromium']:
@@ -354,17 +356,22 @@ class Browser:
 					logger.info('Removed --no-first-run flag to allow creation of new user data directory')
 
 			# Create user_data_dir if it doesn't exist
-			os.makedirs(self.config.user_data_dir, exist_ok=True)
+			os.makedirs(sanitized_user_data_dir, exist_ok=True)
 
 		# Add profile directory to args if specified for Chromium
 		if self.config.profile_directory and self.config.browser_class == 'chromium':
-			args['chromium'].append(f'--profile-directory={self.config.profile_directory}')
-			logger.debug(f'Using profile directory: {self.config.profile_directory}')
+			# Sanitize profile_directory to prevent injection
+			sanitized_profile = self.config.profile_directory.replace('/', '_').replace('\\', '_')
+			args['chromium'].append(f'--profile-directory={sanitized_profile}')
+			logger.debug(f'Using profile directory: {sanitized_profile}')
 		elif self.config.profile_directory:
 			# This should never happen as we already logged a warning, but just in case
 			logger.warning(
 				f"profile_directory '{self.config.profile_directory}' ignored for non-Chromium browser: {self.config.browser_class}"
 			)
+
+		# Get sanitized browser arguments
+		sanitized_args = self._get_sanitized_browser_args(args[self.config.browser_class])
 
 		# Conditional browser launch based on user_data_dir
 		try:
@@ -373,14 +380,14 @@ class Browser:
 				# instead of a regular browser
 				common_options = {
 					'headless': self.config.headless,
-					'args': args[self.config.browser_class],
+					'args': sanitized_args,
 					'proxy': self.config.proxy.model_dump() if self.config.proxy else None,
 					'handle_sigterm': False,
 					'handle_sigint': False,
 					'timeout': 60000,  # 60 second timeout to prevent hanging
 				}
 				self._persistent_context = await browser_class.launch_persistent_context(
-					user_data_dir=self.config.user_data_dir, **common_options
+					user_data_dir=sanitized_user_data_dir, **common_options
 				)
 
 				# Return None since context initialization will use the persistent context
@@ -389,15 +396,32 @@ class Browser:
 				# Standard browser launch
 				browser = await browser_class.launch(
 					headless=self.config.headless,
-					args=args[self.config.browser_class],
+					args=sanitized_args,
 					proxy=self.config.proxy.model_dump() if self.config.proxy else None,
 					handle_sigterm=False,
 					handle_sigint=False,
 				)
 				return browser
 		except Exception as e:
-			logger.error(f'Failed to initialize browser: {str(e)}')
+			# Log error securely without exposing sensitive information
+			logger.error(f'Failed to initialize browser: {type(e).__name__}')
 			raise
+
+	def _get_sanitized_browser_args(self, args: list[str]) -> list[str]:
+		safe_prefixes = [
+			'--',
+			'-',
+		]
+
+		sanitized_args = []
+		for arg in args:
+			# Skip any arguments that don't start with safe prefixes or contain shell special chars
+			if any(arg.startswith(prefix) for prefix in safe_prefixes) and not any(char in arg for char in ';&|`$()"\'\\'):
+				sanitized_args.append(arg)
+			else:
+				logger.warning(f'Removed potentially unsafe browser argument: {arg}')
+
+		return sanitized_args
 
 	async def _setup_browser(self, playwright: Playwright) -> PlaywrightBrowser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
