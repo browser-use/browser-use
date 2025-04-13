@@ -209,7 +209,7 @@ class Agent(Generic[Context]):
 			raise ValueError('Environment variables not set')
 
 		# Start non-blocking LLM connection verification
-		self.llm._verified_api_keys = self._verify_llm_connection(self.llm)
+		self.unfiltered_actions = self.controller.registry.get_prompt_description()
 
 		# Initialize available actions for system prompt (only non-filtered actions)
 		# These will be used for the system prompt to maintain caching
@@ -767,7 +767,7 @@ class Agent(Generic[Context]):
 		signal_handler.register()
 
 		# Start non-blocking LLM connection verification
-		assert self.llm._verified_api_keys, 'Failed to verify LLM API keys'
+		await self._verify_llm_connection(self.llm)
 
 		try:
 			self._log_agent_run()
