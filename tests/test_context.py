@@ -100,17 +100,20 @@ async def test_execute_javascript():
 	"""
 	Test the execute_javascript method by mocking the current page's evaluate function.
 	This ensures that when execute_javascript is called, it correctly returns the value
-	from the page's evaluate method.
+	from the page's evaluate method and passes arguments correctly.
 	"""
 
-	# Define a dummy page with an async evaluate method.
 	class DummyPage:
-		async def evaluate(self, script):
+		async def evaluate(self, script, arg=None, strict=True):
+			self.last_script = script
+			self.last_arg = arg
+			self.last_strict = strict
 			return 'dummy_result'
 
 	# Create a dummy session object with a dummy current_page.
 	dummy_session = type('DummySession', (), {})()
-	dummy_session.current_page = DummyPage()
+	dummy_page = DummyPage()
+	dummy_session.current_page = dummy_page
 	# Create a dummy browser mock with a minimal config.
 	dummy_browser = Mock()
 	dummy_browser.config = Mock()
@@ -118,9 +121,141 @@ async def test_execute_javascript():
 	context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
 	# Manually set the session to our dummy session.
 	context.session = dummy_session
-	# Call execute_javascript and verify it returns the expected result.
+	
 	result = await context.execute_javascript('return 1+1')
 	assert result == 'dummy_result'
+	assert dummy_page.last_script == 'return 1+1'
+	assert dummy_page.last_arg is None
+	assert dummy_page.last_strict is True
+	
+	test_arg = {'key': 'value'}
+	result = await context.execute_javascript('return arg', test_arg)
+	assert result == 'dummy_result'
+	assert dummy_page.last_script == 'return arg'
+	assert dummy_page.last_arg == test_arg
+	
+	result = await context.execute_javascript('return 1+1', strict=False)
+	assert result == 'dummy_result'
+	assert dummy_page.last_strict is False
+
+@pytest.mark.asyncio
+async def test_execute_javascript_with_args():
+	"""
+	Test the execute_javascript_with_args method by mocking the current page's evaluate function.
+	This ensures that when execute_javascript_with_args is called, it correctly passes multiple
+	arguments to the page's evaluate method.
+	"""
+
+	class DummyPage:
+		async def evaluate(self, script, *args, strict=True):
+			self.last_script = script
+			self.last_args = args
+			self.last_strict = strict
+			return 'dummy_result'
+
+	# Create a dummy session object with a dummy current_page.
+	dummy_session = type('DummySession', (), {})()
+	dummy_page = DummyPage()
+	dummy_session.current_page = dummy_page
+	# Create a dummy browser mock with a minimal config.
+	dummy_browser = Mock()
+	dummy_browser.config = Mock()
+	# Initialize the BrowserContext with the dummy browser and config.
+	context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+	# Manually set the session to our dummy session.
+	context.session = dummy_session
+	
+	arg1 = 'test'
+	arg2 = 42
+	arg3 = {'key': 'value'}
+	result = await context.execute_javascript_with_args('return args', arg1, arg2, arg3)
+	assert result == 'dummy_result'
+	assert dummy_page.last_script == 'return args'
+	assert dummy_page.last_args == (arg1, arg2, arg3)
+	assert dummy_page.last_strict is True
+	
+	result = await context.execute_javascript_with_args('return args', arg1, strict=False)
+	assert result == 'dummy_result'
+	assert dummy_page.last_strict is False
+
+@pytest.mark.asyncio
+async def test_evaluate_handle():
+	"""
+	Test the evaluate_handle method by mocking the current page's evaluate_handle function.
+	This ensures that when evaluate_handle is called, it correctly passes arguments to
+	the page's evaluate_handle method and returns the JSHandle.
+	"""
+
+	class DummyJSHandle:
+		def __init__(self, value):
+			self.value = value
+
+	class DummyPage:
+		async def evaluate_handle(self, script, *args):
+			self.last_script = script
+			self.last_args = args
+			return DummyJSHandle('handle_result')
+
+	# Create a dummy session object with a dummy current_page.
+	dummy_session = type('DummySession', (), {})()
+	dummy_page = DummyPage()
+	dummy_session.current_page = dummy_page
+	# Create a dummy browser mock with a minimal config.
+	dummy_browser = Mock()
+	dummy_browser.config = Mock()
+	# Initialize the BrowserContext with the dummy browser and config.
+	context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+	# Manually set the session to our dummy session.
+	context.session = dummy_session
+	
+	handle = await context.evaluate_handle('return document')
+	assert isinstance(handle, DummyJSHandle)
+	assert handle.value == 'handle_result'
+	assert dummy_page.last_script == 'return document'
+	
+	arg1 = 'test'
+	arg2 = 42
+	handle = await context.evaluate_handle('return args', arg1, arg2)
+	assert isinstance(handle, DummyJSHandle)
+	assert dummy_page.last_script == 'return args'
+	assert dummy_page.last_args == (arg1, arg2)
+
+@pytest.mark.asyncio
+async def test_expose_function():
+	"""
+	Test the expose_function method by mocking the current page's expose_function method.
+	This ensures that when expose_function is called, it correctly exposes a Python function
+	to the browser context.
+	"""
+
+	class DummyPage:
+		def __init__(self):
+			self.exposed_functions = {}
+			
+		async def expose_function(self, name, callback):
+			self.exposed_functions[name] = callback
+
+	# Create a dummy session object with a dummy current_page.
+	dummy_session = type('DummySession', (), {})()
+	dummy_page = DummyPage()
+	dummy_session.current_page = dummy_page
+	# Create a dummy browser mock with a minimal config.
+	dummy_browser = Mock()
+	dummy_browser.config = Mock()
+	# Initialize the BrowserContext with the dummy browser and config.
+	context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+	# Manually set the session to our dummy session.
+	context.session = dummy_session
+	
+	def test_function(arg):
+		return f"processed: {arg}"
+	
+	await context.expose_function('testFunc', test_function)
+	
+	assert 'testFunc' in dummy_page.exposed_functions
+	
+	result = dummy_page.exposed_functions['testFunc']('hello')
+	assert result == 'processed: hello'
 
 
 @pytest.mark.asyncio

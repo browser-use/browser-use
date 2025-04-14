@@ -801,10 +801,65 @@ class BrowserContext:
 		page = await self.get_current_page()
 		return await page.content()
 
-	async def execute_javascript(self, script: str):
-		"""Execute JavaScript code on the page"""
+	async def execute_javascript(self, script: str, arg=None, strict=True):
+		"""
+		Execute JavaScript code on the page with enhanced capabilities
+		
+		Args:
+			script: JavaScript code to execute
+			arg: Optional argument to pass to the JavaScript function
+			strict: Whether to use strict mode for JavaScript execution
+		
+		Returns:
+			Result of the JavaScript execution
+		"""
 		page = await self.get_current_page()
-		return await page.evaluate(script)
+		return await page.evaluate(script, arg, strict=strict)
+		
+	async def execute_javascript_with_args(self, script: str, *args, strict=True):
+		"""
+		Execute JavaScript code on the page with multiple arguments
+		
+		Args:
+			script: JavaScript code to execute
+			*args: Arguments to pass to the JavaScript function
+			strict: Whether to use strict mode for JavaScript execution
+			
+		Returns:
+			Result of the JavaScript execution
+		"""
+		page = await self.get_current_page()
+		return await page.evaluate(script, *args, strict=strict)
+		
+	async def evaluate_handle(self, script: str, *args):
+		"""
+		Execute JavaScript and return JSHandle
+		
+		This is useful for complex interactions with JavaScript objects
+		that need to be manipulated across multiple calls.
+		
+		Args:
+			script: JavaScript code to execute
+			*args: Arguments to pass to the JavaScript function
+			
+		Returns:
+			JSHandle object representing the result
+		"""
+		page = await self.get_current_page()
+		return await page.evaluate_handle(script, *args)
+		
+	async def expose_function(self, name: str, callback):
+		"""
+		Expose a Python function to the browser context
+		
+		This allows JavaScript code in the browser to call the Python function
+		
+		Args:
+			name: Name to use for the function in the browser
+			callback: Python function to expose
+		"""
+		page = await self.get_current_page()
+		await page.expose_function(name, callback)
 
 	async def get_page_structure(self) -> str:
 		"""Get a debug view of the page structure including iframes"""
