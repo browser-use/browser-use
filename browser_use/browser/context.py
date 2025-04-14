@@ -13,6 +13,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
+from urllib.parse import urlparse
 
 from playwright._impl._errors import TimeoutError
 from playwright.async_api import Browser as PlaywrightBrowser
@@ -860,6 +861,231 @@ class BrowserContext:
 		"""
 		page = await self.get_current_page()
 		await page.expose_function(name, callback)
+		
+	async def get_all_frames(self):
+		"""
+		Get all frames in the current page including nested frames
+		
+		Returns:
+			List of all frames in the current page
+		"""
+		page = await self.get_current_page()
+		return page.frames
+		
+	async def get_frame_by_url(self, url_pattern: str):
+		"""
+		Get a frame by URL pattern
+		
+		Args:
+			url_pattern: Regular expression pattern to match frame URL
+			
+		Returns:
+			Frame matching the URL pattern or None if not found
+		"""
+		page = await self.get_current_page()
+		frames = page.frames
+		for frame in frames:
+			if re.search(url_pattern, frame.url):
+				return frame
+		return None
+		
+	async def get_frame_by_name(self, name: str):
+		"""
+		Get a frame by name attribute
+		
+		Args:
+			name: Name attribute of the frame
+			
+		Returns:
+			Frame with the specified name or None if not found
+		"""
+		page = await self.get_current_page()
+		return page.frame(name=name)
+		
+	async def execute_in_frame(self, frame_selector: str, script: str, *args):
+		"""
+		Execute JavaScript in a specific frame
+		
+		Args:
+			frame_selector: CSS selector for the frame
+			script: JavaScript code to execute
+			*args: Arguments to pass to the JavaScript function
+			
+		Returns:
+			Result of the JavaScript execution
+		"""
+		page = await self.get_current_page()
+		frame = page.frame_locator(frame_selector)
+		return await frame.evaluate(script, *args)
+		
+	async def wait_for_frame_load(self, frame_selector: str, state: str = "domcontentloaded"):
+		"""
+		Wait for a frame to load completely
+		
+		Args:
+			frame_selector: CSS selector for the frame
+			state: Load state to wait for (domcontentloaded, load, networkidle)
+		"""
+		page = await self.get_current_page()
+		frame = page.frame_locator(frame_selector)
+		await frame.wait_for_load_state(state)
+		
+	async def get_element_in_frame(self, frame_selector: str, element_selector: str):
+		"""
+		Locate an element within a specific frame
+		
+		Args:
+			frame_selector: CSS selector for the frame
+			element_selector: CSS selector for the element
+			
+		Returns:
+			ElementHandle for the element or None if not found
+		"""
+		page = await self.get_current_page()
+		frame = page.frame_locator(frame_selector)
+		return await frame.locator(element_selector).element_handle()
+		
+	async def get_element_by_text_in_frame(self, frame_selector: str, text: str):
+		"""
+		Locate an element by text content within a specific frame
+		
+		Args:
+			frame_selector: CSS selector for the frame
+			text: Text content to search for
+			
+		Returns:
+			ElementHandle for the element or None if not found
+		"""
+		page = await self.get_current_page()
+		frame = page.frame_locator(frame_selector)
+		return await frame.locator(f"text={text}").element_handle()
+		
+	async def get_cross_origin_frames(self):
+		"""
+		Get all cross-origin frames in the current page
+		
+		This is useful for identifying frames from different origins
+		that may require special handling for anti-bot measures.
+		
+		Returns:
+			List of frames from different origins than the main page
+		"""
+		page = await self.get_current_page()
+		frames = page.frames
+		main_origin = urlparse(page.url).netloc
+		return [frame for frame in frames if urlparse(frame.url).netloc != main_origin]
+		
+	async def execute_in_all_frames(self, script: str, *args):
+		"""
+		Execute JavaScript in all frames including cross-origin ones
+		
+		This is useful for performing operations across all frames
+		regardless of origin, which can help with anti-bot measures.
+		
+		Args:
+			script: JavaScript code to execute
+			*args: Arguments to pass to the JavaScript function
+			
+		Returns:
+			Dictionary mapping frame URLs to execution results or errors
+		"""
+		page = await self.get_current_page()
+		results = []
+		for frame in page.frames:
+			try:
+				result = await frame.evaluate(script, *args)
+				results.append({"frame": frame.url, "result": result})
+			except Exception as e:
+				results.append({"frame": frame.url, "error": str(e)})
+		return results
+		
+	async def wait_for_navigation_with_timeout(self, timeout: int = 30000, wait_until: str = "networkidle"):
+		"""
+		Wait for navigation with extended timeout for anti-bot measures
+		
+		Korean websites like Naver Maps often use delayed redirects and
+		complex loading patterns as anti-bot measures. This method provides
+		extended timeout and configurable wait conditions.
+		
+		Args:
+			timeout: Maximum time to wait in milliseconds
+			wait_until: Navigation event to wait for (load, domcontentloaded, networkidle)
+		"""
+		page = await self.get_current_page()
+		await page.wait_for_navigation(timeout=timeout, wait_until=wait_until)
+		
+	async def get_element_by_korean_text(self, text: str, exact: bool = False):
+		"""
+		Locate an element by Korean text content
+		
+		Korean websites like Naver Maps often use dynamic IDs and classes
+		as anti-bot measures. This method uses text-based selectors which
+		are more reliable than DOM selectors for Korean websites.
+		
+		Args:
+			text: Korean text content to search for
+			exact: Whether to match the text exactly or as a substring
+			
+		Returns:
+			ElementHandle for the element or None if not found
+		"""
+		page = await self.get_current_page()
+		if exact:
+			return await page.locator(f"text=\"{text}\"").element_handle()
+		else:
+			return await page.locator(f"text={text}").element_handle()
+			
+	async def wait_for_stable_dom(self, timeout: int = 5000, check_interval: int = 500):
+		"""
+		Wait for the DOM to stabilize
+		
+		Korean websites like Naver Maps often use dynamic DOM updates
+		as anti-bot measures. This method waits for the DOM to stabilize
+		before proceeding with interactions.
+		
+		Args:
+			timeout: Maximum time to wait in milliseconds
+			check_interval: Interval between DOM stability checks in milliseconds
+		"""
+		page = await self.get_current_page()
+		
+		get_dom_hash = """() => {
+			const getElementPath = (el) => {
+				if (!el || !el.tagName) return '';
+				return el.tagName + (el.id ? '#' + el.id : '') + 
+					(el.className && typeof el.className === 'string' ? 
+						'.' + el.className.replace(/\\s+/g, '.') : '');
+			};
+			
+			const hashDOM = (root, depth = 0, maxDepth = 3) => {
+				if (!root || depth > maxDepth) return '';
+				
+				let hash = getElementPath(root);
+				const children = root.children || [];
+				
+				for (let i = 0; i < Math.min(children.length, 10); i++) {
+					hash += hashDOM(children[i], depth + 1, maxDepth);
+				}
+				
+				return hash;
+			};
+			
+			return hashDOM(document.body);
+		}"""
+		
+		start_time = time.time()
+		last_hash = await page.evaluate(get_dom_hash)
+		
+		while time.time() * 1000 - start_time * 1000 < timeout:
+			await asyncio.sleep(check_interval / 1000)
+			current_hash = await page.evaluate(get_dom_hash)
+			
+			if current_hash == last_hash:
+				return True
+				
+			last_hash = current_hash
+			
+		return False
 
 	async def get_page_structure(self) -> str:
 		"""Get a debug view of the page structure including iframes"""

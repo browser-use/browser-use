@@ -259,6 +259,555 @@ async def test_expose_function():
 
 
 @pytest.mark.asyncio
+async def test_get_all_frames():
+	"""
+	Test the get_all_frames method by mocking the current page's frames property.
+	This ensures that when get_all_frames is called, it correctly returns the frames
+	from the current page.
+	"""
+	
+	class DummyFrame:
+		def __init__(self, url):
+			self.url = url
+	
+	class DummyPage:
+		def __init__(self):
+			self.frames = [
+				DummyFrame("https://example.com"),
+				DummyFrame("https://example.com/iframe1"),
+				DummyFrame("https://example.com/iframe2")
+			]
+	
+	# Create a dummy session object with a dummy current_page.
+	dummy_session = type('DummySession', (), {})()
+	dummy_page = DummyPage()
+	dummy_session.current_page = dummy_page
+	# Create a dummy browser mock with a minimal config.
+	dummy_browser = Mock()
+	dummy_browser.config = Mock()
+	# Initialize the BrowserContext with the dummy browser and config.
+	context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+	# Manually set the session to our dummy session.
+	context.session = dummy_session
+	
+	frames = await context.get_all_frames()
+	assert len(frames) == 3
+	assert frames[0].url == "https://example.com"
+	assert frames[1].url == "https://example.com/iframe1"
+	assert frames[2].url == "https://example.com/iframe2"
+
+
+@pytest.mark.asyncio
+async def test_get_frame_by_url():
+	"""
+	Test the get_frame_by_url method by mocking the current page's frames property.
+	This ensures that when get_frame_by_url is called, it correctly returns the frame
+	matching the URL pattern.
+	"""
+	
+	class DummyFrame:
+		def __init__(self, url):
+			self.url = url
+	
+	class DummyPage:
+		def __init__(self):
+			self.frames = [
+				DummyFrame("https://example.com"),
+				DummyFrame("https://example.com/iframe1"),
+				DummyFrame("https://subdomain.example.com/iframe2")
+			]
+	
+	# Create a dummy session object with a dummy current_page.
+	dummy_session = type('DummySession', (), {})()
+	dummy_page = DummyPage()
+	dummy_session.current_page = dummy_page
+	# Create a dummy browser mock with a minimal config.
+	dummy_browser = Mock()
+	dummy_browser.config = Mock()
+	# Initialize the BrowserContext with the dummy browser and config.
+	context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+	# Manually set the session to our dummy session.
+	context.session = dummy_session
+	
+	frame = await context.get_frame_by_url("https://example.com/iframe1")
+	assert frame.url == "https://example.com/iframe1"
+	
+	frame = await context.get_frame_by_url("subdomain")
+	assert frame.url == "https://subdomain.example.com/iframe2"
+	
+	frame = await context.get_frame_by_url("nonexistent")
+	assert frame is None
+
+
+@pytest.mark.asyncio
+async def test_get_frame_by_name():
+	"""
+	Test the get_frame_by_name method by mocking the current page's frame method.
+	This ensures that when get_frame_by_name is called, it correctly calls the
+	page's frame method with the name parameter.
+	"""
+	
+	class DummyFrame:
+		def __init__(self, name):
+			self.name = name
+	
+	class DummyPage:
+		def __init__(self):
+			self.last_name = None
+			self.frame_map = {
+				"main": DummyFrame("main"),
+				"sidebar": DummyFrame("sidebar"),
+				"footer": DummyFrame("footer")
+			}
+		
+		def frame(self, name=None):
+			self.last_name = name
+			return self.frame_map.get(name)
+	
+	# Create a dummy session object with a dummy current_page.
+	dummy_session = type('DummySession', (), {})()
+	dummy_page = DummyPage()
+	dummy_session.current_page = dummy_page
+	# Create a dummy browser mock with a minimal config.
+	dummy_browser = Mock()
+	dummy_browser.config = Mock()
+	# Initialize the BrowserContext with the dummy browser and config.
+	context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+	# Manually set the session to our dummy session.
+	context.session = dummy_session
+	
+	frame = await context.get_frame_by_name("sidebar")
+	assert frame.name == "sidebar"
+	assert dummy_page.last_name == "sidebar"
+	
+	frame = await context.get_frame_by_name("nonexistent")
+	assert frame is None
+	assert dummy_page.last_name == "nonexistent"
+
+
+@pytest.mark.asyncio
+async def test_execute_in_frame():
+	"""
+	Test the execute_in_frame method by mocking the current page's frame_locator method.
+	This ensures that when execute_in_frame is called, it correctly calls the
+	frame_locator's evaluate method with the script and arguments.
+	"""
+	
+	class DummyFrameLocator:
+		def __init__(self):
+			self.last_script = None
+			self.last_args = None
+		
+		async def evaluate(self, script, *args):
+			self.last_script = script
+			self.last_args = args
+			return "frame_result"
+	
+	class DummyPage:
+		def __init__(self):
+			self.last_selector = None
+			self.frame_loc = DummyFrameLocator()
+		
+		def frame_locator(self, selector):
+			self.last_selector = selector
+			return self.frame_loc
+	
+	# Create a dummy session object with a dummy current_page.
+	dummy_session = type('DummySession', (), {})()
+	dummy_page = DummyPage()
+	dummy_session.current_page = dummy_page
+	# Create a dummy browser mock with a minimal config.
+	dummy_browser = Mock()
+	dummy_browser.config = Mock()
+	# Initialize the BrowserContext with the dummy browser and config.
+	context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+	# Manually set the session to our dummy session.
+	context.session = dummy_session
+	
+	result = await context.execute_in_frame("iframe.content", "return document.title", "arg1", 42)
+	assert result == "frame_result"
+	assert dummy_page.last_selector == "iframe.content"
+	assert dummy_page.frame_loc.last_script == "return document.title"
+	assert dummy_page.frame_loc.last_args == ("arg1", 42)
+
+
+@pytest.mark.asyncio
+async def test_wait_for_frame_load():
+	"""
+	Test the wait_for_frame_load method by mocking the current page's frame_locator method.
+	This ensures that when wait_for_frame_load is called, it correctly calls the
+	frame_locator's wait_for_load_state method with the state parameter.
+	"""
+	
+	class DummyFrameLocator:
+		def __init__(self):
+			self.last_state = None
+		
+		async def wait_for_load_state(self, state):
+			self.last_state = state
+	
+	class DummyPage:
+		def __init__(self):
+			self.last_selector = None
+			self.frame_loc = DummyFrameLocator()
+		
+		def frame_locator(self, selector):
+			self.last_selector = selector
+			return self.frame_loc
+	
+	# Create a dummy session object with a dummy current_page.
+	dummy_session = type('DummySession', (), {})()
+	dummy_page = DummyPage()
+	dummy_session.current_page = dummy_page
+	# Create a dummy browser mock with a minimal config.
+	dummy_browser = Mock()
+	dummy_browser.config = Mock()
+	# Initialize the BrowserContext with the dummy browser and config.
+	context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+	# Manually set the session to our dummy session.
+	context.session = dummy_session
+	
+	await context.wait_for_frame_load("iframe.content")
+	assert dummy_page.last_selector == "iframe.content"
+	assert dummy_page.frame_loc.last_state == "domcontentloaded"
+	
+	await context.wait_for_frame_load("iframe.content", "networkidle")
+	assert dummy_page.last_selector == "iframe.content"
+	assert dummy_page.frame_loc.last_state == "networkidle"
+
+
+@pytest.mark.asyncio
+async def test_get_element_in_frame():
+	"""
+	Test the get_element_in_frame method by mocking the current page's frame_locator method.
+	This ensures that when get_element_in_frame is called, it correctly calls the
+	frame_locator's locator method with the element selector.
+	"""
+	
+	class DummyElementHandle:
+		def __init__(self, selector):
+			self.selector = selector
+	
+	class DummyLocator:
+		def __init__(self, selector):
+			self.selector = selector
+		
+		async def element_handle(self):
+			return DummyElementHandle(self.selector)
+	
+	class DummyFrameLocator:
+		def __init__(self):
+			self.last_selector = None
+		
+		def locator(self, selector):
+			self.last_selector = selector
+			return DummyLocator(selector)
+	
+	class DummyPage:
+		def __init__(self):
+			self.last_selector = None
+			self.frame_loc = DummyFrameLocator()
+		
+		def frame_locator(self, selector):
+			self.last_selector = selector
+			return self.frame_loc
+	
+	# Create a dummy session object with a dummy current_page.
+	dummy_session = type('DummySession', (), {})()
+	dummy_page = DummyPage()
+	dummy_session.current_page = dummy_page
+	# Create a dummy browser mock with a minimal config.
+	dummy_browser = Mock()
+	dummy_browser.config = Mock()
+	# Initialize the BrowserContext with the dummy browser and config.
+	context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+	# Manually set the session to our dummy session.
+	context.session = dummy_session
+	
+	element = await context.get_element_in_frame("iframe.content", "button.submit")
+	assert dummy_page.last_selector == "iframe.content"
+	assert dummy_page.frame_loc.last_selector == "button.submit"
+	assert element.selector == "button.submit"
+
+
+@pytest.mark.asyncio
+async def test_get_element_by_text_in_frame():
+	"""
+	Test the get_element_by_text_in_frame method by mocking the current page's frame_locator method.
+	This ensures that when get_element_by_text_in_frame is called, it correctly calls the
+	frame_locator's locator method with the text selector.
+	"""
+	
+	class DummyElementHandle:
+		def __init__(self, text):
+			self.text = text
+	
+	class DummyLocator:
+		def __init__(self, text):
+			self.text = text
+		
+		async def element_handle(self):
+			return DummyElementHandle(self.text)
+	
+	class DummyFrameLocator:
+		def __init__(self):
+			self.last_selector = None
+		
+		def locator(self, selector):
+			self.last_selector = selector
+			return DummyLocator(selector)
+	
+	class DummyPage:
+		def __init__(self):
+			self.last_selector = None
+			self.frame_loc = DummyFrameLocator()
+		
+		def frame_locator(self, selector):
+			self.last_selector = selector
+			return self.frame_loc
+	
+	# Create a dummy session object with a dummy current_page.
+	dummy_session = type('DummySession', (), {})()
+	dummy_page = DummyPage()
+	dummy_session.current_page = dummy_page
+	# Create a dummy browser mock with a minimal config.
+	dummy_browser = Mock()
+	dummy_browser.config = Mock()
+	# Initialize the BrowserContext with the dummy browser and config.
+	context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+	# Manually set the session to our dummy session.
+	context.session = dummy_session
+	
+	element = await context.get_element_by_text_in_frame("iframe.content", "Submit")
+	assert dummy_page.last_selector == "iframe.content"
+	assert dummy_page.frame_loc.last_selector == "text=Submit"
+	assert element.text == "text=Submit"
+
+
+@pytest.mark.asyncio
+async def test_get_cross_origin_frames():
+	"""
+	Test the get_cross_origin_frames method by mocking the current page's frames property.
+	This ensures that when get_cross_origin_frames is called, it correctly returns frames
+	from different origins than the main page.
+	"""
+	
+	class DummyFrame:
+		def __init__(self, url):
+			self.url = url
+	
+	class DummyPage:
+		def __init__(self):
+			self.url = "https://example.com"
+			self.frames = [
+				DummyFrame("https://example.com"),
+				DummyFrame("https://example.com/iframe1"),
+				DummyFrame("https://other-domain.com/iframe"),
+				DummyFrame("https://third-domain.net/iframe")
+			]
+	
+	# Create a dummy session object with a dummy current_page.
+	dummy_session = type('DummySession', (), {})()
+	dummy_page = DummyPage()
+	dummy_session.current_page = dummy_page
+	# Create a dummy browser mock with a minimal config.
+	dummy_browser = Mock()
+	dummy_browser.config = Mock()
+	# Initialize the BrowserContext with the dummy browser and config.
+	context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+	# Manually set the session to our dummy session.
+	context.session = dummy_session
+	
+	cross_origin_frames = await context.get_cross_origin_frames()
+	assert len(cross_origin_frames) == 2
+	assert cross_origin_frames[0].url == "https://other-domain.com/iframe"
+	assert cross_origin_frames[1].url == "https://third-domain.net/iframe"
+
+
+@pytest.mark.asyncio
+async def test_execute_in_all_frames():
+	"""
+	Test the execute_in_all_frames method by mocking the current page's frames property.
+	This ensures that when execute_in_all_frames is called, it correctly executes the script
+	in all frames and returns the results.
+	"""
+	
+	class DummyFrame:
+		def __init__(self, url, result=None, error=None):
+			self.url = url
+			self.result = result
+			self.error = error
+			self.last_script = None
+			self.last_args = None
+		
+		async def evaluate(self, script, *args):
+			self.last_script = script
+			self.last_args = args
+			if self.error:
+				raise Exception(self.error)
+			return self.result
+	
+	class DummyPage:
+		def __init__(self):
+			self.frames = [
+				DummyFrame("https://example.com", result="main result"),
+				DummyFrame("https://example.com/iframe1", result="iframe1 result"),
+				DummyFrame("https://other-domain.com/iframe", error="Access denied")
+			]
+	
+	# Create a dummy session object with a dummy current_page.
+	dummy_session = type('DummySession', (), {})()
+	dummy_page = DummyPage()
+	dummy_session.current_page = dummy_page
+	# Create a dummy browser mock with a minimal config.
+	dummy_browser = Mock()
+	dummy_browser.config = Mock()
+	# Initialize the BrowserContext with the dummy browser and config.
+	context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+	# Manually set the session to our dummy session.
+	context.session = dummy_session
+	
+	results = await context.execute_in_all_frames("return document.title", "arg1", 42)
+	assert len(results) == 3
+	
+	assert results[0]["frame"] == "https://example.com"
+	assert results[0]["result"] == "main result"
+	assert dummy_page.frames[0].last_script == "return document.title"
+	assert dummy_page.frames[0].last_args == ("arg1", 42)
+	
+	assert results[1]["frame"] == "https://example.com/iframe1"
+	assert results[1]["result"] == "iframe1 result"
+	
+	assert results[2]["frame"] == "https://other-domain.com/iframe"
+	assert "error" in results[2]
+	assert "Access denied" in results[2]["error"]
+
+
+@pytest.mark.asyncio
+async def test_wait_for_navigation_with_timeout():
+	"""
+	Test the wait_for_navigation_with_timeout method by mocking the current page's wait_for_navigation method.
+	This ensures that when wait_for_navigation_with_timeout is called, it correctly calls the
+	page's wait_for_navigation method with the timeout and wait_until parameters.
+	"""
+	
+	class DummyPage:
+		def __init__(self):
+			self.last_timeout = None
+			self.last_wait_until = None
+		
+		async def wait_for_navigation(self, timeout=None, wait_until=None):
+			self.last_timeout = timeout
+			self.last_wait_until = wait_until
+	
+	# Create a dummy session object with a dummy current_page.
+	dummy_session = type('DummySession', (), {})()
+	dummy_page = DummyPage()
+	dummy_session.current_page = dummy_page
+	# Create a dummy browser mock with a minimal config.
+	dummy_browser = Mock()
+	dummy_browser.config = Mock()
+	# Initialize the BrowserContext with the dummy browser and config.
+	context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+	# Manually set the session to our dummy session.
+	context.session = dummy_session
+	
+	await context.wait_for_navigation_with_timeout()
+	assert dummy_page.last_timeout == 30000
+	assert dummy_page.last_wait_until == "networkidle"
+	
+	await context.wait_for_navigation_with_timeout(timeout=60000, wait_until="load")
+	assert dummy_page.last_timeout == 60000
+	assert dummy_page.last_wait_until == "load"
+
+
+@pytest.mark.asyncio
+async def test_get_element_by_korean_text():
+	"""
+	Test the get_element_by_korean_text method by mocking the current page's locator method.
+	This ensures that when get_element_by_korean_text is called, it correctly calls the
+	page's locator method with the text selector.
+	"""
+	
+	class DummyElementHandle:
+		def __init__(self, selector):
+			self.selector = selector
+	
+	class DummyLocator:
+		def __init__(self, selector):
+			self.selector = selector
+		
+		async def element_handle(self):
+			return DummyElementHandle(self.selector)
+	
+	class DummyPage:
+		def __init__(self):
+			self.last_selector = None
+		
+		def locator(self, selector):
+			self.last_selector = selector
+			return DummyLocator(selector)
+	
+	# Create a dummy session object with a dummy current_page.
+	dummy_session = type('DummySession', (), {})()
+	dummy_page = DummyPage()
+	dummy_session.current_page = dummy_page
+	# Create a dummy browser mock with a minimal config.
+	dummy_browser = Mock()
+	dummy_browser.config = Mock()
+	# Initialize the BrowserContext with the dummy browser and config.
+	context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+	# Manually set the session to our dummy session.
+	context.session = dummy_session
+	
+	element = await context.get_element_by_korean_text("내부")
+	assert dummy_page.last_selector == "text=내부"
+	assert element.selector == "text=내부"
+	
+	element = await context.get_element_by_korean_text("외부", exact=True)
+	assert dummy_page.last_selector == 'text="외부"'
+	assert element.selector == 'text="외부"'
+
+
+@pytest.mark.asyncio
+async def test_wait_for_stable_dom():
+	"""
+	Test the wait_for_stable_dom method by mocking the current page's evaluate method.
+	This ensures that when wait_for_stable_dom is called, it correctly calls the
+	page's evaluate method with the DOM hash script and waits for stability.
+	"""
+	
+	class DummyPage:
+		def __init__(self):
+			self.evaluate_calls = 0
+			self.last_script = None
+			self.dom_hashes = ["hash1", "hash1", "hash2", "hash2", "hash2"]
+		
+		async def evaluate(self, script):
+			self.last_script = script
+			result = self.dom_hashes[min(self.evaluate_calls, len(self.dom_hashes) - 1)]
+			self.evaluate_calls += 1
+			return result
+	
+	# Create a dummy session object with a dummy current_page.
+	dummy_session = type('DummySession', (), {})()
+	dummy_page = DummyPage()
+	dummy_session.current_page = dummy_page
+	# Create a dummy browser mock with a minimal config.
+	dummy_browser = Mock()
+	dummy_browser.config = Mock()
+	# Initialize the BrowserContext with the dummy browser and config.
+	context = BrowserContext(browser=dummy_browser, config=BrowserContextConfig())
+	# Manually set the session to our dummy session.
+	context.session = dummy_session
+	
+	result = await context.wait_for_stable_dom(timeout=1000, check_interval=10)
+	assert result is True
+	assert dummy_page.evaluate_calls >= 3
+	assert "hashDOM" in dummy_page.last_script
+
+
+@pytest.mark.asyncio
 async def test_enhanced_css_selector_for_element():
 	"""
 	Test the _enhanced_css_selector_for_element method to verify that
