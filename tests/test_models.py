@@ -87,7 +87,7 @@ api_key_novita = SecretStr(os.getenv('NOVITA_API_KEY') or '')
 			model='deepseek-chat',
 			api_key=api_key_deepseek,
 		),
-    ChatOpenAI(
+		ChatOpenAI(
 			base_url='https://api.novita.ai/v3/openai',
 			model='qwen/qwq-32b',
 			api_key=api_key_novita,

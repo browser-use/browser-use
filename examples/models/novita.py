@@ -1,3 +1,9 @@
+"""
+Simple try of the agent.
+
+@dev You need to add NOVITA_API_KEY to your environment variables.
+"""
+
 import asyncio
 import os
 
@@ -26,7 +32,7 @@ async def run_search():
 		llm=ChatOpenAI(
 			base_url='https://api.novita.ai/v3/openai',
 			model='deepseek/deepseek-v3-0324',
-			api_key=SecretStr('sk_sujEQQEjTRxGUiMLN3TJh2KadRX4pw2TLWRoIKeoYZ0'),
+			api_key=SecretStr(api_key),
 		),
 		use_vision=False,
 	)
