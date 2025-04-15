@@ -1,4 +1,34 @@
-# This is trhe LLM as a judge evaluation system from the OSU-NLP Gorup paper
+# ==============================================================================================================
+# Documentation for this evaluation file.
+# The import
+
+
+# Here is the command to run the evaluation:
+# python eval/service.py --parallel_runs 3 --parallel_evaluations 5 --max-steps 25 --start 0 --end 100 
+# options:
+# --parallel_runs: Number of parallel tasks to run
+# --max-steps: Maximum steps per task
+# --start: Start index
+# --end: End index (exclusive)
+# --headless: Run in headless mode
+
+# Here is the command to run the evaluation only:
+# python eval/service.py --evaluate-only
+# options:
+# --parallel_evaluations: Number of parallel evaluations to run
+# ==============================================================================================================
+
+
+
+
+
+
+
+
+
+
+# ==============================================================================================================
+# This is the LLM as a judge evaluation system from the OSU-NLP Gorup paper
 # Any adaptiations made should be explicitly stated here:
 # Adaptations:
 # We are using our langchain wrapper for the OpenAI API 
@@ -27,7 +57,7 @@
 #  volume = {36},
 #  year = {2023}
 # }
-
+# ==============================================================================================================
 import asyncio
 import re
 import io
@@ -246,29 +276,21 @@ async def Online_Mind2Web_eval_with_retry(task, last_actions, images_path, model
                 raise
             print(f"Attempt {attempt + 1} failed. Retrying... Error: {str(e)}")
             await asyncio.sleep(2 ** attempt)  # Exponential backoff
+# ==============================================================================================================
 
 
 
 
 
 
-# A service for evaluating the performance of the model
-# We will begin by using a test of 100 tasks from the mind2web dataset
-# This script will allow the use of any agent and model
 
 
-# Here is what we need to do:
-# We will need a file of our 100 tasks from the mind2web dataset
-# The run eval script here will run browser use on all the tasks
-# For each task here is what we need to save (into a temporary folder)
-# One folder for each task with a uid. 
-# The folder will have the following structure:
-# result.json with the task_id, task, final_result_response, thoughts (we should also add screenshot_paths, and self_report_success)
-# a folder called 'trajectory' with the screenshots at each step
-# Then we can use these 100 task result folders to evaluate the model with the Online-Mind2Web LLM as a judge method
 
+
+# ==============================================================================================================
+# A service for evaluating the performance of the agent
+# ==============================================================================================================
 import json
-import os
 import asyncio
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
@@ -365,8 +387,10 @@ class TaskTracker:
             "task": self.task_text,
             "steps": self.step_results,
             "action_history": [step["actions"][-1]["content"] for step in self.step_results],
-            "thoughts": [],
+            "screenshot_paths": self.screenshots,
             "final_result_response": self.step_results[-1]["actions"][-1]["content"] if self.step_results[-1]["actions"][-1]["is_done"] else None,
+            "self_report_completed": self.step_results[-1]["actions"][-1]["is_done"],
+            "self_report_success": self.step_results[-1]["actions"][-1]["success"]
         }
         
         # Save to file
@@ -435,15 +459,10 @@ def judge_task_result(model, task_folder: Path, score_threshold: float = 3) -> D
         if result.get("Online_Mind2Web_evaluation"):
             return result.get("Online_Mind2Web_evaluation")
 
-        # Get the sorted screenshot paths from the trajectory folder
-        trajectory_folder = task_folder / "trajectory"
-        screenshot_paths = sorted(trajectory_folder.glob("step_*.png"))
-        screenshot_paths = [str(path) for path in screenshot_paths]
-        
-        # Get the final action result
+        # Get the screenshot paths, task description, and action history
+        screenshot_paths = result.get("screenshot_paths", [])
         task_description = result.get("task")
         action_history = result.get("action_history", [])
-        final_response = result.get("final_result_response")
         
         # Use the retry wrapper for evaluation
         try:
@@ -482,7 +501,7 @@ def judge_task_result(model, task_folder: Path, score_threshold: float = 3) -> D
                     "score": 0.0
                 }
             
-            # Save the Online_Mind2Web_evaluation
+            # Save the Online_Mind2Web_evaluation into the result.json file
             result["Online_Mind2Web_evaluation"] = evaluation
             with open(result_file, "w") as f:
                 json.dump(result, f, indent=2)
@@ -507,7 +526,7 @@ def judge_task_result(model, task_folder: Path, score_threshold: float = 3) -> D
             "score": 0.0
         }
 
-async def evaluate_all_saved_results() -> Dict:
+async def evaluate_all_saved_results(args) -> Dict:
     """
     Evaluate all completed tasks in the saved_trajectories folder.
     
@@ -525,7 +544,7 @@ async def evaluate_all_saved_results() -> Dict:
     )
 
     # Create a semaphore to limit concurrent evaluations
-    semaphore = asyncio.Semaphore(3)  # Limit to 3 concurrent evaluations
+    semaphore = asyncio.Semaphore(args.parallel_evaluations)
 
     async def evaluate_task(task_folder: Path) -> Dict:
         async with semaphore:
@@ -554,14 +573,15 @@ async def evaluate_all_saved_results() -> Dict:
         "failed_tasks": failed_tasks,
         "success_rate": successful_tasks / total_tasks if total_tasks > 0 else 0,
         "average_score": average_score,
-        "detailed_results": results
+        "detailed_results": judgements
     }
     
     return summary
 
 async def run_multiple_tasks(
     tasks: List[Task], 
-    max_parallel: int = 3,
+    max_parallel_runs: int = 3,
+    max_parallel_evaluations: int = 5,
     max_steps_per_task: int = 25,
     start_index: int = 0,
     end_index: Optional[int] = None,
@@ -570,12 +590,37 @@ async def run_multiple_tasks(
     """
     Run multiple tasks in parallel and evaluate results.
     """
-    semaphore = asyncio.Semaphore(max_parallel)
+    semaphore_runs = asyncio.Semaphore(max_parallel_runs)
     tasks_to_run = tasks[start_index:end_index] if end_index else tasks[start_index:]
     
     async def run_task_with_semaphore(task: Task) -> dict:
         """Run a single task with semaphore and error handling"""
-        async with semaphore:
+        async with semaphore_runs:
+            # Check if task has already been completed
+            task_folder = Path(f"saved_trajectories/{task.task_id}")
+            result_file = task_folder / "result.json"
+            
+            if result_file.exists():
+                logger.info(f"Task {task.task_id} already completed, skipping...")
+                try:
+                    with open(result_file) as f:
+                        existing_result = json.load(f)
+                    return {
+                        "task_id": task.task_id,
+                        "success": True,
+                        "result": {
+                            "task_id": task.task_id,
+                            "task": task.confirmed_task,
+                            "is_done": existing_result.get("self_report_completed", False),
+                            "is_successful": existing_result.get("self_report_success", False),
+                            "final_result": existing_result.get("final_result_response", None),
+                            "errors": []
+                        }
+                    }
+                except Exception as e:
+                    logger.error(f"Error reading existing result for task {task.task_id}: {str(e)}")
+                    # If we can't read the existing result, we'll run the task again
+            
             try:
                 logger.info(f"Starting task {task.task_id}")
                 # Create browser with headless configuration
@@ -587,11 +632,22 @@ async def run_multiple_tasks(
                     max_steps=max_steps_per_task
                 )
                 logger.info(f"Completed task {task.task_id}")
-                return {
+                
+                # Extract relevant information from the agent history
+                task_result = {
                     "task_id": task.task_id,
                     "success": True,
-                    "result": result
+                    "result": {
+                        "task_id": task.task_id,
+                        "task": task.confirmed_task,
+                        # "history": result.model_dump() if result else None,
+                        "is_done": result.is_done() if result else False,
+                        "is_successful": result.is_successful() if result else None,
+                        "final_result": result.final_result() if result else None,
+                        "errors": result.errors() if result else []
+                    } if result else None
                 }
+                return task_result
             except Exception as e:
                 logger.error(f"Error in task {task.task_id}: {str(e)}")
                 return {
@@ -602,21 +658,31 @@ async def run_multiple_tasks(
             finally:
                 await browser.close()
 
-    results = await asyncio.gather(
+    # Run all tasks in parallel
+    task_results = await asyncio.gather(
         *(run_task_with_semaphore(task) for task in tasks_to_run)
     )
     
-    # Evaluate results after all tasks complete
-    evaluation_summary = asyncio.run(evaluate_all_saved_results())
+    # After all tasks are complete, evaluate the results
+    logger.info("All tasks completed. Starting evaluation...")
+    
+    # Create a namespace object to pass parallel_evaluations to evaluate_all_saved_results
+    class ArgsNamespace:
+        def __init__(self, parallel_evaluations):
+            self.parallel_evaluations = parallel_evaluations
+    
+    args = ArgsNamespace(parallel_evaluations=max_parallel_evaluations)
+    evaluation_summary = await evaluate_all_saved_results(args)
     
     return {
-        "task_results": results,
+        # "task_results": task_results,
         "evaluation_summary": evaluation_summary
     }
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run and evaluate browser automation tasks')
-    parser.add_argument('--parallel', type=int, default=3, help='Number of parallel tasks')
+    parser.add_argument('--parallel_runs', type=int, default=3, help='Number of parallel tasks to run')
+    parser.add_argument('--parallel_evaluations', type=int, default=5, help='Number of parallel evaluations to run')
     parser.add_argument('--max-steps', type=int, default=25, help='Maximum steps per task')
     parser.add_argument('--start', type=int, default=0, help='Start index')
     parser.add_argument('--end', type=int, default=None, help='End index (exclusive)')
@@ -633,7 +699,7 @@ if __name__ == "__main__":
     if args.evaluate_only:
         # Just evaluate existing results
         logger.info("Evaluating existing results...")
-        summary = asyncio.run(evaluate_all_saved_results())
+        summary = asyncio.run(evaluate_all_saved_results(args))
         
         # Save evaluation results
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -655,7 +721,8 @@ if __name__ == "__main__":
         results = asyncio.run(
             run_multiple_tasks(
                 tasks=tasks,
-                max_parallel=args.parallel,
+                max_parallel_runs=args.parallel_runs,
+                max_parallel_evaluations=args.parallel_evaluations,
                 max_steps_per_task=args.max_steps,
                 start_index=args.start,
                 end_index=args.end,
@@ -665,9 +732,16 @@ if __name__ == "__main__":
 
         # Save results
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        results_file = f"eval_results_{timestamp}.json"
+        results_file = f"saved_trajectories/eval_results_{timestamp}.json"
+        
+        # Convert results to JSON-serializable format
+        serializable_results = {
+            # "task_results": results["task_results"],
+            "evaluation_summary": results["evaluation_summary"]
+        }
+        
         with open(results_file, "w") as f:
-            json.dump(results, f, indent=2)
+            json.dump(serializable_results, f, indent=2)
 
         # Print summary
         summary = results["evaluation_summary"]
@@ -675,5 +749,3 @@ if __name__ == "__main__":
         logger.info(f"Success rate: {summary['success_rate']:.2%}")
         logger.info(f"Average score: {summary['average_score']:.2f}")
         logger.info(f"Results saved to {results_file}")
-
-
