@@ -4,7 +4,7 @@
 
 
 # Here is the command to run the evaluation:
-# python eval/service.py --parallel_runs 3 --parallel_evaluations 5 --max-steps 25 --start 0 --end 100 
+# python eval/service.py --parallel_runs 5 --parallel_evaluations 5 --max-steps 25 --start 0 --end 100 
 # options:
 # --parallel_runs: Number of parallel tasks to run
 # --max-steps: Maximum steps per task
@@ -712,6 +712,7 @@ if __name__ == "__main__":
         logger.info(f"Full results saved to {eval_file}")
         
     else:
+        logger.info("Running tasks...")
         # Run tasks and evaluate
         load_dotenv()
         
@@ -730,6 +731,7 @@ if __name__ == "__main__":
             )
         )
 
+        logger.info("Task completed. Saving results...")
         # Save results
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         results_file = f"saved_trajectories/eval_results_{timestamp}.json"
