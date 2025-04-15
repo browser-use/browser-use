@@ -4,7 +4,6 @@ import os
 from dotenv import load_dotenv
 from pydantic import SecretStr
 from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace
-from pydantic import SecretStr
 from browser_use import Agent
 
 # Required environment variables:
@@ -34,7 +33,7 @@ async def run_hf_agent():
 
     chat_huggingface_config = HuggingFaceEndpoint(
             endpoint_url=hf_endpoint,
-            huggingfacehub_api_token=SecretStr(hf_token),
+            huggingfacehub_api_token=hf_token,
             task="text-generation",
             max_new_tokens=512,
             do_sample=False,
