@@ -1,7 +1,9 @@
 # This is trhe LLM as a judge evaluation system from the OSU-NLP Gorup paper
 # Any adaptiations made should be explicitly stated here:
 # Adaptations:
-
+# We are using our langchain wrapper for the OpenAI API 
+# This means we changed model.generate to model.invoke. The behavior of the model should be identical.
+# Added a Online_Mind2Web_eval_with_retry wrapper with retry logic in case of API rate limiting or other issues.
 
 
 # @article{xue2025illusionprogressassessingcurrent,
@@ -44,7 +46,6 @@ def encode_image(image):
 
 
 async def identify_key_points(task, model):
-    print("DEBUG - REMOVE LATER: Starting identify_key_points")
     system_msg = """You are an expert tasked with analyzing a given task to identify the key points explicitly stated in the task description.
 
 **Objective**: Carefully analyze the task description and extract the critical elements explicitly mentioned in the task for achieving its goal.
@@ -69,13 +70,10 @@ async def identify_key_points(task, model):
                 ],
             }
         ]
-    print("DEBUG - REMOVE LATER: Calling model.generate for identify_key_points")
-    responses = await asyncio.to_thread(model.generate, messages)
-    print("DEBUG - REMOVE LATER: Completed identify_key_points")
-    return responses[0]
+    response = await asyncio.to_thread(model.invoke, messages)
+    return response.content
 
 async def judge_image(task, image_path, key_points, model):
-    print("DEBUG - REMOVE LATER: Starting judge_image")
     system_msg = """You are an expert evaluator tasked with determining whether an image contains information about the necessary steps to complete a task.
 
 **Objective**: Analyze the provided image and decide if it shows essential steps or evidence required for completing the task. Use your reasoning to explain your decision before assigning a score.
@@ -102,7 +100,6 @@ Respond with:
 1. **Reasoning**: [Your explanation]  
 2. **Score**: [1-5]"""
 
-    print("DEBUG - REMOVE LATER: Encoding image for judge_image")
     jpg_base64_str = encode_image(Image.open(image_path))
 
     prompt = """**Task**: {task}
@@ -125,13 +122,10 @@ The snapshot of the web page is shown in the image."""
                 ],
             }
         ]
-    print("DEBUG - REMOVE LATER: Calling model.generate for judge_image")
-    responses = await asyncio.to_thread(model.generate, messages)
-    print("DEBUG - REMOVE LATER: Completed judge_image")
-    return responses[0]
+    response = await asyncio.to_thread(model.invoke, messages)
+    return response.content
 
 async def Online_Mind2Web_eval(task, last_actions, images_path, model, score_threshold):
-    print("DEBUG - REMOVE LATER: Starting Online_Mind2Web_eval")
     system_msg = """You are an expert in evaluating the performance of a web navigation agent. The agent is designed to help a human user navigate a website to complete a task. Given the user's task, the agent's action history, key points for task completion, some potentially important web pages in the agent's trajectory and their reasons, your goal is to determine whether the agent has completed the task and achieved all requirements.
 
 Your response must strictly follow the following evaluation criteria!
@@ -167,9 +161,7 @@ Action History:
 The potentially important snapshots of the webpage in the agent's trajectory and their reasons:
 {thoughts}"""
 
-    print("DEBUG - REMOVE LATER: Calling identify_key_points")
     key_points = await identify_key_points(task, model)
-    print("DEBUG - REMOVE LATER: Processing key_points response")
     key_points = key_points.replace("\n\n", "\n")
 
     try:
@@ -179,16 +171,13 @@ The potentially important snapshots of the webpage in the agent's trajectory and
         key_points = key_points.split("Key Points:")[-1]
         key_points = "\n".join(line.lstrip() for line in key_points.splitlines())
     
-    print("DEBUG - REMOVE LATER: Starting image judgment tasks")
     tasks = [judge_image(task, image_path, key_points, model) for image_path in images_path]
     image_responses = await asyncio.gather(*tasks)
-    print("DEBUG - REMOVE LATER: Completed image judgment tasks")
 
     whole_content_img = []
     whole_thoughts = []
     record = []
     pattern = r"[1-5]"
-    print("DEBUG - REMOVE LATER: Processing image responses")
     for response, image_path in zip(image_responses, images_path):
         try:
             score_text = response.split("Score")[1]
@@ -196,7 +185,7 @@ The potentially important snapshots of the webpage in the agent's trajectory and
             score = re.findall(pattern, score_text)[0]
             record.append({"Response": response, "Score": int(score)})
         except Exception as e:
-            print(f"DEBUG - REMOVE LATER: Error processing response: {e}")
+            print(f"Error processing response: {e}")
             score = 0
             record.append({"Response": response, "Score": 0})
 
@@ -231,8 +220,36 @@ Action History:
                 + whole_content_img
         }
     ]
-    print("DEBUG - REMOVE LATER: Completed Online_Mind2Web_eval")
     return messages, text, system_msg, record, key_points
+
+async def Online_Mind2Web_eval_with_retry(task, last_actions, images_path, model, score_threshold, max_retries=3):
+    """
+    Wrapper for Online_Mind2Web_eval with retry logic.
+    
+    Args:
+        task: The task description
+        last_actions: List of actions taken
+        images_path: List of image paths
+        model: The model to use for evaluation
+        score_threshold: Score threshold for image filtering
+        max_retries: Maximum number of retry attempts
+        
+    Returns:
+        Tuple of (messages, text, system_msg, record, key_points) or None if all retries fail
+    """
+    for attempt in range(max_retries):
+        try:
+            return await Online_Mind2Web_eval(task, last_actions, images_path, model, score_threshold)
+        except Exception as e:
+            if attempt == max_retries - 1:  # Last attempt
+                print(f"Failed to evaluate after {max_retries} attempts. Error: {str(e)}")
+                raise
+            print(f"Attempt {attempt + 1} failed. Retrying... Error: {str(e)}")
+            await asyncio.sleep(2 ** attempt)  # Exponential backoff
+
+
+
+
 
 
 # A service for evaluating the performance of the model
@@ -404,6 +421,7 @@ def judge_task_result(model, task_folder: Path, score_threshold: float = 3) -> D
     if not result_file.exists():
         return {
             "task_id": task_folder.name,
+            "judgement": None,
             "success": False,
             "error": "No result.json found",
             "score": 0.0
@@ -412,6 +430,10 @@ def judge_task_result(model, task_folder: Path, score_threshold: float = 3) -> D
     try:
         with open(result_file) as f:
             result = json.load(f)
+
+        # If a Online_Mind2Web_evaluation is already saved, we can skip the eval
+        if result.get("Online_Mind2Web_evaluation"):
+            return result.get("Online_Mind2Web_evaluation")
 
         # Get the sorted screenshot paths from the trajectory folder
         trajectory_folder = task_folder / "trajectory"
@@ -423,29 +445,69 @@ def judge_task_result(model, task_folder: Path, score_threshold: float = 3) -> D
         action_history = result.get("action_history", [])
         final_response = result.get("final_result_response")
         
-        messages, text, system_msg, record, key_points = asyncio.run(Online_Mind2Web_eval(task_description, action_history, screenshot_paths, model, score_threshold))
-        
-        # Lets print what we get from this mind2web eval
-        print(f"Text: {text}")
-        print(f"Record: {record}")
-        print(f"Key Points: {key_points}")
+        # Use the retry wrapper for evaluation
+        try:
+            eval_result = asyncio.run(
+                Online_Mind2Web_eval_with_retry(
+                    task_description, 
+                    action_history, 
+                    screenshot_paths, 
+                    model, 
+                    score_threshold
+                )
+            )
+            
+            if eval_result is None:
+                raise Exception("Evaluation failed after all retries")
+                
+            messages, text, system_msg, record, key_points = eval_result
 
-        return {
-            "task_id": task_folder.name,
-            "success": False,
-            "error": "Not implemented yet... this message will be removed before the final version",
-            "score": 0.0
-        }
+            # Final steps to get judgement
+            judgement = model.invoke(messages).content
+
+            if "success" in judgement.lower().split('status:')[1]: # This is the official criteria for success
+                evaluation = {
+                    "task_id": task_folder.name,
+                    "judgement": judgement,
+                    "success": True,
+                    "error": None,
+                    "score": 1.0
+                }
+            else: # This is the official criteria for failure
+                evaluation = {
+                    "task_id": task_folder.name,
+                    "judgement": judgement,
+                    "success": False,
+                    "error": None,
+                    "score": 0.0
+                }
+            
+            # Save the Online_Mind2Web_evaluation
+            result["Online_Mind2Web_evaluation"] = evaluation
+            with open(result_file, "w") as f:
+                json.dump(result, f, indent=2)
+
+            return evaluation
+            
+        except Exception as e:
+            return {
+                "task_id": task_folder.name,
+                "judgement": None,
+                "success": False,
+                "error": str(e),
+                "score": 0.0
+            }
         
     except Exception as e:
         return {
             "task_id": task_folder.name,
+            "judgement": None,
             "success": False,
             "error": str(e),
             "score": 0.0
         }
 
-def evaluate_all_saved_results() -> Dict:
+async def evaluate_all_saved_results() -> Dict:
     """
     Evaluate all completed tasks in the saved_trajectories folder.
     
@@ -456,27 +518,34 @@ def evaluate_all_saved_results() -> Dict:
     if not trajectories_dir.exists():
         return {"error": "No saved trajectories found"}
     
-    results = []
-    counter = 0
     # Define the model used as a judge
     model = ChatOpenAI(
         model='gpt-4o',
         temperature=0.0,
     )
-    # Temporarily limit to only eval the first 3 tasks for testing
-    for task_folder in trajectories_dir.iterdir():
-        if task_folder.is_dir() and counter < 3:
-            print(f"Evaluating task {counter} of {len(results)}")
-            result = judge_task_result(model, task_folder)
-            results.append(result)
-            print(f"Result: {result}")
-            counter += 1
+
+    # Create a semaphore to limit concurrent evaluations
+    semaphore = asyncio.Semaphore(3)  # Limit to 3 concurrent evaluations
+
+    async def evaluate_task(task_folder: Path) -> Dict:
+        async with semaphore:
+            judgement = await asyncio.to_thread(judge_task_result, model, task_folder)
+            print(f"Completed evaluation for task {task_folder.name}. Result: {judgement['success']}")
+            return judgement
+
+    # Get all task folders
+    task_folders = [f for f in trajectories_dir.iterdir() if f.is_dir()]
+    
+    # Run evaluations in parallel
+    judgements = await asyncio.gather(
+        *[evaluate_task(folder) for folder in task_folders]
+    )
 
     # Calculate summary statistics
-    total_tasks = len(results)
-    successful_tasks = sum(1 for r in results if r["success"])
-    failed_tasks = sum(1 for r in results if not r["success"])
-    average_score = sum(r["score"] for r in results) / total_tasks if total_tasks > 0 else 0
+    total_tasks = len(judgements)
+    successful_tasks = sum(1 for j in judgements if j["success"])
+    failed_tasks = sum(1 for j in judgements if not j["success"])
+    average_score = sum(j["score"] for j in judgements) / total_tasks if total_tasks > 0 else 0
     
     summary = {
         "timestamp": datetime.now().isoformat(),
@@ -538,7 +607,7 @@ async def run_multiple_tasks(
     )
     
     # Evaluate results after all tasks complete
-    evaluation_summary = evaluate_all_saved_results()
+    evaluation_summary = asyncio.run(evaluate_all_saved_results())
     
     return {
         "task_results": results,
@@ -564,11 +633,11 @@ if __name__ == "__main__":
     if args.evaluate_only:
         # Just evaluate existing results
         logger.info("Evaluating existing results...")
-        summary = evaluate_all_saved_results()
+        summary = asyncio.run(evaluate_all_saved_results())
         
         # Save evaluation results
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        eval_file = f"evaluation_summary_{timestamp}.json"
+        eval_file = f"saved_trajectories/evaluation_summary_{timestamp}.json"
         with open(eval_file, "w") as f:
             json.dump(summary, f, indent=2)
             
