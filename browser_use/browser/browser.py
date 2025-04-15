@@ -133,7 +133,7 @@ class Browser:
 
 	async def new_context(self, config: BrowserContextConfig | None = None) -> BrowserContext:
 		"""Create a browser context"""
-		return BrowserContext(config=config or self.config, browser=self)
+		return BrowserContext(config=config or BrowserContextConfig(**(self.config.model_dump() if self.config else {})), browser=self)
 
 	async def get_playwright_browser(self) -> PlaywrightBrowser:
 		"""Get a browser context"""
