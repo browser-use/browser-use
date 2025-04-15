@@ -3,7 +3,8 @@ import os
 
 from dotenv import load_dotenv
 from pydantic import SecretStr
-from langchain_huggingface import ChatHuggingFace
+from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace
+from pydantic import SecretStr
 from browser_use import Agent
 
 # Required environment variables:
@@ -29,11 +30,18 @@ if missing_vars:
 
 async def run_hf_agent():
     # Instantiate the HF-backed LLM
-    llm = ChatHuggingFace(
-        endpoint_url=hf_endpoint,
-        huggingfacehub_api_token=SecretStr(hf_token),
-        model_kwargs={"temperature": 0.2, "max_new_tokens": 256},
-    )
+    # Make sure to use the correct model name for your endpoint
+
+    chat_huggingface_config = HuggingFaceEndpoint(
+            endpoint_url=hf_endpoint,
+            huggingfacehub_api_token=SecretStr(hf_token),
+            task="text-generation",
+            max_new_tokens=512,
+            do_sample=False,
+            repetition_penalty=1.03,
+        )
+    llm = ChatHuggingFace(llm=chat_huggingface_config, verbose=True)
+
 
     # Define your browsing task
     task = (
