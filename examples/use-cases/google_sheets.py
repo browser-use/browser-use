@@ -102,7 +102,7 @@ async def input_selected_cell_text(browser: BrowserContext, text: str):
 	page = await browser.get_current_page()
 
 	await page.keyboard.type(text, delay=0.1)
-	await page.keyboard.press('Enter')  # make sure to commit the input so it doesnt get overwritten by the next action
+	await page.keyboard.press('Enter')  # make sure to commit the input so it doesn't get overwritten by the next action
 	await page.keyboard.press('ArrowUp')
 	return ActionResult(extracted_content=f'Inputted text {text}', include_in_memory=False)
 
@@ -128,7 +128,7 @@ async def update_range_contents(browser: BrowserContext, range: str, new_content
 # - https://github.com/philc/sheetkeys/blob/master/content_scripts/commands.js
 # - https://support.google.com/docs/answer/181110?hl=en&co=GENIE.Platform%3DDesktop#zippy=%2Cmac-shortcuts
 
-# Tip: LLM is bad at spacial reasoning, don't make it navigate with arrow keys relative to current cell
+# Tip: LLM is bad at spatial reasoning, don't make it navigate with arrow keys relative to current cell
 # if given arrow keys, it will try to jump from G1 to A2 by pressing Down, without realizing needs to go Down+LeftLeftLeftLeft
 
 

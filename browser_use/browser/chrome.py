@@ -71,7 +71,7 @@ CHROME_DETERMINISTIC_RENDERING_ARGS = [
 	# chrome://gpu
 	'--enable-webgl',  # enable web-gl graphics support
 	'--font-render-hinting=none',  # make rendering more deterministic by ignoring OS font hints, may also need css override, try:    * {text-rendering: geometricprecision !important; -webkit-font-smoothing: antialiased;}
-	'--force-color-profile=srgb',  # make rendering more deterministic by using consitent color profile, if browser looks weird, try: generic-rgb
+	'--force-color-profile=srgb',  # make rendering more deterministic by using consistent color profile, if browser looks weird, try: generic-rgb
 	'--disable-partial-raster',  # make rendering more deterministic (TODO: verify if still needed)
 	'--disable-skia-runtime-opts',  # make rendering more deterministic by avoiding Skia hot path runtime optimizations
 	'--disable-2d-canvas-clip-aa',  # make rendering more deterministic by disabling antialiasing on 2d canvas clips
@@ -127,7 +127,7 @@ CHROME_ARGS = [
 	# chrome://inspect
 	'--log-level=2',  # 1=DEBUG 2=WARNING 3=ERROR
 	'--enable-logging=stderr',
-	'--remote-debugging-address=0.0.0.0',
+	# '--remote-debugging-address=127.0.0.1',         <- never expose to non-localhost, would allow attacker to drive your browser from any machine
 	f'--remote-debugging-port={CHROME_DEBUG_PORT}',
 	'--enable-experimental-extension-apis',  # add support for tab groups
 	'--disable-focus-on-load',  # prevent browser from hijacking focus

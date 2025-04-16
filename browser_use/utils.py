@@ -93,7 +93,7 @@ class SignalHandler:
 		except Exception:
 			# there are situations where signal handlers are not supported, e.g.
 			# - when running in a thread other than the main thread
-			# - some opearating systems
+			# - some operating systems
 			# - inside jupyter notebooks
 			pass
 
@@ -317,4 +317,4 @@ def singleton(cls):
 
 def check_env_variables(keys: list[str], any_or_all=all) -> bool:
 	"""Check if all required environment variables are set"""
-	return any_or_all(os.getenv(key).strip() for key in keys)
+	return any_or_all(os.getenv(key, '').strip() for key in keys)

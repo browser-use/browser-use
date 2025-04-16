@@ -64,12 +64,12 @@ class AgentMessagePrompt:
 		self,
 		state: 'BrowserState',
 		result: Optional[List['ActionResult']] = None,
-		include_attributes: list[str] = [],
+		include_attributes: list[str] | None = None,
 		step_info: Optional['AgentStepInfo'] = None,
 	):
 		self.state = state
 		self.result = result
-		self.include_attributes = include_attributes
+		self.include_attributes = include_attributes or []
 		self.step_info = step_info
 
 	def get_user_message(self, use_vision: bool = True) -> HumanMessage:

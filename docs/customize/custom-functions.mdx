@@ -55,7 +55,7 @@ from browser_use import Browser, Controller, ActionResult
 controller = Controller()
 @controller.action('Open website')
 async def open_website(url: str, browser: Browser):
-    page = browser.get_current_page()
+    page = await browser.get_current_page()
     await page.goto(url)
     return ActionResult(extracted_content='Website opened')
 ```

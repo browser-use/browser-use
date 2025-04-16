@@ -49,7 +49,8 @@ def create_history_gif(
 	# Try to load nicer fonts
 	try:
 		# Try different font options in order of preference
-		font_options = ['Helvetica', 'Arial', 'DejaVuSans', 'Verdana']
+		# ArialUni is a font that comes with Office and can render most non-alphabet characters
+		font_options = ['Helvetica', 'ArialUni', 'Arial', 'DejaVuSans', 'Verdana']
 		font_loaded = False
 
 		for font_name in font_options:

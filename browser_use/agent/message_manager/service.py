@@ -62,7 +62,7 @@ class MessageManager:
 		self._add_message_with_tokens(task_message, message_type='init')
 
 		if self.settings.sensitive_data:
-			info = f'Here are placeholders for sensitve data: {list(self.settings.sensitive_data.keys())}'
+			info = f'Here are placeholders for sensitive data: {list(self.settings.sensitive_data.keys())}'
 			info += 'To use them, write <secret>the placeholder name</secret>'
 			info_message = HumanMessage(content=info)
 			self._add_message_with_tokens(info_message, message_type='init')

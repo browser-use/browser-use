@@ -22,7 +22,7 @@ from browser_use import BrowserConfig
 # Basic configuration
 config = BrowserConfig(
     headless=False,
-    disable_security=True
+    disable_security=False
 )
 
 browser = Browser(config=config)
@@ -38,7 +38,7 @@ agent = Agent(
 - **headless** (default: `False`)
   Runs the browser without a visible UI. Note that some websites may detect headless mode.
 
-- **disable_security** (default: `True`)
+- **disable_security** (default: `False`)
   Disables browser security features. While this can fix certain functionality issues (like cross-site iFrames), it should be used cautiously, especially when visiting untrusted websites.
 
 ### Additional Settings
@@ -161,8 +161,8 @@ async def run_search():
   Highlight interactive elements on the screen with colorful bounding boxes.
 
 - **viewport_expansion** (default: `500`)
-  Viewport expansion in pixels. With this you can controll how much of the page is included in the context of the LLM. If set to -1, all elements from the entire page will be included (this leads to high token usage). If set to 0, only the elements which are visible in the viewport will be included.
-  Default is 500 pixels, that means that we inlcude a little bit more than the visible viewport inside the context.
+  Viewport expansion in pixels. With this you can control how much of the page is included in the context of the LLM. If set to -1, all elements from the entire page will be included (this leads to high token usage). If set to 0, only the elements which are visible in the viewport will be included.
+  Default is 500 pixels, that means that we include a little bit more than the visible viewport inside the context.
 
 ### Restrict URLs
 

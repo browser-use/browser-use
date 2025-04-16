@@ -1,4 +1,3 @@
-import gc
 import json
 import logging
 from dataclasses import dataclass
@@ -152,8 +151,6 @@ class DomService:
 		del node_map
 		del js_node_map
 		del js_root_id
-
-		gc.collect()
 
 		if html_to_dict is None or not isinstance(html_to_dict, DOMElementNode):
 			raise ValueError('Failed to parse HTML to dictionary')

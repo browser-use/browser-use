@@ -47,7 +47,8 @@ agent = Agent(
   - Disable to reduce costs or use models without vision support
   - For GPT-4o, image processing costs approximately 800-1000 tokens (~$0.002 USD) per image (but this depends on the defined screen size)
 - `save_conversation_path`: Path to save the complete conversation history. Useful for debugging.
-- `system_prompt_class`: Custom system prompt class. See <a href="/customize/system-prompt">System Prompt</a> for customization options.
+- `override_system_message`: Completely replace the default system prompt with a custom one.
+- `extend_system_message`: Add additional instructions to the default system prompt.
 
 <Note>
   Vision capabilities are recommended for better web interaction understanding,
@@ -183,7 +184,7 @@ agent = Agent(
 
 You can configure the agent and provide a separate message to help the LLM understand the task better.
 
-```python 
+```python
 from langchain_openai import ChatOpenAI
 
 agent = Agent(

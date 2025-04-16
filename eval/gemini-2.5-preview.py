@@ -1,25 +1,21 @@
-import asyncio
+import os
 
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
+from pydantic import SecretStr
 
 from browser_use import Agent, Browser
 
 load_dotenv()
 
+api_key = os.getenv('GEMINI_API_KEY', '')
+if not api_key:
+	raise ValueError('GEMINI_API_KEY is not set')
+
 
 async def run_agent(task: str, browser: Browser | None = None, max_steps: int = 38):
 	browser = browser or Browser()
-	browser.config.new_context_config.highlight_elements = False
-	llm = ChatOpenAI(
-		model='gpt-4o',
-		temperature=0.0,
-	)
+	llm = ChatGoogleGenerativeAI(model='gemini-2.5-pro-preview-03-25', api_key=SecretStr(api_key))
 	agent = Agent(task=task, llm=llm, browser=browser)
 	result = await agent.run(max_steps=max_steps)
 	return result
-
-
-if __name__ == '__main__':
-	task = 'Open 1 random Wikipedia pages in new tab'
-	result = asyncio.run(run_agent(task))

@@ -23,7 +23,6 @@ from playwright.async_api import (
 	async_playwright,
 )
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
-from typing_extensions import TypedDict
 
 from browser_use.browser.views import ExtensionConfig
 
@@ -45,13 +44,22 @@ logger = logging.getLogger(__name__)
 IN_DOCKER = os.environ.get('IN_DOCKER', 'false').lower()[0] in 'ty1'
 
 
-class ProxySettings(TypedDict, total=False):
-	"""the same as playwright.sync_api.ProxySettings, but with typing_extensions.TypedDict so pydantic can validate it"""
+class ProxySettings(BaseModel):
+	"""the same as playwright.sync_api.ProxySettings, but now as a Pydantic BaseModel so pydantic can validate it"""
 
 	server: str
-	bypass: str | None
-	username: str | None
-	password: str | None
+	bypass: str | None = None
+	username: str | None = None
+	password: str | None = None
+
+	model_config = ConfigDict(populate_by_name=True, from_attributes=True)
+
+	# Support dict-like behavior for compatibility with Playwright's ProxySettings
+	def __getitem__(self, key):
+		return getattr(self, key)
+
+	def get(self, key, default=None):
+		return getattr(self, key, default)
 
 
 class BrowserConfig(BaseModel):
@@ -62,7 +70,7 @@ class BrowserConfig(BaseModel):
 		headless: False
 			Whether to run browser in headless mode (not recommended)
 
-		disable_security: True
+		disable_security: False
 			Disable browser security features (required for cross-origin iframe support)
 
 		extra_browser_args: []
@@ -105,7 +113,7 @@ class BrowserConfig(BaseModel):
 	extensions: List[ExtensionConfig] = Field(default_factory=list)
 
 	headless: bool = False
-	disable_security: bool = True
+	disable_security: bool = False  # disable_security=True is dangerous as any malicious URL visited could embed an iframe for the user's bank, and use their cookies to steal money
 	deterministic_rendering: bool = False
 	keep_alive: bool = Field(default=False, alias='_force_keep_browser_alive')  # used to be called _force_keep_browser_alive
 
@@ -119,7 +127,7 @@ class Browser:
 	"""
 	Playwright browser on steroids.
 
-	This is persistant browser factory that can spawn multiple browser contexts.
+	This is persistent browser factory that can spawn multiple browser contexts.
 	It is recommended to use only one instance of Browser per your application (RAM usage will grow otherwise).
 	"""
 
@@ -213,7 +221,10 @@ class Browser:
 
 	async def new_context(self, config: BrowserContextConfig | None = None) -> BrowserContext:
 		"""Create a browser context"""
-		return BrowserContext(config=config or self.config, browser=self)
+		browser_config = self.config.model_dump() if self.config else {}
+		context_config = config.model_dump() if config else {}
+		merged_config = {**browser_config, **context_config}
+		return BrowserContext(config=BrowserContextConfig(**merged_config), browser=self)
 
 	async def get_playwright_browser(
 		self, browser_context_config: BrowserContextConfig | None = None
@@ -270,7 +281,7 @@ class Browser:
 			# Check if browser is already running
 			response = requests.get('http://localhost:9222/json/version', timeout=2)
 			if response.status_code == 200:
-				logger.info('🔌  Re-using existing browser found running on http://localhost:9222')
+				logger.info('🔌  Reusing existing browser found running on http://localhost:9222')
 				browser_class = getattr(playwright, self.config.browser_class)
 				browser = await browser_class.connect_over_cdp(
 					endpoint_url='http://localhost:9222',
@@ -363,8 +374,7 @@ class Browser:
 		# check if port 9222 is already taken, if so remove the remote-debugging-port arg to prevent conflicts
 		with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 			if s.connect_ex(('localhost', 9222)) == 0:
-				chrome_args.discard('--remote-debugging-port=9222')
-				chrome_args.discard('--remote-debugging-address=0.0.0.0')
+				chrome_args.remove('--remote-debugging-port=9222')
 
 		browser_class: BrowserType = getattr(playwright, self.config.browser_class)
 		args = {
@@ -387,7 +397,7 @@ class Browser:
 			user_data_dir=str(self._user_data_dir),
 			headless=self.config.headless,
 			args=args[self.config.browser_class],
-			proxy=self.config.proxy,
+			proxy=self.config.proxy.model_dump() if self.config.proxy else None,
 			handle_sigterm=False,
 			handle_sigint=False,
 			no_viewport=True,
