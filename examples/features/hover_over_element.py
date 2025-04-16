@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
 from browser_use import Agent
-from browser_use.browser.browser import Browser
 
 load_dotenv()
 if not os.getenv('OPENAI_API_KEY'):
@@ -13,7 +12,6 @@ if not os.getenv('OPENAI_API_KEY'):
 
 
 async def run_hover():
-	browser = Browser()
 	llm = ChatOpenAI(model='gpt-4o')
 	agent = Agent(
 		task='Go to "https://en.wikipedia.org/wiki/Main_Page", hover over Wikipedia link in the middle and change '
@@ -21,10 +19,8 @@ async def run_hover():
 		llm=llm,
 		max_actions_per_step=1,
 		use_vision=True,
-		browser=browser,
 	)
 	await agent.run(max_steps=5)
-	await browser.close()
 
 
 if __name__ == '__main__':
