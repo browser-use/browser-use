@@ -8,17 +8,23 @@ import logging
 import os
 import socket
 import subprocess
-from typing import Literal
+from pathlib import Path
+from typing import List, Literal
+from zipfile import ZipFile
 
 import psutil
 import requests
 from dotenv import load_dotenv
 from playwright.async_api import Browser as PlaywrightBrowser
+from playwright.async_api import BrowserContext as PlaywrightBrowserContext
 from playwright.async_api import (
+	BrowserType,
 	Playwright,
 	async_playwright,
 )
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+
+from browser_use.browser.views import ExtensionConfig
 
 load_dotenv()
 
@@ -80,6 +86,9 @@ class BrowserConfig(BaseModel):
 			Path to a Browser instance to use to connect to your normal browser
 			e.g. '/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome'
 
+		extensions: []
+			List of extensions to install. Each extension is defined by an ExtensionConfig object.
+
 		keep_alive: False
 			Keep the browser alive after the agent has finished running
 
@@ -98,10 +107,10 @@ class BrowserConfig(BaseModel):
 
 	wss_url: str | None = None
 	cdp_url: str | None = None
-
 	browser_class: Literal['chromium', 'firefox', 'webkit'] = 'chromium'
 	browser_binary_path: str | None = Field(default=None, alias=AliasChoices('browser_instance_path', 'chrome_instance_path'))
 	extra_browser_args: list[str] = Field(default_factory=list)
+	extensions: List[ExtensionConfig] = Field(default_factory=list)
 
 	headless: bool = False
 	disable_security: bool = False  # disable_security=True is dangerous as any malicious URL visited could embed an iframe for the user's bank, and use their cookies to steal money
@@ -129,7 +138,86 @@ class Browser:
 		logger.debug('🌎  Initializing new browser')
 		self.config = config or BrowserConfig()
 		self.playwright: Playwright | None = None
-		self.playwright_browser: PlaywrightBrowser | None = None
+		self.playwright_browser: PlaywrightBrowser | PlaywrightBrowserContext | None = None
+
+	@property
+	def _extensions_cache_dir(self) -> Path:
+		"""Get the cache directory for extensions"""
+		cache_dir = Path.home() / '.cache' / 'browser-use' / 'extensions'
+		cache_dir.mkdir(parents=True, exist_ok=True)
+		return cache_dir
+
+	def _get_extension_dir(self, extension: ExtensionConfig) -> Path:
+		"""Get the directory for a specific extension"""
+		ext_dir = self._extensions_cache_dir / extension.extension_id
+		ext_dir.mkdir(parents=True, exist_ok=True)
+		return ext_dir
+
+	@property
+	def _user_data_dir(self) -> Path:
+		"""Get the user data directory for persistent context"""
+		data_dir = Path.home() / '.cache' / 'browser-use' / 'user-data'
+		data_dir.mkdir(parents=True, exist_ok=True)
+		return data_dir
+
+	async def _get_extension_path(self, extension: ExtensionConfig) -> Path:
+		"""
+		Download and extract extension CRX if not already present.
+		Returns path to the extension directory.
+		"""
+		ext_dir = self._get_extension_dir(extension)
+
+		# If extension already exists and has manifest.json, use it
+		if ext_dir.exists() and (ext_dir / 'manifest.json').exists():
+			logger.debug(f'Using cached extension: {extension.name}')
+			return ext_dir
+
+		# Download if not present
+		logger.info(f'Downloading extension: {extension.name}')
+		try:
+			# Download CRX file
+			crx_path = self._extensions_cache_dir / f'{extension.extension_id}.crx'
+			extension_url = f'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=1230&acceptformat=crx3&x=id%3D{extension.extension_id}%26uc'
+			response = requests.get(extension_url)
+			response.raise_for_status()
+
+			# Save CRX file
+			with open(crx_path, 'wb') as f:
+				f.write(response.content)
+
+			logger.info(f'Downloaded {extension.name} CRX to {crx_path}')
+
+			# Extract CRX file
+			self._extract_crx(crx_path, ext_dir)
+
+			# Remove the crx file
+			os.remove(crx_path)
+
+			# Verify extraction worked
+			if not (ext_dir / 'manifest.json').exists():
+				raise RuntimeError(f'Failed to extract {extension.name} extension: manifest.json not found')
+
+			logger.info(f'Successfully installed {extension.name} extension')
+
+		except Exception as e:
+			logger.error(f'Failed to download {extension.name} extension: {e}')
+			raise RuntimeError(f'Failed to download {extension.name} extension') from e
+
+		return ext_dir
+
+	def _extract_crx(self, crx_path: Path, target_dir: Path) -> None:
+		"""Extract a Chrome extension CRX file to the target directory"""
+		logger.info(f'Extracting {crx_path} to {target_dir}')
+
+		# Ensure target directory exists
+		target_dir.mkdir(parents=True, exist_ok=True)
+
+		try:
+			with ZipFile(crx_path) as zip_file:
+				zip_file.extractall(str(target_dir))
+		except Exception as e:
+			logger.error(f'Failed to extract CRX with ZipFile: {e}')
+			raise RuntimeError(f'Could not extract CRX file: {e}') from e
 
 	async def new_context(self, config: BrowserContextConfig | None = None) -> BrowserContext:
 		"""Create a browser context"""
@@ -138,18 +226,20 @@ class Browser:
 		merged_config = {**browser_config, **context_config}
 		return BrowserContext(config=BrowserContextConfig(**merged_config), browser=self)
 
-	async def get_playwright_browser(self) -> PlaywrightBrowser:
+	async def get_playwright_browser(
+		self, browser_context_config: BrowserContextConfig | None = None
+	) -> PlaywrightBrowser | PlaywrightBrowserContext:
 		"""Get a browser context"""
 		if self.playwright_browser is None:
-			return await self._init()
+			return await self._init(browser_context_config)
 
 		return self.playwright_browser
 
 	@time_execution_async('--init (browser)')
-	async def _init(self):
+	async def _init(self, browser_context_config: BrowserContextConfig | None = None):
 		"""Initialize the browser session"""
 		playwright = await async_playwright().start()
-		browser = await self._setup_browser(playwright)
+		browser = await self._setup_browser(playwright, browser_context_config)
 
 		self.playwright = playwright
 		self.playwright_browser = browser
@@ -201,7 +291,6 @@ class Browser:
 		except requests.ConnectionError:
 			logger.debug('🌎  No existing Chrome instance found, starting a new one')
 
-		# Start a new Chrome instance
 		chrome_launch_cmd = [
 			self.config.browser_binary_path,
 			*{  # remove duplicates (usually preserves the order, but not guaranteed)
@@ -213,6 +302,7 @@ class Browser:
 				*self.config.extra_browser_args,
 			},
 		]
+
 		self._chrome_subprocess = psutil.Process(
 			subprocess.Popen(
 				chrome_launch_cmd,
@@ -246,9 +336,20 @@ class Browser:
 				'To start chrome in Debug mode, you need to close all existing Chrome instances and try again otherwise we can not connect to the instance.'
 			)
 
-	async def _setup_builtin_browser(self, playwright: Playwright) -> PlaywrightBrowser:
+	async def _setup_builtin_browser(
+		self, playwright: Playwright, browser_context_config: BrowserContextConfig | None = None
+	) -> PlaywrightBrowser | PlaywrightBrowserContext:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		assert self.config.browser_binary_path is None, 'browser_binary_path should be None if trying to use the builtin browsers'
+		assert browser_context_config is not None, 'browser_context_config is required'
+
+		if self.config.browser_class == 'chromium':
+			extension_paths = []
+			extension_paths.append(str(Path(__file__).parent.parent.parent / 'extension'))
+			if self.config.extensions:
+				for extension in self.config.extensions:
+					ext_path = await self._get_extension_path(extension)
+					extension_paths.append(str(ext_path))
 
 		if self.config.headless:
 			screen_size = {'width': 1920, 'height': 1080}
@@ -265,6 +366,8 @@ class Browser:
 			*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.config.deterministic_rendering else []),
 			f'--window-position={offset_x},{offset_y}',
 			f'--window-size={screen_size["width"]},{screen_size["height"]}',
+			f'--load-extension={",".join(extension_paths)}',
+			f'--disable-extensions-except={",".join(extension_paths)}',
 			*self.config.extra_browser_args,
 		}
 
@@ -273,7 +376,7 @@ class Browser:
 			if s.connect_ex(('localhost', 9222)) == 0:
 				chrome_args.remove('--remote-debugging-port=9222')
 
-		browser_class = getattr(playwright, self.config.browser_class)
+		browser_class: BrowserType = getattr(playwright, self.config.browser_class)
 		args = {
 			'chromium': list(chrome_args),
 			'firefox': [
@@ -290,16 +393,34 @@ class Browser:
 			],
 		}
 
-		browser = await browser_class.launch(
+		browser = await browser_class.launch_persistent_context(
+			user_data_dir=str(self._user_data_dir),
 			headless=self.config.headless,
 			args=args[self.config.browser_class],
 			proxy=self.config.proxy.model_dump() if self.config.proxy else None,
 			handle_sigterm=False,
 			handle_sigint=False,
+			no_viewport=True,
+			java_script_enabled=True,
+			user_agent=browser_context_config.user_agent,
+			bypass_csp=browser_context_config.disable_security,
+			ignore_https_errors=browser_context_config.disable_security,
+			record_video_dir=browser_context_config.save_recording_path,
+			record_video_size=browser_context_config.browser_window_size,
+			record_har_path=browser_context_config.save_har_path,
+			locale=browser_context_config.locale,
+			is_mobile=browser_context_config.is_mobile,
+			has_touch=browser_context_config.has_touch,
+			geolocation=browser_context_config.geolocation,
+			permissions=browser_context_config.permissions,
+			timezone_id=browser_context_config.timezone_id,
+			ignore_default_args=['--disable-extensions'],
 		)
 		return browser
 
-	async def _setup_browser(self, playwright: Playwright) -> PlaywrightBrowser:
+	async def _setup_browser(
+		self, playwright: Playwright, browser_context_config: BrowserContextConfig | None = None
+	) -> PlaywrightBrowser | PlaywrightBrowserContext:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		try:
 			if self.config.cdp_url:
@@ -313,7 +434,7 @@ class Browser:
 			if self.config.browser_binary_path:
 				return await self._setup_user_provided_browser(playwright)
 			else:
-				return await self._setup_builtin_browser(playwright)
+				return await self._setup_builtin_browser(playwright, browser_context_config)
 		except Exception as e:
 			logger.error(f'Failed to initialize Playwright browser: {e}')
 			raise

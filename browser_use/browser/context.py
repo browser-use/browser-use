@@ -19,11 +19,7 @@ from playwright.async_api import Browser as PlaywrightBrowser
 from playwright.async_api import (
 	BrowserContext as PlaywrightBrowserContext,
 )
-from playwright.async_api import (
-	ElementHandle,
-	FrameLocator,
-	Page,
-)
+from playwright.async_api import ElementHandle, FrameLocator, Geolocation, Page
 from pydantic import BaseModel, ConfigDict, Field
 
 from browser_use.browser.views import (
@@ -181,7 +177,7 @@ class BrowserContextConfig(BaseModel):
 	keep_alive: bool = Field(default=False, alias='_force_keep_context_alive')  # used to be called _force_keep_context_alive
 	is_mobile: bool | None = None
 	has_touch: bool | None = None
-	geolocation: dict | None = None
+	geolocation: Geolocation | None = None
 	permissions: list[str] | None = None
 	timezone_id: str | None = None
 
@@ -345,7 +341,7 @@ class BrowserContext:
 		"""Initialize the browser session"""
 		logger.debug(f'🌎  Initializing new browser context with id: {self.context_id}')
 
-		playwright_browser = await self.browser.get_playwright_browser()
+		playwright_browser = await self.browser.get_playwright_browser(self.config)
 		context = await self._create_context(playwright_browser)
 		self._page_event_handler = None
 
@@ -434,13 +430,13 @@ class BrowserContext:
 		session = await self.get_session()
 		return await self._get_current_page(session)
 
-	async def _create_context(self, browser: PlaywrightBrowser):
+	async def _create_context(self, browser: PlaywrightBrowser | PlaywrightBrowserContext):
 		"""Creates a new browser context with anti-detection measures and loads cookies if available."""
-		if self.browser.config.cdp_url and len(browser.contexts) > 0:
+
+		if isinstance(browser, PlaywrightBrowser) and len(browser.contexts) > 0:
 			context = browser.contexts[0]
-		elif self.browser.config.browser_binary_path and len(browser.contexts) > 0:
-			# Connect to existing Chrome instance instead of creating new one
-			context = browser.contexts[0]
+		elif isinstance(browser, PlaywrightBrowserContext):
+			context = browser
 		else:
 			# Original code for creating new context
 			context = await browser.new_context(
