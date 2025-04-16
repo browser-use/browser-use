@@ -112,7 +112,7 @@ class Agent(Generic[Context]):
 		] = None,
 		register_external_agent_status_raise_error_callback: Callable[[], Awaitable[bool]] | None = None,
 		# Agent settings
-		use_vision: bool = True,
+		use_vision: bool | None = None,
 		use_vision_for_planner: bool = False,
 		save_conversation_path: Optional[str] = None,
 		save_conversation_path_encoding: Optional[str] = 'utf-8',
@@ -161,6 +161,21 @@ class Agent(Generic[Context]):
 		self.controller = controller
 		self.sensitive_data = sensitive_data
 
+		# Model setup
+		self._set_model_names()
+		logger.info(
+			f'🧠 Starting an agent with main_model={self.model_name}, planner_model={self.planner_model_name}, '
+			f'extraction_model={self.settings.page_extraction_llm.model_name if hasattr(self.settings.page_extraction_llm, "model_name") else None}'
+		)
+
+		# Set use_vision based model_name
+	        if use_vision is None:
+	            if self.model_name in {'deepseek-chat', 'deepseek-reasoner'}:
+	                use_vision = False
+	            else:
+	                use_vision = True
+		
+		# Agent settings
 		self.settings = AgentSettings(
 			use_vision=use_vision,
 			use_vision_for_planner=use_vision_for_planner,
@@ -194,13 +209,6 @@ class Agent(Generic[Context]):
 		self._setup_action_models()
 		self._set_browser_use_version_and_source()
 		self.initial_actions = self._convert_initial_actions(initial_actions) if initial_actions else None
-
-		# Model setup
-		self._set_model_names()
-		logger.info(
-			f'🧠 Starting an agent with main_model={self.model_name}, planner_model={self.planner_model_name}, '
-			f'extraction_model={self.settings.page_extraction_llm.model_name if hasattr(self.settings.page_extraction_llm, "model_name") else None}'
-		)
 
 		# LLM API connection setup
 		llm_api_env_vars = REQUIRED_LLM_API_ENV_VARS.get(self.llm.__class__.__name__, [])
