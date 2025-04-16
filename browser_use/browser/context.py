@@ -202,7 +202,12 @@ class BrowserContext:
 		playwright_browser = await self.browser.get_playwright_browser()
 		context = await self._create_context(playwright_browser)
 		self._add_new_page_listener(context)
-		
+
+		# BEFORE
+		page = await context.new_page()
+		initial_state = self._get_initial_state(page)
+
+		# AFTER
 		# these two lines exist to not auto-open a new tab on starting a headed mode, with at least one pre-existing tab.
 		# the agent is able to open new tabs if needed.
 		# Check for existing pages before creating a new one
@@ -211,7 +216,7 @@ class BrowserContext:
 		# page = pages[0] if pages else await context.new_page()
 
 		# Instead of calling _update_state(), create an empty initial state
-		initial_state = self._get_initial_state(page)
+		# initial_state = self._get_initial_state(page)
 
 		self.session = BrowserSession(
 			context=context,
