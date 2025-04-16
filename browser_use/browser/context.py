@@ -206,8 +206,9 @@ class BrowserContext:
 		# these two lines exist to not auto-open a new tab on starting a headed mode, with at least one pre-existing tab.
 		# the agent is able to open new tabs if needed.
 		# Check for existing pages before creating a new one
-		pages = context.pages
-		page = pages[0] if pages else await context.new_page()
+		# separate note - the context might actually be clearing some state that we're not handling well yet; keeping it commented out for now.
+		# pages = context.pages
+		# page = pages[0] if pages else await context.new_page()
 
 		# Instead of calling _update_state(), create an empty initial state
 		initial_state = self._get_initial_state(page)
