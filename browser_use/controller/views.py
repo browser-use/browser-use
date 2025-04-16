@@ -12,28 +12,9 @@ class GoToUrlAction(BaseModel):
 	url: str
 
 
-class WaitForElementAction(BaseModel):
-	selector: str
-	timeout: Optional[int] = 10000  # Timeout in milliseconds
-
-
 class ClickElementAction(BaseModel):
 	index: int
 	xpath: Optional[str] = None
-
-
-class ClickElementByXpathAction(BaseModel):
-	xpath: str
-
-
-class ClickElementBySelectorAction(BaseModel):
-	css_selector: str
-
-
-class ClickElementByTextAction(BaseModel):
-	text: str
-	element_type: Optional[str]
-	nth: int = 0
 
 
 class InputTextAction(BaseModel):

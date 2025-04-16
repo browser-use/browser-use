@@ -32,6 +32,7 @@ from browser_use.browser.views import (
 	TabInfo,
 	URLNotAllowedError,
 )
+from browser_use.dom.clickable_element_processor.service import ClickableElementProcessor
 from browser_use.dom.service import DomService
 from browser_use.dom.views import DOMElementNode, SelectorMap
 from browser_use.utils import time_execution_async, time_execution_sync
@@ -185,6 +186,16 @@ class BrowserContextConfig(BaseModel):
 	timezone_id: str | None = None
 
 
+@dataclass
+class CachedStateClickableElementsHashes:
+	"""
+	Clickable elements hashes for the last state
+	"""
+
+	url: str
+	hashes: set[str]
+
+
 class BrowserSession:
 	def __init__(self, context: PlaywrightBrowserContext, cached_state: BrowserState | None = None):
 		init_script = """
@@ -234,6 +245,9 @@ class BrowserSession:
 		self.active_tab = None
 		self.context = context
 		self.cached_state = cached_state
+
+		self.cached_state_clickable_elements_hashes: CachedStateClickableElementsHashes | None = None
+
 		self.context.on('page', lambda page: page.add_init_script(init_script))
 
 
@@ -878,11 +892,39 @@ class BrowserContext:
 		return structure
 
 	@time_execution_sync('--get_state')  # This decorator might need to be updated to handle async
-	async def get_state(self) -> BrowserState:
-		"""Get the current state of the browser"""
+	async def get_state(self, cache_clickable_elements_hashes: bool) -> BrowserState:
+		"""Get the current state of the browser
+
+		cache_clickable_elements_hashes: bool
+			If True, cache the clickable elements hashes for the current state. This is used to calculate which elements are new to the llm (from last message) -> reduces token usage.
+		"""
 		await self._wait_for_page_and_frames_load()
 		session = await self.get_session()
-		session.cached_state = await self._update_state()
+		updated_state = await self._get_updated_state()
+
+		# Find out which elements are new
+		# Do this only if url has not changed
+		if cache_clickable_elements_hashes:
+			# if we are on the same url as the last state, we can use the cached hashes
+			if (
+				session.cached_state_clickable_elements_hashes
+				and session.cached_state_clickable_elements_hashes.url == updated_state.url
+			):
+				# Pointers, feel free to edit in place
+				updated_state_clickable_elements = ClickableElementProcessor.get_clickable_elements(updated_state.element_tree)
+
+				for dom_element in updated_state_clickable_elements:
+					dom_element.is_new = (
+						ClickableElementProcessor.hash_dom_element(dom_element)
+						not in session.cached_state_clickable_elements_hashes.hashes  # see which elements are new from the last state where we cached the hashes
+					)
+			# in any case, we need to cache the new hashes
+			session.cached_state_clickable_elements_hashes = CachedStateClickableElementsHashes(
+				url=updated_state.url,
+				hashes=ClickableElementProcessor.get_clickable_elements_hashes(updated_state.element_tree),
+			)
+
+		session.cached_state = updated_state
 
 		# Save cookies if a file is specified
 		if self.config.cookies_file:
@@ -890,7 +932,7 @@ class BrowserContext:
 
 		return session.cached_state
 
-	async def _update_state(self, focus_element: int = -1) -> BrowserState:
+	async def _get_updated_state(self, focus_element: int = -1) -> BrowserState:
 		"""Update and return state."""
 		session = await self.get_session()
 
