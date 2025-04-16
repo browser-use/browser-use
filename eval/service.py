@@ -53,11 +53,15 @@
 import asyncio
 import base64
 import io
+import logging
 import re
 
 from PIL import Image
 
 MAX_IMAGE = 5
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 
 def encode_image(image):
@@ -209,7 +213,7 @@ The potentially important snapshots of the webpage in the agent's trajectory and
 			score = re.findall(pattern, score_text)[0]
 			record.append({'Response': response, 'Score': int(score)})
 		except Exception as e:
-			print(f'Error processing response: {e}')
+			logger.error(f'Error processing response: {e}')
 			score = 0
 			record.append({'Response': response, 'Score': 0})
 
@@ -264,9 +268,9 @@ async def Online_Mind2Web_eval_with_retry(task, last_actions, images_path, model
 			return await Online_Mind2Web_eval(task, last_actions, images_path, model, score_threshold)
 		except Exception as e:
 			if attempt == max_retries - 1:  # Last attempt
-				print(f'Failed to evaluate after {max_retries} attempts. Error: {str(e)}')
+				logger.error(f'Failed to evaluate after {max_retries} attempts. Error: {str(e)}')
 				raise
-			print(f'Attempt {attempt + 1} failed. Retrying... Error: {str(e)}')
+			logger.warning(f'Attempt {attempt + 1} failed. Retrying... Error: {str(e)}')
 			await asyncio.sleep(2**attempt)  # Exponential backoff
 
 
@@ -278,7 +282,6 @@ async def Online_Mind2Web_eval_with_retry(task, last_actions, images_path, model
 # ==============================================================================================================
 import argparse
 import json
-import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -287,8 +290,6 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
 from browser_use import Agent, Browser, BrowserConfig
-
-logger = logging.getLogger(__name__)
 
 
 class Task:
@@ -497,7 +498,7 @@ async def evaluate_all_saved_results(args) -> Dict:
 	async def evaluate_task(task_folder: Path) -> Dict:
 		async with semaphore:
 			judgement = await asyncio.to_thread(judge_task_result, model, task_folder)
-			print(f'Completed evaluation for task {task_folder.name}. Result: {judgement["success"]}')
+			logger.info(f'Completed evaluation for task {task_folder.name}. Result: {judgement["success"]}')
 			return judgement
 
 	# Get all task folders
