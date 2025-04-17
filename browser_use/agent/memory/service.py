@@ -51,7 +51,7 @@ class Memory:
 		self.llm = llm
 		self.settings = settings
 
-		self._memory_config = settings.config or self._get_default_config(llm)
+		self._memory_config = self.settings.config or self._get_default_config(llm)
 
 		# Initialize Mem0
 		self.mem0 = Mem0Memory.from_config(config_dict=self._memory_config)
