@@ -53,7 +53,6 @@ class Memory:
 
 		self._memory_config = self.settings.config or self._get_default_config(llm)
 
-		# Initialize Mem0
 		self.mem0 = Mem0Memory.from_config(config_dict=self._memory_config)
 		self.mem0.custom_fact_extraction_prompt = self._get_fact_extraction_prompt()
 
