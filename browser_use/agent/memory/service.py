@@ -51,22 +51,15 @@ class Memory:
 		self.llm = llm
 		self.settings = settings
 
-		# Create the memory configuration
-		self._memory_config = settings.config or self._create_memory_config(llm)
+		self._memory_config = settings.config or self._get_default_config(llm)
 
 		# Initialize Mem0
 		self.mem0 = Mem0Memory.from_config(config_dict=self._memory_config)
 		self.mem0.custom_fact_extraction_prompt = self._get_fact_extraction_prompt()
 
-	def _create_memory_config(self, llm: BaseChatModel) -> dict:
-		"""
-		Create a Mem0 configuration based on the LLM type.
+	def _get_default_config(self, llm: BaseChatModel) -> dict:
+		"""Returns the default configuration for memory."""
 
-		Args:
-			llm: The language model being used by the agent
-		Returns:
-			dict: A complete Mem0 configuration
-		"""
 		llm_provider = self._get_llm_provider(llm)
 		model_name = self._get_model_name(llm)
 		config = {
@@ -128,15 +121,6 @@ class Memory:
 		# If we couldn't determine the provider, log a warning
 		logger.warning(f'Could not determine Mem0 provider for LLM type: {llm_class_name}. Using default configuration.')
 		return ''
-
-	@staticmethod
-	def _get_default_config(llm: BaseChatModel) -> dict:
-		"""Returns the default configuration for memory."""
-		return {
-			'vector_store': Memory.DEFAULT_VECTOR_STORE,
-			'llm': {'provider': 'langchain', 'config': {'model': llm}},
-			'embedder': Memory.DEFAULT_EMBEDDER,
-		}
 
 	@time_execution_sync('--create_procedural_memory')
 	def create_procedural_memory(self, current_step: int) -> None:
