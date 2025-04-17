@@ -2,7 +2,7 @@ import asyncio
 import os
 from dataclasses import dataclass
 from typing import List, Optional
-
+import logging
 # Third-party imports
 import gradio as gr
 from dotenv import load_dotenv
@@ -16,6 +16,7 @@ from browser_use import Agent
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
 
 @dataclass
 class ActionResult:
@@ -30,6 +31,13 @@ class AgentHistoryList:
 	all_results: List[ActionResult]
 	all_model_outputs: List[dict]
 
+	def __str__(self) -> str:
+			# Customize the string representation
+			results = "\n".join(
+				f"Step {i + 1}: {result.extracted_content or 'No content'}"
+				for i, result in enumerate(self.all_results)
+			)
+			return f"Agent History:\n{results}"
 
 def parse_agent_history(history_str: str) -> None:
 	console = Console()
@@ -53,7 +61,7 @@ def parse_agent_history(history_str: str) -> None:
 async def run_browser_task(
 	task: str,
 	api_key: str,
-	model: str = 'gpt-4o',
+	model: str = 'gpt-4',
 	headless: bool = True,
 ) -> str:
 	if not api_key.strip():
@@ -62,43 +70,56 @@ async def run_browser_task(
 	os.environ['OPENAI_API_KEY'] = api_key
 
 	try:
+		# Initialize the LLM
+		llm = ChatOpenAI(model=model)
+		planner_llm = ChatOpenAI(model=model)  # Use same model for planner
+		logger.info(f"LLM initialized: {llm}")
+		if llm is None:
+			raise ValueError("Failed to initialize LLM. Check your API key and model configuration.")
 		agent = Agent(
 			task=task,
-			llm=ChatOpenAI(model='gpt-4o'),
+			llm=llm,
+			planner_llm=planner_llm,  # Enable planner
+			planner_interval=1,  # Run planner every step
+			use_vision=False,  # Disable vision capabilities
 		)
 		result = await agent.run()
-		#  TODO: The result cloud be parsed better
-		return result
+
+		# Ensure we always return a string
+		if isinstance(result, AgentHistoryList):
+			return str(result)
+		return str(result)  # Convert any other type to string
 	except Exception as e:
 		return f'Error: {str(e)}'
 
 
 def create_ui():
-	with gr.Blocks(title='Browser Use GUI') as interface:
-		gr.Markdown('# Browser Use Task Automation')
+    with gr.Blocks(title='Browser Use GUI') as interface:
+        gr.Markdown('# Browser Use Task Automation')
 
-		with gr.Row():
-			with gr.Column():
-				api_key = gr.Textbox(label='OpenAI API Key', placeholder='sk-...', type='password')
-				task = gr.Textbox(
-					label='Task Description',
-					placeholder='E.g., Find flights from New York to London for next week',
-					lines=3,
-				)
-				model = gr.Dropdown(choices=['gpt-4', 'gpt-3.5-turbo'], label='Model', value='gpt-4')
-				headless = gr.Checkbox(label='Run Headless', value=True)
-				submit_btn = gr.Button('Run Task')
+        with gr.Row():
+            with gr.Column():
+                api_key = gr.Textbox(label='OpenAI API Key', placeholder='sk-...', type='password')
+                task = gr.Textbox(
+                    label='Task Description',
+                    placeholder='E.g., Find flights from New York to London for next week',
+                    lines=3,
+                )
+                model = gr.Dropdown(choices=['gpt-4', 'gpt-3.5-turbo'], label='Model', value='gpt-4')
+                headless = gr.Checkbox(label='Run Headless', value=True)
+                submit_btn = gr.Button('Run Task')
 
-			with gr.Column():
-				output = gr.Textbox(label='Output', lines=10, interactive=False)
+            with gr.Column():
+                output = gr.Textbox(label='Output', lines=10, interactive=False)
 
-		submit_btn.click(
-			fn=lambda *args: asyncio.run(run_browser_task(*args)),
-			inputs=[task, api_key, model, headless],
-			outputs=output,
-		)
+        # Pass all inputs, including the model, to run_browser_task
+        submit_btn.click(
+            fn=lambda *args: asyncio.run(run_browser_task(*args)),
+            inputs=[task, api_key, model, headless],  # Ensure model is included here
+            outputs=output,
+        )
 
-	return interface
+    return interface
 
 
 if __name__ == '__main__':

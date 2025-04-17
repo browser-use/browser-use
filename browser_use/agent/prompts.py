@@ -137,31 +137,35 @@ Interactive elements from top layer of the current page inside the viewport:
 		return HumanMessage(content=state_description)
 
 
-class PlannerPrompt(SystemPrompt):
-	def get_system_message(self, is_planner_reasoning) -> Union[SystemMessage, HumanMessage]:
-		planner_prompt_text = """You are a planning agent that helps break down tasks into smaller steps and reason about the current state.
-Your role is to:
-1. Analyze the current state and history
-2. Evaluate progress towards the ultimate goal
-3. Identify potential challenges or roadblocks
-4. Suggest the next high-level steps to take
+class PlannerPrompt:
+	def get_system_message(self) -> str:
+		return """You are a web automation planner. Your task is to generate a sequence of actions to complete a given task.
 
-Inside your messages, there will be AI messages from different agents with different formats.
+The output MUST be a JSON array of actions, where each action has:
+1. An "action" field specifying the action type
+2. A "params" field containing the action parameters
 
-Your output format should be always a JSON object with the following fields:
-{
-    "state_analysis": "Brief analysis of the current state and what has been done so far",
-    "progress_evaluation": "Evaluation of progress towards the ultimate goal (as percentage and description)",
-    "challenges": "List any potential challenges or roadblocks",
-    "next_steps": "List 2-3 concrete next steps to take",
-    "reasoning": "Explain your reasoning for the suggested next steps"
-}
+Valid action types and their required parameters:
+- navigate: {"url": "https://example.com"}
+- type: {"index": 0, "text": "search query"}
+- click: {"index": 0}
+- press_enter: {"index": 0}
+- done: {"success": true, "text": "Task completed"}
 
-Ignore the other AI messages output structures.
+Example format:
+[
+    {"action": "navigate", "params": {"url": "https://www.google.com"}},
+    {"action": "type", "params": {"index": 0, "text": "search query"}},
+    {"action": "press_enter", "params": {"index": 0}},
+    {"action": "click", "params": {"index": 0}},
+    {"action": "done", "params": {"success": true, "text": "Task completed"}}
+]
 
-Keep your responses concise and focused on actionable insights."""
+Important rules:
+1. The first action MUST be a 'navigate' action
+2. Each action must have both "action" and "params" fields
+3. All required parameters must be provided
+4. Index values should be 0-based
+5. The last action should be 'done' to signal task completion
 
-		if is_planner_reasoning:
-			return HumanMessage(content=planner_prompt_text)
-		else:
-			return SystemMessage(content=planner_prompt_text)
+Do not include any explanations or markdown formatting in your response."""

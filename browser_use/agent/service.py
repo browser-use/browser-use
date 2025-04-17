@@ -10,6 +10,10 @@ import re
 import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, TypeVar, Union
+import hashlib
+import ast
+import hashlib
+import ast
 
 from dotenv import load_dotenv
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -21,12 +25,13 @@ from langchain_core.messages import (
 
 # from lmnr.sdk.decorators import observe
 from pydantic import BaseModel, ValidationError
-
+from browser_use.dom.service import DomService 
 from browser_use.agent.gif import create_history_gif
 from browser_use.agent.memory.service import Memory, MemorySettings
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
 from browser_use.agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation
 from browser_use.agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
+from browser_use.cache import load_cached_plan, save_plan_to_cache
 from browser_use.agent.views import (
 	REQUIRED_LLM_API_ENV_VARS,
 	ActionResult,
@@ -57,6 +62,7 @@ from browser_use.telemetry.views import (
 	AgentStepTelemetryEvent,
 )
 from browser_use.utils import check_env_variables, time_execution_async, time_execution_sync
+from browser_use.agent.planner import Planner
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -160,6 +166,12 @@ class Agent(Generic[Context]):
 		self.llm = llm
 		self.controller = controller
 		self.sensitive_data = sensitive_data
+
+		# Initialize planner if provided
+		if planner_llm:
+			self.planner = Planner(planner_llm)
+		else:
+			self.planner = None
 
 		self.settings = AgentSettings(
 			use_vision=use_vision,
@@ -280,7 +292,15 @@ class Agent(Generic[Context]):
 		if self.tool_calling_method == 'raw':
 			# For raw tool calling, only include actions with no filters initially
 			if self.settings.message_context:
-				self.settings.message_context += f'\n\nAvailable actions: {self.unfiltered_actions}'
+				context_str = str(self.settings.message_context)
+				context_lines = context_str.split('\n') if context_str else []
+				non_action_lines = [line for line in context_lines if not line.startswith('Available actions:')]
+				updated_context = '\n'.join(non_action_lines)
+				if updated_context:
+					updated_context += f'\n\nAvailable actions: {self.unfiltered_actions}'
+				else:
+					updated_context = f'Available actions: {self.unfiltered_actions}'
+				self.settings.message_context = updated_context
 			else:
 				self.settings.message_context = f'Available actions: {self.unfiltered_actions}'
 		return self.settings.message_context
@@ -813,6 +833,19 @@ class Agent(Generic[Context]):
 							continue
 
 					await self.log_completion()
+					# Only cache the plan if the task was completed successfully
+					if self.state.history.is_successful():
+						page = await self.browser_context.get_current_page()
+						url = page.url if page else None
+						dom = await page.content() if page else None
+						if url and dom:
+							# Get the last plan that was used
+							last_plan = self._message_manager.get_last_plan()
+							if last_plan:
+								# Convert the plan to a list if it's not already
+								plan_list = [last_plan] if isinstance(last_plan, dict) else last_plan
+								save_plan_to_cache(self.task, url, dom, plan_list)
+								logger.info("Cached successful plan for task: %s", self.task)
 					break
 			else:
 				logger.info('❌ Failed to complete task in maximum steps')
@@ -1177,7 +1210,6 @@ class Agent(Generic[Context]):
 				logger.debug(
 					f'🧠 LLM API keys {", ".join(required_keys)} verified, {llm.__class__.__name__} model is connected and responding correctly.'
 				)
-				llm._verified_api_keys = True
 				return True
 			else:
 				logger.debug(
@@ -1202,6 +1234,16 @@ class Agent(Generic[Context]):
 
 		# Get current state to filter actions by page
 		page = await self.browser_context.get_current_page()
+		url = page.url if page else None
+		dom = await page.content() if page else None
+
+		# Check cache first
+		if url and dom:
+			cached_plan = load_cached_plan(self.task, url, dom)
+			if cached_plan:
+				logger.info("Using cached plan for task: %s", self.task)
+				self._message_manager.add_cached_plan(cached_plan)
+				return json.dumps(cached_plan)
 
 		# Get all standard actions (no filter) and page-specific actions
 		standard_actions = self.controller.registry.get_prompt_description()  # No page = system prompt actions
@@ -1214,7 +1256,7 @@ class Agent(Generic[Context]):
 
 		# Create planner message history using full message history with all available actions
 		planner_messages = [
-			PlannerPrompt(all_actions).get_system_message(self.settings.is_planner_reasoning),
+			PlannerPrompt().get_system_message(),
 			*self._message_manager.get_messages()[1:],  # Use full message history except the first
 		]
 
@@ -1251,6 +1293,9 @@ class Agent(Generic[Context]):
 		try:
 			plan_json = json.loads(plan)
 			logger.info(f'Planning Analysis:\n{json.dumps(plan_json, indent=4)}')
+			# Save valid plan to cache
+			if url and dom:
+				save_plan_to_cache(self.task, url, dom, plan_json)
 		except json.JSONDecodeError:
 			logger.info(f'Planning Analysis:\n{plan}')
 		except Exception as e:

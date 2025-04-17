@@ -1,6 +1,9 @@
 from playwright.async_api import async_playwright, Page
 import json
-import os
+import logging
+import base64
+from typing import List, Union, Dict, Any
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from browser_use.agent.planner import Planner
 
 class Agent:
@@ -11,10 +14,46 @@ class Agent:
         - llm: The language model used for planning.
         - start_url: The initial URL to navigate to (default: Google).
         """
-        self.task = task
+        self.task = task.replace("seaech", "search")
         self.llm = llm
         self.start_url = start_url or "https://www.google.com"
-        self.planner = Planner(llm)  # Initialize the planner with the language model.
+        self.planner = Planner(llm)
+        self.logger = logging.getLogger(__name__)
+
+    def sanitize_message_content(self, msg: BaseMessage) -> BaseMessage:
+        """
+        Ensures message content is a plain string or properly typed blocks.
+        Fixes invalid blocks like [{}] or [{'text': 'hi'}] -> [{'type': 'text', 'text': 'hi'}].
+        """
+        content = msg.content
+        if isinstance(content, str):
+            return msg
+        elif isinstance(content, list):
+            sanitized = []
+            for item in content:
+                if isinstance(item, str):
+                    sanitized.append({"type": "text", "text": item})
+                elif isinstance(item, dict):
+                    if "type" in item and item["type"] in ["text", "image_url"]:
+                        sanitized.append(item)
+                    else:
+                        self.logger.warning(f"Unexpected dictionary structure: {item}")
+                        if "text" in item:
+                            sanitized.append({"type": "text", "text": str(item["text"])})
+                        elif "image_url" in item and isinstance(item["image_url"], dict) and "url" in item["image_url"]:
+                            sanitized.append({"type": "image_url", "image_url": item["image_url"]})
+                        else:
+                            sanitized.append({"type": "text", "text": str(item)})
+                else:
+                    self.logger.warning(f"Unexpected item type: type={type(item)}, value={item}")
+                    sanitized.append({"type": "text", "text": str(item)})
+            if not sanitized:
+                self.logger.warning(f"No valid content blocks: {content}")
+                return HumanMessage(content="") if isinstance(msg, HumanMessage) else msg
+            return HumanMessage(content=sanitized) if isinstance(msg, HumanMessage) else msg
+        else:
+            self.logger.warning(f"Unexpected content type: type={type(content)}, value={content}")
+            return HumanMessage(content=str(content)) if isinstance(msg, HumanMessage) else msg
 
     async def run(self):
         """
@@ -25,88 +64,103 @@ class Agent:
         4. Execute the generated plan.
         """
         async with async_playwright() as p:
-            # Launch Chromium browser in non-headless mode for visibility.
             browser = await p.chromium.launch(headless=False)
             context = await browser.new_context()
             page = await context.new_page()
-            await page.goto(self.start_url)  # Navigate to the start URL.
+            await page.goto(self.start_url)
 
             dom_tree = await page.content()
-            url = page.url  # Get the current page URL.
-            # Generate a plan using the planner based on the task, DOM tree, and URL.
-            plan = await self.planner.plan(self.task, dom_tree, url, use_cache=True)
-            # Execute the generated plan.
-            await self.execute_plan(plan, page)
+            url = page.url
+            # Capture screenshot for vision support
+            screenshot = await page.screenshot(full_page=True, type="png")
+            screenshot_base64 = base64.b64encode(screenshot).decode()
+            # Construct messages for the planner
+            messages = [
+                SystemMessage(content=(
+                    "You are a browser automation planner. "
+                    "Respond ONLY with a JSON array of actions like:\n"
+                    '[{"action": "click", "selector": "#btn"}, {"action": "type", "selector": "#input", "value": "OpenAI"}]'
+                )),
+                HumanMessage(content=[
+                    {"type": "text", "text": f"Task: {self.task}\nCurrent URL: {url}\nDOM Tree: {dom_tree[:1000]}..."},
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{screenshot_base64}"}}
+                ])
+            ]
+            # Sanitize messages
+            sanitized_messages = [self.sanitize_message_content(msg) for msg in messages]
+            for i, msg in enumerate(sanitized_messages):
+                self.logger.debug(f"Message {i}: type={type(msg.content)}, content={msg.content}")
+            # Generate a plan using sanitized messages
+            try:
+                plan = await self.planner.plan(self.task, url, dom_tree, sanitized_messages, use_cache=True)
+                if isinstance(plan, str):
+                    self.logger.error(f"Invalid plan format received: {plan}")
+                    return "Task failed: Invalid plan format"
+                await self.execute_plan(plan, page)
+            except Exception as e:
+                self.logger.error(f"Failed to generate or execute plan: {e}")
+                return f"Task failed: {e}"
 
-            # Return a message for the UI
             return "Task executed using cached or generated plan."
 
-    async def execute_plan(self, plan, page: Page):
+    async def execute_plan(self, plan: List[Dict[str, Any]], page: Page) -> None:
         """
-        Execute a sequence of actions (plan) on the given page.
-        Supported actions:
-        - click: Click on an element.
-        - type: Type text into an input field.
-        - wait_for: Wait for an element to appear.
-        - screenshot: Take a screenshot of the page.
-        - extract_text: Extract text from an element.
+        Execute high-level semantic plan actions.
         """
         try:
-            if isinstance(plan, str):
-                try:
-                    plan = json.loads(plan)
-                except json.JSONDecodeError:
-                    print("LLM response is not valid JSON.")
-                    print("Raw plan:", repr(plan))
-                    return
+            if not plan:
+                self.logger.error("No plan provided")
+                return
 
             for step in plan:
-                action = step.get("action")
-                selector = step.get("selector")
-
-                if not selector:
-                    print(f"Missing selector for action: {action}")
+                if not isinstance(step, dict) or len(step) != 1:
+                    self.logger.error(f"Invalid step format: {step}")
                     continue
 
-                if action == "click":
-                    try:
-                        print(f"Waiting then clicking: {selector}")
-                        await page.wait_for_selector(selector, timeout=10000, state="visible")
-                        await page.click(selector)
-                    except Exception as e:
-                        print(f"Click failed: {e}")
+                action_name, params = next(iter(step.items()))
 
-                elif action == "type":
-                    value = step.get("value", "")
-                    try:
-                        print(f"Waiting then typing '{value}' into {selector}")
-                        await page.wait_for_selector(selector, timeout=10000, state="visible")
-                        await page.fill(selector, value)
-                    except Exception as e:
-                        print(f"Typing failed: {e}")
+                if action_name == "search_google":
+                    query = params.get("query")
+                    if not query:
+                        self.logger.error("Missing query for search_google")
+                        continue
+                    self.logger.info(f"Searching for: {query}")
+                    await page.evaluate(
+                        """(query) => {
+                            window.dispatchEvent(new CustomEvent("agent-action", {
+                                detail: {
+                                    type: "search_google",
+                                    query: query
+                                }
+                            }));
+                        }""",
+                        query
+                    )
 
-                elif action == "wait_for":
-                    try:
-                        print(f"Waiting for {selector}")
-                        await page.wait_for_selector(selector, timeout=15000, state="visible")
-                    except Exception as e:
-                        print(f"Wait failed: {e}")
+                elif action_name == "click_element_by_index":
+                    index = params.get("index")
+                    if index is None:
+                        self.logger.error("Missing index for click_element_by_index")
+                        continue
+                    self.logger.info(f"Clicking element by index: {index}")
+                    await page.evaluate(
+                        """(index) => {
+                            window.dispatchEvent(new CustomEvent("agent-action", {
+                                detail: {
+                                    type: "click_element_by_index",
+                                    index: index
+                                }
+                            }));
+                        }""",
+                        index
+                    )
 
-                elif action == "screenshot":
-                    path = step.get("path", "screenshot.png")
-                    print(f"Taking screenshot to {path}")
-                    await page.screenshot(path=path)
-
-                elif action == "extract_text":
-                    try:
-                        element = await page.query_selector(selector)
-                        text = await element.inner_text() if element else ""
-                        print(f"Extracted text: {text}")
-                    except Exception as e:
-                        print(f"Text extraction failed: {e}")
+                elif action_name == "done":
+                    self.logger.info(f"Task completed: {params.get('text', '')}")
+                    break
 
                 else:
-                    print(f"Unknown action: {action}")
+                    self.logger.warning(f"Unknown action: {action_name}")
 
         except Exception as e:
-            print(f"Fatal error while executing plan: {e}")
+            self.logger.error(f"Error executing plan: {e}")
