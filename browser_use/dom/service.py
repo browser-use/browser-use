@@ -1,4 +1,3 @@
-import gc
 import json
 import logging
 from dataclasses import dataclass

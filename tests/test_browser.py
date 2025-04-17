@@ -22,6 +22,7 @@ async def test_builtin_browser_launch(monkeypatch):
 	class DummyChromium:
 		async def launch(self, headless, args, proxy=None, handle_sigterm=False, handle_sigint=False):
 			return DummyBrowser()
+
 	class DummyPlaywright:
 		def __init__(self):
 			self.chromium = DummyChromium()

@@ -133,7 +133,10 @@ class Browser:
 
 	async def new_context(self, config: BrowserContextConfig | None = None) -> BrowserContext:
 		"""Create a browser context"""
-		return BrowserContext(config=config or self.config, browser=self)
+		browser_config = self.config.model_dump() if self.config else {}
+		context_config = config.model_dump() if config else {}
+		merged_config = {**browser_config, **context_config}
+		return BrowserContext(config=BrowserContextConfig(**merged_config), browser=self)
 
 	async def get_playwright_browser(self) -> PlaywrightBrowser:
 		"""Get a browser context"""
@@ -146,9 +149,9 @@ class Browser:
 	async def _init(self):
 		"""Initialize the browser session"""
 		playwright = await async_playwright().start()
-		browser = await self._setup_browser(playwright)
-
 		self.playwright = playwright
+
+		browser = await self._setup_browser(playwright)
 		self.playwright_browser = browser
 
 		return self.playwright_browser
