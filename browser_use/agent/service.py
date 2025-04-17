@@ -165,16 +165,16 @@ class Agent(Generic[Context]):
 		self._set_model_names()
 		logger.info(
 			f'🧠 Starting an agent with main_model={self.model_name}, planner_model={self.planner_model_name}, '
-			f'extraction_model={self.settings.page_extraction_llm.model_name if hasattr(self.settings.page_extraction_llm, "model_name") else None}'
+			f'extraction_model={page_extraction_llm.model_name if hasattr(page_extraction_llm, "model_name") else None}'
 		)
 
 		# Set use_vision based model_name
-	        if use_vision is None:
-	            if self.model_name in {'deepseek-chat', 'deepseek-reasoner'}:
-	                use_vision = False
-	            else:
-	                use_vision = True
-		
+		if use_vision is None:
+			if self.model_name in {'deepseek-chat', 'deepseek-reasoner'}:
+				use_vision = False
+			else:
+				use_vision = True
+
 		# Agent settings
 		self.settings = AgentSettings(
 			use_vision=use_vision,

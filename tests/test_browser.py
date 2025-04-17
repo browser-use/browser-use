@@ -22,6 +22,7 @@ async def test_builtin_browser_launch(monkeypatch):
 	class DummyChromium:
 		async def launch(self, headless, args, proxy=None, handle_sigterm=False, handle_sigint=False):
 			return DummyBrowser()
+
 	class DummyPlaywright:
 		def __init__(self):
 			self.chromium = DummyChromium()
@@ -214,9 +215,9 @@ async def test_builtin_browser_disable_security_args(monkeypatch):
 	config = BrowserConfig(headless=True, disable_security=True, extra_browser_args=extra_args)
 	browser_obj = Browser(config=config)
 	result_browser = await browser_obj.get_playwright_browser()
-	assert isinstance(result_browser, DummyBrowser), (
-		'Expected DummyBrowser from _setup_builtin_browser with disable_security active'
-	)
+	assert isinstance(
+		result_browser, DummyBrowser
+	), 'Expected DummyBrowser from _setup_builtin_browser with disable_security active'
 	await browser_obj.close()
 
 
@@ -359,9 +360,9 @@ async def test_standard_browser_launch_with_proxy(monkeypatch):
 	class DummyChromium:
 		async def launch(self, headless, args, proxy=None, handle_sigterm=False, handle_sigint=False):
 			# Assert that the proxy passed equals the dummy proxy provided in the configuration.
-			assert isinstance(proxy, dict) and proxy['server'] == 'http://dummy.proxy', (
-				f'Expected proxy {dummy_proxy} but got {proxy}'
-			)
+			assert (
+				isinstance(proxy, dict) and proxy['server'] == 'http://dummy.proxy'
+			), f'Expected proxy {dummy_proxy} but got {proxy}'
 			# We can also verify some base parameters if needed (headless, args) but our focus is proxy.
 			return DummyBrowser()
 
@@ -445,15 +446,15 @@ async def test_browser_window_size(monkeypatch):
 
 		async def new_context(self, **kwargs):
 			# Assert that record_video_size is a dictionary with expected values
-			assert isinstance(kwargs['record_video_size'], dict), (
-				f'Expected record_video_size to be a dictionary, got {type(kwargs["record_video_size"])}'
-			)
-			assert kwargs['record_video_size']['width'] == 1280, (
-				f'Expected width to be 1280, got {kwargs["record_video_size"].get("width")}'
-			)
-			assert kwargs['record_video_size']['height'] == 1100, (
-				f'Expected height to be 1100, got {kwargs["record_video_size"].get("height")}'
-			)
+			assert isinstance(
+				kwargs['record_video_size'], dict
+			), f'Expected record_video_size to be a dictionary, got {type(kwargs["record_video_size"])}'
+			assert (
+				kwargs['record_video_size']['width'] == 1280
+			), f'Expected width to be 1280, got {kwargs["record_video_size"].get("width")}'
+			assert (
+				kwargs['record_video_size']['height'] == 1100
+			), f'Expected height to be 1100, got {kwargs["record_video_size"].get("height")}'
 
 			context = DummyContext()
 			self.contexts.append(context)

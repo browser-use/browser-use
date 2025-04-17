@@ -133,7 +133,9 @@ class Browser:
 
 	async def new_context(self, config: BrowserContextConfig | None = None) -> BrowserContext:
 		"""Create a browser context"""
-		return BrowserContext(config=config or BrowserContextConfig(**(self.config.model_dump() if self.config else {})), browser=self)
+		return BrowserContext(
+			config=config or BrowserContextConfig(**(self.config.model_dump() if self.config else {})), browser=self
+		)
 
 	async def get_playwright_browser(self) -> PlaywrightBrowser:
 		"""Get a browser context"""
@@ -180,9 +182,9 @@ class Browser:
 		if not self.config.browser_binary_path:
 			raise ValueError('A browser_binary_path is required')
 
-		assert self.config.browser_class == 'chromium', (
-			'browser_binary_path only supports chromium browsers (make sure browser_class=chromium)'
-		)
+		assert (
+			self.config.browser_class == 'chromium'
+		), 'browser_binary_path only supports chromium browsers (make sure browser_class=chromium)'
 
 		try:
 			# Check if browser is already running

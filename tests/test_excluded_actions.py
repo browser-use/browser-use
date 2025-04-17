@@ -90,9 +90,9 @@ async def test_only_open_tab_allowed(llm, context):
 	action_names = history.action_names()
 
 	# Only open_tab should be in the actions
-	assert all(action == 'open_tab' for action in action_names), (
-		f'Found unexpected actions: {[a for a in action_names if a != "open_tab"]}'
-	)
+	assert all(
+		action == 'open_tab' for action in action_names
+	), f'Found unexpected actions: {[a for a in action_names if a != "open_tab"]}'
 
 	# open_tab should be used at least once
 	assert 'open_tab' in action_names, 'open_tab action was not used'
