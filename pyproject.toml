@@ -1,41 +1,49 @@
+[build-system]
+build-backend = "hatchling.build"
+
+requires = [ "hatchling" ]
+
 [project]
 name = "browser-use"
-description = "Make websites accessible for AI agents"
-authors = [{ name = "Gregor Zunic" }]
 version = "0.1.41"
+description = "Make websites accessible for AI agents"
 readme = "README.md"
+authors = [ { name = "Gregor Zunic" } ]
 requires-python = ">=3.11,<4.0"
 classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "httpx>=0.27.2",
-    "pydantic>=2.10.4,<2.11.0",
-    "python-dotenv>=1.0.1",
-    "requests>=2.32.3",
-    "posthog>=3.7.0",
-    "playwright>=1.51.0",
-    "markdownify==1.1.0",
-    "langchain-core==0.3.49",
-    "langchain-openai==0.3.11",
-    "langchain-anthropic==0.3.3",
-    "langchain-ollama==0.3.0",
-    "langchain-google-genai==2.1.2",
-    "langchain-deepseek>=0.1.3",
-    "langchain>=0.3.21",
-    "langchain-aws>=0.2.11",
-    "botocore>=1.37.23",
-    "google-api-core>=2.24.0",
-    "pyperclip>=1.9.0",
-    "pyobjc>=11.0; platform_system == 'darwin'",
-    "screeninfo>=0.8.1; platform_system != 'darwin'",
-    "typing-extensions>=4.12.2",
-    "psutil>=7.0.0",
-    "faiss-cpu>=1.10.0",
-    "mem0ai==0.1.88",
-    "sentence-transformers>=4.0.2"
+  "botocore>=1.37.23",
+  "faiss-cpu>=1.10",
+  "google-api-core>=2.24",
+  "httpx>=0.27.2",
+  "langchain>=0.3.21",
+  "langchain-anthropic==0.3.3",
+  "langchain-aws>=0.2.11",
+  "langchain-core==0.3.49",
+  "langchain-deepseek>=0.1.3",
+  "langchain-google-genai==2.1.2",
+  "langchain-ollama==0.3",
+  "langchain-openai==0.3.11",
+  "markdownify==1.1",
+  "mem0ai==0.1.88",
+  "playwright>=1.51",
+  "posthog>=3.7",
+  "psutil>=7",
+  "pydantic>=2.10.4,<2.11",
+  "pyobjc>=11; platform_system=='darwin'",
+  "pyperclip>=1.9",
+  "python-dotenv>=1.0.1",
+  "requests>=2.32.3",
+  "screeninfo>=0.8.1; platform_system!='darwin'",
+  "sentence-transformers>=4.0.2",
+  "typing-extensions>=4.12.2",
 ]
 
 # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py 
@@ -48,50 +56,42 @@ dependencies = [
 # openai: datalib,voice-helpers are actually NOT NEEDED but openai produces noisy errors on exit without them TODO: fix
 urls = { "Repository" = "https://github.com/browser-use/browser-use" }
 
-
-[tool.codespell]
-ignore-words-list = "bu"
-skip = "*.json"
+[tool.hatch.build]
+include = [
+  "browser_use/**/*.py",
+  "!browser_use/**/tests/*.py",
+  "!browser_use/**/tests.py",
+  "browser_use/agent/system_prompt.md",
+  "browser_use/dom/buildDomTree.js",
+]
 
 [tool.ruff]
 line-length = 130
 fix = true
 
-[tool.ruff.lint]
-select = ["E", "F", "I", "PLE"]
-ignore = ["E101", "E402", "E501", "F841", "E731"]
-unfixable = ["E101", "E402", "E501", "F841", "E731"]
+format.indent-style = "tab"
+format.quote-style = "single"
+format.docstring-code-format = true
+lint.select = [ "E", "F", "I", "PLE" ]
+lint.ignore = [ "E101", "E402", "E501", "E731", "F841" ]
+lint.unfixable = [ "E101", "E402", "E501", "E731", "F841" ]
 
-[tool.ruff.format]
-quote-style = "single"
-indent-style = "tab"
-docstring-code-format = true
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.build]
-include = [
-    "browser_use/**/*.py",
-    "!browser_use/**/tests/*.py",
-    "!browser_use/**/tests.py",
-    "browser_use/agent/system_prompt.md",
-    "browser_use/dom/buildDomTree.js",
-]
+[tool.codespell]
+ignore-words-list = "bu"
+skip = "*.json"
 
 [tool.uv]
 dev-dependencies = [
-    "ruff>=0.11.2",
-    "tokencost>=0.1.16",
-    "build>=1.2.2",
-    "pytest>=8.3.5",
-    "pytest-asyncio>=0.24.0",
-    "fastapi>=0.115.8",
-    "inngest>=0.4.19",
-    "uvicorn>=0.34.0",
-    "langchain-fireworks>=0.2.6",
-    "ipdb>=0.13.13",
-    "pre-commit>=4.2.0",
-    "codespell>=2.4.1",
+  "ruff>=0.11.2",
+  "tokencost>=0.1.16",
+  "build>=1.2.2",
+  "pytest>=8.3.5",
+  "pytest-asyncio>=0.24.0",
+  "fastapi>=0.115.8",
+  "inngest>=0.4.19",
+  "uvicorn>=0.34.0",
+  "langchain-fireworks>=0.2.6",
+  "ipdb>=0.13.13",
+  "pre-commit>=4.2.0",
+  "codespell>=2.4.1",
 ]
