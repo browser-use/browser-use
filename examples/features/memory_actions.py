@@ -21,6 +21,7 @@ browser = Browser(
 	)
 )
 
+
 async def run_memory_test():
 	agent = Agent(
 		task="""

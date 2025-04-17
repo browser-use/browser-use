@@ -743,39 +743,39 @@ class Controller(Generic[Context]):
 			try:
 				# Check if memory is available
 				if browser.memory is None:
-					msg = "Memory system not initialized"
+					msg = 'Memory system not initialized'
 					logger.warning(msg)
 					return ActionResult(error=msg, include_in_memory=True)
-				
+
 				# Generate metadata
 				metadata = {
-					"category": params.category,
-					"memory_type": "episodic",
+					'category': params.category,
+					'memory_type': 'episodic',
 				}
-				
+
 				# Add user-provided metadata if any
 				if params.metadata:
 					metadata.update(params.metadata)
-				
+
 				# Create a message format that Mem0 expects
-				message = [{"role": "user", "content": params.content}]
-				
+				message = [{'role': 'user', 'content': params.content}]
+
 				# Add memory using Mem0
 				result = browser.memory.mem0.add(
 					messages=message,
 					agent_id=browser.memory.settings.agent_id,
 					metadata=metadata,
 				)
-				
+
 				# Get the memory ID from the result
-				memory_id = result.get("results", [{}])[0].get("id", "unknown")
-				
+				memory_id = result.get('results', [{}])[0].get('id', 'unknown')
+
 				msg = f"💾 Saved to memory with ID '{memory_id}' in category '{params.category}'"
 				logger.info(msg)
 				return ActionResult(extracted_content=msg, include_in_memory=True)
-				
+
 			except Exception as e:
-				error_msg = f"Failed to save memory: {str(e)}"
+				error_msg = f'Failed to save memory: {str(e)}'
 				logger.error(error_msg)
 				return ActionResult(error=error_msg, include_in_memory=True)
 
@@ -790,54 +790,51 @@ class Controller(Generic[Context]):
 			try:
 				# Check if memory is available
 				if browser.memory is None:
-					msg = "Memory system not initialized"
+					msg = 'Memory system not initialized'
 					logger.warning(msg)
 					return ActionResult(error=msg, include_in_memory=True)
-				
+
 				# Prepare filters
-				filters = {
-					"metadata.memory_type": "episodic"
-				}
-				
+				filters = {'metadata.memory_type': 'episodic'}
+
 				if params.category:
-					filters["metadata.category"] = params.category
-				
+					filters['metadata.category'] = params.category
+
 				# Search memories using Mem0
 				results = browser.memory.mem0.search(
-					query=params.query,
-					agent_id=browser.memory.settings.agent_id,
-					filters=filters,
-					limit=params.limit
+					query=params.query, agent_id=browser.memory.settings.agent_id, filters=filters, limit=params.limit
 				)
-				
+
 				# Format results
-				memories = results.get("results", [])
+				memories = results.get('results', [])
 				if memories:
 					formatted_results = []
 					for i, memory in enumerate(memories):
 						# Filter by threshold if specified
 						if memory.get('score', 0) < params.threshold:
 							continue
-							
+
 						formatted_results.append(
-							f"Memory {i+1} (ID: {memory.get('id', 'unknown')}):\n"
-							f"Category: {memory.get('metadata', {}).get('category', 'unknown')}\n"
-							f"Score: {memory.get('score', 0):.2f}\n"
-							f"Content: {memory.get('memory', '')}\n"
+							f'Memory {i + 1} (ID: {memory.get("id", "unknown")}):\n'
+							f'Category: {memory.get("metadata", {}).get("category", "unknown")}\n'
+							f'Score: {memory.get("score", 0):.2f}\n'
+							f'Content: {memory.get("memory", "")}\n'
 						)
-					
+
 					if formatted_results:
-						msg = f"🔍 Found {len(formatted_results)} memories for query '{params.query}':\n\n" + "\n".join(formatted_results)
+						msg = f"🔍 Found {len(formatted_results)} memories for query '{params.query}':\n\n" + '\n'.join(
+							formatted_results
+						)
 					else:
 						msg = f"No memories found matching query '{params.query}' with threshold {params.threshold}"
 				else:
 					msg = f"No memories found matching query '{params.query}'"
-					
+
 				logger.info(msg)
 				return ActionResult(extracted_content=msg, include_in_memory=True)
-				
+
 			except Exception as e:
-				error_msg = f"Failed to retrieve memories: {str(e)}"
+				error_msg = f'Failed to retrieve memories: {str(e)}'
 				logger.error(error_msg)
 				return ActionResult(error=error_msg, include_in_memory=True)
 
@@ -852,45 +849,39 @@ class Controller(Generic[Context]):
 			try:
 				# Check if memory is available
 				if browser.memory is None:
-					msg = "Memory system not initialized"
+					msg = 'Memory system not initialized'
 					logger.warning(msg)
 					return ActionResult(error=msg, include_in_memory=True)
-				
+
 				# Get all memories using Mem0
-				results = browser.memory.mem0.get_all(
-					agent_id=browser.memory.settings.agent_id,
-					limit=params.limit
-				)
-				
+				results = browser.memory.mem0.get_all(agent_id=browser.memory.settings.agent_id, limit=params.limit)
+
 				# Format results
-				memories = results.get("results", [])
-				
+				memories = results.get('results', [])
+
 				# Filter by category if specified
 				if params.category and memories:
-					memories = [
-						memory for memory in memories 
-						if memory.get('metadata', {}).get('category') == params.category
-					]
-				
+					memories = [memory for memory in memories if memory.get('metadata', {}).get('category') == params.category]
+
 				if memories:
 					formatted_results = []
 					for i, memory in enumerate(memories):
 						formatted_results.append(
-							f"Memory {i+1} (ID: {memory.get('id', 'unknown')}):\n"
-							f"Category: {memory.get('metadata', {}).get('category', 'unknown')}\n"
-							f"Content: {memory.get('memory', '')}\n"
+							f'Memory {i + 1} (ID: {memory.get("id", "unknown")}):\n'
+							f'Category: {memory.get("metadata", {}).get("category", "unknown")}\n'
+							f'Content: {memory.get("memory", "")}\n'
 						)
-					
-					msg = f"📋 Found {len(formatted_results)} memories:\n\n" + "\n".join(formatted_results)
+
+					msg = f'📋 Found {len(formatted_results)} memories:\n\n' + '\n'.join(formatted_results)
 				else:
-					category_msg = f" in category '{params.category}'" if params.category else ""
-					msg = f"No memories found{category_msg}"
-					
+					category_msg = f" in category '{params.category}'" if params.category else ''
+					msg = f'No memories found{category_msg}'
+
 				logger.info(msg)
 				return ActionResult(extracted_content=msg, include_in_memory=True)
-				
+
 			except Exception as e:
-				error_msg = f"Failed to list memories: {str(e)}"
+				error_msg = f'Failed to list memories: {str(e)}'
 				logger.error(error_msg)
 				return ActionResult(error=error_msg, include_in_memory=True)
 
@@ -905,25 +896,23 @@ class Controller(Generic[Context]):
 			try:
 				# Check if memory is available
 				if browser.memory is None:
-					msg = "Memory system not initialized"
+					msg = 'Memory system not initialized'
 					logger.warning(msg)
 					return ActionResult(error=msg, include_in_memory=True)
-				
+
 				# Delete memory using Mem0
-				result = browser.memory.mem0.delete(
-					memory_id=params.memory_id
-				)
-				
-				if "success" in result.get("message", "").lower():
+				result = browser.memory.mem0.delete(memory_id=params.memory_id)
+
+				if 'success' in result.get('message', '').lower():
 					msg = f"🗑️ Successfully deleted memory with ID '{params.memory_id}'"
 				else:
 					msg = f"Failed to delete memory with ID '{params.memory_id}'"
-					
+
 				logger.info(msg)
 				return ActionResult(extracted_content=msg, include_in_memory=True)
-				
+
 			except Exception as e:
-				error_msg = f"Failed to delete memory: {str(e)}"
+				error_msg = f'Failed to delete memory: {str(e)}'
 				logger.error(error_msg)
 				return ActionResult(error=error_msg, include_in_memory=True)
 

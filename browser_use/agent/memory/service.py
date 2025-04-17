@@ -50,10 +50,10 @@ class Memory:
 		self.message_manager = message_manager
 		self.llm = llm
 		self.settings = settings
-		
+
 		# Create the memory configuration
 		self._memory_config = settings.config or self._create_memory_config(llm)
-		
+
 		# Initialize Mem0
 		self.mem0 = Mem0Memory.from_config(config_dict=self._memory_config)
 		self.mem0.custom_fact_extraction_prompt = self._get_fact_extraction_prompt()
@@ -61,9 +61,9 @@ class Memory:
 	def _create_memory_config(self, llm: BaseChatModel) -> dict:
 		"""
 		Create a Mem0 configuration based on the LLM type.
-		
+
 		Args:
-			llm: The language model being used by the agent			
+			llm: The language model being used by the agent
 		Returns:
 			dict: A complete Mem0 configuration
 		"""
@@ -74,7 +74,7 @@ class Memory:
 			'llm': {'provider': llm_provider, 'config': {'model': model_name}},
 			'embedder': Memory.DEFAULT_EMBEDDER,
 		}
-	
+
 		return config
 
 	def _get_model_name(self, llm: BaseChatModel) -> str:
@@ -88,46 +88,46 @@ class Memory:
 		elif hasattr(llm, 'model'):
 			model = llm.model  # type: ignore
 			model_name = model if model is not None else 'Unknown'
-		if isinstance(model_name, str) and model_name.startswith("model/"):
+		if isinstance(model_name, str) and model_name.startswith('model/'):
 			model_name = model_name[6:]
 		return model_name
 
 	def _get_llm_provider(self, llm: BaseChatModel) -> str:
 		"""
 		Determine the appropriate Mem0 provider for the given LLM.
-		
+
 		Args:
 			llm: The language model to analyze
-			
+
 		Returns:
 			str: The provider name
 		"""
 		# Check the type of LLM and set the appropriate provider
 		llm_class_name = llm.__class__.__name__
-		
-		if "GoogleGenerativeAI" in llm_class_name:
-			return "gemini"
-		elif "OpenAI" in llm_class_name:
-			if "Azure" in llm_class_name:
-				return "azure_openai"
+
+		if 'GoogleGenerativeAI' in llm_class_name:
+			return 'gemini'
+		elif 'OpenAI' in llm_class_name:
+			if 'Azure' in llm_class_name:
+				return 'azure_openai'
 			else:
-				return "openai"
-		elif "Anthropic" in llm_class_name:
-			return "anthropic"
-		elif "Groq" in llm_class_name:
-			return "groq"
-		elif "Together" in llm_class_name:
-			return "together"
-		elif "Bedrock" in llm_class_name:
-			return "aws_bedrock"
-		elif "DeepSeek" in llm_class_name:
-			return "deepseek"
-		elif "LMStudio" in llm_class_name:
-			return "lmstudio"
-		
+				return 'openai'
+		elif 'Anthropic' in llm_class_name:
+			return 'anthropic'
+		elif 'Groq' in llm_class_name:
+			return 'groq'
+		elif 'Together' in llm_class_name:
+			return 'together'
+		elif 'Bedrock' in llm_class_name:
+			return 'aws_bedrock'
+		elif 'DeepSeek' in llm_class_name:
+			return 'deepseek'
+		elif 'LMStudio' in llm_class_name:
+			return 'lmstudio'
+
 		# If we couldn't determine the provider, log a warning
-		logger.warning(f"Could not determine Mem0 provider for LLM type: {llm_class_name}. Using default configuration.")
-		return ""
+		logger.warning(f'Could not determine Mem0 provider for LLM type: {llm_class_name}. Using default configuration.')
+		return ''
 
 	@staticmethod
 	def _get_default_config(llm: BaseChatModel) -> dict:

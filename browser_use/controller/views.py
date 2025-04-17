@@ -109,51 +109,39 @@ class DragDropAction(BaseModel):
 # Memory Action Models
 class MemorySaveAction(BaseModel):
 	content: str = Field(
-		..., 
-		description='The important information to store in memory for later retrieval - should be concise and valuable'
+		..., description='The important information to store in memory for later retrieval - should be concise and valuable'
 	)
 	category: str = Field(
-		"main", 
-		description='The category to organize this memory under (e.g., "product_info", "research", "user_preferences")'
+		'main', description='The category to organize this memory under (e.g., "product_info", "research", "user_preferences")'
 	)
 	metadata: Optional[dict] = Field(
-		None, 
-		description='Optional additional metadata to store with the memory for more detailed filtering later'
+		None, description='Optional additional metadata to store with the memory for more detailed filtering later'
 	)
 
 
 class MemoryRetrieveAction(BaseModel):
 	query: str = Field(
-		..., 
-		description='The search query to find relevant memories - be specific to get the most relevant results'
+		..., description='The search query to find relevant memories - be specific to get the most relevant results'
 	)
 	limit: int = Field(
-		5, 
-		description='Maximum number of memory results to return - use a smaller number for more focused results'
+		5, description='Maximum number of memory results to return - use a smaller number for more focused results'
 	)
 	threshold: float = Field(
-		0.5, 
-		description='Minimum similarity score (0-1) for results - higher values return only more relevant matches'
+		0.5, description='Minimum similarity score (0-1) for results - higher values return only more relevant matches'
 	)
 	category: Optional[str] = Field(
-		"", 
-		description='Optional filter to only search within a specific memory category (e.g., "product_info")'
+		'', description='Optional filter to only search within a specific memory category (e.g., "product_info")'
 	)
 
 
 class MemoryListAction(BaseModel):
-	limit: int = Field(
-		10, 
-		description='Maximum number of memories to return - increase if you need to see more stored memories'
-	)
+	limit: int = Field(10, description='Maximum number of memories to return - increase if you need to see more stored memories')
 	category: Optional[str] = Field(
-		"", 
-		description='Optional filter to only list memories from a specific category (e.g., "research")'
+		'', description='Optional filter to only list memories from a specific category (e.g., "research")'
 	)
 
 
 class MemoryDeleteAction(BaseModel):
 	memory_id: str = Field(
-		..., 
-		description='The ID of the memory to permanently delete - use memory_list or memory_retrieve first to find IDs'
+		..., description='The ID of the memory to permanently delete - use memory_list or memory_retrieve first to find IDs'
 	)
