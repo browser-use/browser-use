@@ -136,6 +136,9 @@ class SignalHandler:
 
 		# Force immediate exit - more reliable than sys.exit()
 		print('\n\n🛑  Got second Ctrl+C. Exiting immediately...\n', file=stderr)
+		# write carriage return + newline + ASNI reset to both stdout and stderr to clear any color codes
+		print('\r\033[0m', end='', flush=True, file=stderr)
+		print('\r\033[0m', end='', flush=True)
 		os._exit(0)
 
 	def sigint_handler(self) -> None:
