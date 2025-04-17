@@ -22,6 +22,10 @@ from browser_use.controller.views import (
 	DragDropAction,
 	GoToUrlAction,
 	InputTextAction,
+	MemoryDeleteAction,
+	MemoryListAction,
+	MemoryRetrieveAction,
+	MemorySaveAction,
 	NoParamsAction,
 	OpenTabAction,
 	Position,
@@ -29,10 +33,6 @@ from browser_use.controller.views import (
 	SearchGoogleAction,
 	SendKeysAction,
 	SwitchTabAction,
-	MemorySaveAction,
-	MemoryRetrieveAction,
-	MemoryListAction,
-	MemoryDeleteAction,
 )
 from browser_use.utils import time_execution_sync
 
