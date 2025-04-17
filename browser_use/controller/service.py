@@ -1,5 +1,4 @@
 import asyncio
-import datetime
 import enum
 import json
 import logging
@@ -18,9 +17,6 @@ from browser_use.browser.context import BrowserContext
 from browser_use.controller.registry.service import Registry
 from browser_use.controller.views import (
 	ClickElementAction,
-	ClickElementBySelectorAction,
-	ClickElementByTextAction,
-	ClickElementByXpathAction,
 	CloseTabAction,
 	DoneAction,
 	DragDropAction,
@@ -33,7 +29,6 @@ from browser_use.controller.views import (
 	SearchGoogleAction,
 	SendKeysAction,
 	SwitchTabAction,
-	WaitForElementAction,
 	MemorySaveAction,
 	MemoryRetrieveAction,
 	MemoryListAction,
@@ -61,7 +56,7 @@ class Controller(Generic[Context]):
 			# Create a new model that extends the output model with success parameter
 			class ExtendedOutputModel(BaseModel):  # type: ignore
 				success: bool = True
-				data: output_model
+				data: output_model  # type: ignore
 
 			@self.registry.action(
 				'Complete task - with return text and if the task is finished (success=True) or not yet  completely finished (success=False), because last step is reached',
@@ -123,19 +118,6 @@ class Controller(Generic[Context]):
 			await asyncio.sleep(seconds)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
-		@self.registry.action('Wait for element to be visible', param_model=WaitForElementAction)
-		async def wait_for_element(params: WaitForElementAction, browser: BrowserContext):
-			"""Waits for the element specified by the CSS selector to become visible within the given timeout."""
-			try:
-				await browser.wait_for_element(params.selector, params.timeout)
-				msg = f'👀  Element with selector "{params.selector}" became visible within {params.timeout}ms.'
-				logger.info(msg)
-				return ActionResult(extracted_content=msg, include_in_memory=True)
-			except Exception as e:
-				err_msg = f'❌  Failed to wait for element "{params.selector}" within {params.timeout}ms: {str(e)}'
-				logger.error(err_msg)
-				raise Exception(err_msg)
-
 		# Element Interaction Actions
 		@self.registry.action('Click element by index', param_model=ClickElementAction)
 		async def click_element_by_index(params: ClickElementAction, browser: BrowserContext):
@@ -174,74 +156,6 @@ class Controller(Generic[Context]):
 				logger.warning(f'Element not clickable with index {params.index} - most likely the page changed')
 				return ActionResult(error=str(e))
 
-		@self.registry.action('Click element by selector', param_model=ClickElementBySelectorAction)
-		async def click_element_by_selector(params: ClickElementBySelectorAction, browser: BrowserContext):
-			try:
-				element_node = await browser.get_locate_element_by_css_selector(params.css_selector)
-				if element_node:
-					try:
-						await element_node.scroll_into_view_if_needed()
-						await element_node.click(timeout=1500, force=True)
-					except Exception:
-						try:
-							# Handle with js evaluate if fails to click using playwright
-							await element_node.evaluate('el => el.click()')
-						except Exception as e:
-							logger.warning(f"Element not clickable with css selector '{params.css_selector}' - {e}")
-							return ActionResult(error=str(e))
-					msg = f'🖱️  Clicked on element with text "{params.css_selector}"'
-					return ActionResult(extracted_content=msg, include_in_memory=True)
-			except Exception as e:
-				logger.warning(f'Element not clickable with selector {params.css_selector} - most likely the page changed')
-				return ActionResult(error=str(e))
-
-		@self.registry.action('Click on element by xpath', param_model=ClickElementByXpathAction)
-		async def click_element_by_xpath(params: ClickElementByXpathAction, browser: BrowserContext):
-			try:
-				element_node = await browser.get_locate_element_by_xpath(params.xpath)
-				if element_node:
-					try:
-						await element_node.scroll_into_view_if_needed()
-						await element_node.click(timeout=1500, force=True)
-					except Exception:
-						try:
-							# Handle with js evaluate if fails to click using playwright
-							await element_node.evaluate('el => el.click()')
-						except Exception as e:
-							logger.warning(f"Element not clickable with xpath '{params.xpath}' - {e}")
-							return ActionResult(error=str(e))
-					msg = f'🖱️  Clicked on element with text "{params.xpath}"'
-					return ActionResult(extracted_content=msg, include_in_memory=True)
-			except Exception as e:
-				logger.warning(f'Element not clickable with xpath {params.xpath} - most likely the page changed')
-				return ActionResult(error=str(e))
-
-		@self.registry.action('Click element with text', param_model=ClickElementByTextAction)
-		async def click_element_by_text(params: ClickElementByTextAction, browser: BrowserContext):
-			try:
-				element_node = await browser.get_locate_element_by_text(
-					text=params.text, nth=params.nth, element_type=params.element_type
-				)
-
-				if element_node:
-					try:
-						await element_node.scroll_into_view_if_needed()
-						await element_node.click(timeout=1500, force=True)
-					except Exception:
-						try:
-							# Handle with js evaluate if fails to click using playwright
-							await element_node.evaluate('el => el.click()')
-						except Exception as e:
-							logger.warning(f"Element not clickable with text '{params.text}' - {e}")
-							return ActionResult(error=str(e))
-					msg = f'🖱️  Clicked on element with text "{params.text}"'
-					return ActionResult(extracted_content=msg, include_in_memory=True)
-				else:
-					return ActionResult(error=f"No element found for text '{params.text}'")
-			except Exception as e:
-				logger.warning(f"Element not clickable with text '{params.text}' - {e}")
-				return ActionResult(error=str(e))
-
 		@self.registry.action(
 			'Input text into a input interactive element',
 			param_model=InputTextAction,
@@ -270,7 +184,7 @@ class Controller(Generic[Context]):
 			slug = re.sub(r'[^a-zA-Z0-9]+', '-', short_url).strip('-').lower()
 			sanitized_filename = f'{slug}.pdf'
 
-			await page.emulate_media('screen')
+			await page.emulate_media(media='screen')
 			await page.pdf(path=sanitized_filename, format='A4', print_background=False)
 			msg = f'Saving page with URL {page.url} as PDF to ./{sanitized_filename}'
 			logger.info(msg)
@@ -338,36 +252,6 @@ class Controller(Generic[Context]):
 				msg = f'📄  Extracted from page\n: {content}\n'
 				logger.info(msg)
 				return ActionResult(extracted_content=msg)
-
-		# HTML Download
-		@self.registry.action(
-			'Save the raw HTML content of the current page to a local file',
-			param_model=NoParamsAction,
-		)
-		async def save_html_to_file(_: NoParamsAction, browser: BrowserContext) -> ActionResult:
-			"""Retrieves and returns the full HTML content of the current page to a file"""
-			try:
-				page = await browser.get_current_page()
-				html_content = await page.content()
-
-				# Create a filename based on the page URL
-				short_url = re.sub(r'^https?://(?:www\.)?|/$', '', page.url)
-				slug = re.sub(r'[^a-zA-Z0-9]+', '-', short_url).strip('-').lower()[:64]
-				timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-				sanitized_filename = f'{slug}_{timestamp}.html'
-
-				# Save HTML to file
-				with open(sanitized_filename, 'w', encoding='utf-8') as f:
-					f.write(html_content)
-
-				msg = f'Saved HTML content of page with URL {page.url} to ./{sanitized_filename}'
-
-				logger.info(msg)
-				return ActionResult(extracted_content=msg, include_in_memory=True)
-			except Exception as e:
-				error_msg = f'Failed to save HTML content: {str(e)}'
-				logger.error(error_msg)
-				return ActionResult(error=error_msg, extracted_content='')
 
 		@self.registry.action(
 			'Scroll down the page by pixel amount - if no amount is specified, scroll down one page',
@@ -1030,7 +914,7 @@ class Controller(Generic[Context]):
 					memory_id=params.memory_id
 				)
 				
-				if result.get("message", "").startswith("Successfully deleted"):
+				if "success" in result.get("message", "").lower():
 					msg = f"🗑️ Successfully deleted memory with ID '{params.memory_id}'"
 				else:
 					msg = f"Failed to delete memory with ID '{params.memory_id}'"
