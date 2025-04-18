@@ -116,6 +116,7 @@ def setup_logging():
 		'httpx',
 		'selenium',
 		'playwright',
+		'patchright',
 		'urllib3',
 		'asyncio',
 		'langchain',

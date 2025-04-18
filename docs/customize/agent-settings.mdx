@@ -59,6 +59,33 @@ agent = Agent(
 
 You can configure how the agent interacts with the browser. To see more `Browser` options refer to the <a href="/customize/browser-settings">Browser Settings</a> documentation.
 
+### Anti-Fingerprinting
+
+You can enable anti-fingerprinting capabilities to avoid bot detection mechanisms like those used by Cloudflare and DataDome:
+
+```python
+from browser_use import Browser, BrowserConfig
+
+browser = Browser(
+    config=BrowserConfig(
+        headless=False,
+        anti_fingerprint=True  # Enable anti-fingerprinting
+    )
+)
+
+agent = Agent(
+    task="your task",
+    llm=llm,
+    browser=browser
+)
+```
+
+When `anti_fingerprint` is enabled, the browser will use techniques to avoid detection by fingerprinting tools. This includes:
+- Using Chrome as the browser channel
+- Applying patches to modify browser behavior
+- Preventing canvas and audio fingerprinting
+- Modifying WebGL parameters to mimic a real device
+
 ### Reuse Existing Browser
 
 `browser`: A Browser Use Browser instance. When provided, the agent will reuse this browser instance and automatically create new contexts for each `run()`.
@@ -91,7 +118,7 @@ await browser.close()
 
 ```python
 from browser_use import Agent, Browser
-from playwright.async_api import BrowserContext
+from patchright.async_api import BrowserContext
 
 # Use specific browser context (preferred method)
 async with await browser.new_context() as context:
@@ -128,7 +155,7 @@ documentation](https://playwright.dev/docs/api/class-browsercontext).
 
 The agent is executed using the async `run()` method:
 
-- `max_steps` (default: `100`)  
+- `max_steps` (default: `100`)
   Maximum number of steps the agent can take during execution. This prevents infinite loops and helps control execution time.
 
 ## Agent History
@@ -183,7 +210,7 @@ agent = Agent(
 
 You can configure the agent and provide a separate message to help the LLM understand the task better.
 
-```python 
+```python
 from langchain_openai import ChatOpenAI
 
 agent = Agent(

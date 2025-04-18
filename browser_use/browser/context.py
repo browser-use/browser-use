@@ -14,12 +14,12 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional, TypedDict
 
-from playwright._impl._errors import TimeoutError
-from playwright.async_api import Browser as PlaywrightBrowser
-from playwright.async_api import (
+from patchright._impl._errors import TimeoutError
+from patchright.async_api import Browser as PlaywrightBrowser
+from patchright.async_api import (
 	BrowserContext as PlaywrightBrowserContext,
 )
-from playwright.async_api import (
+from patchright.async_api import (
 	ElementHandle,
 	FrameLocator,
 	Page,
@@ -124,9 +124,7 @@ class BrowserContextConfig:
 	save_downloads_path: str | None = None
 	trace_path: str | None = None
 	locale: str | None = None
-	user_agent: str = (
-		'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36  (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36'
-	)
+	user_agent: str | None = None
 
 	highlight_elements: bool = True
 	viewport_expansion: int = 500
@@ -316,13 +314,17 @@ class BrowserContext:
 			context = browser.contexts[0]
 		else:
 			# Original code for creating new context
+			kwargs = {}
+			if self.browser.config.headless:
+				kwargs['viewport'] = self.config.browser_window_size
+				kwargs['no_viewport'] = False
+			if self.config.user_agent is not None:
+				kwargs['user_agent'] = self.config.user_agent
+
 			context = await browser.new_context(
-				viewport=self.config.browser_window_size,
-				no_viewport=False,
-				user_agent=self.config.user_agent,
+				**kwargs,
 				java_script_enabled=True,
-				bypass_csp=self.config.disable_security,
-				ignore_https_errors=self.config.disable_security,
+				**({'bypass_csp': True, 'ignore_https_errors': True} if self.config.disable_security else {}),
 				record_video_dir=self.config.save_recording_path,
 				record_video_size=self.config.browser_window_size,
 				locale=self.config.locale,
@@ -341,24 +343,6 @@ class BrowserContext:
 		# Expose anti-detection scripts
 		await context.add_init_script(
 			"""
-            // Webdriver property
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            });
-
-            // Languages
-            Object.defineProperty(navigator, 'languages', {
-                get: () => ['en-US']
-            });
-
-            // Plugins
-            Object.defineProperty(navigator, 'plugins', {
-                get: () => [1, 2, 3, 4, 5]
-            });
-
-            // Chrome runtime
-            window.chrome = { runtime: {} };
-
             // Permissions
             const originalQuery = window.navigator.permissions.query;
             window.navigator.permissions.query = (parameters) => (
@@ -366,12 +350,7 @@ class BrowserContext:
                     Promise.resolve({ state: Notification.permission }) :
                     originalQuery(parameters)
             );
-            (function () {
-                const originalAttachShadow = Element.prototype.attachShadow;
-                Element.prototype.attachShadow = function attachShadow(options) {
-                    return originalAttachShadow.call(this, { ...options, mode: "open" });
-                };
-            })();
+
             """
 		)
 
@@ -674,24 +653,24 @@ class BrowserContext:
 		debug_script = """(() => {
 			function getPageStructure(element = document, depth = 0, maxDepth = 10) {
 				if (depth >= maxDepth) return '';
-				
+
 				const indent = '  '.repeat(depth);
 				let structure = '';
-				
+
 				// Skip certain elements that clutter the output
 				const skipTags = new Set(['script', 'style', 'link', 'meta', 'noscript']);
-				
+
 				// Add current element info if it's not the document
 				if (element !== document) {
 					const tagName = element.tagName.toLowerCase();
-					
+
 					// Skip uninteresting elements
 					if (skipTags.has(tagName)) return '';
-					
+
 					const id = element.id ? `#${element.id}` : '';
-					const classes = element.className && typeof element.className === 'string' ? 
+					const classes = element.className && typeof element.className === 'string' ?
 						`.${element.className.split(' ').filter(c => c).join('.')}` : '';
-					
+
 					// Get additional useful attributes
 					const attrs = [];
 					if (element.getAttribute('role')) attrs.push(`role="${element.getAttribute('role')}"`);
@@ -702,10 +681,10 @@ class BrowserContext:
 						const src = element.getAttribute('src');
 						attrs.push(`src="${src.substring(0, 50)}${src.length > 50 ? '...' : ''}"`);
 					}
-					
+
 					// Add element info
 					structure += `${indent}${tagName}${id}${classes}${attrs.length ? ' [' + attrs.join(', ') + ']' : ''}\\n`;
-					
+
 					// Handle iframes specially
 					if (tagName === 'iframe') {
 						try {
@@ -721,7 +700,7 @@ class BrowserContext:
 						}
 					}
 				}
-				
+
 				// Get all child elements
 				const children = element.children || element.childNodes;
 				for (const child of children) {
@@ -729,10 +708,10 @@ class BrowserContext:
 						structure += getPageStructure(child, depth + 1, maxDepth);
 					}
 				}
-				
+
 				return structure;
 			}
-			
+
 			return getPageStructure();
 		})()"""
 

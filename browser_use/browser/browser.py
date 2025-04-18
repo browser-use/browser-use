@@ -6,10 +6,10 @@ import asyncio
 import gc
 import logging
 from dataclasses import dataclass, field
+from typing import TypedDict
 
-from playwright._impl._api_structures import ProxySettings
-from playwright.async_api import Browser as PlaywrightBrowser
-from playwright.async_api import (
+from patchright.async_api import Browser as PlaywrightBrowser
+from patchright.async_api import (
 	Playwright,
 	async_playwright,
 )
@@ -18,6 +18,14 @@ from browser_use.browser.context import BrowserContext, BrowserContextConfig
 from browser_use.utils import time_execution_async
 
 logger = logging.getLogger(__name__)
+
+
+class ProxySettings(TypedDict, total=False):
+	"""Proxy settings configuration"""
+	server: str
+	username: str | None
+	password: str | None
+	bypass: str | None
 
 
 @dataclass
@@ -31,6 +39,9 @@ class BrowserConfig:
 
 		disable_security: True
 			Disable browser security features
+
+		anti_fingerprint: False
+			Enable anti-fingerprinting measures to avoid bot detection
 
 		extra_chromium_args: []
 			Extra arguments to pass to the browser
@@ -48,6 +59,7 @@ class BrowserConfig:
 
 	headless: bool = False
 	disable_security: bool = True
+	anti_fingerprint: bool = False
 	extra_chromium_args: list[str] = field(default_factory=list)
 	chrome_instance_path: str | None = None
 	wss_url: str | None = None
@@ -184,9 +196,9 @@ class Browser:
 
 	async def _setup_standard_browser(self, playwright: Playwright) -> PlaywrightBrowser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
-		browser = await playwright.chromium.launch(
-			headless=self.config.headless,
-			args=[
+		browser_class = getattr(playwright, 'chromium')
+		args = {
+			'chromium': [
 				'--no-sandbox',
 				'--disable-blink-features=AutomationControlled',
 				'--disable-infobars',
@@ -200,11 +212,17 @@ class Browser:
 				'--no-default-browser-check',
 				'--no-startup-window',
 				'--window-position=0,0',
-				# '--window-size=1280,1000',
 			]
 			+ self.disable_security_args
-			+ self.config.extra_chromium_args,
+			+ self.config.extra_chromium_args
+		}
+
+		browser = await browser_class.launch(
+			headless=self.config.headless,
+			channel='chrome' if self.config.anti_fingerprint else None,
+			args=args['chromium'],
 			proxy=self.config.proxy,
+			handle_sigterm=False,
 		)
 		# convert to Browser
 		return browser
