@@ -114,9 +114,6 @@ class MemorySaveAction(BaseModel):
 	category: str = Field(
 		'main', description='The category to organize this memory under (e.g., "product_info", "research", "user_preferences")'
 	)
-	metadata: Optional[dict] = Field(
-		None, description='Optional additional metadata to store with the memory for more detailed filtering later'
-	)
 
 
 class MemoryRetrieveAction(BaseModel):
@@ -126,11 +123,8 @@ class MemoryRetrieveAction(BaseModel):
 	limit: int = Field(
 		5, description='Maximum number of memory results to return - use a smaller number for more focused results'
 	)
-	threshold: float = Field(
-		0.5, description='Minimum similarity score (0-1) for results - higher values return only more relevant matches'
-	)
-	category: Optional[str] = Field(
-		'', description='Optional filter to only search within a specific memory category (e.g., "product_info")'
+	category: str = Field(
+		'main', description='The category to search within (e.g., "product_info", "research", "user_preferences")'
 	)
 
 

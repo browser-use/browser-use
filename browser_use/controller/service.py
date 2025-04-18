@@ -750,12 +750,7 @@ class Controller(Generic[Context]):
 				# Generate metadata
 				metadata = {
 					'category': params.category,
-					'memory_type': 'episodic',
 				}
-
-				# Add user-provided metadata if any
-				if params.metadata:
-					metadata.update(params.metadata)
 
 				# Create a message format that Mem0 expects
 				message = [{'role': 'user', 'content': params.content}]
@@ -794,26 +789,20 @@ class Controller(Generic[Context]):
 					logger.warning(msg)
 					return ActionResult(error=msg, include_in_memory=True)
 
-				# Prepare filters
-				filters = {'metadata.memory_type': 'episodic'}
-
+				filters = {}
 				if params.category:
-					filters['metadata.category'] = params.category
+					filters['category'] = params.category
 
 				# Search memories using Mem0
 				results = browser.memory.mem0.search(
 					query=params.query, agent_id=browser.memory.settings.agent_id, filters=filters, limit=params.limit
 				)
-
+				logger.info(f'Mem0 search results: {results}')
 				# Format results
 				memories = results.get('results', [])
 				if memories:
 					formatted_results = []
 					for i, memory in enumerate(memories):
-						# Filter by threshold if specified
-						if memory.get('score', 0) < params.threshold:
-							continue
-
 						formatted_results.append(
 							f'Memory {i + 1} (ID: {memory.get("id", "unknown")}):\n'
 							f'Category: {memory.get("metadata", {}).get("category", "unknown")}\n'
@@ -826,7 +815,7 @@ class Controller(Generic[Context]):
 							formatted_results
 						)
 					else:
-						msg = f"No memories found matching query '{params.query}' with threshold {params.threshold}"
+						msg = f"No memories found matching query '{params.query}'"
 				else:
 					msg = f"No memories found matching query '{params.query}'"
 

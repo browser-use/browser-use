@@ -25,20 +25,20 @@ browser = Browser(
 async def run_memory_test():
 	agent = Agent(
 		task="""
-		Go to techcrunch.com and perform the following tasks:
-		1. Browse the homepage and save at least 3 interesting article headlines and their brief descriptions to memory in the "tech_news" category.
-		2. Click on one of the articles that interests you and read it. Save key points from the article to memory in the "article_details" category.
-		3. Use the memory_list action to verify what you've saved so far.
-		4. Go back to the homepage and find another article on a different topic. Save information about this article in the "tech_news" category.
-		5. Use memory_retrieve to search for information related to a specific technology or company mentioned in any of the articles.
-		6. Summarize what you've learned from all the articles based on the memories you've saved.
-		7. Delete one of the memories you created and verify it was removed.
+			Go to news.ycombinator.com and perform the following tasks:
+			1. Browse the homepage and save one interesting article headline to memory in the "tech_news" category.
+			2. Save a milestone to memory in the "milestones" category with the message "Completed article selection".
+			3. Use the memory_retrieve action to check if the milestone "Completed article selection" exists. If it exists, continue to the next step. If not, repeat steps 1-2.
+			4. Click on the article you saved and read it. Save one key point from the article to memory in the "article_details" category.
+			5. Save a milestone to memory in the "milestones" category with the message "Completed article reading".
+			6. Use memory_retrieve to check if the milestone "Completed article reading" exists. If it exists, continue to the next step. If not, repeat steps 4-5.
+			7. Use memory_list action to verify what you've saved so far.
+			8. Summarize what you've learned from the article based on the memories you've saved.
 		""",
 		llm=llm,
 		max_actions_per_step=1,
 		browser=browser,
 		enable_memory=True,
-		memory_interval=15,
 	)
 
 	await agent.run(max_steps=30)

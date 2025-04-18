@@ -50,9 +50,7 @@ class Memory:
 		self.message_manager = message_manager
 		self.llm = llm
 		self.settings = settings
-
 		self._memory_config = self.settings.config or self._get_default_config(llm)
-
 		self.mem0 = Mem0Memory.from_config(config_dict=self._memory_config)
 		self.mem0.custom_fact_extraction_prompt = self._get_fact_extraction_prompt()
 
@@ -194,7 +192,7 @@ class Memory:
 		"""
 		Get the fact extraction prompt
 		"""
-		return """You are an AI Agent's Memory System responsible for extracting and storing key information from web browsing sessions. Your task is to process the agent's observations and extract important facts, details, and insights that would be valuable to remember for future reference.
+		return """You are an AI Agent's Memory System responsible for extracting and storing key information from web browsing sessions and agent activities. Your task is to process the agent's observations and extract important facts, details, insights, and progress milestones that would be valuable to remember for future reference.
 
 Types of Information to Extract:
 1. Key content from webpages (headlines, product details, important text)
@@ -205,6 +203,8 @@ Types of Information to Extract:
 6. Error messages or obstacles encountered
 7. Temporal information (dates, times, durations)
 8. Spatial information (layouts, positions, relationships between elements)
+9. Progress milestones - Important completion points or status updates in the agent's workflow
+10. Decision points - Key decisions made during the browsing session
 
 Here are some examples:
 
@@ -223,6 +223,15 @@ Output: {"facts": ["Study suggests OpenAI's models memorized copyrighted content
 Input: Login attempt failed with message "Invalid credentials. Please try again."
 Output: {"facts": ["Login attempt failed", "Error message indicated invalid credentials"]}
 
+Input: Completed initial review of all 5 articles about AI funding.
+Output: {"facts": ["Completed initial review of all 5 articles about AI funding"]}
+
+Input: Decided to focus on Anthropic and OpenAI funding details for the report.
+Output: {"facts": ["Selected Anthropic and OpenAI funding details as focus areas for the report"]}
+
+Input: Finished extracting key statistics from the TechCrunch article.
+Output: {"facts": ["Completed extraction of key statistics from TechCrunch article"]}
+
 Guidelines:
 - Focus on objective, factual information that would be useful to recall later
 - Prioritize specific details over general observations
@@ -230,6 +239,9 @@ Guidelines:
 - Maintain context about what was observed and where
 - Break complex observations into discrete, searchable facts
 - Format each fact as a complete, standalone statement
+- For progress milestones, use clear, direct language describing what was completed
+- For decision points, clearly state what was decided or selected
+- Use consistent, searchable terminology
 - If the content contains no relevant information to remember, return an empty list
 
 Return the extracted facts in JSON format with a "facts" key containing an array of strings.
