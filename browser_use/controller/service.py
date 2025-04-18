@@ -797,7 +797,6 @@ class Controller(Generic[Context]):
 				results = browser.memory.mem0.search(
 					query=params.query, agent_id=browser.memory.settings.agent_id, filters=filters, limit=params.limit
 				)
-				logger.info(f'Mem0 search results: {results}')
 				# Format results
 				memories = results.get('results', [])
 				if memories:
