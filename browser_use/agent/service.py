@@ -23,7 +23,8 @@ from langchain_core.messages import (
 from pydantic import BaseModel, ValidationError
 
 from browser_use.agent.gif import create_history_gif
-from browser_use.agent.memory.service import Memory, MemorySettings
+from browser_use.agent.memory.service import Memory
+from browser_use.agent.memory.views import MemoryConfig
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
 from browser_use.agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation
 from browser_use.agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
@@ -148,9 +149,8 @@ class Agent(Generic[Context]):
 		#
 		context: Context | None = None,
 		# Memory settings
-		enable_memory: bool = False,
-		memory_interval: int = 10,
-		memory_config: Optional[dict] = None,
+		enable_memory: bool = True,
+		memory_config: Optional[MemoryConfig] = None,
 	):
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
@@ -182,10 +182,11 @@ class Agent(Generic[Context]):
 			planner_llm=planner_llm,
 			planner_interval=planner_interval,
 			is_planner_reasoning=is_planner_reasoning,
-			enable_memory=enable_memory,
-			memory_interval=memory_interval,
-			memory_config=memory_config,
 		)
+
+		# Memory settings
+		self.enable_memory = enable_memory
+		self.memory_config = memory_config
 
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
@@ -253,18 +254,12 @@ class Agent(Generic[Context]):
 			state=self.state.message_manager_state,
 		)
 
-		if self.settings.enable_memory:
-			memory_settings = MemorySettings(
-				agent_id=self.state.agent_id,
-				interval=self.settings.memory_interval,
-				config=self.settings.memory_config,
-			)
-
+		if self.enable_memory:
 			# Initialize memory
 			self.memory = Memory(
 				message_manager=self._message_manager,
 				llm=self.llm,
-				settings=memory_settings,
+				config=self.memory_config,
 			)
 		else:
 			self.memory = None
@@ -407,7 +402,7 @@ class Agent(Generic[Context]):
 			active_page = await self.browser_context.get_current_page()
 
 			# generate procedural memory if needed
-			if self.settings.enable_memory and self.memory and self.state.n_steps % self.settings.memory_interval == 0:
+			if self.enable_memory and self.memory and self.state.n_steps % self.memory.config.memory_interval == 0:
 				self.memory.create_procedural_memory(self.state.n_steps)
 
 			await self._raise_if_stopped_or_paused()

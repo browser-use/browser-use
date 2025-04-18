@@ -242,19 +242,69 @@ Using a separate planner model can help:
 Browser Use includes a procedural memory system using [Mem0](https://mem0.ai) that automatically summarizes the agent's conversation history at regular intervals to optimize context window usage during long tasks.
 
 ```python
+from browser_use.agent.memory import MemoryConfig
+
 agent = Agent(
     task="your task",
     llm=llm,
     enable_memory=True,
-    memory_interval=10, # create procedural memory every 10 steps
+    memory_config=MemoryConfig(
+        agent_id="my_custom_agent",
+        memory_interval=15
+    )
 )
 ```
 
 ### Memory Parameters
 
 - `enable_memory`: Enable/disable the procedural memory system. Defaults to `True`.
-- `memory_interval`: Number of steps between memory summarization. Defaults to `10`.
-- `memory_config`: Optional configuration dictionary for the underlying memory system.
+- `memory_config`: A `MemoryConfig` Pydantic model instance (required). Dictionary format is not supported.
+
+### Using MemoryConfig
+
+You must configure the memory system using the `MemoryConfig` Pydantic model for a type-safe approach:
+
+```python
+from browser_use.agent.memory import MemoryConfig
+
+agent = Agent(
+    task=task_description,
+    llm=llm,
+    memory_config=MemoryConfig(
+        agent_id="my_agent",
+        memory_interval=15,
+        embedder_provider="openai",
+        embedder_model="text-embedding-3-large",
+        embedder_dims=1536,
+    )
+)
+```
+
+The `MemoryConfig` model provides these configuration options:
+
+#### Memory Settings
+- `agent_id`: Unique identifier for the agent (default: `"browser_use_agent"`)
+- `memory_interval`: Number of steps between memory summarization (default: `10`)
+
+#### Embedder Settings
+- `embedder_provider`: Provider for embeddings (`'openai'`, `'gemini'`, `'ollama'`, or `'huggingface'`)
+- `embedder_model`: Model name for the embedder
+- `embedder_dims`: Dimensions for the embeddings
+
+#### Vector Store Settings
+- `vector_store_provider`: Provider for vector storage (currently only `'faiss'` is supported)
+- `vector_store_path`: Path for storing vector data
+
+The model automatically sets appropriate defaults based on the LLM being used:
+- For `ChatOpenAI`: Uses OpenAI's `text-embedding-3-small` embeddings
+- For `ChatGoogleGenerativeAI`: Uses Gemini's `models/text-embedding-004` embeddings
+- For `ChatOllama`: Uses Ollama's `nomic-embed-text` embeddings
+- Default: Uses Hugging Face's `all-MiniLM-L6-v2` embeddings
+
+<Note>
+  Always pass a properly constructed `MemoryConfig` object to the `memory_config` parameter. 
+  Dictionary-based configuration is no longer supported.
+</Note>
 
 ### How Memory Works
 
