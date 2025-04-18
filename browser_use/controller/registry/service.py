@@ -16,7 +16,7 @@ from browser_use.telemetry.views import (
 	ControllerRegisteredFunctionsTelemetryEvent,
 	RegisteredFunction,
 )
-from browser_use.utils import time_execution_async, time_execution_sync
+from browser_use.utils import time_execution_async
 
 Context = TypeVar('Context')
 
@@ -29,7 +29,7 @@ class Registry(Generic[Context]):
 		self.telemetry = ProductTelemetry()
 		self.exclude_actions = exclude_actions if exclude_actions is not None else []
 
-	@time_execution_sync('--create_param_model')
+	# @time_execution_sync('--create_param_model')
 	def _create_param_model(self, function: Callable) -> Type[BaseModel]:
 		"""Creates a Pydantic model from function signature"""
 		sig = signature(function)
@@ -174,7 +174,7 @@ class Registry(Generic[Context]):
 			params.__dict__[key] = replace_secrets(value)
 		return params
 
-	@time_execution_sync('--create_action_model')
+	# @time_execution_sync('--create_action_model')
 	def create_action_model(self, include_actions: Optional[list[str]] = None, page=None) -> Type[ActionModel]:
 		"""Creates a Pydantic model from registered actions, used by LLM APIs that support tool calling & enforce a schema"""
 

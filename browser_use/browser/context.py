@@ -25,7 +25,6 @@ from playwright.async_api import (
 	Page,
 )
 from pydantic import BaseModel, ConfigDict, Field
-from typing_extensions import TypedDict
 
 from browser_use.browser.views import (
 	BrowserError,
@@ -33,6 +32,7 @@ from browser_use.browser.views import (
 	TabInfo,
 	URLNotAllowedError,
 )
+from browser_use.dom.clickable_element_processor.service import ClickableElementProcessor
 from browser_use.dom.service import DomService
 from browser_use.dom.views import DOMElementNode, SelectorMap
 from browser_use.utils import time_execution_async, time_execution_sync
@@ -43,9 +43,24 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class BrowserContextWindowSize(TypedDict):
+class BrowserContextWindowSize(BaseModel):
+	"""Window size configuration for browser context"""
+
 	width: int
 	height: int
+
+	model_config = ConfigDict(
+		extra='allow',  # Allow extra fields to ensure compatibility with dictionary
+		populate_by_name=True,
+		from_attributes=True,
+	)
+
+	# Support dict-like behavior for compatibility
+	def __getitem__(self, key):
+		return getattr(self, key)
+
+	def get(self, key, default=None):
+		return getattr(self, key, default)
 
 
 class BrowserContextConfig(BaseModel):
@@ -56,8 +71,8 @@ class BrowserContextConfig(BaseModel):
 	    cookies_file: None
 	        Path to cookies file for persistence
 
-		disable_security: True
-			Disable browser security features
+		disable_security: False
+			Disable browser security features (dangerous, but cross-origin iframe support requires it)
 
 	    minimum_wait_page_load_time: 0.5
 	        Minimum time to wait before getting page state for LLM input
@@ -72,7 +87,7 @@ class BrowserContextConfig(BaseModel):
 	    wait_between_actions: 1.0
 	        Time to wait between multiple per step actions
 
-	    browser_window_size: {'width': 1280, 'height': 1100}
+	    browser_window_size: BrowserContextWindowSize(width=1280, height=1100)
 	        Default browser window size
 
 	    no_viewport: False
@@ -96,7 +111,7 @@ class BrowserContextConfig(BaseModel):
 	    highlight_elements: True
 	        Highlight elements in the DOM on the screen
 
-	    viewport_expansion: 500
+	    viewport_expansion: 0
 	        Viewport expansion in pixels. This amount will increase the number of elements which are included in the state what the LLM will see. If set to -1, all elements will be included (this leads to high token usage). If set to 0, only the elements which are visible in the viewport will be included.
 
 	    allowed_domains: None
@@ -141,9 +156,11 @@ class BrowserContextConfig(BaseModel):
 	maximum_wait_page_load_time: float = 5
 	wait_between_actions: float = 0.5
 
-	disable_security: bool = True
+	disable_security: bool = False  # disable_security=True is dangerous as any malicious URL visited could embed an iframe for the user's bank, and use their cookies to steal money
 
-	browser_window_size: BrowserContextWindowSize = Field(default_factory=lambda: {'width': 1280, 'height': 1100})
+	browser_window_size: BrowserContextWindowSize = Field(
+		default_factory=lambda: BrowserContextWindowSize(width=1280, height=1100)
+	)
 	no_viewport: Optional[bool] = None
 
 	save_recording_path: str | None = None
@@ -156,7 +173,7 @@ class BrowserContextConfig(BaseModel):
 	)
 
 	highlight_elements: bool = True
-	viewport_expansion: int = 500
+	viewport_expansion: int = 0
 	allowed_domains: list[str] | None = None
 	include_dynamic_attributes: bool = True
 	http_credentials: dict[str, str] | None = None
@@ -167,6 +184,16 @@ class BrowserContextConfig(BaseModel):
 	geolocation: dict | None = None
 	permissions: list[str] | None = None
 	timezone_id: str | None = None
+
+
+@dataclass
+class CachedStateClickableElementsHashes:
+	"""
+	Clickable elements hashes for the last state
+	"""
+
+	url: str
+	hashes: set[str]
 
 
 class BrowserSession:
@@ -218,6 +245,9 @@ class BrowserSession:
 		self.active_tab = None
 		self.context = context
 		self.cached_state = cached_state
+
+		self.cached_state_clickable_elements_hashes: CachedStateClickableElementsHashes | None = None
+
 		self.context.on('page', lambda page: page.add_init_script(init_script))
 
 
@@ -239,7 +269,7 @@ class BrowserContext:
 	):
 		self.context_id = str(uuid.uuid4())
 
-		self.config = config or BrowserContextConfig(**browser.config)
+		self.config = config or BrowserContextConfig(**(browser.config.model_dump() if browser.config else {}))
 		self.browser = browser
 
 		self.state = state or BrowserContextState()
@@ -420,7 +450,7 @@ class BrowserContext:
 				bypass_csp=self.config.disable_security,
 				ignore_https_errors=self.config.disable_security,
 				record_video_dir=self.config.save_recording_path,
-				record_video_size=self.config.browser_window_size,
+				record_video_size=self.config.browser_window_size.model_dump(),
 				record_har_path=self.config.save_har_path,
 				locale=self.config.locale,
 				http_credentials=self.config.http_credentials,
@@ -437,9 +467,22 @@ class BrowserContext:
 		# Load cookies if they exist
 		if self.config.cookies_file and os.path.exists(self.config.cookies_file):
 			with open(self.config.cookies_file, 'r') as f:
-				cookies = json.load(f)
-				logger.info(f'🍪  Loaded {len(cookies)} cookies from {self.config.cookies_file}')
-				await context.add_cookies(cookies)
+				try:
+					cookies = json.load(f)
+
+					valid_same_site_values = ['Strict', 'Lax', 'None']
+					for cookie in cookies:
+						if 'sameSite' in cookie:
+							if cookie['sameSite'] not in valid_same_site_values:
+								logger.warning(
+									f"Fixed invalid sameSite value '{cookie['sameSite']}' to 'None' for cookie {cookie.get('name')}"
+								)
+								cookie['sameSite'] = 'None'
+					logger.info(f'🍪  Loaded {len(cookies)} cookies from {self.config.cookies_file}')
+					await context.add_cookies(cookies)
+
+				except json.JSONDecodeError as e:
+					logger.error(f'Failed to parse cookies file: {str(e)}')
 
 		# Expose anti-detection scripts
 		await context.add_init_script(
@@ -849,11 +892,39 @@ class BrowserContext:
 		return structure
 
 	@time_execution_sync('--get_state')  # This decorator might need to be updated to handle async
-	async def get_state(self) -> BrowserState:
-		"""Get the current state of the browser"""
+	async def get_state(self, cache_clickable_elements_hashes: bool) -> BrowserState:
+		"""Get the current state of the browser
+
+		cache_clickable_elements_hashes: bool
+			If True, cache the clickable elements hashes for the current state. This is used to calculate which elements are new to the llm (from last message) -> reduces token usage.
+		"""
 		await self._wait_for_page_and_frames_load()
 		session = await self.get_session()
-		session.cached_state = await self._update_state()
+		updated_state = await self._get_updated_state()
+
+		# Find out which elements are new
+		# Do this only if url has not changed
+		if cache_clickable_elements_hashes:
+			# if we are on the same url as the last state, we can use the cached hashes
+			if (
+				session.cached_state_clickable_elements_hashes
+				and session.cached_state_clickable_elements_hashes.url == updated_state.url
+			):
+				# Pointers, feel free to edit in place
+				updated_state_clickable_elements = ClickableElementProcessor.get_clickable_elements(updated_state.element_tree)
+
+				for dom_element in updated_state_clickable_elements:
+					dom_element.is_new = (
+						ClickableElementProcessor.hash_dom_element(dom_element)
+						not in session.cached_state_clickable_elements_hashes.hashes  # see which elements are new from the last state where we cached the hashes
+					)
+			# in any case, we need to cache the new hashes
+			session.cached_state_clickable_elements_hashes = CachedStateClickableElementsHashes(
+				url=updated_state.url,
+				hashes=ClickableElementProcessor.get_clickable_elements_hashes(updated_state.element_tree),
+			)
+
+		session.cached_state = updated_state
 
 		# Save cookies if a file is specified
 		if self.config.cookies_file:
@@ -861,7 +932,7 @@ class BrowserContext:
 
 		return session.cached_state
 
-	async def _update_state(self, focus_element: int = -1) -> BrowserState:
+	async def _get_updated_state(self, focus_element: int = -1) -> BrowserState:
 		"""Update and return state."""
 		session = await self.get_session()
 
@@ -1141,6 +1212,9 @@ class BrowserContext:
 					css_selector += f'[{safe_attribute}]'
 				elif any(char in value for char in '"\'<>`\n\r\t'):
 					# Use contains for values with special characters
+					# For newline-containing text, only use the part before the newline
+					if '\n' in value:
+						value = value.split('\n')[0]
 					# Regex-substitute *any* whitespace with a single space, then strip.
 					collapsed_value = re.sub(r'\s+', ' ', value).strip()
 					# Escape embedded double-quotes.
@@ -1192,7 +1266,9 @@ class BrowserContext:
 				# Try to scroll into view if hidden
 				element_handle = await current_frame.query_selector(css_selector)
 				if element_handle:
-					await element_handle.scroll_into_view_if_needed()
+					is_hidden = await element_handle.is_hidden()
+					if not is_hidden:
+						await element_handle.scroll_into_view_if_needed()
 					return element_handle
 				return None
 		except Exception as e:
@@ -1210,7 +1286,9 @@ class BrowserContext:
 			# Use XPath to locate the element
 			element_handle = await current_frame.query_selector(f'xpath={xpath}')
 			if element_handle:
-				await element_handle.scroll_into_view_if_needed()
+				is_hidden = await element_handle.is_hidden()
+				if not is_hidden:
+					await element_handle.scroll_into_view_if_needed()
 				return element_handle
 			return None
 		except Exception as e:
@@ -1228,7 +1306,9 @@ class BrowserContext:
 			# Use CSS selector to locate the element
 			element_handle = await current_frame.query_selector(css_selector)
 			if element_handle:
-				await element_handle.scroll_into_view_if_needed()
+				is_hidden = await element_handle.is_hidden()
+				if not is_hidden:
+					await element_handle.scroll_into_view_if_needed()
 				return element_handle
 			return None
 		except Exception as e:
@@ -1265,7 +1345,9 @@ class BrowserContext:
 			else:
 				element_handle = elements[0]
 
-			await element_handle.scroll_into_view_if_needed()
+			is_hidden = await element_handle.is_hidden()
+			if not is_hidden:
+				await element_handle.scroll_into_view_if_needed()
 			return element_handle
 		except Exception as e:
 			logger.error(f"❌  Failed to locate element by text '{text}': {str(e)}")
@@ -1290,7 +1372,9 @@ class BrowserContext:
 			# Ensure element is ready for input
 			try:
 				await element_handle.wait_for_element_state('stable', timeout=1000)
-				await element_handle.scroll_into_view_if_needed(timeout=1000)
+				is_hidden = await element_handle.is_hidden()
+				if not is_hidden:
+					await element_handle.scroll_into_view_if_needed(timeout=1000)
 			except Exception:
 				pass
 

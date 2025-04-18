@@ -38,6 +38,7 @@ llm = AzureChatOpenAI(
 agent = Agent(
 	task='Go to amazon.com, search for laptop, sort by best rating, and give me the price of the first result',
 	llm=llm,
+	enable_memory=True,
 )
 
 

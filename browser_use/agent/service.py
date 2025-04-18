@@ -83,7 +83,7 @@ def log_response(response: AgentOutput) -> None:
 
 Context = TypeVar('Context')
 
-AgentHookFunc = Callable[['Agent'], None]
+AgentHookFunc = Callable[['Agent'], Awaitable[None]]
 
 
 class Agent(Generic[Context]):
@@ -148,7 +148,7 @@ class Agent(Generic[Context]):
 		#
 		context: Context | None = None,
 		# Memory settings
-		enable_memory: bool = True,
+		enable_memory: bool = False,
 		memory_interval: int = 10,
 		memory_config: Optional[dict] = None,
 	):
@@ -197,25 +197,40 @@ class Agent(Generic[Context]):
 
 		# Model setup
 		self._set_model_names()
+		self.tool_calling_method = self._set_tool_calling_method()
+
+		# Handle users trying to use use_vision=True with DeepSeek models
+		if 'deepseek' in self.model_name.lower():
+			logger.warning('⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')
+			self.settings.use_vision = False
+		if 'deepseek' in (self.planner_model_name or '').lower():
+			logger.warning(
+				'⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision_for_planner=False for now...'
+			)
+			self.settings.use_vision_for_planner = False
+
 		logger.info(
-			f'🧠 Starting an agent with main_model={self.model_name}, planner_model={self.planner_model_name}, '
-			f'extraction_model={self.settings.page_extraction_llm.model_name if hasattr(self.settings.page_extraction_llm, "model_name") else None}'
+			f'🧠 Starting an agent with main_model={self.model_name}'
+			f'{" +tools" if self.tool_calling_method == "function_calling" else ""}'
+			f'{" +rawtools" if self.tool_calling_method == "raw" else ""}'
+			f'{" +vision" if self.settings.use_vision else ""}'
+			f'{" +memory" if self.settings.enable_memory else ""}, '
+			f'planner_model={self.planner_model_name}'
+			f'{" +reasoning" if self.settings.is_planner_reasoning else ""}'
+			f'{" +vision" if self.settings.use_vision_for_planner else ""}, '
+			f'extraction_model={getattr(self.settings.page_extraction_llm, "model_name", None)} '
 		)
 
-		# LLM API connection setup
-		llm_api_env_vars = REQUIRED_LLM_API_ENV_VARS.get(self.llm.__class__.__name__, [])
-		if llm_api_env_vars and not check_env_variables(llm_api_env_vars):
-			logger.error(f'Environment variables not set for {self.llm.__class__.__name__}')
-			raise ValueError('Environment variables not set')
-
-		# Start non-blocking LLM connection verification
-		self.llm._verified_api_keys = self._verify_llm_connection(self.llm)
+		# Start non-blocking LLM connection verification using create_task, checked later in step()
+		# This will run in parallel with browser launch without leaving dangling coroutines on unclean exits
+		self.llm._verified_api_keys = False
+		self._verification_task = asyncio.create_task(self._verify_llm_connection())
+		self._verification_task.add_done_callback(lambda _: None)
 
 		# Initialize available actions for system prompt (only non-filtered actions)
 		# These will be used for the system prompt to maintain caching
 		self.unfiltered_actions = self.controller.registry.get_prompt_description()
 
-		self.tool_calling_method = self._set_tool_calling_method()
 		self.settings.message_context = self._set_message_context()
 
 		# Initialize message manager with state
@@ -388,7 +403,7 @@ class Agent(Generic[Context]):
 		tokens = 0
 
 		try:
-			state = await self.browser_context.get_state()
+			state = await self.browser_context.get_state(cache_clickable_elements_hashes=True)
 			active_page = await self.browser_context.get_current_page()
 
 			# generate procedural memory if needed
@@ -416,7 +431,7 @@ class Agent(Generic[Context]):
 				if page_filtered_actions:
 					all_actions += '\n' + page_filtered_actions
 
-				context_lines = self._message_manager.settings.message_context.split('\n')
+				context_lines = (self._message_manager.settings.message_context or '').split('\n')
 				non_action_lines = [line for line in context_lines if not line.startswith('Available actions:')]
 				updated_context = '\n'.join(non_action_lines)
 				if updated_context:
@@ -539,6 +554,7 @@ class Agent(Generic[Context]):
 		include_trace = logger.isEnabledFor(logging.DEBUG)
 		error_msg = AgentError.format_error(error, include_trace=include_trace)
 		prefix = f'❌ Result failed {self.state.consecutive_failures + 1}/{self.settings.max_failures} times:\n '
+		self.state.consecutive_failures += 1
 
 		if 'Browser closed' in error_msg:
 			logger.error('❌  Browser is closed or disconnected, unable to proceed')
@@ -557,7 +573,6 @@ class Agent(Generic[Context]):
 				# give model a hint how output should look like
 				error_msg += '\n\nReturn a valid JSON object with the required fields.'
 
-			self.state.consecutive_failures += 1
 		else:
 			from anthropic import RateLimitError as AnthropicRateLimitError
 			from google.api_core.exceptions import ResourceExhausted
@@ -573,10 +588,8 @@ class Agent(Generic[Context]):
 			if isinstance(error, RATE_LIMIT_ERRORS):
 				logger.warning(f'{prefix}{error_msg}')
 				await asyncio.sleep(self.settings.retry_delay)
-				self.state.consecutive_failures += 1
 			else:
 				logger.error(f'{prefix}{error_msg}')
-				self.state.consecutive_failures += 1
 
 		return [ActionResult(error=error_msg, include_in_memory=True)]
 
@@ -633,6 +646,7 @@ class Agent(Generic[Context]):
 			logger.debug(f'Using {self.tool_calling_method} for {self.chat_model_library}')
 			try:
 				output = self.llm.invoke(input_messages)
+				response = {'raw': output, 'parsed': None}
 			except Exception as e:
 				logger.error(f'Failed to invoke model: {str(e)}')
 				raise LLMException(401, 'LLM API call failed') from e
@@ -641,6 +655,7 @@ class Agent(Generic[Context]):
 			try:
 				parsed_json = extract_json_from_model_output(output.content)
 				parsed = self.AgentOutput(**parsed_json)
+				response['parsed'] = parsed
 			except (ValueError, ValidationError) as e:
 				logger.warning(f'Failed to parse model output: {output} {str(e)}')
 				raise ValueError('Could not parse response.')
@@ -766,8 +781,18 @@ class Agent(Generic[Context]):
 		)
 		signal_handler.register()
 
-		# Start non-blocking LLM connection verification
-		assert await self.llm._verified_api_keys, 'Failed to verify LLM API keys'
+		# Wait for verification task to complete if it exists
+		if hasattr(self, '_verification_task') and not self._verification_task.done():
+			try:
+				await self._verification_task
+			except Exception:
+				# Error already logged in the task
+				pass
+
+		# Check that verification was successful
+		assert self.llm._verified_api_keys or SKIP_LLM_API_KEY_VERIFICATION, (
+			'Failed to connect to LLM API or LLM API is not responding correctly'
+		)
 
 		try:
 			self._log_agent_run()
@@ -867,8 +892,21 @@ class Agent(Generic[Context]):
 
 		for i, action in enumerate(actions):
 			if action.get_index() is not None and i != 0:
-				new_state = await self.browser_context.get_state()
-				new_path_hashes = set(e.hash.branch_path_hash for e in new_state.selector_map.values())
+				new_state = await self.browser_context.get_state(cache_clickable_elements_hashes=False)
+				new_selector_map = new_state.selector_map
+
+				# Detect index change after previous action
+				orig_target = cached_selector_map.get(action.get_index())  # type: ignore
+				orig_target_hash = orig_target.hash.branch_path_hash if orig_target else None
+				new_target = new_selector_map.get(action.get_index())  # type: ignore
+				new_target_hash = new_target.hash.branch_path_hash if new_target else None
+				if orig_target_hash != new_target_hash:
+					msg = f'Element index changed after action {i} / {len(actions)}, because page changed.'
+					logger.info(msg)
+					results.append(ActionResult(extracted_content=msg, include_in_memory=True))
+					break
+
+				new_path_hashes = set(e.hash.branch_path_hash for e in new_selector_map.values())
 				if check_for_new_elements and not new_path_hashes.issubset(cached_path_hashes):
 					# next action requires index but there are new elements on the page
 					msg = f'Something new appeared after action {i} / {len(actions)}'
@@ -921,7 +959,7 @@ class Agent(Generic[Context]):
 		)
 
 		if self.browser_context.session:
-			state = await self.browser_context.get_state()
+			state = await self.browser_context.get_state(cache_clickable_elements_hashes=False)
 			content = AgentMessagePrompt(
 				state=state,
 				result=self.state.last_result,
@@ -959,6 +997,9 @@ class Agent(Generic[Context]):
 			logger.info('✅ Successfully')
 		else:
 			logger.info('❌ Unfinished')
+
+		total_tokens = self.state.history.total_input_tokens()
+		logger.info(f'📝 Total input tokens used (approximate): {total_tokens}')
 
 		if self.register_done_callback:
 			if inspect.iscoroutinefunction(self.register_done_callback):
@@ -1028,7 +1069,7 @@ class Agent(Generic[Context]):
 
 	async def _execute_history_step(self, history_item: AgentHistory, delay: float) -> list[ActionResult]:
 		"""Execute a single step from history with element validation"""
-		state = await self.browser_context.get_state()
+		state = await self.browser_context.get_state(cache_clickable_elements_hashes=False)
 		if not state or not history_item.model_output:
 			raise ValueError('Invalid state or model output')
 		updated_actions = []
@@ -1144,42 +1185,53 @@ class Agent(Generic[Context]):
 
 		return converted_actions
 
-	async def _verify_llm_connection(self, llm: BaseChatModel) -> bool:
+	async def _verify_llm_connection(self) -> bool:
 		"""
-		Verify that the LLM API keys are working properly by sending a simple test prompt
-		and checking that the response contains the expected answer.
+		Verify that the LLM API keys are setup and the LLM API is responding properly.
+		Helps prevent errors due to running out of API credits, missing env vars, or network issues.
 		"""
-		if getattr(llm, '_verified_api_keys', None) is True or SKIP_LLM_API_KEY_VERIFICATION:
-			# If the LLM API keys have already been verified during a previous run, skip the test
+		if getattr(self.llm, '_verified_api_keys', None) is True:
+			return True  # If the LLM API keys have already been verified during a previous run, skip the test
+
+		# Check if required environment variables are set for the model we're using
+		required_keys = REQUIRED_LLM_API_ENV_VARS.get(self.llm.__class__.__name__, [])
+		if required_keys and not check_env_variables(required_keys, any_or_all=all):
+			error = f'LLM API Key environment variables not set up for {self.llm.__class__.__name__}, missing: {required_keys}'
+			logger.warning(f'❌ {error}')
+			if not SKIP_LLM_API_KEY_VERIFICATION:
+				self.llm._verified_api_keys = False
+				raise ValueError(error)
+
+		if SKIP_LLM_API_KEY_VERIFICATION:  # skip roundtrip connection test for speed in cloud environment
+			self.llm._verified_api_keys = True
 			return True
 
 		test_prompt = 'What is the capital of France? Respond with a single word.'
 		test_answer = 'paris'
-		required_keys = REQUIRED_LLM_API_ENV_VARS.get(llm.__class__.__name__, ['OPENAI_API_KEY'])
 		try:
-			response = await llm.ainvoke([HumanMessage(content=test_prompt)])
+			response = await self.llm.ainvoke([HumanMessage(content=test_prompt)])
 			response_text = str(response.content).lower()
 
 			if test_answer in response_text:
 				logger.debug(
-					f'🧠 LLM API keys {", ".join(required_keys)} verified, {llm.__class__.__name__} model is connected and responding correctly.'
+					f'🧠 LLM API keys {", ".join(required_keys)} verified, {self.llm.__class__.__name__} model is connected and responding correctly.'
 				)
-				llm._verified_api_keys = True
+				self.llm._verified_api_keys = True
 				return True
 			else:
 				logger.debug(
-					'❌  Got bad LLM response to basic sanity check question: %s  EXPECTING: %s  GOT: %s',
+					'❌  Got bad LLM response to basic sanity check question: \n\t  %s\n\t\tEXPECTING: %s\n\t\tGOT: %s',
 					test_prompt,
 					test_answer,
 					response,
 				)
 				raise Exception('LLM responded to a simple test question incorrectly')
 		except Exception as e:
+			self.llm._verified_api_keys = False
 			logger.error(
-				f'\n\n❌  LLM {llm.__class__.__name__} connection test failed. Check that {", ".join(required_keys)} is set correctly in .env and that the LLM API account has sufficient funding.\n'
+				f'\n\n❌  LLM {self.llm.__class__.__name__} connection test failed. Check that {", ".join(required_keys)} is set correctly in .env and that the LLM API account has sufficient funding.\n\n{e}\n'
 			)
 			raise Exception(f'LLM API connection test failed: {e}') from e
-		return False
 
 	async def _run_planner(self) -> Optional[str]:
 		"""Run the planner to analyze state and suggest next steps"""
