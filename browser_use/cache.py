@@ -63,11 +63,19 @@ def save_plan_to_cache(task: str, url: str, dom: str, plan: List[Dict[str, Any]]
         # Generate a unique key for the cache file
         key = _hash_data(task, url, dom)
         file_path = CACHE_DIR / f"{key}.json"
-        # Write the plan list to the cache file in JSON format
-        with open(file_path, "w", encoding="utf-8") as f:
+        temp_path = file_path.with_suffix('.tmp')
+        # Write to temporary file first
+        with open(temp_path, "w", encoding="utf-8") as f:
             json.dump(plan, f, indent=2)
+        # Atomic rename to final location
+        os.replace(temp_path, file_path)
     except OSError as e:
         logger.error(f"Failed to save plan to cache: {e}")
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
 
 # Clear all cached task plans
 def clear_cache():
@@ -95,24 +103,38 @@ def _get_cache_size() -> int:
 def manage_cache():
     """Manage cache by removing expired files and ensuring size limit."""
     try:
-        # Remove expired files
+        # Get all cache files with their stats in a single scan
+        cache_files = []
+        total_size = 0
+        now = time.time()
+        expiration_time = now - (CACHE_EXPIRATION_DAYS * 86400)
+
         for file in CACHE_DIR.glob("*.json"):
-            if _is_expired(file):
+            try:
+                stats = file.stat()
+                total_size += stats.st_size
+                if stats.st_mtime < expiration_time:
+                    # Delete expired files immediately
+                    file.unlink()
+                else:
+                    cache_files.append((file, stats.st_mtime))
+            except OSError as e:
+                logger.error(f"Error processing cache file {file}: {e}")
+
+        # Convert total size to MB
+        total_size_mb = total_size // (1024 * 1024)
+
+        # If still over limit, remove oldest files
+        if total_size_mb > CACHE_MAX_SIZE_MB and cache_files:
+            cache_files.sort(key=lambda x: x[1])  # Sort by modification time
+            for file, _ in cache_files:
                 try:
                     file.unlink()
+                    total_size_mb = _get_cache_size()  # Recalculate size
+                    if total_size_mb <= CACHE_MAX_SIZE_MB:
+                        break
                 except OSError as e:
-                    logger.error(f"Failed to delete expired cache file {file}: {e}")
+                    logger.error(f"Failed to delete cache file {file}: {e}")
 
-        # Check if cache size exceeds the limit
-        while _get_cache_size() > CACHE_MAX_SIZE_MB:
-            # Find the oldest file and delete it
-            oldest_file = min(CACHE_DIR.glob("*.json"), key=lambda f: f.stat().st_mtime, default=None)
-            if oldest_file:
-                try:
-                    oldest_file.unlink()
-                except OSError as e:
-                    logger.error(f"Failed to delete cache file {oldest_file}: {e}")
-            else:
-                break
     except OSError as e:
         logger.error(f"Failed to manage cache: {e}")
