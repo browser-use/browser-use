@@ -125,6 +125,45 @@ documentation](https://playwright.dev/docs/api/class-browsercontext).
   browser will be automatically created and closed on `run()` completion.
 </Note>
 
+## Anti-Fingerprinting
+
+Browser Use includes anti-fingerprinting capabilities to help avoid detection by bot detection systems like Cloudflare and DataDome:
+
+```python
+from browser_use import Agent, BrowserConfig
+
+# Method 1: Configure anti-fingerprinting in BrowserConfig
+browser_config = BrowserConfig()
+browser_config.anti_fingerprint = True  # Enable anti-fingerprinting measures
+
+agent = Agent(
+    task="Search for something on a site with bot detection",
+    llm=llm,
+    browser_config=browser_config,
+)
+
+# Method 2: Enable anti-fingerprinting directly in agent settings
+agent = Agent(
+    task="Search for something on a site with bot detection",
+    llm=llm,
+    settings={
+        "anti_fingerprint": True,  # Enable anti-fingerprinting measures
+    }
+)
+```
+
+### Anti-Fingerprinting Features
+
+When enabled, the anti-fingerprinting system:
+
+- Overrides navigator properties to appear more like a regular browser
+- Simulates realistic plugins and mime types
+- Adds subtle noise to canvas, audio, and WebGL fingerprinting methods
+- Normalizes hardware information like screen dimensions and color depth
+- Ensures consistent behavior across all pages in a browser context
+
+This is particularly useful for tasks that involve websites with strict bot detection mechanisms.
+
 ## Running the Agent
 
 The agent is executed using the async `run()` method:

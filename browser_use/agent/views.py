@@ -70,6 +70,9 @@ class AgentSettings(BaseModel):
 	planner_interval: int = 1  # Run planner every N steps
 	is_planner_reasoning: bool = False  # type: ignore
 
+	# Browser settings
+	anti_fingerprint: bool = False  # Enable anti-fingerprinting measures to avoid detection
+
 	# Procedural memory settings
 	enable_memory: bool = True
 	memory_interval: int = 10

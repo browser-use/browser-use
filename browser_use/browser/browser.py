@@ -85,6 +85,9 @@ class BrowserConfig(BaseModel):
 
 		deterministic_rendering: False
 			Enable deterministic rendering (makes GPU/font rendering consistent across different OS's and docker)
+
+		anti_fingerprint: False
+			Enable anti-fingerprinting measures to avoid detection by bot detection systems
 	"""
 
 	model_config = ConfigDict(
@@ -106,6 +109,7 @@ class BrowserConfig(BaseModel):
 	headless: bool = False
 	disable_security: bool = False  # disable_security=True is dangerous as any malicious URL visited could embed an iframe for the user's bank, and use their cookies to steal money
 	deterministic_rendering: bool = False
+	anti_fingerprint: bool = False  # Enable anti-fingerprinting measures to avoid detection
 	keep_alive: bool = Field(default=False, alias='_force_keep_browser_alive')  # used to be called _force_keep_browser_alive
 
 	proxy: ProxySettings | None = None

@@ -40,7 +40,7 @@ from browser_use.agent.views import (
 	StepMetadata,
 	ToolCallingMethod,
 )
-from browser_use.browser.browser import Browser
+from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext
 from browser_use.browser.views import BrowserState, BrowserStateHistory
 from browser_use.controller.registry.views import ActionModel
@@ -143,6 +143,8 @@ class Agent(Generic[Context]):
 		planner_llm: Optional[BaseChatModel] = None,
 		planner_interval: int = 1,  # Run planner every N steps
 		is_planner_reasoning: bool = False,
+		# Anti-fingerprinting settings
+		anti_fingerprint: bool = False,
 		# Inject state
 		injected_agent_state: Optional[AgentState] = None,
 		#
@@ -182,6 +184,7 @@ class Agent(Generic[Context]):
 			planner_llm=planner_llm,
 			planner_interval=planner_interval,
 			is_planner_reasoning=is_planner_reasoning,
+			anti_fingerprint=anti_fingerprint,
 			enable_memory=enable_memory,
 			memory_interval=memory_interval,
 			memory_config=memory_config,
@@ -280,10 +283,23 @@ class Agent(Generic[Context]):
 		# Browser setup
 		self.injected_browser = browser is not None
 		self.injected_browser_context = browser_context is not None
-		self.browser = browser or Browser()
-		self.browser_context = browser_context or BrowserContext(
-			browser=self.browser, config=self.browser.config.new_context_config
-		)
+
+		# Create browser with anti-fingerprinting if enabled in settings
+		if not browser and hasattr(self.settings, 'anti_fingerprint') and self.settings.anti_fingerprint:
+			logger.info('🥸 Creating browser with anti-fingerprinting enabled')
+			browser_config = BrowserConfig(anti_fingerprint=True)
+			self.browser = Browser(config=browser_config)
+		else:
+			self.browser = browser or Browser()
+
+		# Create browser context with anti-fingerprinting if enabled in settings
+		if not browser_context:
+			context_config = self.browser.config.new_context_config
+			if hasattr(self.settings, 'anti_fingerprint') and self.settings.anti_fingerprint:
+				context_config.anti_fingerprint = True
+			self.browser_context = BrowserContext(browser=self.browser, config=context_config)
+		else:
+			self.browser_context = browser_context
 
 		# Callbacks
 		self.register_new_step_callback = register_new_step_callback
