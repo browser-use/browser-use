@@ -2,30 +2,40 @@ import os
 import json
 import hashlib
 import logging
+import time
 from pathlib import Path
 from typing import List, Union, Dict, Any
 
 logger = logging.getLogger(__name__)
 
-# Directory where cached task plans will be stored
-CACHE_DIR = Path(".cache/task_plans")
+
+# Can be configured via BROWSER_USE_CACHE_DIR environment variable
+CACHE_DIR = Path(os.getenv('BROWSER_USE_CACHE_DIR', '.cache/task_plans'))
 # Ensure the cache directory exists, creating it if necessary
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-# Generate a unique hash based on task, URL, and DOM content
+CACHE_EXPIRATION_DAYS = 7  # Cache files older than this will be deleted
+CACHE_MAX_SIZE_MB = 100  # Maximum cache size in megabytes
+
+# Normalize the DOM string to reduce sensitivity to minor changes
+def _normalize_dom(dom: str) -> str:
+    """Normalize the DOM string to reduce sensitivity to minor changes."""
+    # Remove extra whitespace and line breaks
+    normalized_dom = " ".join(dom.split())
+    # Optionally, add more normalization logic here if needed
+    return normalized_dom
+
+# Generate a unique hash based on task, URL, and normalized DOM content
 def _hash_data(task: str, url: str, dom: str) -> str:
-    # Validate inputs for None values
+    """Generate a unique hash based on task, URL, and normalized DOM content."""
     if task is None or url is None or dom is None:
         raise ValueError("Task, URL, and DOM must not be None")
-    # Normalize and structure the input data for hashing
     fingerprint_data = {
-        "task": task.strip().lower(),  # Normalize task string
-        "url": url.strip().lower(),   # Normalize URL string
-        "dom": dom.strip()            # Normalize DOM string
+        "task": task.strip().lower(),
+        "url": url.strip().lower(),
+        "dom": _normalize_dom(dom)  # Use normalized DOM
     }
-    # Convert the structured data to a JSON string with consistent key order
     fingerprint_json = json.dumps(fingerprint_data, sort_keys=True)
-    # Return a SHA-256 hash of the JSON string
     return hashlib.sha256(fingerprint_json.encode()).hexdigest()
 
 # Load a cached task plan if it exists
@@ -71,3 +81,38 @@ def clear_cache():
                 logger.error(f"Failed to delete cache file {file}: {e}")
     except OSError as e:
         logger.error(f"Failed to clear cache directory: {e}")
+
+# Add a mechanism to manage cache size and expiration policy
+def _is_expired(file_path: Path) -> bool:
+    """Check if a cache file is expired based on its modification time."""
+    expiration_time = time.time() - (CACHE_EXPIRATION_DAYS * 86400)  # Convert days to seconds
+    return file_path.stat().st_mtime < expiration_time
+
+def _get_cache_size() -> int:
+    """Calculate the total size of the cache directory in megabytes."""
+    return sum(f.stat().st_size for f in CACHE_DIR.glob("*.json")) // (1024 * 1024)
+
+def manage_cache():
+    """Manage cache by removing expired files and ensuring size limit."""
+    try:
+        # Remove expired files
+        for file in CACHE_DIR.glob("*.json"):
+            if _is_expired(file):
+                try:
+                    file.unlink()
+                except OSError as e:
+                    logger.error(f"Failed to delete expired cache file {file}: {e}")
+
+        # Check if cache size exceeds the limit
+        while _get_cache_size() > CACHE_MAX_SIZE_MB:
+            # Find the oldest file and delete it
+            oldest_file = min(CACHE_DIR.glob("*.json"), key=lambda f: f.stat().st_mtime, default=None)
+            if oldest_file:
+                try:
+                    oldest_file.unlink()
+                except OSError as e:
+                    logger.error(f"Failed to delete cache file {oldest_file}: {e}")
+            else:
+                break
+    except OSError as e:
+        logger.error(f"Failed to manage cache: {e}")
