@@ -139,6 +139,9 @@ class BrowserContextConfig(BaseModel):
 
 	    timezone_id: None
 	        Changes the timezone of the browser. Example: 'Europe/Berlin'
+
+		force_new_context: False
+			Forces a new browser context to be created. Useful when running locally with branded browser (e.g Chrome, Edge) and setting a custom config.
 	"""
 
 	model_config = ConfigDict(
@@ -184,6 +187,8 @@ class BrowserContextConfig(BaseModel):
 	geolocation: dict | None = None
 	permissions: list[str] | None = None
 	timezone_id: str | None = None
+
+	force_new_context: bool = False
 
 
 @dataclass
@@ -436,9 +441,9 @@ class BrowserContext:
 
 	async def _create_context(self, browser: PlaywrightBrowser):
 		"""Creates a new browser context with anti-detection measures and loads cookies if available."""
-		if self.browser.config.cdp_url and len(browser.contexts) > 0:
+		if self.browser.config.cdp_url and len(browser.contexts) > 0 and not self.config.force_new_context:
 			context = browser.contexts[0]
-		elif self.browser.config.browser_binary_path and len(browser.contexts) > 0:
+		elif self.browser.config.browser_binary_path and len(browser.contexts) > 0 and not self.config.force_new_context:
 			# Connect to existing Chrome instance instead of creating new one
 			context = browser.contexts[0]
 		else:
