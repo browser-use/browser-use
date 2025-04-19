@@ -383,6 +383,24 @@
     }
   }
 
+  function getElementPosition(currentElement) {
+    if (!currentElement.parentElement) {
+      return 0; // No parent means no siblings
+    }
+  
+    const tagName = currentElement.nodeName.toLowerCase();
+  
+    const siblings = Array.from(currentElement.parentElement.children)
+      .filter((sib) => sib.nodeName.toLowerCase() === tagName);
+  
+    if (siblings.length === 1) {
+      return 0; // Only element of its type
+    }
+  
+    const index = siblings.indexOf(currentElement) + 1; // 1-based index
+    return index;
+  }
+
   /**
    * Returns an XPath tree string for an element.
    */
@@ -400,20 +418,9 @@
         break;
       }
 
-      let index = 0;
-      let sibling = currentElement.previousSibling;
-      while (sibling) {
-        if (
-          sibling.nodeType === Node.ELEMENT_NODE &&
-          sibling.nodeName === currentElement.nodeName
-        ) {
-          index++;
-        }
-        sibling = sibling.previousSibling;
-      }
-
+      const position = getElementPosition(currentElement);
       const tagName = currentElement.nodeName.toLowerCase();
-      const xpathIndex = index > 0 ? `[${index + 1}]` : "";
+      const xpathIndex = position > 0 ? `[${position}]` : "";
       segments.unshift(`${tagName}${xpathIndex}`);
 
       currentElement = currentElement.parentNode;
