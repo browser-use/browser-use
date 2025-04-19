@@ -34,6 +34,11 @@ dependencies = [
     "typing-extensions>=4.12.2",
     "psutil>=7.0.0",
     "faiss-cpu>=1.10.0",
+]
+
+# Optional dependencies for memory functionality
+[project.optional-dependencies]
+memory = [
     "mem0ai==0.1.88",
     "sentence-transformers>=4.0.2"
 ]
@@ -46,8 +51,9 @@ dependencies = [
 # screeninfo: only used to get screen resolution on Linux/Windows
 # markdownify: used for page text content extraction for passing to LLM
 # openai: datalib,voice-helpers are actually NOT NEEDED but openai produces noisy errors on exit without them TODO: fix
-urls = { "Repository" = "https://github.com/browser-use/browser-use" }
-
+# mem0ai and sentence-transformers: only used for memory functionality, moved to optional dependencies
+[project.urls]
+Repository = "https://github.com/browser-use/browser-use"
 
 [tool.codespell]
 ignore-words-list = "bu"

@@ -28,6 +28,12 @@ With pip (Python>=3.11):
 pip install browser-use
 ```
 
+For memory functionality (requires Python<3.13 due to PyTorch compatibility):  
+
+```bash
+pip install "browser-use[memory]"
+```
+
 Install Playwright:
 ```bash
 playwright install chromium

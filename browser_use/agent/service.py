@@ -262,18 +262,26 @@ class Agent(Generic[Context]):
 		)
 
 		if self.settings.enable_memory:
-			memory_settings = MemorySettings(
-				agent_id=self.state.agent_id,
-				interval=self.settings.memory_interval,
-				config=self.settings.memory_config,
-			)
+			try:
+				memory_settings = MemorySettings(
+					agent_id=self.state.agent_id,
+					interval=self.settings.memory_interval,
+					config=self.settings.memory_config,
+				)
 
-			# Initialize memory
-			self.memory = Memory(
-				message_manager=self._message_manager,
-				llm=self.llm,
-				settings=memory_settings,
-			)
+				# Initialize memory
+				self.memory = Memory(
+					message_manager=self._message_manager,
+					llm=self.llm,
+					settings=memory_settings,
+				)
+			except ImportError:
+				logger.warning(
+					"Memory functionality was enabled but required packages are not installed. "
+					"Install with 'pip install browser-use[memory]' to use memory features."
+				)
+				self.memory = None
+				self.settings.enable_memory = False
 		else:
 			self.memory = None
 
