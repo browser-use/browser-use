@@ -4,7 +4,7 @@
 
 
 # Here is the command to run the evaluation:
-# python eval/service.py --parallel_runs 5 --parallel_evaluations 5 --max-steps 25 --start 0 --end 100
+# python eval/service.py --model gpt-4o --parallel_runs 5 --parallel_evaluations 5 --max-steps 25 --start 0 --end 100
 # options:
 # --parallel_runs: Number of parallel tasks to run
 # --max-steps: Maximum steps per task
@@ -286,14 +286,140 @@ async def Online_Mind2Web_eval_with_retry(task, last_actions, images_path, model
 # ==============================================================================================================
 import argparse
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
 
 from dotenv import load_dotenv
+from langchain_anthropic import ChatAnthropic
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
+from pydantic.types import SecretStr
 
 from browser_use import Agent, Browser, BrowserConfig
+
+SUPPORTED_MODELS = {
+	# Anthropic
+	'claude-3.5-sonnet': {
+		'provider': 'anthropic',
+		'model_name': 'claude-3-5-sonnet-20240620',
+		'api_key_env': 'ANTHROPIC_API_KEY',
+	},
+	'claude-3.5-sonnet-exp': {
+		'provider': 'anthropic',
+		'model_name': 'claude-3-5-sonnet-20241022',
+		'api_key_env': 'ANTHROPIC_API_KEY',
+	},
+	'claude-3.7-sonnet-exp': {
+		'provider': 'anthropic',
+		'model_name': 'claude-3-7-sonnet-20250219',
+		'api_key_env': 'ANTHROPIC_API_KEY',
+	},
+	# Deepseek (via OpenAI Compatible API)
+	'deepseek-reasoner': {
+		'provider': 'openai_compatible',
+		'model_name': 'deepseek-reasoner',
+		'base_url': 'https://api.deepseek.com/v1',
+		'api_key_env': 'DEEPSEEK_API_KEY',
+	},
+	'deepseek-chat': {
+		'provider': 'openai_compatible',
+		'model_name': 'deepseek-chat',
+		'base_url': 'https://api.deepseek.com/v1',
+		'api_key_env': 'DEEPSEEK_API_KEY',
+	},
+	# Google
+	'gemini-1.5-flash': {'provider': 'google', 'model_name': 'gemini-1.5-flash-latest', 'api_key_env': 'GEMINI_API_KEY'},
+	'gemini-2.0-flash-exp': {'provider': 'google', 'model_name': 'gemini-2.0-flash-exp', 'api_key_env': 'GEMINI_API_KEY'},
+	'gemini-2.5-pro': {'provider': 'google', 'model_name': 'gemini-2.5-pro-preview-03-25', 'api_key_env': 'GEMINI_API_KEY'},
+	# OpenAI
+	'gpt-4.1': {'provider': 'openai', 'model_name': 'gpt-4.1-2025-04-14', 'api_key_env': 'OPENAI_API_KEY'},
+	'gpt-4o': {'provider': 'openai', 'model_name': 'gpt-4o', 'api_key_env': 'OPENAI_API_KEY'},
+	# X.ai (via OpenAI Compatible API)
+	'grok-2': {
+		'provider': 'openai_compatible',
+		'model_name': 'grok-2-1212',
+		'base_url': 'https://api.x.ai/v1',
+		'api_key_env': 'XAI_API_KEY',
+	},
+	'grok-3': {
+		'provider': 'openai_compatible',
+		'model_name': 'grok-3-beta',
+		'base_url': 'https://api.x.ai/v1',
+		'api_key_env': 'XAI_API_KEY',
+	},
+}
+
+
+def get_llm(model_name: str):
+	"""Instantiates the correct LangChain ChatModel based on the model name."""
+	if model_name not in SUPPORTED_MODELS:
+		raise ValueError(f'Unsupported model: {model_name}. Supported models are: {list(SUPPORTED_MODELS.keys())}')
+
+	config = SUPPORTED_MODELS[model_name]
+	provider = config['provider']
+	api_key_env = config.get('api_key_env')
+	api_key = os.getenv(api_key_env) if api_key_env else None
+
+	if not api_key and api_key_env:
+		# Only warn if the specified env var is set but key is missing/empty
+		logger.warning(
+			f'API key environment variable {api_key_env} not found or empty for model {model_name}. Trying without API key if possible.'
+		)
+		api_key = None  # Ensure api_key is None if not found
+
+	api_key_secret = SecretStr(api_key) if api_key else None
+
+	if provider == 'openai':
+		kwargs = {
+			'model': config['model_name'],
+			'temperature': 0.0,
+		}
+		if api_key_secret:
+			kwargs['api_key'] = api_key_secret
+		return ChatOpenAI(**kwargs)
+	elif provider == 'anthropic':
+		# Note: Anthropic client often uses env var ANTHROPIC_API_KEY directly if api_key=None
+		kwargs = {
+			'model_name': config['model_name'],
+			'temperature': 0.0,
+			'timeout': 100,
+			'stop': None,
+		}
+		if api_key_secret:
+			kwargs['api_key'] = api_key_secret
+		return ChatAnthropic(**kwargs)
+	elif provider == 'google':
+		# Note: Google client often uses env var GOOGLE_API_KEY directly if api_key=None
+		kwargs = {
+			'model': config['model_name'],
+			'temperature': 0.0,
+		}
+		if api_key_secret:
+			kwargs['api_key'] = api_key_secret
+		return ChatGoogleGenerativeAI(**kwargs)
+	elif provider == 'openai_compatible':
+		# Note: OpenAI client often uses env var OPENAI_API_KEY directly if api_key=None and no base_url specified
+		# Providing base_url requires explicitly passing the key for that endpoint.
+		kwargs = {
+			'model': config['model_name'],
+			'base_url': config['base_url'],
+			'temperature': 0.0,
+		}
+		if api_key_secret:
+			kwargs['api_key'] = api_key_secret
+		# Ensure api_key is provided if base_url is set and key exists
+		elif config.get('base_url'):
+			# If base_url is present but key is missing, we might still error depending on the endpoint's auth requirements.
+			# Log a warning here, the constructor will likely raise an error if the key is truly required.
+			logger.warning(
+				f'API key for {model_name} at {config["base_url"]} is missing, but base_url is specified. Authentication may fail.'
+			)
+		return ChatOpenAI(**kwargs)
+	else:
+		raise ValueError(f'Unknown provider: {provider}')
 
 
 class Task:
@@ -392,18 +518,16 @@ class TaskTracker:
 		return formatted_result
 
 
-async def run_agent_with_tracing(task: Task, browser: Browser | None = None, max_steps: int = 25):
+async def run_agent_with_tracing(
+	task: Task, llm: BaseChatModel, browser: Browser | None = None, max_steps: int = 25, use_vision: bool = True
+):
 	try:
 		# Create task tracker
 		tracker = TaskTracker(task.task_id, task.confirmed_task)
 
 		browser = browser or Browser()
-		llm = ChatOpenAI(
-			model='gpt-4o',
-			temperature=0.0,
-		)
 
-		agent = Agent(task=task.confirmed_task, llm=llm, browser=browser)
+		agent = Agent(task=task.confirmed_task, llm=llm, browser=browser, use_vision=use_vision)
 
 		# Pass our hook functions
 		result = await agent.run(max_steps=max_steps, on_step_start=tracker.on_step_start, on_step_end=tracker.on_step_end)
@@ -544,12 +668,14 @@ async def evaluate_all_saved_results(args) -> Dict:
 
 async def run_multiple_tasks(
 	tasks: list[Task],
+	llm: BaseChatModel,
 	max_parallel_runs: int = 3,
 	max_parallel_evaluations: int = 5,
 	max_steps_per_task: int = 25,
 	start_index: int = 0,
 	end_index: Optional[int] = None,
 	headless: bool = False,
+	use_vision: bool = True,
 ) -> Dict:
 	"""
 	Run multiple tasks in parallel and evaluate results.
@@ -590,7 +716,10 @@ async def run_multiple_tasks(
 				# Create browser with headless configuration
 				browserConfig = BrowserConfig(headless=headless)
 				browser = Browser(config=browserConfig)
-				result = await run_agent_with_tracing(task=task, browser=browser, max_steps=max_steps_per_task)
+				# Pass the llm to run_agent_with_tracing
+				result = await run_agent_with_tracing(
+					task=task, llm=llm, browser=browser, max_steps=max_steps_per_task, use_vision=use_vision
+				)
 				logger.info(f'Completed task {task.task_id}')
 
 				# Extract relevant information from the agent history
@@ -645,6 +774,10 @@ if __name__ == '__main__':
 	parser.add_argument('--end', type=int, default=None, help='End index (exclusive)')
 	parser.add_argument('--headless', action='store_true', help='Run in headless mode')
 	parser.add_argument('--evaluate-only', action='store_true', help='Only evaluate existing results without running new tasks')
+	parser.add_argument(
+		'--model', type=str, default='gpt-4o', choices=list(SUPPORTED_MODELS.keys()), help='Model to use for the agent'
+	)
+	parser.add_argument('--no-vision', action='store_true', help='Disable vision capabilities in the agent')
 	args = parser.parse_args()
 
 	# Set up logging
@@ -673,15 +806,20 @@ if __name__ == '__main__':
 		with open('eval/mind2web_tasks.json', 'r') as f:
 			tasks = [Task(**task) for task in json.load(f)]
 
+		# Get the selected LLM
+		llm = get_llm(args.model)
+
 		results = asyncio.run(
 			run_multiple_tasks(
 				tasks=tasks,
+				llm=llm,  # Pass the instantiated llm
 				max_parallel_runs=args.parallel_runs,
 				max_parallel_evaluations=args.parallel_evaluations,
 				max_steps_per_task=args.max_steps,
 				start_index=args.start,
 				end_index=args.end,
 				headless=args.headless,
+				use_vision=not args.no_vision,
 			)
 		)
 
