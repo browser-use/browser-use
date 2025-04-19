@@ -208,6 +208,13 @@ class Agent(Generic[Context]):
 				'⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision_for_planner=False for now...'
 			)
 			self.settings.use_vision_for_planner = False
+		# Handle users trying to use use_vision=True with XAI models
+		if 'grok' in self.model_name.lower():
+			logger.warning('⚠️ XAI models do not support use_vision=True yet. Setting use_vision=False for now...')
+			self.settings.use_vision = False
+		if 'grok' in (self.planner_model_name or '').lower():
+			logger.warning('⚠️ XAI models do not support use_vision=True yet. Setting use_vision_for_planner=False for now...')
+			self.settings.use_vision_for_planner = False
 
 		logger.info(
 			f'🧠 Starting an agent with main_model={self.model_name}'
