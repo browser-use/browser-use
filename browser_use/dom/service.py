@@ -36,9 +36,10 @@ class DomService:
 
 		# Check if the page's browser context has anti-fingerprinting enabled
 		self.anti_fingerprint = False
-		if hasattr(page, 'context') and hasattr(page.context, '_browser_context_config'):
-			if hasattr(page.context._browser_context_config, 'anti_fingerprint'):
-				self.anti_fingerprint = page.context._browser_context_config.anti_fingerprint
+		if hasattr(page, 'context') and hasattr(page.context, 'get_config'):
+			config = page.context.get_config()
+			if config is not None and hasattr(config, 'anti_fingerprint'):
+				self.anti_fingerprint = config.anti_fingerprint
 
 	# region - Clickable elements
 	@time_execution_async('--get_clickable_elements')
