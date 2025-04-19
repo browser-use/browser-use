@@ -220,6 +220,36 @@ agent = Agent(
 
 Required environment variables: None!
 
+### Novita AI
+[Novita AI](https://novita.ai) is an LLM API provider that offers a wide range of models. Note: choose a model that supports function calling.
+
+```python
+from langchain_openai import ChatOpenAI
+from browser_use import Agent
+from pydantic import SecretStr
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+api_key = os.getenv("NOVITA_API_KEY")
+
+# Initialize the model
+llm = ChatOpenAI(base_url='https://api.novita.ai/v3/openai', model='deepseek/deepseek-v3-0324', api_key=SecretStr(api_key))
+
+# Create agent with the model
+agent = Agent(
+    task="Your task here",
+    llm=llm,
+    use_vision=False
+)
+```
+
+Required environment variables:
+
+```bash .env
+NOVITA_API_KEY=
+```
+
 ## Coming soon
 (We are working on it)
 - Groq

@@ -1,8 +1,14 @@
+"""
+Simple try of the agent.
+
+@dev You need to add NOVITA_API_KEY to your environment variables.
+"""
+
 import asyncio
 import os
 
 from dotenv import load_dotenv
-from langchain_deepseek import ChatDeepSeek
+from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
 from browser_use import Agent
@@ -10,9 +16,9 @@ from browser_use import Agent
 # dotenv
 load_dotenv()
 
-api_key = os.getenv('DEEPSEEK_API_KEY', '')
+api_key = os.getenv('NOVITA_API_KEY', '')
 if not api_key:
-	raise ValueError('DEEPSEEK_API_KEY is not set')
+	raise ValueError('NOVITA_API_KEY is not set')
 
 
 async def run_search():
@@ -23,9 +29,9 @@ async def run_search():
 			'3. Click on first result'
 			'4. Return the first comment'
 		),
-		llm=ChatDeepSeek(
-			base_url='https://api.deepseek.com/v1',
-			model='deepseek-chat',
+		llm=ChatOpenAI(
+			base_url='https://api.novita.ai/v3/openai',
+			model='deepseek/deepseek-v3-0324',
 			api_key=SecretStr(api_key),
 		),
 		use_vision=False,
