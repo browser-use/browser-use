@@ -3,7 +3,6 @@ from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage
 from typing import List, Union,Dict, Any
 import json
 import re
-import ast
 import logging
 
 logger = logging.getLogger(__name__)
@@ -53,8 +52,11 @@ The first action must always be a "navigate" action.
             plan_messages = [self.system_message] + messages
             response = await self.llm.ainvoke(plan_messages)
             plan_raw = response.content.strip() if hasattr(response, "content") else str(response)
+        except json.JSONDecodeError as json_error:
+            logger.error(f"JSON decoding failed: {json_error}")
+            return []
         except Exception as e:
-            logger.error(f"LLM invocation failed: {e}")
+            logger.error(f"Unexpected error during LLM invocation: {e}")
             return []
 
         # Clean up response
@@ -68,18 +70,8 @@ The first action must always be a "navigate" action.
         try:
             plan_parsed = json.loads(plan_raw)
         except json.JSONDecodeError:
-            logger.info("JSON decode failed, attempting recovery...")
-            try:
-                cleaned = plan_raw.replace("'", '"')
-                plan_parsed = json.loads(cleaned)
-                logger.info("Recovery with double-quote replacement.")
-            except json.JSONDecodeError:
-                try:
-                    plan_parsed = ast.literal_eval(plan_raw)
-                    logger.info("Recovery using ast.literal_eval().")
-                except Exception:
-                    logger.error(f"Invalid plan format. Raw response: {repr(plan_raw)}")
-                    return []
+            logger.error("JSON decoding failed. Unable to parse the plan.")
+            return []
 
         # Handle dictionary response with 'action' field
         if isinstance(plan_parsed, dict) and "action" in plan_parsed:
@@ -149,5 +141,6 @@ The first action must always be a "navigate" action.
             return []
 
         # Save valid plan to cache
-        save_plan_to_cache(task, url, dom, valid_actions)
+        if use_cache:
+            save_plan_to_cache(task, url, dom, valid_actions)
         return valid_actions
