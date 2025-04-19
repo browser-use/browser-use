@@ -326,9 +326,9 @@ class Agent(Generic[Context]):
 				source = 'git'
 			else:
 				# If no repo files found, try getting version from pip
-				import pkg_resources
+				from importlib.metadata import version
 
-				version = pkg_resources.get_distribution('browser-use').version
+				version = version('browser-use')
 				source = 'pip'
 		except Exception:
 			version = 'unknown'
