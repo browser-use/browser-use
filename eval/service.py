@@ -60,6 +60,7 @@ import io
 import logging
 import re
 
+import anyio
 from PIL import Image
 
 MAX_IMAGE = 5
@@ -339,8 +340,8 @@ class TaskTracker:
 		screenshot_path = self.trajectory_folder / f'step_{self.step_counter}.png'
 
 		# Save screenshot to file
-		with open(screenshot_path, 'wb') as f:
-			f.write(base64.b64decode(screenshot_b64))
+		async with (await anyio.open_file(screenshot_path, 'wb')) as f:
+			await f.write(base64.b64decode(screenshot_b64))
 
 		# Save screenshot path
 		self.screenshots.append(str(screenshot_path))
@@ -567,8 +568,8 @@ async def run_multiple_tasks(
 			if result_file.exists():
 				logger.info(f'Task {task.task_id} already completed, skipping...')
 				try:
-					with open(result_file) as f:
-						existing_result = json.load(f)
+					async with (await anyio.open_file(result_file)) as f:
+						existing_result = json.loads(await f.read())
 					return {
 						'task_id': task.task_id,
 						'success': True,

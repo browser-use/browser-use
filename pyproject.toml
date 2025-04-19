@@ -11,6 +11,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
+    "anyio",
     "httpx>=0.27.2",
     "pydantic>=2.10.4,<2.11.0",
     "python-dotenv>=1.0.1",
@@ -40,7 +41,7 @@ dependencies = [
 [project.optional-dependencies]
 memory = [
     "mem0ai==0.1.88",
-    "sentence-transformers>=4.0.2"
+    "sentence-transformers>=4.0.2",
 ]
 
 # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py 
@@ -64,8 +65,8 @@ line-length = 130
 fix = true
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "PLE"]
-ignore = ["E101", "E402", "E501", "F841", "E731"]
+select = ["ASYNC", "E", "F", "I", "PLE"]
+ignore = ["ASYNC109", "E101", "E402", "E501", "F841", "E731"]
 unfixable = ["E101", "E402", "E501", "F841", "E731"]
 
 [tool.ruff.format]

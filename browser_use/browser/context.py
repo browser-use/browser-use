@@ -14,6 +14,7 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
+import anyio
 from playwright._impl._errors import TimeoutError
 from playwright.async_api import Browser as PlaywrightBrowser
 from playwright.async_api import (
@@ -466,9 +467,9 @@ class BrowserContext:
 
 		# Load cookies if they exist
 		if self.config.cookies_file and os.path.exists(self.config.cookies_file):
-			with open(self.config.cookies_file, 'r') as f:
+			async with await anyio.open_file(self.config.cookies_file, 'r') as f:
 				try:
-					cookies = json.load(f)
+					cookies = json.loads(await f.read())
 
 					valid_same_site_values = ['Strict', 'Lax', 'None']
 					for cookie in cookies:
@@ -1593,8 +1594,8 @@ class BrowserContext:
 				if dirname:
 					os.makedirs(dirname, exist_ok=True)
 
-				with open(self.config.cookies_file, 'w') as f:
-					json.dump(cookies, f)
+				async with await anyio.open_file(self.config.cookies_file, 'w') as f:
+					await f.write(json.dumps(cookies))
 			except Exception as e:
 				logger.warning(f'❌  Failed to save cookies: {str(e)}')
 

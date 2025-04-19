@@ -163,8 +163,7 @@ async def run_http_server():
 	await site.start()
 	print('HTTP server running on http://localhost:8000')
 	# Keep the server running indefinitely.
-	while True:
-		await asyncio.sleep(3600)
+	await asyncio.Event().wait()
 
 
 # Your agent tasks and other logic
