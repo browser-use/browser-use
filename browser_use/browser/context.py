@@ -12,6 +12,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass
+from importlib import resources
 from typing import TYPE_CHECKING, Optional
 
 from playwright._impl._errors import TimeoutError
@@ -139,6 +140,9 @@ class BrowserContextConfig(BaseModel):
 
 	    timezone_id: None
 	        Changes the timezone of the browser. Example: 'Europe/Berlin'
+
+		anti_fingerprint: False
+			Enable anti-fingerprinting measures to avoid detection by bot detection systems
 	"""
 
 	model_config = ConfigDict(
@@ -177,6 +181,7 @@ class BrowserContextConfig(BaseModel):
 	allowed_domains: list[str] | None = None
 	include_dynamic_attributes: bool = True
 	http_credentials: dict[str, str] | None = None
+	anti_fingerprint: bool = False  # Enable anti-fingerprinting measures to avoid detection
 
 	keep_alive: bool = Field(default=False, alias='_force_keep_context_alive')  # used to be called _force_keep_context_alive
 	is_mobile: bool | None = None
@@ -224,7 +229,7 @@ class BrowserSession:
 							if (!this.__listeners[type]) {
 								this.__listeners[type] = [];
 							}
-							
+
 
 							// Add the listener to __listeners
 							this.__listeners[type].push({
@@ -258,6 +263,15 @@ class BrowserContextState:
 	"""
 
 	target_id: str | None = None  # CDP target ID
+
+
+def _load_script(script_name):
+	"""Load a JavaScript script from the scripts directory."""
+	try:
+		return resources.files('browser_use.browser.scripts').joinpath(script_name).read_text()
+	except Exception as e:
+		logger.error(f"Failed to load script {script_name}: {e}")
+		return ""
 
 
 class BrowserContext:
@@ -429,6 +443,10 @@ class BrowserContext:
 				raise e
 		return self.session
 
+	def get_config(self):
+		"""Return the browser context configuration."""
+		return self.config
+
 	async def get_current_page(self) -> Page:
 		"""Get the current page"""
 		session = await self.get_session()
@@ -484,42 +502,53 @@ class BrowserContext:
 				except json.JSONDecodeError as e:
 					logger.error(f'Failed to parse cookies file: {str(e)}')
 
-		# Expose anti-detection scripts
-		await context.add_init_script(
+		# Load anti-fingerprinting scripts from files
+		try:
+			basic_anti_detection_script = _load_script('basic_anti_detection.js')
+			if not basic_anti_detection_script:
+				logger.warning("Failed to load basic anti-detection script, using fallback")
+				basic_anti_detection_script = """
+				// Webdriver property
+				Object.defineProperty(navigator, 'webdriver', {
+					get: () => undefined
+				});
+
+				// Languages
+				Object.defineProperty(navigator, 'languages', {
+					get: () => ['en-US']
+				});
+
+				// Plugins
+				Object.defineProperty(navigator, 'plugins', {
+					get: () => [1, 2, 3, 4, 5]
+				});
+
+				// Chrome runtime
+				window.chrome = { runtime: {} };
 			"""
-            // Webdriver property
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            });
 
-            // Languages
-            Object.defineProperty(navigator, 'languages', {
-                get: () => ['en-US']
-            });
+			advanced_anti_fingerprint_script = ""
+			if self.config.anti_fingerprint:
+				advanced_anti_fingerprint_script = _load_script('anti_fingerprint.js')
+				if not advanced_anti_fingerprint_script:
+					logger.warning("Failed to load advanced anti-fingerprinting script, disabling advanced features")
+					self.config.anti_fingerprint = False
 
-            // Plugins
-            Object.defineProperty(navigator, 'plugins', {
-                get: () => [1, 2, 3, 4, 5]
-            });
-
-            // Chrome runtime
-            window.chrome = { runtime: {} };
-
-            // Permissions
-            const originalQuery = window.navigator.permissions.query;
-            window.navigator.permissions.query = (parameters) => (
-                parameters.name === 'notifications' ?
-                    Promise.resolve({ state: Notification.permission }) :
-                    originalQuery(parameters)
-            );
-            (function () {
-                const originalAttachShadow = Element.prototype.attachShadow;
-                Element.prototype.attachShadow = function attachShadow(options) {
-                    return originalAttachShadow.call(this, { ...options, mode: "open" });
-                };
-            })();
-            """
-		)
+			# Apply the appropriate script based on anti_fingerprint setting
+			if self.config.anti_fingerprint:
+				await context.add_init_script(basic_anti_detection_script + advanced_anti_fingerprint_script)
+				logger.info('🥸 Advanced anti-fingerprinting measures enabled')
+			else:
+				await context.add_init_script(basic_anti_detection_script)
+				logger.debug('🔍 Basic anti-detection script applied')
+		except Exception as e:
+			logger.error(f"Error applying anti-fingerprinting scripts: {e}")
+			# Fall back to basic protection
+			await context.add_init_script("""
+				Object.defineProperty(navigator, 'webdriver', {
+					get: () => undefined
+				});
+			""")
 
 		return context
 

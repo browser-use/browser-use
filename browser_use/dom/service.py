@@ -31,7 +31,15 @@ class DomService:
 		self.page = page
 		self.xpath_cache = {}
 
+		# Load the DOM tree building JavaScript code
 		self.js_code = resources.files('browser_use.dom').joinpath('buildDomTree.js').read_text()
+
+		# Check if the page's browser context has anti-fingerprinting enabled
+		self.anti_fingerprint = False
+		if hasattr(page, 'context') and hasattr(page.context, 'get_config'):
+			config = page.context.get_config()
+			if config is not None and hasattr(config, 'anti_fingerprint'):
+				self.anti_fingerprint = config.anti_fingerprint
 
 	# region - Clickable elements
 	@time_execution_async('--get_clickable_elements')
