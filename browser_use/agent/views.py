@@ -24,7 +24,7 @@ from browser_use.dom.views import SelectorMap
 ToolCallingMethod = Literal['function_calling', 'json_mode', 'raw', 'auto']
 REQUIRED_LLM_API_ENV_VARS = {
 	'ChatOpenAI': ['OPENAI_API_KEY'],
-	'AzureOpenAI': ['AZURE_ENDPOINT', 'AZURE_OPENAI_API_KEY'],
+	'AzureChatOpenAI': ['AZURE_OPENAI_ENDPOINT', 'AZURE_OPENAI_KEY'],
 	'ChatBedrockConverse': ['ANTHROPIC_API_KEY'],
 	'ChatAnthropic': ['ANTHROPIC_API_KEY'],
 	'ChatGoogleGenerativeAI': ['GEMINI_API_KEY'],
