@@ -50,13 +50,32 @@ class SystemPrompt:
 		return self.system_message
 
 
-# Functions:
-# {self.default_action_description}
+class SystemPromptV2(SystemPrompt):
+	def __init__(
+		self,
+		action_description: str,
+		max_actions_per_step: int = 10,
+		override_system_message: Optional[str] = None,
+		extend_system_message: Optional[str] = None,
+		version: str = "2.0",
+	):
+		super().__init__(
+			action_description,
+			max_actions_per_step,
+			override_system_message,
+			extend_system_message,
+		)
+		self.version = version
 
-# Example:
-# {self.example_response()}
-# Your AVAILABLE ACTIONS:
-# {self.default_action_description}
+	def get_versioned_system_message(self) -> SystemMessage:
+		"""
+		Get the system prompt with version information.
+
+		Returns:
+		    SystemMessage: Formatted system prompt with version
+		"""
+		versioned_message = f"Version: {self.version}\n{self.system_message.content}"
+		return SystemMessage(content=versioned_message)
 
 
 class AgentMessagePrompt:
@@ -138,8 +157,8 @@ Interactive elements from top layer of the current page inside the viewport:
 
 
 class PlannerPrompt:
-	def get_system_message(self) -> str:
-		return """You are a web automation planner. Your task is to generate a sequence of actions to complete a given task.
+	def get_system_message(self, is_planner_reasoning) -> Union[SystemMessage, HumanMessage]:
+		planner_prompt_text =  """You are a web automation planner. Your task is to generate a sequence of actions to complete a given task.
 
 The output MUST be a JSON array of actions, where each action has:
 1. An "action" field specifying the action type
@@ -169,3 +188,9 @@ Important rules:
 5. The last action should be 'done' to signal task completion
 
 Do not include any explanations or markdown formatting in your response."""
+		if is_planner_reasoning:
+			return HumanMessage(content=planner_prompt_text)
+		else:
+			return SystemMessage(content=planner_prompt_text)
+
+

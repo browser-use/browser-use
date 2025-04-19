@@ -10,10 +10,6 @@ import re
 import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, TypeVar, Union
-import hashlib
-import ast
-import hashlib
-import ast
 
 from dotenv import load_dotenv
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -787,7 +783,7 @@ class Agent(Generic[Context]):
 		signal_handler.register()
 
 		# Start non-blocking LLM connection verification
-		assert self.llm._verified_api_keys, 'Failed to verify LLM API keys'
+		assert hasattr(self.llm, '_verified_api_keys') and self.llm._verified_api_keys, 'Failed to verify LLM API keys'
 
 		try:
 			self._log_agent_run()
@@ -818,14 +814,14 @@ class Agent(Generic[Context]):
 					if self.state.stopped:  # Allow stopping while paused
 						break
 
-				if on_step_start is not None:
-					await on_step_start(self)
-
 				step_info = AgentStepInfo(step_number=step, max_steps=max_steps)
 				await self.step(step_info)
 
 				if on_step_end is not None:
-					await on_step_end(self)
+					if inspect.iscoroutinefunction(on_step_end):
+						await on_step_end(self)
+					else:
+						on_step_end(self)
 
 				if self.state.history.is_done():
 					if self.settings.validate_output and step < max_steps - 1:
@@ -833,19 +829,6 @@ class Agent(Generic[Context]):
 							continue
 
 					await self.log_completion()
-					# Only cache the plan if the task was completed successfully
-					if self.state.history.is_successful():
-						page = await self.browser_context.get_current_page()
-						url = page.url if page else None
-						dom = await page.content() if page else None
-						if url and dom:
-							# Get the last plan that was used
-							last_plan = self._message_manager.get_last_plan()
-							if last_plan:
-								# Convert the plan to a list if it's not already
-								plan_list = [last_plan] if isinstance(last_plan, dict) else last_plan
-								save_plan_to_cache(self.task, url, dom, plan_list)
-								logger.info("Cached successful plan for task: %s", self.task)
 					break
 			else:
 				logger.info('❌ Failed to complete task in maximum steps')
@@ -1256,7 +1239,7 @@ class Agent(Generic[Context]):
 
 		# Create planner message history using full message history with all available actions
 		planner_messages = [
-			PlannerPrompt().get_system_message(),
+			PlannerPrompt().get_system_message(is_planner_reasoning=self.settings.is_planner_reasoning),
 			*self._message_manager.get_messages()[1:],  # Use full message history except the first
 		]
 
