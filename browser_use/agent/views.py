@@ -87,6 +87,7 @@ class AgentState(BaseModel):
 	last_plan: Optional[str] = None
 	paused: bool = False
 	stopped: bool = False
+	current_plan: Optional[List[Dict[str, Any]]] = None
 
 	message_manager_state: MessageManagerState = Field(default_factory=MessageManagerState)
 
