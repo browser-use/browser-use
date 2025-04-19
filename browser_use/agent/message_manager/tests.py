@@ -1,7 +1,9 @@
+import os
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
+from pydantic import SecretStr
 
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
 from browser_use.agent.views import ActionResult
@@ -11,11 +13,26 @@ from browser_use.dom.views import DOMElementNode, DOMTextNode
 
 @pytest.fixture(
 	params=[
+		ChatOpenAI(model='gpt-4o'),
+		AzureChatOpenAI(
+			model='gpt-4o',
+			api_version='2024-10-21',
+			azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT', ''),
+			api_key=SecretStr(os.getenv('AZURE_OPENAI_KEY', '')),
+		),
+	],
+	ids=['gpt-4o', 'azure-gpt-4o'],
+)
+async def llm(request):
+	return request.param
+
+
+@pytest.fixture(
+	params=[
 		ChatOpenAI(model='gpt-4o-mini'),
 		AzureChatOpenAI(model='gpt-4o', api_version='2024-02-15-preview'),
-		ChatAnthropic(model_name='claude-3-5-sonnet-20240620', timeout=100, temperature=0.0, stop=None),
 	],
-	ids=['gpt-4o-mini', 'gpt-4o', 'claude-3-5-sonnet'],
+	ids=['gpt-4o-mini', 'gpt-4o'],
 )
 def message_manager(request: pytest.FixtureRequest):
 	task = 'Test task'

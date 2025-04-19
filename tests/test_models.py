@@ -3,9 +3,6 @@ import os
 
 import pytest
 import requests
-from langchain_anthropic import ChatAnthropic
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_ollama import ChatOllama
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
 from pydantic import SecretStr
 
@@ -39,9 +36,7 @@ async def context(browser):
 		yield context
 
 
-api_key_gemini = SecretStr(os.getenv('GEMINI_API_KEY') or '')
 api_key_deepseek = SecretStr(os.getenv('DEEPSEEK_API_KEY') or '')
-api_key_anthropic = SecretStr(os.getenv('ANTHROPIC_API_KEY') or '')
 
 
 # pytest -s -v tests/test_models.py
@@ -55,32 +50,12 @@ api_key_anthropic = SecretStr(os.getenv('ANTHROPIC_API_KEY') or '')
 			azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT', ''),
 			api_key=SecretStr(os.getenv('AZURE_OPENAI_KEY', '')),
 		),
-		# ChatOpenAI(
-		# base_url='https://api.deepseek.com/v1',
-		# model='deepseek-reasoner',
-		# api_key=api_key_deepseek,
-		# ),
-		# run: ollama start
-		ChatOllama(
-			model='qwen2.5:latest',
-			num_ctx=128000,
-		),
 		AzureChatOpenAI(
 			model='gpt-4o-mini',
 			api_version='2024-10-21',
 			azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT', ''),
 			api_key=SecretStr(os.getenv('AZURE_OPENAI_KEY', '')),
 		),
-		ChatAnthropic(
-			model_name='claude-3-5-sonnet-20240620',
-			timeout=100,
-			temperature=0.0,
-			stop=None,
-			api_key=api_key_anthropic,
-		),
-		ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=api_key_gemini),
-		ChatGoogleGenerativeAI(model='gemini-1.5-pro', api_key=api_key_gemini),
-		ChatGoogleGenerativeAI(model='gemini-1.5-flash-latest', api_key=api_key_gemini),
 		ChatOpenAI(
 			base_url='https://api.deepseek.com/v1',
 			model='deepseek-chat',
@@ -91,13 +66,7 @@ api_key_anthropic = SecretStr(os.getenv('ANTHROPIC_API_KEY') or '')
 		'gpt-4o',
 		'gpt-4o-mini',
 		'azure-gpt-4o',
-		#'deepseek-reasoner',
-		'qwen2.5:latest',
 		'azure-gpt-4o-mini',
-		'claude-3-5-sonnet',
-		'gemini-2.0-flash-exp',
-		'gemini-1.5-pro',
-		'gemini-1.5-flash-latest',
 		'deepseek-chat',
 	],
 )

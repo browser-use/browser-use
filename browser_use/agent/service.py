@@ -161,6 +161,8 @@ class Agent(Generic[Context]):
 		self.controller = controller
 		self.sensitive_data = sensitive_data
 
+		# Initialize state
+		self.state = injected_agent_state or AgentState()
 		self.settings = AgentSettings(
 			use_vision=use_vision,
 			use_vision_for_planner=use_vision_for_planner,
@@ -186,10 +188,6 @@ class Agent(Generic[Context]):
 			memory_interval=memory_interval,
 			memory_config=memory_config,
 		)
-
-		# Initialize state
-		self.state = injected_agent_state or AgentState()
-
 		# Action setup
 		self._setup_action_models()
 		self._set_browser_use_version_and_source()

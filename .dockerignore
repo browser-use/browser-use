@@ -1,0 +1,93 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Test
+tests/
+test/
+.coverage
+htmlcov/
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Misc
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Ambientes virtuais Python
+.env/
+.venv/
+
+# Playwright
+/tmp/
+/playwright-browsers/
+
+# Arquivos de log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Arquivos temporários
+*~
+.\#*
+\#*\#
+*.swp
+
+# Diretórios de node/npm (se houver)
+node_modules/
+npm-debug.log
+
+# Arquivos de build
+/dist/
+/build/
+*.egg-info/
+
+# Arquivos de configuração de IDE
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Arquivos de cache
+.mypy_cache/
+.ruff_cache/ 

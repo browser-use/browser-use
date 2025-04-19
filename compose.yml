@@ -1,0 +1,50 @@
+
+networks:
+  db-tier:
+    driver: bridge
+services:
+  db:
+    image: postgres
+    shm_size: 128mb
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: browser-use
+      POSTGRES_USER: postgres
+    networks:
+      - db-tier
+    ports:
+      - "127.0.0.1:5432:5432"
+  browser:
+    depends_on:
+      - db
+    image: browseruse/browser-use:main
+    environment:
+      - ERROR_WEBHOOK_URL=http://localhost:3000
+      - NOTIFY_WEBHOOK_URL=http://localhost:3000
+      - METRICS_WEBHOOK_URL=http://localhost:3000
+      - STATUS_WEBHOOK_URL=http://localhost:3000
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/browser-use
+      - PYTHONUNBUFFERED=1
+      - BROWSER_USE_LOGGING_LEVEL=info
+      - ANONYMIZED_TELEMETRY=false
+      - DISPLAY=:99
+      - RESOLUTION=1920x1080x24
+      - VNC_PASSWORD=vncpassword
+      - CHROME_PERSISTENT_SESSION=true
+      - RESOLUTION_WIDTH=1920
+      - RESOLUTION_HEIGHT=1080
+    ports:
+      - "8000:8000"
+    networks:
+      - db-tier
+      - default
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - 8080:8080
+    networks:
+      - db-tier
+      - default

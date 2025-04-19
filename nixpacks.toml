@@ -1,0 +1,32 @@
+[variables]
+PYTHON_VERSION = "3.11"
+
+[phases.setup]
+nixPkgs = [
+    "python311",
+    "python311Packages.pip",
+    "python311Packages.virtualenv",
+    "gcc",
+    "python3-dev",
+    "libpq-dev",
+    "chromium",
+    "chromedriver",
+    "postgresql"
+]
+
+[phases.install]
+cmds = [
+    "pip install --no-cache-dir -r requirements.txt",
+    "playwright install chromium",
+    "playwright install-deps",
+    "chmod +x start.sh"
+]
+
+[phases.build]
+cmds = [
+  "python3 -m playwright install chromium",
+  "echo 'Build phase completed'"
+]
+
+[start]
+cmd = "./start.sh" 

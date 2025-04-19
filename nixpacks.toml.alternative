@@ -1,0 +1,23 @@
+# Versão alternativa e simplificada do nixpacks.toml
+# Use este arquivo se a versão original não funcionar
+# Renomeie para nixpacks.toml antes de fazer deploy
+
+[phases.setup]
+nixPkgs = ["chromium", "wget", "gnumake", "gcc", "git"]
+
+[phases.install]
+cmds = [
+  "apt-get update",
+  "apt-get install -y xvfb-run xvfb",
+  "python -m pip install -e .",
+  "chmod +x start.sh"
+]
+
+[phases.build]
+cmds = [
+  "python -m playwright install chromium",
+  "echo 'Build phase completed'"
+]
+
+[start]
+cmd = "./start.sh" 
