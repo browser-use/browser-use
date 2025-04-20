@@ -49,8 +49,9 @@ class SignalHandler:
 			resume_callback: Function to call when system is resumed
 			custom_exit_callback: Function to call on exit (second Ctrl+C or SIGTERM)
 			exit_on_second_int: Whether to exit on second SIGINT (Ctrl+C)
-			interruptible_task_patterns: List of patterns to match task names that should be
-										 canceled on first Ctrl+C (default: ['step', 'multi_act', 'get_next_action'])
+			interruptible_task_patterns: List of patterns to match task names that should be canceled on first Ctrl+C (default: ['step', 'multi_act', 'get_next_action'])
+			ctrl_c_pressed: Flag indicating whether Ctrl+C has been pressed once
+		waiting_for_input: Flag indicating whether the handler is waiting for user input to resume
 		"""
 		self.loop = loop or asyncio.get_event_loop()
 		self.pause_callback = pause_callback
@@ -60,7 +61,6 @@ class SignalHandler:
 		self.interruptible_task_patterns = interruptible_task_patterns or ['step', 'multi_act', 'get_next_action']
 		self.is_windows = platform.system() == 'Windows'
 
-		# Move these attributes from loop to the SignalHandler class
 		self.ctrl_c_pressed = False
 		self.waiting_for_input = False
 
