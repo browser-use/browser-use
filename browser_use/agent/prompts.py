@@ -1,7 +1,6 @@
-import datetime
 import importlib.resources
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List, Optional, Union
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -65,12 +64,12 @@ class AgentMessagePrompt:
 		self,
 		state: 'BrowserState',
 		result: Optional[List['ActionResult']] = None,
-		include_attributes: list[str] = [],
+		include_attributes: list[str] | None = None,
 		step_info: Optional['AgentStepInfo'] = None,
 	):
 		self.state = state
 		self.result = result
-		self.include_attributes = include_attributes
+		self.include_attributes = include_attributes or []
 		self.step_info = step_info
 
 	def get_user_message(self, use_vision: bool = True) -> HumanMessage:
@@ -123,7 +122,7 @@ Interactive elements from top layer of the current page inside the viewport:
 					error = result.error.split('\n')[-1]
 					state_description += f'\nAction error {i + 1}/{len(self.result)}: ...{error}'
 
-		if self.state.screenshot and use_vision == True:
+		if self.state.screenshot and use_vision is True:
 			# Format message for vision model
 			return HumanMessage(
 				content=[
@@ -139,9 +138,8 @@ Interactive elements from top layer of the current page inside the viewport:
 
 
 class PlannerPrompt(SystemPrompt):
-	def get_system_message(self) -> SystemMessage:
-		return SystemMessage(
-			content="""You are a planning agent that helps break down tasks into smaller steps and reason about the current state.
+	def get_system_message(self, is_planner_reasoning) -> Union[SystemMessage, HumanMessage]:
+		planner_prompt_text = """You are a planning agent that helps break down tasks into smaller steps and reason about the current state.
 Your role is to:
 1. Analyze the current state and history
 2. Evaluate progress towards the ultimate goal
@@ -162,4 +160,8 @@ Your output format should be always a JSON object with the following fields:
 Ignore the other AI messages output structures.
 
 Keep your responses concise and focused on actionable insights."""
-		)
+
+		if is_planner_reasoning:
+			return HumanMessage(content=planner_prompt_text)
+		else:
+			return SystemMessage(content=planner_prompt_text)

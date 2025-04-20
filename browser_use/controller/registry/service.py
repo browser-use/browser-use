@@ -16,7 +16,7 @@ from browser_use.telemetry.views import (
 	ControllerRegisteredFunctionsTelemetryEvent,
 	RegisteredFunction,
 )
-from browser_use.utils import time_execution_async, time_execution_sync
+from browser_use.utils import time_execution_async
 
 Context = TypeVar('Context')
 
@@ -29,7 +29,7 @@ class Registry(Generic[Context]):
 		self.telemetry = ProductTelemetry()
 		self.exclude_actions = exclude_actions if exclude_actions is not None else []
 
-	@time_execution_sync('--create_param_model')
+	# @time_execution_sync('--create_param_model')
 	def _create_param_model(self, function: Callable) -> Type[BaseModel]:
 		"""Creates a Pydantic model from function signature"""
 		sig = signature(function)
@@ -49,6 +49,8 @@ class Registry(Generic[Context]):
 		self,
 		description: str,
 		param_model: Optional[Type[BaseModel]] = None,
+		domains: Optional[list[str]] = None,
+		page_filter: Optional[Callable[[Any], bool]] = None,
 	):
 		"""Decorator for registering actions"""
 
@@ -79,6 +81,8 @@ class Registry(Generic[Context]):
 				description=description,
 				function=wrapped_func,
 				param_model=actual_param_model,
+				domains=domains,
+				page_filter=page_filter,
 			)
 			self.registry.actions[func.__name__] = action
 			return func
@@ -170,30 +174,56 @@ class Registry(Generic[Context]):
 			params.__dict__[key] = replace_secrets(value)
 		return params
 
-	@time_execution_sync('--create_action_model')
-	def create_action_model(self, include_actions: Optional[list[str]] = None) -> Type[ActionModel]:
-		"""Creates a Pydantic model from registered actions"""
+	# @time_execution_sync('--create_action_model')
+	def create_action_model(self, include_actions: Optional[list[str]] = None, page=None) -> Type[ActionModel]:
+		"""Creates a Pydantic model from registered actions, used by LLM APIs that support tool calling & enforce a schema"""
+
+		# Filter actions based on page if provided:
+		#   if page is None, only include actions with no filters
+		#   if page is provided, only include actions that match the page
+
+		available_actions = {}
+		for name, action in self.registry.actions.items():
+			if include_actions is not None and name not in include_actions:
+				continue
+
+			# If no page provided, only include actions with no filters
+			if page is None:
+				if action.page_filter is None and action.domains is None:
+					available_actions[name] = action
+				continue
+
+			# Check page_filter if present
+			domain_is_allowed = self.registry._match_domains(action.domains, page.url)
+			page_is_allowed = self.registry._match_page_filter(action.page_filter, page)
+
+			# Include action if both filters match (or if either is not present)
+			if domain_is_allowed and page_is_allowed:
+				available_actions[name] = action
+
 		fields = {
 			name: (
 				Optional[action.param_model],
 				Field(default=None, description=action.description),
 			)
-			for name, action in self.registry.actions.items()
-			if include_actions is None or name in include_actions
+			for name, action in available_actions.items()
 		}
 
 		self.telemetry.capture(
 			ControllerRegisteredFunctionsTelemetryEvent(
 				registered_functions=[
 					RegisteredFunction(name=name, params=action.param_model.model_json_schema())
-					for name, action in self.registry.actions.items()
-					if include_actions is None or name in include_actions
+					for name, action in available_actions.items()
 				]
 			)
 		)
 
 		return create_model('ActionModel', __base__=ActionModel, **fields)  # type:ignore
 
-	def get_prompt_description(self) -> str:
-		"""Get a description of all actions for the prompt"""
-		return self.registry.get_prompt_description()
+	def get_prompt_description(self, page=None) -> str:
+		"""Get a description of all actions for the prompt
+
+		If page is provided, only include actions that are available for that page
+		based on their filter_func
+		"""
+		return self.registry.get_prompt_description(page=page)

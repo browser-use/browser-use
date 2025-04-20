@@ -1,3 +1,8 @@
+import os
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import asyncio
 
 from dotenv import load_dotenv
@@ -12,7 +17,7 @@ llm = ChatOpenAI(
 	model='gpt-4o',
 	temperature=0.0,
 )
-task = 'Find the founders of browser-use and draft them a short personalized message'
+task = 'Go to kayak.com and find the cheapest flight from Zurich to San Francisco on 2025-05-01'
 
 agent = Agent(task=task, llm=llm)
 

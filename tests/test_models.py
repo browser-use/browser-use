@@ -126,7 +126,7 @@ async def test_model_search(llm, context):
 		try:
 			response = requests.get('http://127.0.0.1:11434/')
 			if response.status_code != 200:
-				raise
+				raise Exception('Ollama is not running - start with `ollama start`')
 		except Exception:
 			raise Exception('Ollama is not running - start with `ollama start`')
 

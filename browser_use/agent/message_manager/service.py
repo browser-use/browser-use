@@ -50,55 +50,66 @@ class MessageManager:
 
 	def _init_messages(self) -> None:
 		"""Initialize the message history with system message, context, task, and other initial messages"""
-		self._add_message_with_tokens(self.system_prompt)
+		self._add_message_with_tokens(self.system_prompt, message_type='init')
 
 		if self.settings.message_context:
 			context_message = HumanMessage(content='Context for the task' + self.settings.message_context)
-			self._add_message_with_tokens(context_message)
+			self._add_message_with_tokens(context_message, message_type='init')
 
 		task_message = HumanMessage(
 			content=f'Your ultimate task is: """{self.task}""". If you achieved your ultimate task, stop everything and use the done action in the next step to complete the task. If not, continue as usual.'
 		)
-		self._add_message_with_tokens(task_message)
+		self._add_message_with_tokens(task_message, message_type='init')
 
 		if self.settings.sensitive_data:
-			info = f'Here are placeholders for sensitve data: {list(self.settings.sensitive_data.keys())}'
+			info = f'Here are placeholders for sensitive data: {list(self.settings.sensitive_data.keys())}'
 			info += 'To use them, write <secret>the placeholder name</secret>'
 			info_message = HumanMessage(content=info)
-			self._add_message_with_tokens(info_message)
+			self._add_message_with_tokens(info_message, message_type='init')
 
 		placeholder_message = HumanMessage(content='Example output:')
-		self._add_message_with_tokens(placeholder_message)
-
-		tool_calls = [
-			{
-				'name': 'AgentOutput',
-				'args': {
-					'current_state': {
-						'evaluation_previous_goal': 'Success - I opend the first page',
-						'memory': 'Starting with the new task. I have completed 1/10 steps',
-						'next_goal': 'Click on company a',
-					},
-					'action': [{'click_element': {'index': 0}}],
-				},
-				'id': str(self.state.tool_id),
-				'type': 'tool_call',
-			}
-		]
+		self._add_message_with_tokens(placeholder_message, message_type='init')
 
 		example_tool_call = AIMessage(
 			content='',
-			tool_calls=tool_calls,
+			tool_calls=[{
+				'name': 'AgentOutput',
+				'args': {
+					'current_state': {
+						'evaluation_previous_goal': """
+							Success - I successfully clicked on the 'Apple' link from the Google Search results page, 
+							which directed me to the 'Apple' company homepage. This is a good start toward finding 
+							the best place to buy a new iPhone as the Apple website often list iPhones for sale.
+						""".strip(),
+						'memory': """
+							I searched for 'iPhone retailers' on Google. From the Google Search results page, 
+							I used the 'click_element' tool to click on a element labelled 'Best Buy' but calling 
+							the tool did not direct me to a new page. I then used the 'click_element' tool to click 
+							on a element labelled 'Apple' which redirected me to the 'Apple' company homepage. 
+							Currently at step 3/15.
+						""".strip(),
+						'next_goal': """
+							Looking at reported structure of the current page, I can see the item '[127]<h3 iPhone/>' 
+							in the content. I think this button will lead to more information and potentially prices 
+							for iPhones. I'll click on the link to 'iPhone' at index [127] using the 'click_element' 
+							tool and hope to see prices on the next page.
+						""".strip(),
+					},
+					'action': [{'click_element': {'index': 127}}],
+				},
+				'id': str(self.state.tool_id),
+				'type': 'tool_call',
+			},]
 		)
-		self._add_message_with_tokens(example_tool_call)
-		self.add_tool_message(content='Browser started')
+		self._add_message_with_tokens(example_tool_call, message_type='init')
+		self.add_tool_message(content='Browser started', message_type='init')
 
 		placeholder_message = HumanMessage(content='[Your task history memory starts here]')
 		self._add_message_with_tokens(placeholder_message)
 
 		if self.settings.available_file_paths:
 			filepaths_msg = HumanMessage(content=f'Here are file paths you can use: {self.settings.available_file_paths}')
-			self._add_message_with_tokens(filepaths_msg)
+			self._add_message_with_tokens(filepaths_msg, message_type='init')
 
 	def add_new_task(self, new_task: str) -> None:
 		content = f'Your new ultimate task is: """{new_task}""". Take the previous context into account and finish your new ultimate task. '
@@ -182,7 +193,9 @@ class MessageManager:
 
 		return msg
 
-	def _add_message_with_tokens(self, message: BaseMessage, position: int | None = None) -> None:
+	def _add_message_with_tokens(
+		self, message: BaseMessage, position: int | None = None, message_type: str | None = None
+	) -> None:
 		"""Add message with token count metadata
 		position: None for last, -1 for second last, etc.
 		"""
@@ -192,7 +205,7 @@ class MessageManager:
 			message = self._filter_sensitive_data(message)
 
 		token_count = self._count_tokens(message)
-		metadata = MessageMetadata(tokens=token_count)
+		metadata = MessageMetadata(tokens=token_count, message_type=message_type)
 		self.state.history.add_message(message, metadata, position)
 
 	@time_execution_sync('--filter_sensitive_data')
@@ -299,8 +312,8 @@ class MessageManager:
 		"""Remove last state message from history"""
 		self.state.history.remove_last_state_message()
 
-	def add_tool_message(self, content: str) -> None:
+	def add_tool_message(self, content: str, message_type: str | None = None) -> None:
 		"""Add tool message to history"""
 		msg = ToolMessage(content=content, tool_call_id=str(self.state.tool_id))
 		self.state.tool_id += 1
-		self._add_message_with_tokens(msg)
+		self._add_message_with_tokens(msg, message_type=message_type)

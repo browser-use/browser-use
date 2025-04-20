@@ -17,4 +17,3 @@ Please include as much of the information listed below as you can to help me bet
 * Impact of the issue, including how an attacker might exploit the issue
 
 This information will help me triage your report more quickly.
-

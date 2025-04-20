@@ -136,7 +136,7 @@ GOOGLE_API_KEY=
 
 
 ### DeepSeek-V3
-The community likes DeepSeek-V3 for its low price, no rate limits, open-source nature, and good performance. 
+The community likes DeepSeek-V3 for its low price, no rate limits, open-source nature, and good performance.
 The example is available [here](https://github.com/browser-use/browser-use/blob/main/examples/models/deepseek.py).
 
 ```python
@@ -196,7 +196,7 @@ DEEPSEEK_API_KEY=
 ```
 
 ### Ollama
-Many users asked for local models. Here they are. 
+Many users asked for local models. Here they are.
 
 1. Download Ollama from [here](https://ollama.ai/download)
 2. Run `ollama pull model_name`. Pick a model which supports tool-calling from [here](https://ollama.com/search?c=tools)
@@ -219,6 +219,36 @@ agent = Agent(
 ```
 
 Required environment variables: None!
+
+### Novita AI
+[Novita AI](https://novita.ai) is an LLM API provider that offers a wide range of models. Note: choose a model that supports function calling.
+
+```python
+from langchain_openai import ChatOpenAI
+from browser_use import Agent
+from pydantic import SecretStr
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+api_key = os.getenv("NOVITA_API_KEY")
+
+# Initialize the model
+llm = ChatOpenAI(base_url='https://api.novita.ai/v3/openai', model='deepseek/deepseek-v3-0324', api_key=SecretStr(api_key))
+
+# Create agent with the model
+agent = Agent(
+    task="Your task here",
+    llm=llm,
+    use_vision=False
+)
+```
+
+Required environment variables:
+
+```bash .env
+NOVITA_API_KEY=
+```
 
 ## Coming soon
 (We are working on it)

@@ -42,7 +42,7 @@ class ProductTelemetry:
 		if telemetry_disabled:
 			self._posthog_client = None
 		else:
-			logging.info(
+			logger.info(
 				'Anonymized telemetry enabled. See https://docs.browser-use.com/development/telemetry for more information.'
 			)
 			self._posthog_client = Posthog(

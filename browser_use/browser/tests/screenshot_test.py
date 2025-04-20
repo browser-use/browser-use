@@ -5,6 +5,7 @@ import pytest
 
 from browser_use.browser.browser import Browser, BrowserConfig
 
+
 async def test_take_full_page_screenshot():
 	browser = Browser(config=BrowserConfig(headless=False, disable_security=True))
 	try:
@@ -29,6 +30,7 @@ async def test_take_full_page_screenshot():
 				pytest.fail(f'Failed to decode base64 screenshot: {str(e)}')
 	finally:
 		await browser.close()
+
 
 if __name__ == '__main__':
 	asyncio.run(test_take_full_page_screenshot())

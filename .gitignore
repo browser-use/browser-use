@@ -51,6 +51,9 @@ coverage.xml
 .pytest_cache/
 cover/
 
+# Saved Trajectories for internal evaluation
+saved_trajectories/
+
 # Translations
 *.mo
 *.pot

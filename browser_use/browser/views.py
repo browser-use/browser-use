@@ -17,13 +17,17 @@ class TabInfo(BaseModel):
 	title: str
 	parent_page_id: Optional[int] = None  # parent page that contains this popup or cross-origin iframe
 
+
 class GroupTabsAction(BaseModel):
-    tab_ids: list[int]
-    title: str
-    color: Optional[str] = "blue"
+	tab_ids: list[int]
+	title: str
+	color: Optional[str] = 'blue'
+
 
 class UngroupTabsAction(BaseModel):
-    tab_ids: list[int]
+	tab_ids: list[int]
+
+
 @dataclass
 class BrowserState(DOMState):
 	url: str

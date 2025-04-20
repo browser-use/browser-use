@@ -5,6 +5,7 @@ Simple script that runs the task of opening amazon and searching.
 
 import os
 import sys
+
 from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
 
