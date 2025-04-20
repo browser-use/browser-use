@@ -269,7 +269,7 @@ class Agent(Generic[Context]):
 				)
 			except ImportError:
 				logger.warning(
-					"Memory functionality was enabled but required packages are not installed. "
+					'Memory functionality was enabled but required packages are not installed. '
 					"Install with 'pip install browser-use[memory]' to use memory features."
 				)
 				self.memory = None
