@@ -19,11 +19,7 @@ from playwright.async_api import Browser as PlaywrightBrowser
 from playwright.async_api import (
 	BrowserContext as PlaywrightBrowserContext,
 )
-from playwright.async_api import (
-	ElementHandle,
-	FrameLocator,
-	Page,
-)
+from playwright.async_api import ElementHandle, FrameLocator, Geolocation, HttpCredentials, Page, ViewportSize
 from pydantic import BaseModel, ConfigDict, Field
 
 from browser_use.browser.views import (
@@ -121,9 +117,12 @@ class BrowserContextConfig(BaseModel):
 	    include_dynamic_attributes: bool = True
 	        Include dynamic attributes in the CSS selector. If you want to reuse the css_selectors, it might be better to set this to False.
 
-		  http_credentials: None
-	  Dictionary with HTTP basic authentication credentials for corporate intranets (only supports one set of credentials for all URLs at the moment), e.g.
-	  {"username": "bill", "password": "pa55w0rd"}
+		http_credentials: None
+			HTTP credentials for authentication with websites. Supports fields:
+			- username: str - Username for HTTP authentication
+			- password: str - Password for HTTP authentication
+			- origin: Optional[str] - URL origin to match
+			- send: Optional[Literal["always", "unauthorized"]] - When to send credentials
 
 	    is_mobile: None
 	        Whether the meta viewport tag is taken into account and touch events are enabled.
@@ -132,7 +131,10 @@ class BrowserContextConfig(BaseModel):
 	        Whether to enable touch events in the browser.
 
 	    geolocation: None
-	        Geolocation to be used in the browser context. Example: {'latitude': 59.95, 'longitude': 30.31667}
+	        Geolocation to be used in the browser context. Supports fields:
+			- latitude: float - Latitude between -90 and 90
+			- longitude: float - Longitude between -180 and 180
+			- accuracy: Optional[float] - Non-negative accuracy value
 
 	    permissions: None
 	        Browser permissions to grant. Values might include: ['geolocation', 'notifications']
@@ -176,12 +178,12 @@ class BrowserContextConfig(BaseModel):
 	viewport_expansion: int = 0
 	allowed_domains: list[str] | None = None
 	include_dynamic_attributes: bool = True
-	http_credentials: dict[str, str] | None = None
+	http_credentials: HttpCredentials | None = None
 
 	keep_alive: bool = Field(default=False, alias='_force_keep_context_alive')  # used to be called _force_keep_context_alive
 	is_mobile: bool | None = None
 	has_touch: bool | None = None
-	geolocation: dict | None = None
+	geolocation: Geolocation | None = None
 	permissions: list[str] | None = None
 	timezone_id: str | None = None
 
@@ -442,6 +444,9 @@ class BrowserContext:
 			# Connect to existing Chrome instance instead of creating new one
 			context = browser.contexts[0]
 		else:
+			viewport_size = ViewportSize(
+				width=self.config.browser_window_size.width, height=self.config.browser_window_size.height
+			)
 			# Original code for creating new context
 			context = await browser.new_context(
 				no_viewport=True,
@@ -450,7 +455,7 @@ class BrowserContext:
 				bypass_csp=self.config.disable_security,
 				ignore_https_errors=self.config.disable_security,
 				record_video_dir=self.config.save_recording_path,
-				record_video_size=self.config.browser_window_size.model_dump(),
+				record_video_size=viewport_size,
 				record_har_path=self.config.save_har_path,
 				locale=self.config.locale,
 				http_credentials=self.config.http_credentials,

@@ -58,6 +58,7 @@ TASK = """
 Find and book a hotel in Paris with suitable accommodations for a family of four (two adults and two children) offering free cancellation for the dates of February 14-21, 2025. on https://www.booking.com/
 """
 
+
 async def main():
 	agent = Agent(
 		task=TASK,

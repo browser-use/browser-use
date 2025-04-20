@@ -30,6 +30,7 @@ from browser_use.agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemP
 from browser_use.agent.views import (
 	REQUIRED_LLM_API_ENV_VARS,
 	ActionResult,
+	AgentBrain,
 	AgentError,
 	AgentHistory,
 	AgentHistoryList,
@@ -223,7 +224,7 @@ class Agent(Generic[Context]):
 
 		# Start non-blocking LLM connection verification using create_task, checked later in step()
 		# This will run in parallel with browser launch without leaving dangling coroutines on unclean exits
-		self.llm._verified_api_keys = False
+		self._verified_api_keys = False
 		self._verification_task = asyncio.create_task(self._verify_llm_connection())
 		self._verification_task.add_done_callback(lambda _: None)
 
@@ -269,7 +270,7 @@ class Agent(Generic[Context]):
 				)
 			except ImportError:
 				logger.warning(
-					"Memory functionality was enabled but required packages are not installed. "
+					'Memory functionality was enabled but required packages are not installed. '
 					"Install with 'pip install browser-use[memory]' to use memory features."
 				)
 				self.memory = None
@@ -695,13 +696,9 @@ class Agent(Generic[Context]):
 				tool_call_name = tool_call['name']
 				tool_call_args = tool_call['args']
 
-				current_state = {
-					'page_summary': 'Processing tool call',
-					'evaluation_previous_goal': 'Executing action',
-					'memory': 'Using tool call',
-					'next_goal': f'Execute {tool_call_name}',
-				}
-
+				current_state = AgentBrain(
+					evaluation_previous_goal='Executing action', memory='Using tool call', next_goal=f'Execute {tool_call_name}'
+				)
 				# Create action from tool call
 				action = {tool_call_name: tool_call_args}
 
@@ -798,7 +795,7 @@ class Agent(Generic[Context]):
 				pass
 
 		# Check that verification was successful
-		assert self.llm._verified_api_keys or SKIP_LLM_API_KEY_VERIFICATION, (
+		assert self._verified_api_keys or SKIP_LLM_API_KEY_VERIFICATION, (
 			'Failed to connect to LLM API or LLM API is not responding correctly'
 		)
 
@@ -1198,7 +1195,7 @@ class Agent(Generic[Context]):
 		Verify that the LLM API keys are setup and the LLM API is responding properly.
 		Helps prevent errors due to running out of API credits, missing env vars, or network issues.
 		"""
-		if getattr(self.llm, '_verified_api_keys', None) is True:
+		if self._verified_api_keys:
 			return True  # If the LLM API keys have already been verified during a previous run, skip the test
 
 		# Check if required environment variables are set for the model we're using
@@ -1207,11 +1204,11 @@ class Agent(Generic[Context]):
 			error = f'LLM API Key environment variables not set up for {self.llm.__class__.__name__}, missing: {required_keys}'
 			logger.warning(f'❌ {error}')
 			if not SKIP_LLM_API_KEY_VERIFICATION:
-				self.llm._verified_api_keys = False
+				self._verified_api_keys = False
 				raise ValueError(error)
 
 		if SKIP_LLM_API_KEY_VERIFICATION:  # skip roundtrip connection test for speed in cloud environment
-			self.llm._verified_api_keys = True
+			self._verified_api_keys = True
 			return True
 
 		test_prompt = 'What is the capital of France? Respond with a single word.'
@@ -1224,7 +1221,7 @@ class Agent(Generic[Context]):
 				logger.debug(
 					f'🧠 LLM API keys {", ".join(required_keys)} verified, {self.llm.__class__.__name__} model is connected and responding correctly.'
 				)
-				self.llm._verified_api_keys = True
+				self._verified_api_keys = True
 				return True
 			else:
 				logger.debug(
@@ -1235,7 +1232,7 @@ class Agent(Generic[Context]):
 				)
 				raise Exception('LLM responded to a simple test question incorrectly')
 		except Exception as e:
-			self.llm._verified_api_keys = False
+			self._verified_api_keys = False
 			logger.error(
 				f'\n\n❌  LLM {self.llm.__class__.__name__} connection test failed. Check that {", ".join(required_keys)} is set correctly in .env and that the LLM API account has sufficient funding.\n\n{e}\n'
 			)

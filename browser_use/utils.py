@@ -38,7 +38,7 @@ class SignalHandler:
 		resume_callback: Optional[Callable[[], None]] = None,
 		custom_exit_callback: Optional[Callable[[], None]] = None,
 		exit_on_second_int: bool = True,
-		interruptible_task_patterns: List[str] = None,
+		interruptible_task_patterns: List[str] | None = None,
 	):
 		"""
 		Initialize the signal handler.
@@ -60,17 +60,13 @@ class SignalHandler:
 		self.interruptible_task_patterns = interruptible_task_patterns or ['step', 'multi_act', 'get_next_action']
 		self.is_windows = platform.system() == 'Windows'
 
-		# Initialize loop state attributes
-		self._initialize_loop_state()
+		# Move these attributes from loop to the SignalHandler class
+		self.ctrl_c_pressed = False
+		self.waiting_for_input = False
 
 		# Store original signal handlers to restore them later if needed
 		self.original_sigint_handler = None
 		self.original_sigterm_handler = None
-
-	def _initialize_loop_state(self) -> None:
-		"""Initialize loop state attributes used for signal handling."""
-		setattr(self.loop, 'ctrl_c_pressed', False)
-		setattr(self.loop, 'waiting_for_input', False)
 
 	def register(self) -> None:
 		"""Register signal handlers for SIGINT and SIGTERM."""
@@ -154,9 +150,9 @@ class SignalHandler:
 			# Already exiting, force exit immediately
 			os._exit(0)
 
-		if getattr(self.loop, 'ctrl_c_pressed', False):
+		if self.ctrl_c_pressed:
 			# If we're in the waiting for input state, let the pause method handle it
-			if getattr(self.loop, 'waiting_for_input', False):
+			if self.waiting_for_input:
 				return
 
 			# Second Ctrl+C - exit immediately if configured to do so
@@ -164,7 +160,7 @@ class SignalHandler:
 				self._handle_second_ctrl_c()
 
 		# Mark that Ctrl+C was pressed
-		self.loop.ctrl_c_pressed = True
+		self.ctrl_c_pressed = True
 
 		# Cancel current tasks that should be interruptible - this is crucial for immediate pausing
 		self._cancel_interruptible_tasks()
@@ -225,7 +221,7 @@ class SignalHandler:
 		a second Ctrl+C directly.
 		"""
 		# Set flag to indicate we're waiting for input
-		setattr(self.loop, 'waiting_for_input', True)
+		self.waiting_for_input = True
 
 		# Temporarily restore default signal handling for SIGINT
 		# This ensures KeyboardInterrupt will be raised during input()
@@ -262,17 +258,15 @@ class SignalHandler:
 			try:
 				# Restore our signal handler
 				signal.signal(signal.SIGINT, original_handler)
-				setattr(self.loop, 'waiting_for_input', False)
+				self.waiting_for_input = False
 			except Exception:
 				pass
 
 	def reset(self) -> None:
 		"""Reset state after resuming."""
 		# Clear the flags
-		if hasattr(self.loop, 'ctrl_c_pressed'):
-			self.loop.ctrl_c_pressed = False
-		if hasattr(self.loop, 'waiting_for_input'):
-			self.loop.waiting_for_input = False
+		self.ctrl_c_pressed = False
+		self.waiting_for_input = False
 
 
 def time_execution_sync(additional_text: str = '') -> Callable[[Callable[P, R]], Callable[P, R]]:
