@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel
+from typing_extensions import TypedDict
 
 from browser_use.dom.history_tree_processor.service import DOMHistoryElement
 from browser_use.dom.views import DOMState
@@ -62,3 +63,21 @@ class BrowserError(Exception):
 
 class URLNotAllowedError(BrowserError):
 	"""Error raised when a URL is not allowed"""
+
+
+class HttpCredentials(TypedDict, total=False):
+	username: str
+	password: str
+	origin: Optional[str]
+	send: Optional[Literal['always', 'unauthorized']]
+
+
+class Geolocation(TypedDict, total=False):
+	latitude: float
+	longitude: float
+	accuracy: Optional[float]
+
+
+class ViewportSize(TypedDict):
+	width: int
+	height: int

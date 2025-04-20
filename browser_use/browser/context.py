@@ -19,14 +19,17 @@ from playwright.async_api import Browser as PlaywrightBrowser
 from playwright.async_api import (
 	BrowserContext as PlaywrightBrowserContext,
 )
-from playwright.async_api import ElementHandle, FrameLocator, Geolocation, HttpCredentials, Page, ViewportSize
+from playwright.async_api import ElementHandle, FrameLocator, Page
 from pydantic import BaseModel, ConfigDict, Field
 
 from browser_use.browser.views import (
 	BrowserError,
 	BrowserState,
+	Geolocation,
+	HttpCredentials,
 	TabInfo,
 	URLNotAllowedError,
+	ViewportSize,
 )
 from browser_use.dom.clickable_element_processor.service import ClickableElementProcessor
 from browser_use.dom.service import DomService
