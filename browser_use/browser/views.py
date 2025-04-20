@@ -66,26 +66,23 @@ class URLNotAllowedError(BrowserError):
 
 
 class ClickStatus(Enum):
-    SUCCESS = "success"
-    NAVIGATION_SUCCESS = "navigation_success"
-    ERROR = "error"
-    DOWNLOAD_SUCCESS = "download_success"
-    NAVIGATION_DISALLOWED = "navigation_disallowed"
-	
+	SUCCESS = 'success'
+	NAVgitIGATION_SUCCESS = 'navigation_success'
+	ERROR = 'error'
+	DOWNLOAD_SUCCESS = 'download_success'
+	NAVIGATION_DISALLOWED = 'navigation_disallowed'
+
+
 @dataclass
 class ClickConfig:
-    timeouts: dict[str, int] = field(default_factory=lambda: {
-        'click': 2,
-        'download': 5,
-        'navigation': 5,
-        'popup': 2
-    })
-    max_retries: int = 1
-    initial_retry_delay: float = 1.0
+	timeouts: dict[str, int] = field(default_factory=lambda: {'click': 2, 'download': 5, 'navigation': 5, 'popup': 2})
+	max_retries: int = 1
+	initial_retry_delay: float = 1.0
+
 
 @dataclass
 class ClickResult:
-    status: ClickStatus
-    message: Optional[str] = None
-    download_path: Optional[str] = None
-    navigated_url: Optional[str] = None
+	status: ClickStatus
+	message: Optional[str] = None
+	download_path: Optional[str] = None
+	navigated_url: Optional[str] = None

@@ -134,25 +134,18 @@ class Controller(Generic[Context]):
 
 			msg = None
 
-			try:
-				click_result = await browser._click_element_node(element_node)
-				if click_result.status == ClickStatus.DOWNLOAD_SUCCESS:
-					msg = f'💾  Downloaded file to {click_result.download_path}'
-				elif click_result.status in {ClickStatus.SUCCESS, ClickStatus.NAVIGATION_SUCCESS}:
-					msg = f'🖱️  Clicked button with index {params.index}: {element_node.get_all_text_till_next_clickable_element(max_depth=2)}'
-					logger.info(msg)
-					logger.debug(f'Element xpath: {element_node.xpath}')
-					if len(session.context.pages) > initial_pages:
-						new_tab_msg = 'New tab opened - switching to it'
-						msg += f' - {new_tab_msg}'
-						logger.info(new_tab_msg)
-						await browser.switch_to_tab(-1)
-					return ActionResult(extracted_content=msg, include_in_memory=True)
-				else:
-					raise Exception(f'Click failed with message: {click_result.message}')
-			except Exception as e:
-				logger.warning(f'Element not clickable with index {params.index} - most likely the page changed')
-				return ActionResult(error=str(e))
+			click_result = await browser._click_element_node(element_node)
+			if click_result.status == ClickStatus.DOWNLOAD_SUCCESS:
+				msg = f'💾  Downloaded file to {click_result.download_path}'
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True)
+			elif click_result.status in {ClickStatus.SUCCESS, ClickStatus.NAVIGATION_SUCCESS}:
+				msg = f'🖱️  Clicked button with index {params.index}: {element_node.get_all_text_till_next_clickable_element(max_depth=2)}'
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True)
+			else:
+				msg = f'Click failed with message: {click_result.message}'
+				return ActionResult(error=msg, include_in_memory=True)
 
 		@self.registry.action(
 			'Input text into a input interactive element',
