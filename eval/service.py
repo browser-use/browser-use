@@ -412,11 +412,11 @@ def get_llm(model_name: str):
 		if api_key_secret:
 			kwargs['api_key'] = api_key_secret
 		# Ensure api_key is provided if base_url is set and key exists
-		elif config.get('base_url'):
+		elif base_url := config.get('base_url'):
 			# If base_url is present but key is missing, we might still error depending on the endpoint's auth requirements.
 			# Log a warning here, the constructor will likely raise an error if the key is truly required.
 			logger.warning(
-				f'API key for {model_name} at {config["base_url"]} is missing, but base_url is specified. Authentication may fail.'
+				f'API key for {model_name} at {base_url} is missing, but base_url is specified. Authentication may fail.'
 			)
 		return ChatOpenAI(**kwargs)
 	else:
@@ -503,8 +503,8 @@ class TaskTracker:
 		# Ensure action history contains only strings, replacing None with "None"
 		action_history = []
 		for step in self.step_results:
-			if step['actions']:
-				content = step['actions'][-1]['content']
+			if step_actions := step['actions']:
+				content = step_actions[-1]['content']
 				action_history.append(content if content is not None else 'None')
 			else:
 				action_history.append('None')  # Handle steps with no actions
@@ -578,8 +578,8 @@ async def judge_task_result(model, task_folder: Path, score_threshold: float = 3
 			result = json.load(f)
 
 		# If a Online_Mind2Web_evaluation is already saved, we can skip the eval
-		if result.get('Online_Mind2Web_evaluation'):
-			return result.get('Online_Mind2Web_evaluation')
+		if mind2web_eval := result.get('Online_Mind2Web_evaluation'):
+			return mind2web_eval
 
 		# Get the screenshot paths, task description, and action history
 		screenshot_paths = result.get('screenshot_paths', [])
@@ -644,8 +644,7 @@ def calculate_local_summary(results_dir: Optional[str] = None) -> Dict:
 	Returns:
 		Dictionary containing total_tasks, successful_tasks, success_rate, and average_score
 	"""
-	if results_dir is None:
-		results_dir = 'saved_trajectories'
+	results_dir = results_dir or 'saved_trajectories'
 
 	path = Path(results_dir)
 	if not path.is_dir():
@@ -674,8 +673,7 @@ def calculate_local_summary(results_dir: Optional[str] = None) -> Dict:
 					result_data = json.load(f)
 
 				# Look for evaluation data
-				evaluation = result_data.get('Online_Mind2Web_evaluation', {})
-				if evaluation:
+				if evaluation := result_data.get('Online_Mind2Web_evaluation', {}):
 					if evaluation.get('success', False):
 						successful_tasks += 1
 
@@ -1089,8 +1087,7 @@ def start_new_run(convex_url: str, secret_key: str, run_details: dict):
 		if response.status_code == 200:
 			try:
 				data = response.json()
-				run_id = data.get('runId')
-				if run_id:
+				if run_id := data.get('runId'):
 					logger.info(f'Successfully started run. Run ID: {run_id}')
 					return run_id
 				else:
@@ -1287,9 +1284,7 @@ if __name__ == '__main__':
 			'additionalData': additional_run_data,
 		}
 
-		run_id = start_new_run(CONVEX_URL, SECRET_KEY, run_data)
-
-		if not run_id:
+		if not (run_id := start_new_run(CONVEX_URL, SECRET_KEY, run_data)):
 			logger.error('Failed to start a new run on the server. Exiting.')
 			exit(1)
 

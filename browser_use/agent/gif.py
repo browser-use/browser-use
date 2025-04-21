@@ -168,8 +168,7 @@ def _create_task_frame(
 
 	# Calculate dynamic font size based on text length and complexity
 	# Longer texts get progressively smaller fonts
-	text_length = len(task)
-	if text_length > 200:
+	if (text_length := len(task)) > 200:
 		# For very long text, reduce font size logarithmically
 		font_size = max(base_font_size - int(10 * (text_length / 200)), min_font_size)
 	else:
