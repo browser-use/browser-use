@@ -726,6 +726,12 @@
       // If checking listeners fails, rely on other checks
     }
 
+    // Added: Treat file tree nodes as interactive.
+    // This ensures that elements within a file tree (with class "file-tree-node") are considered clickable.
+    if (element.classList && element.classList.contains('file-tree-node')) {
+      return true;
+    }
+
     return false
   }
 
