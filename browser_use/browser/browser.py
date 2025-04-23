@@ -107,6 +107,7 @@ class BrowserConfig(BaseModel):
 	disable_security: bool = False  # disable_security=True is dangerous as any malicious URL visited could embed an iframe for the user's bank, and use their cookies to steal money
 	deterministic_rendering: bool = False
 	keep_alive: bool = Field(default=False, alias='_force_keep_browser_alive')  # used to be called _force_keep_browser_alive
+	advanced_mode: bool = False  # Enable full Playwright capabilities (JavaScript execution, iframe support, enhanced locators)
 
 	proxy: ProxySettings | None = None
 	new_context_config: BrowserContextConfig = Field(default_factory=BrowserContextConfig)

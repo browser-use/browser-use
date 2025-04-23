@@ -58,20 +58,170 @@ async def main():
 asyncio.run(main())
 ```
 
+## Advanced Mode
+
+For complex browser automation tasks requiring full Playwright capabilities:
+
+```python
+from langchain_openai import ChatOpenAI
+from browser_use import Agent
+from browser_use.browser.browser import Browser, BrowserConfig
+import asyncio
+from dotenv import load_dotenv
+load_dotenv()
+
+async def main():
+    # Enable advanced mode with full Playwright capabilities
+    browser_config = BrowserConfig(
+        advanced_mode=True,  # Enable JavaScript execution, iframe support, etc.
+        headless=False       # Set to True for headless operation
+    )
+    
+    browser = Browser(config=browser_config)
+    
+    agent = Agent(
+        task="Navigate complex web interfaces with iframes and dynamic content",
+        llm=ChatOpenAI(model="gpt-4o"),
+        browser=browser
+    )
+    await agent.run()
+
+asyncio.run(main())
+```
+
 Add your API keys for the provider you want to use to your `.env` file.
 
 ```bash
 OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
-AZURE_ENDPOINT=
-AZURE_OPENAI_API_KEY=
+AZURE_OPENAI_ENDPOINT=
+AZURE_OPENAI_KEY=
+AZURE_OPENAI_API_VERSION=
 GEMINI_API_KEY=
 DEEPSEEK_API_KEY=
 GROK_API_KEY=
 NOVITA_API_KEY=
 ```
 
+## Command-line Flags
+
+The library supports command-line flags for flexible configuration:
+
+```bash
+# Basic usage
+python examples/advance.py
+
+# With command-line flags
+python examples/advance.py --cdp-port 9222 --no-headless --model gpt-4o --task "Your custom task"
+
+# Using Azure OpenAI
+python examples/advance.py --use-azure --model gpt-4o
+```
+
+Available flags:
+- `--cdp-port`: CDP port for browser connection (for connecting to existing browser)
+- `--headless/--no-headless`: Run browser in headless/visible mode
+- `--advanced-mode/--no-advanced-mode`: Enable/disable advanced Playwright capabilities
+- `--model`: Model to use (default: gpt-4o)
+- `--use-azure`: Use Azure OpenAI instead of OpenAI
+- `--task`: Custom task to perform
+
+## Environment-Specific Usage
+
+### Local Mac Usage
+```bash
+# Extract CDP port
+CDP_PORT=$(ps -ax | grep -o '\-\-remote-debugging-port=[0-9]\+' | awk -F= '{print $2}' | head -1)
+
+# Run with visible browser window
+python examples/advance.py --no-headless --task "Your custom task"
+
+# Run with advanced mode and custom model
+python examples/advance.py --no-headless --advanced-mode --model gpt-4o
+
+# For Naver Maps photo navigation on Mac
+python examples/advance.py --cdp-port $CDP_PORT --no-headless --advanced-mode --model gpt-4o
+```
+
+### Devin/Remote Environment Usage
+```bash
+# Extract CDP port for connecting to existing browser
+CDP_PORT=$(ps aux | grep -o '\-\-remote-debugging-port=[0-9]\+' | awk -F= '{print $2}' | head -1)
+
+# Run with CDP port connection
+python examples/advance.py --cdp-port $CDP_PORT --task "Your custom task"
+
+# Run with Azure OpenAI
+python examples/advance.py --cdp-port $CDP_PORT --use-azure --model gpt-4o
+```
+
 For other settings, models, and more, check out the [documentation 📕](https://docs.browser-use.com).
+
+## Enhanced Features
+
+### Advanced Mode Capabilities
+
+The advanced mode (`advanced_mode=True`) enables full Playwright capabilities:
+
+- **JavaScript Execution**: Run custom JavaScript via page.evaluate() for complex interactions
+- **Iframe Support**: Access and traverse nested iframes using page.frames()
+- **Enhanced UI Interaction**: Full locator strategy support and React component interaction
+- **Korean Language Support**: Improved handling of Korean text elements
+- **Dynamic Content Handling**: Better waiting for JavaScript page loads and state changes
+
+#### Enhanced Korean Text Detection
+
+Advanced mode includes specialized methods for Korean websites:
+
+```python
+# Example: Using enhanced Korean text detection
+await context.get_element_by_korean_text("외부")  # Find element by Korean text
+await context.get_naver_photo_elements(search_in_frames=True)  # Find photo elements in Naver Maps
+await context.get_element_by_photo_category("외부")  # Find photo category by name
+```
+
+#### Iframe Navigation Enhancements
+
+Advanced mode provides improved iframe handling:
+
+```python
+# Example: Working with iframes
+frames = await context.get_frames()  # Get all frames on the page
+place_frame = await context.get_frame_by_url_pattern("pcmap.place.naver.com")  # Find frame by URL pattern
+await context.switch_to_frame(place_frame)  # Switch context to specific frame
+```
+
+#### Dynamic Element Selection
+
+Advanced mode provides improved methods for handling dynamic elements:
+
+```python
+# Example: Using dynamic element selection
+# Find elements with retry logic
+element = await context.get_element_with_retry(selector=".dynamic-class", 
+                                              retry_count=5, 
+                                              wait_time=1000)
+
+# Find elements by text content with fuzzy matching
+element = await context.get_element_by_text_content("Approximate text", 
+                                                   fuzzy_match=True)
+```
+
+#### Timing and State Management
+
+Advanced mode includes improved timing and state management:
+
+```python
+# Example: Using enhanced timing and state management
+# Wait for network to be idle
+await context.wait_for_network_idle(timeout=10000)
+
+# Wait for element to be visible with custom timeout
+await context.wait_for_element_visible(".selector", timeout=5000)
+
+# Wait for page to finish navigation
+await context.wait_for_navigation_complete()
+```
 
 ### Test with UI
 

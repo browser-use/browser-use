@@ -8,6 +8,7 @@ import gc
 import json
 import logging
 import os
+import platform
 import re
 import time
 import uuid
@@ -152,8 +153,8 @@ class BrowserContextConfig(BaseModel):
 
 	cookies_file: str | None = None
 	minimum_wait_page_load_time: float = 0.25
-	wait_for_network_idle_page_load_time: float = 0.5
-	maximum_wait_page_load_time: float = 5
+	wait_for_network_idle_page_load_time: float = 1.0
+	maximum_wait_page_load_time: float = 8
 	wait_between_actions: float = 0.5
 
 	disable_security: bool = False  # disable_security=True is dangerous as any malicious URL visited could embed an iframe for the user's bank, and use their cookies to steal money
@@ -1690,3 +1691,192 @@ class BrowserContext:
 		"""
 		page = await self.get_current_page()
 		await page.wait_for_selector(selector, state='visible', timeout=timeout)
+		
+	async def get_element_by_korean_text(self, text: str, retry_count: int = 3, wait_time: int = 1000, normalize: bool = True, deep_search: bool = True):
+		"""
+		Find an element by Korean text content.
+		
+		Args:
+			text: Korean text to search for
+			retry_count: Number of retries if element not found
+			wait_time: Wait time between retries in milliseconds
+			normalize: Whether to normalize Korean text for comparison
+			deep_search: Whether to use deep search for more aggressive element detection
+			
+		Returns:
+			Element with matching text or None if not found
+		"""
+		page = await self.get_current_page()
+		
+		# Wait for network idle to ensure dynamic content is loaded
+		try:
+			await page.wait_for_load_state("networkidle", timeout=5000)
+		except Exception as e:
+			logger.debug(f"Wait for network idle timed out: {str(e)}")
+		
+		# Function to normalize Korean text if needed
+		def normalize_korean(input_text):
+			if not normalize:
+				return input_text
+			return input_text.replace(" ", "").lower()
+		
+		normalized_text = normalize_korean(text)
+		
+		js_find_by_text = """
+		(text, normalize) => {
+			const normalizeText = (input) => {
+				if (!normalize) return input;
+				return input.replace(/\\s+/g, '').toLowerCase();
+			};
+			
+			const normalizedSearchText = normalizeText(text);
+			const allElements = document.querySelectorAll('*');
+			
+			for (const element of allElements) {
+				if (element.textContent && normalizeText(element.textContent).includes(normalizedSearchText)) {
+					return element;
+				}
+			}
+			
+			return null;
+		}
+		"""
+		
+		try:
+			element = await page.evaluate(js_find_by_text, text, normalize)
+			if element:
+				return element
+		except Exception as e:
+			logger.debug(f"Error finding element by Korean text with JavaScript: {str(e)}")
+		
+		try:
+			xpath = f"//*[contains(text(), '{text}')]"
+			element = await page.query_selector(xpath)
+			if element:
+				return element
+		except Exception as e:
+			logger.debug(f"Error finding element by Korean text with XPath: {str(e)}")
+		
+		# If not found and retry count > 0, wait and try again
+		if retry_count > 0:
+			logger.debug(f"Element with Korean text '{text}' not found, retrying in {wait_time}ms ({retry_count} retries left)")
+			await asyncio.sleep(wait_time / 1000)
+			return await self.get_element_by_korean_text(text, retry_count - 1, wait_time, normalize, deep_search)
+		
+		logger.warning(f"Element with Korean text '{text}' not found after all retries")
+		return None
+		
+	async def get_naver_photo_elements(self, retry_count: int = 3, wait_time: int = 1000, search_in_frames: bool = True, deep_search: bool = True):
+		"""
+		Get photo elements from Naver Maps.
+		
+		Args:
+			retry_count: Number of retries if elements not found
+			wait_time: Wait time between retries in milliseconds
+			search_in_frames: Whether to search in frames
+			deep_search: Whether to use deep search for more aggressive element detection (default: True)
+			
+		Returns:
+			List of photo elements or None if not found
+		"""
+		if not self.browser.config.advanced_mode:
+			logger.warning("Advanced mode is required for Naver photo element detection")
+			return None
+			
+		logger.info(f"Searching for Naver photo elements (deep_search={deep_search}, search_in_frames={search_in_frames})")
+		
+		page = await self.get_current_page()
+		
+		# Wait for network idle to ensure dynamic content is loaded
+		try:
+			await page.wait_for_load_state("networkidle", timeout=5000)
+		except Exception as e:
+			logger.debug(f"Wait for network idle timed out: {str(e)}")
+			# Continue anyway as the elements might still be available
+		
+		elements = []
+		
+		try:
+			selectors = [
+				"img[src*='pstatic.net']",  # Common Naver image source
+				"div[class*='photo'] img",   # Photos in div with class containing 'photo'
+				"div[class*='img'] img",     # Photos in div with class containing 'img'
+				"div[class*='thumb'] img"    # Photos in div with class containing 'thumb'
+			]
+			
+			for selector in selectors:
+				try:
+					main_elements = await page.query_selector_all(selector)
+					if main_elements:
+						elements.extend(main_elements)
+						logger.debug(f"Found {len(main_elements)} photo elements with selector: {selector}")
+				except Exception as e:
+					logger.debug(f"Error finding elements with selector {selector}: {str(e)}")
+			
+			if deep_search and not elements:
+				logger.debug("Using deep search to find photo elements")
+				try:
+					# Try to find any img elements
+					img_elements = await page.query_selector_all("img")
+					if img_elements:
+						for img in img_elements:
+							try:
+								# Check if image has reasonable dimensions
+								width = await img.get_property("width")
+								height = await img.get_property("height")
+								width_val = await width.json_value()
+								height_val = await height.json_value()
+								
+								if width_val > 100 and height_val > 100:
+									elements.append(img)
+							except Exception:
+								pass
+						
+						logger.debug(f"Found {len(elements)} potential photo elements with deep search")
+				except Exception as e:
+					logger.debug(f"Error in deep search: {str(e)}")
+		except Exception as e:
+			logger.debug(f"Error searching for photo elements in main frame: {str(e)}")
+		
+		if search_in_frames and not elements:
+			try:
+				frames = page.frames
+				logger.debug(f"Searching in {len(frames)} frames")
+				
+				for frame in frames:
+					try:
+						for selector in selectors:
+							try:
+								frame_elements = await frame.query_selector_all(selector)
+								if frame_elements:
+									elements.extend(frame_elements)
+									logger.debug(f"Found {len(frame_elements)} photo elements in frame with selector: {selector}")
+							except Exception:
+								pass
+						
+						if deep_search and not elements:
+							img_elements = await frame.query_selector_all("img")
+							if img_elements:
+								for img in img_elements:
+									try:
+										width = await img.get_property("width")
+										height = await img.get_property("height")
+										width_val = await width.json_value()
+										height_val = await height.json_value()
+										
+										if width_val > 100 and height_val > 100:
+											elements.append(img)
+									except Exception:
+										pass
+					except Exception as e:
+						logger.debug(f"Error searching in frame: {str(e)}")
+			except Exception as e:
+				logger.debug(f"Error accessing frames: {str(e)}")
+		
+		if not elements and retry_count > 0:
+			logger.debug(f"No photo elements found, retrying in {wait_time}ms ({retry_count} retries left)")
+			await asyncio.sleep(wait_time / 1000)
+			return await self.get_naver_photo_elements(retry_count - 1, wait_time, search_in_frames, deep_search)
+		
+		logger.info(f"Found {len(elements)} Naver photo elements")
+		return elements
