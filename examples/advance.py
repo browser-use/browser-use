@@ -27,7 +27,7 @@ load_dotenv()
 
 DEFAULT_TASK = 'Go to Naver Maps and search for the restaurant - 반포식스 덕수궁점 and click on the photo to get to the photo categories and then select the 외부 category and then click on the first photo from the 외부 category and verify you are in photo carousel mode'
 
-SCREENSHOT_DIR = "/home/ubuntu/screenshots"
+SCREENSHOT_DIR = os.path.join(os.path.expanduser("~"), "screenshots")
 os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 
 async def take_screenshot(context, name):
