@@ -161,13 +161,15 @@ The browser-use library provides screenshot capabilities in two ways:
 - **Base64 encoded screenshots**: The BrowserContext.take_screenshot() method returns a base64 encoded screenshot (doesn't save to file)
 - **File-based screenshots**: Example scripts like advance.py include custom functions to save screenshots to files
 
-When running examples that support screenshots (like advance.py), you must explicitly enable screenshots with the `--screenshots` flag:
+**Important**: Screenshots are not saved to files by default. When running examples that support screenshots (like advance.py), you must explicitly enable screenshots with the `--screenshots` flag:
 
 ```bash
 python examples/advance.py --screenshots --no-headless --advanced-mode
 ```
 
-Screenshots will be saved to `~/screenshots/` directory. The directory will be created if it doesn't exist.
+Screenshots will be saved to `~/screenshots/` directory using platform-independent paths. The directory will be created automatically if it doesn't exist on both Linux and macOS systems.
+
+Note: The screenshot functionality has no dependencies on any specific environment and works across all platforms using standard Python and Playwright functionality.
 
 ## Environment-Specific Usage
 
@@ -293,15 +295,21 @@ Screenshots will be saved to `~/screenshots/` directory with timestamps and desc
 
 Example screenshot usage in custom scripts:
 ```python
-# Save a screenshot to a file
+# Save a screenshot to a file (note: this doesn't require the --screenshots flag)
 page = await context.get_current_page()
-await page.screenshot(path="~/screenshots/my_screenshot.png")
+# Use os.path.expanduser to ensure cross-platform compatibility
+screenshot_path = os.path.join(os.path.expanduser("~"), "screenshots", "my_screenshot.png")
+os.makedirs(os.path.dirname(screenshot_path), exist_ok=True)
+await page.screenshot(path=screenshot_path)
 
-# Process a base64 encoded screenshot
+# Process a base64 encoded screenshot (available in both normal and advanced mode)
 import base64
+import os
 screenshot_b64 = await context.take_screenshot()
 screenshot_bytes = base64.b64decode(screenshot_b64)
-with open("~/screenshots/decoded_screenshot.png", "wb") as f:
+screenshot_path = os.path.join(os.path.expanduser("~"), "screenshots", "decoded_screenshot.png")
+os.makedirs(os.path.dirname(screenshot_path), exist_ok=True)
+with open(screenshot_path, "wb") as f:
     f.write(screenshot_bytes)
 ```
 
