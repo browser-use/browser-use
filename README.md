@@ -116,15 +116,58 @@ python examples/advance.py --cdp-port 9222 --no-headless --model gpt-4o --task "
 
 # Using Azure OpenAI
 python examples/advance.py --use-azure --model gpt-4o
+
+# With screenshots enabled
+python examples/advance.py --screenshots --no-headless --advanced-mode
 ```
 
 Available flags:
-- `--cdp-port`: CDP port for browser connection (for connecting to existing browser)
+- `--cdp-port PORT`: CDP port for browser connection (for connecting to existing browser)
 - `--headless/--no-headless`: Run browser in headless/visible mode
 - `--advanced-mode/--no-advanced-mode`: Enable/disable advanced Playwright capabilities
-- `--model`: Model to use (default: gpt-4o)
+- `--model MODEL`: Model to use (default: gpt-4o)
 - `--use-azure`: Use Azure OpenAI instead of OpenAI
-- `--task`: Custom task to perform
+- `--task "TASK"`: Custom task to perform
+- `--screenshots`: Enable taking screenshots during automation
+- `--debug`: Enable debug logging
+
+### Complete Command-line Reference
+
+Example scripts support various command-line arguments:
+
+#### advance.py
+
+```bash
+python examples/advance.py [options]
+```
+
+Options:
+- `--use-azure`: Use Azure OpenAI instead of OpenAI
+- `--model MODEL`: Specify the model name (default: gpt-4o)
+- `--no-headless`: Run in visible browser mode
+- `--advanced-mode`: Enable advanced Playwright capabilities
+- `--cdp-port PORT`: Specify CDP port for browser connection
+- `--screenshots`: Enable taking screenshots during navigation
+- `--debug`: Enable debug logging
+
+Example with all options:
+```bash
+python examples/advance.py --no-headless --advanced-mode --use-azure --model gpt-4o --cdp-port 9222 --screenshots --debug
+```
+
+### Screenshot Functionality
+
+The browser-use library provides screenshot capabilities in two ways:
+- **Base64 encoded screenshots**: The BrowserContext.take_screenshot() method returns a base64 encoded screenshot (doesn't save to file)
+- **File-based screenshots**: Example scripts like advance.py include custom functions to save screenshots to files
+
+When running examples that support screenshots (like advance.py), you must explicitly enable screenshots with the `--screenshots` flag:
+
+```bash
+python examples/advance.py --screenshots --no-headless --advanced-mode
+```
+
+Screenshots will be saved to `~/screenshots/` directory. The directory will be created if it doesn't exist.
 
 ## Environment-Specific Usage
 
@@ -141,7 +184,18 @@ python examples/advance.py --no-headless --advanced-mode --model gpt-4o
 
 # For Naver Maps photo navigation on Mac
 python examples/advance.py --cdp-port $CDP_PORT --no-headless --advanced-mode --model gpt-4o
+
+# With screenshots enabled
+python examples/advance.py --no-headless --advanced-mode --screenshots
 ```
+
+#### Mac-Specific Screenshot Notes
+
+When running on macOS:
+- The screenshots directory is created at `~/screenshots/` using platform-independent paths
+- You must explicitly enable screenshots with the `--screenshots` flag
+- Screenshots are saved with timestamps and descriptive names
+- The directory will be created automatically if it doesn't exist
 
 ### Devin/Remote Environment Usage
 ```bash
@@ -221,6 +275,34 @@ await context.wait_for_element_visible(".selector", timeout=5000)
 
 # Wait for page to finish navigation
 await context.wait_for_navigation_complete()
+```
+
+#### Screenshots
+
+Advanced mode provides enhanced screenshot capabilities:
+
+```python
+# Take a screenshot and get base64 encoded data
+screenshot_b64 = await context.take_screenshot(full_page=True)
+
+# In example scripts, enable screenshots with the --screenshots flag
+# python examples/advance.py --screenshots --no-headless --advanced-mode [other options]
+```
+
+Screenshots will be saved to `~/screenshots/` directory with timestamps and descriptive names. The directory will be created if it doesn't exist.
+
+Example screenshot usage in custom scripts:
+```python
+# Save a screenshot to a file
+page = await context.get_current_page()
+await page.screenshot(path="~/screenshots/my_screenshot.png")
+
+# Process a base64 encoded screenshot
+import base64
+screenshot_b64 = await context.take_screenshot()
+screenshot_bytes = base64.b64decode(screenshot_b64)
+with open("~/screenshots/decoded_screenshot.png", "wb") as f:
+    f.write(screenshot_bytes)
 ```
 
 ### Test with UI
