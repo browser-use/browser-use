@@ -453,7 +453,7 @@ class Agent(Generic[Context]):
 				msg = 'Now comes your last step. Use only the "done" action now. No other actions - so here your action sequence must have length 1.'
 				msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false! E.g. if not all steps are fully completed.'
 				msg += '\nIf the task is fully finished, set success in "done" to true.'
-				msg += '\nInclude everything you found out for the ultimate task in the done text.'
+				# msg += '\nInclude everything you found out for the ultimate task in the done text.' # <<< COMMENTED OUT
 				logger.info('Last step finishing up')
 				self._message_manager._add_message_with_tokens(HumanMessage(content=msg))
 				self.AgentOutput = self.DoneAgentOutput
