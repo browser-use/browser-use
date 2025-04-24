@@ -610,7 +610,7 @@ async def judge_task_result(model, task_folder: Path, score_threshold: float = 3
 
 			# Save the Online_Mind2Web_evaluation into the result.json file
 			result['Online_Mind2Web_evaluation'] = evaluation
-			with anyio.open_file(result_file, 'w') as f:
+			async with await anyio.open_file(result_file, 'w') as f:
 				await f.write(json.dumps(result, indent=2))
 
 			return evaluation
@@ -752,7 +752,7 @@ async def run_task_with_semaphore(
 			if result_file.exists():
 				logger.info(f'Task {task.task_id}: Found existing result file.')
 				try:
-					with anyio.open_file(result_file) as f:
+					async with await anyio.open_file(result_file) as f:
 						existing_result = json.loads(await f.read())
 
 					# Populate payload from existing file
@@ -1284,7 +1284,7 @@ if __name__ == '__main__':
 			'gitCommitHash': git_info['hash'],
 			'gitCommitTimestamp': git_info['timestamp'],
 			'userMessage': args.user_message,
-			'totalTasks': args.end - args.start,
+			'totalTasks': len(tasks) - args.start if args.end is None else args.end - args.start,
 			'additionalData': additional_run_data,
 		}
 
