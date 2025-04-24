@@ -228,7 +228,7 @@ class BrowserSession:
 							if (!this.__listeners[type]) {
 								this.__listeners[type] = [];
 							}
-							
+
 
 							// Add the listener to __listeners
 							this.__listeners[type].push({
@@ -403,6 +403,13 @@ class BrowserContext:
 		await active_page.bring_to_front()
 		await active_page.wait_for_load_state('load')
 
+		# Set the viewport size for the active page
+		try:
+			await active_page.set_viewport_size(self.config.browser_window_size.model_dump())
+			logger.debug(f'Set viewport size to {self.config.browser_window_size.width}x{self.config.browser_window_size.height}')
+		except Exception as e:
+			logger.debug(f'Failed to set viewport size: {e}')
+
 		self.active_tab = active_page
 
 		return self.session
@@ -442,14 +449,28 @@ class BrowserContext:
 		"""Creates a new browser context with anti-detection measures and loads cookies if available."""
 		if self.browser.config.cdp_url and len(browser.contexts) > 0 and not self.config.force_new_context:
 			context = browser.contexts[0]
+			# For existing contexts, we need to set the viewport size manually
+			if context.pages and not self.browser.config.headless:
+				try:
+					await context.pages[0].set_viewport_size(self.config.browser_window_size.model_dump())
+				except Exception as e:
+					logger.debug(f'Failed to set viewport size for existing context: {e}')
 		elif self.browser.config.browser_binary_path and len(browser.contexts) > 0 and not self.config.force_new_context:
 			# Connect to existing Chrome instance instead of creating new one
 			context = browser.contexts[0]
+			# For existing contexts, we need to set the viewport size manually
+			if context.pages and not self.browser.config.headless:
+				try:
+					await context.pages[0].set_viewport_size(self.config.browser_window_size.model_dump())
+				except Exception as e:
+					logger.debug(f'Failed to set viewport size for existing context: {e}')
 		else:
 			kwargs = {}
-			if self.browser.config.headless:
-				kwargs['viewport'] = self.config.browser_window_size.model_dump()
-				kwargs['no_viewport'] = False
+			# Set viewport for both headless and non-headless modes
+			kwargs['viewport'] = self.config.browser_window_size.model_dump()
+			# Important: set no_viewport to False to ensure the viewport size is applied
+			kwargs['no_viewport'] = False
+
 			if self.config.user_agent is not None:
 				kwargs['user_agent'] = self.config.user_agent
 
@@ -471,6 +492,10 @@ class BrowserContext:
 
 		if self.config.trace_path:
 			await context.tracing.start(screenshots=True, snapshots=True, sources=True)
+
+		# Resize the window for non-headless mode
+		if not self.browser.config.headless and not self.config.no_viewport:
+			await self._resize_window(context)
 
 		# Load cookies if they exist
 		if self.config.cookies_file and os.path.exists(self.config.cookies_file):
@@ -1489,6 +1514,13 @@ class BrowserContext:
 		await page.bring_to_front()
 		await page.wait_for_load_state()
 
+		# Set the viewport size for the tab
+		try:
+			await page.set_viewport_size(self.config.browser_window_size.model_dump())
+			logger.debug(f'Set viewport size to {self.config.browser_window_size.width}x{self.config.browser_window_size.height}')
+		except Exception as e:
+			logger.debug(f'Failed to set viewport size: {e}')
+
 	@time_execution_async('--create_new_tab')
 	async def create_new_tab(self, url: str | None = None) -> None:
 		"""Create a new tab and optionally navigate to a URL"""
@@ -1501,6 +1533,13 @@ class BrowserContext:
 		self.active_tab = new_page
 
 		await new_page.wait_for_load_state()
+
+		# Set the viewport size for the new tab
+		try:
+			await new_page.set_viewport_size(self.config.browser_window_size.model_dump())
+			logger.debug(f'Set viewport size to {self.config.browser_window_size.width}x{self.config.browser_window_size.height}')
+		except Exception as e:
+			logger.debug(f'Failed to set viewport size: {e}')
 
 		if url:
 			await new_page.goto(url)
@@ -1661,6 +1700,63 @@ class BrowserContext:
 		except Exception as e:
 			logger.debug(f'Failed to get CDP targets: {e}')
 			return []
+
+	async def _resize_window(self, context: PlaywrightBrowserContext) -> None:
+		"""Resize the browser window to match the configured size"""
+		try:
+			if not context.pages:
+				return
+
+			page = context.pages[0]
+			window_size = self.config.browser_window_size.model_dump()
+
+			# First, set the viewport size
+			try:
+				await page.set_viewport_size(window_size)
+				logger.debug(f'Set viewport size to {window_size["width"]}x{window_size["height"]}')
+			except Exception as e:
+				logger.debug(f'Viewport resize failed: {e}')
+
+			# Then, try to set the actual window size using CDP
+			try:
+				cdp_session = await context.new_cdp_session(page)
+
+				# Get the window ID
+				window_id_result = await cdp_session.send('Browser.getWindowForTarget')
+
+				# Set the window bounds
+				await cdp_session.send(
+					'Browser.setWindowBounds',
+					{
+						'windowId': window_id_result['windowId'],
+						'bounds': {
+							'width': window_size['width'],
+							'height': window_size['height'] + 85,  # Add some height for browser chrome
+							'windowState': 'normal',  # Ensure window is in normal state (not minimized/maximized)
+						},
+					},
+				)
+
+				await cdp_session.detach()
+				logger.debug(f'Set window size to {window_size["width"]}x{window_size["height"] + 85}')
+			except Exception as e:
+				logger.debug(f'CDP window resize failed: {e}')
+
+				# Fallback to using JavaScript
+				try:
+					await page.evaluate(f"""
+						() => {{
+							window.resizeTo({window_size['width']}, {window_size['height'] + 85});
+						}}
+					""")
+					logger.debug(f'Used JavaScript to set window size to {window_size["width"]}x{window_size["height"] + 85}')
+				except Exception as e:
+					logger.debug(f'JavaScript window resize failed: {e}')
+
+			logger.debug(f'Attempted to resize window to {window_size["width"]}x{window_size["height"]}')
+		except Exception as e:
+			logger.debug(f'Failed to resize browser window: {e}')
+			# Non-critical error, continue execution
 
 	async def wait_for_element(self, selector: str, timeout: float) -> None:
 		"""

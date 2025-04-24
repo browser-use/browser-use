@@ -27,7 +27,7 @@ from browser_use.browser.chrome import (
 	CHROME_HEADLESS_ARGS,
 )
 from browser_use.browser.context import BrowserContext, BrowserContextConfig
-from browser_use.browser.utils.screen_resolution import get_screen_resolution, get_window_adjustments
+from browser_use.browser.utils.screen_resolution import get_window_adjustments, get_screen_resolution
 from browser_use.utils import time_execution_async
 
 logger = logging.getLogger(__name__)
@@ -251,7 +251,15 @@ class Browser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		assert self.config.browser_binary_path is None, 'browser_binary_path should be None if trying to use the builtin browsers'
 
-		if self.config.headless:
+		# Use the configured window size from new_context_config if available
+		if (
+			not self.config.headless
+			and hasattr(self.config, 'new_context_config')
+			and hasattr(self.config.new_context_config, 'browser_window_size')
+		):
+			screen_size = self.config.new_context_config.browser_window_size.model_dump()
+			offset_x, offset_y = get_window_adjustments()
+		elif self.config.headless:
 			screen_size = {'width': 1920, 'height': 1080}
 			offset_x, offset_y = 0, 0
 		else:
@@ -290,6 +298,15 @@ class Browser:
 				}
 			],
 		}
+
+		# Add viewport size to launch options for non-headless mode
+		viewport = None
+		if (
+			not self.config.headless
+			and hasattr(self.config, 'new_context_config')
+			and hasattr(self.config.new_context_config, 'browser_window_size')
+		):
+			viewport = self.config.new_context_config.browser_window_size.model_dump()
 
 		browser = await browser_class.launch(
 			headless=self.config.headless,
