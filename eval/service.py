@@ -4,7 +4,7 @@
 
 
 # Here is the command to run the evaluation:
-# python eval/service.py --parallel_runs 5 --parallel_evaluations 5 --max-steps 25 --start 0 --end 100 --model gpt-4o
+# python eval/service.py --parallel_runs 5 --max-steps 25 --start 0 --end 100 --model gpt-4o
 # options:
 # --parallel_runs: Number of parallel tasks to run
 # --max-steps: Maximum steps per task
@@ -15,7 +15,6 @@
 # Here is the command to run the evaluation only:
 # python eval/service.py --evaluate-only
 # options:
-# --parallel_evaluations: Number of parallel evaluations to run
 
 # ==============================================================================================================
 
@@ -301,6 +300,7 @@ from langchain_openai import ChatOpenAI
 from pydantic.types import SecretStr
 
 from browser_use import Agent, Browser, BrowserConfig
+from browser_use.agent.views import AgentHistoryList
 
 SUPPORTED_MODELS = {
 	# Anthropic
@@ -373,55 +373,117 @@ def get_llm(model_name: str):
 		api_key = None
 
 	api_key_secret = SecretStr(api_key) if api_key else None
+	match provider:
+		case 'openai':
+			kwargs = {'model': config['model_name'], 'temperature': 0.0}
+			if api_key_secret:
+				kwargs['api_key'] = api_key_secret
+			return ChatOpenAI(**kwargs)
+		case 'anthropic':
+			kwargs = {'model_name': config['model_name'], 'temperature': 0.0, 'timeout': 100, 'stop': None}
+			if api_key_secret:
+				kwargs['api_key'] = api_key_secret
+			return ChatAnthropic(**kwargs)
+		case 'google':
+			kwargs = {'model': config['model_name'], 'temperature': 0.0}
+			if api_key_secret:
+				kwargs['api_key'] = api_key_secret
+			return ChatGoogleGenerativeAI(**kwargs)
+		case 'openai_compatible':
+			kwargs = {'model': config['model_name'], 'base_url': config['base_url'], 'temperature': 0.0}
+			if api_key_secret:
+				kwargs['api_key'] = api_key_secret
+			elif config.get('base_url'):
+				logger.warning(
+					f'API key for {model_name} at {config["base_url"]} is missing, but base_url is specified. Authentication may fail.'
+				)
+			return ChatOpenAI(**kwargs)
+		case _:
+			raise ValueError(f'Unknown provider: {provider}')
 
-	if provider == 'openai':
-		kwargs = {
-			'model': config['model_name'],
-			'temperature': 0.0,
+
+def clean_action_dict(action_dict: dict) -> dict:
+	return {k: clean_action_dict(v) if isinstance(v, dict) else v for k, v in action_dict.items() if v is not None}
+
+
+async def reformat_agent_history(
+	agent_history: AgentHistoryList, task_id: str, run_id: str, task: str, base_path: str = 'saved_trajectories'
+) -> None:
+	# Update directory name
+	task_dir = Path(base_path) / task_id
+	trajectory_with_highlights_dir = task_dir / 'trajectory_with_highlights'
+
+	# Create directories
+	task_dir.mkdir(parents=True, exist_ok=True)
+	trajectory_with_highlights_dir.mkdir(parents=True, exist_ok=True)
+
+	# Collect screenshot paths and action history
+	screenshot_paths = []
+	action_history = []
+	final_result = None
+	self_report_completed = False
+	self_report_success = None
+	complete_history = []
+
+	# Process history items
+	for step_num, history_item in enumerate(agent_history.history):
+		# Save screenshot
+		if history_item.state and history_item.state.screenshot:
+			screenshot_path = trajectory_with_highlights_dir / f'step_{step_num}.png'
+			screenshot_paths.append(str(screenshot_path))
+			# Save the actual screenshot
+			screenshot_data = base64.b64decode(history_item.state.screenshot)
+			async with await anyio.open_file(screenshot_path, 'wb') as f:
+				await f.write(screenshot_data)
+
+		# Get action result content
+		if history_item.result:
+			for result in history_item.result:
+				if result.extracted_content:
+					action_history.append(result.extracted_content)
+				# Check if this is the final result
+				if result.is_done:
+					final_result = result.extracted_content
+					self_report_completed = True
+					self_report_success = result.success
+
+		# Build complete history entry with cleaned model output
+		model_output = None
+		if history_item.model_output:
+			model_output = history_item.model_output.model_dump()
+			if 'action' in model_output:
+				# Clean each action in the action list
+				model_output['action'] = [clean_action_dict(action) for action in model_output['action']]
+
+		step_info = {
+			'step_number': step_num,
+			'model_output': model_output,
+			'result': [r.model_dump() for r in history_item.result] if history_item.result else None,
+			'state': {
+				'url': history_item.state.url if history_item.state else None,
+				'title': history_item.state.title if history_item.state else None,
+			},
+			'metadata': history_item.metadata.model_dump() if history_item.metadata else None,
 		}
-		if api_key_secret:
-			kwargs['api_key'] = api_key_secret
-		return ChatOpenAI(**kwargs)
-	elif provider == 'anthropic':
-		# Note: Anthropic client often uses env var ANTHROPIC_API_KEY directly if api_key=None
-		kwargs = {
-			'model_name': config['model_name'],
-			'temperature': 0.0,
-			'timeout': 100,
-			'stop': None,
-		}
-		if api_key_secret:
-			kwargs['api_key'] = api_key_secret
-		return ChatAnthropic(**kwargs)
-	elif provider == 'google':
-		# Note: Google client often uses env var GOOGLE_API_KEY directly if api_key=None
-		kwargs = {
-			'model': config['model_name'],
-			'temperature': 0.0,
-		}
-		if api_key_secret:
-			kwargs['api_key'] = api_key_secret
-		return ChatGoogleGenerativeAI(**kwargs)
-	elif provider == 'openai_compatible':
-		# Note: OpenAI client often uses env var OPENAI_API_KEY directly if api_key=None and no base_url specified
-		# Providing base_url requires explicitly passing the key for that endpoint.
-		kwargs = {
-			'model': config['model_name'],
-			'base_url': config['base_url'],
-			'temperature': 0.0,
-		}
-		if api_key_secret:
-			kwargs['api_key'] = api_key_secret
-		# Ensure api_key is provided if base_url is set and key exists
-		elif config.get('base_url'):
-			# If base_url is present but key is missing, we might still error depending on the endpoint's auth requirements.
-			# Log a warning here, the constructor will likely raise an error if the key is truly required.
-			logger.warning(
-				f'API key for {model_name} at {config["base_url"]} is missing, but base_url is specified. Authentication may fail.'
-			)
-		return ChatOpenAI(**kwargs)
-	else:
-		raise ValueError(f'Unknown provider: {provider}')
+		complete_history.append(step_info)
+
+	# Create results structure
+	results = {
+		'task_id': task_id,
+		'run_id': run_id,
+		'task': task,
+		'action_history': action_history,
+		'screenshot_paths': screenshot_paths,
+		'final_result_response': final_result,
+		'self_report_completed': self_report_completed,
+		'self_report_success': self_report_success,
+		'complete_history': complete_history,
+	}
+
+	# Save results file
+	results_path = task_dir / 'result.json'
+	async with await anyio.open_file(results_path, 'w') as f:
+		await f.write(json.dumps(results, indent=2))
 
 
 class Task:
@@ -439,108 +501,39 @@ class Task:
 		return self.__str__()
 
 
-class TaskTracker:
-	def __init__(self, task_id: str, task_text: str, run_id: str):
+class ScreenshotTracker:
+	def __init__(self, task_id: str, task: str, run_id: str):
 		self.task_id = task_id
-		self.task_text = task_text
-		self.run_id = run_id
-		self.result_folder = Path(f'saved_trajectories/{task_id}')
-		self.trajectory_folder = self.result_folder / 'trajectory'
-		self.step_results = []
+		self.trajectory_dir = Path(f'saved_trajectories/{task_id}/trajectory')
+		self.trajectory_dir.mkdir(parents=True, exist_ok=True)
 		self.step_counter = 0
-		self.screenshots = []
-		self.setup_folders()
-
-	def setup_folders(self):
-		"""Create the necessary folder structure"""
-		self.result_folder.mkdir(parents=True, exist_ok=True)
-		self.trajectory_folder.mkdir(parents=True, exist_ok=True)
 
 	async def on_step_start(self, agent):
-		"""Record information at the start of a step"""
-		self.current_step = {'step_number': self.step_counter, 'start_time': datetime.now().isoformat(), 'actions': []}
+		"""No-op for step start"""
+		pass
 
 	async def on_step_end(self, agent):
-		"""Record information at the end of a step"""
-		# Take screenshot
+		"""Only take and save annotated screenshots"""
 		browser_context = agent.browser_context
+		screenshot_path = self.trajectory_dir / f'step_{self.step_counter}.png'
 		screenshot_b64 = await browser_context.take_screenshot()
-		screenshot_path = self.trajectory_folder / f'step_{self.step_counter}.png'
 
-		# Save screenshot to file
 		async with await anyio.open_file(screenshot_path, 'wb') as f:
 			await f.write(base64.b64decode(screenshot_b64))
 
-		# Save screenshot path
-		self.screenshots.append(str(screenshot_path))
-
-		# Record action and result
-		if agent.state.last_result:
-			for result in agent.state.last_result:
-				self.current_step['actions'].append(
-					{
-						'content': result.extracted_content,
-						'error': result.error,
-						'is_done': result.is_done,
-						'success': result.success,
-					}
-				)
-
-		# Record end time
-		self.current_step['end_time'] = datetime.now().isoformat()
-		self.current_step['screenshot_path'] = str(screenshot_path)
-
-		# Add to step results
-		self.step_results.append(self.current_step)
 		self.step_counter += 1
 
-		# Save intermediate results
-		self.save_results()  # Save progress after each step
-
 	def save_results(self):
-		"""Save the consolidated results"""
-		# Create the final result object
-
-		# Ensure action history contains only strings, replacing None with "None"
-		action_history = []
-		for step in self.step_results:
-			if step['actions']:
-				content = step['actions'][-1]['content']
-				action_history.append(content if content is not None else 'None')
-			else:
-				action_history.append('None')  # Handle steps with no actions
-
-		formatted_result = {
-			'task_id': self.task_id,
-			'run_id': self.run_id,
-			'task': self.task_text,
-			'steps': self.step_results,
-			'action_history': action_history,  # Use the cleaned list
-			'screenshot_paths': self.screenshots,
-			'final_result_response': (
-				last_action['content'] if (last_action := self.step_results[-1]['actions'][-1])['is_done'] else None
-			),
-			'self_report_completed': self.step_results[-1]['actions'][-1]['is_done']
-			if self.step_results and self.step_results[-1]['actions']
-			else False,
-			'self_report_success': self.step_results[-1]['actions'][-1]['success']
-			if self.step_results and self.step_results[-1]['actions']
-			else None,
-		}
-
-		# Save to file
-		with open(self.result_folder / 'result.json', 'w') as f:
-			json.dump(formatted_result, f, indent=2)
-
-		return formatted_result
+		"""No-op as we don't save results anymore"""
+		pass
 
 
 async def run_agent_with_tracing(
 	task: Task, llm: BaseChatModel, run_id: str, browser: Browser | None = None, max_steps: int = 25, use_vision: bool = True
 ):
 	try:
-		# Create task tracker
-		tracker = TaskTracker(task.task_id, task.confirmed_task, run_id)
+		# Create simplified task tracker just for annotated screenshots
+		tracker = ScreenshotTracker(task.task_id, task.confirmed_task, run_id)
 
 		browser = browser or Browser()
 
@@ -549,15 +542,16 @@ async def run_agent_with_tracing(
 		# Pass our hook functions
 		result = await agent.run(max_steps=max_steps, on_step_start=tracker.on_step_start, on_step_end=tracker.on_step_end)
 
-		# Save final results
-		final_results = tracker.save_results()
+		# Create our main results from agent history
+		await reformat_agent_history(
+			agent_history=agent.state.history, task_id=task.task_id, run_id=run_id, task=task.confirmed_task
+		)
 
 		return result
 	finally:
-		# Ensure proper cleanup
-		await asyncio.sleep(0.1)  # Give a moment for any pending tasks to complete
+		await asyncio.sleep(0.1)
 		if not browser:
-			await agent.close()  # This will close the browser if we created it
+			await agent.close()
 
 
 async def judge_task_result(model, task_folder: Path, score_threshold: float = 3) -> Dict:
@@ -638,12 +632,6 @@ def calculate_local_summary(results_dir: Optional[str] = None) -> Dict:
 	"""
 	Calculates a summary of task results by reading the saved result.json files.
 	Does not make any network requests.
-
-	Args:
-		results_dir: Directory where task results are stored (default: 'saved_trajectories')
-
-	Returns:
-		Dictionary containing total_tasks, successful_tasks, success_rate, and average_score
 	"""
 	if results_dir is None:
 		results_dir = 'saved_trajectories'
@@ -945,13 +933,11 @@ async def run_multiple_tasks(
 	secret_key: str,
 	eval_model: BaseChatModel,
 	max_parallel_runs: int = 3,
-	max_parallel_evaluations: int = 5,
 	max_steps_per_task: int = 25,
 	start_index: int = 0,
 	end_index: Optional[int] = None,
 	headless: bool = False,
 	use_vision: bool = True,
-	fresh_start: bool = True,
 ) -> Dict:
 	"""
 	Run multiple tasks in parallel and evaluate results.
@@ -1166,7 +1152,6 @@ def save_task_result_to_server(convex_url: str, secret_key: str, result_details:
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Run and evaluate browser automation tasks')
 	parser.add_argument('--parallel_runs', type=int, default=3, help='Number of parallel tasks to run')
-	parser.add_argument('--parallel_evaluations', type=int, default=5, help='Number of parallel evaluations to run')
 	parser.add_argument('--max-steps', type=int, default=25, help='Maximum steps per task')
 	parser.add_argument('--start', type=int, default=0, help='Start index')
 	parser.add_argument('--end', type=int, default=None, help='End index (exclusive)')
@@ -1270,7 +1255,6 @@ if __name__ == '__main__':
 		additional_run_data = {
 			'max_steps': args.max_steps,
 			'parallel_runs': args.parallel_runs,
-			'parallel_evaluations': args.parallel_evaluations,
 			'start_index': args.start,
 			'end_index': args.end,
 			'headless': args.headless,
@@ -1309,13 +1293,11 @@ if __name__ == '__main__':
 				secret_key=SECRET_KEY,
 				eval_model=llm,
 				max_parallel_runs=args.parallel_runs,
-				max_parallel_evaluations=args.parallel_evaluations,
 				max_steps_per_task=args.max_steps,
 				start_index=args.start,
 				end_index=args.end,
 				headless=args.headless,
 				use_vision=not args.no_vision,
-				fresh_start=args.fresh_start,
 			)
 		)
 
