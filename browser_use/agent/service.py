@@ -151,6 +151,7 @@ class Agent(Generic[Context]):
 		enable_memory: bool = False,
 		memory_interval: int = 10,
 		memory_config: Optional[dict] = None,
+		tools: Optional[List[str]] = None,
 	):
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
@@ -295,6 +296,22 @@ class Agent(Generic[Context]):
 
 		# Telemetry
 		self.telemetry = ProductTelemetry()
+
+		# Initialize tools
+		self.tools = {}
+		if tools:
+			try:
+				from ..tools.registry import ToolRegistry
+				for tool_name in tools:
+					tool_class = ToolRegistry.get_tool(tool_name)
+					if tool_class:
+						logger.info(f"Initializing tool: {tool_name}")
+						self.tools[tool_name] = tool_class()
+					else:
+						logger.warning(f"Tool not found in registry: {tool_name}")
+			except ImportError as e:
+				logger.warning(f"Failed to import ToolRegistry: {e}")
+				logger.warning("Tools functionality was enabled but required packages are not installed.")
 
 		if self.settings.save_conversation_path:
 			logger.info(f'Saving conversation to {self.settings.save_conversation_path}')
@@ -1335,3 +1352,14 @@ class Agent(Generic[Context]):
 		# Update done action model too
 		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'], page=page)
 		self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
+		
+	def get_tool(self, tool_name: str) -> Optional[Any]:
+		"""Get an initialized tool by name.
+		
+		Args:
+			tool_name: Name of the tool to retrieve
+			
+		Returns:
+			The initialized tool instance or None if not found
+		"""
+		return self.tools.get(tool_name)
