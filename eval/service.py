@@ -408,7 +408,7 @@ def clean_action_dict(action_dict: dict) -> dict:
 
 async def reformat_agent_history(
 	agent_history: AgentHistoryList, task_id: str, run_id: str, task: str, base_path: str = 'saved_trajectories'
-) -> None:
+) -> dict:
 	# Update directory name
 	task_dir = Path(base_path) / task_id
 	trajectory_with_highlights_dir = task_dir / 'trajectory_with_highlights'
@@ -467,7 +467,24 @@ async def reformat_agent_history(
 		}
 		complete_history.append(step_info)
 
-	# Create results structure
+	# Calculate task duration from metadata
+	task_duration = None
+	if complete_history and len(complete_history) > 0:
+		first_step = complete_history[0].get('metadata', {})
+		last_step = complete_history[-1].get('metadata', {})
+		if first_step and last_step:
+			start_time = first_step.get('step_start_time')
+			end_time = last_step.get('step_end_time')
+			if start_time and end_time:
+				# Ensure timestamps are floats before subtracting
+				try:
+					start_time_float = float(start_time)
+					end_time_float = float(end_time)
+					task_duration = end_time_float - start_time_float
+				except (ValueError, TypeError) as e:
+					logger.warning(f'Could not calculate task duration due to invalid timestamp format: {e}')
+
+	# Create results structure with new fields
 	results = {
 		'task_id': task_id,
 		'run_id': run_id,
@@ -478,12 +495,17 @@ async def reformat_agent_history(
 		'self_report_completed': self_report_completed,
 		'self_report_success': self_report_success,
 		'complete_history': complete_history,
+		'task_duration': task_duration,
+		'steps': len(complete_history),
 	}
 
 	# Save results file
 	results_path = task_dir / 'result.json'
 	async with await anyio.open_file(results_path, 'w') as f:
-		await f.write(json.dumps(results, indent=2))
+		# Use a custom JSON encoder to handle potential non-serializable types like Path
+		await f.write(json.dumps(results, indent=2, default=str))
+
+	return results
 
 
 class Task:
@@ -526,32 +548,6 @@ class ScreenshotTracker:
 	def save_results(self):
 		"""No-op as we don't save results anymore"""
 		pass
-
-
-async def run_agent_with_tracing(
-	task: Task, llm: BaseChatModel, run_id: str, browser: Browser | None = None, max_steps: int = 25, use_vision: bool = True
-):
-	try:
-		# Create simplified task tracker just for annotated screenshots
-		tracker = ScreenshotTracker(task.task_id, task.confirmed_task, run_id)
-
-		browser = browser or Browser()
-
-		agent = Agent(task=task.confirmed_task, llm=llm, browser=browser, use_vision=use_vision)
-
-		# Pass our hook functions
-		result = await agent.run(max_steps=max_steps, on_step_start=tracker.on_step_start, on_step_end=tracker.on_step_end)
-
-		# Create our main results from agent history
-		await reformat_agent_history(
-			agent_history=agent.state.history, task_id=task.task_id, run_id=run_id, task=task.confirmed_task
-		)
-
-		return result
-	finally:
-		await asyncio.sleep(0.1)
-		if not browser:
-			await agent.close()
 
 
 async def judge_task_result(model, task_folder: Path, score_threshold: float = 3) -> Dict:
@@ -707,7 +703,7 @@ async def run_task_with_semaphore(
 	async with semaphore_runs:
 		# --- Initialize State & Payload ---
 		task_folder = Path(f'saved_trajectories/{task.task_id}')
-		result_file = task_folder / 'result.json'
+		result_file = task_folder / 'result.json'  # Now points to the file created by reformat_agent_history
 
 		# Flags to track progress and errors
 		execution_needed = True
@@ -717,18 +713,22 @@ async def run_task_with_semaphore(
 		local_processing_error = None
 
 		# Initialize the payload with basic info and default failure/unevaluated states
+		# Using server-expected keys now
 		server_payload = {
 			'runId': run_id,
 			'taskId': task.task_id,
 			'task': task.confirmed_task,
 			'actionHistory': [],
-			'finalResultResponse': 'None',  # Default if execution doesn't happen or fails early
+			'finalResultResponse': 'None',
 			'selfReportCompleted': False,
 			'selfReportSuccess': None,
 			'onlineMind2WebEvaluationJudgement': 'Not Attempted',
 			'onlineMind2WebEvaluationError': None,
 			'onlineMind2WebEvaluationSuccess': False,
 			'onlineMind2WebEvaluationScore': 0.0,
+			'completeHistory': [],  # Initialize new field
+			'taskDuration': None,  # Initialize new field
+			'steps': 0,  # Initialize new field
 		}
 
 		# Initialize the return value for local processing status
@@ -743,11 +743,14 @@ async def run_task_with_semaphore(
 					async with await anyio.open_file(result_file) as f:
 						existing_result = json.loads(await f.read())
 
-					# Populate payload from existing file
+					# Populate payload from existing file (including new fields)
 					server_payload['actionHistory'] = existing_result.get('action_history', [])
 					server_payload['finalResultResponse'] = existing_result.get('final_result_response', 'None')
 					server_payload['selfReportCompleted'] = existing_result.get('self_report_completed', False)
 					server_payload['selfReportSuccess'] = existing_result.get('self_report_success', None)
+					server_payload['completeHistory'] = existing_result.get('complete_history', [])
+					server_payload['taskDuration'] = existing_result.get('task_duration')
+					server_payload['steps'] = existing_result.get('steps', 0)
 
 					# Check if evaluation data is also present
 					if existing_eval := existing_result.get('Online_Mind2Web_evaluation'):
@@ -763,68 +766,73 @@ async def run_task_with_semaphore(
 						evaluation_needed = False  # Don't re-evaluate if already present
 						evaluation_succeeded = True  # Assume cached evaluation was successful
 					else:
-						# Evaluation not found, needs to run
 						evaluation_needed = True
-						evaluation_succeeded = False  # Mark as needing evaluation initially
+						evaluation_succeeded = False
 
-					execution_needed = False  # Don't execute if result exists
-					execution_succeeded = True  # Mark as "success" in terms of having data
+					execution_needed = False
+					execution_succeeded = True
 					logger.info(f'Task {task.task_id}: Successfully loaded existing result. Skipping execution.')
 
 				except Exception as e:
 					logger.warning(
 						f'Task {task.task_id}: Error reading existing result file {result_file}: {type(e).__name__}: {str(e)}. Proceeding with execution.'
 					)
-					# Keep execution_needed = True, payload defaults remain
 					execution_needed = True
 					execution_succeeded = False
-					evaluation_needed = True  # Might need eval after execution
-					evaluation_succeeded = False  # Reset eval status
+					evaluation_needed = True
+					evaluation_succeeded = False
 
 			# 2. Execute Task (if needed)
 			if execution_needed:
 				logger.info(f'Task {task.task_id}: Starting execution.')
-				browser = None  # Ensure browser is defined for finally block
+				browser = None
 				try:
+					# Create simplified tracker just for annotated screenshots
+					tracker = ScreenshotTracker(task.task_id, task.confirmed_task, run_id)
 					browserConfig = BrowserConfig(headless=headless)
 					browser = Browser(config=browserConfig)
-					# Pass the llm to run_agent_with_tracing
-					result = await run_agent_with_tracing(
-						task=task,
-						llm=llm,
-						browser=browser,
-						max_steps=max_steps_per_task,
-						use_vision=use_vision,
-						run_id=run_id,  # run_agent_with_tracing handles saving result.json
+					agent = Agent(task=task.confirmed_task, llm=llm, browser=browser, use_vision=use_vision)
+
+					# Pass hook functions
+					await agent.run(
+						max_steps=max_steps_per_task, on_step_start=tracker.on_step_start, on_step_end=tracker.on_step_end
 					)
 					logger.info(f'Task {task.task_id}: Execution completed.')
-					execution_succeeded = True
-					evaluation_needed = True  # Need to evaluate the new result
-					evaluation_succeeded = False  # Reset eval status
 
-					# Load the result file that should have just been created
-					if result_file.exists():
-						async with await anyio.open_file(result_file) as f:
-							run_result_data = json.loads(await f.read())
-						server_payload['actionHistory'] = run_result_data.get('action_history', [])
-						server_payload['finalResultResponse'] = run_result_data.get('final_result_response', 'None')
-						server_payload['selfReportCompleted'] = run_result_data.get('self_report_completed', False)
-						server_payload['selfReportSuccess'] = run_result_data.get('self_report_success', None)
-					else:
-						# This is unexpected if run_agent_with_tracing succeeded
-						logger.error(
-							f'Task {task.task_id}: Result file {result_file} missing after presumed successful execution.'
-						)
-						raise FileNotFoundError(f'Result file not found after execution for task {task.task_id}')
+					# Reformat agent history to create result.json
+					run_result_data = await reformat_agent_history(
+						agent_history=agent.state.history,
+						task_id=task.task_id,
+						run_id=run_id,
+						task=task.confirmed_task,
+					)
+
+					if not run_result_data:
+						# This shouldn't happen if reformat succeeded, but handle defensively
+						logger.error(f'Task {task.task_id}: reformat_agent_history did not return results.')
+						raise ValueError('Result formatting failed')
+
+					execution_succeeded = True
+					evaluation_needed = True
+					evaluation_succeeded = False
+
+					# Populate payload from the newly created results
+					server_payload['actionHistory'] = run_result_data.get('action_history', [])
+					server_payload['finalResultResponse'] = run_result_data.get('final_result_response', 'None')
+					server_payload['selfReportCompleted'] = run_result_data.get('self_report_completed', False)
+					server_payload['selfReportSuccess'] = run_result_data.get('self_report_success', None)
+					server_payload['completeHistory'] = run_result_data.get('complete_history', [])
+					server_payload['taskDuration'] = run_result_data.get('task_duration')
+					server_payload['steps'] = run_result_data.get('steps', 0)
 
 				except Exception as e:
 					logger.error(
-						f'Task {task.task_id}: Error during execution with Type: {type(e).__name__} and Message: {str(e)}',
+						f'Task {task.task_id}: Error during execution/reformatting with Type: {type(e).__name__} and Message: {str(e)}',
 						exc_info=True,
-					)  # Add stack trace
+					)
 					execution_succeeded = False
-					evaluation_needed = False  # Cannot evaluate if execution failed
-					evaluation_succeeded = False  # Evaluation definitely didn't succeed
+					evaluation_needed = False
+					evaluation_succeeded = False
 					# Update payload to reflect execution failure
 					server_payload['finalResultResponse'] = f'Execution Error: {type(e).__name__}: {str(e)}'
 					server_payload['onlineMind2WebEvaluationJudgement'] = 'Execution Failed'
@@ -847,7 +855,6 @@ async def run_task_with_semaphore(
 
 					# Update payload directly from the evaluation function's return value
 					if evaluation:
-						# Ensure judgement is stored as string "None" if the evaluation returned None
 						judgement_value = evaluation.get('judgement')
 						server_payload['onlineMind2WebEvaluationJudgement'] = (
 							judgement_value if judgement_value is not None else 'None'
@@ -855,55 +862,48 @@ async def run_task_with_semaphore(
 						server_payload['onlineMind2WebEvaluationError'] = evaluation.get('error')
 						server_payload['onlineMind2WebEvaluationSuccess'] = evaluation.get('success', False)
 						server_payload['onlineMind2WebEvaluationScore'] = evaluation.get('score', 0.0)
-						# Mark evaluation as succeeded only if the evaluation itself didn't report an error
 						if evaluation.get('error'):
 							logger.warning(
 								f'Task {task.task_id}: Evaluation completed but reported an error: {evaluation.get("error")}'
 							)
 							evaluation_succeeded = False
 						else:
-							evaluation_succeeded = True  # Mark evaluation as successfully completed
+							evaluation_succeeded = True
 							logger.info(f'Task {task.task_id}: Evaluation successfully completed.')
-
 					else:
-						# Should not happen based on judge_task_result structure, but handle defensively
 						logger.error(f'Task {task.task_id}: Evaluation function returned None.')
-						evaluation_succeeded = False  # Mark as failed if None returned
+						evaluation_succeeded = False
 						server_payload['onlineMind2WebEvaluationJudgement'] = 'Evaluation Returned None'
 						server_payload['onlineMind2WebEvaluationError'] = 'Evaluation function returned None'
 
 				except Exception as e:
 					logger.error(
 						f'Task {task.task_id}: Error during evaluation process: {type(e).__name__}: {str(e)}', exc_info=True
-					)  # Add stack trace
+					)
 					evaluation_succeeded = False
-					# Update payload to reflect evaluation failure
 					server_payload['onlineMind2WebEvaluationJudgement'] = 'Evaluation Process Error'
 					server_payload['onlineMind2WebEvaluationError'] = f'Evaluation Error: {type(e).__name__}: {str(e)}'
-					# Keep Success/Score as False/0.0 from defaults
 
 		except Exception as outer_e:
-			# Catch any unexpected errors in the flow above (e.g., reading existing file, setup issues)
 			logger.critical(f'Task {task.task_id}: CRITICAL UNHANDLED ERROR during processing: {str(outer_e)}', exc_info=True)
 			local_processing_error = f'Critical flow error: {str(outer_e)}'
-			# Ensure payload reflects a critical failure state
 			server_payload['finalResultResponse'] = f'Critical Error: {str(outer_e)}'
 			server_payload['onlineMind2WebEvaluationJudgement'] = 'Critical System Error'
 			server_payload['onlineMind2WebEvaluationError'] = local_processing_error
 			server_payload['onlineMind2WebEvaluationSuccess'] = False
 			server_payload['onlineMind2WebEvaluationScore'] = 0.0
-			execution_succeeded = False  # Mark stages as failed due to outer error
+			execution_succeeded = False
 			evaluation_succeeded = False
 
 		# --- Final Step: Save to Server (Always Attempt) ---
 		logger.info(f'Task {task.task_id}: Attempting to save final result to server...')
 		try:
+			# Pass the fully populated server_payload
 			save_success = save_task_result_to_server(convex_url, secret_key, server_payload)
 			if save_success:
 				logger.info(f'Task {task.task_id}: Successfully saved result to server.')
 			else:
 				logger.warning(f'Task {task.task_id}: Failed to save result to server (API issue or invalid payload).')
-				# Optionally accumulate this failure into local_processing_error
 				if local_processing_error:
 					local_processing_error += '; Server save failed'
 				else:
@@ -911,16 +911,14 @@ async def run_task_with_semaphore(
 
 		except Exception as e:
 			logger.error(f'Task {task.task_id}: Exception during attempt to save result to server: {type(e).__name__}: {str(e)}')
-			# Optionally accumulate this failure
 			if local_processing_error:
 				local_processing_error += f'; Server save exception: {str(e)}'
 			else:
 				local_processing_error = f'Server save exception: {str(e)}'
 
 		# --- Return Local Processing Status ---
-		# Overall success requires successful execution (or loading existing) AND successful evaluation (if needed).
 		local_task_status['success'] = execution_succeeded and evaluation_succeeded
-		local_task_status['error'] = local_processing_error  # Report any accumulated local errors
+		local_task_status['error'] = local_processing_error
 
 		return local_task_status
 
