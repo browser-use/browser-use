@@ -1,15 +1,14 @@
 import pytest
 import os
 import sys
-import base64
 import requests
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from browser_use.tools.standee_detection import StandeeDetectionTool
 from browser_use.tools.registry import ToolRegistry
+
 
 def test_standee_detection_tool_initialization():
     """Test that the standee detection tool initializes properly."""
@@ -18,21 +17,23 @@ def test_standee_detection_tool_initialization():
     assert tool.confidence_threshold == 0.25
     assert tool.model_path is None
 
+
 def test_standee_detection_tool_registry():
     """Test that the standee detection tool is properly registered."""
     tool_class = ToolRegistry.get_tool('standee_detection')
     assert tool_class is not None
     assert tool_class == StandeeDetectionTool
 
+
 @patch('requests.get')
 def test_standee_detection_with_sample_image_url(mock_get):
     """Test standee detection with a sample image URL."""
     mock_response = MagicMock()
     mock_response.status_code = 200
-    
+
     mock_response.content = b'sample_image_data'
     mock_get.return_value = mock_response
-    
+
     with patch.object(StandeeDetectionTool, 'detect_from_bytes') as mock_detect:
         mock_detect.return_value = {
             'success': True,
@@ -49,30 +50,31 @@ def test_standee_detection_with_sample_image_url(mock_get):
             ],
             'count': 1
         }
-        
+
         tool = StandeeDetectionTool()
         result = tool.detect_from_url('https://example.com/sample_image.jpg')
-        
+
         assert result['success'] is True
         assert len(result['detections']) == 1
         assert result['count'] == 1
         assert result['detections'][0]['confidence'] == 0.85
-        
+
         mock_detect.assert_called_once_with(b'sample_image_data')
+
 
 @patch.object(StandeeDetectionTool, 'load_model')
 def test_standee_detection_with_bytes(mock_load_model):
     """Test standee detection with image bytes."""
     mock_model = MagicMock()
     mock_load_model.return_value = mock_model
-    
+
     with patch('cv2.imdecode') as mock_imdecode, \
          patch('cv2.createCLAHE') as mock_create_clahe, \
          patch('cv2.cvtColor') as mock_cvtcolor, \
          patch('cv2.split') as mock_split, \
          patch('cv2.merge') as mock_merge, \
          patch('numpy.frombuffer') as mock_frombuffer:
-        
+
         mock_img = MagicMock()
         mock_imdecode.return_value = mock_img
         mock_lab = MagicMock()
@@ -82,7 +84,7 @@ def test_standee_detection_with_bytes(mock_load_model):
         mock_clahe = MagicMock()
         mock_create_clahe.return_value = mock_clahe
         mock_frombuffer.return_value = MagicMock()
-        
+
         mock_result = MagicMock()
         mock_box = MagicMock()
         mock_box.xyxy = [[100, 200, 300, 400]]
@@ -90,19 +92,20 @@ def test_standee_detection_with_bytes(mock_load_model):
         mock_box.cls = [[0]]
         mock_result.boxes = [mock_box]
         mock_model.predict.return_value = [mock_result]
-        
+
         tool = StandeeDetectionTool()
         result = tool._detect_standees_bytes_local(b'sample_image_data')
-        
+
         assert result['success'] is True
         assert 'detections' in result
-        
+
         mock_load_model.assert_called_once()
+
 
 def test_meets_standee_criteria():
     """Test the _meets_standee_criteria method."""
     tool = StandeeDetectionTool(confidence_threshold=0.5)
-    
+
     detection = {
         'box': [100, 200, 300, 400],
         'confidence': 0.8,
@@ -112,14 +115,14 @@ def test_meets_standee_criteria():
     }
     img_shape = (1000, 1000, 3)
     assert tool._meets_standee_criteria(detection, img_shape) is True
-    
+
     detection['confidence'] = 0.4
     assert tool._meets_standee_criteria(detection, img_shape) is False
-    
+
     detection['confidence'] = 0.8
     detection['aspect_ratio'] = 1.5
     assert tool._meets_standee_criteria(detection, img_shape) is False
-    
+
     detection['aspect_ratio'] = 0.5
     detection['width'] = 10  # Less than 5% of image width
     detection['height'] = 20
