@@ -27,6 +27,7 @@ from browser_use.agent.memory.service import Memory, MemorySettings
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
 from browser_use.agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation
 from browser_use.agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
+from browser_use.agent.prompts.standee_detection_prompt import STANDEE_DETECTION_SYSTEM_PROMPT
 from browser_use.agent.views import (
 	REQUIRED_LLM_API_ENV_VARS,
 	ActionResult,
@@ -309,6 +310,10 @@ class Agent(Generic[Context]):
 						self.tools[tool_name] = tool_class()
 					else:
 						logger.warning(f"Tool not found in registry: {tool_name}")
+				
+				if 'standee_detection' in tools:
+					logger.info("Using standee detection system prompt")
+					self.settings.override_system_message = STANDEE_DETECTION_SYSTEM_PROMPT
 			except ImportError as e:
 				logger.warning(f"Failed to import ToolRegistry: {e}")
 				logger.warning("Tools functionality was enabled but required packages are not installed.")
