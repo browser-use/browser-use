@@ -27,7 +27,7 @@ from browser_use.agent.memory.service import Memory, MemorySettings
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
 from browser_use.agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation
 from browser_use.agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
-from browser_use.agent.prompts.standee_detection_prompt import STANDEE_DETECTION_SYSTEM_PROMPT
+from browser_use.agent.standee_detection_prompt import STANDEE_DETECTION_SYSTEM_PROMPT
 from browser_use.agent.views import (
 	REQUIRED_LLM_API_ENV_VARS,
 	ActionResult,
