@@ -10,13 +10,16 @@ class StandeeDetectionTool:
     """Tool for detecting standees in images using YOLOv8."""
 
     def __init__(
-        self, model_path: Optional[str] = None, confidence_threshold: float = 0.25
+        self,
+        model_path: Optional[str] = None,
+        confidence_threshold: float = 0.25
     ):
         """
         Initialize standee detection tool.
 
         Args:
-            model_path: Path to YOLOv8 model. If None, will try to find it in default locations.
+            model_path: Path to YOLOv8 model. If None, will try to find it in
+                default locations.
             confidence_threshold: Minimum confidence for detection.
         """
         self.logger = logging.getLogger(__name__)
@@ -42,8 +45,8 @@ class StandeeDetectionTool:
                     / "weights"
                     / "best.pt",
                     Path(
-                        "/home/ubuntu/repos/naver-cf-search/models/yolov8/runs/"
-                        "standee_detection_train/weights/best.pt"
+                        "/home/ubuntu/repos/naver-cf-search/models/yolov8/runs"
+                        "/standee_detection_train/weights/best.pt"
                     ),
                 ]
 
@@ -86,12 +89,17 @@ class StandeeDetectionTool:
             if response.status_code != 200:
                 return {
                     'success': False,
-                    'error': f'Failed to download image: {response.status_code}'
+                    'error': (
+                        f'Failed to download image: {response.status_code}'
+                    )
                 }
 
             return self.detect_from_bytes(response.content)
         except Exception as e:
-            return {'success': False, 'error': f'Error detecting from URL: {str(e)}'}
+            return {
+                'success': False,
+                'error': f'Error detecting from URL: {str(e)}'
+            }
 
     def detect_from_bytes(self, image_bytes: bytes) -> Dict[str, Any]:
         """Detect standees in image bytes."""
@@ -103,13 +111,24 @@ class StandeeDetectionTool:
                 result = detect_standees_bytes(image_bytes)
                 return result
             except ImportError:
-                self.logger.info("yolo_bridge module not found, using local implementation")
+                self.logger.info(
+                    "yolo_bridge module not found, using local implementation"
+                )
                 return self._detect_standees_bytes_local(image_bytes)
         except Exception as e:
-            return {'success': False, 'error': f'Error in detect_from_bytes: {str(e)}'}
+            return {
+                'success': False,
+                'error': f'Error in detect_from_bytes: {str(e)}'
+            }
 
-    def _detect_standees_bytes_local(self, image_bytes: bytes) -> Dict[str, Any]:
-        """Local implementation of detect_standees_bytes if yolo_bridge is not available."""
+    def _detect_standees_bytes_local(
+        self, image_bytes: bytes
+    ) -> Dict[str, Any]:
+        """
+        Local implementation of detect_standees_bytes.
+
+        Used when yolo_bridge module is not available.
+        """
         if image_bytes is None:
             return {'success': False, 'error': 'Image bytes cannot be None'}
 
@@ -124,7 +143,10 @@ class StandeeDetectionTool:
             np_arr = np.frombuffer(image_bytes, np.uint8)
             img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
             if img is None:
-                return {'success': False, 'error': 'Failed to decode image bytes'}
+                return {
+                    'success': False,
+                    'error': 'Failed to decode image bytes'
+                }
 
             clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
             lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
@@ -165,14 +187,21 @@ class StandeeDetectionTool:
                                 'width': x2 - x1,
                                 'height': y2 - y1,
                                 'area': (x2 - x1) * (y2 - y1),
-                                'aspect_ratio': (x2 - x1) / (y2 - y1) if (y2 - y1) > 0 else 0
+                                'aspect_ratio': (
+                                    (x2 - x1) / (y2 - y1)
+                                    if (y2 - y1) > 0 else 0
+                                )
                             }
 
-                            if self._meets_standee_criteria(detection, img.shape):
+                            if self._meets_standee_criteria(
+                                detection, img.shape
+                            ):
                                 detections.append(detection)
 
                         except Exception as e:
-                            self.logger.error(f"Error processing detection {i}: {str(e)}")
+                            self.logger.error(
+                                f"Error processing detection {i}: {str(e)}"
+                            )
 
             return {
                 'success': True,
@@ -200,7 +229,8 @@ class StandeeDetectionTool:
         min_width_ratio = 0.05  # Minimum width as percentage of image width
         min_height_ratio = 0.1  # Minimum height as percentage of image height
 
-        if width < img_width * min_width_ratio or height < img_height * min_height_ratio:
+        if (width < img_width * min_width_ratio or
+                height < img_height * min_height_ratio):
             return False
 
         if aspect_ratio > 1.0:  # Width > Height

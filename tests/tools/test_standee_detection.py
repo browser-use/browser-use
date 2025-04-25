@@ -1,13 +1,14 @@
-import pytest
-import os
 import sys
-import requests
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+project_root = Path(__file__).parent.parent.parent
+sys.path.append(str(project_root))
 
-from browser_use.tools.standee_detection import StandeeDetectionTool
-from browser_use.tools.registry import ToolRegistry
+from browser_use.tools.standee_detection import (  # noqa: E402
+    StandeeDetectionTool
+)
+from browser_use.tools.registry import ToolRegistry  # noqa: E402
 
 
 def test_standee_detection_tool_initialization():
@@ -34,7 +35,9 @@ def test_standee_detection_with_sample_image_url(mock_get):
     mock_response.content = b'sample_image_data'
     mock_get.return_value = mock_response
 
-    with patch.object(StandeeDetectionTool, 'detect_from_bytes') as mock_detect:
+    with patch.object(
+        StandeeDetectionTool, 'detect_from_bytes'
+    ) as mock_detect:
         mock_detect.return_value = {
             'success': True,
             'detections': [
@@ -72,7 +75,7 @@ def test_standee_detection_with_bytes(mock_load_model):
          patch('cv2.createCLAHE') as mock_create_clahe, \
          patch('cv2.cvtColor') as mock_cvtcolor, \
          patch('cv2.split') as mock_split, \
-         patch('cv2.merge') as mock_merge, \
+         patch('cv2.merge'), \
          patch('numpy.frombuffer') as mock_frombuffer:
 
         mock_img = MagicMock()
