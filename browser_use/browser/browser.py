@@ -82,6 +82,9 @@ class BrowserConfig(BaseModel):
 
 		deterministic_rendering: False
 			Enable deterministic rendering (makes GPU/font rendering consistent across different OS's and docker)
+
+		bring_to_front: True
+			Whether to automatically bring browser windows/tabs to front when interacting
 	"""
 
 	model_config = ConfigDict(
@@ -106,6 +109,7 @@ class BrowserConfig(BaseModel):
 	disable_security: bool = False  # disable_security=True is dangerous as any malicious URL visited could embed an iframe for the user's bank, and use their cookies to steal money
 	deterministic_rendering: bool = False
 	keep_alive: bool = Field(default=False, alias='_force_keep_browser_alive')  # used to be called _force_keep_browser_alive
+	bring_to_front: bool = True  # Whether to automatically bring browser windows/tabs to front when interacting
 
 	proxy: ProxySettings | None = None
 	new_context_config: BrowserContextConfig = Field(default_factory=BrowserContextConfig)

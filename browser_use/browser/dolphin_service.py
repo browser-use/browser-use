@@ -98,7 +98,6 @@ class DolphinBrowser(Browser):
 
 		# Set the current page to the selected tab
 		self.page = self._pages[page_id]
-		await self.page.bring_to_front()  # Bring tab to the front
 		await self.wait_for_page_load()
 
 	async def get_tabs_info(self) -> list[TabInfo]:

@@ -399,8 +399,9 @@ class BrowserContext:
 						break
 
 		# Bring page to front
-		logger.debug('🫨  Bringing tab to front: %s', active_page)
-		await active_page.bring_to_front()
+		if self.browser.config.bring_to_front:
+			logger.debug('🫨  Bringing tab to front: %s', active_page)
+			await active_page.bring_to_front()
 		await active_page.wait_for_load_state('load')
 
 		self.active_tab = active_page
@@ -998,7 +999,8 @@ class BrowserContext:
 		"""
 		page = await self.get_current_page()
 
-		await page.bring_to_front()
+		if self.browser.config.bring_to_front:
+			await page.bring_to_front()
 		await page.wait_for_load_state()
 
 		screenshot = await page.screenshot(
@@ -1486,7 +1488,6 @@ class BrowserContext:
 					break
 
 		self.active_tab = page
-		await page.bring_to_front()
 		await page.wait_for_load_state()
 
 	@time_execution_async('--create_new_tab')
