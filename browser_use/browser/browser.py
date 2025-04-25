@@ -59,7 +59,11 @@ class BrowserConfig(BaseModel):
 
 	Default values:
 		headless: False
-			Whether to run browser in headless mode (not recommended)
+			Whether to run browser in headless mode (not recommended).
+			While Google search often works,  many sites that implement anti-bot and anti-scraping measures.
+			Example:
+			- abc
+			- xyz
 
 		disable_security: False
 			Disable browser security features (required for cross-origin iframe support)
