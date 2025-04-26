@@ -213,14 +213,13 @@ class Browser:
 				*self.config.extra_browser_args,
 			},
 		]
-		self._chrome_subprocess = psutil.Process(
-			await asyncio.create_subprocess_shell(
-				chrome_launch_cmd,
-				stdout=subprocess.DEVNULL,
-				stderr=subprocess.DEVNULL,
-				shell=False,
-			).pid
+		process = await asyncio.create_subprocess_exec(
+			chrome_launch_cmd[0],
+			*chrome_launch_cmd[1:],
+			stdout=subprocess.DEVNULL,
+			stderr=subprocess.DEVNULL,
 		)
+		self._chrome_subprocess = psutil.Process(process.pid)
 
 		# Attempt to connect again after starting a new instance
 		for _ in range(10):
