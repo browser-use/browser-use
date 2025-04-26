@@ -62,7 +62,9 @@ from browser_use.utils import check_env_variables, time_execution_async, time_ex
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-SKIP_LLM_API_KEY_VERIFICATION = os.environ.get('SKIP_LLM_API_KEY_VERIFICATION', 'false').lower()[0] in 'ty1'
+SKIP_LLM_API_KEY_VERIFICATION = os.environ.get(
+    'SKIP_LLM_API_KEY_VERIFICATION',
+     'false').lower()[0] in 'ty1'
 
 
 def log_response(response: AgentOutput) -> None:
@@ -75,11 +77,14 @@ def log_response(response: AgentOutput) -> None:
 	else:
 		emoji = '🤷'
 
-	logger.info(f'{emoji} Eval: {response.current_state.evaluation_previous_goal}')
+	logger.info(
+    f'{emoji} Eval: {
+        response.current_state.evaluation_previous_goal}')
 	logger.info(f'🧠 Memory: {response.current_state.memory}')
 	logger.info(f'🎯 Next goal: {response.current_state.next_goal}')
 	for i, action in enumerate(response.action):
-		logger.info(f'🛠️  Action {i + 1}/{len(response.action)}: {action.model_dump_json(exclude_unset=True)}')
+		logger.info(
+		    f'🛠️  Action {i + 1}/{len(response.action)}: {action.model_dump_json(exclude_unset=True)}')
 
 
 Context = TypeVar('Context')
@@ -103,7 +108,8 @@ class Agent(Generic[Context]):
 		# Cloud Callbacks
 		register_new_step_callback: Union[
 			Callable[['BrowserState', 'AgentOutput', int], None],  # Sync callback
-			Callable[['BrowserState', 'AgentOutput', int], Awaitable[None]],  # Async callback
+			Callable[['BrowserState', 'AgentOutput', int],
+			    Awaitable[None]],  # Async callback
 			None,
 		] = None,
 		register_done_callback: Union[
@@ -111,7 +117,8 @@ class Agent(Generic[Context]):
 			Callable[['AgentHistoryList'], None],  # Sync Callback
 			None,
 		] = None,
-		register_external_agent_status_raise_error_callback: Callable[[], Awaitable[bool]] | None = None,
+		register_external_agent_status_raise_error_callback: Callable[[
+		    ], Awaitable[bool]] | None = None,
 		# Agent settings
 		use_vision: bool = True,
 		use_vision_for_planner: bool = False,
@@ -196,7 +203,8 @@ class Agent(Generic[Context]):
 		# Action setup
 		self._setup_action_models()
 		self._set_browser_use_version_and_source()
-		self.initial_actions = self._convert_initial_actions(initial_actions) if initial_actions else None
+		self.initial_actions = self._convert_initial_actions(
+		    initial_actions) if initial_actions else None
 
 		# Model setup
 		self._set_model_names()
@@ -204,7 +212,8 @@ class Agent(Generic[Context]):
 
 		# Handle users trying to use use_vision=True with DeepSeek models
 		if 'deepseek' in self.model_name.lower():
-			logger.warning('⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')
+			logger.warning(
+			    '⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
 		if 'deepseek' in (self.planner_model_name or '').lower():
 			logger.warning(
@@ -213,10 +222,12 @@ class Agent(Generic[Context]):
 			self.settings.use_vision_for_planner = False
 		# Handle users trying to use use_vision=True with XAI models
 		if 'grok' in self.model_name.lower():
-			logger.warning('⚠️ XAI models do not support use_vision=True yet. Setting use_vision=False for now...')
+			logger.warning(
+			    '⚠️ XAI models do not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
 		if 'grok' in (self.planner_model_name or '').lower():
-			logger.warning('⚠️ XAI models do not support use_vision=True yet. Setting use_vision_for_planner=False for now...')
+			logger.warning(
+			    '⚠️ XAI models do not support use_vision=True yet. Setting use_vision_for_planner=False for now...')
 			self.settings.use_vision_for_planner = False
 
 		logger.info(
@@ -228,7 +239,11 @@ class Agent(Generic[Context]):
 			f'planner_model={self.planner_model_name}'
 			f'{" +reasoning" if self.settings.is_planner_reasoning else ""}'
 			f'{" +vision" if self.settings.use_vision_for_planner else ""}, '
-			f'extraction_model={getattr(self.settings.page_extraction_llm, "model_name", None)} '
+			f'extraction_model={
+    getattr(
+        self.settings.page_extraction_llm,
+        "model_name",
+         None)} '
 		)
 
 		# Verify we can connect to the LLM
@@ -298,15 +313,19 @@ class Agent(Generic[Context]):
 		self.telemetry = ProductTelemetry()
 
 		if self.settings.save_conversation_path:
-			logger.info(f'Saving conversation to {self.settings.save_conversation_path}')
+			logger.info(
+    f'Saving conversation to {
+        self.settings.save_conversation_path}')
 
 	def _set_message_context(self) -> str | None:
 		if self.tool_calling_method == 'raw':
 			# For raw tool calling, only include actions with no filters initially
 			if self.settings.message_context:
-				self.settings.message_context += f'\n\nAvailable actions: {self.unfiltered_actions}'
+				self.settings.message_context += f'\n\nAvailable actions: {
+    self.unfiltered_actions}'
 			else:
-				self.settings.message_context = f'Available actions: {self.unfiltered_actions}'
+				self.settings.message_context = f'Available actions: {
+    self.unfiltered_actions}'
 		return self.settings.message_context
 
 	def _set_browser_use_version_and_source(self) -> None:
@@ -321,7 +340,8 @@ class Agent(Generic[Context]):
 				try:
 					import subprocess
 
-					version = subprocess.check_output(['git', 'describe', '--tags']).decode('utf-8').strip()
+					version = subprocess.check_output(
+					    ['git', 'describe', '--tags']).decode('utf-8').strip()
 				except Exception:
 					version = 'unknown'
 				source = 'git'
@@ -367,8 +387,10 @@ class Agent(Generic[Context]):
 		self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
 
 		# used to force the done action when max_steps is reached
-		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'])
-		self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
+		self.DoneActionModel = self.controller.registry.create_action_model(
+		    include_actions=['done'])
+		self.DoneAgentOutput = AgentOutput.type_with_custom_actions(
+		    self.DoneActionModel)
 
 	def _set_tool_calling_method(self) -> Optional[ToolCallingMethod]:
 		tool_calling_method = self.settings.tool_calling_method
@@ -425,23 +447,30 @@ class Agent(Generic[Context]):
 			await self._update_action_models_for_page(active_page)
 
 			# Get page-specific filtered actions
-			page_filtered_actions = self.controller.registry.get_prompt_description(active_page)
+			page_filtered_actions = self.controller.registry.get_prompt_description(
+			    active_page)
 
-			# If there are page-specific actions, add them as a special message for this step only
+			# If there are page-specific actions, add them as a special message for
+			# this step only
 			if page_filtered_actions:
 				page_action_message = f'For this page, these additional actions are available:\n{page_filtered_actions}'
-				self._message_manager._add_message_with_tokens(HumanMessage(content=page_action_message))
+				self._message_manager._add_message_with_tokens(
+				    HumanMessage(content=page_action_message))
 
-			# If using raw tool calling method, we need to update the message context with new actions
+			# If using raw tool calling method, we need to update the message context
+			# with new actions
 			if self.tool_calling_method == 'raw':
-				# For raw tool calling, get all non-filtered actions plus the page-filtered ones
+				# For raw tool calling, get all non-filtered actions plus the
+				# page-filtered ones
 				all_unfiltered_actions = self.controller.registry.get_prompt_description()
 				all_actions = all_unfiltered_actions
 				if page_filtered_actions:
 					all_actions += '\n' + page_filtered_actions
 
-				context_lines = (self._message_manager.settings.message_context or '').split('\n')
-				non_action_lines = [line for line in context_lines if not line.startswith('Available actions:')]
+				context_lines = (
+    self._message_manager.settings.message_context or '').split('\n')
+				non_action_lines = [
+    line for line in context_lines if not line.startswith('Available actions:')]
 				updated_context = '\n'.join(non_action_lines)
 				if updated_context:
 					updated_context += f'\n\nAvailable actions: {all_actions}'
@@ -449,7 +478,11 @@ class Agent(Generic[Context]):
 					updated_context = f'Available actions: {all_actions}'
 				self._message_manager.settings.message_context = updated_context
 
-			self._message_manager.add_state_message(state, self.state.last_result, step_info, self.settings.use_vision)
+			self._message_manager.add_state_message(
+    state,
+    self.state.last_result,
+    step_info,
+     self.settings.use_vision)
 
 			# Run planner at specified intervals if planner is configured
 			if self.settings.planner_llm and self.state.n_steps % self.settings.planner_interval == 0:
@@ -472,6 +505,19 @@ class Agent(Generic[Context]):
 
 			try:
 				model_output = await self.get_next_action(input_messages)
+                if not model_output.action or all(action.model_dump() == {} for action in model_output.action):
+                    logger.warning('Model returned empty action. Retrying...')
+                    
+                    clarification_message = HumanMessage(
+                    content="You forgot to return an action. Please respond only with a valid JSON action according to the expected format."
+                	)
+                    
+                    retry_messages = input_messages + [clarification_message]
+                    model_output = await self.get_next_action(retry_messages)
+                    
+                    if not model_output.action or all(action.model_dump() == {} for action in model_output.action):
+                        logger.warning("Model still returned empty after retry. Inserting safe noop action.")
+						model_output.action = [self.ActionModel(action_name="done", parameters={"success": False, "text": "No action returned, safe exit."})]
 
 				# Check again for paused/stopped state after getting model output
 				# This is needed in case Ctrl+C was pressed during the get_next_action call
