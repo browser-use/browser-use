@@ -643,38 +643,9 @@
         }
       }
 
-      // Check for disabled property on form elements
-      if (element.disabled) {
-        return false;
-      }
-
-      // Check for readonly property on form elements
-      if (element.readOnly) {
-        return false;
-      }
-
-      // Check for inert property
-      if (element.inert) {
-        return false;
-      }
-
-      return true;
-    }
-
     const tagName = element.tagName.toLowerCase();
     const role = element.getAttribute("role");
     const ariaRole = element.getAttribute("aria-role");
-
-    // Added enhancement to capture dropdown interactive elements
-    if (element.classList && (
-      element.classList.contains("button") ||
-      element.classList.contains('dropdown-toggle') ||
-      element.getAttribute('data-index') ||
-      element.getAttribute('data-toggle') === 'dropdown' ||
-      element.getAttribute('aria-haspopup') === 'true'
-    )) {
-      return true;
-    }
 
     const interactiveRoles = new Set([
       'button',           // Directly clickable element
@@ -693,48 +664,106 @@
       'textbox',         // Text input field
       // 'listbox',         // Selectable list
       'option',          // Selectable option in a list
-      'scrollbar'        // Scrollable control
+      'scrollbar',        // Scrollable control
+      'treeitem'          // <<--- ADDED: For tree view nodes (like Kendo UI)
     ]);
 
-    // Basic role/attribute checks
-    const hasInteractiveRole =
-      interactiveElements.has(tagName) ||
-      interactiveRoles.has(role) ||
-      interactiveRoles.has(ariaRole);
+     // --- Helper to check disable state ---
+    function isElementDisabled(element) {
+      // Check native disabled property
+      if (element.disabled) return true;
+      // Check native readonly property (prevents interaction for inputs/textarea)
+      if (element.readOnly) return true;
+      // Check native inert property (disables all interaction/focus)
+      if (element.inert) return true;
+      // Check standard disable attributes
+      for (const disableAttr of explicitDisableTags) {
+        if (element.hasAttribute(disableAttr) || element.getAttribute(disableAttr) === 'true' || element.getAttribute(disableAttr) === '') {
+          return true;
+        }
+      }
+      // Optionally, check aria-disabled as a weaker signal if needed:
+      // if (element.getAttribute('aria-disabled') === 'true') return true;
 
-    if (hasInteractiveRole) return true;
+      return false;
+    }
 
-    // check whether element has event listeners
+    // --- Start: Interaction Checks (Order matters: more specific/reliable first) ---
+
+    // 1. Check if explicitly disabled (if so, definitely not interactive)
+    if (isElementDisabled(element)) {
+      return false;
+    }
+
+    // 2. Check Interactive ARIA Roles (Good semantic indicator)
+    const elementRole = element.getAttribute('role');
+    if (role && interactiveRoles.has(role)) {
+      // Already checked for disabled state above
+      return true;
+    }
+
+    // 3. Check ContentEditable
+    // Use element.isContentEditable for accuracy (considers inheritance)
+    if (element.isContentEditable) {
+        // Already checked for disabled/readonly/inert state above
+        return true;
+    }
+
+    // 4. Check Cursor Style (Good heuristic, especially 'pointer')
+    const elementStyle = getCachedComputedStyle(element); // Get style if not already fetched by disable check
+    if (interactiveCursors.has(style.cursor)) {
+      // Already checked for disabled state above
+      return true;
+    }
+
+    // 5. Check Specific Heuristics (Common patterns, use with caution)
+    // Reduced this section to avoid overly specific or brittle checks
+    if (element.classList && (
+      element.classList.contains("button") || // Common non-semantic button class
+      element.getAttribute('aria-haspopup') === 'true' // General popup indicator (often clickable)
+      // Add back specific framework toggles like data-bs-toggle only if absolutely necessary
+      // element.getAttribute('data-bs-toggle') === 'dropdown' ||
+      // element.getAttribute('data-toggle') === 'dropdown'
+    )) {
+      // Already checked for disabled state above
+      return true;
+    }
+
+    // 7. Event Listener Check (Last resort, least reliable due to delegation)
+    // Only check for 'click' as the primary interaction trigger. Adding others
+    // increases chances of false positives (e.g., mouseover for tooltips).
     try {
       if (typeof getEventListeners === 'function') {
         const listeners = getEventListeners(element);
-        const mouseEvents = ['click', 'mousedown', 'mouseup', 'dblclick'];
-        for (const eventType of mouseEvents) {
-          if (listeners[eventType] && listeners[eventType].length > 0) {
-            return true; // Found a mouse interaction listener
-          }
+        if (listeners['click'] && listeners['click'].length > 0) {
+          // console.log("Interactive due to click listener:", element); // Debugging
+          // Already checked for disabled state above
+          return true;
         }
       } else {
         // Fallback: Check common event attributes if getEventListeners is not available
-        const commonMouseAttrs = ['onclick', 'onmousedown', 'onmouseup', 'ondblclick'];
-        if (commonMouseAttrs.some(attr => element.hasAttribute(attr))) {
+        if (element.hasAttribute('onclick')) {
+          // Already checked for disabled state above
           return true;
         }
       }
     } catch (e) {
       // console.warn(`Could not check event listeners for ${element.tagName}:`, e);
-      // If checking listeners fails, rely on other checks
+      // If checking listeners fails, rely on previous checks
     }
 
-    // Added: Treat file tree nodes as interactive.
-    // This ensures that elements within a file tree (with class "file-tree-node") are considered clickable.
-    if (element.classList && element.classList.contains('file-tree-node')) {
-      return true;
-    }
+    // --- End: Interaction Checks ---
 
-    return false
+    // Default: Not interactive if none of the above matched and passed the disable check
+    return false;
   }
 
+    // Basic role/attribute checks
+    const hasInteractiveRole =
+      interactiveElements.has(tagName) ||
+      interactiveRoles.has(role);
+
+    if (hasInteractiveRole) return true;
 
   /**
    * Checks if an element is the topmost element at its position.
@@ -943,10 +972,6 @@
     if (role && INTERACTIVE_ROLES.has(role)) {
       return true;
     }
-    // Check contenteditable
-    if (element.isContentEditable || element.getAttribute('contenteditable') === 'true') {
-      return true;
-    }
     // Check for common testing/automation attributes
     if (element.hasAttribute('data-testid') || element.hasAttribute('data-cy') || element.hasAttribute('data-test')) {
       return true;
@@ -954,27 +979,6 @@
     // Check for explicit onclick handler (attribute or property)
     if (element.hasAttribute('onclick') || typeof element.onclick === 'function') {
       return true;
-    }
-    // Check for other common interaction event listeners
-    try {
-      if (typeof getEventListeners === 'function') {
-        const listeners = getEventListeners(element);
-        const interactionEvents = ['mousedown', 'mouseup', 'keydown', 'keyup', 'submit', 'change', 'input', 'focus', 'blur'];
-        for (const eventType of interactionEvents) {
-          if (listeners[eventType] && listeners[eventType].length > 0) {
-            return true; // Found a common interaction listener
-          }
-        }
-      } else {
-        // Fallback: Check common event attributes if getEventListeners is not available
-        const commonEventAttrs = ['onmousedown', 'onmouseup', 'onkeydown', 'onkeyup', 'onsubmit', 'onchange', 'oninput', 'onfocus', 'onblur'];
-        if (commonEventAttrs.some(attr => element.hasAttribute(attr))) {
-          return true;
-        }
-      }
-    } catch (e) {
-      // console.warn(`Could not check event listeners for ${element.tagName}:`, e);
-      // If checking listeners fails, rely on other checks
     }
 
 
