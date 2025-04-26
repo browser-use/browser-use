@@ -1186,6 +1186,13 @@
           if (domElement) nodeData.children.push(domElement);
         }
       }
+      // Handle slots
+      if (tagName === "slot") {
+        for (const child of node.childNodes) {
+          const domElement = buildDomTree(child, parentIframe, nodeWasHighlighted);
+          if (domElement) nodeData.children.push(domElement);
+        }
+      }
       else {
         // Handle shadow DOM
         if (node.shadowRoot) {
