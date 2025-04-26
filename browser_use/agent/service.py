@@ -704,12 +704,12 @@ class Agent:
 			if not self.injected_browser and self.browser:
 				await self.browser.close()
 
-			if self.generate_gif:
-				output_path: str = 'agent_history.gif'
-				if isinstance(self.generate_gif, str):
-					output_path = self.generate_gif
+			# if self.generate_gif:
+			# 	output_path: str = 'agent_history.gif'
+			# 	if isinstance(self.generate_gif, str):
+			# 		output_path = self.generate_gif
 
-				self.create_history_gif(output_path=output_path)
+			# 	self.create_history_gif(output_path=output_path)
 
 	def _too_many_failures(self) -> bool:
 		"""Check if we should stop due to too many failures"""
