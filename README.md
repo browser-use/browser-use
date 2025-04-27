@@ -411,6 +411,66 @@ To learn more about the library, check out the [local setup 📕](https://docs.b
 
 `main` is the primary development branch with frequent changes. For production use, install a stable [versioned release](https://github.com/browser-use/browser-use/releases) instead.
 
+## Project Directory Structure
+
+### Core Directories
+
+#### `/browser_use/` - Main Package
+The core package containing all the browser automation functionality.
+
+#### `/browser_use/agent/` - Agent Module
+Contains the LLM agent implementation that processes tasks and controls browser automation.
+- `service.py`: Core agent service implementation
+- `prompts/`: System and agent prompts
+- `views.py`: Data structures for agent state
+- `memory/`: Agent memory management
+- `message_manager/`: Handles message formatting and processing
+
+#### `/browser_use/browser/` - Browser Control
+Manages browser instances and interactions with Playwright.
+- `browser.py`: Browser configuration and initialization
+- `context.py`: Browser context management
+- `chrome.py`: Chrome-specific implementation
+- `utils/`: Browser utility functions
+
+#### `/browser_use/dom/` - DOM Manipulation
+Handles DOM tree building, element selection, and interaction.
+- `buildDomTree.js`: JavaScript for DOM tree extraction
+- `service.py`: DOM service implementation
+- `clickable_element_processor/`: Processes clickable elements
+- `history_tree_processor/`: Manages navigation history
+
+#### `/browser_use/controller/` - Controller Logic
+Manages the control flow between agent and browser.
+- `registry/`: Registry for controller components
+
+#### `/browser_use/telemetry/` - Telemetry
+Handles usage tracking and analytics.
+
+#### `/browser_use/tools/` - Tools Integration
+Contains tools that can be used by the agent.
+- `registry.py`: Central registry for tool registration
+- `standee_detection/`: Standee detection tool implementation
+
+### Supporting Directories
+
+#### `/docs/` - Documentation
+Project documentation and architecture diagrams.
+- `cloud/`, `customize/`, `development/`: Documentation sections
+
+#### `/examples/` - Example Scripts
+Example scripts demonstrating library usage.
+- `simple.py`: Basic usage example
+- `advance.py`: Advanced usage with full Playwright capabilities
+
+#### `/tests/` - Test Suite
+Unit and integration tests.
+- `tools/`: Tests for tool implementations
+- `mind2web_data/`: Test data
+
+#### `/static/` - Static Assets
+Static files used by the project.
+
 ---
 
 ## Cooperations
