@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
+from typing import Dict, List, Any
 
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
@@ -9,6 +10,7 @@ from browser_use.tools.standee_detection import (  # noqa: E402
     StandeeDetectionTool
 )
 from browser_use.tools.registry import ToolRegistry  # noqa: E402
+from browser_use.tools.mcp_protocol import MCPToolBase  # noqa: E402
 
 
 def test_standee_detection_tool_initialization():
@@ -130,3 +132,87 @@ def test_meets_standee_criteria():
     detection['width'] = 10  # Less than 5% of image width
     detection['height'] = 20
     assert tool._meets_standee_criteria(detection, img_shape) is False
+
+
+def test_mcp_metadata():
+    """Test that the standee detection tool implements MCP metadata."""
+    tool = StandeeDetectionTool()
+    
+    assert hasattr(tool, 'metadata')
+    
+    metadata = tool.metadata
+    assert 'name' in metadata
+    assert 'description' in metadata
+    assert 'parameters' in metadata
+    assert 'returns' in metadata
+    assert 'version' in metadata
+    
+    assert metadata['name'] == 'standee_detection'
+    
+    parameters = metadata['parameters']
+    assert 'detect_from_url' in parameters
+    assert 'detect_from_bytes' in parameters
+
+
+def test_mcp_capabilities():
+    """Test that the standee detection tool implements MCP capabilities."""
+    tool = StandeeDetectionTool()
+    
+    capabilities = tool.get_capabilities({})
+    assert isinstance(capabilities, list)
+    assert 'can_process_image_urls' in capabilities
+    assert 'can_process_image_bytes' in capabilities
+    
+    gallery_context = {'page_type': 'photo_gallery'}
+    gallery_capabilities = tool.get_capabilities(gallery_context)
+    assert 'can_analyze_gallery_photos' in gallery_capabilities
+    
+    restaurant_context = {'page_type': 'restaurant'}
+    restaurant_capabilities = tool.get_capabilities(restaurant_context)
+    assert 'can_analyze_restaurant_photos' in restaurant_capabilities
+
+
+def test_mcp_execute():
+    """Test that the standee detection tool implements MCP execute."""
+    tool = StandeeDetectionTool()
+    
+    with patch.object(
+        StandeeDetectionTool, 'detect_from_url'
+    ) as mock_detect:
+        mock_detect.return_value = {
+            'success': True,
+            'detections': [],
+            'count': 0
+        }
+        
+        result = tool.execute({
+            'method': 'detect_from_url',
+            'params': {'url': 'https://example.com/image.jpg'}
+        }, {})
+        
+        assert result['success'] is True
+        assert 'result' in result
+        mock_detect.assert_called_once_with(url='https://example.com/image.jpg')
+    
+    result = tool.execute({
+        'method': 'invalid_method',
+        'params': {}
+    }, {})
+    
+    assert result['success'] is False
+    assert 'error' in result
+
+
+def test_mcp_examples():
+    """Test that the standee detection tool implements MCP examples."""
+    tool = StandeeDetectionTool()
+    
+    examples = tool.get_examples()
+    assert isinstance(examples, list)
+    assert len(examples) > 0
+    
+    for example in examples:
+        assert 'description' in example
+        assert 'params' in example
+        assert 'context' in example
+        assert 'expected_result' in example
