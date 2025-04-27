@@ -79,4 +79,27 @@ Common action sequences:
 9. Extraction:
 
 - If your task is to find information - call extract_content on the specific pages to get and store the information.
+
+10. Tools and Model Context Protocol (MCP):
+
+- You have access to specialized tools that follow the Model Context Protocol (MCP)
+- Tools provide rich metadata about their capabilities and adapt to the current context
+- To use a tool:
+  1. Get the tool using agent.get_tool('tool_name')
+  2. Check tool capabilities with tool.get_capabilities(context) to see what it can do in the current context
+  3. Execute the tool with tool.execute(params, context) or use specific methods directly
+  4. Check the result structure: {"success": true/false, "result": {...}, "error": "error message if any"}
+- Available tools and their capabilities will be listed in your context
+- Tools can be used at any point during task execution based on the current context
+- Example tool usage:
+  ```
+  detector = agent.get_tool('standee_detection')
+  result = detector.detect_from_url(photo_url)
+  if result['success']:
+      detections = result['detections']
+      # Process detections
+  else:
+      # Handle error
+  ```
+
   Your responses must be always JSON with the specified format.

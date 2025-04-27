@@ -1368,3 +1368,100 @@ class Agent(Generic[Context]):
 			The initialized tool instance or None if not found
 		"""
 		return self.tools.get(tool_name)
+		
+	def get_tool_capabilities(self, context: Dict[str, Any]) -> Dict[str, List[str]]:
+		"""Get capabilities of all initialized tools in the current context.
+		
+		Args:
+			context: Current execution context
+			
+		Returns:
+			Dict mapping tool names to their capabilities
+		"""
+		capabilities = {}
+		
+		for tool_name, tool in self.tools.items():
+			if hasattr(tool, 'get_capabilities') and callable(tool.get_capabilities):
+				try:
+					tool_capabilities = tool.get_capabilities(context)
+					capabilities[tool_name] = tool_capabilities
+				except Exception as e:
+					logger.warning(f"Error getting capabilities for tool {tool_name}: {e}")
+		
+		return capabilities
+	
+	def get_tool_metadata(self, tool_name: str) -> Optional[Dict[str, Any]]:
+		"""Get metadata for a tool.
+		
+		Args:
+			tool_name: Name of the tool
+			
+		Returns:
+			Tool metadata dict, or None if the tool doesn't implement MCP
+		"""
+		tool = self.get_tool(tool_name)
+		if not tool:
+			return None
+		
+		if hasattr(tool, 'metadata') and (
+			callable(tool.metadata) or isinstance(tool.metadata, property)
+		):
+			try:
+				return tool.metadata
+			except Exception as e:
+				logger.warning(f"Error getting metadata for tool {tool_name}: {e}")
+				return None
+		
+		return None
+	
+	def execute_tool(self, tool_name: str, params: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+		"""Execute a tool with parameters and context.
+		
+		Args:
+			tool_name: Name of the tool to execute
+			params: Parameters for tool execution
+			context: Current execution context
+			
+		Returns:
+			Dict with execution results
+		"""
+		tool = self.get_tool(tool_name)
+		if not tool:
+			return {
+				"success": False,
+				"error": f"Tool not found: {tool_name}"
+			}
+		
+		if hasattr(tool, 'execute') and callable(tool.execute):
+			try:
+				return tool.execute(params, context)
+			except Exception as e:
+				logger.error(f"Error executing tool {tool_name}: {e}")
+				return {
+					"success": False,
+					"error": f"Error executing tool: {str(e)}"
+				}
+		
+		if "method" in params:
+			method_name = params["method"]
+			method_params = params.get("params", {})
+			
+			if hasattr(tool, method_name) and callable(getattr(tool, method_name)):
+				try:
+					method = getattr(tool, method_name)
+					result = method(**method_params)
+					return {
+						"success": True,
+						"result": result
+					}
+				except Exception as e:
+					logger.error(f"Error calling method {method_name} on tool {tool_name}: {e}")
+					return {
+						"success": False,
+						"error": f"Error calling method: {str(e)}"
+					}
+		
+		return {
+			"success": False,
+			"error": f"Tool {tool_name} does not implement the MCP execute method"
+		}

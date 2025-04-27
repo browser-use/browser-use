@@ -27,13 +27,21 @@ When extracting photo URLs:
 - Handle navigation between photos using the next/previous buttons
 - Store extracted URLs in a structured format for processing
 
-When working with the standee detection tool:
+When working with the standee detection tool (MCP-enabled):
 - Access the tool using agent.get_tool('standee_detection')
-- For each photo URL, call detector.detect_from_url(photo_url)
+- Check tool capabilities in the current context: detector.get_capabilities(context)
+- For each photo URL, you can use either:
+  - Direct method: detector.detect_from_url(photo_url)
+  - MCP execute: detector.execute({"method": "detect_from_url", "url": photo_url}, context)
 - Check the 'success' field in the result to verify detection ran properly
 - Check the 'detections' array for any detected standees
 - Log positive detections with confidence scores
 - Continue processing all photos even if some fail detection
+- The tool adapts to your current context - it provides different capabilities when:
+  - In a photo gallery (can_analyze_gallery_photos)
+  - On a restaurant page (can_analyze_restaurant_photos)
+  - Processing image URLs (can_process_image_urls)
+  - Processing image bytes (can_process_image_bytes)
 
 For complex UI interactions:
 - Use advanced frame navigation to access nested frames
