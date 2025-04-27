@@ -1,4 +1,5 @@
 from typing import Dict, Any, Optional, List, Set
+from .mcp_protocol import MCPToolBase
 
 
 class ToolRegistry:
@@ -72,7 +73,10 @@ class ToolRegistry:
                     'get_capabilities') and callable(
                     tool_class.get_capabilities):
                 if isinstance(tool_class, type):
-                    tool = tool_class()
+                    if issubclass(tool_class, MCPToolBase):
+                        tool = tool_class(name=tool_name, description=getattr(tool_class, "__doc__", ""))
+                    else:
+                        tool = tool_class()
                 else:
                     tool = tool_class
 
@@ -104,7 +108,10 @@ class ToolRegistry:
                     tool_class.metadata,
                 property)):
             if isinstance(tool_class, type):
-                tool = tool_class()
+                if issubclass(tool_class, MCPToolBase):
+                    tool = tool_class(name=tool_name, description=getattr(tool_class, "__doc__", ""))
+                else:
+                    tool = tool_class()
             else:
                 tool = tool_class
 
@@ -137,7 +144,10 @@ class ToolRegistry:
                     'get_capabilities') and callable(
                     tool_class.get_capabilities):
                 if isinstance(tool_class, type):
-                    tool = tool_class()
+                    if issubclass(tool_class, MCPToolBase):
+                        tool = tool_class(name=tool_name, description=getattr(tool_class, "__doc__", ""))
+                    else:
+                        tool = tool_class()
                 else:
                     tool = tool_class
 
@@ -165,7 +175,10 @@ class ToolRegistry:
                 'get_examples') and callable(
                 tool_class.get_examples):
             if isinstance(tool_class, type):
-                tool = tool_class()
+                if issubclass(tool_class, MCPToolBase):
+                    tool = tool_class(name=tool_name, description=getattr(tool_class, "__doc__", ""))
+                else:
+                    tool = tool_class()
             else:
                 tool = tool_class
 

@@ -1,11 +1,15 @@
 import sys
 import unittest
+import asyncio
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from typing import Dict, List, Any
+from typing import Dict, List, Any, ClassVar
 
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
+
+from langchain_core.language_models.chat_models import BaseChatModel  # noqa: E402
+from langchain_core.messages import AIMessage  # noqa: E402
 
 from browser_use.agent.service import Agent  # noqa: E402
 from browser_use.tools.registry import ToolRegistry  # noqa: E402
@@ -17,6 +21,24 @@ class TestAgentMCPIntegration(unittest.TestCase):
 
     def setUp(self):
         """Set up the test environment."""
+        self.create_task_patcher = patch('asyncio.create_task', return_value=MagicMock())
+        self.mock_create_task = self.create_task_patcher.start()
+        
+        class MockBaseChatModel(BaseChatModel):
+            model_name: ClassVar[str] = "mock_model"
+            
+            def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+                return AIMessage(content='{"action": [], "current_state": {"evaluation_previous_goal": "", "memory": "", "next_goal": ""}}')
+            
+            async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
+                return self._generate(messages, stop, run_manager, **kwargs)
+            
+            @property
+            def _llm_type(self):
+                return "mock_llm"
+        
+        self.MockBaseChatModel = MockBaseChatModel
+        
         class MockTool(MCPToolBase):
             def __init__(self):
                 super().__init__(name="mock_tool", description="A mock tool for testing")
@@ -40,15 +62,20 @@ class TestAgentMCPIntegration(unittest.TestCase):
         ToolRegistry._tools = {}
         ToolRegistry._capabilities_index = {}
         ToolRegistry.register("mock_tool", self.MockTool)
+        
+    def tearDown(self):
+        """Clean up after tests."""
+        self.create_task_patcher.stop()
 
     @patch('browser_use.agent.service.Browser')
     @patch('browser_use.agent.service.Controller')
     @patch('browser_use.agent.service.MessageManager')
     def test_agent_tool_initialization(self, mock_message_manager, mock_controller, mock_browser):
         """Test that the agent initializes tools correctly."""
-        mock_llm = MagicMock()
+        mock_llm = self.MockBaseChatModel()
         
         agent = Agent(
+            task="Test task",
             llm=mock_llm,
             tools=["mock_tool"]
         )
@@ -61,9 +88,10 @@ class TestAgentMCPIntegration(unittest.TestCase):
     @patch('browser_use.agent.service.MessageManager')
     def test_agent_get_tool(self, mock_message_manager, mock_controller, mock_browser):
         """Test that the agent can retrieve tools."""
-        mock_llm = MagicMock()
+        mock_llm = self.MockBaseChatModel()
         
         agent = Agent(
+            task="Test task",
             llm=mock_llm,
             tools=["mock_tool"]
         )
@@ -82,9 +110,10 @@ class TestAgentMCPIntegration(unittest.TestCase):
     @patch('browser_use.agent.service.MessageManager')
     def test_agent_get_tool_capabilities(self, mock_message_manager, mock_controller, mock_browser):
         """Test that the agent can get tool capabilities."""
-        mock_llm = MagicMock()
+        mock_llm = self.MockBaseChatModel()
         
         agent = Agent(
+            task="Test task",
             llm=mock_llm,
             tools=["mock_tool"]
         )
@@ -103,9 +132,10 @@ class TestAgentMCPIntegration(unittest.TestCase):
     @patch('browser_use.agent.service.MessageManager')
     def test_agent_get_tool_metadata(self, mock_message_manager, mock_controller, mock_browser):
         """Test that the agent can get tool metadata."""
-        mock_llm = MagicMock()
+        mock_llm = self.MockBaseChatModel()
         
         agent = Agent(
+            task="Test task",
             llm=mock_llm,
             tools=["mock_tool"]
         )
@@ -128,9 +158,10 @@ class TestAgentMCPIntegration(unittest.TestCase):
     @patch('browser_use.agent.service.MessageManager')
     def test_agent_execute_tool(self, mock_message_manager, mock_controller, mock_browser):
         """Test that the agent can execute tools."""
-        mock_llm = MagicMock()
+        mock_llm = self.MockBaseChatModel()
         
         agent = Agent(
+            task="Test task",
             llm=mock_llm,
             tools=["mock_tool"]
         )
@@ -176,9 +207,10 @@ class TestAgentMCPIntegration(unittest.TestCase):
 
         ToolRegistry.register("tool_with_method", ToolWithMethod)
         
-        mock_llm = MagicMock()
+        mock_llm = self.MockBaseChatModel()
         
         agent = Agent(
+            task="Test tool method execution",
             llm=mock_llm,
             tools=["tool_with_method"]
         )

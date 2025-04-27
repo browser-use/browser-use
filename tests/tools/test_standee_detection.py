@@ -23,6 +23,8 @@ def test_standee_detection_tool_initialization():
 
 def test_standee_detection_tool_registry():
     """Test that the standee detection tool is properly registered."""
+    ToolRegistry.register('standee_detection', StandeeDetectionTool)
+    
     tool_class = ToolRegistry.get_tool('standee_detection')
     assert tool_class is not None
     assert tool_class == StandeeDetectionTool
@@ -150,8 +152,9 @@ def test_mcp_metadata():
     assert metadata['name'] == 'standee_detection'
     
     parameters = metadata['parameters']
-    assert 'detect_from_url' in parameters
-    assert 'detect_from_bytes' in parameters
+    assert 'image_url' in parameters
+    assert 'image_bytes' in parameters
+    assert 'confidence_threshold' in parameters
 
 
 def test_mcp_capabilities():
@@ -163,11 +166,11 @@ def test_mcp_capabilities():
     assert 'can_process_image_urls' in capabilities
     assert 'can_process_image_bytes' in capabilities
     
-    gallery_context = {'page_type': 'photo_gallery'}
+    gallery_context = {'in_photo_gallery': True}
     gallery_capabilities = tool.get_capabilities(gallery_context)
     assert 'can_analyze_gallery_photos' in gallery_capabilities
     
-    restaurant_context = {'page_type': 'restaurant'}
+    restaurant_context = {'in_restaurant_page': True}
     restaurant_capabilities = tool.get_capabilities(restaurant_context)
     assert 'can_analyze_restaurant_photos' in restaurant_capabilities
 
@@ -186,18 +189,14 @@ def test_mcp_execute():
         }
         
         result = tool.execute({
-            'method': 'detect_from_url',
-            'params': {'url': 'https://example.com/image.jpg'}
+            'image_url': 'https://example.com/image.jpg'
         }, {})
         
         assert result['success'] is True
         assert 'result' in result
-        mock_detect.assert_called_once_with(url='https://example.com/image.jpg')
+        mock_detect.assert_called_once_with('https://example.com/image.jpg')
     
-    result = tool.execute({
-        'method': 'invalid_method',
-        'params': {}
-    }, {})
+    result = tool.execute({}, {})
     
     assert result['success'] is False
     assert 'error' in result
