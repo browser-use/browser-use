@@ -3,10 +3,12 @@ import os
 import sys
 import requests
 from pathlib import Path
-from typing import Dict, Optional, Any, Tuple
+from typing import Dict, Optional, Any, Tuple, List
+
+from ..mcp_protocol import MCPToolBase
 
 
-class StandeeDetectionTool:
+class StandeeDetectionTool(MCPToolBase):
     """Tool for detecting standees in images using YOLOv8."""
 
     def __init__(
@@ -22,6 +24,10 @@ class StandeeDetectionTool:
                 default locations.
             confidence_threshold: Minimum confidence for detection.
         """
+        super().__init__(
+            name="standee_detection",
+            description="Detects standees (promotional cardboard cutouts) in images using YOLOv8"
+        )
         self.logger = logging.getLogger(__name__)
         self.model_path = model_path
         self.confidence_threshold = confidence_threshold
@@ -240,3 +246,219 @@ class StandeeDetectionTool:
             return False
 
         return True
+        
+    def _get_parameter_metadata(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Return metadata about tool parameters.
+        
+        Returns:
+            Dict mapping parameter names to parameter metadata
+        """
+        return {
+            "image_url": {
+                "type": "string",
+                "description": "URL of the image to analyze for standees",
+                "required": True
+            },
+            "confidence_threshold": {
+                "type": "number",
+                "description": "Minimum confidence score (0.0-1.0) for detection",
+                "default": 0.25,
+                "required": False
+            },
+            "image_bytes": {
+                "type": "bytes",
+                "description": "Raw image bytes to analyze (alternative to image_url)",
+                "required": False
+            }
+        }
+    
+    def _get_return_metadata(self) -> Dict[str, Any]:
+        """
+        Return metadata about tool return values.
+        
+        Returns:
+            Dict describing the return value structure
+        """
+        return {
+            "type": "object",
+            "properties": {
+                "success": {
+                    "type": "boolean",
+                    "description": "Whether the detection was successful"
+                },
+                "detections": {
+                    "type": "array",
+                    "description": "List of detected standees with details",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "box": {
+                                "type": "array",
+                                "description": "Bounding box coordinates [x1, y1, x2, y2]"
+                            },
+                            "confidence": {
+                                "type": "number",
+                                "description": "Confidence score (0.0-1.0)"
+                            },
+                            "width": {
+                                "type": "number",
+                                "description": "Width of the detection in pixels"
+                            },
+                            "height": {
+                                "type": "number",
+                                "description": "Height of the detection in pixels"
+                            },
+                            "aspect_ratio": {
+                                "type": "number",
+                                "description": "Width/height ratio of the detection"
+                            }
+                        }
+                    }
+                },
+                "count": {
+                    "type": "integer",
+                    "description": "Number of standees detected"
+                },
+                "error": {
+                    "type": "string",
+                    "description": "Error message if detection failed"
+                }
+            }
+        }
+    
+    def get_capabilities(self, context: Dict[str, Any]) -> List[str]:
+        """
+        Return capabilities based on current context.
+        
+        Args:
+            context: Current execution context
+            
+        Returns:
+            List of capability strings
+        """
+        capabilities = [
+            "can_detect_standees",
+            "can_analyze_images",
+            "can_process_image_urls",
+            "can_process_image_bytes"
+        ]
+        
+        if context.get("in_photo_gallery", False):
+            capabilities.append("can_analyze_gallery_photos")
+        
+        if context.get("in_restaurant_page", False):
+            capabilities.append("can_analyze_restaurant_photos")
+            
+        return capabilities
+    
+    def get_examples(self) -> List[Dict[str, Any]]:
+        """
+        Return usage examples with inputs and expected outputs.
+        
+        Returns:
+            List of example dicts
+        """
+        return [
+            {
+                "description": "Detect standees in an image from URL",
+                "params": {
+                    "image_url": "https://example.com/restaurant_photo.jpg",
+                    "confidence_threshold": 0.3
+                },
+                "context": {
+                    "in_restaurant_page": True
+                },
+                "expected_result": {
+                    "success": True,
+                    "detections": [
+                        {
+                            "box": [100, 200, 300, 500],
+                            "confidence": 0.85,
+                            "width": 200,
+                            "height": 300,
+                            "aspect_ratio": 0.67
+                        }
+                    ],
+                    "count": 1
+                }
+            },
+            {
+                "description": "No standees detected in an image",
+                "params": {
+                    "image_url": "https://example.com/empty_restaurant.jpg"
+                },
+                "context": {
+                    "in_restaurant_page": True
+                },
+                "expected_result": {
+                    "success": True,
+                    "detections": [],
+                    "count": 0
+                }
+            }
+        ]
+    
+    def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute standee detection with parameters and context.
+        
+        Args:
+            params: Parameters for tool execution
+                - image_url: URL of the image to analyze
+                - image_bytes: Raw image bytes to analyze (alternative to image_url)
+                - confidence_threshold: Optional confidence threshold
+            context: Current execution context
+            
+        Returns:
+            Dict with execution results
+        """
+        if "confidence_threshold" in params:
+            self.confidence_threshold = params["confidence_threshold"]
+        
+        if "image_url" in params:
+            result = self.detect_from_url(params["image_url"])
+            return self._format_result(result, params, context)
+        
+        elif "image_bytes" in params:
+            result = self.detect_from_bytes(params["image_bytes"])
+            return self._format_result(result, params, context)
+        
+        else:
+            return self.format_error_result(
+                "Missing required parameter: either image_url or image_bytes must be provided",
+                metadata={"context": context}
+            )
+    
+    def _format_result(self, result: Dict[str, Any], params: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Format detection result according to MCP protocol.
+        
+        Args:
+            result: Raw detection result
+            params: Original parameters
+            context: Execution context
+            
+        Returns:
+            Formatted result dict
+        """
+        if not result.get("success", False):
+            return self.format_error_result(
+                result.get("error", "Unknown detection error"),
+                metadata={
+                    "params": params,
+                    "context": context
+                }
+            )
+        
+        return self.format_success_result(
+            {
+                "detections": result.get("detections", []),
+                "count": result.get("count", 0)
+            },
+            metadata={
+                "image_source": "url" if "image_url" in params else "bytes",
+                "confidence_threshold": self.confidence_threshold,
+                "context": context
+            }
+        )
