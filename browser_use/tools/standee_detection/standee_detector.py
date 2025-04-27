@@ -246,11 +246,11 @@ class StandeeDetectionTool(MCPToolBase):
             return False
 
         return True
-        
+
     def _get_parameter_metadata(self) -> Dict[str, Dict[str, Any]]:
         """
         Return metadata about tool parameters.
-        
+
         Returns:
             Dict mapping parameter names to parameter metadata
         """
@@ -258,25 +258,21 @@ class StandeeDetectionTool(MCPToolBase):
             "image_url": {
                 "type": "string",
                 "description": "URL of the image to analyze for standees",
-                "required": True
-            },
+                "required": True},
             "confidence_threshold": {
                 "type": "number",
                 "description": "Minimum confidence score (0.0-1.0) for detection",
                 "default": 0.25,
-                "required": False
-            },
+                "required": False},
             "image_bytes": {
                 "type": "bytes",
                 "description": "Raw image bytes to analyze (alternative to image_url)",
-                "required": False
-            }
-        }
-    
+                "required": False}}
+
     def _get_return_metadata(self) -> Dict[str, Any]:
         """
         Return metadata about tool return values.
-        
+
         Returns:
             Dict describing the return value structure
         """
@@ -326,14 +322,14 @@ class StandeeDetectionTool(MCPToolBase):
                 }
             }
         }
-    
+
     def get_capabilities(self, context: Dict[str, Any]) -> List[str]:
         """
         Return capabilities based on current context.
-        
+
         Args:
             context: Current execution context
-            
+
         Returns:
             List of capability strings
         """
@@ -343,19 +339,19 @@ class StandeeDetectionTool(MCPToolBase):
             "can_process_image_urls",
             "can_process_image_bytes"
         ]
-        
+
         if context.get("in_photo_gallery", False):
             capabilities.append("can_analyze_gallery_photos")
-        
+
         if context.get("in_restaurant_page", False):
             capabilities.append("can_analyze_restaurant_photos")
-            
+
         return capabilities
-    
+
     def get_examples(self) -> List[Dict[str, Any]]:
         """
         Return usage examples with inputs and expected outputs.
-        
+
         Returns:
             List of example dicts
         """
@@ -398,47 +394,55 @@ class StandeeDetectionTool(MCPToolBase):
                 }
             }
         ]
-    
-    def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+
+    def execute(self, params: Dict[str, Any],
+                context: Dict[str, Any]) -> Dict[str, Any]:
         """
         Execute standee detection with parameters and context.
-        
+
         Args:
             params: Parameters for tool execution
                 - image_url: URL of the image to analyze
                 - image_bytes: Raw image bytes to analyze (alternative to image_url)
                 - confidence_threshold: Optional confidence threshold
             context: Current execution context
-            
+
         Returns:
             Dict with execution results
         """
         if "confidence_threshold" in params:
             self.confidence_threshold = params["confidence_threshold"]
-        
+
         if "image_url" in params:
             result = self.detect_from_url(params["image_url"])
             return self._format_result(result, params, context)
-        
+
         elif "image_bytes" in params:
             result = self.detect_from_bytes(params["image_bytes"])
             return self._format_result(result, params, context)
-        
+
         else:
             return self.format_error_result(
                 "Missing required parameter: either image_url or image_bytes must be provided",
-                metadata={"context": context}
-            )
-    
-    def _format_result(self, result: Dict[str, Any], params: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+                metadata={
+                    "context": context})
+
+    def _format_result(self,
+                       result: Dict[str,
+                                    Any],
+                       params: Dict[str,
+                                    Any],
+                       context: Dict[str,
+                                     Any]) -> Dict[str,
+                                                   Any]:
         """
         Format detection result according to MCP protocol.
-        
+
         Args:
             result: Raw detection result
             params: Original parameters
             context: Execution context
-            
+
         Returns:
             Formatted result dict
         """
@@ -450,7 +454,7 @@ class StandeeDetectionTool(MCPToolBase):
                     "context": context
                 }
             )
-        
+
         return self.format_success_result(
             {
                 "detections": result.get("detections", []),
