@@ -67,6 +67,7 @@
     {
       "group": "Development",
       "pages": [
+        "development/contribution-guide",
         "development/local-setup",
         "development/telemetry",
         "development/observability",

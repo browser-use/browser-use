@@ -472,6 +472,29 @@ class Agent(Generic[Context]):
 
 			try:
 				model_output = await self.get_next_action(input_messages)
+				if (
+					not model_output.action
+					or not isinstance(model_output.action, list)
+					or all(action.model_dump() == {} for action in model_output.action)
+				):
+					logger.warning('Model returned empty action. Retrying...')
+
+					clarification_message = HumanMessage(
+						content='You forgot to return an action. Please respond only with a valid JSON action according to the expected format.'
+					)
+
+					retry_messages = input_messages + [clarification_message]
+					model_output = await self.get_next_action(retry_messages)
+
+					if not model_output.action or all(action.model_dump() == {} for action in model_output.action):
+						logger.warning('Model still returned empty after retry. Inserting safe noop action.')
+						action_instance = self.ActionModel(
+							done={
+								'success': False,
+								'text': 'No next action returned by LLM!',
+							}
+						)
+						model_output.action = [action_instance]
 
 				# Check again for paused/stopped state after getting model output
 				# This is needed in case Ctrl+C was pressed during the get_next_action call
@@ -1222,7 +1245,7 @@ class Agent(Generic[Context]):
 		test_answer = 'paris'
 		try:
 			# dont convert this to async! it *should* block any subsequent llm calls from running
-			response = self.llm.invoke([HumanMessage(content=test_prompt)])  # noqa: ASYNC
+			response = self.llm.invoke([HumanMessage(content=test_prompt)])  # noqa: RUF006
 			response_text = str(response.content).lower()
 
 			if test_answer in response_text:

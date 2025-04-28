@@ -73,6 +73,9 @@ quote-style = "single"
 indent-style = "tab"
 docstring-code-format = true
 
+[tool.pyright]
+typeCheckingMode = "off"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -100,4 +103,5 @@ dev-dependencies = [
     "ipdb>=0.13.13",
     "pre-commit>=4.2.0",
     "codespell>=2.4.1",
+    "pyright>=1.1.399",
 ]

@@ -70,7 +70,7 @@ async def read_file(path: str, available_file_paths: list[str]):
 	if path not in available_file_paths:
 		return ActionResult(error=f'File path {path} is not available')
 
-	async with (await anyio.open_file(path, 'r')) as f:
+	async with await anyio.open_file(path, 'r') as f:
 		content = await f.read()
 	msg = f'File content: {content}'
 	logger.info(msg)

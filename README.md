@@ -173,13 +173,6 @@ To learn more about the library, check out the [local setup 📕](https://docs.b
 
 ---
 
-## Cooperations
-
-We are forming a commission to define best practices for UI/UX design for browser agents.
-Together, we're exploring how software redesign improves the performance of AI agents and gives these companies a competitive advantage by designing their existing software to be at the forefront of the agent age.
-
-Email [Toby](mailto:tbiddle@loop11.com?subject=I%20want%20to%20join%20the%20UI/UX%20commission%20for%20AI%20agents&body=Hi%20Toby%2C%0A%0AI%20found%20you%20in%20the%20browser-use%20GitHub%20README.%0A%0A) to apply for a seat on the committee.
-
 ## Swag
 
 Want to show off your Browser-use swag? Check out our [Merch store](https://browsermerch.com). Good contributors will receive swag for free 👀.

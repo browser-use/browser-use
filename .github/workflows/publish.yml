@@ -6,46 +6,19 @@
 # separate terms of service, privacy policy, and support
 # documentation.
 
-name: Python Package Workflow
+name: publish
 
 on:
-  push:
-    branches:
-      - main
   release:
-    types: [published]
+    types: [published]     # publish full release to PyPI when a release is created on Github
   schedule:
-    - cron: "0 17 * * FRI" # Every Friday at 5 PM UTC
+    - cron: "0 17 * * FRI" # tag a pre-release on Github every Friday at 5 PM UTC
 
 permissions:
   contents: write
   id-token: write
 
 jobs:
-  pre_commit_and_tests:
-    if: github.event_name == 'push' && github.ref_name == 'main'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-      - uses: astral-sh/setup-uv@v5
-      - run: uv run ruff check --no-fix --select PLE # check only for syntax errors
-      - run: uv build
-      - run: uv run --isolated --no-project --with pytest --with dist/*.whl tests/conftest.py
-      - run: uv run --isolated --no-project --with pytest --with dist/*.tar.gz tests/conftest.py
-      - run: uv run --with=dotenv pytest \
-          --ignore=tests/test_dropdown_error.py \
-          --ignore=tests/test_gif_path.py \
-          --ignore=tests/test_models.py \
-          --ignore=tests/test_react_dropdown.py \
-          --ignore=tests/test_save_conversation.py \
-          --ignore=tests/test_vision.py \
-          --ignore=tests/test_wait_for_element.py || true
-      # - run: uv publish --trusted-publishing always
-
   tag_pre_release:
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
@@ -63,7 +36,7 @@ jobs:
           git tag $new_tag
           git push origin $new_tag
 
-  deploy:
+  publish_to_pypi:
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     steps:
