@@ -245,10 +245,42 @@ class Agent(Generic[Context]):
         self.unfiltered_actions = self.controller.registry.get_prompt_description()
 
         self.settings.message_context = self._set_message_context()
+        
+        # Initialize tools
+        self.tools = {}
+        if tools is not None:
+            # Initialize specified tools
+            from browser_use.tools.registry import ToolRegistry
+            for tool_name in tools:
+                tool_class = ToolRegistry.get_tool(tool_name)
+                if tool_class:
+                    if isinstance(tool_class, type):
+                        tool = tool_class()
+                    else:
+                        tool = tool_class
+                    self.tools[tool_name] = tool
+        else:
+            from browser_use.tools.registry import ToolRegistry
+            for tool_name in ToolRegistry.list_tools():
+                tool_class = ToolRegistry.get_tool(tool_name)
+                if tool_class:
+                    if isinstance(tool_class, type):
+                        tool = tool_class()
+                    else:
+                        tool = tool_class
+                    self.tools[tool_name] = tool
 
         # Initialize message manager with state
         # Initial system prompt with all actions - will be updated during each
         # step
+        
+        tool_context = self._get_tools_context()
+        if tool_context:
+            if self.settings.message_context:
+                self.settings.message_context += f"\n\n{tool_context}"
+            else:
+                self.settings.message_context = tool_context
+        
         self._message_manager = MessageManager(
             task=task,
             system_message=SystemPrompt(
@@ -311,9 +343,22 @@ class Agent(Generic[Context]):
 
         # Initialize tools
         self.tools = {}
-        if tools:
-            try:
-                from ..tools.registry import ToolRegistry
+        try:
+            from ..tools.registry import ToolRegistry
+            
+            if tools is None:
+                try:
+                    available_tools = ToolRegistry.list_tools()
+                    logger.info(f"Auto-discovering tools: {', '.join(available_tools)}")
+                    for tool_name in available_tools:
+                        tool_class = ToolRegistry.get_tool(tool_name)
+                        if tool_class:
+                            logger.info(f"Auto-initializing tool: {tool_name}")
+                            self.tools[tool_name] = tool_class()
+                except AttributeError:
+                    logger.warning("ToolRegistry.list_tools() method not found. Auto-discovery disabled.")
+            # Initialize specific tools if provided
+            elif tools:
                 for tool_name in tools:
                     tool_class = ToolRegistry.get_tool(tool_name)
                     if tool_class:
@@ -322,14 +367,14 @@ class Agent(Generic[Context]):
                     else:
                         logger.warning(
                             f"Tool not found in registry: {tool_name}")
-
+                
                 if 'standee_detection' in tools:
                     logger.info("Using standee detection system prompt")
                     self.settings.override_system_message = STANDEE_DETECTION_SYSTEM_PROMPT
-            except ImportError as e:
-                logger.warning(f"Failed to import ToolRegistry: {e}")
-                logger.warning(
-                    "Tools functionality was enabled but required packages are not installed.")
+        except ImportError as e:
+            logger.warning(f"Failed to import ToolRegistry: {e}")
+            logger.warning(
+                "Tools functionality was enabled but required packages are not installed.")
 
         if self.settings.save_conversation_path:
             logger.info(
@@ -344,6 +389,33 @@ class Agent(Generic[Context]):
             else:
                 self.settings.message_context = f'Available actions: {self.unfiltered_actions}'
         return self.settings.message_context
+    def _get_tools_context(self) -> Optional[str]:
+        """Get context information about available tools.
+        
+        Returns:
+            String containing information about available tools, or None if no tools are available
+        """
+        if not self.tools:
+            return None
+            
+        tool_context = "Available MCP Tools:\n"
+        for tool_name, tool in self.tools.items():
+            if hasattr(tool, 'metadata') and (callable(tool.metadata) or isinstance(tool.metadata, property)):
+                try:
+                    metadata = tool.metadata
+                    tool_context += f"- {tool_name}: {metadata.get('description', 'No description')}\n"
+                    
+                    # Add capabilities
+                    base_capabilities = tool.get_capabilities({}) if hasattr(tool, 'get_capabilities') else []
+                    if base_capabilities:
+                        tool_context += f"  Capabilities: {', '.join(base_capabilities)}\n"
+                except Exception as e:
+                    logger.warning(f"Error getting metadata for tool {tool_name}: {e}")
+            else:
+                tool_context += f"- {tool_name}\n"
+                
+        return tool_context
+
 
     def _set_browser_use_version_and_source(self) -> None:
         """Get the version and source of the browser-use package (git or pip in a nutshell)"""
@@ -495,6 +567,19 @@ class Agent(Generic[Context]):
                 else:
                     updated_context = f'Available actions: {all_actions}'
                 self._message_manager.settings.message_context = updated_context
+
+            if self.tools:
+                current_context = {"step": self.state.n_steps, "current_url": active_page.url if active_page else None}
+                tool_capabilities = self.get_tool_capabilities(current_context)
+                
+                if tool_capabilities:
+                    tool_context = "Current tool capabilities:\n"
+                    for tool_name, capabilities in tool_capabilities.items():
+                        if capabilities:
+                            tool_context += f"- {tool_name}: {', '.join(capabilities)}\n"
+                    
+                    self._message_manager._add_message_with_tokens(
+                        HumanMessage(content=tool_context))
 
             self._message_manager.add_state_message(
                 state, self.state.last_result, step_info, self.settings.use_vision)

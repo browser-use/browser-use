@@ -43,14 +43,14 @@ class ToolRegistry:
         return cls._tools.get(tool_name)
 
     @classmethod
-    def list_tools(cls) -> Dict[str, Any]:
+    def list_tools(cls) -> List[str]:
         """
         List all registered tools.
 
         Returns:
-            Dict mapping tool names to tool classes
+            List of registered tool names
         """
-        return cls._tools.copy()
+        return list(cls._tools.keys())
 
     @classmethod
     def get_tools_by_capability(

@@ -95,8 +95,8 @@ Common action sequences:
   ```
   detector = agent.get_tool('standee_detection')
   result = detector.detect_from_url(photo_url)
-  if result[\'success\']:
-      detections = result[\'detections\']
+  if result["success"]:
+      detections = result["detections"]
       # Process detections
   else:
       # Handle error

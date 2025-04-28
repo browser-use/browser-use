@@ -261,7 +261,7 @@ async def main():
             task=custom_task, 
             llm=llm, 
             browser=browser, 
-            tools=["standee_detection"],
+            # tools=["standee_detection"],  # Remove this line to enable auto-discovery
             override_system_message=STANDEE_DETECTION_SYSTEM_PROMPT
         )
         
