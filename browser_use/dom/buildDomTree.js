@@ -157,7 +157,7 @@
         ]);
 
         // Add specific class check for your element
-        if (element.classList.contains('pb_c_demogrpahic-drawer') || element.classList.contains('preferred-pharmacy')) {
+        if (element.classList.contains('pb_c_demogrpahic-drawer') || element.classList.contains('preferred-pharmacy') || element.classList.contains('care-team') || element.classList.contains('preferred-lab')) {
             return true;
         }
 
