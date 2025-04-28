@@ -19,6 +19,8 @@ from pydantic import SecretStr
 from browser_use import Agent
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext
+from browser_use.agent.standee_detection_prompt import STANDEE_DETECTION_SYSTEM_PROMPT
+from browser_use.tools.standee_detection import StandeeDetectionTool
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -254,7 +256,14 @@ async def main():
             logger.info("Using custom task with direct URL: %s", custom_task)
         
         logger.info("Creating agent with task: %s", custom_task)
-        agent = Agent(task=custom_task, llm=llm, browser=browser)
+        logger.info("Using standee detection system prompt")
+        agent = Agent(
+            task=custom_task, 
+            llm=llm, 
+            browser=browser, 
+            tools=["standee_detection"],
+            override_system_message=STANDEE_DETECTION_SYSTEM_PROMPT
+        )
         
         if args.screenshots:
             logger.info("Performing manual navigation with screenshots")
