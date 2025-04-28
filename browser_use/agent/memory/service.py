@@ -144,8 +144,9 @@ class Memory:
 				memory_type='procedural_memory',
 				metadata={'step': current_step},
 			)
-			if len(results.get('results', [])):
-				return results.get('results', [])[0].get('memory')
+			results_list = results.get('results', [])
+			if results_list:
+				return results_list[0].get('memory')
 			return None
 		except Exception as e:
 			logger.error(f'Error creating procedural memory: {e}')
