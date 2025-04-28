@@ -4,10 +4,10 @@
 
 
 # Here is the command to run the evaluation:
-# python eval/service.py --parallel_runs 5 --max-steps 25 --start 0 --end 100 --model gpt-4o
+# python eval/service.py --parallel_runs 5 --max_steps 25 --start 0 --end 100 --model gpt-4o
 # options:
 # --parallel_runs: Number of parallel tasks to run
-# --max-steps: Maximum steps per task
+# --max_steps: Maximum steps per task
 # --start: Start index
 # --end: End index (exclusive)
 # --headless: Run in headless mode
@@ -334,10 +334,18 @@ SUPPORTED_MODELS = {
 	},
 	# Google
 	'gemini-1.5-flash': {'provider': 'google', 'model_name': 'gemini-1.5-flash-latest', 'api_key_env': 'GEMINI_API_KEY'},
-	'gemini-2.0-flash-exp': {'provider': 'google', 'model_name': 'gemini-2.0-flash-exp', 'api_key_env': 'GEMINI_API_KEY'},
+	'gemini-2.0-flash-lite': {'provider': 'google', 'model_name': 'gemini-2.0-flash-lite', 'api_key_env': 'GEMINI_API_KEY'},
+	'gemini-2.0-flash': {'provider': 'google', 'model_name': 'gemini-2.0-flash', 'api_key_env': 'GEMINI_API_KEY'},
 	'gemini-2.5-pro': {'provider': 'google', 'model_name': 'gemini-2.5-pro-preview-03-25', 'api_key_env': 'GEMINI_API_KEY'},
+	'gemini-2.5-flash-preview': {
+		'provider': 'google',
+		'model_name': 'gemini-2.5-flash-preview-04-17',
+		'api_key_env': 'GEMINI_API_KEY',
+	},
 	# OpenAI
 	'gpt-4.1': {'provider': 'openai', 'model_name': 'gpt-4.1-2025-04-14', 'api_key_env': 'OPENAI_API_KEY'},
+	'gpt-4.1-mini': {'provider': 'openai', 'model_name': 'gpt-4.1-mini-2025-04-14', 'api_key_env': 'OPENAI_API_KEY'},
+	'gpt-4.1-nano': {'provider': 'openai', 'model_name': 'gpt-4.1-nano-2025-04-14', 'api_key_env': 'OPENAI_API_KEY'},
 	'gpt-4o': {'provider': 'openai', 'model_name': 'gpt-4o', 'api_key_env': 'OPENAI_API_KEY'},
 	'gpt-4o-mini': {'provider': 'openai', 'model_name': 'gpt-4o-mini', 'api_key_env': 'OPENAI_API_KEY'},
 	# X.ai (via OpenAI Compatible API)
@@ -727,8 +735,6 @@ async def run_task_with_semaphore(
 			'onlineMind2WebEvaluationSuccess': False,
 			'onlineMind2WebEvaluationScore': 0.0,
 			'completeHistory': [],  # Initialize new field
-			'taskDuration': None,  # Initialize new field
-			'steps': 0,  # Initialize new field
 		}
 
 		# Initialize the return value for local processing status
@@ -1150,7 +1156,7 @@ def save_task_result_to_server(convex_url: str, secret_key: str, result_details:
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Run and evaluate browser automation tasks')
 	parser.add_argument('--parallel_runs', type=int, default=3, help='Number of parallel tasks to run')
-	parser.add_argument('--max-steps', type=int, default=25, help='Maximum steps per task')
+	parser.add_argument('--max_steps', type=int, default=25, help='Maximum steps per task')
 	parser.add_argument('--start', type=int, default=0, help='Start index')
 	parser.add_argument('--end', type=int, default=None, help='End index (exclusive)')
 	parser.add_argument('--headless', action='store_true', help='Run in headless mode')
