@@ -1285,17 +1285,36 @@ if __name__ == '__main__':
 		logger.info(f'Successfully obtained run ID: {run_id}. Proceeding with tasks...')
 		# -------------------------
 
-		# Get the selected LLM
-		llm = get_llm(args.model)
+		# --- Get LLMs ---
+		logger.info(f'Instantiating agent LLM: {args.model}')
+		try:
+			# Get the selected LLM for the agent
+			llm = get_llm(args.model)
+			logger.info('Agent LLM instantiated successfully.')
+		except Exception as e:
+			logger.error(f'Failed to instantiate agent LLM ({args.model}): {type(e).__name__}: {e}', exc_info=True)
+			exit(1)
+
+		logger.info('Instantiating evaluation LLM: gpt-4o')
+		try:
+			eval_llm = get_llm('gpt-4o')
+			logger.info('Evaluation LLM (gpt-4o) instantiated successfully.')
+		except Exception as e:
+			logger.error(
+				f'Failed to instantiate evaluation LLM (gpt-4o): {type(e).__name__}: {e}. Make sure OPENAI_API_KEY is set.',
+				exc_info=True,
+			)
+			exit(1)
+		# -----------------
 
 		results = asyncio.run(
 			run_multiple_tasks(
 				tasks=tasks,
-				llm=llm,  # Pass the instantiated llm
+				llm=llm,  # Agent LLM
 				run_id=run_id,
 				convex_url=CONVEX_URL,
 				secret_key=SECRET_KEY,
-				eval_model=llm,
+				eval_model=eval_llm,  # Pass the dedicated gpt-4o evaluator
 				max_parallel_runs=args.parallel_runs,
 				max_steps_per_task=args.max_steps,
 				start_index=args.start,
