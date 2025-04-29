@@ -432,6 +432,7 @@ async def reformat_agent_history(
 	self_report_completed = False
 	self_report_success = None
 	complete_history = []
+	total_tokens_used = 0  # Initialize token counter
 
 	# Process history items
 	for step_num, history_item in enumerate(agent_history.history):
@@ -463,6 +464,7 @@ async def reformat_agent_history(
 				# Clean each action in the action list
 				model_output['action'] = [clean_action_dict(action) for action in model_output['action']]
 
+		step_metadata = history_item.metadata.model_dump() if history_item.metadata else {}
 		step_info = {
 			'step_number': step_num,
 			'model_output': model_output,
@@ -471,9 +473,18 @@ async def reformat_agent_history(
 				'url': history_item.state.url if history_item.state else None,
 				'title': history_item.state.title if history_item.state else None,
 			},
-			'metadata': history_item.metadata.model_dump() if history_item.metadata else None,
+			'metadata': step_metadata,  # Use dumped metadata
 		}
 		complete_history.append(step_info)
+
+		# Sum up tokens from metadata
+		if step_metadata and 'input_tokens' in step_metadata:
+			try:
+				total_tokens_used += int(step_metadata['input_tokens'])
+			except (ValueError, TypeError):
+				logger.warning(
+					f"Task {task_id}, Step {step_num}: Could not parse input_tokens '{step_metadata['input_tokens']}' as integer."
+				)
 
 	# Calculate task duration from metadata
 	task_duration = None
@@ -505,6 +516,7 @@ async def reformat_agent_history(
 		'complete_history': complete_history,
 		'task_duration': task_duration,
 		'steps': len(complete_history),
+		'tokensUsed': total_tokens_used,  # Add total tokens used
 	}
 
 	# Save results file
@@ -730,6 +742,8 @@ async def run_task_with_semaphore(
 			'finalResultResponse': 'None',
 			'selfReportCompleted': False,
 			'selfReportSuccess': None,
+			'browserCrash': False,
+			'browserCrashReason': None,
 			'onlineMind2WebEvaluationJudgement': 'Not Attempted',
 			'onlineMind2WebEvaluationError': None,
 			'onlineMind2WebEvaluationSuccess': False,
@@ -830,19 +844,48 @@ async def run_task_with_semaphore(
 					server_payload['completeHistory'] = run_result_data.get('complete_history', [])
 					server_payload['taskDuration'] = run_result_data.get('task_duration')
 					server_payload['steps'] = run_result_data.get('steps', 0)
+					server_payload['tokensUsed'] = run_result_data.get('tokensUsed', 0)
 
 				except Exception as e:
 					logger.error(
-						f'Task {task.task_id}: Error during execution/reformatting with Type: {type(e).__name__} and Message: {str(e)}',
+						f'Task {task.task_id}: Browser Error during execution/reformatting with Type: {type(e).__name__} and Message: {str(e)}',
 						exc_info=True,
 					)
 					execution_succeeded = False
 					evaluation_needed = False
 					evaluation_succeeded = False
 					# Update payload to reflect execution failure
-					server_payload['finalResultResponse'] = f'Execution Error: {type(e).__name__}: {str(e)}'
-					server_payload['onlineMind2WebEvaluationJudgement'] = 'Execution Failed'
-					server_payload['onlineMind2WebEvaluationError'] = f'Execution Error: {type(e).__name__}'
+					server_payload['browserCrash'] = True
+					server_payload['browserCrashReason'] = f'Execution Error: {type(e).__name__}: {str(e)}'
+					logger.info('added browser crash reason: ' + server_payload['browserCrashReason'])
+					# Try very carefully to add partial results if available
+					if agent:
+						if agent.state.history:
+							try:
+								run_result_data = await reformat_agent_history(
+									agent_history=agent.state.history,
+									task_id=task.task_id,
+									run_id=run_id,
+									task=task.confirmed_task,
+								)
+								if run_result_data:
+									server_payload['actionHistory'] = run_result_data.get('action_history', [])
+									server_payload['finalResultResponse'] = run_result_data.get('final_result_response', 'None')
+									server_payload['selfReportCompleted'] = run_result_data.get('self_report_completed', False)
+									server_payload['selfReportSuccess'] = run_result_data.get('self_report_success', None)
+									server_payload['completeHistory'] = run_result_data.get('complete_history', [])
+									server_payload['taskDuration'] = run_result_data.get('task_duration')
+									server_payload['steps'] = run_result_data.get('steps', 0)
+									server_payload['tokensUsed'] = run_result_data.get('tokensUsed', 0)
+							except Exception as e:
+								logger.error(
+									f'Task {task.task_id}: Error reformatting agent history: {type(e).__name__}: {str(e)}'
+								)
+
+					# Automatically set Online_Mind2Web_evaluation to failed
+					server_payload['onlineMind2WebEvaluationJudgement'] = 'Browser Execution Failed'
+					server_payload['onlineMind2WebEvaluationSuccess'] = False
+					server_payload['onlineMind2WebEvaluationScore'] = 0.0
 				finally:
 					if browser:
 						try:
