@@ -17,17 +17,14 @@ from langchain_core.messages import (
 logger = logging.getLogger(__name__)
 
 MODELS_WITHOUT_TOOL_SUPPORT_PATTERNS = [
-	"deepseek-reasoner",
-	"deepseek-r1",
-	".*gemma.*-it",
+	'deepseek-reasoner',
+	'deepseek-r1',
+	'.*gemma.*-it',
 ]
 
 
 def is_model_without_tool_support(model_name: str) -> bool:
-	return any(
-		re.match(pattern, model_name)
-		for pattern in MODELS_WITHOUT_TOOL_SUPPORT_PATTERNS
-	)
+	return any(re.match(pattern, model_name) for pattern in MODELS_WITHOUT_TOOL_SUPPORT_PATTERNS)
 
 
 def extract_json_from_model_output(content: str) -> dict:
@@ -51,7 +48,7 @@ def convert_input_messages(input_messages: list[BaseMessage], model_name: Option
 	"""Convert input messages to a format that is compatible with the planner model"""
 	if model_name is None:
 		return input_messages
-	
+
 	if is_model_without_tool_support(model_name):
 		converted_input_messages = _convert_messages_for_non_function_calling_models(input_messages)
 		merged_input_messages = _merge_successive_messages(converted_input_messages, HumanMessage)
