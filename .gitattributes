@@ -1,2 +1,6 @@
 static/*.gif filter=lfs diff=lfs merge=lfs -text
 # static/*.mp4 filter=lfs diff=lfs merge=lfs -text
+
+# YOLOv8 model files
+*.pt filter=lfs diff=lfs merge=lfs -text
+models/yolov8/runs/standee_detection_train/weights/best.pt filter=lfs diff=lfs merge=lfs -text

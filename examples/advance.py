@@ -198,6 +198,8 @@ async def main():
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
     parser.add_argument('--auth', action='store_true', help='Authenticate with Naver before running the agent')
     parser.add_argument('--screenshots', action='store_true', help='Take screenshots during navigation')
+    parser.add_argument('--test-standee-detection', action='store_true', 
+                        help='Demonstrate the standee detection tool capabilities')
     
     parser.add_argument('--task', type=str, default=DEFAULT_TASK, help='Task to perform')
     
@@ -319,8 +321,55 @@ async def main():
                 logger.error(f"Error during manual navigation: {str(e)}")
                 logger.info("Continuing with agent-based navigation")
         
-        logger.info("Running agent...")
-        await agent.run()
+        # Demonstrate standee detection tool if requested
+        if args.test_standee_detection:
+            logger.info("Demonstrating standee detection tool...")
+            
+            standee_detector = StandeeDetectionTool()
+            
+            test_urls = [
+                "https://raw.githubusercontent.com/ultralytics/assets/main/zidane.jpg",
+                "https://raw.githubusercontent.com/ultralytics/assets/main/bus.jpg"
+            ]
+            
+            for i, url in enumerate(test_urls):
+                logger.info(f"Testing standee detection on image {i+1}: {url}")
+                result = standee_detector.detect_from_url(url)
+                
+                if result["success"]:
+                    logger.info(f"Detection successful! Found {result.get('count', 0)} potential standees")
+                    for j, detection in enumerate(result.get("detections", [])):
+                        logger.info(f"  Detection {j+1}:")
+                        logger.info(f"    Confidence: {detection.get('confidence', 0):.2f}")
+                        logger.info(f"    Box: {detection.get('box', [])}")
+                        logger.info(f"    Width: {detection.get('width', 0):.2f}, Height: {detection.get('height', 0):.2f}")
+                        logger.info(f"    Aspect ratio: {detection.get('aspect_ratio', 0):.2f}")
+                else:
+                    logger.error(f"Detection failed: {result.get('error', 'Unknown error')}")
+            
+            if "http" in args.task and ".jpg" in args.task or ".png" in args.task:
+                import re
+                url_match = re.search(r'https?://[^\s]+\.(jpg|png|jpeg)', args.task)
+                if url_match:
+                    custom_url = url_match.group(0)
+                    logger.info(f"Testing standee detection on custom URL from task: {custom_url}")
+                    result = standee_detector.detect_from_url(custom_url)
+                    
+                    if result["success"]:
+                        logger.info(f"Detection successful! Found {result.get('count', 0)} potential standees")
+                        for j, detection in enumerate(result.get("detections", [])):
+                            logger.info(f"  Detection {j+1}:")
+                            logger.info(f"    Confidence: {detection.get('confidence', 0):.2f}")
+                            logger.info(f"    Box: {detection.get('box', [])}")
+                            logger.info(f"    Width: {detection.get('width', 0):.2f}, Height: {detection.get('height', 0):.2f}")
+                            logger.info(f"    Aspect ratio: {detection.get('aspect_ratio', 0):.2f}")
+                    else:
+                        logger.error(f"Detection failed: {result.get('error', 'Unknown error')}")
+            
+            logger.info("Standee detection demonstration completed")
+        else:
+            logger.info("Running agent...")
+            await agent.run()
         
         logger.info("Agent run completed successfully")
     except Exception as e:
