@@ -2,6 +2,7 @@ import asyncio
 import json
 from typing import List
 
+import anyio
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -90,8 +91,8 @@ async def main(max_steps=500):
 	else:
 		print('No result')
 
-	with open('result.json', 'w+') as f:
-		f.write(json.dumps(parsed_result, indent=4))
+	async with await anyio.open_file('result.json', 'w+') as f:
+		await f.write(json.dumps(parsed_result, indent=4))
 
 
 if __name__ == '__main__':

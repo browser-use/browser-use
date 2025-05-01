@@ -94,6 +94,7 @@ CHROME_DETERMINISTIC_RENDERING_ARGS = [
 	'--disable-back-forward-cache',  # disable browsing navigation cache
 ]
 
+
 CHROME_ARGS = [
 	# Profile data dir setup
 	# chrome://profile-internals
@@ -128,7 +129,6 @@ CHROME_ARGS = [
 	'--log-level=2',  # 1=DEBUG 2=WARNING 3=ERROR
 	'--enable-logging=stderr',
 	# '--remote-debugging-address=127.0.0.1',         <- never expose to non-localhost, would allow attacker to drive your browser from any machine
-	f'--remote-debugging-port={CHROME_DEBUG_PORT}',
 	'--enable-experimental-extension-apis',  # add support for tab groups
 	'--disable-focus-on-load',  # prevent browser from hijacking focus
 	'--disable-window-activation',

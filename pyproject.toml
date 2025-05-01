@@ -11,12 +11,13 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
+    "anyio>=4.9.0",
     "httpx>=0.27.2",
     "pydantic>=2.10.4,<2.11.0",
     "python-dotenv>=1.0.1",
     "requests>=2.32.3",
     "posthog>=3.7.0",
-    "playwright>=1.51.0",
+    "patchright>=1.51.0",
     "markdownify==1.1.0",
     "langchain-core==0.3.49",
     "langchain-openai==0.3.11",
@@ -34,15 +35,8 @@ dependencies = [
     "typing-extensions>=4.12.2",
     "psutil>=7.0.0",
     "faiss-cpu>=1.10.0",
+    "mem0ai==0.1.93",
 ]
-
-# Optional dependencies for memory functionality
-[project.optional-dependencies]
-memory = [
-    "mem0ai==0.1.88",
-    "sentence-transformers>=4.0.2"
-]
-
 # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py 
 # pydantic: >2.11 introduces many pydantic deprecation warnings until langchain-core upgrades their pydantic support lets keep it on 2.10
 # google-api-core: only used for Google LLM APIs
@@ -51,7 +45,13 @@ memory = [
 # screeninfo: only used to get screen resolution on Linux/Windows
 # markdownify: used for page text content extraction for passing to LLM
 # openai: datalib,voice-helpers are actually NOT NEEDED but openai produces noisy errors on exit without them TODO: fix
-# mem0ai and sentence-transformers: only used for memory functionality, moved to optional dependencies
+
+# Optional dependencies for memory functionality
+[project.optional-dependencies]
+memory = [
+    "sentence-transformers>=4.0.2",
+]
+
 [project.urls]
 Repository = "https://github.com/browser-use/browser-use"
 
@@ -64,14 +64,17 @@ line-length = 130
 fix = true
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "PLE"]
-ignore = ["E101", "E402", "E501", "F841", "E731"]
+select = ["ASYNC", "E", "F", "FAST", "I", "PLE"]
+ignore = ["ASYNC109", "E101", "E402", "E501", "F841", "E731"]  # TODO: determine if adding timeouts to all the unbounded async functions is needed / worth-it so we can un-ignore ASYNC109
 unfixable = ["E101", "E402", "E501", "F841", "E731"]
 
 [tool.ruff.format]
 quote-style = "single"
 indent-style = "tab"
 docstring-code-format = true
+
+[tool.pyright]
+typeCheckingMode = "off"
 
 [build-system]
 requires = ["hatchling"]
@@ -100,4 +103,5 @@ dev-dependencies = [
     "ipdb>=0.13.13",
     "pre-commit>=4.2.0",
     "codespell>=2.4.1",
+    "pyright>=1.1.399",
 ]

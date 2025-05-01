@@ -170,9 +170,9 @@ class Registry(Generic[Context]):
 				return [replace_secrets(v) for v in value]
 			return value
 
-		for key, value in params.model_dump().items():
-			params.__dict__[key] = replace_secrets(value)
-		return params
+		params_dump = params.model_dump()
+		processed_params = replace_secrets(params_dump)
+		return type(params).model_validate(processed_params)
 
 	# @time_execution_sync('--create_action_model')
 	def create_action_model(self, include_actions: Optional[list[str]] = None, page=None) -> Type[ActionModel]:

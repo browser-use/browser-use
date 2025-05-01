@@ -1,6 +1,7 @@
 import asyncio
 import json
 
+import anyio
 import pytest
 
 from browser_use.browser.browser import Browser, BrowserConfig
@@ -50,11 +51,12 @@ async def test_highlight_elements():
 				# await asyncio.sleep(10)
 				state = await context.get_state(True)
 
-				with open('./tmp/page.json', 'w') as f:
-					json.dump(
-						ElementTreeSerializer.dom_element_node_to_json(state.element_tree),
-						f,
-						indent=1,
+				async with await anyio.open_file('./tmp/page.json', 'w') as f:
+					await f.write(
+						json.dumps(
+							ElementTreeSerializer.dom_element_node_to_json(state.element_tree),
+							indent=1,
+						)
 					)
 
 				# await time_execution_sync('highlight_selector_map_elements')(

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 import gc
 import inspect
@@ -23,9 +21,15 @@ from langchain_core.messages import (
 from pydantic import BaseModel, ValidationError
 from browser_use.dom.service import DomService 
 from browser_use.agent.gif import create_history_gif
-from browser_use.agent.memory.service import Memory, MemorySettings
+from browser_use.agent.memory.service import Memory
+from browser_use.agent.memory.views import MemoryConfig
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
-from browser_use.agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation
+from browser_use.agent.message_manager.utils import (
+	convert_input_messages,
+	extract_json_from_model_output,
+	is_model_without_tool_support,
+	save_conversation,
+)
 from browser_use.agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
 from browser_use.cache import load_cached_plan, save_plan_to_cache
 from browser_use.agent.views import (
@@ -145,14 +149,12 @@ class Agent(Generic[Context]):
 		planner_llm: Optional[BaseChatModel] = None,
 		planner_interval: int = 1,  # Run planner every N steps
 		is_planner_reasoning: bool = False,
-		# Inject state
+		extend_planner_system_message: Optional[str] = None,
 		injected_agent_state: Optional[AgentState] = None,
-		#
 		context: Context | None = None,
-		# Memory settings
-		enable_memory: bool = False,
-		memory_interval: int = 10,
-		memory_config: Optional[dict] = None,
+		save_playwright_script_path: Optional[str] = None,
+		enable_memory: bool = True,
+		memory_config: Optional[MemoryConfig] = None,
 	):
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
@@ -190,10 +192,13 @@ class Agent(Generic[Context]):
 			planner_llm=planner_llm,
 			planner_interval=planner_interval,
 			is_planner_reasoning=is_planner_reasoning,
-			enable_memory=enable_memory,
-			memory_interval=memory_interval,
-			memory_config=memory_config,
+			save_playwright_script_path=save_playwright_script_path,
+			extend_planner_system_message=extend_planner_system_message,
 		)
+
+		# Memory settings
+		self.enable_memory = enable_memory
+		self.memory_config = memory_config
 
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
@@ -216,24 +221,36 @@ class Agent(Generic[Context]):
 				'⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision_for_planner=False for now...'
 			)
 			self.settings.use_vision_for_planner = False
+		# Handle users trying to use use_vision=True with XAI models
+		if 'grok' in self.model_name.lower():
+			logger.warning('⚠️ XAI models do not support use_vision=True yet. Setting use_vision=False for now...')
+			self.settings.use_vision = False
+		if 'grok' in (self.planner_model_name or '').lower():
+			logger.warning('⚠️ XAI models do not support use_vision=True yet. Setting use_vision_for_planner=False for now...')
+			self.settings.use_vision_for_planner = False
 
 		logger.info(
 			f'🧠 Starting an agent with main_model={self.model_name}'
 			f'{" +tools" if self.tool_calling_method == "function_calling" else ""}'
 			f'{" +rawtools" if self.tool_calling_method == "raw" else ""}'
 			f'{" +vision" if self.settings.use_vision else ""}'
-			f'{" +memory" if self.settings.enable_memory else ""}, '
+			f'{" +memory" if self.enable_memory else ""}, '
 			f'planner_model={self.planner_model_name}'
 			f'{" +reasoning" if self.settings.is_planner_reasoning else ""}'
 			f'{" +vision" if self.settings.use_vision_for_planner else ""}, '
 			f'extraction_model={getattr(self.settings.page_extraction_llm, "model_name", None)} '
 		)
 
+
 		# Start non-blocking LLM connection verification using create_task, checked later in step()
 		# This will run in parallel with browser launch without leaving dangling coroutines on unclean exits
 		setattr(self.llm, '_verified_api_keys', False)
 		self._verification_task = asyncio.create_task(self._verify_llm_connection())
 		self._verification_task.add_done_callback(lambda _: None)
+
+		# Verify we can connect to the LLM
+		self._verify_llm_connection()
+
 
 		# Initialize available actions for system prompt (only non-filtered actions)
 		# These will be used for the system prompt to maintain caching
@@ -261,27 +278,20 @@ class Agent(Generic[Context]):
 			state=self.state.message_manager_state,
 		)
 
-		if self.settings.enable_memory:
+		if self.enable_memory:
 			try:
-				memory_settings = MemorySettings(
-					agent_id=self.state.agent_id,
-					interval=self.settings.memory_interval,
-					config=self.settings.memory_config,
-				)
-
 				# Initialize memory
 				self.memory = Memory(
 					message_manager=self._message_manager,
 					llm=self.llm,
-					settings=memory_settings,
+					config=self.memory_config,
 				)
 			except ImportError:
 				logger.warning(
-					"Memory functionality was enabled but required packages are not installed. "
-					"Install with 'pip install browser-use[memory]' to use memory features."
+					'⚠️ Agent(enable_memory=True) is set but missing some required packages, install and re-run to use memory features: pip install browser-use[memory]'
 				)
 				self.memory = None
-				self.settings.enable_memory = False
+				self.enable_memory = False
 		else:
 			self.memory = None
 
@@ -289,6 +299,7 @@ class Agent(Generic[Context]):
 		self.injected_browser = browser is not None
 		self.injected_browser_context = browser_context is not None
 		self.browser = browser or Browser()
+		self.browser.config.new_context_config.disable_security = self.browser.config.disable_security
 		self.browser_context = browser_context or BrowserContext(
 			browser=self.browser, config=self.browser.config.new_context_config
 		)
@@ -342,9 +353,9 @@ class Agent(Generic[Context]):
 				source = 'git'
 			else:
 				# If no repo files found, try getting version from pip
-				import pkg_resources
+				from importlib.metadata import version
 
-				version = pkg_resources.get_distribution('browser-use').version
+				version = version('browser-use')
 				source = 'pip'
 		except Exception:
 			version = 'unknown'
@@ -388,7 +399,7 @@ class Agent(Generic[Context]):
 	def _set_tool_calling_method(self) -> Optional[ToolCallingMethod]:
 		tool_calling_method = self.settings.tool_calling_method
 		if tool_calling_method == 'auto':
-			if 'deepseek-reasoner' in self.model_name or 'deepseek-r1' in self.model_name:
+			if is_model_without_tool_support(self.model_name):
 				return 'raw'
 			elif self.chat_model_library == 'ChatGoogleGenerativeAI':
 				return None
@@ -431,7 +442,7 @@ class Agent(Generic[Context]):
 			active_page = await self.browser_context.get_current_page()
 
 			# generate procedural memory if needed
-			if self.settings.enable_memory and self.memory and self.state.n_steps % self.settings.memory_interval == 0:
+			if self.enable_memory and self.memory and self.state.n_steps % self.memory.config.memory_interval == 0:
 				self.memory.create_procedural_memory(self.state.n_steps)
 
 			await self._raise_if_stopped_or_paused()
@@ -487,6 +498,29 @@ class Agent(Generic[Context]):
 
 			try:
 				model_output = await self.get_next_action(input_messages)
+				if (
+					not model_output.action
+					or not isinstance(model_output.action, list)
+					or all(action.model_dump() == {} for action in model_output.action)
+				):
+					logger.warning('Model returned empty action. Retrying...')
+
+					clarification_message = HumanMessage(
+						content='You forgot to return an action. Please respond only with a valid JSON action according to the expected format.'
+					)
+
+					retry_messages = input_messages + [clarification_message]
+					model_output = await self.get_next_action(retry_messages)
+
+					if not model_output.action or all(action.model_dump() == {} for action in model_output.action):
+						logger.warning('Model still returned empty after retry. Inserting safe noop action.')
+						action_instance = self.ActionModel(
+							done={
+								'success': False,
+								'text': 'No next action returned by LLM!',
+							}
+						)
+						model_output.action = [action_instance]
 
 				# Check again for paused/stopped state after getting model output
 				# This is needed in case Ctrl+C was pressed during the get_next_action call
@@ -656,7 +690,7 @@ class Agent(Generic[Context]):
 
 	def _convert_input_messages(self, input_messages: list[BaseMessage]) -> list[BaseMessage]:
 		"""Convert input messages to the correct format"""
-		if self.model_name == 'deepseek-reasoner' or 'deepseek-r1' in self.model_name:
+		if is_model_without_tool_support(self.model_name):
 			return convert_input_messages(input_messages, self.model_name)
 		else:
 			return input_messages
@@ -805,19 +839,6 @@ class Agent(Generic[Context]):
 		)
 		signal_handler.register()
 
-		# Wait for verification task to complete if it exists
-		if hasattr(self, '_verification_task') and not self._verification_task.done():
-			try:
-				await self._verification_task
-			except Exception:
-				# Error already logged in the task
-				pass
-
-		# Check that verification was successful
-		assert self.llm._verified_api_keys or SKIP_LLM_API_KEY_VERIFICATION, (
-			'Failed to connect to LLM API or LLM API is not responding correctly'
-		)
-
 		try:
 			self._log_agent_run()
 
@@ -864,7 +885,24 @@ class Agent(Generic[Context]):
 					await self.log_completion()
 					break
 			else:
-				logger.info('❌ Failed to complete task in maximum steps')
+				error_message = 'Failed to complete task in maximum steps'
+
+				self.state.history.history.append(
+					AgentHistory(
+						model_output=None,
+						result=[ActionResult(error=error_message, include_in_memory=True)],
+						state=BrowserStateHistory(
+							url='',
+							title='',
+							tabs=[],
+							interacted_element=[],
+							screenshot=None,
+						),
+						metadata=None,
+					)
+				)
+
+				logger.info(f'❌ {error_message}')
 
 			return self.state.history
 
@@ -889,6 +927,24 @@ class Agent(Generic[Context]):
 					total_duration_seconds=self.state.history.total_duration_seconds(),
 				)
 			)
+
+			if self.settings.save_playwright_script_path:
+				logger.info(
+					f'Agent run finished. Attempting to save Playwright script to: {self.settings.save_playwright_script_path}'
+				)
+				try:
+					# Extract sensitive data keys if sensitive_data is provided
+					keys = list(self.sensitive_data.keys()) if self.sensitive_data else None
+					# Pass browser and context config to the saving method
+					self.state.history.save_as_playwright_script(
+						self.settings.save_playwright_script_path,
+						sensitive_data_keys=keys,
+						browser_config=self.browser.config,
+						context_config=self.browser_context.config,
+					)
+				except Exception as script_gen_err:
+					# Log any error during script generation/saving
+					logger.error(f'Failed to save Playwright script: {script_gen_err}', exc_info=True)
 
 			await self.close()
 
@@ -1209,41 +1265,41 @@ class Agent(Generic[Context]):
 
 		return converted_actions
 
-	async def _verify_llm_connection(self) -> bool:
+	def _verify_llm_connection(self) -> bool:
 		"""
 		Verify that the LLM API keys are setup and the LLM API is responding properly.
 		Helps prevent errors due to running out of API credits, missing env vars, or network issues.
 		"""
-		if getattr(self.llm, '_verified_api_keys', None) is True:
-			return True  # If the LLM API keys have already been verified during a previous run, skip the test
+		logger.debug(f'Verifying the {self.llm.__class__.__name__} LLM knows the capital of France...')
 
-		# Check if required environment variables are set for the model we're using
-		required_keys = REQUIRED_LLM_API_ENV_VARS.get(self.llm.__class__.__name__, [])
-		if required_keys and not check_env_variables(required_keys, any_or_all=all):
-			error = f'LLM API Key environment variables not set up for {self.llm.__class__.__name__}, missing: {required_keys}'
-			logger.warning(f'❌ {error}')
-			if not SKIP_LLM_API_KEY_VERIFICATION:
-				self.llm._verified_api_keys = False
-				raise ValueError(error)
-
-		if SKIP_LLM_API_KEY_VERIFICATION:  # skip roundtrip connection test for speed in cloud environment
+		if getattr(self.llm, '_verified_api_keys', None) is True or SKIP_LLM_API_KEY_VERIFICATION:
+			# skip roundtrip connection test for speed in cloud environment
+			# If the LLM API keys have already been verified during a previous run, skip the test
 			self.llm._verified_api_keys = True
 			return True
 
+		# show a warning if it looks like any required environment variables are missing
+		required_keys = REQUIRED_LLM_API_ENV_VARS.get(self.llm.__class__.__name__, [])
+		if required_keys and not check_env_variables(required_keys, any_or_all=all):
+			error = f'Expected LLM API Key environment variables might be missing for {self.llm.__class__.__name__}: {" ".join(required_keys)}'
+			logger.warning(f'❌ {error}')
+
+		# send a basic sanity-test question to the LLM and verify the response
 		test_prompt = 'What is the capital of France? Respond with a single word.'
 		test_answer = 'paris'
 		try:
-			response = await self.llm.ainvoke([HumanMessage(content=test_prompt)])
+			# dont convert this to async! it *should* block any subsequent llm calls from running
+			response = self.llm.invoke([HumanMessage(content=test_prompt)])  # noqa: RUF006
 			response_text = str(response.content).lower()
 
 			if test_answer in response_text:
 				logger.debug(
-					f'🧠 LLM API keys {", ".join(required_keys)} verified, {self.llm.__class__.__name__} model is connected and responding correctly.'
+					f'🪪 LLM API keys {", ".join(required_keys)} work, {self.llm.__class__.__name__} model is connected & responding correctly.'
 				)
 				self.llm._verified_api_keys = True
 				return True
 			else:
-				logger.debug(
+				logger.warning(
 					'❌  Got bad LLM response to basic sanity check question: \n\t  %s\n\t\tEXPECTING: %s\n\t\tGOT: %s',
 					test_prompt,
 					test_answer,
@@ -1252,10 +1308,13 @@ class Agent(Generic[Context]):
 				raise Exception('LLM responded to a simple test question incorrectly')
 		except Exception as e:
 			self.llm._verified_api_keys = False
-			logger.error(
-				f'\n\n❌  LLM {self.llm.__class__.__name__} connection test failed. Check that {", ".join(required_keys)} is set correctly in .env and that the LLM API account has sufficient funding.\n\n{e}\n'
-			)
-			raise Exception(f'LLM API connection test failed: {e}') from e
+			if required_keys:
+				logger.error(
+					f'\n\n❌  LLM {self.llm.__class__.__name__} connection test failed. Check that {", ".join(required_keys)} is set correctly in .env and that the LLM API account has sufficient funding.\n\n{e}\n'
+				)
+				return False
+			else:
+				pass
 
 	async def _run_planner(self) -> Optional[str]:
 		"""Run the planner to analyze state and suggest next steps"""
@@ -1287,7 +1346,14 @@ class Agent(Generic[Context]):
 
 		# Create planner message history using full message history with all available actions
 		planner_messages = [
+
 			PlannerPrompt().get_system_message(is_planner_reasoning=self.settings.is_planner_reasoning),
+      
+			PlannerPrompt(all_actions).get_system_message(
+				is_planner_reasoning=self.settings.is_planner_reasoning,
+				extended_planner_system_prompt=self.settings.extend_planner_system_message,
+			),
+
 			*self._message_manager.get_messages()[1:],  # Use full message history except the first
 		]
 

@@ -1,6 +1,6 @@
 from typing import Callable, Dict, Type
 
-from playwright.async_api import Page
+from patchright.async_api import Page
 from pydantic import BaseModel, ConfigDict
 
 

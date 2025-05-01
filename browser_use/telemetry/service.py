@@ -20,6 +20,14 @@ POSTHOG_EVENT_SETTINGS = {
 }
 
 
+def xdg_cache_home() -> Path:
+	default = Path.home() / '.cache'
+	env_var = os.getenv('XDG_CACHE_HOME')
+	if env_var and (path := Path(env_var)).is_absolute():
+		return path
+	return default
+
+
 @singleton
 class ProductTelemetry:
 	"""
@@ -28,7 +36,7 @@ class ProductTelemetry:
 	If the environment variable `ANONYMIZED_TELEMETRY=False`, anonymized telemetry will be disabled.
 	"""
 
-	USER_ID_PATH = str(Path.home() / '.cache' / 'browser_use' / 'telemetry_user_id')
+	USER_ID_PATH = str(xdg_cache_home() / 'browser_use' / 'telemetry_user_id')
 	PROJECT_API_KEY = 'phc_F8JMNjW1i2KbGUTaW1unnDdLSPCoyc52SGRU0JecaUh'
 	HOST = 'https://eu.i.posthog.com'
 	UNKNOWN_USER_ID = 'UNKNOWN'

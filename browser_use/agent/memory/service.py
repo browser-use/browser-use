@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import List, Optional
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -9,21 +10,13 @@ from langchain_core.messages import (
 	HumanMessage,
 )
 from langchain_core.messages.utils import convert_to_openai_messages
-from pydantic import BaseModel
 
+from browser_use.agent.memory.views import MemoryConfig
 from browser_use.agent.message_manager.service import MessageManager
 from browser_use.agent.message_manager.views import ManagedMessage, MessageMetadata
 from browser_use.utils import time_execution_sync
 
 logger = logging.getLogger(__name__)
-
-
-class MemorySettings(BaseModel):
-	"""Settings for procedural memory."""
-
-	agent_id: str
-	interval: int = 10
-	config: Optional[dict] | None = None
 
 
 class Memory:
@@ -36,33 +29,58 @@ class Memory:
 	yet comprehensive memory constructs that preserve essential operational knowledge.
 	"""
 
-	# Default configuration values as class constants
-	DEFAULT_VECTOR_STORE = {'provider': 'faiss', 'config': {'embedding_model_dims': 384}}
-	DEFAULT_EMBEDDER = {'provider': 'huggingface', 'config': {'model': 'all-MiniLM-L6-v2'}}
-
 	def __init__(
 		self,
 		message_manager: MessageManager,
 		llm: BaseChatModel,
-		settings: MemorySettings,
+		config: MemoryConfig | None = None,
 	):
 		self.message_manager = message_manager
 		self.llm = llm
-		self.settings = settings
-		self._memory_config = self.settings.config or self._get_default_config(llm)
-		
-		# Import mem0 here - if it's not installed, the ImportError will propagate up
-		from mem0 import Memory as Mem0Memory
-		self.mem0 = Mem0Memory.from_config(config_dict=self._memory_config)
 
-	@staticmethod
-	def _get_default_config(llm: BaseChatModel) -> dict:
-		"""Returns the default configuration for memory."""
-		return {
-			'vector_store': Memory.DEFAULT_VECTOR_STORE,
-			'llm': {'provider': 'langchain', 'config': {'model': llm}},
-			'embedder': Memory.DEFAULT_EMBEDDER,
-		}
+		# Initialize configuration with defaults based on the LLM if not provided
+		if config is None:
+			self.config = MemoryConfig(llm_instance=llm, agent_id=f'agent_{id(self)}')
+
+			# Set appropriate embedder based on LLM type
+			llm_class = llm.__class__.__name__
+			if llm_class == 'ChatOpenAI':
+				self.config.embedder_provider = 'openai'
+				self.config.embedder_model = 'text-embedding-3-small'
+				self.config.embedder_dims = 1536
+			elif llm_class == 'ChatGoogleGenerativeAI':
+				self.config.embedder_provider = 'gemini'
+				self.config.embedder_model = 'models/text-embedding-004'
+				self.config.embedder_dims = 768
+			elif llm_class == 'ChatOllama':
+				self.config.embedder_provider = 'ollama'
+				self.config.embedder_model = 'nomic-embed-text'
+				self.config.embedder_dims = 512
+		else:
+			# Ensure LLM instance is set in the config
+			self.config = MemoryConfig(config)  # re-validate user-provided config
+			self.config.llm_instance = llm
+
+		# Check for required packages
+		try:
+			# also disable mem0's telemetry when ANONYMIZED_TELEMETRY=False
+			if os.getenv('ANONYMIZED_TELEMETRY', 'true').lower()[0] in 'fn0':
+				os.environ['MEM0_TELEMETRY'] = 'False'
+			from mem0 import Memory as Mem0Memory
+		except ImportError:
+			raise ImportError('mem0 is required when enable_memory=True. Please install it with `pip install mem0`.')
+
+		if self.config.embedder_provider == 'huggingface':
+			try:
+				# check that required package is installed if huggingface is used
+				from sentence_transformers import SentenceTransformer  # noqa: F401
+			except ImportError:
+				raise ImportError(
+					'sentence_transformers is required when enable_memory=True and embedder_provider="huggingface". Please install it with `pip install sentence-transformers`.'
+				)
+
+		# Initialize Mem0 with the configuration
+		self.mem0 = Mem0Memory.from_config(config_dict=self.config.full_config_dict)
 
 	@time_execution_sync('--create_procedural_memory')
 	def create_procedural_memory(self, current_step: int) -> None:
@@ -122,7 +140,7 @@ class Memory:
 		try:
 			results = self.mem0.add(
 				messages=parsed_messages,
-				agent_id=self.settings.agent_id,
+				agent_id=self.config.agent_id,
 				memory_type='procedural_memory',
 				metadata={'step': current_step},
 			)
