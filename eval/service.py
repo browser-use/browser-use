@@ -811,7 +811,9 @@ async def run_task_with_semaphore(
 					tracker = ScreenshotTracker(task.task_id, task.confirmed_task, run_id)
 					browserConfig = BrowserConfig(headless=headless)
 					browser = Browser(config=browserConfig)
-					agent = Agent(task=task.confirmed_task, llm=llm, browser=browser, use_vision=use_vision)
+					agent = Agent(
+						task=task.confirmed_task, llm=llm, browser=browser, use_vision=use_vision, source='eval_platform'
+					)
 
 					# Pass hook functions
 					await agent.run(

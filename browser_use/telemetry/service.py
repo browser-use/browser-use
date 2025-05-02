@@ -57,6 +57,7 @@ class ProductTelemetry:
 				project_api_key=self.PROJECT_API_KEY,
 				host=self.HOST,
 				disable_geoip=False,
+				enable_exception_autocapture=True,
 			)
 
 			# Silence posthog's logging
