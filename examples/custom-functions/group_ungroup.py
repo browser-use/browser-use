@@ -89,7 +89,7 @@ async def ungroup_tabs(params: UngroupTabsAction, browser: BrowserContext):
 async def main():
 	task = 'Group tabs 1 and 2 into a "Research" group, then ungroup them.'
 
-	model = ChatOpenAI(model='gpt-4o')
+	model = ChatOpenAI(model='gpt-4o', temperature=0.0)
 	agent = Agent(
 		task=task,
 		llm=model,

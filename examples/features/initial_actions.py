@@ -4,7 +4,7 @@ from langchain_openai import ChatOpenAI
 from browser_use import Agent
 
 load_dotenv()
-llm = ChatOpenAI(model='gpt-4o')
+llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
 
 initial_actions = [
 	{'open_tab': {'url': 'https://www.google.com'}},

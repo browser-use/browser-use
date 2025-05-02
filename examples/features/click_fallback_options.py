@@ -182,10 +182,7 @@ async def main():
 	select_task = 'Open http://localhost:8000/, choose the car BMW'
 	button_task = 'Open http://localhost:8000/, click on the button'
 
-	llm = ChatOpenAI(model='gpt-4o')
-	# llm = ChatGoogleGenerativeAI(
-	#     model="gemini-2.0-flash-lite",
-	# )
+	llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
 
 	# Run different agent tasks.
 	for task in [xpath_task, css_selector_task, text_task, select_task, button_task]:

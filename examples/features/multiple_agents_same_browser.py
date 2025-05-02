@@ -16,7 +16,7 @@ async def main():
 
 	browser = Browser()
 	async with await browser.new_context() as context:
-		model = ChatOpenAI(model='gpt-4o')
+		model = ChatOpenAI(model='gpt-4o', temperature=0.0)
 		current_agent = None
 
 		async def get_input():

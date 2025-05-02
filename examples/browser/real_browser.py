@@ -22,7 +22,7 @@ browser = Browser(
 async def main():
 	agent = Agent(
 		task='In docs.google.com write my Papa a quick letter',
-		llm=ChatOpenAI(model='gpt-4o'),
+		llm=ChatOpenAI(model='gpt-4o', temperature=0.0),
 		browser=browser,
 	)
 

@@ -13,7 +13,7 @@ load_dotenv()
 api_key = os.getenv('GEMINI_API_KEY')
 if not api_key:
 	raise ValueError('GEMINI_API_KEY is not set')
-llm = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=SecretStr(api_key))
+llm = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=SecretStr(api_key), temperature=0.0)
 browser = Browser(
 	config=BrowserConfig(
 		new_context_config=BrowserContextConfig(save_downloads_path=os.path.join(os.path.expanduser('~'), 'downloads'))

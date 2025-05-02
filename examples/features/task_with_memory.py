@@ -74,7 +74,7 @@ async def main(max_steps=500):
 
 	agent = Agent(
 		task=task_description,
-		llm=ChatOpenAI(model='gpt-4o-mini'),
+		llm=ChatOpenAI(model='gpt-4o-mini', temperature=0.0),
 		controller=controller,
 		initial_actions=initial_actions,
 		enable_memory=True,

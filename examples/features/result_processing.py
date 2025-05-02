@@ -12,7 +12,7 @@ from langchain_openai import ChatOpenAI
 from browser_use import Agent
 from browser_use.agent.views import AgentHistoryList
 
-llm = ChatOpenAI(model='gpt-4o')
+llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
 browser = Browser(
 	config=BrowserConfig(
 		headless=False,

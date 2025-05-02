@@ -218,7 +218,7 @@ async def record_activity(agent_obj):
 
 agent = Agent(
 	task='Compare the price of gpt-4o and DeepSeek-V3',
-	llm=ChatOpenAI(model='gpt-4o'),
+	llm=ChatOpenAI(model='gpt-4o', temperature=0.0),
 )
 
 

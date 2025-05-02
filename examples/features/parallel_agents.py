@@ -17,7 +17,7 @@ browser = Browser(
 		new_context_config=BrowserContextConfig(save_recording_path='./tmp/recordings'),
 	)
 )
-llm = ChatOpenAI(model='gpt-4o')
+llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
 
 
 async def main():

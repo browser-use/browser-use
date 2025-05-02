@@ -107,7 +107,7 @@ class ActionResult(BaseModel):
 	success: Optional[bool] = None
 	extracted_content: Optional[str] = None
 	error: Optional[str] = None
-	include_in_memory: bool = False  # whether to include in past messages as context or not
+	include_in_memory: bool = True
 
 
 class StepMetadata(BaseModel):

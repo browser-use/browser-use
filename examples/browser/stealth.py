@@ -8,7 +8,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from browser_use import Agent, Browser, BrowserConfig, BrowserContextConfig
 
-llm = ChatOpenAI(model='gpt-4o')
+llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
 browser = Browser(
 	config=BrowserConfig(
 		headless=False,
