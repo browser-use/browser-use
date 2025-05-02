@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, Sequence
+from typing import Any
 
 
 @dataclass
@@ -11,7 +12,7 @@ class BaseTelemetryEvent(ABC):
 		pass
 
 	@property
-	def properties(self) -> Dict[str, Any]:
+	def properties(self) -> dict[str, Any]:
 		return {k: v for k, v in asdict(self).items() if k != 'name'}
 
 

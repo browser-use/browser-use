@@ -1,6 +1,6 @@
 import importlib.resources
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional, Union
+from typing import TYPE_CHECKING, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -14,8 +14,8 @@ class SystemPrompt:
 		self,
 		action_description: str,
 		max_actions_per_step: int = 10,
-		override_system_message: Optional[str] = None,
-		extend_system_message: Optional[str] = None,
+		override_system_message: str | None = None,
+		extend_system_message: str | None = None,
 	):
 		self.default_action_description = action_description
 		self.max_actions_per_step = max_actions_per_step
@@ -63,7 +63,7 @@ class AgentMessagePrompt:
 	def __init__(
 		self,
 		state: 'BrowserState',
-		result: Optional[List['ActionResult']] = None,
+		result: list['ActionResult'] | None = None,
 		include_attributes: list[str] | None = None,
 		step_info: Optional['AgentStepInfo'] = None,
 	):
@@ -142,8 +142,8 @@ class PlannerPrompt(SystemPrompt):
 		self.available_actions = available_actions
 
 	def get_system_message(
-		self, is_planner_reasoning: bool, extended_planner_system_prompt: Optional[str] = None
-	) -> Union[SystemMessage, HumanMessage]:
+		self, is_planner_reasoning: bool, extended_planner_system_prompt: str | None = None
+	) -> SystemMessage | HumanMessage:
 		"""Get the system message for the planner.
 
 		Args:

@@ -265,7 +265,15 @@ class Browser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		assert self.config.browser_binary_path is None, 'browser_binary_path should be None if trying to use the builtin browsers'
 
-		if self.config.headless:
+		# Use the configured window size from new_context_config if available
+		if (
+			not self.config.headless
+			and hasattr(self.config, 'new_context_config')
+			and hasattr(self.config.new_context_config, 'browser_window_size')
+		):
+			screen_size = self.config.new_context_config.browser_window_size.model_dump()
+			offset_x, offset_y = get_window_adjustments()
+		elif self.config.headless:
 			screen_size = {'width': 1920, 'height': 1080}
 			offset_x, offset_y = 0, 0
 		else:

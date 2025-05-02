@@ -211,7 +211,7 @@
         container.style.left = "0";
         container.style.width = "100%";
         container.style.height = "100%";
-        container.style.zIndex = "2147483647";
+        container.style.zIndex = "2147483640";
         container.style.backgroundColor = 'transparent';
         document.body.appendChild(container);
       }
@@ -673,6 +673,11 @@
     const role = element.getAttribute("role");
     const ariaRole = element.getAttribute("aria-role");
 
+    // Check for contenteditable attribute
+    if (element.getAttribute("contenteditable") === "true" || element.isContentEditable) {
+      return true;
+    }
+    
     // Added enhancement to capture dropdown interactive elements
     if (element.classList && (
       element.classList.contains("button") ||
@@ -904,7 +909,7 @@
       element.hasAttribute("tabindex") ||
       element.hasAttribute("aria-") ||
       element.hasAttribute("data-action") ||
-      element.getAttribute("contenteditable") == "true";
+      element.getAttribute("contenteditable") === "true";
 
     return hasQuickInteractiveAttr;
   }

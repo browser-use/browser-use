@@ -1,6 +1,5 @@
 import logging
 import os
-from typing import List, Optional
 
 import aiohttp
 from patchright.async_api import Page, async_playwright
@@ -34,7 +33,7 @@ class DolphinBrowser(Browser):
 		self.page = None
 		self.headless = headless
 		self.keep_open = keep_open
-		self._pages: List[Page] = []  # List to store open pages
+		self._pages: list[Page] = []  # List to store open pages
 		self.session = None
 		self.cached_state = None
 
@@ -185,7 +184,7 @@ class DolphinBrowser(Browser):
 				data = await response.json()
 				return data.get('data', [])  # Return the profiles array from the response
 
-	async def start_profile(self, profile_id: Optional[str] = None, headless: bool = False) -> dict:
+	async def start_profile(self, profile_id: str | None = None, headless: bool = False) -> dict:
 		"""
 		Start a browser profile on Dolphin Anty.
 
@@ -218,7 +217,7 @@ class DolphinBrowser(Browser):
 					raise Exception(f'Failed to start profile: {await response.text()}')
 				return await response.json()
 
-	async def stop_profile(self, profile_id: Optional[str] = None):
+	async def stop_profile(self, profile_id: str | None = None):
 		"""
 		Stop a browser profile on Dolphin Anty.
 
@@ -243,7 +242,7 @@ class DolphinBrowser(Browser):
 			async with session.get(url) as response:
 				return await response.json()
 
-	async def connect(self, profile_id: Optional[str] = None):
+	async def connect(self, profile_id: str | None = None):
 		"""
 		Connect to a running browser profile using Playwright.
 

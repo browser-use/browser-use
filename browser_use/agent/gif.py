@@ -5,7 +5,7 @@ import io
 import logging
 import os
 import platform
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from browser_use.agent.views import AgentHistoryList
 
@@ -163,11 +163,11 @@ def create_history_gif(
 def _create_task_frame(
 	task: str,
 	first_screenshot: str,
-	title_font: 'ImageFont.FreeTypeFont',
-	regular_font: 'ImageFont.FreeTypeFont',
-	logo: Optional[Image.Image] = None,
+	title_font: ImageFont.FreeTypeFont,
+	regular_font: ImageFont.FreeTypeFont,
+	logo: Image.Image | None = None,
 	line_spacing: float = 1.5,
-) -> 'Image.Image':
+) -> Image.Image:
 	"""Create initial frame showing the task."""
 	from PIL import Image, ImageDraw, ImageFont
 
@@ -236,17 +236,17 @@ def _create_task_frame(
 
 
 def _add_overlay_to_image(
-	image: 'Image.Image',
+	image: Image.Image,
 	step_number: int,
 	goal_text: str,
-	regular_font: 'ImageFont.FreeTypeFont',
-	title_font: 'ImageFont.FreeTypeFont',
+	regular_font: ImageFont.FreeTypeFont,
+	title_font: ImageFont.FreeTypeFont,
 	margin: int,
-	logo: Optional['Image.Image'] = None,
+	logo: Image.Image | None = None,
 	display_step: bool = True,
 	text_color: tuple[int, int, int, int] = (255, 255, 255, 255),
 	text_box_color: tuple[int, int, int, int] = (0, 0, 0, 255),
-) -> 'Image.Image':
+) -> Image.Image:
 	"""Add step number and goal overlay to an image."""
 
 	from PIL import Image, ImageDraw
@@ -335,7 +335,7 @@ def _add_overlay_to_image(
 	return result.convert('RGB')
 
 
-def _wrap_text(text: str, font: 'ImageFont.FreeTypeFont', max_width: int) -> str:
+def _wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> str:
 	"""
 	Wrap text to fit within a given width.
 

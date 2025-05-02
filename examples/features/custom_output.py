@@ -6,7 +6,6 @@ Show how to use custom outputs.
 
 import os
 import sys
-from typing import List
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -29,7 +28,7 @@ class Post(BaseModel):
 
 
 class Posts(BaseModel):
-	posts: List[Post]
+	posts: list[Post]
 
 
 controller = Controller(output_model=Posts)

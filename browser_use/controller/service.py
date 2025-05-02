@@ -3,7 +3,7 @@ import enum
 import json
 import logging
 import re
-from typing import Dict, Generic, Optional, Tuple, Type, TypeVar, cast
+from typing import Generic, TypeVar, cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
@@ -42,7 +42,7 @@ class Controller(Generic[Context]):
 	def __init__(
 		self,
 		exclude_actions: list[str] = [],
-		output_model: Optional[Type[BaseModel]] = None,
+		output_model: type[BaseModel] | None = None,
 	):
 		self.registry = Registry[Context](exclude_actions)
 
@@ -527,7 +527,7 @@ class Controller(Generic[Context]):
 				page: Page,
 				source_selector: str,
 				target_selector: str,
-			) -> Tuple[Optional[ElementHandle], Optional[ElementHandle]]:
+			) -> tuple[ElementHandle | None, ElementHandle | None]:
 				"""Get source and target elements with appropriate error handling."""
 				source_element = None
 				target_element = None
@@ -561,9 +561,9 @@ class Controller(Generic[Context]):
 			async def get_element_coordinates(
 				source_element: ElementHandle,
 				target_element: ElementHandle,
-				source_position: Optional[Position],
-				target_position: Optional[Position],
-			) -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
+				source_position: Position | None,
+				target_position: Position | None,
+			) -> tuple[tuple[int, int] | None, tuple[int, int] | None]:
 				"""Get coordinates from elements with appropriate error handling."""
 				source_coords = None
 				target_coords = None
@@ -603,7 +603,7 @@ class Controller(Generic[Context]):
 				target_y: int,
 				steps: int,
 				delay_ms: int,
-			) -> Tuple[bool, str]:
+			) -> tuple[bool, str]:
 				"""Execute the drag operation with comprehensive error handling."""
 				try:
 					# Try to move to source position
@@ -646,10 +646,10 @@ class Controller(Generic[Context]):
 
 			try:
 				# Initialize variables
-				source_x: Optional[int] = None
-				source_y: Optional[int] = None
-				target_x: Optional[int] = None
-				target_y: Optional[int] = None
+				source_x: int | None = None
+				source_y: int | None = None
+				target_x: int | None = None
+				target_y: int | None = None
 
 				# Normalize parameters
 				steps = max(1, params.steps or 10)
@@ -728,6 +728,82 @@ class Controller(Generic[Context]):
 				logger.error(error_msg)
 				return ActionResult(error=error_msg, include_in_memory=True)
 
+		@self.registry.action('Google Sheets: Get the contents of the entire sheet', domains=['sheets.google.com'])
+		async def get_sheet_contents(browser: BrowserContext):
+			page = await browser.get_current_page()
+
+			# select all cells
+			await page.keyboard.press('Enter')
+			await page.keyboard.press('Escape')
+			await page.keyboard.press('ControlOrMeta+A')
+			await page.keyboard.press('ControlOrMeta+C')
+
+			extracted_tsv = await page.evaluate('() => navigator.clipboard.readText()')
+			return ActionResult(extracted_content=extracted_tsv, include_in_memory=True)
+
+		@self.registry.action('Google Sheets: Select a specific cell or range of cells', domains=['sheets.google.com'])
+		async def select_cell_or_range(browser: BrowserContext, cell_or_range: str):
+			page = await browser.get_current_page()
+
+			await page.keyboard.press('Enter')  # make sure we dont delete current cell contents if we were last editing
+			await page.keyboard.press('Escape')  # to clear current focus (otherwise select range popup is additive)
+			await asyncio.sleep(0.1)
+			await page.keyboard.press('Home')  # move cursor to the top left of the sheet first
+			await page.keyboard.press('ArrowUp')
+			await asyncio.sleep(0.1)
+			await page.keyboard.press('Control+G')  # open the goto range popup
+			await asyncio.sleep(0.2)
+			await page.keyboard.type(cell_or_range, delay=0.05)
+			await asyncio.sleep(0.2)
+			await page.keyboard.press('Enter')
+			await asyncio.sleep(0.2)
+			await page.keyboard.press('Escape')  # to make sure the popup still closes in the case where the jump failed
+			return ActionResult(extracted_content=f'Selected cell {cell_or_range}', include_in_memory=False)
+
+		@self.registry.action(
+			'Google Sheets: Get the contents of a specific cell or range of cells', domains=['sheets.google.com']
+		)
+		async def get_range_contents(browser: BrowserContext, cell_or_range: str):
+			page = await browser.get_current_page()
+
+			await select_cell_or_range(browser, cell_or_range)
+
+			await page.keyboard.press('ControlOrMeta+C')
+			await asyncio.sleep(0.1)
+			extracted_tsv = await page.evaluate('() => navigator.clipboard.readText()')
+			return ActionResult(extracted_content=extracted_tsv, include_in_memory=True)
+
+		@self.registry.action('Google Sheets: Clear the currently selected cells', domains=['sheets.google.com'])
+		async def clear_selected_range(browser: BrowserContext):
+			page = await browser.get_current_page()
+
+			await page.keyboard.press('Backspace')
+			return ActionResult(extracted_content='Cleared selected range', include_in_memory=False)
+
+		@self.registry.action('Google Sheets: Input text into the currently selected cell', domains=['sheets.google.com'])
+		async def input_selected_cell_text(browser: BrowserContext, text: str):
+			page = await browser.get_current_page()
+
+			await page.keyboard.type(text, delay=0.1)
+			await page.keyboard.press('Enter')  # make sure to commit the input so it doesn't get overwritten by the next action
+			await page.keyboard.press('ArrowUp')
+			return ActionResult(extracted_content=f'Inputted text {text}', include_in_memory=False)
+
+		@self.registry.action('Google Sheets: Batch update a range of cells', domains=['sheets.google.com'])
+		async def update_range_contents(browser: BrowserContext, range: str, new_contents_tsv: str):
+			page = await browser.get_current_page()
+
+			await select_cell_or_range(browser, range)
+
+			# simulate paste event from clipboard with TSV content
+			await page.evaluate(f"""
+				const clipboardData = new DataTransfer();
+				clipboardData.setData('text/plain', `{new_contents_tsv}`);
+				document.activeElement.dispatchEvent(new ClipboardEvent('paste', {{clipboardData}}));
+			""")
+
+			return ActionResult(extracted_content=f'Updated cell {range} with {new_contents_tsv}', include_in_memory=False)
+
 	# Register ---------------------------------------------------------------
 
 	def action(self, description: str, **kwargs):
@@ -745,9 +821,9 @@ class Controller(Generic[Context]):
 		action: ActionModel,
 		browser_context: BrowserContext,
 		#
-		page_extraction_llm: Optional[BaseChatModel] = None,
-		sensitive_data: Optional[Dict[str, str]] = None,
-		available_file_paths: Optional[list[str]] = None,
+		page_extraction_llm: BaseChatModel | None = None,
+		sensitive_data: dict[str, str] | None = None,
+		available_file_paths: list[str] | None = None,
 		#
 		context: Context | None = None,
 	) -> ActionResult:

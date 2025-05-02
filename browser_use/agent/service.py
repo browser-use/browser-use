@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 import gc
 import inspect
@@ -8,8 +6,9 @@ import logging
 import os
 import re
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, TypeVar, Union
+from typing import Any, Generic, TypeVar
 
 from dotenv import load_dotenv
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -26,7 +25,12 @@ from browser_use.agent.gif import create_history_gif
 from browser_use.agent.memory.service import Memory
 from browser_use.agent.memory.views import MemoryConfig
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
-from browser_use.agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation
+from browser_use.agent.message_manager.utils import (
+	convert_input_messages,
+	extract_json_from_model_output,
+	is_model_without_tool_support,
+	save_conversation,
+)
 from browser_use.agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
 from browser_use.agent.views import (
 	REQUIRED_LLM_API_ENV_VARS,
@@ -98,34 +102,34 @@ class Agent(Generic[Context]):
 		browser_context: BrowserContext | None = None,
 		controller: Controller[Context] = Controller(),
 		# Initial agent run parameters
-		sensitive_data: Optional[Dict[str, str]] = None,
-		initial_actions: Optional[List[Dict[str, Dict[str, Any]]]] = None,
+		sensitive_data: dict[str, str] | None = None,
+		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
 		# Cloud Callbacks
-		register_new_step_callback: Union[
-			Callable[['BrowserState', 'AgentOutput', int], None],  # Sync callback
-			Callable[['BrowserState', 'AgentOutput', int], Awaitable[None]],  # Async callback
-			None,
-		] = None,
-		register_done_callback: Union[
-			Callable[['AgentHistoryList'], Awaitable[None]],  # Async Callback
-			Callable[['AgentHistoryList'], None],  # Sync Callback
-			None,
-		] = None,
+		register_new_step_callback: (
+			Callable[['BrowserState', 'AgentOutput', int], None]  # Sync callback
+			| Callable[['BrowserState', 'AgentOutput', int], Awaitable[None]]  # Async callback
+			| None
+		) = None,
+		register_done_callback: (
+			Callable[['AgentHistoryList'], Awaitable[None]]  # Async Callback
+			| Callable[['AgentHistoryList'], None]  # Sync Callback
+			| None
+		) = None,
 		register_external_agent_status_raise_error_callback: Callable[[], Awaitable[bool]] | None = None,
 		# Agent settings
 		use_vision: bool = True,
 		use_vision_for_planner: bool = False,
-		save_conversation_path: Optional[str] = None,
-		save_conversation_path_encoding: Optional[str] = 'utf-8',
+		save_conversation_path: str | None = None,
+		save_conversation_path_encoding: str | None = 'utf-8',
 		max_failures: int = 3,
 		retry_delay: int = 10,
-		override_system_message: Optional[str] = None,
-		extend_system_message: Optional[str] = None,
+		override_system_message: str | None = None,
+		extend_system_message: str | None = None,
 		max_input_tokens: int = 128000,
 		validate_output: bool = False,
-		message_context: Optional[str] = None,
+		message_context: str | None = None,
 		generate_gif: bool | str = False,
-		available_file_paths: Optional[list[str]] = None,
+		available_file_paths: list[str] | None = None,
 		include_attributes: list[str] = [
 			'title',
 			'type',
@@ -139,19 +143,18 @@ class Agent(Generic[Context]):
 			'data-date-format',
 		],
 		max_actions_per_step: int = 10,
-		tool_calling_method: Optional[ToolCallingMethod] = 'auto',
-		page_extraction_llm: Optional[BaseChatModel] = None,
-		planner_llm: Optional[BaseChatModel] = None,
+		tool_calling_method: ToolCallingMethod | None = 'auto',
+		page_extraction_llm: BaseChatModel | None = None,
+		planner_llm: BaseChatModel | None = None,
 		planner_interval: int = 1,  # Run planner every N steps
 		is_planner_reasoning: bool = False,
-		extend_planner_system_message: Optional[str] = None,
-		# Inject state
-		injected_agent_state: Optional[AgentState] = None,
-		#
+		extend_planner_system_message: str | None = None,
+		injected_agent_state: AgentState | None = None,
 		context: Context | None = None,
-		# Memory settings
+		save_playwright_script_path: str | None = None,
 		enable_memory: bool = True,
-		memory_config: Optional[MemoryConfig] = None,
+		memory_config: MemoryConfig | None = None,
+		source: str | None = None,
 	):
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
@@ -183,6 +186,7 @@ class Agent(Generic[Context]):
 			planner_llm=planner_llm,
 			planner_interval=planner_interval,
 			is_planner_reasoning=is_planner_reasoning,
+			save_playwright_script_path=save_playwright_script_path,
 			extend_planner_system_message=extend_planner_system_message,
 		)
 
@@ -195,7 +199,7 @@ class Agent(Generic[Context]):
 
 		# Action setup
 		self._setup_action_models()
-		self._set_browser_use_version_and_source()
+		self._set_browser_use_version_and_source(source)
 		self.initial_actions = self._convert_initial_actions(initial_actions) if initial_actions else None
 
 		# Model setup
@@ -309,7 +313,7 @@ class Agent(Generic[Context]):
 				self.settings.message_context = f'Available actions: {self.unfiltered_actions}'
 		return self.settings.message_context
 
-	def _set_browser_use_version_and_source(self) -> None:
+	def _set_browser_use_version_and_source(self, source_override: str | None = None) -> None:
 		"""Get the version and source of the browser-use package (git or pip in a nutshell)"""
 		try:
 			# First check for repository-specific files
@@ -334,7 +338,8 @@ class Agent(Generic[Context]):
 		except Exception:
 			version = 'unknown'
 			source = 'unknown'
-
+		if source_override is not None:
+			source = source_override
 		logger.debug(f'Version: {version}, Source: {source}')
 		self.version = version
 		self.source = source
@@ -370,17 +375,23 @@ class Agent(Generic[Context]):
 		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'])
 		self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
 
-	def _set_tool_calling_method(self) -> Optional[ToolCallingMethod]:
+	def _set_tool_calling_method(self) -> ToolCallingMethod | None:
 		tool_calling_method = self.settings.tool_calling_method
 		if tool_calling_method == 'auto':
-			if 'deepseek-reasoner' in self.model_name or 'deepseek-r1' in self.model_name:
+			if is_model_without_tool_support(self.model_name):
 				return 'raw'
 			elif self.chat_model_library == 'ChatGoogleGenerativeAI':
 				return None
 			elif self.chat_model_library == 'ChatOpenAI':
 				return 'function_calling'
 			elif self.chat_model_library == 'AzureChatOpenAI':
-				return 'function_calling'
+				# Azure OpenAI API requires 'tools' parameter for GPT-4
+				# The error 'content must be either a string or an array' occurs when
+				# the API expects a tools array but gets something else
+				if 'gpt-4' in self.model_name.lower():
+					return 'tools'
+				else:
+					return 'function_calling'
 			else:
 				return None
 		else:
@@ -402,7 +413,7 @@ class Agent(Generic[Context]):
 
 	# @observe(name='agent.step', ignore_output=True, ignore_input=True)
 	@time_execution_async('--step (agent)')
-	async def step(self, step_info: Optional[AgentStepInfo] = None) -> None:
+	async def step(self, step_info: AgentStepInfo | None = None) -> None:
 		"""Execute one step of the task"""
 		logger.info(f'📍 Step {self.state.n_steps}')
 		state = None
@@ -497,7 +508,6 @@ class Agent(Generic[Context]):
 						model_output.action = [action_instance]
 
 				# Check again for paused/stopped state after getting model output
-				# This is needed in case Ctrl+C was pressed during the get_next_action call
 				await self._raise_if_stopped_or_paused()
 
 				self.state.n_steps += 1
@@ -630,7 +640,7 @@ class Agent(Generic[Context]):
 		model_output: AgentOutput | None,
 		state: BrowserState,
 		result: list[ActionResult],
-		metadata: Optional[StepMetadata] = None,
+		metadata: StepMetadata | None = None,
 	) -> None:
 		"""Create and store history item"""
 
@@ -664,7 +674,7 @@ class Agent(Generic[Context]):
 
 	def _convert_input_messages(self, input_messages: list[BaseMessage]) -> list[BaseMessage]:
 		"""Convert input messages to the correct format"""
-		if self.model_name == 'deepseek-reasoner' or 'deepseek-r1' in self.model_name:
+		if is_model_without_tool_support(self.model_name):
 			return convert_input_messages(input_messages, self.model_name)
 		else:
 			return input_messages
@@ -902,6 +912,24 @@ class Agent(Generic[Context]):
 				)
 			)
 
+			if self.settings.save_playwright_script_path:
+				logger.info(
+					f'Agent run finished. Attempting to save Playwright script to: {self.settings.save_playwright_script_path}'
+				)
+				try:
+					# Extract sensitive data keys if sensitive_data is provided
+					keys = list(self.sensitive_data.keys()) if self.sensitive_data else None
+					# Pass browser and context config to the saving method
+					self.state.history.save_as_playwright_script(
+						self.settings.save_playwright_script_path,
+						sensitive_data_keys=keys,
+						browser_config=self.browser.config,
+						context_config=self.browser_context.config,
+					)
+				except Exception as script_gen_err:
+					# Log any error during script generation/saving
+					logger.error(f'Failed to save Playwright script: {script_gen_err}', exc_info=True)
+
 			await self.close()
 
 			if self.settings.generate_gif:
@@ -922,7 +950,7 @@ class Agent(Generic[Context]):
 		results = []
 
 		cached_selector_map = await self.browser_context.get_selector_map()
-		cached_path_hashes = set(e.hash.branch_path_hash for e in cached_selector_map.values())
+		cached_path_hashes = {e.hash.branch_path_hash for e in cached_selector_map.values()}
 
 		await self.browser_context.remove_highlights()
 
@@ -942,7 +970,7 @@ class Agent(Generic[Context]):
 					results.append(ActionResult(extracted_content=msg, include_in_memory=True))
 					break
 
-				new_path_hashes = set(e.hash.branch_path_hash for e in new_selector_map.values())
+				new_path_hashes = {e.hash.branch_path_hash for e in new_selector_map.values()}
 				if check_for_new_elements and not new_path_hashes.issubset(cached_path_hashes):
 					# next action requires index but there are new elements on the page
 					msg = f'Something new appeared after action {i} / {len(actions)}'
@@ -1127,10 +1155,10 @@ class Agent(Generic[Context]):
 
 	async def _update_action_indices(
 		self,
-		historical_element: Optional[DOMHistoryElement],
+		historical_element: DOMHistoryElement | None,
 		action: ActionModel,  # Type this properly based on your action model
 		current_state: BrowserState,
-	) -> Optional[ActionModel]:
+	) -> ActionModel | None:
 		"""
 		Update action indices based on current page state.
 		Returns updated action or None if element cannot be found.
@@ -1150,7 +1178,7 @@ class Agent(Generic[Context]):
 
 		return action
 
-	async def load_and_rerun(self, history_file: Optional[str | Path] = None, **kwargs) -> list[ActionResult]:
+	async def load_and_rerun(self, history_file: str | Path | None = None, **kwargs) -> list[ActionResult]:
 		"""
 		Load history from file and rerun it.
 
@@ -1163,7 +1191,7 @@ class Agent(Generic[Context]):
 		history = AgentHistoryList.load_from_file(history_file, self.AgentOutput)
 		return await self.rerun_history(history, **kwargs)
 
-	def save_history(self, file_path: Optional[str | Path] = None) -> None:
+	def save_history(self, file_path: str | Path | None = None) -> None:
 		"""Save the history to a file"""
 		if not file_path:
 			file_path = 'AgentHistory.json'
@@ -1199,7 +1227,7 @@ class Agent(Generic[Context]):
 		logger.info('⏹️ Agent stopping')
 		self.state.stopped = True
 
-	def _convert_initial_actions(self, actions: List[Dict[str, Dict[str, Any]]]) -> List[ActionModel]:
+	def _convert_initial_actions(self, actions: list[dict[str, dict[str, Any]]]) -> list[ActionModel]:
 		"""Convert dictionary-based actions to ActionModel instances"""
 		converted_actions = []
 		action_model = self.ActionModel
@@ -1245,7 +1273,7 @@ class Agent(Generic[Context]):
 		test_answer = 'paris'
 		try:
 			# dont convert this to async! it *should* block any subsequent llm calls from running
-			response = self.llm.invoke([HumanMessage(content=test_prompt)])  # noqa: RUF006
+			response = self.llm.invoke([HumanMessage(content=test_prompt)])
 			response_text = str(response.content).lower()
 
 			if test_answer in response_text:
@@ -1272,7 +1300,7 @@ class Agent(Generic[Context]):
 			else:
 				pass
 
-	async def _run_planner(self) -> Optional[str]:
+	async def _run_planner(self) -> str | None:
 		"""Run the planner to analyze state and suggest next steps"""
 		# Skip planning if no planner_llm is set
 		if not self.settings.planner_llm:

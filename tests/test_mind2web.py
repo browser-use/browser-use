@@ -5,7 +5,7 @@ Test browser automation using Mind2Web dataset tasks with pytest framework.
 import asyncio
 import json
 import os
-from typing import Any, Dict, List
+from typing import Any
 
 import pytest
 from langchain_openai import AzureChatOpenAI
@@ -45,12 +45,12 @@ async def context(browser):
 
 
 @pytest.fixture(scope='session')
-def test_cases() -> List[Dict[str, Any]]:
+def test_cases() -> list[dict[str, Any]]:
 	"""Load test cases from Mind2Web dataset"""
 	file_path = os.path.join(os.path.dirname(__file__), 'mind2web_data/processed.json')
 	logger.info(f'Loading test cases from {file_path}')
 
-	with open(file_path, 'r') as f:
+	with open(file_path) as f:
 		data = json.load(f)
 
 	subset = data[:TEST_SUBSET_SIZE]
@@ -73,7 +73,7 @@ def llm():
 
 # run with: pytest -s -v tests/test_mind2web.py:test_random_samples
 @pytest.mark.asyncio
-async def test_random_samples(test_cases: List[Dict[str, Any]], llm, context, validator):
+async def test_random_samples(test_cases: list[dict[str, Any]], llm, context, validator):
 	"""Test a random sampling of tasks across different websites"""
 	import random
 

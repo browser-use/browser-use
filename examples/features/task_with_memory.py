@@ -1,6 +1,5 @@
 import asyncio
 import json
-from typing import List
 
 import anyio
 from dotenv import load_dotenv
@@ -48,7 +47,7 @@ class Link(BaseModel):
 
 
 class Links(BaseModel):
-	links: List[Link]
+	links: list[Link]
 
 
 initial_actions = [

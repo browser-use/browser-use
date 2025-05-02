@@ -59,7 +59,7 @@ async def test_focus_vs_all_elements():
 			# browser_binary_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 		)
 	)
-	context = BrowserContext(browser=browser, config=config)  # noqa: F821
+	context = BrowserContext(browser=browser, config=config)
 
 	websites = [
 		'https://kayak.com/flights',

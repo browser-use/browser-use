@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import List, Optional
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
@@ -135,7 +134,7 @@ class Memory:
 		self.message_manager.state.history.current_tokens += memory_tokens
 		logger.info(f'Messages consolidated: {len(messages_to_process)} messages converted to procedural memory')
 
-	def _create(self, messages: List[BaseMessage], current_step: int) -> Optional[str]:
+	def _create(self, messages: list[BaseMessage], current_step: int) -> str | None:
 		parsed_messages = convert_to_openai_messages(messages)
 		try:
 			results = self.mem0.add(

@@ -290,7 +290,6 @@ import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
 
 import requests
 from dotenv import load_dotenv
@@ -544,7 +543,13 @@ async def run_agent_with_tracing(
 
 		browser = browser or Browser()
 
-		agent = Agent(task=task.confirmed_task, llm=llm, browser=browser, use_vision=use_vision)
+		agent = Agent(
+			task=task.confirmed_task,
+			llm=llm,
+			browser=browser,
+			use_vision=use_vision,
+			source='eval_platform',  # Override source detection
+		)
 
 		# Pass our hook functions
 		result = await agent.run(max_steps=max_steps, on_step_start=tracker.on_step_start, on_step_end=tracker.on_step_end)
@@ -560,7 +565,7 @@ async def run_agent_with_tracing(
 			await agent.close()  # This will close the browser if we created it
 
 
-async def judge_task_result(model, task_folder: Path, score_threshold: float = 3) -> Dict:
+async def judge_task_result(model, task_folder: Path, score_threshold: float = 3) -> dict:
 	"""
 	Judge a single task result based on the success value of the final action.
 
@@ -634,7 +639,7 @@ async def judge_task_result(model, task_folder: Path, score_threshold: float = 3
 		}
 
 
-def calculate_local_summary(results_dir: Optional[str] = None) -> Dict:
+def calculate_local_summary(results_dir: str | None = None) -> dict:
 	"""
 	Calculates a summary of task results by reading the saved result.json files.
 	Does not make any network requests.
@@ -948,11 +953,11 @@ async def run_multiple_tasks(
 	max_parallel_evaluations: int = 5,
 	max_steps_per_task: int = 25,
 	start_index: int = 0,
-	end_index: Optional[int] = None,
+	end_index: int | None = None,
 	headless: bool = False,
 	use_vision: bool = True,
 	fresh_start: bool = True,
-) -> Dict:
+) -> dict:
 	"""
 	Run multiple tasks in parallel and evaluate results.
 	"""
