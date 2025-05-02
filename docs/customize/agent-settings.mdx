@@ -49,6 +49,16 @@ agent = Agent(
 - `save_conversation_path`: Path to save the complete conversation history. Useful for debugging.
 - `override_system_message`: Completely replace the default system prompt with a custom one.
 - `extend_system_message`: Add additional instructions to the default system prompt.
+- `playwright_locator_language`: Set to `"javascript"` or `"python"` to generate playwright locators
+  for each interacted element in that respective language.
+
+<Note>
+  When generating Playwright locators, you must handle injecting the `playwright` instance into the
+  browser context. This is outside the scope of browser-use. One way of achieving this is to start
+  playwright and "pause" the page. See Playwright's [Test Generator
+  documentation](https://playwright.dev/python/docs/codegen#record-using-custom-setup) for more
+  information.
+</Note>
 
 <Note>
   Vision capabilities are recommended for better web interaction understanding,

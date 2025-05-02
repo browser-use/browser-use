@@ -36,6 +36,8 @@ REQUIRED_LLM_API_ENV_VARS = {
 	'ChatGrok': ['GROK_API_KEY'],
 }
 
+PlaywrightLocatorLanguage = Literal['javascript', 'python']
+
 
 class AgentSettings(BaseModel):
 	"""Options for the agent"""
@@ -66,6 +68,12 @@ class AgentSettings(BaseModel):
 		'aria-expanded',
 	]
 	max_actions_per_step: int = 10
+
+	playwright_locator_language: Optional[PlaywrightLocatorLanguage] = None
+	"""
+	When set, generates a playwright locator for each interacted element, if it has an xpath, in the
+	specified language. When not set, no playwright locators are generated.
+	"""
 
 	tool_calling_method: Optional[ToolCallingMethod] = 'auto'
 	page_extraction_llm: Optional[BaseChatModel] = None
