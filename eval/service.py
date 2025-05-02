@@ -1307,6 +1307,7 @@ if __name__ == '__main__':
 			'headless': args.headless,
 			'use_vision': not args.no_vision,
 			'task_source': TEST_CASE_NAME,
+			'llm_judge': 'gpt-4o',
 		}
 
 		run_data = {
