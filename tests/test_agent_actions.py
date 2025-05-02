@@ -15,7 +15,7 @@ from browser_use.browser.views import BrowserState
 def llm():
 	"""Initialize language model for testing"""
 
-	# return ChatAnthropic(model_name='claude-3-5-sonnet-20240620', timeout=25, stop=None)
+	# return ChatAnthropic(model='claude-3-5-sonnet-20240620', timeout=25, stop=None)
 	return AzureChatOpenAI(
 		model='gpt-4o',
 		api_version='2024-10-21',

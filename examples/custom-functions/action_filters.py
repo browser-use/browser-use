@@ -61,7 +61,7 @@ async def use_the_force(browser: BrowserContext):
 async def main():
 	"""Main function to run the example"""
 	browser = Browser()
-	llm = ChatOpenAI(model_name='gpt-4o', temperature=0.0)
+	llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
 
 	# Create the agent
 	agent = Agent(  # disco mode will not be triggered on apple.com because the LLM won't be able to see that action available, it should work on Google.com though.
