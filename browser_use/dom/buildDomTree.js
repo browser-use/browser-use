@@ -303,7 +303,6 @@
       labelTop = Math.max(0, Math.min(labelTop, window.innerHeight - labelHeight));
       labelLeft = Math.max(0, Math.min(labelLeft, window.innerWidth - labelWidth));
 
-
       label.style.top = `${labelTop}px`;
       label.style.left = `${labelLeft}px`;
 
@@ -737,7 +736,6 @@
     return false
   }
 
-
   /**
    * Checks if an element is the topmost element at its position.
    */
@@ -1033,187 +1031,106 @@
   /**
    * Creates a node data object for a given node and its descendants.
    */
+  function rankNode(node, rect, style) {
+    let rank = 0;
+    const tag = node.tagName?.toLowerCase();
+  
+    if (!rect || !style) return rank;
+  
+    // Base scores
+    if (isElementVisible(node)) rank += 2;
+    if (isInteractiveElement(node)) rank += 3;
+  
+    // Tag importance
+    const tagWeights = { button: 3, a: 2, input: 2, div: 1, span: 0.5 };
+    rank += tagWeights[tag] || 0;
+  
+    // Position relevance (closer to top)
+    if (rect.top >= 0 && rect.top < window.innerHeight / 2) rank += 1;
+  
+    return rank;
+  }
+  
   function buildDomTree(node, parentIframe = null, isParentHighlighted = false) {
-    if (debugMode) PERF_METRICS.nodeMetrics.totalNodes++;
-
-    if (!node || node.id === HIGHLIGHT_CONTAINER_ID) {
-      if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
-      return null;
-    }
-
-    // Special handling for root node (body)
-    if (node === document.body) {
-      const nodeData = {
-        tagName: 'body',
-        attributes: {},
-        xpath: '/body',
-        children: [],
-      };
-
-      // Process children of body
-      for (const child of node.childNodes) {
-        const domElement = buildDomTree(child, parentIframe, false); // Body's children have no highlighted parent initially
-        if (domElement) nodeData.children.push(domElement);
-      }
-
-      const id = `${ID.current++}`;
-      DOM_HASH_MAP[id] = nodeData;
-      if (debugMode) PERF_METRICS.nodeMetrics.processedNodes++;
-      return id;
-    }
-
-    // Early bailout for non-element nodes except text
-    if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.TEXT_NODE) {
-      if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
-      return null;
-    }
-
-    // Process text nodes
+    if (!node || node.id === HIGHLIGHT_CONTAINER_ID) return null;
+    if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.TEXT_NODE) return null;
+  
+    // Handle text nodes
     if (node.nodeType === Node.TEXT_NODE) {
       const textContent = node.textContent.trim();
-      if (!textContent) {
-        if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
-        return null;
-      }
-
-      // Only check visibility for text nodes that might be visible
-      const parentElement = node.parentElement;
-      if (!parentElement || parentElement.tagName.toLowerCase() === 'script') {
-        if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
-        return null;
-      }
-
+      if (!textContent || !node.parentElement || node.parentElement.tagName === 'SCRIPT') return null;
+  
       const id = `${ID.current++}`;
       DOM_HASH_MAP[id] = {
         type: "TEXT_NODE",
         text: textContent,
         isVisible: isTextNodeVisible(node),
+        rank: 1
       };
-      if (debugMode) PERF_METRICS.nodeMetrics.processedNodes++;
       return id;
     }
-
-    // Quick checks for element nodes
-    if (node.nodeType === Node.ELEMENT_NODE && !isElementAccepted(node)) {
-      if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
+  
+    // Handle element nodes
+    const tag = node.tagName.toLowerCase();
+    if (!isElementAccepted(node)) return null;
+  
+    const rect = getCachedBoundingRect(node);
+    const style = getCachedComputedStyle(node);
+    const isFixedOrSticky = style && (style.position === 'fixed' || style.position === 'sticky');
+    const hasSize = node.offsetWidth > 0 || node.offsetHeight > 0;
+  
+    if (!rect || (!isFixedOrSticky && !hasSize && (
+      rect.bottom < -viewportExpansion ||
+      rect.top > window.innerHeight + viewportExpansion ||
+      rect.right < -viewportExpansion ||
+      rect.left < -viewportExpansion
+    ))) {
       return null;
     }
-
-    // Early viewport check - only filter out elements clearly outside viewport
-    if (viewportExpansion !== -1) {
-      const rect = getCachedBoundingRect(node); // Keep for initial quick check
-      const style = getCachedComputedStyle(node);
-
-      // Skip viewport check for fixed/sticky elements as they may appear anywhere
-      const isFixedOrSticky = style && (style.position === 'fixed' || style.position === 'sticky');
-
-      // Check if element has actual dimensions using offsetWidth/Height (quick check)
-      const hasSize = node.offsetWidth > 0 || node.offsetHeight > 0;
-
-      // Use getBoundingClientRect for the quick OUTSIDE check.
-      // isInExpandedViewport will do the more accurate check later if needed.
-      if (!rect || (!isFixedOrSticky && !hasSize && (
-        rect.bottom < -viewportExpansion ||
-        rect.top > window.innerHeight + viewportExpansion ||
-        rect.right < -viewportExpansion ||
-        rect.left > window.innerWidth + viewportExpansion
-      ))) {
-        // console.log("Skipping node outside viewport (quick check):", node.tagName, rect);
-        if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
-        return null;
-      }
-    }
-
-    // Process element node
+  
     const nodeData = {
-      tagName: node.tagName.toLowerCase(),
+      tagName: tag,
       attributes: {},
       xpath: getXPathTree(node, true),
       children: [],
+      isVisible: isElementVisible(node),
     };
-
-    // Get attributes for interactive elements or potential text containers
-    if (isInteractiveCandidate(node) || node.tagName.toLowerCase() === 'iframe' || node.tagName.toLowerCase() === 'body') {
-      const attributeNames = node.getAttributeNames?.() || [];
-      for (const name of attributeNames) {
-        nodeData.attributes[name] = node.getAttribute(name);
+  
+    // Minimal attribute collection
+    const attrs = ["href", "src", "alt", "title", "id", "class", "role"];
+    for (const name of attrs) {
+      const value = node.getAttribute(name);
+      if (value) nodeData.attributes[name] = value;
+    }
+  
+    // Rank the node
+    nodeData.rank = rankNode(node, rect, style);
+  
+    // Optional interactivity check
+    if (nodeData.isVisible) {
+      nodeData.isTopElement = isTopElement(node);
+      if (nodeData.isTopElement) {
+        nodeData.isInteractive = isInteractiveElement(node);
+        handleHighlighting(nodeData, node, parentIframe, isParentHighlighted);
       }
     }
-
-    let nodeWasHighlighted = false;
-    // Perform visibility, interactivity, and highlighting checks
-    if (node.nodeType === Node.ELEMENT_NODE) {
-      nodeData.isVisible = isElementVisible(node); // isElementVisible uses offsetWidth/Height, which is fine
-      if (nodeData.isVisible) {
-        nodeData.isTopElement = isTopElement(node);
-        if (nodeData.isTopElement) {
-          nodeData.isInteractive = isInteractiveElement(node);
-          // Call the dedicated highlighting function
-          nodeWasHighlighted = handleHighlighting(nodeData, node, parentIframe, isParentHighlighted);
-        }
-      }
+  
+    // Process children (iframe, shadow DOM, or regular)
+    const childNodes = (
+      tag === "iframe" ? (node.contentDocument?.childNodes || []) :
+      node.shadowRoot?.childNodes || node.childNodes
+    );
+  
+    for (const child of childNodes) {
+      const childTree = buildDomTree(child, tag === "iframe" ? node : parentIframe, nodeData.isTopElement);
+      if (childTree) nodeData.children.push(childTree);
     }
-
-    // Process children, with special handling for iframes and rich text editors
-    if (node.tagName) {
-      const tagName = node.tagName.toLowerCase();
-
-      // Handle iframes
-      if (tagName === "iframe") {
-        try {
-          const iframeDoc = node.contentDocument || node.contentWindow?.document;
-          if (iframeDoc) {
-            for (const child of iframeDoc.childNodes) {
-              const domElement = buildDomTree(child, node, false);
-              if (domElement) nodeData.children.push(domElement);
-            }
-          }
-        } catch (e) {
-          console.warn("Unable to access iframe:", e);
-        }
-      }
-      // Handle rich text editors and contenteditable elements
-      else if (
-        node.isContentEditable ||
-        node.getAttribute("contenteditable") === "true" ||
-        node.id === "tinymce" ||
-        node.classList.contains("mce-content-body") ||
-        (tagName === "body" && node.getAttribute("data-id")?.startsWith("mce_"))
-      ) {
-        // Process all child nodes to capture formatted text
-        for (const child of node.childNodes) {
-          const domElement = buildDomTree(child, parentIframe, nodeWasHighlighted);
-          if (domElement) nodeData.children.push(domElement);
-        }
-      }
-      else {
-        // Handle shadow DOM
-        if (node.shadowRoot) {
-          nodeData.shadowRoot = true;
-          for (const child of node.shadowRoot.childNodes) {
-            const domElement = buildDomTree(child, parentIframe, nodeWasHighlighted);
-            if (domElement) nodeData.children.push(domElement);
-          }
-        }
-        // Handle regular elements
-        for (const child of node.childNodes) {
-          // Pass the highlighted status of the *current* node to its children
-          const passHighlightStatusToChild = nodeWasHighlighted || isParentHighlighted;
-          const domElement = buildDomTree(child, parentIframe, passHighlightStatusToChild);
-          if (domElement) nodeData.children.push(domElement);
-        }
-      }
-    }
-
-    // Skip empty anchor tags
-    if (nodeData.tagName === 'a' && nodeData.children.length === 0 && !nodeData.attributes.href) {
-      if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
-      return null;
-    }
-
+  
+    // Skip empty anchors
+    if (tag === 'a' && nodeData.children.length === 0 && !nodeData.attributes.href) return null; 
+  
     const id = `${ID.current++}`;
     DOM_HASH_MAP[id] = nodeData;
-    if (debugMode) PERF_METRICS.nodeMetrics.processedNodes++;
     return id;
   }
 

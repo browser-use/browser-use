@@ -17,7 +17,7 @@ llm = ChatOpenAI(
 	model='gpt-4o',
 	temperature=0.0,
 )
-task = 'Go to kayak.com and find the cheapest flight from Zurich to San Francisco on 2025-05-01'
+task = 'Go to amazon.com and find me the best-selling book on Python programming. Provide the title and author of the book.'
 
 agent = Agent(task=task, llm=llm)
 
@@ -28,3 +28,5 @@ async def main():
 
 if __name__ == '__main__':
 	asyncio.run(main())
+
+# pip install -e .
