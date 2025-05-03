@@ -117,7 +117,8 @@ from browser_use.browser.context import BrowserContextConfig
 config = BrowserContextConfig(
     cookies_file="path/to/cookies.json",
     wait_for_network_idle_page_load_time=3.0,
-    browser_window_size={'width': 1280, 'height': 1100},
+    window_width=1280,
+    window_height=1100,
     locale='en-US',
     user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36',
     highlight_elements=True,
@@ -151,7 +152,7 @@ async def run_search():
 
 ### Display Settings
 
-- **browser_window_size** (default: `{'width': 1280, 'height': 1100}`)
+- **window_width** (default: `1280`) and **window_height** (default: `1100`)
   Browser window dimensions. The default size is optimized for general use cases and interaction with common UI elements like cookie banners.
 
 - **locale** (default: `None`)
@@ -179,3 +180,6 @@ async def run_search():
 
 - **trace_path** (default: `None`)
   Directory path for saving trace files. Files are automatically named as `{trace_path}/{context_id}.zip`.
+
+- **save_playwright_script_path** (default: `None`)
+  BETA: Filename to save a replayable playwright python script to containing the steps the agent took.

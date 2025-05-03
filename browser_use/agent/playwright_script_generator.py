@@ -111,10 +111,10 @@ class PlaywrightScriptGenerator:
 		# Handle viewport/window size
 		if self.context_config.no_viewport:
 			options_dict['no_viewport'] = True
-		elif self.context_config.browser_window_size:
+		elif hasattr(self.context_config, 'window_width') and hasattr(self.context_config, 'window_height'):
 			options_dict['viewport'] = {
-				'width': self.context_config.browser_window_size.width,
-				'height': self.context_config.browser_window_size.height,
+				'width': self.context_config.window_width,
+				'height': self.context_config.window_height,
 			}
 
 		# Note: cookies_file and save_downloads_path are handled separately

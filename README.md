@@ -75,16 +75,14 @@ For other settings, models, and more, check out the [documentation 📕](https:/
 
 ### Test with UI
 
-You can test [browser-use with a UI repository](https://github.com/browser-use/web-ui)
+You can test browser-use using its [Web UI](https://github.com/browser-use/web-ui) or [Desktop App](https://github.com/browser-use/desktop).
 
-Or simply run the gradio example:
+### Test with an interactive CLI
 
-```
-uv pip install gradio
-```
+You can also use our interactive CLI (similar to `claude` code):
 
 ```bash
-python examples/ui/gradio_demo.py
+$ browser-use
 ```
 
 # Demos
@@ -123,7 +121,7 @@ https://github.com/user-attachments/assets/de73ee39-432c-4b97-b4e8-939fd7f323b3
 
 ## More examples
 
-For more examples see the [examples](examples) folder or join the [Discord](https://link.browser-use.com/discord) and show off your project.
+For more examples see the [examples](examples) folder or join the [Discord](https://link.browser-use.com/discord) and show off your project. You can also see our [`awesome-prompts`](https://github.com/browser-use/awesome-prompts) repo for prompting inspiration.
 
 # Vision
 
@@ -143,6 +141,7 @@ Tell your computer what to do, and it gets it done.
 - [ ] Improve state representation for UI elements so that all LLMs can understand what's on the page
 
 ### Workflows
+
 - [ ] Let user record a workflow - which we can rerun with browser-use as a fallback
 - [ ] Make rerunning of workflows work, even if pages change
 
@@ -153,6 +152,7 @@ Tell your computer what to do, and it gets it done.
 - [ ] Make it faster
 
 ### Parallelization
+
 - [ ] Human work is sequential. The real power of a browser agent comes into reality if we can parallelize similar tasks. For example, if you want to find contact information for 100 companies, this can all be done in parallel and reported back to a main agent, which processes the results and kicks off parallel subtasks again.
 
 

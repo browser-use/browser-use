@@ -743,16 +743,15 @@ class BrowserContext:
 		try:
 			from urllib.parse import urlparse
 
-			parsed_url = urlparse(url)
-			domain = parsed_url.netloc.lower()
-
 			# Special case: Allow 'about:blank' explicitly
 			if url == 'about:blank':
 				return True
 
-			# Remove port number if present
-			if ':' in domain:
-				domain = domain.split(':')[0]
+			parsed_url = urlparse(url)
+
+			# Extract only the hostname component (without auth credentials or port)
+			# Hostname returns only the domain portion, ignoring username:password and port
+			domain = parsed_url.hostname.lower() if parsed_url.hostname else ''
 
 			# Check if domain matches any allowed domain pattern
 			return any(
