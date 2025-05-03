@@ -52,26 +52,6 @@ BROWSER_NAVBAR_HEIGHT = {
 }.get(platform.system().lower(), 85)
 
 
-class BrowserContextWindowSize(BaseModel):
-	"""Window size configuration for browser context"""
-
-	width: int
-	height: int
-
-	model_config = ConfigDict(
-		extra='allow',  # Allow extra fields to ensure compatibility with dictionary
-		populate_by_name=True,
-		from_attributes=True,
-	)
-
-	# Support dict-like behavior for compatibility
-	def __getitem__(self, key):
-		return getattr(self, key)
-
-	def get(self, key, default=None):
-		return getattr(self, key, default)
-
-
 class BrowserContextConfig(BaseModel):
 	"""
 	Configuration for the BrowserContext.
@@ -96,11 +76,13 @@ class BrowserContextConfig(BaseModel):
 	    wait_between_actions: 1.0
 	        Time to wait between multiple per step actions
 
-	    browser_window_size: BrowserContextWindowSize(width=1280, height=1100)
-	        Default browser window size
+	    window_width: 1280
+	    window_height: 1100
+	        Default browser window dimensions
 
-	    no_viewport: False
-	        Disable viewport
+	    no_viewport: True
+	        When True (default), the browser window size determines the viewport.
+	        When False, forces a fixed viewport size using window_width and window_height. (constraint of the rendered content to a smaller area than the default of the entire window size)
 
 	    save_recording_path: None
 	        Path to save video recordings
@@ -170,10 +152,9 @@ class BrowserContextConfig(BaseModel):
 
 	disable_security: bool = False  # disable_security=True is dangerous as any malicious URL visited could embed an iframe for the user's bank, and use their cookies to steal money
 
-	browser_window_size: BrowserContextWindowSize = Field(
-		default_factory=lambda: BrowserContextWindowSize(width=1280, height=1100)
-	)
-	no_viewport: bool | None = None
+	window_width: int = 1280
+	window_height: int = 1100
+	no_viewport: bool = True  # True is the default for headful mode - browser window size determines viewport
 
 	save_recording_path: str | None = None
 	save_downloads_path: str | None = None
@@ -210,57 +191,11 @@ class CachedStateClickableElementsHashes:
 
 class BrowserSession:
 	def __init__(self, context: PlaywrightBrowserContext, cached_state: BrowserState | None = None):
-		init_script = """
-			(() => {
-				if (!window.getEventListeners) {
-					window.getEventListeners = function (node) {
-						return node.__listeners || {};
-					};
-
-					// Save the original addEventListener
-					const originalAddEventListener = Element.prototype.addEventListener;
-
-					const eventProxy = {
-						addEventListener: function (type, listener, options = {}) {
-							// Initialize __listeners if not exists
-							const defaultOptions = { once: false, passive: false, capture: false };
-							if(typeof options === 'boolean') {
-								options = { capture: options };
-							}
-							options = { ...defaultOptions, ...options };
-							if (!this.__listeners) {
-								this.__listeners = {};
-							}
-
-							// Initialize array for this event type if not exists
-							if (!this.__listeners[type]) {
-								this.__listeners[type] = [];
-							}
-
-
-							// Add the listener to __listeners
-							this.__listeners[type].push({
-								listener: listener,
-								type: type,
-								...options
-							});
-
-							// Call original addEventListener using the saved reference
-							return originalAddEventListener.call(this, type, listener, options);
-						}
-					};
-
-					Element.prototype.addEventListener = eventProxy.addEventListener;
-				}
-			})()
-			"""
 		self.active_tab = None
 		self.context = context
 		self.cached_state = cached_state
 
 		self.cached_state_clickable_elements_hashes: CachedStateClickableElementsHashes | None = None
-
-		self.context.on('page', lambda page: page.add_init_script(init_script))
 
 
 @dataclass
@@ -413,8 +348,12 @@ class BrowserContext:
 
 		# Set the viewport size for the active page
 		try:
-			await active_page.set_viewport_size(self.config.browser_window_size.model_dump())
-			logger.debug(f'Set viewport size to {self.config.browser_window_size.width}x{self.config.browser_window_size.height}')
+			if self.config.no_viewport is False:
+				viewport_size = {'width': self.config.window_width, 'height': self.config.window_height}
+				await active_page.set_viewport_size(viewport_size)
+				logger.debug(f'Set viewport size to {self.config.window_width}x{self.config.window_height}')
+			else:
+				logger.debug('Skipping viewport size setting in _initialize_session because no_viewport is not False')
 		except Exception as e:
 			logger.debug(f'Failed to set viewport size: {e}')
 
@@ -472,12 +411,17 @@ class BrowserContext:
 			kwargs = {}
 			# Set viewport for both headless and non-headless modes
 			if self.browser.config.headless:
-				kwargs['viewport'] = self.config.browser_window_size.model_dump()
+				# In headless mode, always set viewport and no_viewport=False
+				kwargs['viewport'] = {'width': self.config.window_width, 'height': self.config.window_height}
 				kwargs['no_viewport'] = False
 			else:
-				# In headful mode, respect user setting for no_viewport if provided, otherwise default to True
-				kwargs['viewport'] = self.config.browser_window_size.model_dump()
-				kwargs['no_viewport'] = self.config.no_viewport if self.config.no_viewport is not None else True
+				# In headful mode, use the no_viewport value from config (defaults to True)
+				no_viewport_value = self.config.no_viewport
+				kwargs['no_viewport'] = no_viewport_value
+
+				# Only set viewport if no_viewport is False
+				if not no_viewport_value:
+					kwargs['viewport'] = {'width': self.config.window_width, 'height': self.config.window_height}
 
 			if self.config.user_agent is not None:
 				kwargs['user_agent'] = self.config.user_agent
@@ -487,7 +431,7 @@ class BrowserContext:
 				java_script_enabled=True,
 				**({'bypass_csp': True, 'ignore_https_errors': True} if self.config.disable_security else {}),
 				record_video_dir=self.config.save_recording_path,
-				record_video_size=self.config.browser_window_size.model_dump(),
+				record_video_size={'width': self.config.window_width, 'height': self.config.window_height},
 				record_har_path=self.config.save_har_path,
 				locale=self.config.locale,
 				http_credentials=self.config.http_credentials,
@@ -527,9 +471,7 @@ class BrowserContext:
 				except json.JSONDecodeError as e:
 					logger.error(f'Failed to parse cookies file: {str(e)}')
 
-		# Expose anti-detection scripts
-		await context.add_init_script(
-			"""
+		init_script = """
 			// Permissions
 			const originalQuery = window.navigator.permissions.query;
 			window.navigator.permissions.query = (parameters) => (
@@ -537,16 +479,58 @@ class BrowserContext:
 					Promise.resolve({ state: Notification.permission }) :
 					originalQuery(parameters)
 			);
+			(() => {
+				if (window._eventListenerTrackerInitialized) return;
+				window._eventListenerTrackerInitialized = true;
 
+				const originalAddEventListener = EventTarget.prototype.addEventListener;
+				const eventListenersMap = new WeakMap();
+
+				EventTarget.prototype.addEventListener = function(type, listener, options) {
+					if (typeof listener === "function") {
+						let listeners = eventListenersMap.get(this);
+						if (!listeners) {
+							listeners = [];
+							eventListenersMap.set(this, listeners);
+						}
+
+						listeners.push({
+							type,
+							listener,
+							listenerPreview: listener.toString().slice(0, 100),
+							options
+						});
+					}
+
+					return originalAddEventListener.call(this, type, listener, options);
+				};
+
+				window.getEventListenersForNode = (node) => {
+					const listeners = eventListenersMap.get(node) || [];
+					return listeners.map(({ type, listenerPreview, options }) => ({
+						type,
+						listenerPreview,
+						options
+					}));
+				};
+			})();
 			"""
-		)
+
+		# Expose anti-detection scripts
+		await context.add_init_script(init_script)
 
 		return context
 
 	async def _set_viewport_size_for_page(self, page: Page) -> None:
 		"""Helper method to set viewport size for a page"""
 		try:
-			await page.set_viewport_size(self.config.browser_window_size.model_dump())
+			# Only set viewport size if no_viewport is False
+			if self.config.no_viewport is False:
+				viewport_size = {'width': self.config.window_width, 'height': self.config.window_height}
+				await page.set_viewport_size(viewport_size)
+				logger.debug(f'Set viewport size to {self.config.window_width}x{self.config.window_height}')
+			else:
+				logger.debug('Skipping viewport size setting because no_viewport is not False')
 		except Exception as e:
 			logger.debug(f'Failed to set viewport size for page: {e}')
 
@@ -1531,10 +1515,14 @@ class BrowserContext:
 		await page.bring_to_front()
 		await page.wait_for_load_state()
 
-		# Set the viewport size for the tab
+		# Set the viewport size for the tab if no_viewport is False
 		try:
-			await page.set_viewport_size(self.config.browser_window_size.model_dump())
-			logger.debug(f'Set viewport size to {self.config.browser_window_size.width}x{self.config.browser_window_size.height}')
+			if self.config.no_viewport is False:
+				viewport_size = {'width': self.config.window_width, 'height': self.config.window_height}
+				await page.set_viewport_size(viewport_size)
+				logger.debug(f'Set viewport size to {self.config.window_width}x{self.config.window_height}')
+			else:
+				logger.debug('Skipping viewport size setting in switch_to_tab because no_viewport is not False')
 		except Exception as e:
 			logger.debug(f'Failed to set viewport size: {e}')
 
@@ -1551,10 +1539,14 @@ class BrowserContext:
 
 		await new_page.wait_for_load_state()
 
-		# Set the viewport size for the new tab
+		# Set the viewport size for the new tab if no_viewport is False
 		try:
-			await new_page.set_viewport_size(self.config.browser_window_size.model_dump())
-			logger.debug(f'Set viewport size to {self.config.browser_window_size.width}x{self.config.browser_window_size.height}')
+			if self.config.no_viewport is False:
+				viewport_size = {'width': self.config.window_width, 'height': self.config.window_height}
+				await new_page.set_viewport_size(viewport_size)
+				logger.debug(f'Set viewport size to {self.config.window_width}x{self.config.window_height}')
+			else:
+				logger.debug('Skipping viewport size setting in create_new_tab because no_viewport is not False')
 		except Exception as e:
 			logger.debug(f'Failed to set viewport size: {e}')
 
@@ -1725,12 +1717,15 @@ class BrowserContext:
 				return
 
 			page = context.pages[0]
-			window_size = self.config.browser_window_size.model_dump()
+			window_size = {'width': self.config.window_width, 'height': self.config.window_height}
 
-			# First, set the viewport size
+			# First, set the viewport size if no_viewport is False
 			try:
-				await page.set_viewport_size(window_size)
-				logger.debug(f'Set viewport size to {window_size["width"]}x{window_size["height"]}')
+				if self.config.no_viewport is False:
+					await page.set_viewport_size(window_size)
+					logger.debug(f'Set viewport size to {window_size["width"]}x{window_size["height"]}')
+				else:
+					logger.debug('Skipping viewport size setting in _resize_window because no_viewport is not False')
 			except Exception as e:
 				logger.debug(f'Viewport resize failed: {e}')
 

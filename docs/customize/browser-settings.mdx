@@ -161,8 +161,10 @@ async def run_search():
   Highlight interactive elements on the screen with colorful bounding boxes.
 
 - **viewport_expansion** (default: `500`)
-  Viewport expansion in pixels. With this you can control how much of the page is included in the context of the LLM. If set to -1, all elements from the entire page will be included (this leads to high token usage). If set to 0, only the elements which are visible in the viewport will be included.
-  Default is 500 pixels, that means that we include a little bit more than the visible viewport inside the context.
+  Viewport expansion in pixels. With this you can control how much of the page is included in the context of the LLM. Setting this parameter controls the highlighting of elements:
+  - `-1`: All elements from the entire page will be included, regardless of visibility (highest token usage but most complete).
+  - `0`: Only elements which are currently visible in the viewport will be included.
+  - `500` (default): Elements in the viewport plus an additional 500 pixels in each direction will be included, providing a balance between context and token usage.
 
 ### Restrict URLs
 

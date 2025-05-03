@@ -13,7 +13,6 @@ from pydantic import SecretStr
 
 from browser_use.agent.service import Agent
 from browser_use.browser.browser import Browser, BrowserConfig, BrowserContextConfig
-from browser_use.browser.context import BrowserContextWindowSize
 
 # Load environment variables
 load_dotenv()
@@ -42,8 +41,11 @@ browser = Browser(
 			disable_security=True,
 			minimum_wait_page_load_time=1,  # 3 on prod
 			maximum_wait_page_load_time=10,  # 20 on prod
-			# no_viewport=True,
-			browser_window_size=BrowserContextWindowSize(width=1280, height=1100),
+			# Set no_viewport=False to constrain the viewport to the specified dimensions
+			# This is useful for specific cases where you need a fixed viewport size
+			no_viewport=False,
+			window_width=1280,
+			window_height=1100,
 			# trace_path='./tmp/web_voyager_agent',
 		),
 	)
