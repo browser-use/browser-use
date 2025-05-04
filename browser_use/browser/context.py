@@ -1768,7 +1768,7 @@ class BrowserContext:
 		
 	async def get_naver_photo_elements(self, retry_count: int = 3, wait_time: int = 1000, search_in_frames: bool = True, deep_search: bool = True):
 		"""
-		Get photo elements from Naver Maps.
+		Get photo elements from Naver pages (Maps, News, etc).
 		
 		Args:
 			retry_count: Number of retries if elements not found
@@ -1796,13 +1796,29 @@ class BrowserContext:
 		
 		elements = []
 		
+		current_url = page.url
+		is_news_page = "news.naver.com" in current_url
+		logger.info(f"Detected page type: {'News' if is_news_page else 'Maps/Other'} from URL: {current_url}")
+		
 		try:
-			selectors = [
-				"img[src*='pstatic.net']",  # Common Naver image source
-				"div[class*='photo'] img",   # Photos in div with class containing 'photo'
-				"div[class*='img'] img",     # Photos in div with class containing 'img'
-				"div[class*='thumb'] img"    # Photos in div with class containing 'thumb'
-			]
+			selectors = []
+			if is_news_page:
+				selectors = [
+					"div.end_photo_org img",            # Main article image
+					"div.media_end_photo img",          # Article photos
+					"div.news_photo img",               # News photos
+					"div[class*='article'] img[src*='pstatic.net']", # Article images
+					"div.article_photo img",            # Alternative article photos
+					"img[src*='imgnews.pstatic.net']"   # Common Naver news image source
+				]
+				logger.debug(f"Using News-specific selectors: {selectors}")
+			else:
+				selectors = [
+					"img[src*='pstatic.net']",          # Common Naver image source
+					"div[class*='photo'] img",          # Photos in div with class containing 'photo'
+					"div[class*='img'] img",            # Photos in div with class containing 'img'
+					"div[class*='thumb'] img"           # Photos in div with class containing 'thumb'
+				]
 			
 			for selector in selectors:
 				try:
@@ -1810,6 +1826,13 @@ class BrowserContext:
 					if main_elements:
 						elements.extend(main_elements)
 						logger.debug(f"Found {len(main_elements)} photo elements with selector: {selector}")
+						
+						for idx, elem in enumerate(main_elements):
+							try:
+								src = await elem.get_attribute("src")
+								logger.debug(f"  Image {idx+1} src: {src}")
+							except Exception:
+								pass
 				except Exception as e:
 					logger.debug(f"Error finding elements with selector {selector}: {str(e)}")
 			
@@ -1827,8 +1850,13 @@ class BrowserContext:
 								width_val = await width.json_value()
 								height_val = await height.json_value()
 								
-								if width_val > 100 and height_val > 100:
+								min_width = 200 if is_news_page else 100
+								min_height = 200 if is_news_page else 100
+								
+								if width_val > min_width and height_val > min_height:
 									elements.append(img)
+									src = await img.get_attribute("src")
+									logger.debug(f"Added image with dimensions {width_val}x{height_val}, src: {src}")
 							except Exception:
 								pass
 						
@@ -1851,6 +1879,14 @@ class BrowserContext:
 								if frame_elements:
 									elements.extend(frame_elements)
 									logger.debug(f"Found {len(frame_elements)} photo elements in frame with selector: {selector}")
+									
+									# Add debug info for each found image in frames
+									for idx, elem in enumerate(frame_elements):
+										try:
+											src = await elem.get_attribute("src")
+											logger.debug(f"  Frame image {idx+1} src: {src}")
+										except Exception:
+											pass
 							except Exception:
 								pass
 						
@@ -1864,8 +1900,13 @@ class BrowserContext:
 										width_val = await width.json_value()
 										height_val = await height.json_value()
 										
-										if width_val > 100 and height_val > 100:
+										min_width = 200 if is_news_page else 100
+										min_height = 200 if is_news_page else 100
+										
+										if width_val > min_width and height_val > min_height:
 											elements.append(img)
+											src = await img.get_attribute("src")
+											logger.debug(f"Added frame image with dimensions {width_val}x{height_val}, src: {src}")
 									except Exception:
 										pass
 					except Exception as e:
