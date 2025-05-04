@@ -5,15 +5,12 @@ FROM python:3.11.3-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Install system dependencies
+# Install minimal system dependencies required for Chrome
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
     curl \
+    git \
     unzip \
-    xvfb \
     libnss3 \
-    libatk-bridge2.0-0 \
-    libgtk-3-0 \
     libxss1 \
     libasound2 \
     libx11-xcb1 \
@@ -38,7 +35,7 @@ WORKDIR /app
 # Copy project files
 COPY . /app/
 
-# Change ownership to the non-root user
+# Change ownership
 RUN chown -R appuser:appgroup /app
 
 # Switch to non-root user
@@ -46,11 +43,13 @@ USER appuser
 
 # Install Python dependencies
 RUN pip install --upgrade pip \
-    && pip install .
+    && pip install . \
+    && pip install patchright \
+    && patchright install chrome
 
-# Define health check (example: adjust as needed)
+# Healthcheck (optional)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8000/health || exit 1
 
-# Define default command
+# Default command
 CMD ["python", "-m", "browser_use"]
