@@ -753,6 +753,11 @@
       if (element.inert) {
         return false;
       }
+      
+      // Check specifically for disabled="true" attribute which is common in LWC framework
+      if (element.getAttribute('disabled') === 'true') {
+        return false;
+      }
 
       return true;
     }
@@ -773,6 +778,10 @@
       element.getAttribute('data-toggle') === 'dropdown' ||
       element.getAttribute('aria-haspopup') === 'true'
     )) {
+      // Check specifically for disabled="true" attribute for LWC elements
+      if (element.getAttribute('disabled') === 'true') {
+        return false;
+      }
       return true;
     }
 
@@ -802,7 +811,13 @@
       interactiveRoles.has(role) ||
       interactiveRoles.has(ariaRole);
 
-    if (hasInteractiveRole) return true;
+    if (hasInteractiveRole) {
+      // Check specifically for disabled="true" attribute for elements with ARIA roles
+      if (element.getAttribute('disabled') === 'true') {
+        return false;
+      }
+      return true;
+    }
 
     // check whether element has event listeners
     try {
