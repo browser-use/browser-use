@@ -90,7 +90,7 @@ async def main():
 
 	available_file_paths = [create_file('txt'), create_file('pdf'), create_file('csv')]
 
-	model = ChatOpenAI(model='gpt-4o')
+	model = ChatOpenAI(model='gpt-4o', temperature=0.0)
 	agent = Agent(
 		task=task,
 		llm=model,

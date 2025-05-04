@@ -42,7 +42,7 @@ controller = Controller()
 async def main():
 	task = 'In docs.google.com write my Papa a quick thank you for everything letter \n - Magnus'
 	task += ' and save the document as pdf'
-	model = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=SecretStr(str(api_key)))
+	model = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=SecretStr(str(api_key)), temperature=0.0)
 	agent = Agent(
 		task=task,
 		llm=model,

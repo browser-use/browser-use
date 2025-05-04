@@ -108,12 +108,12 @@ class AgentStepInfo:
 
 class ActionResult(BaseModel):
 	"""Result of executing an action"""
-
+  
 	is_done: bool | None = False
 	success: bool | None = None
 	extracted_content: str | None = None
 	error: str | None = None
-	include_in_memory: bool = False  # whether to include in past messages as context or not
+	include_in_memory: bool = True
 
 
 class StepMetadata(BaseModel):

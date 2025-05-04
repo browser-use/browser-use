@@ -8,10 +8,7 @@ from browser_use import Agent, Browser, BrowserConfig, BrowserContextConfig, Con
 load_dotenv()
 
 # Initialize the model
-llm = ChatOpenAI(
-	model='gpt-4o',
-	temperature=0.0,
-)
+llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
 # Get your chrome path
 browser = Browser(
 	config=BrowserConfig(

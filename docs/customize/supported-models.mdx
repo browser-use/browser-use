@@ -13,7 +13,6 @@ Browser Use supports various LangChain chat models. Here's how to configure and 
 We have yet to test performance across all models. Currently, we achieve the best results using GPT-4o with an 89% accuracy on the [WebVoyager Dataset](https://browser-use.com/posts/sota-technical-report). DeepSeek-V3 is 30 times cheaper than GPT-4o. Gemini-2.0-exp is also gaining popularity in the community because it is currently free.
 We also support local models, like Qwen 2.5, but be aware that small models often return the wrong output structure-which lead to parsing errors. We believe that local models will improve significantly this year.
 
-
 <Note>
   All models require their respective API keys. Make sure to set them in your
   environment variables before running the agent.
@@ -52,14 +51,13 @@ OPENAI_API_KEY=
 
 ### Anthropic
 
-
 ```python
 from langchain_anthropic import ChatAnthropic
 from browser_use import Agent
 
 # Initialize the model
 llm = ChatAnthropic(
-    model_name="claude-3-5-sonnet-20240620",
+    model="claude-3-5-sonnet-20240620",
     temperature=0.0,
     timeout=100, # Increase for complex tasks
 )
@@ -107,7 +105,6 @@ AZURE_OPENAI_ENDPOINT=https://your-endpoint.openai.azure.com/
 AZURE_OPENAI_KEY=
 ```
 
-
 ### Gemini
 
 ```python
@@ -134,8 +131,8 @@ Required environment variables:
 GEMINI_API_KEY=
 ```
 
-
 ### DeepSeek-V3
+
 The community likes DeepSeek-V3 for its low price, no rate limits, open-source nature, and good performance.
 The example is available [here](https://github.com/browser-use/browser-use/blob/main/examples/models/deepseek.py).
 
@@ -166,9 +163,11 @@ DEEPSEEK_API_KEY=
 ```
 
 ### DeepSeek-R1
+
 We support DeepSeek-R1. Its not fully tested yet, more and more functionality will be added, like e.g. the output of it'sreasoning content.
 The example is available [here](https://github.com/browser-use/browser-use/blob/main/examples/models/deepseek-r1.py).
 It does not support vision. The model is open-source so you could also use it with Ollama, but we have not tested it.
+
 ```python
 from langchain_openai import ChatOpenAI
 from browser_use import Agent
@@ -196,6 +195,7 @@ DEEPSEEK_API_KEY=
 ```
 
 ### Ollama
+
 Many users asked for local models. Here they are.
 
 1. Download Ollama from [here](https://ollama.ai/download)
@@ -221,6 +221,7 @@ agent = Agent(
 Required environment variables: None!
 
 ### Novita AI
+
 [Novita AI](https://novita.ai) is an LLM API provider that offers a wide range of models. Note: choose a model that supports function calling.
 
 ```python
@@ -249,7 +250,9 @@ Required environment variables:
 ```bash .env
 NOVITA_API_KEY=
 ```
+
 ### X AI
+
 [X AI](https://x.ai) is an LLM API provider that offers a wide range of models. Note: choose a model that supports function calling.
 
 ```python
@@ -284,7 +287,9 @@ GROK_API_KEY=
 ```
 
 ## Coming soon
+
 (We are working on it)
+
 - Groq
 - Github
 - Fine-tuned models

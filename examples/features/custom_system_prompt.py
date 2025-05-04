@@ -19,7 +19,7 @@ extend_system_message = (
 
 async def main():
 	task = "do google search to find images of Elon Musk's wife"
-	model = ChatOpenAI(model='gpt-4o')
+	model = ChatOpenAI(model='gpt-4o', temperature=0.0)
 	agent = Agent(task=task, llm=model, extend_system_message=extend_system_message)
 
 	print(

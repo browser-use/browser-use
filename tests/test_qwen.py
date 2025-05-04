@@ -12,7 +12,7 @@ from browser_use.browser.browser import Browser, BrowserConfig
 def llm():
 	"""Initialize language model for testing"""
 
-	# return ChatAnthropic(model_name='claude-3-5-sonnet-20240620', timeout=25, stop=None)
+	# return ChatAnthropic(model='claude-3-5-sonnet-20240620', timeout=25, stop=None)
 	# NOTE: Make sure to run ollama server with `ollama start'
 	return ChatOllama(
 		model='qwen2.5:latest',

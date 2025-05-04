@@ -39,7 +39,7 @@ async def paste_from_clipboard(browser: BrowserContext):
 
 async def main():
 	task = 'Copy the text "Hello, world!" to the clipboard, then go to google.com and paste the text'
-	model = ChatOpenAI(model='gpt-4o')
+	model = ChatOpenAI(model='gpt-4o', temperature=0.0)
 	agent = Agent(
 		task=task,
 		llm=model,

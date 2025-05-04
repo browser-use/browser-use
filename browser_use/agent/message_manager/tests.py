@@ -13,7 +13,7 @@ from browser_use.dom.views import DOMElementNode, DOMTextNode
 	params=[
 		ChatOpenAI(model='gpt-4o-mini'),
 		AzureChatOpenAI(model='gpt-4o', api_version='2024-02-15-preview'),
-		ChatAnthropic(model_name='claude-3-5-sonnet-20240620', timeout=100, temperature=0.0, stop=None),
+		ChatAnthropic(model='claude-3-5-sonnet-20240620', timeout=100, temperature=0.0, stop=None),
 	],
 	ids=['gpt-4o-mini', 'gpt-4o', 'claude-3-5-sonnet'],
 )

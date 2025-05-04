@@ -40,11 +40,11 @@ async def main():
 	for i in range(10):
 		agent = Agent(
 			task=task,
-			llm=ChatOpenAI(model='gpt-4o'),
+			llm=ChatOpenAI(model='gpt-4o', temperature=0.0),
 			browser=browser,
 			browser_context=browser_context,
 			injected_agent_state=agent_state,
-			page_extraction_llm=ChatOpenAI(model='gpt-4o-mini'),
+			page_extraction_llm=ChatOpenAI(model='gpt-4o-mini', temperature=0.0),
 		)
 
 		done, valid = await agent.take_step()

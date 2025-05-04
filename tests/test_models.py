@@ -72,7 +72,7 @@ api_key_anthropic = SecretStr(os.getenv('ANTHROPIC_API_KEY') or '')
 			api_key=SecretStr(os.getenv('AZURE_OPENAI_KEY', '')),
 		),
 		ChatAnthropic(
-			model_name='claude-3-5-sonnet-20240620',
+			model='claude-3-5-sonnet-20240620',
 			timeout=100,
 			temperature=0.0,
 			stop=None,

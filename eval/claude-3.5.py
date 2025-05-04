@@ -9,7 +9,7 @@ load_dotenv()
 async def run_agent(task: str, browser: Browser | None = None, max_steps: int = 38):
 	browser = browser or Browser()
 	llm = ChatAnthropic(
-		model_name='claude-3-5-sonnet-20240620',
+		model='claude-3-5-sonnet-20240620',
 		temperature=0.0,
 		timeout=100,
 		stop=None,
