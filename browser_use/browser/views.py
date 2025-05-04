@@ -17,16 +17,6 @@ class TabInfo(BaseModel):
 	parent_page_id: int | None = None  # parent page that contains this popup or cross-origin iframe
 
 
-class GroupTabsAction(BaseModel):
-	tab_ids: list[int]
-	title: str
-	color: str | None = 'blue'
-
-
-class UngroupTabsAction(BaseModel):
-	tab_ids: list[int]
-
-
 @dataclass
 class BrowserState(DOMState):
 	url: str

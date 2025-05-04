@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.1.43"
+version = "0.1.45"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -36,6 +36,9 @@ dependencies = [
     "psutil>=7.0.0",
     "faiss-cpu>=1.9.0",
     "mem0ai==0.1.93",
+    "rich>=14.0.0",
+    "click>=8.1.8",
+    "textual>=3.2.0",
 ]
 # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py 
 # pydantic: >2.11 introduces many pydantic deprecation warnings until langchain-core upgrades their pydantic support lets keep it on 2.10
@@ -45,6 +48,9 @@ dependencies = [
 # screeninfo: only used to get screen resolution on Linux/Windows
 # markdownify: used for page text content extraction for passing to LLM
 # openai: datalib,voice-helpers are actually NOT NEEDED but openai produces noisy errors on exit without them TODO: fix
+# rich: used for terminal formatting and styling in CLI
+# click: used for command-line argument parsing
+# textual: used for terminal UI
 
 # Optional dependencies for memory functionality
 [project.optional-dependencies]
@@ -54,6 +60,10 @@ memory = [
 
 [project.urls]
 Repository = "https://github.com/browser-use/browser-use"
+
+[project.scripts]
+browseruse = "browser_use.cli:main"
+browser-use = "browser_use.cli:main"
 
 [tool.codespell]
 ignore-words-list = "bu"

@@ -62,7 +62,7 @@ class MessageManager:
 
 		if self.settings.sensitive_data:
 			info = f'Here are placeholders for sensitive data: {list(self.settings.sensitive_data.keys())}'
-			info += 'To use them, write <secret>the placeholder name</secret>'
+			info += '\nTo use them, write <secret>the placeholder name</secret>'
 			info_message = HumanMessage(content=info)
 			self._add_message_with_tokens(info_message, message_type='init')
 
@@ -216,10 +216,19 @@ class MessageManager:
 		def replace_sensitive(value: str) -> str:
 			if not self.settings.sensitive_data:
 				return value
-			for key, val in self.settings.sensitive_data.items():
-				if not val:
-					continue
+
+			# Create a dictionary with all key-value pairs from sensitive_data where value is not None or empty
+			valid_sensitive_data = {k: v for k, v in self.settings.sensitive_data.items() if v}
+
+			# If there are no valid sensitive data entries, just return the original value
+			if not valid_sensitive_data:
+				logger.warning('No valid entries found in sensitive_data dictionary')
+				return value
+
+			# Replace all valid sensitive data values with their placeholder tags
+			for key, val in valid_sensitive_data.items():
 				value = value.replace(val, f'<secret>{key}</secret>')
+
 			return value
 
 		if isinstance(message.content, str):

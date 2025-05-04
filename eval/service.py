@@ -393,7 +393,7 @@ def get_llm(model_name: str):
 			kwargs['api_key'] = api_key_secret
 		return ChatAnthropic(**kwargs)
 	elif provider == 'google':
-		# Note: Google client often uses env var GOOGLE_API_KEY directly if api_key=None
+		# Note: Google client often uses env var GEMINI_API_KEY directly if api_key=None
 		kwargs = {
 			'model': config['model_name'],
 			'temperature': 0.0,

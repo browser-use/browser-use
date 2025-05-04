@@ -190,8 +190,8 @@ class Controller(Generic[Context]):
 		@self.registry.action('Switch tab', param_model=SwitchTabAction)
 		async def switch_tab(params: SwitchTabAction, browser: BrowserContext):
 			await browser.switch_to_tab(params.page_id)
-			# Wait for tab to be ready
-			page = await browser.get_current_page()
+			# Wait for tab to be ready and ensure references are synchronized
+			page = await browser.get_agent_current_page()
 			await page.wait_for_load_state()
 			msg = f'🔄  Switched to tab {params.page_id}'
 			logger.info(msg)
@@ -200,6 +200,8 @@ class Controller(Generic[Context]):
 		@self.registry.action('Open url in new tab', param_model=OpenTabAction)
 		async def open_tab(params: OpenTabAction, browser: BrowserContext):
 			await browser.create_new_tab(params.url)
+			# Ensure tab references are properly synchronized
+			await browser.get_agent_current_page()  # this has side-effects (even though it looks like a getter)
 			msg = f'🔗  Opened new tab with {params.url}'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)

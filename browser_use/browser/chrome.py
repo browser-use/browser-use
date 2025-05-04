@@ -1,6 +1,3 @@
-CHROME_DEFAULT_USER_AGENT = (
-	'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.3'
-)
 CHROME_EXTENSIONS = {}  # coming in a separate PR
 CHROME_EXTENSIONS_PATH = 'chrome_extensions'
 CHROME_PROFILE_PATH = 'chrome_profile'
@@ -102,7 +99,7 @@ CHROME_ARGS = [
 	# f'--profile-directory={CHROME_PROFILE_USER}',
 	# '--password-store=basic',  # use mock keychain instead of OS-provided keychain (we manage auth.json instead)
 	# '--use-mock-keychain',
-	'--disable-cookie-encryption',  # we need to be able to write unencrypted cookies to save/load auth.json
+	# '--disable-cookie-encryption',  # we need to be able to write unencrypted cookies to save/load auth.json
 	'--disable-sync',  # don't try to use Google account sync features while automation is active
 	# Extensions
 	# chrome://inspect/#extensions

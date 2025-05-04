@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import sys
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -281,6 +282,26 @@ class Agent(Generic[Context]):
 		else:
 			self.memory = None
 
+		# Huge security warning if sensitive_data is provided but allowed_domains is not set
+		if self.sensitive_data and not self.browser.config.new_context_config.allowed_domains:
+			logger.error(
+				'⚠️⚠️⚠️ Agent(sensitive_data=••••••••) was provided but BrowserContextConfig(allowed_domains=[...]) is not locked down! ⚠️⚠️⚠️\n'
+				'          ☠️ If the agent visits a malicious website and encounters a prompt-injection attack, your sensitive_data may be exposed!\n\n'
+				'             https://docs.browser-use.com/customize/browser-settings#restrict-urls\n'
+				'Waiting 10 seconds before continuing... Press [Ctrl+C] to abort.'
+			)
+			if sys.stdin.isatty():
+				try:
+					time.sleep(10)
+				except KeyboardInterrupt:
+					print(
+						'\n\n 🛑 Exiting now... set BrowserContextConfig(allowed_domains=["example.com", "example.org"]) to only domains you trust to see your sensitive_data.'
+					)
+					sys.exit(0)
+			else:
+				pass  # no point waiting if we're not in an interactive shell
+			logger.warning('‼️ Continuing with insecure settings for now... but this will become a hard error in the future!')
+
 		# Browser setup
 		self.injected_browser = browser is not None
 		self.injected_browser_context = browser_context is not None
@@ -424,7 +445,7 @@ class Agent(Generic[Context]):
 
 		try:
 			state = await self.browser_context.get_state(cache_clickable_elements_hashes=True)
-			active_page = await self.browser_context.get_current_page()
+			current_page = await self.browser_context.get_current_page()
 
 			# generate procedural memory if needed
 			if self.enable_memory and self.memory and self.state.n_steps % self.memory.config.memory_interval == 0:
@@ -433,10 +454,10 @@ class Agent(Generic[Context]):
 			await self._raise_if_stopped_or_paused()
 
 			# Update action models with page-specific actions
-			await self._update_action_models_for_page(active_page)
+			await self._update_action_models_for_page(current_page)
 
 			# Get page-specific filtered actions
-			page_filtered_actions = self.controller.registry.get_prompt_description(active_page)
+			page_filtered_actions = self.controller.registry.get_prompt_description(current_page)
 
 			# If there are page-specific actions, add them as a special message for this step only
 			if page_filtered_actions:

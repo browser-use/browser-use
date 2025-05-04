@@ -47,19 +47,6 @@ class SendKeysAction(BaseModel):
 	keys: str
 
 
-class GroupTabsAction(BaseModel):
-	tab_ids: list[int] = Field(..., description='List of tab IDs to group')
-	title: str = Field(..., description='Name for the tab group')
-	color: str | None = Field(
-		'blue',
-		description='Color for the group (grey/blue/red/yellow/green/pink/purple/cyan)',
-	)
-
-
-class UngroupTabsAction(BaseModel):
-	tab_ids: list[int] = Field(..., description='List of tab IDs to ungroup')
-
-
 class ExtractPageContentAction(BaseModel):
 	value: str
 
