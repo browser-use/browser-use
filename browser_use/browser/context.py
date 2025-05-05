@@ -1809,7 +1809,12 @@ class BrowserContext:
 					"div.news_photo img",               # News photos
 					"div[class*='article'] img[src*='pstatic.net']", # Article images
 					"div.article_photo img",            # Alternative article photos
-					"img[src*='imgnews.pstatic.net']"   # Common Naver news image source
+					"img[src*='imgnews.pstatic.net']",  # Common Naver news image source
+					"article table img",                # Main article image in table structure
+					"td img",                           # Images in table cells
+					"article td img",                   # Article images in table cells
+					"table img",                        # Images in any table
+					"img[src*='201602051530511478']"    # Specific image pattern for older articles
 				]
 				logger.debug(f"Using News-specific selectors: {selectors}")
 			else:
