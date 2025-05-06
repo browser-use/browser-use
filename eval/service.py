@@ -753,6 +753,10 @@ async def run_task_with_semaphore(
 			'onlineMind2WebEvaluationSuccess': False,
 			'onlineMind2WebEvaluationScore': 0.0,
 			'completeHistory': [],  # Initialize new field
+			'maxSteps': max_steps_per_task,
+			'tokensUsed': 0,
+			'taskDuration': None,
+			'steps': 0,
 		}
 
 		# Initialize the return value for local processing status
@@ -775,6 +779,7 @@ async def run_task_with_semaphore(
 					server_payload['completeHistory'] = existing_result.get('complete_history', [])
 					server_payload['taskDuration'] = existing_result.get('task_duration')
 					server_payload['steps'] = existing_result.get('steps', 0)
+					server_payload['tokensUsed'] = existing_result.get('tokensUsed', 0)  # Ensure tokensUsed is loaded
 
 					# Check if evaluation data is also present
 					if existing_eval := existing_result.get('Online_Mind2Web_evaluation'):
@@ -888,6 +893,7 @@ async def run_task_with_semaphore(
 									server_payload['completeHistory'] = run_result_data.get('complete_history', [])
 									server_payload['taskDuration'] = run_result_data.get('task_duration')
 									server_payload['steps'] = run_result_data.get('steps', 0)
+
 									server_payload['tokensUsed'] = run_result_data.get('tokensUsed', 0)
 							except Exception as e:
 								logger.error(
