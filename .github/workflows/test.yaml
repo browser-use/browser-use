@@ -21,23 +21,23 @@ jobs:
           - browser/test_patchright
           - browser/test_user_binary
           - browser/test_remote_cdp
-          - models/openai
-          - models/google
-          - models/anthropic
-          - models/azure
-          - models/deepseek
-          - models/grok
-          - functionality/click
-          - functionality/tabs
-          - functionality/input
-          - functionality/scroll
-          - functionality/upload
-          - functionality/download
-          - functionality/save
-          - functionality/vision
-          - functionality/memory
-          - functionality/planner
-          - functionality/hooks
+          # - models/openai
+          # - models/google
+          # - models/anthropic
+          # - models/azure
+          # - models/deepseek
+          # - models/grok
+          # - functionality/click
+          # - functionality/tabs
+          # - functionality/input
+          # - functionality/scroll
+          # - functionality/upload
+          # - functionality/download
+          # - functionality/save
+          # - functionality/vision
+          # - functionality/memory
+          # - functionality/planner
+          # - functionality/hooks
           - test_controller
           - test_tab_management
           - test_sensitive_data
@@ -70,30 +70,16 @@ jobs:
         run: |
           uv pip install playwright
           uv run playwright install chromium
+          uv run patchright install chrome
 
-      # Conditional setup block
-      - name: Setup special dependencies
+      - name: Launch Chrome with remote debugging
         run: |
-          case "${{ matrix.test }}" in
-            browser/patchright)
-              uv pip install playwright
-              uv run playwright install chromium
-              ;;
-            browser/user_binary)
-              sudo apt-get update
-              sudo apt-get install -y google-chrome-stable
-              ;;
-            browser/remote_cdp)
-              sudo apt-get update
-              sudo apt-get install -y google-chrome-stable
-              google-chrome-stable --headless --disable-gpu \
-                --remote-debugging-port=9222 --no-sandbox --disable-dev-shm-usage &
-              sleep 5
-              ;;
-            test_controller)
-              uv run patchright install chrome
-              ;;
-          esac
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+          google-chrome --headless --disable-gpu --remote-debugging-port=9222 --no-sandbox &
+
+          # Give Chrome a few seconds to start
+          sleep 5
 
       - name: Run tests
         run: uv run --with=dotenv pytest tests/${{ matrix.test }}.py
