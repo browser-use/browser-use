@@ -1,6 +1,7 @@
 import asyncio
 
 from langchain_openai import ChatOpenAI
+
 from browser_use import Agent
 
 
