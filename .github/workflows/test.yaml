@@ -10,45 +10,74 @@ on:
       - '*'
   pull_request:
   workflow_dispatch:
-    
+
 jobs:
   tests:
-    name: ${{matrix.test}} 
+    name: ${{ matrix.test }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
         test:
-        - browser/patchright
-        - browser/user_binary
-        - browser/remote_cdp
-        - models/openai
-        - models/google
-        - models/anthropic
-        - models/azure
-        - models/deepseek
-        - models/grok
-        - functionality/click
-        - functionality/tabs
-        - functionality/input
-        - functionality/scroll
-        - functionality/upload
-        - functionality/download
-        - functionality/save
-        - functionality/vision
-        - functionality/memory
-        - functionality/planner
-        - functionality/hooks
-        - test_controller
-        - test_tab_management
-        - test_sensitive_data
+          - browser/patchright
+          - browser/user_binary
+          - browser/remote_cdp
+          - models/openai
+          - models/google
+          - models/anthropic
+          - models/azure
+          - models/deepseek
+          - models/grok
+          - functionality/click
+          - functionality/tabs
+          - functionality/input
+          - functionality/scroll
+          - functionality/upload
+          - functionality/download
+          - functionality/save
+          - functionality/vision
+          - functionality/memory
+          - functionality/planner
+          - functionality/hooks
+          - test_controller
+          - test_tab_management
+          - test_sensitive_data
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup uv with cache
+        uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
           activate-environment: true
 
-      - run: uv run patchright install chrome
-        if: matrix.test == 'test_controller'
+      - name: Install project and test dependencies
+        run: uv pip install -e .[dev,test]
 
-      - run: uv run --with=dotenv pytest tests/${{ matrix.test }}.py || true
+      # Conditional setup block
+      - name: Setup special dependencies
+        run: |
+          case "${{ matrix.test }}" in
+            browser/patchright)
+              uv pip install playwright
+              uv run playwright install chromium
+              ;;
+            browser/user_binary)
+              sudo apt-get update
+              sudo apt-get install -y google-chrome-stable
+              ;;
+            browser/remote_cdp)
+              sudo apt-get update
+              sudo apt-get install -y google-chrome-stable
+              google-chrome-stable --headless --disable-gpu \
+                --remote-debugging-port=9222 --no-sandbox --disable-dev-shm-usage &
+              sleep 5
+              ;;
+            test_controller)
+              uv run patchright install chrome
+              ;;
+          esac
+
+      - name: Run tests
+        run: uv run --with=dotenv pytest tests/${{ matrix.test }}.py
