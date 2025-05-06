@@ -4,7 +4,7 @@
 
 
 # Here is the command to run the evaluation:
-# python eval/service.py --parallel_runs 5 --max_steps 25 --start 0 --end 100 --model gpt-4o
+# python eval/service.py --parallel_runs 5 --max_steps 25 --start 0 --end 100 --model gpt-4.1 --eval-model gemini-2.5-pro
 # options:
 # --parallel_runs: Number of parallel tasks to run
 # --max_steps: Maximum steps per task
@@ -448,7 +448,8 @@ async def reformat_agent_history(
 		# Get action result content
 		if history_item.result:
 			for result in history_item.result:
-				if result.extracted_content:
+				# We don't want to include the final result in the action history as per the evaluation criteria
+				if result.extracted_content and result.extracted_content != 'None' and not result.is_done:
 					action_history.append(result.extracted_content)
 				# Check if this is the final result
 				if result.is_done:
@@ -738,6 +739,9 @@ async def run_task_with_semaphore(
 			'runId': run_id,
 			'taskId': task.task_id,
 			'task': task.confirmed_task,
+			'taskWebsite': task.website,
+			'taskReferenceLength': task.reference_length,
+			'taskLevel': task.level,
 			'actionHistory': [],
 			'finalResultResponse': 'None',
 			'selfReportCompleted': False,
@@ -811,8 +815,14 @@ async def run_task_with_semaphore(
 					tracker = ScreenshotTracker(task.task_id, task.confirmed_task, run_id)
 					browserConfig = BrowserConfig(headless=headless)
 					browser = Browser(config=browserConfig)
+					initial_actions = [{'go_to_url': {'url': task.website}}]
 					agent = Agent(
-						task=task.confirmed_task, llm=llm, browser=browser, use_vision=use_vision, source='eval_platform'
+						task=task.confirmed_task,
+						llm=llm,
+						browser=browser,
+						initial_actions=initial_actions,
+						use_vision=use_vision,
+						source='eval_platform',
 					)
 
 					# Pass hook functions
@@ -1209,6 +1219,9 @@ if __name__ == '__main__':
 	parser.add_argument(
 		'--model', type=str, default='gpt-4o', choices=list(SUPPORTED_MODELS.keys()), help='Model to use for the agent'
 	)
+	parser.add_argument(
+		'--eval-model', type=str, default='gpt-4o', choices=list(SUPPORTED_MODELS.keys()), help='Model to use for evaluation'
+	)
 	parser.add_argument('--no-vision', action='store_true', help='Disable vision capabilities in the agent')
 	parser.add_argument(
 		'--fresh-start',
@@ -1309,7 +1322,7 @@ if __name__ == '__main__':
 			'headless': args.headless,
 			'use_vision': not args.no_vision,
 			'task_source': TEST_CASE_NAME,
-			'llm_judge': 'gpt-4o',
+			'llm_judge': args.eval_model,
 		}
 
 		run_data = {
@@ -1341,13 +1354,13 @@ if __name__ == '__main__':
 			logger.error(f'Failed to instantiate agent LLM ({args.model}): {type(e).__name__}: {e}', exc_info=True)
 			exit(1)
 
-		logger.info('Instantiating evaluation LLM: gpt-4o')
+		logger.info(f'Instantiating evaluation LLM: {args.eval_model}')
 		try:
-			eval_llm = get_llm('gpt-4o')
-			logger.info('Evaluation LLM (gpt-4o) instantiated successfully.')
+			eval_model = get_llm(args.eval_model)
+			logger.info(f'Evaluation LLM ({args.eval_model}) instantiated successfully.')
 		except Exception as e:
 			logger.error(
-				f'Failed to instantiate evaluation LLM (gpt-4o): {type(e).__name__}: {e}. Make sure OPENAI_API_KEY is set.',
+				f'Failed to instantiate evaluation LLM ({args.eval_model}): {type(e).__name__}: {e}. Make sure required API keys are set.',
 				exc_info=True,
 			)
 			exit(1)
@@ -1360,7 +1373,7 @@ if __name__ == '__main__':
 				run_id=run_id,
 				convex_url=CONVEX_URL,
 				secret_key=SECRET_KEY,
-				eval_model=eval_llm,  # Pass the dedicated gpt-4o evaluator
+				eval_model=eval_model,  # Pass the dedicated gpt-4o evaluator
 				max_parallel_runs=args.parallel_runs,
 				max_steps_per_task=args.max_steps,
 				start_index=args.start,
