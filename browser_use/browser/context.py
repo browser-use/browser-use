@@ -302,6 +302,34 @@ class BrowserContext:
 		"""Initialize the browser session"""
 		logger.debug(f'🌎  Initializing new browser context with id: {self.context_id}')
 
+		# Check if the browser is using a persistent context
+		persistent_context = await self.browser.get_persistent_context()
+		if persistent_context:
+			logger.debug('Using existing persistent context')
+			self.session = BrowserSession(
+				context=persistent_context,
+				cached_state=None,
+			)
+
+			# Get or create a page to use
+			pages = persistent_context.pages
+
+			if not pages:
+				# Create a new page if none exists
+				page = await persistent_context.new_page()
+				logger.debug('Created new page in persistent context')
+			else:
+				# Use the first existing page
+				page = pages[0]
+				logger.debug(f'Using existing page in persistent context: {page.url}')
+
+			# Bring page to front
+			await page.bring_to_front()
+			await page.wait_for_load_state('load')
+
+			return self.session
+
+		# Standard browser context initialization
 		playwright_browser = await self.browser.get_playwright_browser()
 		context = await self._create_context(playwright_browser)
 		self._page_event_handler = None
