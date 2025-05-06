@@ -1,10 +1,8 @@
 import asyncio
 
-import pytest
 from playwright.async_api import async_playwright
 
 
-@pytest.mark.asyncio
 async def test_remote_cdp_connection():
 	# Remote debugging URL - replace with actual if needed in local/dev
 	cdp_url = 'http://localhost:9222'  # This port must be open in CI if testing real CDP

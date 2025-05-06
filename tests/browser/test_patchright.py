@@ -1,10 +1,8 @@
 import asyncio
 
-import pytest
 from patchright.async_api import async_playwright
 
 
-@pytest.mark.asyncio
 async def test_patchright_launch_and_close():
 	async with async_playwright() as p:
 		browser = await p.chromium.launch(headless=True)

@@ -6,7 +6,6 @@ import pytest
 from patchright.async_api import async_playwright
 
 
-@pytest.mark.asyncio
 async def test_launch_with_user_binary():
 	# In GitHub Actions, Chrome is usually available as 'google-chrome'
 	chrome_path = shutil.which('google-chrome')
