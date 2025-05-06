@@ -558,7 +558,7 @@ class TestTabManagement:
 		assert f'{base_url}' in final_page.url
 
 	@pytest.mark.asyncio
-	async def test_patchright_launch_and_close():
+	async def test_patchright_launch_and_close(self, browser_context, controller, base_url):
 		async with async_playwright() as p:
 			browser = await p.chromium.launch(headless=True)
 			context = await browser.new_context()
