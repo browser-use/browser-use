@@ -18,9 +18,9 @@ jobs:
     strategy:
       matrix:
         test:
-          - browser/patchright
-          - browser/user_binary
-          - browser/remote_cdp
+          - browser/test_patchright
+          - browser/test_user_binary
+          - browser/test_remote_cdp
           - models/openai
           - models/google
           - models/anthropic
