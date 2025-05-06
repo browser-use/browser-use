@@ -4,6 +4,7 @@ import logging
 import pytest
 from dotenv import load_dotenv
 from pytest_httpserver import HTTPServer
+from patchright.async_api import async_playwright
 
 load_dotenv()
 
@@ -555,3 +556,16 @@ class TestTabManagement:
 		# Verify the URL of the remaining tab
 		final_page = await browser_context.get_current_page()
 		assert f'{base_url}' in final_page.url
+
+	@pytest.mark.asyncio
+	async def test_patchright_launch_and_close():
+		async with async_playwright() as p:
+			browser = await p.chromium.launch(headless=True)
+			context = await browser.new_context()
+			page = await context.new_page()
+
+			await page.goto("https://example.com")
+			title = await page.title()
+			assert "Example Domain" in title, "Expected 'Example Domain' in page title"
+
+			await browser.close()
