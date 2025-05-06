@@ -1,6 +1,5 @@
 import asyncio
 import os
-import time
 import logging
 import requests
 from pathlib import Path
@@ -10,8 +9,8 @@ from pydantic import BaseModel, SecretStr
 from browser_use import ActionResult, Agent, Controller, BrowserConfig
 from browser_use.browser.browser import Browser
 from browser_use.browser.context import BrowserContextConfig
-import fitz # PyMuPDF for PDF text extraction
-from gemini_flash import GeminiFlash # Gemini-Flash Support
+import fitz  # PyMuPDF for PDF text extraction
+from gemini_flash import GeminiFlash  # Gemini-Flash Support
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 # Set up logging configuration for better debugging
@@ -80,7 +79,7 @@ async def scrape_and_read_pdfs_with_gemini_flash(
 
     try:
         page.goto(url, wait_until="load")
-        time.sleep(2)  # Allow the page to load completely
+        await asyncio.sleep(2)  # Allow the page to load completely (replaced time.sleep with asyncio.sleep)
     except Exception as e:
         logging.error(f"Error loading page: {e}")
         return ActionResult(error=f"Page timeout while loading: {url}")
@@ -97,19 +96,19 @@ async def scrape_and_read_pdfs_with_gemini_flash(
             logging.error(f"Error while collecting PDFs: {e}")
 
     # Function to handle "Next" or "More" button clicks
-    def try_click_more():
+    async def try_click_more():
         if click_more:
             try:
                 for el in page.query_selector_all("button, a"):
                     if "more" in el.inner_text().lower() or "next" in el.inner_text().lower():
                         el.click()
-                        time.sleep(1)  # Wait for new content to load
+                        await asyncio.sleep(1)  # Wait for new content to load (replaced time.sleep with asyncio.sleep)
                         collect_pdfs(page)
             except Exception as e:
                 logging.warning(f"Error while clicking more buttons: {e}")
 
     collect_pdfs(page)
-    try_click_more()
+    await try_click_more()
 
     # Remove duplicate PDF links
     pdf_links = set(pdf_links)
