@@ -555,4 +555,3 @@ class TestTabManagement:
 		# Verify the URL of the remaining tab
 		final_page = await browser_context.get_current_page()
 		assert f'{base_url}' in final_page.url
-
