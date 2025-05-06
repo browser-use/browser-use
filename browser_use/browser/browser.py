@@ -320,6 +320,7 @@ class Browser:
 		}
 
 		browser = await browser_class.launch(
+			channel='chromium',  # https://github.com/microsoft/playwright/issues/33566
 			headless=self.config.headless,
 			args=args[self.config.browser_class],
 			proxy=self.config.proxy.model_dump() if self.config.proxy else None,

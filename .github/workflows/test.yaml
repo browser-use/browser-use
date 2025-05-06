@@ -18,26 +18,27 @@ jobs:
     strategy:
       matrix:
         test:
-        - browser/patchright
-        - browser/user_binary
-        - browser/remote_cdp
-        - models/openai
-        - models/google
-        - models/anthropic
-        - models/azure
-        - models/deepseek
-        - models/grok
-        - functionality/click
-        - functionality/tabs
-        - functionality/input
-        - functionality/scroll
-        - functionality/upload
-        - functionality/download
-        - functionality/save
-        - functionality/vision
-        - functionality/memory
-        - functionality/planner
-        - functionality/hooks
+        # TODO:
+        # - browser/patchright
+        # - browser/user_binary
+        # - browser/remote_cdp
+        # - models/openai
+        # - models/google
+        # - models/anthropic
+        # - models/azure
+        # - models/deepseek
+        # - models/grok
+        # - functionality/click
+        # - functionality/tabs
+        # - functionality/input
+        # - functionality/scroll
+        # - functionality/upload
+        # - functionality/download
+        # - functionality/save
+        # - functionality/vision
+        # - functionality/memory
+        # - functionality/planner
+        # - functionality/hooks
         - test_controller
         - test_tab_management
         - test_sensitive_data
@@ -48,7 +49,18 @@ jobs:
           enable-cache: true
           activate-environment: true
 
-      - run: uv run patchright install chrome
-        if: matrix.test == 'test_controller'
+      - run: uv sync
 
-      - run: uv run --with=dotenv pytest tests/${{ matrix.test }}.py || true
+      - name: Detect installed Playwright or Patchright version
+        run: echo "PLAYWRIGHT_VERSION=$(uv pip list --format json | jq -r '.[] | select(.name == "patchright") | .version')" >> $GITHUB_ENV
+
+      - name: Cache playwright binaries
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ env.PLAYWRIGHT_VERSION }}
+
+      - run: patchright install --no-shell chromium
+
+      - run: pytest tests/${{ matrix.test }}.py

@@ -108,6 +108,7 @@ dev-dependencies = [
     "build>=1.2.2",
     "pytest>=8.3.5",
     "pytest-asyncio>=0.24.0",
+    "pytest-httpserver>=1.0.8",
     "fastapi>=0.115.8",
     "inngest>=0.4.19",
     "uvicorn>=0.34.0",
