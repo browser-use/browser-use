@@ -1814,7 +1814,10 @@ class BrowserContext:
 					"td img",                           # Images in table cells
 					"article td img",                   # Article images in table cells
 					"table img",                        # Images in any table
-					"img[src*='201602051530511478']"    # Specific image pattern for older articles
+					"table table img",                  # Images in nested tables
+					"tbody tr td table tbody tr td img", # Deeply nested table images
+					"img[src*='201602051530511478']",   # Specific image pattern for older articles
+					"font table tbody tr td table tbody tr td img" # Font-wrapped nested table images
 				]
 				logger.debug(f"Using News-specific selectors: {selectors}")
 			else:
