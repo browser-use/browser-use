@@ -51,6 +51,20 @@ jobs:
         with:
           enable-cache: true
           activate-environment: true
+          
+      - run: uv sync
+
+      - name: Detect installed Playwright or Patchright version
+        run: echo "PLAYWRIGHT_VERSION=$(uv pip list --format json | jq -r '.[] | select(.name == "patchright") | .version')" >> $GITHUB_ENV
+
+      - name: Cache playwright binaries
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ env.PLAYWRIGHT_VERSION }}
+
+      - run: patchright install --no-shell chromium
 
       - name: Install project and test dependencies
         run: uv pip install -e .[dev,test]

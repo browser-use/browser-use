@@ -36,7 +36,7 @@ pip install "browser-use[memory]"
 
 Install Patchright:
 ```bash
-patchright install chromium
+patchright install chromium --with-deps --no-shell
 ```
 
 Spin up your agent:

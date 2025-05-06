@@ -38,7 +38,14 @@ def extract_json_from_model_output(content: str) -> dict:
 			if '\n' in content:
 				content = content.split('\n', 1)[1]
 		# Parse the cleaned content
-		return json.loads(content)
+		result_dict = json.loads(content)
+
+		# some models occasionally respond with a list containing one dict: https://github.com/browser-use/browser-use/issues/1458
+		if isinstance(result_dict, list) and len(result_dict) == 1 and isinstance(result_dict[0], dict):
+			result_dict = result_dict[0]
+
+		assert isinstance(result_dict, dict), f'Expected JSON dictionary in response, got JSON {type(result_dict)} instead'
+		return result_dict
 	except json.JSONDecodeError as e:
 		logger.warning(f'Failed to parse model output: {content} {str(e)}')
 		raise ValueError('Could not parse response.')

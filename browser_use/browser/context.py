@@ -1616,11 +1616,20 @@ class BrowserContext:
 			readonly = await readonly_handle.json_value() if readonly_handle else False
 			disabled = await disabled_handle.json_value() if disabled_handle else False
 
-			if (await is_contenteditable.json_value() or tag_name == 'input') and not (readonly or disabled):
-				await element_handle.evaluate('el => {el.textContent = ""; el.value = "";}')
-				await element_handle.type(text, delay=5)
-			else:
-				await element_handle.fill(text)
+			# always click the element first to make sure it's in the focus
+			await element_handle.click()
+			await asyncio.sleep(0.1)
+
+			try:
+				if (await is_contenteditable.json_value() or tag_name == 'input') and not (readonly or disabled):
+					await element_handle.evaluate('el => {el.textContent = ""; el.value = "";}')
+					await element_handle.type(text, delay=5)
+				else:
+					await element_handle.fill(text)
+			except Exception:
+				# last resort fallback, assume it's already focused after we clicked on it,
+				# just simulate keypresses on the entire page
+				await self.get_agent_current_page().keyboard.type(text)
 
 		except Exception as e:
 			logger.debug(f'❌  Failed to input text into element: {repr(element_node)}. Error: {str(e)}')

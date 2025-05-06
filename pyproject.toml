@@ -27,7 +27,6 @@ dependencies = [
     "langchain-deepseek>=0.1.3",
     "langchain>=0.3.21",
     "langchain-aws>=0.2.11",
-    "botocore>=1.37.23",
     "google-api-core>=2.24.0",
     "pyperclip>=1.9.0",
     "pyobjc>=11.0; platform_system == 'darwin'",
@@ -40,7 +39,6 @@ dependencies = [
     "click>=8.1.8",
     "textual>=3.2.0",
 ]
-# botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py 
 # pydantic: >2.11 introduces many pydantic deprecation warnings until langchain-core upgrades their pydantic support lets keep it on 2.10
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -52,10 +50,14 @@ dependencies = [
 # click: used for command-line argument parsing
 # textual: used for terminal UI
 
-# Optional dependencies for memory functionality
 [project.optional-dependencies]
+# Optional dependencies for memory functionality
 memory = [
     "sentence-transformers>=4.0.2",
+]
+examples = [
+    # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py 
+    "botocore>=1.37.23",
 ]
 
 [project.urls]
@@ -106,6 +108,7 @@ dev-dependencies = [
     "build>=1.2.2",
     "pytest>=8.3.5",
     "pytest-asyncio>=0.24.0",
+    "pytest-httpserver>=1.0.8",
     "fastapi>=0.115.8",
     "inngest>=0.4.19",
     "uvicorn>=0.34.0",
