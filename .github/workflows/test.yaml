@@ -51,7 +51,7 @@ jobs:
         with:
           enable-cache: true
           activate-environment: true
-          
+
       - run: uv sync
 
       - name: Detect installed Playwright or Patchright version
@@ -66,8 +66,10 @@ jobs:
 
       - run: patchright install --no-shell chromium
 
-      - name: Install project and test dependencies
-        run: uv pip install -e .[dev,test]
+      - name: Install Playwright and Chromium
+        run: |
+          uv pip install playwright
+          uv run playwright install chromium
 
       # Conditional setup block
       - name: Setup special dependencies
