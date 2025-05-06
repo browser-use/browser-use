@@ -1,5 +1,5 @@
 import pytest
-
+import asyncio
 from patchright.async_api import async_playwright
 
 @pytest.mark.asyncio
