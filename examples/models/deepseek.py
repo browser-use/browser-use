@@ -2,7 +2,7 @@ import asyncio
 import os
 
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
+from langchain_deepseek import ChatDeepSeek
 from pydantic import SecretStr
 
 from browser_use import Agent
@@ -23,7 +23,7 @@ async def run_search():
 			'3. Click on first result'
 			'4. Return the first comment'
 		),
-		llm=ChatOpenAI(
+		llm=ChatDeepSeek(
 			base_url='https://api.deepseek.com/v1',
 			model='deepseek-chat',
 			api_key=SecretStr(api_key),

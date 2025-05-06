@@ -98,7 +98,7 @@ async def test_click_element(llm, context):
 	history = await agent.run(max_steps=4)
 	action_names = history.action_names()
 	assert 'go_to_url' in action_names or 'open_tab' in action_names
-	assert 'click_element' in action_names
+	assert 'click_element_by_index' in action_names
 
 
 @pytest.mark.asyncio

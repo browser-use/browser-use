@@ -117,7 +117,8 @@ from browser_use.browser.context import BrowserContextConfig
 config = BrowserContextConfig(
     cookies_file="path/to/cookies.json",
     wait_for_network_idle_page_load_time=3.0,
-    browser_window_size={'width': 1280, 'height': 1100},
+    window_width=1280,
+    window_height=1100,
     locale='en-US',
     user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36',
     highlight_elements=True,
@@ -151,7 +152,7 @@ async def run_search():
 
 ### Display Settings
 
-- **browser_window_size** (default: `{'width': 1280, 'height': 1100}`)
+- **window_width** (default: `1280`) and **window_height** (default: `1100`)
   Browser window dimensions. The default size is optimized for general use cases and interaction with common UI elements like cookie banners.
 
 - **locale** (default: `None`)
@@ -161,8 +162,10 @@ async def run_search():
   Highlight interactive elements on the screen with colorful bounding boxes.
 
 - **viewport_expansion** (default: `500`)
-  Viewport expansion in pixels. With this you can control how much of the page is included in the context of the LLM. If set to -1, all elements from the entire page will be included (this leads to high token usage). If set to 0, only the elements which are visible in the viewport will be included.
-  Default is 500 pixels, that means that we include a little bit more than the visible viewport inside the context.
+  Viewport expansion in pixels. With this you can control how much of the page is included in the context of the LLM. Setting this parameter controls the highlighting of elements:
+  - `-1`: All elements from the entire page will be included, regardless of visibility (highest token usage but most complete).
+  - `0`: Only elements which are currently visible in the viewport will be included.
+  - `500` (default): Elements in the viewport plus an additional 500 pixels in each direction will be included, providing a balance between context and token usage.
 
 ### Restrict URLs
 
@@ -177,3 +180,6 @@ async def run_search():
 
 - **trace_path** (default: `None`)
   Directory path for saving trace files. Files are automatically named as `{trace_path}/{context_id}.zip`.
+
+- **save_playwright_script_path** (default: `None`)
+  BETA: Filename to save a replayable playwright python script to containing the steps the agent took.

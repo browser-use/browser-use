@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.1.41rc2"
+version = "0.1.45"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -11,32 +11,34 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
+    "anyio>=4.9.0",
     "httpx>=0.27.2",
     "pydantic>=2.10.4,<2.11.0",
     "python-dotenv>=1.0.1",
     "requests>=2.32.3",
     "posthog>=3.7.0",
-    "playwright>=1.51.0",
+    "patchright>=1.51.0",
     "markdownify==1.1.0",
     "langchain-core==0.3.49",
     "langchain-openai==0.3.11",
     "langchain-anthropic==0.3.3",
     "langchain-ollama==0.3.0",
     "langchain-google-genai==2.1.2",
+    "langchain-deepseek>=0.1.3",
     "langchain>=0.3.21",
     "langchain-aws>=0.2.11",
-    "botocore>=1.37.23",
     "google-api-core>=2.24.0",
     "pyperclip>=1.9.0",
     "pyobjc>=11.0; platform_system == 'darwin'",
     "screeninfo>=0.8.1; platform_system != 'darwin'",
     "typing-extensions>=4.12.2",
     "psutil>=7.0.0",
-    "faiss-cpu>=1.10.0",
-    "mem0ai==0.1.88",
+    "faiss-cpu>=1.9.0",
+    "mem0ai==0.1.93",
+    "rich>=14.0.0",
+    "click>=8.1.8",
+    "textual>=3.2.0",
 ]
-
-# botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py 
 # pydantic: >2.11 introduces many pydantic deprecation warnings until langchain-core upgrades their pydantic support lets keep it on 2.10
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -44,8 +46,26 @@ dependencies = [
 # screeninfo: only used to get screen resolution on Linux/Windows
 # markdownify: used for page text content extraction for passing to LLM
 # openai: datalib,voice-helpers are actually NOT NEEDED but openai produces noisy errors on exit without them TODO: fix
-urls = { "Repository" = "https://github.com/browser-use/browser-use" }
+# rich: used for terminal formatting and styling in CLI
+# click: used for command-line argument parsing
+# textual: used for terminal UI
 
+[project.optional-dependencies]
+# Optional dependencies for memory functionality
+memory = [
+    "sentence-transformers>=4.0.2",
+]
+examples = [
+    # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py 
+    "botocore>=1.37.23",
+]
+
+[project.urls]
+Repository = "https://github.com/browser-use/browser-use"
+
+[project.scripts]
+browseruse = "browser_use.cli:main"
+browser-use = "browser_use.cli:main"
 
 [tool.codespell]
 ignore-words-list = "bu"
@@ -56,14 +76,17 @@ line-length = 130
 fix = true
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "PLE"]
-ignore = ["E101", "E402", "E501", "F841", "E731"]
+select = ["ASYNC", "E", "F", "FAST", "I", "PLE"]
+ignore = ["ASYNC109", "E101", "E402", "E501", "F841", "E731"]  # TODO: determine if adding timeouts to all the unbounded async functions is needed / worth-it so we can un-ignore ASYNC109
 unfixable = ["E101", "E402", "E501", "F841", "E731"]
 
 [tool.ruff.format]
 quote-style = "single"
 indent-style = "tab"
 docstring-code-format = true
+
+[tool.pyright]
+typeCheckingMode = "off"
 
 [build-system]
 requires = ["hatchling"]
@@ -92,4 +115,5 @@ dev-dependencies = [
     "ipdb>=0.13.13",
     "pre-commit>=4.2.0",
     "codespell>=2.4.1",
+    "pyright>=1.1.399",
 ]

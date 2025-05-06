@@ -1,0 +1,28 @@
+name: cloud_evals
+
+on:
+  push:
+    branches:
+      - main
+      - 'releases/*'
+  workflow_dispatch:
+    inputs:
+      commit_hash:
+        description: Commit hash of the library to build the Cloud eval image for
+        required: false
+
+jobs:
+  trigger_cloud_eval_image_build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.TRIGGER_CLOUD_BUILD_GH_KEY }}
+          script: |
+            const result = await github.rest.repos.createDispatchEvent({
+              owner: 'browser-use',
+              repo: 'cloud',
+              event_type: 'trigger-workflow',
+              client_payload: {"commit_hash": "${{ github.event.inputs.commit_hash || github.sha }}"}
+            })
+            console.log(result)

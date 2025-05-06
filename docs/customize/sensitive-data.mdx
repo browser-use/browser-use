@@ -8,6 +8,8 @@ icon: "shield"
 
 When working with sensitive information like passwords, you can use the `sensitive_data` parameter to prevent the model from seeing the actual values while still allowing it to reference them in its actions.
 
+Make sure to always set [`allowed_domains`](https://docs.browser-use.com/customize/browser-settings#restrict-urls) to restrict the domains the Agent is allowed to visit when working with sensitive data or logins.
+
 Here's an example of how to use sensitive data:
 
 ```python
@@ -31,7 +33,16 @@ sensitive_data = {'x_name': 'magnus', 'x_password': '12345678'}
 task = 'go to x.com and login with x_name and x_password then write a post about the meaning of life'
 
 # Pass the sensitive data to the agent
-agent = Agent(task=task, llm=llm, sensitive_data=sensitive_data)
+agent = Agent(
+    task=task,
+    llm=llm,
+    sensitive_data=sensitive_data,
+    browser=Browser(
+        config=BrowserConfig(
+            allowed_domains=['example.com'],  # domains that the agent should be restricted to
+        ),
+    )
+)
 
 async def main():
     await agent.run()
@@ -44,6 +55,15 @@ In this example:
 1. The model only sees `x_name` and `x_password` as placeholders.
 2. When the model wants to use your password it outputs x_password - and we replace it with the actual value.
 3. When your password is visible on the current page, we replace it in the LLM input - so that the model never has it in its state.
+4. The agent will be prevented from going to any site not on `example.com` to protect from prompt injection attacks and jailbreaks
+
+### Missing or Empty Values
+
+When working with sensitive data, keep these details in mind:
+
+- If a key referenced by the model (`<secret>key_name</secret>`) is missing from your `sensitive_data` dictionary, a warning will be logged but the substitution tag will be preserved.
+- If you provide an empty value for a key in the `sensitive_data` dictionary, it will be treated the same as a missing key.
+- The system will always attempt to process all valid substitutions, even if some keys are missing or empty.
 
 Warning: Vision models still see the image of the page - where the sensitive data might be visible.
 

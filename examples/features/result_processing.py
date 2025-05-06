@@ -26,7 +26,8 @@ async def main():
 		config=BrowserContextConfig(
 			trace_path='./tmp/result_processing',
 			no_viewport=False,
-			browser_window_size={'width': 1280, 'height': 1000},
+			window_width=1280,
+			window_height=1000,
 		)
 	) as browser_context:
 		agent = Agent(
