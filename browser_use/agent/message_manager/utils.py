@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Optional, Type
+import re
+from typing import Any
 
 from langchain_core.messages import (
 	AIMessage,
@@ -14,6 +15,16 @@ from langchain_core.messages import (
 )
 
 logger = logging.getLogger(__name__)
+
+MODELS_WITHOUT_TOOL_SUPPORT_PATTERNS = [
+	'deepseek-reasoner',
+	'deepseek-r1',
+	'.*gemma.*-it',
+]
+
+
+def is_model_without_tool_support(model_name: str) -> bool:
+	return any(re.match(pattern, model_name) for pattern in MODELS_WITHOUT_TOOL_SUPPORT_PATTERNS)
 
 
 def extract_json_from_model_output(content: str) -> dict:
@@ -27,17 +38,25 @@ def extract_json_from_model_output(content: str) -> dict:
 			if '\n' in content:
 				content = content.split('\n', 1)[1]
 		# Parse the cleaned content
-		return json.loads(content)
+		result_dict = json.loads(content)
+
+		# some models occasionally respond with a list containing one dict: https://github.com/browser-use/browser-use/issues/1458
+		if isinstance(result_dict, list) and len(result_dict) == 1 and isinstance(result_dict[0], dict):
+			result_dict = result_dict[0]
+
+		assert isinstance(result_dict, dict), f'Expected JSON dictionary in response, got JSON {type(result_dict)} instead'
+		return result_dict
 	except json.JSONDecodeError as e:
 		logger.warning(f'Failed to parse model output: {content} {str(e)}')
 		raise ValueError('Could not parse response.')
 
 
-def convert_input_messages(input_messages: list[BaseMessage], model_name: Optional[str]) -> list[BaseMessage]:
+def convert_input_messages(input_messages: list[BaseMessage], model_name: str | None) -> list[BaseMessage]:
 	"""Convert input messages to a format that is compatible with the planner model"""
 	if model_name is None:
 		return input_messages
-	if model_name == 'deepseek-reasoner' or 'deepseek-r1' in model_name:
+
+	if is_model_without_tool_support(model_name):
 		converted_input_messages = _convert_messages_for_non_function_calling_models(input_messages)
 		merged_input_messages = _merge_successive_messages(converted_input_messages, HumanMessage)
 		merged_input_messages = _merge_successive_messages(merged_input_messages, AIMessage)
@@ -67,7 +86,7 @@ def _convert_messages_for_non_function_calling_models(input_messages: list[BaseM
 	return output_messages
 
 
-def _merge_successive_messages(messages: list[BaseMessage], class_to_merge: Type[BaseMessage]) -> list[BaseMessage]:
+def _merge_successive_messages(messages: list[BaseMessage], class_to_merge: type[BaseMessage]) -> list[BaseMessage]:
 	"""Some models like deepseek-reasoner dont allow multiple human messages in a row. This function merges them into one."""
 	merged_messages = []
 	streak = 0
@@ -87,7 +106,7 @@ def _merge_successive_messages(messages: list[BaseMessage], class_to_merge: Type
 	return merged_messages
 
 
-def save_conversation(input_messages: list[BaseMessage], response: Any, target: str, encoding: Optional[str] = None) -> None:
+def save_conversation(input_messages: list[BaseMessage], response: Any, target: str, encoding: str | None = None) -> None:
 	"""Save conversation history to file."""
 
 	# create folders if not exists

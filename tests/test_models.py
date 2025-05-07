@@ -1,8 +1,8 @@
 import asyncio
 import os
 
+import httpx
 import pytest
-import requests
 from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
@@ -124,9 +124,10 @@ async def test_model_search(llm, context):
 		# check if ollama is running
 		# ping ollama http://127.0.0.1
 		try:
-			response = requests.get('http://127.0.0.1:11434/')
-			if response.status_code != 200:
-				raise Exception('Ollama is not running - start with `ollama start`')
+			async with httpx.AsyncClient() as client:
+				response = await client.get('http://127.0.0.1:11434/')
+				if response.status_code != 200:
+					raise Exception('Ollama is not running - start with `ollama start`')
 		except Exception:
 			raise Exception('Ollama is not running - start with `ollama start`')
 

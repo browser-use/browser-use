@@ -1,4 +1,27 @@
 repos:
+  - repo: https://github.com/asottile/yesqa
+    rev: v1.5.0
+    hooks:
+      - id: yesqa
+
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.1
+    hooks:
+      - id: codespell # See pyproject.toml for args
+        additional_dependencies:
+          - tomli
+
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.19.1
+    hooks:
+      - id: pyupgrade
+        args: [--py311-plus]
+
+  # - repo: https://github.com/asottile/add-trailing-comma
+  #   rev: v3.1.0
+  #   hooks:
+  #     - id: add-trailing-comma
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.11.2
     hooks:
@@ -9,24 +32,27 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
+      # check for basic syntax errors in python and data files
+      - id: check-ast
       - id: check-toml
       - id: check-yaml
       - id: check-json
-      - id: end-of-file-fixer
       - id: check-merge-conflict
-      - id: check-illegal-windows-names
-      - id: check-case-conflict
-      - id: check-added-large-files
-      - id: check-shebang-scripts-are-executable
+      # check for bad files and folders
       - id: check-symlinks
       - id: destroyed-symlinks
-      - id: detect-private-key
+      - id: check-case-conflict
+      - id: check-illegal-windows-names
+      - id: check-shebang-scripts-are-executable
       - id: mixed-line-ending
       - id: fix-byte-order-marker
-
-  - repo: https://github.com/codespell-project/codespell
-    rev: v2.4.1
-    hooks:
-      - id: codespell # See pyproject.toml for args
-        additional_dependencies:
-          - tomli
+      - id: end-of-file-fixer
+      # best practices enforcement
+      - id: detect-private-key
+      # - id: check-docstring-first
+      - id: debug-statements
+      - id: forbid-submodules
+      - id: check-added-large-files
+        args: ["--maxkb=600"]
+      # - id: name-tests-test
+      #   args: ["--pytest-test-first"]

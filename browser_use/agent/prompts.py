@@ -1,6 +1,6 @@
 import importlib.resources
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional, Union
+from typing import TYPE_CHECKING, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -14,8 +14,8 @@ class SystemPrompt:
 		self,
 		action_description: str,
 		max_actions_per_step: int = 10,
-		override_system_message: Optional[str] = None,
-		extend_system_message: Optional[str] = None,
+		override_system_message: str | None = None,
+		extend_system_message: str | None = None,
 	):
 		self.default_action_description = action_description
 		self.max_actions_per_step = max_actions_per_step
@@ -63,7 +63,7 @@ class AgentMessagePrompt:
 	def __init__(
 		self,
 		state: 'BrowserState',
-		result: Optional[List['ActionResult']] = None,
+		result: list['ActionResult'] | None = None,
 		include_attributes: list[str] | None = None,
 		step_info: Optional['AgentStepInfo'] = None,
 	):
@@ -138,8 +138,24 @@ Interactive elements from top layer of the current page inside the viewport:
 
 
 class PlannerPrompt(SystemPrompt):
-	def get_system_message(self, is_planner_reasoning) -> Union[SystemMessage, HumanMessage]:
-		planner_prompt_text = """You are a planning agent that helps break down tasks into smaller steps and reason about the current state.
+	def __init__(self, available_actions: str):
+		self.available_actions = available_actions
+
+	def get_system_message(
+		self, is_planner_reasoning: bool, extended_planner_system_prompt: str | None = None
+	) -> SystemMessage | HumanMessage:
+		"""Get the system message for the planner.
+
+		Args:
+		    is_planner_reasoning: If True, return as HumanMessage for chain-of-thought
+		    extended_planner_system_prompt: Optional text to append to the base prompt
+
+		Returns:
+		    SystemMessage or HumanMessage depending on is_planner_reasoning
+		"""
+
+		planner_prompt_text = """
+You are a planning agent that helps break down tasks into smaller steps and reason about the current state.
 Your role is to:
 1. Analyze the current state and history
 2. Evaluate progress towards the ultimate goal
@@ -149,17 +165,21 @@ Your role is to:
 Inside your messages, there will be AI messages from different agents with different formats.
 
 Your output format should be always a JSON object with the following fields:
-{
+{{
     "state_analysis": "Brief analysis of the current state and what has been done so far",
     "progress_evaluation": "Evaluation of progress towards the ultimate goal (as percentage and description)",
     "challenges": "List any potential challenges or roadblocks",
     "next_steps": "List 2-3 concrete next steps to take",
     "reasoning": "Explain your reasoning for the suggested next steps"
-}
+}}
 
 Ignore the other AI messages output structures.
 
-Keep your responses concise and focused on actionable insights."""
+Keep your responses concise and focused on actionable insights.
+"""
+
+		if extended_planner_system_prompt:
+			planner_prompt_text += f'\n{extended_planner_system_prompt}'
 
 		if is_planner_reasoning:
 			return HumanMessage(content=planner_prompt_text)

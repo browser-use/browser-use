@@ -18,7 +18,7 @@ async def run_agent(task: str, browser: Browser | None = None, max_steps: int = 
 	agent = Agent(
 		task=task,
 		use_vision=False,
-		llm=ChatOpenAI(model='grok-2-1212', base_url='https://api.x.ai/v1', api_key=SecretStr(api_key)),
+		llm=ChatOpenAI(model='grok-3-beta', base_url='https://api.x.ai/v1', api_key=SecretStr(api_key)),
 		browser=browser,
 	)
 

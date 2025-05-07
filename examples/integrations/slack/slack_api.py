@@ -1,4 +1,5 @@
 import logging
+from typing import Annotated
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -101,7 +102,7 @@ class SlackBot:
 
 
 @app.post('/slack/events')
-async def slack_events(request: Request, slack_bot: SlackBot = Depends()):
+async def slack_events(request: Request, slack_bot: Annotated[SlackBot, Depends()]):
 	try:
 		if not slack_bot.signature_verifier.is_valid_request(await request.body(), dict(request.headers)):
 			logger.warning('Request verification failed')

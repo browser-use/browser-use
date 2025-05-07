@@ -2,7 +2,7 @@ import json
 import os
 import sys
 
-import requests
+import httpx
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -39,7 +39,8 @@ if not BEARER_TOKEN:
 async def search_web(query: str):
 	keys_to_use = ['url', 'title', 'content', 'author', 'score']
 	headers = {'Authorization': f'Bearer {BEARER_TOKEN}'}
-	response = requests.post('https://asktessa.ai/api/search', headers=headers, json={'query': query})
+	async with httpx.AsyncClient() as client:
+		response = await client.post('https://asktessa.ai/api/search', headers=headers, json={'query': query})
 
 	final_results = [
 		{key: source[key] for key in keys_to_use if key in source}
