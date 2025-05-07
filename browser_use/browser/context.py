@@ -1720,7 +1720,7 @@ class BrowserContext:
 			raise Exception(f'Failed to click element: {repr(element_node)}. Error: {str(e)}')
 
 	@time_execution_async('--hover_over_element_node')
-	async def _hover_over_element_node(self, element_node: DOMElementNode) -> Optional[str]:
+	async def _hover_over_element_node(self, element_node: DOMElementNode) -> str | None:
 		"""
 		Optimized method to hover over an element using xpath.
 		"""
