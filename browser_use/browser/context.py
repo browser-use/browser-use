@@ -1412,7 +1412,7 @@ class BrowserContext:
 			except Exception:
 				pass
 
-			await element_handle.evaluate(f'el => el.value = {number}')
+			await element_handle.type(str(number))
 
 		except Exception as e:
 			logger.debug(f'Failed to input number {number} into element: {repr(element_node)}. Error: {str(e)}')
