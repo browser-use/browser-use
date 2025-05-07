@@ -1,5 +1,4 @@
 import asyncio
-import os
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
@@ -7,8 +6,6 @@ from langchain_openai import ChatOpenAI
 from browser_use import Agent
 
 load_dotenv()
-if not os.getenv('OPENAI_API_KEY'):
-	raise ValueError('OPENAI_API_KEY is not set. Please add it to your environment variables.')
 
 
 async def run_hover():

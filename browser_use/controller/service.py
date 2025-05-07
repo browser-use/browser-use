@@ -163,13 +163,13 @@ class Controller(Generic[Context]):
 			element_node = await browser.get_dom_element_by_index(params.index)
 			try:
 				await browser._hover_over_element_node(element_node)
-				msg = f'🖱️  Hovered over button with index {params.index}: {element_node.get_all_text_till_next_clickable_element(max_depth=2)}'
+				msg = f'🖱️  Hovered over element with index {params.index}: {element_node.get_all_text_till_next_clickable_element(max_depth=2)}'
 
 				logger.info(msg)
 				logger.debug(f'Element xpath: {element_node.xpath}')
 				return ActionResult(extracted_content=msg, include_in_memory=True)
 			except Exception as e:
-				logger.warning(f'Element not hover able over with index {params.index} - most likely the page changed')
+				logger.warning(f'Cannot hover over element with index {params.index} - most likely the page changed')
 				return ActionResult(error=str(e))
 
 		@self.registry.action(
