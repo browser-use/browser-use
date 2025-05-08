@@ -283,7 +283,7 @@ class Agent(Generic[Context]):
 			self.memory = None
 
 		# Huge security warning if sensitive_data is provided but allowed_domains is not set
-		if self.sensitive_data and not self.browser.config.new_context_config.allowed_domains:
+		if self.sensitive_data and not browser_context.config.allowed_domains:
 			logger.error(
 				'⚠️⚠️⚠️ Agent(sensitive_data=••••••••) was provided but BrowserContextConfig(allowed_domains=[...]) is not locked down! ⚠️⚠️⚠️\n'
 				'          ☠️ If the agent visits a malicious website and encounters a prompt-injection attack, your sensitive_data may be exposed!\n\n'
