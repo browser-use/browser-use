@@ -289,7 +289,6 @@ import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
 
 import requests
 from dotenv import load_dotenv
@@ -571,7 +570,7 @@ class ScreenshotTracker:
 		pass
 
 
-async def judge_task_result(model, task_folder: Path, score_threshold: float = 3) -> Dict:
+async def judge_task_result(model, task_folder: Path, score_threshold: float = 3) -> dict:
 	"""
 	Judge a single task result based on the success value of the final action.
 
@@ -645,7 +644,7 @@ async def judge_task_result(model, task_folder: Path, score_threshold: float = 3
 		}
 
 
-def calculate_local_summary(results_dir: Optional[str] = None) -> Dict:
+def calculate_local_summary(results_dir: str | None = None) -> dict:
 	"""
 	Calculates a summary of task results by reading the saved result.json files.
 	Does not make any network requests.
@@ -718,6 +717,7 @@ async def run_task_with_semaphore(
 	headless: bool,
 	use_vision: bool,
 	semaphore_runs: asyncio.Semaphore,  # Pass semaphore as argument
+	fresh_start: bool = True,
 ) -> dict:
 	"""Run a single task with semaphore, sequential execution, and robust error handling"""
 	# Acquire semaphore before starting any task-specific logic
@@ -1000,10 +1000,11 @@ async def run_multiple_tasks(
 	max_parallel_runs: int = 3,
 	max_steps_per_task: int = 25,
 	start_index: int = 0,
-	end_index: Optional[int] = None,
+	end_index: int | None = None,
 	headless: bool = False,
 	use_vision: bool = True,
-) -> Dict:
+	fresh_start: bool = True,
+) -> dict:
 	"""
 	Run multiple tasks in parallel and evaluate results.
 	"""
@@ -1024,6 +1025,7 @@ async def run_multiple_tasks(
 				headless=headless,
 				use_vision=use_vision,
 				semaphore_runs=semaphore_runs,  # Pass the semaphore
+				fresh_start=fresh_start,
 			)
 			for task in tasks_to_run
 		)
@@ -1386,6 +1388,7 @@ if __name__ == '__main__':
 				end_index=args.end,
 				headless=args.headless,
 				use_vision=not args.no_vision,
+				fresh_start=args.fresh_start,
 			)
 		)
 

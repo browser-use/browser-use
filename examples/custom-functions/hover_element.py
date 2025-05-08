@@ -1,6 +1,5 @@
 import os
 import sys
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -17,9 +16,9 @@ from browser_use.browser.context import BrowserContext
 
 
 class HoverAction(BaseModel):
-	index: Optional[int] = None
-	xpath: Optional[str] = None
-	selector: Optional[str] = None
+	index: int | None = None
+	xpath: str | None = None
+	selector: str | None = None
 
 
 browser = Browser(

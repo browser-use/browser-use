@@ -1,6 +1,8 @@
 """
 Automated news analysis and sentiment scoring using Bedrock.
 
+Ensure you have browser-use installed with `examples` extra, i.e. `uv install 'browser-use[examples]'`
+
 @dev Ensure AWS environment variables are set correctly for Bedrock access.
 """
 

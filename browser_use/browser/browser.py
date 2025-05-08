@@ -269,9 +269,13 @@ class Browser:
 		if (
 			not self.config.headless
 			and hasattr(self.config, 'new_context_config')
-			and hasattr(self.config.new_context_config, 'browser_window_size')
+			and hasattr(self.config.new_context_config, 'window_width')
+			and hasattr(self.config.new_context_config, 'window_height')
 		):
-			screen_size = self.config.new_context_config.browser_window_size.model_dump()
+			screen_size = {
+				'width': self.config.new_context_config.window_width,
+				'height': self.config.new_context_config.window_height,
+			}
 			offset_x, offset_y = get_window_adjustments()
 		elif self.config.headless:
 			screen_size = {'width': 1920, 'height': 1080}
@@ -316,8 +320,8 @@ class Browser:
 		}
 
 		browser = await browser_class.launch(
+			channel='chromium',  # https://github.com/microsoft/playwright/issues/33566
 			headless=self.config.headless,
-			channel='chrome',
 			args=args[self.config.browser_class],
 			proxy=self.config.proxy.model_dump() if self.config.proxy else None,
 			handle_sigterm=False,

@@ -36,7 +36,7 @@ pip install "browser-use[memory]"
 
 Install Patchright:
 ```bash
-patchright install chromium
+patchright install chromium --with-deps --no-shell
 ```
 
 Spin up your agent:
@@ -75,16 +75,14 @@ For other settings, models, and more, check out the [documentation 📕](https:/
 
 ### Test with UI
 
-You can test [browser-use with a UI repository](https://github.com/browser-use/web-ui)
+You can test browser-use using its [Web UI](https://github.com/browser-use/web-ui) or [Desktop App](https://github.com/browser-use/desktop).
 
-Or simply run the gradio example:
+### Test with an interactive CLI
 
-```
-uv pip install gradio
-```
+You can also use our interactive CLI (similar to `claude` code):
 
 ```bash
-python examples/ui/gradio_demo.py
+$ browser-use
 ```
 
 # Demos
@@ -123,7 +121,7 @@ https://github.com/user-attachments/assets/de73ee39-432c-4b97-b4e8-939fd7f323b3
 
 ## More examples
 
-For more examples see the [examples](examples) folder or join the [Discord](https://link.browser-use.com/discord) and show off your project.
+For more examples see the [examples](examples) folder or join the [Discord](https://link.browser-use.com/discord) and show off your project. You can also see our [`awesome-prompts`](https://github.com/browser-use/awesome-prompts) repo for prompting inspiration.
 
 # Vision
 
@@ -133,32 +131,30 @@ Tell your computer what to do, and it gets it done.
 
 ### Agent
 
-- [ ] Improve agent memory (summarize, compress, RAG, etc.)
+- [ ] Improve agent memory to handle +100 steps
 - [ ] Enhance planning capabilities (load website specific context)
 - [ ] Reduce token consumption (system prompt, DOM state)
 
 ### DOM Extraction
 
-- [ ] Improve extraction for datepickers, dropdowns, special elements
-- [ ] Improve state representation for UI elements
+- [ ] Enable detection for all possible UI elements
+- [ ] Improve state representation for UI elements so that all LLMs can understand what's on the page
 
-### Rerunning tasks
+### Workflows
 
-- [ ] LLM as fallback
-- [ ] Make it easy to define workflow templates where LLM fills in the details
-- [ ] Return playwright script from the agent
-
-### Datasets
-
-- [ ] Create datasets for complex tasks
-- [ ] Benchmark various models against each other
-- [ ] Fine-tuning models for specific tasks
+- [ ] Let user record a workflow - which we can rerun with browser-use as a fallback
+- [ ] Make rerunning of workflows work, even if pages change
 
 ### User Experience
 
-- [ ] Human-in-the-loop execution
-- [ ] Improve the generated GIF quality
-- [ ] Create various demos for tutorial execution, job application, QA testing, social media, etc.
+- [ ] Create various templates for tutorial execution, job application, QA testing, social media, etc. which users can just copy & paste.
+- [ ] Improve docs
+- [ ] Make it faster
+
+### Parallelization
+
+- [ ] Human work is sequential. The real power of a browser agent comes into reality if we can parallelize similar tasks. For example, if you want to find contact information for 100 companies, this can all be done in parallel and reported back to a main agent, which processes the results and kicks off parallel subtasks again.
+
 
 ## Contributing
 

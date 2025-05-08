@@ -5,17 +5,16 @@ This script shows how to set a custom window size for the browser.
 
 import asyncio
 import sys
-from typing import Any, Dict
+from typing import Any
 
 from browser_use.browser.browser import Browser, BrowserConfig
-from browser_use.browser.context import BrowserContextConfig, BrowserContextWindowSize
+from browser_use.browser.context import BrowserContextConfig
 
 
 async def main():
 	"""Demonstrate setting a custom browser window size"""
 	# Create a browser with a specific window size
-	window_size = BrowserContextWindowSize(width=800, height=400)  # Small size to clearly demonstrate the fix
-	config = BrowserContextConfig(browser_window_size=window_size)
+	config = BrowserContextConfig(window_width=800, window_height=400)  # Small size to clearly demonstrate the fix
 
 	browser = None
 	browser_context = None
@@ -63,11 +62,11 @@ async def main():
 			}
 		""")
 
-		print(f'Configured window size: {window_size.model_dump()}')
+		print(f'Configured window size: width={config.window_width}, height={config.window_height}')
 		print(f'Actual viewport size: {viewport_size}')
 
 		# Validate the window size
-		validate_window_size(window_size.model_dump(), viewport_size)
+		validate_window_size({'width': config.window_width, 'height': config.window_height}, viewport_size)
 
 		# Wait a bit more to see the window
 		await asyncio.sleep(3)
@@ -86,7 +85,7 @@ async def main():
 			await browser.close()
 
 
-def validate_window_size(configured: Dict[str, Any], actual: Dict[str, Any]) -> None:
+def validate_window_size(configured: dict[str, Any], actual: dict[str, Any]) -> None:
 	"""Compare configured window size with actual size and report differences"""
 	# Allow for small differences due to browser chrome, scrollbars, etc.
 	width_diff = abs(configured['width'] - actual['width'])

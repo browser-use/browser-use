@@ -1,13 +1,13 @@
 import asyncio
 
 from browser_use.browser.browser import Browser, BrowserConfig
-from browser_use.browser.context import BrowserContextConfig, BrowserContextWindowSize
+from browser_use.browser.context import BrowserContextConfig
 
 
 async def test():
 	print('Testing browser window sizing with no_viewport=False...')
 	browser = Browser(BrowserConfig(headless=False))
-	context_config = BrowserContextConfig(browser_window_size=BrowserContextWindowSize(width=1440, height=900), no_viewport=False)
+	context_config = BrowserContextConfig(window_width=1440, window_height=900, no_viewport=False)
 	browser_context = await browser.new_context(config=context_config)
 	page = await browser_context.get_current_page()
 	await page.goto('https://example.com')

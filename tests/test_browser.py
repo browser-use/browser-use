@@ -468,8 +468,8 @@ async def test_standard_browser_launch_with_proxy(monkeypatch):
 @pytest.mark.asyncio
 async def test_browser_window_size(monkeypatch):
 	"""
-	Test that when a browser_window_size is provided in BrowserContextConfig,
-	it's properly converted to a dictionary when passed to Playwright.
+	Test that when window_width and window_height are provided in BrowserContextConfig,
+	they're properly converted to a dictionary when passed to Playwright.
 	"""
 
 	class DummyPage:
@@ -515,6 +515,9 @@ async def test_browser_window_size(monkeypatch):
 			pass
 
 		async def close(self):
+			pass
+
+		async def grant_permissions(self, permissions, origin=None):
 			pass
 
 	class DummyBrowser:
@@ -564,9 +567,9 @@ async def test_browser_window_size(monkeypatch):
 	playwright_browser = await browser_obj.get_playwright_browser()
 
 	# Create context config with specific window size
-	context_config = BrowserContextConfig(browser_window_size={'width': 1280, 'height': 1100})
+	context_config = BrowserContextConfig(window_width=1280, window_height=1100)
 
-	# Create browser context - this will test if browser_window_size is properly converted
+	# Create browser context - this will test if window dimensions are properly converted
 	browser_context = BrowserContext(browser=browser_obj, config=context_config)
 	await browser_context._initialize_session()
 

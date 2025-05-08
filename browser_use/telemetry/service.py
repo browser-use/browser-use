@@ -107,7 +107,7 @@ class ProductTelemetry:
 					f.write(new_user_id)
 				self._curr_user_id = new_user_id
 			else:
-				with open(self.USER_ID_PATH, 'r') as f:
+				with open(self.USER_ID_PATH) as f:
 					self._curr_user_id = f.read()
 		except Exception:
 			self._curr_user_id = 'UNKNOWN_USER_ID'

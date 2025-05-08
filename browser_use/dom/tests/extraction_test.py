@@ -59,9 +59,11 @@ async def test_focus_vs_all_elements():
 			# browser_binary_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 		)
 	)
-	context = BrowserContext(browser=browser, config=config)  # noqa: F821
+	context = BrowserContext(browser=browser, config=config)
 
 	websites = [
+		'https://demos.telerik.com/kendo-react-ui/treeview/overview/basic/func?theme=default-ocean-blue-a11y',
+		'https://www.ycombinator.com/companies',
 		'https://kayak.com/flights',
 		# 'https://en.wikipedia.org/wiki/Humanist_Party_of_Ontario',
 		# 'https://www.google.com/travel/flights?tfs=CBwQARoJagcIARIDTEpVGglyBwgBEgNMSlVAAUgBcAGCAQsI____________AZgBAQ&tfu=KgIIAw&hl=en-US&gl=US',

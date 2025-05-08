@@ -1,7 +1,6 @@
 import asyncio
 import os
 from dataclasses import dataclass
-from typing import List, Optional
 
 # Third-party imports
 import gradio as gr
@@ -20,15 +19,15 @@ load_dotenv()
 @dataclass
 class ActionResult:
 	is_done: bool
-	extracted_content: Optional[str]
-	error: Optional[str]
+	extracted_content: str | None
+	error: str | None
 	include_in_memory: bool
 
 
 @dataclass
 class AgentHistoryList:
-	all_results: List[ActionResult]
-	all_model_outputs: List[dict]
+	all_results: list[ActionResult]
+	all_model_outputs: list[dict]
 
 
 def parse_agent_history(history_str: str) -> None:

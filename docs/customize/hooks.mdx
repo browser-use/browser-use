@@ -28,6 +28,7 @@ Hooks are passed as parameters to the `agent.run()` method. Each hook should be 
 from browser_use import Agent
 from langchain_openai import ChatOpenAI
 
+
 async def my_step_hook(agent):
     # inside a hook you can access all the state and methods under the Agent object:
     #   agent.settings, agent.state, agent.task
@@ -41,7 +42,25 @@ async def my_step_hook(agent):
     previous_url = visit_log[-2] if len(visit_log) >= 2 else None
     print(f"Agent was last on URL: {previous_url} and is now on {current_url}")
     
-    if 'completed' in current_url:
+    # You also have direct access to the playwright Page and Browser Context
+    #   https://playwright.dev/python/docs/api/class-page
+
+    # Example: listen for events on the page, interact with the DOM, run JS directly, etc.
+    await current_page.on('domcontentloaded', async lambda: print('page navigated to a new url...'))
+    await current_page.locator("css=form > input[type=submit]").click()
+    await current_page.evaluate('() => alert(1)')
+    await agent.browser_context.session.context.add_init_script('/* some JS to run on every page */')
+    
+    # Example: monitor or intercept all network requests
+    async def handle_request(route):
+		# Print, modify, block, etc. do anything to the requests here
+        #   https://playwright.dev/python/docs/network#handle-requests
+		print(route.request, route.request.headers)
+		await route.continue_(headers=route.request.headers)
+	await current_page.route("**/*", handle_route)
+
+    # Example: pause agent execution and resume it based on some custom code
+    if '/completed' in current_url:
         agent.pause()
         Path('result.txt').write_text(await current_page.content()) 
         input('Saved "completed" page content to result.txt, press [Enter] to resume...')

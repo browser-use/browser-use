@@ -7,7 +7,6 @@ Show how to use custom outputs.
 import json
 import os
 import sys
-from typing import List
 
 import httpx
 
@@ -32,7 +31,7 @@ class Profile(BaseModel):
 
 
 class Profiles(BaseModel):
-	profiles: List[Profile]
+	profiles: list[Profile]
 
 
 controller = Controller(exclude_actions=['search_google'], output_model=Profiles)

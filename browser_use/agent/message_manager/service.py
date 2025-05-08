@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional
 
 from langchain_core.messages import (
 	AIMessage,
@@ -26,9 +25,9 @@ class MessageManagerSettings(BaseModel):
 	estimated_characters_per_token: int = 3
 	image_tokens: int = 800
 	include_attributes: list[str] = []
-	message_context: Optional[str] = None
-	sensitive_data: Optional[Dict[str, str]] = None
-	available_file_paths: Optional[List[str]] = None
+	message_context: str | None = None
+	sensitive_data: dict[str, str] | None = None
+	available_file_paths: list[str] | None = None
 
 
 class MessageManager:
@@ -63,7 +62,7 @@ class MessageManager:
 
 		if self.settings.sensitive_data:
 			info = f'Here are placeholders for sensitive data: {list(self.settings.sensitive_data.keys())}'
-			info += 'To use them, write <secret>the placeholder name</secret>'
+			info += '\nTo use them, write <secret>the placeholder name</secret>'
 			info_message = HumanMessage(content=info)
 			self._add_message_with_tokens(info_message, message_type='init')
 
@@ -123,8 +122,8 @@ class MessageManager:
 	def add_state_message(
 		self,
 		state: BrowserState,
-		result: Optional[List[ActionResult]] = None,
-		step_info: Optional[AgentStepInfo] = None,
+		result: list[ActionResult] | None = None,
+		step_info: AgentStepInfo | None = None,
 		use_vision=True,
 	) -> None:
 		"""Add browser state as human message"""
@@ -175,13 +174,13 @@ class MessageManager:
 		# empty tool response
 		self.add_tool_message(content='')
 
-	def add_plan(self, plan: Optional[str], position: int | None = None) -> None:
+	def add_plan(self, plan: str | None, position: int | None = None) -> None:
 		if plan:
 			msg = AIMessage(content=plan)
 			self._add_message_with_tokens(msg, position)
 
 	@time_execution_sync('--get_messages')
-	def get_messages(self) -> List[BaseMessage]:
+	def get_messages(self) -> list[BaseMessage]:
 		"""Get current message list, potentially trimmed to max tokens"""
 
 		msg = [m.message for m in self.state.history.messages]
@@ -217,10 +216,19 @@ class MessageManager:
 		def replace_sensitive(value: str) -> str:
 			if not self.settings.sensitive_data:
 				return value
-			for key, val in self.settings.sensitive_data.items():
-				if not val:
-					continue
+
+			# Create a dictionary with all key-value pairs from sensitive_data where value is not None or empty
+			valid_sensitive_data = {k: v for k, v in self.settings.sensitive_data.items() if v}
+
+			# If there are no valid sensitive data entries, just return the original value
+			if not valid_sensitive_data:
+				logger.warning('No valid entries found in sensitive_data dictionary')
+				return value
+
+			# Replace all valid sensitive data values with their placeholder tags
+			for key, val in valid_sensitive_data.items():
 				value = value.replace(val, f'<secret>{key}</secret>')
+
 			return value
 
 		if isinstance(message.content, str):
