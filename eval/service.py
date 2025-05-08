@@ -4,7 +4,7 @@
 
 
 # Here is the command to run the evaluation:
-# python eval/service.py --parallel_runs 5 --max_steps 25 --start 0 --end 100 --model gpt-4.1 --eval-model gemini-2.5-pro
+# python eval/service.py --parallel_runs 5 --max_steps 25 --start 0 --end 100 --model gpt-4.1 --eval_model gemini-2.5-pro
 # options:
 # --parallel_runs: Number of parallel tasks to run
 # --max_steps: Maximum steps per task
@@ -359,6 +359,43 @@ SUPPORTED_MODELS = {
 		'model_name': 'grok-3-beta',
 		'base_url': 'https://api.x.ai/v1',
 		'api_key_env': 'XAI_API_KEY',
+	},
+	# Groq
+	'gemma2-9b-it': {
+		'provider': 'openai_compatible',
+		'model_name': 'gemma2-9b-it',
+		'base_url': 'https://api.groq.com/openai/v1',
+		'api_key_env': 'GROQ_API_KEY',
+	},
+	'llama-3.3-70b-versatile': {
+		'provider': 'openai_compatible',
+		'model_name': 'llama-3.3-70b-versatile',
+		'base_url': 'https://api.groq.com/openai/v1',
+		'api_key_env': 'GROQ_API_KEY',
+	},
+	'llama-3.1-8b-instant': {
+		'provider': 'openai_compatible',
+		'model_name': 'llama-3.1-8b-instant',
+		'base_url': 'https://api.groq.com/openai/v1',
+		'api_key_env': 'GROQ_API_KEY',
+	},
+	'llama-guard-3-8b': {
+		'provider': 'openai_compatible',
+		'model_name': 'llama-guard-3-8b',
+		'base_url': 'https://api.groq.com/openai/v1',
+		'api_key_env': 'GROQ_API_KEY',
+	},
+	'llama3-70b-8192': {
+		'provider': 'openai_compatible',
+		'model_name': 'llama3-70b-8192',
+		'base_url': 'https://api.groq.com/openai/v1',
+		'api_key_env': 'GROQ_API_KEY',
+	},
+	'llama3-8b-8192': {
+		'provider': 'openai_compatible',
+		'model_name': 'llama3-8b-8192',
+		'base_url': 'https://api.groq.com/openai/v1',
+		'api_key_env': 'GROQ_API_KEY',
 	},
 }
 
@@ -1228,7 +1265,7 @@ if __name__ == '__main__':
 		'--model', type=str, default='gpt-4o', choices=list(SUPPORTED_MODELS.keys()), help='Model to use for the agent'
 	)
 	parser.add_argument(
-		'--eval-model', type=str, default='gpt-4o', choices=list(SUPPORTED_MODELS.keys()), help='Model to use for evaluation'
+		'--eval_model', type=str, default='gpt-4o', choices=list(SUPPORTED_MODELS.keys()), help='Model to use for evaluation'
 	)
 	parser.add_argument('--no-vision', action='store_true', help='Disable vision capabilities in the agent')
 	parser.add_argument(
