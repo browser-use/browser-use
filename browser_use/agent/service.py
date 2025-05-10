@@ -324,6 +324,8 @@ class Agent(Generic[Context]):
 
 		if self.settings.save_conversation_path:
 			logger.info(f'Saving conversation to {self.settings.save_conversation_path}')
+		self._external_pause_event = asyncio.Event()
+		self._external_pause_event.set()
 
 	def _set_message_context(self) -> str | None:
 		if self.tool_calling_method == 'raw':
@@ -832,7 +834,7 @@ class Agent(Generic[Context]):
 
 		loop = asyncio.get_event_loop()
 
-		# Set up the Ctrl+C signal handler with callbacks specific to this agent
+		# Set up the  signal handler with callbacks specific to this agent
 		from browser_use.utils import SignalHandler
 
 		signal_handler = SignalHandler(
@@ -853,9 +855,9 @@ class Agent(Generic[Context]):
 				self.state.last_result = result
 
 			for step in range(max_steps):
-				# Check if waiting for user input after Ctrl+C
+				# Replace the polling with clean pause-wait
 				if self.state.paused:
-					signal_handler.wait_for_resume()
+					await self.wait_until_resumed()
 					signal_handler.reset()
 
 				# Check if we should stop due to too many failures
@@ -867,11 +869,6 @@ class Agent(Generic[Context]):
 				if self.state.stopped:
 					logger.info('Agent stopped')
 					break
-
-				while self.state.paused:
-					await asyncio.sleep(0.2)  # Small delay to prevent CPU spinning
-					if self.state.stopped:  # Allow stopping while paused
-						break
 
 				if on_step_start is not None:
 					await on_step_start(self)
@@ -1218,10 +1215,14 @@ class Agent(Generic[Context]):
 			file_path = 'AgentHistory.json'
 		self.state.history.save_to_file(file_path)
 
+	async def wait_until_resumed(self):
+		await self._external_pause_event.wait()
+
 	def pause(self) -> None:
 		"""Pause the agent before the next step"""
 		print('\n\n⏸️  Got Ctrl+C, paused the agent and left the browser open.')
 		self.state.paused = True
+		self._external_pause_event.clear()
 
 		# The signal handler will handle the asyncio pause logic for us
 		# No need to duplicate the code here
@@ -1231,6 +1232,7 @@ class Agent(Generic[Context]):
 		print('----------------------------------------------------------------------')
 		print('▶️  Got Enter, resuming agent execution where it left off...\n')
 		self.state.paused = False
+		self._external_pause_event.set()
 
 		# The signal handler should have already reset the flags
 		# through its reset() method when called from run()
