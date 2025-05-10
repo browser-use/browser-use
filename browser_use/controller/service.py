@@ -21,6 +21,8 @@ from browser_use.controller.views import (
 	DoneAction,
 	DragDropAction,
 	GoToUrlAction,
+	HoverOverElementAction,
+	InputNumberAction,
 	InputTextAction,
 	NoParamsAction,
 	OpenTabAction,
@@ -152,6 +154,24 @@ class Controller(Generic[Context]):
 				logger.warning(f'Element not clickable with index {params.index} - most likely the page changed')
 				return ActionResult(error=str(e))
 
+		@self.registry.action('Hover over element', param_model=HoverOverElementAction)
+		async def hover_over_element(params: HoverOverElementAction, browser: BrowserContext):
+			await browser.get_session()
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element with index {params.index} does not exist - retry or use alternative actions')
+
+			element_node = await browser.get_dom_element_by_index(params.index)
+			try:
+				await browser._hover_over_element_node(element_node)
+				msg = f'🖱️  Hovered over element with index {params.index}: {element_node.get_all_text_till_next_clickable_element(max_depth=2)}'
+
+				logger.info(msg)
+				logger.debug(f'Element xpath: {element_node.xpath}')
+				return ActionResult(extracted_content=msg, include_in_memory=True)
+			except Exception as e:
+				logger.warning(f'Cannot hover over element with index {params.index} - most likely the page changed')
+				return ActionResult(error=str(e))
+
 		@self.registry.action(
 			'Input text into a input interactive element',
 			param_model=InputTextAction,
@@ -164,6 +184,24 @@ class Controller(Generic[Context]):
 			await browser._input_text_element_node(element_node, params.text)
 			if not has_sensitive_data:
 				msg = f'⌨️  Input {params.text} into index {params.index}'
+			else:
+				msg = f'⌨️  Input sensitive data into index {params.index}'
+			logger.info(msg)
+			logger.debug(f'Element xpath: {element_node.xpath}')
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		@self.registry.action(
+			'Input number into a input interactive element',
+			param_model=InputNumberAction,
+		)
+		async def input_number(params: InputNumberAction, browser: BrowserContext, has_sensitive_data: bool = False):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+			element_node = await browser.get_dom_element_by_index(params.index)
+			await browser._input_number_element_node(element_node, params.number)
+			if not has_sensitive_data:
+				msg = f'⌨️  Input {params.number} into index {params.index}'
 			else:
 				msg = f'⌨️  Input sensitive data into index {params.index}'
 			logger.info(msg)
