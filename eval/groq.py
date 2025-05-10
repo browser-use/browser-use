@@ -19,7 +19,7 @@ async def run_agent(task: str, browser: Browser | None = None, max_steps: int = 
 	llm = ChatOpenAI(
 		base_url='https://api.groq.com/openai/v1',
 		api_key=SecretStr(api_key_groq),
-		model='llama-3.1-8b-instant',
+		model='meta-llama/llama-4-maverick-17b-128e-instruct',
 		temperature=0.0,
 	)
 	agent = Agent(task=task, llm=llm, browser=browser, use_vision=False)

@@ -379,12 +379,6 @@ SUPPORTED_MODELS = {
 		'base_url': 'https://api.groq.com/openai/v1',
 		'api_key_env': 'GROQ_API_KEY',
 	},
-	'llama-guard-3-8b': {
-		'provider': 'openai_compatible',
-		'model_name': 'llama-guard-3-8b',
-		'base_url': 'https://api.groq.com/openai/v1',
-		'api_key_env': 'GROQ_API_KEY',
-	},
 	'llama3-70b-8192': {
 		'provider': 'openai_compatible',
 		'model_name': 'llama3-70b-8192',
@@ -394,6 +388,19 @@ SUPPORTED_MODELS = {
 	'llama3-8b-8192': {
 		'provider': 'openai_compatible',
 		'model_name': 'llama3-8b-8192',
+		'base_url': 'https://api.groq.com/openai/v1',
+		'api_key_env': 'GROQ_API_KEY',
+	},
+	# Groq Preview
+	'llama-4-maverick': {
+		'provider': 'openai_compatible',
+		'model_name': 'meta-llama/llama-4-maverick-17b-128e-instruct',
+		'base_url': 'https://api.groq.com/openai/v1',
+		'api_key_env': 'GROQ_API_KEY',
+	},
+	'llama-4-scout': {
+		'provider': 'openai_compatible',
+		'model_name': 'meta-llama/llama-4-scout-17b-16e-instruct',
 		'base_url': 'https://api.groq.com/openai/v1',
 		'api_key_env': 'GROQ_API_KEY',
 	},
