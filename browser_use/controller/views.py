@@ -8,6 +8,7 @@ class SearchGoogleAction(BaseModel):
 
 class GoToUrlAction(BaseModel):
 	url: str
+	timeout: Optional[int]  # Timeout in milliseconds
 
 
 class ClickElementAction(BaseModel):
