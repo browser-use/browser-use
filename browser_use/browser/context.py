@@ -19,11 +19,10 @@ from patchright._impl._errors import TimeoutError
 from patchright.async_api import Browser as PlaywrightBrowser
 from patchright.async_api import (
 	BrowserContext as PlaywrightBrowserContext,
-)
-from patchright.async_api import (
 	ElementHandle,
 	FrameLocator,
 	Page,
+	Dialog,
 )
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -304,7 +303,13 @@ class BrowserContext:
 
 		playwright_browser = await self.browser.get_playwright_browser()
 		context = await self._create_context(playwright_browser)
-		self._page_event_handler = None
+		self._add_new_page_listener(context)
+
+		# Add dialog listener to the context
+		async def on_dialog(dialog: Dialog):
+			logger.debug(f'✅ Accepting dialog: {dialog.type}')
+			await dialog.accept()
+		context.on("dialog", on_dialog)
 
 		# auto-attach the foregrounding-detection listener to all new pages opened
 		context.on('page', self._add_tab_foregrounding_listener)
