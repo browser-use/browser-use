@@ -13,8 +13,8 @@ from typing import Literal
 import httpx
 import psutil
 from dotenv import load_dotenv
-from patchright.async_api import Browser as PlaywrightBrowser
-from patchright.async_api import Playwright, async_playwright
+from playwright.async_api import Browser as PlaywrightBrowser
+from playwright.async_api import Playwright, async_playwright
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 load_dotenv()

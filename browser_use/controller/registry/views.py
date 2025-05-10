@@ -1,6 +1,6 @@
 from collections.abc import Callable
 
-from patchright.async_api import Page
+from playwright.async_api import Page
 from pydantic import BaseModel, ConfigDict
 
 

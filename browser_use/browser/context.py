@@ -15,12 +15,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import anyio
-from patchright._impl._errors import TimeoutError
-from patchright.async_api import Browser as PlaywrightBrowser
-from patchright.async_api import (
+from playwright._impl._errors import TimeoutError
+from playwright.async_api import Browser as PlaywrightBrowser
+from playwright.async_api import (
 	BrowserContext as PlaywrightBrowserContext,
 )
-from patchright.async_api import (
+from playwright.async_api import (
 	ElementHandle,
 	FrameLocator,
 	Page,
