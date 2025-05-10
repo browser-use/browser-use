@@ -92,6 +92,16 @@ class ProductTelemetry:
 		except Exception as e:
 			logger.error(f'Failed to send telemetry event {event.name}: {e}')
 
+	def flush(self) -> None:
+		if self._posthog_client:
+			try:
+				self._posthog_client.flush()
+				logger.debug('PostHog client telemetry queue flushed.')
+			except Exception as e:
+				logger.error(f'Failed to flush PostHog client: {e}')
+		else:
+			logger.debug('PostHog client not available, skipping flush.')
+
 	@property
 	def user_id(self) -> str:
 		if self._curr_user_id:
