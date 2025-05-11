@@ -15,7 +15,7 @@ class DownloadPDFParams(BaseModel):
 @controller.registry.action("Download PDF from URL", param_model=DownloadPDFParams)
 async def download_pdf(params: DownloadPDFParams, browser: BrowserContext) -> ActionResult:
     page = await browser.get_current_page()
-    
+
     # More reliable and user-contextual download path
     download_path = os.path.join(user_download_dir("browser_use"), "pdfs")
     os.makedirs(download_path, exist_ok=True)
@@ -76,4 +76,3 @@ async def download_pdf(params: DownloadPDFParams, browser: BrowserContext) -> Ac
         extracted_content=f"Downloaded PDF from {params.url} to '{download_path}'",
         include_in_memory=True
     )
-    
