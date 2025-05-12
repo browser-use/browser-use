@@ -18,6 +18,7 @@ from langchain_core.messages import (
 	HumanMessage,
 	SystemMessage,
 )
+from patchright.async_api import Download
 
 # from lmnr.sdk.decorators import observe
 from pydantic import BaseModel, ValidationError
@@ -430,6 +431,15 @@ class Agent(Generic[Context]):
 			# logger.debug('Agent paused after getting state')
 			raise InterruptedError
 
+	async def _handle_download(self, download: Download) -> None:
+		"""Handle playwright download event"""
+		try:
+			file_path = await download.path()
+			logger.info(f'Downloaded file to {file_path}')
+			await self.update_available_file_paths([file_path.absolute().as_posix()])
+		except Exception as e:
+			logger.error(f'Error getting download path: {e}')
+
 	# @observe(name='agent.step', ignore_output=True, ignore_input=True)
 	@time_execution_async('--step (agent)')
 	async def step(self, step_info: AgentStepInfo | None = None) -> None:
@@ -444,6 +454,7 @@ class Agent(Generic[Context]):
 		try:
 			state = await self.browser_context.get_state(cache_clickable_elements_hashes=True)
 			current_page = await self.browser_context.get_current_page()
+			current_page.on('download', self._handle_download)
 
 			# generate procedural memory if needed
 			if self.enable_memory and self.memory and self.state.n_steps % self.memory.config.memory_interval == 0:
@@ -1456,3 +1467,14 @@ class Agent(Generic[Context]):
 		# Update done action model too
 		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'], page=page)
 		self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
+
+	def update_available_file_paths(self, file_paths: list[str]) -> None:
+		"""
+		Update the available file paths that the agent can access.
+
+		Args:
+			file_paths: List of file paths that the agent can access
+		"""
+		self.settings.available_file_paths = file_paths
+		self._message_manager.settings.available_file_paths = file_paths
+		logger.debug(f'Updated available file paths: {file_paths}')
