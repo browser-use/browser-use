@@ -436,7 +436,7 @@ class Agent(Generic[Context]):
 		try:
 			file_path = await download.path()
 			logger.info(f'Downloaded file to {file_path}')
-			await self.update_available_file_paths([file_path.absolute().as_posix()])
+			self.update_available_file_paths([file_path.absolute().as_posix()])
 		except Exception as e:
 			logger.error(f'Error getting download path: {e}')
 
