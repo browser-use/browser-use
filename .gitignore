@@ -39,3 +39,5 @@ private_example.py
 private_example
 
 uv.lock
+
+.idea

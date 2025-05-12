@@ -15,12 +15,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import anyio
-from patchright._impl._errors import TimeoutError
-from patchright.async_api import Browser as PlaywrightBrowser
-from patchright.async_api import (
+from playwright._impl._errors import TimeoutError
+from playwright.async_api import Browser as PlaywrightBrowser
+from playwright.async_api import (
 	BrowserContext as PlaywrightBrowserContext,
 )
-from patchright.async_api import (
+from playwright.async_api import (
 	ElementHandle,
 	FrameLocator,
 	Page,
@@ -1459,6 +1459,21 @@ class BrowserContext:
 			tag_name = element.tag_name or '*'
 			return f"{tag_name}[highlight_index='{element.highlight_index}']"
 
+	@time_execution_async('--is_visible')
+	async def _is_visible(self, element: ElementHandle) -> bool:
+		"""
+		Checks if an element is visible on the page.
+		We use our own implementation instead of relying solely on Playwright's is_visible() because
+		of edge cases with CSS frameworks like Tailwind. When elements use Tailwind's 'hidden' class,
+		the computed style may return display as '' (empty string) instead of 'none', causing Playwright
+		to incorrectly consider hidden elements as visible. By additionally checking the bounding box
+		dimensions, we catch elements that have zero width/height regardless of how they were hidden.
+		"""
+		is_hidden = await element.is_hidden()
+		bbox = await element.bounding_box()
+
+		return not is_hidden and bbox is not None and bbox['width'] > 0 and bbox['height'] > 0
+
 	@time_execution_async('--get_locate_element')
 	async def get_locate_element(self, element: DOMElementNode) -> ElementHandle | None:
 		current_frame = await self.get_agent_current_page()
@@ -1495,8 +1510,8 @@ class BrowserContext:
 				# Try to scroll into view if hidden
 				element_handle = await current_frame.query_selector(css_selector)
 				if element_handle:
-					is_hidden = await element_handle.is_hidden()
-					if not is_hidden:
+					is_visible = await self._is_visible(element_handle)
+					if is_visible:
 						await element_handle.scroll_into_view_if_needed()
 					return element_handle
 				return None
@@ -1515,8 +1530,8 @@ class BrowserContext:
 			# Use XPath to locate the element
 			element_handle = await current_frame.query_selector(f'xpath={xpath}')
 			if element_handle:
-				is_hidden = await element_handle.is_hidden()
-				if not is_hidden:
+				is_visible = await self._is_visible(element_handle)
+				if is_visible:
 					await element_handle.scroll_into_view_if_needed()
 				return element_handle
 			return None
@@ -1535,8 +1550,8 @@ class BrowserContext:
 			# Use CSS selector to locate the element
 			element_handle = await current_frame.query_selector(css_selector)
 			if element_handle:
-				is_hidden = await element_handle.is_hidden()
-				if not is_hidden:
+				is_visible = await self._is_visible(element_handle)
+				if is_visible:
 					await element_handle.scroll_into_view_if_needed()
 				return element_handle
 			return None
@@ -1559,7 +1574,7 @@ class BrowserContext:
 			selector = f'{element_type or "*"}:text("{text}")'
 			elements = await current_frame.query_selector_all(selector)
 			# considering only visible elements
-			elements = [el for el in elements if await el.is_visible()]
+			elements = [el for el in elements if await self._is_visible(el)]
 
 			if not elements:
 				logger.error(f"No visible element with text '{text}' found.")
@@ -1574,8 +1589,8 @@ class BrowserContext:
 			else:
 				element_handle = elements[0]
 
-			is_hidden = await element_handle.is_hidden()
-			if not is_hidden:
+			is_visible = await self._is_visible(element_handle)
+			if is_visible:
 				await element_handle.scroll_into_view_if_needed()
 			return element_handle
 		except Exception as e:
@@ -1601,8 +1616,8 @@ class BrowserContext:
 			# Ensure element is ready for input
 			try:
 				await element_handle.wait_for_element_state('stable', timeout=1000)
-				is_hidden = await element_handle.is_hidden()
-				if not is_hidden:
+				is_visible = await self._is_visible(element_handle)
+				if is_visible:
 					await element_handle.scroll_into_view_if_needed(timeout=1000)
 			except Exception:
 				pass

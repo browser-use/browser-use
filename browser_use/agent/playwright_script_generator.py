@@ -136,7 +136,7 @@ class PlaywrightScriptGenerator:
 			'import sys',
 			'from pathlib import Path',  # Added Path import
 			'import urllib.parse',  # Needed for search_google
-			'from patchright.async_api import async_playwright, Page, BrowserContext',  # Added BrowserContext
+			'from playwright.async_api import async_playwright, Page, BrowserContext',  # Added BrowserContext
 			'from dotenv import load_dotenv',
 			'',
 			'# Load environment variables',

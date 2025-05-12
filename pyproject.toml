@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.1.45"
+version = "0.1.46"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -17,7 +17,7 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "requests>=2.32.3",
     "posthog>=3.7.0",
-    "patchright>=1.51.0",
+    "playwright>=1.52.0",
     "markdownify==1.1.0",
     "langchain-core==0.3.49",
     "langchain-openai==0.3.11",

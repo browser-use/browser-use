@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
-	from patchright.async_api import Page
+	from playwright.async_api import Page
 
 from browser_use.dom.views import (
 	DOMBaseNode,

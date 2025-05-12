@@ -1,6 +1,6 @@
 import asyncio
 
-from patchright.async_api import async_playwright
+from playwright.async_api import async_playwright
 
 
 async def test_full_screen(start_fullscreen: bool, maximize: bool):

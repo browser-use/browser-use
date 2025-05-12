@@ -29,36 +29,28 @@ class ControllerRegisteredFunctionsTelemetryEvent(BaseTelemetryEvent):
 
 
 @dataclass
-class AgentStepTelemetryEvent(BaseTelemetryEvent):
-	agent_id: str
-	step: int
-	step_error: list[str]
-	consecutive_failures: int
-	actions: list[dict]
-	name: str = 'agent_step'
-
-
-@dataclass
-class AgentRunTelemetryEvent(BaseTelemetryEvent):
-	agent_id: str
-	use_vision: bool
+class AgentTelemetryEvent(BaseTelemetryEvent):
+	# start details
 	task: str
-	model_name: str
-	chat_model_library: str
+	model: str
+	model_provider: str
+	planner_llm: str | None
+	max_steps: int
+	max_actions_per_step: int
+	use_vision: bool
+	use_validation: bool
 	version: str
 	source: str
-	name: str = 'agent_run'
-
-
-@dataclass
-class AgentEndTelemetryEvent(BaseTelemetryEvent):
-	agent_id: str
+	# step details
+	action_errors: Sequence[str | None]
+	action_history: Sequence[list[dict] | None]
+	urls_visited: Sequence[str | None]
+	# end details
 	steps: int
-	max_steps_reached: bool
-	is_done: bool
-	success: bool | None
 	total_input_tokens: int
 	total_duration_seconds: float
+	success: bool | None
+	final_result_response: str | None
+	error_message: str | None
 
-	errors: Sequence[str | None]
-	name: str = 'agent_end'
+	name: str = 'agent_event'
