@@ -55,7 +55,16 @@ from browser_use.utils import time_execution_async, time_execution_sync
 load_dotenv()
 logger = logging.getLogger(__name__)
 
+import tiktoken
 
+def count_tokens(text: str, model: str = "gpt-4") -> int:
+	try:
+		encoding = tiktoken.encoding_for_model(model)
+		return len(encoding.encode(text))
+	except Exception:
+		# Fallback: Rough approximation (1 token ≈ 0.75 words)
+		return int(len(text.split()) / 0.75)
+	
 def log_response(response: AgentOutput) -> None:
 	"""Utility function to log the model's response."""
 
@@ -77,6 +86,15 @@ Context = TypeVar('Context')
 
 
 class Agent(Generic[Context]):
+
+	def get_total_input_tokens(self) -> int:
+		"""Return total input tokens used across all steps"""
+		return self.state.history.total_input_tokens()
+
+	def get_total_output_tokens(self) -> int:
+		"""Return total output tokens used across all steps"""
+		return self.state.history.total_output_tokens()	
+	
 	@time_execution_sync('--init (agent)')
 	def __init__(
 		self,
@@ -466,12 +484,14 @@ class Agent(Generic[Context]):
 		result: list[ActionResult],
 		metadata: Optional[StepMetadata] = None,
 	) -> None:
-		"""Create and store history item"""
-
 		if model_output:
 			interacted_elements = AgentHistory.get_interacted_element(model_output, state.selector_map)
+			# Estimate output tokens
+			output_content = model_output.model_dump_json(exclude_unset=True)
+			output_tokens = count_tokens(output_content, self.model_name)
 		else:
 			interacted_elements = [None]
+			output_tokens = 0
 
 		state_history = BrowserStateHistory(
 			url=state.url,
@@ -481,8 +501,10 @@ class Agent(Generic[Context]):
 			screenshot=state.screenshot,
 		)
 
-		history_item = AgentHistory(model_output=model_output, result=result, state=state_history, metadata=metadata)
+		metadata = metadata or StepMetadata()
+		metadata.output_tokens = output_tokens  # ✅ set here
 
+		history_item = AgentHistory(model_output=model_output, result=result, state=state_history, metadata=metadata)
 		self.state.history.history.append(history_item)
 
 	THINK_TAGS = re.compile(r'<think>.*?</think>', re.DOTALL)

@@ -104,6 +104,7 @@ class StepMetadata(BaseModel):
 	step_start_time: float
 	step_end_time: float
 	input_tokens: int  # Approximate tokens from message manager for this step
+	output_tokens: Optional[int] = 0 
 	step_number: int
 
 	@property
@@ -217,6 +218,9 @@ class AgentHistoryList(BaseModel):
 			if h.metadata:
 				total += h.metadata.input_tokens
 		return total
+	
+	def total_output_tokens(self) -> int:
+		return sum((item.metadata.output_tokens or 0) for item in self.history if item.metadata)	
 
 	def input_token_usage(self) -> list[int]:
 		"""Get token usage for each step"""
@@ -372,6 +376,13 @@ class AgentHistoryList(BaseModel):
 		"""Get the number of steps in the history"""
 		return len(self.history)
 
+	def get_total_input_tokens(self) -> int:
+		"""Return total input tokens used across all steps"""
+		return self.state.history.total_input_tokens()
+
+	def get_total_output_tokens(self) -> int:
+		"""Return total output tokens used across all steps"""
+		return self.state.history.total_output_tokens()
 
 class AgentError:
 	"""Container for agent error handling"""
