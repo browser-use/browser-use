@@ -1,6 +1,5 @@
-.DS_Store
-
 # Cache files
+.DS_Store
 __pycache__/
 *.py[cod]
 *$py.class
@@ -8,12 +7,16 @@ __pycache__/
 .ruff_cache
 .ipynb_checkpoints
 
-# VirtualEnvironments
-.venv
-venv/
-.vscode
-
+# Build Files
 dist/
+
+# Virtual Environments
+.venv/
+venv/
+
+# Editors
+.vscode/
+.idea/
 
 # Data files
 *.gif
@@ -24,8 +27,8 @@ dist/
 *.jsonl
 
 # Secrets and sensitive files
-secrets.env
 .env
+secrets.env
 browser_cookies.json
 cookies.json
 gcp-login.json
@@ -35,6 +38,6 @@ AgentHistoryList.json
 private_example.py
 private_example
 
+# As a library we have to support many peer dependency versions
+# on many different setups, therefore we don't ship our own lockfile
 uv.lock
-
-.idea/

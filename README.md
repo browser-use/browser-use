@@ -34,9 +34,9 @@ For memory functionality (requires Python<3.13 due to PyTorch compatibility):
 pip install "browser-use[memory]"
 ```
 
-Install Patchright:
+Install the browser:
 ```bash
-patchright install chromium --with-deps --no-shell
+playwright install chromium --with-deps --no-shell
 ```
 
 Spin up your agent:
@@ -97,7 +97,7 @@ $ browser-use
 
 Prompt: Add my latest LinkedIn follower to my leads in Salesforce.
 
-![LinkedIn to Salesforce](https://github.com/user-attachments/assets/1440affc-a552-442e-b702-d0d3b277b0ae)
+![LinkedIn to Salesforce](https://github.com/user-attachments/assets/50d6e691-b66b-4077-a46c-49e9d4707e07)
 
 <br/><br/>
 

@@ -7,7 +7,7 @@ from typing import Generic, TypeVar, cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
-from patchright.async_api import ElementHandle, Page
+from playwright.async_api import ElementHandle, Page
 
 # from lmnr.sdk.laminar import Laminar
 from pydantic import BaseModel
@@ -330,13 +330,20 @@ class Controller(Generic[Context]):
 
 				for locator in locators:
 					try:
-						# First check if element exists and is visible
-						if await locator.count() > 0 and await locator.first.is_visible():
-							await locator.first.scroll_into_view_if_needed()
+						if await locator.count() == 0:
+							continue
+
+						element = await locator.first
+						is_visible = await element.is_visible()
+						bbox = await element.bounding_box()
+
+						if is_visible and bbox is not None and bbox['width'] > 0 and bbox['height'] > 0:
+							await element.scroll_into_view_if_needed()
 							await asyncio.sleep(0.5)  # Wait for scroll to complete
 							msg = f'🔍  Scrolled to text: {text}'
 							logger.info(msg)
 							return ActionResult(extracted_content=msg, include_in_memory=True)
+
 					except Exception as e:
 						logger.debug(f'Locator attempt failed: {str(e)}')
 						continue
