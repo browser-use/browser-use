@@ -77,7 +77,8 @@ class Controller(Generic[Context]):
 			)
 			async def done(params: DoneAction):
 				return ActionResult(is_done=True, success=params.success, extracted_content=params.text)
-    	# Basic Navigation Actions in Bing
+    	
+		# Basic Navigation Actions in Bing
 		@self.registry.action(
 			'Search the query in Bing in the current tab.especially when confronting with CAPTCHA.Use this for general web searches. the query should be a search query like humans search in Bing, concrete and not vague or super long. More the single most important items. ',
 			param_model=SearchBingAction,
