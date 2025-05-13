@@ -51,6 +51,7 @@ class PlaywrightScriptGenerator:
 			'close_tab': self._map_close_tab,
 			'switch_tab': self._map_switch_tab,
 			'search_google': self._map_search_google,
+			'search_bing':self._map_search_bing,
 			'drag_drop': self._map_drag_drop,
 			'extract_content': self._map_extract_content,
 			'click_download_button': self._map_click_download_button,
@@ -398,6 +399,27 @@ class PlaywrightScriptGenerator:
 			script_lines.append(f'            # Skipping search_google ({step_info_str}): missing or invalid query')
 		return script_lines
 
+	def _map_search_bing(self, params: dict, step_info_str: str, **kwargs) -> list[str]:
+			query = params.get('query')
+			goto_timeout = self._get_goto_timeout()
+			script_lines = []
+			if query and isinstance(query, str):
+				clean_query = f'replace_sensitive_data({json.dumps(query)}, SENSITIVE_DATA)'
+				search_url_expression = f'f"https://www.bing.com/search?q={{ urllib.parse.quote_plus({clean_query}) }}"'
+				script_lines.extend(
+					[
+						f'            search_url = {search_url_expression}',
+						f'            print(f"Searching Bing for query related to: {{ {clean_query} }} ({step_info_str})")',
+						f'            await page.goto(search_url, timeout={goto_timeout})',
+						f"            await page.wait_for_load_state('load', timeout={goto_timeout})",
+						'            await page.wait_for_timeout(1000)',
+					]
+				)
+			else:
+		
+				script_lines.append(f'            # Skipping search_bing ({step_info_str}): missing or invalid query')
+			return script_lines
+	
 	def _map_drag_drop(self, params: dict, step_info_str: str, **kwargs) -> list[str]:
 		source_sel = params.get('element_source')
 		target_sel = params.get('element_target')

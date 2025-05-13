@@ -6,6 +6,10 @@ class SearchGoogleAction(BaseModel):
 	query: str
 
 
+class SearchBingAction(BaseModel):
+	query:str
+	
+
 class GoToUrlAction(BaseModel):
 	url: str
 
