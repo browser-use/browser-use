@@ -336,6 +336,11 @@ SUPPORTED_MODELS = {
 	'gemini-2.0-flash-lite': {'provider': 'google', 'model_name': 'gemini-2.0-flash-lite', 'api_key_env': 'GEMINI_API_KEY'},
 	'gemini-2.0-flash': {'provider': 'google', 'model_name': 'gemini-2.0-flash', 'api_key_env': 'GEMINI_API_KEY'},
 	'gemini-2.5-pro': {'provider': 'google', 'model_name': 'gemini-2.5-pro-preview-03-25', 'api_key_env': 'GEMINI_API_KEY'},
+	'gemini-2.5-pro-preview-05-06': {
+		'provider': 'google',
+		'model_name': 'gemini-2.5-pro-preview-05-06',
+		'api_key_env': 'GEMINI_API_KEY',
+	},
 	'gemini-2.5-flash-preview': {
 		'provider': 'google',
 		'model_name': 'gemini-2.5-flash-preview-04-17',
@@ -1282,6 +1287,7 @@ if __name__ == '__main__':
 		help='Clear saved_trajectories before starting. Set to False to keep existing trajectories (default: True)',
 	)
 	parser.add_argument('--user-message', type=str, default='', help='User message to include in the run')
+	parser.add_argument('--eval-group', type=str, default='', help='Evaluation group to include in the run')
 	args = parser.parse_args()
 
 	# Set up logging - Make sure logger is configured before use in fetch function
@@ -1383,6 +1389,7 @@ if __name__ == '__main__':
 			'gitCommitHash': git_info['hash'],
 			'gitCommitTimestamp': git_info['timestamp'],
 			'userMessage': args.user_message,
+			'evalGroup': args.eval_group,
 			'totalTasks': len(tasks) - args.start if args.end is None else args.end - args.start,
 			'additionalData': additional_run_data,
 		}
