@@ -51,7 +51,7 @@ class PlaywrightScriptGenerator:
 			'close_tab': self._map_close_tab,
 			'switch_tab': self._map_switch_tab,
 			'search_google': self._map_search_google,
-			'search_bing':self._map_search_bing,
+			'search_bing': self._map_search_bing,
 			'drag_drop': self._map_drag_drop,
 			'extract_content': self._map_extract_content,
 			'click_download_button': self._map_click_download_button,

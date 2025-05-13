@@ -7,8 +7,8 @@ class SearchGoogleAction(BaseModel):
 
 
 class SearchBingAction(BaseModel):
-	query:str
-	
+	query: str
+
 
 class GoToUrlAction(BaseModel):
 	url: str
