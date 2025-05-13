@@ -4,9 +4,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 # Action Input Models
 class SearchGoogleAction(BaseModel):
 	query: str
-	
+
+
 class SearchBingAction(BaseModel):
 	query:str
+
 
 class GoToUrlAction(BaseModel):
 	url: str
