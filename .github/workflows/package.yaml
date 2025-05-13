@@ -1,0 +1,54 @@
+name: package
+on:
+  push:
+    branches:
+      - main
+      - stable
+      - 'releases/**'
+    tags:
+      - '*'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: pip-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv build --python 3.12
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-artifact
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+
+  build_test:
+    name: pip-install-on-${{ matrix.os }}-py-${{ matrix.python-version }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-artifact
+
+      - name: Set up venv and test for OS/Python versions
+        shell: bash
+        run: |
+          uv venv /tmp/testenv --python ${{ matrix.python-version }}
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            . /tmp/testenv/Scripts/activate
+          else
+            source /tmp/testenv/bin/activate
+          fi
+          uv pip install *.whl
+          python -c 'from browser_use import Agent, Browser, Controller, ActionModel, ActionResult'

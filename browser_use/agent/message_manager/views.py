@@ -82,7 +82,7 @@ class MessageHistory(BaseModel):
 			self.messages.insert(position, ManagedMessage(message=message, metadata=metadata))
 		self.current_tokens += metadata.tokens
 
-	def add_model_output(self, output: 'AgentOutput') -> None:
+	def add_model_output(self, output: AgentOutput) -> None:
 		"""Add model output as AI message"""
 		tool_calls = [
 			{

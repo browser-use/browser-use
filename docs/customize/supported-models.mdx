@@ -115,7 +115,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from browser_use import Agent
 from dotenv import load_dotenv
 
-# Read GOOGLE_API_KEY into env
+# Read GEMINI_API_KEY into env
 load_dotenv()
 
 # Initialize the model
@@ -131,7 +131,7 @@ agent = Agent(
 Required environment variables:
 
 ```bash .env
-GOOGLE_API_KEY=
+GEMINI_API_KEY=
 ```
 
 
@@ -248,6 +248,39 @@ Required environment variables:
 
 ```bash .env
 NOVITA_API_KEY=
+```
+### X AI
+[X AI](https://x.ai) is an LLM API provider that offers a wide range of models. Note: choose a model that supports function calling.
+
+```python
+from langchain_openai import ChatOpenAI
+from browser_use import Agent
+from pydantic import SecretStr
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+api_key = os.getenv("GROK_API_KEY")
+
+# Initialize the model
+llm = ChatOpenAI(
+    base_url='https://api.x.ai/v1',
+    model='grok-3-beta',
+    api_key=SecretStr(api_key)
+)
+
+# Create agent with the model
+agent = Agent(
+    task="Your task here",
+    llm=llm,
+    use_vision=False
+)
+```
+
+Required environment variables:
+
+```bash .env
+GROK_API_KEY=
 ```
 
 ## Coming soon

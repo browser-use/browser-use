@@ -1,6 +1,7 @@
 import asyncio
 import subprocess
 
+import psutil
 import pytest
 import requests
 
@@ -153,6 +154,82 @@ async def test_user_provided_browser_launch(monkeypatch):
 	browser_obj = Browser(config=config)
 	result_browser = await browser_obj.get_playwright_browser()
 	assert isinstance(result_browser, DummyBrowser), 'Expected DummyBrowser from _setup_user_provided_browser'
+	await browser_obj.close()
+
+
+@pytest.mark.asyncio
+async def test_user_provided_browser_launch_on_custom_chrome_remote_debugging_port(monkeypatch):
+	"""
+	Test that when a browser_binary_path and chrome_remote_debugging_port are provided, the Browser class uses
+	_setup_user_provided_browser branch and returns the expected DummyBrowser object
+	by launching a new Chrome instance with --remote-debugging-port=chrome_remote_debugging_port argument.
+	"""
+
+	# Custom remote debugging port
+	custom_chrome_remote_debugging_port = 9223
+
+	# Dummy response for requests.get when checking chrome debugging endpoint.
+	class DummyResponse:
+		status_code = 200
+
+	def dummy_get(url, timeout):
+		if url == f'http://localhost:{custom_chrome_remote_debugging_port}/json/version':
+			return DummyResponse()
+		raise requests.ConnectionError('Connection failed')
+
+	monkeypatch.setattr(requests, 'get', dummy_get)
+
+	class DummyProcess:
+		def __init__(self, *args, **kwargs):
+			pass
+
+	class DummySubProcess:
+		pid = 1234
+
+	async def dummy_create_subprocess_exec(browser_binary_path, *args, **kwargs):
+		assert f'--remote-debugging-port={custom_chrome_remote_debugging_port}' in args, (
+			f'Chrome must be started with with --remote-debugging-port={custom_chrome_remote_debugging_port} argument'
+		)
+
+		return DummySubProcess()
+
+	monkeypatch.setattr(asyncio, 'create_subprocess_exec', dummy_create_subprocess_exec)
+	monkeypatch.setattr(psutil, 'Process', DummyProcess)
+
+	class DummyBrowser:
+		pass
+
+	class DummyChromium:
+		async def connect_over_cdp(self, endpoint_url, timeout=20000):
+			assert endpoint_url == f'http://localhost:{custom_chrome_remote_debugging_port}', (
+				f"Endpoint URL must be 'http://localhost:{custom_chrome_remote_debugging_port}'"
+			)
+			return DummyBrowser()
+
+	class DummyPlaywright:
+		def __init__(self):
+			self.chromium = DummyChromium()
+
+		async def stop(self):
+			pass
+
+	class DummyAsyncPlaywrightContext:
+		async def start(self):
+			return DummyPlaywright()
+
+	monkeypatch.setattr('browser_use.browser.browser.async_playwright', lambda: DummyAsyncPlaywrightContext())
+
+	config = BrowserConfig(
+		browser_binary_path='dummy/chrome',
+		chrome_remote_debugging_port=custom_chrome_remote_debugging_port,
+		extra_browser_args=['--dummy-arg'],
+	)
+
+	browser_obj = Browser(config=config)
+	result_browser = await browser_obj.get_playwright_browser()
+	assert isinstance(result_browser, DummyBrowser), (
+		f'Expected DummyBrowser with remote debugging port {custom_chrome_remote_debugging_port} from _setup_user_provided_browser'
+	)
 	await browser_obj.close()
 
 
@@ -391,8 +468,8 @@ async def test_standard_browser_launch_with_proxy(monkeypatch):
 @pytest.mark.asyncio
 async def test_browser_window_size(monkeypatch):
 	"""
-	Test that when a browser_window_size is provided in BrowserContextConfig,
-	it's properly converted to a dictionary when passed to Playwright.
+	Test that when window_width and window_height are provided in BrowserContextConfig,
+	they're properly converted to a dictionary when passed to Playwright.
 	"""
 
 	class DummyPage:
@@ -438,6 +515,9 @@ async def test_browser_window_size(monkeypatch):
 			pass
 
 		async def close(self):
+			pass
+
+		async def grant_permissions(self, permissions, origin=None):
 			pass
 
 	class DummyBrowser:
@@ -487,9 +567,9 @@ async def test_browser_window_size(monkeypatch):
 	playwright_browser = await browser_obj.get_playwright_browser()
 
 	# Create context config with specific window size
-	context_config = BrowserContextConfig(browser_window_size={'width': 1280, 'height': 1100})
+	context_config = BrowserContextConfig(window_width=1280, window_height=1100)
 
-	# Create browser context - this will test if browser_window_size is properly converted
+	# Create browser context - this will test if window dimensions are properly converted
 	browser_context = BrowserContext(browser=browser_obj, config=context_config)
 	await browser_context._initialize_session()
 

@@ -1,24 +1,42 @@
-name: Lint
+name: lint
 on:
   push:
+    branches:
+      - main
+      - stable
+      - 'releases/**'
+    tags:
+      - '*'
   pull_request:
   workflow_dispatch:
+
 jobs:
-  ruff:
+  lint-syntax:
+    name: syntax-errors
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv run ruff format
-      - run: uv run pre-commit run --all-files
-      # TODO: Fix the ignored pytests.
-      # openai.OpenAIError: The api_key client option must be set either by passing
-      # api_key to the client or by setting the OPENAI_API_KEY environment variable
-      - run: uv run --with=dotenv pytest
-                --ignore=tests/test_dropdown_error.py
-                --ignore=tests/test_gif_path.py
-                --ignore=tests/test_models.py
-                --ignore=tests/test_react_dropdown.py
-                --ignore=tests/test_save_conversation.py
-                --ignore=tests/test_vision.py
-                --ignore=tests/test_wait_for_element.py || true
+        with:
+          enable-cache: true
+      - run: uv run ruff check --no-fix --select PLE
+
+  lint-style:
+    name: code-style
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv run pre-commit run --all-files --show-diff-on-failure
+
+  lint-typecheck:
+    name: type-checker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv run pyright

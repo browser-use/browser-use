@@ -8,22 +8,23 @@ import logging
 import os
 import socket
 import subprocess
+from pathlib import Path
+from tempfile import gettempdir
 from typing import Literal
 
+import httpx
 import psutil
-import requests
 from dotenv import load_dotenv
 from playwright.async_api import Browser as PlaywrightBrowser
-from playwright.async_api import (
-	Playwright,
-	async_playwright,
-)
+from playwright.async_api import Playwright, async_playwright
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 load_dotenv()
 
+
 from browser_use.browser.chrome import (
 	CHROME_ARGS,
+	CHROME_DEBUG_PORT,
 	CHROME_DETERMINISTIC_RENDERING_ARGS,
 	CHROME_DISABLE_SECURITY_ARGS,
 	CHROME_DOCKER_ARGS,
@@ -80,6 +81,12 @@ class BrowserConfig(BaseModel):
 			Path to a Browser instance to use to connect to your normal browser
 			e.g. '/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome'
 
+		chrome_remote_debugging_port: 9222
+			Chrome remote debugging port to use to when browser_binary_path is supplied.
+			This allows running multiple chrome browsers with same browser_binary_path but running on different ports.
+			Also, makes it possible to launch new user provided chrome browser without closing already opened chrome instances,
+			by providing non-default chrome debugging port.
+
 		keep_alive: False
 			Keep the browser alive after the agent has finished running
 
@@ -100,7 +107,10 @@ class BrowserConfig(BaseModel):
 	cdp_url: str | None = None
 
 	browser_class: Literal['chromium', 'firefox', 'webkit'] = 'chromium'
-	browser_binary_path: str | None = Field(default=None, alias=AliasChoices('browser_instance_path', 'chrome_instance_path'))
+	browser_binary_path: str | None = Field(
+		default=None, validation_alias=AliasChoices('browser_instance_path', 'chrome_instance_path')
+	)
+	chrome_remote_debugging_port: int | None = CHROME_DEBUG_PORT
 	extra_browser_args: list[str] = Field(default_factory=list)
 
 	headless: bool = False
@@ -189,22 +199,50 @@ class Browser:
 
 		try:
 			# Check if browser is already running
-			response = requests.get('http://localhost:9222/json/version', timeout=2)
-			if response.status_code == 200:
-				logger.info('🔌  Reusing existing browser found running on http://localhost:9222')
-				browser_class = getattr(playwright, self.config.browser_class)
-				browser = await browser_class.connect_over_cdp(
-					endpoint_url='http://localhost:9222',
-					timeout=20000,  # 20 second timeout for connection
+			async with httpx.AsyncClient() as client:
+				response = await client.get(
+					f'http://localhost:{self.config.chrome_remote_debugging_port}/json/version', timeout=2
 				)
-				return browser
-		except requests.ConnectionError:
+				if response.status_code == 200:
+					logger.info(
+						f'🔌  Reusing existing browser found running on http://localhost:{self.config.chrome_remote_debugging_port}'
+					)
+					browser_class = getattr(playwright, self.config.browser_class)
+					browser = await browser_class.connect_over_cdp(
+						endpoint_url=f'http://localhost:{self.config.chrome_remote_debugging_port}',
+						timeout=20000,  # 20 second timeout for connection
+					)
+					return browser
+		except httpx.RequestError:
 			logger.debug('🌎  No existing Chrome instance found, starting a new one')
 
+		provided_user_data_dir = [arg for arg in self.config.extra_browser_args if '--user-data-dir=' in arg]
+
+		if provided_user_data_dir:
+			user_data_dir = Path(provided_user_data_dir[0].split('=')[-1])
+		else:
+			fallback_user_data_dir = Path(gettempdir()) / 'browseruse' / 'profiles' / 'default'  # /tmp/browseruse
+			try:
+				# ~/.config/browseruse/profiles/default
+				user_data_dir = Path('~/.config') / 'browseruse' / 'profiles' / 'default'
+				user_data_dir.expanduser().mkdir(parents=True, exist_ok=True)
+			except Exception as e:
+				logger.error(f'❌  Failed to create ~/.config/browseruse directory: {type(e).__name__}: {e}')
+				user_data_dir = fallback_user_data_dir
+				user_data_dir.mkdir(parents=True, exist_ok=True)
+
+		logger.info(f'🌐  Storing Browser Profile user data dir in: {user_data_dir}')
+		try:
+			# Remove any existing SingletonLock file to allow the browser to start
+			(user_data_dir / 'Default' / 'SingletonLock').unlink()
+		except (FileNotFoundError, PermissionError, OSError):
+			pass
+
 		# Start a new Chrome instance
-		chrome_launch_cmd = [
-			self.config.browser_binary_path,
+		chrome_launch_args = [
 			*{  # remove duplicates (usually preserves the order, but not guaranteed)
+				f'--remote-debugging-port={self.config.chrome_remote_debugging_port}',
+				*([f'--user-data-dir={user_data_dir.resolve()}'] if not provided_user_data_dir else []),
 				*CHROME_ARGS,
 				*(CHROME_DOCKER_ARGS if IN_DOCKER else []),
 				*(CHROME_HEADLESS_ARGS if self.config.headless else []),
@@ -213,22 +251,25 @@ class Browser:
 				*self.config.extra_browser_args,
 			},
 		]
-		self._chrome_subprocess = psutil.Process(
-			subprocess.Popen(
-				chrome_launch_cmd,
-				stdout=subprocess.DEVNULL,
-				stderr=subprocess.DEVNULL,
-				shell=False,
-			).pid
+		chrome_sub_process = await asyncio.create_subprocess_exec(
+			self.config.browser_binary_path,
+			*chrome_launch_args,
+			stdout=subprocess.DEVNULL,
+			stderr=subprocess.DEVNULL,
+			shell=False,
 		)
+		self._chrome_subprocess = psutil.Process(chrome_sub_process.pid)
 
 		# Attempt to connect again after starting a new instance
 		for _ in range(10):
 			try:
-				response = requests.get('http://localhost:9222/json/version', timeout=2)
-				if response.status_code == 200:
-					break
-			except requests.ConnectionError:
+				async with httpx.AsyncClient() as client:
+					response = await client.get(
+						f'http://localhost:{self.config.chrome_remote_debugging_port}/json/version', timeout=2
+					)
+					if response.status_code == 200:
+						break
+			except httpx.RequestError:
 				pass
 			await asyncio.sleep(1)
 
@@ -236,7 +277,7 @@ class Browser:
 		try:
 			browser_class = getattr(playwright, self.config.browser_class)
 			browser = await browser_class.connect_over_cdp(
-				endpoint_url='http://localhost:9222',
+				endpoint_url=f'http://localhost:{self.config.chrome_remote_debugging_port}',
 				timeout=20000,  # 20 second timeout for connection
 			)
 			return browser
@@ -250,7 +291,20 @@ class Browser:
 		"""Sets up and returns a Playwright Browser instance with anti-detection measures."""
 		assert self.config.browser_binary_path is None, 'browser_binary_path should be None if trying to use the builtin browsers'
 
-		if self.config.headless:
+		# Use the configured window size from new_context_config if available
+		if (
+			not self.config.headless
+			and hasattr(self.config, 'new_context_config')
+			and hasattr(self.config.new_context_config, 'window_width')
+			and hasattr(self.config.new_context_config, 'window_height')
+			and not self.config.new_context_config.no_viewport
+		):
+			screen_size = {
+				'width': self.config.new_context_config.window_width,
+				'height': self.config.new_context_config.window_height,
+			}
+			offset_x, offset_y = get_window_adjustments()
+		elif self.config.headless:
 			screen_size = {'width': 1920, 'height': 1080}
 			offset_x, offset_y = 0, 0
 		else:
@@ -258,6 +312,7 @@ class Browser:
 			offset_x, offset_y = get_window_adjustments()
 
 		chrome_args = {
+			f'--remote-debugging-port={self.config.chrome_remote_debugging_port}',
 			*CHROME_ARGS,
 			*(CHROME_DOCKER_ARGS if IN_DOCKER else []),
 			*(CHROME_HEADLESS_ARGS if self.config.headless else []),
@@ -268,10 +323,11 @@ class Browser:
 			*self.config.extra_browser_args,
 		}
 
-		# check if port 9222 is already taken, if so remove the remote-debugging-port arg to prevent conflicts
+		# check if chrome remote debugging port is already taken,
+		# if so remove the remote-debugging-port arg to prevent conflicts
 		with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-			if s.connect_ex(('localhost', 9222)) == 0:
-				chrome_args.remove('--remote-debugging-port=9222')
+			if s.connect_ex(('localhost', self.config.chrome_remote_debugging_port)) == 0:
+				chrome_args.remove(f'--remote-debugging-port={self.config.chrome_remote_debugging_port}')
 
 		browser_class = getattr(playwright, self.config.browser_class)
 		args = {
@@ -291,6 +347,7 @@ class Browser:
 		}
 
 		browser = await browser_class.launch(
+			channel='chromium',  # https://github.com/microsoft/playwright/issues/33566
 			headless=self.config.headless,
 			args=args[self.config.browser_class],
 			proxy=self.config.proxy.model_dump() if self.config.proxy else None,
@@ -342,7 +399,8 @@ class Browser:
 			# Then cleanup httpx clients
 			await self.cleanup_httpx_clients()
 		except Exception as e:
-			logger.debug(f'Failed to close browser properly: {e}')
+			if 'OpenAI error' not in str(e):
+				logger.debug(f'Failed to close browser properly: {e}')
 
 		finally:
 			self.playwright_browser = None

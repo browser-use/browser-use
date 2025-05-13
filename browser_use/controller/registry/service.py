@@ -1,6 +1,7 @@
 import asyncio
+from collections.abc import Callable
 from inspect import iscoroutinefunction, signature
-from typing import Any, Callable, Dict, Generic, Optional, Type, TypeVar
+from typing import Any, Generic, Optional, TypeVar
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, Field, create_model
@@ -30,7 +31,7 @@ class Registry(Generic[Context]):
 		self.exclude_actions = exclude_actions if exclude_actions is not None else []
 
 	# @time_execution_sync('--create_param_model')
-	def _create_param_model(self, function: Callable) -> Type[BaseModel]:
+	def _create_param_model(self, function: Callable) -> type[BaseModel]:
 		"""Creates a Pydantic model from function signature"""
 		sig = signature(function)
 		params = {
@@ -48,9 +49,9 @@ class Registry(Generic[Context]):
 	def action(
 		self,
 		description: str,
-		param_model: Optional[Type[BaseModel]] = None,
-		domains: Optional[list[str]] = None,
-		page_filter: Optional[Callable[[Any], bool]] = None,
+		param_model: type[BaseModel] | None = None,
+		domains: list[str] | None = None,
+		page_filter: Callable[[Any], bool] | None = None,
 	):
 		"""Decorator for registering actions"""
 
@@ -94,10 +95,10 @@ class Registry(Generic[Context]):
 		self,
 		action_name: str,
 		params: dict,
-		browser: Optional[BrowserContext] = None,
-		page_extraction_llm: Optional[BaseChatModel] = None,
-		sensitive_data: Optional[Dict[str, str]] = None,
-		available_file_paths: Optional[list[str]] = None,
+		browser: BrowserContext | None = None,
+		page_extraction_llm: BaseChatModel | None = None,
+		sensitive_data: dict[str, str] | None = None,
+		available_file_paths: list[str] | None = None,
 		#
 		context: Context | None = None,
 	) -> Any:
@@ -149,20 +150,31 @@ class Registry(Generic[Context]):
 		except Exception as e:
 			raise RuntimeError(f'Error executing action {action_name}: {str(e)}') from e
 
-	def _replace_sensitive_data(self, params: BaseModel, sensitive_data: Dict[str, str]) -> BaseModel:
+	def _replace_sensitive_data(self, params: BaseModel, sensitive_data: dict[str, str]) -> BaseModel:
 		"""Replaces the sensitive data in the params"""
 		# if there are any str with <secret>placeholder</secret> in the params, replace them with the actual value from sensitive_data
 
+		import logging
 		import re
 
+		logger = logging.getLogger(__name__)
 		secret_pattern = re.compile(r'<secret>(.*?)</secret>')
+
+		# Set to track all missing placeholders across the full object
+		all_missing_placeholders = set()
 
 		def replace_secrets(value):
 			if isinstance(value, str):
 				matches = secret_pattern.findall(value)
+
 				for placeholder in matches:
-					if placeholder in sensitive_data:
+					if placeholder in sensitive_data and sensitive_data[placeholder]:
 						value = value.replace(f'<secret>{placeholder}</secret>', sensitive_data[placeholder])
+					else:
+						# Keep track of missing placeholders
+						all_missing_placeholders.add(placeholder)
+						# Don't replace the tag, keep it as is
+
 				return value
 			elif isinstance(value, dict):
 				return {k: replace_secrets(v) for k, v in value.items()}
@@ -170,12 +182,17 @@ class Registry(Generic[Context]):
 				return [replace_secrets(v) for v in value]
 			return value
 
-		for key, value in params.model_dump().items():
-			params.__dict__[key] = replace_secrets(value)
-		return params
+		params_dump = params.model_dump()
+		processed_params = replace_secrets(params_dump)
+
+		# Log a warning if any placeholders are missing
+		if all_missing_placeholders:
+			logger.warning(f'Missing or empty keys in sensitive_data dictionary: {", ".join(all_missing_placeholders)}')
+
+		return type(params).model_validate(processed_params)
 
 	# @time_execution_sync('--create_action_model')
-	def create_action_model(self, include_actions: Optional[list[str]] = None, page=None) -> Type[ActionModel]:
+	def create_action_model(self, include_actions: list[str] | None = None, page=None) -> type[ActionModel]:
 		"""Creates a Pydantic model from registered actions, used by LLM APIs that support tool calling & enforce a schema"""
 
 		# Filter actions based on page if provided:

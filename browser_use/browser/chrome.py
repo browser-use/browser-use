@@ -1,22 +1,19 @@
-CHROME_DEFAULT_USER_AGENT = (
-	'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
-)
 CHROME_EXTENSIONS = {}  # coming in a separate PR
 CHROME_EXTENSIONS_PATH = 'chrome_extensions'
 CHROME_PROFILE_PATH = 'chrome_profile'
 CHROME_PROFILE_USER = 'Default'
-CHROME_DEBUG_PORT = 9222
+CHROME_DEBUG_PORT = 9242
 CHROME_DISABLED_COMPONENTS = [
 	'Translate',
 	'AcceptCHFrame',
 	'OptimizationHints',
 	'ProcessPerSiteUpToMainFrameThreshold',
 	'InterestFeedContentSuggestions',
-	'CalculateNativeWinOcclusion',
+	# 'CalculateNativeWinOcclusion',
 	'BackForwardCache',
-	'HeavyAdPrivacyMitigations',
+	# 'HeavyAdPrivacyMitigations',
 	'LazyFrameLoading',
-	'ImprovedCookieControls',
+	# 'ImprovedCookieControls',
 	'PrivacySandboxSettings4',
 	'AutofillServerCommunication',
 	'CertificateTransparencyComponentUpdater',
@@ -30,8 +27,8 @@ CHROME_DISABLED_COMPONENTS = [
 
 CHROME_HEADLESS_ARGS = [
 	'--headless=new',
-	'--test-type',
-	'--test-type=gpu',  # https://github.com/puppeteer/puppeteer/issues/10516
+	# '--test-type',
+	# '--test-type=gpu',  # https://github.com/puppeteer/puppeteer/issues/10516
 	# '--enable-automation',                            # <- DONT USE THIS, it makes you easily detectable / blocked by cloudflare
 ]
 
@@ -58,7 +55,7 @@ CHROME_DISABLE_SECURITY_ARGS = [
 	'--ignore-certificate-errors',
 	'--ignore-ssl-errors',
 	'--ignore-certificate-errors-spki-list',
-	'--allow-insecure-localhost',
+	# '--allow-insecure-localhost',
 ]
 
 # flags to make chrome behave more deterministically across different OS's
@@ -66,13 +63,12 @@ CHROME_DETERMINISTIC_RENDERING_ARGS = [
 	'--deterministic-mode',
 	'--js-flags=--random-seed=1157259159',  # make all JS random numbers deterministic by providing a seed
 	'--force-device-scale-factor=1',
-	'--hide-scrollbars',  # hide scrollbars because otherwise they show up in screenshots
 	# GPU, canvas, text, and pdf rendering config
 	# chrome://gpu
 	'--enable-webgl',  # enable web-gl graphics support
 	'--font-render-hinting=none',  # make rendering more deterministic by ignoring OS font hints, may also need css override, try:    * {text-rendering: geometricprecision !important; -webkit-font-smoothing: antialiased;}
 	'--force-color-profile=srgb',  # make rendering more deterministic by using consistent color profile, if browser looks weird, try: generic-rgb
-	'--disable-partial-raster',  # make rendering more deterministic (TODO: verify if still needed)
+	# '--disable-partial-raster',  # make rendering more deterministic (TODO: verify if still needed)
 	'--disable-skia-runtime-opts',  # make rendering more deterministic by avoiding Skia hot path runtime optimizations
 	'--disable-2d-canvas-clip-aa',  # make rendering more deterministic by disabling antialiasing on 2d canvas clips
 	# '--disable-gpu',                                  # falls back to more consistent software renderer across all OS's, especially helps linux text rendering look less weird
@@ -81,27 +77,28 @@ CHROME_DETERMINISTIC_RENDERING_ARGS = [
 	# // '--run-all-compositor-stages-before-draw',     <- DO NOT USE, makes headful chrome hang on startup (tested v121 Google Chrome.app on macOS)
 	# // '--disable-gl-drawing-for-tests',              <- DO NOT USE, disables gl output (makes tests run faster if you dont care about canvas)
 	# // '--blink-settings=imagesEnabled=false',        <- DO NOT USE, disables images entirely (only sometimes useful to speed up loading)
-	# Process management & performance tuning
-	# chrome://process-internals
-	'--disable-lazy-loading',  # make rendering more deterministic by loading all content up-front instead of on-focus
-	'--disable-renderer-backgrounding',  # dont throttle tab rendering based on focus/visibility
-	'--disable-background-networking',  # dont throttle tab networking based on focus/visibility
-	'--disable-background-timer-throttling',  # dont throttle tab timers based on focus/visibility
-	'--disable-backgrounding-occluded-windows',  # dont throttle tab window based on focus/visibility
-	'--disable-ipc-flooding-protection',  # dont throttle ipc traffic or accessing big request/response/buffer/etc. objects will fail
-	'--disable-extensions-http-throttling',  # dont throttle http traffic based on runtime heuristics
-	'--disable-field-trial-config',  # disable shared field trial state between browser processes
-	'--disable-back-forward-cache',  # disable browsing navigation cache
 ]
 
+
 CHROME_ARGS = [
+	# Process management & performance tuning
+	# chrome://process-internals
+	# '--disable-lazy-loading',  # make rendering more deterministic by loading all content up-front instead of on-focus
+	# '--disable-renderer-backgrounding',  # dont throttle tab rendering based on focus/visibility
+	# '--disable-background-networking',  # dont throttle tab networking based on focus/visibility
+	# '--disable-background-timer-throttling',  # dont throttle tab timers based on focus/visibility
+	# '--disable-backgrounding-occluded-windows',  # dont throttle tab window based on focus/visibility
+	# '--disable-ipc-flooding-protection',  # dont throttle ipc traffic or accessing big request/response/buffer/etc. objects will fail
+	# '--disable-extensions-http-throttling',  # dont throttle http traffic based on runtime heuristics
+	# '--disable-field-trial-config',  # disable shared field trial state between browser processes
+	# '--disable-back-forward-cache',  # disable browsing navigation cache
 	# Profile data dir setup
 	# chrome://profile-internals
 	# f'--user-data-dir={CHROME_PROFILE_PATH}',     # managed by playwright arg instead
 	# f'--profile-directory={CHROME_PROFILE_USER}',
 	# '--password-store=basic',  # use mock keychain instead of OS-provided keychain (we manage auth.json instead)
 	# '--use-mock-keychain',
-	'--disable-cookie-encryption',  # we need to be able to write unencrypted cookies to save/load auth.json
+	# '--disable-cookie-encryption',  # we need to be able to write unencrypted cookies to save/load auth.json
 	'--disable-sync',  # don't try to use Google account sync features while automation is active
 	# Extensions
 	# chrome://inspect/#extensions
@@ -109,7 +106,7 @@ CHROME_ARGS = [
 	# f'--allowlisted-extension-id={",".join(CHROME_EXTENSIONS.keys())}',
 	'--allow-legacy-extension-manifests',
 	'--allow-pre-commit-input',  # allow JS mutations before page rendering is complete
-	'--disable-blink-features=AutomationControlled',  # hide the signatures that announce browser is being remote-controlled
+	# '--disable-blink-features=AutomationControlled',  # hide the signatures that announce browser is being remote-controlled
 	# f'--proxy-server=https://43.159.28.126:2334:u7ce652b7568805c4-zone-custom-region-us-session-szGWq3FRU-sessTime-60:u7ce652b7568805c4',      # send all network traffic through a proxy https://2captcha.com/proxy
 	# f'--proxy-bypass-list=127.0.0.1',
 	# Browser window and viewport setup
@@ -119,7 +116,8 @@ CHROME_ARGS = [
 	# '--window-position=0,0',
 	# '--start-maximized',
 	'--install-autogenerated-theme=0,0,0',  # black border makes it easier to see which chrome window is browser-use's
-	#'--virtual-time-budget=60000',  # fast-forward all animations & timers by 60s, dont use this it's unfortunately buggy and breaks screenshot and PDF capture sometimes
+	'--hide-scrollbars',  # stop scrollbars from affecting screenshot width/height
+	#'--virtual-time-budget=60000',  # DONT USE THIS, makes chrome hang forever and doesn't work, used to fast-forward all animations & timers by 60s, dont use this it's unfortunately buggy and breaks screenshot and PDF capture sometimes
 	#'--autoplay-policy=no-user-gesture-required',  # auto-start videos so they trigger network requests + show up in outputs
 	#'--disable-gesture-requirement-for-media-playback',
 	#'--lang=en-US,en;q=0.9',
@@ -127,9 +125,8 @@ CHROME_ARGS = [
 	# chrome://inspect
 	'--log-level=2',  # 1=DEBUG 2=WARNING 3=ERROR
 	'--enable-logging=stderr',
-	# '--remote-debugging-address=127.0.0.1',         <- never expose to non-localhost, would allow attacker to drive your browser from any machine
-	f'--remote-debugging-port={CHROME_DEBUG_PORT}',
-	'--enable-experimental-extension-apis',  # add support for tab groups
+	# '--remote-debugging-address=127.0.0.1',         <- DONT USE THIS, no longer supported on chrome >100, never expose to non-localhost, would allow attacker to drive your browser from any machine
+	# '--enable-experimental-extension-apis',          # add support for tab groups via chrome.tabs extension API
 	'--disable-focus-on-load',  # prevent browser from hijacking focus
 	'--disable-window-activation',
 	# '--in-process-gpu',                            <- DONT USE THIS, makes headful startup time ~5-10s slower (tested v121 Google Chrome.app on macOS)
@@ -148,7 +145,6 @@ CHROME_ARGS = [
 	'--no-first-run',
 	'--no-default-browser-check',
 	'--no-startup-window',
-	'--disable-default-apps',
 	'--ash-no-nudges',
 	'--disable-infobars',
 	'--disable-search-engine-choice-screen',
@@ -158,7 +154,6 @@ CHROME_ARGS = [
 	'--suppress-message-center-popups',
 	'--disable-client-side-phishing-detection',
 	'--disable-domain-reliability',
-	'--disable-component-update',
 	'--disable-datasaver-prompt',
 	'--disable-hang-monitor',
 	'--disable-session-crashed-bubble',
@@ -166,15 +161,14 @@ CHROME_ARGS = [
 	'--disable-speech-api',
 	'--disable-print-preview',
 	'--safebrowsing-disable-auto-update',
-	'--deny-permission-prompts',
+	# '--deny-permission-prompts',
 	'--disable-external-intent-requests',
-	'--disable-notifications',
+	# '--disable-notifications',
 	'--disable-desktop-notifications',
 	'--noerrdialogs',
-	'--disable-popup-blocking',
 	'--disable-prompt-on-repost',
 	'--silent-debugger-extension-api',
-	'--block-new-web-contents',
+	# '--block-new-web-contents',
 	'--metrics-recording-only',
 	'--disable-breakpad',
 	# other feature flags

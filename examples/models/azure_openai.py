@@ -1,7 +1,7 @@
 """
 Simple try of the agent.
 
-@dev You need to add AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT to your environment variables.
+@dev You need to add AZURE_OPENAI_KEY and AZURE_OPENAI_ENDPOINT to your environment variables.
 """
 
 import os
@@ -20,11 +20,11 @@ from browser_use import Agent
 load_dotenv()
 
 # Retrieve Azure-specific environment variables
-azure_openai_api_key = os.getenv('AZURE_OPENAI_API_KEY')
+azure_openai_api_key = os.getenv('AZURE_OPENAI_KEY')
 azure_openai_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
 
 if not azure_openai_api_key or not azure_openai_endpoint:
-	raise ValueError('AZURE_OPENAI_API_KEY or AZURE_OPENAI_ENDPOINT is not set')
+	raise ValueError('AZURE_OPENAI_KEY or AZURE_OPENAI_ENDPOINT is not set')
 
 # Initialize the Azure OpenAI client
 llm = AzureChatOpenAI(

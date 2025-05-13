@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 
 from browser_use.agent.service import Agent
@@ -218,3 +219,126 @@ class TestRegistry:
 			param1='test_value', browser=mock_browser
 		)
 		registry.registry.actions['test_action_without_browser'].function.assert_called_once_with(param1='test_value')
+
+
+class TestAgentRetry:
+	@pytest.fixture
+	def mock_llm(self):
+		return AsyncMock()
+
+	@pytest.fixture
+	def mock_controller(self):
+		controller = Mock()
+		controller.registry = Mock()
+		controller.registry.registry = Mock()
+		controller.registry.registry.actions = {}
+		return controller
+
+	@pytest.fixture
+	def mock_browser_context(self):
+		browser_context = Mock()
+		browser_context.get_state = AsyncMock(
+			return_value=BrowserState(
+				url='https://parabank.parasoft.com/parabank/index.htm',
+				title='ParaBank',
+				element_tree=MagicMock(),
+				tabs=[],
+				selector_map={},
+				screenshot='',
+			)
+		)
+		return browser_context
+
+	@pytest.fixture
+	def mock_action_model(self):
+		action_model = Mock(spec=ActionModel)
+		return action_model
+
+	@pytest.mark.asyncio
+	async def test_step_empty_action_retry(self, mock_llm, mock_controller, mock_browser_context, mock_action_model):
+		"""
+		Test that the step method retries and handles empty actions correctly.
+		"""
+		# Arrange
+		agent = Agent(
+			task='Test task',
+			llm=mock_llm,
+			controller=mock_controller,
+			browser=Mock(),
+			browser_context=mock_browser_context,
+		)
+		agent.ActionModel = mock_action_model  # Inject the mock ActionModel
+
+		# Mock get_next_action to return empty action the first time, then a valid action
+		empty_model_output = MagicMock()
+		empty_model_output.action = []  # Empty action
+		valid_model_output = MagicMock()
+		valid_action = MagicMock()
+		valid_model_output.action = [valid_action]
+
+		mock_llm.return_value.invoke.side_effect = [empty_model_output, valid_model_output]
+		agent.get_next_action = mock_llm.return_value.invoke
+
+		# Act
+		await agent.step()
+
+		# Assert
+		# Check that get_next_action was called twice (initial call + retry)
+		assert agent.get_next_action.call_count == 2
+		# Check that the LLM was called twice
+		assert mock_llm.return_value.invoke.call_count == 2
+
+		# Check that the second call to get_next_action included the clarification message
+		_, retry_messages = mock_llm.return_value.invoke.call_args_list[1]
+		assert len(retry_messages[0]) == 2  # input_messages + clarification message
+		assert isinstance(retry_messages[0][1], HumanMessage)
+		assert 'You forgot to return an action' in retry_messages[0][1].content
+
+		# Check that _last_result contains the valid action
+		assert len(agent._last_result) == 1
+		assert agent._last_result[0].action == valid_action
+
+	@pytest.mark.asyncio
+	async def test_step_empty_action_retry_and_fail(self, mock_llm, mock_controller, mock_browser_context, mock_action_model):
+		"""
+		Test that the step method handles the case where get_next_action returns
+		empty actions twice, and inserts a safe noop action.
+		"""
+		# Arrange
+		agent = Agent(
+			task='Test task',
+			llm=mock_llm,
+			controller=mock_controller,
+			browser=Mock(),
+			browser_context=mock_browser_context,
+		)
+		agent.ActionModel = mock_action_model  # Inject the mock ActionModel
+
+		# Mock get_next_action to return empty action both times
+		empty_model_output = MagicMock()
+		empty_model_output.action = []  # Empty action
+		mock_llm.return_value.invoke.return_value = empty_model_output
+		agent.get_next_action = mock_llm.return_value.invoke
+
+		# Mock the ActionModel instance creation
+		mock_action_instance = MagicMock()
+		mock_action_model.return_value = mock_action_instance
+
+		# Act
+		await agent.step()
+
+		# Assert
+		# Check that get_next_action was called twice
+		assert agent.get_next_action.call_count == 2
+		# Check that the LLM was called twice
+		assert mock_llm.return_value.invoke.call_count == 2
+
+		# Check that ActionModel was instantiated with the noop action
+		mock_action_model.assert_called_once()
+		call_args = mock_action_model.call_args[1]
+		assert 'done' in call_args
+		assert call_args['done'] == {'success': False, 'text': 'No action returned, safe exit.'}
+
+		# Check that _last_result contains the noop action
+		assert len(agent._last_result) == 1
+		assert agent._last_result[0].action == mock_action_instance

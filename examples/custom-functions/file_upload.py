@@ -2,6 +2,8 @@ import os
 import sys
 from pathlib import Path
 
+import anyio
+
 from browser_use.agent.views import ActionResult
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -68,8 +70,8 @@ async def read_file(path: str, available_file_paths: list[str]):
 	if path not in available_file_paths:
 		return ActionResult(error=f'File path {path} is not available')
 
-	with open(path, 'r') as f:
-		content = f.read()
+	async with await anyio.open_file(path, 'r') as f:
+		content = await f.read()
 	msg = f'File content: {content}'
 	logger.info(msg)
 	return ActionResult(extracted_content=msg, include_in_memory=True)

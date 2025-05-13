@@ -3,7 +3,7 @@ import os
 import pytest
 
 from browser_use.browser.browser import Browser, BrowserConfig, ProxySettings
-from browser_use.browser.context import BrowserContext, BrowserContextConfig, BrowserContextWindowSize
+from browser_use.browser.context import BrowserContext, BrowserContextConfig
 
 
 @pytest.mark.asyncio
@@ -33,33 +33,27 @@ async def test_proxy_settings_pydantic_model():
 
 
 @pytest.mark.asyncio
-async def test_window_size_pydantic_model():
+async def test_window_size_config():
 	"""
-	Test that BrowserContextWindowSize as a Pydantic model is correctly converted to a dictionary when used.
+	Test that BrowserContextConfig correctly handles window_width and window_height properties.
 	"""
-	# Create BrowserContextWindowSize with Pydantic model
-	window_size = BrowserContextWindowSize(width=1280, height=1100)
+	# Create config with specific window dimensions
+	config = BrowserContextConfig(window_width=1280, window_height=1100)
 
-	# Verify the model has correct dict-like access
-	assert window_size['width'] == 1280
-	assert window_size.get('height') == 1100
-	assert window_size.get('nonexistent', 'default') == 'default'
+	# Verify the properties are set correctly
+	assert config.window_width == 1280
+	assert config.window_height == 1100
 
 	# Verify model_dump works correctly
-	window_dict = window_size.model_dump()
-	assert isinstance(window_dict, dict)
-	assert window_dict['width'] == 1280
-	assert window_dict['height'] == 1100
+	config_dict = config.model_dump()
+	assert isinstance(config_dict, dict)
+	assert config_dict['window_width'] == 1280
+	assert config_dict['window_height'] == 1100
 
-	# Create a context config with the window size and test initialization
-	config = BrowserContextConfig(browser_window_size=window_size)
-	assert config.browser_window_size == window_size
-
-	# You can also create from a dictionary
-	config2 = BrowserContextConfig(browser_window_size={'width': 1920, 'height': 1080})
-	assert isinstance(config2.browser_window_size, BrowserContextWindowSize)
-	assert config2.browser_window_size.width == 1920
-	assert config2.browser_window_size.height == 1080
+	# Create with different values
+	config2 = BrowserContextConfig(window_width=1920, window_height=1080)
+	assert config2.window_width == 1920
+	assert config2.window_height == 1080
 
 
 @pytest.mark.asyncio
@@ -70,17 +64,15 @@ async def test_window_size_with_real_browser():
 	passed to Playwright and the actual browser window is configured with these settings.
 	This test is skipped in CI environments.
 	"""
-	# Create window size with specific dimensions we can check
-	window_size = BrowserContextWindowSize(width=1024, height=768)
-
 	# Create browser config with headless mode
 	browser_config = BrowserConfig(
 		headless=True,  # Use headless for faster test
 	)
 
-	# Create context config with our window size
+	# Create context config with specific dimensions we can check
 	context_config = BrowserContextConfig(
-		browser_window_size=window_size,
+		window_width=1024,
+		window_height=768,
 		maximum_wait_page_load_time=2.0,  # Faster timeouts for test
 		minimum_wait_page_load_time=0.2,
 		no_viewport=True,  # Use actual window size instead of viewport
@@ -134,7 +126,7 @@ async def test_window_size_with_real_browser():
                 }
             """)
 
-			print(f'Window size config: {window_size.model_dump()}')
+			print(f'Window size config: width={context_config.window_width}, height={context_config.window_height}')
 			print(f'Browser viewport size: {viewport_size}')
 
 			# This is a lightweight test to verify that the page has a size (details may vary by browser)

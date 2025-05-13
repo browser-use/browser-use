@@ -12,8 +12,9 @@ import re
 import time
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
+import anyio
 from playwright._impl._errors import TimeoutError
 from playwright.async_api import Browser as PlaywrightBrowser
 from playwright.async_api import (
@@ -42,25 +43,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+import platform
 
-class BrowserContextWindowSize(BaseModel):
-	"""Window size configuration for browser context"""
-
-	width: int
-	height: int
-
-	model_config = ConfigDict(
-		extra='allow',  # Allow extra fields to ensure compatibility with dictionary
-		populate_by_name=True,
-		from_attributes=True,
-	)
-
-	# Support dict-like behavior for compatibility
-	def __getitem__(self, key):
-		return getattr(self, key)
-
-	def get(self, key, default=None):
-		return getattr(self, key, default)
+BROWSER_NAVBAR_HEIGHT = {
+	'windows': 85,
+	'darwin': 80,
+	'linux': 90,
+}.get(platform.system().lower(), 85)
 
 
 class BrowserContextConfig(BaseModel):
@@ -87,11 +76,13 @@ class BrowserContextConfig(BaseModel):
 	    wait_between_actions: 1.0
 	        Time to wait between multiple per step actions
 
-	    browser_window_size: BrowserContextWindowSize(width=1280, height=1100)
-	        Default browser window size
+	    window_width: 1280
+	    window_height: 1100
+	        Default browser window dimensions
 
-	    no_viewport: False
-	        Disable viewport
+	    no_viewport: True
+	        When True (default), the browser window size determines the viewport.
+	        When False, forces a fixed viewport size using window_width and window_height. (constraint of the rendered content to a smaller area than the default of the entire window size)
 
 	    save_recording_path: None
 	        Path to save video recordings
@@ -134,11 +125,14 @@ class BrowserContextConfig(BaseModel):
 	    geolocation: None
 	        Geolocation to be used in the browser context. Example: {'latitude': 59.95, 'longitude': 30.31667}
 
-	    permissions: None
-	        Browser permissions to grant. Values might include: ['geolocation', 'notifications']
+	    permissions: ['clipboard-read', 'clipboard-write']
+	        Browser permissions to grant. See full list here: https://playwright.dev/python/docs/api/class-browsercontext#browser-context-grant-permissions
 
 	    timezone_id: None
 	        Changes the timezone of the browser. Example: 'Europe/Berlin'
+
+		force_new_context: False
+			Forces a new browser context to be created. Useful when running locally with branded browser (e.g Chrome, Edge) and setting a custom config.
 	"""
 
 	model_config = ConfigDict(
@@ -158,19 +152,16 @@ class BrowserContextConfig(BaseModel):
 
 	disable_security: bool = False  # disable_security=True is dangerous as any malicious URL visited could embed an iframe for the user's bank, and use their cookies to steal money
 
-	browser_window_size: BrowserContextWindowSize = Field(
-		default_factory=lambda: BrowserContextWindowSize(width=1280, height=1100)
-	)
-	no_viewport: Optional[bool] = None
+	window_width: int = 1280
+	window_height: int = 1100
+	no_viewport: bool = True  # True is the default for headful mode - browser window size determines viewport
 
 	save_recording_path: str | None = None
 	save_downloads_path: str | None = None
 	save_har_path: str | None = None
 	trace_path: str | None = None
 	locale: str | None = None
-	user_agent: str = (
-		'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36  (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36'
-	)
+	user_agent: str | None = None
 
 	highlight_elements: bool = True
 	viewport_expansion: int = 0
@@ -182,8 +173,15 @@ class BrowserContextConfig(BaseModel):
 	is_mobile: bool | None = None
 	has_touch: bool | None = None
 	geolocation: dict | None = None
-	permissions: list[str] | None = None
+	permissions: list[str] = Field(
+		default_factory=lambda: [
+			'clipboard-read',
+			'clipboard-write',
+		]
+	)
 	timezone_id: str | None = None
+
+	force_new_context: bool = False
 
 
 @dataclass
@@ -198,57 +196,10 @@ class CachedStateClickableElementsHashes:
 
 class BrowserSession:
 	def __init__(self, context: PlaywrightBrowserContext, cached_state: BrowserState | None = None):
-		init_script = """
-			(() => {
-				if (!window.getEventListeners) {
-					window.getEventListeners = function (node) {
-						return node.__listeners || {};
-					};
-
-					// Save the original addEventListener
-					const originalAddEventListener = Element.prototype.addEventListener;
-
-					const eventProxy = {
-						addEventListener: function (type, listener, options = {}) {
-							// Initialize __listeners if not exists
-							const defaultOptions = { once: false, passive: false, capture: false };
-							if(typeof options === 'boolean') {
-								options = { capture: options };
-							}
-							options = { ...defaultOptions, ...options };
-							if (!this.__listeners) {
-								this.__listeners = {};
-							}
-
-							// Initialize array for this event type if not exists
-							if (!this.__listeners[type]) {
-								this.__listeners[type] = [];
-							}
-							
-
-							// Add the listener to __listeners
-							this.__listeners[type].push({
-								listener: listener,
-								type: type,
-								...options
-							});
-
-							// Call original addEventListener using the saved reference
-							return originalAddEventListener.call(this, type, listener, options);
-						}
-					};
-
-					Element.prototype.addEventListener = eventProxy.addEventListener;
-				}
-			})()
-			"""
-		self.active_tab = None
 		self.context = context
 		self.cached_state = cached_state
 
 		self.cached_state_clickable_elements_hashes: CachedStateClickableElementsHashes | None = None
-
-		self.context.on('page', lambda page: page.add_init_script(init_script))
 
 
 @dataclass
@@ -265,7 +216,7 @@ class BrowserContext:
 		self,
 		browser: 'Browser',
 		config: BrowserContextConfig | None = None,
-		state: Optional[BrowserContextState] = None,
+		state: BrowserContextState | None = None,
 	):
 		self.context_id = str(uuid.uuid4())
 
@@ -276,7 +227,10 @@ class BrowserContext:
 
 		# Initialize these as None - they'll be set up when needed
 		self.session: BrowserSession | None = None
-		self.active_tab: Page | None = None
+
+		# Tab references - separate concepts for agent intent and browser state
+		self.agent_current_page: Page | None = None  # The tab the agent intends to interact with
+		self.human_current_page: Page | None = None  # The tab currently shown in the browser UI
 
 	async def __aenter__(self):
 		"""Async context manager entry"""
@@ -322,7 +276,8 @@ class BrowserContext:
 
 		finally:
 			# Dereference everything
-			self.active_tab = None
+			self.agent_current_page = None
+			self.human_current_page = None
 			self.session = None
 			self._page_event_handler = None
 
@@ -336,6 +291,8 @@ class BrowserContext:
 					asyncio.run(self.session.context._impl_obj.close())
 
 				self.session = None
+				self.agent_current_page = None
+				self.human_current_page = None
 				gc.collect()
 			except Exception as e:
 				logger.warning(f'Failed to force close browser context: {e}')
@@ -349,6 +306,9 @@ class BrowserContext:
 		context = await self._create_context(playwright_browser)
 		self._page_event_handler = None
 
+		# auto-attach the foregrounding-detection listener to all new pages opened
+		context.on('page', self._add_tab_foregrounding_listener)
+
 		# Get or create a page to use
 		pages = context.pages
 
@@ -357,7 +317,7 @@ class BrowserContext:
 			cached_state=None,
 		)
 
-		active_page = None
+		current_page = None
 		if self.browser.config.cdp_url:
 			# If we have a saved target ID, try to find and activate it
 			if self.state.target_id:
@@ -367,57 +327,137 @@ class BrowserContext:
 						# Find matching page by URL
 						for page in pages:
 							if page.url == target['url']:
-								active_page = page
+								current_page = page
 								break
 						break
 
 		# If no target ID or couldn't find it, use existing page or create new
-		if not active_page:
+		if not current_page:
 			if (
 				pages
 				and pages[0].url
 				and not pages[0].url.startswith('chrome://')  # skip chrome internal pages e.g. settings, history, etc
 				and not pages[0].url.startswith('chrome-extension://')  # skip hidden extension background pages
 			):
-				active_page = pages[0]
-				logger.debug('🔍  Using existing page: %s', active_page.url)
+				current_page = pages[0]
+				logger.debug('🔍  Using existing page: %s', current_page.url)
 			else:
-				active_page = await context.new_page()
-				await active_page.goto('about:blank')
-				logger.debug('🆕  Created new page: %s', active_page.url)
+				current_page = await context.new_page()
+				await current_page.goto('about:blank')
+				logger.debug('🆕  Created new page: %s', current_page.url)
 
 			# Get target ID for the active page
 			if self.browser.config.cdp_url:
 				targets = await self._get_cdp_targets()
 				for target in targets:
-					if target['url'] == active_page.url:
+					if target['url'] == current_page.url:
 						self.state.target_id = target['targetId']
 						break
 
 		# Bring page to front
-		logger.debug('🫨  Bringing tab to front: %s', active_page)
-		await active_page.bring_to_front()
-		await active_page.wait_for_load_state('load')
+		logger.debug('🫨  Bringing tab to front: %s', current_page)
+		await current_page.bring_to_front()
+		await current_page.wait_for_load_state('load')
 
-		self.active_tab = active_page
+		# Set the viewport size for the active page
+		await self.set_viewport_size(current_page)
+
+		# Initialize both tab references to the same page initially
+		self.agent_current_page = current_page
+		self.human_current_page = current_page
+
+		# Set up visibility listeners for all existing tabs
+		for page in pages:
+			if not page.url.startswith('chrome-extension://') and not page.url.startswith('chrome://') and not page.is_closed():
+				await self._add_tab_foregrounding_listener(page)
+				# logger.debug(f'👁️  Added visibility listener to existing tab: {page.url}')
 
 		return self.session
 
-	def _add_new_page_listener(self, context: PlaywrightBrowserContext):
-		async def on_page(page: Page):
-			if self.browser.config.cdp_url:
-				await page.reload()  # Reload the page to avoid timeout errors
-			await page.wait_for_load_state()
-			logger.debug(f'📑  New page opened: {page.url}')
+	async def _add_tab_foregrounding_listener(self, page: Page):
+		"""
+		Attaches listeners that detect when the human steals active tab focus away from the agent.
 
-			if not page.url.startswith('chrome-extension://') and not page.url.startswith('chrome://'):
-				self.active_tab = page
+		Uses a combination of:
+		- visibilitychange events
+		- window focus/blur events
+		- pointermove events
 
-			if self.session is not None:
-				self.state.target_id = None
+		This multi-method approach provides more reliable detection across browsers.
 
-		self._page_event_handler = on_page
-		context.on('page', on_page)
+		TODO: pester the playwright team to add a new event that fires when a headful tab is focused.
+		OR implement a browser-use chrome extension that acts as a bridge to the chrome.tabs API.
+
+		        - https://github.com/microsoft/playwright/issues/1290
+		        - https://github.com/microsoft/playwright/issues/2286
+		        - https://github.com/microsoft/playwright/issues/3570
+		        - https://github.com/microsoft/playwright/issues/13989
+		"""
+
+		def trunc(s, max_len=None):
+			s = s.replace('https://', '').replace('http://', '').replace('www.', '')
+			if max_len is not None and len(s) > max_len:
+				return s[:max_len] + '…'
+			return s
+
+		try:
+			# Generate a unique function name for this page
+			visibility_func_name = f'onVisibilityChange_{id(page)}{id(page.url)}'
+
+			# Define the callback that will be called from browser when tab becomes visible
+			async def on_visibility_change(data):
+				source = data.get('source', 'unknown')
+
+				# Log before and after for debugging
+				old_foreground = self.human_current_page
+				if old_foreground.url != page.url:
+					logger.warning(
+						f'👁️ Foregound tab changed by human from {trunc(old_foreground.url, 22) if old_foreground else "about:blank"} to {trunc(page.url, 22)} ({source}) but agent will stay on {trunc(self.agent_current_page.url, 22)}'
+					)
+
+				# Update foreground tab
+				self.human_current_page = page
+
+			# Expose the function to the browser
+			await page.expose_function(visibility_func_name, on_visibility_change)
+
+			# Set up multiple visibility detection methods in the browser
+			js_code = """() => {
+				// --- Method 1: visibilitychange event (unfortunately *all* tabs are always marked visible by playwright, usually does not fire) ---
+				document.addEventListener('visibilitychange', () => {
+					if (document.visibilityState === 'visible') {
+						window.onVisibilityChange_TABID({ source: 'visibilitychange' });
+					}
+				});
+				
+				// --- Method 2: focus/blur events, most reliable method for headful browsers ---
+				window.addEventListener('focus', () => {
+					window.onVisibilityChange_TABID({ source: 'focus' });
+				});
+				
+				// --- Method 3: pointermove events (may be fired by agent if we implement AI hover movements) ---
+				// Use a throttled handler to avoid excessive calls
+				// let lastMove = 0;
+				// window.addEventListener('pointermove', () => {
+				// 	const now = Date.now();
+				// 	if (now - lastMove > 1000) {  // Throttle to once per second
+				// 		lastMove = now;
+				// 		window.onVisibilityChange_TABID({ source: 'pointermove' });
+				// 	}
+				// });
+			}""".replace('onVisibilityChange_TABID', visibility_func_name)
+			# multiple reasons for doing it this way ^: stealth, uniqueness, sometimes pageload is cancelled and it runs twice, etc.
+			await page.evaluate(js_code)
+
+			# re-add listener to the page for when it navigates to a new url, because previous listeners will be cleared
+			page.on('domcontentloaded', self._add_tab_foregrounding_listener)
+			logger.debug(f'👀 Added tab focus listeners to tab: {page.url}')
+
+			if page.url != self.agent_current_page.url:
+				await on_visibility_change({'source': 'navigation'})
+
+		except Exception as e:
+			logger.debug(f'Failed to add tab focus listener to {page.url}: {e}')
 
 	async def get_session(self) -> BrowserSession:
 		"""Lazy initialization of the browser and related components"""
@@ -430,27 +470,155 @@ class BrowserContext:
 		return self.session
 
 	async def get_current_page(self) -> Page:
-		"""Get the current page"""
+		"""Legacy method for backwards compatibility, prefer get_agent_current_page()"""
+		return await self.get_agent_current_page()
+
+	async def _reconcile_tab_state(self) -> None:
+		"""Reconcile tab state when tabs might be out of sync.
+
+		This method ensures that:
+		1. Both tab references (agent_current_page and human_current_page) are valid
+		2. Recovers invalid tab references using valid ones
+		3. Handles the case where both references are invalid
+		"""
 		session = await self.get_session()
-		return await self._get_current_page(session)
+
+		agent_tab_valid = (
+			self.agent_current_page
+			and self.agent_current_page in session.context.pages
+			and not self.agent_current_page.is_closed()
+		)
+
+		human_current_page_valid = (
+			self.human_current_page
+			and self.human_current_page in session.context.pages
+			and not self.human_current_page.is_closed()
+		)
+
+		# Case 1: Both references are valid - nothing to do
+		if agent_tab_valid and human_current_page_valid:
+			return
+
+		# Case 2: Only agent_current_page is valid - update human_current_page
+		if agent_tab_valid and not human_current_page_valid:
+			self.human_current_page = self.agent_current_page
+			return
+
+		# Case 3: Only human_current_page is valid - update agent_current_page
+		if human_current_page_valid and not agent_tab_valid:
+			self.agent_current_page = self.human_current_page
+			return
+
+		# Case 4: Neither reference is valid - recover from available tabs
+		non_extension_pages = [
+			page
+			for page in session.context.pages
+			if not page.url.startswith('chrome-extension://') and not page.url.startswith('chrome://')
+		]
+
+		if non_extension_pages:
+			# Update both tab references to the most recently opened non-extension page
+			recovered_page = non_extension_pages[-1]
+			self.agent_current_page = recovered_page
+			self.human_current_page = recovered_page
+			return
+
+		# Case 5: No valid pages at all - create a new page
+		try:
+			new_page = await session.context.new_page()
+			self.agent_current_page = new_page
+			self.human_current_page = new_page
+		except Exception:
+			# Last resort - recreate the session
+			logger.warning('⚠️  No browser window available, recreating session')
+			await self._initialize_session()
+			if session.context.pages:
+				page = session.context.pages[0]
+				self.agent_current_page = page
+				self.human_current_page = page
+
+	async def get_agent_current_page(self) -> Page:
+		"""Get the page that the agent is currently working with.
+
+		This method prioritizes agent_current_page over human_current_page, ensuring
+		that agent operations happen on the intended tab regardless of user
+		interaction with the browser.
+
+		If agent_current_page is invalid or closed, it will attempt to recover
+		with a valid tab reference by reconciling the tab state.
+		"""
+		session = await self.get_session()
+
+		# First check if agent_current_page is valid
+		if (
+			self.agent_current_page
+			and self.agent_current_page in session.context.pages
+			and not self.agent_current_page.is_closed()
+		):
+			return self.agent_current_page
+
+		# If we're here, reconcile tab state and try again
+		await self._reconcile_tab_state()
+
+		# After reconciliation, agent_current_page should be valid
+		if (
+			self.agent_current_page
+			and self.agent_current_page in session.context.pages
+			and not self.agent_current_page.is_closed()
+		):
+			return self.agent_current_page
+
+		# If still invalid, fall back to first page method as last resort
+		logger.warning('⚠️  Failed to get agent current page, falling back to first page')
+		if session.context.pages:
+			page = session.context.pages[0]
+			self.agent_current_page = page
+			self.human_current_page = page
+			return page
+
+		# If no pages, create one
+		return await session.context.new_page()
 
 	async def _create_context(self, browser: PlaywrightBrowser):
 		"""Creates a new browser context with anti-detection measures and loads cookies if available."""
-		if self.browser.config.cdp_url and len(browser.contexts) > 0:
+		if self.browser.config.cdp_url and len(browser.contexts) > 0 and not self.config.force_new_context:
 			context = browser.contexts[0]
-		elif self.browser.config.browser_binary_path and len(browser.contexts) > 0:
+			# For existing contexts, we need to set the viewport size manually
+			if context.pages and not self.browser.config.headless:
+				for page in context.pages:
+					await self.set_viewport_size(page)
+		elif self.browser.config.browser_binary_path and len(browser.contexts) > 0 and not self.config.force_new_context:
 			# Connect to existing Chrome instance instead of creating new one
 			context = browser.contexts[0]
+			# For existing contexts, we need to set the viewport size manually
+			if context.pages and not self.browser.config.headless:
+				for page in context.pages:
+					await self.set_viewport_size(page)
 		else:
-			# Original code for creating new context
+			kwargs = {}
+			# Set viewport for both headless and non-headless modes
+			if self.browser.config.headless:
+				# In headless mode, always set viewport and no_viewport=False
+				kwargs['viewport'] = {'width': self.config.window_width, 'height': self.config.window_height}
+				kwargs['no_viewport'] = False
+			else:
+				# In headful mode, use the no_viewport value from config (defaults to True)
+				no_viewport_value = self.config.no_viewport
+				kwargs['no_viewport'] = no_viewport_value
+
+				# Only set viewport if no_viewport is False
+				if not no_viewport_value:
+					kwargs['viewport'] = {'width': self.config.window_width, 'height': self.config.window_height}
+
+			if self.config.user_agent is not None:
+				kwargs['user_agent'] = self.config.user_agent
+
 			context = await browser.new_context(
-				no_viewport=True,
-				user_agent=self.config.user_agent,
+				**kwargs,
 				java_script_enabled=True,
-				bypass_csp=self.config.disable_security,
-				ignore_https_errors=self.config.disable_security,
+				**({'bypass_csp': True, 'ignore_https_errors': True} if self.config.disable_security else {}),
 				record_video_dir=self.config.save_recording_path,
-				record_video_size=self.config.browser_window_size.model_dump(),
+				record_video_size={'width': self.config.window_width, 'height': self.config.window_height},
 				record_har_path=self.config.save_har_path,
 				locale=self.config.locale,
 				http_credentials=self.config.http_credentials,
@@ -461,14 +629,29 @@ class BrowserContext:
 				timezone_id=self.config.timezone_id,
 			)
 
+		# Ensure required permissions are granted
+		required_permissions = ['clipboard-read', 'clipboard-write']  # needed for google sheets automation
+		if self.config.geolocation:
+			required_permissions.append('geolocation')
+		missing_permissions = [p for p in required_permissions if p not in self.config.permissions]
+		if any(missing_permissions):
+			logger.warning(
+				f'⚠️ Some permissions required by browser-use {missing_permissions} are missing from BrowserContextConfig(permissions={self.config.permissions}), some features may not work properly!'
+			)
+		await context.grant_permissions(self.config.permissions)
+
 		if self.config.trace_path:
 			await context.tracing.start(screenshots=True, snapshots=True, sources=True)
 
+		# Resize the window for non-headless mode
+		if not self.browser.config.headless:
+			await self._resize_window(context)
+
 		# Load cookies if they exist
 		if self.config.cookies_file and os.path.exists(self.config.cookies_file):
-			with open(self.config.cookies_file, 'r') as f:
+			async with await anyio.open_file(self.config.cookies_file, 'r') as f:
 				try:
-					cookies = json.load(f)
+					cookies = json.loads(await f.read())
 
 					valid_same_site_values = ['Strict', 'Lax', 'None']
 					for cookie in cookies:
@@ -484,47 +667,74 @@ class BrowserContext:
 				except json.JSONDecodeError as e:
 					logger.error(f'Failed to parse cookies file: {str(e)}')
 
-		# Expose anti-detection scripts
-		await context.add_init_script(
+		init_script = """
+			// Permissions
+			const originalQuery = window.navigator.permissions.query;
+			window.navigator.permissions.query = (parameters) => (
+				parameters.name === 'notifications' ?
+					Promise.resolve({ state: Notification.permission }) :
+					originalQuery(parameters)
+			);
+			(() => {
+				if (window._eventListenerTrackerInitialized) return;
+				window._eventListenerTrackerInitialized = true;
+
+				const originalAddEventListener = EventTarget.prototype.addEventListener;
+				const eventListenersMap = new WeakMap();
+
+				EventTarget.prototype.addEventListener = function(type, listener, options) {
+					if (typeof listener === "function") {
+						let listeners = eventListenersMap.get(this);
+						if (!listeners) {
+							listeners = [];
+							eventListenersMap.set(this, listeners);
+						}
+
+						listeners.push({
+							type,
+							listener,
+							listenerPreview: listener.toString().slice(0, 100),
+							options
+						});
+					}
+
+					return originalAddEventListener.call(this, type, listener, options);
+				};
+
+				window.getEventListenersForNode = (node) => {
+					const listeners = eventListenersMap.get(node) || [];
+					return listeners.map(({ type, listenerPreview, options }) => ({
+						type,
+						listenerPreview,
+						options
+					}));
+				};
+			})();
 			"""
-            // Webdriver property
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            });
 
-            // Languages
-            Object.defineProperty(navigator, 'languages', {
-                get: () => ['en-US']
-            });
-
-            // Plugins
-            Object.defineProperty(navigator, 'plugins', {
-                get: () => [1, 2, 3, 4, 5]
-            });
-
-            // Chrome runtime
-            window.chrome = { runtime: {} };
-
-            // Permissions
-            const originalQuery = window.navigator.permissions.query;
-            window.navigator.permissions.query = (parameters) => (
-                parameters.name === 'notifications' ?
-                    Promise.resolve({ state: Notification.permission }) :
-                    originalQuery(parameters)
-            );
-            (function () {
-                const originalAttachShadow = Element.prototype.attachShadow;
-                Element.prototype.attachShadow = function attachShadow(options) {
-                    return originalAttachShadow.call(this, { ...options, mode: "open" });
-                };
-            })();
-            """
-		)
+		# Expose anti-detection scripts
+		await context.add_init_script(init_script)
 
 		return context
 
+	async def set_viewport_size(self, page: Page) -> None:
+		"""
+		Central method to set viewport size for a page.
+		Simple for now, but we may need to add more logic here in the future to rezise surrounding window, change recording options, etc.
+		"""
+		try:
+			# Only set viewport size if no_viewport is False (aka viewport=True)
+			if self.config.no_viewport is False:
+				viewport_size = {'width': self.config.window_width, 'height': self.config.window_height}
+				await page.set_viewport_size(viewport_size)
+				logger.debug(f'Set viewport size to {self.config.window_width}x{self.config.window_height}')
+			# else:
+			# logger.debug('Skipping viewport size setting because no_viewport is not False')
+		except Exception as e:
+			logger.debug(f'Failed to set viewport size for page: {e}')
+
 	async def _wait_for_stable_network(self):
-		page = await self.get_current_page()
+		page = await self.get_agent_current_page()
 
 		pending_requests = set()
 		last_activity = asyncio.get_event_loop().time()
@@ -706,7 +916,7 @@ class BrowserContext:
 			await self._wait_for_stable_network()
 
 			# Check if the loaded URL is allowed
-			page = await self.get_current_page()
+			page = await self.get_agent_current_page()
 			await self._check_and_handle_navigation(page)
 		except URLNotAllowedError as e:
 			raise e
@@ -732,16 +942,15 @@ class BrowserContext:
 		try:
 			from urllib.parse import urlparse
 
-			parsed_url = urlparse(url)
-			domain = parsed_url.netloc.lower()
-
 			# Special case: Allow 'about:blank' explicitly
 			if url == 'about:blank':
 				return True
 
-			# Remove port number if present
-			if ':' in domain:
-				domain = domain.split(':')[0]
+			parsed_url = urlparse(url)
+
+			# Extract only the hostname component (without auth credentials or port)
+			# Hostname returns only the domain portion, ignoring username:password and port
+			domain = parsed_url.hostname.lower() if parsed_url.hostname else ''
 
 			# Check if domain matches any allowed domain pattern
 			return any(
@@ -763,23 +972,23 @@ class BrowserContext:
 			raise URLNotAllowedError(f'Navigation to non-allowed URL: {page.url}')
 
 	async def navigate_to(self, url: str):
-		"""Navigate to a URL"""
+		"""Navigate the agent's current tab to a URL"""
 		if not self._is_url_allowed(url):
 			raise BrowserError(f'Navigation to non-allowed URL: {url}')
 
-		page = await self.get_current_page()
+		page = await self.get_agent_current_page()
 		await page.goto(url)
 		await page.wait_for_load_state()
 
 	async def refresh_page(self):
-		"""Refresh the current page"""
-		page = await self.get_current_page()
+		"""Refresh the agent's current page"""
+		page = await self.get_agent_current_page()
 		await page.reload()
 		await page.wait_for_load_state()
 
 	async def go_back(self):
-		"""Navigate back in history"""
-		page = await self.get_current_page()
+		"""Navigate the agent's tab back in browser history"""
+		page = await self.get_agent_current_page()
 		try:
 			# 10 ms timeout
 			await page.go_back(timeout=10, wait_until='domcontentloaded')
@@ -789,8 +998,8 @@ class BrowserContext:
 			logger.debug(f'⏮️  Error during go_back: {e}')
 
 	async def go_forward(self):
-		"""Navigate forward in history"""
-		page = await self.get_current_page()
+		"""Navigate the agent's tab forward in browser history"""
+		page = await self.get_agent_current_page()
 		try:
 			await page.go_forward(timeout=10, wait_until='domcontentloaded')
 		except Exception as e:
@@ -798,26 +1007,43 @@ class BrowserContext:
 			logger.debug(f'⏭️  Error during go_forward: {e}')
 
 	async def close_current_tab(self):
-		"""Close the current tab"""
+		"""Close the current tab that the agent is working with.
+
+		This closes the tab that the agent is currently using (agent_current_page),
+		not necessarily the tab that is visible to the user (human_current_page).
+		If they are the same tab, both references will be updated.
+		"""
 		session = await self.get_session()
-		page = await self._get_current_page(session)
+		page = await self.get_agent_current_page()
+
+		# Check if this is the foreground tab as well
+		is_foreground = page == self.human_current_page
+
+		# Close the tab
 		await page.close()
-		self.active_tab = None
+
+		# Clear agent's reference to the closed tab
+		self.agent_current_page = None
+
+		# Clear foreground reference if needed
+		if is_foreground:
+			self.human_current_page = None
+
 		# Switch to the first available tab if any exist
 		if session.context.pages:
 			await self.switch_to_tab(0)
-			self.active_tab = session.context.pages[0]
+			# switch_to_tab already updates both tab references
 
-		# otherwise the browser will be closed
+		# Otherwise, the browser will be closed
 
 	async def get_page_html(self) -> str:
-		"""Get the current page HTML content"""
-		page = await self.get_current_page()
+		"""Get the HTML content of the agent's current page"""
+		page = await self.get_agent_current_page()
 		return await page.content()
 
 	async def execute_javascript(self, script: str):
-		"""Execute JavaScript code on the page"""
-		page = await self.get_current_page()
+		"""Execute JavaScript code on the agent's current page"""
+		page = await self.get_agent_current_page()
 		return await page.evaluate(script)
 
 	async def get_page_structure(self) -> str:
@@ -887,7 +1113,7 @@ class BrowserContext:
 			return getPageStructure();
 		})()"""
 
-		page = await self.get_current_page()
+		page = await self.get_agent_current_page()
 		structure = await page.evaluate(debug_script)
 		return structure
 
@@ -938,19 +1164,12 @@ class BrowserContext:
 
 		# Check if current page is still valid, if not switch to another available page
 		try:
-			page = await self.get_current_page()
+			page = await self.get_agent_current_page()
 			# Test if page is still accessible
 			await page.evaluate('1')
 		except Exception as e:
 			logger.debug(f'👋  Current page is no longer accessible: {str(e)}')
-			# Get all available pages
-			pages = session.context.pages
-			if pages:
-				self.state.target_id = None
-				page = await self._get_current_page(session)
-				logger.debug(f'🔄  Switched to page: {await page.title()}')
-			else:
-				raise BrowserError('Browser closed: no valid pages available')
+			raise BrowserError('Browser closed: no valid pages available')
 
 		try:
 			await self.remove_highlights()
@@ -986,6 +1205,14 @@ class BrowserContext:
 			screenshot_b64 = await self.take_screenshot()
 			pixels_above, pixels_below = await self.get_scroll_info(page)
 
+			# Find the agent's active tab ID
+			agent_current_page_id = 0
+			if self.agent_current_page:
+				for tab_info in tabs_info:
+					if tab_info.url == self.agent_current_page.url:
+						agent_current_page_id = tab_info.page_id
+						break
+
 			self.current_state = BrowserState(
 				element_tree=content.element_tree,
 				selector_map=content.selector_map,
@@ -1011,14 +1238,16 @@ class BrowserContext:
 		"""
 		Returns a base64 encoded screenshot of the current page.
 		"""
-		page = await self.get_current_page()
+		page = await self.get_agent_current_page()
 
-		await page.bring_to_front()
+		# We no longer force tabs to the foreground as it disrupts user focus
+		# await page.bring_to_front()
 		await page.wait_for_load_state()
 
 		screenshot = await page.screenshot(
 			full_page=full_page,
 			animations='disabled',
+			caret='initial',
 		)
 
 		screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
@@ -1034,7 +1263,7 @@ class BrowserContext:
 		Handles cases where the page might be closed or inaccessible.
 		"""
 		try:
-			page = await self.get_current_page()
+			page = await self.get_agent_current_page()
 			await page.evaluate(
 				"""
                 try {
@@ -1230,9 +1459,24 @@ class BrowserContext:
 			tag_name = element.tag_name or '*'
 			return f"{tag_name}[highlight_index='{element.highlight_index}']"
 
+	@time_execution_async('--is_visible')
+	async def _is_visible(self, element: ElementHandle) -> bool:
+		"""
+		Checks if an element is visible on the page.
+		We use our own implementation instead of relying solely on Playwright's is_visible() because
+		of edge cases with CSS frameworks like Tailwind. When elements use Tailwind's 'hidden' class,
+		the computed style may return display as '' (empty string) instead of 'none', causing Playwright
+		to incorrectly consider hidden elements as visible. By additionally checking the bounding box
+		dimensions, we catch elements that have zero width/height regardless of how they were hidden.
+		"""
+		is_hidden = await element.is_hidden()
+		bbox = await element.bounding_box()
+
+		return not is_hidden and bbox is not None and bbox['width'] > 0 and bbox['height'] > 0
+
 	@time_execution_async('--get_locate_element')
-	async def get_locate_element(self, element: DOMElementNode) -> Optional[ElementHandle]:
-		current_frame = await self.get_current_page()
+	async def get_locate_element(self, element: DOMElementNode) -> ElementHandle | None:
+		current_frame = await self.get_agent_current_page()
 
 		# Start with the target element and collect all parents
 		parents: list[DOMElementNode] = []
@@ -1266,8 +1510,8 @@ class BrowserContext:
 				# Try to scroll into view if hidden
 				element_handle = await current_frame.query_selector(css_selector)
 				if element_handle:
-					is_hidden = await element_handle.is_hidden()
-					if not is_hidden:
+					is_visible = await self._is_visible(element_handle)
+					if is_visible:
 						await element_handle.scroll_into_view_if_needed()
 					return element_handle
 				return None
@@ -1276,18 +1520,18 @@ class BrowserContext:
 			return None
 
 	@time_execution_async('--get_locate_element_by_xpath')
-	async def get_locate_element_by_xpath(self, xpath: str) -> Optional[ElementHandle]:
+	async def get_locate_element_by_xpath(self, xpath: str) -> ElementHandle | None:
 		"""
 		Locates an element on the page using the provided XPath.
 		"""
-		current_frame = await self.get_current_page()
+		current_frame = await self.get_agent_current_page()
 
 		try:
 			# Use XPath to locate the element
 			element_handle = await current_frame.query_selector(f'xpath={xpath}')
 			if element_handle:
-				is_hidden = await element_handle.is_hidden()
-				if not is_hidden:
+				is_visible = await self._is_visible(element_handle)
+				if is_visible:
 					await element_handle.scroll_into_view_if_needed()
 				return element_handle
 			return None
@@ -1296,18 +1540,18 @@ class BrowserContext:
 			return None
 
 	@time_execution_async('--get_locate_element_by_css_selector')
-	async def get_locate_element_by_css_selector(self, css_selector: str) -> Optional[ElementHandle]:
+	async def get_locate_element_by_css_selector(self, css_selector: str) -> ElementHandle | None:
 		"""
 		Locates an element on the page using the provided CSS selector.
 		"""
-		current_frame = await self.get_current_page()
+		current_frame = await self.get_agent_current_page()
 
 		try:
 			# Use CSS selector to locate the element
 			element_handle = await current_frame.query_selector(css_selector)
 			if element_handle:
-				is_hidden = await element_handle.is_hidden()
-				if not is_hidden:
+				is_visible = await self._is_visible(element_handle)
+				if is_visible:
 					await element_handle.scroll_into_view_if_needed()
 				return element_handle
 			return None
@@ -1317,20 +1561,20 @@ class BrowserContext:
 
 	@time_execution_async('--get_locate_element_by_text')
 	async def get_locate_element_by_text(
-		self, text: str, nth: Optional[int] = 0, element_type: Optional[str] = None
-	) -> Optional[ElementHandle]:
+		self, text: str, nth: int | None = 0, element_type: str | None = None
+	) -> ElementHandle | None:
 		"""
 		Locates an element on the page using the provided text.
 		If `nth` is provided, it returns the nth matching element (0-based).
 		If `element_type` is provided, filters by tag name (e.g., 'button', 'span').
 		"""
-		current_frame = await self.get_current_page()
+		current_frame = await self.get_agent_current_page()
 		try:
 			# handle also specific element type or use any type.
 			selector = f'{element_type or "*"}:text("{text}")'
 			elements = await current_frame.query_selector_all(selector)
 			# considering only visible elements
-			elements = [el for el in elements if await el.is_visible()]
+			elements = [el for el in elements if await self._is_visible(el)]
 
 			if not elements:
 				logger.error(f"No visible element with text '{text}' found.")
@@ -1345,8 +1589,8 @@ class BrowserContext:
 			else:
 				element_handle = elements[0]
 
-			is_hidden = await element_handle.is_hidden()
-			if not is_hidden:
+			is_visible = await self._is_visible(element_handle)
+			if is_visible:
 				await element_handle.scroll_into_view_if_needed()
 			return element_handle
 		except Exception as e:
@@ -1372,8 +1616,8 @@ class BrowserContext:
 			# Ensure element is ready for input
 			try:
 				await element_handle.wait_for_element_state('stable', timeout=1000)
-				is_hidden = await element_handle.is_hidden()
-				if not is_hidden:
+				is_visible = await self._is_visible(element_handle)
+				if is_visible:
 					await element_handle.scroll_into_view_if_needed(timeout=1000)
 			except Exception:
 				pass
@@ -1388,22 +1632,31 @@ class BrowserContext:
 			readonly = await readonly_handle.json_value() if readonly_handle else False
 			disabled = await disabled_handle.json_value() if disabled_handle else False
 
-			if (await is_contenteditable.json_value() or tag_name == 'input') and not (readonly or disabled):
-				await element_handle.evaluate('el => {el.textContent = ""; el.value = "";}')
-				await element_handle.type(text, delay=5)
-			else:
-				await element_handle.fill(text)
+			# always click the element first to make sure it's in the focus
+			await element_handle.click()
+			await asyncio.sleep(0.1)
+
+			try:
+				if (await is_contenteditable.json_value() or tag_name == 'input') and not (readonly or disabled):
+					await element_handle.evaluate('el => {el.textContent = ""; el.value = "";}')
+					await element_handle.type(text, delay=5)
+				else:
+					await element_handle.fill(text)
+			except Exception:
+				# last resort fallback, assume it's already focused after we clicked on it,
+				# just simulate keypresses on the entire page
+				await self.get_agent_current_page().keyboard.type(text)
 
 		except Exception as e:
 			logger.debug(f'❌  Failed to input text into element: {repr(element_node)}. Error: {str(e)}')
 			raise BrowserError(f'Failed to input text into index {element_node.highlight_index}')
 
 	@time_execution_async('--click_element_node')
-	async def _click_element_node(self, element_node: DOMElementNode) -> Optional[str]:
+	async def _click_element_node(self, element_node: DOMElementNode) -> str | None:
 		"""
 		Optimized method to click an element using xpath.
 		"""
-		page = await self.get_current_page()
+		page = await self.get_agent_current_page()
 
 		try:
 			# Highlight before clicking
@@ -1468,7 +1721,7 @@ class BrowserContext:
 		for page_id, page in enumerate(session.context.pages):
 			try:
 				tab_info = TabInfo(page_id=page_id, url=page.url, title=await asyncio.wait_for(page.title(), timeout=1))
-			except asyncio.TimeoutError:
+			except TimeoutError:
 				# page.title() can hang forever on tabs that are crashed/disappeared/about:blank
 				# we dont want to try automating those tabs because they will hang the whole script
 				logger.debug('⚠  Failed to get tab info for tab #%s: %s (ignoring)', page_id, page.url)
@@ -1500,9 +1753,16 @@ class BrowserContext:
 					self.state.target_id = target['targetId']
 					break
 
-		self.active_tab = page
+		# Update both tab references - agent wants this tab, and it's now in the foreground
+		self.agent_current_page = page
+		self.human_current_page = page
+
+		# Bring tab to front and wait for it to load
 		await page.bring_to_front()
 		await page.wait_for_load_state()
+
+		# Set the viewport size for the tab
+		await self.set_viewport_size(page)
 
 	@time_execution_async('--create_new_tab')
 	async def create_new_tab(self, url: str | None = None) -> None:
@@ -1513,9 +1773,14 @@ class BrowserContext:
 		session = await self.get_session()
 		new_page = await session.context.new_page()
 
-		self.active_tab = new_page
+		# Update both tab references - agent wants this tab, and it's now in the foreground
+		self.agent_current_page = new_page
+		self.human_current_page = new_page
 
 		await new_page.wait_for_load_state()
+
+		# Set the viewport size for the new tab
+		await self.set_viewport_size(new_page)
 
 		if url:
 			await new_page.goto(url)
@@ -1529,42 +1794,7 @@ class BrowserContext:
 					self.state.target_id = target['targetId']
 					break
 
-	# endregion
-
 	# region - Helper methods for easier access to the DOM
-	async def _get_current_page(self, session: BrowserSession) -> Page:
-		pages = session.context.pages
-
-		# Try to find page by target ID if using CDP
-		if self.browser.config.cdp_url and self.state.target_id:
-			targets = await self._get_cdp_targets()
-			for target in targets:
-				if target['targetId'] == self.state.target_id:
-					for page in pages:
-						if page.url == target['url']:
-							return page
-
-		if self.active_tab and self.active_tab in session.context.pages and not self.active_tab.is_closed():
-			return self.active_tab
-
-		# fall back to most recently opened non-extension page (extensions are almost always invisible background targets)
-		non_extension_pages = [
-			page for page in pages if not page.url.startswith('chrome-extension://') and not page.url.startswith('chrome://')
-		]
-		if non_extension_pages:
-			return non_extension_pages[-1]
-
-		# Fallback to opening a new tab in the active window
-		try:
-			return await session.context.new_page()
-		except Exception:
-			# there is no browser window available (perhaps the user closed it?)
-			# reopen a new window in the browser and try again
-			logger.warning('⚠️  No browser window available, opening a new window')
-			await self._initialize_session()
-			page = await session.context.new_page()
-			self.active_tab = page
-			return page
 
 	async def get_selector_map(self) -> SelectorMap:
 		session = await self.get_session()
@@ -1593,8 +1823,8 @@ class BrowserContext:
 				if dirname:
 					os.makedirs(dirname, exist_ok=True)
 
-				with open(self.config.cookies_file, 'w') as f:
-					json.dump(cookies, f)
+				async with await anyio.open_file(self.config.cookies_file, 'w') as f:
+					await f.write(json.dumps(cookies))
 			except Exception as e:
 				logger.warning(f'❌  Failed to save cookies: {str(e)}')
 
@@ -1645,7 +1875,6 @@ class BrowserContext:
 		for page in pages:
 			await page.close()
 
-		self.active_tab = None
 		session.cached_state = None
 		self.state.target_id = None
 
@@ -1677,6 +1906,65 @@ class BrowserContext:
 			logger.debug(f'Failed to get CDP targets: {e}')
 			return []
 
+	async def _resize_window(self, context: PlaywrightBrowserContext) -> None:
+		"""Resize the browser window to match the configured size"""
+		try:
+			if not context.pages:
+				return
+
+			page = context.pages[0]
+			window_size = {'width': self.config.window_width, 'height': self.config.window_height}
+
+			# First, set the viewport size
+			await self.set_viewport_size(page)
+
+			# Then, try to set the actual window size using CDP
+			try:
+				cdp_session = await context.new_cdp_session(page)
+
+				# Get the window ID
+				window_id_result = await cdp_session.send('Browser.getWindowForTarget')
+
+				# Set the window bounds
+				await cdp_session.send(
+					'Browser.setWindowBounds',
+					{
+						'windowId': window_id_result['windowId'],
+						'bounds': {
+							'width': window_size['width'],
+							'height': window_size['height'] + BROWSER_NAVBAR_HEIGHT,  # Add height for browser chrome
+							'windowState': 'normal',  # Ensure window is not minimized/maximized
+						},
+					},
+				)
+
+				await cdp_session.detach()
+				logger.debug(f'Set window size to {window_size["width"]}x{window_size["height"] + BROWSER_NAVBAR_HEIGHT}')
+			except Exception as e:
+				logger.debug(f'CDP window resize failed: {e}')
+
+				# Fallback to using JavaScript
+				try:
+					await page.evaluate(
+						"""
+						(width, height) => {
+							window.resizeTo(width, height);
+						}
+						""",
+						window_size['width'],
+						window_size['height'] + BROWSER_NAVBAR_HEIGHT,
+					)
+					logger.debug(
+						f'Used JavaScript to set window size to {window_size["width"]}x{window_size["height"] + BROWSER_NAVBAR_HEIGHT}'
+					)
+				except Exception as e:
+					logger.debug(f'JavaScript window resize failed: {e}')
+
+			logger.debug(f'Attempted to resize window to {window_size["width"]}x{window_size["height"]}')
+		except Exception as e:
+			logger.debug(f'Failed to resize browser window: {e}')
+			# Non-critical error, continue execution
+
 	async def wait_for_element(self, selector: str, timeout: float) -> None:
 		"""
 		Waits for an element matching the given CSS selector to become visible.
@@ -1688,5 +1976,5 @@ class BrowserContext:
 		Raises:
 		    TimeoutError: If the element does not become visible within the specified timeout.
 		"""
-		page = await self.get_current_page()
+		page = await self.get_agent_current_page()
 		await page.wait_for_selector(selector, state='visible', timeout=timeout)
