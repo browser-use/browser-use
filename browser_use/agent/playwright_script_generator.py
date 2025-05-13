@@ -416,7 +416,6 @@ class PlaywrightScriptGenerator:
 				]
 			)
 		else:
-	
 			script_lines.append(f'            # Skipping search_bing ({step_info_str}): missing or invalid query')
 		return script_lines
 	
