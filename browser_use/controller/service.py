@@ -26,8 +26,8 @@ from browser_use.controller.views import (
 	OpenTabAction,
 	Position,
 	ScrollAction,
-	SearchGoogleAction,
 	SearchBingAction,
+	SearchGoogleAction,
 	SendKeysAction,
 	SwitchTabAction,
 )
