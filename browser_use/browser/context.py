@@ -349,6 +349,13 @@ class BrowserContext:
 				await current_page.goto('about:blank')
 				logger.debug('🆕  Created new page: %s', current_page.url)
 
+			if self.config.no_viewport and not self.browser.config.headless:
+				# Sync the config window dimensions with the actual browser viewport size
+				actual_size = await current_page.evaluate("""() => ({ width: window.innerWidth, height: window.innerHeight })""")
+
+				self.config.window_width = actual_size['width']
+				self.config.window_height = actual_size['height']
+
 			# Get target ID for the active page
 			if self.browser.config.cdp_url:
 				targets = await self._get_cdp_targets()

@@ -75,7 +75,6 @@ class TestBrowserFunctionality:
 	async def browser(self, request):
 		"""Create and provide a Browser instance with configurable headless mode."""
 		headless = request.param if hasattr(request, 'param') else True  # Default to True if not specified
-		print('------browser----- ', headless)
 		browser_instance = Browser(config=BrowserConfig(headless=headless))
 		yield browser_instance
 		await browser_instance.close()
