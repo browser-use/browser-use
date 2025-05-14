@@ -56,7 +56,6 @@ class Controller(Generic[Context]):
 				# Exclude success from the output JSON since it's an internal parameter
 				#output_dict = params.data.model_dump()
 				data = params.data
-				print(data)
 				if isinstance(data, dict):
 					data = output_model(**data)
 				output_dict = data.model_dump()		
