@@ -92,7 +92,7 @@ class Controller(Generic[Context]):
 		async def go_to_url(params: GoToUrlAction, browser: BrowserContext):
 			page = await browser.get_current_page()
 			await page.goto(params.url)
-			await page.wait_for_load_state()
+			await page.wait_for_load_state('networkidle')
 			msg = f'🔗  Navigated to {params.url}'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
