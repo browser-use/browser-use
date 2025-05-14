@@ -219,9 +219,6 @@ class BrowserContext:
 		state: BrowserContextState | None = None,
 	):
 		self.context_id = str(uuid.uuid4())
-		if not browser.config.headless and config.no_viewport:
-			# keep the window_width and window_height to default values
-			pass  # TODO
 
 		self.config = config or BrowserContextConfig(**(browser.config.model_dump() if browser.config else {}))
 		self.browser = browser
