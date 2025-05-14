@@ -32,7 +32,6 @@ logger = logging.getLogger(__name__)
 
 Context = TypeVar('Context')
 
-
 class Controller(Generic[Context]):
 	def __init__(
 		self,
@@ -55,7 +54,12 @@ class Controller(Generic[Context]):
 			)
 			async def done(params: ExtendedOutputModel):
 				# Exclude success from the output JSON since it's an internal parameter
-				output_dict = params.data.model_dump()
+				#output_dict = params.data.model_dump()
+				data = params.data
+				print(data)
+				if isinstance(data, dict):
+					data = output_model(**data)
+				output_dict = data.model_dump()		
 
 				# Enums are not serializable, convert to string
 				for key, value in output_dict.items():
