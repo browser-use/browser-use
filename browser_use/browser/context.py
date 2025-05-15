@@ -17,23 +17,19 @@ from typing import TYPE_CHECKING
 import anyio
 from playwright._impl._errors import TimeoutError
 from playwright.async_api import Browser as PlaywrightBrowser
-from playwright.async_api import (
-	BrowserContext as PlaywrightBrowserContext,
-)
-from playwright.async_api import (
-	ElementHandle,
-	FrameLocator,
-	Page,
-)
+from playwright.async_api import BrowserContext as PlaywrightBrowserContext
+from playwright.async_api import ElementHandle, FrameLocator, Page
 from pydantic import BaseModel, ConfigDict, Field
 
 from browser_use.browser.views import (
-	BrowserError,
-	BrowserState,
-	TabInfo,
-	URLNotAllowedError,
+    BrowserError,
+    BrowserState,
+    TabInfo,
+    URLNotAllowedError,
 )
-from browser_use.dom.clickable_element_processor.service import ClickableElementProcessor
+from browser_use.dom.clickable_element_processor.service import (
+    ClickableElementProcessor,
+)
 from browser_use.dom.service import DomService
 from browser_use.dom.views import DOMElementNode, SelectorMap
 from browser_use.utils import time_execution_async, time_execution_sync
@@ -233,6 +229,7 @@ class BrowserContext:
 		# Tab references - separate concepts for agent intent and browser state
 		self.agent_current_page: Page | None = None  # The tab the agent intends to interact with
 		self.human_current_page: Page | None = None  # The tab currently shown in the browser UI
+		self.eval_page: dict|None = None  # Dictionary produced by evaluating js script in the browser
 
 	async def __aenter__(self):
 		"""Async context manager entry"""
@@ -1221,7 +1218,7 @@ class BrowserContext:
 		try:
 			await self.remove_highlights()
 			dom_service = DomService(page)
-			content = await dom_service.get_clickable_elements(
+			content, self.eval_page = await dom_service.get_clickable_elements(
 				focus_element=focus_element,
 				viewport_expansion=self.config.viewport_expansion,
 				highlight_elements=self.config.highlight_elements,

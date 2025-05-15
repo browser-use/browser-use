@@ -9,11 +9,11 @@ if TYPE_CHECKING:
 	from playwright.async_api import Page
 
 from browser_use.dom.views import (
-	DOMBaseNode,
-	DOMElementNode,
-	DOMState,
-	DOMTextNode,
-	SelectorMap,
+    DOMBaseNode,
+    DOMElementNode,
+    DOMState,
+    DOMTextNode,
+    SelectorMap,
 )
 from browser_use.utils import time_execution_async
 
@@ -40,9 +40,9 @@ class DomService:
 		highlight_elements: bool = True,
 		focus_element: int = -1,
 		viewport_expansion: int = 0,
-	) -> DOMState:
-		element_tree, selector_map = await self._build_dom_tree(highlight_elements, focus_element, viewport_expansion)
-		return DOMState(element_tree=element_tree, selector_map=selector_map)
+	) -> tuple[DOMState, dict]:
+		(element_tree, selector_map), eval_page = await self._build_dom_tree(highlight_elements, focus_element, viewport_expansion)
+		return DOMState(element_tree=element_tree, selector_map=selector_map), eval_page
 
 	@time_execution_async('--get_cross_origin_iframes')
 	async def get_cross_origin_iframes(self) -> list[str]:
@@ -68,7 +68,7 @@ class DomService:
 		highlight_elements: bool,
 		focus_element: int,
 		viewport_expansion: int,
-	) -> tuple[DOMElementNode, SelectorMap]:
+	) -> tuple[tuple[DOMElementNode, SelectorMap], dict]:
 		if await self.page.evaluate('1+1') != 2:
 			raise ValueError('The page cannot evaluate javascript code properly')
 
@@ -84,6 +84,7 @@ class DomService:
 					parent=None,
 				),
 				{},
+				None,
 			)
 
 		# NOTE: We execute JS code in the browser to extract important DOM information.
@@ -111,7 +112,7 @@ class DomService:
 				json.dumps(eval_page['perfMetrics'], indent=2),
 			)
 
-		return await self._construct_dom_tree(eval_page)
+		return await self._construct_dom_tree(eval_page), eval_page
 
 	@time_execution_async('--construct_dom_tree')
 	async def _construct_dom_tree(
