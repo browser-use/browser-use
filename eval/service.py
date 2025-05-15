@@ -4,13 +4,8 @@
 
 
 # Here is the command to run the evaluation:
-# python eval/service.py --parallel_runs 5 --max_steps 25 --start 0 --end 100 --model gpt-4.1 --eval_model gemini-2.5-pro
-# options:
-# --parallel_runs: Number of parallel tasks to run
-# --max_steps: Maximum steps per task
-# --start: Start index
-# --end: End index (exclusive)
-# --headless: Run in headless mode
+# Example multiline terminal command:
+# python eval/service.py --parallel_runs 2 --max_steps 25 --start 0 --end 100 --model llama-4-maverick --eval_model gpt-4.1 --no-vision --eval-group "PRTests" --user-message "message here"
 
 # Here is the command to run the evaluation only:
 # python eval/service.py --evaluate-only
@@ -1428,11 +1423,11 @@ if __name__ == '__main__':
 		results = asyncio.run(
 			run_multiple_tasks(
 				tasks=tasks,
-				llm=llm,  # Agent LLM
+				llm=llm,
 				run_id=run_id,
 				convex_url=CONVEX_URL,
 				secret_key=SECRET_KEY,
-				eval_model=eval_model,  # Pass the dedicated gpt-4o evaluator
+				eval_model=eval_model,
 				max_parallel_runs=args.parallel_runs,
 				max_steps_per_task=args.max_steps,
 				start_index=args.start,
