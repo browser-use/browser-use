@@ -2,11 +2,11 @@ import json
 import logging
 from dataclasses import dataclass
 from importlib import resources
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
-	from patchright.async_api import Page
+	from playwright.async_api import Page
 
 from browser_use.dom.views import (
 	DOMBaseNode,
@@ -160,7 +160,7 @@ class DomService:
 	def _parse_node(
 		self,
 		node_data: dict,
-	) -> tuple[Optional[DOMBaseNode], list[int]]:
+	) -> tuple[DOMBaseNode | None, list[int]]:
 		if not node_data:
 			return None, []
 

@@ -11,11 +11,13 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Optional
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from dotenv import load_dotenv
+
+load_dotenv()
+
 from langchain_openai import AzureChatOpenAI
 from pydantic import BaseModel, SecretStr
 from PyPDF2 import PdfReader
@@ -24,8 +26,6 @@ from browser_use import ActionResult, Agent, Controller
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext
 
-# Validate required environment variables
-load_dotenv()
 required_env_vars = ['AZURE_OPENAI_KEY', 'AZURE_OPENAI_ENDPOINT']
 for var in required_env_vars:
 	if not os.getenv(var):
@@ -47,8 +47,8 @@ class Job(BaseModel):
 	link: str
 	company: str
 	fit_score: float
-	location: Optional[str] = None
-	salary: Optional[str] = None
+	location: str | None = None
+	salary: str | None = None
 
 
 @controller.action('Save jobs to file - with a score how well it fits to my profile', param_model=Job)
@@ -62,7 +62,7 @@ def save_jobs(job: Job):
 
 @controller.action('Read jobs from file')
 def read_jobs():
-	with open('jobs.csv', 'r') as f:
+	with open('jobs.csv') as f:
 		return f.read()
 
 

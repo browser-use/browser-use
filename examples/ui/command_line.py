@@ -18,15 +18,15 @@ import os
 import sys
 
 # Ensure local repository (browser_use) is accessible
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from dotenv import load_dotenv
+
+load_dotenv()
 
 from browser_use import Agent
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.controller.service import Controller
-
-load_dotenv()
 
 
 def get_llm(provider: str):

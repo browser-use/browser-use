@@ -36,11 +36,11 @@ def addLoggingLevel(levelName, levelNum, methodName=None):
 		methodName = levelName.lower()
 
 	if hasattr(logging, levelName):
-		raise AttributeError('{} already defined in logging module'.format(levelName))
+		raise AttributeError(f'{levelName} already defined in logging module')
 	if hasattr(logging, methodName):
-		raise AttributeError('{} already defined in logging module'.format(methodName))
+		raise AttributeError(f'{methodName} already defined in logging module')
 	if hasattr(logging.getLoggerClass(), methodName):
-		raise AttributeError('{} already defined in logger class'.format(methodName))
+		raise AttributeError(f'{methodName} already defined in logger class')
 
 	# This method was inspired by the answers to Stack Overflow post
 	# http://stackoverflow.com/q/2183233/2988730, especially
@@ -109,7 +109,7 @@ def setup_logging():
 	browser_use_logger.setLevel(root.level)  # Set same level as root logger
 
 	logger = logging.getLogger('browser_use')
-	logger.info('BrowserUse logging setup complete with level %s', log_type)
+	# logger.info('BrowserUse logging setup complete with level %s', log_type)
 	# Silence third-party loggers
 	for logger in [
 		'WDM',

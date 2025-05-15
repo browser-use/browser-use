@@ -1,10 +1,12 @@
+import asyncio
 import os
 import sys
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import asyncio
-from typing import List
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
@@ -24,7 +26,7 @@ class Model(BaseModel):
 
 
 class Models(BaseModel):
-	models: List[Model]
+	models: list[Model]
 
 
 @controller.action('Save models', param_model=Models)

@@ -1,4 +1,4 @@
-from patchright.async_api import Page
+from playwright.async_api import Page
 
 
 # --- Helper Function for Replacing Sensitive Data ---

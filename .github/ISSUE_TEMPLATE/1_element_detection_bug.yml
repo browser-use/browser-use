@@ -1,0 +1,116 @@
+name: 🎯 Agent Page Interaction Issue
+description: Agent fails to detect, click, scroll, input, or otherwise interact with some type of element on some page(s)
+labels: ["bug", "element-detection"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report! Please fill out the form below to help us reproduce and fix the issue.
+
+  - type: input
+    id: version
+    attributes:
+      label: Browser Use Version
+      description: What version of the `browser-use` library are you using? (Run `uv pip show browser-use` or `git log -n 1` to find out) **DO NOT JUST WRITE `latest version` or `main`**
+      placeholder: "e.g. 0.4.45 or 62760baaefd"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: model
+    attributes:
+      label: LLM Model
+      description: Which LLM model(s) are you using?
+      multiple: true
+      options:
+        - gpt-4o
+        - gpt-4o-mini
+        - gpt-4
+        - gpt-4.1
+        - gpt-4.1-mini
+        - gpt-4.1-nano
+        - claude-3.7-sonnet
+        - claude-3.5-sonnet
+        - gemini-2.6-flash-preview
+        - gemini-2.5-pro
+        - gemini-2.0-flash
+        - gemini-2.0-flash-lite
+        - gemini-1.5-flash
+        - deepseek-chat
+        - Local Model (Specify model in description)
+        - Other (specify in description)
+    validations:
+      required: true
+
+  - type: textarea
+    id: prompt
+    attributes:
+      label: Screenshots, Description, and Task Prompt Given to Agent
+      description: The full task prompt you're giving the agent (redact any sensitive data) + a description of the issue and screenshots.
+      placeholder: |
+        1. go to https://example.com and click the xyz button...
+        2. type "abc" in the dropdown search to find the "abc" option  <- agent fails to click dropdown here
+        3. Click the "Submit" button, then extract the result as JSON
+        ...
+        include relevant URLs and/or redacted screenshots of the relevant page(s) if possible
+    validations:
+      required: true
+
+  - type: textarea
+    id: html
+    attributes:
+      label: HTML around where it's failing
+      description: A snippet of the HTML from the failing page around where the Agent is failing to interact.
+      render: html
+      placeholder: |
+        <form na-someform="abc">
+          <div class="element-to-click">
+            <div data-isbutton="true">Click me</div>
+          </div>
+          <input id="someinput" name="someinput" type="text" />
+          ...
+        </form>
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      description: What operating system are you using?
+      placeholder: "e.g., macOS 13.1, Windows 11, Ubuntu 22.04"
+    validations:
+      required: true
+
+  - type: textarea
+    id: code
+    attributes:
+      label: Python Code Sample
+      description: Include some python code that reproduces the issue
+      render: python
+      placeholder: |
+        from dotenv import load_dotenv
+        load_dotenv()
+        from browser_use import Agent, Browser, Controller
+        from langchain_openai import ChatOpenAI
+
+        llm = ChatOpenAI(model="gpt-4o")
+        browser = Browser(chrome_binary_path='/usr/bin/google-chrome')
+        agent = Agent(llm=llm, browser=browser))
+        ...
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Full DEBUG Log Output
+      description: Please copy and paste the *full* log output *from the start of the run*. Make sure to set `BROWSER_USE_LOG_LEVEL=DEBUG` in your `.env` or shell environment.
+      render: shell
+      placeholder: |
+        $ python /app/browser-use/examples/browser/real_browser.py
+        DEBUG    [browser] 🌎  Initializing new browser
+        DEBUG    [agent] Version: 0.1.46-9-g62760ba, Source: git
+        INFO     [agent] 🧠 Starting an agent with main_model=gpt-4o +tools +vision +memory, planner_model=None, extraction_model=gpt-4o
+        DEBUG    [agent] Verifying the ChatOpenAI LLM knows the capital of France...
+        DEBUG    [langsmith.client] Sending multipart request with context: trace=91282a01-6667-48a1-8cd7-21aa9337a580,id=91282a01-6667-48a1-8cd7-21aa9337a580
+        DEBUG    [agent] 🪪 LLM API keys OPENAI_API_KEY work, ChatOpenAI model is connected & responding correctly.
+        ...

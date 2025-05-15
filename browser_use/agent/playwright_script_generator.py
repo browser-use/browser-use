@@ -1,7 +1,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from browser_use.browser.browser import BrowserConfig
 from browser_use.browser.context import BrowserContextConfig
@@ -14,10 +14,10 @@ class PlaywrightScriptGenerator:
 
 	def __init__(
 		self,
-		history_list: List[Dict[str, Any]],
-		sensitive_data_keys: Optional[List[str]] = None,
-		browser_config: Optional[BrowserConfig] = None,
-		context_config: Optional[BrowserContextConfig] = None,
+		history_list: list[dict[str, Any]],
+		sensitive_data_keys: list[str] | None = None,
+		browser_config: BrowserConfig | None = None,
+		context_config: BrowserContextConfig | None = None,
 	):
 		"""
 		Initializes the script generator.
@@ -111,10 +111,10 @@ class PlaywrightScriptGenerator:
 		# Handle viewport/window size
 		if self.context_config.no_viewport:
 			options_dict['no_viewport'] = True
-		elif self.context_config.browser_window_size:
+		elif hasattr(self.context_config, 'window_width') and hasattr(self.context_config, 'window_height'):
 			options_dict['viewport'] = {
-				'width': self.context_config.browser_window_size.width,
-				'height': self.context_config.browser_window_size.height,
+				'width': self.context_config.window_width,
+				'height': self.context_config.window_height,
 			}
 
 		# Note: cookies_file and save_downloads_path are handled separately
@@ -126,7 +126,7 @@ class PlaywrightScriptGenerator:
 		options_str = ', '.join(f'{key}={repr(value)}' for key, value in options_dict.items())
 		return options_str
 
-	def _get_imports_and_helpers(self) -> List[str]:
+	def _get_imports_and_helpers(self) -> list[str]:
 		"""Generates necessary import statements (excluding helper functions)."""
 		# Return only the standard imports needed by the main script body
 		return [
@@ -136,7 +136,7 @@ class PlaywrightScriptGenerator:
 			'import sys',
 			'from pathlib import Path',  # Added Path import
 			'import urllib.parse',  # Needed for search_google
-			'from patchright.async_api import async_playwright, Page, BrowserContext',  # Added BrowserContext
+			'from playwright.async_api import async_playwright, Page, BrowserContext',  # Added BrowserContext
 			'from dotenv import load_dotenv',
 			'',
 			'# Load environment variables',
@@ -145,7 +145,7 @@ class PlaywrightScriptGenerator:
 			# Helper function definitions are no longer here
 		]
 
-	def _get_sensitive_data_definitions(self) -> List[str]:
+	def _get_sensitive_data_definitions(self) -> list[str]:
 		"""Generates the SENSITIVE_DATA dictionary definition."""
 		if not self.sensitive_data_keys:
 			return ['SENSITIVE_DATA = {}', '']
@@ -160,7 +160,7 @@ class PlaywrightScriptGenerator:
 		lines.append('')
 		return lines
 
-	def _get_selector_for_action(self, history_item: dict, action_index_in_step: int) -> Optional[str]:
+	def _get_selector_for_action(self, history_item: dict, action_index_in_step: int) -> str | None:
 		"""
 		Gets the selector (preferring XPath) for a given action index within a history step.
 		Formats the XPath correctly for Playwright.
@@ -207,7 +207,7 @@ class PlaywrightScriptGenerator:
 		return default_timeout
 
 	# --- Action Mapping Methods ---
-	def _map_go_to_url(self, params: dict, step_info_str: str, **kwargs) -> List[str]:
+	def _map_go_to_url(self, params: dict, step_info_str: str, **kwargs) -> list[str]:
 		url = params.get('url')
 		goto_timeout = self._get_goto_timeout()
 		script_lines = []
@@ -221,7 +221,7 @@ class PlaywrightScriptGenerator:
 			script_lines.append(f'            # Skipping go_to_url ({step_info_str}): missing or invalid url')
 		return script_lines
 
-	def _map_wait(self, params: dict, step_info_str: str, **kwargs) -> List[str]:
+	def _map_wait(self, params: dict, step_info_str: str, **kwargs) -> list[str]:
 		seconds = params.get('seconds', 3)
 		try:
 			wait_seconds = int(seconds)
@@ -234,7 +234,7 @@ class PlaywrightScriptGenerator:
 
 	def _map_input_text(
 		self, params: dict, history_item: dict, action_index_in_step: int, step_info_str: str, **kwargs
-	) -> List[str]:
+	) -> list[str]:
 		index = params.get('index')
 		text = params.get('text', '')
 		selector = self._get_selector_for_action(history_item, action_index_in_step)
@@ -254,7 +254,7 @@ class PlaywrightScriptGenerator:
 
 	def _map_click_element(
 		self, params: dict, history_item: dict, action_index_in_step: int, step_info_str: str, action_type: str, **kwargs
-	) -> List[str]:
+	) -> list[str]:
 		if action_type == 'click_element_by_index':
 			logger.warning(f"Mapping legacy 'click_element_by_index' to 'click_element' ({step_info_str})")
 		index = params.get('index')
@@ -272,7 +272,7 @@ class PlaywrightScriptGenerator:
 			)
 		return script_lines
 
-	def _map_scroll_down(self, params: dict, step_info_str: str, **kwargs) -> List[str]:
+	def _map_scroll_down(self, params: dict, step_info_str: str, **kwargs) -> list[str]:
 		amount = params.get('amount')
 		script_lines = []
 		if amount and isinstance(amount, int):
@@ -284,7 +284,7 @@ class PlaywrightScriptGenerator:
 		script_lines.append('            await page.wait_for_timeout(500)')
 		return script_lines
 
-	def _map_scroll_up(self, params: dict, step_info_str: str, **kwargs) -> List[str]:
+	def _map_scroll_up(self, params: dict, step_info_str: str, **kwargs) -> list[str]:
 		amount = params.get('amount')
 		script_lines = []
 		if amount and isinstance(amount, int):
@@ -296,7 +296,7 @@ class PlaywrightScriptGenerator:
 		script_lines.append('            await page.wait_for_timeout(500)')
 		return script_lines
 
-	def _map_send_keys(self, params: dict, step_info_str: str, **kwargs) -> List[str]:
+	def _map_send_keys(self, params: dict, step_info_str: str, **kwargs) -> list[str]:
 		keys = params.get('keys')
 		script_lines = []
 		if keys and isinstance(keys, str):
@@ -308,7 +308,7 @@ class PlaywrightScriptGenerator:
 			script_lines.append(f'            # Skipping send_keys ({step_info_str}): missing or invalid keys')
 		return script_lines
 
-	def _map_go_back(self, params: dict, step_info_str: str, **kwargs) -> List[str]:
+	def _map_go_back(self, params: dict, step_info_str: str, **kwargs) -> list[str]:
 		goto_timeout = self._get_goto_timeout()
 		return [
 			'            await asyncio.sleep(60)  # Wait 1 minute (important) before going back',
@@ -318,7 +318,7 @@ class PlaywrightScriptGenerator:
 			'            await page.wait_for_timeout(1000)',
 		]
 
-	def _map_open_tab(self, params: dict, step_info_str: str, **kwargs) -> List[str]:
+	def _map_open_tab(self, params: dict, step_info_str: str, **kwargs) -> list[str]:
 		url = params.get('url')
 		goto_timeout = self._get_goto_timeout()
 		script_lines = []
@@ -334,7 +334,7 @@ class PlaywrightScriptGenerator:
 			script_lines.append(f'            # Skipping open_tab ({step_info_str}): missing or invalid url')
 		return script_lines
 
-	def _map_close_tab(self, params: dict, step_info_str: str, **kwargs) -> List[str]:
+	def _map_close_tab(self, params: dict, step_info_str: str, **kwargs) -> list[str]:
 		page_id = params.get('page_id')
 		script_lines = []
 		if page_id is not None:
@@ -358,7 +358,7 @@ class PlaywrightScriptGenerator:
 			script_lines.append(f'            # Skipping close_tab ({step_info_str}): missing page_id')
 		return script_lines
 
-	def _map_switch_tab(self, params: dict, step_info_str: str, **kwargs) -> List[str]:
+	def _map_switch_tab(self, params: dict, step_info_str: str, **kwargs) -> list[str]:
 		page_id = params.get('page_id')
 		script_lines = []
 		if page_id is not None:
@@ -378,7 +378,7 @@ class PlaywrightScriptGenerator:
 			script_lines.append(f'            # Skipping switch_tab ({step_info_str}): missing page_id')
 		return script_lines
 
-	def _map_search_google(self, params: dict, step_info_str: str, **kwargs) -> List[str]:
+	def _map_search_google(self, params: dict, step_info_str: str, **kwargs) -> list[str]:
 		query = params.get('query')
 		goto_timeout = self._get_goto_timeout()
 		script_lines = []
@@ -398,7 +398,7 @@ class PlaywrightScriptGenerator:
 			script_lines.append(f'            # Skipping search_google ({step_info_str}): missing or invalid query')
 		return script_lines
 
-	def _map_drag_drop(self, params: dict, step_info_str: str, **kwargs) -> List[str]:
+	def _map_drag_drop(self, params: dict, step_info_str: str, **kwargs) -> list[str]:
 		source_sel = params.get('element_source')
 		target_sel = params.get('element_target')
 		source_coords = (params.get('coord_source_x'), params.get('coord_source_y'))
@@ -428,14 +428,14 @@ class PlaywrightScriptGenerator:
 		script_lines.append('            await page.wait_for_timeout(500)')
 		return script_lines
 
-	def _map_extract_content(self, params: dict, step_info_str: str, **kwargs) -> List[str]:
+	def _map_extract_content(self, params: dict, step_info_str: str, **kwargs) -> list[str]:
 		goal = params.get('goal', 'content')
 		logger.warning(f"Action 'extract_content' ({step_info_str}) cannot be directly translated to Playwright script.")
 		return [f'            # Action: extract_content (Goal: {goal}) - Skipped in Playwright script ({step_info_str})']
 
 	def _map_click_download_button(
 		self, params: dict, history_item: dict, action_index_in_step: int, step_info_str: str, **kwargs
-	) -> List[str]:
+	) -> list[str]:
 		index = params.get('index')
 		selector = self._get_selector_for_action(history_item, action_index_in_step)
 		download_dir_in_script = "'./files'"  # Default
@@ -481,7 +481,7 @@ class PlaywrightScriptGenerator:
 			)
 		return script_lines
 
-	def _map_done(self, params: dict, step_info_str: str, **kwargs) -> List[str]:
+	def _map_done(self, params: dict, step_info_str: str, **kwargs) -> list[str]:
 		script_lines = []
 		if isinstance(params, dict):
 			final_text = params.get('text', '')
@@ -504,10 +504,10 @@ class PlaywrightScriptGenerator:
 		self,
 		action_dict: dict,
 		history_item: dict,
-		previous_history_item: Optional[dict],
+		previous_history_item: dict | None,
 		action_index_in_step: int,
 		step_info_str: str,
-	) -> List[str]:
+	) -> list[str]:
 		"""
 		Translates a single action dictionary into Playwright script lines using dictionary dispatch.
 		"""
@@ -552,7 +552,7 @@ class PlaywrightScriptGenerator:
 		# Read helper script content
 		helper_script_path = Path(__file__).parent / 'playwright_script_helpers.py'
 		try:
-			with open(helper_script_path, 'r', encoding='utf-8') as f_helper:
+			with open(helper_script_path, encoding='utf-8') as f_helper:
 				helper_script_content = f_helper.read()
 		except FileNotFoundError:
 			logger.error(f'Helper script not found at {helper_script_path}. Cannot generate script.')

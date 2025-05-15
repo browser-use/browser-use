@@ -39,7 +39,7 @@ async def context(browser):
 		yield context
 
 
-api_key_gemini = SecretStr(os.getenv('GEMINI_API_KEY') or '')
+api_key_gemini = SecretStr(os.getenv('GOOGLE_API_KEY') or '')
 api_key_deepseek = SecretStr(os.getenv('DEEPSEEK_API_KEY') or '')
 api_key_anthropic = SecretStr(os.getenv('ANTHROPIC_API_KEY') or '')
 

@@ -1,11 +1,16 @@
 import asyncio
+import os
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from dotenv import load_dotenv
+
+load_dotenv()
+
 from langchain_openai import ChatOpenAI
 
 from browser_use import Agent
-
-load_dotenv()
 
 llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
 small_llm = ChatOpenAI(model='gpt-4o-mini', temperature=0.0)

@@ -5,9 +5,11 @@ import json
 import logging
 import os
 import re
+import sys
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, TypeVar, Union
+from typing import Any, Generic, TypeVar
 
 from dotenv import load_dotenv
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -57,9 +59,7 @@ from browser_use.dom.history_tree_processor.service import (
 from browser_use.exceptions import LLMException
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import (
-	AgentEndTelemetryEvent,
-	AgentRunTelemetryEvent,
-	AgentStepTelemetryEvent,
+	AgentTelemetryEvent,
 )
 from browser_use.utils import check_env_variables, time_execution_async, time_execution_sync
 from browser_use.agent.planner import Planner
@@ -103,34 +103,34 @@ class Agent(Generic[Context]):
 		browser_context: BrowserContext | None = None,
 		controller: Controller[Context] = Controller(),
 		# Initial agent run parameters
-		sensitive_data: Optional[Dict[str, str]] = None,
-		initial_actions: Optional[List[Dict[str, Dict[str, Any]]]] = None,
+		sensitive_data: dict[str, str] | None = None,
+		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
 		# Cloud Callbacks
-		register_new_step_callback: Union[
-			Callable[['BrowserState', 'AgentOutput', int], None],  # Sync callback
-			Callable[['BrowserState', 'AgentOutput', int], Awaitable[None]],  # Async callback
-			None,
-		] = None,
-		register_done_callback: Union[
-			Callable[['AgentHistoryList'], Awaitable[None]],  # Async Callback
-			Callable[['AgentHistoryList'], None],  # Sync Callback
-			None,
-		] = None,
+		register_new_step_callback: (
+			Callable[['BrowserState', 'AgentOutput', int], None]  # Sync callback
+			| Callable[['BrowserState', 'AgentOutput', int], Awaitable[None]]  # Async callback
+			| None
+		) = None,
+		register_done_callback: (
+			Callable[['AgentHistoryList'], Awaitable[None]]  # Async Callback
+			| Callable[['AgentHistoryList'], None]  # Sync Callback
+			| None
+		) = None,
 		register_external_agent_status_raise_error_callback: Callable[[], Awaitable[bool]] | None = None,
 		# Agent settings
 		use_vision: bool = True,
 		use_vision_for_planner: bool = False,
-		save_conversation_path: Optional[str] = None,
-		save_conversation_path_encoding: Optional[str] = 'utf-8',
+		save_conversation_path: str | None = None,
+		save_conversation_path_encoding: str | None = 'utf-8',
 		max_failures: int = 3,
 		retry_delay: int = 10,
-		override_system_message: Optional[str] = None,
-		extend_system_message: Optional[str] = None,
+		override_system_message: str | None = None,
+		extend_system_message: str | None = None,
 		max_input_tokens: int = 128000,
 		validate_output: bool = False,
-		message_context: Optional[str] = None,
+		message_context: str | None = None,
 		generate_gif: bool | str = False,
-		available_file_paths: Optional[list[str]] = None,
+		available_file_paths: list[str] | None = None,
 		include_attributes: list[str] = [
 			'title',
 			'type',
@@ -144,17 +144,18 @@ class Agent(Generic[Context]):
 			'data-date-format',
 		],
 		max_actions_per_step: int = 10,
-		tool_calling_method: Optional[ToolCallingMethod] = 'auto',
-		page_extraction_llm: Optional[BaseChatModel] = None,
-		planner_llm: Optional[BaseChatModel] = None,
+		tool_calling_method: ToolCallingMethod | None = 'auto',
+		page_extraction_llm: BaseChatModel | None = None,
+		planner_llm: BaseChatModel | None = None,
 		planner_interval: int = 1,  # Run planner every N steps
 		is_planner_reasoning: bool = False,
-		extend_planner_system_message: Optional[str] = None,
-		injected_agent_state: Optional[AgentState] = None,
+		extend_planner_system_message: str | None = None,
+		injected_agent_state: AgentState | None = None,
 		context: Context | None = None,
-		save_playwright_script_path: Optional[str] = None,
+		save_playwright_script_path: str | None = None,
 		enable_memory: bool = True,
-		memory_config: Optional[MemoryConfig] = None,
+		memory_config: MemoryConfig | None = None,
+		source: str | None = None,
 	):
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
@@ -205,7 +206,7 @@ class Agent(Generic[Context]):
 
 		# Action setup
 		self._setup_action_models()
-		self._set_browser_use_version_and_source()
+		self._set_browser_use_version_and_source(source)
 		self.initial_actions = self._convert_initial_actions(initial_actions) if initial_actions else None
 
 		# Model setup
@@ -304,6 +305,26 @@ class Agent(Generic[Context]):
 			browser=self.browser, config=self.browser.config.new_context_config
 		)
 
+		# Huge security warning if sensitive_data is provided but allowed_domains is not set
+		if self.sensitive_data and not self.browser_context.config.allowed_domains:
+			logger.error(
+				'⚠️⚠️⚠️ Agent(sensitive_data=••••••••) was provided but BrowserContextConfig(allowed_domains=[...]) is not locked down! ⚠️⚠️⚠️\n'
+				'          ☠️ If the agent visits a malicious website and encounters a prompt-injection attack, your sensitive_data may be exposed!\n\n'
+				'             https://docs.browser-use.com/customize/browser-settings#restrict-urls\n'
+				'Waiting 10 seconds before continuing... Press [Ctrl+C] to abort.'
+			)
+			if sys.stdin.isatty():
+				try:
+					time.sleep(10)
+				except KeyboardInterrupt:
+					print(
+						'\n\n 🛑 Exiting now... set BrowserContextConfig(allowed_domains=["example.com", "example.org"]) to only domains you trust to see your sensitive_data.'
+					)
+					sys.exit(0)
+			else:
+				pass  # no point waiting if we're not in an interactive shell
+			logger.warning('‼️ Continuing with insecure settings for now... but this will become a hard error in the future!')
+
 		# Callbacks
 		self.register_new_step_callback = register_new_step_callback
 		self.register_done_callback = register_done_callback
@@ -335,7 +356,7 @@ class Agent(Generic[Context]):
 				self.settings.message_context = f'Available actions: {self.unfiltered_actions}'
 		return self.settings.message_context
 
-	def _set_browser_use_version_and_source(self) -> None:
+	def _set_browser_use_version_and_source(self, source_override: str | None = None) -> None:
 		"""Get the version and source of the browser-use package (git or pip in a nutshell)"""
 		try:
 			# First check for repository-specific files
@@ -360,7 +381,8 @@ class Agent(Generic[Context]):
 		except Exception:
 			version = 'unknown'
 			source = 'unknown'
-
+		if source_override is not None:
+			source = source_override
 		logger.debug(f'Version: {version}, Source: {source}')
 		self.version = version
 		self.source = source
@@ -396,7 +418,7 @@ class Agent(Generic[Context]):
 		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'])
 		self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
 
-	def _set_tool_calling_method(self) -> Optional[ToolCallingMethod]:
+	def _set_tool_calling_method(self) -> ToolCallingMethod | None:
 		tool_calling_method = self.settings.tool_calling_method
 		if tool_calling_method == 'auto':
 			if is_model_without_tool_support(self.model_name):
@@ -406,7 +428,13 @@ class Agent(Generic[Context]):
 			elif self.chat_model_library == 'ChatOpenAI':
 				return 'function_calling'
 			elif self.chat_model_library == 'AzureChatOpenAI':
-				return 'function_calling'
+				# Azure OpenAI API requires 'tools' parameter for GPT-4
+				# The error 'content must be either a string or an array' occurs when
+				# the API expects a tools array but gets something else
+				if 'gpt-4' in self.model_name.lower():
+					return 'tools'
+				else:
+					return 'function_calling'
 			else:
 				return None
 		else:
@@ -428,7 +456,7 @@ class Agent(Generic[Context]):
 
 	# @observe(name='agent.step', ignore_output=True, ignore_input=True)
 	@time_execution_async('--step (agent)')
-	async def step(self, step_info: Optional[AgentStepInfo] = None) -> None:
+	async def step(self, step_info: AgentStepInfo | None = None) -> None:
 		"""Execute one step of the task"""
 		logger.info(f'📍 Step {self.state.n_steps}')
 		state = None
@@ -439,7 +467,7 @@ class Agent(Generic[Context]):
 
 		try:
 			state = await self.browser_context.get_state(cache_clickable_elements_hashes=True)
-			active_page = await self.browser_context.get_current_page()
+			current_page = await self.browser_context.get_current_page()
 
 			# generate procedural memory if needed
 			if self.enable_memory and self.memory and self.state.n_steps % self.memory.config.memory_interval == 0:
@@ -448,10 +476,10 @@ class Agent(Generic[Context]):
 			await self._raise_if_stopped_or_paused()
 
 			# Update action models with page-specific actions
-			await self._update_action_models_for_page(active_page)
+			await self._update_action_models_for_page(current_page)
 
 			# Get page-specific filtered actions
-			page_filtered_actions = self.controller.registry.get_prompt_description(active_page)
+			page_filtered_actions = self.controller.registry.get_prompt_description(current_page)
 
 			# If there are page-specific actions, add them as a special message for this step only
 			if page_filtered_actions:
@@ -523,7 +551,6 @@ class Agent(Generic[Context]):
 						model_output.action = [action_instance]
 
 				# Check again for paused/stopped state after getting model output
-				# This is needed in case Ctrl+C was pressed during the get_next_action call
 				await self._raise_if_stopped_or_paused()
 
 				self.state.n_steps += 1
@@ -584,16 +611,6 @@ class Agent(Generic[Context]):
 
 		finally:
 			step_end_time = time.time()
-			actions = [a.model_dump(exclude_unset=True) for a in model_output.action] if model_output else []
-			self.telemetry.capture(
-				AgentStepTelemetryEvent(
-					agent_id=self.state.agent_id,
-					step=self.state.n_steps,
-					actions=actions,
-					consecutive_failures=self.state.consecutive_failures,
-					step_error=[r.error for r in result if r.error] if result else ['No result'],
-				)
-			)
 			if not result:
 				return
 
@@ -656,7 +673,7 @@ class Agent(Generic[Context]):
 		model_output: AgentOutput | None,
 		state: BrowserState,
 		result: list[ActionResult],
-		metadata: Optional[StepMetadata] = None,
+		metadata: StepMetadata | None = None,
 	) -> None:
 		"""Create and store history item"""
 
@@ -783,15 +800,49 @@ class Agent(Generic[Context]):
 		logger.info(f'🚀 Starting task: {self.task}')
 
 		logger.debug(f'Version: {self.version}, Source: {self.source}')
+
+	def _log_agent_event(self, max_steps: int, agent_run_error: str | None = None) -> None:
+		"""Sent the agent event for this run to telemetry"""
+
+		# Prepare action_history data correctly
+		action_history_data = []
+		for item in self.state.history.history:
+			if item.model_output and item.model_output.action:
+				# Convert each ActionModel in the step to its dictionary representation
+				step_actions = [
+					action.model_dump(exclude_unset=True)
+					for action in item.model_output.action
+					if action  # Ensure action is not None if list allows it
+				]
+				action_history_data.append(step_actions)
+			else:
+				# Append None or [] if a step had no actions or no model output
+				action_history_data.append(None)
+
+		final_res = self.state.history.final_result()
+		final_result_str = json.dumps(final_res) if final_res is not None else None
+
 		self.telemetry.capture(
-			AgentRunTelemetryEvent(
-				agent_id=self.state.agent_id,
-				use_vision=self.settings.use_vision,
+			AgentTelemetryEvent(
 				task=self.task,
-				model_name=self.model_name,
-				chat_model_library=self.chat_model_library,
+				model=self.model_name,
+				model_provider=self.chat_model_library,
+				planner_llm=self.planner_model_name,
+				max_steps=max_steps,
+				max_actions_per_step=self.settings.max_actions_per_step,
+				use_vision=self.settings.use_vision,
+				use_validation=self.settings.validate_output,
 				version=self.version,
 				source=self.source,
+				action_errors=self.state.history.errors(),
+				action_history=action_history_data,
+				urls_visited=self.state.history.urls(),
+				steps=self.state.n_steps,
+				total_input_tokens=self.state.history.total_input_tokens(),
+				total_duration_seconds=self.state.history.total_duration_seconds(),
+				success=self.state.history.is_successful(),
+				final_result_response=final_result_str,
+				error_message=agent_run_error,
 			)
 		)
 
@@ -826,15 +877,25 @@ class Agent(Generic[Context]):
 		"""Execute the task with maximum number of steps"""
 
 		loop = asyncio.get_event_loop()
+		agent_run_error: str | None = None  # Initialize error tracking variable
+		self._force_exit_telemetry_logged = False  # ADDED: Flag for custom telemetry on force exit
 
 		# Set up the Ctrl+C signal handler with callbacks specific to this agent
 		from browser_use.utils import SignalHandler
+
+		# Define the custom exit callback function for second CTRL+C
+		def on_force_exit_log_telemetry():
+			self._log_agent_event(max_steps=max_steps, agent_run_error='SIGINT: Cancelled by user')
+			# NEW: Call the flush method on the telemetry instance
+			if hasattr(self, 'telemetry') and self.telemetry:
+				self.telemetry.flush()
+			self._force_exit_telemetry_logged = True  # Set the flag
 
 		signal_handler = SignalHandler(
 			loop=loop,
 			pause_callback=self.pause,
 			resume_callback=self.resume,
-			custom_exit_callback=None,  # No special cleanup needed on forced exit
+			custom_exit_callback=on_force_exit_log_telemetry,  # Pass the new telemetrycallback
 			exit_on_second_int=True,
 		)
 		signal_handler.register()
@@ -856,16 +917,19 @@ class Agent(Generic[Context]):
 				# Check if we should stop due to too many failures
 				if self.state.consecutive_failures >= self.settings.max_failures:
 					logger.error(f'❌ Stopping due to {self.settings.max_failures} consecutive failures')
+					agent_run_error = f'Stopped due to {self.settings.max_failures} consecutive failures'
 					break
 
 				# Check control flags before each step
 				if self.state.stopped:
 					logger.info('Agent stopped')
+					agent_run_error = 'Agent stopped programmatically'
 					break
 
 				while self.state.paused:
 					await asyncio.sleep(0.2)  # Small delay to prevent CPU spinning
 					if self.state.stopped:  # Allow stopping while paused
+						agent_run_error = 'Agent stopped programmatically while paused'
 						break
 
 				step_info = AgentStepInfo(step_number=step, max_steps=max_steps)
@@ -885,12 +949,12 @@ class Agent(Generic[Context]):
 					await self.log_completion()
 					break
 			else:
-				error_message = 'Failed to complete task in maximum steps'
+				agent_run_error = 'Failed to complete task in maximum steps'
 
 				self.state.history.history.append(
 					AgentHistory(
 						model_output=None,
-						result=[ActionResult(error=error_message, include_in_memory=True)],
+						result=[ActionResult(error=agent_run_error, include_in_memory=True)],
 						state=BrowserStateHistory(
 							url='',
 							title='',
@@ -902,31 +966,34 @@ class Agent(Generic[Context]):
 					)
 				)
 
-				logger.info(f'❌ {error_message}')
+				logger.info(f'❌ {agent_run_error}')
 
 			return self.state.history
 
 		except KeyboardInterrupt:
 			# Already handled by our signal handler, but catch any direct KeyboardInterrupt as well
 			logger.info('Got KeyboardInterrupt during execution, returning current history')
+			agent_run_error = 'KeyboardInterrupt'
 			return self.state.history
+
+		except Exception as e:
+			logger.error(f'Agent run failed with exception: {e}', exc_info=True)
+			agent_run_error = str(e)
+			raise e
 
 		finally:
 			# Unregister signal handlers before cleanup
 			signal_handler.unregister()
 
-			self.telemetry.capture(
-				AgentEndTelemetryEvent(
-					agent_id=self.state.agent_id,
-					is_done=self.state.history.is_done(),
-					success=self.state.history.is_successful(),
-					steps=self.state.n_steps,
-					max_steps_reached=self.state.n_steps >= max_steps,
-					errors=self.state.history.errors(),
-					total_input_tokens=self.state.history.total_input_tokens(),
-					total_duration_seconds=self.state.history.total_duration_seconds(),
-				)
-			)
+			if not self._force_exit_telemetry_logged:  # MODIFIED: Check the flag
+				try:
+					self._log_agent_event(max_steps=max_steps, agent_run_error=agent_run_error)
+					logger.info('Agent run telemetry logged.')
+				except Exception as log_e:  # Catch potential errors during logging itself
+					logger.error(f'Failed to log telemetry event: {log_e}', exc_info=True)
+			else:
+				# ADDED: Info message when custom telemetry for SIGINT was already logged
+				logger.info('Telemetry for force exit (SIGINT) was logged by custom exit callback.')
 
 			if self.settings.save_playwright_script_path:
 				logger.info(
@@ -966,7 +1033,7 @@ class Agent(Generic[Context]):
 		results = []
 
 		cached_selector_map = await self.browser_context.get_selector_map()
-		cached_path_hashes = set(e.hash.branch_path_hash for e in cached_selector_map.values())
+		cached_path_hashes = {e.hash.branch_path_hash for e in cached_selector_map.values()}
 
 		await self.browser_context.remove_highlights()
 
@@ -986,7 +1053,7 @@ class Agent(Generic[Context]):
 					results.append(ActionResult(extracted_content=msg, include_in_memory=True))
 					break
 
-				new_path_hashes = set(e.hash.branch_path_hash for e in new_selector_map.values())
+				new_path_hashes = {e.hash.branch_path_hash for e in new_selector_map.values()}
 				if check_for_new_elements and not new_path_hashes.issubset(cached_path_hashes):
 					# next action requires index but there are new elements on the page
 					msg = f'Something new appeared after action {i} / {len(actions)}'
@@ -1171,10 +1238,10 @@ class Agent(Generic[Context]):
 
 	async def _update_action_indices(
 		self,
-		historical_element: Optional[DOMHistoryElement],
+		historical_element: DOMHistoryElement | None,
 		action: ActionModel,  # Type this properly based on your action model
 		current_state: BrowserState,
-	) -> Optional[ActionModel]:
+	) -> ActionModel | None:
 		"""
 		Update action indices based on current page state.
 		Returns updated action or None if element cannot be found.
@@ -1194,7 +1261,7 @@ class Agent(Generic[Context]):
 
 		return action
 
-	async def load_and_rerun(self, history_file: Optional[str | Path] = None, **kwargs) -> list[ActionResult]:
+	async def load_and_rerun(self, history_file: str | Path | None = None, **kwargs) -> list[ActionResult]:
 		"""
 		Load history from file and rerun it.
 
@@ -1207,7 +1274,7 @@ class Agent(Generic[Context]):
 		history = AgentHistoryList.load_from_file(history_file, self.AgentOutput)
 		return await self.rerun_history(history, **kwargs)
 
-	def save_history(self, file_path: Optional[str | Path] = None) -> None:
+	def save_history(self, file_path: str | Path | None = None) -> None:
 		"""Save the history to a file"""
 		if not file_path:
 			file_path = 'AgentHistory.json'
@@ -1243,7 +1310,7 @@ class Agent(Generic[Context]):
 		logger.info('⏹️ Agent stopping')
 		self.state.stopped = True
 
-	def _convert_initial_actions(self, actions: List[Dict[str, Dict[str, Any]]]) -> List[ActionModel]:
+	def _convert_initial_actions(self, actions: list[dict[str, dict[str, Any]]]) -> list[ActionModel]:
 		"""Convert dictionary-based actions to ActionModel instances"""
 		converted_actions = []
 		action_model = self.ActionModel
@@ -1289,7 +1356,7 @@ class Agent(Generic[Context]):
 		test_answer = 'paris'
 		try:
 			# dont convert this to async! it *should* block any subsequent llm calls from running
-			response = self.llm.invoke([HumanMessage(content=test_prompt)])  # noqa: RUF006
+			response = self.llm.invoke([HumanMessage(content=test_prompt)])
 			response_text = str(response.content).lower()
 
 			if test_answer in response_text:
@@ -1316,7 +1383,7 @@ class Agent(Generic[Context]):
 			else:
 				pass
 
-	async def _run_planner(self) -> Optional[str]:
+	async def _run_planner(self) -> str | None:
 		"""Run the planner to analyze state and suggest next steps"""
 		# Skip planning if no planner_llm is set
 		if not self.settings.planner_llm:

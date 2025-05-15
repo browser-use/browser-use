@@ -1,11 +1,18 @@
 import asyncio
 import os
+import sys
 from dataclasses import dataclass
 from typing import List, Optional
 import logging
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # Third-party imports
 import gradio as gr
-from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from rich.console import Console
 from rich.panel import Panel
@@ -14,22 +21,22 @@ from rich.text import Text
 # Local module imports
 from browser_use import Agent
 
-load_dotenv()
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class ActionResult:
 	is_done: bool
-	extracted_content: Optional[str]
-	error: Optional[str]
+	extracted_content: str | None
+	error: str | None
 	include_in_memory: bool
 
 
 @dataclass
 class AgentHistoryList:
-	all_results: List[ActionResult]
-	all_model_outputs: List[dict]
+	all_results: list[ActionResult]
+	all_model_outputs: list[dict]
 
 	def __str__(self) -> str:
 			# Customize the string representation

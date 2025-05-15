@@ -1,12 +1,18 @@
+import os
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import discord
 from discord.ext import commands
-from dotenv import load_dotenv
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from browser_use import BrowserConfig
 from browser_use.agent.service import Agent, Browser
-
-load_dotenv()
 
 
 class DiscordBot(commands.Bot):

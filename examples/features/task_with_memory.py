@@ -1,12 +1,15 @@
 import asyncio
 import json
-from typing import List
+import os
+import sys
 
-import anyio
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
 from dotenv import load_dotenv
 
 load_dotenv()
 
+import anyio
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
@@ -48,7 +51,7 @@ class Link(BaseModel):
 
 
 class Links(BaseModel):
-	links: List[Link]
+	links: list[Link]
 
 
 initial_actions = [
