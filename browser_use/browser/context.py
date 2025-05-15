@@ -22,13 +22,13 @@ from playwright.async_api import ElementHandle, FrameLocator, Page
 from pydantic import BaseModel, ConfigDict, Field
 
 from browser_use.browser.views import (
-    BrowserError,
-    BrowserState,
-    TabInfo,
-    URLNotAllowedError,
+	BrowserError,
+	BrowserState,
+	TabInfo,
+	URLNotAllowedError,
 )
 from browser_use.dom.clickable_element_processor.service import (
-    ClickableElementProcessor,
+	ClickableElementProcessor,
 )
 from browser_use.dom.service import DomService
 from browser_use.dom.views import DOMElementNode, SelectorMap
@@ -229,7 +229,7 @@ class BrowserContext:
 		# Tab references - separate concepts for agent intent and browser state
 		self.agent_current_page: Page | None = None  # The tab the agent intends to interact with
 		self.human_current_page: Page | None = None  # The tab currently shown in the browser UI
-		self.eval_page: dict|None = None  # Dictionary produced by evaluating js script in the browser
+		self.eval_page: dict | None = None  # Dictionary produced by evaluating js script in the browser
 
 	async def __aenter__(self):
 		"""Async context manager entry"""

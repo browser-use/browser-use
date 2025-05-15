@@ -9,11 +9,11 @@ if TYPE_CHECKING:
 	from playwright.async_api import Page
 
 from browser_use.dom.views import (
-    DOMBaseNode,
-    DOMElementNode,
-    DOMState,
-    DOMTextNode,
-    SelectorMap,
+	DOMBaseNode,
+	DOMElementNode,
+	DOMState,
+	DOMTextNode,
+	SelectorMap,
 )
 from browser_use.utils import time_execution_async
 
@@ -41,7 +41,9 @@ class DomService:
 		focus_element: int = -1,
 		viewport_expansion: int = 0,
 	) -> tuple[DOMState, dict]:
-		(element_tree, selector_map), eval_page = await self._build_dom_tree(highlight_elements, focus_element, viewport_expansion)
+		(element_tree, selector_map), eval_page = await self._build_dom_tree(
+			highlight_elements, focus_element, viewport_expansion
+		)
 		return DOMState(element_tree=element_tree, selector_map=selector_map), eval_page
 
 	@time_execution_async('--get_cross_origin_iframes')
