@@ -106,7 +106,7 @@ CHROME_ARGS = [
 	# f'--allowlisted-extension-id={",".join(CHROME_EXTENSIONS.keys())}',
 	'--allow-legacy-extension-manifests',
 	'--allow-pre-commit-input',  # allow JS mutations before page rendering is complete
-	# '--disable-blink-features=AutomationControlled',  # hide the signatures that announce browser is being remote-controlled
+	'--disable-blink-features=AutomationControlled',  # hide the signatures that announce browser is being remote-controlled
 	# f'--proxy-server=https://43.159.28.126:2334:u7ce652b7568805c4-zone-custom-region-us-session-szGWq3FRU-sessTime-60:u7ce652b7568805c4',      # send all network traffic through a proxy https://2captcha.com/proxy
 	# f'--proxy-bypass-list=127.0.0.1',
 	# Browser window and viewport setup

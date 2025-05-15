@@ -1,10 +1,16 @@
+docs/
+static/
+.claude/
+.github/
+
 # Cache files
 .DS_Store
 __pycache__/
 *.py[cod]
 *$py.class
 .mypy_cache/
-.ruff_cache
+.ruff_cache/
+.pytest_cache/
 .ipynb_checkpoints
 
 # Virtual Environments

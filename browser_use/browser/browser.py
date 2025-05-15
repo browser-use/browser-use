@@ -423,21 +423,5 @@ class Browser:
 			logger.debug(f'Failed to cleanup browser in destructor: {e}')
 
 	async def cleanup_httpx_clients(self):
-		"""Cleanup all httpx clients"""
-		import gc
-
-		import httpx
-
-		# Force garbage collection to make sure all clients are in memory
-		gc.collect()
-
-		# Get all httpx clients
-		clients = [obj for obj in gc.get_objects() if isinstance(obj, httpx.AsyncClient)]
-
-		# Close all clients
-		for client in clients:
-			if not client.is_closed:
-				try:
-					await client.aclose()
-				except Exception as e:
-					logger.debug(f'Error closing httpx client: {e}')
+		"""No-op method - browser instances shouldn't close httpx clients they didn't create."""
+		pass

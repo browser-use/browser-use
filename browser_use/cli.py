@@ -1293,6 +1293,7 @@ async def textual_interface(config: dict[str, Any]):
 
 
 @click.command()
+@click.option('--version', is_flag=True, help='Print version and exit')
 @click.option('--model', type=str, help='Model to use (e.g., gpt-4o, claude-3-opus-20240229, gemini-pro)')
 @click.option('--debug', is_flag=True, help='Enable verbose startup logging')
 @click.option('--headless', is_flag=True, help='Run browser in headless mode', default=None)
@@ -1301,6 +1302,13 @@ async def textual_interface(config: dict[str, Any]):
 @click.pass_context
 def main(ctx: click.Context, debug: bool = False, **kwargs):
 	"""Browser-Use Interactive TUI"""
+
+	if kwargs['version']:
+		from importlib.metadata import version
+
+		print(version('browser-use'))
+		sys.exit(0)
+
 	# Configure console logging
 	console_handler = logging.StreamHandler(sys.stdout)
 	console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', '%H:%M:%S'))

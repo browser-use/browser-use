@@ -56,14 +56,17 @@ memory = [
     # sentence-transformers: depends on pytorch, which does not support python 3.13 yet
     "sentence-transformers>=4.0.2",
 ]
-examples = [
-    # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
-    "botocore>=1.37.23",
-]
 cli = [
     "rich>=14.0.0",
     "click>=8.1.8",
     "textual>=3.2.0",
+]
+examples = [
+    # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
+    "botocore>=1.37.23",
+]
+all = [
+    "browser-use[memory,cli,examples]",
 ]
 
 [project.urls]

@@ -1,18 +1,22 @@
-.DS_Store
-
 # Cache files
+.DS_Store
 __pycache__/
 *.py[cod]
 *$py.class
 .mypy_cache/
-.ruff_cache
+.ruff_cache/
+.pytest_cache/
 .ipynb_checkpoints
 
-# VirtualEnvironments
+# Virtual Environments
 .venv
 venv/
-.vscode
 
+# IDEs
+.vscode/
+.idea/
+
+# Build files
 dist/
 
 # Data files
@@ -36,5 +40,3 @@ private_example.py
 private_example
 
 uv.lock
-
-.idea
