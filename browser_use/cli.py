@@ -7,16 +7,24 @@ import time
 from pathlib import Path
 from typing import Any
 
-import click
+from dotenv import load_dotenv
+
+load_dotenv()
+
+try:
+	import click
+	from textual import events
+	from textual.app import App, ComposeResult
+	from textual.binding import Binding
+	from textual.containers import Container, HorizontalGroup, VerticalScroll
+	from textual.widgets import Footer, Header, Input, Label, Link, RichLog, Static
+except ImportError:
+	print('⚠️ CLI addon is not installed. Please install it with: `pip install browser-use[cli]` and try again.')
+	sys.exit(1)
+
 import langchain_anthropic
 import langchain_google_genai
 import langchain_openai
-from dotenv import load_dotenv
-from textual import events
-from textual.app import App, ComposeResult
-from textual.binding import Binding
-from textual.containers import Container, HorizontalGroup, VerticalScroll
-from textual.widgets import Footer, Header, Input, Label, Link, RichLog, Static
 
 try:
 	import readline
@@ -30,9 +38,19 @@ from browser_use import Agent, Browser, BrowserConfig, BrowserContextConfig, Con
 from browser_use.agent.views import AgentSettings
 from browser_use.logging_config import addLoggingLevel
 
-# User settings file
-USER_CONFIG_FILE = Path.home() / '.browser_use.json'
+# Paths
+USER_CONFIG_DIR = Path.home() / '.config' / 'browseruse'
+USER_CONFIG_FILE = USER_CONFIG_DIR / 'config.json'
+CHROME_PROFILES_DIR = USER_CONFIG_DIR / 'profiles'
+USER_DATA_DIR = CHROME_PROFILES_DIR / 'default'
+
+# Default User settings
 MAX_HISTORY_LENGTH = 100
+
+# Ensure directories exist
+USER_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 
 # Logo components with styling for rich panels
 BROWSER_LOGO = """
@@ -70,7 +88,7 @@ def get_default_config() -> dict[str, Any]:
 			'api_keys': {
 				'OPENAI_API_KEY': os.getenv('OPENAI_API_KEY', ''),
 				'ANTHROPIC_API_KEY': os.getenv('ANTHROPIC_API_KEY', ''),
-				'GEMINI_API_KEY': os.getenv('GEMINI_API_KEY', ''),
+				'GOOGLE_API_KEY': os.getenv('GOOGLE_API_KEY', ''),
 				'DEEPSEEK_API_KEY': os.getenv('DEEPSEEK_API_KEY', ''),
 				'GROK_API_KEY': os.getenv('GROK_API_KEY', ''),
 			},
@@ -116,9 +134,6 @@ def save_user_config(config: dict[str, Any]) -> None:
 	if 'command_history' in config and isinstance(config['command_history'], list):
 		if len(config['command_history']) > MAX_HISTORY_LENGTH:
 			config['command_history'] = config['command_history'][-MAX_HISTORY_LENGTH:]
-
-	# Create parent directories if they don't exist
-	USER_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 	with open(USER_CONFIG_FILE, 'w') as f:
 		json.dump(config, f, indent=2)
@@ -1278,6 +1293,7 @@ async def textual_interface(config: dict[str, Any]):
 
 
 @click.command()
+@click.option('--version', is_flag=True, help='Print version and exit')
 @click.option('--model', type=str, help='Model to use (e.g., gpt-4o, claude-3-opus-20240229, gemini-pro)')
 @click.option('--debug', is_flag=True, help='Enable verbose startup logging')
 @click.option('--headless', is_flag=True, help='Run browser in headless mode', default=None)
@@ -1286,6 +1302,13 @@ async def textual_interface(config: dict[str, Any]):
 @click.pass_context
 def main(ctx: click.Context, debug: bool = False, **kwargs):
 	"""Browser-Use Interactive TUI"""
+
+	if kwargs['version']:
+		from importlib.metadata import version
+
+		print(version('browser-use'))
+		sys.exit(0)
+
 	# Configure console logging
 	console_handler = logging.StreamHandler(sys.stdout)
 	console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', '%H:%M:%S'))

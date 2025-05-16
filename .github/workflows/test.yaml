@@ -43,6 +43,7 @@ jobs:
         - test_controller
         - test_tab_management
         - test_sensitive_data
+        - test_url_allowlist_security
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6

@@ -1,17 +1,20 @@
+import argparse
+import asyncio
 import os
 import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
 
-from browser_use.browser.context import BrowserContext, BrowserContextConfig
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import argparse
-import asyncio
-
 from browser_use import Agent
 from browser_use.browser.browser import Browser, BrowserConfig
+from browser_use.browser.context import BrowserContext, BrowserContextConfig
 from browser_use.controller.service import Controller
 
 

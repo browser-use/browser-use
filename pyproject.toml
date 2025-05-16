@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.1.46"
+version = "0.1.48"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -35,9 +35,6 @@ dependencies = [
     "psutil>=7.0.0",
     "faiss-cpu>=1.9.0",
     "mem0ai==0.1.93",
-    "rich>=14.0.0",
-    "click>=8.1.8",
-    "textual>=3.2.0",
 ]
 # pydantic: >2.11 introduces many pydantic deprecation warnings until langchain-core upgrades their pydantic support lets keep it on 2.10
 # google-api-core: only used for Google LLM APIs
@@ -51,13 +48,21 @@ dependencies = [
 # textual: used for terminal UI
 
 [project.optional-dependencies]
-# Optional dependencies for memory functionality
 memory = [
+    # sentence-transformers: depends on pytorch, which does not support python 3.13 yet
     "sentence-transformers>=4.0.2",
 ]
+cli = [
+    "rich>=14.0.0",
+    "click>=8.1.8",
+    "textual>=3.2.0",
+]
 examples = [
-    # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py 
+    # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
     "botocore>=1.37.23",
+]
+all = [
+    "browser-use[memory,cli,examples]",
 ]
 
 [project.urls]
@@ -117,4 +122,5 @@ dev-dependencies = [
     "pre-commit>=4.2.0",
     "codespell>=2.4.1",
     "pyright>=1.1.399",
+    "ty>=0.0.1a1",
 ]

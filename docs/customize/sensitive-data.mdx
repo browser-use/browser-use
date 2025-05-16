@@ -15,7 +15,8 @@ Here's an example of how to use sensitive data:
 ```python
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from browser_use import Agent
+from browser_use import Agent, Browser, BrowserConfig
+from browser_use.browser.context import BrowserContextConfig
 
 load_dotenv()
 
@@ -32,6 +33,11 @@ sensitive_data = {'x_name': 'magnus', 'x_password': '12345678'}
 # Use the placeholder names in your task description
 task = 'go to x.com and login with x_name and x_password then write a post about the meaning of life'
 
+# Configure allowed_domains that the agent should be restricted to in BrowserContextConfig
+context_config = BrowserContextConfig(
+    allowed_domains=['example.com'],
+)
+
 # Pass the sensitive data to the agent
 agent = Agent(
     task=task,
@@ -39,8 +45,8 @@ agent = Agent(
     sensitive_data=sensitive_data,
     browser=Browser(
         config=BrowserConfig(
-            allowed_domains=['example.com'],  # domains that the agent should be restricted to
-        ),
+            new_context_config=context_config
+        )
     )
 )
 

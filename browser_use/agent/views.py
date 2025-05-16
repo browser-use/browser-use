@@ -30,7 +30,7 @@ REQUIRED_LLM_API_ENV_VARS = {
 	'AzureChatOpenAI': ['AZURE_OPENAI_ENDPOINT', 'AZURE_OPENAI_KEY'],
 	'ChatBedrockConverse': ['ANTHROPIC_API_KEY'],
 	'ChatAnthropic': ['ANTHROPIC_API_KEY'],
-	'ChatGoogleGenerativeAI': ['GEMINI_API_KEY'],
+	'ChatGoogleGenerativeAI': ['GOOGLE_API_KEY'],
 	'ChatDeepSeek': ['DEEPSEEK_API_KEY'],
 	'ChatOllama': [],
 	'ChatGrok': ['GROK_API_KEY'],

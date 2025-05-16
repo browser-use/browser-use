@@ -51,6 +51,8 @@ BROWSER_NAVBAR_HEIGHT = {
 	'linux': 90,
 }.get(platform.system().lower(), 85)
 
+_GLOB_WARNING_SHOWN = False
+
 
 class BrowserContextConfig(BaseModel):
 	"""
@@ -668,48 +670,53 @@ class BrowserContext:
 					logger.error(f'Failed to parse cookies file: {str(e)}')
 
 		init_script = """
-			// Permissions
-			const originalQuery = window.navigator.permissions.query;
-			window.navigator.permissions.query = (parameters) => (
-				parameters.name === 'notifications' ?
-					Promise.resolve({ state: Notification.permission }) :
-					originalQuery(parameters)
-			);
-			(() => {
-				if (window._eventListenerTrackerInitialized) return;
-				window._eventListenerTrackerInitialized = true;
+			// check to make sure we're not inside the PDF viewer
+			window.isPdfViewer = !!document?.body?.querySelector('body > embed[type="application/pdf"][width="100%"]')
+			if (!window.isPdfViewer) {
+	
+				// Permissions
+				const originalQuery = window.navigator.permissions.query;
+				window.navigator.permissions.query = (parameters) => (
+					parameters.name === 'notifications' ?
+						Promise.resolve({ state: Notification.permission }) :
+						originalQuery(parameters)
+				);
+				(() => {
+					if (window._eventListenerTrackerInitialized) return;
+					window._eventListenerTrackerInitialized = true;
 
-				const originalAddEventListener = EventTarget.prototype.addEventListener;
-				const eventListenersMap = new WeakMap();
+					const originalAddEventListener = EventTarget.prototype.addEventListener;
+					const eventListenersMap = new WeakMap();
 
-				EventTarget.prototype.addEventListener = function(type, listener, options) {
-					if (typeof listener === "function") {
-						let listeners = eventListenersMap.get(this);
-						if (!listeners) {
-							listeners = [];
-							eventListenersMap.set(this, listeners);
+					EventTarget.prototype.addEventListener = function(type, listener, options) {
+						if (typeof listener === "function") {
+							let listeners = eventListenersMap.get(this);
+							if (!listeners) {
+								listeners = [];
+								eventListenersMap.set(this, listeners);
+							}
+
+							listeners.push({
+								type,
+								listener,
+								listenerPreview: listener.toString().slice(0, 100),
+								options
+							});
 						}
 
-						listeners.push({
+						return originalAddEventListener.call(this, type, listener, options);
+					};
+
+					window.getEventListenersForNode = (node) => {
+						const listeners = eventListenersMap.get(node) || [];
+						return listeners.map(({ type, listenerPreview, options }) => ({
 							type,
-							listener,
-							listenerPreview: listener.toString().slice(0, 100),
+							listenerPreview,
 							options
-						});
-					}
-
-					return originalAddEventListener.call(this, type, listener, options);
-				};
-
-				window.getEventListenersForNode = (node) => {
-					const listeners = eventListenersMap.get(node) || [];
-					return listeners.map(({ type, listenerPreview, options }) => ({
-						type,
-						listenerPreview,
-						options
-					}));
-				};
-			})();
+						}));
+					};
+				})();
+			}
 			"""
 
 		# Expose anti-detection scripts
@@ -935,30 +942,70 @@ class BrowserContext:
 			await asyncio.sleep(remaining)
 
 	def _is_url_allowed(self, url: str) -> bool:
-		"""Check if a URL is allowed based on the whitelist configuration."""
+		"""
+		Check if a URL is allowed based on the whitelist configuration.
+
+		Supports glob patterns in allowed_domains:
+		- *.example.com will match sub.example.com and example.com
+		- *google.com will match google.com, agoogle.com, and www.google.com
+		"""
+
 		if not self.config.allowed_domains:
 			return True
 
+		def _show_glob_warning(domain: str, glob: str):
+			global _GLOB_WARNING_SHOWN
+			if not _GLOB_WARNING_SHOWN:
+				logger.warning(
+					# glob patterns are very easy to mess up and match too many domains by accident
+					# e.g. if you only need to access gmail, don't use *.google.com because an attacker could convince the agent to visit a malicious doc
+					# on docs.google.com/s/some/evil/doc to set up a prompt injection attack
+					"⚠️ Allowing agent to visit {domain} based on allowed_domains=['{glob}', ...]. Set allowed_domains=['{domain}', ...] explicitly to avoid the security risks of glob patterns!"
+				)
+				_GLOB_WARNING_SHOWN = True
+
 		try:
+			import fnmatch
 			from urllib.parse import urlparse
 
-			# Special case: Allow 'about:blank' explicitly
-			if url == 'about:blank':
-				return True
-
 			parsed_url = urlparse(url)
+
+			# Special case: Allow 'about:blank' explicitly
+			if url == 'about:blank' or parsed_url.scheme.lower() in ('chrome', 'brave', 'edge', 'chrome-extension'):
+				return True
 
 			# Extract only the hostname component (without auth credentials or port)
 			# Hostname returns only the domain portion, ignoring username:password and port
 			domain = parsed_url.hostname.lower() if parsed_url.hostname else ''
 
-			# Check if domain matches any allowed domain pattern
-			return any(
-				domain == allowed_domain.lower() or domain.endswith('.' + allowed_domain.lower())
-				for allowed_domain in self.config.allowed_domains
-			)
+			if not domain:
+				return False
+
+			for allowed_domain in self.config.allowed_domains:
+				allowed_domain = allowed_domain.lower()
+
+				# Handle glob patterns
+				if '*' in allowed_domain:
+					# Special handling for *.domain.tld pattern to also match the bare domain
+					if allowed_domain.startswith('*.'):
+						# If pattern is *.example.com, also allow example.com (without subdomain)
+						parent_domain = allowed_domain[2:]  # Remove the '*.' prefix
+						if domain == parent_domain or fnmatch.fnmatch(domain, allowed_domain):
+							_show_glob_warning(domain, allowed_domain)
+							return True
+					else:
+						# For other glob patterns like *google.com
+						if fnmatch.fnmatch(domain, allowed_domain):
+							_show_glob_warning(domain, allowed_domain)
+							return True
+				else:
+					# Standard matching (exact or subdomain)
+					if domain == allowed_domain:
+						return True
+
+			return False
 		except Exception as e:
-			logger.error(f'⛔️  Error checking URL allowlist: {str(e)}')
+			logger.error(f'⛔️  Error checking URL allowlist: {type(e).__name__}: {e}')
 			return False
 
 	async def _check_and_handle_navigation(self, page: Page) -> None:

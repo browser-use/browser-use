@@ -1,15 +1,18 @@
+import asyncio
 import os
 import sys
 
-from browser_use.agent.views import ActionResult
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import asyncio
+from dotenv import load_dotenv
+
+load_dotenv()
 
 import pyperclip
 from langchain_openai import ChatOpenAI
 
 from browser_use import Agent, Controller
+from browser_use.agent.views import ActionResult
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext
 
