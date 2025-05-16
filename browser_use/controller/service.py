@@ -257,13 +257,51 @@ class Controller(Generic[Context]):
 		)
 		async def scroll_down(params: ScrollAction, browser: BrowserContext):
 			page = await browser.get_current_page()
-			if params.amount is not None:
-				await page.evaluate(f'window.scrollBy(0, {params.amount});')
+
+			if params.element_selector:
+				# Scroll a specific element instead of the main viewport
+				if params.amount is not None:
+					await page.evaluate(
+						"""
+						(selector, amount) => {
+							const element = document.querySelector(selector);
+							if (element) {
+								element.scrollBy(0, amount);
+								return true;
+							}
+							return false;
+						}
+						""",
+						params.element_selector,
+						params.amount,
+					)
+				else:
+					await page.evaluate(
+						"""
+						(selector) => {
+							const element = document.querySelector(selector);
+							if (element) {
+								element.scrollBy(0, element.clientHeight);
+								return true;
+							}
+							return false;
+						}
+						""",
+						params.element_selector,
+					)
+
+				element_text = f" within element '{params.element_selector}'"
 			else:
-				await page.evaluate('window.scrollBy(0, window.innerHeight);')
+				# Default behavior - scroll the main viewport
+				if params.amount is not None:
+					await page.evaluate(f'window.scrollBy(0, {params.amount});')
+				else:
+					await page.evaluate('window.scrollBy(0, window.innerHeight);')
+
+				element_text = ''
 
 			amount = f'{params.amount} pixels' if params.amount is not None else 'one page'
-			msg = f'🔍  Scrolled down the page by {amount}'
+			msg = f'🔍  Scrolled down the page by {amount}{element_text}'
 			logger.info(msg)
 			return ActionResult(
 				extracted_content=msg,
@@ -277,13 +315,51 @@ class Controller(Generic[Context]):
 		)
 		async def scroll_up(params: ScrollAction, browser: BrowserContext):
 			page = await browser.get_current_page()
-			if params.amount is not None:
-				await page.evaluate(f'window.scrollBy(0, -{params.amount});')
+
+			if params.element_selector:
+				# Scroll a specific element instead of the main viewport
+				if params.amount is not None:
+					await page.evaluate(
+						"""
+						(selector, amount) => {
+							const element = document.querySelector(selector);
+							if (element) {
+								element.scrollBy(0, -amount);
+								return true;
+							}
+							return false;
+						}
+						""",
+						params.element_selector,
+						params.amount,
+					)
+				else:
+					await page.evaluate(
+						"""
+						(selector) => {
+							const element = document.querySelector(selector);
+							if (element) {
+								element.scrollBy(0, -element.clientHeight);
+								return true;
+							}
+							return false;
+						}
+						""",
+						params.element_selector,
+					)
+
+				element_text = f" within element '{params.element_selector}'"
 			else:
-				await page.evaluate('window.scrollBy(0, -window.innerHeight);')
+				# Default behavior - scroll the main viewport
+				if params.amount is not None:
+					await page.evaluate(f'window.scrollBy(0, -{params.amount});')
+				else:
+					await page.evaluate('window.scrollBy(0, -window.innerHeight);')
+
+				element_text = ''
 
 			amount = f'{params.amount} pixels' if params.amount is not None else 'one page'
-			msg = f'🔍  Scrolled up the page by {amount}'
+			msg = f'🔍  Scrolled up the page by {amount}{element_text}'
 			logger.info(msg)
 			return ActionResult(
 				extracted_content=msg,
@@ -356,6 +432,97 @@ class Controller(Generic[Context]):
 				msg = f"Failed to scroll to text '{text}': {str(e)}"
 				logger.error(msg)
 				return ActionResult(error=msg, include_in_memory=True)
+
+		@self.registry.action(
+			'Find scrollable elements on the page and return their selectors for use in scroll actions',
+		)
+		async def find_scrollable_elements(browser: BrowserContext) -> ActionResult:
+			"""Find scrollable elements on the page and return their CSS selectors."""
+			page = await browser.get_current_page()
+
+			scrollable_elements = await page.evaluate("""
+				() => {
+					// Find elements that are scrollable (have overflow that isn't 'visible' or 'hidden')
+					const scrollableElements = [];
+					const allElements = document.querySelectorAll('*');
+					
+					for (let i = 0; i < allElements.length; i++) {
+						const el = allElements[i];
+						const style = window.getComputedStyle(el);
+						
+						// Check if element has scrollable content
+						if (
+							(style.overflowY === 'auto' || style.overflowY === 'scroll' || 
+							 style.overflow === 'auto' || style.overflow === 'scroll') &&
+							el.scrollHeight > el.clientHeight
+						) {
+							// Generate a unique selector
+							let path = '';
+							let node = el;
+							
+							// If element has an id, use that
+							if (el.id) {
+								path = '#' + el.id;
+							} else {
+								// Otherwise generate a selector path
+								while (node && node !== document.body) {
+									let name = node.nodeName.toLowerCase();
+									if (node.id) {
+										name = '#' + node.id;
+										path = name + (path ? ' > ' + path : '');
+										break;
+									} else {
+										let siblings = Array.from(node.parentNode.children).filter(n => n.nodeName === node.nodeName);
+										if (siblings.length > 1) {
+											const index = Array.from(siblings).indexOf(node) + 1;
+											name += ':nth-child(' + index + ')';
+										}
+										path = name + (path ? ' > ' + path : '');
+									}
+									node = node.parentNode;
+								}
+								
+								// Add body as prefix if needed
+								if (!path.startsWith('body')) {
+									path = 'body > ' + path;
+								}
+							}
+							
+							scrollableElements.push({
+								selector: path,
+								scrollHeight: el.scrollHeight,
+								clientHeight: el.clientHeight,
+								scrollTop: el.scrollTop,
+								scrollLeft: el.scrollLeft,
+								maxScrollTop: el.scrollHeight - el.clientHeight,
+								text: el.textContent.substring(0, 50) + (el.textContent.length > 50 ? '...' : '')
+							});
+						}
+					}
+					
+					return scrollableElements;
+				}
+			""")
+
+			if not scrollable_elements:
+				msg = 'No scrollable elements found on the page other than the main viewport.'
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True)
+
+			formatted_results = ['Scrollable elements found on the page:']
+			for i, element in enumerate(scrollable_elements):
+				formatted_results.append(f'{i + 1}. Selector: `{element["selector"]}`')
+				formatted_results.append(f'   Text: {element["text"]}')
+				formatted_results.append(f'   Current scroll position: {element["scrollTop"]}/{element["maxScrollTop"]} pixels')
+				formatted_results.append('')
+
+			formatted_results.append(
+				'You can use these selectors with the scroll_down or scroll_up actions by setting the element_selector parameter.'
+			)
+
+			msg = '\n'.join(formatted_results)
+			logger.info(msg)
+			return ActionResult(extracted_content=msg, include_in_memory=True)
 
 		@self.registry.action(
 			description='Get all options from a native dropdown',

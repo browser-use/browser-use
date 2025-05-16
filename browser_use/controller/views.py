@@ -40,6 +40,7 @@ class CloseTabAction(BaseModel):
 
 class ScrollAction(BaseModel):
 	amount: int | None = None  # The number of pixels to scroll. If None, scroll down/up one page
+	element_selector: str | None = None  # CSS selector for the scrollable element. If None, use the main viewport
 
 
 class SendKeysAction(BaseModel):
