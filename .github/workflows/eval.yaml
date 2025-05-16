@@ -1,0 +1,119 @@
+name: Run Evaluation Script
+
+on:
+  repository_dispatch:
+    types: [run-eval] # You can customize this event type
+
+jobs:
+  run_evaluation:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+      EVALUATION_TOOL_URL: ${{ secrets.EVALUATION_TOOL_URL }}
+      EVALUATION_TOOL_SECRET_KEY: ${{ secrets.EVALUATION_TOOL_SECRET_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python and uv
+        uses: astral-sh/setup-uv@v1
+        with:
+          enable-cache: true
+          activate-environment: true
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Detect installed Playwright version
+        id: playwright_version
+        run: echo "VERSION=$(uv pip list --format json | jq -r '.[] | select(.name == "playwright") | .version')" >> $GITHUB_OUTPUT
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright_version.outputs.VERSION }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install Playwright browser dependencies
+        run: playwright install --no-shell chromium # Install specific browser, add others if needed
+
+      - name: Construct eval command
+        id: eval_command
+        run: |
+          # Extract values from client_payload, applying defaults if not provided
+          MODEL_PAYLOAD="${{ github.event.client_payload.model }}"
+          EVAL_MODEL_PAYLOAD="${{ github.event.client_payload.eval_model }}"
+          PARALLEL_RUNS_PAYLOAD="${{ github.event.client_payload.parallel_runs }}"
+          MAX_STEPS_PAYLOAD="${{ github.event.client_payload.max_steps }}"
+          START_INDEX_PAYLOAD="${{ github.event.client_payload.start_index }}"
+          END_INDEX_PAYLOAD="${{ github.event.client_payload.end_index }}"
+          NO_VISION_PAYLOAD="${{ github.event.client_payload.no_vision }}"
+          HEADLESS_PAYLOAD="${{ github.event.client_payload.headless }}"
+          FRESH_START_PAYLOAD="${{ github.event.client_payload.fresh_start }}"
+          EVAL_GROUP_PAYLOAD="${{ github.event.client_payload.eval_group }}"
+          USER_MESSAGE_PAYLOAD="${{ github.event.client_payload.user_message }}"
+
+          # Apply defaults for string/numeric types
+          MODEL="${MODEL_PAYLOAD:-llama-4-maverick}"
+          EVAL_MODEL="${EVAL_MODEL_PAYLOAD:-gpt-4o}"
+          PARALLEL_RUNS="${PARALLEL_RUNS_PAYLOAD:-2}"
+          MAX_STEPS="${MAX_STEPS_PAYLOAD:-25}"
+          START_INDEX="${START_INDEX_PAYLOAD:-0}"
+          EVAL_GROUP="${EVAL_GROUP_PAYLOAD:-PRTests}"
+          USER_MESSAGE="${USER_MESSAGE_PAYLOAD:-GitHub Action Run}"
+          FRESH_START_VALUE="${FRESH_START_PAYLOAD:-true}" # Default for fresh_start is true
+
+          CMD="python eval/service.py \
+            --model \"$MODEL\" \
+            --eval_model \"$EVAL_MODEL\" \
+            --parallel_runs \"$PARALLEL_RUNS\" \
+            --max_steps \"$MAX_STEPS\" \
+            --start \"$START_INDEX\""
+
+          # Handle optional end_index with its default
+          if [[ -n "$END_INDEX_PAYLOAD" ]]; then
+            CMD="$CMD --end \"$END_INDEX_PAYLOAD\""
+          else
+            CMD="$CMD --end 100" # Default end_index if not in client_payload
+          fi
+
+          # Handle boolean flags (only add if true or default to true)
+          if [[ "$NO_VISION_PAYLOAD" == "true" ]]; then
+            CMD="$CMD --no-vision"
+          fi
+
+          # --headless is action='store_true', default for input was true.
+          # So, add --headless if payload is "true" or if payload is empty (use default "true")
+          HEADLESS_EFFECTIVE_VALUE="${HEADLESS_PAYLOAD:-true}"
+          if [[ "$HEADLESS_EFFECTIVE_VALUE" == "true" ]]; then
+            CMD="$CMD --headless"
+          fi
+            
+          CMD="$CMD --fresh-start $FRESH_START_VALUE \
+            --eval-group \"$EVAL_GROUP\" \
+            --user-message \"$USER_MESSAGE\""
+
+          echo "FULL_COMMAND=$CMD" >> $GITHUB_OUTPUT
+          echo "::notice title=Eval Command::$CMD"
+
+      - name: Run evaluation script
+        run: ${{ steps.eval_command.outputs.FULL_COMMAND }}
+
+      - name: Upload evaluation artifacts
+        if: always() # Always run this step to capture logs/results even if the script fails
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-results-${{ github.run_id }}
+          path: |
+            saved_trajectories/
+            *.log # If your script produces log files in the root
+          retention-days: 7
+          if-no-files-found: warn # Optional: warn if no files are found
