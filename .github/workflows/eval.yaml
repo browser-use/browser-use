@@ -48,18 +48,18 @@ jobs:
       - name: Construct eval command
         id: eval_command
         run: |
-          # Extract values from client_payload, applying defaults if not provided
-          MODEL_PAYLOAD="${{ github.event.client_payload.model }}"
-          EVAL_MODEL_PAYLOAD="${{ github.event.client_payload.eval_model }}"
-          PARALLEL_RUNS_PAYLOAD="${{ github.event.client_payload.parallel_runs }}"
-          MAX_STEPS_PAYLOAD="${{ github.event.client_payload.max_steps }}"
-          START_INDEX_PAYLOAD="${{ github.event.client_payload.start_index }}"
-          END_INDEX_PAYLOAD="${{ github.event.client_payload.end_index }}"
-          NO_VISION_PAYLOAD="${{ github.event.client_payload.no_vision }}"
-          HEADLESS_PAYLOAD="${{ github.event.client_payload.headless }}"
-          FRESH_START_PAYLOAD="${{ github.event.client_payload.fresh_start }}"
-          EVAL_GROUP_PAYLOAD="${{ github.event.client_payload.eval_group }}"
-          USER_MESSAGE_PAYLOAD="${{ github.event.client_payload.user_message }}"
+          # Extract values from client_payload.script_args, applying defaults if not provided
+          MODEL_PAYLOAD="${{ github.event.client_payload.script_args.model }}"
+          EVAL_MODEL_PAYLOAD="${{ github.event.client_payload.script_args.eval_model }}"
+          PARALLEL_RUNS_PAYLOAD="${{ github.event.client_payload.script_args.parallel_runs }}"
+          MAX_STEPS_PAYLOAD="${{ github.event.client_payload.script_args.max_steps }}"
+          START_INDEX_PAYLOAD="${{ github.event.client_payload.script_args.start_index }}"
+          END_INDEX_PAYLOAD="${{ github.event.client_payload.script_args.end_index }}"
+          NO_VISION_PAYLOAD="${{ github.event.client_payload.script_args.no_vision }}"
+          HEADLESS_PAYLOAD="${{ github.event.client_payload.script_args.headless }}"
+          FRESH_START_PAYLOAD="${{ github.event.client_payload.script_args.fresh_start }}"
+          EVAL_GROUP_PAYLOAD="${{ github.event.client_payload.script_args.eval_group }}"
+          USER_MESSAGE_PAYLOAD="${{ github.event.client_payload.script_args.user_message }}"
 
           # Apply defaults for string/numeric types
           MODEL="${MODEL_PAYLOAD:-llama-4-maverick}"
