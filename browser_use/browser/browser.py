@@ -398,8 +398,6 @@ class Browser:
 				except Exception as e:
 					logger.debug(f'Failed to terminate chrome subprocess: {e}')
 
-			# Then cleanup httpx clients
-			await self.cleanup_httpx_clients()
 		except Exception as e:
 			if 'OpenAI error' not in str(e):
 				logger.debug(f'Failed to close browser properly: {e}')
@@ -421,23 +419,3 @@ class Browser:
 					asyncio.run(self.close())
 		except Exception as e:
 			logger.debug(f'Failed to cleanup browser in destructor: {e}')
-
-	async def cleanup_httpx_clients(self):
-		"""Cleanup all httpx clients"""
-		import gc
-
-		import httpx
-
-		# Force garbage collection to make sure all clients are in memory
-		gc.collect()
-
-		# Get all httpx clients
-		clients = [obj for obj in gc.get_objects() if isinstance(obj, httpx.AsyncClient)]
-
-		# Close all clients
-		for client in clients:
-			if not client.is_closed:
-				try:
-					await client.aclose()
-				except Exception as e:
-					logger.debug(f'Error closing httpx client: {e}')
