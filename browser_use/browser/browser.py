@@ -398,8 +398,6 @@ class Browser:
 				except Exception as e:
 					logger.debug(f'Failed to terminate chrome subprocess: {e}')
 
-			# Then cleanup httpx clients
-			await self.cleanup_httpx_clients()
 		except Exception as e:
 			if 'OpenAI error' not in str(e):
 				logger.debug(f'Failed to close browser properly: {e}')
@@ -421,7 +419,3 @@ class Browser:
 					asyncio.run(self.close())
 		except Exception as e:
 			logger.debug(f'Failed to cleanup browser in destructor: {e}')
-
-	async def cleanup_httpx_clients(self):
-		"""No-op method - browser instances shouldn't close httpx clients they didn't create."""
-		pass
