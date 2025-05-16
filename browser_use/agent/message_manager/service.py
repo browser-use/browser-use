@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import json
+from typing import Dict, List, Optional, Any, Union
 
 from langchain_core.messages import (
 	AIMessage,
@@ -42,6 +44,7 @@ class MessageManager:
 		self.settings = settings
 		self.state = state
 		self.system_prompt = system_message
+		self._last_plan: Optional[Dict[str, Any]] = None
 
 		# Only initialize messages if state is empty
 		if len(self.state.history.messages) == 0:
@@ -193,6 +196,27 @@ class MessageManager:
 		logger.debug(f'Total input tokens: {total_input_tokens}')
 
 		return msg
+	
+	def add_cached_plan(self, plan: Dict[str, Any]) -> None:
+		"""Add a cached plan to the message history, ensuring it respects token limits"""
+		self._last_plan = plan
+		try:
+			plan_message = HumanMessage(content=json.dumps(plan))
+		except (TypeError, ValueError) as e:
+			logger.error(f"Failed to serialize plan to JSON: {e}")
+			return
+
+		token_count = self._count_tokens(plan_message)
+
+		if self.state.history.current_tokens + token_count > self.settings.max_input_tokens:
+			logger.warning("Adding this plan would exceed the maximum token limit. Plan not added.")
+			return
+
+		self._add_message_with_tokens(plan_message)
+
+	def get_last_plan(self) -> Optional[Dict[str, Any]]:
+		"""Get the last plan that was used"""
+		return self._last_plan
 
 	def _add_message_with_tokens(
 		self, message: BaseMessage, position: int | None = None, message_type: str | None = None
