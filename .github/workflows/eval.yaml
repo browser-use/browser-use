@@ -2,7 +2,7 @@ name: Run Evaluation Script
 
 on:
   repository_dispatch:
-    types: [run-eval] # You can customize this event type
+    types: [run-eval]
 
 jobs:
   run_evaluation:
@@ -43,7 +43,7 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install Playwright browser dependencies
-        run: playwright install --no-shell chromium # Install specific browser, add others if needed
+        run: playwright install --no-shell chromium
 
       - name: Construct eval command
         id: eval_command
@@ -108,7 +108,7 @@ jobs:
         run: ${{ steps.eval_command.outputs.FULL_COMMAND }}
 
       - name: Upload evaluation artifacts
-        if: always() # Always run this step to capture logs/results even if the script fails
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: evaluation-results-${{ github.run_id }}
@@ -116,4 +116,4 @@ jobs:
             saved_trajectories/
             *.log # If your script produces log files in the root
           retention-days: 7
-          if-no-files-found: warn # Optional: warn if no files are found
+          if-no-files-found: warn
