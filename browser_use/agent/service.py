@@ -12,19 +12,20 @@ from pathlib import Path
 from typing import Any, Generic, TypeVar
 
 from dotenv import load_dotenv
+
+load_dotenv()
+
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
 	BaseMessage,
 	HumanMessage,
 	SystemMessage,
 )
-
-# from lmnr.sdk.decorators import observe
+from playwright.async_api import Browser, BrowserContext
 from pydantic import BaseModel, ValidationError
 
 from browser_use.agent.gif import create_history_gif
-from browser_use.agent.memory.service import Memory
-from browser_use.agent.memory.views import MemoryConfig
+from browser_use.agent.memory import Memory, MemoryConfig
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
 from browser_use.agent.message_manager.utils import (
 	convert_input_messages,
@@ -43,12 +44,14 @@ from browser_use.agent.views import (
 	AgentSettings,
 	AgentState,
 	AgentStepInfo,
+	BrowserStateHistory,
 	StepMetadata,
 	ToolCallingMethod,
 )
-from browser_use.browser.browser import Browser
-from browser_use.browser.context import BrowserContext
-from browser_use.browser.views import BrowserState, BrowserStateHistory
+from browser_use.browser import BrowserProfile, BrowserSession
+
+# from lmnr.sdk.decorators import observe
+from browser_use.browser.views import BrowserState
 from browser_use.controller.registry.views import ActionModel
 from browser_use.controller.service import Controller
 from browser_use.dom.history_tree_processor.service import (
@@ -62,7 +65,6 @@ from browser_use.telemetry.views import (
 )
 from browser_use.utils import check_env_variables, time_execution_async, time_execution_sync
 
-load_dotenv()
 logger = logging.getLogger(__name__)
 
 SKIP_LLM_API_KEY_VERIFICATION = os.environ.get('SKIP_LLM_API_KEY_VERIFICATION', 'false').lower()[0] in 'ty1'
@@ -99,6 +101,8 @@ class Agent(Generic[Context]):
 		# Optional parameters
 		browser: Browser | None = None,
 		browser_context: BrowserContext | None = None,
+		browser_profile: BrowserProfile | None = None,
+		browser_session: BrowserSession | None = None,
 		controller: Controller[Context] = Controller(),
 		# Initial agent run parameters
 		sensitive_data: dict[str, str] | None = None,
@@ -281,18 +285,20 @@ class Agent(Generic[Context]):
 			self.memory = None
 
 		# Browser setup
-		self.injected_browser = browser is not None
-		self.injected_browser_context = browser_context is not None
-		self.browser = browser or Browser()
-		self.browser.config.new_context_config.disable_security = self.browser.config.disable_security
-		self.browser_context = browser_context or BrowserContext(
-			browser=self.browser, config=self.browser.config.new_context_config
+		assert not (browser_session and browser_profile), 'Cannot provide both browser_session and browser_profile'
+		assert not (browser_session and browser), 'Cannot provide both browser_session and browser'
+		assert not (browser_profile and browser), 'Cannot provide both browser_profile and browser'
+		assert not (browser_profile and browser_context), 'Cannot provide both browser_profile and browser_context'
+		assert not (browser and browser_context), 'Cannot provide both browser and browser_context'
+		assert not (browser_session and browser_context), 'Cannot provide both browser_session and browser_context'
+
+		self.browser_session = browser_session or BrowserSession(
+			profile=browser_profile, browser=browser, browser_context=browser_context
 		)
 
-		# Huge security warning if sensitive_data is provided but allowed_domains is not set
-		if self.sensitive_data and not self.browser_context.config.allowed_domains:
+		if self.sensitive_data and not self.browser_profile.allowed_domains:
 			logger.error(
-				'⚠️⚠️⚠️ Agent(sensitive_data=••••••••) was provided but BrowserContextConfig(allowed_domains=[...]) is not locked down! ⚠️⚠️⚠️\n'
+				'⚠️⚠️⚠️ Agent(sensitive_data=••••••••) was provided but BrowserSession(allowed_domains=[...]) is not locked down! ⚠️⚠️⚠️\n'
 				'          ☠️ If the agent visits a malicious website and encounters a prompt-injection attack, your sensitive_data may be exposed!\n\n'
 				'             https://docs.browser-use.com/customize/browser-settings#restrict-urls\n'
 				'Waiting 10 seconds before continuing... Press [Ctrl+C] to abort.'
@@ -302,7 +308,7 @@ class Agent(Generic[Context]):
 					time.sleep(10)
 				except KeyboardInterrupt:
 					print(
-						'\n\n 🛑 Exiting now... set BrowserContextConfig(allowed_domains=["example.com", "example.org"]) to only domains you trust to see your sensitive_data.'
+						'\n\n 🛑 Exiting now... set BrowserSession(allowed_domains=["example.com", "example.org"]) to only domains you trust to see your sensitive_data.'
 					)
 					sys.exit(0)
 			else:
@@ -322,6 +328,18 @@ class Agent(Generic[Context]):
 
 		if self.settings.save_conversation_path:
 			logger.info(f'Saving conversation to {self.settings.save_conversation_path}')
+
+	@property
+	def browser(self) -> Browser:
+		return self.browser_session.browser
+
+	@property
+	def browser_context(self) -> BrowserContext:
+		return self.browser_session.browser_context
+
+	@property
+	def browser_profile(self) -> BrowserProfile:
+		return self.browser_session.browser_profile
 
 	def _set_message_context(self) -> str | None:
 		if self.tool_calling_method == 'raw':
@@ -442,8 +460,8 @@ class Agent(Generic[Context]):
 		tokens = 0
 
 		try:
-			state = await self.browser_context.get_state(cache_clickable_elements_hashes=True)
-			current_page = await self.browser_context.get_current_page()
+			state = await self.browser_session.get_state(cache_clickable_elements_hashes=True)
+			current_page = await self.browser_session.get_current_page()
 
 			# generate procedural memory if needed
 			if self.enable_memory and self.memory and self.state.n_steps % self.memory.config.memory_interval == 0:
@@ -982,8 +1000,7 @@ class Agent(Generic[Context]):
 					self.state.history.save_as_playwright_script(
 						self.settings.save_playwright_script_path,
 						sensitive_data_keys=keys,
-						browser_config=self.browser.config,
-						context_config=self.browser_context.config,
+						browser_profile=self.browser_session.browser_profile,
 					)
 				except Exception as script_gen_err:
 					# Log any error during script generation/saving
@@ -1008,14 +1025,14 @@ class Agent(Generic[Context]):
 		"""Execute multiple actions"""
 		results = []
 
-		cached_selector_map = await self.browser_context.get_selector_map()
+		cached_selector_map = await self.browser_session.get_selector_map()
 		cached_path_hashes = {e.hash.branch_path_hash for e in cached_selector_map.values()}
 
-		await self.browser_context.remove_highlights()
+		await self.browser_session.remove_highlights()
 
 		for i, action in enumerate(actions):
 			if action.get_index() is not None and i != 0:
-				new_state = await self.browser_context.get_state(cache_clickable_elements_hashes=False)
+				new_state = await self.browser_session.get_state(cache_clickable_elements_hashes=False)
 				new_selector_map = new_state.selector_map
 
 				# Detect index change after previous action
@@ -1042,7 +1059,7 @@ class Agent(Generic[Context]):
 
 				result = await self.controller.act(
 					action,
-					self.browser_context,
+					self.browser_session,
 					self.settings.page_extraction_llm,
 					self.sensitive_data,
 					self.settings.available_file_paths,
@@ -1055,7 +1072,7 @@ class Agent(Generic[Context]):
 				if results[-1].is_done or results[-1].error or i == len(actions) - 1:
 					break
 
-				await asyncio.sleep(self.browser_context.config.wait_between_actions)
+				await asyncio.sleep(self.browser_profile.wait_between_actions)
 				# hash all elements. if it is a subset of cached_state its fine - else break (new elements on page)
 
 			except asyncio.CancelledError:
@@ -1081,8 +1098,8 @@ class Agent(Generic[Context]):
 			f' example: {{"is_valid": false, "reason": "The user wanted to search for "cat photos", but the agent searched for "dog photos" instead."}}'
 		)
 
-		if self.browser_context.session:
-			state = await self.browser_context.get_state(cache_clickable_elements_hashes=False)
+		if self.browser_context:
+			state = await self.browser_session.get_state(cache_clickable_elements_hashes=False)
 			content = AgentMessagePrompt(
 				state=state,
 				result=self.state.last_result,
@@ -1435,10 +1452,7 @@ class Agent(Generic[Context]):
 		"""Close all resources"""
 		try:
 			# First close browser resources
-			if self.browser_context and not self.injected_browser_context:
-				await self.browser_context.close()
-			if self.browser and not self.injected_browser:
-				await self.browser.close()
+			await self.browser_session.stop()
 
 			# Force garbage collection
 			gc.collect()

@@ -34,8 +34,9 @@ except ImportError:
 	# readline not available on Windows by default
 	READLINE_AVAILABLE = False
 
-from browser_use import Agent, Browser, BrowserConfig, BrowserContextConfig, Controller
+from browser_use import Agent, Controller
 from browser_use.agent.views import AgentSettings
+from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.logging_config import addLoggingLevel
 
 # Paths
@@ -149,19 +150,24 @@ def update_config_with_click_args(config: dict[str, Any], ctx: click.Context) ->
 	if 'browser_context' not in config:
 		config['browser_context'] = {}
 
+	# Create a merged browser profile config for all browser settings
+	browser_profile = config.get('browser', {}) | config.get('browser_context', {})
+
 	# Update configuration with command-line args if provided
 	if ctx.params.get('model'):
 		config['model']['name'] = ctx.params['model']
 	if ctx.params.get('headless') is not None:
-		config['browser']['headless'] = ctx.params['headless']
+		browser_profile['headless'] = ctx.params['headless']
 	if ctx.params.get('window_width'):
-		config['browser']['window_width'] = ctx.params['window_width']
-		if 'viewport_width' in config['browser_context']:
-			config['browser_context']['viewport_width'] = ctx.params['window_width']
+		browser_profile['window_width'] = ctx.params['window_width']
 	if ctx.params.get('window_height'):
-		config['browser']['window_height'] = ctx.params['window_height']
-		if 'viewport_height' in config['browser_context']:
-			config['browser_context']['viewport_height'] = ctx.params['window_height']
+		browser_profile['window_height'] = ctx.params['window_height']
+
+	# Update config with the merged profile
+	config['browser'] = browser_profile
+	# Remove the old split config
+	if 'browser_context' in config:
+		del config['browser_context']
 
 	return config
 
@@ -418,7 +424,7 @@ class BrowserUseApp(App):
 	def __init__(self, config: dict[str, Any], *args, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.config = config
-		self.browser = None  # Will be set before app.run_async()
+		self.browser_session = None  # Will be set before app.run_async()
 		self.controller = None  # Will be set before app.run_async()
 		self.agent = None
 		self.llm = None  # Will be set before app.run_async()
@@ -719,24 +725,23 @@ class BrowserUseApp(App):
 		browser_info = self.query_one('#browser-info')
 		browser_info.clear()
 
-		if self.browser:
+		if self.browser_session:
 			# Get basic browser info
-			browser_type = self.browser.__class__.__name__
-			headless = self.browser.config.headless
-			browser_class = self.browser.config.browser_class
+			browser_type = self.browser_session.browser.__class__.__name__
+			headless = self.browser_session.headless
 
 			# Determine connection type based on config
 			connection_type = 'playwright'  # Default
-			if self.browser.config.cdp_url:
+			if self.browser_session.cdp_url:
 				connection_type = 'CDP'
-			elif self.browser.config.wss_url:
+			elif self.browser_session.wss_url:
 				connection_type = 'WSS'
-			elif self.browser.config.browser_binary_path:
+			elif self.browser_session.executable_path:
 				connection_type = 'user-provided'
 
 			# Get window size details
-			window_width = self.browser.config.new_context_config.window_width
-			window_height = self.browser.config.new_context_config.window_height
+			window_width = self.browser_session.viewport['width']
+			window_height = self.browser_session.viewport['height']
 
 			# Try to get browser PID
 			browser_pid = 'Unknown'
@@ -744,31 +749,22 @@ class BrowserUseApp(App):
 			browser_status = '[red]Disconnected[/]'
 
 			try:
-				# First check if Chrome subprocess is available directly
-				if hasattr(self.browser, '_chrome_subprocess') and self.browser._chrome_subprocess:
-					try:
-						if hasattr(self.browser._chrome_subprocess, 'pid'):
-							browser_pid = str(self.browser._chrome_subprocess.pid)
-							connected = True
-							browser_status = '[green]Connected[/]'
-					except Exception as e:
-						browser_pid = f'Error: {str(e)}'
-				# Then check if we have a playwright browser connection
-				elif hasattr(self.browser, 'playwright_browser') and self.browser.playwright_browser:
+				# First check if Chrome subprocess is tracked
+				if hasattr(self.browser_session, 'chrome_process') and self.browser_session.chrome_process.pid:
+					browser_pid = str(self.browser_session.chrome_process.pid)
+					connected = True
+					browser_status = '[green]Connected[/]'
+				# Then check if we have a browser connection
+				elif hasattr(self.browser_session, 'browser') and self.browser_session.browser.is_connected():
 					connected = True
 					browser_status = '[green]Connected[/]'
 
-					# Try to get PID from related processes by checking for Chrome/Firefox
+					# Try to get PID from related processes by checking for Chrome processes
 					import psutil
 
 					for proc in psutil.process_iter(['pid', 'name']):
 						try:
-							if (
-								browser_class in proc.name().lower()
-								or 'chrome' in proc.name().lower()
-								or 'chromium' in proc.name().lower()
-								or 'firefox' in proc.name().lower()
-							):
+							if 'chrome' in proc.name().lower() or 'chromium' in proc.name().lower():
 								browser_pid = str(proc.pid)
 								break
 						except (psutil.NoSuchProcess, psutil.AccessDenied):
@@ -777,12 +773,12 @@ class BrowserUseApp(App):
 				browser_pid = f'Error: {str(e)}'
 
 			# Display browser information
-			browser_info.write(f'[bold cyan]{browser_class}[/] Browser ({browser_status})')
+			browser_info.write(f'[bold cyan]Chromium[/] Browser ({browser_status})')
 			browser_info.write(
 				f'Type: [yellow]{connection_type}[/] [{"green" if not headless else "red"}]{" (headless)" if headless else ""}[/]'
 			)
 			browser_info.write(f'PID: [dim]{browser_pid}[/]')
-			browser_info.write(f'CDP Port: {self.browser.config.chrome_remote_debugging_port}')
+			browser_info.write(f'CDP Port: {self.browser_session.cdp_url}')
 
 			if window_width and window_height:
 				browser_info.write(f'Window: [blue]{window_width}[/] × [blue]{window_height}[/]')
@@ -798,9 +794,9 @@ class BrowserUseApp(App):
 					pass
 
 				# Show the agent's current page URL if available
-				if hasattr(self.agent.browser_context, 'agent_current_page') and self.agent.browser_context.agent_current_page:
+				if self.browser_session.agent_current_page:
 					current_url = (
-						self.agent.browser_context.agent_current_page.url.replace('https://', '')
+						self.browser_session.agent_current_page.url.replace('https://', '')
 						.replace('http://', '')
 						.replace('www.', '')[:36]
 						+ '…'
@@ -1205,13 +1201,11 @@ async def textual_interface(config: dict[str, Any]):
 	# Step 1: Configure BrowserUse components
 	logger.debug('Validating browser configs...')
 	try:
-		browser_config = BrowserConfig.model_validate(config.get('browser', {}))
-		context_config = BrowserContextConfig.model_validate(config.get('browser_context', {}))
-		browser_config.new_context_config = context_config
-		logger.info(f'Browser type: {browser_config.browser_class}')
-		if browser_config.browser_binary_path:
-			logger.info(f'Browser binary: {browser_config.browser_binary_path}')
-		if browser_config.headless:
+		browser_profile = BrowserProfile.model_validate(config.get('browser', {}) | config.get('browser_context', {}))
+		logger.info('Browser type: chromium')  # BrowserProfile only supports chromium
+		if browser_profile.executable_path:
+			logger.info(f'Browser binary: {browser_profile.executable_path}')
+		if browser_profile.headless:
 			logger.info('Browser mode: headless')
 		else:
 			logger.info('Browser mode: visible')
@@ -1223,7 +1217,7 @@ async def textual_interface(config: dict[str, Any]):
 	# Step 2: Initialize Browser
 	logger.debug('Initializing Browser...')
 	try:
-		browser = Browser(config=browser_config)
+		browser = BrowserSession(profile=browser_profile)
 		logger.debug('Browser initialized successfully')
 
 		# Log browser version if available
@@ -1274,7 +1268,7 @@ async def textual_interface(config: dict[str, Any]):
 		setup_textual_logging()
 
 		# Log browser and model configuration that will be used
-		browser_type = config.get('browser', {}).get('browser_class', 'Chrome')
+		browser_type = 'Chromium'  # BrowserProfile only supports Chromium
 		model_name = config.get('model', {}).get('name', 'auto-detected')
 		headless = config.get('browser', {}).get('headless', True)
 		headless_str = 'headless' if headless else 'visible'
@@ -1361,7 +1355,7 @@ def main(ctx: click.Context, debug: bool = False, **kwargs):
 	logger.debug('Setting up handlers for Textual UI...')
 
 	# Log browser and model configuration that will be used
-	browser_type = config.get('browser', {}).get('browser_class', 'Chrome')
+	browser_type = 'Chromium'  # BrowserProfile only supports Chromium
 	model_name = config.get('model', {}).get('name', 'auto-detected')
 	headless = config.get('browser', {}).get('headless', True)
 	headless_str = 'headless' if headless else 'visible'

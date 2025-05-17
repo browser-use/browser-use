@@ -6,7 +6,7 @@ from typing import Any, Generic, Optional, TypeVar
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, Field, create_model
 
-from browser_use.browser.context import BrowserContext
+from browser_use.browser import BrowserSession
 from browser_use.controller.registry.views import (
 	ActionModel,
 	ActionRegistry,
@@ -95,7 +95,7 @@ class Registry(Generic[Context]):
 		self,
 		action_name: str,
 		params: dict,
-		browser: BrowserContext | None = None,
+		browser_session: BrowserSession | None = None,
 		page_extraction_llm: BaseChatModel | None = None,
 		sensitive_data: dict[str, str] | None = None,
 		available_file_paths: list[str] | None = None,
@@ -121,8 +121,8 @@ class Registry(Generic[Context]):
 				validated_params = self._replace_sensitive_data(validated_params, sensitive_data)
 
 			# Check if the action requires browser
-			if 'browser' in parameter_names and not browser:
-				raise ValueError(f'Action {action_name} requires browser but none provided.')
+			if 'browser_session' in parameter_names and not browser_session:
+				raise ValueError(f'Action {action_name} requires browser_session but none provided.')
 			if 'page_extraction_llm' in parameter_names and not page_extraction_llm:
 				raise ValueError(f'Action {action_name} requires page_extraction_llm but none provided.')
 			if 'available_file_paths' in parameter_names and not available_file_paths:
@@ -135,8 +135,8 @@ class Registry(Generic[Context]):
 			extra_args = {}
 			if 'context' in parameter_names:
 				extra_args['context'] = context
-			if 'browser' in parameter_names:
-				extra_args['browser'] = browser
+			if 'browser_session' in parameter_names:
+				extra_args['browser_session'] = browser_session
 			if 'page_extraction_llm' in parameter_names:
 				extra_args['page_extraction_llm'] = page_extraction_llm
 			if 'available_file_paths' in parameter_names:

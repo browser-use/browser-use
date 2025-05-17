@@ -3,7 +3,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from browser_use.browser.context import BrowserContext, BrowserContextConfig
+from browser_use.browser import BrowserContext, BrowserContextConfig
 from browser_use.browser.views import BrowserState
 from browser_use.dom.views import DOMElementNode
 

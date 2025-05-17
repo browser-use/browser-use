@@ -38,12 +38,12 @@ body:
       placeholder: |
         from dotenv import load_dotenv
         load_dotenv()
-        from browser_use import Agent, Browser, Controller
+        from browser_use import Agent, BrowserSession, Controller
         from langchain_openai import ChatOpenAI
 
         llm = ChatOpenAI(model="gpt-4o")
-        browser = Browser(chrome_binary_path='/usr/bin/google-chrome')
-        agent = Agent(llm=llm, browser=browser))
+        browser_session = BrowserSession(executable_path='/usr/bin/google-chrome')
+        agent = Agent(llm=llm, browser_session=browser_session))
         ...
 
   - type: dropdown

@@ -35,6 +35,7 @@ dependencies = [
     "psutil>=7.0.0",
     "faiss-cpu>=1.9.0",
     "mem0ai==0.1.93",
+    "uuid7>=0.1.0",
 ]
 # pydantic: >2.11 introduces many pydantic deprecation warnings until langchain-core upgrades their pydantic support lets keep it on 2.10
 # google-api-core: only used for Google LLM APIs
@@ -81,14 +82,17 @@ line-length = 130
 fix = true
 
 [tool.ruff.lint]
-select = ["ASYNC", "E", "F", "FAST", "I", "PLE"]
-ignore = ["ASYNC109", "E101", "E402", "E501", "F841", "E731"]  # TODO: determine if adding timeouts to all the unbounded async functions is needed / worth-it so we can un-ignore ASYNC109
+select = ["ASYNC", "E", "F", "FAST", "I", "PLE", "E261"]
+ignore = ["ASYNC109", "E101", "E402", "E501", "F841", "E731", "W291"]  # TODO: determine if adding timeouts to all the unbounded async functions is needed / worth-it so we can un-ignore ASYNC109
 unfixable = ["E101", "E402", "E501", "F841", "E731"]
 
 [tool.ruff.format]
 quote-style = "single"
 indent-style = "tab"
+line-ending = "lf"
 docstring-code-format = true
+docstring-code-line-length = 140
+skip-magic-trailing-comma = false
 
 [tool.pyright]
 typeCheckingMode = "off"

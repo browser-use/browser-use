@@ -13,7 +13,7 @@ from playwright.async_api import ElementHandle, Page
 from pydantic import BaseModel
 
 from browser_use.agent.views import ActionModel, ActionResult
-from browser_use.browser.context import BrowserContext
+from browser_use.browser import BrowserSession
 from browser_use.controller.registry.service import Registry
 from browser_use.controller.views import (
 	ClickElementAction,
@@ -82,8 +82,8 @@ class Controller(Generic[Context]):
 			'Search the query in Google in the current tab, the query should be a search query like humans search in Google, concrete and not vague or super long. More the single most important items. ',
 			param_model=SearchGoogleAction,
 		)
-		async def search_google(params: SearchGoogleAction, browser: BrowserContext):
-			page = await browser.get_current_page()
+		async def search_google(params: SearchGoogleAction, browser_session: BrowserSession):
+			page = await browser_session.get_current_page()
 			await page.goto(f'https://www.google.com/search?q={params.query}&udm=14')
 			await page.wait_for_load_state()
 			msg = f'🔍  Searched for "{params.query}" in Google'
@@ -91,8 +91,8 @@ class Controller(Generic[Context]):
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
 		@self.registry.action('Navigate to URL in the current tab', param_model=GoToUrlAction)
-		async def go_to_url(params: GoToUrlAction, browser: BrowserContext):
-			page = await browser.get_current_page()
+		async def go_to_url(params: GoToUrlAction, browser_session: BrowserSession):
+			page = await browser_session.get_current_page()
 			await page.goto(params.url)
 			await page.wait_for_load_state()
 			msg = f'🔗  Navigated to {params.url}'
@@ -100,8 +100,8 @@ class Controller(Generic[Context]):
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
 		@self.registry.action('Go back', param_model=NoParamsAction)
-		async def go_back(_: NoParamsAction, browser: BrowserContext):
-			await browser.go_back()
+		async def go_back(_: NoParamsAction, browser_session: BrowserSession):
+			await browser_session.go_back()
 			msg = '🔙  Navigated back'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
@@ -116,17 +116,17 @@ class Controller(Generic[Context]):
 
 		# Element Interaction Actions
 		@self.registry.action('Click element by index', param_model=ClickElementAction)
-		async def click_element_by_index(params: ClickElementAction, browser: BrowserContext):
-			session = await browser.get_session()
+		async def click_element_by_index(params: ClickElementAction, browser_session: BrowserSession):
+			# Browser is now a BrowserSession itself
 
-			if params.index not in await browser.get_selector_map():
+			if params.index not in await browser_session.get_selector_map():
 				raise Exception(f'Element with index {params.index} does not exist - retry or use alternative actions')
 
-			element_node = await browser.get_dom_element_by_index(params.index)
-			initial_pages = len(session.context.pages)
+			element_node = await browser_session.get_dom_element_by_index(params.index)
+			initial_pages = len(browser_session.browser_context.pages if browser_session.browser_context else [])
 
 			# if element has file uploader then dont click
-			if await browser.is_file_uploader(element_node):
+			if await browser_session.is_file_uploader(element_node):
 				msg = f'Index {params.index} - has an element which opens file upload dialog. To upload files please use a specific function to upload files '
 				logger.info(msg)
 				return ActionResult(extracted_content=msg, include_in_memory=True)
@@ -134,7 +134,7 @@ class Controller(Generic[Context]):
 			msg = None
 
 			try:
-				download_path = await browser._click_element_node(element_node)
+				download_path = await browser_session._click_element_node(element_node)
 				if download_path:
 					msg = f'💾  Downloaded file to {download_path}'
 				else:
@@ -142,11 +142,11 @@ class Controller(Generic[Context]):
 
 				logger.info(msg)
 				logger.debug(f'Element xpath: {element_node.xpath}')
-				if len(session.context.pages) > initial_pages:
+				if len(browser_session.browser_context.pages) > initial_pages:
 					new_tab_msg = 'New tab opened - switching to it'
 					msg += f' - {new_tab_msg}'
 					logger.info(new_tab_msg)
-					await browser.switch_to_tab(-1)
+					await browser_session.switch_to_tab(-1)
 				return ActionResult(extracted_content=msg, include_in_memory=True)
 			except Exception as e:
 				logger.warning(f'Element not clickable with index {params.index} - most likely the page changed')
@@ -156,12 +156,12 @@ class Controller(Generic[Context]):
 			'Input text into a input interactive element',
 			param_model=InputTextAction,
 		)
-		async def input_text(params: InputTextAction, browser: BrowserContext, has_sensitive_data: bool = False):
-			if params.index not in await browser.get_selector_map():
+		async def input_text(params: InputTextAction, browser_session: BrowserSession, has_sensitive_data: bool = False):
+			if params.index not in await browser_session.get_selector_map():
 				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
 
-			element_node = await browser.get_dom_element_by_index(params.index)
-			await browser._input_text_element_node(element_node, params.text)
+			element_node = await browser_session.get_dom_element_by_index(params.index)
+			await browser_session._input_text_element_node(element_node, params.text)
 			if not has_sensitive_data:
 				msg = f'⌨️  Input {params.text} into index {params.index}'
 			else:
@@ -174,8 +174,8 @@ class Controller(Generic[Context]):
 		@self.registry.action(
 			'Save the current page as a PDF file',
 		)
-		async def save_pdf(browser: BrowserContext):
-			page = await browser.get_current_page()
+		async def save_pdf(browser_session: BrowserSession):
+			page = await browser_session.get_current_page()
 			short_url = re.sub(r'^https?://(?:www\.)?|/$', '', page.url)
 			slug = re.sub(r'[^a-zA-Z0-9]+', '-', short_url).strip('-').lower()
 			sanitized_filename = f'{slug}.pdf'
@@ -188,28 +188,28 @@ class Controller(Generic[Context]):
 
 		# Tab Management Actions
 		@self.registry.action('Switch tab', param_model=SwitchTabAction)
-		async def switch_tab(params: SwitchTabAction, browser: BrowserContext):
-			await browser.switch_to_tab(params.page_id)
+		async def switch_tab(params: SwitchTabAction, browser_session: BrowserSession):
+			await browser_session.switch_to_tab(params.page_id)
 			# Wait for tab to be ready and ensure references are synchronized
-			page = await browser.get_agent_current_page()
+			page = await browser_session.get_agent_current_page()
 			await page.wait_for_load_state()
 			msg = f'🔄  Switched to tab {params.page_id}'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
 		@self.registry.action('Open url in new tab', param_model=OpenTabAction)
-		async def open_tab(params: OpenTabAction, browser: BrowserContext):
-			await browser.create_new_tab(params.url)
+		async def open_tab(params: OpenTabAction, browser_session: BrowserSession):
+			await browser_session.browser_context.create_new_tab(params.url)
 			# Ensure tab references are properly synchronized
-			await browser.get_agent_current_page()  # this has side-effects (even though it looks like a getter)
+			await browser_session.get_agent_current_page()  # this has side-effects (even though it looks like a getter)
 			msg = f'🔗  Opened new tab with {params.url}'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
 		@self.registry.action('Close an existing tab', param_model=CloseTabAction)
-		async def close_tab(params: CloseTabAction, browser: BrowserContext):
-			await browser.switch_to_tab(params.page_id)
-			page = await browser.get_current_page()
+		async def close_tab(params: CloseTabAction, browser_session: BrowserSession):
+			await browser_session.switch_to_tab(params.page_id)
+			page = await browser_session.get_current_page()
 			url = page.url
 			await page.close()
 			msg = f'❌  Closed tab #{params.page_id} with url {url}'
@@ -221,9 +221,9 @@ class Controller(Generic[Context]):
 			'Extract page content to retrieve specific information from the page, e.g. all company names, a specific description, all information about, links with companies in structured format or simply links',
 		)
 		async def extract_content(
-			goal: str, should_strip_link_urls: bool, browser: BrowserContext, page_extraction_llm: BaseChatModel
+			goal: str, should_strip_link_urls: bool, browser_session: BrowserSession, page_extraction_llm: BaseChatModel
 		):
-			page = await browser.get_current_page()
+			page = await browser_session.get_current_page()
 			import markdownify
 
 			strip = []
@@ -255,8 +255,8 @@ class Controller(Generic[Context]):
 			'Scroll down the page by pixel amount - if no amount is specified, scroll down one page',
 			param_model=ScrollAction,
 		)
-		async def scroll_down(params: ScrollAction, browser: BrowserContext):
-			page = await browser.get_current_page()
+		async def scroll_down(params: ScrollAction, browser_session: BrowserSession):
+			page = await browser_session.get_current_page()
 			if params.amount is not None:
 				await page.evaluate(f'window.scrollBy(0, {params.amount});')
 			else:
@@ -275,8 +275,8 @@ class Controller(Generic[Context]):
 			'Scroll up the page by pixel amount - if no amount is specified, scroll up one page',
 			param_model=ScrollAction,
 		)
-		async def scroll_up(params: ScrollAction, browser: BrowserContext):
-			page = await browser.get_current_page()
+		async def scroll_up(params: ScrollAction, browser_session: BrowserSession):
+			page = await browser_session.get_current_page()
 			if params.amount is not None:
 				await page.evaluate(f'window.scrollBy(0, -{params.amount});')
 			else:
@@ -295,8 +295,8 @@ class Controller(Generic[Context]):
 			'Send strings of special keys like Escape,Backspace, Insert, PageDown, Delete, Enter, Shortcuts such as `Control+o`, `Control+Shift+T` are supported as well. This gets used in keyboard.press. ',
 			param_model=SendKeysAction,
 		)
-		async def send_keys(params: SendKeysAction, browser: BrowserContext):
-			page = await browser.get_current_page()
+		async def send_keys(params: SendKeysAction, browser_session: BrowserSession):
+			page = await browser_session.get_current_page()
 
 			try:
 				await page.keyboard.press(params.keys)
@@ -318,8 +318,8 @@ class Controller(Generic[Context]):
 		@self.registry.action(
 			description='If you dont find something which you want to interact with, scroll to it',
 		)
-		async def scroll_to_text(text: str, browser: BrowserContext):  # type: ignore
-			page = await browser.get_current_page()
+		async def scroll_to_text(text: str, browser_session: BrowserSession):  # type: ignore
+			page = await browser_session.get_current_page()
 			try:
 				# Try different locator strategies
 				locators = [
@@ -360,10 +360,10 @@ class Controller(Generic[Context]):
 		@self.registry.action(
 			description='Get all options from a native dropdown',
 		)
-		async def get_dropdown_options(index: int, browser: BrowserContext) -> ActionResult:
+		async def get_dropdown_options(index: int, browser_session: BrowserSession) -> ActionResult:
 			"""Get all options from a native dropdown"""
-			page = await browser.get_current_page()
-			selector_map = await browser.get_selector_map()
+			page = await browser_session.get_current_page()
+			selector_map = await browser_session.get_selector_map()
 			dom_element = selector_map[index]
 
 			try:
@@ -433,11 +433,11 @@ class Controller(Generic[Context]):
 		async def select_dropdown_option(
 			index: int,
 			text: str,
-			browser: BrowserContext,
+			browser_session: BrowserSession,
 		) -> ActionResult:
 			"""Select dropdown option by the text of the option you want to select"""
-			page = await browser.get_current_page()
-			selector_map = await browser.get_selector_map()
+			page = await browser_session.get_current_page()
+			selector_map = await browser_session.get_selector_map()
 			dom_element = selector_map[index]
 
 			# Validate that we're working with a select element
@@ -527,7 +527,7 @@ class Controller(Generic[Context]):
 			'Drag and drop elements or between coordinates on the page - useful for canvas drawing, sortable lists, sliders, file uploads, and UI rearrangement',
 			param_model=DragDropAction,
 		)
-		async def drag_drop(params: DragDropAction, browser: BrowserContext) -> ActionResult:
+		async def drag_drop(params: DragDropAction, browser_session: BrowserSession) -> ActionResult:
 			"""
 			Performs a precise drag and drop operation between elements or coordinates.
 			"""
@@ -651,7 +651,7 @@ class Controller(Generic[Context]):
 				except Exception as e:
 					return False, f'Error during drag operation: {str(e)}'
 
-			page = await browser.get_current_page()
+			page = await browser_session.get_current_page()
 
 			try:
 				# Initialize variables
@@ -738,8 +738,8 @@ class Controller(Generic[Context]):
 				return ActionResult(error=error_msg, include_in_memory=True)
 
 		@self.registry.action('Google Sheets: Get the contents of the entire sheet', domains=['sheets.google.com'])
-		async def get_sheet_contents(browser: BrowserContext):
-			page = await browser.get_current_page()
+		async def get_sheet_contents(browser_session: BrowserSession):
+			page = await browser_session.get_current_page()
 
 			# select all cells
 			await page.keyboard.press('Enter')
@@ -751,8 +751,8 @@ class Controller(Generic[Context]):
 			return ActionResult(extracted_content=extracted_tsv, include_in_memory=True)
 
 		@self.registry.action('Google Sheets: Select a specific cell or range of cells', domains=['sheets.google.com'])
-		async def select_cell_or_range(browser: BrowserContext, cell_or_range: str):
-			page = await browser.get_current_page()
+		async def select_cell_or_range(browser_session: BrowserSession, cell_or_range: str):
+			page = await browser_session.get_current_page()
 
 			await page.keyboard.press('Enter')  # make sure we dont delete current cell contents if we were last editing
 			await page.keyboard.press('Escape')  # to clear current focus (otherwise select range popup is additive)
@@ -772,10 +772,10 @@ class Controller(Generic[Context]):
 		@self.registry.action(
 			'Google Sheets: Get the contents of a specific cell or range of cells', domains=['sheets.google.com']
 		)
-		async def get_range_contents(browser: BrowserContext, cell_or_range: str):
-			page = await browser.get_current_page()
+		async def get_range_contents(browser_session: BrowserSession, cell_or_range: str):
+			page = await browser_session.get_current_page()
 
-			await select_cell_or_range(browser, cell_or_range)
+			await select_cell_or_range(browser_session, cell_or_range)
 
 			await page.keyboard.press('ControlOrMeta+C')
 			await asyncio.sleep(0.1)
@@ -783,15 +783,15 @@ class Controller(Generic[Context]):
 			return ActionResult(extracted_content=extracted_tsv, include_in_memory=True)
 
 		@self.registry.action('Google Sheets: Clear the currently selected cells', domains=['sheets.google.com'])
-		async def clear_selected_range(browser: BrowserContext):
-			page = await browser.get_current_page()
+		async def clear_selected_range(browser_session: BrowserSession):
+			page = await browser_session.get_current_page()
 
 			await page.keyboard.press('Backspace')
 			return ActionResult(extracted_content='Cleared selected range', include_in_memory=False)
 
 		@self.registry.action('Google Sheets: Input text into the currently selected cell', domains=['sheets.google.com'])
-		async def input_selected_cell_text(browser: BrowserContext, text: str):
-			page = await browser.get_current_page()
+		async def input_selected_cell_text(browser_session: BrowserSession, text: str):
+			page = await browser_session.get_current_page()
 
 			await page.keyboard.type(text, delay=0.1)
 			await page.keyboard.press('Enter')  # make sure to commit the input so it doesn't get overwritten by the next action
@@ -799,10 +799,10 @@ class Controller(Generic[Context]):
 			return ActionResult(extracted_content=f'Inputted text {text}', include_in_memory=False)
 
 		@self.registry.action('Google Sheets: Batch update a range of cells', domains=['sheets.google.com'])
-		async def update_range_contents(browser: BrowserContext, range: str, new_contents_tsv: str):
-			page = await browser.get_current_page()
+		async def update_range_contents(browser_session: BrowserSession, range: str, new_contents_tsv: str):
+			page = await browser_session.get_current_page()
 
-			await select_cell_or_range(browser, range)
+			await select_cell_or_range(browser_session, range)
 
 			# simulate paste event from clipboard with TSV content
 			await page.evaluate(f"""
@@ -828,7 +828,7 @@ class Controller(Generic[Context]):
 	async def act(
 		self,
 		action: ActionModel,
-		browser_context: BrowserContext,
+		browser_session: BrowserSession,
 		#
 		page_extraction_llm: BaseChatModel | None = None,
 		sensitive_data: dict[str, str] | None = None,
@@ -852,7 +852,7 @@ class Controller(Generic[Context]):
 					result = await self.registry.execute_action(
 						action_name,
 						params,
-						browser=browser_context,
+						browser_session=browser_session,
 						page_extraction_llm=page_extraction_llm,
 						sensitive_data=sensitive_data,
 						available_file_paths=available_file_paths,
