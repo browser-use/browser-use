@@ -15,6 +15,7 @@ def test_is_url_allowed():
 	Scenario 1: When allowed_domains is None, all URLs should be allowed.
 	Scenario 2: When allowed_domains is a list, only URLs matching the allowed domain(s) are allowed.
 	Scenario 3: When the URL is malformed, it should return False.
+	Scenario 4: When allowed_domains contain glob patterns, see: test_url_allowlist_security.py
 	"""
 	# Create a dummy Browser mock. Only the 'config' attribute is needed for _is_url_allowed.
 	dummy_browser = Mock()

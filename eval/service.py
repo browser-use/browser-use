@@ -332,9 +332,9 @@ SUPPORTED_MODELS = {
 		'api_key_env': 'DEEPSEEK_API_KEY',
 	},
 	# Google
-	'gemini-1.5-flash': {'provider': 'google', 'model_name': 'gemini-1.5-flash-latest', 'api_key_env': 'GEMINI_API_KEY'},
-	'gemini-2.0-flash-exp': {'provider': 'google', 'model_name': 'gemini-2.0-flash-exp', 'api_key_env': 'GEMINI_API_KEY'},
-	'gemini-2.5-pro': {'provider': 'google', 'model_name': 'gemini-2.5-pro-preview-03-25', 'api_key_env': 'GEMINI_API_KEY'},
+	'gemini-1.5-flash': {'provider': 'google', 'model_name': 'gemini-1.5-flash-latest', 'api_key_env': 'GOOGLE_API_KEY'},
+	'gemini-2.0-flash-exp': {'provider': 'google', 'model_name': 'gemini-2.0-flash-exp', 'api_key_env': 'GOOGLE_API_KEY'},
+	'gemini-2.5-pro': {'provider': 'google', 'model_name': 'gemini-2.5-pro-preview-03-25', 'api_key_env': 'GOOGLE_API_KEY'},
 	# OpenAI
 	'gpt-4.1': {'provider': 'openai', 'model_name': 'gpt-4.1-2025-04-14', 'api_key_env': 'OPENAI_API_KEY'},
 	'gpt-4o': {'provider': 'openai', 'model_name': 'gpt-4o', 'api_key_env': 'OPENAI_API_KEY'},
@@ -393,7 +393,7 @@ def get_llm(model_name: str):
 			kwargs['api_key'] = api_key_secret
 		return ChatAnthropic(**kwargs)
 	elif provider == 'google':
-		# Note: Google client often uses env var GEMINI_API_KEY directly if api_key=None
+		# Note: Google client often uses env var GOOGLE_API_KEY directly if api_key=None
 		kwargs = {
 			'model': config['model_name'],
 			'temperature': 0.0,

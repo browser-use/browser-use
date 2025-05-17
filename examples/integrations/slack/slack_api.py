@@ -1,7 +1,14 @@
 import logging
+import os
+import sys
 from typing import Annotated
 
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
 from dotenv import load_dotenv
+
+load_dotenv()
+
 from fastapi import Depends, FastAPI, HTTPException, Request
 from langchain_core.language_models.chat_models import BaseChatModel
 from slack_sdk.errors import SlackApiError
@@ -11,8 +18,6 @@ from slack_sdk.web.async_client import AsyncWebClient
 from browser_use import BrowserConfig
 from browser_use.agent.service import Agent, Browser
 from browser_use.logging_config import setup_logging
-
-load_dotenv()
 
 setup_logging()
 logger = logging.getLogger('slack')

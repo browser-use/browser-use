@@ -57,7 +57,7 @@ class Memory:
 				self.config.embedder_dims = 512
 		else:
 			# Ensure LLM instance is set in the config
-			self.config = MemoryConfig(config)  # re-validate user-provided config
+			self.config = MemoryConfig(**dict(config))  # re-validate untrusted user-provided config
 			self.config.llm_instance = llm
 
 		# Check for required packages

@@ -30,7 +30,10 @@ source .venv/bin/activate
 
 ```bash
 # Install the package in editable mode with all development dependencies
-uv sync
+uv sync --all-extras
+
+# Install the default browser
+playwright install chromium --with-deps --no-shell
 ```
 
 ## Configuration
@@ -49,7 +52,7 @@ OPENAI_API_KEY=...
 ANTHROPIC_API_KEY=
 AZURE_ENDPOINT=
 AZURE_OPENAI_API_KEY=
-GEMINI_API_KEY=
+GOOGLE_API_KEY=
 DEEPSEEK_API_KEY=
 GROK_API_KEY=
 NOVITA_API_KEY=
@@ -69,6 +72,39 @@ After setup, you can:
 - Run the linter/formatter with `uv run ruff format examples/some/file.py`
 - Run tests with `uv run pytest`
 - Build the package with `uv build`
+
+### Linting
+
+```bash
+# Run the linter on the whole project (must pass for PR to be allowed to merge)
+uv run pre-commit run --all-files
+
+# Install the linter & formatter pre-commit hooks to run automatically
+pre-commit install --install-hooks
+
+# Experimental: run the type checker
+uv run type
+```
+
+### Tests
+
+```bash
+# Run tests
+uv run pytest                                                                         # run everything
+uv run pytest tests/test_controller.py                                                # run a specific test file
+uv run pytest tests/test_sensitive_data.py tests/test_tab_management.py               # run two test files
+uv run pytest tests/test_tab_management.py::TestTabManagement::test_user_changes_tab  # run a single test
+```
+
+### Build
+
+```bash
+uv build
+uv pip install dist/*.whl
+
+# bush build to PyPI (automatically run by Github Actions CI)
+uv publish
+```
 
 ## Getting Help
 

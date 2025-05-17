@@ -1,16 +1,19 @@
+import asyncio
 import os
 import sys
 from pprint import pprint
 
-from browser_use.browser.browser import Browser, BrowserConfig, BrowserContextConfig
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import asyncio
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from langchain_openai import ChatOpenAI
 
 from browser_use import Agent
 from browser_use.agent.views import AgentHistoryList
+from browser_use.browser.browser import Browser, BrowserConfig, BrowserContextConfig
 
 llm = ChatOpenAI(model='gpt-4o')
 browser = Browser(

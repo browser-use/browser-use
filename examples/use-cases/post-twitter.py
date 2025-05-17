@@ -22,19 +22,19 @@ Any issues, contact me on X @defichemist95
 import asyncio
 import os
 import sys
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from dataclasses import dataclass
 
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
 from dotenv import load_dotenv
+
+load_dotenv()
+
 from langchain_openai import ChatOpenAI
 
 from browser_use import Agent, Controller
 from browser_use.browser.browser import Browser, BrowserConfig
 
-# Load environment variables
-load_dotenv()
 if not os.getenv('OPENAI_API_KEY'):
 	raise ValueError('OPENAI_API_KEY is not set. Please add it to your environment variables.')
 

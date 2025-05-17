@@ -35,20 +35,20 @@ async def my_step_hook(agent):
     #   agent.controller, agent.llm, agent.browser, agent.browser_context
     #   agent.pause(), agent.resume(), agent.add_new_task(...), etc.
     
-    current_page = await agent.browser_context.get_current_page()
+    # You also have direct access to the playwright Page and Browser Context
+    page = await agent.browser_context.get_current_page()
+    #   https://playwright.dev/python/docs/api/class-page
     
+    current_url = page.url
     visit_log = agent.state.history.urls()
-    current_url = current_page.url
     previous_url = visit_log[-2] if len(visit_log) >= 2 else None
     print(f"Agent was last on URL: {previous_url} and is now on {current_url}")
     
-    # You also have direct access to the playwright Page and Browser Context
-    #   https://playwright.dev/python/docs/api/class-page
-
     # Example: listen for events on the page, interact with the DOM, run JS directly, etc.
-    await current_page.on('domcontentloaded', async lambda: print('page navigated to a new url...'))
-    await current_page.locator("css=form > input[type=submit]").click()
-    await current_page.evaluate('() => alert(1)')
+    await page.on('domcontentloaded', lambda: print('page navigated to a new url...'))
+    await page.locator("css=form > input[type=submit]").click()
+    await page.evaluate('() => alert(1)')
+    await page.browser.new_tab
     await agent.browser_context.session.context.add_init_script('/* some JS to run on every page */')
     
     # Example: monitor or intercept all network requests
@@ -57,12 +57,12 @@ async def my_step_hook(agent):
         #   https://playwright.dev/python/docs/network#handle-requests
 		print(route.request, route.request.headers)
 		await route.continue_(headers=route.request.headers)
-	await current_page.route("**/*", handle_route)
+	await page.route("**/*", handle_route)
 
     # Example: pause agent execution and resume it based on some custom code
     if '/completed' in current_url:
         agent.pause()
-        Path('result.txt').write_text(await current_page.content()) 
+        Path('result.txt').write_text(await page.content()) 
         input('Saved "completed" page content to result.txt, press [Enter] to resume...')
         agent.resume()
     

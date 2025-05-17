@@ -42,11 +42,11 @@ playwright install chromium --with-deps --no-shell
 Spin up your agent:
 
 ```python
-from langchain_openai import ChatOpenAI
-from browser_use import Agent
 import asyncio
 from dotenv import load_dotenv
 load_dotenv()
+from browser_use import Agent
+from langchain_openai import ChatOpenAI
 
 async def main():
     agent = Agent(
@@ -65,7 +65,7 @@ OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
 AZURE_OPENAI_ENDPOINT=
 AZURE_OPENAI_KEY=
-GEMINI_API_KEY=
+GOOGLE_API_KEY=
 DEEPSEEK_API_KEY=
 GROK_API_KEY=
 NOVITA_API_KEY=
@@ -79,10 +79,11 @@ You can test browser-use using its [Web UI](https://github.com/browser-use/web-u
 
 ### Test with an interactive CLI
 
-You can also use our interactive CLI (similar to `claude` code):
+You can also use our `browser-use` interactive CLI (similar to `claude` code):
 
 ```bash
-$ browser-use
+pip install browser-use[cli]
+browser-use
 ```
 
 # Demos
@@ -91,7 +92,7 @@ $ browser-use
 
 [Task](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/shopping.py): Add grocery items to cart, and checkout.
 
-[![AI Did My Groceries](https://github.com/user-attachments/assets/d9359085-bde6-41d4-aa4e-6520d0221872)](https://www.youtube.com/watch?v=L2Ya9PYNns8)
+[![AI Did My Groceries](https://github.com/user-attachments/assets/a0ffd23d-9a11-4368-8893-b092703abc14)](https://www.youtube.com/watch?v=L2Ya9PYNns8)
 
 <br/><br/>
 

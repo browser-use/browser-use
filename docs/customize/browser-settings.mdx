@@ -174,7 +174,16 @@ async def run_search():
 
 - **allowed_domains** (default: `None`)
   List of allowed domains that the agent can access. If None, all domains are allowed.
-  Example: ['google.com', 'wikipedia.org'] - Here the agent will only be able to access google and wikipedia.
+  Example: ['google.com', '*.wikipedia.org'] - Here the agent will only be able to access `google.com` exactly and `wikipedia.org` + `*.wikipedia.org`.
+  
+  Glob patterns are supported:
+  - `['example.com']` ✅ will match only `example.com` exactly, subdomains will not be allowed.
+    It's always the most secure to list all the domains you want to give the access to explicitly e.g.
+    `['google.com', 'www.google.com', 'myaccount.google.com', 'mail.google.com', 'docs.google.com']`
+  - `['*.example.com']` ⚠️ **CAUTION** this will match `example.com` and *all* subdomains.
+    Make sure *all* the subdomains are safe for the agent! `abc.example.com`, `def.example.com`, ..., `useruploads.example.com`, `admin.example.com`
+  - `['*google.com']` ❌ **DON'T DO THIS**, it will match any domains that end in `google.com`, *including `evilgoogle.com`*
+  - `['*.google.*']` ❌ **DON'T DO THIS**, it will match `google.com`, `google.co.uk`, `google.fr`, etc. *but also `www.google.evil.com`*
 
 ### Session Management
 

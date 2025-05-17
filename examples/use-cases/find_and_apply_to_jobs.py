@@ -12,9 +12,12 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from dotenv import load_dotenv
+
+load_dotenv()
+
 from langchain_openai import AzureChatOpenAI
 from pydantic import BaseModel, SecretStr
 from PyPDF2 import PdfReader
@@ -23,8 +26,6 @@ from browser_use import ActionResult, Agent, Controller
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext
 
-# Validate required environment variables
-load_dotenv()
 required_env_vars = ['AZURE_OPENAI_KEY', 'AZURE_OPENAI_ENDPOINT']
 for var in required_env_vars:
 	if not os.getenv(var):
