@@ -59,3 +59,15 @@ class AgentEndTelemetryEvent(BaseTelemetryEvent):
 	success: bool
 	errors: list[str]
 	name: str = 'agent_end'
+
+
+@dataclass
+class LLMCallTelemetryEvent(BaseTelemetryEvent):
+	agent_id: str
+	step: int
+	model_name: str
+	chat_model_library: str
+	latency_ms: float
+	success: bool
+	error_type: Optional[str] = None
+	name: str = 'llm_call'

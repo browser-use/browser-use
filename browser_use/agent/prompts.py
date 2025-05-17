@@ -1,12 +1,13 @@
 import datetime
 from datetime import datetime
 from typing import List, Optional
-
+import logging
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from browser_use.agent.views import ActionResult, AgentStepInfo
 from browser_use.browser.views import BrowserState
 
+logger = logging.getLogger(__name__)
 
 class SystemPrompt:
 	def __init__(self, action_description: str, max_actions_per_step: int = 10):
@@ -214,6 +215,7 @@ Interactive elements from current page:
 {step_info_description}
 """
 
+		#logger.info(f'---------------------------------- going through results ----------------------------------')
 		if self.result:
 			for i, result in enumerate(self.result):
 				if result.extracted_content:
@@ -223,16 +225,27 @@ Interactive elements from current page:
 					error = result.error[-self.max_error_length :]
 					state_description += f'\nAction error {i + 1}/{len(self.result)}: ...{error}'
 
+		# logger.info(f'---------------------------------- trying to add screenshot ----------------------------------')
 		if self.state.screenshot and use_vision == True:
 			# Format message for vision model
-			return HumanMessage(
+			# logger.info(f'---------------------------------- adding screenshot ----------------------------------')
+			# logger.info(f'{self.state.screenshot}')
+			image_url = f'data:image/png;base64,{self.state.screenshot}'
+			# logger.info(f'---------------------------------- image_url ----------------------------------')
+			# logger.info(f'{image_url}')
+			# logger.info(f'---------------------------------- image_url ----------------------------------')
+			ret = HumanMessage(
 				content=[
 					{'type': 'text', 'text': state_description},
 					{
 						'type': 'image_url',
-						'image_url': {'url': f'data:image/png;base64,{self.state.screenshot}'},
+						'image_url': {'url': image_url},
 					},
 				]
 			)
+			# logger.info(f'---------------------------------- returning screenshot ----------------------------------')
+			# logger.info(f'{ret}')
+			return ret
+
 
 		return HumanMessage(content=state_description)

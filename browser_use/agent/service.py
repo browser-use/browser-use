@@ -14,6 +14,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Type, TypeVar
 from datetime import datetime
+import time
 
 from dotenv import load_dotenv
 from google.api_core.exceptions import ResourceExhausted
@@ -52,6 +53,7 @@ from browser_use.telemetry.views import (
 	AgentEndTelemetryEvent,
 	AgentRunTelemetryEvent,
 	AgentStepTelemetryEvent,
+	LLMCallTelemetryEvent,
 )
 from browser_use.utils import time_execution_async
 
@@ -176,8 +178,13 @@ class Agent:
 		register_done_callback: Callable[['AgentHistoryList'], None] | None = None,
 		tool_calling_method: Optional[str] = 'auto',
 		page_extraction_llm: Optional[BaseChatModel] = None,
+		agent_id: Optional[str] = None,
+		session_id: Optional[str] = None,
+		command_id: Optional[str] = None,
 	):
-		self.agent_id = str(uuid.uuid4())  # unique identifier for the agent
+		self.agent_id = agent_id or str(uuid.uuid4())  # unique identifier for the agent
+		self.session_id = session_id or ""  # unique identifier for the session
+		self.command_id = command_id or ""  # unique identifier for the command
 		self.sensitive_data = sensitive_data
 		if not page_extraction_llm:
 			self.page_extraction_llm = llm
@@ -220,6 +227,7 @@ class Agent:
 
 		# Telemetry setup
 		self.telemetry = ProductTelemetry()
+		self.telemetry.set_context(session_id=self.session_id, command_id=self.command_id)
 
 		# Action and output models setup
 		self._setup_action_models()
@@ -464,6 +472,33 @@ class Agent:
 		"""Remove think tags from text"""
 		return re.sub(self.THINK_TAGS, '', text)
 
+	llm_logger = logging.getLogger("llm_events")
+
+	async def _timed_llm_call(self, llm_call: Callable, *args, **kwargs) -> Any:
+		"""Execute an LLM call with timing"""
+		start_time = time.time()
+		success = True
+		error_type = None
+		
+		try:
+			result = await llm_call(*args, **kwargs)
+			return result
+		except Exception as e:
+			success = False
+			error_type = type(e).__name__
+			raise
+		finally:
+			latency_ms = (time.time() - start_time) * 1000
+			self.telemetry.capture(LLMCallTelemetryEvent(
+				agent_id=self.agent_id,
+				step=self.n_steps,
+				model_name=self.model_name,
+				chat_model_library=self.chat_model_library,
+				latency_ms=latency_ms,
+				success=success,
+				error_type=error_type
+			))
+
 	@time_execution_async('--get_next_action')
 	async def get_next_action(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get next action from LLM based on current state"""
@@ -489,7 +524,7 @@ class Agent:
 		if self.model_name == 'deepseek-reasoner' or self.model_name.startswith('deepseek-r1'):
 			converted_input_messages = self.message_manager.convert_messages_for_non_function_calling_models(input_messages)
 			merged_input_messages = self.message_manager.merge_successive_human_messages(converted_input_messages)
-			output = self.llm.invoke(merged_input_messages)
+			output = await self._timed_llm_call(self.llm.invoke, merged_input_messages)
 			
 			section = "DEEPSEEK INTERACTION"
 			log_interaction(sub_story_start(section))
@@ -510,7 +545,7 @@ class Agent:
 				raise ValueError('Could not parse response.')
 		elif self.tool_calling_method is None:
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True)
-			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
+			response: dict[str, Any] = await self._timed_llm_call(structured_llm.ainvoke, input_messages)  # type: ignore
 			
 			section = "NO TOOL CALLING INTERACTION"
 			log_interaction(sub_story_start(section))
@@ -534,7 +569,7 @@ class Agent:
 			parsed: AgentOutput | None = response['parsed']
 		else:
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True, method=self.tool_calling_method)
-			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
+			response: dict[str, Any] = await self._timed_llm_call(structured_llm.ainvoke, input_messages)  # type: ignore
 			
 			section = "TOOL CALLING INTERACTION"
 			log_interaction(sub_story_start(section))
