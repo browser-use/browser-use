@@ -22,6 +22,8 @@ from browser_use.controller.views import (
 	DragDropAction,
 	GoToUrlAction,
 	InputTextAction,
+	ClearCookiesAction,
+	AddCookiesAction,
 	NoParamsAction,
 	OpenTabAction,
 	Position,
@@ -183,6 +185,45 @@ class Controller(Generic[Context]):
 			await page.emulate_media(media='screen')
 			await page.pdf(path=sanitized_filename, format='A4', print_background=False)
 			msg = f'Saving page with URL {page.url} as PDF to ./{sanitized_filename}'
+			logger.info(msg)
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+		
+		# Collect cookies
+		@self.registry.action(
+			'Collect cookies from the current page',
+		)
+		async def collect_cookies(browser: BrowserContext):
+			page = await browser.get_current_page()
+			cookies = await page.context.cookies()
+			msg = f'🍪  Collected cookies from page {page.url}'
+			logger.info(msg)
+			return ActionResult(extracted_content=json.dumps(cookies), include_in_memory=True)
+
+		# Clear Cookies
+		@self.registry.action(
+			'Clear cookies from the current page',
+			param_model=ClearCookiesAction,
+		)
+		async def clear_cookies(params: ClearCookiesAction, browser: BrowserContext):
+			page = await browser.get_current_page()
+			await page.context.clear_cookies(name=params.name, domain=params.domain, path=params.path)
+			msg = f'🍪  Clear cookies for page {page.url}: name={params.name}, domain={params.domain}, path={params.path}'
+			logger.info(msg)
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		# Add cookies
+		@self.registry.action(
+			'Add cookies for the current page',
+			param_model=AddCookiesAction,
+		)
+		async def add_cookies(params: AddCookiesAction, browser: BrowserContext):
+			page = await browser.get_current_page()
+			await page.context.add_cookies(cookies=[
+				{'name' :cookie.name, 'value': cookie.value, 'domain': cookie.domain,
+				 'path': cookie.path, 'expires': cookie.expires or 0.0, 'httpOnly': cookie.httpOnly,
+				 'secure': cookie.secure, 'sameSite': cookie.sameSite}
+				 for cookie in params.cookies])
+			msg = f'🍪  Added cookies for page {page.url}: {params.cookies}'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
