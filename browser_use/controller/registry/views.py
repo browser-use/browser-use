@@ -1,7 +1,8 @@
 from collections.abc import Callable
 
-from playwright.async_api import Page
 from pydantic import BaseModel, ConfigDict
+
+from browser_use.driver import Page
 
 
 class RegisteredAction(BaseModel):

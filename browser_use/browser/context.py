@@ -15,16 +15,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import anyio
-from playwright._impl._errors import TimeoutError
-from playwright.async_api import Browser as PlaywrightBrowser
-from playwright.async_api import (
-	BrowserContext as PlaywrightBrowserContext,
-)
-from playwright.async_api import (
-	ElementHandle,
-	FrameLocator,
-	Page,
-)
 from pydantic import BaseModel, ConfigDict, Field
 
 from browser_use.browser.views import (
@@ -36,6 +26,9 @@ from browser_use.browser.views import (
 from browser_use.dom.clickable_element_processor.service import ClickableElementProcessor
 from browser_use.dom.service import DomService
 from browser_use.dom.views import DOMElementNode, SelectorMap
+from browser_use.driver import AbstractBrowser
+from browser_use.driver import AbstractContext
+from browser_use.driver import ElementHandle, FrameLocator, Page
 from browser_use.utils import time_execution_async, time_execution_sync
 
 if TYPE_CHECKING:
@@ -197,7 +190,7 @@ class CachedStateClickableElementsHashes:
 
 
 class BrowserSession:
-	def __init__(self, context: PlaywrightBrowserContext, cached_state: BrowserState | None = None):
+	def __init__(self, context: AbstractContext, cached_state: BrowserState | None = None):
 		self.context = context
 		self.cached_state = cached_state
 
@@ -289,8 +282,7 @@ class BrowserContext:
 			logger.debug('BrowserContext was not properly closed before destruction')
 			try:
 				# Use sync Playwright method for force cleanup
-				if hasattr(self.session.context, '_impl_obj'):
-					asyncio.run(self.session.context._impl_obj.close())
+				asyncio.run(self.session.context.close())
 
 				self.session = None
 				self.agent_current_page = None
@@ -412,6 +404,8 @@ class BrowserContext:
 
 				# Log before and after for debugging
 				old_foreground = self.human_current_page
+				assert old_foreground is not None
+				assert self.agent_current_page is not None
 				if old_foreground.url != page.url:
 					logger.warning(
 						f'👁️ Foregound tab changed by human from {trunc(old_foreground.url, 22) if old_foreground else "about:blank"} to {trunc(page.url, 22)} ({source}) but agent will stay on {trunc(self.agent_current_page.url, 22)}'
@@ -455,6 +449,7 @@ class BrowserContext:
 			page.on('domcontentloaded', self._add_tab_foregrounding_listener)
 			logger.debug(f'👀 Added tab focus listeners to tab: {page.url}')
 
+			assert self.agent_current_page is not None
 			if page.url != self.agent_current_page.url:
 				await on_visibility_change({'source': 'navigation'})
 
@@ -581,7 +576,7 @@ class BrowserContext:
 		# If no pages, create one
 		return await session.context.new_page()
 
-	async def _create_context(self, browser: PlaywrightBrowser):
+	async def _create_context(self, browser: AbstractBrowser):
 		"""Creates a new browser context with anti-detection measures and loads cookies if available."""
 		if self.browser.config.cdp_url and len(browser.contexts) > 0 and not self.config.force_new_context:
 			context = browser.contexts[0]
@@ -1692,7 +1687,7 @@ class BrowserContext:
 			except Exception:
 				# last resort fallback, assume it's already focused after we clicked on it,
 				# just simulate keypresses on the entire page
-				await self.get_agent_current_page().keyboard.type(text)
+				await (await self.get_agent_current_page()).keyboard.type(text)
 
 		except Exception as e:
 			logger.debug(f'❌  Failed to input text into element: {repr(element_node)}. Error: {str(e)}')
@@ -1721,9 +1716,8 @@ class BrowserContext:
 				if self.config.save_downloads_path:
 					try:
 						# Try short-timeout expect_download to detect a file download has been been triggered
-						async with page.expect_download(timeout=5000) as download_info:
-							await click_func()
-						download = await download_info.value
+						download = await page.expect_download(timeout=5000)
+						await click_func()
 						# Determine file path
 						suggested_filename = download.suggested_filename
 						unique_filename = await self._get_unique_filename(self.config.save_downloads_path, suggested_filename)
@@ -1731,7 +1725,7 @@ class BrowserContext:
 						await download.save_as(download_path)
 						logger.debug(f'⬇️  Download triggered. Saved file to: {download_path}')
 						return download_path
-					except TimeoutError:
+					except Exception:
 						# If no download is triggered, treat as normal click
 						logger.debug('No download triggered within timeout. Checking navigation...')
 						await page.wait_for_load_state()
@@ -1768,7 +1762,7 @@ class BrowserContext:
 		for page_id, page in enumerate(session.context.pages):
 			try:
 				tab_info = TabInfo(page_id=page_id, url=page.url, title=await asyncio.wait_for(page.title(), timeout=1))
-			except TimeoutError:
+			except Exception:
 				# page.title() can hang forever on tabs that are crashed/disappeared/about:blank
 				# we dont want to try automating those tabs because they will hang the whole script
 				logger.debug('⚠  Failed to get tab info for tab #%s: %s (ignoring)', page_id, page.url)
@@ -1970,6 +1964,7 @@ class BrowserContext:
 
 	async def _get_cdp_targets(self) -> list[dict]:
 		"""Get all CDP targets directly using CDP protocol"""
+		raise RuntimeError("Not supported in all modes")
 		if not self.browser.config.cdp_url or not self.session:
 			return []
 
@@ -1986,8 +1981,9 @@ class BrowserContext:
 			logger.debug(f'Failed to get CDP targets: {e}')
 			return []
 
-	async def _resize_window(self, context: PlaywrightBrowserContext) -> None:
+	async def _resize_window(self, context: AbstractContext) -> None:
 		"""Resize the browser window to match the configured size"""
+		raise RuntimeError("Not supported in all modes")
 		try:
 			if not context.pages:
 				return

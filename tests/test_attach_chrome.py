@@ -1,13 +1,14 @@
 import asyncio
 
-from playwright.async_api import async_playwright
+from browser_use.driver import Driver
 
 
 async def test_full_screen(start_fullscreen: bool, maximize: bool):
-	async with async_playwright() as p:
+	async with Driver("playwright") as p:
 		try:
 			print('Attempting to connect to Chrome...')
 			# run in terminal: /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222 --no-first-run
+			assert p.chromium is not None
 			browser = await p.chromium.connect_over_cdp(
 				'http://localhost:9222',
 				timeout=20000,  # 20 second timeout for connection

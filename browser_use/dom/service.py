@@ -1,12 +1,11 @@
 import json
 import logging
-from dataclasses import dataclass
 from importlib import resources
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
-	from playwright.async_api import Page
+	from browser_use.driver import Page
 
 from browser_use.dom.views import (
 	DOMBaseNode,
@@ -14,16 +13,11 @@ from browser_use.dom.views import (
 	DOMState,
 	DOMTextNode,
 	SelectorMap,
+	ViewportInfo
 )
 from browser_use.utils import time_execution_async
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ViewportInfo:
-	width: int
-	height: int
 
 
 class DomService:
@@ -181,6 +175,8 @@ class DomService:
 			viewport_info = ViewportInfo(
 				width=node_data['viewport']['width'],
 				height=node_data['viewport']['height'],
+				scroll_x=None,
+				scroll_y=None
 			)
 
 		element_node = DOMElementNode(

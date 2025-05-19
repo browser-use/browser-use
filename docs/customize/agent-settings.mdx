@@ -66,7 +66,7 @@ You can configure how the agent interacts with the browser. To see more `Browser
 
 ```python
 from browser_use import Agent, Browser
-from browser_use.browser.context import BrowserContext
+from browser_use.driver import BrowserContext
 
 # Reuse existing browser
 browser = Browser()
@@ -92,7 +92,7 @@ await browser.close()
 
 ```python
 from browser_use import Agent, Browser
-from playwright.async_api import BrowserContext
+from browser_use.driver import BrowserContext
 
 # Use specific browser context (preferred method)
 async with await browser.new_context() as context:

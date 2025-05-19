@@ -7,7 +7,6 @@ from typing import Generic, TypeVar, cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
-from playwright.async_api import ElementHandle, Page
 
 # from lmnr.sdk.laminar import Laminar
 from pydantic import BaseModel
@@ -30,6 +29,7 @@ from browser_use.controller.views import (
 	SendKeysAction,
 	SwitchTabAction,
 )
+from browser_use.driver import ElementHandle, Page
 from browser_use.utils import time_execution_sync
 
 logger = logging.getLogger(__name__)
@@ -555,13 +555,13 @@ class Controller(Generic[Context]):
 					target_count = await target_locator.count()
 
 					if source_count > 0:
-						source_element = await source_locator.first.element_handle()
+						source_element = await source_locator.first
 						logger.debug(f'Found source element with selector: {source_selector}')
 					else:
 						logger.warning(f'Source element not found: {source_selector}')
 
 					if target_count > 0:
-						target_element = await target_locator.first.element_handle()
+						target_element = await target_locator.first
 						logger.debug(f'Found target element with selector: {target_selector}')
 					else:
 						logger.warning(f'Target element not found: {target_selector}')

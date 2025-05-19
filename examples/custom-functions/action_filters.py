@@ -28,9 +28,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from langchain_openai import ChatOpenAI
-from playwright.async_api import Page
 
 from browser_use.agent.service import Agent, Browser, BrowserContext, Controller
+from browser_use.driver import Page
 
 # Initialize controller and registry
 controller = Controller()
@@ -69,7 +69,7 @@ async def use_the_force(browser: BrowserContext):
 async def main():
 	"""Main function to run the example"""
 	browser = Browser()
-	llm = ChatOpenAI(model_name='gpt-4o')
+	llm = ChatOpenAI(model='gpt-4o')
 
 	# Create the agent
 	agent = Agent(  # disco mode will not be triggered on apple.com because the LLM won't be able to see that action available, it should work on Google.com though.

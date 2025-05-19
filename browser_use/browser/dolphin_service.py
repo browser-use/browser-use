@@ -2,10 +2,10 @@ import logging
 import os
 
 import aiohttp
-from playwright.async_api import Page, async_playwright
 
-from browser_use.browser.service import Browser
+from browser_use.browser.browser import Browser
 from browser_use.browser.views import BrowserState, TabInfo
+from browser_use.driver import Page, Driver
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class DolphinBrowser(Browser):
 		self.profile_id = os.getenv('DOLPHIN_PROFILE_ID')
 
 		# Initialize internal attributes
-		self.playwright = None
+		self.driver = None
 		self.browser = None
 		self.context = None
 		self.page = None
@@ -270,8 +270,8 @@ class DolphinBrowser(Browser):
 		ws_url = f'ws://127.0.0.1:{port}{ws_endpoint}'
 
 		# Use Playwright to connect to the browser's WebSocket endpoint
-		self.playwright = await async_playwright().start()
-		self.browser = await self.playwright.chromium.connect_over_cdp(ws_url)
+		self.driver = await Driver(name="playwright").start()
+		self.browser = await self.driver.chromium.connect_over_cdp(ws_url)
 
 		# Get or create a browser context and page
 		contexts = self.browser.contexts
@@ -304,8 +304,8 @@ class DolphinBrowser(Browser):
 			if self.browser:
 				await self.browser.close()
 
-			if self.playwright:
-				await self.playwright.stop()
+			if self.driver:
+				await self.driver.stop()
 
 			if force:
 				await self.stop_profile()  # Force stop the profile
@@ -330,11 +330,11 @@ class DolphinBrowser(Browser):
 		viewport_size = await self.page.viewport_size()
 
 		# Create and return the current browser state
-		state = BrowserState(
+		state = BrowserState( 
 			url=self.page.url,
-			content=content,
-			viewport_height=viewport_size['height'] if viewport_size else 0,
-			viewport_width=viewport_size['width'] if viewport_size else 0,
+			content=content, # type: ignore
+			viewport_height=viewport_size['height'] if viewport_size else 0, # type: ignore
+			viewport_width=viewport_size['width'] if viewport_size else 0, # type: ignore
 			tabs=await self.get_tabs_info(),
 		)
 

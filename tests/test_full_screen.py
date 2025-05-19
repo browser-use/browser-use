@@ -1,10 +1,11 @@
 import asyncio
 
-from playwright.async_api import async_playwright
+from browser_use.driver import Driver
 
 
 async def test_full_screen(start_fullscreen: bool, maximize: bool):
-	async with async_playwright() as p:
+	async with Driver("playwright") as p:
+		assert p.chromium is not None
 		browser = await p.chromium.launch(
 			headless=False,
 			args=['--start-maximized'],

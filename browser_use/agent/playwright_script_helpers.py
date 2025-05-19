@@ -1,4 +1,4 @@
-from playwright.async_api import Page
+from browser_use.driver import Page
 
 
 # --- Helper Function for Replacing Sensitive Data ---
@@ -32,7 +32,7 @@ async def _try_locate_and_act(page: Page, selector: str, action_type: str, text:
 	FALLBACK_TIMEOUT = 1000  # Shorter timeout for fallback attempts (1 second)
 
 	try:
-		locator = page.locator(selector).first
+		locator = await page.locator(selector).first
 		if action_type == 'click':
 			await locator.click(timeout=INITIAL_TIMEOUT)
 		elif action_type == 'fill' and text is not None:
@@ -68,7 +68,7 @@ async def _try_locate_and_act(page: Page, selector: str, action_type: str, text:
 
 			print(f'    Fallback attempt {i}/{MAX_FALLBACKS}: Trying selector: {repr(fallback_xpath)}')
 			try:
-				locator = page.locator(fallback_xpath).first
+				locator = await page.locator(fallback_xpath).first
 				if action_type == 'click':
 					await locator.click(timeout=FALLBACK_TIMEOUT)
 				elif action_type == 'fill' and text is not None:
