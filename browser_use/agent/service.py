@@ -407,7 +407,7 @@ class Agent(Generic[Context]):
 				# Azure OpenAI API requires 'tools' parameter for GPT-4
 				# The error 'content must be either a string or an array' occurs when
 				# the API expects a tools array but gets something else
-				if 'gpt-4' in self.model_name.lower():
+				if 'gpt-4-' in self.model_name.lower():
 					return 'tools'
 				else:
 					return 'function_calling'

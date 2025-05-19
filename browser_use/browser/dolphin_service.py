@@ -5,7 +5,8 @@ import aiohttp
 
 from browser_use.browser.browser import Browser
 from browser_use.browser.views import BrowserState, TabInfo
-from browser_use.driver import Page, Driver
+from browser_use.driver import Driver
+from browser_use.typing import Page
 
 logger = logging.getLogger(__name__)
 
@@ -270,7 +271,7 @@ class DolphinBrowser(Browser):
 		ws_url = f'ws://127.0.0.1:{port}{ws_endpoint}'
 
 		# Use Playwright to connect to the browser's WebSocket endpoint
-		self.driver = await Driver(name="playwright").start()
+		self.driver = await Driver(name='playwright').setup()
 		self.browser = await self.driver.chromium.connect_over_cdp(ws_url)
 
 		# Get or create a browser context and page
@@ -330,11 +331,11 @@ class DolphinBrowser(Browser):
 		viewport_size = await self.page.viewport_size()
 
 		# Create and return the current browser state
-		state = BrowserState( 
+		state = BrowserState(
 			url=self.page.url,
-			content=content, # type: ignore
-			viewport_height=viewport_size['height'] if viewport_size else 0, # type: ignore
-			viewport_width=viewport_size['width'] if viewport_size else 0, # type: ignore
+			content=content,  # type: ignore
+			viewport_height=viewport_size['height'] if viewport_size else 0,  # type: ignore
+			viewport_width=viewport_size['width'] if viewport_size else 0,  # type: ignore
 			tabs=await self.get_tabs_info(),
 		)
 

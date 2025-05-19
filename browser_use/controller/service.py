@@ -29,7 +29,7 @@ from browser_use.controller.views import (
 	SendKeysAction,
 	SwitchTabAction,
 )
-from browser_use.driver import ElementHandle, Page
+from browser_use.typing import ElementHandle, Page
 from browser_use.utils import time_execution_sync
 
 logger = logging.getLogger(__name__)

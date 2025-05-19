@@ -26,12 +26,11 @@ from browser_use.browser.views import (
 from browser_use.dom.clickable_element_processor.service import ClickableElementProcessor
 from browser_use.dom.service import DomService
 from browser_use.dom.views import DOMElementNode, SelectorMap
-from browser_use.driver import AbstractBrowser
-from browser_use.driver import AbstractContext
-from browser_use.driver import ElementHandle, FrameLocator, Page
+from browser_use.typing import AbstractBrowser, AbstractContext, ElementHandle, Page
 from browser_use.utils import time_execution_async, time_execution_sync
 
 if TYPE_CHECKING:
+	# these will create circular imports
 	from browser_use.browser.browser import Browser
 
 logger = logging.getLogger(__name__)
@@ -203,7 +202,7 @@ class BrowserContextState:
 	State of the browser context
 	"""
 
-	target_id: str | None = None  # CDP target ID
+	target_url: str | None = None  # URL of the target page
 
 
 class BrowserContext:
@@ -296,8 +295,8 @@ class BrowserContext:
 		"""Initialize the browser session"""
 		logger.debug(f'🌎  Initializing new browser context with id: {self.context_id}')
 
-		playwright_browser = await self.browser.get_playwright_browser()
-		context = await self._create_context(playwright_browser)
+		browser = await self.browser.get_browser()
+		context = await self._create_context(browser)
 		self._page_event_handler = None
 
 		# auto-attach the foregrounding-detection listener to all new pages opened
@@ -313,19 +312,14 @@ class BrowserContext:
 
 		current_page = None
 		if self.browser.config.cdp_url:
-			# If we have a saved target ID, try to find and activate it
-			if self.state.target_id:
-				targets = await self._get_cdp_targets()
-				for target in targets:
-					if target['targetId'] == self.state.target_id:
-						# Find matching page by URL
-						for page in pages:
-							if page.url == target['url']:
-								current_page = page
-								break
+			# If we have a saved target URL, try to find and activate it
+			if getattr(self.state, 'target_url', None):
+				for page in pages:
+					if page.url == self.state.target_url:
+						current_page = page
 						break
 
-		# If no target ID or couldn't find it, use existing page or create new
+		# If no target URL or couldn't find it, use existing page or create new
 		if not current_page:
 			if (
 				pages
@@ -340,13 +334,9 @@ class BrowserContext:
 				await current_page.goto('about:blank')
 				logger.debug('🆕  Created new page: %s', current_page.url)
 
-			# Get target ID for the active page
+			# Get target URL for the active page
 			if self.browser.config.cdp_url:
-				targets = await self._get_cdp_targets()
-				for target in targets:
-					if target['url'] == current_page.url:
-						self.state.target_id = target['targetId']
-						break
+				self.state.target_url = current_page.url
 
 		# Bring page to front
 		logger.debug('🫨  Bringing tab to front: %s', current_page)
@@ -404,8 +394,8 @@ class BrowserContext:
 
 				# Log before and after for debugging
 				old_foreground = self.human_current_page
-				assert old_foreground is not None
-				assert self.agent_current_page is not None
+				assert old_foreground is not None, 'Old foreground is not initialized'
+				assert self.agent_current_page is not None, 'Agent current page is not initialized'
 				if old_foreground.url != page.url:
 					logger.warning(
 						f'👁️ Foregound tab changed by human from {trunc(old_foreground.url, 22) if old_foreground else "about:blank"} to {trunc(page.url, 22)} ({source}) but agent will stay on {trunc(self.agent_current_page.url, 22)}'
@@ -449,7 +439,7 @@ class BrowserContext:
 			page.on('domcontentloaded', self._add_tab_foregrounding_listener)
 			logger.debug(f'👀 Added tab focus listeners to tab: {page.url}')
 
-			assert self.agent_current_page is not None
+			assert self.agent_current_page is not None, 'Agent current page is not initialized'
 			if page.url != self.agent_current_page.url:
 				await on_visibility_change({'source': 'navigation'})
 
@@ -462,7 +452,7 @@ class BrowserContext:
 			try:
 				return await self._initialize_session()
 			except Exception as e:
-				logger.error(f'❌  Failed to create new browser session: {e} (did the browser process quit?)')
+				logger.error(f'❌  Failed to create new browser session: {repr(e)} (did the browser process quit?)')
 				raise e
 		return self.session
 
@@ -545,6 +535,12 @@ class BrowserContext:
 		with a valid tab reference by reconciling the tab state.
 		"""
 		session = await self.get_session()
+
+		print(
+			[hash(p) for p in session.context.pages],
+			hash(self.agent_current_page) if self.agent_current_page else None,
+			hash(self.human_current_page) if self.human_current_page else None,
+		)
 
 		# First check if agent_current_page is valid
 		if (
@@ -642,6 +638,7 @@ class BrowserContext:
 
 		# Resize the window for non-headless mode
 		if not self.browser.config.headless:
+			# @dev NOTE this requires CDP to work
 			await self._resize_window(context)
 
 		# Load cookies if they exist
@@ -923,7 +920,7 @@ class BrowserContext:
 		except URLNotAllowedError as e:
 			raise e
 		except Exception:
-			logger.warning('⚠️  Page load failed, continuing...')
+			logger.warning('⚠️  Page load failed, continuing... %v', exc_info=True)
 			pass
 
 		# Calculate remaining time to meet minimum WAIT_TIME
@@ -1545,10 +1542,7 @@ class BrowserContext:
 		)
 
 		try:
-			if isinstance(current_frame, FrameLocator):
-				element_handle = await current_frame.locator(css_selector).element_handle()
-				return element_handle
-			else:
+			if isinstance(current_frame, Page):
 				# Try to scroll into view if hidden
 				element_handle = await current_frame.query_selector(css_selector)
 				if element_handle:
@@ -1557,6 +1551,9 @@ class BrowserContext:
 						await element_handle.scroll_into_view_if_needed()
 					return element_handle
 				return None
+			else:
+				element_handle = await current_frame.locator(css_selector)
+				return await element_handle.element_handle()
 		except Exception as e:
 			logger.error(f'❌  Failed to locate element: {str(e)}')
 			return None
@@ -1786,13 +1783,9 @@ class BrowserContext:
 		if not self._is_url_allowed(page.url):
 			raise BrowserError(f'Cannot switch to tab with non-allowed URL: {page.url}')
 
-		# Update target ID if using CDP
+		# Update target URL if using CDP
 		if self.browser.config.cdp_url:
-			targets = await self._get_cdp_targets()
-			for target in targets:
-				if target['url'] == page.url:
-					self.state.target_id = target['targetId']
-					break
+			self.state.target_url = page.url
 
 		# Update both tab references - agent wants this tab, and it's now in the foreground
 		self.agent_current_page = page
@@ -1827,13 +1820,9 @@ class BrowserContext:
 			await new_page.goto(url)
 			await self._wait_for_page_and_frames_load(timeout_overwrite=1)
 
-		# Get target ID for new page if using CDP
+		# Get target URL for new page if using CDP
 		if self.browser.config.cdp_url:
-			targets = await self._get_cdp_targets()
-			for target in targets:
-				if target['url'] == new_page.url:
-					self.state.target_id = target['targetId']
-					break
+			self.state.target_url = new_page.url
 
 	# region - Helper methods for easier access to the DOM
 
@@ -1950,7 +1939,7 @@ class BrowserContext:
 			await page.close()
 
 		session.cached_state = None
-		self.state.target_id = None
+		self.state.target_url = None
 
 	async def _get_unique_filename(self, directory, filename):
 		"""Generate a unique filename by appending (1), (2), etc., if a file already exists."""
@@ -1962,28 +1951,10 @@ class BrowserContext:
 			counter += 1
 		return new_filename
 
-	async def _get_cdp_targets(self) -> list[dict]:
-		"""Get all CDP targets directly using CDP protocol"""
-		raise RuntimeError("Not supported in all modes")
-		if not self.browser.config.cdp_url or not self.session:
-			return []
-
-		try:
-			pages = self.session.context.pages
-			if not pages:
-				return []
-
-			cdp_session = await pages[0].context.new_cdp_session(pages[0])
-			result = await cdp_session.send('Target.getTargets')
-			await cdp_session.detach()
-			return result.get('targetInfos', [])
-		except Exception as e:
-			logger.debug(f'Failed to get CDP targets: {e}')
-			return []
-
 	async def _resize_window(self, context: AbstractContext) -> None:
 		"""Resize the browser window to match the configured size"""
-		raise RuntimeError("Not supported in all modes")
+		logger.warning(f'🌎🚗 BrowserContext._resize_window(): {self.__class__.__name__} called. skipping.')
+		return
 		try:
 			if not context.pages:
 				return

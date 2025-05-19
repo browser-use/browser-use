@@ -63,7 +63,7 @@ class PlaywrightScriptGenerator:
 			# Default launch if no config provided
 			return 'headless=False'
 
-		args_dict: dict = {
+		args_dict = {
 			'headless': self.browser_config.headless,
 			# Add other relevant launch options here based on self.browser_config
 			# Example: 'proxy': self.browser_config.proxy.model_dump() if self.browser_config.proxy else None
@@ -136,7 +136,7 @@ class PlaywrightScriptGenerator:
 			'import sys',
 			'from pathlib import Path',  # Added Path import
 			'import urllib.parse',  # Needed for search_google
-			'from browser_use.driver import async_playwright, Page, BrowserContext',  # Use wrapper
+			'from playwright.async_api import async_playwright, Page, BrowserContext',  # Added BrowserContext
 			'from dotenv import load_dotenv',
 			'',
 			'# Load environment variables',

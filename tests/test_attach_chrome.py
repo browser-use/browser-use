@@ -4,7 +4,7 @@ from browser_use.driver import Driver
 
 
 async def test_full_screen(start_fullscreen: bool, maximize: bool):
-	async with Driver("playwright") as p:
+	async with Driver('playwright') as p:
 		try:
 			print('Attempting to connect to Chrome...')
 			# run in terminal: /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222 --no-first-run

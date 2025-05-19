@@ -1228,11 +1228,8 @@ async def textual_interface(config: dict[str, Any]):
 
 		# Log browser version if available
 		try:
-			if hasattr(browser, 'version') and browser.version:
-				logger.info(f'Browser version: {browser.version}')
-			elif hasattr(browser, 'playwright_browser') and browser.browser_impl:
-				version = browser.browser_impl.version
-				logger.info(f'Browser version: {version}')
+			browser_version = (await browser.get_browser()).version
+			logger.info(f'Browser version: {browser_version}')
 		except Exception as e:
 			logger.debug(f'Could not determine browser version: {e}')
 	except Exception as e:

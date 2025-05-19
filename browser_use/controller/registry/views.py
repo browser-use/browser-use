@@ -2,7 +2,7 @@ from collections.abc import Callable
 
 from pydantic import BaseModel, ConfigDict
 
-from browser_use.driver import Page
+from browser_use.typing import Page
 
 
 class RegisteredAction(BaseModel):

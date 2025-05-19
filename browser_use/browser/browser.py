@@ -11,8 +11,8 @@ from typing import Literal
 from dotenv import load_dotenv
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
-from browser_use.driver import Driver, AbstractBrowser
-from browser_use.driver import setup_browser
+from browser_use.driver import Driver
+from browser_use.typing import AbstractBrowser
 
 load_dotenv()
 
@@ -112,7 +112,7 @@ class BrowserConfig(BaseModel):
 # @dev By default this is a singleton, but you can create multiple instances if you need to.
 class Browser:
 	"""
-	Browser on steroids.
+	Browser service, on steroids.
 
 	This is persistent browser factory that can spawn multiple browser contexts.
 	It is recommended to use only one instance of Browser per your application (RAM usage will grow otherwise).
@@ -121,11 +121,11 @@ class Browser:
 	def __init__(
 		self,
 		config: BrowserConfig | None = None,
+		driver_name: str = 'playwright',
 	):
-		logger.debug('🌎  Initializing new browser')
+		logger.info(f'🌎 Created Browser instance. driver={driver_name}')
 		self.config = config or BrowserConfig()
-		self.driver: Driver | None = None
-		self.browser_impl: AbstractBrowser | None = None
+		self.driver = Driver(driver_name, self.config)
 
 	async def new_context(self, config: BrowserContextConfig | None = None) -> BrowserContext:
 		"""Create a browser context"""
@@ -134,23 +134,19 @@ class Browser:
 		merged_config = {**browser_config, **context_config}
 		return BrowserContext(config=BrowserContextConfig(**merged_config), browser=self)
 
-	async def get_playwright_browser(self) -> AbstractBrowser:
+	async def get_browser(self) -> AbstractBrowser:
 		"""Get a browser context"""
-		if self.browser_impl is None:
-			return await self._init()
-
-		return self.browser_impl
+		return await self._init()
 
 	@time_execution_async('--init (browser)')
 	async def _init(self):
 		"""Initialize the browser session"""
-		driver = Driver("playwright")
-		self.driver = driver
-
-		browser = await setup_browser(driver, self.config)
-		self.browser_impl = browser
-
-		return self.browser_impl
+		if self.driver.impl is None:
+			logger.info(f'🌎 Initializing Browser instance: driver={self.driver.name}')
+			await self.driver.setup()
+			logger.info(f'🌎 Initialized Browser instance: driver={self.driver.name}.')
+		assert self.driver.impl is not None, f'🌎 Failed to initialize Browser instance: driver={self.driver.name}.'
+		return self.driver.impl
 
 	async def close(self):
 		"""Close the browser instance"""
@@ -158,9 +154,9 @@ class Browser:
 			return
 
 		try:
-			if self.browser_impl:
-				await self.browser_impl.close()
-				del self.browser_impl
+			if self.driver.impl:
+				await self.driver.impl.close()
+				del self.driver.impl
 			if self.driver:
 				await self.driver.stop()
 				del self.driver
@@ -170,14 +166,12 @@ class Browser:
 				logger.debug(f'Failed to close browser properly: {e}')
 
 		finally:
-			self.browser_impl = None
-			self.driver = None
 			gc.collect()
 
 	def __del__(self):
 		"""Async cleanup when object is destroyed"""
 		try:
-			if self.browser_impl or self.driver:
+			if self.driver.impl:
 				loop = asyncio.get_running_loop()
 				if loop.is_running():
 					loop.create_task(self.close())

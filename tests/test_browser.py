@@ -413,8 +413,8 @@ async def test_close_error_handling(monkeypatch):
 
 	config = BrowserConfig()
 	browser_obj = Browser(config=config)
-	browser_obj.browser_impl = DummyBrowserWithError() # type: ignore
-	browser_obj.driver = DummyPlaywrightWithError() # type: ignore
+	browser_obj.browser_impl = DummyBrowserWithError()  # type: ignore
+	browser_obj.driver = DummyPlaywrightWithError()  # type: ignore
 	await browser_obj.close()
 	assert browser_obj.browser_impl is None, 'Expected playwright_browser to be None after close'
 	assert browser_obj.driver is None, 'Expected playwright to be None after close'

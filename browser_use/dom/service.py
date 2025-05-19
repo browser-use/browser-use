@@ -1,20 +1,10 @@
 import json
 import logging
 from importlib import resources
-from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
-if TYPE_CHECKING:
-	from browser_use.driver import Page
-
-from browser_use.dom.views import (
-	DOMBaseNode,
-	DOMElementNode,
-	DOMState,
-	DOMTextNode,
-	SelectorMap,
-	ViewportInfo
-)
+from browser_use.dom.views import DOMBaseNode, DOMElementNode, DOMState, DOMTextNode, SelectorMap, ViewportInfo
+from browser_use.typing import Page
 from browser_use.utils import time_execution_async
 
 logger = logging.getLogger(__name__)
@@ -173,10 +163,7 @@ class DomService:
 
 		if 'viewport' in node_data:
 			viewport_info = ViewportInfo(
-				width=node_data['viewport']['width'],
-				height=node_data['viewport']['height'],
-				scroll_x=None,
-				scroll_y=None
+				width=node_data['viewport']['width'], height=node_data['viewport']['height'], scroll_x=None, scroll_y=None
 			)
 
 		element_node = DOMElementNode(
