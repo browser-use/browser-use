@@ -830,8 +830,10 @@
         const listeners = getEventListeners(element);
         const mouseEvents = ['click', 'mousedown', 'mouseup', 'dblclick'];
         for (const eventType of mouseEvents) {
-          if (listeners[eventType] && listeners[eventType].length > 0) {
-            return true; // Found a mouse interaction listener
+          for (const listener of listeners) {
+            if (listener.type === eventType) {
+               return true; // Found a mouse interaction listener
+            }
           }
         }
       } else {
@@ -1117,10 +1119,12 @@
       const getEventListeners = window.getEventListenersForNode;
       if (typeof getEventListeners === 'function') {
         const listeners = getEventListeners(element);
-        const interactionEvents = ['mousedown', 'mouseup', 'keydown', 'keyup', 'submit', 'change', 'input', 'focus', 'blur'];
+        const interactionEvents = ['click', 'mousedown', 'mouseup', 'keydown', 'keyup', 'submit', 'change', 'input', 'focus', 'blur'];
         for (const eventType of interactionEvents) {
-          if (listeners[eventType] && listeners[eventType].length > 0) {
-            return true; // Found a common interaction listener
+          for (const listener of listeners) {
+            if (listener.type === eventType) {
+               return true; // Found a common interaction listener
+            }
           }
         }
       } else {
