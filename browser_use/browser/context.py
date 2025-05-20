@@ -13,6 +13,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+import urllib.request
 
 import anyio
 from playwright._impl._errors import TimeoutError
@@ -1728,7 +1729,8 @@ class BrowserContext:
 						suggested_filename = download.suggested_filename
 						unique_filename = await self._get_unique_filename(self.config.save_downloads_path, suggested_filename)
 						download_path = os.path.join(self.config.save_downloads_path, unique_filename)
-						await download.save_as(download_path)
+						#await download.save_as(download_path)
+						urllib.request.urlretrieve(download.url, download_path)
 						logger.debug(f'⬇️  Download triggered. Saved file to: {download_path}')
 						return download_path
 					except TimeoutError:
