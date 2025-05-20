@@ -1,43 +1,90 @@
-name: 💡 Feature Request
-description: Suggest a new feature for browser-use
-labels: ["enhancement"]
+name: 💡 Feature or enhancement request
+description: Suggest an idea or improvement for the browser-use library or Agent capabilities
+title: "Feature Request: ..."
+assignees:
+  - pirate
+type: 'Enhancement'
+labels: 'enhancement'
 body:
+  - type: textarea
+    id: current_problem
+    attributes:
+      label: "What is the problem that your feature request solves?"
+      description: |
+        Describe the problem or need that your feature request solves, include screenshots and example URLs if relevant.
+      placeholder: |
+        e.g. I need to be able to simulate dragging in a circle to test the paint feature on a drawing site: https://example.com/draw
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: "What is your proposed solution?"
+      description: |
+        Describe the ideal specific solution you'd want, *and whether it fits into any broader scope of changes*.
+      placeholder: |
+        e.g. I want to add a default controller action that can hover/drag the mouse on a path when given a series 
+        of x,y coordinates. More broadly it may be useful add a computer-use x,y-coordinate style automation 
+        fallback method that can do complex mouse interaction tasks.
+    validations:
+      required: true
+
+  - type: textarea
+    id: workarounds_tried
+    attributes:
+      label: "What hacks or alternative solutions have you tried to solve the problem?"
+      description: |
+        A description of any troubleshooting, alternative approaches, workarounds, or other ideas you've considered to fix the problem.
+      placeholder: |
+        e.g. I tried upgrading to the latest version and telling it to hover in the prompt. I also tried 
+        telling the agent to ask for human help (using a custom controller action) when it gets to this 
+        step, then I manually click a browser extension in the navbar that automates the mouse movevement.
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: What version of browser-use are you currently using?
+      description: |
+        Run `pip show browser-use` or `git log -n 1` and share the exact number of git hash. DO NOT JUST ENTER "the latest release" OR "main".
+        We need to know what version of the browser-use library you're currently running in order to contextualize your feature request.  
+        Sometimes we've already added your feature in a newer version, sometimes features already exist but may not be available in your specific environment.
+      placeholder: 0.1.48
+    validations:
+      required: true
+
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to suggest a new feature! Please fill out the form below to help us understand your suggestion.
+        ---
+        > [!TIP]
+        > 🚀 Please ***double-check you are on the [latest release](https://github.com/browser-use/browser-use/releases)***, we might've already shipped your feature!
 
-  - type: textarea
-    id: problem
+  - type: checkboxes
+    id: priority
     attributes:
-      label: Problem Description
-      description: Is your feature request related to a problem? Please describe.
-      placeholder: I'm always frustrated when...
-    validations:
-      required: true
+      label: "How badly do you want this new feature?"
+      options:
+        - label: "It's an urgent deal-breaker, I can't live without it"
+          required: false
+        - label: "It's important to add it in the near-mid term future"
+          required: false
+        - label: "It would be nice to have eventually"
+          required: false
+        - label: "I'm willing to [start a PR](https://docs.browser-use.com/development/contribution-guide) to develop this myself"
+          required: false
+        - label: "My company would spend >$5k/mo on Browser-Use Cloud if it solved this need completely for us"
+          required: false
 
-  - type: textarea
-    id: solution
+  - type: markdown
     attributes:
-      label: Proposed Solution
-      description: Describe the solution you'd like to see
-      placeholder: It would be great if...
-    validations:
-      required: true
-
-  - type: textarea
-    id: alternatives
-    attributes:
-      label: Alternative Solutions
-      description: Describe any alternative solutions or features you've considered
-      placeholder: I've also thought about...
-
-  - type: textarea
-    id: context
-    attributes:
-      label: Additional Context
-      description: Add any other context or examples about the feature request here
-      placeholder: |
-        - Example use cases
-        - Screenshots or mockups
-        - Related issues or discussions
+      value: |
+        ---
+        > [!TIP]
+        > Start discussions about your feature request in other places too, 
+        > the more 📣 hype we see around a request the more likely we are to add it!
+        >
+        > - 💬 Discord: [https://link.browser-use.com/discord](https://link.browser-use.com/discord)
+        > - 🦋 Twitter/X: [https://x.com/browser_use](https://x.com/browser_use)

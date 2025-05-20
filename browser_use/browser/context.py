@@ -59,79 +59,79 @@ class BrowserContextConfig(BaseModel):
 	Configuration for the BrowserContext.
 
 	Default values:
-	    cookies_file: None
-	        Path to cookies file for persistence
+		cookies_file: None
+			Path to cookies file for persistence
 
 		disable_security: False
 			Disable browser security features (dangerous, but cross-origin iframe support requires it)
 
-	    minimum_wait_page_load_time: 0.5
-	        Minimum time to wait before getting page state for LLM input
+		minimum_wait_page_load_time: 0.5
+			Minimum time to wait before getting page state for LLM input
 
 		wait_for_network_idle_page_load_time: 1.0
 			Time to wait for network requests to finish before getting page state.
 			Lower values may result in incomplete page loads.
 
-	    maximum_wait_page_load_time: 5.0
-	        Maximum time to wait for page load before proceeding anyway
+		maximum_wait_page_load_time: 5.0
+			Maximum time to wait for page load before proceeding anyway
 
-	    wait_between_actions: 1.0
-	        Time to wait between multiple per step actions
+		wait_between_actions: 1.0
+			Time to wait between multiple per step actions
 
-	    window_width: 1280
-	    window_height: 1100
-	        Default browser window dimensions
+		window_width: 1280
+		window_height: 1100
+			Default browser window dimensions
 
-	    no_viewport: True
-	        When True (default), the browser window size determines the viewport.
-	        When False, forces a fixed viewport size using window_width and window_height. (constraint of the rendered content to a smaller area than the default of the entire window size)
+		no_viewport: True
+			When True (default), the browser window size determines the viewport.
+			When False, forces a fixed viewport size using window_width and window_height. (constraint of the rendered content to a smaller area than the default of the entire window size)
 
-	    save_recording_path: None
-	        Path to save video recordings
+		save_recording_path: None
+			Path to save video recordings
 
-	    save_downloads_path: None
-	        Path to save downloads to
+		save_downloads_path: None
+			Path to save downloads to
 
-	    trace_path: None
-	        Path to save trace files. It will auto name the file with the TRACE_PATH/{context_id}.zip
+		trace_path: None
+			Path to save trace files. It will auto name the file with the TRACE_PATH/{context_id}.zip
 
-	    locale: None
-	        Specify user locale, for example en-GB, de-DE, etc. Locale will affect navigator.language value, Accept-Language request header value as well as number and date formatting rules. If not provided, defaults to the system default locale.
+		locale: None
+			Specify user locale, for example en-GB, de-DE, etc. Locale will affect navigator.language value, Accept-Language request header value as well as number and date formatting rules. If not provided, defaults to the system default locale.
 
-	    user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36'
-	        custom user agent to use.
+		user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36'
+			custom user agent to use.
 
-	    highlight_elements: True
-	        Highlight elements in the DOM on the screen
+		highlight_elements: True
+			Highlight elements in the DOM on the screen
 
-	    viewport_expansion: 0
-	        Viewport expansion in pixels. This amount will increase the number of elements which are included in the state what the LLM will see. If set to -1, all elements will be included (this leads to high token usage). If set to 0, only the elements which are visible in the viewport will be included.
+		viewport_expansion: 0
+			Viewport expansion in pixels. This amount will increase the number of elements which are included in the state what the LLM will see. If set to -1, all elements will be included (this leads to high token usage). If set to 0, only the elements which are visible in the viewport will be included.
 
-	    allowed_domains: None
-	        List of allowed domains that can be accessed. If None, all domains are allowed.
-	        Example: ['example.com', 'api.example.com']
+		allowed_domains: None
+			List of allowed domains that can be accessed. If None, all domains are allowed.
+			Example: ['example.com', 'api.example.com']
 
-	    include_dynamic_attributes: bool = True
-	        Include dynamic attributes in the CSS selector. If you want to reuse the css_selectors, it might be better to set this to False.
+		include_dynamic_attributes: bool = True
+			Include dynamic attributes in the CSS selector. If you want to reuse the css_selectors, it might be better to set this to False.
 
 		  http_credentials: None
 	  Dictionary with HTTP basic authentication credentials for corporate intranets (only supports one set of credentials for all URLs at the moment), e.g.
 	  {"username": "bill", "password": "pa55w0rd"}
 
-	    is_mobile: None
-	        Whether the meta viewport tag is taken into account and touch events are enabled.
+		is_mobile: None
+			Whether the meta viewport tag is taken into account and touch events are enabled.
 
-	    has_touch: None
-	        Whether to enable touch events in the browser.
+		has_touch: None
+			Whether to enable touch events in the browser.
 
-	    geolocation: None
-	        Geolocation to be used in the browser context. Example: {'latitude': 59.95, 'longitude': 30.31667}
+		geolocation: None
+			Geolocation to be used in the browser context. Example: {'latitude': 59.95, 'longitude': 30.31667}
 
-	    permissions: ['clipboard-read', 'clipboard-write']
-	        Browser permissions to grant. See full list here: https://playwright.dev/python/docs/api/class-browsercontext#browser-context-grant-permissions
+		permissions: ['clipboard-read', 'clipboard-write']
+			Browser permissions to grant. See full list here: https://playwright.dev/python/docs/api/class-browsercontext#browser-context-grant-permissions
 
-	    timezone_id: None
-	        Changes the timezone of the browser. Example: 'Europe/Berlin'
+		timezone_id: None
+			Changes the timezone of the browser. Example: 'Europe/Berlin'
 
 		force_new_context: False
 			Forces a new browser context to be created. Useful when running locally with branded browser (e.g Chrome, Edge) and setting a custom config.
@@ -390,10 +390,10 @@ class BrowserContext:
 		TODO: pester the playwright team to add a new event that fires when a headful tab is focused.
 		OR implement a browser-use chrome extension that acts as a bridge to the chrome.tabs API.
 
-		        - https://github.com/microsoft/playwright/issues/1290
-		        - https://github.com/microsoft/playwright/issues/2286
-		        - https://github.com/microsoft/playwright/issues/3570
-		        - https://github.com/microsoft/playwright/issues/13989
+				- https://github.com/microsoft/playwright/issues/1290
+				- https://github.com/microsoft/playwright/issues/2286
+				- https://github.com/microsoft/playwright/issues/3570
+				- https://github.com/microsoft/playwright/issues/13989
 		"""
 
 		def trunc(s, max_len=None):
@@ -960,7 +960,7 @@ class BrowserContext:
 					# glob patterns are very easy to mess up and match too many domains by accident
 					# e.g. if you only need to access gmail, don't use *.google.com because an attacker could convince the agent to visit a malicious doc
 					# on docs.google.com/s/some/evil/doc to set up a prompt injection attack
-					"⚠️ Allowing agent to visit {domain} based on allowed_domains=['{glob}', ...]. Set allowed_domains=['{domain}', ...] explicitly to avoid the security risks of glob patterns!"
+					f"⚠️ Allowing agent to visit {domain} based on allowed_domains=['{glob}', ...]. Set allowed_domains=['{domain}', ...] explicitly to avoid the security risks of glob patterns!"
 				)
 				_GLOB_WARNING_SHOWN = True
 
@@ -1313,22 +1313,22 @@ class BrowserContext:
 			page = await self.get_agent_current_page()
 			await page.evaluate(
 				"""
-                try {
-                    // Remove the highlight container and all its contents
-                    const container = document.getElementById('playwright-highlight-container');
-                    if (container) {
-                        container.remove();
-                    }
+				try {
+					// Remove the highlight container and all its contents
+					const container = document.getElementById('playwright-highlight-container');
+					if (container) {
+						container.remove();
+					}
 
-                    // Remove highlight attributes from elements
-                    const highlightedElements = document.querySelectorAll('[browser-user-highlight-id^="playwright-highlight-"]');
-                    highlightedElements.forEach(el => {
-                        el.removeAttribute('browser-user-highlight-id');
-                    });
-                } catch (e) {
-                    console.error('Failed to remove highlights:', e);
-                }
-                """
+					// Remove highlight attributes from elements
+					const highlightedElements = document.querySelectorAll('[browser-user-highlight-id^="playwright-highlight-"]');
+					highlightedElements.forEach(el => {
+						el.removeAttribute('browser-user-highlight-id');
+					});
+				} catch (e) {
+					console.error('Failed to remove highlights:', e);
+				}
+				"""
 			)
 		except Exception as e:
 			logger.debug(f'⚠  Failed to remove highlights (this is usually ok): {str(e)}')
@@ -1403,10 +1403,10 @@ class BrowserContext:
 		Creates a CSS selector for a DOM element, handling various edge cases and special characters.
 
 		Args:
-		        element: The DOM element to create a selector for
+				element: The DOM element to create a selector for
 
 		Returns:
-		        A valid CSS selector string
+				A valid CSS selector string
 		"""
 		try:
 			# Get base selector from XPath
@@ -1911,6 +1911,39 @@ class BrowserContext:
 		pixels_below = total_height - (scroll_y + viewport_height)
 		return pixels_above, pixels_below
 
+	async def _scroll_container(self, pixels: int) -> None:
+		"""Scroll the element that truly owns vertical scroll.Starts at the focused node ➜ climbs to the first big, scroll-enabled ancestor otherwise picks the first scrollable element or the root, then calls `element.scrollBy` (or `window.scrollBy` for the root) by the supplied pixel value."""
+
+		page = await self.get_agent_current_page()
+
+		# An element can *really* scroll if: overflow-y is auto|scroll|overlay, it has more content than fits, its own viewport is not a postage stamp (more than 50 % of window).
+		SMART_SCROLL_JS = """(dy) => {
+			const bigEnough = el => el.clientHeight >= window.innerHeight * 0.5;
+			const canScroll = el =>
+				el &&
+				/(auto|scroll|overlay)/.test(getComputedStyle(el).overflowY) &&
+				el.scrollHeight > el.clientHeight &&
+				bigEnough(el);
+
+			let el = document.activeElement;
+			while (el && !canScroll(el) && el !== document.body) el = el.parentElement;
+
+			el = canScroll(el)
+					? el
+					: [...document.querySelectorAll('*')].find(canScroll)
+					|| document.scrollingElement
+					|| document.documentElement;
+
+			if (el === document.scrollingElement ||
+				el === document.documentElement ||
+				el === document.body) {
+				window.scrollBy(0, dy);
+			} else {
+				el.scrollBy({ top: dy, behavior: 'auto' });
+			}
+		}"""
+		await page.evaluate(SMART_SCROLL_JS, pixels)
+
 	async def reset_context(self):
 		"""Reset the browser session
 		Call this when you don't want to kill the context but just kill the state
@@ -2017,11 +2050,11 @@ class BrowserContext:
 		Waits for an element matching the given CSS selector to become visible.
 
 		Args:
-		    selector (str): The CSS selector of the element.
-		    timeout (float): The maximum time to wait for the element to be visible (in milliseconds).
+			selector (str): The CSS selector of the element.
+			timeout (float): The maximum time to wait for the element to be visible (in milliseconds).
 
 		Raises:
-		    TimeoutError: If the element does not become visible within the specified timeout.
+			TimeoutError: If the element does not become visible within the specified timeout.
 		"""
 		page = await self.get_agent_current_page()
 		await page.wait_for_selector(selector, state='visible', timeout=timeout)
