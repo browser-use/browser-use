@@ -90,6 +90,7 @@ class TestControllerIntegration:
 				headless=True,
 			)
 		)
+		await browser_instance._init()
 		yield browser_instance
 		await browser_instance.close()
 

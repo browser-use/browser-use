@@ -29,6 +29,7 @@ async def browser(event_loop):
 			headless=True,
 		)
 	)
+	await browser_instance._init()
 	yield browser_instance
 	await browser_instance.close()
 
