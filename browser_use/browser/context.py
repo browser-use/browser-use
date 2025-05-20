@@ -1552,7 +1552,7 @@ class BrowserContext:
 					return element_handle
 				return None
 			else:
-				element_handle = await current_frame.locator(css_selector)
+				element_handle = current_frame.locator(css_selector)
 				return await element_handle.element_handle()
 		except Exception as e:
 			logger.error(f'❌  Failed to locate element: {str(e)}')
