@@ -1698,6 +1698,29 @@ class BrowserContext:
 			logger.debug(f'❌  Failed to input text into element: {repr(element_node)}. Error: {str(e)}')
 			raise BrowserError(f'Failed to input text into index {element_node.highlight_index}')
 
+	@time_execution_async('--input_number_element_node')
+	async def _input_number_element_node(self, element_node: DOMElementNode, number: int):
+		"""
+		Input number into an element with proper error handling and state management.
+		"""
+		try:
+			element_handle = await self.get_locate_element(element_node)
+
+			if element_handle is None:
+				raise BrowserError(f'Element: {repr(element_node)} not found')
+
+			try:
+				await element_handle.wait_for_element_state('stable', timeout=1000)
+				await element_handle.scroll_into_view_if_needed(timeout=1000)
+			except Exception:
+				pass
+
+			await element_handle.type(str(number))
+
+		except Exception as e:
+			logger.debug(f'Failed to input number {number} into element: {repr(element_node)}. Error: {str(e)}')
+			raise BrowserError(f'Failed to input number {number} into index {element_node.highlight_index}')
+
 	@time_execution_async('--click_element_node')
 	async def _click_element_node(self, element_node: DOMElementNode) -> str | None:
 		"""
@@ -1758,6 +1781,41 @@ class BrowserContext:
 			raise e
 		except Exception as e:
 			raise Exception(f'Failed to click element: {repr(element_node)}. Error: {str(e)}')
+
+	@time_execution_async('--hover_over_element_node')
+	async def _hover_over_element_node(self, element_node: DOMElementNode) -> str | None:
+		"""
+		Optimized method to hover over an element using xpath.
+		"""
+		page = await self.get_current_page()
+
+		try:
+			element_handle = await self.get_locate_element(element_node)
+
+			if element_handle is None:
+				raise Exception(f'Element: {repr(element_node)} not found')
+
+			async def perform_hover(hover_func):
+				"""Performs the actual hover actions"""
+				await hover_func()
+				await page.wait_for_load_state()
+
+			try:
+				return await perform_hover(lambda: element_handle.hover(timeout=1500))
+			except URLNotAllowedError as e:
+				raise e
+			except Exception:
+				try:
+					return await perform_hover(lambda: page.evaluate('(el) => el.hover()', element_handle))
+				except URLNotAllowedError as e:
+					raise e
+				except Exception as e:
+					raise Exception(f'Failed to hover over element: {str(e)}')
+
+		except URLNotAllowedError as e:
+			raise e
+		except Exception as e:
+			raise Exception(f'Failed to hover over element: {repr(element_node)}. Error: {str(e)}')
 
 	@time_execution_async('--get_tabs_info')
 	async def get_tabs_info(self) -> list[TabInfo]:

@@ -10,6 +10,11 @@ class GoToUrlAction(BaseModel):
 	url: str
 
 
+class HoverOverElementAction(BaseModel):
+	index: int
+	xpath: str | None = None
+
+
 class ClickElementAction(BaseModel):
 	index: int
 	xpath: str | None = None
@@ -18,6 +23,12 @@ class ClickElementAction(BaseModel):
 class InputTextAction(BaseModel):
 	index: int
 	text: str
+	xpath: str | None = None
+
+
+class InputNumberAction(BaseModel):
+	index: int
+	number: int
 	xpath: str | None = None
 
 
