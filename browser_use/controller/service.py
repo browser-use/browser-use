@@ -43,8 +43,10 @@ class Controller(Generic[Context]):
 		self,
 		exclude_actions: list[str] = [],
 		output_model: type[BaseModel] | None = None,
+		wait_on_url_change: bool = True,
 	):
 		self.registry = Registry[Context](exclude_actions)
+		self._wait_on_url_change = wait_on_url_change
 
 		"""Register all default browser actions"""
 
@@ -848,6 +850,8 @@ class Controller(Generic[Context]):
 	) -> ActionResult:
 		"""Execute an action"""
 
+		initial_url = (await browser_session.get_current_page()).url
+
 		for action_name, params in action.model_dump(exclude_unset=True).items():
 			if params is not None:
 				# with Laminar.start_as_current_span(
@@ -867,6 +871,11 @@ class Controller(Generic[Context]):
 					available_file_paths=available_file_paths,
 					context=context,
 				)
+
+				if self._wait_on_url_change and initial_url != (new_url := (await browser_session.get_current_page()).url):
+					initial_url = new_url
+					logger.info(f'🕒 URL changed, waiting for page load state.')
+					await browser_session._wait_for_page_and_frames_load()
 
 				# Laminar.set_span_output(result)
 
