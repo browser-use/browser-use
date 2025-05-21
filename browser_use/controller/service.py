@@ -874,7 +874,7 @@ class Controller(Generic[Context]):
 
 				if self._wait_on_url_change and initial_url != (new_url := (await browser_session.get_current_page()).url):
 					initial_url = new_url
-					logger.info(f'🕒 URL changed, waiting for page load state.')
+					logger.info('🕒 URL changed, waiting for page load state.')
 					await browser_session._wait_for_page_and_frames_load()
 
 				# Laminar.set_span_output(result)
