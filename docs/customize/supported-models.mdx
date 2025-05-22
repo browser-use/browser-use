@@ -286,6 +286,36 @@ Required environment variables:
 GROK_API_KEY=
 ```
 
+### ModelScope
+[ModelScope](https://modelscope.cn/docs/model-service/API-Inference/intro) is an LLM API provider that offers a wide range of models. Note: choose a model that supports function calling. And you need to bind your Alibaba Cloud account before using the API.
+For more details about ModelScope API, please refer to this link.
+```python
+from langchain_openai import ChatOpenAI
+from browser_use import Agent
+from pydantic import SecretStr
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+api_key = os.getenv("MODELSCOPE_API_KEY")
+
+# Initialize the model
+llm = ChatOpenAI(base_url='https://api-inference.modelscope.cn/v1/', model='Qwen/Qwen2.5-VL-72B-Instruct', api_key=SecretStr(api_key))
+
+# Create agent with the model
+agent = Agent(
+    task="Your task here",
+    llm=llm,
+    use_vision=True
+)
+```
+
+Required environment variables:
+
+```bash .env
+MODELSCOPE_API_KEY=
+```
+
 ## Coming soon
 (We are working on it)
 - Groq
