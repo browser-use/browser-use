@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from browser_use.dom.compression import get_compression_documentation
+
 if TYPE_CHECKING:
 	from browser_use.agent.views import ActionResult, AgentStepInfo
 	from browser_use.browser.views import BrowserStateSummary
@@ -66,15 +68,19 @@ class AgentMessagePrompt:
 		result: list['ActionResult'] | None = None,
 		include_attributes: list[str] | None = None,
 		step_info: Optional['AgentStepInfo'] = None,
+		compress_attributes: bool = False,
 	):
 		self.state: 'BrowserStateSummary' = browser_state_summary
 		self.result = result
 		self.include_attributes = include_attributes or []
 		self.step_info = step_info
 		assert self.state
+		self.compress_attributes = compress_attributes
 
 	def get_user_message(self, use_vision: bool = True) -> HumanMessage:
-		elements_text = self.state.element_tree.clickable_elements_to_string(include_attributes=self.include_attributes)
+		elements_text = self.state.element_tree.clickable_elements_to_string(
+			include_attributes=self.include_attributes, compress_attributes=self.compress_attributes
+		)
 
 		has_content_above = (self.state.pixels_above or 0) > 0
 		has_content_below = (self.state.pixels_below or 0) > 0
@@ -92,6 +98,11 @@ class AgentMessagePrompt:
 				)
 			else:
 				elements_text = f'{elements_text}\n[End of page]'
+
+			# Add compression info at the start if enabled
+			if self.compress_attributes:
+				compression_info = get_compression_documentation(self.include_attributes) + '\n\n'
+				elements_text = compression_info + elements_text
 		else:
 			elements_text = 'empty page'
 

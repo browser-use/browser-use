@@ -150,8 +150,13 @@ class DOMElementNode(DOMBaseNode):
 		return '\n'.join(text_parts).strip()
 
 	@time_execution_sync('--clickable_elements_to_string')
-	def clickable_elements_to_string(self, include_attributes: list[str] | None = None) -> str:
-		"""Convert the processed DOM content to HTML."""
+	def clickable_elements_to_string(self, include_attributes: list[str] | None = None, compress_attributes: bool = False) -> str:
+		"""Convert the processed DOM content to HTML.
+
+		Args:
+		    include_attributes: List of attribute names to include
+		    compress_attributes: Whether to compress attribute names for token efficiency
+		"""
 		formatted_text = []
 
 		def process_node(node: DOMBaseNode, depth: int) -> None:
@@ -190,9 +195,13 @@ class DOMElementNode(DOMBaseNode):
 							del attributes_to_include['placeholder']
 
 						if attributes_to_include:
-							# Format as key1='value1' key2='value2'
-							attributes_html_str = ' '.join(f"{key}='{value}'" for key, value in attributes_to_include.items())
+							if compress_attributes:
+								from browser_use.dom.compression import compress_attributes as compress
 
+								attributes_html_str = compress(attributes_to_include)
+							else:
+								# Format as key1='value1' key2='value2'
+								attributes_html_str = ' '.join(f"{key}='{value}'" for key, value in attributes_to_include.items())
 					# Build the line
 					if node.is_new:
 						highlight_indicator = f'*[{node.highlight_index}]*'

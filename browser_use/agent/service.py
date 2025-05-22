@@ -160,6 +160,7 @@ class Agent(Generic[Context]):
 		enable_memory: bool = True,
 		memory_config: MemoryConfig | None = None,
 		source: str | None = None,
+		compress_attributes: bool = False,
 	):
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
@@ -193,6 +194,7 @@ class Agent(Generic[Context]):
 			is_planner_reasoning=is_planner_reasoning,
 			save_playwright_script_path=save_playwright_script_path,
 			extend_planner_system_message=extend_planner_system_message,
+			compress_attributes=compress_attributes,
 		)
 
 		# Memory settings
@@ -266,6 +268,7 @@ class Agent(Generic[Context]):
 				message_context=self.settings.message_context,
 				sensitive_data=sensitive_data,
 				available_file_paths=self.settings.available_file_paths,
+				compress_attributes=self.settings.compress_attributes,
 			),
 			state=self.state.message_manager_state,
 		)
@@ -1114,6 +1117,7 @@ class Agent(Generic[Context]):
 				browser_state_summary=browser_state_summary,
 				result=self.state.last_result,
 				include_attributes=self.settings.include_attributes,
+				compress_attributes=self.settings.compress_attributes,
 			)
 			msg = [SystemMessage(content=system_msg), content.get_user_message(self.settings.use_vision)]
 		else:

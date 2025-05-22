@@ -73,6 +73,7 @@ class AgentSettings(BaseModel):
 
 	# Playwright script generation setting
 	save_playwright_script_path: str | None = None  # Path to save the generated Playwright script
+	compress_attributes: bool = False
 
 
 class AgentState(BaseModel):

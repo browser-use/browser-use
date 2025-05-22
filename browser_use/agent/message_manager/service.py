@@ -28,6 +28,7 @@ class MessageManagerSettings(BaseModel):
 	message_context: str | None = None
 	sensitive_data: dict[str, str] | None = None
 	available_file_paths: list[str] | None = None
+	compress_attributes: bool = False
 
 
 class MessageManager:
@@ -152,6 +153,7 @@ class MessageManager:
 			result=result,
 			include_attributes=self.settings.include_attributes,
 			step_info=step_info,
+			compress_attributes=self.settings.compress_attributes,
 		).get_user_message(use_vision)
 		self._add_message_with_tokens(state_message)
 
