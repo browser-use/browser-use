@@ -73,14 +73,18 @@ class GranularMemoryEntry(BaseModel):
 
 
 class MemoryConfig(BaseModel):
-	"""Configuration for procedural memory."""
+	"""Configuration for procedural and granular memory."""
 
 	model_config = ConfigDict(
 		from_attributes=True, validate_default=True, revalidate_instances='always', validate_assignment=True
 	)
 
 	# Memory settings
-	agent_id: str = Field(default='browser_use_agent', min_length=1)
+	agent_id: str = Field(
+		default_factory=lambda: f'bu_agent_{uuid.uuid4().hex[:12]}',
+		min_length=1,
+		description="Persistent ID for the agent's memory across sessions. Auto-generated if not provided.",
+	)
 	memory_interval: int = Field(default=10, gt=1, lt=100)
 
 	# Embedder settings
