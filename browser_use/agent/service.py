@@ -968,6 +968,11 @@ class Agent(Generic[Context]):
 				)
 				self._make_history_item(model_output, browser_state_summary, result, metadata)
 
+				# --- NEW: Store Action-Related Facts in Memory (Phase 2) ---
+				if self.enable_memory and self.memory and model_output:
+					await self._store_action_related_facts(model_output, result, browser_state_summary)
+				# --- END NEW ---
+
 			# Log step completion summary
 			self._log_step_completion_summary(step_start_time, result)
 
