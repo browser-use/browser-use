@@ -107,6 +107,8 @@ def test_match_url_with_domain_pattern():
 	assert match_url_with_domain_pattern('https://example.com', 'example.com') is True
 	assert match_url_with_domain_pattern('http://example.com', 'example.com') is False  # Default scheme is now https
 	assert match_url_with_domain_pattern('https://google.com', 'example.com') is False
+	assert match_url_with_domain_pattern('https://www.example.com', 'example.com') is True
+	assert match_url_with_domain_pattern('https://example.com', 'www.example.com') is True
 
 	# Test subdomain pattern matches
 	assert match_url_with_domain_pattern('https://sub.example.com', '*.example.com') is True
