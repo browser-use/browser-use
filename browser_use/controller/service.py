@@ -3,15 +3,17 @@ import enum
 import json
 import logging
 import re
-from typing import Generic, TypeVar, cast
+from typing import Generic, TypeVar, Optional, List, Literal, cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
 from playwright.async_api import ElementHandle, Page
 
 # from lmnr.sdk.laminar import Laminar
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from browser_use.agent.memory.views import GranularMemoryEntry # Import for type construction
+from browser_use.agent.memory.service import Memory as MemoryService # Alias for clarity
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.controller.registry.service import Registry
@@ -33,6 +35,41 @@ from browser_use.controller.views import (
 from browser_use.utils import time_execution_sync
 
 logger = logging.getLogger(__name__)
+
+# --- NEW: Pydantic models for Memory Actions (Copied from Agent service for definition here) ---
+# These define the parameters the LLM will be expected to provide for these actions.
+class SaveFactToMemoryParams(BaseModel):
+	fact_content: str = Field(description="The textual content of the fact to be saved.")
+	fact_type: Literal[
+        "user_preference",
+        "page_content_summary",
+        "key_finding",
+        "agent_reflection",
+        "user_instruction",
+        "raw_text"
+    ] = Field(description="The type or category of the fact.")
+	source_url: Optional[str] = Field(default=None, description="Optional URL where the information was found.")
+	keywords: Optional[List[str]] = Field(default_factory=list, description="Optional keywords for easier filtering.")
+	confidence: Optional[float] = Field(default=None, description="Optional agent's confidence in this fact (0.0 to 1.0).")
+
+
+class QueryLongTermMemoryParams(BaseModel):
+    query_text: str = Field(description="The natural language query to search the memory.")
+    fact_types: Optional[List[Literal[
+        "user_preference",
+        "page_content_summary",
+        "key_finding",
+        "action_taken",
+        "action_outcome_success",
+        "action_outcome_failure",
+        "navigation_milestone",
+        "agent_reflection",
+        "user_instruction",
+        "raw_text"
+    ]]] = Field(default=None, description="Optional list of fact types to filter by.") # Use Literal for fact_types
+    relevant_to_url: Optional[str] = Field(default=None, description="Optional URL to find facts relevant to.")
+    max_results: int = Field(default=3, gt=0, le=10, description="Maximum number of results to return.")
+# --- END NEW ---
 
 
 Context = TypeVar('Context')
