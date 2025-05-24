@@ -968,13 +968,61 @@ class Agent(Generic[Context]):
 				)
 				self._make_history_item(model_output, browser_state_summary, result, metadata)
 
-				# --- NEW: Store Action-Related Facts in Memory (Phase 2) ---
+				# --- NEW: Store Action-Related Facts in Memory ---
 				if self.enable_memory and self.memory and model_output:
 					await self._store_action_related_facts(model_output, result, browser_state_summary)
 				# --- END NEW ---
 
 			# Log step completion summary
 			self._log_step_completion_summary(step_start_time, result)
+
+	# --- NEW: Method to store action-related facts ---
+	async def _store_action_related_facts(
+		self,
+		model_output: AgentOutput,
+		action_results: list[ActionResult],
+		browser_state_summary: BrowserStateSummary
+	):
+		if not (self.enable_memory and self.memory):
+			return
+
+		for i, action_model_instance in enumerate(model_output.action):
+			action_result = action_results[i] if i < len(action_results) else None
+
+			action_data = action_model_instance.model_dump(exclude_unset=True, exclude_none=True)
+			action_name = next(iter(action_data.keys())) if action_data else "unknown_action"
+			action_params = action_data.get(action_name, {})
+
+			# Store "action_taken" fact
+			action_taken_fact = GranularMemoryEntry(
+				agent_id=self.memory_config.agent_id,
+				run_id=self.run_id,
+				type="action_taken",
+				content=f"Action '{action_name}' initiated with parameters: {json.dumps(action_params, default=str)}",
+				source_url=browser_state_summary.url,
+				associated_action=action_data,
+				keywords=[action_name, "execution"]
+			)
+			self.memory.add_granular_fact(action_taken_fact)
+
+			# Store "action_outcome" fact
+			if action_result:
+				outcome_type: GranularMemoryEntry.type = "action_outcome_success" if not action_result.error else "action_outcome_failure" # type: ignore
+				outcome_content = action_result.extracted_content if not action_result.error else action_result.error
+				
+				action_outcome_fact = GranularMemoryEntry(
+					agent_id=self.memory_config.agent_id,
+					run_id=self.run_id,
+					type=outcome_type,
+					content=f"Outcome of '{action_name}': {str(outcome_content)[:500]}", # Truncate long content
+					source_url=browser_state_summary.url,
+					associated_action=action_data,
+					keywords=[action_name, "outcome", "success" if not action_result.error else "failure"]
+				)
+				self.memory.add_granular_fact(action_outcome_fact)
+		logger.debug(f"🧠 Stored {len(model_output.action)*2} action-related facts.")
+	# --- END NEW ---
+
 
 	@time_execution_async('--handle_step_error (agent)')
 	async def _handle_step_error(self, error: Exception) -> list[ActionResult]:
