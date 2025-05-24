@@ -307,14 +307,8 @@ class Memory:
 		if source_url:
 			filter_conditions.append({'metadata': {'source_url': source_url}})
 		if keywords:
-			# Let's simplify: if keywords are present, we add a generic metadata filter.
-			# A more robust keyword filter might need more specific mem0 support or query construction.
-			# For now, let's avoid creating this filter as it is highly backend-dependent on the vector store.
-			logger.warning(
-				'Keyword filtering in search_granular_facts is a placeholder and may need specific mem0 backend adaptation.'
-			)
-			pass  # Placeholder for keyword filtering logic if directly supported by mem0 filters
-
+			if len(keywords) > 0:
+				filter_conditions.append({'metadata': {'keywords': {'in': keywords}}})
 		if fact_types:  # Filter by mem0 categories
 			filter_conditions.append({'categories': {'in': fact_types}})
 
