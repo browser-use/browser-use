@@ -454,6 +454,59 @@ class BrowserSession(BaseModel):
 			f'Failed to create a playwright BrowserContext {self.browser_context} for browser={self.browser}'
 		)
 
+		init_script = """
+					// check to make sure we're not inside the PDF viewer
+					window.isPdfViewer = !!document?.body?.querySelector('body > embed[type="application/pdf"][width="100%"]')
+					if (!window.isPdfViewer) {
+
+						// Permissions
+						const originalQuery = window.navigator.permissions.query;
+						window.navigator.permissions.query = (parameters) => (
+							parameters.name === 'notifications' ?
+								Promise.resolve({ state: Notification.permission }) :
+								originalQuery(parameters)
+						);
+						(() => {
+							if (window._eventListenerTrackerInitialized) return;
+							window._eventListenerTrackerInitialized = true;
+
+							const originalAddEventListener = EventTarget.prototype.addEventListener;
+							const eventListenersMap = new WeakMap();
+
+							EventTarget.prototype.addEventListener = function(type, listener, options) {
+								if (typeof listener === "function") {
+									let listeners = eventListenersMap.get(this);
+									if (!listeners) {
+										listeners = [];
+										eventListenersMap.set(this, listeners);
+									}
+
+									listeners.push({
+										type,
+										listener,
+										listenerPreview: listener.toString().slice(0, 100),
+										options
+									});
+								}
+
+								return originalAddEventListener.call(this, type, listener, options);
+							};
+
+							window.getEventListenersForNode = (node) => {
+								const listeners = eventListenersMap.get(node) || [];
+								return listeners.map(({ type, listenerPreview, options }) => ({
+									type,
+									listenerPreview,
+									options
+								}));
+							};
+						})();
+					}
+					"""
+
+		# Expose anti-detection scripts
+		await self.browser_context.add_init_script(init_script)
+
 	# async def _fork_locked_user_data_dir(self) -> None:
 	# 	"""Fork an in-use user_data_dir by cloning it to a new location to allow a second browser to use it"""
 	# 	# TODO: implement copy-on-write using overlayfs or zfs or something
