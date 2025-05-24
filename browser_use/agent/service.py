@@ -10,7 +10,8 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Generic, TypeVar, List, Optional, Literal
+from typing import Any, Generic, TypeVar
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -25,10 +26,10 @@ from langchain_core.messages import (
 	SystemMessage,
 )
 from playwright.async_api import Browser, BrowserContext, Page
-from pydantic import BaseModel, ValidationError, Field
+from pydantic import BaseModel, ValidationError
 
 from browser_use.agent.gif import create_history_gif
-from browser_use.agent.memory import Memory, MemoryConfig, GranularMemoryEntry
+from browser_use.agent.memory import GranularMemoryEntry, Memory, MemoryConfig
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
 from browser_use.agent.message_manager.utils import (
 	convert_input_messages,
@@ -70,7 +71,6 @@ from browser_use.utils import time_execution_async, time_execution_sync
 logger = logging.getLogger(__name__)
 
 SKIP_LLM_API_KEY_VERIFICATION = os.environ.get('SKIP_LLM_API_KEY_VERIFICATION', 'false').lower()[0] in 'ty1'
-
 
 
 def log_response(response: AgentOutput, registry=None) -> None:
@@ -159,7 +159,7 @@ class Agent(Generic[Context]):
 		save_playwright_script_path: str | None = None,
 		enable_memory: bool = True,
 		memory_config: MemoryConfig | None = None,
-		agent_id: Optional[str] = None, # NEW: Allow explicit agent_id for persistence
+		agent_id: str | None = None,  # NEW: Allow explicit agent_id for persistence
 		source: str | None = None,
 	):
 		if page_extraction_llm is None:
@@ -172,7 +172,7 @@ class Agent(Generic[Context]):
 		self.sensitive_data = sensitive_data
 
 		# --- NEW: Agent and Run ID Management ---
-		self.run_id = f"run_{uuid.uuid4().hex[:12]}" # Unique ID for this execution session
+		self.run_id = f'run_{uuid.uuid4().hex[:12]}'  # Unique ID for this execution session
 		# --- END NEW ---
 
 		self.settings = AgentSettings(
@@ -204,16 +204,18 @@ class Agent(Generic[Context]):
 		self.enable_memory = enable_memory
 		if memory_config:
 			self.memory_config = memory_config
-			if agent_id: # If agent_id is passed to Agent constructor, it overrides MemoryConfig
+			if agent_id:  # If agent_id is passed to Agent constructor, it overrides MemoryConfig
 				self.memory_config.agent_id = agent_id
-		elif agent_id: # If no memory_config but agent_id is passed
+		elif agent_id:  # If no memory_config but agent_id is passed
 			self.memory_config = MemoryConfig(agent_id=agent_id)
-		else: # No memory_config and no agent_id, use MemoryConfig default
+		else:  # No memory_config and no agent_id, use MemoryConfig default
 			self.memory_config = MemoryConfig()
 		# Ensure agent_id in memory_config is set, defaulting if necessary
 		if not self.memory_config.agent_id:
-		    self.memory_config.agent_id = f"bu_agent_{uuid.uuid4().hex[:12]}"
-		logger.info(f"Agent initialized with persistent agent_id: {self.memory_config.agent_id} and session run_id: {self.run_id}")
+			self.memory_config.agent_id = f'bu_agent_{uuid.uuid4().hex[:12]}'
+		logger.info(
+			f'Agent initialized with persistent agent_id: {self.memory_config.agent_id} and session run_id: {self.run_id}'
+		)
 		# --- END MODIFIED ---
 
 		# Initialize state
@@ -262,13 +264,7 @@ class Agent(Generic[Context]):
 		# Initialize available actions for system prompt (only non-filtered actions)
 		# These will be used for the system prompt to maintain caching
 		self.unfiltered_actions = self.controller.registry.get_prompt_description()
-		# --- NEW: Add memory actions to unfiltered_actions if controller doesn't handle them (Phase 2) ---
-		# This part depends on how SaveFactToMemory and QueryLongTermMemory are registered.
-		# If they are standard controller actions, this is fine.
-		# If they are special, the SystemPrompt might need manual adjustment.
-		# For now, assume they will be registered via controller like other actions.
-		# self.unfiltered_actions += "\n" + SaveFactToMemoryParams.model_json_schema(indent=2) # Example
-		# --- END NEW ---
+		# Memory actions are now registered as standard controller actions and included automatically.
 
 		self.settings.message_context = self._set_message_context()
 
@@ -765,6 +761,12 @@ class Agent(Generic[Context]):
 		step_start_time = time.time()
 		tokens = 0
 
+		previous_url: str | None = None
+		if self.state.history.history:  # Check if history is not empty
+			last_history_item_state = self.state.history.history[-1].state
+			if last_history_item_state:
+				previous_url = last_history_item_state.url
+
 		try:
 			browser_state_summary = await self.browser_session.get_state_summary(cache_clickable_elements_hashes=True)
 			current_page = await self.browser_session.get_current_page()
@@ -774,17 +776,20 @@ class Agent(Generic[Context]):
 			# --- NEW: Store Navigation Milestone ---
 			if self.enable_memory and self.memory and browser_state_summary:
 				current_url = browser_state_summary.url
-				if current_url and current_url != previous_url:
+				if current_url and (previous_url is None or current_url != previous_url):
+					parsed_url = urlparse(current_url)
+					domain = parsed_url.netloc or parsed_url.path.split('/')[0] or 'unknown'
 					nav_fact = GranularMemoryEntry(
 						agent_id=self.memory_config.agent_id,
 						run_id=self.run_id,
-						type="navigation_milestone",
-						content=f"Navigated to URL: {current_url}. Page title: {browser_state_summary.title or 'N/A'}",
+						type='navigation_milestone',
+						content=f'Navigated to URL: {current_url}. Page title: {browser_state_summary.title or "N/A"}',
 						source_url=current_url,
-						keywords=["navigation", "url_change", current_url.split('/')[2] if '//' in current_url else current_url]
+						keywords=['navigation', 'url_change', domain],
 					)
-					self.memory.add_granular_fact(nav_fact)
-					logger.debug(f"🧠 Stored navigation milestone: {current_url}")
+					# Ensure add_granular_fact is called on the memory service instance
+					if self.memory.add_granular_fact(nav_fact):  # Check return if it indicates success/ID
+						logger.debug(f'🧠 Stored navigation milestone: {current_url}')
 			# --- END NEW ---
 
 			# generate procedural memory if needed
@@ -906,7 +911,7 @@ class Agent(Generic[Context]):
 				self._message_manager._remove_last_state_message()
 				raise e
 
-			result: list[ActionResult] = await self.multi_act(model_output.action)
+			result: list[ActionResult] = await self.multi_act(model_output.action, browser_state_summary)
 
 			self.state.last_result = result
 
@@ -956,10 +961,7 @@ class Agent(Generic[Context]):
 
 	# --- NEW: Method to store action-related facts ---
 	async def _store_action_related_facts(
-		self,
-		model_output: AgentOutput,
-		action_results: list[ActionResult],
-		browser_state_summary: BrowserStateSummary
+		self, model_output: AgentOutput, action_results: list[ActionResult], browser_state_summary: BrowserStateSummary
 	):
 		if not (self.enable_memory and self.memory):
 			return
@@ -968,39 +970,39 @@ class Agent(Generic[Context]):
 			action_result = action_results[i] if i < len(action_results) else None
 
 			action_data = action_model_instance.model_dump(exclude_unset=True, exclude_none=True)
-			action_name = next(iter(action_data.keys())) if action_data else "unknown_action"
+			action_name = next(iter(action_data.keys())) if action_data else 'unknown_action'
 			action_params = action_data.get(action_name, {})
 
 			# Store "action_taken" fact
 			action_taken_fact = GranularMemoryEntry(
 				agent_id=self.memory_config.agent_id,
 				run_id=self.run_id,
-				type="action_taken",
+				type='action_taken',
 				content=f"Action '{action_name}' initiated with parameters: {json.dumps(action_params, default=str)}",
 				source_url=browser_state_summary.url,
 				associated_action=action_data,
-				keywords=[action_name, "execution"]
+				keywords=[action_name, 'execution'],
 			)
 			self.memory.add_granular_fact(action_taken_fact)
 
 			# Store "action_outcome" fact
 			if action_result:
-				outcome_type: GranularMemoryEntry.type = "action_outcome_success" if not action_result.error else "action_outcome_failure" # type: ignore
+				outcome_type = 'action_outcome_success' if not action_result.error else 'action_outcome_failure'
 				outcome_content = action_result.extracted_content if not action_result.error else action_result.error
-				
+
 				action_outcome_fact = GranularMemoryEntry(
 					agent_id=self.memory_config.agent_id,
 					run_id=self.run_id,
 					type=outcome_type,
-					content=f"Outcome of '{action_name}': {str(outcome_content)[:500]}", # Truncate long content
+					content=f"Outcome of '{action_name}': {str(outcome_content)[:500]}",  # Truncate long content
 					source_url=browser_state_summary.url,
 					associated_action=action_data,
-					keywords=[action_name, "outcome", "success" if not action_result.error else "failure"]
+					keywords=[action_name, 'outcome', 'success' if not action_result.error else 'failure'],
 				)
 				self.memory.add_granular_fact(action_outcome_fact)
-		logger.debug(f"🧠 Stored {len(model_output.action)*2} action-related facts.")
-	# --- END NEW ---
+		logger.debug(f'🧠 Stored {len(model_output.action) * 2} action-related facts.')
 
+	# --- END NEW ---
 
 	@time_execution_async('--handle_step_error (agent)')
 	async def _handle_step_error(self, error: Exception) -> list[ActionResult]:
@@ -1507,8 +1509,6 @@ class Agent(Generic[Context]):
 		cached_path_hashes = {e.hash.branch_path_hash for e in cached_selector_map.values()}
 		await self.browser_session.remove_highlights()
 
-		await self.browser_session.remove_highlights()
-
 		for i, action_instance in enumerate(actions):
 			if action_instance.get_index() is not None and i != 0:
 				new_browser_state_summary = await self.browser_session.get_state_summary(cache_clickable_elements_hashes=False)
@@ -1538,14 +1538,20 @@ class Agent(Generic[Context]):
 				# --- MODIFIED: Context for controller actions ---
 				# This context will be available to action handlers within the controller
 				action_execution_context = {
-					"agent_memory": self.memory, "agent_id": self.memory_config.agent_id, "agent_run_id": self.run_id,
-					"agent_settings": self.settings, "original_task": self.task, "browser_session": self.browser_session, # Added browser_session for controller actions
-					**(self.context if isinstance(self.context, dict) else {"custom_context": self.context})
+					'agent_memory': self.memory,
+					'agent_id': self.memory_config.agent_id,
+					'agent_run_id': self.run_id,
+					'agent_settings': self.settings,
+					'original_task': self.task,
+					'browser_session': self.browser_session,  # Added browser_session for controller actions
+					**(self.context if isinstance(self.context, dict) else {'custom_context': self.context}),
 				}
 				result = await self.controller.act(
-					action=action_instance, browser_session=self.browser_session, # browser_session is also in context, but direct pass is clearer for controller.act
+					action=action_instance,
+					browser_session=self.browser_session,  # browser_session is also in context, but direct pass is clearer for controller.act
 					page_extraction_llm=self.settings.page_extraction_llm,
-					sensitive_data=self.sensitive_data, available_file_paths=self.settings.available_file_paths,
+					sensitive_data=self.sensitive_data,
+					available_file_paths=self.settings.available_file_paths,
 					context=action_execution_context,
 				)
 				# --- END MODIFIED ---
@@ -1553,7 +1559,7 @@ class Agent(Generic[Context]):
 				results.append(result)
 
 				# Get action name from the action model
-				action_data = action.model_dump(exclude_unset=True)
+				action_data = action_instance.model_dump(exclude_unset=True)
 				action_name = next(iter(action_data.keys())) if action_data else 'unknown'
 				logger.info(f'☑️ Executed action {i + 1}/{len(actions)}: {action_name}')
 				if results[-1].is_done or results[-1].error or i == len(actions) - 1:

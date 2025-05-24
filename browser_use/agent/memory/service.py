@@ -5,15 +5,13 @@ import os
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
-	BaseMessage,
 	HumanMessage,
 )
-from langchain_core.messages.utils import convert_to_openai_messages
 
 # Import Mem0Memory with an alias to avoid confusion if needed, though direct use is fine
 from mem0 import Memory as Mem0StoreProvider  # Renamed for clarity
 
-from browser_use.agent.memory.views import MemoryConfig, GranularMemoryEntry
+from browser_use.agent.memory.views import GranularMemoryEntry, MemoryConfig
 from browser_use.agent.message_manager.service import MessageManager
 from browser_use.agent.message_manager.views import ManagedMessage, MessageMetadata
 from browser_use.utils import time_execution_sync
@@ -68,7 +66,6 @@ class Memory:
 			# also disable mem0's telemetry when ANONYMIZED_TELEMETRY=False
 			if os.getenv('ANONYMIZED_TELEMETRY', 'true').lower()[0] in 'fn0':
 				os.environ['MEM0_TELEMETRY'] = 'False'
-			from mem0 import Memory as Mem0Memory
 		except ImportError:
 			raise ImportError('mem0 is required when enable_memory=True. Please install it with `pip install mem0ai`.')
 
@@ -111,7 +108,7 @@ class Memory:
 		self.granular_mem_store: Mem0StoreProvider | None = None
 		try:
 			# For granular facts, we might use a different collection name.
-			# We'll re-use embedder, but vector_store config needs adjustment for collection name.
+			# We'll reuse embedder, but vector_store config needs adjustment for collection name.
 			# LLM is not strictly required for the granular store if mem0 isn't doing LLM ops on facts.
 			granular_vs_config = dict(self.config.vector_store_config_dict)  # Make a mutable copy
 

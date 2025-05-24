@@ -1,6 +1,6 @@
-from typing import Any, Literal, Optional, List
-from datetime import datetime
 import uuid
+from datetime import datetime, timezone
+from typing import Any, Literal
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, ConfigDict, Field
@@ -16,7 +16,9 @@ class GranularMemoryEntry(BaseModel):
 	)
 
 	id: str = Field(default_factory=lambda: str(uuid.uuid4()), description='Unique identifier for the memory entry.')
-	timestamp: datetime = Field(default_factory=datetime.utcnow, description='Timestamp of when the memory was created/observed.')
+	timestamp: datetime = Field(
+		default_factory=lambda: datetime.now(timezone.utc), description='Timestamp of when the memory was created/observed.'
+	)
 	type: Literal[
 		'user_preference',
 		'page_content_summary',
@@ -33,24 +35,22 @@ class GranularMemoryEntry(BaseModel):
 
 	agent_id: str = Field(description='Persistent ID for the agent instance this memory belongs to.')
 	run_id: str = Field(description='ID for the specific agent execution session during which this memory was created.')
-	user_id: Optional[str] = Field(default=None, description='Optional external user ID, if provided for multi-user scenarios.')
+	user_id: str | None = Field(default=None, description='Optional external user ID, if provided for multi-user scenarios.')
 
-	source_url: Optional[str] = Field(default=None, description='URL where the information was found or action occurred.')
-	source_element_xpath: Optional[str] = Field(
-		default=None, description='XPath to a relevant element on the page, if applicable.'
-	)
+	source_url: str | None = Field(default=None, description='URL where the information was found or action occurred.')
+	source_element_xpath: str | None = Field(default=None, description='XPath to a relevant element on the page, if applicable.')
 
-	relevance_score: Optional[float] = Field(
+	relevance_score: float | None = Field(
 		default=None, description='Score indicating relevance, if assigned by LLM or retrieval mechanism.'
 	)
-	keywords: Optional[List[str]] = Field(
+	keywords: list[str] | None = Field(
 		default_factory=list, description='Keywords associated with the memory for filtering/search.'
 	)
 
-	associated_action: Optional[dict] = Field(
+	associated_action: dict | None = Field(
 		default=None, description='If the memory is linked to a specific agent action, its details.'
 	)
-	confidence: Optional[float] = Field(default=None, description="Agent's confidence in the fact/memory, if applicable.")
+	confidence: float | None = Field(default=None, description="Agent's confidence in the fact/memory, if applicable.")
 
 	# To allow easy conversion to mem0 metadata
 	def to_mem0_metadata(self) -> dict[str, Any]:
@@ -88,7 +88,7 @@ class MemoryConfig(BaseModel):
 	memory_interval: int = Field(default=10, gt=1, lt=100)
 
 	# Granular Memory specific settings
-	granular_memory_collection_name: Optional[str] = Field(
+	granular_memory_collection_name: str | None = Field(
 		default='browser_use_granular_facts',
 		description='Name for the collection/index in the vector store dedicated to granular facts. If None, uses default mem0 collection.',
 	)
@@ -100,7 +100,7 @@ class MemoryConfig(BaseModel):
 
 	# LLM settings - the LLM instance can be passed separately
 	llm_provider: Literal['langchain'] = 'langchain'
-	llm_instance: Optional[BaseChatModel] = (
+	llm_instance: BaseChatModel | None = (
 		None  # Made Optional as it might not be needed if only using for storage/retrieval via mem0 client directly
 	)
 

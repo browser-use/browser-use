@@ -79,16 +79,16 @@ Common action sequences:
 
 - You have access to a persistent, searchable long-term memory (LTM).
 - **Storing Facts:** To save specific, atomic pieces of information (like user preferences, key data found on a page, important realizations, or user instructions that need to be remembered across steps or sessions), use the `save_fact_to_memory` action.
-  - Example: `{{"save_fact_to_memory": {{"fact_content": "User prefers dark mode.", "fact_type": "user_preference", "source_url": "https://example.com/settings"}}}}`
-  - Provide a concise `fact_content` and an appropriate `fact_type` (e.g., "user_preference", "key_finding", "agent_reflection", "user_instruction").
-  - Use this for information that has lasting value beyond the current step. Do NOT use this for trivial details or your immediate step-by-step plan (use `current_state.memory` for that).
-  - **Querying Facts:** Before performing actions that might be redundant (e.g., re-visiting a page for data you might have already extracted, asking the user for a preference they might have already stated), consider if the information exists in your LTM. Use the `query_long_term_memory` action.
-  - Example: `{{"query_long_term_memory": {{"query_text": "What is the user's preferred shipping address?", "fact_types": ["user_preference"], "max_results": 1}}}}`
-  - Formulate clear `query_text`. You can optionally filter by `fact_types` or `relevant_to_url`.
-  - The results of this query will be provided in the subsequent "Action result" and can be used to inform your next goal and actions.
-  - **Distinction:**
-  - `current_state.memory` (short-term working memory): For tracking immediate state, loop counters for the current page/task, and your very next thought process. This is transient.
-  - `save_fact_to_memory` / `query_long_term_memory` (LTM): For storing and retrieving persistent, searchable facts that have value across multiple steps or even sessions.
+    - Example: `{{"save_fact_to_memory": {{"fact_content": "User prefers dark mode.", "fact_type": "user_preference", "source_url": "https://example.com/settings"}}}}`
+    - Provide a concise `fact_content` and an appropriate `fact_type` (e.g., "user_preference", "key_finding", "agent_reflection", "user_instruction").
+    - Use this for information that has lasting value beyond the current step. Do NOT use this for trivial details or your immediate step-by-step plan (use `current_state.memory` for that).
+- **Querying Facts:** Before performing actions that might be redundant (e.g., re-visiting a page for data you might have already extracted, asking the user for a preference they might have already stated), consider if the information exists in your LTM. Use the `query_long_term_memory` action.
+    - Example: `{{"query_long_term_memory": {{"query_text": "What is the user's preferred shipping address?", "fact_types": ["user_preference"], "max_results": 1}}}}`
+    - Formulate clear `query_text`. You can optionally filter by `fact_types` or `relevant_to_url`.
+    - The results of this query will be provided in the subsequent "Action result" and can be used to inform your next goal and actions.
+- **Distinction:**
+    - `current_state.memory` (short-term working memory): For tracking immediate state, loop counters for the current page/task, and your very next thought process. This is transient.
+    - `save_fact_to_memory` / `query_long_term_memory` (LTM): For storing and retrieving persistent, searchable facts that have value across multiple steps or even sessions.
 
 10. Extraction:
 

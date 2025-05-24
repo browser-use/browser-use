@@ -3,7 +3,7 @@ import enum
 import json
 import logging
 import re
-from typing import Generic, TypeVar, Optional, List, Literal, cast
+from typing import Generic, Literal, TypeVar, cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
@@ -12,8 +12,8 @@ from playwright.async_api import ElementHandle, Page
 # from lmnr.sdk.laminar import Laminar
 from pydantic import BaseModel, Field
 
-from browser_use.agent.memory.views import GranularMemoryEntry # Import for type construction
-from browser_use.agent.memory.service import Memory as MemoryService # Alias for clarity
+from browser_use.agent.memory.service import Memory as MemoryService  # Alias for clarity
+from browser_use.agent.memory.views import GranularMemoryEntry  # Import for type construction
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.controller.registry.service import Registry
@@ -36,39 +36,38 @@ from browser_use.utils import time_execution_sync
 
 logger = logging.getLogger(__name__)
 
-# --- NEW: Pydantic models for Memory Actions (Copied from Agent service for definition here) ---
+# --- Define a shared Literal for all granular fact types ---
+GranularFactType = Literal[
+	'user_preference',
+	'page_content_summary',
+	'key_finding',
+	'action_taken',
+	'action_outcome_success',
+	'action_outcome_failure',
+	'navigation_milestone',
+	'agent_reflection',
+	'user_instruction',
+	'raw_text',
+]
+
+
+# --- NEW: Pydantic models for Memory Actions ---
 # These define the parameters the LLM will be expected to provide for these actions.
 class SaveFactToMemoryParams(BaseModel):
-	fact_content: str = Field(description="The textual content of the fact to be saved.")
-	fact_type: Literal[
-        "user_preference",
-        "page_content_summary",
-        "key_finding",
-        "agent_reflection",
-        "user_instruction",
-        "raw_text"
-    ] = Field(description="The type or category of the fact.")
-	source_url: Optional[str] = Field(default=None, description="Optional URL where the information was found.")
-	keywords: Optional[List[str]] = Field(default_factory=list, description="Optional keywords for easier filtering.")
-	confidence: Optional[float] = Field(default=None, description="Optional agent's confidence in this fact (0.0 to 1.0).")
+	fact_content: str = Field(description='The textual content of the fact to be saved.')
+	fact_type: GranularFactType = Field(description='The type or category of the fact.')
+	source_url: str | None = Field(default=None, description='Optional URL where the information was found.')
+	keywords: list[str] | None = Field(default_factory=list, description='Optional keywords for easier filtering.')
+	confidence: float | None = Field(default=None, description="Optional agent's confidence in this fact (0.0 to 1.0).")
 
 
 class QueryLongTermMemoryParams(BaseModel):
-    query_text: str = Field(description="The natural language query to search the memory.")
-    fact_types: Optional[List[Literal[
-        "user_preference",
-        "page_content_summary",
-        "key_finding",
-        "action_taken",
-        "action_outcome_success",
-        "action_outcome_failure",
-        "navigation_milestone",
-        "agent_reflection",
-        "user_instruction",
-        "raw_text"
-    ]]] = Field(default=None, description="Optional list of fact types to filter by.") # Use Literal for fact_types
-    relevant_to_url: Optional[str] = Field(default=None, description="Optional URL to find facts relevant to.")
-    max_results: int = Field(default=3, gt=0, le=10, description="Maximum number of results to return.")
+	query_text: str = Field(description='The natural language query to search the memory.')
+	fact_types: list[GranularFactType] | None = Field(default=None, description='Optional list of fact types to filter by.')
+	relevant_to_url: str | None = Field(default=None, description='Optional URL to find facts relevant to.')
+	max_results: int = Field(default=3, gt=0, le=10, description='Maximum number of results to return.')
+
+
 # --- END NEW ---
 
 
@@ -815,11 +814,11 @@ class Controller(Generic[Context]):
 			'Save an important fact, user preference, or key finding to long-term memory for later recall.',
 			param_model=SaveFactToMemoryParams,
 		)
-		async def save_fact_to_memory(params: SaveFactToMemoryParams, context: dict): # Use generic dict for context now
-			agent_memory: Optional[MemoryService] = context.get("agent_memory")
-			agent_id: Optional[str] = context.get("agent_id")
-			run_id: Optional[str] = context.get("agent_run_id")
-			browser_session: Optional[BrowserSession] = context.get("browser_session") # Get browser_session from context
+		async def save_fact_to_memory(params: SaveFactToMemoryParams, context):
+			agent_memory: MemoryService | None = context.get('agent_memory')
+			agent_id: str | None = context.get('agent_id')
+			run_id: str | None = context.get('agent_run_id')
+			browser_session: BrowserSession | None = context.get('browser_session')  # Get browser_session from context
 
 			current_url = None
 			if browser_session:
@@ -827,8 +826,7 @@ class Controller(Generic[Context]):
 					page = await browser_session.get_current_page()
 					current_url = page.url
 				except Exception:
-					logger.debug("Could not get current URL for SaveFactToMemory action.")
-
+					logger.debug('Could not get current URL for SaveFactToMemory action.')
 
 			if agent_memory and agent_id and run_id:
 				fact_entry = GranularMemoryEntry(
@@ -836,32 +834,32 @@ class Controller(Generic[Context]):
 					run_id=run_id,
 					type=params.fact_type,
 					content=params.fact_content,
-					source_url=params.source_url or current_url, # Default to current URL if not provided
+					source_url=params.source_url or current_url,  # Default to current URL if not provided
 					keywords=params.keywords,
-					confidence=params.confidence
+					confidence=params.confidence,
 					# id and timestamp will be auto-generated
 				)
 				mem_id = agent_memory.add_granular_fact(fact_entry)
 				if mem_id:
 					msg = f"Fact '{params.fact_content[:50]}...' of type '{params.fact_type}' saved to LTM. ID: {mem_id}"
-					logger.info(f"🧠 {msg}")
-					return ActionResult(extracted_content=msg, include_in_memory=False) # Don't repeat this in next prompt
+					logger.info(f'🧠 {msg}')
+					return ActionResult(extracted_content=msg, include_in_memory=False)  # Don't repeat this in next prompt
 				else:
 					msg = f"Failed to save fact '{params.fact_content[:50]}...' to LTM."
-					logger.warning(f"🧠 {msg}")
+					logger.warning(f'🧠 {msg}')
 					return ActionResult(error=msg, include_in_memory=False)
 			else:
-				msg = "Memory service or agent/run ID not available. Cannot save fact."
-				logger.error(f"🧠 {msg}")
+				msg = 'Memory service or agent/run ID not available. Cannot save fact.'
+				logger.error(f'🧠 {msg}')
 				return ActionResult(error=msg, include_in_memory=False)
 
 		@self.registry.action(
 			'Query long-term memory for specific information, preferences, or past findings relevant to the current task or page.',
 			param_model=QueryLongTermMemoryParams,
 		)
-		async def query_long_term_memory(params: QueryLongTermMemoryParams, context: dict): # Use generic dict for context
-			agent_memory: Optional[MemoryService] = context.get("agent_memory")
-			agent_id: Optional[str] = context.get("agent_id")
+		async def query_long_term_memory(params: QueryLongTermMemoryParams, context):
+			agent_memory: MemoryService | None = context.get('agent_memory')
+			agent_id: str | None = context.get('agent_id')
 			# run_id for querying might be optional, or could default to current run_id
 			# For true "long-term" memory, run_id might not always be passed for search.
 			# current_run_id: Optional[str] = context.get("agent_run_id")
@@ -869,44 +867,48 @@ class Controller(Generic[Context]):
 			if agent_memory and agent_id:
 				mem_results = agent_memory.search_granular_facts(
 					query=params.query_text,
-					agent_id=agent_id, # Search within this agent's persistent memory
+					agent_id=agent_id,  # Search within this agent's persistent memory
 					# run_id=current_run_id, # Decide if search should be session-specific by default
-					fact_types=params.fact_types, # type: ignore # Pydantic will validate Literal
+					fact_types=params.fact_types,  # Pydantic will validate Literal
 					source_url=params.relevant_to_url,
-					limit=params.max_results
+					limit=params.max_results,
 				)
-				
+
 				if mem_results:
 					# Format results for the LLM. Include content and source if available.
 					formatted_results_list = []
 					for res in mem_results:
-						entry_content = res.get('memory', 'Unknown memory content') 
+						entry_content = res.get('memory', 'Unknown memory content')
 						# mem0's search result has 'memory' as the content.
 						# We might need to adjust if mem0's search returns the full metadata dict.
 						# Assuming res is a dict from mem0.search, which contains 'memory' and 'metadata'
 						metadata = res.get('metadata', {})
 						res_source_url = metadata.get('source_url')
 						res_timestamp = metadata.get('timestamp')
-						
-						entry_str = f"Fact: {entry_content}"
+
+						entry_str = f'Fact: {entry_content}'
 						if res_source_url:
-							entry_str += f" (Source: {res_source_url})"
+							entry_str += f' (Source: {res_source_url})'
 						if res_timestamp:
-							entry_str += f" (Timestamp: {res_timestamp})"
+							entry_str += f' (Timestamp: {res_timestamp})'
 						formatted_results_list.append(entry_str)
-					
-					final_output = "\n".join(formatted_results_list)
-					if not final_output: final_output = "No relevant facts found in long-term memory."
+
+					final_output = '\n'.join(formatted_results_list)
+					if not final_output:
+						final_output = 'No relevant facts found in long-term memory.'
 
 				else:
-					final_output = "No relevant facts found in long-term memory."
+					final_output = 'No relevant facts found in long-term memory.'
 
-				logger.info(f"🧠 Queried LTM for '{params.query_text[:50]}...'. Found {len(mem_results)} facts. Result: {final_output[:100]}...")
-				return ActionResult(extracted_content=final_output, include_in_memory=True) # Result should inform next LLM step
+				logger.info(
+					f"🧠 Queried LTM for '{params.query_text[:50]}...'. Found {len(mem_results)} facts. Result: {final_output[:100]}..."
+				)
+				return ActionResult(extracted_content=final_output, include_in_memory=True)  # Result should inform next LLM step
 			else:
-				msg = "Memory service or agent ID not available. Cannot query LTM."
-				logger.error(f"🧠 {msg}")
+				msg = 'Memory service or agent ID not available. Cannot query LTM.'
+				logger.error(f'🧠 {msg}')
 				return ActionResult(error=msg, include_in_memory=False)
+
 		# --- END NEW ---
 
 		@self.registry.action('Google Sheets: Get the contents of the entire sheet', domains=['https://docs.google.com'])
