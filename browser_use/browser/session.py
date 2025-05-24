@@ -536,7 +536,19 @@ class BrowserSession(BaseModel):
 					f'(agent will stay on [{agent_tab_idx}]{_log_pretty_url(agent_url)})'
 				)
 
-		await self.browser_context.expose_binding('_BrowserUseonTabVisibilityChange', _BrowserUseonTabVisibilityChange)
+		try:
+			await self.browser_context.expose_binding('_BrowserUseonTabVisibilityChange', _BrowserUseonTabVisibilityChange)
+
+		except Exception as e:
+			if 'Function "_BrowserUseonTabVisibilityChange" has been already registered' in str(e):
+				logger.debug(
+					'⚠️ Function "_BrowserUseonTabVisibilityChange" has been already registered, '
+					'this is likely because the browser was already started with an existing BrowserSession()'
+				)
+
+			else:
+				raise
+
 		update_tab_focus_script = """
 			// --- Method 1: visibilitychange event (unfortunately *all* tabs are always marked visible by playwright, usually does not fire) ---
 			document.addEventListener('visibilitychange', async () => {
