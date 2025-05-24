@@ -1602,15 +1602,24 @@ class Agent(Generic[Context]):
 
 			try:
 				await self._raise_if_stopped_or_paused()
-
+				# --- MODIFIED: Context for controller actions ---
+				# This context will be available to action handlers within the controller
+				action_execution_context = {
+					"agent_memory": self.memory, # Provide memory service
+					"agent_id": self.memory_config.agent_id,
+					"agent_run_id": self.run_id,
+					"agent_settings": self.settings, # Agent settings might be useful
+					"original_task": self.task,
+                     # Pass through existing context items if controller relies on them
+                    **(self.context if isinstance(self.context, dict) else {"custom_context": self.context})
+				}
 				result = await self.controller.act(
-					action=action,
-					browser_session=self.browser_session,
+					action=action, browser_session=self.browser_session,
 					page_extraction_llm=self.settings.page_extraction_llm,
-					sensitive_data=self.sensitive_data,
-					available_file_paths=self.settings.available_file_paths,
-					context=self.context,
+					sensitive_data=self.sensitive_data, available_file_paths=self.settings.available_file_paths,
+					context=action_execution_context, # Pass enriched context
 				)
+				# --- END MODIFIED ---
 
 				results.append(result)
 
