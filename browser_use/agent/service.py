@@ -7,9 +7,10 @@ import os
 import re
 import sys
 import time
+import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, List, Optional
 
 from dotenv import load_dotenv
 
@@ -24,10 +25,10 @@ from langchain_core.messages import (
 	SystemMessage,
 )
 from playwright.async_api import Browser, BrowserContext, Page
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, Field
 
 from browser_use.agent.gif import create_history_gif
-from browser_use.agent.memory import Memory, MemoryConfig
+from browser_use.agent.memory import Memory, MemoryConfig, GranularMemoryEntry
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
 from browser_use.agent.message_manager.utils import (
 	convert_input_messages,
@@ -70,6 +71,29 @@ logger = logging.getLogger(__name__)
 
 SKIP_LLM_API_KEY_VERIFICATION = os.environ.get('SKIP_LLM_API_KEY_VERIFICATION', 'false').lower()[0] in 'ty1'
 
+
+# --- NEW: Pydantic models for Memory Actions ---
+class SaveFactToMemoryParams(BaseModel):
+	fact_content: str = Field(description="The textual content of the fact to be saved.")
+	fact_type: Literal[
+        "user_preference",
+        "page_content_summary",
+        "key_finding",
+        "agent_reflection",
+        "user_instruction",
+        "raw_text"
+    ] = Field(description="The type or category of the fact.")
+	source_url: Optional[str] = Field(default=None, description="Optional URL where the information was found.")
+	keywords: Optional[List[str]] = Field(default_factory=list, description="Optional keywords for easier filtering.")
+	confidence: Optional[float] = Field(default=None, description="Optional agent's confidence in this fact (0.0 to 1.0).")
+
+
+class QueryLongTermMemoryParams(BaseModel):
+    query_text: str = Field(description="The natural language query to search the memory.")
+    fact_types: Optional[List[str]] = Field(default=None, description="Optional list of fact types to filter by.")
+    relevant_to_url: Optional[str] = Field(default=None, description="Optional URL to find facts relevant to.")
+    max_results: int = Field(default=3, gt=0, le=10, description="Maximum number of results to return.")
+# --- END NEW ---
 
 def log_response(response: AgentOutput, registry=None) -> None:
 	"""Utility function to log the model's response."""
@@ -157,6 +181,7 @@ class Agent(Generic[Context]):
 		save_playwright_script_path: str | None = None,
 		enable_memory: bool = True,
 		memory_config: MemoryConfig | None = None,
+		agent_id: Optional[str] = None, # NEW: Allow explicit agent_id for persistence
 		source: str | None = None,
 	):
 		if page_extraction_llm is None:
@@ -167,6 +192,10 @@ class Agent(Generic[Context]):
 		self.llm = llm
 		self.controller = controller
 		self.sensitive_data = sensitive_data
+
+		# --- NEW: Agent and Run ID Management ---
+		self.run_id = f"run_{uuid.uuid4().hex[:12]}" # Unique ID for this execution session
+		# --- END NEW ---
 
 		self.settings = AgentSettings(
 			use_vision=use_vision,
@@ -193,9 +222,21 @@ class Agent(Generic[Context]):
 			extend_planner_system_message=extend_planner_system_message,
 		)
 
-		# Memory settings
+		# --- MODIFIED: Memory settings and Agent ID ---
 		self.enable_memory = enable_memory
-		self.memory_config = memory_config
+		if memory_config:
+			self.memory_config = memory_config
+			if agent_id: # If agent_id is passed to Agent constructor, it overrides MemoryConfig
+				self.memory_config.agent_id = agent_id
+		elif agent_id: # If no memory_config but agent_id is passed
+			self.memory_config = MemoryConfig(agent_id=agent_id)
+		else: # No memory_config and no agent_id, use MemoryConfig default
+			self.memory_config = MemoryConfig()
+		# Ensure agent_id in memory_config is set, defaulting if necessary
+		if not self.memory_config.agent_id:
+		    self.memory_config.agent_id = f"bu_agent_{uuid.uuid4().hex[:12]}"
+		logger.info(f"Agent initialized with persistent agent_id: {self.memory_config.agent_id} and session run_id: {self.run_id}")
+		# --- END MODIFIED ---
 
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
