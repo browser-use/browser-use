@@ -143,16 +143,23 @@ class Registry(Generic[Context]):
 					and hasattr(parameters[0], 'annotation')
 					and parameters[0].annotation != parameters[0].empty
 					and issubclass(parameters[0].annotation, BaseModel)
-					and
 					# Additional check: make sure the first parameter name suggests it's actually a pydantic model
-					parameters[0].name in ['params', 'param', 'model']
-					or parameters[0].name.endswith('_model')
+					# and parameters[0].name in ['params', 'param', 'model']
+					# or parameters[0].name.endswith('_model')
 				)
 			except (TypeError, AttributeError):
 				is_pydantic = False
 
 			if sensitive_data:
-				validated_params = self._replace_sensitive_data(validated_params, sensitive_data, browser_session)
+				# Get current URL if browser_session is provided
+				current_url = None
+				if browser_session:
+					if browser_session.agent_current_page:
+						current_url = browser_session.agent_current_page.url
+					else:
+						current_page = await browser_session.get_current_page()
+						current_url = current_page.url if current_page else None
+				validated_params = self._replace_sensitive_data(validated_params, sensitive_data, current_url)
 
 			# Check if the action requires special parameters and validate they're provided
 			if (
@@ -242,9 +249,7 @@ class Registry(Generic[Context]):
 			url_info = f' on {current_url}' if current_url and current_url != 'about:blank' else ''
 			logger.info(f'🔒 Using sensitive data placeholders: {", ".join(sorted(placeholders_used))}{url_info}')
 
-	def _replace_sensitive_data(
-		self, params: BaseModel, sensitive_data: dict[str, Any], browser_session: BrowserSession = None
-	) -> BaseModel:
+	def _replace_sensitive_data(self, params: BaseModel, sensitive_data: dict[str, Any], current_url: str = None) -> BaseModel:
 		"""
 		Replaces sensitive data placeholders in params with actual values.
 
@@ -252,7 +257,7 @@ class Registry(Generic[Context]):
 			params: The parameter object containing <secret>placeholder</secret> tags
 			sensitive_data: Dictionary of sensitive data, either in old format {key: value}
 						   or new format {domain_pattern: {key: value}}
-			browser_session: Optional browser session to get the current URL for domain matching
+			current_url: Optional current URL for domain matching
 
 		Returns:
 			BaseModel: The parameter object with placeholders replaced by actual values
@@ -264,17 +269,6 @@ class Registry(Generic[Context]):
 		# Set to track successfully replaced placeholders
 		replaced_placeholders = set()
 
-		# Determine current URL if browser_session is provided
-		current_url = None
-		if browser_session:
-			try:
-				# Get current URL from browser session - do this synchronously to avoid complications
-				loop = asyncio.get_event_loop()
-				current_page = loop.run_until_complete(browser_session.get_current_page())
-				current_url = current_page.url if current_page else None
-			except Exception as e:
-				logger.debug(f'Failed to get current URL from browser session: {e}')
-
 		# Process sensitive data based on format and current URL
 		applicable_secrets = {}
 
@@ -282,21 +276,18 @@ class Registry(Generic[Context]):
 			if isinstance(content, dict):
 				# New format: {domain_pattern: {key: value}}
 				# Only include secrets for domains that match the current URL
-				if current_url is None:
-					# No URL available, include all secrets for all domains
-					applicable_secrets.update(content)
-				elif current_url != 'about:blank':
-					# Don't expose domain-specific secrets on about:blank
+				if current_url and current_url != 'about:blank':
+					# it's a real url, check it using our custom allowed_domains scheme://*.example.com glob matching
 					if match_url_with_domain_pattern(current_url, domain_or_key):
 						applicable_secrets.update(content)
 			else:
-				# Old format: {key: value}
+				# Old format: {key: value}, expose to all domains (only allowed for legacy reasons)
 				applicable_secrets[domain_or_key] = content
 
 		# Filter out empty values
 		applicable_secrets = {k: v for k, v in applicable_secrets.items() if v}
 
-		def replace_secrets(value):
+		def recursively_replace_secrets(value: str | dict | list) -> str | dict | list:
 			if isinstance(value, str):
 				matches = secret_pattern.findall(value)
 
@@ -311,13 +302,13 @@ class Registry(Generic[Context]):
 
 				return value
 			elif isinstance(value, dict):
-				return {k: replace_secrets(v) for k, v in value.items()}
+				return {k: recursively_replace_secrets(v) for k, v in value.items()}
 			elif isinstance(value, list):
-				return [replace_secrets(v) for v in value]
+				return [recursively_replace_secrets(v) for v in value]
 			return value
 
 		params_dump = params.model_dump()
-		processed_params = replace_secrets(params_dump)
+		processed_params = recursively_replace_secrets(params_dump)
 
 		# Log sensitive data usage
 		self._log_sensitive_data_usage(replaced_placeholders, current_url)

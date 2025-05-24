@@ -92,11 +92,19 @@ def test_simple_domain_specific_sensitive_data(registry, caplog):
 		'other_data': 'non_secret_value',  # Old format mixed with new
 	}
 
-	# Without a browser_session, it should still replace known keys
+	# Without a URL, domain-specific secrets should NOT be exposed
 	result = registry._replace_sensitive_data(params, sensitive_data)
-	assert 'example_user' in result.text
+	assert '<secret>username</secret>' in result.text  # Should NOT be replaced without URL
 	assert '<secret>password</secret>' in result.text  # Password is missing in sensitive_data
+	assert 'username' in caplog.text  # Both should be logged as missing
 	assert 'password' in caplog.text
+	caplog.clear()
+
+	# Test with a matching URL - domain-specific secrets should be exposed
+	result = registry._replace_sensitive_data(params, sensitive_data, 'https://example.com/login')
+	assert 'example_user' in result.text  # Should be replaced with matching URL
+	assert '<secret>password</secret>' in result.text  # Password is still missing
+	assert 'password' in caplog.text  # Only password should be logged as missing
 	caplog.clear()
 
 
