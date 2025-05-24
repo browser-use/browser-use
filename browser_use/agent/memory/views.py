@@ -1,7 +1,75 @@
-from typing import Any, Literal
+from typing import Any, Literal, Optional, List
+from datetime import datetime
+import uuid
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class GranularMemoryEntry(BaseModel):
+	"""
+	Represents a single, atomic piece of information stored in long-term memory.
+	"""
+
+	model_config = ConfigDict(
+		from_attributes=True, validate_default=True, revalidate_instances='always', validate_assignment=True
+	)
+
+	id: str = Field(default_factory=lambda: str(uuid.uuid4()), description='Unique identifier for the memory entry.')
+	timestamp: datetime = Field(default_factory=datetime.utcnow, description='Timestamp of when the memory was created/observed.')
+	type: Literal[
+		'user_preference',
+		'page_content_summary',
+		'key_finding',
+		'action_taken',
+		'action_outcome_success',
+		'action_outcome_failure',
+		'navigation_milestone',
+		'agent_reflection',
+		'user_instruction',
+		'raw_text',  # Added a generic type for simple text storage
+	] = Field(description='The type or category of the memory entry.')
+	content: str = Field(description='The actual textual content of the memory.')
+
+	agent_id: str = Field(description='Persistent ID for the agent instance this memory belongs to.')
+	run_id: str = Field(description='ID for the specific agent execution session during which this memory was created.')
+	user_id: Optional[str] = Field(default=None, description='Optional external user ID, if provided for multi-user scenarios.')
+
+	source_url: Optional[str] = Field(default=None, description='URL where the information was found or action occurred.')
+	source_element_xpath: Optional[str] = Field(
+		default=None, description='XPath to a relevant element on the page, if applicable.'
+	)
+
+	relevance_score: Optional[float] = Field(
+		default=None, description='Score indicating relevance, if assigned by LLM or retrieval mechanism.'
+	)
+	keywords: Optional[List[str]] = Field(
+		default_factory=list, description='Keywords associated with the memory for filtering/search.'
+	)
+
+	associated_action: Optional[dict] = Field(
+		default=None, description='If the memory is linked to a specific agent action, its details.'
+	)
+	confidence: Optional[float] = Field(default=None, description="Agent's confidence in the fact/memory, if applicable.")
+
+	# To allow easy conversion to mem0 metadata
+	def to_mem0_metadata(self) -> dict[str, Any]:
+		"""Converts relevant fields to a dictionary suitable for mem0 metadata."""
+		metadata = {
+			'entry_id': self.id,  # Keep our own ID in metadata
+			'entry_type': self.type,
+			'timestamp': self.timestamp.isoformat(),
+			'source_url': self.source_url,
+			'source_element_xpath': self.source_element_xpath,
+			'relevance_score': self.relevance_score,
+			'keywords': self.keywords,
+			'associated_action': self.associated_action,
+			'confidence': self.confidence,
+			'agent_id': self.agent_id,  # Storing agent_id also in metadata for potential filtering in mem0 if needed
+			'run_id': self.run_id,
+			'user_id': self.user_id,
+		}
+		return {k: v for k, v in metadata.items() if v is not None}
 
 
 class MemoryConfig(BaseModel):
