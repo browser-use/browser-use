@@ -10,7 +10,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Generic, TypeVar, List, Optional
+from typing import Any, Generic, TypeVar, List, Optional, Literal
 
 from dotenv import load_dotenv
 
@@ -72,28 +72,6 @@ logger = logging.getLogger(__name__)
 SKIP_LLM_API_KEY_VERIFICATION = os.environ.get('SKIP_LLM_API_KEY_VERIFICATION', 'false').lower()[0] in 'ty1'
 
 
-# --- NEW: Pydantic models for Memory Actions ---
-class SaveFactToMemoryParams(BaseModel):
-	fact_content: str = Field(description="The textual content of the fact to be saved.")
-	fact_type: Literal[
-        "user_preference",
-        "page_content_summary",
-        "key_finding",
-        "agent_reflection",
-        "user_instruction",
-        "raw_text"
-    ] = Field(description="The type or category of the fact.")
-	source_url: Optional[str] = Field(default=None, description="Optional URL where the information was found.")
-	keywords: Optional[List[str]] = Field(default_factory=list, description="Optional keywords for easier filtering.")
-	confidence: Optional[float] = Field(default=None, description="Optional agent's confidence in this fact (0.0 to 1.0).")
-
-
-class QueryLongTermMemoryParams(BaseModel):
-    query_text: str = Field(description="The natural language query to search the memory.")
-    fact_types: Optional[List[str]] = Field(default=None, description="Optional list of fact types to filter by.")
-    relevant_to_url: Optional[str] = Field(default=None, description="Optional URL to find facts relevant to.")
-    max_results: int = Field(default=3, gt=0, le=10, description="Maximum number of results to return.")
-# --- END NEW ---
 
 def log_response(response: AgentOutput, registry=None) -> None:
 	"""Utility function to log the model's response."""
@@ -1531,60 +1509,15 @@ class Agent(Generic[Context]):
 
 		await self.browser_session.remove_highlights()
 
-		for i, action in enumerate(actions):
-			# --- NEW: Handle SaveFactToMemoryAction ---
-			action_data_for_check = action.model_dump(exclude_unset=True)
-			if 'save_fact_to_memory' in action_data_for_check:
-				if self.enable_memory and self.memory:
-					params = SaveFactToMemoryParams(**action_data_for_check['save_fact_to_memory'])
-					fact_entry = GranularMemoryEntry(
-						agent_id=self.memory_config.agent_id,
-						run_id=self.run_id,
-						type=params.fact_type, # type: ignore # Literal type matching
-						content=params.fact_content,
-						source_url=params.source_url or current_browser_state_summary.url, # Default to current URL
-						keywords=params.keywords,
-						confidence=params.confidence
-					)
-					mem_id = self.memory.add_granular_fact(fact_entry)
-					msg = f"Fact '{params.fact_content[:50]}...' of type '{params.fact_type}' saved to memory with ID: {mem_id}."
-					logger.info(f"🧠 {msg}")
-					results.append(ActionResult(extracted_content=msg, include_in_memory=False)) # Don't include this action result in next prompt's memory
-				else:
-					msg = "Memory is not enabled, cannot save fact."
-					logger.warning(f"🧠 {msg}")
-					results.append(ActionResult(error=msg, include_in_memory=False))
-				continue  # Skip to next action in the list
-			
-			# --- NEW: Handle QueryLongTermMemoryAction Placeholder ---
-			if 'query_long_term_memory' in action_data_for_check:
-				if self.enable_memory and self.memory:
-					params = QueryLongTermMemoryParams(**action_data_for_check['query_long_term_memory'])
-					mem_results = self.memory.search_granular_facts(
-						query=params.query_text,
-						agent_id=self.memory_config.agent_id,
-						run_id=self.run_id, # Search within current run by default, or make configurable
-						fact_types=params.fact_types,
-						source_url=params.relevant_to_url,
-						limit=params.max_results
-					)
-					formatted_results = "\n".join([f"- {res.get('memory', 'Unknown memory content')}" for res in mem_results]) if mem_results else "No relevant facts found in long-term memory."
-					logger.info(f"🧠 Queried LTM for '{params.query_text[:50]}...'. Found {len(mem_results)} facts.")
-					results.append(ActionResult(extracted_content=formatted_results, include_in_memory=True)) # Include result in prompt
-				else:
-					msg = "Memory is not enabled, cannot query long-term memory."
-					logger.warning(f"🧠 {msg}")
-					results.append(ActionResult(error=msg, include_in_memory=False))
-				continue
-            # --- END NEW ---
-			if action.get_index() is not None and i != 0:
+		for i, action_instance in enumerate(actions):
+			if action_instance.get_index() is not None and i != 0:
 				new_browser_state_summary = await self.browser_session.get_state_summary(cache_clickable_elements_hashes=False)
 				new_selector_map = new_browser_state_summary.selector_map
 
 				# Detect index change after previous action
-				orig_target = cached_selector_map.get(action.get_index())  # type: ignore
+				orig_target = cached_selector_map.get(action_instance.get_index())  # type: ignore
 				orig_target_hash = orig_target.hash.branch_path_hash if orig_target else None
-				new_target = new_selector_map.get(action.get_index())  # type: ignore
+				new_target = new_selector_map.get(action_instance.get_index())  # type: ignore
 				new_target_hash = new_target.hash.branch_path_hash if new_target else None
 				if orig_target_hash != new_target_hash:
 					msg = f'Element index changed after action {i} / {len(actions)}, because page changed.'
@@ -1605,19 +1538,15 @@ class Agent(Generic[Context]):
 				# --- MODIFIED: Context for controller actions ---
 				# This context will be available to action handlers within the controller
 				action_execution_context = {
-					"agent_memory": self.memory, # Provide memory service
-					"agent_id": self.memory_config.agent_id,
-					"agent_run_id": self.run_id,
-					"agent_settings": self.settings, # Agent settings might be useful
-					"original_task": self.task,
-                     # Pass through existing context items if controller relies on them
-                    **(self.context if isinstance(self.context, dict) else {"custom_context": self.context})
+					"agent_memory": self.memory, "agent_id": self.memory_config.agent_id, "agent_run_id": self.run_id,
+					"agent_settings": self.settings, "original_task": self.task, "browser_session": self.browser_session, # Added browser_session for controller actions
+					**(self.context if isinstance(self.context, dict) else {"custom_context": self.context})
 				}
 				result = await self.controller.act(
-					action=action, browser_session=self.browser_session,
+					action=action_instance, browser_session=self.browser_session, # browser_session is also in context, but direct pass is clearer for controller.act
 					page_extraction_llm=self.settings.page_extraction_llm,
 					sensitive_data=self.sensitive_data, available_file_paths=self.settings.available_file_paths,
-					context=action_execution_context, # Pass enriched context
+					context=action_execution_context,
 				)
 				# --- END MODIFIED ---
 
