@@ -284,6 +284,13 @@ class Agent(Generic[Context]):
 		# Initialize available actions for system prompt (only non-filtered actions)
 		# These will be used for the system prompt to maintain caching
 		self.unfiltered_actions = self.controller.registry.get_prompt_description()
+		# --- NEW: Add memory actions to unfiltered_actions if controller doesn't handle them (Phase 2) ---
+		# This part depends on how SaveFactToMemory and QueryLongTermMemory are registered.
+		# If they are standard controller actions, this is fine.
+		# If they are special, the SystemPrompt might need manual adjustment.
+		# For now, assume they will be registered via controller like other actions.
+		# self.unfiltered_actions += "\n" + SaveFactToMemoryParams.model_json_schema(indent=2) # Example
+		# --- END NEW ---
 
 		self.settings.message_context = self._set_message_context()
 
@@ -785,6 +792,22 @@ class Agent(Generic[Context]):
 			current_page = await self.browser_session.get_current_page()
 
 			self._log_step_context(current_page, browser_state_summary)
+
+			# --- NEW: Store Navigation Milestone ---
+			if self.enable_memory and self.memory and browser_state_summary:
+				current_url = browser_state_summary.url
+				if current_url and current_url != previous_url:
+					nav_fact = GranularMemoryEntry(
+						agent_id=self.memory_config.agent_id,
+						run_id=self.run_id,
+						type="navigation_milestone",
+						content=f"Navigated to URL: {current_url}. Page title: {browser_state_summary.title or 'N/A'}",
+						source_url=current_url,
+						keywords=["navigation", "url_change", current_url.split('/')[2] if '//' in current_url else current_url]
+					)
+					self.memory.add_granular_fact(nav_fact)
+					logger.debug(f"🧠 Stored navigation milestone: {current_url}")
+			# --- END NEW ---
 
 			# generate procedural memory if needed
 			if self.enable_memory and self.memory and self.state.n_steps % self.memory.config.memory_interval == 0:
