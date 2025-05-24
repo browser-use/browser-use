@@ -1518,17 +1518,65 @@ class Agent(Generic[Context]):
 	async def multi_act(
 		self,
 		actions: list[ActionModel],
+		current_browser_state_summary: BrowserStateSummary,  # NEW: Pass current summary
 		check_for_new_elements: bool = True,
 	) -> list[ActionResult]:
 		"""Execute multiple actions"""
 		results = []
 
-		cached_selector_map = await self.browser_session.get_selector_map()
+		# cached_selector_map = await self.browser_session.get_selector_map() # Already in current_browser_state_summary
+		cached_selector_map = current_browser_state_summary.selector_map
 		cached_path_hashes = {e.hash.branch_path_hash for e in cached_selector_map.values()}
+		await self.browser_session.remove_highlights()
 
 		await self.browser_session.remove_highlights()
 
 		for i, action in enumerate(actions):
+			# --- NEW: Handle SaveFactToMemoryAction ---
+			action_data_for_check = action.model_dump(exclude_unset=True)
+			if 'save_fact_to_memory' in action_data_for_check:
+				if self.enable_memory and self.memory:
+					params = SaveFactToMemoryParams(**action_data_for_check['save_fact_to_memory'])
+					fact_entry = GranularMemoryEntry(
+						agent_id=self.memory_config.agent_id,
+						run_id=self.run_id,
+						type=params.fact_type, # type: ignore # Literal type matching
+						content=params.fact_content,
+						source_url=params.source_url or current_browser_state_summary.url, # Default to current URL
+						keywords=params.keywords,
+						confidence=params.confidence
+					)
+					mem_id = self.memory.add_granular_fact(fact_entry)
+					msg = f"Fact '{params.fact_content[:50]}...' of type '{params.fact_type}' saved to memory with ID: {mem_id}."
+					logger.info(f"🧠 {msg}")
+					results.append(ActionResult(extracted_content=msg, include_in_memory=False)) # Don't include this action result in next prompt's memory
+				else:
+					msg = "Memory is not enabled, cannot save fact."
+					logger.warning(f"🧠 {msg}")
+					results.append(ActionResult(error=msg, include_in_memory=False))
+				continue  # Skip to next action in the list
+			
+			# --- NEW: Handle QueryLongTermMemoryAction Placeholder ---
+			if 'query_long_term_memory' in action_data_for_check:
+				if self.enable_memory and self.memory:
+					params = QueryLongTermMemoryParams(**action_data_for_check['query_long_term_memory'])
+					mem_results = self.memory.search_granular_facts(
+						query=params.query_text,
+						agent_id=self.memory_config.agent_id,
+						run_id=self.run_id, # Search within current run by default, or make configurable
+						fact_types=params.fact_types,
+						source_url=params.relevant_to_url,
+						limit=params.max_results
+					)
+					formatted_results = "\n".join([f"- {res.get('memory', 'Unknown memory content')}" for res in mem_results]) if mem_results else "No relevant facts found in long-term memory."
+					logger.info(f"🧠 Queried LTM for '{params.query_text[:50]}...'. Found {len(mem_results)} facts.")
+					results.append(ActionResult(extracted_content=formatted_results, include_in_memory=True)) # Include result in prompt
+				else:
+					msg = "Memory is not enabled, cannot query long-term memory."
+					logger.warning(f"🧠 {msg}")
+					results.append(ActionResult(error=msg, include_in_memory=False))
+				continue
+            # --- END NEW ---
 			if action.get_index() is not None and i != 0:
 				new_browser_state_summary = await self.browser_session.get_state_summary(cache_clickable_elements_hashes=False)
 				new_selector_map = new_browser_state_summary.selector_map
