@@ -87,6 +87,12 @@ class MemoryConfig(BaseModel):
 	)
 	memory_interval: int = Field(default=10, gt=1, lt=100)
 
+	# Granular Memory specific settings
+	granular_memory_collection_name: Optional[str] = Field(
+		default='browser_use_granular_facts',
+		description='Name for the collection/index in the vector store dedicated to granular facts. If None, uses default mem0 collection.',
+	)
+
 	# Embedder settings
 	embedder_provider: Literal['openai', 'gemini', 'ollama', 'huggingface'] = 'huggingface'
 	embedder_model: str = Field(min_length=2, default='all-MiniLM-L6-v2')
@@ -94,7 +100,9 @@ class MemoryConfig(BaseModel):
 
 	# LLM settings - the LLM instance can be passed separately
 	llm_provider: Literal['langchain'] = 'langchain'
-	llm_instance: BaseChatModel | None = None
+	llm_instance: Optional[BaseChatModel] = (
+		None  # Made Optional as it might not be needed if only using for storage/retrieval via mem0 client directly
+	)
 
 	# Vector store settings
 	vector_store_provider: Literal[
@@ -134,7 +142,10 @@ class MemoryConfig(BaseModel):
 	@property
 	def vector_store_path(self) -> str:
 		"""Returns the full vector store path for the current configuration. e.g. /tmp/mem0_384_faiss"""
-		return f'{self.vector_store_base_path}_{self.embedder_dims}_{self.vector_store_provider}'
+		# Use the main collection name if provided, otherwise generate one.
+		# This path is more for local file-based stores like FAISS.
+		collection_part = self.vector_store_collection_name or f'default_summaries_{self.embedder_dims}'
+		return f'{self.vector_store_base_path}/{self.vector_store_provider}/{collection_part}'
 
 	@property
 	def embedder_config_dict(self) -> dict[str, Any]:
@@ -146,54 +157,48 @@ class MemoryConfig(BaseModel):
 
 	@property
 	def llm_config_dict(self) -> dict[str, Any]:
-		"""Returns the LLM configuration dictionary."""
-		return {'provider': self.llm_provider, 'config': {'model': self.llm_instance}}
+		"""Returns the LLM configuration dictionary for Mem0, if LLM instance is provided."""
+		if self.llm_instance:
+			return {
+				'provider': self.llm_provider,
+				'config': {'model': self.llm_instance},
+			}
+		return None
 
 	@property
 	def vector_store_config_dict(self) -> dict[str, Any]:
 		"""
 		Returns the vector store configuration dictionary for Mem0,
-		tailored to the selected provider.
+		tailored to the selected provider for summary/main memory.
 		"""
 		# Common config items that Mem0 often expects inside the provider's 'config'
 		provider_specific_config = {'embedding_model_dims': self.embedder_dims}
 
-		# Default collection name handling
-		if self.vector_store_collection_name:
-			provider_specific_config['collection_name'] = self.vector_store_collection_name
-		elif self.vector_store_provider not in ['memory']:  # 'memory' provider might not need/use a collection name
-			if self.vector_store_provider in ['faiss', 'chroma']:
-				# Default name for local stores often includes dimensions to avoid conflicts
-				provider_specific_config['collection_name'] = f'mem0_{self.vector_store_provider}_{self.embedder_dims}'
-			else:  # Cloud/server stores typically have user-defined or fixed names
-				provider_specific_config['collection_name'] = 'mem0_default_collection'
+		# Default collection name handling for main/summary memory
+		main_collection_name = self.vector_store_collection_name
+		if not main_collection_name and self.vector_store_provider not in ['memory']:
+			if self.vector_store_provider in ['faiss', 'chroma', 'lancedb']:  # LanceDB added as it is a local store
+				main_collection_name = f'mem0_summaries_{self.vector_store_provider}_{self.embedder_dims}'
+			else:
+				main_collection_name = 'mem0_default_summaries_collection'
 
-		# Default path handling for local stores (FAISS, Chroma) if not overridden by user
-		if self.vector_store_provider == 'faiss':
-			# FAISS needs a 'path'. If not in override, set default.
-			if not (self.vector_store_config_override and 'path' in self.vector_store_config_override):
-				provider_specific_config['path'] = (
-					f'{self.vector_store_base_path}_{self.embedder_dims}_{self.vector_store_provider}'
+		if main_collection_name:
+			provider_specific_config['collection_name'] = main_collection_name
+
+		# Default path handling for local stores if not overridden
+		if self.vector_store_provider in ['faiss', 'chroma', 'lancedb']:
+			default_path_key = 'path'
+			if self.vector_store_provider == 'lancedb':
+				default_path_key = 'uri'  # LanceDB uses 'uri'
+
+			if not (self.vector_store_config_override and default_path_key in self.vector_store_config_override):
+				path_suffix = f'{main_collection_name or "default_collection"}'
+				provider_specific_config[default_path_key] = (
+					f'{self.vector_store_base_path}/{self.vector_store_provider}/{path_suffix}'
 				)
-
-		elif self.vector_store_provider == 'chroma':
-			# Chroma can use 'path' for local or 'host'/'port' for remote.
-			# If neither 'path' nor 'host' is in override, set default 'path'.
-			if not (
-				self.vector_store_config_override
-				and ('path' in self.vector_store_config_override or 'host' in self.vector_store_config_override)
-			):
-				provider_specific_config['path'] = (
-					f'{self.vector_store_base_path}_{self.embedder_dims}_{self.vector_store_provider}'
-				)
-
 		elif self.vector_store_provider == 'memory':
-			# Mem0's in-memory vector store typically only needs embedding_model_dims
-			# and doesn't use 'collection_name' or 'path'.
-			# We remove collection_name if it was added by the generic default logic.
 			provider_specific_config.pop('collection_name', None)
 
-		# Merge user-provided overrides. These can add new keys or overwrite defaults set above.
 		if self.vector_store_config_override:
 			provider_specific_config.update(self.vector_store_config_override)
 
@@ -203,10 +208,13 @@ class MemoryConfig(BaseModel):
 		}
 
 	@property
-	def full_config_dict(self) -> dict[str, dict[str, Any]]:
+	def full_config_dict(self) -> dict[str, Any]:
 		"""Returns the complete configuration dictionary for Mem0."""
-		return {
+		config_dict: dict[str, Any] = {  # Use Any for value type
 			'embedder': self.embedder_config_dict,
-			'llm': self.llm_config_dict,
 			'vector_store': self.vector_store_config_dict,
 		}
+		llm_conf = self.llm_config_dict
+		if llm_conf:
+			config_dict['llm'] = llm_conf
+		return config_dict
