@@ -9,7 +9,7 @@ __pycache__/
 .ipynb_checkpoints
 
 # Virtual Environments
-.venv
+.venv*
 venv/
 
 # IDEs

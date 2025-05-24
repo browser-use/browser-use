@@ -410,12 +410,14 @@ def match_url_with_domain_pattern(url: str, domain_pattern: str, log_warnings: b
 		# Extract only the hostname and scheme components
 		scheme = parsed_url.scheme.lower() if parsed_url.scheme else ''
 		domain = parsed_url.hostname.lower() if parsed_url.hostname else ''
+		domain = _normalize_domain_for_www(domain)
 
 		if not scheme or not domain:
 			return False
 
 		# Normalize the domain pattern
 		domain_pattern = domain_pattern.lower()
+		domain_pattern = _normalize_domain_for_www(domain_pattern)
 
 		# Handle pattern with scheme
 		if '://' in domain_pattern:
@@ -477,3 +479,8 @@ def match_url_with_domain_pattern(url: str, domain_pattern: str, log_warnings: b
 		logger = logging.getLogger(__name__)
 		logger.error(f'⛔️ Error matching URL {url} with pattern {domain_pattern}: {type(e).__name__}: {e}')
 		return False
+
+
+def _normalize_domain_for_www(d: str) -> str:
+	"""Helper function to normalize domains by removing www prefix"""
+	return d[4:] if d.startswith('www.') else d
