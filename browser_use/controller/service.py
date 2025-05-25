@@ -31,44 +31,12 @@ from browser_use.controller.views import (
 	SearchGoogleAction,
 	SendKeysAction,
 	SwitchTabAction,
+	SaveFactToMemoryAction,
+	QueryLongTermMemoryAction
 )
 from browser_use.utils import time_execution_sync
 
 logger = logging.getLogger(__name__)
-
-# --- Define a shared Literal for all granular fact types ---
-GranularFactType = Literal[
-	'user_preference',
-	'page_content_summary',
-	'key_finding',
-	'action_taken',
-	'action_outcome_success',
-	'action_outcome_failure',
-	'navigation_milestone',
-	'agent_reflection',
-	'user_instruction',
-	'raw_text',
-]
-
-
-# --- NEW: Pydantic models for Memory Actions ---
-# These define the parameters the LLM will be expected to provide for these actions.
-class SaveFactToMemoryParams(BaseModel):
-	fact_content: str = Field(description='The textual content of the fact to be saved.')
-	fact_type: GranularFactType = Field(description='The type or category of the fact.')
-	source_url: str | None = Field(default=None, description='Optional URL where the information was found.')
-	keywords: list[str] | None = Field(default_factory=list, description='Optional keywords for easier filtering.')
-	confidence: float | None = Field(default=None, description="Optional agent's confidence in this fact (0.0 to 1.0).")
-
-
-class QueryLongTermMemoryParams(BaseModel):
-	query_text: str = Field(description='The natural language query to search the memory.')
-	fact_types: list[GranularFactType] | None = Field(default=None, description='Optional list of fact types to filter by.')
-	relevant_to_url: str | None = Field(default=None, description='Optional URL to find facts relevant to.')
-	max_results: int = Field(default=3, gt=0, le=10, description='Maximum number of results to return.')
-
-
-# --- END NEW ---
 
 
 Context = TypeVar('Context')
@@ -814,7 +782,7 @@ class Controller(Generic[Context]):
 			'Save an important fact, user preference, or key finding to long-term memory for later recall.',
 			param_model=SaveFactToMemoryParams,
 		)
-		async def save_fact_to_memory(params: SaveFactToMemoryParams, context):
+		async def save_fact_to_memory(params: SaveFactToMemoryAction, context):
 			agent_memory: MemoryService | None = context.get('agent_memory')
 			agent_id: str | None = context.get('agent_id')
 			run_id: str | None = context.get('agent_run_id')
@@ -857,7 +825,7 @@ class Controller(Generic[Context]):
 			'Query long-term memory for specific information, preferences, or past findings relevant to the current task or page.',
 			param_model=QueryLongTermMemoryParams,
 		)
-		async def query_long_term_memory(params: QueryLongTermMemoryParams, context):
+		async def query_long_term_memory(params: QueryLongTermMemoryAction, context):
 			agent_memory: MemoryService | None = context.get('agent_memory')
 			agent_id: str | None = context.get('agent_id')
 			# run_id for querying might be optional, or could default to current run_id
