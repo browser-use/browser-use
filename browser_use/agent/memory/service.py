@@ -135,12 +135,30 @@ class Memory:
 			granular_mem0_config_dict = {
 				'embedder': self.config.embedder_config_dict,
 				'vector_store': granular_vs_config,
-				# No 'llm' key, as mem0's granular store might not need to run LLM ops on facts.
+				'llm': self.config.llm_config_dict,
 			}
+			# Ensure llm_config_dict is not None if an llm instance is available
+			if not granular_mem0_config_dict['llm'] and self.config.llm_instance:
+				# This case might happen if llm_provider was not 'langchain' or llm_instance was set later.
+				# It's good to ensure llm_config_dict is correctly formed if an llm_instance is available in self.config
+				granular_mem0_config_dict['llm'] = {
+					'provider': self.config.llm_provider,  # Default is 'langchain'
+					'config': {'model': self.config.llm_instance},
+				}
+
+				# If after all attempts, llm config is still None, and you want to be strict:
+			if not granular_mem0_config_dict.get('llm'):
+				logger.warning(
+					f"Granular mem0 store for agent '{self.config.agent_id}' is being initialized without an LLM. Fact extraction might be limited."
+				)
 			self.granular_mem_store = Mem0StoreProvider.from_config(config_dict=granular_mem0_config_dict)
 			logger.info(
-				f"Granular facts mem0 store initialized for agent '{self.config.agent_id}' using collection '{granular_coll_name}'."
+				f"Granular facts mem0 store initialized for agent '{self.config.agent_id}' "
+				f"using collection '{granular_coll_name}' "
+				f'(LLM configured: {bool(granular_mem0_config_dict.get("llm"))}).'
 			)
+			if granular_mem0_config_dict.get('llm'):
+				logger.debug(f'Granular store LLM config: {granular_mem0_config_dict["llm"]}')
 		except Exception as e:
 			logger.error(f"Failed to initialize granular facts mem0 store for agent '{self.config.agent_id}': {e}", exc_info=True)
 			self.granular_mem_store = None
@@ -236,23 +254,50 @@ class Memory:
 		if len(messages_to_process_for_mem0_dicts) <= 1:
 			logger.debug('Not enough processable messages to summarize for mem0')
 			return
+
 		try:
-			memory_content_results = self.procedural_mem_store.add(
-				messages=messages_to_process_for_mem0_dicts,
-				user_id=self.config.agent_id,  # Summaries are associated with the agent_id
-				metadata={'step': current_step, 'memory_type': 'procedural_summary'},
-				# Collection name is implicitly handled by procedural_mem_store's initialization
+			logger.debug(
+				f'Sending {len(messages_to_process_for_mem0_dicts)} message dicts to procedural_mem_store.add for agent {self.config.agent_id}'
 			)
-			memory_content = None
-			if memory_content_results and isinstance(memory_content_results, list) and len(memory_content_results) > 0:
-				memory_content = ' '.join(
-					[res.get('memory', '') for res in memory_content_results if res.get('memory', '').strip()]
+			mem0_response = self.procedural_mem_store.add(  # Renamed for clarity
+				messages=messages_to_process_for_mem0_dicts,
+				user_id=self.config.agent_id,
+				metadata={'step': current_step, 'memory_type': 'procedural_summary'},
+			)
+
+			logger.debug(f'Mem0 response for procedural memory (agent {self.config.agent_id}): {mem0_response}')
+
+			memory_content_strings = []
+
+			if isinstance(mem0_response, dict) and 'results' in mem0_response:
+				results_list = mem0_response.get('results', [])
+				if isinstance(results_list, list):
+					for res_item in results_list:
+						if isinstance(res_item, dict) and res_item.get('memory', '').strip():
+							memory_content_strings.append(res_item['memory'])
+			elif isinstance(mem0_response, list):  # Fallback if it directly returns a list
+				for res_item in mem0_response:
+					if isinstance(res_item, dict) and res_item.get('memory', '').strip():
+						memory_content_strings.append(res_item['memory'])
+			else:
+				logger.warning(
+					f'Unexpected response type from procedural_mem_store.add for agent {self.config.agent_id}: {type(mem0_response)}. Response: {mem0_response}'
 				)
 
-			if not memory_content:
-				logger.warning('Failed to create procedural memory content from mem0.')
+			if not memory_content_strings:
+				logger.warning(
+					f'Failed to extract procedural memory content strings from mem0 response for agent {self.config.agent_id}.'
+				)
 				return
 
+			memory_content = ' '.join(memory_content_strings)
+			if not memory_content.strip():
+				logger.warning(f'Procedural memory content from mem0 for agent {self.config.agent_id} is empty after joining.')
+				return
+
+			logger.info(
+				f'Successfully created procedural memory content for agent {self.config.agent_id}: {memory_content[:100]}...'
+			)
 			memory_message_obj = HumanMessage(content=memory_content)
 			memory_tokens = self.message_manager._count_tokens(memory_message_obj)
 			memory_metadata = MessageMetadata(tokens=memory_tokens, message_type='memory')
@@ -301,22 +346,55 @@ class Memory:
 		# Prepare metadata, ensuring 'categories' is correctly structured for mem0 search.
 		# The search functionality expects a 'categories' key in metadata with a list of strings.
 		mem0_metadata = fact.to_mem0_metadata()
-		mem0_metadata['categories'] = [fact.type]  # Ensure fact.type is stored as a list under 'categories' key
+		if 'categories' not in mem0_metadata:
+			mem0_metadata['categories'] = [fact.type]
+		elif not isinstance(mem0_metadata['categories'], list):
+			mem0_metadata['categories'] = [mem0_metadata['categories']]
 
-		mem0_messages = [{'role': 'system', 'content': f'Fact Type: {fact.type}. Content: {fact.content}'}]
+		content_to_add_to_mem0 = [{'role': 'user', 'content': f'Fact Type: {fact.type}. Details: {fact.content}'}]
+		infer_setting = False  # Instruct mem0 to store this content as-is
 
 		try:
-			# user_id for mem0 for granular facts is the persistent agent_id from the fact.
-			result_list = self.granular_mem_store.add(
-				messages=mem0_messages,
-				user_id=fact.agent_id,  # This scopes the memory to the specific agent in mem0
-				metadata=mem0_metadata,  # 'categories' is now part of the metadata dictionary
-				# Collection name is implicitly handled by granular_mem_store's initialization
+			mem0_response = self.granular_mem_store.add(
+				content_to_add_to_mem0,  # Pass as a list of messages
+				user_id=fact.agent_id,  # user_id in mem0 context
+				metadata=mem0_metadata,
+				infer=infer_setting,  # Key to prevent LLM-based sub-fact extraction
 			)
-			logger.debug(f'Added granular fact for agent {fact.agent_id}, run {fact.run_id}: {fact.content[:100]}...')
-			if result_list and isinstance(result_list, list) and len(result_list) > 0:
-				return result_list[0].get('id')
-			logger.warning(f'Mem0 add_granular_fact for agent {fact.agent_id} did not return an ID.')
+
+			logger.debug(
+				f'Mem0 call `add_granular_fact` for agent {fact.agent_id} '
+				f"with content_to_add='{str(content_to_add_to_mem0)[:100]}...', infer={infer_setting} "
+				f'returned: {mem0_response}'
+			)
+
+			actual_results = []
+			# mem0.add with a list of messages (even one) and infer=False should still return a list of dicts,
+			# where each dict corresponds to a message processed.
+			if isinstance(mem0_response, list):
+				actual_results = mem0_response
+			elif isinstance(mem0_response, dict) and 'results' in mem0_response:  # Some mem0 versions might wrap in 'results'
+				actual_results = mem0_response.get('results', [])
+
+			if actual_results and isinstance(actual_results, list) and len(actual_results) > 0:
+				first_item = actual_results[0]  # Since we're adding one "fact message"
+				if isinstance(first_item, dict) and 'id' in first_item:
+					logger.info(
+						f'Successfully added granular fact to mem0 for agent {fact.agent_id}. '
+						f'Mem0 ID: {first_item.get("id")}. Content: {fact.content[:100]}...'
+					)
+					return first_item.get('id')
+				else:
+					logger.warning(
+						f'Mem0 add_granular_fact for agent {fact.agent_id} returned list/results, '
+						f'but the first item is not a dict with an "id" or is malformed: {first_item}'
+					)
+					return None
+
+			logger.warning(
+				f'Mem0 add_granular_fact for agent {fact.agent_id} did not return a valid ID or an empty list. '
+				f'Result from mem0.add: {mem0_response}'
+			)
 			return None
 		except Exception as e:
 			logger.error(f'Failed to add granular fact to mem0 for agent {fact.agent_id}: {e}', exc_info=True)
