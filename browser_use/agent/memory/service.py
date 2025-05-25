@@ -5,6 +5,7 @@ import os
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
+	BaseMessage,
 	HumanMessage,
 )
 
@@ -163,25 +164,81 @@ class Memory:
 
 		# Get all messages
 		all_messages = self.message_manager.state.history.messages
+		if not isinstance(all_messages, list):  # Should be a list
+			logger.error(f'Expected all_messages to be a list, got {type(all_messages)}')
+			return
 
 		# Separate messages into those to keep as-is and those to process for memory
 		new_messages_for_mm = []  # Messages to keep in message manager's active window
-		messages_to_process_for_mem0 = []
 
-		for msg in all_messages:
-			if isinstance(msg, ManagedMessage) and msg.metadata.message_type in {'init', 'memory'}:
-				new_messages_for_mm.append(msg)
+		messages_to_process_for_mem0_dicts = []
+		managed_messages_summarized = []  # Keep track of ManagedMessage objects that are summarized
+
+		for managed_msg in all_messages:
+			if not isinstance(managed_msg, ManagedMessage):
+				logger.warning(f'Item in history is not ManagedMessage: {type(managed_msg)}. Skipping for procedural memory.')
+				# Decide if these non-ManagedMessages should be kept or discarded.
+				# If they should be kept as-is: new_messages_for_mm.append(managed_msg)
+				continue
+			if managed_msg.metadata.message_type in {'init', 'memory'}:
+				new_messages_for_mm.append(managed_msg)
 			else:
-				if msg.message.content and len(str(msg.message.content)) > 0:
-					messages_to_process_for_mem0.append(msg.message)  # Pass List[BaseMessage] to mem0
+				base_msg: BaseMessage = managed_msg.message
+
+				is_content_present = False
+				if base_msg.content is not None:
+					if isinstance(base_msg.content, str):
+						is_content_present = len(base_msg.content.strip()) > 0
+					else:  # content could be list of dicts for multimodal
+						is_content_present = bool(base_msg.content)
+
+				has_tool_calls = hasattr(base_msg, 'tool_calls') and bool(base_msg.tool_calls)
+
+				if not is_content_present and not has_tool_calls:
+					logger.debug(f'Message of type {base_msg.type} has no content or tool calls. Skipping for summarization.')
+					continue
+
+				role = ''
+				content_for_mem0 = base_msg.content
+
+				if base_msg.type == 'human':
+					role = 'user'
+				elif base_msg.type == 'ai':
+					role = 'assistant'
+					if has_tool_calls and base_msg.tool_calls:  # Langchain tool_calls are List[ToolCall]
+						tool_calls_str_parts = []
+						for tc in base_msg.tool_calls:  # tc is a dict-like ToolCall object
+							tc_name = tc.get('name', 'N/A') if isinstance(tc, dict) else getattr(tc, 'name', 'N/A')
+							tc_args = tc.get('args', {}) if isinstance(tc, dict) else getattr(tc, 'args', {})
+							tc_id = tc.get('id', 'N/A') if isinstance(tc, dict) else getattr(tc, 'id', 'N/A')
+							tool_calls_str_parts.append(f"Call tool '{tc_name}' with args {tc_args} (id: {tc_id})")
+						tool_calls_description = 'Requested tool calls: ' + '; '.join(tool_calls_str_parts)
+						content_for_mem0 = (
+							(str(base_msg.content) + '\n' + tool_calls_description)
+							if is_content_present and base_msg.content
+							else tool_calls_description
+						)
+				elif base_msg.type == 'system':
+					role = 'system'
+				elif base_msg.type == 'tool':  # ToolMessage
+					role = 'system'  # Represent tool results as system messages for mem0
+					content_for_mem0 = f"Tool result for call ID '{getattr(base_msg, 'tool_call_id', 'N/A')}': {base_msg.content}"
+
+				if role:
+					messages_to_process_for_mem0_dicts.append({'role': role, 'content': content_for_mem0})
+					managed_messages_summarized.append(managed_msg)
+				else:
+					logger.debug(
+						f"Skipping message type '{base_msg.type}' for procedural memory summarization as role mapping is not defined."
+					)
 
 		# Need at least 2 messages to create a meaningful summary
-		if len(messages_to_process_for_mem0) <= 1:
-			logger.debug('Not enough non-memory messages to summarize')
+		if len(messages_to_process_for_mem0_dicts) <= 1:
+			logger.debug('Not enough processable messages to summarize for mem0')
 			return
 		try:
 			memory_content_results = self.procedural_mem_store.add(
-				messages=messages_to_process_for_mem0,
+				messages=messages_to_process_for_mem0_dicts,
 				user_id=self.config.agent_id,  # Summaries are associated with the agent_id
 				metadata={'step': current_step, 'memory_type': 'procedural_summary'},
 				# Collection name is implicitly handled by procedural_mem_store's initialization
@@ -200,11 +257,7 @@ class Memory:
 			memory_tokens = self.message_manager._count_tokens(memory_message_obj)
 			memory_metadata = MessageMetadata(tokens=memory_tokens, message_type='memory')
 
-			removed_tokens = sum(
-				msg.metadata.tokens
-				for msg in all_messages
-				if not (isinstance(msg, ManagedMessage) and msg.metadata.message_type in {'init', 'memory'})
-			)
+			removed_tokens = sum(msg.metadata.tokens for msg in managed_messages_summarized)
 
 			new_messages_for_mm.append(ManagedMessage(message=memory_message_obj, metadata=memory_metadata))
 
@@ -212,7 +265,7 @@ class Memory:
 			self.message_manager.state.history.current_tokens -= removed_tokens
 			self.message_manager.state.history.current_tokens += memory_tokens
 			logger.info(
-				f'Procedural memory created for agent {self.config.agent_id}: {len(messages_to_process_for_mem0)} original messages consolidated.'
+				f'Procedural memory created for agent {self.config.agent_id}: {len(messages_to_process_for_mem0_dicts)} original messages consolidated.'
 			)
 
 		except Exception as e:
@@ -245,18 +298,19 @@ class Memory:
 			)
 
 		# For mem0, the "message" is the core content to be embedded and searched.
-		# We can pass a single message dictionary or a list.
-		# Using a structured content for clarity, though just fact.content is also fine.
+		# Prepare metadata, ensuring 'categories' is correctly structured for mem0 search.
+		# The search functionality expects a 'categories' key in metadata with a list of strings.
+		mem0_metadata = fact.to_mem0_metadata()
+		mem0_metadata['categories'] = [fact.type]  # Ensure fact.type is stored as a list under 'categories' key
+
 		mem0_messages = [{'role': 'system', 'content': f'Fact Type: {fact.type}. Content: {fact.content}'}]
-		mem0_metadata = fact.to_mem0_metadata()  # This already includes agent_id, run_id etc.
 
 		try:
 			# user_id for mem0 for granular facts is the persistent agent_id from the fact.
 			result_list = self.granular_mem_store.add(
 				messages=mem0_messages,
 				user_id=fact.agent_id,  # This scopes the memory to the specific agent in mem0
-				metadata=mem0_metadata,
-				categories=[fact.type],  # Use fact type as mem0 category
+				metadata=mem0_metadata,  # 'categories' is now part of the metadata dictionary
 				# Collection name is implicitly handled by granular_mem_store's initialization
 			)
 			logger.debug(f'Added granular fact for agent {fact.agent_id}, run {fact.run_id}: {fact.content[:100]}...')
