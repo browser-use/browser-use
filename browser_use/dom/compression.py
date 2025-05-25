@@ -44,20 +44,20 @@ def get_compression_documentation(include_attributes: list[str] | None = None) -
 	max_code_len = max(len(code) for _, code in attribute_items)
 
 	# Build attribute mapping section with only included attributes
-	mapping_lines = [f'- @{code.ljust(max_code_len)} - {attr_name}' for attr_name, code in sorted(attribute_items)]
+	mapping_lines = [f'- {code.ljust(max_code_len)} - {attr_name}' for attr_name, code in sorted(attribute_items)]
 
 	# Build the full documentation
 	lines = [
 		'[ATTRIBUTE COMPRESSION ENABLED]',
 		"Interactive element attributes are compressed to save tokens. Here's the format:",
-		'- @code - attribute_name',
+		'- code - attribute_name',
 		'',
 		'Available attribute mappings:',
 		*mapping_lines,
 		'',
 		'Examples:',
-		"  <button type='submit' class='btn'> becomes [1] <button @t='submit' @c='btn'>",
-		"  <a href='/login' title='Sign in'> becomes [2] <a @h='/login' @ti='Sign in'>",
+		"  <button type='submit' class='btn'> becomes [1] <button t='submit' c='btn'>",
+		"  <a href='/login' title='Sign in'> becomes [2] <a h='/login' ti='Sign in'>",
 	]
 
 	return '\n'.join(lines)
@@ -70,7 +70,7 @@ def compress_attributes(attributes: dict[str, str]) -> str:
 	    attributes: Dictionary of attribute names and values
 
 	Returns:
-	    str: Compressed attribute string with values in single quotes (e.g., "@t='submit' @c='btn btn-primary'")
+	    str: Compressed attribute string with values in single quotes (e.g., "t='submit' c='btn btn-primary'")
 	"""
 	if not attributes:
 		return ''
@@ -82,6 +82,6 @@ def compress_attributes(attributes: dict[str, str]) -> str:
 		# Escape single quotes in the value
 		escaped_value = str(value).replace("'", "\\'")
 		# Add single quotes around the value
-		compressed.append(f"@{short_key}='{escaped_value}'")
+		compressed.append(f"{short_key}='{escaped_value}'")
 
 	return ' '.join(compressed)
