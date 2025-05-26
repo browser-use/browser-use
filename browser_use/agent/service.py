@@ -601,12 +601,18 @@ class Agent(Generic[Context]):
 				def run_in_thread():
 					new_loop = asyncio.new_event_loop()
 					asyncio.set_event_loop(new_loop)
-					result["value"] = new_loop.run_until_complete(test_all_methods())
-					new_loop.close()
-
+					try:
+						result["value"] = new_loop.run_until_complete(test_all_methods())
+					except Exception as e:
+						result["error"] = e
+					finally:
+						new_loop.close()
+						
 				t = Thread(target=run_in_thread)
 				t.start()
 				t.join()
+				if "error" in result:
+					raise result["error"]
 				results = result["value"]
 
 			except RuntimeError:
