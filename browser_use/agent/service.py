@@ -607,7 +607,7 @@ class Agent(Generic[Context]):
 						result['error'] = e
 					finally:
 						new_loop.close()
-	
+
 				t = Thread(target=run_in_thread)
 				t.start()
 				t.join()
