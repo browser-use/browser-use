@@ -606,8 +606,7 @@ class Agent(Generic[Context]):
 					except Exception as e:
 						result['error'] = e
 					finally:
-						new_loop.close()
-						
+						new_loop.close()	
 				t = Thread(target=run_in_thread)
 				t.start()
 				t.join()
