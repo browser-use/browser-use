@@ -592,7 +592,7 @@ class Agent(Generic[Context]):
 				return results
 
 			# Execute async tests
-			results = asyncio.run(test_all_methods())
+			results = asyncio.create_task(test_all_methods())
 
 			# Process results in order of preference
 			for i, method in enumerate(methods_to_try):
