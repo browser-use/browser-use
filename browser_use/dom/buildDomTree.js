@@ -4,9 +4,16 @@
     focusHighlightIndex: -1,
     viewportExpansion: 0,
     debugMode: false,
-  }
+    additionalArgs: {},
+  },
 ) => {
-  const { doHighlightElements, focusHighlightIndex, viewportExpansion, debugMode } = args;
+  const {
+    doHighlightElements,
+    focusHighlightIndex,
+    viewportExpansion,
+    debugMode,
+    additionalArgs,
+  } = args;
   let highlightIndex = 0; // Reset highlight index
 
   // Add timing stack to handle recursion
@@ -588,24 +595,32 @@
       } catch (e) {
         // Fallback if checkVisibility is not supported
         const style = window.getComputedStyle(parentElement);
-        return style.display !== 'none' &&
-          style.visibility !== 'hidden' &&
-          style.opacity !== '0';
+        return style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          style.opacity !== "0";
       }
     } catch (e) {
-      console.warn('Error checking text node visibility:', e);
+      console.warn("Error checking text node visibility:", e);
       return false;
     }
   }
 
   // Helper function to check if element is accepted
-  function isElementAccepted(element) {
+  function isElementAccepted(element, allowedLeafElements = []) {
     if (!element || !element.tagName) return false;
 
     // Always accept body and common container elements
     const alwaysAccept = new Set([
-      "body", "div", "main", "article", "section", "nav", "header", "footer"
+      "body",
+      "div",
+      "main",
+      "article",
+      "section",
+      "nav",
+      "header",
+      "footer",
     ]);
+
     const tagName = element.tagName.toLowerCase();
 
     if (alwaysAccept.has(tagName)) return true;
@@ -619,6 +634,11 @@
       "noscript",
       "template",
     ]);
+
+    for (const allowedTag of allowedLeafElements) {
+      // console.log(`Setting allowed tag: ${allowedTag}`);
+      leafElementDenyList.delete(allowedTag.toLowerCase());
+    }
 
     return !leafElementDenyList.has(tagName);
   }
@@ -1234,7 +1254,7 @@
     }
 
     // Quick checks for element nodes
-    if (node.nodeType === Node.ELEMENT_NODE && !isElementAccepted(node)) {
+    if (node.nodeType === Node.ELEMENT_NODE && !isElementAccepted(node, additionalArgs?.allowed_leaf_elements)) {
       if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
       return null;
     }
