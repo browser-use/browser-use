@@ -1,22 +1,21 @@
 # test_granular_memory.py
 
-import pytest
-import pytest_asyncio  # Required for async fixtures
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+import pytest_asyncio  # Required for async fixtures
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.outputs import ChatGeneration, LLMResult
 from langchain_core.messages import AIMessage
+from langchain_core.outputs import ChatGeneration, LLMResult
 
 from browser_use.agent.memory.service import Memory
-from browser_use.agent.memory.views import MemoryConfig, GranularMemoryEntry
+from browser_use.agent.memory.views import GranularMemoryEntry, MemoryConfig
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings  # Assuming default config
-from browser_use.controller.service import Controller
-from browser_use.browser import BrowserSession  # For type hinting mock
 from browser_use.agent.views import ActionResult
-from browser_use.controller.views import SaveFactToMemoryAction, QueryLongTermMemoryAction
-
+from browser_use.browser import BrowserSession  # For type hinting mock
+from browser_use.controller.service import Controller
+from browser_use.controller.views import QueryLongTermMemoryAction, SaveFactToMemoryAction
 
 # --- Mocks & Fixtures ---
 

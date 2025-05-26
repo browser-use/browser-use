@@ -441,7 +441,7 @@ class Memory:
 			or_keyword_conditions = [{'metadata.keywords': {'contains': kw}} for kw in keywords]
 			if or_keyword_conditions:
 				v2_filter_conditions.append({'OR': or_keyword_conditions})
-		if fact_types: 
+		if fact_types:
 			if len(fact_types) == 1:
 				v2_filter_conditions.append({'metadata.entry_type': fact_types[0]})
 			elif len(fact_types) > 1:
