@@ -10,8 +10,8 @@ import sys
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Generic, TypeVar
 from threading import Thread
+from typing import Any, Generic, TypeVar
 
 from dotenv import load_dotenv
 
