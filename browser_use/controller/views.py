@@ -1,5 +1,6 @@
-from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # --- Define a shared Literal for all granular fact types ---
 GranularFactType = Literal[

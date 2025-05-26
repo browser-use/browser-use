@@ -410,7 +410,7 @@ class Memory:
 		source_url: str | None = None,
 		keywords: list[str] | None = None,
 		limit: int = 5,
-		# threshold: float = 0.7 # mem0's search usually handles relevance internally
+		# threshold: float = 0.1,
 	) -> list[dict]:
 		"""
 		Searches for granular facts in the long-term memory using the `granular_mem_store`.
@@ -430,39 +430,49 @@ class Memory:
 		if not self.granular_mem_store:
 			logger.error(f'Granular memory store not available for agent {agent_id}. Cannot search facts.')
 			return []
-		# Construct mem0 filters.
-		# Note: The exact filter structure depends on mem0's backend vector store capabilities
-		# and how mem0 translates these. This is a common way to express them.
-		filter_conditions = []
+		# Construct v2 filter conditions
+		v2_filter_conditions = []
 		if run_id:
-			filter_conditions.append({'metadata': {'run_id': run_id}})
+			v2_filter_conditions.append({'metadata.run_id': run_id})
 		if source_url:
-			filter_conditions.append({'metadata': {'source_url': source_url}})
+			v2_filter_conditions.append({'metadata.source_url': source_url})
 		if keywords:
-			if len(keywords) > 0:
-				filter_conditions.append({'metadata': {'keywords': {'in': keywords}}})
-		if fact_types:  # Filter by mem0 categories
-			filter_conditions.append({'categories': {'in': fact_types}})
+			# OR logic for multiple keywords: matches if any specified keyword is present
+			or_keyword_conditions = [{'metadata.keywords': {'contains': kw}} for kw in keywords]
+			if or_keyword_conditions:
+				v2_filter_conditions.append({'OR': or_keyword_conditions})
+		if fact_types: 
+			if len(fact_types) == 1:
+				v2_filter_conditions.append({'metadata.entry_type': fact_types[0]})
+			elif len(fact_types) > 1:
+				v2_filter_conditions.append({'metadata.entry_type': {'in': fact_types}})
 
-		final_filters = None
-		if len(filter_conditions) > 1:
-			final_filters = {'AND': filter_conditions}
-		elif len(filter_conditions) == 1:
-			final_filters = filter_conditions[0]
+		final_v2_filters = None
+		if v2_filter_conditions:
+			if len(v2_filter_conditions) == 1:
+				final_v2_filters = {'AND': v2_filter_conditions}
+			elif len(v2_filter_conditions) > 1:
+				final_v2_filters = {'AND': v2_filter_conditions}
 
 		try:
-			search_results_data = self.granular_mem_store.search(
-				query=query,
-				user_id=agent_id,  # This is the agent_id for mem0 user scoping
-				filters=final_filters,
-				limit=limit,
-				output_format='v1.1',  # Request richer metadata
-				# threshold=threshold, # If supported by your mem0 setup/version
-			)
-			# mem0 search returns a dict like {"results": [...]}
-			results = search_results_data.get('results', []) if search_results_data else []
+			search_kwargs = {
+				'query': query,
+				'user_id': agent_id,
+				'limit': limit,
+				# 'threshold': threshold,  # Pass the threshold
+			}
+			if final_v2_filters:
+				search_kwargs['filters'] = final_v2_filters
+
+			logger.debug(f'Mem0 search_granular_facts for agent {agent_id} with kwargs: {search_kwargs}')
+
+			search_results_data = self.granular_mem_store.search(**search_kwargs)
+			results = search_results_data.get('results', []) if isinstance(search_results_data, dict) else []
+
 			logger.debug(
-				f"Searched granular facts for agent {agent_id} with query '{query[:50]}...'. Filters: {final_filters}. Found {len(results)} results."
+				f"Searched granular facts for agent {agent_id} with query '{query[:50]}...'. "
+				f'Filters used: {search_kwargs.get("filters")}. Version: {search_kwargs.get("version")}. '
+				f'Found {len(results)} results.'
 			)
 			return results
 		except Exception as e:

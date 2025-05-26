@@ -43,9 +43,7 @@ class GranularMemoryEntry(BaseModel):
 	relevance_score: float | None = Field(
 		default=None, description='Score indicating relevance, if assigned by LLM or retrieval mechanism.'
 	)
-	keywords: list[str] | None = Field(
-		default_factory=list, description='Keywords associated with the memory for filtering/search.'
-	)
+	keywords: list[str] | None = Field(default=None, description='Keywords associated with the memory for filtering/search.')
 
 	associated_action: dict | None = Field(
 		default=None, description='If the memory is linked to a specific agent action, its details.'

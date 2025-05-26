@@ -3,14 +3,14 @@ import enum
 import json
 import logging
 import re
-from typing import Generic, Literal, TypeVar, cast
+from typing import Generic, TypeVar, cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
 from playwright.async_api import ElementHandle, Page
 
 # from lmnr.sdk.laminar import Laminar
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from browser_use.agent.memory.service import Memory as MemoryService  # Alias for clarity
 from browser_use.agent.memory.views import GranularMemoryEntry  # Import for type construction
@@ -27,12 +27,12 @@ from browser_use.controller.views import (
 	NoParamsAction,
 	OpenTabAction,
 	Position,
+	QueryLongTermMemoryAction,
+	SaveFactToMemoryAction,
 	ScrollAction,
 	SearchGoogleAction,
 	SendKeysAction,
 	SwitchTabAction,
-	SaveFactToMemoryAction,
-	QueryLongTermMemoryAction
 )
 from browser_use.utils import time_execution_sync
 
@@ -780,7 +780,7 @@ class Controller(Generic[Context]):
 		# --- NEW: Memory Actions Registration ---
 		@self.registry.action(
 			'Save an important fact, user preference, or key finding to long-term memory for later recall.',
-			param_model=SaveFactToMemoryParams,
+			param_model=SaveFactToMemoryAction,
 		)
 		async def save_fact_to_memory(params: SaveFactToMemoryAction, context):
 			agent_memory: MemoryService | None = context.get('agent_memory')
@@ -823,7 +823,7 @@ class Controller(Generic[Context]):
 
 		@self.registry.action(
 			'Query long-term memory for specific information, preferences, or past findings relevant to the current task or page.',
-			param_model=QueryLongTermMemoryParams,
+			param_model=QueryLongTermMemoryAction,
 		)
 		async def query_long_term_memory(params: QueryLongTermMemoryAction, context):
 			agent_memory: MemoryService | None = context.get('agent_memory')
