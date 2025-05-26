@@ -535,9 +535,6 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	model_config = ConfigDict(
 		extra='ignore',
-		validate_assignment=True,
-		revalidate_instances='always',
-		from_attributes=True,
 		validate_by_name=True,
 		validate_by_alias=True,
 		populate_by_name=True,
@@ -556,6 +553,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	allowed_domains: list[str] | None = Field(
 		default=None,
 		description='List of allowed domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]',
+	)
+	allowed_leaf_elements: list[str] | None = Field(
+		default=None,
+		description='List of allowed leaf elements for navigation e.g. ["svg", "canvas", "video", "audio"]',
 	)
 	keep_alive: bool | None = Field(default=None, description='Keep browser alive after agent run.')
 	window_size: ViewportSize | None = Field(

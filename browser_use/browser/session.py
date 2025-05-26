@@ -1453,9 +1453,7 @@ class BrowserSession(BaseModel):
 				focus_element=focus_element,
 				viewport_expansion=self.browser_profile.viewport_expansion,
 				highlight_elements=self.browser_profile.highlight_elements,
-				allowed_leaf_elements=self.browser_profile.allowed_leaf_elements
-				if 'allowed_leaf_elements' in self.browser_profile
-				else None,
+				allowed_leaf_elements=self.browser_profile.allowed_leaf_elements,
 			)
 
 			tabs_info = await self.get_tabs_info()
