@@ -12,6 +12,53 @@ from browser_use.controller.service import Controller
 
 
 @pytest.fixture
+def httpserver(make_httpserver):
+	"""Create and provide a test HTTP server that serves static content."""
+	server = make_httpserver
+
+	# Add routes for test pages
+	server.expect_request('/').respond_with_data(
+		"""<html>
+		<head><title>Test Home Page</title></head>
+		<body>
+			<h1>Test Home Page</h1>
+			<a href="/page1" id="link1">Link 1</a>
+			<button id="button1">Button 1</button>
+			<input type="text" id="input1" />
+			<div id="div1" class="clickable">Clickable Div</div>
+		</body>
+		</html>""",
+		content_type='text/html',
+	)
+
+	server.expect_request('/page1').respond_with_data(
+		"""<html>
+		<head><title>Test Page 1</title></head>
+		<body>
+			<h1>Test Page 1</h1>
+			<p>This is test page 1</p>
+			<a href="/">Back to home</a>
+		</body>
+		</html>""",
+		content_type='text/html',
+	)
+
+	server.expect_request('/simple').respond_with_data(
+		"""<html>
+		<head><title>Simple Page</title></head>
+		<body>
+			<h1>Simple Page</h1>
+			<p>This is a simple test page</p>
+			<a href="/">Home</a>
+		</body>
+		</html>""",
+		content_type='text/html',
+	)
+
+	return server
+
+
+@pytest.fixture
 async def browser_session():
 	"""Create a real browser session for testing."""
 	session = BrowserSession(
@@ -32,11 +79,11 @@ def controller():
 
 
 @pytest.mark.asyncio
-async def test_assumption_1_dom_processing_works(browser_session):
+async def test_assumption_1_dom_processing_works(browser_session, httpserver):
 	"""Test assumption 1: DOM processing works and finds elements."""
 	# Go to a simple page
 	page = await browser_session.get_current_page()
-	await page.goto('https://www.google.com')
+	await page.goto(httpserver.url_for('/'))
 	await page.wait_for_load_state()
 
 	# Trigger DOM processing
@@ -52,11 +99,11 @@ async def test_assumption_1_dom_processing_works(browser_session):
 
 
 @pytest.mark.asyncio
-async def test_assumption_2_cached_selector_map_persists(browser_session):
+async def test_assumption_2_cached_selector_map_persists(browser_session, httpserver):
 	"""Test assumption 2: Cached selector map persists after get_state_summary."""
 	# Go to a simple page
 	page = await browser_session.get_current_page()
-	await page.goto('https://www.google.com')
+	await page.goto(httpserver.url_for('/'))
 	await page.wait_for_load_state()
 
 	# Trigger DOM processing and cache
@@ -77,11 +124,11 @@ async def test_assumption_2_cached_selector_map_persists(browser_session):
 
 
 @pytest.mark.asyncio
-async def test_assumption_3_action_gets_same_selector_map(browser_session, controller):
+async def test_assumption_3_action_gets_same_selector_map(browser_session, controller, httpserver):
 	"""Test assumption 3: Action gets the same selector map as cached."""
 	# Go to a simple page
 	page = await browser_session.get_current_page()
-	await page.goto('https://www.google.com')
+	await page.goto(httpserver.url_for('/'))
 	await page.wait_for_load_state()
 
 	# Trigger DOM processing and cache
@@ -113,11 +160,11 @@ async def test_assumption_3_action_gets_same_selector_map(browser_session, contr
 
 
 @pytest.mark.asyncio
-async def test_assumption_4_click_action_specific_issue(browser_session, controller):
+async def test_assumption_4_click_action_specific_issue(browser_session, controller, httpserver):
 	"""Test assumption 4: Specific issue with click_element_by_index action."""
 	# Go to a simple page
 	page = await browser_session.get_current_page()
-	await page.goto('https://www.google.com')
+	await page.goto(httpserver.url_for('/'))
 	await page.wait_for_load_state()
 
 	# Trigger DOM processing and cache
@@ -161,11 +208,11 @@ async def test_assumption_4_click_action_specific_issue(browser_session, control
 
 
 @pytest.mark.asyncio
-async def test_assumption_5_multiple_get_selector_map_calls(browser_session):
+async def test_assumption_5_multiple_get_selector_map_calls(browser_session, httpserver):
 	"""Test assumption 5: Multiple calls to get_selector_map return consistent results."""
 	# Go to a simple page
 	page = await browser_session.get_current_page()
-	await page.goto('https://www.google.com')
+	await page.goto(httpserver.url_for('/'))
 	await page.wait_for_load_state()
 
 	# Trigger DOM processing and cache
@@ -188,11 +235,11 @@ async def test_assumption_5_multiple_get_selector_map_calls(browser_session):
 
 
 @pytest.mark.asyncio
-async def test_assumption_6_page_changes_affect_selector_map(browser_session):
+async def test_assumption_6_page_changes_affect_selector_map(browser_session, httpserver):
 	"""Test assumption 6: Check if page navigation affects cached selector map."""
 	# Go to first page
 	page = await browser_session.get_current_page()
-	await page.goto('https://www.google.com')
+	await page.goto(httpserver.url_for('/'))
 	await page.wait_for_load_state()
 
 	# Get initial selector map
@@ -200,10 +247,10 @@ async def test_assumption_6_page_changes_affect_selector_map(browser_session):
 	initial_map = await browser_session.get_selector_map()
 
 	print('Page change test:')
-	print(f'  - Google.com elements: {len(initial_map)}')
+	print(f'  - Home page elements: {len(initial_map)}')
 
 	# Navigate to a different page (without calling get_state_summary)
-	await page.goto('https://www.example.com')
+	await page.goto(httpserver.url_for('/page1'))
 	await page.wait_for_load_state()
 
 	# Check if cached selector map is still from old page
@@ -216,7 +263,7 @@ async def test_assumption_6_page_changes_affect_selector_map(browser_session):
 	await browser_session.get_state_summary(cache_clickable_elements_hashes=False)
 	new_page_map = await browser_session.get_selector_map()
 
-	print(f'  - Example.com elements (fresh): {len(new_page_map)}')
+	print(f'  - Page 1 elements (fresh): {len(new_page_map)}')
 
 	# This will tell us if cached maps get stale
 	assert len(new_page_map) != len(initial_map) or initial_map.keys() != new_page_map.keys(), (
@@ -225,11 +272,11 @@ async def test_assumption_6_page_changes_affect_selector_map(browser_session):
 
 
 @pytest.mark.asyncio
-async def test_assumption_8_same_browser_session_instance(browser_session, controller):
+async def test_assumption_8_same_browser_session_instance(browser_session, controller, httpserver):
 	"""Test assumption 8: Action gets the same browser_session instance."""
 	# Go to a simple page
 	page = await browser_session.get_current_page()
-	await page.goto('https://www.google.com')
+	await page.goto(httpserver.url_for('/'))
 	await page.wait_for_load_state()
 
 	print('=== BROWSER SESSION INSTANCE DEBUG ===')
@@ -270,11 +317,11 @@ async def test_assumption_8_same_browser_session_instance(browser_session, contr
 
 
 @pytest.mark.asyncio
-async def test_assumption_9_pydantic_private_attrs(browser_session, controller):
+async def test_assumption_9_pydantic_private_attrs(browser_session, controller, httpserver):
 	"""Test assumption 9: Pydantic model validation affects private attributes."""
 	# Go to a simple page
 	page = await browser_session.get_current_page()
-	await page.goto('https://www.google.com')
+	await page.goto(httpserver.url_for('/'))
 	await page.wait_for_load_state()
 
 	print('=== PYDANTIC PRIVATE ATTRS DEBUG ===')
@@ -330,11 +377,11 @@ async def test_assumption_9_pydantic_private_attrs(browser_session, controller):
 
 
 @pytest.mark.asyncio
-async def test_assumption_7_cache_gets_cleared(browser_session, controller):
+async def test_assumption_7_cache_gets_cleared(browser_session, controller, httpserver):
 	"""Test assumption 7: Check if _cached_browser_state_summary gets cleared."""
 	# Go to a simple page
 	page = await browser_session.get_current_page()
-	await page.goto('https://www.google.com')
+	await page.goto(httpserver.url_for('/'))
 	await page.wait_for_load_state()
 
 	print('=== CACHE CLEARING DEBUG ===')
@@ -397,11 +444,11 @@ async def test_assumption_7_cache_gets_cleared(browser_session, controller):
 
 
 @pytest.mark.asyncio
-async def test_final_real_click_with_debug(browser_session, controller):
+async def test_final_real_click_with_debug(browser_session, controller, httpserver):
 	"""Final test: Try actual click with maximum debugging."""
 	# Go to a simple page
 	page = await browser_session.get_current_page()
-	await page.goto('https://www.google.com')
+	await page.goto(httpserver.url_for('/'))
 	await page.wait_for_load_state()
 
 	print('=== FINAL CLICK TEST WITH FULL DEBUG ===')
