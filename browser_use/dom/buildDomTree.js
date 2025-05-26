@@ -606,7 +606,7 @@
   }
 
   // Helper function to check if element is accepted
-  function isElementAccepted(element, allowedLeafElements = []) {
+  function isElementAccepted(element, allowedLeafElements) {
     if (!element || !element.tagName) return false;
 
     // Always accept body and common container elements
@@ -635,7 +635,7 @@
       "template",
     ]);
 
-    for (const allowedTag of allowedLeafElements) {
+    for (const allowedTag of allowedLeafElements ?? []) {
       // console.log(`Setting allowed tag: ${allowedTag}`);
       leafElementDenyList.delete(allowedTag.toLowerCase());
     }
@@ -1254,7 +1254,7 @@
     }
 
     // Quick checks for element nodes
-    if (node.nodeType === Node.ELEMENT_NODE && !isElementAccepted(node, additionalArgs?.allowed_leaf_elements)) {
+    if (node.nodeType === Node.ELEMENT_NODE && !isElementAccepted(node, additionalArgs?.allowed_leaf_elements ?? [])) {
       if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
       return null;
     }
