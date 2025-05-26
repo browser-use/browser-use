@@ -11,6 +11,7 @@ import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, Generic, TypeVar
+from threading import Thread
 
 from dotenv import load_dotenv
 
@@ -592,7 +593,25 @@ class Agent(Generic[Context]):
 				return results
 
 			# Execute async tests
-			results = asyncio.run(test_all_methods())
+			try:
+				loop = asyncio.get_running_loop()
+				# Running loop: create a new loop in a separate thread
+				result = {}
+
+				def run_in_thread():
+					new_loop = asyncio.new_event_loop()
+					asyncio.set_event_loop(new_loop)
+					result["value"] = new_loop.run_until_complete(test_all_methods())
+					new_loop.close()
+
+				t = Thread(target=run_in_thread)
+				t.start()
+				t.join()
+				results = result["value"]
+
+			except RuntimeError:
+				# No running loop: use asyncio.run
+				results = asyncio.run(test_all_methods())
 
 			# Process results in order of preference
 			for i, method in enumerate(methods_to_try):
