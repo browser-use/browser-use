@@ -862,7 +862,7 @@ class Controller(Generic[Context]):
 						formatted_results_list.append(entry_str)
 
 					final_output = '\n'.join(formatted_results_list)
-					if not final_output:
+					if not formatted_results_list:
 						final_output = 'No relevant facts found in long-term memory.'
 
 				else:

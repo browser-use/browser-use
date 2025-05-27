@@ -1059,7 +1059,9 @@ class Agent(Generic[Context]):
 		"""Create and store history item"""
 
 		if model_output:
-			interacted_elements = AgentHistory.get_interacted_element(model_output, browser_state_summary.selector_map)
+			interacted_elements = AgentHistory.get_interacted_element(
+				model_output, current_browser_state_summary=browser_state_summary.selector_map
+			)
 		else:
 			interacted_elements = [None]
 
