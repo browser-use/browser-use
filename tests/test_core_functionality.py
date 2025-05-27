@@ -41,6 +41,25 @@ class TestCoreFunctionality:
 			content_type='text/html',
 		)
 
+		server.expect_request("/dummy.pdf", method="HEAD").respond_with_data(
+			b"",
+			content_type="application/pdf",
+			headers={"Content-Type": "application/pdf"}
+		)
+
+		server.expect_request("/dummy.pdf", method="HEAD").respond_with_data(
+			b"""%PDF-1.4\n1 0 obj\n<< /Type /Page /Contents 2 0 R
+            /Resources << >> /MediaBox [0 0 200 200] >>\nendobj\n2 0 obj\n
+            << /Length 44 >>\nstream\nBT /F1 12 Tf 72 720 Td (Hello PDF) Tj ET\n
+            endstream\nendobj\n3 0 obj\n<< /Type /Catalog /Pages 4 0 R >>\nendobj\n
+            4 0 obj\n<< /Type /Pages /Kids [1 0 R] /Count 1 >>\nendobj\nxref\n0 5\n
+            0000000000 65535 f\n0000000010 00000 n\n0000000077 00000 n\n
+            0000000167 00000 n\n0000000203 00000 n\ntrailer\n<< /Root 3 0 R /Size 5 >>\n
+            startxref\n276\n%%EOF""",
+			content_type="application/pdf",
+			headers={"Content-Type": "application/pdf"}
+		)
+
 		server.expect_request('/search').respond_with_data(
 			"""
             <html>
@@ -233,6 +252,28 @@ class TestCoreFunctionality:
 		assert extracted_content is not None, 'Expected content not found in extraction'
 
 	@pytest.mark.asyncio
+	async def test_extract_pdf_content(self, llm, browser_session, base_url):
+		"""Test PDF extraction via the 'extract_content' action."""
+
+		agent = Agent(
+			task=f"Go to '{base_url}/dummy.pdf' and extract the page content.",
+			llm=llm,
+			browser_session=browser_session,
+		)
+		history = await agent.run(max_steps=3)
+		action_names = history.action_names()
+		assert "go_to_url" in action_names
+		assert "extract_content" in action_names
+
+		extracted_content = None
+		for action_result in history.history[-1].result:
+			if action_result.extracted_content and "hellopdf" in action_result.extracted_content:
+				extracted_content = action_result.extracted_content
+				break
+
+		assert extracted_content is not None, "Expected PDF content not found in extraction"
+
+	@pytest.mark.asyncio
 	async def test_done_action(self, llm, browser_session, base_url):
 		"""Test 'Complete task' action."""
 		agent = Agent(
@@ -249,10 +290,10 @@ class TestCoreFunctionality:
 		assert history.is_successful()
 
 	@pytest.mark.asyncio
-	async def test_scroll_down(self, llm, browser_session, base_url, http_server):
+	async def test_scroll_down(self, llm, browser_session, base_url):
 		"""Test 'Scroll down' action and validate that the page actually scrolled."""
 		# Create a test page with scrollable content
-		http_server.expect_request('/scroll-test').respond_with_data(
+		server.expect_request('/scroll-test').respond_with_data(
 			"""
             <html>
             <head><title>Scroll Test</title>
