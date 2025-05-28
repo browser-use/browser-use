@@ -256,8 +256,12 @@ class Controller(Generic[Context]):
 				from markitdown import MarkItDown
 
 				pdf_resp = await page.context.request.fetch(page.url, method="GET")
-				md = MarkItDown()
-				content = md.convert_stream(stream=io.BytesIO(await pdf_resp.body())).text_content
+				logger.info(pdf_resp.ok)
+				if pdf_resp.ok:
+					md = MarkItDown()
+					content = md.convert_stream(stream=io.BytesIO(await pdf_resp.body())).text_content
+				else:
+					content = "PDF content could not be fetched"
 
 			else:
 				import markdownify
@@ -273,6 +277,7 @@ class Controller(Generic[Context]):
 			prompt = 'Your task is to extract the content of the page. You will be given a page and a goal and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format. Extraction goal: {goal}, Page: {page}'
 			template = PromptTemplate(input_variables=['goal', 'page'], template=prompt)
 			try:
+				logger.info(content)
 				output = await page_extraction_llm.ainvoke(template.format(goal=goal, page=content))
 				msg = f'📄  Extracted from page\n: {output.content}\n'
 				logger.info(msg)
