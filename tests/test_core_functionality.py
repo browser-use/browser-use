@@ -22,7 +22,7 @@ class TestCoreFunctionality:
 	@pytest.fixture(scope='module')
 	def http_server(self):
 		"""Create and provide a test HTTP server that serves static content."""
-		server = HTTPServer()
+		server = HTTPServer(threaded=True)
 		server.start()
 
 		# Add routes for common test pages
@@ -44,10 +44,14 @@ class TestCoreFunctionality:
 		server.expect_request("/dummy.pdf", method="HEAD").respond_with_data(
 			b"",
 			content_type="application/pdf",
-			headers={"Content-Type": "application/pdf"}
+			headers={
+				"Content-Type": "application/pdf",
+				"Content-Length": "0",
+				"Connection": "close",
+			}
 		)
 
-		server.expect_request("/dummy.pdf", method="HEAD").respond_with_data(
+		server.expect_request("/dummy.pdf", method="GET").respond_with_data(
 			b"""%PDF-1.4\n1 0 obj\n<< /Type /Page /Contents 2 0 R
             /Resources << >> /MediaBox [0 0 200 200] >>\nendobj\n2 0 obj\n
             << /Length 44 >>\nstream\nBT /F1 12 Tf 72 720 Td (Hello PDF) Tj ET\n
@@ -267,7 +271,7 @@ class TestCoreFunctionality:
 
 		extracted_content = None
 		for action_result in history.history[-1].result:
-			if action_result.extracted_content and "hellopdf" in action_result.extracted_content:
+			if action_result.extracted_content and "hello" in action_result.extracted_content.lower() and "pdf" in action_result.extracted_content.lower():
 				extracted_content = action_result.extracted_content
 				break
 
@@ -290,10 +294,10 @@ class TestCoreFunctionality:
 		assert history.is_successful()
 
 	@pytest.mark.asyncio
-	async def test_scroll_down(self, llm, browser_session, base_url):
+	async def test_scroll_down(self, llm, browser_session, base_url, http_server):
 		"""Test 'Scroll down' action and validate that the page actually scrolled."""
 		# Create a test page with scrollable content
-		server.expect_request('/scroll-test').respond_with_data(
+		http_server.expect_request('/scroll-test').respond_with_data(
 			"""
             <html>
             <head><title>Scroll Test</title>
