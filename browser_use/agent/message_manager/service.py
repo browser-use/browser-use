@@ -88,7 +88,7 @@ def _log_format_agent_output_content(tool_call: dict) -> str:
 		return 'AgentOutput'
 
 
-def _log_extract_message_content(message: BaseMessage, is_last_message: bool) -> str:
+def _log_extract_message_content(message: BaseMessage, is_last_message: bool, metadata: MessageMetadata | None = None) -> str:
 	"""Extract content from a message for logging display only"""
 	try:
 		message_type = message.__class__.__name__
@@ -113,6 +113,9 @@ def _log_extract_message_content(message: BaseMessage, is_last_message: bool) ->
 			tool_name = tool_call.get('name', 'unknown')
 
 			if tool_name == 'AgentOutput':
+				# Skip formatting for init example messages
+				if metadata and metadata.message_type == 'init':
+					return '[Example AgentOutput]'
 				content = _log_format_agent_output_content(tool_call)
 			else:
 				content = f'[TOOL: {tool_name}]'
@@ -354,7 +357,7 @@ class MessageManager:
 					is_last_message = i == len(self.state.history.messages) - 1
 
 					# Extract content for logging
-					content = _log_extract_message_content(m.message, is_last_message)
+					content = _log_extract_message_content(m.message, is_last_message, m.metadata)
 
 					# Format the message line(s)
 					lines = _log_format_message_line(m, content, is_last_message, terminal_width)

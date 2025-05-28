@@ -99,7 +99,7 @@ async def main(browser_session):
 
 	This test confirms that this approach works.
 	"""
-	logger.info('Starting browser_session parameter test')
+	# logger.info('Starting browser_session parameter test')
 
 	# Create registry
 	registry = Registry[TestContext]()
@@ -111,19 +111,19 @@ async def main(browser_session):
 	# Use the provided real browser session
 
 	# Test with the real issue: select_cell_or_range
-	logger.info('\n\n=== Test: Simulating select_cell_or_range issue with correct model ===')
+	# logger.info('\n\n=== Test: Simulating select_cell_or_range issue with correct model ===')
 
 	# Define the function without using our registry - this will be a helper function
 	async def _select_cell_or_range(browser_session, cell_or_range):
 		"""Helper function for select_cell_or_range"""
-		logger.info(f'_select_cell_or_range internal implementation called with cell_or_range={cell_or_range}')
+		# logger.info(f'_select_cell_or_range internal implementation called with cell_or_range={cell_or_range}')
 		return f'Selected cell {cell_or_range}'
 
 	# This simulates the actual issue we're seeing in the real code
 	# The browser_session parameter is in both the function signature and passed as a named arg
 	@registry.action('Google Sheets: Select a cell or range', param_model=CellRangeParams)
 	async def select_cell_or_range(browser_session: BrowserSession, cell_or_range: str):
-		logger.info(f'select_cell_or_range called with browser_session={browser_session}, cell_or_range={cell_or_range}')
+		# logger.info(f'select_cell_or_range called with browser_session={browser_session}, cell_or_range={cell_or_range}')
 
 		# PROBLEMATIC LINE: browser_session is passed by name, matching the parameter name
 		# This is what causes the "got multiple values" error in the real code
@@ -132,7 +132,7 @@ async def main(browser_session):
 	# Fix attempt: Register a version that uses positional args instead
 	@registry.action('Google Sheets: Select a cell or range (fixed)', param_model=CellRangeParams)
 	async def select_cell_or_range_fixed(browser_session: BrowserSession, cell_or_range: str):
-		logger.info(f'select_cell_or_range_fixed called with browser_session={browser_session}, cell_or_range={cell_or_range}')
+		# logger.info(f'select_cell_or_range_fixed called with browser_session={browser_session}, cell_or_range={cell_or_range}')
 
 		# FIXED LINE: browser_session is passed positionally, avoiding the parameter name conflict
 		return await _select_cell_or_range(browser_session, cell_or_range)
@@ -140,7 +140,7 @@ async def main(browser_session):
 	# Another attempt: explicitly call using **kwargs to simulate what the registry does
 	@registry.action('Google Sheets: Select with kwargs', param_model=CellRangeParams)
 	async def select_with_kwargs(browser_session: BrowserSession, cell_or_range: str):
-		logger.info(f'select_with_kwargs called with browser_session={browser_session}, cell_or_range={cell_or_range}')
+		# logger.info(f'select_with_kwargs called with browser_session={browser_session}, cell_or_range={cell_or_range}')
 
 		# Get params and extra_args, like in Registry.execute_action
 		params = {'cell_or_range': cell_or_range, 'browser_session': browser_session}
@@ -149,60 +149,60 @@ async def main(browser_session):
 		# Try to call _select_cell_or_range with both params and extra_args
 		# This will fail with "got multiple values for keyword argument 'browser_session'"
 		try:
-			logger.info('Attempting to call with both params and extra_args (should fail):')
+			# logger.info('Attempting to call with both params and extra_args (should fail):')
 			await _select_cell_or_range(**params, **extra_args)
 		except TypeError as e:
-			logger.info(f'Expected error: {e}')
+			# logger.info(f'Expected error: {e}')
 
 			# Remove browser_session from params to avoid the conflict
 			params_fixed = dict(params)
 			del params_fixed['browser_session']
 
-			logger.info(f'Fixed params: {params_fixed}')
+			# logger.info(f'Fixed params: {params_fixed}')
 
 			# This should work
 			result = await _select_cell_or_range(**params_fixed, **extra_args)
-			logger.info(f'Success after fix: {result}')
+			# logger.info(f'Success after fix: {result}')
 			return result
 
 	# Test the original problematic version
-	logger.info('\n--- Testing original problematic version ---')
+	# logger.info('\n--- Testing original problematic version ---')
 	try:
 		result1 = await registry.execute_action(
 			'select_cell_or_range', {'cell_or_range': 'A1:F100'}, browser_session=browser_session
 		)
-		logger.info(f'Success! Result: {result1}')
+		# logger.info(f'Success! Result: {result1}')
 	except Exception as e:
 		logger.error(f'Error: {str(e)}')
 
 	# Test the fixed version (using positional args)
-	logger.info('\n--- Testing fixed version (positional args) ---')
+	# logger.info('\n--- Testing fixed version (positional args) ---')
 	try:
 		result2 = await registry.execute_action(
 			'select_cell_or_range_fixed', {'cell_or_range': 'A1:F100'}, browser_session=browser_session
 		)
-		logger.info(f'Success! Result: {result2}')
+		# logger.info(f'Success! Result: {result2}')
 	except Exception as e:
 		logger.error(f'Error: {str(e)}')
 
 	# Test with kwargs version that simulates what Registry.execute_action does
-	logger.info('\n--- Testing kwargs simulation version ---')
+	# logger.info('\n--- Testing kwargs simulation version ---')
 	try:
 		result3 = await registry.execute_action(
 			'select_with_kwargs', {'cell_or_range': 'A1:F100'}, browser_session=browser_session
 		)
-		logger.info(f'Success! Result: {result3}')
+		# logger.info(f'Success! Result: {result3}')
 	except Exception as e:
 		logger.error(f'Error: {str(e)}')
 
 	# Manual test of our theory: browser_session is passed twice
-	logger.info('\n--- Direct test of our theory ---')
+	# logger.info('\n--- Direct test of our theory ---')
 	try:
 		# Create the model instance
 		params = CellRangeParams(cell_or_range='A1:F100')
 
 		# First check if the extra_args approach works
-		logger.info('Checking if extra_args approach works:')
+		# logger.info('Checking if extra_args approach works:')
 		extra_args = {'browser_session': browser_session}
 
 		# If we were to modify Registry.execute_action:
@@ -212,23 +212,23 @@ async def main(browser_session):
 
 		# Create params dict
 		param_dict = params.model_dump()
-		logger.info(f'params dict before: {param_dict}')
+		# logger.info(f'params dict before: {param_dict}')
 
 		# Apply our fix: remove browser_session from params dict
 		for key in browser_keys:
 			if key in param_dict and key in extra_args:
-				logger.info(f'Removing {key} from params dict')
+				# logger.info(f'Removing {key} from params dict')
 				del param_dict[key]
 
-		logger.info(f'params dict after: {param_dict}')
-		logger.info(f'extra_args: {extra_args}')
+		# logger.info(f'params dict after: {param_dict}')
+		# logger.info(f'extra_args: {extra_args}')
 
 		# This would be the fixed code:
 		# return await action.function(**param_dict, **extra_args)
 
 		# Call directly to test
 		result3 = await select_cell_or_range(**param_dict, **extra_args)
-		logger.info(f'Success with our fix! Result: {result3}')
+		# logger.info(f'Success with our fix! Result: {result3}')
 	except Exception as e:
 		logger.error(f'Error with our manual test: {str(e)}')
 
@@ -237,7 +237,6 @@ async def main(browser_session):
 import pytest
 
 
-@pytest.mark.asyncio
 async def test_browser_session_parameter_issue(browser_session):
 	"""Test that the browser_session parameter issue is fixed."""
 	# Run the main test logic

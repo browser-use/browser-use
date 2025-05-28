@@ -8,15 +8,14 @@ from browser_use.agent.service import Agent
 from browser_use.agent.views import AgentHistoryList
 
 
-@pytest.mark.asyncio
-async def test_dropdown(llm, browser_context):
+async def test_dropdown(llm, browser_session):
 	"""Test selecting an option from a dropdown menu."""
 	agent = Agent(
 		task=(
 			'go to https://codepen.io/geheimschriftstift/pen/mPLvQz and first get all options for the dropdown and then select the 5th option'
 		),
 		llm=llm,
-		browser_context=browser_context,
+		browser_session=browser_session,
 	)
 
 	try:
@@ -28,7 +27,8 @@ async def test_dropdown(llm, browser_context):
 		assert 'Duck' in result, "Expected 5th option 'Duck' to be selected"
 
 		# Verify dropdown state
-		element = await browser_context.get_element_by_selector('select')
+		page = await browser_session.get_current_page()
+		element = await page.query_selector('select')
 		assert element is not None, 'Dropdown element should exist'
 
 		value = await element.evaluate('el => el.value')
@@ -36,5 +36,3 @@ async def test_dropdown(llm, browser_context):
 
 	except Exception as e:
 		pytest.fail(f'Dropdown test failed: {str(e)}')
-	finally:
-		await browser_context.close()

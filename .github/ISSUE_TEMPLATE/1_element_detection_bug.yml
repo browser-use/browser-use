@@ -8,11 +8,26 @@ body:
       value: |
         Thanks for taking the time to fill out this bug report! Please fill out the form below to help us reproduce and fix the issue.
 
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        > [!IMPORTANT]
+        > 🙏 Please **go check *right now before filling this out* that that you are *actually* on the [⬆️ LATEST VERSION](https://github.com/browser-use/browser-use/releases)**.
+        > 🚀 We ship changes every hour and we might've already fixed your issue today!  
+        > <a href="https://github.com/browser-use/browser-use/releases"><img src="https://github.com/user-attachments/assets/4cd34ee6-bafb-4f24-87e2-27a31dc5b9a4" width="500px"/></a>
+        > If you are running an old version, the **first thing we will ask you to do is *upgrade to the latest version* and try again**:
+        > - 🆕 [`beta`](https://docs.browser-use.com/development/local-setup):   `uv pip install --upgrade git+https://github.com/browser-use/browser-use.git@main`
+        > - 📦 [`stable`](https://pypi.org/project/browser-use/#history): `uv pip install --upgrade browser-use`
+
+
   - type: input
     id: version
     attributes:
       label: Browser Use Version
-      description: What version of `browser-use` are you using? (Run `uv pip show browser-use` or `git log -n 1`) **DO NOT JUST WRITE `latest release` or `main`**
+      description: |
+        What version of `browser-use` are you using? (Run `uv pip show browser-use` or `git log -n 1`)  
+        **DO NOT JUST WRITE `latest release` or `main` or a very old version or we will close your issue!**
       placeholder: "e.g. 0.4.45 or 62760baaefd"
     validations:
       required: true
@@ -120,15 +135,3 @@ body:
         DEBUG    [langsmith.client] Sending multipart request with context: trace=91282a01-6667-48a1-8cd7-21aa9337a580,id=91282a01-6667-48a1-8cd7-21aa9337a580
         DEBUG    [agent] 🪪 LLM API keys OPENAI_API_KEY work, ChatOpenAI model is connected & responding correctly.
         ...
-
-  - type: markdown
-    attributes:
-      value: |
-        ---
-        > [!IMPORTANT]
-        > 🙏 Please **go check *right now before submitting* that that you are on the [⬆️ LATEST VERSION](https://github.com/browser-use/browser-use/releases)**.
-        > 🚀 We ship new agent and element detection improvements every day and we might've already fixed your issue!  
-        > <a href="https://github.com/browser-use/browser-use/releases"><img src="https://github.com/user-attachments/assets/4cd34ee6-bafb-4f24-87e2-27a31dc5b9a4" width="500px"/></a>
-        > If you are running an old version, the **first thing we will ask you to do is *try the latest `beta`***:
-        > - 🆕 [`beta`](https://docs.browser-use.com/development/local-setup):   `uv pip install --upgrade git+https://github.com/browser-use/browser-use.git@main`
-        > - 📦 [`stable`](https://pypi.org/project/browser-use/#history): `uv pip install --upgrade browser-use`

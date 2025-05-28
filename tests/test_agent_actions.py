@@ -1,4 +1,3 @@
-import asyncio
 import os
 
 import pytest
@@ -7,7 +6,7 @@ from pydantic import BaseModel, SecretStr
 
 from browser_use.agent.service import Agent
 from browser_use.agent.views import AgentHistoryList
-from browser_use.browser.browser import Browser, BrowserConfig
+from browser_use.browser import BrowserProfile, BrowserSession
 
 
 @pytest.fixture
@@ -25,40 +24,26 @@ def llm():
 
 
 @pytest.fixture(scope='session')
-def event_loop():
-	"""Create an instance of the default event loop for each test case."""
-	loop = asyncio.get_event_loop_policy().new_event_loop()
-	yield loop
-	loop.close()
-
-
-@pytest.fixture(scope='session')
-async def browser(event_loop):
-	browser_instance = Browser(
-		config=BrowserConfig(
+async def browser_session():
+	browser_session = BrowserSession(
+		browser_profile=BrowserProfile(
 			headless=True,
 		)
 	)
-	yield browser_instance
-	await browser_instance.close()
-
-
-@pytest.fixture
-async def context(browser):
-	async with await browser.new_context() as context:
-		yield context
-		# Clean up automatically happens with __aexit__
+	await browser_session.start()
+	yield browser_session
+	await browser_session.stop()
 
 
 # pytest tests/test_agent_actions.py -v -k "test_ecommerce_interaction" --capture=no
 # @pytest.mark.asyncio
 @pytest.mark.skip(reason='Kinda expensive to run')
-async def test_ecommerce_interaction(llm, context):
+async def test_ecommerce_interaction(llm, browser_session):
 	"""Test complex ecommerce interaction sequence"""
 	agent = Agent(
 		task="Go to amazon.com, search for 'laptop', filter by 4+ stars, and find the price of the first result",
 		llm=llm,
-		browser_context=context,
+		browser_session=browser_session,
 		save_conversation_path='tmp/test_ecommerce_interaction/conversation',
 	)
 
@@ -90,13 +75,12 @@ async def test_ecommerce_interaction(llm, context):
 	assert 'input_exact_correct' in action_sequence or 'correct_in_input' in action_sequence
 
 
-# @pytest.mark.asyncio
-async def test_error_recovery(llm, context):
+async def test_error_recovery(llm, browser_session):
 	"""Test agent's ability to recover from errors"""
 	agent = Agent(
 		task='Navigate to nonexistent-site.com and then recover by going to google.com ',
 		llm=llm,
-		browser_context=context,
+		browser_session=browser_session,
 	)
 
 	history: AgentHistoryList = await agent.run(max_steps=10)
@@ -111,13 +95,12 @@ async def test_error_recovery(llm, context):
 			break
 
 
-# @pytest.mark.asyncio
-async def test_find_contact_email(llm, context):
+async def test_find_contact_email(llm, browser_session):
 	"""Test agent's ability to find contact email on a website"""
 	agent = Agent(
 		task='Go to https://browser-use.com/ and find out the contact email',
 		llm=llm,
-		browser_context=context,
+		browser_session=browser_session,
 	)
 
 	history: AgentHistoryList = await agent.run(max_steps=10)
@@ -132,13 +115,12 @@ async def test_find_contact_email(llm, context):
 		pytest.fail(f'{extracted_content} does not contain {email}')
 
 
-# @pytest.mark.asyncio
-async def test_agent_finds_installation_command(llm, context):
+async def test_agent_finds_installation_command(llm, browser_session):
 	"""Test agent's ability to find the pip installation command for browser-use on the web"""
 	agent = Agent(
 		task='Find the pip installation command for the browser-use repo',
 		llm=llm,
-		browser_context=context,
+		browser_session=browser_session,
 	)
 
 	history: AgentHistoryList = await agent.run(max_steps=10)
@@ -162,7 +144,6 @@ class CaptchaTest(BaseModel):
 
 # run 3 test: python -m pytest tests/test_agent_actions.py -v -k "test_captcha_solver" --capture=no --log-cli-level=INFO
 # pytest tests/test_agent_actions.py -v -k "test_captcha_solver" --capture=no --log-cli-level=INFO
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
 	'captcha',
 	[
@@ -190,20 +171,20 @@ class CaptchaTest(BaseModel):
 		),
 	],
 )
-async def test_captcha_solver(llm, context, captcha: CaptchaTest):
+async def test_captcha_solver(llm, browser_session, captcha: CaptchaTest):
 	"""Test agent's ability to solve different types of captchas"""
 	agent = Agent(
 		task=f'Go to {captcha.url} and solve the captcha. {captcha.additional_text}',
 		llm=llm,
-		browser_context=context,
+		browser_session=browser_session,
 	)
 	from browser_use.agent.views import AgentHistoryList
 
 	history: AgentHistoryList = await agent.run(max_steps=7)
 
-	state = await context.get_state_summary()
-
-	all_text = state.element_tree.get_all_text_till_next_clickable_element()
+	# Get page content to verify success
+	page = await browser_session.get_current_page()
+	all_text = await page.content()
 
 	if not all_text:
 		all_text = ''

@@ -7,9 +7,10 @@ __pycache__/
 .ruff_cache/
 .pytest_cache/
 .ipynb_checkpoints
+~/
 
 # Virtual Environments
-.venv
+.venv*
 venv/
 
 # IDEs
@@ -26,6 +27,7 @@ dist/
 *.csv
 *.json
 *.jsonl
+*.log
 
 # Secrets and sensitive files
 secrets.env

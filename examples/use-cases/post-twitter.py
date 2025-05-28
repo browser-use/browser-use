@@ -70,7 +70,7 @@ def create_twitter_agent(config: TwitterConfig) -> Agent:
 
 	browser_profile = BrowserProfile(
 		headless=config.headless,
-		browser_binary_path=config.chrome_path,
+		executable_path=config.chrome_path,
 	)
 	browser_session = BrowserSession(browser_profile=browser_profile)
 

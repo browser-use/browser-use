@@ -1,94 +1,43 @@
 ---
 title: "Browser Settings"
-description: "Configure browser behavior and context settings"
+description: "Launch or connect to an existing browser and configure it to your needs."
 icon: "globe"
 ---
 
-Browser Use uses [playwright](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context) (or [patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright)) + CDP to manage its connection with a real browser.
+Browser Use uses [playwright](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context) (or [patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright)) to manage its connection with a real browser.
+
+---
+
+**To launch or connect to a browser**, pass any playwright / browser-use configuration arguments you want to `BrowserSession(...)`:
 
 ```python
-from browser_use import BrowserProfile, BrowserSession
-````
+from browser_use import BrowserSession, Agent
 
-
-- `BrowserSession(**params)` is Browser Use's object that tracks a connection to a running browser. It holds:
-  - the `playwright`, `browser`, `browser_context`, and `page` objects and tracks which tabs the agent/human are focused on
-  - the helper methods to launch and connect to remote and local browsers
-  - methods to interact with the browser window, apply config needed by the Agent, and run the DOMService for element detection
-- `BrowserProfile(**params)` is Browser Use's object that holds a collection of static config kwargs, to be used when starting a `BrowserSession`. It holds:
-  - all the standard playwright kwargs
-  - some extra browser configuration options we provide on top of playwright (e.g. `allowed_domains`, `window_position`, `profile_directory`, `deterministic_rendering`, etc.)
-  - some kwargs used to configure Browser Use-specific features related to the browser (e.g. `highlight_elements`, `disable_security`, `cookies_file`) 
-- [`Browser`](https://playwright.dev/python/docs/api/class-browser): standard [playwright `Browser`](https://playwright.dev/python/docs/api/class-browser) object, refers to a running browser process (remote or local)
-- [`BrowserContext`](https://playwright.dev/python/docs/api/class-browsercontext): standard [playwright `BrowserContext`](https://playwright.dev/python/docs/api/class-browsercontext) refers to a window in a live browser (incognito or with a profile)
-- [`Page`](https://playwright.dev/python/docs/api/class-page): standard [playwright `Page`](https://playwright.dev/python/docs/api/class-page), the handle for one tab in the browser
+browser_session = BrowserSession(
+    headless=True,
+    viewport={'width': 964, 'height': 647},
+    user_data_dir='~/.config/browseruse/profiles/default',
+)
+agent = Agent('fill out the form on this page', browser_session=browser_session)
+```
 
 <Note>
-  The new `BrowserSession` and `BrowserProfile` classes now accept all the same arguments as standard Playwright [launch_persistent_context](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context) API, giving you full control over browser settings.
+  The new `BrowserSession` & `BrowserProfile` accept all the same arguments that Playwright's [`launch_persistent_context(...)`](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context) takes, giving you full control over browser settings at launch. (see below for the full list)
 </Note>
 
-# Browser Configuration
 
-```python
-from browser_use import Agent, BrowserSession, BrowserProfile
+---
 
-# It's easy to connect to or launch a new browser with a BrowserSession, many methods are supported:
-browser_session = BrowserSession(
-    cdp_url='http://localhost:9222' | wss_url='ws://...', 
-    # keep_alive=True,
-    # browser_pid=12445,
-    page=playwright_page | browser_context | browser | playwright,
-    # executable_path='...',
-    # user_data_dir='...',
-    # headless=True,
-    browser_profile=BrowserProfile(..., color_scheme='dark'),
-    # color_scheme='light',  # <- will take precedence over ^
-    # ... other config overrides can go here
-)
+## `BrowserSession`
 
-# you can optionally start a session and use it outside an Agent, otherwise Agent will automatically start it
-await session.start()
-page = await session.browser_context.new_page()
-await page.goto('https://example.com/load-before-agent-starts')
+- `BrowserSession(**params)` is Browser Use's object that tracks a connection to a running browser. It sets up:
+  - the `playwright`, `browser`, `browser_context`, and `page` objects and tracks which tabs the agent/human are focused on
+  - methods to interact with the browser window, apply config needed by the Agent, and run the `DOMService` for element detection
+  - it can take a `browser_profile=BrowserProfile(...)` template containing some config defaults, and `**kwargs` session-specific config overrides
 
-agent = Agent(
-    task='your task here',
-    browser_session=browser_session, # provide a browser_session to the agent
-    page=page,                       # or as a shortcut, provide a playwright page directly
-)
-```
+### Browser Connection Parameters
 
-`BrowserProfile` is a static, flat collection of config.  
-It can be passed to a `BrowserSession` to start a session using that config.
-
-```python
-browser_profile = BrowserProfile(
-    headless=True,
-    is_mobile=True,
-    **playwright.devices['iPhone 13'],
-    user_data_dir='~/Desktop/mobile_test_profile',
-    allowed_domains=['https://*.example.com'],
-)
-
-# create a new session using the profile
-browser_session = BrowserSession(
-    browser_profile=browser_profile,
-    headless=False, # <- extra kwargs passed to session will override values from profile
-)
-```
-
-
-`BrowserSession` and `BrowserProfile` both accept the same long list of main config kwargs, most are standard playwright arguments that `playwright.BrowserType.launch_persistent_context()` takes.
-
-We also provide some extra utility options to control Browser-Use-specific features and make setup easier, 
-e.g. `allowed_domains`, `keep_alive`, `highlight_elements`, and more.
-
-
-
-## `BrowserSession` Parameters
-
-
-### Remote Browser Connection Parameters
+Provide any one of these options to connect to an existing browser. These options are session-specific and cannot be stored in a `BrowserProfile(...)` template.
 
 #### `wss_url`
 
@@ -96,7 +45,7 @@ e.g. `allowed_domains`, `keep_alive`, `highlight_elements`, and more.
 wss_url: str | None = None
 ```
 
-WSS URL of the node.js playwright browser server to connect to
+WSS URL of the playwright-protocol browser server to connect to. See here for [WSS connection instructions](https://docs.browser-use.com/customize/real-browser#method-d%3A-connect-to-remote-playwright-node-js-browser-server-via-wss-url).
 
 #### `cdp_url`
 
@@ -104,7 +53,7 @@ WSS URL of the node.js playwright browser server to connect to
 cdp_url: str | None = None
 ```
 
-CDP URL of the browser to connect to (e.g., http://localhost:9222)
+CDP URL of the browser to connect to (e.g. `http://localhost:9222`). See here for [CDP connection instructions](https://docs.browser-use.com/customize/real-browser#method-e%3A-connect-to-remote-browser-via-cdp-url).
 
 #### `browser_pid`
 
@@ -112,7 +61,7 @@ CDP URL of the browser to connect to (e.g., http://localhost:9222)
 browser_pid: int | None = None
 ```
 
-PID of a running chromium-based browser process to connect to on localhost
+PID of a running chromium-based browser process to connect to on localhost. See here for [connection via pid](https://docs.browser-use.com/customize/real-browser#method-c%3A-connect-to-local-browser-using-browser-pid) instructions.
 
 <Note>
   For web scraping tasks on sites that restrict automated access, we recommend
@@ -120,7 +69,7 @@ PID of a running chromium-based browser process to connect to on localhost
   See the [Connect to your Browser](real-browser) guide for detailed connection instructions.
 </Note>
 
-### Runtime State / Parameters
+### Session-Specific Parameters
 
 #### `browser_profile`
 
@@ -128,7 +77,7 @@ PID of a running chromium-based browser process to connect to on localhost
 browser_profile: BrowserProfile = BrowserProfile()
 ```
 
-BrowserProfile instance containing config to use for the BrowserSession
+Optional `BrowserProfile` template containing default config to use for the `BrowserSession`. (see below for more info)
 
 #### `playwright`
 
@@ -136,8 +85,8 @@ BrowserProfile instance containing config to use for the BrowserSession
 playwright: Playwright | None = None
 ```
 
-Optional playwright or patchright API client object to use
-result of (await async_playwright().start()) or (await async_patchright().start())
+Optional playwright or patchright API client object to use, the
+result of `(await async_playwright().start())` or `(await async_patchright().start())`. See here for [more detailed usage instructions](https://docs.browser-use.com/customize/real-browser#method-b%3A-connect-using-existing-playwright-objects).
 
 #### `browser`
 
@@ -145,7 +94,7 @@ result of (await async_playwright().start()) or (await async_patchright().start(
 browser: Browser | None = None
 ```
 
-Playwright Browser object to use (optional)
+Playwright Browser object to use (optional). See here for [more detailed usage instructions](https://docs.browser-use.com/customize/real-browser#method-b%3A-connect-using-existing-playwright-objects).
 
 #### `browser_context`
 
@@ -153,7 +102,25 @@ Playwright Browser object to use (optional)
 browser_context: BrowserContext | None = None
 ```
 
-Playwright BrowserContext object to use (optional)
+Playwright BrowserContext object to use (optional). See here for [more detailed usage instructions](https://docs.browser-use.com/customize/real-browser#method-b%3A-connect-using-existing-playwright-objects).
+
+#### `page` *aka* `agent_current_page`
+
+<a name="page"></a><a name="agent-current-page"></a>
+
+```python
+page: Page | None = None
+```
+
+Foreground Page that the agent is focused on, can also be passed as `page=...` as a shortcut. See here for [more detailed usage instructions](https://docs.browser-use.com/customize/real-browser#method-b%3A-connect-using-existing-playwright-objects).
+
+#### `human_current_page`
+
+```python
+human_current_page: Page | None = None
+```
+
+Foreground Page that the human is focused on to start, usually not necessary to set manually.
 
 #### `initialized`
 
@@ -163,26 +130,66 @@ initialized: bool = False
 
 Mark BrowserSession as already initialized, skips launch/connection (not recommended)
 
-#### `page` *aka* `agent_current_page`
+
+#### `**kwargs`
+
+`BrowserSession` can also accept *all* of the parameters [below](#browserprofile).
+(the parameters *above* this point are specific to `BrowserSession` and cannot be stored in a `BrowserProfile` template)
+
+Extra `**kwargs` passed to `BrowserSession(...)` act as session-specific overrides to the `BrowserProfile(...)` template.
 
 ```python
-page: Page | None = None
+base_iphone13 = BrowserProfile(
+    storage_state='/tmp/auth.json',     # share cookies between parallel browsers
+    **playwright.devices['iPhone 13'],
+    timezone_id='UTC',
+)
+usa_phone = BrowserSession(
+    browser_profile=base_iphone13,
+    timezone_id='America/New_York',     # kwargs override values in base_iphone13
+)
+eu_phone = BrowserSession(
+    browser_profile=base_iphone13,
+    timezone_id='Europe/Paris',
+)
+
+usa_agent = Agent(task='show me todays schedule...', browser_session=usa_phone)
+eu_agent = Agent(task='show me todays schedule...', browser_session=eu_phone)
+await asyncio.gather(agent1.run(), agent2.run())
 ```
 
-Foreground Page that the agent is focused on, can also be passed as `page=...` as a shortcut.
+---
 
-#### `human_current_page`
+
+## `BrowserProfile`
+
+A `BrowserProfile` is a static config template for a `BrowserSession()`.
+
+It can validate and hold all the standard [playwright arguments](#playwright) and the extra config arguments Browser Use provides.
+
+It allows you do do things like start multiple browser processes with *some* shared config:
 
 ```python
-human_current_page: Page | None = None
+from browser_use.browser import BrowserProfile
+
+base_config = BrowserProfile(
+    storage_state='/tmp/auth.json',
+    allowed_domains=['https://*.google.com', 'https://*.example.com'],
+    headless=True,
+    viewport={'width': 920, 'height': 674},
+    device_scale_factor=1,
+    # ... playwright args / browser-use config args ...
+)
+
+# start 3 browser instances with common config + session-specific override:
+low_res = BrowserSession(browser_profile=base_config, device_scale_factor=1)
+hi_res = BrowserSession(browser_profile=base_config, device_scale_factor=2)
+retina = BrowserSession(browser_profile=base_config, device_scale_factor=3)
 ```
 
-Foreground Page that the human is focused on
+### Browser-Use Parameters
 
-
-## Browser-Use Parameters
-
-These parameters control browser-use specific features, and are outside the standard playwright parameter set.
+These parameters control Browser Use-specific features, and are outside the standard playwright set. They can be passed to `BrowserSession(...)` and/or stored in a `BrowserProfile` template.
 
 #### `keep_alive`
 
@@ -190,7 +197,9 @@ These parameters control browser-use specific features, and are outside the stan
 keep_alive: bool | None = None
 ```
 
-Keeps the browser alive after the agent has finished running. Useful for running multiple tasks with the same browser instance.
+Keeps the browser alive after the agent has finished running. Useful for running multiple tasks with the same browser instance. If this is left as `None` and the Agent launched its own browser, the default is to close the browser after the agent completes. If the agent connected to an existing browser then it will leave it open.
+
+<a name="restrict-urls"></a>
 
 #### `allowed_domains`
 
@@ -204,7 +213,7 @@ Example: `['google.com', '*.wikipedia.org']` - Here the agent will only be able 
 Glob patterns are supported:
 - `['example.com']` ✅ will match only `https://example.com/*` exactly, subdomains will not be allowed.
   It's always the most secure to list all the domains you want to give the access to explicitly w/ schemes e.g.
-  `['*://google.com', 'http*://www.google.com', 'https://myaccount.google.com', 'https://mail.google.com', 'https://docs.google.com']`
+  `['https://google.com', 'http*://www.google.com', 'https://myaccount.google.com', 'https://mail.google.com', 'https://docs.google.com']`
 - `['*.example.com']` ⚠️ **CAUTION** this will match `https://example.com` and *all* its subdomains.
   Make sure *all* the subdomains are safe for the agent! `abc.example.com`, `def.example.com`, ..., `useruploads.example.com`, `admin.example.com`
 
@@ -323,16 +332,32 @@ window_position: dict | None = {"width": 0, "height": 0}
 
 Window position from top-left corner.
 
+#### `save_recording_path`
+
+```python
+save_recording_path: str | None = None
+```
+
+Directory path for saving video recordings.
+
+#### `trace_path`
+
+```python
+trace_path: str | None = None
+```
+
+Directory path for saving Agent trace files. Files are automatically named as `{trace_path}/{context_id}.zip`.
+
+
 ---
 
-## Playwright Parameters
+<a name="playwright-parameters"></a><a name="playwright"></a>
 
-https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context
+### Playwright Launch Options
+
 
 All the parameters below are standard playwright parameters and can be passed to both `BrowserSession` and `BrowserProfile`.
-They are defined in `browser_use/browser/profile.py`.
-
-### Launch Settings
+They are defined in `browser_use/browser/profile.py`. See here for the [official Playwright documentation](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context) for all of these options.
 
 #### `headless`
 
@@ -350,6 +375,8 @@ channel: BrowserChannel = 'chromium'
 
 Browser channel: `'chromium'`, `'chrome'`, `'chrome-beta'`, `'chrome-dev'`, `'chrome-canary'`, `'msedge'`, `'msedge-beta'`, `'msedge-dev'`, `'msedge-canary'`
 
+Don't worry, other chromium-based browsers not in this list (e.g. `brave`) are still supported if you provide your own [`executable_path`](#executable_path).
+
 #### `executable_path`
 
 ```python
@@ -364,15 +391,22 @@ Path to browser executable for custom installations.
 user_data_dir: str | Path | None = '~/.config/browseruse/profiles/default'
 ```
 
-Directory for browser profile data. Set to None to use an ephemeral profile aka incognito mode.
+Directory for browser profile data. Set to `None` to use an ephemeral temporary profile (aka incognito mode).
+
+Multiple running browsers **cannot share a single `user_data_dir` at the same time**. You must set it to `None` or
+provide a unique `user_data_dir` per-session if you plan to run multiple browsers.
+
+The browser version run must always be equal to or greater than the version used to create the `user_data_dir`.
+If you see errors like `Failed to parse Extensions` or similar and failures when launching, you're attempting to run an older browser with an incompatible `user_data_dir` that's already been migrated to a newer schema version.
 
 #### `args`
 
 ```python
 args: list[str] = []
 ```
+Additional command-line arguments to pass to the browser. See here for the [full list of available chrome launch options](https://peter.sh/experiments/chromium-command-line-switches/).
 
-Additional command-line arguments to pass to the browser.
+
 
 #### `ignore_default_args`
 
@@ -380,7 +414,7 @@ Additional command-line arguments to pass to the browser.
 ignore_default_args: list[str] | bool = ['--enable-automation', '--disable-extensions']
 ```
 
-List of default CLI args to stop playwright from applying.
+List of default CLI args to stop playwright from including when launching chrome. Set it to `True` to disable *all* default options (not recommended).
 
 #### `env`
 
@@ -388,7 +422,7 @@ List of default CLI args to stop playwright from applying.
 env: dict[str, str] = {}
 ```
 
-Environment variables to set when launching browser.
+Extra environment variables to set when launching browser. e.g. `{'DISPLAY': '1'}` to use a specific X11 display.
 
 #### `chromium_sandbox`
 
@@ -396,7 +430,8 @@ Environment variables to set when launching browser.
 chromium_sandbox: bool = not IN_DOCKER
 ```
 
-Whether to enable Chromium sandboxing (recommended unless inside Docker).
+Whether to enable Chromium sandboxing (recommended for security). Should always be `False` when running inside Docker
+because Docker provides its own sandboxing can conflict with Chrome's.
 
 #### `devtools`
 
@@ -404,8 +439,7 @@ Whether to enable Chromium sandboxing (recommended unless inside Docker).
 devtools: bool = False
 ```
 
-
-Whether to open DevTools panel automatically (only works when headless=False).
+Whether to open DevTools panel automatically (only works when `headless=False`).
 
 #### `slow_mo`
 
@@ -437,7 +471,7 @@ Whether to automatically accept all downloads.
 proxy: dict | None = None
 ```
 
-Proxy settings. Example: `{"server": "http://proxy.com:8080", "username": "user", "password": "pass"}`
+Proxy settings. Example: `{"server": "http://proxy.com:8080", "username": "user", "password": "pass"}`. 
 
 #### `permissions`
 
@@ -445,7 +479,7 @@ Proxy settings. Example: `{"server": "http://proxy.com:8080", "username": "user"
 permissions: list[str] = ['clipboard-read', 'clipboard-write', 'notifications']
 ```
 
-Browser permissions to grant.
+Browser permissions to grant. See here for the [full list of available permission](https://playwright.dev/python/docs/api/class-browsercontext#browser-context-grant-permissions).
 
 #### `storage_state`
 
@@ -453,9 +487,14 @@ Browser permissions to grant.
 storage_state: str | Path | dict | None = None
 ```
 
-Browser storage state (cookies, localStorage). Can be file path or dict.
+Browser storage state (cookies, localStorage). Can be file path or dict. See here for the [Playwright `storage_state` documentation](https://playwright.dev/python/docs/api/class-browsercontext#browser-context-storage-state) on how to use it.
+This option is only applied when launching a new browser using the default builtin playwright chromium and `user_data_dir=None` is set.
 
-
+```bash
+# to create a storage state file, run the following and log into the sites you need once the browser opens:
+playwright open https://example.com/ --save-storage=./storage_state.json
+# then setup a BrowserSession with storage_state='./storage_state.json' and user_data_dir=None to use it
+```
 
 ### Playwright Timing Settings
 
@@ -478,7 +517,7 @@ default_navigation_timeout: float | None = None
 Default timeout for page navigation in milliseconds.
 
 
-### Display and Viewport Settings
+### Playwright Viewport Options
 
 Configure browser window size, viewport, and display properties:
 
@@ -549,10 +588,13 @@ Viewport size with `width` and `height`. Example: `{"width": 1280, "height": 720
 #### `no_viewport`
 
 ```python
-no_viewport: bool | None = None
+no_viewport: bool | None = not headless
 ```
 
 Disable fixed viewport. Content will resize with window.
+
+*Tip:* don't use this parameter, it's a playwright standard parameter but it's redundant and only serves to override the `viewport` setting above.
+A viewport is *always* used in headless mode regardless of this setting, and is *never* used in headful mode unless you pass `viewport={width, height}` explicitly.
 
 #### `device_scale_factor`
 
@@ -560,7 +602,7 @@ Disable fixed viewport. Content will resize with window.
 device_scale_factor: float | None = None
 ```
 
-Device scale factor (DPI). Useful for high-resolution screenshots.
+Device scale factor (DPI). Useful for high-resolution screenshots (set it to 2).
 
 #### `screen`
 
@@ -602,8 +644,20 @@ forced_colors: ForcedColors = 'none'
 
 Forced colors mode: `'active'`, `'none'`, `'null'`
 
+#### `**playwright.devices[...]`
 
-### Security and Network Settings
+Playwright provides launch & context arg presets to [emulate common device fingerprints](https://playwright.dev/python/docs/emulation).
+
+```python
+BrowserProfile(
+    ...
+    **playwright.devices['iPhone 13'],    # playwright = await async_playwright().start()
+)
+```
+
+Because `BrowserSession` and `BrowserProfile` take all the standard playwright args, we are able to support these device presets as well.
+
+### Playwright Security Options
 
 > See `allowed_domains` above too!
 
@@ -688,23 +742,9 @@ client_certificates: list[ClientCertificate] = []
 Client certificates to be used with requests.
 
 
-### Recording and Debugging
+### Playwright Recording Options
 
-#### `save_recording_path`
-
-```python
-save_recording_path: str | None = None
-```
-
-Directory path for saving video recordings.
-
-#### `trace_path`
-
-```python
-trace_path: str | None = None
-```
-
-Directory path for saving trace files. Files are automatically named as `{trace_path}/{context_id}.zip`.
+Note: Browser Use also provides some of our own recording-related options not listed below (see above).
 
 #### `record_video_dir`
 
@@ -712,12 +752,13 @@ Directory path for saving trace files. Files are automatically named as `{trace_
 record_video_dir: str | Path | None = None
 ```
 
-Directory to save video recordings.
+Directory to save video recordings. [Playwright Docs: `record_video_dir`](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context-option-record-video-dir)
 
 #### `record_video_size`
 
 ```python
-record_video_size: dict | None = None
+record_video_size: dict | None = None. [Playwright Docs: `record_video_size`](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context-option-record-video-size)
+
 ```
 
 Video size. Example: `{"width": 1280, "height": 720}`
@@ -802,10 +843,9 @@ handle_sigterm: bool = False
 
 Whether playwright should swallow SIGTERM signals and kill the browser.
 
-
 ---
 
-## Example
+## Full Example
 
 ```python
 from browser_use import BrowserSession, BrowserProfile, Agent
@@ -820,11 +860,12 @@ browser_profile = BrowserProfile(
     highlight_elements=True,
     viewport_expansion=500,
     allowed_domains=['*.google.com', 'http*://*.wikipedia.org'],
+    user_data_dir=None,
 )
 
 browser_session = BrowserSession(
-    headless=True,
     browser_profile=browser_profile,
+    headless=True,                          # extra kwargs to the session override the defaults in the profile
 )
 
 # you can drive a session without the agent / reuse it between agents
@@ -841,19 +882,20 @@ async def run_search():
     )
 ```
 
+---
 
 ## Summary
 
-- **BrowserSession** parameters (defined in `browser_use/browser/session.py`) handle connection and runtime state
-- **BrowserProfile** parameters (defined in `browser_use/browser/profile.py`) handle all playwright configuration
+- **BrowserSession** (defined in `browser_use/browser/session.py`) handles the live browser connection and runtime state
+- **BrowserProfile** (defined in `browser_use/browser/profile.py`) is a template that can store default config parameters for a `BrowserSession(...)`
 
-`BrowserProfile` is a flat collection of config, it's consumed by these calls depending on how we need to connect/launch:
+Configuration parameters defined in both scopes consumed by these calls depending on whether we're connecting/launching:
 
 - `BrowserConnectArgs` - args for `playwright.BrowserType.connect_over_cdp(...)`
 - `BrowserLaunchArgs` - args for `playwright.BrowserType.launch(...)`
 - `BrowserNewContextArgs` - args for `playwright.BrowserType.new_context(...)`
 - `BrowserLaunchPersistentContextArgs` - args for `playwright.BrowserType.launch_persistent_context(...)`
-- BrowserUse custom settings
+- Browser Use's own internal methods
 
 For more details on Playwright's browser context options, see the [official documentation](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context).
 

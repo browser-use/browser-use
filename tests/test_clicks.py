@@ -2,9 +2,8 @@ import asyncio
 import json
 
 import anyio
-import pytest
 
-from browser_use.browser.browser import Browser, BrowserConfig
+from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.dom.views import DOMBaseNode, DOMElementNode, DOMTextNode
 from browser_use.utils import time_execution_sync
 
@@ -29,12 +28,11 @@ class ElementTreeSerializer:
 
 
 # run with: pytest browser_use/browser/tests/test_clicks.py
-@pytest.mark.asyncio
 async def test_highlight_elements():
-	browser = Browser(config=BrowserConfig(headless=False, disable_security=True, user_data_dir=None))
-
-	async with await browser.new_context() as context:
-		page = await context.get_current_page()
+	browser_session = BrowserSession(browser_profile=BrowserProfile(headless=True))
+	await browser_session.start()
+	try:
+		page = await browser_session.get_current_page()
 		# await page.goto('https://immobilienscout24.de')
 		# await page.goto('https://help.sap.com/docs/sap-ai-core/sap-ai-core-service-guide/service-plans')
 		# await page.goto('https://google.com/search?q=elon+musk')
@@ -49,7 +47,7 @@ async def test_highlight_elements():
 		while True:
 			try:
 				# await asyncio.sleep(10)
-				state = await context.get_state_summary(True)
+				state = await browser_session.get_state_summary(cache_clickable_elements_hashes=True)
 
 				async with await anyio.open_file('./tmp/page.json', 'w') as f:
 					await f.write(
@@ -84,13 +82,15 @@ async def test_highlight_elements():
 				print(state.element_tree.clickable_elements_to_string())
 				action = input('Select next action: ')
 
-				await time_execution_sync('remove_highlight_elements')(context.remove_highlights)()
+				await time_execution_sync('remove_highlight_elements')(browser_session.remove_highlights)()
 
 				node_element = state.selector_map[int(action)]
 
 				# check if index of selector map are the same as index of items in dom_items
 
-				await context._click_element_node(node_element)
+				await browser_session._click_element_node(node_element)
 
 			except Exception as e:
 				print(e)
+	finally:
+		await browser_session.stop()

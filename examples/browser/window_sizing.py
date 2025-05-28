@@ -23,9 +23,11 @@ async def example_custom_window_size():
 
 	# Create a browser profile with a specific window size
 	profile = BrowserProfile(
-		device_scale_factor=1.0,
 		window_size={'width': 800, 'height': 600},  # Small size for demonstration
 		# **playwright.devices['iPhone 13']         # or you can use a playwright device profile
+		# device_scale_factor=1.0,                  # change to 2~3 to emulate a high-DPI display for high-res screenshots
+		# viewport={'width': 800, 'height': 600},   # set the viewport (aka content size)
+		# screen={'width': 800, 'height': 600},     # hardware display size to report to websites via JS
 		headless=False,  # Use non-headless mode to see the window
 	)
 

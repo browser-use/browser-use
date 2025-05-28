@@ -56,6 +56,8 @@ def convert_input_messages(input_messages: list[BaseMessage], model_name: str | 
 	if model_name is None:
 		return input_messages
 
+	# TODO: use the auto-detected tool calling method from Agent._set_tool_calling_method(),
+	# or abstract that logic out to reuse so we can autodetect the planner model's tool calling method as well
 	if is_model_without_tool_support(model_name):
 		converted_input_messages = _convert_messages_for_non_function_calling_models(input_messages)
 		merged_input_messages = _merge_successive_messages(converted_input_messages, HumanMessage)

@@ -12,13 +12,6 @@ class TestBrowserContext:
 	"""Tests for browser context functionality using real browser instances."""
 
 	@pytest.fixture(scope='module')
-	def event_loop(self):
-		"""Create and provide an event loop for async tests."""
-		loop = asyncio.get_event_loop_policy().new_event_loop()
-		yield loop
-		loop.close()
-
-	@pytest.fixture(scope='module')
 	def http_server(self):
 		"""Create and provide a test HTTP server that serves static content."""
 		server = HTTPServer()
@@ -61,8 +54,8 @@ class TestBrowserContext:
 		"""Return the base URL for the test HTTP server."""
 		return f'http://{http_server.host}:{http_server.port}'
 
-	@pytest.fixture(scope='module')
-	async def browser_session(self, event_loop):
+	@pytest.fixture
+	async def browser_session(self):
 		"""Create and provide a BrowserSession instance with security disabled."""
 		browser_session = BrowserSession(
 			# browser_profile=BrowserProfile(...),

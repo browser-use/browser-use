@@ -67,14 +67,6 @@ class ComplexParams(BaseActionModel):
 
 # Test fixtures
 @pytest.fixture(scope='module')
-def event_loop():
-	"""Create and provide an event loop for async tests."""
-	loop = asyncio.get_event_loop_policy().new_event_loop()
-	yield loop
-	loop.close()
-
-
-@pytest.fixture(scope='module')
 def http_server():
 	"""Create and provide a test HTTP server that serves static content."""
 	server = HTTPServer()
@@ -97,7 +89,7 @@ def base_url(http_server):
 
 
 @pytest.fixture(scope='module')
-async def browser_session(event_loop):
+async def browser_session():
 	"""Create and provide a real BrowserSession instance."""
 	browser_session = BrowserSession(
 		headless=True,
@@ -121,7 +113,7 @@ def registry():
 
 
 @pytest.fixture
-async def test_browser(base_url, event_loop):
+async def test_browser(base_url):
 	"""Create a real BrowserSession for testing"""
 	browser_session = BrowserSession(
 		headless=True,
@@ -137,7 +129,6 @@ async def test_browser(base_url, event_loop):
 class TestActionRegistryParameterPatterns:
 	"""Test different parameter patterns that should all continue to work"""
 
-	@pytest.mark.asyncio
 	async def test_individual_parameters_no_browser(self, registry):
 		"""Test action with individual parameters, no special injection"""
 
@@ -151,7 +142,6 @@ class TestActionRegistryParameterPatterns:
 		assert isinstance(result, ActionResult)
 		assert 'Text: hello, Number: 42' in result.extracted_content
 
-	@pytest.mark.asyncio
 	async def test_individual_parameters_with_browser(self, registry, browser_session, base_url):
 		"""Test action with individual parameters plus browser_session injection"""
 
@@ -170,7 +160,6 @@ class TestActionRegistryParameterPatterns:
 		assert 'Text: hello, URL:' in result.extracted_content
 		assert base_url in result.extracted_content
 
-	@pytest.mark.asyncio
 	async def test_page_parameter_injection(self, registry, browser_session, base_url):
 		"""Test action with direct Page parameter injection"""
 
@@ -188,7 +177,6 @@ class TestActionRegistryParameterPatterns:
 		assert isinstance(result, ActionResult)
 		assert 'Text: hello, Page Title: Test Page' in result.extracted_content
 
-	@pytest.mark.asyncio
 	async def test_pydantic_model_with_page_parameter(self, registry, browser_session, base_url):
 		"""Test pydantic model action with page parameter injection"""
 
@@ -208,7 +196,6 @@ class TestActionRegistryParameterPatterns:
 		assert isinstance(result, ActionResult)
 		assert 'Text: test, Number: 100, Page Title: Test Page' in result.extracted_content
 
-	@pytest.mark.asyncio
 	async def test_pydantic_model_parameters(self, registry, browser_session, base_url):
 		"""Test action that takes a pydantic model as first parameter"""
 
@@ -231,7 +218,6 @@ class TestActionRegistryParameterPatterns:
 		assert 'Text: test, Number: 100, Flag: True' in result.extracted_content
 		assert base_url in result.extracted_content
 
-	@pytest.mark.asyncio
 	async def test_mixed_special_parameters(self, registry, browser_session, base_url, mock_llm):
 		"""Test action with multiple special injected parameters"""
 
@@ -270,7 +256,6 @@ class TestActionRegistryParameterPatterns:
 		assert 'LLM: Mocked LLM response' in result.extracted_content
 		assert 'Files: 2' in result.extracted_content
 
-	@pytest.mark.asyncio
 	async def test_no_params_action(self, registry, test_browser):
 		"""Test action with NoParamsAction model"""
 
@@ -288,7 +273,6 @@ class TestActionRegistryParameterPatterns:
 		assert 'No params action executed on' in result.extracted_content
 		assert '/test' in result.extracted_content
 
-	@pytest.mark.asyncio
 	async def test_legacy_browser_parameter_names(self, registry, test_browser):
 		"""Test that legacy browser parameter names still work"""
 
@@ -312,7 +296,6 @@ class TestActionRegistryParameterPatterns:
 		assert 'Legacy context: test2, URL:' in result2.extracted_content
 		assert '/test' in result2.extracted_content
 
-	@pytest.mark.asyncio
 	async def test_page_parameter_optimization(self, test_browser: BrowserSession, httpserver: HTTPServer):
 		"""Test that actions can use page: Page parameter directly instead of browser_session"""
 		registry = Registry()
@@ -359,7 +342,6 @@ class TestActionRegistryParameterPatterns:
 class TestActionToActionCalling:
 	"""Test scenarios where actions call other actions"""
 
-	@pytest.mark.asyncio
 	async def test_action_calling_action_with_kwargs(self, registry, test_browser):
 		"""Test action calling another action using kwargs (current problematic pattern)"""
 
@@ -389,7 +371,6 @@ class TestActionToActionCalling:
 		assert 'Called result: First: Helper processed: test on' in result.extracted_content
 		assert '/test' in result.extracted_content
 
-	@pytest.mark.asyncio
 	async def test_google_sheets_style_calling_pattern(self, registry, test_browser):
 		"""Test the specific pattern from Google Sheets actions that causes the error"""
 
@@ -438,7 +419,6 @@ class TestActionToActionCalling:
 		assert 'Selected cell A1:F100 on' in result_problematic.extracted_content
 		assert '/test' in result_problematic.extracted_content
 
-	@pytest.mark.asyncio
 	async def test_complex_action_chain(self, registry, test_browser):
 		"""Test a complex chain of actions calling other actions"""
 
@@ -474,7 +454,6 @@ class TestActionToActionCalling:
 class TestRegistryEdgeCases:
 	"""Test edge cases and error conditions"""
 
-	@pytest.mark.asyncio
 	async def test_decorated_action_rejects_positional_args(self, registry, test_browser):
 		"""Test that decorated actions reject positional arguments"""
 
@@ -494,7 +473,6 @@ class TestRegistryEdgeCases:
 		assert isinstance(result, ActionResult)
 		assert 'Selected cell A1:B2 on' in result.extracted_content
 
-	@pytest.mark.asyncio
 	async def test_missing_required_browser_session(self, registry):
 		"""Test that actions requiring browser_session fail appropriately when not provided"""
 
@@ -511,7 +489,6 @@ class TestRegistryEdgeCases:
 				# No browser_session provided
 			)
 
-	@pytest.mark.asyncio
 	async def test_missing_required_llm(self, registry, test_browser):
 		"""Test that actions requiring page_extraction_llm fail appropriately when not provided"""
 
@@ -532,7 +509,6 @@ class TestRegistryEdgeCases:
 				# No page_extraction_llm provided
 			)
 
-	@pytest.mark.asyncio
 	async def test_invalid_parameters(self, registry, test_browser):
 		"""Test handling of invalid parameters"""
 
@@ -548,14 +524,12 @@ class TestRegistryEdgeCases:
 				browser_session=test_browser,
 			)
 
-	@pytest.mark.asyncio
 	async def test_nonexistent_action(self, registry, test_browser):
 		"""Test calling a non-existent action"""
 
 		with pytest.raises(ValueError, match='Action nonexistent_action not found'):
 			await registry.execute_action('nonexistent_action', {'param': 'value'}, browser_session=test_browser)
 
-	@pytest.mark.asyncio
 	async def test_sync_action_wrapper(self, registry, test_browser):
 		"""Test that sync functions are properly wrapped to be async"""
 
@@ -570,7 +544,6 @@ class TestRegistryEdgeCases:
 		assert isinstance(result, ActionResult)
 		assert 'Sync: test' in result.extracted_content
 
-	@pytest.mark.asyncio
 	async def test_excluded_actions(self, test_browser):
 		"""Test that excluded actions are not registered"""
 
@@ -600,7 +573,6 @@ class TestRegistryEdgeCases:
 class TestExistingControllerActions:
 	"""Test that existing controller actions continue to work"""
 
-	@pytest.mark.asyncio
 	async def test_existing_action_models(self, registry, test_browser):
 		"""Test that existing action parameter models work correctly"""
 
@@ -628,7 +600,6 @@ class TestExistingControllerActions:
 		result3 = await registry.execute_action('test_input', {'index': 5, 'text': 'test input'}, browser_session=test_browser)
 		assert 'Input text: test input at index: 5' in result3.extracted_content
 
-	@pytest.mark.asyncio
 	async def test_pydantic_vs_individual_params_consistency(self, registry, test_browser):
 		"""Test that pydantic and individual parameter patterns produce consistent results"""
 

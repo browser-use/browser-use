@@ -1,10 +1,8 @@
 import httpx
-import pytest
 
-from browser_use.browser.browser import Browser, BrowserConfig
+from browser_use.browser import BrowserProfile, BrowserSession
 
 
-@pytest.mark.asyncio
 async def test_browser_close_doesnt_affect_external_httpx_clients():
 	"""
 	Test that Browser.close() doesn't close HTTPX clients created outside the Browser instance.
@@ -13,11 +11,12 @@ async def test_browser_close_doesnt_affect_external_httpx_clients():
 	# Create an external HTTPX client that should remain open
 	external_client = httpx.AsyncClient()
 
-	# Create a Browser instance
-	browser = Browser(config=BrowserConfig(headless=True))
+	# Create a BrowserSession instance
+	browser_session = BrowserSession(browser_profile=BrowserProfile(headless=True))
+	await browser_session.start()
 
 	# Close the browser (which should trigger cleanup_httpx_clients)
-	await browser.close()
+	await browser_session.stop()
 
 	# Check if the external client is still usable
 	try:

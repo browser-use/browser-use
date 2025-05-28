@@ -5,9 +5,9 @@ icon: "Wrench"
 author: "Carlos A. Planchón"
 ---
 
-# Using Agent Lifecycle Hooks
+Browser-Use provides lifecycle hooks that allow you to execute custom code at specific points during the agent's execution.
+Hook functions can be used to read and modify agent state while running, implement custom logic, change configuration, integrate the Agent with external applications.
 
-Browser-Use provides lifecycle hooks that allow you to execute custom code at specific points during the agent's execution. These hooks enable you to capture detailed information about the agent's actions, modify behavior, or integrate with external systems.
 
 ## Available Hooks
 
@@ -16,11 +16,14 @@ Currently, Browser-Use provides the following hooks:
 | Hook | Description | When it's called |
 | ---- | ----------- | ---------------- |
 | `on_step_start` | Executed at the beginning of each agent step | Before the agent processes the current state and decides on the next action |
-| `on_step_end` | Executed at the end of each agent step | After the agent has executed the action for the current step |
+| `on_step_end` | Executed at the end of each agent step | After the agent has executed all the actions for the current step, before it starts the next step |
 
-## Using Hooks
+```python
+await agent.run(on_step_start=..., on_step_end=...)
+```
 
-Hooks are passed as parameters to the `agent.run()` method. Each hook should be a callable function that accepts the agent instance as its parameter.
+Each hook should be an `async` callable function that accepts the `agent` instance as its only parameter.
+
 
 ### Basic Example
 
@@ -29,14 +32,14 @@ from browser_use import Agent
 from langchain_openai import ChatOpenAI
 
 
-async def my_step_hook(agent):
+async def my_step_hook(agent: Agent):
     # inside a hook you can access all the state and methods under the Agent object:
     #   agent.settings, agent.state, agent.task
-    #   agent.controller, agent.llm, agent.browser, agent.browser_context
+    #   agent.controller, agent.llm, agent.browser_session
     #   agent.pause(), agent.resume(), agent.add_new_task(...), etc.
     
     # You also have direct access to the playwright Page and Browser Context
-    page = await agent.browser_context.get_current_page()
+    page = await agent.browser_session.get_current_page()
     #   https://playwright.dev/python/docs/api/class-page
     
     current_url = page.url
@@ -49,7 +52,7 @@ async def my_step_hook(agent):
     await page.locator("css=form > input[type=submit]").click()
     await page.evaluate('() => alert(1)')
     await page.browser.new_tab
-    await agent.browser_context.session.context.add_init_script('/* some JS to run on every page */')
+    await agent.browser_session.session.context.add_init_script('/* some JS to run on every page */')
     
     # Example: monitor or intercept all network requests
     async def handle_request(route):
@@ -78,7 +81,40 @@ await agent.run(
 )
 ```
 
-## Complete Example: Agent Activity Recording System
+## Data Available in Hooks
+
+When working with agent hooks, you have access to the entire `Agent` instance. Here are some useful data points you can access:
+
+- `agent.task` lets you see what the main task is, `agent.add_new_task(...)` lets you queue up a new one
+- `agent.controller` give access to the `Controller()` object and `Registry()` containing the available actions
+    - `agent.controller.registry.execute_action('click_element_by_index', {'index': 123}, browser_session=agent.browser_session)`
+- `agent.context` lets you access any user-provided context object passed in to `Agent(context=...)`
+- `agent.sensitive_data` contains the sensitive data dict, which can be updated in-place to add/remove/modify items
+- `agent.settings` contains all the configuration options passed to the `Agent(...)` at init time
+- `agent.llm` gives direct access to the main LLM object (e.g. `ChatOpenAI`)
+- `agent.state` gives access to lots of internal state, including agent thoughts, outputs, actions, etc.
+    - `agent.state.history.model_thoughts()`: Reasoning from Browser Use's model.
+    - `agent.state.history.model_outputs()`: Raw outputs from the Browsre Use's model.
+    - `agent.state.history.model_actions()`: Actions taken by the agent
+    - `agent.state.history.extracted_content()`: Content extracted from web pages
+    - `agent.state.history.urls()`: URLs visited by the agent
+- `agent.browser_session` gives direct access to the `BrowserSession()` and playwright objects
+    - `agent.browser_session.get_current_page()`: Get the current playwright `Page` object the agent is focused on
+    - `agent.browser_session.browser_context`: Get the current playwright `BrowserContext` object
+    - `agent.browser_session.browser_context.pages`: Get all the tabs currently open in the context
+    - `agent.browser_session.get_page_html()`: Current page HTML
+    - `agent.browser_session.take_screenshot()`: Screenshot of the current page
+
+
+## Tips for Using Hooks
+
+- **Avoid blocking operations**: Since hooks run in the same execution thread as the agent, try to keep them efficient or use asynchronous patterns.
+- **Handle exceptions**: Make sure your hook functions handle exceptions gracefully to prevent interrupting the agent's main flow.
+- **Use custom actions instead**: hooks are fairly advanced, most things can be implemented with [custom action functions](/customize/custom-functions) instead
+
+---
+
+## Complex Example: Agent Activity Recording System
 
 This comprehensive example demonstrates a complete implementation for recording and saving Browser-Use agent activity, consisting of both server and client components.
 
@@ -224,8 +260,8 @@ async def record_activity(agent_obj):
     print('--- ON_STEP_START HOOK ---')
     
     # Capture current page state
-    website_html = await agent_obj.browser_context.get_page_html()
-    website_screenshot = await agent_obj.browser_context.take_screenshot()
+    website_html = await agent_obj.browser_session.get_page_html()
+    website_screenshot = await agent_obj.browser_session.take_screenshot()
 
     # Make sure we have state history
     if hasattr(agent_obj, "state"):
@@ -327,6 +363,8 @@ if __name__ == "__main__":
     asyncio.run(run_agent())
 ```
 
+Contribution by Carlos A. Planchón.
+
 ### Working with the Recorded Data
 
 After running the agent, you'll find the recorded data in the `recordings` directory. Here's how you can use this data:
@@ -343,23 +381,3 @@ You can extend this recording system in several ways:
 2. **Add a web dashboard**: Create a simple web interface to view recorded sessions
 3. **Add session IDs**: Modify the API to group steps by agent session
 4. **Add filtering**: Implement filters to record only specific types of actions
-
-## Data Available in Hooks
-
-When working with agent hooks, you have access to the entire agent instance. Here are some useful data points you can access:
-
-- `agent.state.history.model_thoughts()`: Reasoning from Browser Use's model.
-- `agent.state.history.model_outputs()`: Raw outputs from the Browsre Use's model.
-- `agent.state.history.model_actions()`: Actions taken by the agent
-- `agent.state.history.extracted_content()`: Content extracted from web pages
-- `agent.state.history.urls()`: URLs visited by the agent
-- `agent.browser_context.get_page_html()`: Current page HTML
-- `agent.browser_context.take_screenshot()`: Screenshot of the current page
-
-## Tips for Using Hooks
-
-- **Avoid blocking operations**: Since hooks run in the same execution thread as the agent, try to keep them efficient or use asynchronous patterns.
-- **Handle exceptions**: Make sure your hook functions handle exceptions gracefully to prevent interrupting the agent's main flow.
-- **Consider storage needs**: When capturing full HTML and screenshots, be mindful of storage requirements.
-
-Contribution by Carlos A. Planchón.

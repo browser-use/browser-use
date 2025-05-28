@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.2.3"
+version = "0.2.5"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -77,8 +77,13 @@ Repository = "https://github.com/browser-use/browser-use"
 browseruse = "browser_use.cli:main"
 browser-use = "browser_use.cli:main"
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
 [tool.codespell]
-ignore-words-list = "bu,wit,dont,cant,wont"
+ignore-words-list = "bu,wit,dont,cant,wont,re-use,re-used,re-using,thats"
 skip = "*.json"
 
 [tool.ruff]
@@ -101,10 +106,6 @@ skip-magic-trailing-comma = false
 [tool.pyright]
 typeCheckingMode = "off"
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
 [tool.hatch.build]
 include = [
     "browser_use/**/*.py",
@@ -113,6 +114,33 @@ include = [
     "browser_use/agent/system_prompt.md",
     "browser_use/dom/buildDomTree.js",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "module"
+asyncio_default_test_loop_scope = "module"
+markers = [
+    "slow: marks tests as slow (deselect with `-m 'not slow'`)",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+    "asyncio: mark tests as async tests",
+]
+testpaths = [
+    "tests"
+]
+python_files = ["test_*.py", "*_test.py"]
+addopts = "-v --strict-markers --tb=short"
+log_cli = true
+log_cli_format = "%(levelname)-8s [%(name)s] %(message)s"
+filterwarnings = [
+    "ignore::pytest.PytestDeprecationWarning",
+    "ignore::DeprecationWarning",
+]
+log_level = "INFO"
+
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.uv]
 dev-dependencies = [

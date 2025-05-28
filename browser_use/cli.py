@@ -26,6 +26,8 @@ import langchain_anthropic
 import langchain_google_genai
 import langchain_openai
 
+# from patchright.async_api import async_playwright
+
 try:
 	import readline
 
@@ -33,6 +35,9 @@ try:
 except ImportError:
 	# readline not available on Windows by default
 	READLINE_AVAILABLE = False
+
+
+os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'result'
 
 from browser_use import Agent, Controller
 from browser_use.agent.views import AgentSettings
@@ -432,7 +437,7 @@ class BrowserUseApp(App):
 
 		# Create and set up the custom handler
 		log_handler = RichLogHandler(rich_log)
-		log_type = os.getenv('BROWSER_USE_LOGGING_LEVEL', 'info').lower()
+		log_type = os.getenv('BROWSER_USE_LOGGING_LEVEL', 'result').lower()
 
 		class BrowserUseFormatter(logging.Formatter):
 			def format(self, record):
@@ -671,32 +676,41 @@ class BrowserUseApp(App):
 		browser_info = self.query_one('#browser-info')
 		browser_info.clear()
 
-		if self.browser_session:
+		# Try to use the agent's browser session if available
+		browser_session = self.browser_session
+		if hasattr(self, 'agent') and self.agent and hasattr(self.agent, 'browser_session'):
+			browser_session = self.agent.browser_session
+
+		if browser_session:
 			try:
-				# Check if browser session is initialized
-				if not self.browser_session.initialized:
-					browser_info.write('[yellow]Browser session created, waiting for start...[/]')
+				# Check if browser session has a browser context
+				if not hasattr(browser_session, 'browser_context') or browser_session.browser_context is None:
+					browser_info.write('[yellow]Browser session created, waiting for browser to launch...[/]')
 					return
+
+				# Update our reference if we're using the agent's session
+				if browser_session != self.browser_session:
+					self.browser_session = browser_session
 
 				# Get basic browser info from browser_profile
 				browser_type = 'Chromium'
-				headless = self.browser_session.browser_profile.headless
+				headless = browser_session.browser_profile.headless
 
 				# Determine connection type based on config
 				connection_type = 'playwright'  # Default
-				if self.browser_session.cdp_url:
+				if browser_session.cdp_url:
 					connection_type = 'CDP'
-				elif self.browser_session.wss_url:
+				elif browser_session.wss_url:
 					connection_type = 'WSS'
-				elif self.browser_session.browser_profile.executable_path:
+				elif browser_session.browser_profile.executable_path:
 					connection_type = 'user-provided'
 
 				# Get window size details from browser_profile
 				window_width = None
 				window_height = None
-				if self.browser_session.browser_profile.viewport:
-					window_width = self.browser_session.browser_profile.viewport.get('width')
-					window_height = self.browser_session.browser_profile.viewport.get('height')
+				if browser_session.browser_profile.viewport:
+					window_width = browser_session.browser_profile.viewport.get('width')
+					window_height = browser_session.browser_profile.viewport.get('height')
 
 				# Try to get browser PID
 				browser_pid = 'Unknown'
@@ -704,26 +718,16 @@ class BrowserUseApp(App):
 				browser_status = '[red]Disconnected[/]'
 
 				try:
-					# First check if Chrome subprocess is tracked
-					if hasattr(self.browser_session, 'chrome_process') and self.browser_session.chrome_process.pid:
-						browser_pid = str(self.browser_session.chrome_process.pid)
+					# Check if browser PID is available
+					if hasattr(browser_session, 'browser_pid') and browser_session.browser_pid:
+						browser_pid = str(browser_session.browser_pid)
 						connected = True
 						browser_status = '[green]Connected[/]'
-					# Then check if we have a browser connection
-					elif hasattr(self.browser_session, 'browser') and self.browser_session.browser.is_connected():
+					# Otherwise just check if we have a browser context
+					elif browser_session.browser_context is not None:
 						connected = True
 						browser_status = '[green]Connected[/]'
-
-						# Try to get PID from related processes by checking for Chrome processes
-						import psutil
-
-						for proc in psutil.process_iter(['pid', 'name']):
-							try:
-								if 'chrome' in proc.name().lower() or 'chromium' in proc.name().lower():
-									browser_pid = str(proc.pid)
-									break
-							except (psutil.NoSuchProcess, psutil.AccessDenied):
-								pass
+						browser_pid = 'N/A'
 				except Exception as e:
 					browser_pid = f'Error: {str(e)}'
 
@@ -733,7 +737,7 @@ class BrowserUseApp(App):
 					f'Type: [yellow]{connection_type}[/] [{"green" if not headless else "red"}]{" (headless)" if headless else ""}[/]'
 				)
 				browser_info.write(f'PID: [dim]{browser_pid}[/]')
-				browser_info.write(f'CDP Port: {self.browser_session.cdp_url}')
+				browser_info.write(f'CDP Port: {browser_session.cdp_url}')
 
 				if window_width and window_height:
 					browser_info.write(f'Window: [blue]{window_width}[/] × [blue]{window_height}[/]')
@@ -749,9 +753,9 @@ class BrowserUseApp(App):
 						pass
 
 					# Show the agent's current page URL if available
-					if self.browser_session.agent_current_page:
+					if browser_session.agent_current_page:
 						current_url = (
-							self.browser_session.agent_current_page.url.replace('https://', '')
+							browser_session.agent_current_page.url.replace('https://', '')
 							.replace('http://', '')
 							.replace('www.', '')[:36]
 							+ '…'
@@ -976,6 +980,9 @@ class BrowserUseApp(App):
 				browser_session=self.browser_session,
 				**agent_settings.model_dump(),
 			)
+			# Update our browser_session reference to point to the agent's
+			if hasattr(self.agent, 'browser_session'):
+				self.browser_session = self.agent.browser_session
 		else:
 			self.agent.add_new_task(task)
 
@@ -1137,6 +1144,63 @@ class BrowserUseApp(App):
 		yield Footer()
 
 
+async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
+	"""Run browser-use in non-interactive mode with a single prompt."""
+	# Import and call setup_logging to ensure proper initialization
+	from browser_use.logging_config import setup_logging
+
+	# Set up logging to only show results by default
+	os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'result'
+
+	# Re-run setup_logging to apply the new log level
+	setup_logging()
+
+	# The logging is now properly configured by setup_logging()
+	# No need to manually configure handlers since setup_logging() handles it
+
+	try:
+		# Load config
+		config = load_user_config()
+		config = update_config_with_click_args(config, ctx)
+
+		# Get LLM
+		llm = get_llm(config)
+
+		# Get agent settings from config
+		agent_settings = AgentSettings.model_validate(config.get('agent', {}))
+
+		# Create browser session with headless=True and no user_data_dir
+		browser_session = BrowserSession(
+			headless=False,
+			# user_data_dir=None,
+			# playwright=(await async_playwright().start()),
+			# channel=BrowserChannel.CHROME,
+		)
+
+		# Create and run agent
+		agent = Agent(
+			task=prompt,
+			llm=llm,
+			browser_session=browser_session,
+			**agent_settings.model_dump(),
+			# Run the agent
+		)
+
+		await agent.run()
+
+		# Close browser session
+		await browser_session.close()
+
+	except Exception as e:
+		if debug:
+			import traceback
+
+			traceback.print_exc()
+		else:
+			print(f'Error: {str(e)}', file=sys.stderr)
+		sys.exit(1)
+
+
 async def textual_interface(config: dict[str, Any]):
 	"""Run the Textual interface."""
 	logger = logging.getLogger('browser_use.startup')
@@ -1170,7 +1234,11 @@ async def textual_interface(config: dict[str, Any]):
 			logger.info('Browser mode: visible')
 
 		# Create BrowserSession directly with config parameters
-		browser_session = BrowserSession(**browser_config)
+		browser_session = BrowserSession(
+			**browser_config,
+			# playwright=(await async_playwright().start()),
+			# channel=BrowserChannel.CHROME,
+		)
 		logger.debug('BrowserSession initialized successfully')
 
 		# Log browser version if available
@@ -1246,15 +1314,24 @@ async def textual_interface(config: dict[str, Any]):
 @click.option('--headless', is_flag=True, help='Run browser in headless mode', default=None)
 @click.option('--window-width', type=int, help='Browser window width')
 @click.option('--window-height', type=int, help='Browser window height')
+@click.option('-p', '--prompt', type=str, help='Run a single task without the TUI (headless mode)')
 @click.pass_context
 def main(ctx: click.Context, debug: bool = False, **kwargs):
-	"""Browser-Use Interactive TUI"""
+	"""Browser-Use Interactive TUI or Command Line Executor"""
 
 	if kwargs['version']:
 		from importlib.metadata import version
 
 		print(version('browser-use'))
 		sys.exit(0)
+
+	# Check if prompt mode is activated
+	if kwargs.get('prompt'):
+		# Set environment variable for prompt mode before running
+		os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'result'
+		# Run in non-interactive mode
+		asyncio.run(run_prompt_mode(kwargs['prompt'], ctx, debug))
+		return
 
 	# Configure console logging
 	console_handler = logging.StreamHandler(sys.stdout)

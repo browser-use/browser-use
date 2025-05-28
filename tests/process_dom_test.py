@@ -5,14 +5,14 @@ import time
 
 import anyio
 
-from browser_use.browser.browser import Browser, BrowserConfig
+from browser_use.browser import BrowserProfile, BrowserSession
 
 
 async def test_process_dom():
-	browser = Browser(config=BrowserConfig(headless=False))
-
-	async with await browser.new_context() as context:
-		page = await context.get_current_page()
+	browser_session = BrowserSession(browser_profile=BrowserProfile(headless=True))
+	await browser_session.start()
+	try:
+		page = await browser_session.get_current_page()
 		await page.goto('https://kayak.com/flights')
 		# await page.goto('https://google.com/flights')
 		# await page.goto('https://immobilienscout24.de')
@@ -41,3 +41,5 @@ async def test_process_dom():
 		# )
 
 		input('Press Enter to continue...')
+	finally:
+		await browser_session.stop()

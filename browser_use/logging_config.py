@@ -137,3 +137,5 @@ def setup_logging():
 		third_party = logging.getLogger(logger_name)
 		third_party.setLevel(logging.ERROR)
 		third_party.propagate = False
+
+	return logger

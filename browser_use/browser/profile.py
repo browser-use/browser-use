@@ -410,12 +410,13 @@ class BrowserLaunchArgs(BaseModel):
 		populate_by_name=True,
 	)
 
-	env: dict[str, str | float | bool] = Field(
-		default_factory=dict, description='Extra environment variables to set when launching the browser.'
+	env: dict[str, str | float | bool] | None = Field(
+		default=None,
+		description='Extra environment variables to set when launching the browser. If None, inherits from the current process.',
 	)
 	executable_path: str | Path | None = Field(
 		default=None,
-		validation_alias=AliasChoices('chrome_binary_path', 'browser_binary_path'),
+		validation_alias=AliasChoices('browser_binary_path', 'chrome_binary_path'),
 		description='Path to the chromium-based browser executable to use.',
 	)
 	headless: bool | None = Field(default=None, description='Whether to run the browser in headless or windowed mode.')
@@ -590,7 +591,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	save_har_path: str | None = Field(default=None, description='Directory for saving HAR files.')
 	trace_path: str | None = Field(default=None, description='Directory for saving trace files.')
 
-	cookies_file: str | None = Field(default=None, description='File to save cookies to.')
+	cookies_file: str | None = Field(
+		default=None, description='File to save cookies to. DEPRECATED, use `storage_state` instead.'
+	)
 
 	# extension_ids_to_preinstall: list[str] = Field(
 	# 	default_factory=list, description='List of Chrome extension IDs to preinstall.'
@@ -623,6 +626,23 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			self.window_size['height'] = (self.window_size or {}).get('height') or self.window_height or 1100
 		return self
 
+	@model_validator(mode='after')
+	def warn_storage_state_user_data_dir_conflict(self) -> Self:
+		"""Warn when both storage_state and user_data_dir are set, as this can cause conflicts."""
+		has_storage_state = self.storage_state is not None
+		has_user_data_dir = self.user_data_dir is not None
+		has_cookies_file = self.cookies_file is not None
+		static_source = 'cookies_file' if has_cookies_file else 'storage_state' if has_storage_state else None
+
+		if static_source and has_user_data_dir:
+			logger.warning(
+				f'⚠️ BrowserSession(...) was passed both {static_source} AND user_data_dir. {static_source}={self.storage_state or self.cookies_file} will forcibly overwrite '
+				f'cookies/localStorage/sessionStorage in user_data_dir={self.user_data_dir}. '
+				f'For multiple browsers in parallel, use only storage_state with user_data_dir=None, '
+				f'or use separate user_data_dirs for each browser and set storage_state=None.'
+			)
+		return self
+
 	def get_args(self) -> list[str]:
 		if isinstance(self.ignore_default_args, list):
 			default_args = set(CHROME_DEFAULT_ARGS) - set(self.ignore_default_args)
@@ -631,29 +651,29 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		elif not self.ignore_default_args:
 			default_args = CHROME_DEFAULT_ARGS
 
-		return BrowserLaunchArgs.args_as_list(  # convert back to ['--arg=value', '--arg', '--arg=value', ...]
-			BrowserLaunchArgs.args_as_dict(  # uniquify via dict {'arg': 'value', 'arg2': 'value2', ...}
-				[
-					*default_args,
-					*self.args,
-					f'--profile-directory={self.profile_directory}',
-					*(CHROME_DOCKER_ARGS if IN_DOCKER else []),
-					*(CHROME_HEADLESS_ARGS if self.headless else []),
-					*(CHROME_DISABLE_SECURITY_ARGS if self.disable_security else []),
-					*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.deterministic_rendering else []),
-					*(
-						[f'--window-size={self.window_size["height"]},{self.window_size["width"]}']
-						if self.window_size
-						else (['--start-maximized'] if not self.headless else [])
-					),
-					*(
-						[f'--window-position={self.window_position["width"]},{self.window_position["height"]}']
-						if self.window_position
-						else []
-					),
-				]
-			)
-		)
+		# Capture args before conversion for logging
+		pre_conversion_args = [
+			*default_args,
+			*self.args,
+			f'--profile-directory={self.profile_directory}',
+			*(CHROME_DOCKER_ARGS if IN_DOCKER else []),
+			*(CHROME_HEADLESS_ARGS if self.headless else []),
+			*(CHROME_DISABLE_SECURITY_ARGS if self.disable_security else []),
+			*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.deterministic_rendering else []),
+			*(
+				[f'--window-size={self.window_size["width"]},{self.window_size["height"]}']
+				if self.window_size
+				else (['--start-maximized'] if not self.headless else [])
+			),
+			*(
+				[f'--window-position={self.window_position["width"]},{self.window_position["height"]}']
+				if self.window_position
+				else []
+			),
+		]
+
+		final_args_list = BrowserLaunchArgs.args_as_list(BrowserLaunchArgs.args_as_dict(pre_conversion_args))
+		return final_args_list
 
 	def kwargs_for_launch_persistent_context(self) -> BrowserLaunchPersistentContextArgs:
 		"""Return the kwargs for BrowserType.launch()."""
@@ -715,41 +735,43 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		"""
 
 		display_size = get_display_size()
-		if display_size:
-			self.screen = self.screen or display_size or ViewportSize(width=1280, height=1100)
+		has_screen_available = bool(display_size)
+		self.screen = self.screen or display_size or ViewportSize(width=1280, height=1100)
 
 		# if no headless preference specified, prefer headful if there is a display available
 		if self.headless is None:
-			self.headless = not bool(display_size)
+			self.headless = not has_screen_available
 
 		# set up window size and position if headful
 		if self.headless:
 			# headless mode: no window available, use viewport instead to constrain content size
+			self.viewport = self.viewport or self.window_size or self.screen
+			self.window_position = None  # no windows to position in headless mode
 			self.window_size = None
-			self.window_position = None
-			self.no_viewport = False
-			self.viewport = self.viewport or display_size or ViewportSize(width=1280, height=1100)
+			self.no_viewport = False  # viewport is always enabled in headless mode
 		else:
-			# headful mode: use window, disable viewport, content fits to size of window
-			self.window_size = self.window_size or display_size or ViewportSize(width=1280, height=1100)
+			# headful mode: use window, disable viewport by default, content fits to size of window
+			self.window_size = self.window_size or self.screen
 			self.no_viewport = True if self.no_viewport is None else self.no_viewport
 			self.viewport = None if self.no_viewport else self.viewport
-
-			# Auto-inherit DISPLAY environment variable for headful mode
-			if 'DISPLAY' in os.environ and 'DISPLAY' not in self.env:
-				self.env['DISPLAY'] = os.environ['DISPLAY']
 
 		# automatically setup viewport if any config requires it
 		use_viewport = self.headless or self.viewport or self.device_scale_factor
 		self.no_viewport = not use_viewport if self.no_viewport is None else self.no_viewport
 		use_viewport = not self.no_viewport
+
 		if use_viewport:
 			# if we are using viewport, make device_scale_factor and screen are set to real values to avoid easy fingerprinting
-			self.viewport = self.viewport or display_size or ViewportSize(width=1280, height=1100)
+			self.viewport = self.viewport or self.screen
 			self.device_scale_factor = self.device_scale_factor or 1.0
-			self.screen = self.screen or display_size or ViewportSize(width=1280, height=1100)
+			assert self.viewport is not None
+			assert self.no_viewport is False
 		else:
 			# device_scale_factor and screen are not supported non-viewport mode, the system monitor determines these
 			self.viewport = None
-			self.device_scale_factor = None
-			self.screen = None
+			self.device_scale_factor = None  # only supported in viewport mode
+			self.screen = None  # only supported in viewport mode
+			assert self.viewport is None
+			assert self.no_viewport is True
+
+		assert not (self.headless and self.no_viewport), 'headless=True and no_viewport=True cannot both be set at the same time'

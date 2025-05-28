@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # Initialize browser and controller
 browser_profile = BrowserProfile(
 	headless=False,
-	browser_binary_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+	executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 )
 controller = Controller()
 

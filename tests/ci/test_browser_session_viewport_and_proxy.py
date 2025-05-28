@@ -1,12 +1,7 @@
-import os
-
-import pytest
-
-from browser_use.browser.profile import BrowserProfile, ProxySettings
-from browser_use.browser.session import BrowserSession
+from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.browser.profile import ProxySettings
 
 
-@pytest.mark.asyncio
 async def test_proxy_settings_pydantic_model():
 	"""
 	Test that ProxySettings as a Pydantic model is correctly converted to a dictionary when used.
@@ -30,32 +25,6 @@ async def test_proxy_settings_pydantic_model():
 	# We don't launch the actual browser - we just verify the model itself works as expected
 
 
-@pytest.mark.asyncio
-async def test_window_size_config():
-	"""
-	Test that BrowserProfile correctly handles window_size property.
-	"""
-	# Create profile with specific window dimensions
-	profile = BrowserProfile(window_size={'width': 1280, 'height': 1100})
-
-	# Verify the properties are set correctly
-	assert profile.window_size['width'] == 1280
-	assert profile.window_size['height'] == 1100
-
-	# Verify model_dump works correctly
-	profile_dict = profile.model_dump()
-	assert isinstance(profile_dict, dict)
-	assert profile_dict['window_size']['width'] == 1280
-	assert profile_dict['window_size']['height'] == 1100
-
-	# Create with different values
-	profile2 = BrowserProfile(window_size={'width': 1920, 'height': 1080})
-	assert profile2.window_size['width'] == 1920
-	assert profile2.window_size['height'] == 1080
-
-
-@pytest.mark.asyncio
-@pytest.mark.skipif(os.environ.get('CI') == 'true', reason='Skip browser test in CI')
 async def test_window_size_with_real_browser():
 	"""
 	Integration test that verifies our window size Pydantic model is correctly
@@ -64,11 +33,10 @@ async def test_window_size_with_real_browser():
 	"""
 	# Create browser profile with headless mode and specific dimensions
 	browser_profile = BrowserProfile(
-		headless=True,  # Use headless for faster test
-		window_size={'width': 1024, 'height': 768},
-		maximum_wait_page_load_time=2.0,  # Faster timeouts for test
+		headless=True,  # window size gets converted to viewport size in headless mode
+		window_size={'width': 999, 'height': 888},
+		maximum_wait_page_load_time=2.0,
 		minimum_wait_page_load_time=0.2,
-		no_viewport=True,  # Use actual window size instead of viewport
 	)
 
 	# Create browser session
@@ -101,7 +69,7 @@ async def test_window_size_with_real_browser():
             """)
 
 		# Let's also check the viewport size
-		viewport_size = await page.evaluate("""
+		actual_size = await page.evaluate("""
                 () => {
                     return {
                         width: window.innerWidth,
@@ -110,22 +78,28 @@ async def test_window_size_with_real_browser():
                 }
             """)
 
-		print(f'Window size config: width={browser_profile.window_size["width"]}, height={browser_profile.window_size["height"]}')
-		print(f'Browser viewport size: {viewport_size}')
+		print(f'Browser configured window_size={browser_session.browser_profile.window_size}')
+		print(f'Browser configured viewport_size: {browser_session.browser_profile.viewport}')
+		print(f'Browser content actual size: {actual_size}')
 
 		# This is a lightweight test to verify that the page has a size (details may vary by browser)
-		assert viewport_size['width'] > 0, 'Expected viewport width to be positive'
-		assert viewport_size['height'] > 0, 'Expected viewport height to be positive'
+		assert actual_size['width'] > 0, 'Expected viewport width to be positive'
+		assert actual_size['height'] > 0, 'Expected viewport height to be positive'
 
-		# For browser context creation in record_video_size, this is what truly matters
-		# Verify that our window size was properly serialized to a dictionary
-		print(f'Content of context session: {browser_session.browser_context}')
-		print('✅ Browser window size used in the test')
+		# assert that window_size got converted to viewport_size in headless mode
+		assert browser_session.browser_profile.headless is True
+		assert browser_session.browser_profile.viewport == {'width': 999, 'height': 888}
+		assert browser_session.browser_profile.window_size is None
+		assert browser_session.browser_profile.window_position is None
+		assert browser_session.browser_profile.no_viewport is False
+		# screen should be the detected display size (or default if no display detected)
+		assert browser_session.browser_profile.screen is not None
+		assert browser_session.browser_profile.screen['width'] > 0
+		assert browser_session.browser_profile.screen['height'] > 0
 	finally:
 		await browser_session.stop()
 
 
-@pytest.mark.asyncio
 async def test_proxy_with_real_browser():
 	"""
 	Integration test that verifies our proxy Pydantic model is correctly
@@ -143,7 +117,7 @@ async def test_proxy_with_real_browser():
 	)
 
 	# Test model serialization
-	proxy_dict = proxy_settings.model_dump()
+	proxy_dict = dict(proxy_settings)
 	assert isinstance(proxy_dict, dict)
 	assert proxy_dict['server'] == 'http://non.existent.proxy:9999'
 
@@ -160,5 +134,8 @@ async def test_proxy_with_real_browser():
 		# Success - the browser was initialized with our proxy settings
 		# We won't try to make requests (which would fail with non-existent proxy)
 		print('✅ Browser initialized with proxy settings successfully')
+		assert browser_session.browser_profile.proxy == proxy_settings
+		# TODO: create a network request in the browser and verify it goes through the proxy?
+		# would require setting up a whole fake proxy in a fixture
 	finally:
 		await browser_session.stop()

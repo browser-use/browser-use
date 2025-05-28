@@ -1,0 +1,165 @@
+name: Run Evaluation Script
+
+on:
+  repository_dispatch:
+    types: [run-eval]
+
+jobs:
+  run_evaluation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+      EVALUATION_TOOL_URL: ${{ secrets.EVALUATION_TOOL_URL }}
+      EVALUATION_TOOL_SECRET_KEY: ${{ secrets.EVALUATION_TOOL_SECRET_KEY }}
+
+    steps:
+      - name: Determine branch to checkout
+        id: determine_branch
+        run: |
+          # Use the branch from client_payload or default to main
+          BRANCH="${{ github.event.client_payload.branch }}"
+          BRANCH="${BRANCH:-main}"
+          echo "BRANCH=$BRANCH" >> $GITHUB_OUTPUT
+          echo "::notice title=Branch Selection::Will checkout and run evaluation on branch: $BRANCH"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.determine_branch.outputs.BRANCH }}
+
+      - name: Set up Python and uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          activate-environment: true
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Detect installed Playwright version
+        id: playwright_version
+        run: echo "VERSION=$(uv pip list --format json | jq -r '.[] | select(.name == "playwright") | .version')" >> $GITHUB_OUTPUT
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright_version.outputs.VERSION }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install Playwright browser dependencies
+        run: playwright install --no-shell chromium
+
+      - name: Install Xvfb for headed mode
+        if: github.event.client_payload.script_args.headless == 'false'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+
+      - name: Construct eval command
+        id: eval_command
+        run: |
+          # Centralized defaults
+          DEFAULT_MODEL="llama-4-maverick"
+          DEFAULT_EVAL_MODEL="gpt-4o"
+          DEFAULT_PARALLEL_RUNS="2"
+          DEFAULT_MAX_STEPS="25"
+          DEFAULT_START_INDEX="0"
+          DEFAULT_END_INDEX="100"
+          DEFAULT_EVAL_GROUP="PRTests"
+          DEFAULT_HEADLESS="true"
+          DEFAULT_FRESH_START="true"
+          DEFAULT_MEMORY_INTERVAL="10"
+          DEFAULT_MAX_ACTIONS_PER_STEP="10"
+          DEFAULT_PLANNER_INTERVAL="1"
+
+          # Extract and apply defaults using parameter expansion
+          MODEL="${{ github.event.client_payload.script_args.model }}"
+          MODEL="${MODEL:-$DEFAULT_MODEL}"
+
+          EVAL_MODEL="${{ github.event.client_payload.script_args.eval_model }}"
+          EVAL_MODEL="${EVAL_MODEL:-$DEFAULT_EVAL_MODEL}"
+
+          PARALLEL_RUNS="${{ github.event.client_payload.script_args.parallel_runs }}"
+          PARALLEL_RUNS="${PARALLEL_RUNS:-$DEFAULT_PARALLEL_RUNS}"
+
+          MAX_STEPS="${{ github.event.client_payload.script_args.max_steps }}"
+          MAX_STEPS="${MAX_STEPS:-$DEFAULT_MAX_STEPS}"
+
+          START_INDEX="${{ github.event.client_payload.script_args.start_index }}"
+          START_INDEX="${START_INDEX:-$DEFAULT_START_INDEX}"
+
+          END_INDEX="${{ github.event.client_payload.script_args.end_index }}"
+          END_INDEX="${END_INDEX:-$DEFAULT_END_INDEX}"
+
+          EVAL_GROUP="${{ github.event.client_payload.script_args.eval_group }}"
+          EVAL_GROUP="${EVAL_GROUP:-$DEFAULT_EVAL_GROUP}"
+
+          HEADLESS="${{ github.event.client_payload.script_args.headless }}"
+          HEADLESS="${HEADLESS:-$DEFAULT_HEADLESS}"
+
+          FRESH_START="${{ github.event.client_payload.script_args.fresh_start }}"
+          FRESH_START="${FRESH_START:-$DEFAULT_FRESH_START}"
+
+          MEMORY_INTERVAL="${{ github.event.client_payload.script_args.memory_interval }}"
+          MEMORY_INTERVAL="${MEMORY_INTERVAL:-$DEFAULT_MEMORY_INTERVAL}"
+
+          MAX_ACTIONS_PER_STEP="${{ github.event.client_payload.script_args.max_actions_per_step }}"
+          MAX_ACTIONS_PER_STEP="${MAX_ACTIONS_PER_STEP:-$DEFAULT_MAX_ACTIONS_PER_STEP}"
+
+          PLANNER_INTERVAL="${{ github.event.client_payload.script_args.planner_interval }}"
+          PLANNER_INTERVAL="${PLANNER_INTERVAL:-$DEFAULT_PLANNER_INTERVAL}"
+
+          # Optional parameters (no defaults)
+          USER_MESSAGE="${{ github.event.client_payload.script_args.user_message }}"
+          DEVELOPER_ID="${{ github.event.client_payload.script_args.developer_id }}"
+          PLANNER_MODEL="${{ github.event.client_payload.script_args.planner_model }}"
+
+          # Build command using array for cleaner construction
+          CMD_ARGS=(
+            "python" "eval/service.py"
+            "--model" "$MODEL"
+            "--eval-model" "$EVAL_MODEL"
+            "--parallel-runs" "$PARALLEL_RUNS"
+            "--max-steps" "$MAX_STEPS"
+            "--start" "$START_INDEX"
+            "--end" "$END_INDEX"
+            "--fresh-start" "$FRESH_START"
+            "--eval-group" "$EVAL_GROUP"
+            "--memory-interval" "$MEMORY_INTERVAL"
+            "--max-actions-per-step" "$MAX_ACTIONS_PER_STEP"
+            "--planner-interval" "$PLANNER_INTERVAL"
+          )
+
+          # Add boolean flags conditionally
+          [[ "${{ github.event.client_payload.script_args.no_vision }}" == "true" ]] && CMD_ARGS+=("--no-vision")
+          [[ "$HEADLESS" == "true" ]] && CMD_ARGS+=("--headless")
+          [[ "${{ github.event.client_payload.script_args.use_serp }}" == "true" ]] && CMD_ARGS+=("--use-serp")
+          [[ "${{ github.event.client_payload.script_args.enable_memory }}" == "true" ]] && CMD_ARGS+=("--enable-memory")
+          [[ "${{ github.event.client_payload.script_args.validate_output }}" == "true" ]] && CMD_ARGS+=("--validate-output")
+
+          # Add optional string parameters
+          [[ -n "$USER_MESSAGE" ]] && CMD_ARGS+=("--user-message" "$USER_MESSAGE")
+          [[ -n "$DEVELOPER_ID" ]] && CMD_ARGS+=("--developer-id" "$DEVELOPER_ID")
+          [[ -n "$PLANNER_MODEL" ]] && CMD_ARGS+=("--planner-model" "$PLANNER_MODEL")
+
+          # Convert array to command string with proper escaping
+          printf -v CMD_STRING '%q ' "${CMD_ARGS[@]}"
+
+          # Add xvfb wrapper if needed
+          if [[ "$HEADLESS" == "false" ]]; then
+            CMD_STRING="xvfb-run --auto-servernum --server-args='-screen 0 1280x1024x24' $CMD_STRING"
+          fi
+
+          echo "FULL_COMMAND=$CMD_STRING" >> $GITHUB_OUTPUT
+          echo "::notice title=Eval Command::$CMD_STRING"
+
+      - name: Run evaluation script
+        run: ${{ steps.eval_command.outputs.FULL_COMMAND }}

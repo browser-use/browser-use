@@ -24,7 +24,7 @@ if not os.getenv('OPENAI_API_KEY'):
 
 
 browser_profile = BrowserProfile(
-	browser_binary_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+	executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 )
 browser_session = BrowserSession(browser_profile=browser_profile)
 controller = Controller()

@@ -4,7 +4,6 @@ from playwright.async_api import async_playwright
 from browser_use.browser import BrowserSession
 
 
-@pytest.mark.asyncio
 async def test_connection_via_cdp(monkeypatch):
 	browser_session = BrowserSession(
 		cdp_url='http://localhost:9898',

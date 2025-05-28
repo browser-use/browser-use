@@ -36,14 +36,9 @@ else:
 browser_session = BrowserSession(
 	browser_profile=BrowserProfile(
 		headless=False,  # This is True in production
-		disable_security=True,
 		minimum_wait_page_load_time=1,  # 3 on prod
 		maximum_wait_page_load_time=10,  # 20 on prod
-		# Set no_viewport=False to constrain the viewport to the specified dimensions
-		# This is useful for specific cases where you need a fixed viewport size
-		no_viewport=False,
-		window_width=1280,
-		window_height=1100,
+		viewport={'width': 1280, 'height': 1100},
 		user_data_dir='~/.config/browseruse/profiles/default',
 		# trace_path='./tmp/web_voyager_agent',
 	)
