@@ -233,14 +233,13 @@ class Controller(Generic[Context]):
 			include_links: bool = False,
 		):
 			async def determine_content_type(page: Page):
-				content_type = "text/html"
+				content_type = 'text/html'
 				try:
-					response = await page.context.request.fetch(page.url, method="HEAD")
-					content_type = response.headers.get("content-type", "").lower()
+					response = await page.context.request.fetch(page.url, method='HEAD')
+					content_type = response.headers.get('content-type', '').lower()
 				except Exception as e:
 					logger.warning(
-						f"Could not perform HEAD request for {page.url} using Playwright: {e}. "
-						"Falling back to HTML parsing."
+						f'Could not perform HEAD request for {page.url} using Playwright: {e}. Falling back to HTML parsing.'
 					)
 				return content_type
 
@@ -251,17 +250,18 @@ class Controller(Generic[Context]):
 			content_type = await determine_content_type(page)
 			content = ''
 
-			if "application/pdf" in content_type:
+			if 'application/pdf' in content_type:
 				import io
+
 				from markitdown import MarkItDown
 
-				pdf_resp = await page.context.request.fetch(page.url, method="GET")
+				pdf_resp = await page.context.request.fetch(page.url, method='GET')
 				logger.info(pdf_resp.ok)
 				if pdf_resp.ok:
 					md = MarkItDown()
 					content = md.convert_stream(stream=io.BytesIO(await pdf_resp.body())).text_content
 				else:
-					content = "PDF content could not be fetched"
+					content = 'PDF content could not be fetched'
 
 			else:
 				import markdownify
