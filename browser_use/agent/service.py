@@ -25,7 +25,6 @@ from langchain_core.messages import (
 	HumanMessage,
 	SystemMessage,
 )
-from playwright.async_api import Browser, BrowserContext, Page
 from pydantic import BaseModel, ValidationError
 
 from browser_use.agent.gif import create_history_gif
@@ -40,6 +39,7 @@ from browser_use.agent.message_manager.utils import (
 from browser_use.agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
 from browser_use.agent.views import (
 	ActionResult,
+	AgentBrain,
 	AgentError,
 	AgentHistory,
 	AgentHistoryList,
@@ -66,6 +66,7 @@ from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import (
 	AgentTelemetryEvent,
 )
+from browser_use.typing import Browser, BrowserContext, Page
 from browser_use.utils import time_execution_async, time_execution_sync
 
 logger = logging.getLogger(__name__)
@@ -151,7 +152,7 @@ class Agent(Generic[Context]):
 			'aria-checked',
 		],
 		max_actions_per_step: int = 10,
-		tool_calling_method: ToolCallingMethod | None = 'auto',
+		tool_calling_method: ToolCallingMethod = 'auto',
 		page_extraction_llm: BaseChatModel | None = None,
 		planner_llm: BaseChatModel | None = None,
 		planner_interval: int = 1,  # Run planner every N steps
@@ -310,7 +311,7 @@ class Agent(Generic[Context]):
 				browser_profile=browser_profile,
 				browser=browser,
 				browser_context=browser_context,
-				page=page,
+				agent_current_page=page,
 			)
 
 		if self.sensitive_data:
@@ -392,10 +393,12 @@ class Agent(Generic[Context]):
 
 	@property
 	def browser(self) -> Browser:
+		assert self.browser_session.browser is not None, 'Browser is not initialized'
 		return self.browser_session.browser
 
 	@property
 	def browser_context(self) -> BrowserContext:
+		assert self.browser_session.browser_context is not None, 'Browser context is not initialized'
 		return self.browser_session.browser_context
 
 	@property
@@ -486,7 +489,7 @@ class Agent(Generic[Context]):
 		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'])
 		self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
 
-	def _test_tool_calling_method(self, method: str) -> bool:
+	def _test_tool_calling_method(self, method: ToolCallingMethod) -> bool:
 		"""Test if a specific tool calling method works with the current LLM."""
 		try:
 			# Test configuration
@@ -568,19 +571,19 @@ class Agent(Generic[Context]):
 			logger.debug(f"🛠️ Tool calling method '{method}' test failed: {type(e).__name__}: {str(e)}")
 			return False
 
-	async def _test_tool_calling_method_async(self, method: str) -> tuple[str, bool]:
+	async def _test_tool_calling_method_async(self, method: ToolCallingMethod) -> tuple[ToolCallingMethod, bool]:
 		"""Test if a specific tool calling method works with the current LLM (async version)."""
 		# Run the synchronous test in a thread pool to avoid blocking
 		loop = asyncio.get_event_loop()
 		result = await loop.run_in_executor(None, self._test_tool_calling_method, method)
 		return (method, result)
 
-	def _detect_best_tool_calling_method(self) -> str | None:
+	def _detect_best_tool_calling_method(self) -> ToolCallingMethod:
 		"""Detect the best supported tool calling method by testing each one."""
 		start_time = time.time()
 
 		# Order of preference for tool calling methods
-		methods_to_try = [
+		methods_to_try: list[ToolCallingMethod] = [
 			'function_calling',  # Most capable and efficient
 			'tools',  # Works with some models that don't support function_calling
 			'json_mode',  # More basic structured output
@@ -626,7 +629,8 @@ class Agent(Generic[Context]):
 
 			# Process results in order of preference
 			for i, method in enumerate(methods_to_try):
-				if isinstance(results[i], tuple) and results[i][1]:  # (method, success)
+				ith_result = results[i]
+				if isinstance(ith_result, tuple) and ith_result[1]:  # (method, success)
 					self.llm._verified_api_keys = True
 					self.llm._verified_tool_calling_method = method  # Cache on LLM instance
 					elapsed = time.time() - start_time
@@ -648,7 +652,7 @@ class Agent(Generic[Context]):
 		# If we get here, no methods worked
 		raise ConnectionError('Failed to connect to LLM. Please check your API key and network connection.')
 
-	def _get_known_tool_calling_method(self) -> str | None:
+	def _get_known_tool_calling_method(self) -> ToolCallingMethod:
 		"""Get known tool calling method for common model/library combinations."""
 		# Fast path for known combinations
 		model_lower = self.model_name.lower()
@@ -680,7 +684,7 @@ class Agent(Generic[Context]):
 
 		return None  # Unknown combination, needs testing
 
-	def _set_tool_calling_method(self) -> ToolCallingMethod | None:
+	def _set_tool_calling_method(self) -> ToolCallingMethod:
 		"""Determine the best tool calling method to use with the current LLM."""
 
 		# old hardcoded logic
@@ -700,9 +704,9 @@ class Agent(Generic[Context]):
 		# 					return 'function_calling'
 
 		# If a specific method is set, use it
-		if self.settings.tool_calling_method != 'auto':
+		if self.settings.tool_calling_method not in ['auto', None]:
 			# Skip test if already verified
-			if getattr(self.llm, '_verified_api_keys', None) is True or SKIP_LLM_API_KEY_VERIFICATION:
+			if self.llm._verified_api_keys or SKIP_LLM_API_KEY_VERIFICATION:
 				self.llm._verified_api_keys = True
 				self.llm._verified_tool_calling_method = self.settings.tool_calling_method
 				return self.settings.tool_calling_method
@@ -720,17 +724,17 @@ class Agent(Generic[Context]):
 			return self.settings.tool_calling_method
 
 		# Check if we already have a cached method on this LLM instance
-		if hasattr(self.llm, '_verified_tool_calling_method'):
-			logger.debug(
-				f'🛠️ Using cached tool calling method for {self.chat_model_library}/{self.model_name}: [{self.llm._verified_tool_calling_method}]'
-			)
-			return self.llm._verified_tool_calling_method
+		cached_method = self.llm._verified_tool_calling_method
+		if cached_method is not None:
+			logger.debug(f'🛠️ Using cached tool calling method for {self.chat_model_library}/{self.model_name}: {cached_method}')
+			return cached_method
 
 		# Try fast path for known model/library combinations
 		known_method = self._get_known_tool_calling_method()
+		logger.debug(f'🛠️ Known tool calling method: {known_method}')
 		if known_method is not None:
 			# Trust known combinations without testing if verification is already done or skipped
-			if getattr(self.llm, '_verified_api_keys', None) is True or SKIP_LLM_API_KEY_VERIFICATION:
+			if self.llm._verified_api_keys or SKIP_LLM_API_KEY_VERIFICATION:
 				self.llm._verified_api_keys = True
 				self.llm._verified_tool_calling_method = known_method  # Cache on LLM instance
 				logger.debug(
@@ -865,7 +869,7 @@ class Agent(Generic[Context]):
 					if not model_output.action or all(action.model_dump() == {} for action in model_output.action):
 						logger.warning('Model still returned empty after retry. Inserting safe noop action.')
 						action_instance = self.ActionModel(
-							done={
+							done={  # type: ignore
 								'success': False,
 								'text': 'No next action returned by LLM!',
 							}
@@ -1060,17 +1064,8 @@ class Agent(Generic[Context]):
 				logger.warning(f'Failed to parse model output: {output} {str(e)}')
 				raise ValueError('Could not parse response.')
 
-		elif self.tool_calling_method is None:
-			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True)
-			try:
-				response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
-				parsed: AgentOutput | None = response['parsed']
-
-			except Exception as e:
-				logger.error(f'Failed to invoke model: {str(e)}')
-				raise LLMException(401, 'LLM API call failed') from e
-
 		else:
+			assert self.tool_calling_method is not None, 'tool_calling_method is not set'
 			self._log_llm_call_info(input_messages, self.tool_calling_method)
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True, method=self.tool_calling_method)
 			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
@@ -1088,7 +1083,6 @@ class Agent(Generic[Context]):
 				tool_call_args = tool_call['args']
 
 				current_state = {
-					'page_summary': 'Processing tool call',
 					'evaluation_previous_goal': 'Executing action',
 					'memory': 'Using tool call',
 					'next_goal': f'Execute {tool_call_name}',
@@ -1097,7 +1091,7 @@ class Agent(Generic[Context]):
 				# Create action from tool call
 				action = {tool_call_name: tool_call_args}
 
-				parsed = self.AgentOutput(current_state=current_state, action=[self.ActionModel(**action)])
+				parsed = self.AgentOutput(current_state=AgentBrain(**current_state), action=[self.ActionModel(**action)])
 			else:
 				parsed = None
 		else:
@@ -1430,11 +1424,11 @@ class Agent(Generic[Context]):
 					# Extract sensitive data keys if sensitive_data is provided
 					keys = list(self.sensitive_data.keys()) if self.sensitive_data else None
 					# Pass browser and context config to the saving method
-					self.state.history.save_as_playwright_script(
-						self.settings.save_playwright_script_path,
-						sensitive_data_keys=keys,
-						browser_profile=self.browser_session.browser_profile,
-					)
+					# self.state.history.save_as_playwright_script(
+					# 	self.settings.save_playwright_script_path,
+					# 	sensitive_data_keys=keys,
+					# 	browser_profile=self.browser_session.browser_profile,
+					# )
 				except Exception as script_gen_err:
 					# Log any error during script generation/saving
 					logger.error(f'Failed to save Playwright script: {script_gen_err}', exc_info=True)
@@ -1740,7 +1734,6 @@ class Agent(Generic[Context]):
 		if self.browser:
 			logger.info('🌎 Restarting/reconnecting to browser...')
 			loop = asyncio.get_event_loop()
-			loop.create_task(self.browser._init())
 			loop.create_task(asyncio.sleep(5))
 
 	def stop(self) -> None:
@@ -1776,11 +1769,13 @@ class Agent(Generic[Context]):
 		Also handles tool calling method detection if in auto mode.
 		"""
 		self.tool_calling_method = self._set_tool_calling_method()
+		logger.info(f'🛠️ Using tool calling method: {self.tool_calling_method}')
 
 		# Skip verification if already done
 		if getattr(self.llm, '_verified_api_keys', None) is True or SKIP_LLM_API_KEY_VERIFICATION:
 			self.llm._verified_api_keys = True
 			return True
+		return False
 
 	async def _run_planner(self) -> str | None:
 		"""Run the planner to analyze state and suggest next steps"""

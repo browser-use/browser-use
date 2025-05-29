@@ -14,7 +14,8 @@ from imgcat import imgcat
 from langchain_openai import ChatOpenAI
 from patchright.async_api import async_playwright as async_patchright
 
-from browser_use.browser import BrowserSession
+from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.drivers.playwright import PlaywrightDriver
 
 llm = ChatOpenAI(model='gpt-4o')
 
@@ -28,10 +29,12 @@ async def main():
 	# Default Playwright Chromium Browser
 	normal_browser_session = BrowserSession(
 		# executable_path=<defaults to playwright builtin browser stored in ms-cache directory>,
-		user_data_dir=None,
-		headless=False,
-		# deterministic_rendering=False,
-		# disable_security=False,
+		browser_profile=BrowserProfile(
+			user_data_dir=None,
+			headless=False,
+			disable_security=False,
+			deterministic_rendering=False,
+		),
 	)
 	await normal_browser_session.start()
 	await normal_browser_session.create_new_tab('https://abrahamjuliot.github.io/creepjs/')
@@ -42,13 +45,13 @@ async def main():
 
 	print('\n\nPATCHRIGHT STEALTH BROWSER:')
 	patchright_browser_session = BrowserSession(
-		# cdp_url='wss://browser.zenrows.com?apikey=your-api-key-here&proxy_region=na',
-		#                or try anchor browser, browserless, steel.dev, browserbase, oxylabs, brightdata, etc.
-		playwright=patchright,
-		user_data_dir='~/.config/browseruse/profiles/stealth',
-		headless=False,
-		disable_security=False,
-		deterministic_rendering=False,
+		driver=PlaywrightDriver(profile=BrowserProfile(), backend=async_patchright),
+		browser_profile=BrowserProfile(
+			user_data_dir='~/.config/browseruse/profiles/stealth',
+			headless=False,
+			disable_security=False,
+			deterministic_rendering=False,
+		),
 	)
 	await patchright_browser_session.start()
 	await patchright_browser_session.create_new_tab('https://abrahamjuliot.github.io/creepjs/')
@@ -61,11 +64,13 @@ async def main():
 	if Path('/Applications/Brave Browser.app/Contents/MacOS/Brave Browser').is_file():
 		print('\n\nBRAVE BROWSER:')
 		brave_browser_session = BrowserSession(
-			executable_path='/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
-			headless=False,
-			disable_security=False,
-			user_data_dir='~/.config/browseruse/profiles/brave',
-			deterministic_rendering=False,
+			browser_profile=BrowserProfile(
+				executable_path='/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
+				user_data_dir='~/.config/browseruse/profiles/brave',
+				headless=False,
+				disable_security=False,
+				deterministic_rendering=False,
+			),
 		)
 		await brave_browser_session.start()
 		await brave_browser_session.create_new_tab('https://abrahamjuliot.github.io/creepjs/')
@@ -77,12 +82,14 @@ async def main():
 	if Path('/Applications/Brave Browser.app/Contents/MacOS/Brave Browser').is_file():
 		print('\n\nBRAVE + PATCHRIGHT STEALTH BROWSER:')
 		brave_patchright_browser_session = BrowserSession(
-			executable_path='/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
-			playwright=patchright,
-			headless=False,
-			disable_security=False,
-			user_data_dir=None,
-			deterministic_rendering=False,
+			driver=PlaywrightDriver(profile=BrowserProfile(), backend=async_patchright),
+			browser_profile=BrowserProfile(
+				executable_path='/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
+				user_data_dir=None,
+				headless=False,
+				disable_security=False,
+				deterministic_rendering=False,
+			),
 			**patchright.devices['iPhone 13'],  # emulate other devices: https://playwright.dev/python/docs/emulation
 		)
 		await brave_patchright_browser_session.start()

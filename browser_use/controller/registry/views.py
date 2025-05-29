@@ -1,14 +1,11 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from playwright.async_api import Page
 from pydantic import BaseModel, ConfigDict
 
 from browser_use.browser import BrowserSession
-
-if TYPE_CHECKING:
-	from browser_use.agent.service import Context
+from browser_use.typing import Page
 
 
 class RegisteredAction(BaseModel):
@@ -152,7 +149,7 @@ class SpecialActionParameters(BaseModel):
 	# e.g. can contain anything, external db connections, file handles, queues, runtime config objects, etc.
 	# that you might want to be able to access quickly from within many of your actions
 	# browser-use code doesn't use this at all, we just pass it down to your actions for convenience
-	context: 'Context | None' = None
+	context: Any = None
 
 	# browser-use session object, can be used to create new tabs, navigate, access playwright objects, etc.
 	browser_session: BrowserSession | None = None

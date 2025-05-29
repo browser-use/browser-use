@@ -5,33 +5,13 @@ from enum import Enum
 from functools import cache
 from pathlib import Path
 from re import Pattern
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Literal, Self
 from urllib.parse import urlparse
 from venv import logger
 
-from playwright._impl._api_structures import (
-	ClientCertificate,
-	Geolocation,
-	HttpCredentials,
-	ProxySettings,
-	StorageState,
-	ViewportSize,
-)
 from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
-# fix pydantic error on python 3.11
-# PydanticUserError: Please use `typing_extensions.TypedDict` instead of `typing.TypedDict` on Python < 3.12.
-# For further information visit https://errors.pydantic.dev/2.10/u/typed-dict-version
-if sys.version_info < (3, 12):
-	from typing_extensions import TypedDict
-
-	# convert new-style typing.TypedDict used by playwright to old-style typing_extensions.TypedDict used by pydantic
-	ClientCertificate = TypedDict('ClientCertificate', ClientCertificate.__annotations__, total=ClientCertificate.__total__)
-	Geolocation = TypedDict('Geolocation', Geolocation.__annotations__, total=Geolocation.__total__)
-	ProxySettings = TypedDict('ProxySettings', ProxySettings.__annotations__, total=ProxySettings.__total__)
-	ViewportSize = TypedDict('ViewportSize', ViewportSize.__annotations__, total=ViewportSize.__total__)
-	HttpCredentials = TypedDict('HttpCredentials', HttpCredentials.__annotations__, total=HttpCredentials.__total__)
-	StorageState = TypedDict('StorageState', StorageState.__annotations__, total=StorageState.__total__)
+from browser_use.typing import ClientCertificate, Geolocation, HttpCredentials, ProxySettings, StorageState, ViewportSize
 
 IN_DOCKER = os.environ.get('IN_DOCKER', 'false').lower()[0] in 'ty1'
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
@@ -191,7 +171,7 @@ CHROME_DEFAULT_ARGS = [
 def get_display_size() -> ViewportSize | None:
 	# macOS
 	try:
-		from AppKit import NSScreen
+		from AppKit import NSScreen  # type: ignore
 
 		screen = NSScreen.mainScreen().frame()
 		return ViewportSize(width=int(screen.size.width), height=int(screen.size.height))
@@ -371,7 +351,7 @@ class BrowserContextArgs(BaseModel):
 	record_har_mode: RecordHarMode = RecordHarMode.FULL
 	record_har_omit_content: bool = False
 	record_har_path: str | Path | None = None
-	record_har_url_filter: str | Pattern | None = None
+	record_har_url_filter: str | Pattern[str] | None = None
 	record_video_dir: str | Path | None = None
 	record_video_size: ViewportSize | None = None
 
@@ -405,8 +385,6 @@ class BrowserLaunchArgs(BaseModel):
 		validate_assignment=True,
 		revalidate_instances='always',
 		from_attributes=True,
-		validate_by_name=True,
-		validate_by_alias=True,
 		populate_by_name=True,
 	)
 
@@ -459,7 +437,7 @@ class BrowserLaunchArgs(BaseModel):
 	@staticmethod
 	def args_as_dict(args: list[str]) -> dict[str, str]:
 		"""Return the extra launch CLI args as a dictionary."""
-		args_dict = {}
+		args_dict: dict[str, str] = {}
 		for arg in args:
 			key, value, *_ = [*arg.split('=', 1), '', '', '']
 			args_dict[key.strip().lstrip('-')] = value.strip()
@@ -485,8 +463,7 @@ class BrowserNewContextArgs(BrowserContextArgs):
 	model_config = ConfigDict(extra='ignore', validate_assignment=False, revalidate_instances='always', populate_by_name=True)
 
 	# storage_state is not supported in launch_persistent_context()
-	storage_state: str | Path | dict[str, Any] | None = None
-	# TODO: use StorageState type instead of dict[str, Any]
+	storage_state: StorageState | None = None
 
 	# to apply this to existing contexts (incl cookies, localStorage, IndexedDB), see:
 	# - https://github.com/microsoft/playwright/pull/34591/files
@@ -539,8 +516,6 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		validate_assignment=True,
 		revalidate_instances='always',
 		from_attributes=True,
-		validate_by_name=True,
-		validate_by_alias=True,
 		populate_by_name=True,
 	)
 
@@ -566,7 +541,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	window_height: int | None = Field(default=None, description='DEPRECATED, use window_size["height"] instead', exclude=True)
 	window_width: int | None = Field(default=None, description='DEPRECATED, use window_size["width"] instead', exclude=True)
 	window_position: ViewportSize | None = Field(
-		default_factory=lambda: {'width': 0, 'height': 0},
+		default_factory=lambda: ViewportSize(width=0, height=0),
 		description='Window position to use for the browser x,y from the top left when headless=False.',
 	)
 
@@ -619,10 +594,12 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	@model_validator(mode='after')
 	def copy_old_config_names_to_new(self) -> Self:
 		"""Copy old config window_width & window_height to window_size."""
-		if self.window_width or self.window_height:
-			self.window_size = self.window_size or {}
-			self.window_size['width'] = (self.window_size or {}).get('width') or self.window_width or 1280
-			self.window_size['height'] = (self.window_size or {}).get('height') or self.window_height or 1100
+		if self.window_size is None:
+			self.window_size = ViewportSize(width=1280, height=1100)
+			if self.window_width:
+				self.window_size.width = self.window_width
+			if self.window_height:
+				self.window_size.height = self.window_height
 		return self
 
 	@model_validator(mode='after')
@@ -643,8 +620,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		return self
 
 	def get_args(self) -> list[str]:
+		default_args: list[str] = []
 		if isinstance(self.ignore_default_args, list):
-			default_args = set(CHROME_DEFAULT_ARGS) - set(self.ignore_default_args)
+			default_args = list(set(CHROME_DEFAULT_ARGS) - set(self.ignore_default_args))
 		elif self.ignore_default_args is True:
 			default_args = []
 		elif not self.ignore_default_args:
@@ -660,15 +638,11 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			*(CHROME_DISABLE_SECURITY_ARGS if self.disable_security else []),
 			*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.deterministic_rendering else []),
 			*(
-				[f'--window-size={self.window_size["width"]},{self.window_size["height"]}']
+				[f'--window-size={self.window_size.width},{self.window_size.height}']
 				if self.window_size
 				else (['--start-maximized'] if not self.headless else [])
 			),
-			*(
-				[f'--window-position={self.window_position["width"]},{self.window_position["height"]}']
-				if self.window_position
-				else []
-			),
+			*([f'--window-position={self.window_position.width},{self.window_position.height}'] if self.window_position else []),
 		]
 
 		final_args_list = BrowserLaunchArgs.args_as_list(BrowserLaunchArgs.args_as_dict(pre_conversion_args))
@@ -680,11 +654,11 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	def kwargs_for_new_context(self) -> BrowserNewContextArgs:
 		"""Return the kwargs for BrowserContext.new_context()."""
-		return BrowserNewContextArgs(**self.model_dump(exclude={'args'}), args=self.get_args())
+		return BrowserNewContextArgs(**self.model_dump(exclude={'args'}))
 
 	def kwargs_for_connect(self) -> BrowserConnectArgs:
 		"""Return the kwargs for BrowserType.connect()."""
-		return BrowserConnectArgs(**self.model_dump(exclude={'args'}), args=self.get_args())
+		return BrowserConnectArgs(**self.model_dump(exclude={'args'}))
 
 	def kwargs_for_launch(self) -> BrowserLaunchArgs:
 		"""Return the kwargs for BrowserType.connect_over_cdp()."""
@@ -756,7 +730,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 		# automatically setup viewport if any config requires it
 		use_viewport = self.headless or self.viewport or self.device_scale_factor
-		self.no_viewport = not use_viewport if self.no_viewport is None else self.no_viewport
+		self.no_viewport = self.no_viewport or not use_viewport
 		use_viewport = not self.no_viewport
 
 		if use_viewport:

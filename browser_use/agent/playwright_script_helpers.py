@@ -1,4 +1,4 @@
-from playwright.async_api import Page
+from browser_use.typing import Page
 
 
 # --- Helper Function for Replacing Sensitive Data ---
@@ -32,11 +32,12 @@ async def _try_locate_and_act(page: Page, selector: str, action_type: str, text:
 	FALLBACK_TIMEOUT = 1000  # Shorter timeout for fallback attempts (1 second)
 
 	try:
-		locator = page.locator(selector).first
+		element = await page.locator(selector).first.element_handle()
+		assert element is not None, f'Element not found for selector: {selector}'
 		if action_type == 'click':
-			await locator.click(timeout=INITIAL_TIMEOUT)
+			await element.click(timeout=INITIAL_TIMEOUT)
 		elif action_type == 'fill' and text is not None:
-			await locator.fill(text, timeout=INITIAL_TIMEOUT)
+			await element.fill(text, timeout=INITIAL_TIMEOUT)
 		else:
 			# This case should ideally not happen if called correctly
 			raise PlaywrightActionError(f"Invalid action_type '{action_type}' or missing text for fill. ({step_info})")
@@ -68,16 +69,17 @@ async def _try_locate_and_act(page: Page, selector: str, action_type: str, text:
 
 			print(f'    Fallback attempt {i}/{MAX_FALLBACKS}: Trying selector: {repr(fallback_xpath)}')
 			try:
-				locator = page.locator(fallback_xpath).first
+				element = await page.locator(fallback_xpath).first.element_handle()
+				assert element is not None, f'Element not found for selector: {fallback_xpath}'
 				if action_type == 'click':
-					await locator.click(timeout=FALLBACK_TIMEOUT)
+					await element.click(timeout=FALLBACK_TIMEOUT)
 				elif action_type == 'fill' and text is not None:
 					try:
-						await locator.clear(timeout=FALLBACK_TIMEOUT)
+						await element.clear(timeout=FALLBACK_TIMEOUT)
 						await page.wait_for_timeout(100)
 					except Exception as clear_error:
 						print(f'    Warning: Failed to clear field during fallback ({step_info}): {clear_error}')
-					await locator.fill(text, timeout=FALLBACK_TIMEOUT)
+					await element.fill(text, timeout=FALLBACK_TIMEOUT)
 
 				print(f"    Action '{action_type}' successful with fallback selector: {repr(fallback_xpath)}")
 				await page.wait_for_timeout(500)

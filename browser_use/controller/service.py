@@ -7,7 +7,6 @@ from typing import Generic, TypeVar, cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
-from playwright.async_api import ElementHandle, Page
 
 # from lmnr.sdk.laminar import Laminar
 from pydantic import BaseModel
@@ -30,6 +29,7 @@ from browser_use.controller.views import (
 	SendKeysAction,
 	SwitchTabAction,
 )
+from browser_use.typing import ElementHandle, Page
 from browser_use.utils import time_execution_sync
 
 logger = logging.getLogger(__name__)
@@ -132,6 +132,9 @@ class Controller(Generic[Context]):
 				raise Exception(f'Element with index {params.index} does not exist - retry or use alternative actions')
 
 			element_node = await browser_session.get_dom_element_by_index(params.index)
+			assert element_node is not None, (
+				f'Element with index {params.index} does not exist - retry or use alternative actions'
+			)
 			initial_pages = len(browser_session.tabs)
 
 			# if element has file uploader then dont click
@@ -170,6 +173,9 @@ class Controller(Generic[Context]):
 				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
 
 			element_node = await browser_session.get_dom_element_by_index(params.index)
+			assert element_node is not None, (
+				f'Element with index {params.index} does not exist - retry or use alternative actions'
+			)
 			await browser_session._input_text_element_node(element_node, params.text)
 			if not has_sensitive_data:
 				msg = f'⌨️  Input {params.text} into index {params.index}'
@@ -263,6 +269,7 @@ class Controller(Generic[Context]):
 			'Get the accessibility tree of the page in the format "role name" with the number_of_elements to return',
 		)
 		async def get_ax_tree(number_of_elements: int, page: Page):
+			# TODO @yasithdev add accessibility property to page object
 			node = await page.accessibility.snapshot(interesting_only=True)
 
 			def flatten_ax_tree(node, lines):
@@ -363,7 +370,8 @@ class Controller(Generic[Context]):
 						if await locator.count() == 0:
 							continue
 
-						element = locator.first
+						element = await locator.first.element_handle()
+						assert element is not None, f'Element not found for locator: {locator}'
 						is_visible = await element.is_visible()
 						bbox = await element.bounding_box()
 
@@ -858,7 +866,7 @@ class Controller(Generic[Context]):
 		browser_session: BrowserSession,
 		#
 		page_extraction_llm: BaseChatModel | None = None,
-		sensitive_data: dict[str, str] | None = None,
+		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		available_file_paths: list[str] | None = None,
 		#
 		context: Context | None = None,

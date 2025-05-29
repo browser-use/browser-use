@@ -14,7 +14,6 @@ import asyncio
 import logging
 
 import pytest
-from playwright.async_api import Page
 from pydantic import Field
 from pytest_httpserver import HTTPServer
 
@@ -28,6 +27,7 @@ from browser_use.controller.views import (
 	NoParamsAction,
 	SearchGoogleAction,
 )
+from browser_use.typing import Page
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
