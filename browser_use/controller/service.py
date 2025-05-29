@@ -88,7 +88,7 @@ class Controller(Generic[Context]):
 			page = await browser_session.get_current_page()
 			if page.url in ('about:blank', 'https://www.google.com'):
 				await page.goto(search_url)
-				await page.wait_for_load_state()
+				await browser_session._wait_for_page_load(page)
 			else:
 				page = await browser_session.create_new_tab(search_url)
 
@@ -101,7 +101,7 @@ class Controller(Generic[Context]):
 			page = await browser_session.get_current_page()
 			if page:
 				await page.goto(params.url)
-				await page.wait_for_load_state()
+				await browser_session._wait_for_page_load(page)
 			else:
 				page = await browser_session.create_new_tab(params.url)
 			msg = f'🔗  Navigated to {params.url}'
@@ -198,7 +198,6 @@ class Controller(Generic[Context]):
 			await browser_session.switch_to_tab(params.page_id)
 			# Wait for tab to be ready and ensure references are synchronized
 			page = await browser_session.get_current_page()
-			await page.wait_for_load_state()
 			msg = f'🔄  Switched to tab {params.page_id}'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)

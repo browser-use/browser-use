@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Literal, Self
 from urllib.parse import urlparse
 
 os.environ['PW_TEST_SCREENSHOT_NO_FONTS_READY'] = '1'  # https://github.com/microsoft/playwright/issues/35972
@@ -1006,12 +1006,12 @@ class BrowserSession(BaseModel):
 					except TimeoutError:
 						# If no download is triggered, treat as normal click
 						logger.debug('No download triggered within timeout. Checking navigation...')
-						await page.wait_for_load_state()
+						await self._wait_for_page_load(page)
 						await self._check_and_handle_navigation(page)
 				else:
 					# Standard click logic if no download is expected
 					await click_func()
-					await page.wait_for_load_state()
+					await self._wait_for_page_load(page)
 					await self._check_and_handle_navigation(page)
 
 			try:
@@ -1072,6 +1072,7 @@ class BrowserSession(BaseModel):
 	async def navigate(self, url: str) -> None:
 		if self.agent_current_page:
 			await self.agent_current_page.goto(url)
+			await self._wait_for_page_load(self.agent_current_page)
 		else:
 			await self.create_new_tab(url)
 
@@ -1079,6 +1080,7 @@ class BrowserSession(BaseModel):
 	async def refresh(self) -> None:
 		if self.agent_current_page and not self.agent_current_page.is_closed():
 			await self.agent_current_page.reload()
+			await self._wait_for_page_load(self.agent_current_page)
 		else:
 			await self.create_new_tab()
 
@@ -1385,6 +1387,19 @@ class BrowserSession(BaseModel):
 		if remaining > 0:
 			await asyncio.sleep(remaining)
 
+	async def _wait_for_page_load(
+		self,
+		page: Page | None = None,
+		wait_until: Literal['load', 'domcontentloaded', 'networkidle'] = 'load',
+		timeout: float | None = None,
+	):
+		"""Wait for the page to load."""
+		page = page or await self.get_current_page()
+		try:
+			await page.wait_for_load_state(state=wait_until, timeout=timeout)
+		except Exception as e:
+			pass  # doesn't matter if it fails, continue anyway and the LLM can figure it out
+
 	def _is_url_allowed(self, url: str) -> bool:
 		"""
 		Check if a URL is allowed based on the whitelist configuration. SECURITY CRITICAL.
@@ -1436,21 +1451,22 @@ class BrowserSession(BaseModel):
 
 		page = await self.get_current_page()
 		await page.goto(url)
-		await page.wait_for_load_state()
+		await self._wait_for_page_load(page)
 
 	async def refresh_page(self):
 		"""Refresh the agent's current page"""
 
 		page = await self.get_current_page()
 		await page.reload()
-		await page.wait_for_load_state()
+		await self._wait_for_page_load(page)
 
 	async def go_back(self):
 		"""Navigate the agent's tab back in browser history"""
 		try:
 			# 10 ms timeout
 			page = await self.get_current_page()
-			await page.go_back(timeout=10, wait_until='domcontentloaded')
+			await page.go_back()
+			await self._wait_for_page_load(page)
 
 			# await self._wait_for_page_and_frames_load(timeout_overwrite=1.0)
 		except Exception as e:
@@ -1461,7 +1477,8 @@ class BrowserSession(BaseModel):
 		"""Navigate the agent's tab forward in browser history"""
 		try:
 			page = await self.get_current_page()
-			await page.go_forward(timeout=10, wait_until='domcontentloaded')
+			await page.go_forward()
+			await self._wait_for_page_load(page)
 		except Exception as e:
 			# Continue even if its not fully loaded, because we wait later for the page to load
 			logger.debug(f'⏭️  Error during go_forward: {e}')
@@ -1697,9 +1714,7 @@ class BrowserSession(BaseModel):
 		assert self.agent_current_page is not None, 'Agent current page is not set'
 
 		page = await self.get_current_page()
-		await page.wait_for_load_state(
-			timeout=5000,
-		)  # page has already loaded by this point, this is extra for previous action animations/frame loads to settle
+		await self._wait_for_page_load(page)
 
 		# 0. Attempt full-page screenshot (sometimes times out for huge pages)
 		try:
@@ -2165,7 +2180,7 @@ class BrowserSession(BaseModel):
 
 		# Bring tab to front and wait for it to load
 		await page.bring_to_front()
-		await page.wait_for_load_state()
+		await self._wait_for_page_load(page)
 
 		# Set the viewport size for the tab
 		if self.browser_profile.viewport:
@@ -2189,14 +2204,14 @@ class BrowserSession(BaseModel):
 		if (not self.human_current_page) or self.human_current_page.is_closed():
 			self.human_current_page = new_page
 
-		await new_page.wait_for_load_state()
+		await self._wait_for_page_load(new_page)
 
 		# Set the viewport size for the new tab
 		if self.browser_profile.viewport:
 			await new_page.set_viewport_size(self.browser_profile.viewport)
 
 		if url:
-			await new_page.goto(url, wait_until='domcontentloaded', timeout=10000)
+			await new_page.goto(url)
 			await self._wait_for_page_and_frames_load(timeout_overwrite=1)
 
 		assert self.human_current_page is not None

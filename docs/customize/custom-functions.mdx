@@ -68,11 +68,10 @@ def click_element(css_selector: str, page: Page) -> ActionResult:
 
 ### Pydantic Model
 
-You can define a pydantic model for the parameters your action expects.
+You can define a pydantic model for the parameters your action expects by setting a `@controller.action(..., param_model=MyParams)`.
 This allows you to use optional parameters, default values, `Annotated[...]` types with custom validation, and other features offered by pydantic.
 
-When the agent calls calls your agent function, an instance of your model
-with the values filled by the LLM will be passed as the first argument `params` to your action function.
+When the agent calls calls your agent function, an instance of your model with the values filled by the LLM will be passed as the argument named `params` to your action function.
 
 Using a pydantic model is helpful because it allows more flexibility and power to enforce the schema of the values the LLM should provide.
 
@@ -95,6 +94,9 @@ def my_action(params: MyParams, page: Page) -> ActionResult:
 
 Any special framework-provided arguments (e.g. `page`) will be passed as separate positional arguments after `params`.
 
+<Important>
+To use a `BaseModel` the arg *must* be called `params`. Action function args are matched and filled like named arguments; arg order doesn't matter but names and types do.
+</Important>
 
 ### Framework-Provided Parameters
 

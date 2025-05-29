@@ -642,6 +642,15 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			)
 		return self
 
+	@model_validator(mode='after')
+	def warn_deterministic_rendering_weirdness(self) -> Self:
+		if self.deterministic_rendering:
+			logger.warning(
+				'⚠️ BrowserSession(deterministic_rendering=True) is NOT RECOMMENDED. It breaks many sites and increases chances of getting blocked by anti-bot systems. '
+				'It hardcodes the JS random seed and forces browsers across Linux/Mac/Windows to use the same font rendering engine so that identical screenshots can be generated.'
+			)
+		return self
+
 	def get_args(self) -> list[str]:
 		if isinstance(self.ignore_default_args, list):
 			default_args = set(CHROME_DEFAULT_ARGS) - set(self.ignore_default_args)

@@ -985,7 +985,7 @@ class TestControllerIntegration:
 
 		# Wait for the page to load
 		page = await browser_session.get_current_page()
-		await page.wait_for_load_state()
+		await browser_session._wait_for_page_load(page)
 
 		# Initialize the DOM state to populate the selector map
 		await browser_session.get_state_summary(cache_clickable_elements_hashes=True)
@@ -1095,7 +1095,7 @@ class TestControllerIntegration:
 
 		# Wait for the page to load
 		page = await browser_session.get_current_page()
-		await page.wait_for_load_state()
+		await browser_session._wait_for_page_load(page)
 
 		# populate the selector map with highlight indices
 		await browser_session.get_state_summary(cache_clickable_elements_hashes=True)
@@ -1284,7 +1284,7 @@ class TestControllerIntegration:
 
 		# Wait for the page to load
 		page = await browser_session.get_current_page()
-		await page.wait_for_load_state()
+		await browser_session._wait_for_page_load(page)
 
 		# Initialize the DOM state to populate the selector map
 		await browser_session.get_state_summary(cache_clickable_elements_hashes=True)
