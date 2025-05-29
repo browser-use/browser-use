@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -31,8 +32,8 @@ class CoordinateSet(BaseModel):
 
 
 class ViewportInfo(BaseModel):
-	scroll_x: int
-	scroll_y: int
+	scroll_x: int | None = None  # made optional
+	scroll_y: int | None = None  # made optional
 	width: int
 	height: int
 
@@ -50,7 +51,7 @@ class DOMHistoryElement:
 	viewport_coordinates: CoordinateSet | None = None
 	viewport_info: ViewportInfo | None = None
 
-	def to_dict(self) -> dict:
+	def to_dict(self) -> dict[str, Any]:
 		page_coordinates = self.page_coordinates.model_dump() if self.page_coordinates else None
 		viewport_coordinates = self.viewport_coordinates.model_dump() if self.viewport_coordinates else None
 		viewport_info = self.viewport_info.model_dump() if self.viewport_info else None

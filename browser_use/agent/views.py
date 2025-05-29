@@ -21,7 +21,7 @@ from browser_use.dom.history_tree_processor.service import (
 )
 from browser_use.dom.views import SelectorMap
 
-ToolCallingMethod = Literal['function_calling', 'json_mode', 'raw', 'auto', 'tools']
+ToolCallingMethod = Literal['function_calling', 'json_mode', 'raw', 'auto', 'tools', None]
 REQUIRED_LLM_API_ENV_VARS = {
 	'ChatOpenAI': ['OPENAI_API_KEY'],
 	'AzureChatOpenAI': ['AZURE_OPENAI_ENDPOINT', 'AZURE_OPENAI_KEY'],
@@ -64,7 +64,7 @@ class AgentSettings(BaseModel):
 	]
 	max_actions_per_step: int = 10
 
-	tool_calling_method: ToolCallingMethod | None = 'auto'
+	tool_calling_method: ToolCallingMethod = 'auto'
 	page_extraction_llm: BaseChatModel | None = None
 	planner_llm: BaseChatModel | None = None
 	planner_interval: int = 1  # Run planner every N steps

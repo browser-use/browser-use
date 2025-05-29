@@ -8,13 +8,14 @@ This example shows how to:
 """
 
 import asyncio
-from typing import Any
+from collections.abc import Callable
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.typing import ViewportSize
 
 
 async def example_custom_window_size():
@@ -23,7 +24,7 @@ async def example_custom_window_size():
 
 	# Create a browser profile with a specific window size
 	profile = BrowserProfile(
-		window_size={'width': 800, 'height': 600},  # Small size for demonstration
+		viewport=ViewportSize(width=800, height=600),  # Small size for demonstration
 		# **playwright.devices['iPhone 13']         # or you can use a playwright device profile
 		# device_scale_factor=1.0,                  # change to 2~3 to emulate a high-DPI display for high-res screenshots
 		# viewport={'width': 800, 'height': 600},   # set the viewport (aka content size)
@@ -55,15 +56,15 @@ async def example_custom_window_size():
 		if profile.viewport:
 			expected_page_size = profile.viewport
 		elif profile.window_size:
-			expected_page_size = {
-				'width': profile.window_size['width'],
-				'height': profile.window_size['height'] - 87,
-			}  # 87px is the height of the navbar, title, rim ish
-		_log_size = lambda size: f'{size["width"]}x{size["height"]}px'
+			expected_page_size = ViewportSize(
+				width=profile.window_size.width,
+				height=profile.window_size.height - 87,
+			)  # 87px is the height of the navbar, title, rim ish
+		_log_size: Callable[[ViewportSize], str] = lambda size: f'{size.width}x{size.height}px'
 		print(f'Expected {_log_size(expected_page_size)} vs actual {_log_size(actual_content_size)}')
 
 		# Validate the window size
-		validate_window_size(expected_page_size, actual_content_size)
+		validate_window_size(expected_page_size, ViewportSize(**actual_content_size))
 
 		# Wait a bit more to see the window
 		await asyncio.sleep(2)
@@ -81,7 +82,7 @@ async def example_no_viewport_option():
 	"""Example 2: Testing browser window sizing with no_viewport option"""
 	print('\n=== Example 2: Window Sizing with no_viewport=False ===')
 
-	profile = BrowserProfile(window_size={'width': 1440, 'height': 900}, no_viewport=False, headless=False)
+	profile = BrowserProfile(viewport=ViewportSize(width=1440, height=900), no_viewport=False, headless=False)
 
 	browser_session = None
 
@@ -94,8 +95,10 @@ async def example_no_viewport_option():
 		await asyncio.sleep(1)
 
 		# Get viewport size (inner dimensions)
-		viewport = await page.evaluate('() => ({width: window.innerWidth, height: window.innerHeight})')
-		print(f'Configured size: width={profile.window_size["width"]}, height={profile.window_size["height"]}')
+		viewport_size = await page.evaluate('() => ({width: window.innerWidth, height: window.innerHeight})')
+		viewport = ViewportSize(**viewport_size)
+		assert profile.viewport is not None, 'profile.viewport is not set'
+		print(f'Configured size: width={profile.viewport.width}, height={profile.viewport.height}')
 		print(f'Actual viewport size: {viewport}')
 
 		# Get the actual window size (outer dimensions)
@@ -117,15 +120,15 @@ async def example_no_viewport_option():
 			await browser_session.stop()
 
 
-def validate_window_size(configured: dict[str, Any], actual: dict[str, Any]) -> None:
+def validate_window_size(configured: ViewportSize, actual: ViewportSize) -> None:
 	"""Compare configured window size with actual size and report differences"""
 	# Allow for small differences due to browser chrome, scrollbars, etc.
-	width_diff = abs(configured['width'] - actual['width'])
-	height_diff = abs(configured['height'] - actual['height'])
+	width_diff = abs(configured.width - actual.width)
+	height_diff = abs(configured.height - actual.height)
 
 	# Tolerance of 5% or 20px, whichever is greater
-	width_tolerance = max(configured['width'] * 0.05, 20)
-	height_tolerance = max(configured['height'] * 0.05, 20)
+	width_tolerance = max(configured.width * 0.05, 20)
+	height_tolerance = max(configured.height * 0.05, 20)
 
 	if width_diff > width_tolerance or height_diff > height_tolerance:
 		print(f'⚠️  WARNING: Significant difference between expected and actual page size! ±{width_diff}x{height_diff}px')

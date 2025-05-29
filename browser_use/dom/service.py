@@ -1,28 +1,15 @@
 import logging
-from dataclasses import dataclass
 from importlib import resources
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
-	from playwright.async_api import Page
+	from browser_use.typing import Page
 
-from browser_use.dom.views import (
-	DOMBaseNode,
-	DOMElementNode,
-	DOMState,
-	DOMTextNode,
-	SelectorMap,
-)
+from browser_use.dom.views import DOMBaseNode, DOMElementNode, DOMState, DOMTextNode, SelectorMap, ViewportInfo
 from browser_use.utils import time_execution_async
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ViewportInfo:
-	width: int
-	height: int
 
 
 class DomService:
@@ -97,7 +84,7 @@ class DomService:
 		}
 
 		try:
-			eval_page: dict = await self.page.evaluate(self.js_code, args)
+			eval_page: dict[str, Any] = await self.page.evaluate(self.js_code, args)
 		except Exception as e:
 			logger.error('Error evaluating JavaScript: %s', e)
 			raise
@@ -132,13 +119,13 @@ class DomService:
 	@time_execution_async('--construct_dom_tree')
 	async def _construct_dom_tree(
 		self,
-		eval_page: dict,
+		eval_page: dict[str, Any],
 	) -> tuple[DOMElementNode, SelectorMap]:
-		js_node_map = eval_page['map']
-		js_root_id = eval_page['rootId']
+		js_node_map: dict[int, Any] = eval_page['map']
+		js_root_id: int = eval_page['rootId']
 
-		selector_map = {}
-		node_map = {}
+		selector_map: dict[int, DOMElementNode] = {}
+		node_map: dict[int, DOMBaseNode] = {}
 
 		for id, node_data in js_node_map.items():
 			node, children_ids = self._parse_node(node_data)
@@ -162,20 +149,20 @@ class DomService:
 					child_node.parent = node
 					node.children.append(child_node)
 
-		html_to_dict = node_map[str(js_root_id)]
+		html_to_dict = node_map[js_root_id]
 
 		del node_map
 		del js_node_map
 		del js_root_id
 
-		if html_to_dict is None or not isinstance(html_to_dict, DOMElementNode):
+		if not isinstance(html_to_dict, DOMElementNode):
 			raise ValueError('Failed to parse HTML to dictionary')
 
 		return html_to_dict, selector_map
 
 	def _parse_node(
 		self,
-		node_data: dict,
+		node_data: dict[str, Any],
 	) -> tuple[DOMBaseNode | None, list[int]]:
 		if not node_data:
 			return None, []

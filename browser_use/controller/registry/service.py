@@ -8,7 +8,6 @@ from inspect import Parameter, iscoroutinefunction, signature
 from typing import Any, Generic, Optional, TypeVar, Union, get_args, get_origin
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from playwright.async_api import Page
 from pydantic import BaseModel, Field, create_model
 
 from browser_use.browser import BrowserSession
@@ -23,6 +22,7 @@ from browser_use.telemetry.views import (
 	ControllerRegisteredFunctionsTelemetryEvent,
 	RegisteredFunction,
 )
+from browser_use.typing import Page
 from browser_use.utils import match_url_with_domain_pattern, time_execution_async
 
 Context = TypeVar('Context')
@@ -176,6 +176,7 @@ class Registry(Generic[Context]):
 							action_kwargs[param.name] = kwargs[param.name]
 					if action_kwargs:
 						# Use the param_model which has the correct types defined
+						assert param_model is not None, f'Param model is None for action {func.__name__}'
 						params = param_model(**action_kwargs)
 
 			# Build call_args by iterating through original function parameters in order
@@ -235,6 +236,7 @@ class Registry(Generic[Context]):
 
 		normalized_wrapper.__signature__ = sig.replace(parameters=new_params)
 
+		assert param_model is not None, f'Param model is None for action {func.__name__}'
 		return normalized_wrapper, param_model
 
 	# @time_execution_sync('--create_param_model')
@@ -366,7 +368,9 @@ class Registry(Generic[Context]):
 			url_info = f' on {current_url}' if current_url and current_url != 'about:blank' else ''
 			logger.info(f'🔒 Using sensitive data placeholders: {", ".join(sorted(placeholders_used))}{url_info}')
 
-	def _replace_sensitive_data(self, params: BaseModel, sensitive_data: dict[str, Any], current_url: str = None) -> BaseModel:
+	def _replace_sensitive_data(
+		self, params: BaseModel, sensitive_data: dict[str, Any], current_url: str | None = None
+	) -> BaseModel:
 		"""
 		Replaces sensitive data placeholders in params with actual values.
 
