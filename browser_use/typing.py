@@ -15,36 +15,47 @@ logger = logging.getLogger(__name__)
 
 class ViewportSize(BaseModel):
 	"""Represents a viewport size"""
+
 	width: int
 	height: int
 
+
 class ClientCertificate(BaseModel):
-    """Represents a client certificate for authentication"""
-    cert: str
-    key: str
+	"""Represents a client certificate for authentication"""
+
+	cert: str
+	key: str
+
 
 class Geolocation(BaseModel):
-    """Represents geographical location coordinates"""
-    latitude: float
-    longitude: float
-    accuracy: float | None = None
+	"""Represents geographical location coordinates"""
+
+	latitude: float
+	longitude: float
+	accuracy: float | None = None
+
 
 class HttpCredentials(BaseModel):
-    """Represents HTTP authentication credentials"""
-    username: str
-    password: str
+	"""Represents HTTP authentication credentials"""
+
+	username: str
+	password: str
+
 
 class ProxySettings(BaseModel):
-    """Represents proxy server settings"""
-    server: str
-    bypass: str | None = None
-    username: str | None = None
-    password: str | None = None
+	"""Represents proxy server settings"""
+
+	server: str
+	bypass: str | None = None
+	username: str | None = None
+	password: str | None = None
+
 
 class StorageState(BaseModel):
-    """Represents browser storage state"""
-    cookies: list[dict[str, Any]] = []
-    origins: list[dict[str, Any]] = []
+	"""Represents browser storage state"""
+
+	cookies: list[dict[str, Any]] = []
+	origins: list[dict[str, Any]] = []
 
 
 class EventEmitterMixin(ABC):
@@ -62,15 +73,15 @@ class PropertyMixin(ABC):
 
 class LocatorMixin(ABC):
 	@abstractmethod
-	def locator(self, selector: str) -> 'Locator': ...
+	def locator(self, selector: str) -> Locator: ...
 
 
 class QueryableMixin(ABC):
 	@abstractmethod
-	async def query_selector(self, selector: str) -> 'ElementHandle | None': ...
+	async def query_selector(self, selector: str) -> ElementHandle | None: ...
 
 	@abstractmethod
-	async def query_selector_all(self, selector: str) -> list['ElementHandle']: ...
+	async def query_selector_all(self, selector: str) -> list[ElementHandle]: ...
 
 	@abstractmethod
 	async def evaluate(self, script: str, *args: Any, **kwargs: Any) -> Any: ...
@@ -81,7 +92,7 @@ class QueryableMixin(ABC):
 
 class Browser(ABC):
 	@abstractmethod
-	async def new_session(self, **kwargs: Any) -> 'BrowserSession':
+	async def new_session(self, **kwargs: Any) -> BrowserSession:
 		pass
 
 	@abstractmethod
@@ -89,7 +100,7 @@ class Browser(ABC):
 		pass
 
 	@abstractmethod
-	async def open(self, **kwargs: Any) -> 'Browser':
+	async def open(self, **kwargs: Any) -> Browser:
 		pass
 
 	@abstractmethod
@@ -98,7 +109,7 @@ class Browser(ABC):
 
 	@property
 	@abstractmethod
-	def sessions(self) -> list['BrowserSession']:
+	def sessions(self) -> list[BrowserSession]:
 		pass
 
 	@property
@@ -109,7 +120,7 @@ class Browser(ABC):
 
 class BrowserContext(ABC):
 	@abstractmethod
-	async def new_page(self) -> 'Page':
+	async def new_page(self) -> Page:
 		pass
 
 	@abstractmethod
@@ -118,12 +129,12 @@ class BrowserContext(ABC):
 
 	@property
 	@abstractmethod
-	def pages(self) -> list['Page']:
+	def pages(self) -> list[Page]:
 		pass
 
 	@property
 	@abstractmethod
-	def browser(self) -> 'Browser':
+	def browser(self) -> Browser:
 		pass
 
 	@abstractmethod
@@ -137,11 +148,11 @@ class BrowserContext(ABC):
 	@abstractmethod
 	async def cookies(self) -> list[dict[str, Any]]:
 		pass
-	
+
 	@abstractmethod
 	async def storage_state(self) -> StorageState:
 		pass
-	
+
 	@abstractmethod
 	async def add_cookies(self, cookies: list[dict[str, Any]]) -> None:
 		pass
@@ -181,7 +192,7 @@ class Frame(QueryableMixin, LocatorMixin, ABC):
 class Page(EventEmitterMixin, QueryableMixin, LocatorMixin, ABC):
 	@property
 	@abstractmethod
-	def context(self) -> 'BrowserContext':
+	def context(self) -> BrowserContext:
 		pass
 
 	@abstractmethod
@@ -270,19 +281,19 @@ class Page(EventEmitterMixin, QueryableMixin, LocatorMixin, ABC):
 
 	@property
 	@abstractmethod
-	def keyboard(self) -> 'Keyboard':
+	def keyboard(self) -> Keyboard:
 		pass
 
 	@abstractmethod
 	async def type(self, selector: str, text: str, delay: float = 0) -> None: ...
 
 	@abstractmethod
-	def get_by_text(self, text: str, exact: bool = False) -> 'Locator':
+	def get_by_text(self, text: str, exact: bool = False) -> Locator:
 		pass
 
 	@property
 	@abstractmethod
-	def mouse(self) -> 'Mouse':
+	def mouse(self) -> Mouse:
 		pass
 
 	@abstractmethod
@@ -294,7 +305,7 @@ class Page(EventEmitterMixin, QueryableMixin, LocatorMixin, ABC):
 		pass
 
 	@abstractmethod
-	async def expect_download(self, *args: Any, **kwargs: Any) -> 'Download':
+	async def expect_download(self, *args: Any, **kwargs: Any) -> Download:
 		pass
 
 	@abstractmethod
@@ -320,7 +331,7 @@ class ElementHandle(QueryableMixin, EventEmitterMixin, PropertyMixin, ABC):
 		pass
 
 	@abstractmethod
-	async def element_handle(self) -> 'ElementHandle':
+	async def element_handle(self) -> ElementHandle:
 		pass
 
 	@abstractmethod
@@ -354,7 +365,7 @@ class Tracing(ABC):
 
 class Locator(LocatorMixin, ABC):
 	@abstractmethod
-	def filter(self, **kwargs: Any) -> 'Locator':
+	def filter(self, **kwargs: Any) -> Locator:
 		pass
 
 	@abstractmethod
@@ -367,11 +378,11 @@ class Locator(LocatorMixin, ABC):
 
 	@property
 	@abstractmethod
-	def first(self) -> 'Locator':
+	def first(self) -> Locator:
 		pass
 
 	@abstractmethod
-	def nth(self, index: int) -> 'Locator':
+	def nth(self, index: int) -> Locator:
 		pass
 
 	@abstractmethod
@@ -379,7 +390,7 @@ class Locator(LocatorMixin, ABC):
 		pass
 
 	@abstractmethod
-	async def element_handle(self) -> 'ElementHandle | None':
+	async def element_handle(self) -> ElementHandle | None:
 		pass
 
 
@@ -424,7 +435,7 @@ class Download(ABC):
 
 
 class Driver(ABC):
-	def __init__(self, profile: 'BrowserProfile') -> None:
+	def __init__(self, profile: BrowserProfile) -> None:
 		self.profile = profile
 		self.impl: Browser | None = None
 		logger.info(f'🌎🚗 Created BrowserDriver instance: name={self.__class__.__name__}, profile={self.profile}')
@@ -455,7 +466,7 @@ class Driver(ABC):
 	
 	"""
 
-	async def setup(self) -> 'Driver':
+	async def setup(self) -> Driver:
 		logger.info(f'🌎🚗 BrowserDriver.setup(): name={self.__class__.__name__}')
 
 		await self.init_impl()

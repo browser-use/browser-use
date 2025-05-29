@@ -73,9 +73,9 @@ class PlaywrightBrowser(Browser):
 	async def open(self, **kwargs: Any) -> Browser:
 		"""Open a connection to browser"""
 		assert self._browser_type is not None, 'Browser type is not initialized'
-		if "endpoint_url" in kwargs:
+		if 'endpoint_url' in kwargs:
 			self._browser = await self._browser_type.connect_over_cdp(**kwargs)
-		elif "ws_endpoint" in kwargs:
+		elif 'ws_endpoint' in kwargs:
 			self._browser = await self._browser_type.connect(**kwargs)
 		else:
 			self._browser = await self._browser_type.launch(**kwargs)
