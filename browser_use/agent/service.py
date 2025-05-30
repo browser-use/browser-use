@@ -526,10 +526,10 @@ class Agent(Generic[Context]):
 					logger.debug(f'🛠️ Tool calling method {method} failed: Failed to parse JSON content: {e}')
 					return False
 
-			if method == 'raw':
+			if method == 'raw' or method == 'json_mode':
 				# For raw mode, test JSON response format
 				test_prompt = f"""{CAPITAL_QUESTION}
-					Respond with a JSON object like: {{"answer": "city_name_in_lowercase"}}"""
+					Respond with a json object like: {{"answer": "city_name_in_lowercase"}}"""
 
 				response = self.llm.invoke([test_prompt])
 				# Basic validation of response
@@ -657,6 +657,8 @@ class Agent(Generic[Context]):
 		if self.chat_model_library == 'ChatOpenAI':
 			if any(m in model_lower for m in ['gpt-4', 'gpt-3.5']):
 				return 'function_calling'
+			if any(m in model_lower for m in ['llama']):
+				return 'json_mode'
 
 		# Azure OpenAI models
 		elif self.chat_model_library == 'AzureChatOpenAI':

@@ -79,4 +79,5 @@ Common action sequences:
 9. Extraction:
 
 - If your task is to find information - call extract_content on the specific pages to get and store the information.
-  Your responses must be always JSON with the specified format.
+
+Your responses must be always JSON with the specified format.
