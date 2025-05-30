@@ -16,13 +16,22 @@ from urllib.parse import urlparse
 os.environ['PW_TEST_SCREENSHOT_NO_FONTS_READY'] = '1'  # https://github.com/microsoft/playwright/issues/35972
 
 import psutil
-from patchright.async_api import Playwright as PatchrightPlaywright
+from patchright.async_api import Browser as PatchrightBrowser
+from patchright.async_api import BrowserContext as PatchrightBrowserContext
+from patchright.async_api import ElementHandle as PatchrightElementHandle
+from patchright.async_api import FrameLocator as PatchrightFrameLocator
+from patchright.async_api import Page as PatchrightPage
+from patchright.async_api import Playwright as Patchright
+from patchright.async_api import async_playwright as async_patchright
 from playwright.async_api import Browser as PlaywrightBrowser
 from playwright.async_api import BrowserContext as PlaywrightBrowserContext
-from playwright.async_api import ElementHandle, FrameLocator, Page, Playwright, async_playwright
+from playwright.async_api import ElementHandle as PlaywrightElementHandle
+from playwright.async_api import FrameLocator as PlaywrightFrameLocator
+from playwright.async_api import Page as PlaywrightPage
+from playwright.async_api import Playwright, async_playwright
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, InstanceOf, PrivateAttr, model_validator
 
-from browser_use.browser.profile import BrowserProfile
+from browser_use.browser.profile import BrowserChannel, BrowserProfile
 from browser_use.browser.views import (
 	BrowserError,
 	BrowserStateSummary,
@@ -33,6 +42,14 @@ from browser_use.dom.clickable_element_processor.service import ClickableElement
 from browser_use.dom.service import DomService
 from browser_use.dom.views import DOMElementNode, SelectorMap
 from browser_use.utils import match_url_with_domain_pattern, merge_dicts, time_execution_async, time_execution_sync
+
+# Define types to be Union[Patchright, Playwright]
+Browser = PatchrightBrowser | PlaywrightBrowser
+BrowserContext = PatchrightBrowserContext | PlaywrightBrowserContext
+Page = PatchrightPage | PlaywrightPage
+ElementHandle = PatchrightElementHandle | PlaywrightElementHandle
+FrameLocator = PatchrightFrameLocator | PlaywrightFrameLocator
+
 
 # Check if running in Docker
 IN_DOCKER = os.environ.get('IN_DOCKER', 'false').lower()[0] in 'ty1'
@@ -164,18 +181,18 @@ class BrowserSession(BaseModel):
 		description='pid of a running chromium-based browser process to connect to on localhost',
 		validation_alias=AliasChoices('chrome_pid'),  # old deprecated name = chrome_pid
 	)
-	playwright: Playwright | PatchrightPlaywright | Playwright | None = Field(
+	playwright: Playwright | Patchright | None = Field(
 		default=None,
 		description='Playwright library object returned by: await (playwright or patchright).async_playwright().start()',
 		exclude=True,
 	)
-	browser: InstanceOf[PlaywrightBrowser] | None = Field(
+	browser: InstanceOf[Browser] | None = Field(
 		default=None,
 		description='playwright Browser object to use (optional)',
 		validation_alias=AliasChoices('playwright_browser'),
 		exclude=True,
 	)
-	browser_context: InstanceOf[PlaywrightBrowserContext] | None = Field(
+	browser_context: InstanceOf[BrowserContext] | None = Field(
 		default=None,
 		description='playwright BrowserContext object to use (optional)',
 		validation_alias=AliasChoices('playwright_browser_context', 'context'),
@@ -249,9 +266,14 @@ class BrowserSession(BaseModel):
 
 		async with self._start_lock:
 			# if we're already initialized and the connection is still valid, return the existing session state and start from scratch
-			if self.initialized and self.is_connected():
-				return self
-			self._reset_connection_state()
+			if self.initialized:
+				if self.is_connected():
+					return self
+				else:
+					# only reset connection state if we expected to be already connected but we're not
+					# avoid calling this on *first* start() as it just immediately clears many
+					# of the params passed in to BrowserSession(...) init, which the .setup_...() methods below expect
+					self._reset_connection_state()
 
 			self.initialized = True  # set this first to ensure two parallel calls to start() don't clash with each other
 			try:
@@ -284,31 +306,40 @@ class BrowserSession(BaseModel):
 	async def stop(self) -> None:
 		"""Shuts down the BrowserSession, killing the browser process if keep_alive=False"""
 
-		self.initialized = False
+		# trying to launch/kill browsers at the same time is an easy way to trash an entire user_data_dir
+		# it's worth the 1s or 2s of delay in the worst case to avoid race conditions, user_data_dir can be a few GBs
+		async with self._start_lock:
+			# save cookies to disk if cookies_file or storage_state is configured
+			await self.save_storage_state()
 
-		if self.browser_profile.keep_alive:
-			return  # nothing to do if keep_alive=True, leave the browser running
+			# reset connection state
+			self.initialized = False
 
-		if self.browser_context or self.browser:
-			try:
-				await (self.browser_context or self.browser).close()
-				logger.info(
-					f'🛑 Stopped the {self.browser_profile.channel.name.lower()} browser '
-					f'keep_alive=False user_data_dir={_log_pretty_path(self.browser_profile.user_data_dir) or "<incognito>"} cdp_url={self.cdp_url or self.wss_url} pid={self.browser_pid}'
-				)
-				self.browser_context = None
-			except Exception as e:
-				logger.debug(f'❌ Error closing playwright BrowserContext {self.browser_context}: {type(e).__name__}: {e}')
+			if self.browser_profile.keep_alive:
+				return  # nothing to do if keep_alive=True, leave the browser running
 
-		# kill the chrome subprocess if we were the ones that started it
-		if self.browser_pid:
-			try:
-				psutil.Process(pid=self.browser_pid).terminate()
-				logger.info(f' ↳ Killed browser subprocess with browser_pid={self.browser_pid} keep_alive=False')
-				self.browser_pid = None
-			except Exception as e:
-				if 'NoSuchProcess' not in type(e).__name__:
-					logger.debug(f'❌ Error terminating subprocess with browser_pid={self.browser_pid}: {type(e).__name__}: {e}')
+			if self.browser_context or self.browser:
+				try:
+					await (self.browser_context or self.browser).close()
+					logger.info(
+						f'🛑 Stopped the {self.browser_profile.channel.name.lower()} browser '
+						f'keep_alive=False user_data_dir={_log_pretty_path(self.browser_profile.user_data_dir) or "<incognito>"} cdp_url={self.cdp_url or self.wss_url} pid={self.browser_pid}'
+					)
+					self.browser_context = None
+				except Exception as e:
+					logger.debug(f'❌ Error closing playwright BrowserContext {self.browser_context}: {type(e).__name__}: {e}')
+
+			# kill the chrome subprocess if we were the ones that started it
+			if self.browser_pid:
+				try:
+					psutil.Process(pid=self.browser_pid).terminate()
+					logger.info(f' ↳ Killed browser subprocess with browser_pid={self.browser_pid} keep_alive=False')
+					self.browser_pid = None
+				except Exception as e:
+					if 'NoSuchProcess' not in type(e).__name__:
+						logger.debug(
+							f'❌ Error terminating subprocess with browser_pid={self.browser_pid}: {type(e).__name__}: {e}'
+						)
 
 	async def close(self) -> None:
 		"""Deprecated: Provides backwards-compatibility with old class method Browser().close()"""
@@ -330,12 +361,25 @@ class BrowserSession(BaseModel):
 		Set up playwright library client object: usually the result of (await async_playwright().start())
 		Override to customize the set up of the playwright or patchright library object
 		"""
-		self.playwright = self.playwright or (await async_playwright().start())
-		# self.playwright = self.playwright or (await async_patchright().start())
+		if self.browser_profile.stealth:
+			# use patchright instead of playwright
+			self.playwright = self.playwright or (await async_patchright().start())
+			self.browser_profile.channel = self.browser_profile.channel or BrowserChannel.CHROME
+			logger.info(f'🕶️ Activated stealth mode using patchright {self.browser_profile.channel.name.lower()} browser...')
 
-		# if isinstance(self.playwright, PatchrightPlaywright):
-		# 	# patchright handles all its own default args, dont mess with them
-		# 	self.browser_profile.ignore_default_args = True
+			# check for stealth best-practices
+			if self.browser_profile.channel and self.browser_profile.channel != BrowserChannel.CHROME:
+				logger.info(
+					'  🪄 For maximum stealth, BrowserSession(...) should be passed channel=None or BrowserChannel.CHROME'
+				)
+			if not self.brows_profile.user_data_dir:
+				logger.info('  🪄 For maximum stealth, BrowserSession(...) should be passed a persistent user_data_dir=...')
+			if self.browser_pfile.headless or not self.browser_profile.no_viewport:
+				logger.info('  🪄 For maximum stealth, BrowserSession(...) should be passed headless=False & viewport=None')
+		else:
+			# default is standard playwright chromium (headful, or headless=new)
+			self.playwright = self.playwright or (await async_playwright().start())
+			self.browser_profile.channel = self.browser_profile.channel or BrowserChannel.CHROMIUM
 
 		# return self.playwright
 
@@ -469,11 +513,10 @@ class BrowserSession(BaseModel):
 				# search for potentially conflicting local processes running on the same user_data_dir
 				for proc in psutil.process_iter(['pid', 'cmdline']):
 					if f'--user-data-dir={self.browser_profile.user_data_dir}' in (proc.info['cmdline'] or []):
-						logger.warning(
+						logger.error(
 							f'🚨 Found potentially conflicting browser process browser_pid={proc.info["pid"]} '
 							f'already running with the same user_data_dir={_log_pretty_path(self.browser_profile.user_data_dir)}'
 						)
-						# self._fork_locked_user_data_dir()
 						break
 
 				# if a user_data_dir is provided, launch a persistent context with that user_data_dir
@@ -573,6 +616,9 @@ class BrowserSession(BaseModel):
 
 		# Load cookies from file if specified
 		await self.load_cookies_from_file()
+
+		if self.browser_profile.stealth and not isinstance(self.playwright, Patchright):
+			logger.warning('⚠️ Failed to set up stealth mode. BrowserSession(...) got normal playwright objects as input.')
 
 	# async def _fork_locked_user_data_dir(self) -> None:
 	# 	"""Fork an in-use user_data_dir by cloning it to a new location to allow a second browser to use it"""
@@ -862,8 +908,22 @@ class BrowserSession(BaseModel):
 		self.initialized = False
 		self.browser = None
 		self.browser_context = None
-		# Also clear browser_pid since the process may no longer exist
-		self.browser_pid = None
+		self.agent_current_page = None
+		self.human_current_page = None
+		self._cached_clickable_element_hashes = None
+		self._cached_browser_state_summary = None
+		if self.browser_pid:
+			try:
+				# browser_pid is different from all the other state objects, it's closer to cdp_url or wss_url
+				# because we might still be able to reconnect to the same browser even if self.browser_context died
+				# if we have a self.browser_pid, check if it's still alive and serving a remote debugging port
+				# if so, don't clear it because there's a chance we can re-use it by just reconnecting to the same pid's port
+				proc = psutil.Process(self.browser_pid)
+				proc_is_alive = proc.status() not in (psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD)
+				assert proc_is_alive and '--remote-debugging-port' in ' '.join(proc.cmdline())
+			except Exception:
+				# process has gone away or crashed, pid is no longer valid so we clear it
+				self.browser_pid = None
 
 	# --- Tab management ---
 	async def get_current_page(self) -> Page:
@@ -985,9 +1045,12 @@ class BrowserSession(BaseModel):
 				raise Exception(f'Element: {repr(element_node)} not found')
 
 			async def perform_click(click_func):
-				"""Performs the actual click, handling both download
-				and navigation scenarios."""
-				if self.browser_profile.downloads_dir:
+				"""Performs the actual click, handling both download and navigation scenarios."""
+
+				# only wait the 5s extra for potential downloads if they are enabled
+				# TODO: instead of blocking for 5s, we should register a non-block page.on('download') event
+				# and then check if the download has been triggered within the event handler
+				if self.browser_profile.downloads_path:
 					try:
 						# Try short-timeout expect_download to detect a file download has been been triggered
 						async with page.expect_download(timeout=5000) as download_info:
@@ -995,18 +1058,18 @@ class BrowserSession(BaseModel):
 						download = await download_info.value
 						# Determine file path
 						suggested_filename = download.suggested_filename
-						unique_filename = await self._get_unique_filename(self.browser_profile.downloads_dir, suggested_filename)
-						download_path = os.path.join(self.browser_profile.downloads_dir, unique_filename)
+						unique_filename = await self._get_unique_filename(self.browser_profile.downloads_path, suggested_filename)
+						download_path = os.path.join(self.browser_profile.downloads_path, unique_filename)
 						await download.save_as(download_path)
 						logger.debug(f'⬇️  Download triggered. Saved file to: {download_path}')
 						return download_path
-					except TimeoutError:
+					except Exception:
 						# If no download is triggered, treat as normal click
 						logger.debug('No download triggered within timeout. Checking navigation...')
 						await page.wait_for_load_state()
 						await self._check_and_handle_navigation(page)
 				else:
-					# Standard click logic if no download is expected
+					# If downloads are disabled, just perform the click
 					await click_func()
 					await page.wait_for_load_state()
 					await self._check_and_handle_navigation(page)
@@ -1095,6 +1158,59 @@ class BrowserSession(BaseModel):
 		"""
 		await self.save_storage_state(*args, **kwargs)
 
+	async def _save_cookies_to_file(self, cookies: list[dict[str, Any]], path: Path) -> None:
+		try:
+			cookies_file_path = Path(path or self.browser_profile.cookies_file).expanduser().resolve()
+			cookies_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+			# Write to a temporary file first
+			temp_path = cookies_file_path.with_suffix('.tmp')
+			temp_path.write_text(json.dumps(cookies, indent=4))
+
+			try:
+				# backup any existing cookies_file if one is already present
+				cookies_file_path.replace(cookies_file_path.with_suffix('.json.bak'))
+			except Exception:
+				pass
+			temp_path.replace(cookies_file_path)
+
+			logger.info(f'🍪 Saved {len(cookies)} cookies to cookies_file={_log_pretty_path(cookies_file_path)}')
+		except Exception as e:
+			logger.warning(
+				f'❌ Failed to save cookies to cookies_file={_log_pretty_path(cookies_file_path)}: {type(e).__name__}: {e}'
+			)
+
+	async def _save_storage_state_to_file(self, storage_state: dict[str, Any], path: Path) -> None:
+		try:
+			json_path = Path(path).expanduser().resolve()
+			json_path.parent.mkdir(parents=True, exist_ok=True)
+			storage_state = await self.browser_context.storage_state()
+
+			# always atomic merge storage states, never overwrite (so two browsers can share the same storage_state.json)
+			merged_storage_state = storage_state
+			if json_path.exists():
+				try:
+					existing_storage_state = json.loads(json_path.read_text())
+					merged_storage_state = merge_dicts(existing_storage_state, storage_state)
+				except Exception as e:
+					logger.error(
+						f'❌ Failed to merge updated storage_state with existing storage_state={_log_pretty_path(json_path)}: {type(e).__name__}: {e}'
+					)
+					return
+
+			# write to .tmp file first to avoid partial writes, then mv original to .bak and .tmp to original
+			temp_path = json_path.with_suffix('.json.tmp')
+			temp_path.write_text(json.dumps(merged_storage_state, indent=4))
+			try:
+				json_path.replace(json_path.with_suffix('.json.bak'))
+			except Exception:
+				pass
+			temp_path.replace(json_path)
+
+			logger.info(f'🍪 Saved {len(storage_state["cookies"])} cookies to storage_state={_log_pretty_path(json_path)}')
+		except Exception as e:
+			logger.warning(f'❌ Failed to save storage state to storage_state={_log_pretty_path(path)}: {type(e).__name__}: {e}')
+
 	@require_initialization
 	async def save_storage_state(self, path: Path | None = None) -> None:
 		"""
@@ -1102,68 +1218,53 @@ class BrowserSession(BaseModel):
 		"""
 		storage_state = await self.browser_context.storage_state()
 		cookies = storage_state['cookies']
+
+		# they passed an explicit path, only save to that path and return
+		if path:
+			if path.name == 'storage_state.json':
+				await self._save_storage_state_to_file(storage_state, path)
+				return
+			else:
+				# assume they're using the old API when path meant a cookies_file path,
+				# also save new format next to it for convenience to help them migrate
+				await self._save_cookies_to_file(cookies, path)
+				await self._save_storage_state_to_file(storage_state, path.parent / 'storage_state.json')
+				logger.warning(
+					'⚠️ cookies_file is deprecated and will be removed in a future version. '
+					'Please use storage_state="path/to/storage_state.json" instead for persisting cookies and other browser state. '
+					'See: https://playwright.dev/python/docs/api/class-browsercontext#browser-context-storage-state'
+				)
+				return
+
+		# save cookies_file if passed a cookies file path or if profile cookies_file is configured
 		if cookies and self.browser_profile.cookies_file:
 			# only show warning if they configured cookies_file (not if they passed in a path to this function as an arg)
 			logger.warning(
 				'⚠️ cookies_file is deprecated and will be removed in a future version. '
-				'Please use storage_state instead for loading cookies and other browser state. '
+				'Please use storage_state="path/to/storage_state.json" instead for persisting cookies and other browser state. '
 				'See: https://playwright.dev/python/docs/api/class-browsercontext#browser-context-storage-state'
 			)
+			await self._save_cookies_to_file(cookies, path or self.browser_profile.cookies_file)
+			await self._save_storage_state_to_file(storage_state, path.parent / 'storage_state.json')
 
-		# save cookies_file if passed a cookies file path or if profile cookies_file is configured
-		path_is_storage_state = path and str(path).endswith('storage_state.json')
-		if (path and not path_is_storage_state) or self.browser_profile.cookies_file:
-			try:
-				cookies_file_path = Path(path or self.browser_profile.cookies_file).expanduser().resolve()
-				cookies_file_path.parent.mkdir(parents=True, exist_ok=True)
-				cookies_file_path.write_text(json.dumps(cookies, indent=4))  # TODO: convert to async
-				logger.info(f'🍪 Saved {len(cookies)} cookies to cookies_file={_log_pretty_path(cookies_file_path)}')
-			except Exception as e:
-				logger.warning(
-					f'❌ Failed to save cookies to cookies_file={_log_pretty_path(cookies_file_path)}: {type(e).__name__}: {e}'
-				)
-
-		if path:
-			# if they passed in a path to the old save_cookies function,
-			# also save a new storage_state.json next to it to encourage adoption of the new format
-			storage_state_path = Path(path).expanduser().resolve().parent / 'storage_state.json'
-		else:
-			# otherwise use configured storage_state path
-			storage_state_path = self.browser_profile.storage_state
-
-		if storage_state_path is None:
-			return
-		elif not isinstance(storage_state_path, (str, Path)):
-			logger.warning('⚠️ storage_state must be a json file path to be able to update it, skipping...')
+		if self.browser_profile.storage_state is None:
 			return
 
-		try:
-			storage_state_path = Path(storage_state_path).expanduser().resolve()
-			storage_state_path.parent.mkdir(parents=True, exist_ok=True)
-			storage_state = await self.browser_context.storage_state()
-
-			# always merge storage states, never overwrite (so two browsers can share the same storage_state.json)
-			if storage_state_path.exists():
-				try:
-					existing_storage_state = json.loads(storage_state_path.read_text())  # TODO: convert to async
-					merged_storage_state = merge_dicts(existing_storage_state, storage_state)
-					# in case another process races us and updates the file here, we will overwrite their changes
-					# if we really want to support real concurrency we need a sqlite database or something
-					storage_state_path.write_text(json.dumps(merged_storage_state, indent=4))  # TODO: convert to async
-				except Exception as e:
-					logger.warning(
-						f'❌ Failed to merge storage state with existing storage_state={_log_pretty_path(storage_state_path)}: {type(e).__name__}: {e}'
-					)
-					return
-
-			storage_state_path.write_text(json.dumps(storage_state, indent=4))  # TODO: convert to async
-			logger.info(
-				f'🍪 Saved {len(storage_state["cookies"])} cookies to storage_state={_log_pretty_path(storage_state_path)}'
-			)
-		except Exception as e:
+		if isinstance(self.browser_profile.storage_state, dict):
+			# cookies that never get updated rapidly expire or become invalid,
+			# e.g. cloudflare bumps a nonce + does a tiny proof-of-work chain on every request that gets stored back into the cookie
+			# if your cookies are frozen in time and don't update, they'll block you as a bot almost immediately
+			# if they pass a dict in it means they have to get the updated cookies manually with browser_context.cookies()
+			# and persist them manually on every change. most people don't realize they have to do that, so show a warning
 			logger.warning(
-				f'❌ Failed to save storage state to storage_state={_log_pretty_path(storage_state_path)}: {type(e).__name__}: {e}'
+				f'⚠️ storage_state was set as a {type(self.browser_profile.storage_state)} and will not be updated with any cookie changes, use a json file path instead to persist changes'
 			)
+			return
+
+		if isinstance(self.browser_profile.storage_state, (str, Path)):
+			await self._save_storage_state_to_file(storage_state, self.browser_profile.storage_state)
+
+		raise Exception(f'Got unexpected type for storage_state: {type(self.browser_profile.storage_state)}')
 
 	@require_initialization
 	async def load_storage_state(self) -> None:
@@ -1181,7 +1282,7 @@ class BrowserSession(BaseModel):
 
 			cookies_path = Path(self.browser_profile.cookies_file)
 			if not cookies_path.is_absolute():
-				cookies_path = Path(self.browser_profile.downloads_dir or '.') / cookies_path
+				cookies_path = Path(self.browser_profile.downloads_path or '.') / cookies_path
 
 			try:
 				cookies_data = json.loads(cookies_path.read_text())
@@ -1235,9 +1336,9 @@ class BrowserSession(BaseModel):
 	# @property
 	# def saved_downloads(self) -> list[Path]:
 	# 	"""
-	# 	Return a list of files in the downloads_dir.
+	# 	Return a list of files in the downloads_path.
 	# 	"""
-	# 	return list(Path(self.browser_profile.downloads_dir).glob('*'))
+	# 	return list(Path(self.browser_profile.downloads_path).glob('*'))
 
 	async def _wait_for_stable_network(self):
 		pending_requests = set()

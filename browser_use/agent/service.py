@@ -27,6 +27,7 @@ from langchain_core.messages import (
 )
 from playwright.async_api import Browser, BrowserContext, Page
 from pydantic import BaseModel, ValidationError
+from uuid_extensions import uuid7str
 
 from browser_use.agent.gif import create_history_gif
 from browser_use.agent.memory import Memory, MemoryConfig
@@ -60,6 +61,24 @@ from browser_use.controller.service import Controller
 from browser_use.dom.history_tree_processor.service import (
 	DOMHistoryElement,
 	HistoryTreeProcessor,
+)
+from browser_use.event_bus import (
+	ErrorTrackedEvent,
+	EventBus,
+	OutputFileGeneratedEvent,
+	PerformanceMetricEvent,
+	SessionBrowserDataUpdatedEvent,
+	SessionBrowserStateUpdatedEvent,
+	SessionStartedEvent,
+	SessionStoppedEvent,
+	StepCreatedEvent,
+	StepExecutedEvent,
+	TaskAnalyticsEvent,
+	TaskCompletedEvent,
+	TaskPausedEvent,
+	TaskResumedEvent,
+	TaskStartedEvent,
+	TaskStoppedEvent,
 )
 from browser_use.exceptions import LLMException
 from browser_use.telemetry.service import ProductTelemetry
@@ -101,13 +120,13 @@ class Agent(Generic[Context]):
 		llm: BaseChatModel,
 		# Optional parameters
 		page: Page | None = None,
-		browser: Browser | None = None,
+		browser: Browser | BrowserSession | None = None,
 		browser_context: BrowserContext | None = None,
 		browser_profile: BrowserProfile | None = None,
 		browser_session: BrowserSession | None = None,
 		controller: Controller[Context] = Controller(),
 		# Initial agent run parameters
-		sensitive_data: dict[str, str | dict[str, str]] | None = None,
+		sensitive_data: dict[str, str] | dict[str, dict[str, str]] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
 		# Cloud Callbacks
 		register_new_step_callback: (
@@ -288,6 +307,9 @@ class Agent(Generic[Context]):
 		else:
 			self.memory = None
 
+		if isinstance(browser, BrowserSession):
+			browser_session = browser_session or browser
+
 		browser_context = page.context if page else browser_context
 		# assert not (browser_session and browser_profile), 'Cannot provide both browser_session and browser_profile'
 		# assert not (browser_session and browser), 'Cannot provide both browser_session and browser'
@@ -384,6 +406,13 @@ class Agent(Generic[Context]):
 
 		# Telemetry
 		self.telemetry = ProductTelemetry()
+
+		# Generate unique IDs for this agent session and task
+		self.session_id: str = uuid7str()
+		self.task_id: str = uuid7str()
+
+		# Event bus
+		self.event_bus = EventBus(name='Agent')
 
 		if self.settings.save_conversation_path:
 			logger.info(f'Saving conversation to {self.settings.save_conversation_path}')
@@ -757,6 +786,10 @@ class Agent(Generic[Context]):
 		return self._detect_best_tool_calling_method()
 
 	def add_new_task(self, new_task: str) -> None:
+		"""Add a new task to the agent, keeping the same task_id as tasks are continuous"""
+		# Simply delegate to message manager - no need for new task_id or events
+		# The task continues with new instructions, it doesn't end and start a new one
+		self.task = new_task
 		self._message_manager.add_new_task(new_task)
 
 	async def _raise_if_stopped_or_paused(self) -> None:
@@ -785,6 +818,18 @@ class Agent(Generic[Context]):
 			current_page = await self.browser_session.get_current_page()
 
 			self._log_step_context(current_page, browser_state_summary)
+
+			# Emit browser state updated event
+			if browser_state_summary:
+				state_event = SessionBrowserStateUpdatedEvent(
+					session_id=self.session_id,
+					current_url=browser_state_summary.url,
+					current_title=browser_state_summary.title,
+					active_tab_id=browser_state_summary.active_tab_idx if browser_state_summary.active_tab_idx is not None else 0,
+					total_tabs=len(browser_state_summary.tabs),
+					tabs_info=[tab.model_dump() if hasattr(tab, 'model_dump') else {} for tab in browser_state_summary.tabs],
+				)
+				self.event_bus.emit(state_event)
 
 			# generate procedural memory if needed
 			if self.enable_memory and self.memory and self.state.n_steps % self.memory.config.memory_interval == 0:
@@ -948,6 +993,86 @@ class Agent(Generic[Context]):
 			# Log step completion summary
 			self._log_step_completion_summary(step_start_time, result)
 
+			# Emit both step created and executed events
+			if browser_state_summary and model_output:
+				# Extract key step data for the event
+				actions_data = []
+				if model_output.action:
+					for action in model_output.action:
+						action_dict = action.model_dump() if hasattr(action, 'model_dump') else {}
+						actions_data.append(action_dict)
+
+				# First emit the StepCreatedEvent (for backward compatibility)
+				step_event = StepCreatedEvent(
+					step_id=f'{self.session_id}_{self.state.n_steps}',
+					agent_task_id=self.task_id,
+					step=self.state.n_steps,
+					evaluation_previous_goal=getattr(model_output, 'evaluation_previous_goal', ''),
+					memory=getattr(model_output, 'memory', ''),
+					next_goal=getattr(model_output, 'next_goal', ''),
+					actions=actions_data,
+					screenshot_url='',  # To be filled by cloud handler if applicable
+					url=browser_state_summary.url,
+				)
+				self.event_bus.emit(step_event)
+
+				# Then emit the more comprehensive StepExecutedEvent
+				step_duration = step_end_time - step_start_time
+
+				# Get first action details if available
+				first_action = model_output.action[0] if model_output.action else None
+				action_type = first_action.__class__.__name__ if first_action else 'unknown'
+				action_params = first_action.model_dump() if first_action and hasattr(first_action, 'model_dump') else {}
+
+				# Get result summary
+				success = all(not r.error for r in result) if result else True
+				error_message = next((r.error for r in result if r.error), None)
+				extracted_content = next((r.extracted_content for r in result if r.extracted_content), None)
+
+				executed_event = StepExecutedEvent(
+					step_id=f'{self.session_id}_{self.state.n_steps}',
+					task_id=self.task_id,
+					session_id=self.session_id,
+					step_number=self.state.n_steps,
+					# Action data
+					action_type=action_type,
+					action_params=action_params,
+					target_element_index=getattr(first_action, 'index', None) if first_action else None,
+					# Evaluation data
+					evaluation_previous_goal=getattr(model_output, 'evaluation_previous_goal', ''),
+					memory=getattr(model_output, 'memory', ''),
+					next_goal=getattr(model_output, 'next_goal', ''),
+					# Results
+					success=success,
+					error_message=error_message,
+					extracted_content=extracted_content,
+					# Browser state
+					url_before=browser_state_summary.url,
+					url_after=browser_state_summary.url,  # Could be different after action
+					# Performance
+					duration_ms=step_duration * 1000,
+					# Model info
+					model_name=self.model_name,
+					prompt_tokens=tokens,
+				)
+				self.event_bus.emit(executed_event)
+
+				# Emit performance metric event
+				perf_event = PerformanceMetricEvent(
+					session_id=self.session_id,
+					task_id=self.task_id,
+					metric_name='step_duration',
+					metric_value=step_duration,
+					metric_unit='seconds',
+					tags={
+						'step_number': str(self.state.n_steps),
+						'action_type': action_type,
+						'success': str(success),
+					},
+					llm_response_time_ms=(step_duration * 1000) if model_output else None,
+				)
+				self.event_bus.emit(perf_event)
+
 	@time_execution_async('--handle_step_error (agent)')
 	async def _handle_step_error(self, error: Exception) -> list[ActionResult]:
 		"""Handle all types of errors that can occur during a step"""
@@ -955,6 +1080,26 @@ class Agent(Generic[Context]):
 		error_msg = AgentError.format_error(error, include_trace=include_trace)
 		prefix = f'❌ Result failed {self.state.consecutive_failures + 1}/{self.settings.max_failures} times:\n '
 		self.state.consecutive_failures += 1
+
+		# Emit error tracked event
+		import traceback
+
+		error_event = ErrorTrackedEvent(
+			session_id=self.session_id,
+			task_id=self.task_id,
+			step_id=f'{self.session_id}_{self.state.n_steps}' if self.state.n_steps else None,
+			error_type=error.__class__.__name__,
+			error_message=str(error),
+			stack_trace=traceback.format_exc() if include_trace else None,
+			severity='high' if self.state.consecutive_failures >= self.settings.max_failures else 'medium',
+			recoverable=self.state.consecutive_failures < self.settings.max_failures,
+			context_data={
+				'consecutive_failures': self.state.consecutive_failures,
+				'max_failures': self.settings.max_failures,
+				'step_number': self.state.n_steps,
+			},
+		)
+		self.event_bus.emit(error_event)
 
 		if 'Browser closed' in error_msg:
 			logger.error('❌  Browser is closed or disconnected, unable to proceed')
@@ -1331,6 +1476,68 @@ class Agent(Generic[Context]):
 		try:
 			self._log_agent_run()
 
+			# Start the event bus
+			await self.event_bus.start()
+
+			# Emit session started event
+			self._session_start_time = time.time()
+			self._task_start_time = self._session_start_time  # Initialize task start time
+			session_started_event = SessionStartedEvent(
+				session_id=self.session_id,
+				user_id='',  # To be filled by cloud handler
+				browser_type='chrome',  # Default to chrome
+				window_width=self.browser_profile.viewport.get('width', 1280)
+				if self.browser_profile and self.browser_profile.viewport
+				else 1280,
+				window_height=self.browser_profile.viewport.get('height', 720)
+				if self.browser_profile and self.browser_profile.viewport
+				else 720,
+				user_agent=self.browser_profile.user_agent if self.browser_profile else None,
+				proxy_url=self.browser_profile.proxy.get('server')
+				if self.browser_profile and self.browser_profile.proxy
+				else None,
+				headless=self.browser_profile.headless if self.browser_profile else True,
+				initial_url=self.state.history.urls()[0] if self.state.history.urls() else None,
+				context_metadata={
+					'browser_session_id': self.browser_session.session_id
+					if hasattr(self.browser_session, 'session_id')
+					else self.session_id,
+					'cookies': [],
+					'secrets': dict(self.sensitive_data) if self.sensitive_data else {},
+					'allowed_domains': self.browser_profile.allowed_domains if self.browser_profile else [],
+				},
+			)
+			self.event_bus.emit(session_started_event)
+
+			# Also emit browser data updated event
+			browser_data_event = SessionBrowserDataUpdatedEvent(
+				session_id=self.session_id,
+				browser_session_data={
+					'cookies': [],
+					'secrets': dict(self.sensitive_data) if self.sensitive_data else {},
+					'allowed_domains': self.browser_profile.allowed_domains if self.browser_profile else [],
+					'browser_session_id': self.browser_session.session_id
+					if hasattr(self.browser_session, 'session_id')
+					else self.session_id,
+				},
+			)
+			self.event_bus.emit(browser_data_event)
+
+			# Emit task started event
+			task_started_event = TaskStartedEvent(
+				task_id=self.task_id,
+				session_id=self.session_id,
+				task_description=self.task,
+				task_type='other',  # Default to other, could be inferred from task
+				max_steps=max_steps,
+				priority='medium',
+				context_data={
+					'llm_model': self.model_name,
+					'agent_state': self.state.model_dump() if hasattr(self.state, 'model_dump') else {},
+				},
+			)
+			self.event_bus.emit(task_started_event)
+
 			# Execute initial actions if provided
 			if self.initial_actions:
 				result = await self.multi_act(self.initial_actions, check_for_new_elements=False)
@@ -1375,6 +1582,79 @@ class Agent(Generic[Context]):
 							continue
 
 					await self.log_completion()
+
+					# Emit task completed event
+					done_output = self.state.history.get_last_done_output()
+					task_duration = time.time() - self._task_start_time
+					task_completed_event = TaskCompletedEvent(
+						task_id=self.task_id,
+						session_id=self.session_id,
+						status='completed',
+						success=True,
+						result_summary=done_output if done_output else '',
+						duration_seconds=task_duration,
+						total_steps=self.state.n_steps,
+						# Token counts and cost would be tracked by cloud handler
+					)
+					self.event_bus.emit(task_completed_event)
+
+					# Emit task analytics event
+					# Calculate analytics
+					total_errors = sum(1 for h in self.state.history.history if h.result and any(r.error for r in h.result))
+					unique_urls = set()
+					for h in self.state.history.history:
+						if h.state and h.state.url:
+							unique_urls.add(h.state.url.split('?')[0])  # Remove query params
+
+					analytics_event = TaskAnalyticsEvent(
+						task_id=self.task_id,
+						session_id=self.session_id,
+						# Success metrics
+						success_rate=1.0 if total_errors == 0 else (self.state.n_steps - total_errors) / self.state.n_steps,
+						steps_to_completion=self.state.n_steps,
+						retry_count=0,  # Could track retries if implemented
+						# Performance metrics
+						avg_step_duration_ms=(task_duration / self.state.n_steps * 1000) if self.state.n_steps > 0 else 0,
+						total_duration_seconds=task_duration,
+						idle_time_seconds=0,  # Could track idle time if measured
+						# Cost metrics (would be filled by cloud handler)
+						total_tokens=0,
+						total_cost_usd=0.0,
+						cost_per_step_usd=0.0,
+						# Browser metrics
+						pages_visited=len(unique_urls),
+						unique_domains=len(
+							{
+								h.state.url.split('/')[2]
+								for h in self.state.history.history
+								if h.state and h.state.url and '//' in h.state.url
+							}
+						),
+						total_clicks=sum(
+							1
+							for h in self.state.history.history
+							if h.model_output
+							and h.model_output.action
+							and any(hasattr(a, 'selector') for a in h.model_output.action)
+						),
+						total_form_fills=sum(
+							1
+							for h in self.state.history.history
+							if h.model_output and h.model_output.action and any(hasattr(a, 'text') for a in h.model_output.action)
+						),
+						screenshots_taken=self.state.n_steps,  # Assuming screenshot per step
+						# Data metrics
+						data_extracted_bytes=sum(
+							len(r.extracted_content.encode())
+							for h in self.state.history.history
+							if h.result
+							for r in h.result
+							if r.extracted_content
+						),
+						files_generated=0,  # Will be incremented by file generation events
+						errors_encountered=total_errors,
+					)
+					self.event_bus.emit(analytics_event)
 					break
 			else:
 				agent_run_error = 'Failed to complete task in maximum steps'
@@ -1435,9 +1715,48 @@ class Agent(Generic[Context]):
 						sensitive_data_keys=keys,
 						browser_profile=self.browser_session.browser_profile,
 					)
+
+					# Emit output file generated event
+					import os
+
+					file_path = Path(self.settings.save_playwright_script_path)
+					file_size = os.path.getsize(file_path) if file_path.exists() else 0
+
+					output_event = OutputFileGeneratedEvent(
+						task_id=self.task_id,
+						session_id=self.session_id,
+						filename=file_path.name,
+						mime_type='text/x-python',
+						size_bytes=file_size,
+						storage_path=str(file_path),
+						file_type='other',
+						content_preview='Playwright automation script',
+						metadata={
+							'type': 'playwright_script',
+							'steps': self.state.n_steps,
+						},
+					)
+					self.event_bus.emit(output_event)
 				except Exception as script_gen_err:
 					# Log any error during script generation/saving
 					logger.error(f'Failed to save Playwright script: {script_gen_err}', exc_info=True)
+
+			# Emit session stopped event
+			session_start_time = getattr(self, '_session_start_time', time.time())
+			session_stopped_event = SessionStoppedEvent(
+				session_id=self.session_id,
+				reason='completed' if not agent_run_error else ('error' if 'Exception' in agent_run_error else 'user_cancelled'),
+				error_message=agent_run_error if agent_run_error else None,
+				total_duration_seconds=time.time() - session_start_time,
+				# Token counts and cost would be tracked by cloud handler
+			)
+			self.event_bus.emit(session_stopped_event)
+
+			# Wait for all events to be processed
+			await self.event_bus.wait_for_empty_queue()
+
+			# Stop the event bus
+			await self.event_bus.stop()
 
 			await self.close()
 
@@ -1447,6 +1766,30 @@ class Agent(Generic[Context]):
 					output_path = self.settings.generate_gif
 
 				create_history_gif(task=self.task, history=self.state.history, output_path=output_path)
+
+				# Emit output file generated event for GIF
+				import os
+
+				gif_path = Path(output_path)
+				if gif_path.exists():
+					gif_size = os.path.getsize(gif_path)
+
+					gif_event = OutputFileGeneratedEvent(
+						task_id=self.task_id,
+						session_id=self.session_id,
+						filename=gif_path.name,
+						mime_type='image/gif',
+						size_bytes=gif_size,
+						storage_path=str(gif_path),
+						file_type='screenshot',
+						content_preview='Agent execution history animation',
+						metadata={
+							'type': 'history_gif',
+							'steps': self.state.n_steps,
+							'task': self.task,
+						},
+					)
+					self.event_bus.emit(gif_event)
 
 	# @observe(name='controller.multi_act')
 	@time_execution_async('--multi_act')
@@ -1722,6 +2065,11 @@ class Agent(Generic[Context]):
 		self.state.paused = True
 		self._external_pause_event.clear()
 
+		# Emit task paused event
+		self.event_bus.emit(
+			TaskPausedEvent(task_id=self.task_id, session_id=self.session_id, reason='User interrupted (Ctrl+C)', can_resume=True)
+		)
+
 		# The signal handler will handle the asyncio pause logic for us
 		# No need to duplicate the code here
 
@@ -1731,6 +2079,9 @@ class Agent(Generic[Context]):
 		print('▶️  Got Enter, resuming agent execution where it left off...\n')
 		self.state.paused = False
 		self._external_pause_event.set()
+
+		# Emit task resumed event
+		self.event_bus.emit(TaskResumedEvent(task_id=self.task_id, session_id=self.session_id))
 
 		# The signal handler should have already reset the flags
 		# through its reset() method when called from run()
@@ -1747,6 +2098,9 @@ class Agent(Generic[Context]):
 		"""Stop the agent"""
 		logger.info('⏹️ Agent stopping')
 		self.state.stopped = True
+
+		# Emit task stopped event
+		self.event_bus.emit(TaskStoppedEvent(task_id=self.task_id))
 
 	def _convert_initial_actions(self, actions: list[dict[str, dict[str, Any]]]) -> list[ActionModel]:
 		"""Convert dictionary-based actions to ActionModel instances"""

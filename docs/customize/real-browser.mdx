@@ -233,6 +233,8 @@ await agent2.run()
 ### Sequential Agents, Same Profile, Same Browser
 
 If you are only running one agent at a time, they can re-use the same active `BrowserSession` and avoid having to relaunch chrome.
+Each agent will start off looking at the same tab the last agent ended off on. 
+You can also pass in a specific playwright page using `Agent(..., page=page)` if you prefer.
 
 ```python
 from browser_use import Agent, BrowserSession
@@ -240,20 +242,20 @@ from langchain_openai import ChatOpenAI
 
 reused_session = BrowserSession(
     user_data_dir='~/.config/browseruse/profiles/default',
-    keep_alive=True,
+    keep_alive=True,  # dont close browser after 1st agent.run() ends
 )
 
 agent1 = Agent(
     task="The first task...",
     llm=ChatOpenAI(model="gpt-4o-mini"),
-    browser_session=reused_session,              # pass the session in
+    browser_session=reused_session,      # pass a session or page=page
 )
 await agent1.run()
 
 agent2 = Agent(
     task="The second task...",
     llm=ChatOpenAI(model="gpt-4o-mini"),
-    browser_session=reused_session,              # re-use the same session
+    browser_session=reused_session,      # re-use the same session
 )
 await agent2.run()
 

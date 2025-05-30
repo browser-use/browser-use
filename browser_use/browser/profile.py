@@ -427,7 +427,7 @@ class BrowserLaunchArgs(BaseModel):
 		default_factory=lambda: ['--enable-automation', '--disable-extensions'],
 		description='List of default CLI args to stop playwright from applying (see https://github.com/microsoft/playwright/blob/41008eeddd020e2dee1c540f7c0cdfa337e99637/packages/playwright-core/src/server/chromium/chromiumSwitches.ts)',
 	)
-	channel: BrowserChannel = BrowserChannel.CHROMIUM  # https://playwright.dev/docs/browsers#chromium-headless-shell
+	channel: BrowserChannel | None = None  # https://playwright.dev/docs/browsers#chromium-headless-shell
 	chromium_sandbox: bool = Field(
 		default=not IN_DOCKER, description='Whether to enable Chromium sandboxing (recommended unless inside Docker).'
 	)
@@ -437,7 +437,11 @@ class BrowserLaunchArgs(BaseModel):
 	slow_mo: float = Field(default=0, description='Slow down actions by this many milliseconds.')
 	timeout: float = Field(default=30000, description='Default timeout in milliseconds for connecting to a remote browser.')
 	proxy: ProxySettings | None = Field(default=None, description='Proxy settings to use to connect to the browser.')
-	downloads_path: str | Path | None = Field(default=None, description='Directory to save downloads to.')
+	downloads_path: str | Path | None = Field(
+		default=None,
+		description='Directory to save downloads to.',
+		validation_alias=AliasChoices('downloads_dir', 'save_downloads_path'),
+	)
 	traces_dir: str | Path | None = Field(default=None, description='Directory to save HAR trace files to.')
 	handle_sighup: bool = Field(
 		default=True, description='Whether playwright should swallow SIGHUP signals and kill the browser.'
@@ -552,6 +556,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	# label: str = 'default'
 
 	# custom options we provide that aren't native playwright kwargs
+	stealth: bool = Field(default=False, description='Use stealth mode to avoid detection by anti-bot systems.')
 	disable_security: bool = Field(default=False, description='Disable browser security features.')
 	deterministic_rendering: bool = Field(default=False, description='Enable deterministic rendering flags.')
 	allowed_domains: list[str] | None = Field(
@@ -600,14 +605,6 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	# 	default_factory=lambda: Path('~/.config/browseruse/cache/extensions').expanduser(),
 	# 	description='Directory containing .crx extension files.',
 	# )
-
-	# # --- File paths ---
-	downloads_dir: Path | str = Field(
-		default=Path('~/.config/browseruse/downloads').expanduser(),
-		description='Directory for downloads.',
-		validation_alias=AliasChoices('save_downloads_path'),
-	)
-	# uploads_dir: Path | None = Field(default=None, description='Directory for uploads (defaults to downloads_dir if not set).')
 
 	def __repr__(self) -> str:
 		short_dir = str(self.user_data_dir).replace(str(Path('~').expanduser()), '~')
@@ -707,9 +704,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 					f'⚠️ Multiple chrome processes may be trying to share user_data_dir={self.user_data_dir} which can lead to crashes and profile data corruption!'
 				)
 
-		if self.downloads_dir:
-			self.downloads_dir = Path(self.downloads_dir).expanduser().resolve()
-			self.downloads_dir.mkdir(parents=True, exist_ok=True)
+		if self.downloads_path:
+			self.downloads_path = Path(self.downloads_path).expanduser().resolve()
+			self.downloads_path.mkdir(parents=True, exist_ok=True)
 
 	# def preinstall_extensions(self) -> None:
 	# 	"""Preinstall the extensions."""
