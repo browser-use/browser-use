@@ -86,6 +86,16 @@ class AgentState(BaseModel):
 	last_plan: str | None = None
 	paused: bool = False
 	stopped: bool = False
+	
+	# New fields for enhanced state description
+	action_history: list[str] = Field(default_factory=list)
+	saved_data: str = ""
+	ultimate_goal: str = ""
+	ultimate_goal_checklist: str | None = None
+	progress_to_ultimate_goal: str = ""
+	current_subgoal: str = ""
+	subgoal_checklist: str | None = None
+	progress_to_subgoal: str = ""
 
 	message_manager_state: MessageManagerState = Field(default_factory=MessageManagerState)
 
@@ -130,9 +140,29 @@ class StepMetadata(BaseModel):
 class AgentBrain(BaseModel):
 	"""Current internal working memory of the agent, we ask the LLM to decide new values for these on each output"""
 
-	evaluation_previous_goal: str
-	memory: str
-	next_goal: str
+	evaluation_previous_goal: str # evaluate whether previous goal is achieved or not
+	reasoning_current_state: str # explain the current state of the agent, 
+	# how to update action history, ultimate goal, subgoal, progress to ultimate goal, 
+	# progress to subgoal, saved data, etc
+
+	# Renamed and new fields for enhanced state description
+	add_action_history: str  # Explanation of the previous action and its result to add to history
+	# no overwrite functionality for action_history, only append.
+	
+	# Goal tracking
+	ultimate_goal_checklist: str | None = ""  # List of (is_completed, step_text)
+	progress_to_ultimate_goal: str = ""
+	
+	# Subgoal tracking
+	subgoal_checklist: str | None = ""
+	progress_to_subgoal: str = ""
+	current_subgoal: str = ""  # Update the subgoal or keep the same.
+	
+	# Data storage
+	add_saved_data: str | None = "" # is added as new line to saved_data, append functionality
+	saved_data: str | None = "" # used to change the value of saved_data entirely, overwrite functionality. if empty, no change.
+
+	immediate_next_action_reasoning: str = ""  # Reasoning for the next action.
 
 
 class AgentOutput(BaseModel):

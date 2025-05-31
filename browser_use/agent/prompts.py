@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Optional
 from langchain_core.messages import HumanMessage, SystemMessage
 
 if TYPE_CHECKING:
-	from browser_use.agent.views import ActionResult, AgentStepInfo
+	from browser_use.agent.views import ActionResult, AgentState, AgentStepInfo
 	from browser_use.browser.views import BrowserStateSummary
 
 
@@ -63,11 +63,13 @@ class AgentMessagePrompt:
 	def __init__(
 		self,
 		browser_state_summary: 'BrowserStateSummary',
+		agent_state: Optional['AgentState'] = None,
 		result: list['ActionResult'] | None = None,
 		include_attributes: list[str] | None = None,
 		step_info: Optional['AgentStepInfo'] = None,
 	):
 		self.state: 'BrowserStateSummary' = browser_state_summary
+		self.agent_state = agent_state
 		self.result = result
 		self.include_attributes = include_attributes or []
 		self.step_info = step_info
@@ -100,10 +102,63 @@ class AgentMessagePrompt:
 		else:
 			step_info_description = ''
 		time_str = datetime.now().strftime('%Y-%m-%d %H:%M')
-		step_info_description += f'Current date and time: {time_str}'
+		step_info_description += f'\nCurrent date and time: {time_str}'
 
-		state_description = f"""
-[Task history memory ends]
+		# Use the new enhanced state description if agent_state is provided
+		if self.agent_state:
+			# Format the goal checklists
+			ultimate_goal_checklist = "\n".join([f"[{'x' if completed else ' '}] {step}" for completed, step in self.agent_state.ultimate_goal_checklist])
+			if not ultimate_goal_checklist:
+				ultimate_goal_checklist = "No ultimate goal checklist defined yet"
+				
+			subgoal_checklist = "\n".join([f"[{'x' if completed else ' '}] {step}" for completed, step in self.agent_state.subgoal_checklist])
+			if not subgoal_checklist:
+				subgoal_checklist = "No subgoal checklist defined yet"
+				
+			# Format action history
+			action_history = "\n".join([f"- {action}" for action in self.agent_state.action_history])
+			if not action_history:
+				action_history = "No actions performed yet"
+			
+			state_description = f"""
+[Current state starts here]
+
+# Agent State:
+
+action_history:
+{action_history}
+
+saved_data:
+{self.agent_state.saved_data or "No data saved yet"}
+
+ultimate_goal: {self.agent_state.ultimate_goal}
+ultimate_goal_checklist:
+{ultimate_goal_checklist}
+
+progress_towards_goal:
+{self.agent_state.progress_towards_goal or "Not specified yet"}
+
+current_subgoal: {self.agent_state.current_subgoal}
+subgoal_checklist:
+{subgoal_checklist}
+
+progress_towards_subgoal:
+{self.agent_state.progress_towards_subgoal or "Not specified yet"}
+
+# Browser State:
+
+Current url: {self.state.url}
+Available tabs:
+{self.state.tabs}
+Interactive elements from top layer of the current page inside the viewport:
+{elements_text}
+
+# Step Information:
+{step_info_description}
+"""
+		else:
+			# Fall back to the original format if agent_state is not provided
+			state_description = f"""
 [Current state starts here]
 The following is one-time information - if you need to remember it write it to memory:
 Current url: {self.state.url}
