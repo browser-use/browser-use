@@ -32,6 +32,18 @@ Interactive Elements
 Common action sequences:
 
 - Form filling: [{{"input_text": {{"index": 1, "text": "username"}}}}, {{"input_text": {{"index": 2, "text": "password"}}}}, {{"click_element": {{"index": 3}}}}]
+- Repetitive date navigation (e.g., inside date pickers): 
+  [{{"click_element_multiple_times": {{
+    "index": 5, // index of the action that will either increment or decrement the element
+    "mode": "date|month|year|month-year", 
+    "current": {{"date": 1}} or {{"month": "June"}} or {{"month": "June", "year": 2025}} or {{"year": 2024}},
+    "target": {{"date": 10}} or {{"month": "August"}} or {{"month": "February", "year": 2026}} or {{"year": 2028}}
+  }}}}] 
+  – This action allows intelligent repetitive clicking on navigation elements (e.g., inside date pickers). Use this action only when the element moves the navigation one step forward or backward.Based on the `mode`, the system calculates how many times to click the element (`times` field internally). Modes:
+  - `"date"`: Use when each click advances the **day** only. `current` and `target` must include only the `"date"` field (integers).
+  - `"month"`: Use when each click changes **month only** (ignoring year). Provide `"month"` fields (e.g., `"June"`).
+  - `"year"`: Use when each click changes **year**. Provide `"year"` fields (e.g., `2025`).
+  - `"month-year"`: Each click moves forward/back by one month, and year rolls over automatically. Provide both `"month"` and `"year"` fields.
 - Navigation and extraction: [{{"go_to_url": {{"url": "https://example.com"}}}}, {{"extract_content": {{"goal": "extract the names"}}}}]
 - Actions are executed in the given order
 - If the page changes after an action, the sequence is interrupted and you get the new state.
