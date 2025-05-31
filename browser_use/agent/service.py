@@ -15,6 +15,7 @@ from typing import Any, Generic, TypeVar
 
 from dotenv import load_dotenv
 
+from browser_use.agent.capabilities import get_llm_capabilities
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
 
 load_dotenv()
@@ -214,7 +215,10 @@ class Agent(Generic[Context]):
 		self._set_model_names()
 
 		# Verify we can connect to the LLM and setup the tool calling method
-		self._verify_and_setup_llm()
+		self._verify_and_setup_llm(self.llm)
+
+		if self.settings.planner_llm:
+			self._verify_and_setup_llm(self.settings.planner_llm)
 
 		# Handle users trying to use use_vision=True with DeepSeek models
 		if 'deepseek' in self.model_name.lower():
@@ -677,7 +681,7 @@ class Agent(Generic[Context]):
 				return 'tools'
 
 		# Models known to not support tools
-		elif is_model_without_tool_support(self.model_name):
+		elif is_model_without_tool_support(self.llm):
 			return 'raw'
 
 		return None  # Unknown combination, needs testing
@@ -1034,8 +1038,8 @@ class Agent(Generic[Context]):
 
 	def _convert_input_messages(self, input_messages: list[BaseMessage]) -> list[BaseMessage]:
 		"""Convert input messages to the correct format"""
-		if is_model_without_tool_support(self.model_name):
-			return convert_input_messages(input_messages, self.model_name)
+		if is_model_without_tool_support(self.llm):
+			return convert_input_messages(input_messages, self.llm, self.model_name)
 		else:
 			return input_messages
 
@@ -1772,16 +1776,21 @@ class Agent(Generic[Context]):
 
 		return converted_actions
 
-	def _verify_and_setup_llm(self) -> bool:
+	def _verify_and_setup_llm(self, llm: BaseChatModel) -> bool:
 		"""
 		Verify that the LLM API keys are setup and the LLM API is responding properly.
 		Also handles tool calling method detection if in auto mode.
 		"""
-		self.tool_calling_method = self._set_tool_calling_method()
+		method = None if self.settings.tool_calling_method == 'auto' else self.settings.tool_calling_method
+		capabilities = get_llm_capabilities(llm, method)
+		if not capabilities.success:
+			raise ConnectionError('Failed to connect to LLM. Please check your API key and network connection.')
+		capabilities.log()
+		self.tool_calling_method = capabilities.supported_tool_calling_method
 
 		# Skip verification if already done
-		if getattr(self.llm, '_verified_api_keys', None) is True or SKIP_LLM_API_KEY_VERIFICATION:
-			self.llm._verified_api_keys = True
+		if getattr(llm, '_verified_api_keys', None) is True or SKIP_LLM_API_KEY_VERIFICATION:
+			llm._verified_api_keys = True
 			return True
 
 	async def _run_planner(self) -> str | None:
@@ -1826,7 +1835,7 @@ class Agent(Generic[Context]):
 
 			planner_messages[-1] = HumanMessage(content=new_msg)
 
-		planner_messages = convert_input_messages(planner_messages, self.planner_model_name)
+		planner_messages = convert_input_messages(planner_messages, self.settings.planner_llm, self.planner_model_name)
 
 		# Get planner output
 		try:
