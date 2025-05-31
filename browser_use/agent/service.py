@@ -1780,7 +1780,7 @@ class Agent(Generic[Context]):
 		"""
 		method = None if self.settings.tool_calling_method == 'auto' else self.settings.tool_calling_method
 		capabilities = get_llm_capabilities(self.llm, method)
-		if capabilities.error:
+		if not capabilities.success:
 			raise ConnectionError('Failed to connect to LLM. Please check your API key and network connection.')
 		capabilities.log()
 		self.tool_calling_method = capabilities.supported_tool_calling_method
