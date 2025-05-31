@@ -17,6 +17,7 @@ from browser_use.agent.message_manager.views import MessageMetadata
 from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.agent.views import ActionResult, AgentOutput, AgentStepInfo, MessageManagerState
 from browser_use.browser.views import BrowserStateSummary
+from browser_use.filesystem.file_system import FileSystem
 from browser_use.utils import time_execution_sync
 
 logger = logging.getLogger(__name__)
@@ -199,6 +200,7 @@ class MessageManager:
 		self,
 		task: str,
 		system_message: SystemMessage,
+		file_system: FileSystem,
 		settings: MessageManagerSettings = MessageManagerSettings(),
 		state: MessageManagerState = MessageManagerState(),
 	):
@@ -206,7 +208,9 @@ class MessageManager:
 		self.settings = settings
 		self.state = state
 		self.system_prompt = system_message
-
+		self.file_system = file_system
+		self.agent_history_description = '# Agent History\n'
+		self.read_state_description = ''
 		# Only initialize messages if state is empty
 		if len(self.state.history.messages) == 0:
 			self._init_messages()
@@ -219,58 +223,116 @@ class MessageManager:
 			context_message = HumanMessage(content='Context for the task' + self.settings.message_context)
 			self._add_message_with_tokens(context_message, message_type='init')
 
-		task_message = HumanMessage(
-			content=f'Your ultimate task is: """{self.task}""". If you achieved your ultimate task, stop everything and use the done action in the next step to complete the task. If not, continue as usual.'
-		)
-		self._add_message_with_tokens(task_message, message_type='init')
-
 		if self.settings.sensitive_data:
 			info = f'Here are placeholders for sensitive data: {list(self.settings.sensitive_data.keys())}'
 			info += '\nTo use them, write <secret>the placeholder name</secret>'
 			info_message = HumanMessage(content=info)
 			self._add_message_with_tokens(info_message, message_type='init')
 
-		placeholder_message = HumanMessage(content='Example output:')
+		placeholder_message = HumanMessage(content='Example tool call 1:')
 		self._add_message_with_tokens(placeholder_message, message_type='init')
 
-		example_tool_call = AIMessage(
+		example_tool_call_1 = AIMessage(
 			content='',
 			tool_calls=[
 				{
 					'name': 'AgentOutput',
 					'args': {
 						'current_state': {
-							'evaluation_previous_goal': """
-							Success - I successfully clicked on the 'Apple' link from the Google Search results page, 
-							which directed me to the 'Apple' company homepage. This is a good start toward finding 
-							the best place to buy a new iPhone as the Apple website often list iPhones for sale.
-						""".strip(),
-							'memory': """
-							I searched for 'iPhone retailers' on Google. From the Google Search results page, 
-							I used the 'click_element_by_index' tool to click on element at index [45] labeled 'Best Buy' but calling 
-							the tool did not direct me to a new page. I then used the 'click_element_by_index' tool to click 
-							on element at index [82] labeled 'Apple' which redirected me to the 'Apple' company homepage. 
-							Currently at step 3/15.
-						""".strip(),
-							'next_goal': """
-							Looking at reported structure of the current page, I can see the item '[127]<h3 iPhone/>' 
-							in the content. I think this button will lead to more information and potentially prices 
-							for iPhones. I'll click on the link at index [127] using the 'click_element_by_index' 
-							tool and hope to see prices on the next page.
-						""".strip(),
+							'thinking': """
+**Understanding the Current State:**
+I have successfully navigated to https://github.com/explore and can see the page has loaded with a list of featured repositories and trending projects. The page contains interactive elements and I can identify specific repositories like bytedance/UI-TARS-desktop and ray-project/kuberay that appear to be featured or trending. The user's request seems to involve exploring GitHub repositories, likely to collect information about them such as descriptions, stars, or other metadata.
+
+**Evaluating the Previous Action:**
+My navigation to the GitHub explore page was successful. The page loaded correctly and I can see the expected content - a curated list of repositories that GitHub is featuring. This gives me a good starting point to begin the repository exploration task. The DOM shows interactive elements that I can work with, and the page structure is as expected for GitHub's explore section.
+
+**Tracking and Planning with todo.md:**
+Since this appears to be a multi-step task involving visiting multiple repositories and collecting their information, I need to create a structured plan in todo.md. This will help me track which repositories I've visited, what information I've collected, and ensure I don't miss any important repositories. The todo.md should include all visible repositories and a systematic approach to processing them.
+
+**Writing Intermediate Results:**
+I should prepare to use results.md to store the collected repository information as I gather it. Each repository's details should be appended in a consistent format for easy review.
+
+**Preparing what goes into my memory:**
+I need to capture the key repositories I've identified so far and establish that I'm at the planning stage of this multi-step task.
+
+**Planning my next action:**
+My next action should be to create a comprehensive todo.md file that outlines the entire task. This will include identifying all visible repositories, creating checkboxes for each one to visit, and establishing a clear workflow. I need to be thorough in identifying repositories since the user likely wants comprehensive coverage of what's available on the explore page.
+""",
+							'evaluation_previous_goal': 'Navigated to GitHub explore page. Verdict: Success',
+							'memory': 'Found initial repositories such as bytedance/UI-TARS-desktop and ray-project/kuberay.',
+							'next_goal': 'Create todo.md checklist to track progress.',
 						},
-						'action': [{'click_element_by_index': {'index': 127}}],
+						'action': [
+							{
+								'write_file': {
+									'path': 'todo.md',
+									'content': """
+# Interesting Github Repositories in Explore Section
+
+## Tasks
+- [ ] Initialize a tracking file for GitHub repositories called github.md
+- [ ] Visit each Github repository and find their description
+- [ ] Visit bytedance/UI-TARS-desktop
+- [ ] Visit ray-project/kuberay
+- [ ] Check for additional Github repositories by scrolling down
+- [ ] Compile all results in the requested format
+- [ ] Validate that I have not missed anything in the page
+- [ ] Report final results to user
+""".strip('\n'),
+								}
+							}
+						],
 					},
 					'id': str(self.state.tool_id),
 					'type': 'tool_call',
 				},
 			],
 		)
-		self._add_message_with_tokens(example_tool_call, message_type='init')
-		self.add_tool_message(content='Browser started', message_type='init')
+		self._add_message_with_tokens(example_tool_call_1, message_type='init')
+		self.add_tool_message(content='Data written to todo.md successfully.', message_type='init')
 
-		placeholder_message = HumanMessage(content='[Your task history memory starts here]')
-		self._add_message_with_tokens(placeholder_message)
+		placeholder_message = HumanMessage(content='Example tool call 2:')
+		self._add_message_with_tokens(placeholder_message, message_type='init')
+
+		example_tool_call_2 = AIMessage(
+			content='',
+			tool_calls=[
+				{
+					'name': 'AgentOutput',
+					'args': {
+						'current_state': {
+							'thinking': """
+**Understanding the Current State:**
+I am currently on Apple's main homepage, having successfully clicked on an 'Apple' link in the previous step. The page has loaded and I can see the typical Apple website layout with navigation elements. I can see an interactive element at index [4] that is labeled 'iPhone', which indicates this is a navigation link to Apple's iPhone product section.
+
+**Evaluating the Previous Action:**
+The click on the 'Apple' link was successful and brought me to Apple's homepage as expected. The page loaded properly and I can see the navigation structure including the iPhone link. This confirms that the previous navigation action worked correctly and I'm now in the right place to continue with the iPhone-related task.
+
+**Tracking and Planning with todo.md:**
+Based on the context, this seems to be part of a larger task involving Apple products. I should be prepared to update my todo.md file if there are multiple iPhone models or other Apple products to investigate. The current goal is to access the iPhone section to see what product information is available.
+
+**Writing Intermediate Results:**
+Once I reach the iPhone page, I'll need to extract information about different iPhone models, their specifications, prices, or other details. I should accumulate all findings in results.md in a structured format as I collect the information.
+
+**Preparing what goes into my memory:**
+I need to capture that I'm in the process of navigating to the iPhone section and preparing to collect product information.
+
+**Planning my next action:**
+My next action is to click on the iPhone link at index [4] to navigate to Apple's iPhone product page. This will give me access to the iPhone lineup and allow me to gather the requested information.
+""",
+							'evaluation_previous_goal': 'Clicked Apple link and reached the homepage. Verdict: Success',
+							'memory': 'On Apple homepage with iPhone link at index [4].',
+							'next_goal': 'Click iPhone link.',
+						},
+						'action': [{'click_element_by_index': {'index': 4}}],
+					},
+					'id': str(self.state.tool_id),
+					'type': 'tool_call',
+				},
+			],
+		)
+		self._add_message_with_tokens(example_tool_call_2, message_type='init')
+		self.add_tool_message(content='Clicked on index [4].', message_type='init')
 
 		if self.settings.available_file_paths:
 			filepaths_msg = HumanMessage(content=f'Here are file paths you can use: {self.settings.available_file_paths}')
@@ -282,16 +344,55 @@ class MessageManager:
 		self._add_message_with_tokens(msg)
 		self.task = new_task
 
+	def _update_agent_history_description(
+		self,
+		model_output: AgentOutput | None = None,
+		result: list[ActionResult] | None = None,
+		step_info: AgentStepInfo | None = None,
+	) -> None:
+		"""Update the agent history description"""
+
+		if None in [model_output, result, step_info]:
+			return
+
+		self.read_state_description = '# Read State\n'
+
+		step_number = step_info.step_number
+
+		action_results = ''
+		for idx, action_result in enumerate(result):
+			if action_result.update_read_state:
+				self.read_state_description += action_result.extracted_content + '\n'
+			if action_result.memory:
+				action_results += f'Action {idx + 1} Result: {action_result.memory}\n'
+			elif action_result.error:
+				action_results += f'Action {idx + 1} Error: {action_result.error}\n'
+			else:
+				raise ValueError(f'Action {idx + 1} has no memory or error')
+
+		self.agent_history_description += f"""## Step {step_number}
+Evaluation: {model_output.current_state.evaluation_previous_goal}
+Memory: {model_output.current_state.memory}
+Next goal: {model_output.current_state.next_goal}
+{action_results}
+"""
+		if self.read_state_description == '# Read State\n':
+			self.read_state_description = ''
+
 	@time_execution_sync('--add_state_message')
 	def add_state_message(
 		self,
 		browser_state_summary: BrowserStateSummary,
+		model_output: AgentOutput | None = None,
 		result: list[ActionResult] | None = None,
 		step_info: AgentStepInfo | None = None,
 		use_vision=True,
+		page_filtered_actions: str | None = None,
 	) -> None:
 		"""Add browser state as human message"""
 
+		self._update_agent_history_description(model_output, result, step_info)
+		"""
 		# if keep in memory, add to directly to history and add state without result
 		if result:
 			for r in result:
@@ -308,14 +409,19 @@ class MessageManager:
 						msg = HumanMessage(content='Action error: ' + last_line)
 						self._add_message_with_tokens(msg)
 					result = None  # if result in history, we dont want to add it again
+		"""
 
 		# otherwise add state message and result to next message (which will not stay in memory)
 		assert browser_state_summary
 		state_message = AgentMessagePrompt(
 			browser_state_summary=browser_state_summary,
-			result=result,
+			file_system=self.file_system,
+			agent_history_description=self.agent_history_description,
+			read_state_description=self.read_state_description,
+			task=self.task,
 			include_attributes=self.settings.include_attributes,
 			step_info=step_info,
+			page_filtered_actions=page_filtered_actions,
 		).get_user_message(use_vision)
 		self._add_message_with_tokens(state_message)
 

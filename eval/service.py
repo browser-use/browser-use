@@ -483,7 +483,7 @@ def get_llm(model_name: str):
 	api_key_secret = SecretStr(api_key) if api_key else None
 	match provider:
 		case 'openai':
-			kwargs = {'model': config['model_name'], 'temperature': 0.0}
+			kwargs = {'model': config['model_name'], 'temperature': 0.3, 'max_tokens': 8192}
 			# Must set temperatue=1 if model is gpt-o4-mini
 			if model_name == 'gpt-o4-mini':
 				kwargs['temperature'] = 1
@@ -491,17 +491,17 @@ def get_llm(model_name: str):
 				kwargs['api_key'] = api_key_secret
 			return ChatOpenAI(**kwargs)
 		case 'anthropic':
-			kwargs = {'model_name': config['model_name'], 'temperature': 0.0, 'timeout': 100, 'stop': None}
+			kwargs = {'model_name': config['model_name'], 'temperature': 0.3, 'timeout': 100, 'stop': None, 'max_tokens': 8192}
 			if api_key_secret:
 				kwargs['api_key'] = api_key_secret
 			return ChatAnthropic(**kwargs)
 		case 'google':
-			kwargs = {'model': config['model_name'], 'temperature': 0.0}
+			kwargs = {'model': config['model_name'], 'temperature': 0.3, 'max_tokens': 8192}
 			if api_key_secret:
 				kwargs['api_key'] = api_key_secret
 			return ChatGoogleGenerativeAI(**kwargs)
 		case 'openai_compatible':
-			kwargs = {'model': config['model_name'], 'base_url': config['base_url'], 'temperature': 0.0}
+			kwargs = {'model': config['model_name'], 'base_url': config['base_url'], 'temperature': 0.3, 'max_tokens': 8192}
 			if api_key_secret:
 				kwargs['api_key'] = api_key_secret
 			elif config.get('base_url'):

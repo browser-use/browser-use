@@ -7,7 +7,9 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 import time
+import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from threading import Thread
@@ -62,6 +64,7 @@ from browser_use.dom.history_tree_processor.service import (
 	HistoryTreeProcessor,
 )
 from browser_use.exceptions import LLMException
+from browser_use.filesystem.file_system import FileSystem
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import (
 	AgentTelemetryEvent,
@@ -83,6 +86,7 @@ def log_response(response: AgentOutput, registry=None) -> None:
 	else:
 		emoji = '❓'
 
+	logger.info(f'💡 Thinking:\n{response.current_state.thinking}')
 	logger.info(f'{emoji} Eval: {response.current_state.evaluation_previous_goal}')
 	logger.info(f'🧠 Memory: {response.current_state.memory}')
 	logger.info(f'🎯 Next goal: {response.current_state.next_goal}')
@@ -163,6 +167,7 @@ class Agent(Generic[Context]):
 		enable_memory: bool = True,
 		memory_config: MemoryConfig | None = None,
 		source: str | None = None,
+		file_system_path: str | None = None,
 	):
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
@@ -205,6 +210,9 @@ class Agent(Generic[Context]):
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
 
+		# Initialize file system
+		self._set_file_system(file_system_path)
+
 		# Action setup
 		self._setup_action_models()
 		self._set_browser_use_version_and_source(source)
@@ -243,6 +251,7 @@ class Agent(Generic[Context]):
 			f'{f" planner_model={self.planner_model_name}" if self.planner_model_name else ""}'
 			f'{" +reasoning" if self.settings.is_planner_reasoning else ""}'
 			f'{" +vision" if self.settings.use_vision_for_planner else ""} '
+			f'{" +file_system" if self.file_system else ""}'
 		)
 
 		# Initialize available actions for system prompt (only non-filtered actions)
@@ -261,6 +270,7 @@ class Agent(Generic[Context]):
 				override_system_message=override_system_message,
 				extend_system_message=extend_system_message,
 			).get_system_message(),
+			file_system=self.file_system,
 			settings=MessageManagerSettings(
 				max_input_tokens=self.settings.max_input_tokens,
 				include_attributes=self.settings.include_attributes,
@@ -402,6 +412,44 @@ class Agent(Generic[Context]):
 	def browser_profile(self) -> BrowserProfile:
 		return self.browser_session.browser_profile
 
+	def _set_file_system(self, file_system_path: str | None = None) -> None:
+		# Initialize file system
+		if file_system_path:
+			self.file_system = FileSystem(file_system_path)
+			self.file_system_path = file_system_path
+		else:
+			# create a temporary file system
+			base_tmp = tempfile.gettempdir()  # e.g., /tmp on Unix
+			self.file_system_path = os.path.join(base_tmp, str(uuid.uuid4()))
+			self.file_system = FileSystem(self.file_system_path)
+
+		logger.info(f'💾 File system path: {self.file_system_path}')
+
+		# if file system is set, add actions to the controller
+		@self.controller.registry.action('Write content to file_name in file system')
+		async def write_file(file_name: str, content: str):
+			result = await self.file_system.write_file(file_name, content)
+			logger.info(f'💾 {result}')
+			return ActionResult(extracted_content=result, include_in_memory=True, memory=result)
+
+		@self.controller.registry.action('Append content to file_name in file system')
+		async def append_file(file_name: str, content: str):
+			result = await self.file_system.append_file(file_name, content)
+			logger.info(f'💾 {result}')
+			return ActionResult(extracted_content=result, include_in_memory=True, memory=result)
+
+		@self.controller.registry.action('Read file_name from file system')
+		async def read_file(file_name: str):
+			result = await self.file_system.read_file(file_name)
+			max_len = 50
+			if len(result) > max_len:
+				display_result = result[:max_len] + '\n...'
+			else:
+				display_result = result
+			logger.info(f'💾 {display_result}')
+			memory = result.split('\n')[-1]
+			return ActionResult(extracted_content=result, include_in_memory=True, memory=memory, update_read_state=True)
+
 	def _set_message_context(self) -> str | None:
 		if self.tool_calling_method == 'raw':
 			# For raw tool calling, only include actions with no filters initially
@@ -526,10 +574,10 @@ class Agent(Generic[Context]):
 					logger.debug(f'🛠️ Tool calling method {method} failed: Failed to parse JSON content: {e}')
 					return False
 
-			if method == 'raw':
+			if method == 'raw' or method == 'json_mode':
 				# For raw mode, test JSON response format
 				test_prompt = f"""{CAPITAL_QUESTION}
-					Respond with a JSON object like: {{"answer": "city_name_in_lowercase"}}"""
+					Respond with a json object like: {{"answer": "city_name_in_lowercase"}}"""
 
 				response = self.llm.invoke([test_prompt])
 				# Basic validation of response
@@ -800,11 +848,6 @@ class Agent(Generic[Context]):
 			# Get page-specific filtered actions
 			page_filtered_actions = self.controller.registry.get_prompt_description(current_page)
 
-			# If there are page-specific actions, add them as a special message for this step only
-			if page_filtered_actions:
-				page_action_message = f'For this page, these additional actions are available:\n{page_filtered_actions}'
-				self._message_manager._add_message_with_tokens(HumanMessage(content=page_action_message))
-
 			# If using raw tool calling method, we need to update the message context with new actions
 			if self.tool_calling_method == 'raw':
 				# For raw tool calling, get all non-filtered actions plus the page-filtered ones
@@ -824,9 +867,11 @@ class Agent(Generic[Context]):
 
 			self._message_manager.add_state_message(
 				browser_state_summary=browser_state_summary,
+				model_output=self.state.last_model_output,
 				result=self.state.last_result,
 				step_info=step_info,
 				use_vision=self.settings.use_vision,
+				page_filtered_actions=page_filtered_actions if page_filtered_actions else None,
 			)
 
 			# Run planner at specified intervals if planner is configured
@@ -893,7 +938,7 @@ class Agent(Generic[Context]):
 				# check again if Ctrl+C was pressed before we commit the output to history
 				await self._raise_if_stopped_or_paused()
 
-				self._message_manager.add_model_output(model_output)
+				# self._message_manager.add_model_output(model_output)
 			except asyncio.CancelledError:
 				# Task was cancelled due to Ctrl+C
 				self._message_manager._remove_last_state_message()
@@ -910,6 +955,7 @@ class Agent(Generic[Context]):
 			result: list[ActionResult] = await self.multi_act(model_output.action)
 
 			self.state.last_result = result
+			self.state.last_model_output = model_output
 
 			if len(result) > 0 and result[-1].is_done:
 				logger.info(f'📄 Result: {result[-1].extracted_content}')
@@ -1495,6 +1541,7 @@ class Agent(Generic[Context]):
 				result = await self.controller.act(
 					action=action,
 					browser_session=self.browser_session,
+					file_system=self.file_system,
 					page_extraction_llm=self.settings.page_extraction_llm,
 					sensitive_data=self.sensitive_data,
 					available_file_paths=self.settings.available_file_paths,

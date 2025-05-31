@@ -5,8 +5,9 @@ from typing import TYPE_CHECKING, Optional
 from langchain_core.messages import HumanMessage, SystemMessage
 
 if TYPE_CHECKING:
-	from browser_use.agent.views import ActionResult, AgentStepInfo
+	from browser_use.agent.views import AgentStepInfo
 	from browser_use.browser.views import BrowserStateSummary
+	from browser_use.filesystem.file_system import FileSystem
 
 
 class SystemPrompt:
@@ -63,74 +64,96 @@ class AgentMessagePrompt:
 	def __init__(
 		self,
 		browser_state_summary: 'BrowserStateSummary',
-		result: list['ActionResult'] | None = None,
+		file_system: 'FileSystem',
+		agent_history_description: str | None = None,
+		read_state_description: str | None = None,
+		task: str | None = None,
 		include_attributes: list[str] | None = None,
 		step_info: Optional['AgentStepInfo'] = None,
+		page_filtered_actions: str | None = None,
 	):
-		self.state: 'BrowserStateSummary' = browser_state_summary
-		self.result = result
+		self.browser_state: 'BrowserStateSummary' = browser_state_summary
+		self.file_system: 'FileSystem' | None = file_system
+		self.agent_history_description: str | None = agent_history_description
+		self.read_state_description: str | None = read_state_description
+		self.task: str | None = task
 		self.include_attributes = include_attributes or []
 		self.step_info = step_info
-		assert self.state
+		self.page_filtered_actions: str | None = page_filtered_actions
+		assert self.browser_state
 
-	def get_user_message(self, use_vision: bool = True) -> HumanMessage:
-		elements_text = self.state.element_tree.clickable_elements_to_string(include_attributes=self.include_attributes)
+	def _get_browser_state_description(self) -> str:
+		elements_text = self.browser_state.element_tree.clickable_elements_to_string(include_attributes=self.include_attributes)
 
-		has_content_above = (self.state.pixels_above or 0) > 0
-		has_content_below = (self.state.pixels_below or 0) > 0
+		has_content_above = (self.browser_state.pixels_above or 0) > 0
+		has_content_below = (self.browser_state.pixels_below or 0) > 0
 
 		if elements_text != '':
 			if has_content_above:
-				elements_text = (
-					f'... {self.state.pixels_above} pixels above - scroll or extract content to see more ...\n{elements_text}'
-				)
+				elements_text = f'... {self.browser_state.pixels_above} pixels above - scroll or extract content to see more ...\n{elements_text}'
 			else:
 				elements_text = f'[Start of page]\n{elements_text}'
 			if has_content_below:
-				elements_text = (
-					f'{elements_text}\n... {self.state.pixels_below} pixels below - scroll or extract content to see more ...'
-				)
+				elements_text = f'{elements_text}\n... {self.browser_state.pixels_below} pixels below - scroll or extract content to see more ...'
 			else:
 				elements_text = f'{elements_text}\n[End of page]'
 		else:
 			elements_text = 'empty page'
 
+		tabs_text = ''
+		for tab in self.browser_state.tabs:
+			tabs_text += f'Tab {tab.page_id}: URL={tab.url}, Title={tab.title[:30]}\n'
+
+		browser_state = f"""# Browser State
+Current URL: {self.browser_state.url}
+Available tabs:
+{tabs_text}
+Interactive elements from top layer of the current page inside the viewport:
+{elements_text}
+"""
+		return browser_state
+
+	def _get_agent_state_description(self) -> str:
 		if self.step_info:
-			step_info_description = f'Current step: {self.step_info.step_number + 1}/{self.step_info.max_steps}'
+			step_info_description = f'Current step: {self.step_info.step_number + 1}/{self.step_info.max_steps}\n'
 		else:
 			step_info_description = ''
 		time_str = datetime.now().strftime('%Y-%m-%d %H:%M')
 		step_info_description += f'Current date and time: {time_str}'
 
-		state_description = f"""
-[Task history memory ends]
-[Current state starts here]
-The following is one-time information - if you need to remember it write it to memory:
-Current url: {self.state.url}
-Available tabs:
-{self.state.tabs}
-Interactive elements from top layer of the current page inside the viewport:
-{elements_text}
+		todo_contents = self.file_system.get_todo_contents()
+		if not len(todo_contents):
+			todo_contents = '[Current todo.md is empty, fill it with your plan when applicable]'
+
+		agent_state = f"""# Agent State\n
+## USER REQUEST:
+{self.task}\n
+## File System:
+{self.file_system.describe()}\n
+## Contents of todo.md:
+{todo_contents}\n
+## Step Info:
 {step_info_description}
 """
+		return agent_state
 
-		if self.result:
-			for i, result in enumerate(self.result):
-				if result.extracted_content:
-					state_description += f'\nAction result {i + 1}/{len(self.result)}: {result.extracted_content}'
-				if result.error:
-					# only use last line of error
-					error = result.error.split('\n')[-1]
-					state_description += f'\nAction error {i + 1}/{len(self.result)}: ...{error}'
+	def get_user_message(self, use_vision: bool = True) -> HumanMessage:
+		state_description = self.agent_history_description + '\n'
+		state_description += self._get_agent_state_description() + '\n'
+		state_description += self._get_browser_state_description() + '\n'
+		state_description += self.read_state_description + '\n'
+		if self.page_filtered_actions:
+			state_description += 'For this page, these additional actions are available:\n'
+			state_description += self.page_filtered_actions + '\n'
 
-		if self.state.screenshot and use_vision is True:
+		if self.browser_state.screenshot and use_vision is True:
 			# Format message for vision model
 			return HumanMessage(
 				content=[
 					{'type': 'text', 'text': state_description},
 					{
 						'type': 'image_url',
-						'image_url': {'url': f'data:image/png;base64,{self.state.screenshot}'},  # , 'detail': 'low'
+						'image_url': {'url': f'data:image/png;base64,{self.browser_state.screenshot}'},  # , 'detail': 'low'
 					},
 				]
 			)

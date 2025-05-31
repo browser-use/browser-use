@@ -6,6 +6,7 @@ from playwright.async_api import Page
 from pydantic import BaseModel, ConfigDict
 
 from browser_use.browser import BrowserSession
+from browser_use.filesystem.file_system import FileSystem
 
 if TYPE_CHECKING:
 	from browser_use.agent.service import Context
@@ -170,6 +171,7 @@ class SpecialActionParameters(BaseModel):
 
 	# extra injected config if the action asks for these arg names
 	page_extraction_llm: BaseChatModel | None = None
+	file_system: FileSystem | None = None
 	available_file_paths: list[str] | None = None
 	has_sensitive_data: bool = False
 

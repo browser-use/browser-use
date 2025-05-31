@@ -84,6 +84,7 @@ class AgentState(BaseModel):
 	last_result: list[ActionResult] | None = None
 	history: AgentHistoryList = Field(default_factory=lambda: AgentHistoryList(history=[]))
 	last_plan: str | None = None
+	last_model_output: AgentOutput | None = None
 	paused: bool = False
 	stopped: bool = False
 
@@ -111,6 +112,8 @@ class ActionResult(BaseModel):
 	extracted_content: str | None = None
 	error: str | None = None
 	include_in_memory: bool = False  # whether to include in past messages as context or not
+	memory: str | None = None  # Memory of this action
+	update_read_state: bool = False  # Whether the extracted content should be used to update the read_state
 
 
 class StepMetadata(BaseModel):
@@ -130,6 +133,7 @@ class StepMetadata(BaseModel):
 class AgentBrain(BaseModel):
 	"""Current internal working memory of the agent, we ask the LLM to decide new values for these on each output"""
 
+	thinking: str | None = None
 	evaluation_previous_goal: str
 	memory: str
 	next_goal: str
