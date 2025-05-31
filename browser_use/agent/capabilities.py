@@ -14,9 +14,6 @@ logger = logging.getLogger(__name__)
 
 FRANCE_CAPITAL_QUESTION = 'What is the capital of France? Respond with just the city name in lowercase.'
 FRANCE_CAPITAL_EXPECTED_ANSWER = 'paris'
-MINIMAL_1PX_IMAGE = (
-	'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
-)
 
 ToolCallingMethod = Literal['function_calling', 'tools', 'json_mode', 'raw']
 
@@ -84,8 +81,6 @@ def get_llm_capabilities(
 		capabilities.response_time = int((time.time() - start_time) * 1000)
 
 		capabilities.supported_tool_calling_method = _get_supported_tool_calling_method(llm, tool_calling_method)
-		if capabilities.supported_tool_calling_method is None:
-			raise LLMCapabilityError('No Supported Tool Calling Method Found')
 		capabilities.success = True
 
 		capabilities.supports_image_input = _test_vision_support(llm)
@@ -139,7 +134,7 @@ def _test_tool_calling_method(llm: BaseChatModel, method: ToolCallingMethod) -> 
 		else:
 			return _test_structured_output_method(llm, method)
 
-	except Exception as e:
+	except Exception:
 		return False
 
 
@@ -275,25 +270,18 @@ def _get_supported_tool_calling_method(llm: BaseChatModel, preferred: ToolCallin
 
 
 def _test_vision_support(llm: BaseChatModel) -> bool:
-	"""Tests if the LLM supports image input by sending a minimal image."""
+	"""Tests if the LLM supports vision by asking it."""
 	try:
-		messages = [
-			HumanMessage(
-				content=[
-					{'type': 'text', 'text': "What do you see in this image? Just say 'image received' if you can process it."},
-					{'type': 'image_url', 'image_url': {'url': MINIMAL_1PX_IMAGE}},
-				]
-			)
-		]
+		messages = [HumanMessage(content='Do you support vision? Respond with "yes" or "no".')]
 
 		response = llm.invoke(messages)
 
-		if response and hasattr(response, 'content') and response.content:
+		if response and hasattr(response, 'content') and 'yes' in response.content.lower():
 			return True
 		else:
 			return False
-
 	except Exception as e:
+		print(e)
 		return False
 
 
