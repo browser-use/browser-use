@@ -196,6 +196,7 @@ def test_token_overflow_handling_with_real_flow(message_manager: MessageManager,
 				evaluation_previous_goal=f'Success in step {i}',
 				memory=f'Memory from step {i}',
 				next_goal=f'Goal for step {i + 1}',
+				reasoning_task_status=f'Analysis of progress in step {i}: evaluating completion against the ultimate goal',
 			),
 			action=[ActionModel()],
 		)

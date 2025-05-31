@@ -252,6 +252,9 @@ class MessageManager:
 							on element at index [82] labeled 'Apple' which redirected me to the 'Apple' company homepage. 
 							Currently at step 3/15.
 						""".strip(),
+							'reasoning_task_status': """
+							I am working on finding the best places to buy a new iPhone. My ultimate goal is to compile a list of at least 5 retailers with their pricing information for comparison. So far, I've only explored 1 retailer (Apple) out of the many potential options. I haven't yet collected any specific iPhone pricing information. I need to systematically explore all major retailers including Apple, Best Buy, carrier stores (AT&T, Verizon, T-Mobile), Amazon, and Walmart to ensure I've covered ALL possible options. After collecting information from each retailer, I'll need to organize and compare their offerings to determine which provides the best value. I estimate I'm about 15% complete with the overall task, as I've only begun exploring the first retailer and haven't collected any pricing data yet. My next immediate steps are to find iPhone pricing on Apple's website, then continue exploring other retailers one by one until I've gathered ALL required information.
+						""".strip(),
 							'next_goal': """
 							Looking at reported structure of the current page, I can see the item '[127]<h3 iPhone/>' 
 							in the content. I think this button will lead to more information and potentially prices 

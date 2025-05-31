@@ -86,6 +86,7 @@ def log_response(response: AgentOutput, registry=None) -> None:
 	logger.info(f'{emoji} Eval: {response.current_state.evaluation_previous_goal}')
 	logger.info(f'🧠 Memory: {response.current_state.memory}')
 	logger.info(f'🎯 Next goal: {response.current_state.next_goal}')
+	logger.info(f'🧠 Reasoning task status: {response.current_state.reasoning_task_status}')
 
 
 Context = TypeVar('Context')
@@ -850,6 +851,7 @@ class Agent(Generic[Context]):
 
 			try:
 				model_output = await self.get_next_action(input_messages)
+
 				if (
 					not model_output.action
 					or not isinstance(model_output.action, list)
@@ -929,6 +931,7 @@ class Agent(Generic[Context]):
 			# logger.debug('Task cancelled - agent was paused with Ctrl+C')
 			self.state.last_result = [ActionResult(error='The agent was paused with Ctrl+C', include_in_memory=False)]
 			raise InterruptedError('Step cancelled by user')
+		
 		except Exception as e:
 			result = await self._handle_step_error(e)
 			self.state.last_result = result
@@ -1094,6 +1097,7 @@ class Agent(Generic[Context]):
 					'evaluation_previous_goal': 'Executing action',
 					'memory': 'Using tool call',
 					'next_goal': f'Execute {tool_call_name}',
+					'reasoning_task_status': 'Executing action, task is not complete',
 				}
 
 				# Create action from tool call

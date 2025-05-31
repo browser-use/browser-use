@@ -96,7 +96,7 @@ class AgentMessagePrompt:
 			elements_text = 'empty page'
 
 		if self.step_info:
-			step_info_description = f'Current step: {self.step_info.step_number + 1}/{self.step_info.max_steps}'
+			step_info_description = f'Current step: {self.step_info.step_number + 1}/{self.step_info.max_steps}\n'
 		else:
 			step_info_description = ''
 		time_str = datetime.now().strftime('%Y-%m-%d %H:%M')

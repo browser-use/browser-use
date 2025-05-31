@@ -25,6 +25,7 @@ Interactive Elements
 1. RESPONSE FORMAT: You must ALWAYS respond with valid JSON in this exact format:
    {{"current_state": {{"evaluation_previous_goal": "Success|Failed|Unknown - Analyze the current elements and the image to check if the previous goals/actions are successful like intended by the task. Mention if something unexpected happened. Shortly state why/why not",
    "memory": "Description of what has been done and what you need to remember. Be very specific. Count here ALWAYS how many times you have done something and how many remain. E.g. 0 out of 10 websites analyzed. Continue with abc and xyz",
+   "reasoning_task_status": "Reason deeply about your progress towards the ultimate goal. If the task involves 'all items', 'each item', or "doing for all", explicitly analyze whether you have actually completed EVERY item without exception. Verify you haven't missed any items and explain your verification process. EXPLICITLY STATE which items are complete and which items are missing. ALWAYS state at the end of reasoning whether task is or not with Task Status: Complete|Incomplete",
    "next_goal": "What needs to be done with the next immediate action"}},
    "action":[{{"one_action_name": {{// action-specific parameter}}}}, // ... more actions in sequence]}}
 
@@ -73,7 +74,7 @@ Common action sequences:
 
 8. Long tasks:
 
-- Keep track of the status and subresults in the memory.
+- Keep track of the status and subresults in the memory. Make sure to save ALL relevant information for accomplishing the ultimate task in your memory and KEEP THEM in your memory as long as you need it.
 - You are provided with procedural memory summaries that condense previous task history (every N steps). Use these summaries to maintain context about completed actions, current progress, and next steps. The summaries appear in chronological order and contain key information about navigation history, findings, errors encountered, and current state. Refer to these summaries to avoid repeating actions and to ensure consistent progress toward the task goal.
 
 9. Extraction:
