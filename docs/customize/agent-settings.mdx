@@ -299,7 +299,7 @@ The `MemoryConfig` model provides these configuration options:
 
 #### Vector Store Settings
 - `vector_store_provider`: Choose the vector store backend. Supported options include:
-  `'faiss'` (default), `'qdrant'`, `'pinecone'`, `'supabase'`, `'elasticsearch'`, `'chroma'`, `'weaviate'`, `'milvus'`, `'pgvector'`, `'upstash_vector'`, `'vertex_ai_vector_search'`, `'azure_ai_search'`, `'lancedb'`, `'mongodb'`, `'redis'`, `'memory'` (in-memory, non-persistent).
+  `'faiss'` (default), `'qdrant'`, `'pinecone'`, `'supabase'`, `'elasticsearch'`, `'chroma'`, `'weaviate'`, `'milvus'`, `'pgvector'`, `'upstash_vector'`, `'vertex_ai_vector_search'`, `'azure_ai_search'`, `'redis'`.
 - `vector_store_collection_name`: (Optional) Specify a custom name for the collection or index in your vector store. If not provided, a default name is generated (especially for local stores like FAISS/Chroma) or used by Mem0.
 - `vector_store_base_path`: Path for local vector stores like FAISS or Chroma (e.g., `/tmp/mem0`). Default is `/tmp/mem0`.
 - `vector_store_config_override`: (Optional) A dictionary to provide or override specific configuration parameters required by Mem0 for the chosen `vector_store_provider`. This is where you'd put connection details like `host`, `port`, `api_key`, `url`, `environment`, etc., for cloud-based or server-based vector stores.

@@ -1,7 +1,8 @@
 """
 Script that demonstrates how to use the new customizable MemoryConfig with Browser Use, showcasing two different vector store providers:
 the default FAISS (local) and a more scalable option like Qdrant
-You'll need a Qdrant server running locally and the qdrant python client installed (pip install qdrant-client) to run the Qdrant example.
+You'll need a Qdrant server running locally to run the Qdrant example.
+You can visualize your Qdrant memories at http://localhost:6333/dashboard#/collections
 """
 
 import asyncio
@@ -10,7 +11,8 @@ import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
-from browser_use import Agent, MemoryConfig
+from browser_use import Agent
+from browser_use.agent.memory import MemoryConfig
 
 # Load environment variables (e.g., OPENAI_API_KEY)
 load_dotenv()
@@ -57,10 +59,8 @@ async def run_agent_with_memory_config(
 	# Let's refine how to access summaries. The summary is added as a 'memory' type message.
 
 	summaries_created = []
-	for (
-		step_messages
-	) in agent.message_manager.state.history.raw_messages:  # Assuming raw_messages contains the list of BaseMessage
-		if isinstance(step_messages, list):  # if raw_messages is a list of lists
+	for step_messages in agent.message_manager.state.history.get_messages():
+		if isinstance(step_messages, list):
 			for msg in step_messages:
 				if (
 					hasattr(msg, 'additional_kwargs')
@@ -121,7 +121,7 @@ async def main():
 
 	print('\n === PAUSE: Check FAISS data in /tmp/mem0... (if created) ===\n')
 	# You might need to adjust the path based on your embedder_dims, e.g., /tmp/mem0_1536_faiss
-	# input("Press Enter to continue to Qdrant example...")
+	input('Press Enter to continue to Qdrant example...')
 
 	# --- Scenario 2: Qdrant Memory ---
 	# Ensure Qdrant server is running (e.g., `docker run -p 6333:6333 qdrant/qdrant`)
@@ -166,4 +166,8 @@ async def main():
 
 
 if __name__ == '__main__':
+	import sys
+
+	if sys.platform.startswith('win'):
+		asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 	asyncio.run(main())
