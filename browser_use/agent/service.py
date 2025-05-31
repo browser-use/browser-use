@@ -15,6 +15,7 @@ from typing import Any, Generic, TypeVar
 
 from dotenv import load_dotenv
 
+from browser_use.agent.capabilities import get_llm_capabilities
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
 
 load_dotenv()
@@ -677,7 +678,7 @@ class Agent(Generic[Context]):
 				return 'tools'
 
 		# Models known to not support tools
-		elif is_model_without_tool_support(self.model_name):
+		elif is_model_without_tool_support(self.llm):
 			return 'raw'
 
 		return None  # Unknown combination, needs testing
@@ -1034,8 +1035,8 @@ class Agent(Generic[Context]):
 
 	def _convert_input_messages(self, input_messages: list[BaseMessage]) -> list[BaseMessage]:
 		"""Convert input messages to the correct format"""
-		if is_model_without_tool_support(self.model_name):
-			return convert_input_messages(input_messages, self.model_name)
+		if is_model_without_tool_support(self.llm):
+			return convert_input_messages(input_messages, self.llm, self.model_name)
 		else:
 			return input_messages
 
@@ -1777,7 +1778,12 @@ class Agent(Generic[Context]):
 		Verify that the LLM API keys are setup and the LLM API is responding properly.
 		Also handles tool calling method detection if in auto mode.
 		"""
-		self.tool_calling_method = self._set_tool_calling_method()
+		method = None if self.settings.tool_calling_method == 'auto' else self.settings.tool_calling_method
+		capabilities = get_llm_capabilities(self.llm, method)
+		if capabilities.error:
+			raise ConnectionError('Failed to connect to LLM. Please check your API key and network connection.')
+		capabilities.log()
+		self.tool_calling_method = capabilities.supported_tool_calling_method
 
 		# Skip verification if already done
 		if getattr(self.llm, '_verified_api_keys', None) is True or SKIP_LLM_API_KEY_VERIFICATION:
@@ -1826,7 +1832,7 @@ class Agent(Generic[Context]):
 
 			planner_messages[-1] = HumanMessage(content=new_msg)
 
-		planner_messages = convert_input_messages(planner_messages, self.planner_model_name)
+		planner_messages = convert_input_messages(planner_messages, self.llm, self.planner_model_name)
 
 		# Get planner output
 		try:
