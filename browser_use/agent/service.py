@@ -961,6 +961,13 @@ class Agent(Generic[Context]):
 		if 'Browser closed' in error_msg:
 			logger.error('❌  Browser is closed or disconnected, unable to proceed')
 			return [ActionResult(error='Browser closed or disconnected, unable to proceed', include_in_memory=False)]
+			
+		# Check for non-retriable LLM exceptions (like Gemini 500 errors)
+		if isinstance(error, LLMException) and not getattr(error, 'retriable', True):
+			logger.error(f'{prefix}Non-retriable LLM error: {error_msg}')
+			# Force consecutive failures to max to terminate the agent
+			self.state.consecutive_failures = self.settings.max_failures
+			return [ActionResult(error=f'Non-retriable LLM error: {error_msg}', include_in_memory=True)]
 
 		if isinstance(error, (ValidationError, ValueError)):
 			logger.error(f'{prefix}{error_msg}')
@@ -1050,8 +1057,14 @@ class Agent(Generic[Context]):
 				output = self.llm.invoke(input_messages)
 				response = {'raw': output, 'parsed': None}
 			except Exception as e:
-				logger.error(f'Failed to invoke model: {str(e)}')
-				raise LLMException(401, 'LLM API call failed') from e
+				error_message = str(e)
+				logger.error(f'Failed to invoke model: {error_message}')
+				# Check if it's a 500 error from Gemini, which is not reliably retriable
+				retriable = True
+				if '500 An internal error has occurred' in error_message and 'google' in self.chat_model_library.lower():
+					retriable = False
+					logger.error("Detected non-retriable Google API 500 error")
+				raise LLMException(401, 'LLM API call failed', retriable=retriable) from e
 			# TODO: currently invoke does not return reasoning_content, we should override invoke
 			output.content = self._remove_think_tags(str(output.content))
 			try:
@@ -1069,13 +1082,29 @@ class Agent(Generic[Context]):
 				parsed: AgentOutput | None = response['parsed']
 
 			except Exception as e:
-				logger.error(f'Failed to invoke model: {str(e)}')
-				raise LLMException(401, 'LLM API call failed') from e
+				error_message = str(e)
+				logger.error(f'Failed to invoke model: {error_message}')
+				# Check if it's a 500 error from Gemini, which is not reliably retriable
+				retriable = True
+				if '500 An internal error has occurred' in error_message and 'google' in self.chat_model_library.lower():
+					retriable = False
+					logger.error("Detected non-retriable Google API 500 error")
+				raise LLMException(401, 'LLM API call failed', retriable=retriable) from e
 
 		else:
 			self._log_llm_call_info(input_messages, self.tool_calling_method)
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True, method=self.tool_calling_method)
-			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
+			try:
+				response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
+			except Exception as e:
+				error_message = str(e)
+				logger.error(f'Failed to invoke model: {error_message}')
+				# Check if it's a 500 error from Gemini, which is not reliably retriable
+				retriable = True
+				if '500 An internal error has occurred' in error_message and 'google' in self.chat_model_library.lower():
+					retriable = False
+					logger.error("Detected non-retriable Google API 500 error")
+				raise LLMException(401, 'LLM API call failed', retriable=retriable) from e
 
 		# Handle tool call responses
 		if response.get('parsing_error') and 'raw' in response:
