@@ -8,7 +8,7 @@ logger = setup_logging()
 # Set Windows event loop policy for Playwright compatibility
 if sys.platform.startswith('win'):
 	try:
-		asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+		asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 	except Exception as e:
 		logger.error(f'❌  Failed to set Windows event loop policy: {type(e).__name__}: {e}')
 
