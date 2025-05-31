@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 import time
 from dataclasses import asdict, dataclass
 from threading import Thread
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 FRANCE_CAPITAL_QUESTION = 'What is the capital of France? Respond with just the city name in lowercase.'
 FRANCE_CAPITAL_EXPECTED_ANSWER = 'paris'
+SMALL_RED_IMAGE = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/4QAiRXhpZgAATU0AKgAAAAgAAQESAAMAAAABAAEAAAAAAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAACAAQDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDzOiiivlj95P/Z'
 
 ToolCallingMethod = Literal['function_calling', 'tools', 'json_mode', 'raw']
 
@@ -272,16 +274,23 @@ def _get_supported_tool_calling_method(llm: BaseChatModel, preferred: ToolCallin
 def _test_vision_support(llm: BaseChatModel) -> bool:
 	"""Tests if the LLM supports vision by asking it."""
 	try:
-		messages = [HumanMessage(content='Do you support vision? Respond with "yes" or "no".')]
+		messages = [
+			{
+				'role': 'user',
+				'content': [
+					{'type': 'text', 'text': 'What color is this image? Respond with just the color name in lowercase.'},
+					{'type': 'image_url', 'image_url': {'url': SMALL_RED_IMAGE}},
+				],
+			}
+		]
 
 		response = llm.invoke(messages)
 
-		if response and hasattr(response, 'content') and 'yes' in response.content.lower():
+		if response and hasattr(response, 'content') and re.search(r'\bred\b', response.content.lower()):
 			return True
 		else:
 			return False
 	except Exception as e:
-		print(e)
 		return False
 
 
