@@ -64,13 +64,17 @@ class AgentMessagePrompt:
 		self,
 		browser_state_summary: 'BrowserStateSummary',
 		result: list['ActionResult'] | None = None,
+		file_system_summary: str | None = None,
 		include_attributes: list[str] | None = None,
 		step_info: Optional['AgentStepInfo'] = None,
+		task: str | None = None,
 	):
 		self.state: 'BrowserStateSummary' = browser_state_summary
 		self.result = result
+		self.file_system_summary = file_system_summary
 		self.include_attributes = include_attributes or []
 		self.step_info = step_info
+		self.task = task
 		assert self.state
 
 	def get_user_message(self, use_vision: bool = True) -> HumanMessage:
@@ -96,7 +100,7 @@ class AgentMessagePrompt:
 			elements_text = 'empty page'
 
 		if self.step_info:
-			step_info_description = f'Current step: {self.step_info.step_number + 1}/{self.step_info.max_steps}'
+			step_info_description = f'Current step: {self.step_info.step_number + 1}/{self.step_info.max_steps}\n'
 		else:
 			step_info_description = ''
 		time_str = datetime.now().strftime('%Y-%m-%d %H:%M')
@@ -105,6 +109,10 @@ class AgentMessagePrompt:
 		state_description = f"""
 [Task history memory ends]
 [Current state starts here]
+Ultimate Task:
+{self.task}
+You should accumulate your results in results.txt file. If you find relevant information, use append_file to save it to results.txt.
+{self.file_system_summary}
 The following is one-time information - if you need to remember it write it to memory:
 Current url: {self.state.url}
 Available tabs:

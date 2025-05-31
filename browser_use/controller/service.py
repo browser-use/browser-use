@@ -30,6 +30,7 @@ from browser_use.controller.views import (
 	SendKeysAction,
 	SwitchTabAction,
 )
+from browser_use.filesystem.service import FileSystem
 from browser_use.utils import time_execution_sync
 
 logger = logging.getLogger(__name__)
@@ -219,6 +220,27 @@ class Controller(Generic[Context]):
 			new_page = await browser_session.get_current_page()
 			new_page_idx = browser_session.tabs.index(new_page)
 			msg = f'❌  Closed tab #{params.page_id} with {url}, now focused on tab #{new_page_idx} with url {new_page.url}'
+			logger.info(msg)
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		@self.registry.action('Write file_content to file_name in file system')
+		async def save_file(file_name: str, file_content: str, file_system: FileSystem):
+			file_system.write_file(file_name, file_content)
+			msg = f'💾  Saved file {file_name} to file system'
+			logger.info(msg)
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		@self.registry.action('Append append_content to file_name in file system')
+		async def append_file(file_name: str, append_content: str, file_system: FileSystem):
+			file_system.append_file(file_name, append_content)
+			msg = f'💾  Appended data to file {file_name} in file system'
+			logger.info(msg)
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+		@self.registry.action('Read contents of file_name in file system')
+		async def read_file(file_name: str, file_system: FileSystem):
+			file_content = file_system.read_file(file_name)
+			msg = f'📄  Read contents of file {file_name} from file system:\n\n{file_content}'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
@@ -856,7 +878,7 @@ class Controller(Generic[Context]):
 		self,
 		action: ActionModel,
 		browser_session: BrowserSession,
-		#
+		file_system: FileSystem | None = None,
 		page_extraction_llm: BaseChatModel | None = None,
 		sensitive_data: dict[str, str] | None = None,
 		available_file_paths: list[str] | None = None,
@@ -879,6 +901,7 @@ class Controller(Generic[Context]):
 					action_name=action_name,
 					params=params,
 					browser_session=browser_session,
+					file_system=file_system,
 					page_extraction_llm=page_extraction_llm,
 					sensitive_data=sensitive_data,
 					available_file_paths=available_file_paths,

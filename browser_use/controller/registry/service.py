@@ -18,6 +18,7 @@ from browser_use.controller.registry.views import (
 	RegisteredAction,
 	SpecialActionParameters,
 )
+from browser_use.filesystem.service import FileSystem
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import (
 	ControllerRegisteredFunctionsTelemetryEvent,
@@ -50,6 +51,7 @@ class Registry(Generic[Context]):
 			'browser': BrowserSession,  # legacy name
 			'browser_context': BrowserSession,  # legacy name
 			'page': Page,
+			'file_system': FileSystem,
 			'page_extraction_llm': BaseChatModel,
 			'available_file_paths': list,
 			'has_sensitive_data': bool,
@@ -195,6 +197,8 @@ class Registry(Generic[Context]):
 								raise ValueError(f'Action {func.__name__} requires browser_session but none provided.')
 							elif param.name == 'page_extraction_llm':
 								raise ValueError(f'Action {func.__name__} requires page_extraction_llm but none provided.')
+							elif param.name == 'file_system':
+								raise ValueError(f'Action {func.__name__} requires file_system but none provided.')
 							else:
 								raise ValueError(f"{func.__name__}() missing required special parameter '{param.name}'")
 						call_args.append(value)
@@ -206,6 +210,8 @@ class Registry(Generic[Context]):
 							raise ValueError(f'Action {func.__name__} requires browser_session but none provided.')
 						elif param.name == 'page_extraction_llm':
 							raise ValueError(f'Action {func.__name__} requires page_extraction_llm but none provided.')
+						elif param.name == 'file_system':
+							raise ValueError(f'Action {func.__name__} requires file_system but none provided.')
 						else:
 							raise ValueError(f"{func.__name__}() missing required special parameter '{param.name}'")
 				else:
@@ -301,6 +307,7 @@ class Registry(Generic[Context]):
 		page_extraction_llm: BaseChatModel | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		available_file_paths: list[str] | None = None,
+		file_system: FileSystem | None = None,
 		#
 		context: Context | None = None,
 	) -> Any:
@@ -334,6 +341,7 @@ class Registry(Generic[Context]):
 				'browser': browser_session,  # legacy support
 				'browser_context': browser_session,  # legacy support
 				'page_extraction_llm': page_extraction_llm,
+				'file_system': file_system,
 				'available_file_paths': available_file_paths,
 				'has_sensitive_data': action_name == 'input_text' and bool(sensitive_data),
 			}
