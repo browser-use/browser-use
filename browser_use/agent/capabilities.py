@@ -97,7 +97,7 @@ def get_llm_capabilities(
 		capabilities.error = error
 	except Exception as e:
 		error = str(e)
-		logger.error(f'💥 Unexpected Error Ruring Capability Assesment: {error}')
+		logger.error(f'💥 Unexpected Error Ruring Capability Assessment: {error}')
 		capabilities.error = error
 
 	return _cache_and_return(llm, capabilities)
