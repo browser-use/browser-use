@@ -42,7 +42,7 @@ async def test_only_open_tab_allowed(llm, browser_session):
 
 	# Create list of all default actions except open_tab
 	excluded_actions = [
-		'search_google',
+		'search',
 		'go_to_url',
 		'go_back',
 		'click_element',

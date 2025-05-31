@@ -18,7 +18,7 @@ from browser_use.controller.views import (
 	NoParamsAction,
 	OpenTabAction,
 	ScrollAction,
-	SearchGoogleAction,
+	SearchAction,
 	SendKeysAction,
 	SwitchTabAction,
 )
@@ -447,28 +447,28 @@ class TestControllerIntegration:
 	async def test_excluded_actions(self, browser_session):
 		"""Test that excluded actions are not registered."""
 		# Create controller with excluded actions
-		excluded_controller = Controller(exclude_actions=['search_google', 'open_tab'])
+		excluded_controller = Controller(exclude_actions=['search', 'open_tab'])
 
 		# Verify excluded actions are not in the registry
-		assert 'search_google' not in excluded_controller.registry.registry.actions
+		assert 'search' not in excluded_controller.registry.registry.actions
 		assert 'open_tab' not in excluded_controller.registry.registry.actions
 
 		# But other actions are still there
 		assert 'go_to_url' in excluded_controller.registry.registry.actions
 		assert 'click_element_by_index' in excluded_controller.registry.registry.actions
 
-	async def test_search_google_action(self, controller, browser_session, base_url):
-		"""Test the search_google action."""
+	async def test_search_action(self, controller, browser_session, base_url):
+		"""Test the search action."""
 
 		await browser_session.get_current_page()
 
-		# Execute search_google action - it will actually navigate to our search results page
-		search_action = {'search_google': SearchGoogleAction(query='Python web automation')}
+		# Execute search action - it will actually navigate to our search results page
+		search_action = {'search': SearchAction(query='Python web automation')}
 
-		class SearchGoogleActionModel(ActionModel):
-			search_google: SearchGoogleAction | None = None
+		class SearchActionModel(ActionModel):
+			search: SearchAction | None = None
 
-		result = await controller.act(SearchGoogleActionModel(**search_action), browser_session)
+		result = await controller.act(SearchActionModel(**search_action), browser_session)
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
@@ -1337,3 +1337,44 @@ class TestControllerIntegration:
 		# Verify the click actually had an effect on the page
 		result_text = await page.evaluate("document.getElementById('result').textContent")
 		assert result_text == expected_result_text, f"Expected result text '{expected_result_text}', got '{result_text}'"
+
+	async def test_search_action_description_updates(self):
+		"""Test that search action description updates based on search engine"""
+		# Test Google
+		controller_google = Controller(search_engine='google')
+		search_action_google = controller_google.registry.registry.actions['search']
+		assert 'Google' in search_action_google.description
+
+		# Test Bing
+		controller_bing = Controller(search_engine='bing')
+		search_action_bing = controller_bing.registry.registry.actions['search']
+		assert 'Bing' in search_action_bing.description
+
+		# Test DuckDuckGo
+		controller_ddg = Controller(search_engine='duckduckgo')
+		search_action_ddg = controller_ddg.registry.registry.actions['search']
+		assert 'Duckduckgo' in search_action_ddg.description
+
+	def test_configurable_search_engines(self):
+		"""Test configurable search engine functionality"""
+		# Test default search engine
+		controller = Controller()
+		assert controller.search_engine == 'google'
+
+		# Test custom search engine
+		controller = Controller(search_engine='duckduckgo')
+		assert controller.search_engine == 'duckduckgo'
+
+		# Test case insensitive
+		controller = Controller(search_engine='DuckDuckGo')
+		assert controller.search_engine == 'duckduckgo'
+
+		# Test all supported engines
+		supported_engines = ['google', 'bing', 'duckduckgo', 'yahoo', 'baidu']
+		for engine in supported_engines:
+			controller = Controller(search_engine=engine)
+			assert controller.search_engine == engine
+
+		# Test invalid search engine
+		with pytest.raises(ValueError, match="Unsupported search engine 'invalid'"):
+			Controller(search_engine='invalid')

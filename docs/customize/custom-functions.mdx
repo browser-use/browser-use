@@ -223,7 +223,7 @@ await agent2.run()
 
 If you want to exclude some registered actions and make them unavailable to the agent, you can do:
 ```python
-controller = Controller(exclude_actions=['open_tab', 'search_google'])
+controller = Controller(exclude_actions=['open_tab', 'search'])
 agent = Agent(controller=controller, ...)
 ```
 

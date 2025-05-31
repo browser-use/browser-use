@@ -26,7 +26,7 @@ from browser_use.controller.views import (
 	ClickElementAction,
 	InputTextAction,
 	NoParamsAction,
-	SearchGoogleAction,
+	SearchAction,
 )
 
 # Configure logging
@@ -576,8 +576,8 @@ class TestExistingControllerActions:
 	async def test_existing_action_models(self, registry, test_browser):
 		"""Test that existing action parameter models work correctly"""
 
-		@registry.action('Test search', param_model=SearchGoogleAction)
-		async def test_search(params: SearchGoogleAction, browser_session: BrowserSession):
+		@registry.action('Test search', param_model=SearchAction)
+		async def test_search(params: SearchAction, browser_session: BrowserSession):
 			return ActionResult(extracted_content=f'Searched for: {params.query}')
 
 		@registry.action('Test click', param_model=ClickElementAction)
@@ -588,7 +588,7 @@ class TestExistingControllerActions:
 		async def test_input(params: InputTextAction, browser_session: BrowserSession):
 			return ActionResult(extracted_content=f'Input text: {params.text} at index: {params.index}')
 
-		# Test SearchGoogleAction
+		# Test SearchAction
 		result1 = await registry.execute_action('test_search', {'query': 'python testing'}, browser_session=test_browser)
 		assert 'Searched for: python testing' in result1.extracted_content
 

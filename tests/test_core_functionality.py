@@ -91,8 +91,8 @@ class TestCoreFunctionality:
 		)
 
 	@pytest.mark.asyncio
-	async def test_search_google(self, llm, browser_session, base_url):
-		"""Test 'Search Google' action using a mock search page."""
+	async def test_search(self, llm, browser_session, base_url):
+		"""Test 'Search' action using a mock search page."""
 		agent = Agent(
 			task=f"Go to '{base_url}/search' and search for 'OpenAI'.",
 			llm=llm,
