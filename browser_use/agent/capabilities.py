@@ -77,24 +77,33 @@ def get_llm_capabilities(
 	)
 
 	try:
+		logger.info('🔍 Testing LLM Basic IQ')
 		capabilities.passed_iq_test = _test_basic_iq(llm)
 		if not capabilities.passed_iq_test:
 			raise LLMCapabilityError('LLM Failed Basic IQ Test')
 		capabilities.response_time = int((time.time() - start_time) * 1000)
-
-		capabilities.supported_tool_calling_method = _get_supported_tool_calling_method(llm, tool_calling_method)
 		capabilities.success = True
+		logger.info('✅ LLM Basic IQ Test Passed')
 
+		logger.info('🔍 Testing LLM Tool Calling Method')
+		capabilities.supported_tool_calling_method = _get_supported_tool_calling_method(llm, tool_calling_method)
+		logger.info(
+			f'✅ LLM Tool Calling Method Supported: {capabilities.supported_tool_calling_method if capabilities.supported_tool_calling_method else "None"}'
+		)
+
+		logger.info('🔍 Testing LLM Vision Support')
 		capabilities.supports_image_input = _test_vision_support(llm)
+		logger.info(f'✅ LLM Vision Support: {capabilities.supports_image_input}')
+
+		logger.info('🔍 Testing LLM Multiple Human Messages Support')
 		capabilities.supports_multiple_human_msgs = _test_multiple_human_msgs(llm)
+		logger.info(f'✅ LLM Supports Multiple Human Messages: {capabilities.supports_multiple_human_msgs}')
 		logger.info('✅ LLM Capability Assessment Completed Successfully')
 	except LLMCapabilityError as e:
-		error = str(e)
-		logger.error(f'❌ {error}')
-		capabilities.error = error
+		logger.error(f'❌ {e}')
 	except Exception as e:
 		error = str(e)
-		logger.error(f'💥 Unexpected Error Ruring Capability Assessment: {error}')
+		logger.error(f'💥 Unexpected Error During Capability Assessment: {error}')
 		capabilities.error = error
 
 	return _cache_and_return(llm, capabilities)
@@ -125,6 +134,7 @@ def _test_basic_iq(llm: BaseChatModel) -> bool:
 		return True
 
 	except Exception as e:
+		logger.error(f'❌ Error During Basic IQ Test: {e}.')
 		return False
 
 
@@ -272,7 +282,7 @@ def _get_supported_tool_calling_method(llm: BaseChatModel, preferred: ToolCallin
 
 
 def _test_vision_support(llm: BaseChatModel) -> bool:
-	"""Tests if the LLM supports vision by asking it."""
+	"""Tests if the LLM supports vision by detecting inability indicators."""
 	try:
 		messages = [
 			{
@@ -286,10 +296,43 @@ def _test_vision_support(llm: BaseChatModel) -> bool:
 
 		response = llm.invoke(messages)
 
-		if response and hasattr(response, 'content') and re.search(r'\bred\b', response.content.lower()):
-			return True
-		else:
+		if not response or not hasattr(response, 'content'):
 			return False
+
+		content = response.content.lower()
+
+		inability_indicators = [
+			"can't see",
+			'cannot see',
+			"can't view",
+			'cannot view',
+			"can't access",
+			'cannot access',
+			"don't see any image",
+			'unable to see',
+			'unable to view',
+			'no image',
+			"can't actually see",
+			'cannot actually see',
+			"don't have the ability to see",
+			"can't process images",
+			'cannot process images',
+			"i don't see",
+			'without seeing',
+		]
+
+		for indicator in inability_indicators:
+			if indicator in content:
+				return False
+
+		if len(content) > 200:
+			return False
+
+		if re.search(r'\bred\b', content):
+			return True
+
+		return False
+
 	except Exception as e:
 		return False
 

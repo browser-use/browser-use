@@ -15,7 +15,7 @@ from typing import Any, Generic, TypeVar
 
 from dotenv import load_dotenv
 
-from browser_use.agent.capabilities import get_llm_capabilities
+from browser_use.agent.capabilities import LLMCapabilities, get_llm_capabilities
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
 
 load_dotenv()
@@ -215,26 +215,17 @@ class Agent(Generic[Context]):
 		self._set_model_names()
 
 		# Verify we can connect to the LLM and setup the tool calling method
-		self._verify_and_setup_llm(self.llm)
+		llm_capabilities = self._verify_and_setup_llm(self.llm)
 
+		planner_capabilities: LLMCapabilities | None = None
 		if self.settings.planner_llm:
-			self._verify_and_setup_llm(self.settings.planner_llm)
+			planner_capabilities = self._verify_and_setup_llm(self.settings.planner_llm)
 
-		# Handle users trying to use use_vision=True with DeepSeek models
-		if 'deepseek' in self.model_name.lower():
-			logger.warning('⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')
+		if llm_capabilities.supports_image_input is False and self.settings.use_vision:
+			logger.warning('⚠️ LLM does not support image input. Setting use_vision=False for now...')
 			self.settings.use_vision = False
-		if 'deepseek' in (self.planner_model_name or '').lower():
-			logger.warning(
-				'⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision_for_planner=False for now...'
-			)
-			self.settings.use_vision_for_planner = False
-		# Handle users trying to use use_vision=True with XAI models
-		if 'grok' in self.model_name.lower():
-			logger.warning('⚠️ XAI models do not support use_vision=True yet. Setting use_vision=False for now...')
-			self.settings.use_vision = False
-		if 'grok' in (self.planner_model_name or '').lower():
-			logger.warning('⚠️ XAI models do not support use_vision=True yet. Setting use_vision_for_planner=False for now...')
+		if planner_capabilities and planner_capabilities.supports_image_input is False and self.settings.use_vision_for_planner:
+			logger.warning('⚠️ Planner LLM does not support image input. Setting use_vision_for_planner=False for now...')
 			self.settings.use_vision_for_planner = False
 
 		logger.info(
@@ -1776,7 +1767,7 @@ class Agent(Generic[Context]):
 
 		return converted_actions
 
-	def _verify_and_setup_llm(self, llm: BaseChatModel) -> bool:
+	def _verify_and_setup_llm(self, llm: BaseChatModel) -> LLMCapabilities:
 		"""
 		Verify that the LLM API keys are setup and the LLM API is responding properly.
 		Also handles tool calling method detection if in auto mode.
@@ -1788,10 +1779,7 @@ class Agent(Generic[Context]):
 		capabilities.log()
 		self.tool_calling_method = capabilities.supported_tool_calling_method
 
-		# Skip verification if already done
-		if getattr(llm, '_verified_api_keys', None) is True or SKIP_LLM_API_KEY_VERIFICATION:
-			llm._verified_api_keys = True
-			return True
+		return capabilities
 
 	async def _run_planner(self) -> str | None:
 		"""Run the planner to analyze state and suggest next steps"""
