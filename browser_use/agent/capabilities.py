@@ -8,7 +8,7 @@ from threading import Thread
 from typing import Any, Literal, get_args
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -299,6 +299,7 @@ def _test_vision_support(llm: BaseChatModel) -> bool:
 	"""Tests if the LLM supports vision by detecting inability indicators."""
 	try:
 		messages = [
+			SystemMessage(content='You are a model that can see and analyze images.'),
 			HumanMessage(
 				content=[
 					{
@@ -307,7 +308,7 @@ def _test_vision_support(llm: BaseChatModel) -> bool:
 					},
 					{'type': 'image_url', 'image_url': {'url': SMALL_RED_IMAGE}},
 				]
-			)
+			),
 		]
 
 		response = llm.invoke(messages)
