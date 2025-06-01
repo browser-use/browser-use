@@ -173,11 +173,11 @@ def _test_raw_json_method(llm: BaseChatModel) -> bool:
 def _test_structured_output_method(llm: BaseChatModel, method: ToolCallingMethod) -> bool:
 	"""Tests the LLM's structured output capability by asking a question."""
 
-	class FranceCapitalResponse(BaseModel):
+	class CapitalResponse(BaseModel):
 		answer: str
 
 	try:
-		structured_llm = llm.with_structured_output(FranceCapitalResponse, include_raw=True, method=method)
+		structured_llm = llm.with_structured_output(CapitalResponse, include_raw=True, method=method)
 
 		response = structured_llm.invoke([HumanMessage(content=FRANCE_CAPITAL_QUESTION)])
 
@@ -186,7 +186,7 @@ def _test_structured_output_method(llm: BaseChatModel, method: ToolCallingMethod
 
 		parsed_response = _extract_parsed_response(response)
 
-		if not isinstance(parsed_response, FranceCapitalResponse):
+		if not isinstance(parsed_response, CapitalResponse):
 			return False
 
 		if FRANCE_CAPITAL_EXPECTED_ANSWER not in parsed_response.answer.lower():
