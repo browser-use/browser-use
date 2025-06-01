@@ -143,6 +143,19 @@ class DOMElementNode(DOMBaseNode):
 			if isinstance(node, DOMTextNode):
 				text_parts.append(node.text)
 			elif isinstance(node, DOMElementNode):
+				# For date selectors and similar components, also extract text from common attributes
+				# that might contain the displayed value when textContent is empty or insufficient
+				if node == self or not text_parts:  # Only for the root element or when no text found yet
+					# Common attributes that might contain date/time information
+					date_attributes = ['value', 'data-value', 'data-date', 'aria-label', 'title', 'placeholder', 'alt']
+					for attr in date_attributes:
+						if attr in node.attributes and node.attributes[attr].strip():
+							attr_text = node.attributes[attr].strip()
+							# Only add if it looks like it might contain useful information
+							# and isn't already in our text parts
+							if attr_text and attr_text not in ' '.join(text_parts):
+								text_parts.append(f'[{attr}: {attr_text}]')
+
 				for child in node.children:
 					collect_text(child, current_depth + 1)
 

@@ -796,6 +796,36 @@
       return true;
     }
 
+    // Enhanced detection for date selectors and calendar components
+    if (element.classList && (
+      element.classList.contains('date-picker') ||
+      element.classList.contains('datepicker') ||
+      element.classList.contains('calendar') ||
+      element.classList.contains('date-selector') ||
+      element.classList.contains('date-input') ||
+      element.classList.contains('time-picker') ||
+      element.classList.contains('datetime-picker')
+    )) {
+      return true;
+    }
+
+    // Check for date-related attributes that indicate interactive date components
+    const dateAttributes = ['data-date', 'data-value', 'data-calendar', 'data-picker'];
+    for (const attr of dateAttributes) {
+      if (element.hasAttribute(attr)) {
+        return true;
+      }
+    }
+
+    // Check for input elements with date/time types
+    if (tagName === 'input') {
+      const inputType = element.getAttribute('type');
+      const dateInputTypes = ['date', 'datetime-local', 'time', 'month', 'week'];
+      if (dateInputTypes.includes(inputType)) {
+        return true;
+      }
+    }
+
     const interactiveRoles = new Set([
       'button',           // Directly clickable element
       // 'link',            // Clickable link
@@ -1323,6 +1353,25 @@
       const attributeNames = node.getAttributeNames?.() || [];
       for (const name of attributeNames) {
         nodeData.attributes[name] = node.getAttribute(name);
+      }
+    }
+
+    // Also collect attributes for potential date/time elements that might contain useful information
+    const tagName = node.tagName.toLowerCase();
+    const hasDateRelatedClass = node.classList && Array.from(node.classList).some(cls => 
+      cls.includes('date') || cls.includes('time') || cls.includes('calendar') || cls.includes('picker')
+    );
+    const hasDateRelatedAttribute = ['data-date', 'data-value', 'data-calendar', 'data-picker', 'value', 'aria-label', 'title'].some(attr => 
+      node.hasAttribute(attr)
+    );
+    
+    if ((hasDateRelatedClass || hasDateRelatedAttribute || tagName === 'input') && !nodeData.attributes.hasOwnProperty('value')) {
+      // Collect additional attributes that might contain date/time information
+      const dateRelevantAttributes = ['value', 'data-value', 'data-date', 'aria-label', 'title', 'placeholder', 'alt', 'data-calendar', 'data-picker'];
+      for (const attr of dateRelevantAttributes) {
+        if (node.hasAttribute(attr)) {
+          nodeData.attributes[attr] = node.getAttribute(attr);
+        }
       }
     }
 
