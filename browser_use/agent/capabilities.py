@@ -182,19 +182,23 @@ def _test_structured_output_method(llm: BaseChatModel, method: ToolCallingMethod
 		response = structured_llm.invoke([HumanMessage(content=FRANCE_CAPITAL_QUESTION)])
 
 		if not response:
+			logger.debug(f'🛠️  Tool calling method {method} failed: empty response')
 			return False
 
 		parsed_response = _extract_parsed_response(response)
 
 		if not isinstance(parsed_response, CapitalResponse):
+			logger.debug(f'️🛠️  Tool calling method {method} failed: LLM responded with invalid JSON')
 			return False
 
 		if FRANCE_CAPITAL_EXPECTED_ANSWER not in parsed_response.answer.lower():
+			logger.debug(f'🛠️  Tool calling method {method} failed: LLM failed to answer test question correctly')
 			return False
 
 		return True
 
 	except Exception as e:
+		logger.debug(f"🛠️  Tool calling method '{method}' test failed: {type(e).__name__}: {str(e)}")
 		return False
 
 
@@ -212,11 +216,13 @@ def _validate_raw_json_response(content: str, expected_answer: str) -> bool:
 		answer = str(result.get('answer', '')).strip().lower().strip(' .')
 
 		if expected_answer not in answer:
+			logger.debug(f"🛠️  Tool calling method 'raw' failed: expected '{expected_answer}', got '{answer}'")
 			return False
 
 		return True
 
 	except (json.JSONDecodeError, AttributeError, TypeError) as e:
+		logger.debug(f"🛠️  Tool calling method 'raw' failed: Failed to parse JSON content: {e}")
 		return False
 
 
@@ -239,6 +245,7 @@ def _get_supported_tool_calling_method(llm: BaseChatModel, preferred: ToolCallin
 		if method != preferred:
 			methods.append(method)
 
+	start_time = time.time()
 	try:
 
 		async def test_all_methods():
@@ -274,10 +281,15 @@ def _get_supported_tool_calling_method(llm: BaseChatModel, preferred: ToolCallin
 
 		for i, method in enumerate(methods):
 			if isinstance(results[i], tuple) and results[i][1]:
+				elapsed = time.time() - start_time
+				logger.debug(f'🛠️  Tested LLM in parallel and chose tool calling method: [{method}] in {elapsed:.2f}s')
 				return method
 	except Exception as e:
+		logger.debug(f'🛠️  Parallel testing failed: {e}, falling back to sequential')
 		for method in methods:
 			if _test_tool_calling_method(method):
+				elapsed = time.time() - start_time
+				logger.debug(f'🛠️  Tested LLM and chose tool calling method: [{method}] in {elapsed:.2f}s')
 				return method
 
 	return None
@@ -305,31 +317,7 @@ def _test_vision_support(llm: BaseChatModel) -> bool:
 
 		content = response.content.lower()
 
-		inability_indicators = [
-			"can't see",
-			'cannot see',
-			"can't view",
-			'cannot view',
-			"can't access",
-			'cannot access',
-			"don't see any image",
-			'unable to see',
-			'unable to view',
-			'no image',
-			"can't actually see",
-			'cannot actually see',
-			"don't have the ability to see",
-			"can't process images",
-			'cannot process images',
-			"i don't see",
-			'without seeing',
-		]
-
-		for indicator in inability_indicators:
-			if indicator in content:
-				return False
-
-		if len(content) > 200:
+		if len(content) > 200 or 'cannot see' in content:
 			return False
 
 		if re.search(r'\bred\b', content):
