@@ -189,7 +189,7 @@ def _test_structured_output_method(llm: BaseChatModel, method: ToolCallingMethod
 		if not isinstance(parsed_response, FranceCapitalResponse):
 			return False
 
-		if not parsed_response.answer or FRANCE_CAPITAL_EXPECTED_ANSWER not in parsed_response.answer.lower():
+		if FRANCE_CAPITAL_EXPECTED_ANSWER not in parsed_response.answer.lower():
 			return False
 
 		return True
@@ -229,12 +229,14 @@ def _extract_parsed_response(response: Any) -> Any | None:
 
 def _get_supported_tool_calling_method(llm: BaseChatModel, preferred: ToolCallingMethod | None) -> ToolCallingMethod | None:
 	"""Determines the supported tool calling method for the LLM."""
-	methods = []
-	if preferred:
-		methods.append(preferred)
 
+	if preferred:
+		if _test_tool_calling_method(llm, preferred):
+			return preferred
+
+	methods = []
 	for method in get_args(ToolCallingMethod):
-		if method not in methods:
+		if method != preferred:
 			methods.append(method)
 
 	try:
@@ -285,13 +287,15 @@ def _test_vision_support(llm: BaseChatModel) -> bool:
 	"""Tests if the LLM supports vision by detecting inability indicators."""
 	try:
 		messages = [
-			{
-				'role': 'user',
-				'content': [
-					{'type': 'text', 'text': 'What color is this image? Respond with just the color name in lowercase.'},
+			HumanMessage(
+				content=[
+					{
+						'type': 'text',
+						'text': 'Please analyze the image below and respond with just the color name in lowercase. If you cannot see the image, respond with "I cannot see the image."',
+					},
 					{'type': 'image_url', 'image_url': {'url': SMALL_RED_IMAGE}},
-				],
-			}
+				]
+			)
 		]
 
 		response = llm.invoke(messages)
