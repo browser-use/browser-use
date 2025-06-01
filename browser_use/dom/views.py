@@ -145,22 +145,24 @@ class DOMElementNode(DOMBaseNode):
 			elif isinstance(node, DOMElementNode):
 				# For date selectors and similar components, also extract text from common attributes
 				# that might contain the displayed value when textContent is empty or insufficient
-				if node == self or not text_parts:  # Only for the root element or when no text found yet
+				if node is self or not text_parts:  # Only for the root element or when no text found yet
 					# Common attributes that might contain date/time information
 					date_attributes = ['value', 'data-value', 'data-date', 'aria-label', 'title', 'placeholder', 'alt']
+					# Compute existing text once for efficient lookup
+					existing_text = ' '.join(text_parts)
 					for attr in date_attributes:
 						if attr in node.attributes and node.attributes[attr].strip():
 							attr_text = node.attributes[attr].strip()
 							# Only add if it looks like it might contain useful information
 							# and isn't already in our text parts
-							if attr_text and attr_text not in ' '.join(text_parts):
+							if attr_text and attr_text not in existing_text:
 								text_parts.append(f'[{attr}: {attr_text}]')
 
 				for child in node.children:
 					collect_text(child, current_depth + 1)
 
 		collect_text(self, 0)
-		return '\n'.join(text_parts).strip()
+		return '\n'.join(text_parts)
 
 	@time_execution_sync('--clickable_elements_to_string')
 	def clickable_elements_to_string(self, include_attributes: list[str] | None = None) -> str:
@@ -176,7 +178,7 @@ class DOMElementNode(DOMBaseNode):
 				if node.highlight_index is not None:
 					next_depth += 1
 
-					text = node.get_all_text_till_next_clickable_element()
+					text = self.get_all_text_till_next_clickable_element()
 					attributes_html_str = ''
 					if include_attributes:
 						attributes_to_include = {

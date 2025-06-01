@@ -1357,7 +1357,6 @@
     }
 
     // Also collect attributes for potential date/time elements that might contain useful information
-    const tagName = node.tagName.toLowerCase();
     const hasDateRelatedClass = node.classList && Array.from(node.classList).some(cls => 
       cls.includes('date') || cls.includes('time') || cls.includes('calendar') || cls.includes('picker')
     );
@@ -1365,7 +1364,7 @@
       node.hasAttribute(attr)
     );
     
-    if ((hasDateRelatedClass || hasDateRelatedAttribute || tagName === 'input') && !nodeData.attributes.hasOwnProperty('value')) {
+    if ((hasDateRelatedClass || hasDateRelatedAttribute || nodeData.tagName === 'input') && !nodeData.attributes.hasOwnProperty('value')) {
       // Collect additional attributes that might contain date/time information
       const dateRelevantAttributes = ['value', 'data-value', 'data-date', 'aria-label', 'title', 'placeholder', 'alt', 'data-calendar', 'data-picker'];
       for (const attr of dateRelevantAttributes) {
