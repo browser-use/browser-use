@@ -1031,11 +1031,6 @@ class BrowserSession(BaseModel):
 	# 	return list(Path(self.browser_profile.downloads_dir).glob('*'))
 
 	async def _wait_for_stable_network(self):
-		"""Wait for network to be idle"""
-		page = self.agent_current_page
-		if not page:
-			return
-		
 		pending_requests = set()
 		last_activity = asyncio.get_event_loop().time()
 
