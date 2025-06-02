@@ -14,27 +14,27 @@
 [![Twitter Follow](https://img.shields.io/twitter/follow/Magnus?style=social)](https://x.com/mamagnus00)
 [![Weave Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fapp.workweave.ai%2Fapi%2Frepository%2Fbadge%2Forg_T5Pvn3UBswTHIsN1dWS3voPg%2F881458615&labelColor=#EC6341)](https://app.workweave.ai/reports/repository/org_T5Pvn3UBswTHIsN1dWS3voPg/881458615)
 
-🌐 Browser-use is the easiest way to connect your AI agents with the browser.
+## How to Use
 
-💡 See what others are building and share your projects in our [Discord](https://link.browser-use.com/discord)! Want Swag? Check out our [Merch store](https://browsermerch.com).
+`browser-use` is a Python library that allows you to automate web browsers with AI. Here's how to get started:
 
-🌤️ Skip the setup - try our <b>hosted version</b> for instant browser automation! <b>[Try the cloud ☁︎](https://cloud.browser-use.com)</b>.
+**1. Installation:**
 
-# Quick start
-
-With pip (Python>=3.11):
+First, install the library using pip:
 
 ```bash
 pip install browser-use
 ```
 
-install playwright:
+Then, install Playwright and its browser dependencies:
 
 ```bash
 playwright install
 ```
 
-Spin up your agent:
+**2. Basic Usage:**
+
+Create a Python script (e.g., `run_agent.py`) with the following code:
 
 ```python
 from langchain_openai import ChatOpenAI
@@ -53,11 +53,29 @@ async def main():
 asyncio.run(main())
 ```
 
-Add your API keys for the provider you want to use to your `.env` file.
+**3. API Keys:**
+
+Add your API keys for the AI provider you want to use (e.g., OpenAI) to a `.env` file in your project's root directory:
 
 ```bash
-OPENAI_API_KEY=
+OPENAI_API_KEY=your_openai_api_key_here
 ```
+
+Now you can run your agent:
+
+```bash
+python run_agent.py
+```
+
+For more advanced examples, different settings, and supported models, please check out the [Detailed Examples and Demos](#detailed-examples-and-demos) section below and our full [documentation 📕](https://docs.browser-use.com).
+
+🌐 Browser-use is the easiest way to connect your AI agents with the browser.
+
+💡 See what others are building and share your projects in our [Discord](https://link.browser-use.com/discord)! Want Swag? Check out our [Merch store](https://browsermerch.com).
+
+🌤️ Skip the setup - try our <b>hosted version</b> for instant browser automation! <b>[Try the cloud ☁︎](https://cloud.browser-use.com)</b>.
+
+# Detailed Examples and Demos
 
 For other settings, models, and more, check out the [documentation 📕](https://docs.browser-use.com).
 
@@ -109,9 +127,8 @@ https://github.com/user-attachments/assets/de73ee39-432c-4b97-b4e8-939fd7f323b3
 
 <br/><br/>
 
-## More examples
-
-For more examples see the [examples](examples) folder or join the [Discord](https://link.browser-use.com/discord) and show off your project.
+## Explore More Examples
+You can find a variety of more complex and specific use-case examples in the [examples/](examples) directory of this repository. These demonstrate different features and capabilities of browser-use. Feel free to explore them and adapt them to your needs! You can also join our [Discord](https://link.browser-use.com/discord) to see what others are building or to share your own projects.
 
 # Vision
 
