@@ -116,7 +116,7 @@
 # 				'height': self.context_config.window_height,
 # 			}
 
-# 		# Note: cookies_file and save_downloads_path are handled separately
+# 		# Note: cookies_file and downloads_dir are handled separately
 
 # 		# Filter out None values
 # 		options_dict = {k: v for k, v in options_dict.items() if v is not None}
@@ -438,8 +438,8 @@
 # 		index = params.get('index')
 # 		selector = self._get_selector_for_action(history_item, action_index_in_step)
 # 		download_dir_in_script = "'./files'"  # Default
-# 		if self.context_config and self.context_config.save_downloads_path:
-# 			download_dir_in_script = repr(self.context_config.save_downloads_path)
+# 		if self.context_config and self.context_config.downloads_dir:
+# 			download_dir_in_script = repr(self.context_config.downloads_dir)
 
 # 		script_lines = []
 # 		if selector and index is not None:

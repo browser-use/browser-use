@@ -285,7 +285,7 @@ agent2 = Agent(
 )
 await asyncio.gather(agent1.run(), agent2.run()) # run in parallel
 
-await reused_session.close()
+await shared_browser.close()
 ```
 
 ### Parallel Agents, Same Browser, Same Tab
@@ -345,6 +345,7 @@ shared_profile = BrowserProfile(
     headless=True,
     user_data_dir=None,               # use dedicated tmp user_data_dir per session
     storage_state='/tmp/auth.json',   # load/save cookies to/from json file
+    keep_alive=True,                  # don't close the browser after the agent finishes
 )
 
 window1 = BrowserSession(browser_profile=profile_a)
@@ -356,6 +357,11 @@ agent2 = Agent(browser_session=window2)
 await asyncio.gather(agent1.run(), agent2.run())  # run in parallel
 await window1.save_cookies()  # write cookie updates to auth.json
 await window2.save_cookies()  # you must decide when to save manually
+
+# can also reload the cookies from the file into the active session if they change
+await window1.load_cookies_from_file()
+await window1.close()
+await window2.close()
 ```
 
 ---

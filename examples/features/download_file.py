@@ -20,7 +20,7 @@ if not api_key:
 llm = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=SecretStr(api_key))
 browser_session = BrowserSession(
 	browser_profile=BrowserProfile(
-		save_downloads_path=os.path.join(os.path.expanduser('~'), 'downloads'),
+		downloads_dir='~/Downloads',
 		user_data_dir='~/.config/browseruse/profiles/default',
 	)
 )

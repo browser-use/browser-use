@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 
 os.environ['PW_TEST_SCREENSHOT_NO_FONTS_READY'] = '1'  # https://github.com/microsoft/playwright/issues/35972
 
+import anyio
 import psutil
 from patchright.async_api import Playwright as PatchrightPlaywright
 from playwright.async_api import Browser as PlaywrightBrowser
@@ -32,7 +33,7 @@ from browser_use.browser.views import (
 from browser_use.dom.clickable_element_processor.service import ClickableElementProcessor
 from browser_use.dom.service import DomService
 from browser_use.dom.views import DOMElementNode, SelectorMap
-from browser_use.utils import match_url_with_domain_pattern, time_execution_async, time_execution_sync
+from browser_use.utils import match_url_with_domain_pattern, merge_dicts, time_execution_async, time_execution_sync
 
 # Check if running in Docker
 IN_DOCKER = os.environ.get('IN_DOCKER', 'false').lower()[0] in 'ty1'
@@ -63,9 +64,18 @@ def _log_pretty_url(s: str, max_len: int | None = 22) -> str:
 	return s
 
 
-def _log_pretty_path(path: Path) -> str:
+def _log_pretty_path(path: Path | None) -> str:
 	"""Pretty-print a path, shorten home dir to ~ and cwd to ."""
-	return str(path or '').replace(str(Path.home()), '~').replace(str(Path.cwd().resolve()), '.')
+
+	if not path:
+		return ''  # always falsy in -> falsy out so it can be used in ternaries
+
+	if not isinstance(path, (str, Path)):
+		# no other types are safe to just str(path) and log to terminal unless we know what they are
+		# e.g. what if we get storage_date=dict | Path and the dict version could contain real cookies
+		return f'<{type(path).__name__}>'
+
+	return str(path).replace(str(Path.home()), '~').replace(str(Path.cwd().resolve()), '.')
 
 
 def require_initialization(func):
@@ -770,9 +780,8 @@ class BrowserSession(BaseModel):
 		except Exception as e:
 			logger.warning(f'⚠️ Failed to update browser geolocation {self.browser_profile.geolocation}: {type(e).__name__}: {e}')
 
-		# if self.storage_state:
-		#   TODO: implement applying self.stroage_state to an existing browser_context, currently only works on browser.new_context() I think
-		# 	await self.browser_context.set_storage_state(self.storage_state)
+		if self.browser_profile.storage_state:
+			await self.load_storage_state()
 
 		page = None
 
@@ -988,7 +997,7 @@ class BrowserSession(BaseModel):
 			async def perform_click(click_func):
 				"""Performs the actual click, handling both download
 				and navigation scenarios."""
-				if self.browser_profile.save_downloads_path:
+				if self.browser_profile.downloads_dir:
 					try:
 						# Try short-timeout expect_download to detect a file download has been been triggered
 						async with page.expect_download(timeout=5000) as download_info:
@@ -996,14 +1005,12 @@ class BrowserSession(BaseModel):
 						download = await download_info.value
 						# Determine file path
 						suggested_filename = download.suggested_filename
-						unique_filename = await self._get_unique_filename(
-							self.browser_profile.save_downloads_path, suggested_filename
-						)
-						download_path = os.path.join(self.browser_profile.save_downloads_path, unique_filename)
+						unique_filename = await self._get_unique_filename(self.browser_profile.downloads_dir, suggested_filename)
+						download_path = os.path.join(self.browser_profile.downloads_dir, unique_filename)
 						await download.save_as(download_path)
 						logger.debug(f'⬇️  Download triggered. Saved file to: {download_path}')
 						return download_path
-					except TimeoutError:
+					except Exception:
 						# If no download is triggered, treat as normal click
 						logger.debug('No download triggered within timeout. Checking navigation...')
 						await page.wait_for_load_state()
@@ -1092,53 +1099,148 @@ class BrowserSession(BaseModel):
 			return await self.browser_context.cookies()
 		return []
 
-	async def save_cookies(self, path: Path | None = None) -> None:
+	async def save_cookies(self, *args, **kwargs) -> None:
 		"""
-		Save cookies to the specified path or the default cookies_file in the downloads_dir.
+		Old name for the new save_storage_state() function.
 		"""
-		if self.browser_context:
-			# old deprecated cookies_file method:
-			cookies = await self.browser_context.cookies()
-			out_path = path or self.browser_profile.cookies_file
-			if out_path:
-				# If out_path is not absolute, resolve relative to downloads_dir
-				out_path = Path(out_path)
-				if not out_path.is_absolute():
-					out_path = Path(self.browser_profile.downloads_dir or '.') / out_path
-				out_path.parent.mkdir(parents=True, exist_ok=True)
-				out_path.write_text(json.dumps(cookies, indent=4))  # TODO: replace with anyio asyncio or anyio write
+		await self.save_storage_state(*args, **kwargs)
 
-			# new recommended storage_state method:
-			storage_state = await self.browser_context.storage_state()
-			storage_state_path = Path(self.browser_profile.downloads_dir or '.') / 'storage_state.json'
-			storage_state_path.write_text(json.dumps(storage_state, indent=4))
+	@require_initialization
+	async def save_storage_state(self, path: Path | None = None) -> None:
+		"""
+		Save cookies to the specified path or the configured cookies_file and/or storage_state.
+		"""
+		storage_state = await self.browser_context.storage_state()
+		cookies = storage_state['cookies']
+		if cookies and self.browser_profile.cookies_file:
+			# only show warning if they configured cookies_file (not if they passed in a path to this function as an arg)
+			logger.warning(
+				'⚠️ cookies_file is deprecated and will be removed in a future version. '
+				'Please use storage_state instead for loading cookies and other browser state. '
+				'See: https://playwright.dev/python/docs/api/class-browsercontext#browser-context-storage-state'
+			)
 
-	async def load_cookies_from_file(self) -> None:
-		"""
-		Load cookies from the cookies_file if it exists and apply them to the browser context.
-		"""
-		if not self.browser_profile.cookies_file or not self.browser_context:
+		# save cookies_file if passed a cookies file path or if profile cookies_file is configured
+		path_is_storage_state = path and str(path).endswith('storage_state.json')
+		if (path and not path_is_storage_state) or self.browser_profile.cookies_file:
+			try:
+				cookies_file_path = Path(path or self.browser_profile.cookies_file).expanduser().resolve()
+				cookies_file_path.parent.mkdir(parents=True, exist_ok=True)
+				await anyio.Path(cookies_file_path).write_text(json.dumps(cookies, indent=4))
+				logger.info(f'🍪 Saved {len(cookies)} cookies to cookies_file={_log_pretty_path(cookies_file_path)}')
+				return
+			except Exception as e:
+				logger.warning(
+					f'❌ Failed to save cookies to cookies_file={_log_pretty_path(cookies_file_path)}: {type(e).__name__}: {e}'
+				)
+
+		if path:
+			# if they passed in a path to the old save_cookies function,
+			# also save a new storage_state.json next to it to encourage adoption of the new format
+			storage_state_path = Path(path).expanduser().resolve().parent / 'storage_state.json'
+		else:
+			# otherwise use configured storage_state path
+			storage_state_path = self.browser_profile.storage_state
+
+		if storage_state_path is None:
+			return
+		elif not isinstance(storage_state_path, (str, Path)):
+			logger.warning('⚠️ storage_state must be a json file path to be able to update it, skipping...')
 			return
 
-		# Show deprecation warning
-		logger.warning(
-			'⚠️ cookies_file is deprecated and will be removed in a future version. '
-			'Please use storage_state instead for loading cookies and other browser state. '
-			'See: https://playwright.dev/python/docs/api/class-browsercontext#browser-context-storage-state'
-		)
+		try:
+			storage_state_path = Path(storage_state_path).expanduser().resolve()
+			storage_state_path.parent.mkdir(parents=True, exist_ok=True)
+			storage_state = await self.browser_context.storage_state()
 
-		cookies_path = Path(self.browser_profile.cookies_file)
-		if not cookies_path.is_absolute():
-			cookies_path = Path(self.browser_profile.downloads_dir or '.') / cookies_path
+			# always merge storage states, never overwrite (so two browsers can share the same storage_state.json)
+			if storage_state_path.exists():
+				try:
+					existing_storage_state_text = await anyio.Path(storage_state_path).read_text()
+					existing_storage_state = json.loads(existing_storage_state_text)
+					merged_storage_state = merge_dicts(existing_storage_state, storage_state)
+					# in case another process races us and updates the file here, we will overwrite their changes
+					# if we really want to support real concurrency we need a sqlite database or something
+					await anyio.Path(storage_state_path).write_text(json.dumps(merged_storage_state, indent=4))
+				except Exception as e:
+					logger.warning(
+						f'❌ Failed to merge storage state with existing storage_state={_log_pretty_path(storage_state_path)}: {type(e).__name__}: {e}'
+					)
+					return
+			else:
+				# No existing file, write the new storage state
+				await anyio.Path(storage_state_path).write_text(json.dumps(storage_state, indent=4))
 
-		if cookies_path.exists():
+			logger.info(
+				f'🍪 Saved {len(storage_state["cookies"])} cookies to storage_state={_log_pretty_path(storage_state_path)}'
+			)
+		except Exception as e:
+			logger.warning(
+				f'❌ Failed to save storage state to storage_state={_log_pretty_path(storage_state_path)}: {type(e).__name__}: {e}'
+			)
+
+	@require_initialization
+	async def load_storage_state(self) -> None:
+		"""
+		Load cookies from the storage_state or cookies_file and apply them to the browser context.
+		"""
+
+		if self.browser_profile.cookies_file:
+			# Show deprecation warning
+			logger.warning(
+				'⚠️ cookies_file is deprecated and will be removed in a future version. '
+				'Please use storage_state instead for loading cookies and other browser state. '
+				'See: https://playwright.dev/python/docs/api/class-browsercontext#browser-context-storage-state'
+			)
+
+			cookies_path = Path(self.browser_profile.cookies_file)
+			if not cookies_path.is_absolute():
+				cookies_path = Path(self.browser_profile.downloads_dir or '.') / cookies_path
+
 			try:
-				cookies_data = json.loads(cookies_path.read_text())
+				cookies_data_text = await anyio.Path(cookies_path).read_text()
+				cookies_data = json.loads(cookies_data_text)
 				if cookies_data:
 					await self.browser_context.add_cookies(cookies_data)
-					logger.info(f'🍪 Loaded {len(cookies_data)} cookies from {_log_pretty_path(cookies_path)}')
+					logger.info(f'🍪 Loaded {len(cookies_data)} cookies from cookies_file={_log_pretty_path(cookies_path)}')
 			except Exception as e:
-				logger.warning(f'❌ Failed to load cookies from {_log_pretty_path(cookies_path)}: {type(e).__name__}: {e}')
+				logger.warning(
+					f'❌ Failed to load cookies from cookies_file={_log_pretty_path(cookies_path)}: {type(e).__name__}: {e}'
+				)
+
+		if self.browser_profile.storage_state:
+			storage_state = self.browser_profile.storage_state
+			if isinstance(storage_state, (str, Path)):
+				try:
+					storage_state_text = await anyio.Path(storage_state).read_text()
+					storage_state = json.loads(storage_state_text)
+				except Exception as e:
+					logger.warning(
+						f'❌ Failed to load cookies from storage_state={_log_pretty_path(self.browser_profile.storage_state)}: {type(e).__name__}: {e}'
+					)
+					return
+
+			try:
+				assert isinstance(storage_state, dict), f'Got unexpected type for storage_state: {type(storage_state)}'
+				await self.browser_context.add_cookies(storage_state['cookies'])
+				# TODO: also handle localStroage, IndexedDB, SessionStorage
+				# playwright doesn't provide an API for setting these before launch
+				# https://playwright.dev/python/docs/auth#session-storage
+				# await self.browser_context.add_local_storage(storage_state['localStorage'])
+				logger.info(
+					f'🍪 Loaded {len(storage_state["cookies"])} cookies from storage_state={_log_pretty_path(self.browser_profile.storage_state)}'
+				)
+			except Exception as e:
+				logger.warning(
+					f'❌ Failed to load cookies from storage_state={_log_pretty_path(self.browser_profile.storage_state)}: {type(e).__name__}: {e}'
+				)
+				return
+
+	async def load_cookies_from_file(self, *args, **kwargs) -> None:
+		"""
+		Old name for the new load_storage_state() function.
+		"""
+		await self.load_storage_state(*args, **kwargs)
 
 	# @property
 	# def browser_extension_pages(self) -> list[Page]:

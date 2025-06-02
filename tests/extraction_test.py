@@ -83,7 +83,7 @@ async def test_focus_vs_all_elements():
 	for website in websites:
 		# sleep 2
 		await page.goto(website)
-		asyncio.sleep(1)
+		await asyncio.sleep(1)
 
 		last_clicked_index = None  # Track the index for text input
 		while True:

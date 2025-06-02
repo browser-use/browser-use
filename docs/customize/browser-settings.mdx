@@ -298,7 +298,20 @@ Time to wait between agent actions.
 cookies_file: str | None = None
 ```
 
-File to save cookies to.
+JSON file path to save cookies to.
+
+<Warning>
+This option is DEPRECATED. Use [`storage_state`](#storage-state) instead, it's the standard playwright format and also supports `localStorage`!
+
+Transfer any cookies from your existing `cookies_file` to the new JSON format:
+
+`cookies_file.json`: `[{cookie}, {cookie}, {cookie}]`  
+⬇️
+`storage_state.json`: `{"cookies": [{cookie}, {cookie}, {cookie}], "origins": {... optional localstorage state ...}}`
+
+Or run `playwright open https://example.com/ --save-storage=storage_state.json` and log into any sites you need.
+</Warning>
+
 
 #### `downloads_dir`
 
@@ -306,15 +319,9 @@ File to save cookies to.
 downloads_dir: Path | str = '~/.config/browseruse/downloads'
 ```
 
-Directory for downloads.
+Directory to save browser downloads in.
 
-#### `save_downloads_path`
-
-```python
-save_downloads_path: str | None = None
-```
-
-Directory for saving downloads (alternative to downloads_dir).
+(previously called `save_downloads_path` in some places)
 
 #### `profile_directory`
 
@@ -322,7 +329,7 @@ Directory for saving downloads (alternative to downloads_dir).
 profile_directory: str = 'Default'
 ```
 
-Chrome profile directory name (e.g., 'Profile 1', 'Profile 2').
+Chrome profile subdirectory name inside of your `user_data_dir` (e.g. `Default`, `Profile 1`, `Work`, etc.).
 
 #### `window_position`
 

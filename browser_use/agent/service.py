@@ -146,6 +146,9 @@ class Agent(Generic[Context]):
 			'alt',
 			'aria-expanded',
 			'data-date-format',
+			'checked',
+			'data-state',
+			'aria-checked',
 		],
 		max_actions_per_step: int = 10,
 		tool_calling_method: ToolCallingMethod | None = 'auto',
@@ -653,6 +656,8 @@ class Agent(Generic[Context]):
 		# OpenAI models
 		if self.chat_model_library == 'ChatOpenAI':
 			if any(m in model_lower for m in ['gpt-4', 'gpt-3.5']):
+				return 'function_calling'
+			if any(m in model_lower for m in ['llama-4', 'llama-3']):
 				return 'function_calling'
 
 		# Azure OpenAI models

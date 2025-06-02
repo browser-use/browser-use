@@ -978,6 +978,7 @@ class BrowserUseApp(App):
 				llm=self.llm,
 				controller=self.controller,
 				browser_session=self.browser_session,
+				source='cli',
 				**agent_settings.model_dump(),
 			)
 			# Update our browser_session reference to point to the agent's
@@ -1182,6 +1183,7 @@ async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
 			task=prompt,
 			llm=llm,
 			browser_session=browser_session,
+			source='cli',
 			**agent_settings.model_dump(),
 			# Run the agent
 		)

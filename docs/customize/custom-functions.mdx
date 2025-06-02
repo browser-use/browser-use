@@ -43,7 +43,7 @@ agent = Agent(
 <Note>
   Keep your action function names and descriptions short and concise:
   - The LLM chooses between actions to run solely based on the function name and description
-  - The LLM decides how to fill the action params based on the argument names and type hints
+  - The LLM decides how to fill action params based on their names, type hints, & defaults
 </Note>
 
 ---
@@ -68,13 +68,13 @@ def click_element(css_selector: str, page: Page) -> ActionResult:
 
 ### Pydantic Model
 
-You can define a pydantic model for the parameters your action expects.
-This allows you to use optional parameters, default values, `Annotated[...]` types with custom validation, and other features offered by pydantic.
+You can define a pydantic model for the parameters your action expects by setting a `@controller.action(..., param_model=MyParams)`.
+This allows you to use optional parameters, default values, `Annotated[...]` types with custom validation, field descriptions, and other features offered by pydantic.
 
-When the agent calls calls your agent function, an instance of your model
-with the values filled by the LLM will be passed as the first argument `params` to your action function.
+When the agent calls calls your agent function, an instance of your model with the values filled by the LLM will be passed as the argument named `params` to your action function.
 
 Using a pydantic model is helpful because it allows more flexibility and power to enforce the schema of the values the LLM should provide.
+The LLM gets the entire pydantic JSON schema for your `param_model`, it will see the function name & description + individual field names, types, descriptions, and default values.
 
 
 ```python
@@ -86,6 +86,7 @@ class MyParams(BaseModel):
     field1: int
     field2: str = 'default value'
     field3: Annotated[str, AfterValidator(lambda s: s.lower())]  # example: enforce always lowercase
+    field4: str = Field(default='abc', description='Detailed description for the LLM')
 
 @controller.action('My action', param_model=MyParams)
 def my_action(params: MyParams, page: Page) -> ActionResult:
@@ -95,6 +96,9 @@ def my_action(params: MyParams, page: Page) -> ActionResult:
 
 Any special framework-provided arguments (e.g. `page`) will be passed as separate positional arguments after `params`.
 
+<Important>
+To use a `BaseModel` the arg *must* be called `params`. Action function args are matched and filled like named arguments; arg order doesn't matter but names and types do.
+</Important>
 
 ### Framework-Provided Parameters
 
