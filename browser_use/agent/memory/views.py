@@ -55,6 +55,27 @@ class MemoryConfig(BaseModel):
 		default=None,
 		description="Advanced: Override or provide additional config keys that Mem0 expects for the chosen vector_store provider's 'config' dictionary (e.g., host, port, api_key).",
 	)
+	# Neo4j is the only graph store provider supported by v0.1.93 of Mem0.
+	# From 0.1.94, Mem0 supports Memgraph as well.
+	graph_store_provider: Literal['neo4j'] | None = Field(
+		default=None,
+		description="The graph store provider to use with Mem0 (e.g., 'neo4j'). Requires 'mem0ai[graph]' to be installed.",
+	)
+
+	graph_store_config_override: dict[str, Any] | None = Field(
+		default=None,
+		description="Configuration for the specific graph store provider. For 'neo4j', this should include 'url', 'username', and 'password'.",
+	)
+
+	graph_store_llm_config_override: dict[str, Any] | None = Field(
+		default=None,
+		description="Optional: LLM configuration specifically for graph operations within Mem0. Structure as {'provider': '...', 'config': {...}}.",
+	)
+
+	graph_store_custom_prompt: str | None = Field(
+		default=None,
+		description='Optional: Custom prompt for Mem0 to use for extracting entities and relationships for the graph store.',
+	)
 
 	@property
 	def vector_store_path(self) -> str:
@@ -167,10 +188,50 @@ class MemoryConfig(BaseModel):
 		}
 
 	@property
+	def graph_store_config_dict(self) -> dict[str, Any] | None:
+		"""Returns the graph store configuration dictionary for Mem0, if configured."""
+		if not self.graph_store_provider:
+			return None
+
+		graph_config_content = self.graph_store_config_override or {}
+
+		# Validate Neo4j specific config
+		if self.graph_store_provider == 'neo4j':
+			required_keys = {'url', 'username', 'password'}
+			if not graph_config_content:  # if graph_store_config_override was None
+				raise ValueError(
+					"Neo4j graph store requires 'graph_store_config_override' with 'url', 'username', and 'password'."
+				)
+
+			missing_keys = required_keys - graph_config_content.keys()
+			if missing_keys:
+				raise ValueError(f"Missing required Neo4j config keys in 'graph_store_config_override': {missing_keys}")
+
+		final_graph_config = {'provider': self.graph_store_provider, 'config': graph_config_content}
+
+		if self.graph_store_llm_config_override:
+			if not isinstance(self.graph_store_llm_config_override.get('provider'), str) or not isinstance(
+				self.graph_store_llm_config_override.get('config'), dict
+			):
+				raise ValueError(
+					"`graph_store_llm_config_override` must be a dictionary with 'provider' (str) and 'config' (dict) keys."
+				)
+			final_graph_config['llm'] = self.graph_store_llm_config_override
+
+		if self.graph_store_custom_prompt:
+			final_graph_config['custom_prompt'] = self.graph_store_custom_prompt
+
+		return final_graph_config
+
+	@property
 	def full_config_dict(self) -> dict[str, dict[str, Any]]:
 		"""Returns the complete configuration dictionary for Mem0."""
-		return {
+		config = {
 			'embedder': self.embedder_config_dict,
 			'llm': self.llm_config_dict,
 			'vector_store': self.vector_store_config_dict,
 		}
+		graph_store_conf = self.graph_store_config_dict
+		if graph_store_conf:
+			config['graph_store'] = graph_store_conf  # type: ignore
+		return config
