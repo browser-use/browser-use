@@ -389,6 +389,8 @@ class Agent(Generic[Context]):
 			logger.info(f'Saving conversation to {self.settings.save_conversation_path}')
 		self._external_pause_event = asyncio.Event()
 		self._external_pause_event.set()
+		self._paused_step = None
+		self._pause_lock = asyncio.Lock()
 
 	@property
 	def browser(self) -> Browser:
@@ -763,13 +765,14 @@ class Agent(Generic[Context]):
 
 	async def _raise_if_stopped_or_paused(self) -> None:
 		"""Utility function that raises an InterruptedError if the agent is stopped or paused."""
-
 		if self.register_external_agent_status_raise_error_callback:
 			if await self.register_external_agent_status_raise_error_callback():
 				raise InterruptedError
 
-		if self.state.stopped or self.state.paused:
-			# logger.debug('Agent paused after getting state')
+		if not self._external_pause_event.is_set():
+			await self.wait_until_resumed()
+			
+		if self.state.stopped:
 			raise InterruptedError
 
 	# @observe(name='agent.step', ignore_output=True, ignore_input=True)
@@ -1716,34 +1719,29 @@ class Agent(Generic[Context]):
 	async def wait_until_resumed(self):
 		await self._external_pause_event.wait()
 
-	def pause(self) -> None:
-		"""Pause the agent before the next step"""
-		print(
-			'\n\n⏸️  Got [Ctrl+C], paused the agent and left the browser open.\n\tPress [Enter] to resume or [Ctrl+C] again to quit.'
-		)
-		self.state.paused = True
-		self._external_pause_event.clear()
+	async def pause(self) -> None:
+		"""Pause the agent's execution."""
+		async with self._pause_lock:
+			if not self._external_pause_event.is_set():
+				# Already paused
+				return
+			
+			self._external_pause_event.clear()
+			self.state.paused = True
+			self._paused_step = self.state.n_steps
+			logger.info("Agent paused at step %d", self._paused_step)
 
-		# The signal handler will handle the asyncio pause logic for us
-		# No need to duplicate the code here
-
-	def resume(self) -> None:
-		"""Resume the agent"""
-		print('----------------------------------------------------------------------')
-		print('▶️  Got Enter, resuming agent execution where it left off...\n')
-		self.state.paused = False
-		self._external_pause_event.set()
-
-		# The signal handler should have already reset the flags
-		# through its reset() method when called from run()
-
-		# playwright browser is always immediately killed by the first Ctrl+C (no way to stop that)
-		# so we need to restart the browser if user wants to continue
-		if self.browser:
-			logger.info('🌎 Restarting/reconnecting to browser...')
-			loop = asyncio.get_event_loop()
-			loop.create_task(self.browser._init())
-			loop.create_task(asyncio.sleep(5))
+	async def resume(self) -> None:
+		"""Resume the agent's execution."""
+		async with self._pause_lock:
+			if self._external_pause_event.is_set():
+				# Already running
+				return
+			
+			self._external_pause_event.set()
+			self.state.paused = False
+			logger.info("Agent resumed from step %d", self._paused_step)
+			self._paused_step = None
 
 	def stop(self) -> None:
 		"""Stop the agent"""
