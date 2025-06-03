@@ -15,6 +15,7 @@ Get started with Browser Use development in minutes:
 ```bash
 git clone https://github.com/browser-use/browser-use
 cd browser-use
+uv venv --python 3.11
 uv sync --all-extras --dev
 # or pip install -U git+https://github.com/browser-use/browser-use.git@main
 
@@ -27,34 +28,68 @@ For more detailed setup instructions, see our [Local Setup Guide](/development/l
 
 ### Find Something to Work On
 
-- Browse our [GitHub Issues](https://github.com/browser-use/browser-use/issues) for beginner-friendly issues labeled `good-first-issue`
-- Check out our most active issues or ask in [Discord](https://discord.gg/zXJJHtJf3k) for ideas of what to work on
+- Browse our [GitHub Issues](https://github.com/browser-use/browser-use/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22help%20wanted%22) for beginner-friendly issues labeled `#help wanted` or `#good first issue`
+- Check out our most active issues or ask in [Discord](https://link.browser-use.com/discord) for ideas of what to work on
 - Get inspiration and share what you build in the [`#showcase-your-work`](https://discord.com/channels/1303749220842340412/1305549200678850642) channel
-- Explore or contribute to [`awesome-browser-use-prompts`](https://github.com/browser-use/awesome-prompts)!
+- Explore or contribute to [`browser-use/awesome-prompts`](https://github.com/browser-use/awesome-prompts)!
 
-### Making a Great Pull Request
+### The Contribution Process
 
-When submitting a pull request, please:
 
-- Include a clear description of what the PR does and why it's needed
-- Add tests that cover your changes
-- Include a demo screenshot/gif or an example script demonstrating your changes
-- Make sure the PR passes all CI checks and tests
-- Keep your PR focused on a single issue or feature to make it easier to review
+1. Create a [new issue](https://github.com/browser-use/browser-use/issues) and describe your desired change, or comment on an existing issue that you want to work on
+2. Create a new [**`Draft` Pull Request**](https://github.blog/news-insights/product-news/introducing-draft-pull-requests/) *immediately* when you start work, and push your commits as you go, don't wait until you finish to open a PR!
+    - we won't review `Draft` pull requests until you mark them as [`[Ready for Review]`](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-pull-requests#draft-pull-requests)
+    - tests & linter don't have to pass for every single draft commit, we only care about final commit when marked ready to review
+    - draft PRs allow us to provide feedback & guidance on direction *before* you invest a ton of time making a perfect PR
+    - draft PRs allow others to see your work-in-progress + help test and share comments / avoid merge conflicts with their own work
+3. Once it's ready for review and all the CI tests and linters pass, mark it [`[Ready for Review]`](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/changing-the-stage-of-a-pull-request)
+4. Someone on our team will take a look and merge it or ask for changes
+    - small PRs are often reviewed and merged hours of being opened! (the smaller your PR is the faster we can merge it)
+    - large PRs may take days to ~weeks to review and merge
+    - if you don't get a response within a week, ping `@pirate` or another team member to bump it in our queue
 
-Note: We appreciate quality over quantity. Instead of submitting small typo/style-only PRs, consider including those fixes as part of larger bugfix or feature PRs.
+
+> [!NOTE]
+> If it's a very small bugfix or <20 line change, you can skip some of these steps, use your best judgement.
+
+
+### How We Prioritize PRs
+
+
+> [!TIP]
+>
+> - 👍 we like PRs for any issue marked [`#help wanted`](https://github.com/browser-use/browser-use/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22help%20wanted%22) or [`#good first issue`](https://github.com/browser-use/browser-use/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22)
+> - 👍 we like PRs that include one or more screenrecordings of the agent running on different sites
+> - 👍 we like small <100 line PRs that focus on a single bugfix, feature, or refactored function
+
+> [!WARNING]
+- 👎 we deprioritize PRs that don't include a screenrecording/gif/screenshot proof of the new feature working when run
+- 👎 we deprioritize PRs that dont include a test in `tests/ci/test_....py` covering all new code paths
+- 👎 we deprioritize PRs that change the default actions / system prompt without evidence that you have spot checked it on a range of real-world tasks
+
+> [!CAUTION]
+> 
+> - ❌ we reject typo/style-only PRs, only touch existing code if you are already changing it as part of a bugfix or new feature!
+> - ❌ we reject `>200`-line sprawling PRs with mixtures of new features and random bugfixes / refactoring, split it up into separate bugfix and new feature PRs!
+> - ❌ we reject any PRs that lower our real-world eval scores (visible only to us, we will comment if this is the case)
+
+
 
 ### Contribution Process
 
 1. Fork the repository
-2. Create a new branch for your feature or bugfix
-3. Make your changes
-4. Run tests to ensure everything works
-5. Submit a pull request
-6. Respond to any feedback from maintainers
-7. Celebrate your contribution!
+2. Create a new branch for your feature or bugfix, open a draft PR on our repo for it
+3. Make your changes and push commits to your draft PR periodically
+4. Run `./bin/tests.sh` and `./bin/lint.sh` to ensure everything works
+5. Mark your PR "Ready for Review"
+6. Respond to any feedback from maintainers, wait for it to be merged
+7. Celebrate your contribution on Discord/X/Linkedin!
 
-Feel free to bump your issues/PRs with comments periodically if you need faster feedback.
+> [!TIP]
+> **If your PR or issue doesn't get a response within a week:**  
+> 
+> Break your PR up into smaller PRs and submit them individually, or @mention `@pirate` or the last person who touched the code to ping them for a response.
+
 
 ## Code of Conduct
 

@@ -292,7 +292,7 @@ class BrowserSession(BaseModel):
 			return self
 
 	async def stop(self) -> None:
-		"""Shuts down the BrowserSession, killing the browser process if keep_alive=False"""
+		"""Shuts down the BrowserSession, killing the browser process (only works if keep_alive=False)"""
 
 		self.initialized = False
 
@@ -321,11 +321,17 @@ class BrowserSession(BaseModel):
 					logger.debug(f'❌ Error terminating subprocess with browser_pid={self.browser_pid}: {type(e).__name__}: {e}')
 
 	async def close(self) -> None:
-		"""Deprecated: Provides backwards-compatibility with old class method Browser().close()"""
+		"""Deprecated: Provides backwards-compatibility with old method Browser().close() and playwright BrowserContext.close()"""
+		await self.stop()
+
+	async def kill(self) -> None:
+		"""Stop the BrowserSession even if keep_alive=True"""
+		self.browser_profile.keep_alive = False
 		await self.stop()
 
 	async def new_context(self, **kwargs):
-		"""Deprecated: Provides backwards-compatibility with old class method Browser().new_context()"""
+		"""Deprecated: Provides backwards-compatibility with old class method Browser().new_context()."""
+		# TODO: remove this after >=0.3.0
 		return self
 
 	async def __aenter__(self) -> BrowserSession:
