@@ -1327,8 +1327,8 @@ class Agent(Generic[Context]):
 		signal_handler = SignalHandler(
 			loop=loop,
 			pause_callback=self.pause,
-			resume_callback=self.resume,
-			custom_exit_callback=on_force_exit_log_telemetry,  # Pass the new telemetrycallback
+			resume_callback=self.resume,  # Use sync version for SignalHandler
+			custom_exit_callback=on_force_exit_log_telemetry,
 			exit_on_second_int=True,
 		)
 		signal_handler.register()
@@ -1731,8 +1731,19 @@ class Agent(Generic[Context]):
 			self._paused_step = self.state.n_steps
 			logger.info("Agent paused at step %d", self._paused_step)
 
-	async def resume(self) -> None:
-		"""Resume the agent's execution."""
+	def resume(self) -> None:
+		"""Resume the agent's execution synchronously."""
+		if self._external_pause_event.is_set():
+			# Already running
+			return
+		
+		self._external_pause_event.set()
+		self.state.paused = False
+		logger.info("Agent resumed from step %d", self._paused_step)
+		self._paused_step = None
+
+	async def resume_async(self) -> None:
+		"""Resume the agent's execution asynchronously."""
 		async with self._pause_lock:
 			if self._external_pause_event.is_set():
 				# Already running

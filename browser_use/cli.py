@@ -261,7 +261,7 @@ def get_llm(config: dict[str, Any]):
 		if not os.getenv('OPENAI_API_KEY'):
 			raise ValueError("OpenAI API key not found")
 		return langchain_openai.ChatOpenAI(
-			model_name=model_name,
+			model=model_name,
 			temperature=temperature,
 		)
 	elif model_name.startswith('claude'):
@@ -296,8 +296,14 @@ def get_llm(config: dict[str, Any]):
 	elif model_name == 'azure-openai':
 		if not os.getenv('AZURE_OPENAI_API_KEY') or not os.getenv('AZURE_OPENAI_ENDPOINT'):
 			raise ValueError("Azure OpenAI API key and endpoint required")
-		# Add Azure OpenAI model initialization
-		pass
+		return langchain_openai.AzureChatOpenAI(
+			deployment_name='gpt-4',  # Default deployment name
+			model_name='gpt-4',
+			openai_api_version='2024-02-15-preview',  # Latest stable version
+			azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT'),
+			api_key=os.getenv('AZURE_OPENAI_API_KEY'),
+			temperature=temperature,
+		)
 	else:
 		raise ValueError(f"Unsupported model: {model_name}")
 
@@ -497,7 +503,7 @@ class BrowserUseApp(App):
 		Binding('ctrl+d', 'quit', 'Quit', priority=True),
 		Binding('up', 'input_history_prev', 'Previous command', show=False),
 		Binding('down', 'input_history_next', 'Next command', show=False),
-		Binding("ctrl+c", "pause_agent", "Pause Agent", show=True),
+		Binding("ctrl+p", "pause_agent", "Pause Agent", show=True),
 		Binding("enter", "resume_agent", "Resume Agent", show=False),
 	]
 
@@ -1185,7 +1191,7 @@ class BrowserUseApp(App):
 			task_label.remove_class("paused")
 			task_label.update("Task")
 			# Resume the agent
-			await self.agent.resume()
+			await self.agent.resume_async()
 			self.refresh()
 
 	def compose(self) -> ComposeResult:
