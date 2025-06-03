@@ -4,14 +4,11 @@ import inspect
 import json
 import logging
 import os
-import random
 import re
 import shutil
 import sys
 import time
-import traceback
 from collections.abc import Awaitable, Callable
-from datetime import datetime
 from pathlib import Path
 from threading import Thread
 from typing import Any, Generic, TypeVar
@@ -1874,116 +1871,114 @@ class Agent(Generic[Context]):
 	def extract_playwright_actions(self, output_path: str | Path = None) -> list[dict]:
 		"""
 		Extract Playwright actions from the agent's history and save as JSON for developer testing.
-		
+
 		Args:
 			output_path: Path to save the extracted actions as JSON
-			
+
 		Returns:
 			List of action dictionaries with action_name, params, and result
 		"""
 		playwright_actions = []
-		
-		# Loop through each history item
 		for history_item in self.state.history.history:
-			# Skip items without model output
 			if not history_item.model_output:
 				continue
-				
-			# Get the actions from the model output
 			actions = history_item.model_output.action
 			results = history_item.result
-			
-			# Match each action with its result
 			for i, action in enumerate(actions):
-				# Get the action data
 				action_data = action.model_dump(exclude_unset=True)
-				
-				# Extract action name (first key in the dictionary)
-				action_name = next(iter(action_data.keys()), "unknown")
-				
-				# Get parameters for this action
+				action_name = next(iter(action_data.keys()), 'unknown')
 				params = action_data.get(action_name, {})
-				
-				# Get the corresponding result if available
 				result = None
 				if i < len(results):
 					result = results[i].model_dump()
-				
-				# Add to our list of actions
 				playwright_actions.append({
-					"action_name": action_name,
-					"params": params,
-					"result": result
+					'action_name': action_name,
+					'params': params,
+					'result': result
 				})
-		
-		# Save to file if output_path is provided
-		if output_path:
+
+		# Save to file if output_path is provided and logging level is debug
+		if output_path and os.environ.get('BROWSER_USE_LOGGING_LEVEL', '').lower() == 'debug':
+			logger.debug(f'Saving Playwright actions to {output_path} (debug mode enabled)')
 			path_obj = Path(output_path)
 			path_obj.parent.mkdir(parents=True, exist_ok=True)
 			with open(path_obj, 'w', encoding='utf-8') as f:
 				json.dump(playwright_actions, f, indent=2, default=str)
-		
+
 		return playwright_actions
-		
-	async def generate_playwright_script(self, actions: list[dict] = None, output_path: str | Path = None, headless: bool = False, script_name: str = None) -> str:
+
+	async def generate_playwright_script(
+		self, actions: list[dict] = None, output_path: str | Path = None, headless: bool = False, script_name: str = None
+	) -> str:
 		"""
 		Generate a Playwright script from the extracted actions using an LLM approach.
-		
+
+		This method takes browser-use actions and converts them into a standalone Playwright script
+		that can be run independently. The script includes proper error handling, cleanup, and
+		Playwright expect assertions for validation.
+
 		Args:
 			actions: List of action dictionaries. If None, will extract actions from history.
 			output_path: Path to save the generated script. If None, will generate a path.
 			headless: Whether to run the browser in headless mode in the generated script
 			script_name: Custom name for the script file. If None, will generate from task.
-		
+
 		Returns:
 			The generated Playwright script as a string
 		"""
 		# If actions not provided, extract them from history
 		if actions is None:
 			actions = self.extract_playwright_actions()
-		
+
 		if not actions:
-			logger.warning("No actions found in history to generate Playwright script")
-			return ""
-		
+			logger.warning('No actions found in history to generate Playwright script')
+			return ''
+
 		# Generate a default output path if none provided
 		if output_path is None:
 			# Create a timestamp for uniqueness
-			timestamp = time.strftime("%Y%m%d_%H%M%S")
-			
+			timestamp = time.strftime('%Y%m%d_%H%M%S')
+
 			# Generate a name from the task if not provided
 			if script_name is None:
 				# Extract a short name from the task description
 				task_words = self.task.lower().split()
 				# Use first 5 words or fewer if task is shorter
 				word_limit = min(5, len(task_words))
-				script_name = "_".join(task_words[:word_limit]).replace("https://", "").replace("/", "_")
+				script_name = '_'.join(task_words[:word_limit]).replace('https://', '').replace('/', '_')
 				# Clean up the name to be filesystem-friendly
 				script_name = re.sub(r'[^\w\-_.]', '_', script_name)
 				# Truncate if too long
 				if len(script_name) > 50:
 					script_name = script_name[:50]
-			
+
 			# Create the output directory at project root
-			root_dir = Path(__file__).parents[3]  # Go up 3 levels from service.py
-			output_dir = root_dir / "output" / "playwright_scripts"
+			root_dir = Path(__file__).parents[2]  # Go up 2 levels from service.py to reach the project root
+			output_dir = root_dir / 'output' / 'playwright_scripts'
 			output_dir.mkdir(parents=True, exist_ok=True)
-			
+
 			# Combine everything into a path
-			output_path = output_dir / f"{script_name}_{timestamp}.py"
-		
-		# Prepare the prompt for the LLM
+			output_path = output_dir / f'{script_name}_{timestamp}.py'
+
+		# Prepare the detailed prompt for the LLM
+		# This prompt is structured to guide the LLM in generating a complete, robust Playwright script
+		# that includes proper error handling, cleanup, and validation assertions
 		prompt = f"""
 		You are an expert in converting browser actions to Playwright Python scripts.
 		Below is a list of browser actions performed by a browser-use agent.
 		Convert these actions into a complete, runnable Playwright Python script.
 		
 		The script should:
-		1. Include all necessary imports
+		1. Include all necessary imports (playwright, asyncio, logging, etc.)
 		2. Set up the Playwright browser with headless={headless}
-		3. Implement proper error handling and cleanup
+		3. Implement proper error handling with try/except/finally blocks
 		4. Use best practices for selectors (prefer stable selectors like text content, role, etc.)
-		5. Include helpful comments
+		5. Include helpful comments explaining each major step
+		6. Add Playwright expect assertions after important actions to verify:
+		   - Page navigation was successful (check URL or page title)
+		   - Elements are visible before interacting with them
+		   - Form submissions worked correctly (check for success messages)
+		   - Expected content appears after actions (verify text is present)
 		
 		Here are the actions to convert:
 		```json
@@ -1997,37 +1992,61 @@ class Agent(Generic[Context]):
 		- extract_text: page.text_content(selector)
 		- scroll: page.mouse.wheel(delta_x, delta_y) or other scroll methods
 		
+		Examples of expect assertions to include:
+		- expect(page).to_have_url("https://example.com/expected-page")
+		- expect(page.locator("text=Success")).to_be_visible()
+		- expect(page.locator("#item-count")).to_have_text("1 item")
+		- expect(page.locator("button:has-text('Submit')")).to_be_enabled()
+		
 		Provide ONLY the complete Python script without any explanations.
 		"""
-		
-		# Create a system message
-		system_message = SystemMessage(content="You are an expert Playwright automation developer.")
-		
-		# Create a human message with the prompt
+
+		# Create a system message to set the LLM's role and expertise context
+		# This helps guide the LLM to generate high-quality Playwright scripts
+		system_message = SystemMessage(
+			content='You are an expert Playwright automation developer with deep knowledge of web testing best practices.'
+		)
+
+		# Create a human message containing our detailed prompt with instructions and examples
 		human_message = HumanMessage(content=prompt)
-		
-		# Get the response from the LLM
+
+		# Invoke the LLM asynchronously with both messages
+		# The system message sets the context, and the human message provides the specific task
+		logger.debug('Invoking LLM to generate Playwright script')
 		response = await self.llm.ainvoke([system_message, human_message])
-		
-		# Extract the script from the response
+
+		# Extract the script content from the LLM's response
+		# This will contain the complete Playwright Python script
 		script_content = response.content
-		
-		# Clean up the script (remove markdown code blocks if present)
-		if script_content.startswith("```python"):
-			script_content = script_content.split("```python", 1)[1]
-		if script_content.endswith("```"):
-			script_content = script_content.rsplit("```", 1)[0]
-		
+
+		# Clean up the script to remove any markdown formatting that the LLM might have included
+		# LLMs often return code in markdown code blocks with ```python and ``` delimiters
+		logger.debug('Cleaning up generated script content')
+		if script_content.startswith('```python'):
+			script_content = script_content.split('```python', 1)[1]
+		elif script_content.startswith('```'):
+			script_content = script_content.split('```', 1)[1]
+		if script_content.endswith('```'):
+			script_content = script_content.rsplit('```', 1)[0]
+
+		# Remove any leading/trailing whitespace for clean file output
 		script_content = script_content.strip()
-		
-		# Save to file if output_path is provided
+
+		# Save the script to a file if an output path is provided
+		# This creates a standalone, executable Playwright Python script
 		if output_path:
 			path_obj = Path(output_path)
+			# Ensure the output directory exists
 			path_obj.parent.mkdir(parents=True, exist_ok=True)
-			with open(path_obj, 'w', encoding='utf-8') as f:
-				f.write(script_content)
-				logger.info(f"Playwright script saved to {path_obj}")
-		
+
+			# Write the script to the file with UTF-8 encoding using aiofiles for async I/O
+			import aiofiles
+
+			async with aiofiles.open(path_obj, 'w', encoding='utf-8') as f:
+				await f.write(script_content)
+			logger.info(f'Playwright script saved to {path_obj}')
+			logger.debug(f'Script contains {len(script_content.splitlines())} lines of code')
+
 		return script_content
 
 	async def _update_action_models_for_page(self, page) -> None:
