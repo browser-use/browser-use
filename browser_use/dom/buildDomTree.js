@@ -868,35 +868,42 @@
    * Checks if an element is the topmost element at its position.
    */
   function isTopElement(element) {
-    // Special case: when viewportExpansion is -1, consider all elements as "top" elements
-    if (viewportExpansion === -1) {
-      return true;
-    }
-    
     const rects = getCachedClientRects(element); // Replace element.getClientRects()
 
     if (!rects || rects.length === 0) {
       return false; // No geometry, cannot be top
     }
 
+    // For viewport_expansion=-1, skip viewport boundary checks but keep layering validation
     let isAnyRectInViewport = false;
-    for (const rect of rects) {
-      // Use the same logic as isInExpandedViewport check
-      if (rect.width > 0 && rect.height > 0 && !( // Only check non-empty rects
-        rect.bottom < -viewportExpansion ||
-        rect.top > window.innerHeight + viewportExpansion ||
-        rect.right < -viewportExpansion ||
-        rect.left > window.innerWidth + viewportExpansion
-      )) {
-        isAnyRectInViewport = true;
-        break;
+    if (viewportExpansion === -1) {
+      // When viewport_expansion is -1, consider any rect with dimensions as "in viewport"
+      // This bypasses boundary checks but preserves element layering validation
+      for (const rect of rects) {
+        if (rect.width > 0 && rect.height > 0) {
+          isAnyRectInViewport = true;
+          break;
+        }
+      }
+    } else {
+      // Normal viewport boundary checking
+      for (const rect of rects) {
+        // Use the same logic as isInExpandedViewport check
+        if (rect.width > 0 && rect.height > 0 && !( // Only check non-empty rects
+          rect.bottom < -viewportExpansion ||
+          rect.top > window.innerHeight + viewportExpansion ||
+          rect.right < -viewportExpansion ||
+          rect.left > window.innerWidth + viewportExpansion
+        )) {
+          isAnyRectInViewport = true;
+          break;
+        }
       }
     }
 
     if (!isAnyRectInViewport) {
-      return false; // All rects are outside the viewport area
+      return false; // All rects are outside the viewport area or have no dimensions
     }
-
 
     // Find the correct document context and root element
     let doc = element.ownerDocument;
@@ -930,7 +937,8 @@
       }
     }
 
-    // For elements in viewport, check if they're topmost
+    // CRITICAL: Always perform elementFromPoint check to detect layering/z-index issues
+    // This prevents elements behind side drawers, overlays, or other content from being highlighted
     const centerX = rects[Math.floor(rects.length / 2)].left + rects[Math.floor(rects.length / 2)].width / 2;
     const centerY = rects[Math.floor(rects.length / 2)].top + rects[Math.floor(rects.length / 2)].height / 2;
 
@@ -1286,6 +1294,9 @@
     }
 
     // Early viewport check - only filter out elements clearly outside viewport
+    // Note: When viewportExpansion=-1, we skip this early filtering to capture all elements,
+    // but we still perform isTopElement() checks later to ensure only interactive elements
+    // that aren't obscured by overlays/drawers are highlighted
     if (viewportExpansion !== -1) {
       const rect = getCachedBoundingRect(node); // Keep for initial quick check
       const style = getCachedComputedStyle(node);
