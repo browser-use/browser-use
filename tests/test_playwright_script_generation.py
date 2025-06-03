@@ -121,6 +121,83 @@ class TestPlaywrightActionExtraction:
 		
 		# Verify file was not created
 		assert not output_path.exists()
+		
+	def test_extract_actions_with_initial_actions(self):
+		"""Test extraction of initial actions."""
+		# Create a mock agent with initial actions but empty history
+		agent = MagicMock(spec=Agent)
+		agent.state = MagicMock()
+		agent.state.history = MagicMock()
+		agent.state.history.history = []
+		
+		# Create mock initial actions
+		initial_action1 = MagicMock()
+		initial_action1.model_dump.return_value = {"go_to_url": {"url": "https://initial-example.com"}}
+		
+		initial_action2 = MagicMock()
+		initial_action2.model_dump.return_value = {"wait_for_load": {"timeout": 5000}}
+		
+		# Set initial actions on the agent
+		agent.initial_actions = [initial_action1, initial_action2]
+		
+		# Call the method
+		with patch.object(Agent, 'extract_playwright_actions', Agent.extract_playwright_actions):
+			actions = Agent.extract_playwright_actions(agent)
+		
+		# Verify results
+		assert len(actions) == 2
+		assert actions[0]["action_name"] == "go_to_url"
+		assert actions[0]["params"]["url"] == "https://initial-example.com"
+		assert actions[0]["result"] is None  # Initial actions don't have results
+		assert actions[1]["action_name"] == "wait_for_load"
+		assert actions[1]["params"]["timeout"] == 5000
+		
+	def test_extract_actions_exclude_initial_actions(self):
+		"""Test extraction with initial actions explicitly excluded."""
+		# Create a mock agent with initial actions but empty history
+		agent = MagicMock(spec=Agent)
+		agent.state = MagicMock()
+		agent.state.history = MagicMock()
+		agent.state.history.history = []
+		
+		# Create mock initial actions
+		initial_action = MagicMock()
+		initial_action.model_dump.return_value = {"go_to_url": {"url": "https://initial-example.com"}}
+		
+		# Set initial actions on the agent
+		agent.initial_actions = [initial_action]
+		
+		# Call the method with include_initial_actions=False
+		with patch.object(Agent, 'extract_playwright_actions', Agent.extract_playwright_actions):
+			actions = Agent.extract_playwright_actions(agent, include_initial_actions=False)
+		
+		# Verify no actions were extracted
+		assert len(actions) == 0
+		
+	def test_extract_actions_combined(self, mock_agent_with_history):
+		"""Test extraction of both initial actions and history actions."""
+		# Add initial actions to the mock agent
+		initial_action = MagicMock()
+		initial_action.model_dump.return_value = {"go_to_url": {"url": "https://initial-site.com"}}
+		mock_agent_with_history.initial_actions = [initial_action]
+		
+		# Call the method
+		with patch.object(Agent, 'extract_playwright_actions', Agent.extract_playwright_actions):
+			actions = Agent.extract_playwright_actions(mock_agent_with_history)
+		
+		# Verify results
+		assert len(actions) == 3  # 1 initial action + 2 history actions
+		
+		# Check initial action
+		assert actions[0]["action_name"] == "go_to_url"
+		assert actions[0]["params"]["url"] == "https://initial-site.com"
+		assert actions[0]["result"] is None
+		
+		# Check history actions
+		assert actions[1]["action_name"] == "go_to_url"
+		assert actions[1]["params"]["url"] == "https://example.com"
+		assert actions[2]["action_name"] == "click_element"
+		assert actions[2]["params"]["selector"] == "#button"
 
 
 class TestPlaywrightScriptGeneration:

@@ -1868,17 +1868,33 @@ class Agent(Generic[Context]):
 		except Exception as e:
 			logger.error(f'Error during cleanup: {e}')
 
-	def extract_playwright_actions(self, output_path: str | Path = None) -> list[dict]:
+	def extract_playwright_actions(self, output_path: str | Path = None, include_initial_actions: bool = True) -> list[dict]:
 		"""
 		Extract Playwright actions from the agent's history and save as JSON for developer testing.
-
+		
 		Args:
-			output_path: Path to save the extracted actions as JSON
-
+			output_path: Optional path to save the extracted actions as JSON
+			include_initial_actions: Whether to include initial actions in the extracted list
+			
 		Returns:
 			List of action dictionaries with action_name, params, and result
 		"""
 		playwright_actions = []
+		
+		# First, check if there are any initial actions and we should include them
+		if include_initial_actions and hasattr(self, 'initial_actions') and self.initial_actions:
+			logger.debug(f'Including {len(self.initial_actions)} initial actions in Playwright script')
+			for action in self.initial_actions:
+				action_data = action.model_dump(exclude_unset=True)
+				action_name = next(iter(action_data.keys()), 'unknown')
+				params = action_data.get(action_name, {})
+				playwright_actions.append({
+					'action_name': action_name,
+					'params': params,
+					'result': None  # Initial actions don't have results in the same format
+				})
+		
+		# Then extract actions from history
 		for history_item in self.state.history.history:
 			if not history_item.model_output:
 				continue

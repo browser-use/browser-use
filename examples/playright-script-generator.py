@@ -37,11 +37,25 @@ except Exception as e:
 	print(f'Error testing LLM connection: {e}')
 	sys.exit(1)
 
-task = 'Go to https://www.saucedemo.com/ and buy Sauce Labs Bike Light'
+task = 'Buy Sauce Labs Bike Light'
+
+# Define initial actions for page navigation
+# Note: Only certain actions are supported as initial actions (open_tab, scroll_down, etc.)
+initial_actions = [
+	# Open the Sauce Demo website
+	{'open_tab': {'url': 'https://www.saucedemo.com/'}},
+	# Scroll down slightly to view more content
+	{'scroll_down': {'amount': 300}}
+]
 
 try:
-	print('Creating Agent...')
-	agent = Agent(task=task, llm=llm, sensitive_data=sensitive_data)
+	print('Creating Agent with initial actions...')
+	agent = Agent(
+		task=task, 
+		llm=llm, 
+		sensitive_data=sensitive_data,
+		initial_actions=initial_actions
+	)
 	print('Agent created successfully!')
 except Exception as e:
 	print(f'Error creating Agent: {e}')
@@ -51,7 +65,12 @@ except Exception as e:
 async def main():
 	try:
 		print('Running agent...')
-		history = await agent.run()
+		# Set a reasonable timeout for the agent run
+		try:
+			history = await asyncio.wait_for(agent.run(), timeout=300)  # 5 minute timeout
+		except asyncio.TimeoutError:
+			print('Agent run timed out after 5 minutes')
+			return
 
 		# Extract Playwright actions to JSON
 		output_dir = Path('output')
@@ -63,27 +82,37 @@ async def main():
 
 		# Print a summary of the extracted actions
 		print(f'Extracted {len(actions)} Playwright actions:')
-		for i, action in enumerate(actions[:5], 1):
-			print(f'  {i}. {action["action_name"]}')
-		if len(actions) > 5:
-			print(f'  ... and {len(actions) - 5} more actions')
+		
+		# Identify and highlight initial actions
+		initial_action_count = len(initial_actions) if hasattr(agent, 'initial_actions') else 0
+		if initial_action_count > 0:
+			print(f'  Initial actions ({initial_action_count}):')
+			for i, action in enumerate(actions[:initial_action_count], 1):
+				print(f'    {i}. {action["action_name"]} - {action["params"]}')
+			
+			print(f'  History actions ({len(actions) - initial_action_count}):')
+			for i, action in enumerate(actions[initial_action_count:initial_action_count+3], 1):
+				print(f'    {i}. {action["action_name"]}')
+			if len(actions) - initial_action_count > 3:
+				print(f'    ... and {len(actions) - initial_action_count - 3} more actions')
+		else:
+			# Original behavior if no initial actions
+			for i, action in enumerate(actions[:5], 1):
+				print(f'  {i}. {action["action_name"]}')
+			if len(actions) > 5:
+				print(f'  ... and {len(actions) - 5} more actions')
 
 		# Generate a Playwright script with a descriptive name
 		print('\nGenerating Playwright script...')
 		script_name = 'sauce_demo_purchase'
 		script = await agent.generate_playwright_script(actions=actions, headless=False, script_name=script_name)
 
-		# Get the output path from the logger output
-		script_path = None
-		for handler in logging.getLogger().handlers:
-			if isinstance(handler, logging.StreamHandler):
-				for record in handler.records:
-					if 'Playwright script saved to' in record.getMessage():
-						script_path = record.getMessage().split('Playwright script saved to ')[1]
-						break
-
-		if not script_path:
-			script_path = 'See output directory for the generated script'
+		# The script is saved in the output/playwright_scripts directory
+		script_path = output_dir / 'playwright_scripts'
+		print(f'Script directory: {script_path}')
+		
+		# We already have the script content in the 'script' variable
+		# No need for complex log parsing
 
 		# Print a preview of the generated script
 		print('\nGenerated Playwright script preview:')
@@ -93,8 +122,10 @@ async def main():
 			print(script_lines[i])
 		print('...')
 
-		print(f'\nFull script saved to: {script_path}')
-		print(f'\nYou can run this script with: python {script_path}')
+		print(f'\nFull script saved to the directory: {script_path}')
+		print(f'\nYou can run the latest script with: python {script_path}/latest_script.py')
+		print(f'Or check the directory for the exact filename with the timestamp')
+		
 
 	except Exception as e:
 		print(f'Error running agent: {e}')
@@ -103,5 +134,39 @@ async def main():
 		traceback.print_exc()
 
 
+async def cleanup():
+	"""Cleanup function to handle proper shutdown"""
+	print('\nCleaning up resources...')
+	# Add any cleanup code here (close connections, save state, etc.)
+
+
+def handle_sigint(signum, frame):
+	"""Handle Ctrl+C gracefully"""
+	print('\nReceived interrupt signal. Shutting down...')
+	sys.exit(0)
+
+
 if __name__ == '__main__':
-	asyncio.run(main())
+	# Register signal handler for graceful shutdown
+	import signal
+	signal.signal(signal.SIGINT, handle_sigint)
+	
+	try:
+		asyncio.run(main())
+	except KeyboardInterrupt:
+		print('\nScript interrupted by user')
+	except Exception as e:
+		print(f'\nUnexpected error: {e}')
+		traceback.print_exc()
+	finally:
+		# Run cleanup in a new event loop
+		if sys.version_info >= (3, 7):
+			asyncio.run(cleanup())
+		else:
+			# For Python 3.6
+			loop = asyncio.new_event_loop()
+			asyncio.set_event_loop(loop)
+			try:
+				loop.run_until_complete(cleanup())
+			finally:
+				loop.close()
