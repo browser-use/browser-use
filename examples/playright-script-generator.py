@@ -14,10 +14,10 @@ from langchain_anthropic import ChatAnthropic
 
 from browser_use import Agent
 
-# Print the API key (first few characters) to verify it's loaded
+# Check if the API key is available
 api_key = os.environ.get('ANTHROPIC_API_KEY', '')
 if api_key:
-	print(f'API key loaded: {api_key[:10]}...')
+	print('API key found and loaded')
 else:
 	print('API key not found!')
 
