@@ -146,6 +146,7 @@ history.action_names()      # Names of executed actions
 history.extracted_content() # Content extracted during execution
 history.errors()           # Any errors that occurred
 history.model_actions()     # All actions with their parameters
+# Input actions also include the typed text via `interacted_element['input_text']`
 ```
 
 The `AgentHistoryList` provides many helper methods to analyze the execution:
