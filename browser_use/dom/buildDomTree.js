@@ -1411,8 +1411,8 @@
       }
     }
 
-    // Skip empty anchor tags
-    if (nodeData.tagName === 'a' && nodeData.children.length === 0 && !nodeData.attributes.href) {
+    // Skip empty anchor tags if they have no href or have highlightIndex
+    if (nodeData.tagName === 'a' && nodeData.children.length === 0 && !nodeData.attributes.href && !('highlightIndex' in nodeData)) {
       if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
       return null;
     }
