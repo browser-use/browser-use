@@ -1,7 +1,7 @@
 import asyncio
-import logging
 import os
 import sys
+import traceback
 from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,17 +45,12 @@ initial_actions = [
 	# Open the Sauce Demo website
 	{'open_tab': {'url': 'https://www.saucedemo.com/'}},
 	# Scroll down slightly to view more content
-	{'scroll_down': {'amount': 300}}
+	{'scroll_down': {'amount': 300}},
 ]
 
 try:
 	print('Creating Agent with initial actions...')
-	agent = Agent(
-		task=task, 
-		llm=llm, 
-		sensitive_data=sensitive_data,
-		initial_actions=initial_actions
-	)
+	agent = Agent(task=task, llm=llm, sensitive_data=sensitive_data, initial_actions=initial_actions)
 	print('Agent created successfully!')
 except Exception as e:
 	print(f'Error creating Agent: {e}')
@@ -68,7 +63,7 @@ async def main():
 		# Set a reasonable timeout for the agent run
 		try:
 			history = await asyncio.wait_for(agent.run(), timeout=300)  # 5 minute timeout
-		except asyncio.TimeoutError:
+		except TimeoutError:
 			print('Agent run timed out after 5 minutes')
 			return
 
@@ -82,16 +77,16 @@ async def main():
 
 		# Print a summary of the extracted actions
 		print(f'Extracted {len(actions)} Playwright actions:')
-		
+
 		# Identify and highlight initial actions
 		initial_action_count = len(initial_actions) if hasattr(agent, 'initial_actions') else 0
 		if initial_action_count > 0:
 			print(f'  Initial actions ({initial_action_count}):')
 			for i, action in enumerate(actions[:initial_action_count], 1):
 				print(f'    {i}. {action["action_name"]} - {action["params"]}')
-			
+
 			print(f'  History actions ({len(actions) - initial_action_count}):')
-			for i, action in enumerate(actions[initial_action_count:initial_action_count+3], 1):
+			for i, action in enumerate(actions[initial_action_count : initial_action_count + 3], 1):
 				print(f'    {i}. {action["action_name"]}')
 			if len(actions) - initial_action_count > 3:
 				print(f'    ... and {len(actions) - initial_action_count - 3} more actions')
@@ -110,7 +105,7 @@ async def main():
 		# The script is saved in the output/playwright_scripts directory
 		script_path = output_dir / 'playwright_scripts'
 		print(f'Script directory: {script_path}')
-		
+
 		# We already have the script content in the 'script' variable
 		# No need for complex log parsing
 
@@ -124,8 +119,7 @@ async def main():
 
 		print(f'\nFull script saved to the directory: {script_path}')
 		print(f'\nYou can run the latest script with: python {script_path}/latest_script.py')
-		print(f'Or check the directory for the exact filename with the timestamp')
-		
+		print('Or check the directory for the exact filename with the timestamp')
 
 	except Exception as e:
 		print(f'Error running agent: {e}')
@@ -149,8 +143,9 @@ def handle_sigint(signum, frame):
 if __name__ == '__main__':
 	# Register signal handler for graceful shutdown
 	import signal
+
 	signal.signal(signal.SIGINT, handle_sigint)
-	
+
 	try:
 		asyncio.run(main())
 	except KeyboardInterrupt:
@@ -160,13 +155,4 @@ if __name__ == '__main__':
 		traceback.print_exc()
 	finally:
 		# Run cleanup in a new event loop
-		if sys.version_info >= (3, 7):
-			asyncio.run(cleanup())
-		else:
-			# For Python 3.6
-			loop = asyncio.new_event_loop()
-			asyncio.set_event_loop(loop)
-			try:
-				loop.run_until_complete(cleanup())
-			finally:
-				loop.close()
+		asyncio.run(cleanup())
