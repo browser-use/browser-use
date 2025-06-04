@@ -17,7 +17,7 @@ from browser_use import Agent
 # Check if the API key is available
 api_key = os.environ.get('ANTHROPIC_API_KEY', '')
 if api_key:
-	print('API key found and loaded')
+    print('API key found and loaded')
 else:
 	print('API key not found!')
 
