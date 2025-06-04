@@ -15,8 +15,8 @@ Get started with Browser Use development in minutes:
 ```bash
 git clone https://github.com/browser-use/browser-use
 cd browser-use
-uv venv --python 3.11
-uv sync --all-extras --dev
+uv venv
+uv sync --all-extras --dev --upgrade
 # or pip install -U git+https://github.com/browser-use/browser-use.git@main
 
 echo "BROWSER_USE_LOGGING_LEVEL=debug" >> .env

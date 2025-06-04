@@ -633,15 +633,16 @@ async def reformat_agent_history(
 
 
 class Task:
-	def __init__(self, task_id, confirmed_task, website, reference_length, level):
+	def __init__(self, task_id, confirmed_task, website=None, reference_length=None, level=None, cluster_id=None):
 		self.task_id = task_id
 		self.confirmed_task = confirmed_task
 		self.website = website
 		self.reference_length = reference_length
 		self.level = level
+		self.cluster_id = cluster_id
 
 	def __str__(self):
-		return f'Task(task_id={self.task_id}, confirmed_task={self.confirmed_task}, website={self.website}, reference_length={self.reference_length}, level={self.level})'
+		return f'Task(task_id={self.task_id}, confirmed_task={self.confirmed_task}, website={self.website}, reference_length={self.reference_length}, level={self.level}, cluster_id={self.cluster_id})'
 
 	def __repr__(self):
 		return self.__str__()
@@ -822,6 +823,7 @@ class TaskResult:
 			'taskWebsite': task.website,
 			'taskReferenceLength': task.reference_length,
 			'taskLevel': task.level,
+			'taskClusterId': task.cluster_id,
 			'actionHistory': [],
 			'finalResultResponse': 'None',
 			'selfReportCompleted': False,
@@ -1499,7 +1501,7 @@ def fetch_tasks_from_server(convex_url: str, secret_key: str, test_case_name: st
 
 # Helper function to get git information
 def get_git_info():
-	"""Retrieves git branch, commit hash, and commit timestamp using subprocess."""
+	"""Retrieves git branch, commit hash, commit timestamp, and repository URL using subprocess."""
 	try:
 		branch = subprocess.run(
 			['git', 'rev-parse', '--abbrev-ref', 'HEAD'], capture_output=True, text=True, check=True
@@ -1510,13 +1512,18 @@ def get_git_info():
 			['git', 'log', '-1', '--format=%ct'], capture_output=True, text=True, check=True
 		).stdout.strip()
 		commit_timestamp = int(commit_timestamp_str)
-		return {'branch': branch, 'hash': commit_hash, 'timestamp': commit_timestamp}
+		# Get repository URL
+		repo_url = subprocess.run(
+			['git', 'config', '--get', 'remote.origin.url'], capture_output=True, text=True, check=True
+		).stdout.strip()
+		return {'branch': branch, 'hash': commit_hash, 'timestamp': commit_timestamp, 'repo': repo_url}
 	except (subprocess.CalledProcessError, FileNotFoundError, ValueError) as e:
 		logger.warning(f'Could not retrieve git info: {type(e).__name__}: {e}. Using defaults.')
 		return {
 			'branch': 'unknown',
 			'hash': 'unknown',
 			'timestamp': int(time.time()),  # Fallback to current time
+			'repo': 'unknown',
 		}
 
 
@@ -1655,6 +1662,9 @@ if __name__ == '__main__':
 		help='Model to use for planning (separate from main agent model)',
 	)
 	parser.add_argument('--planner-interval', type=int, default=1, help='Run planner every N steps (default: 1)')
+	parser.add_argument(
+		'--test-case', type=str, default='OnlineMind2Web', help='Name of the test case to fetch (default: OnlineMind2Web)'
+	)
 	args = parser.parse_args()
 
 	# Set up logging - Make sure logger is configured before use in fetch function
@@ -1710,14 +1720,13 @@ if __name__ == '__main__':
 		# --- Fetch Tasks from Server ---
 		CONVEX_URL = os.getenv('EVALUATION_TOOL_URL')
 		SECRET_KEY = os.getenv('EVALUATION_TOOL_SECRET_KEY')
-		TEST_CASE_NAME = 'OnlineMind2Web'  # Name of the test case to fetch
 
 		if not CONVEX_URL or not SECRET_KEY:
 			logger.error('Error: EVALUATION_TOOL_URL or EVALUATION_TOOL_SECRET_KEY environment variables not set.')
 			exit(1)  # Exit if config is missing
 
-		logger.info(f"Attempting to fetch task list '{TEST_CASE_NAME}' from server...")
-		fetched_task_data = fetch_tasks_from_server(CONVEX_URL, SECRET_KEY, TEST_CASE_NAME)
+		logger.info(f"Attempting to fetch task list '{args.test_case}' from server...")
+		fetched_task_data = fetch_tasks_from_server(CONVEX_URL, SECRET_KEY, args.test_case)
 
 		if fetched_task_data is None:
 			logger.error('Failed to fetch tasks from the server. Exiting.')
@@ -1728,7 +1737,7 @@ if __name__ == '__main__':
 			logger.info(f'Successfully loaded {len(tasks)} tasks from the server.')
 		except TypeError as e:
 			logger.error(
-				f'Error creating Task objects from fetched data. Ensure the data structure matches Task requirements (task_id, confirmed_task, etc.). Error: {type(e).__name__}: {e}'
+				f'Error creating Task objects from fetched data. Ensure the data structure includes required fields (task_id, confirmed_task). Optional fields: website, reference_length, level, cluster_id. Error: {type(e).__name__}: {e}'
 			)
 			logger.error(f'First item in fetched data: {fetched_task_data[0] if fetched_task_data else "None"}')
 			exit(1)
@@ -1746,7 +1755,7 @@ if __name__ == '__main__':
 			'end_index': args.end,
 			'headless': args.headless,
 			'use_vision': not args.no_vision,
-			'task_source': TEST_CASE_NAME,
+			'task_source': args.test_case,
 			'llm_judge': args.eval_model,
 		}
 
@@ -1755,10 +1764,12 @@ if __name__ == '__main__':
 			'gitBranch': git_info['branch'],
 			'gitCommitHash': git_info['hash'],
 			'gitCommitTimestamp': git_info['timestamp'],
+			'gitRepo': git_info['repo'],
 			'userMessage': args.user_message,
 			'evalGroup': args.eval_group,
 			'developerId': args.developer_id,
 			'totalTasks': len(tasks) - args.start if args.end is None else args.end - args.start,
+			'testCaseName': args.test_case,
 			'additionalData': additional_run_data,
 		}
 
