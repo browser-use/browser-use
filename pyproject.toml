@@ -26,7 +26,6 @@ dependencies = [
     "langchain-google-genai==2.1.5",
     "langchain-deepseek>=0.1.3",
     "langchain>=0.3.25",
-    "langchain-aws>=0.2.24",
     "google-api-core>=2.25.0",
     "pyperclip>=1.9.0",
     "pyobjc>=11.0; platform_system == 'darwin'",
@@ -61,6 +60,8 @@ cli = [
 examples = [
     # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
     "botocore>=1.37.23",
+    # langchain-aws: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
+    "langchain-aws>=0.2.24",
     "imgcat>=0.6.0",
     "stagehand-py>=0.3.6",
     "browserbase>=0.4.0",
