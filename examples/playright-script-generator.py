@@ -63,7 +63,7 @@ async def main():
 		# Set a reasonable timeout for the agent run
 		try:
 			history = await asyncio.wait_for(agent.run(), timeout=300)  # 5 minute timeout
-		except TimeoutError:
+			except asyncio.TimeoutError:
 			print('Agent run timed out after 5 minutes')
 			return
 
