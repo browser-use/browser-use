@@ -55,11 +55,10 @@ class MemoryConfig(BaseModel):
 		default=None,
 		description="Advanced: Override or provide additional config keys that Mem0 expects for the chosen vector_store provider's 'config' dictionary (e.g., host, port, api_key).",
 	)
-	# Neo4j is the only graph store provider supported by v0.1.93 of Mem0.
-	# From 0.1.94, Mem0 supports Memgraph as well.
-	graph_store_provider: Literal['neo4j'] | None = Field(
+
+	graph_store_provider: Literal['neo4j', 'memgraph'] | None = Field(
 		default=None,
-		description="The graph store provider to use with Mem0 (e.g., 'neo4j'). Requires 'mem0ai[graph]' to be installed.",
+		description="The graph store provider to use with Mem0 (e.g., 'neo4j', 'memgraph'). Requires 'mem0ai[graph]' to be installed.",
 	)
 
 	graph_store_config_override: dict[str, Any] | None = Field(
@@ -207,11 +206,19 @@ class MemoryConfig(BaseModel):
 			if missing_keys:
 				raise ValueError(f"Missing required Neo4j config keys in 'graph_store_config_override': {missing_keys}")
 
-		final_graph_config = {'provider': self.graph_store_provider, 'config': graph_config_content}
+		elif self.graph_store_provider == 'memgraph':
+			if not graph_config_content or 'url' not in graph_config_content:
+				raise ValueError("Memgraph graph store requires 'graph_store_config_override' with at least 'url'.")
+		final_graph_config = {
+			'provider': self.graph_store_provider,
+			'config': graph_config_content,  # Pass through the user's override directly
+		}
 
 		if self.graph_store_llm_config_override:
-			if not isinstance(self.graph_store_llm_config_override.get('provider'), str) or not isinstance(
-				self.graph_store_llm_config_override.get('config'), dict
+			if (
+				not isinstance(self.graph_store_llm_config_override, dict)
+				or not isinstance(self.graph_store_llm_config_override.get('provider'), str)
+				or not isinstance(self.graph_store_llm_config_override.get('config'), dict)
 			):
 				raise ValueError(
 					"`graph_store_llm_config_override` must be a dictionary with 'provider' (str) and 'config' (dict) keys."
@@ -224,9 +231,9 @@ class MemoryConfig(BaseModel):
 		return final_graph_config
 
 	@property
-	def full_config_dict(self) -> dict[str, dict[str, Any]]:
+	def full_config_dict(self) -> dict[str, Any]:
 		"""Returns the complete configuration dictionary for Mem0."""
-		config = {
+		config: dict[str, Any] = {  # Explicitly type config
 			'embedder': self.embedder_config_dict,
 			'llm': self.llm_config_dict,
 			'vector_store': self.vector_store_config_dict,
