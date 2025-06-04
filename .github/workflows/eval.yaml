@@ -80,6 +80,7 @@ jobs:
           DEFAULT_MEMORY_INTERVAL="10"
           DEFAULT_MAX_ACTIONS_PER_STEP="10"
           DEFAULT_PLANNER_INTERVAL="1"
+          DEFAULT_TEST_CASE="OnlineMind2Web"
 
           # Extract and apply defaults using parameter expansion
           MODEL="${{ github.event.client_payload.script_args.model }}"
@@ -118,6 +119,9 @@ jobs:
           PLANNER_INTERVAL="${{ github.event.client_payload.script_args.planner_interval }}"
           PLANNER_INTERVAL="${PLANNER_INTERVAL:-$DEFAULT_PLANNER_INTERVAL}"
 
+          TEST_CASE="${{ github.event.client_payload.script_args.test_case }}"
+          TEST_CASE="${TEST_CASE:-$DEFAULT_TEST_CASE}"
+
           # Optional parameters (no defaults)
           USER_MESSAGE="${{ github.event.client_payload.script_args.user_message }}"
           DEVELOPER_ID="${{ github.event.client_payload.script_args.developer_id }}"
@@ -137,6 +141,7 @@ jobs:
             "--memory-interval" "$MEMORY_INTERVAL"
             "--max-actions-per-step" "$MAX_ACTIONS_PER_STEP"
             "--planner-interval" "$PLANNER_INTERVAL"
+            "--test-case" "$TEST_CASE"
           )
 
           # Add boolean flags conditionally
