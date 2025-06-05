@@ -62,6 +62,7 @@ from browser_use.dom.history_tree_processor.service import (
 	HistoryTreeProcessor,
 )
 from browser_use.exceptions import LLMException
+from browser_use.filesystem.service import FileSystem
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import (
 	AgentTelemetryEvent,
@@ -163,6 +164,8 @@ class Agent(Generic[Context]):
 		enable_memory: bool = True,
 		memory_config: MemoryConfig | None = None,
 		source: str | None = None,
+		file_system_path: str | None = None,
+		clean_file_system: bool = False,
 	):
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
@@ -205,6 +208,10 @@ class Agent(Generic[Context]):
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
 
+		# File system setup
+		self.file_system = FileSystem(file_system_path) if file_system_path else None
+		self.clean_file_system = clean_file_system
+
 		# Action setup
 		self._setup_action_models()
 		self._set_browser_use_version_and_source(source)
@@ -243,6 +250,7 @@ class Agent(Generic[Context]):
 			f'{f" planner_model={self.planner_model_name}" if self.planner_model_name else ""}'
 			f'{" +reasoning" if self.settings.is_planner_reasoning else ""}'
 			f'{" +vision" if self.settings.use_vision_for_planner else ""} '
+			f'{" +file_system" if self.file_system else ""}'
 		)
 
 		# Initialize available actions for system prompt (only non-filtered actions)
@@ -824,6 +832,7 @@ class Agent(Generic[Context]):
 
 			self._message_manager.add_state_message(
 				browser_state_summary=browser_state_summary,
+				file_system_summary=str(self.file_system),
 				result=self.state.last_result,
 				step_info=step_info,
 				use_vision=self.settings.use_vision,
@@ -1424,6 +1433,13 @@ class Agent(Generic[Context]):
 				# ADDED: Info message when custom telemetry for SIGINT was already logged
 				logger.info('Telemetry for force exit (SIGINT) was logged by custom exit callback.')
 
+			if self.clean_file_system:
+				try:
+					logger.info('Cleaning up file system directory')
+					self.file_system.delete_folder()
+				except Exception as fs_error:
+					logger.error(f'Failed to clean up file system: {fs_error}', exc_info=True)
+
 			if self.settings.save_playwright_script_path:
 				logger.info(
 					f'Agent run finished. Attempting to save Playwright script to: {self.settings.save_playwright_script_path}'
@@ -1491,10 +1507,10 @@ class Agent(Generic[Context]):
 
 			try:
 				await self._raise_if_stopped_or_paused()
-
 				result = await self.controller.act(
 					action=action,
 					browser_session=self.browser_session,
+					file_system=self.file_system,
 					page_extraction_llm=self.settings.page_extraction_llm,
 					sensitive_data=self.sensitive_data,
 					available_file_paths=self.settings.available_file_paths,

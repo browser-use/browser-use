@@ -219,8 +219,9 @@ class MessageManager:
 			context_message = HumanMessage(content='Context for the task' + self.settings.message_context)
 			self._add_message_with_tokens(context_message, message_type='init')
 
+		stripped_task = self.task.strip('\n')
 		task_message = HumanMessage(
-			content=f'Your ultimate task is: """{self.task}""". If you achieved your ultimate task, stop everything and use the done action in the next step to complete the task. If not, continue as usual.'
+			content=f'Your ultimate task is: \n<ultimate_task>\n{stripped_task}\n</ultimate_task>.\nIf you achieved your ultimate task, stop everything and use the done action in the next step to complete the task. If not, continue as usual.'
 		)
 		self._add_message_with_tokens(task_message, message_type='init')
 
@@ -230,7 +231,7 @@ class MessageManager:
 			info_message = HumanMessage(content=info)
 			self._add_message_with_tokens(info_message, message_type='init')
 
-		placeholder_message = HumanMessage(content='Example output:')
+		placeholder_message = HumanMessage(content='Example output 1:')
 		self._add_message_with_tokens(placeholder_message, message_type='init')
 
 		example_tool_call = AIMessage(
@@ -241,32 +242,79 @@ class MessageManager:
 					'args': {
 						'current_state': {
 							'evaluation_previous_goal': """
-							Success - I successfully clicked on the 'Apple' link from the Google Search results page, 
-							which directed me to the 'Apple' company homepage. This is a good start toward finding 
-							the best place to buy a new iPhone as the Apple website often list iPhones for sale.
-						""".strip(),
+The previous goal was to start the flight booking process by filling out the departure and arrival airports, and the departure date. I successfully filled:
+- From: New York (JFK)
+- To: San Francisco (SFO)
+- Date: June 15, 2025
+
+I verified that the form fields were populated correctly, and no error messages appeared. Final Verdict: Success
+""".strip(),
 							'memory': """
-							I searched for 'iPhone retailers' on Google. From the Google Search results page, 
-							I used the 'click_element_by_index' tool to click on element at index [45] labeled 'Best Buy' but calling 
-							the tool did not direct me to a new page. I then used the 'click_element_by_index' tool to click 
-							on element at index [82] labeled 'Apple' which redirected me to the 'Apple' company homepage. 
-							Currently at step 3/15.
-						""".strip(),
+Ultimate goal: Book a one-way flight from JFK to SFO departing June 15, 2025.
+
+So far, I filled the departure and arrival fields, and the date. Next, I should submit this form to view available flights.
+""".strip(),
 							'next_goal': """
-							Looking at reported structure of the current page, I can see the item '[127]<h3 iPhone/>' 
-							in the content. I think this button will lead to more information and potentially prices 
-							for iPhones. I'll click on the link at index [127] using the 'click_element_by_index' 
-							tool and hope to see prices on the next page.
-						""".strip(),
+I filled in all required fields to search for flights. The next logical step is to click the 'Search' button (index [42]) to proceed.
+Action: Click index [42] to submit the search form.
+""".strip(),
 						},
-						'action': [{'click_element_by_index': {'index': 127}}],
+						'action': [{'click_element_by_index': {'index': 42}}],
 					},
 					'id': str(self.state.tool_id),
 					'type': 'tool_call',
 				},
 			],
 		)
+
+		example_tool_call_2 = AIMessage(
+			content='',
+			tool_calls=[
+				{
+					'name': 'AgentOutput',
+					'args': {
+						'current_state': {
+							'evaluation_previous_goal': """
+The previous step was to extract all product names and descriptions from the current e-commerce page. I successfully extracted title and description for each of them. Final Verdict: Success
+""".strip(),
+							'memory': """
+My ultimate goal is to extract all products (name + description) from all pages of this category.
+
+In this step, I extracted 2 products from the current page:
+1. Title: 'MacBook Air'
+Description: 'Lightweight and powerful'
+2. Title: 'Dell XPS 13'
+Description: 'Ultra-thin performance'
+
+Current count: 2 out of ? products (exact total unknown). Must repeat extraction for all elements on each page until no more products/pages found. I see that I can click index [18] to go to the next page.
+
+Since I found some relevant data, I should use append_file to save this data to results.txt in the file system and proceed to the next page using the click_element_by_index action.
+""".strip(),
+							'next_goal': """
+Append the data to results.txt and proceed to the next page.
+""".strip(),
+						},
+						'action': [
+							{
+								'append_file': {
+									'file_name': 'results.txt',
+									'append_content': '1. Title: MacBook Air: Lightweight and powerful\n2. Title: Dell XPS 13: Ultra-thin performance\n',
+								}
+							},
+							{'click_element_by_index': {'index': 18}},
+						],
+					},
+					'id': str(self.state.tool_id + 1),
+					'type': 'tool_call',
+				},
+			],
+		)
 		self._add_message_with_tokens(example_tool_call, message_type='init')
+		self.add_tool_message(content='', message_type='init')
+
+		placeholder_message = HumanMessage(content='Example output 2:')
+		self._add_message_with_tokens(placeholder_message, message_type='init')
+		self._add_message_with_tokens(example_tool_call_2, message_type='init')
 		self.add_tool_message(content='Browser started', message_type='init')
 
 		placeholder_message = HumanMessage(content='[Your task history memory starts here]')
@@ -277,7 +325,8 @@ class MessageManager:
 			self._add_message_with_tokens(filepaths_msg, message_type='init')
 
 	def add_new_task(self, new_task: str) -> None:
-		content = f'Your new ultimate task is: """{new_task}""". Take the previous context into account and finish your new ultimate task. '
+		stripped_task = new_task.strip('\n')
+		content = f'Your new ultimate task is:\n<ultimate_task>\n{stripped_task}\n</ultimate_task>.\nTake the previous context into account and finish your new ultimate task.'
 		msg = HumanMessage(content=content)
 		self._add_message_with_tokens(msg)
 		self.task = new_task
@@ -286,9 +335,11 @@ class MessageManager:
 	def add_state_message(
 		self,
 		browser_state_summary: BrowserStateSummary,
+		file_system_summary: str | None = None,
 		result: list[ActionResult] | None = None,
 		step_info: AgentStepInfo | None = None,
 		use_vision=True,
+		# memories: list[str] | None = None,
 	) -> None:
 		"""Add browser state as human message"""
 
@@ -314,8 +365,10 @@ class MessageManager:
 		state_message = AgentMessagePrompt(
 			browser_state_summary=browser_state_summary,
 			result=result,
+			file_system_summary=file_system_summary,
 			include_attributes=self.settings.include_attributes,
 			step_info=step_info,
+			task=self.task,
 		).get_user_message(use_vision)
 		self._add_message_with_tokens(state_message)
 
