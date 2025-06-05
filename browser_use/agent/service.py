@@ -64,7 +64,7 @@ def count_tokens(text: str, model: str = "gpt-4") -> int:
 	except Exception:
 		# Fallback: Rough approximation (1 token ≈ 0.75 words)
 		return int(len(text.split()) / 0.75)
-	
+
 def log_response(response: AgentOutput) -> None:
 	"""Utility function to log the model's response."""
 
@@ -93,8 +93,8 @@ class Agent(Generic[Context]):
 
 	def get_total_output_tokens(self) -> int:
 		"""Return total output tokens used across all steps"""
-		return self.state.history.total_output_tokens()	
-	
+		return self.state.history.total_output_tokens()
+
 	@time_execution_sync('--init (agent)')
 	def __init__(
 		self,
@@ -434,17 +434,23 @@ class Agent(Generic[Context]):
 				return
 
 			if state:
-			metadata = StepMetadata(
-			step_number=self.state.n_steps,
-			step_start_time=step_start_time,
-			step_end_time=step_end_time,
-			input_tokens=tokens,
-			)
-			try:
-			state_after_actions = await self.browser_context.get_state()
-			except Exception:
-			state_after_actions = state
-			self._make_history_item(model_output, state_after_actions, result, metadata)
+				metadata = StepMetadata(
+				step_number=self.state.n_steps,
+				step_start_time=step_start_time,
+				step_end_time=step_end_time,
+				input_tokens=tokens,
+				)
+				try:
+					state_after_actions = await self.browser_context.get_state()
+				except Exception:
+					state_after_actions = state
+				self._make_history_item(
+					model_output,
+					state,
+					state_after_actions,
+					result,
+					metadata,
+				)
 
 	@time_execution_async('--handle_step_error (agent)')
 	async def _handle_step_error(self, error: Exception) -> list[ActionResult]:
@@ -484,12 +490,13 @@ class Agent(Generic[Context]):
 	def _make_history_item(
 		self,
 		model_output: AgentOutput | None,
-		state: BrowserState,
+		pre_state: BrowserState,
+		post_state: BrowserState,
 		result: list[ActionResult],
 		metadata: Optional[StepMetadata] = None,
 	) -> None:
 		if model_output:
-			interacted_elements = AgentHistory.get_interacted_element(model_output, state.selector_map)
+			interacted_elements = AgentHistory.get_interacted_element(model_output, pre_state.selector_map)
 			# Estimate output tokens
 			output_content = model_output.model_dump_json(exclude_unset=True)
 			output_tokens = count_tokens(output_content, self.model_name)
@@ -498,15 +505,15 @@ class Agent(Generic[Context]):
 			output_tokens = 0
 
 		state_history = BrowserStateHistory(
-			url=state.url,
-			title=state.title,
-			tabs=state.tabs,
+			url=post_state.url,
+			title=post_state.title,
+			tabs=post_state.tabs,
 			interacted_element=interacted_elements,
-			screenshot=state.screenshot,
+			screenshot=post_state.screenshot,
 		)
 
 		metadata = metadata or StepMetadata()
-		metadata.output_tokens = output_tokens  # ✅ set here
+		metadata.output_tokens = output_tokens
 
 		history_item = AgentHistory(model_output=model_output, result=result, state=state_history, metadata=metadata)
 		self.state.history.history.append(history_item)
@@ -690,7 +697,7 @@ class Agent(Generic[Context]):
 		for i, action in enumerate(actions):
 			if action.get_index() is not None and i != 0:
 				new_state = await self.browser_context.get_state()
-				new_path_hashes = set(e.hash.branch_path_hash for e in new_state.selector_map.values())
+				new_path_hashes = set(e.hash.branch_path_hash for e in new_pre_state.selector_map.values())
 				if check_for_new_elements and not new_path_hashes.issubset(cached_path_hashes):
 					# next action requires index but there are new elements on the page
 					msg = f'Something new appeared after action {i} / {len(actions)}'

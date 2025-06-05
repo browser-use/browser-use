@@ -1,11 +1,15 @@
 import pytest
+from unittest.mock import MagicMock
+from langchain_core.language_models.chat_models import BaseChatModel
 
+from browser_use.agent.service import Agent
 from browser_use.agent.views import (
     ActionResult,
     AgentBrain,
     AgentHistory,
     AgentHistoryList,
     AgentOutput,
+    StepMetadata,
 )
 from browser_use.browser.views import BrowserState, BrowserStateHistory, TabInfo
 from browser_use.controller.registry.service import Registry
@@ -261,6 +265,64 @@ def test_get_interacted_element_input_text(action_registry):
         selector_map = {1: dom_el}
         elements = AgentHistory.get_interacted_element(model_output, selector_map)
         assert elements[0].input_text == 'typed'
+
+
+def test_history_item_uses_pre_action_dom(action_registry):
+    mock_llm = MagicMock(spec=BaseChatModel)
+    mock_llm.model_name = 'gpt-4'
+
+    agent = Agent(task='test', llm=mock_llm, browser=MagicMock(), browser_context=MagicMock())
+
+    pre_el = DOMElementNode(
+        tag_name='button',
+        xpath='//button[1]',
+        attributes={},
+        children=[],
+        is_visible=True,
+        parent=None,
+        highlight_index=1,
+    )
+    pre_state = BrowserState(
+        url='https://before.com',
+        title='Before',
+        tabs=[TabInfo(url='https://before.com', title='Before', page_id=1)],
+        screenshot='before.png',
+        element_tree=pre_el,
+        selector_map={1: pre_el},
+    )
+
+    post_el = DOMElementNode(
+        tag_name='div',
+        xpath='//div[1]',
+        attributes={},
+        children=[],
+        is_visible=True,
+        parent=None,
+        highlight_index=2,
+    )
+    post_state = BrowserState(
+        url='https://after.com',
+        title='After',
+        tabs=[TabInfo(url='https://after.com', title='After', page_id=1)],
+        screenshot='after.png',
+        element_tree=post_el,
+        selector_map={1: post_el},
+    )
+
+    click_action = agent.ActionModel(click_element=ClickElementAction(index=1))
+    model_output = agent.AgentOutput(
+        current_state=AgentBrain(evaluation_previous_goal='', memory='', next_goal=''),
+        action=[click_action],
+    )
+
+    result = [ActionResult(is_done=False)]
+    metadata = StepMetadata(step_start_time=0.0, step_end_time=0.0, input_tokens=0, step_number=1)
+
+    agent._make_history_item(model_output, pre_state, post_state, result, metadata)
+    history_item = agent.state.history.history[-1]
+
+    assert history_item.state.url == 'https://after.com'
+    assert history_item.state.interacted_element[0].xpath == '//button[1]'
 
 
 # run this with:
