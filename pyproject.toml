@@ -37,6 +37,7 @@ dependencies = [
     "mem0ai>=0.1.104",
     "uuid7>=0.1.0",
     "patchright>=1.52.4",
+    "aiofiles>=23.2.1",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste

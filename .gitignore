@@ -12,6 +12,11 @@ __pycache__/
 # Virtual Environments
 .venv*
 venv/
+env/
+.env/
+.virtualenv/
+pyenv/
+py311_env/
 
 # IDEs
 .vscode/
@@ -29,6 +34,11 @@ dist/
 *.jsonl
 *.log
 
+# Generated output files
+output/
+examples/output/
+output/playwright_scripts/
+
 # Secrets and sensitive files
 secrets.env
 .env
@@ -45,3 +55,6 @@ CLAUDE.local.md
 uv.lock
 temp
 tmp
+py311/
+design.md
+myenv/
