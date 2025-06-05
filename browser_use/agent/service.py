@@ -1885,6 +1885,9 @@ class Agent(Generic[Context]):
 		if include_initial_actions and hasattr(self, 'initial_actions') and self.initial_actions:
 			logger.debug(f'Including {len(self.initial_actions)} initial actions in Playwright script')
 			for action in self.initial_actions:
+				# Skip None actions to prevent AttributeError
+				if action is None:
+					continue
 				action_data = action.model_dump(exclude_unset=True)
 				action_name = next(iter(action_data.keys()), 'unknown')
 				params = action_data.get(action_name, {})
@@ -1903,6 +1906,9 @@ class Agent(Generic[Context]):
 			actions = history_item.model_output.action
 			results = history_item.result
 			for i, action in enumerate(actions):
+				# Skip None actions to prevent AttributeError
+				if action is None:
+					continue
 				action_data = action.model_dump(exclude_unset=True)
 				action_name = next(iter(action_data.keys()), 'unknown')
 				params = action_data.get(action_name, {})

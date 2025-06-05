@@ -4,7 +4,9 @@ import sys
 import traceback
 from pathlib import Path
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Use environment variable for import if needed
+# This is a safer approach than modifying sys.path
+os.environ['PYTHONPATH'] = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 from dotenv import load_dotenv
 
@@ -12,12 +14,13 @@ load_dotenv()
 
 from langchain_anthropic import ChatAnthropic
 
+# Import browser_use package
 from browser_use import Agent
 
 # Check if the API key is available
 api_key = os.environ.get('ANTHROPIC_API_KEY', '')
 if api_key:
-    print('API key found and loaded')
+	print('API key found and loaded')
 else:
 	print('API key not found!')
 
@@ -63,7 +66,7 @@ async def main():
 		# Set a reasonable timeout for the agent run
 		try:
 			history = await asyncio.wait_for(agent.run(), timeout=300)  # 5 minute timeout
-			except asyncio.TimeoutError:
+		except TimeoutError:
 			print('Agent run timed out after 5 minutes')
 			return
 
