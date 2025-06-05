@@ -434,13 +434,17 @@ class Agent(Generic[Context]):
 				return
 
 			if state:
-				metadata = StepMetadata(
-					step_number=self.state.n_steps,
-					step_start_time=step_start_time,
-					step_end_time=step_end_time,
-					input_tokens=tokens,
-				)
-				self._make_history_item(model_output, state, result, metadata)
+			metadata = StepMetadata(
+			step_number=self.state.n_steps,
+			step_start_time=step_start_time,
+			step_end_time=step_end_time,
+			input_tokens=tokens,
+			)
+			try:
+			state_after_actions = await self.browser_context.get_state()
+			except Exception:
+			state_after_actions = state
+			self._make_history_item(model_output, state_after_actions, result, metadata)
 
 	@time_execution_async('--handle_step_error (agent)')
 	async def _handle_step_error(self, error: Exception) -> list[ActionResult]:
