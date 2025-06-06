@@ -32,7 +32,7 @@ class Profiles(BaseModel):
 	profiles: list[Profile]
 
 
-controller = Controller(exclude_actions=['search_google'], output_model=Profiles)
+controller = Controller(exclude_actions=['search'], output_model=Profiles)
 BEARER_TOKEN = os.getenv('BEARER_TOKEN')
 
 if not BEARER_TOKEN:

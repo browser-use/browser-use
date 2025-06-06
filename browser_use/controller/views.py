@@ -2,7 +2,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # Action Input Models
-class SearchGoogleAction(BaseModel):
+class SearchAction(BaseModel):
 	query: str
 
 

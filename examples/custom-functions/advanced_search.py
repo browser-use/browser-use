@@ -34,7 +34,7 @@ SERP_API_KEY = os.getenv('SERPER_API_KEY')
 if not SERP_API_KEY:
 	raise ValueError('SERPER_API_KEY is not set')
 
-controller = Controller(exclude_actions=['search_google'], output_model=PersonList)
+controller = Controller(exclude_actions=['search'], output_model=PersonList)
 
 
 @controller.registry.action('Search the web for a specific query')

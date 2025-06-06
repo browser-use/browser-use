@@ -4,6 +4,7 @@ import json
 import logging
 import re
 from typing import Generic, TypeVar, cast
+from urllib.parse import quote_plus
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
@@ -26,7 +27,7 @@ from browser_use.controller.views import (
 	OpenTabAction,
 	Position,
 	ScrollAction,
-	SearchGoogleAction,
+	SearchAction,
 	SendKeysAction,
 	SwitchTabAction,
 )
@@ -43,8 +44,15 @@ class Controller(Generic[Context]):
 		self,
 		exclude_actions: list[str] = [],
 		output_model: type[BaseModel] | None = None,
+		search_engine: str = 'google',
 	):
 		self.registry = Registry[Context](exclude_actions)
+		self.search_engine = search_engine.lower()
+
+		# Validate search engine
+		supported_engines = ['google', 'bing', 'duckduckgo', 'yahoo', 'baidu']
+		if self.search_engine not in supported_engines:
+			raise ValueError(f"Unsupported search engine '{search_engine}'. Supported engines: {', '.join(supported_engines)}")
 
 		"""Register all default browser actions"""
 
@@ -79,20 +87,39 @@ class Controller(Generic[Context]):
 
 		# Basic Navigation Actions
 		@self.registry.action(
-			'Search the query in Google, the query should be a search query like humans search in Google, concrete and not vague or super long.',
-			param_model=SearchGoogleAction,
+			f'Search the query in {self.search_engine.title()}, the query should be a search query like humans search in {self.search_engine.title()}, concrete and not vague or super long.',
+			param_model=SearchAction,
 		)
-		async def search_google(params: SearchGoogleAction, browser_session: BrowserSession):
-			search_url = f'https://www.google.com/search?q={params.query}&udm=14'
+		async def search(params: SearchAction, browser_session: BrowserSession):
+			# Define search URLs for different engines
+			search_engines = {
+				'google': f'https://www.google.com/search?q={quote_plus(params.query)}&udm=14',
+				'bing': f'https://www.bing.com/search?q={quote_plus(params.query)}',
+				'duckduckgo': f'https://duckduckgo.com/?q={quote_plus(params.query)}',
+				'yahoo': f'https://search.yahoo.com/search?p={quote_plus(params.query)}',
+				'baidu': f'https://www.baidu.com/s?wd={quote_plus(params.query)}',
+			}
+
+			# Get the search URL for the configured engine
+			search_url = search_engines[self.search_engine]
+
+			# Define engine domains for navigation logic
+			engine_domains = {
+				'google': 'https://www.google.com',
+				'bing': 'https://www.bing.com',
+				'duckduckgo': 'https://duckduckgo.com',
+				'yahoo': 'https://search.yahoo.com',
+				'baidu': 'https://www.baidu.com',
+			}
 
 			page = await browser_session.get_current_page()
-			if page.url in ('about:blank', 'https://www.google.com'):
+			if page.url in ('about:blank', engine_domains.get(self.search_engine, '')):
 				await page.goto(search_url)
 				await page.wait_for_load_state()
 			else:
 				page = await browser_session.create_new_tab(search_url)
 
-			msg = f'🔍  Searched for "{params.query}" in Google'
+			msg = f'🔍  Searched for "{params.query}" in {self.search_engine.title()}'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 

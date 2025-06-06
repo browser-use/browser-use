@@ -131,7 +131,7 @@ async def test_model_search(llm, browser_session):
 	errors = [e for e in history.errors() if e is not None]
 	errors = '\n'.join(errors)
 	passed = False
-	if 'search_google' in action_names:
+	if 'search' in action_names:
 		passed = True
 	elif 'go_to_url' in action_names:
 		passed = True

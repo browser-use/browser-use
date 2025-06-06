@@ -420,7 +420,7 @@ if not SERPER_API_KEY:
 
 def create_controller_with_serp_search():
 	"""Create a controller with SERP search instead of Google search"""
-	controller = Controller(exclude_actions=['search_google'])
+	controller = Controller(exclude_actions=['search'])
 
 	@controller.registry.action('Search the web for a specific query')
 	async def search_web(query: str):
