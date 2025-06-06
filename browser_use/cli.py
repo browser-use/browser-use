@@ -447,8 +447,8 @@ class BrowserUseApp(App):
 
 		class BrowserUseFormatter(logging.Formatter):
 			def format(self, record):
-				if isinstance(record.name, str) and record.name.startswith('browser_use.'):
-					record.name = record.name.split('.')[-2]
+				# if isinstance(record.name, str) and record.name.startswith('browser_use.'):
+				# 	record.name = record.name.split('.')[-2]
 				return super().format(record)
 
 		# Set up the formatter based on log type
@@ -1241,6 +1241,7 @@ async def textual_interface(config: dict[str, Any]):
 			**browser_config,
 			playwright=(await async_playwright().start()),
 			channel=BrowserChannel.CHROME,
+			user_data_dir='~/.browseruse/profiles/default/cli',
 		)
 		logger.debug('BrowserSession initialized successfully')
 

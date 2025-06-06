@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.browser import BrowserSession
 
 
 @pytest.fixture
@@ -38,11 +38,9 @@ async def test_download_detection_timing(test_server, tmp_path):
 
 	# Test 1: With downloads_dir set (default behavior)
 	browser_with_downloads = BrowserSession(
-		browser_profile=BrowserProfile(
-			headless=True,
-			downloads_dir=str(tmp_path / 'downloads'),
-			user_data_dir=None,
-		)
+		headless=True,
+		downloads_dir=str(tmp_path / 'downloads'),
+		user_data_dir=None,
 	)
 
 	await browser_with_downloads.start()
@@ -75,11 +73,9 @@ async def test_download_detection_timing(test_server, tmp_path):
 
 	# Test 2: With downloads_dir set to empty string (disables download detection)
 	browser_no_downloads = BrowserSession(
-		browser_profile=BrowserProfile(
-			headless=True,
-			downloads_dir=None,
-			user_data_dir=None,
-		)
+		headless=True,
+		downloads_dir=None,
+		user_data_dir=None,
 	)
 
 	await browser_no_downloads.start()
@@ -126,15 +122,13 @@ async def test_download_detection_timing(test_server, tmp_path):
 async def test_actual_download_detection(test_server, tmp_path):
 	"""Test that actual downloads are detected correctly."""
 
-	downloads_dir = tmp_path / 'downloads'
-	downloads_dir.mkdir()
+	downloads_path = tmp_path / 'downloads'
+	downloads_path.mkdir()
 
 	browser_session = BrowserSession(
-		browser_profile=BrowserProfile(
-			headless=True,
-			downloads_dir=str(downloads_dir),
-			user_data_dir=None,
-		)
+		headless=True,
+		downloads_path=str(downloads_path),
+		user_data_dir=None,
 	)
 
 	await browser_session.start()
@@ -167,7 +161,3 @@ async def test_actual_download_detection(test_server, tmp_path):
 	assert duration < 2.0, f'Download detection took {duration:.2f}s, expected <2s'
 
 	await browser_session.close()
-
-
-if __name__ == '__main__':
-	pytest.main([__file__, '-v', '-s'])

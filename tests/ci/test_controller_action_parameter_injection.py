@@ -72,7 +72,7 @@ class TestBrowserContext:
 		the allowed domains configuration.
 		"""
 		# Scenario 1: allowed_domains is None, any URL should be allowed.
-		config1 = BrowserProfile(allowed_domains=None)
+		config1 = BrowserProfile(allowed_domains=None, headless=True, user_data_dir=None)
 		context1 = BrowserSession(browser_profile=config1)
 		assert context1._is_url_allowed('http://anydomain.com') is True
 		assert context1._is_url_allowed('https://anotherdomain.org/path') is True
@@ -80,7 +80,7 @@ class TestBrowserContext:
 		# Scenario 2: allowed_domains is provided.
 		# Note: match_url_with_domain_pattern defaults to https:// scheme when none is specified
 		allowed = ['https://example.com', 'http://example.com', 'http://*.mysite.org', 'https://*.mysite.org']
-		config2 = BrowserProfile(allowed_domains=allowed)
+		config2 = BrowserProfile(allowed_domains=allowed, headless=True, user_data_dir=None)
 		context2 = BrowserSession(browser_profile=config2)
 
 		# URL exactly matching

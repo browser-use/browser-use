@@ -7,7 +7,7 @@ import os
 
 import pytest
 
-from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.browser import BrowserSession
 from browser_use.controller.service import Controller
 
 
@@ -62,11 +62,9 @@ def httpserver(make_httpserver):
 async def browser_session():
 	"""Create a real browser session for testing."""
 	session = BrowserSession(
-		browser_profile=BrowserProfile(
-			executable_path=os.getenv('BROWSER_PATH'),
-			user_data_dir=None,  # Use temporary profile
-			headless=True,
-		)
+		executable_path=os.getenv('BROWSER_PATH'),
+		user_data_dir=None,  # Use temporary profile
+		headless=True,
 	)
 	async with session:
 		yield session
