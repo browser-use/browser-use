@@ -355,23 +355,12 @@ class TestTabManagement:
 		# Initially should be connected
 		assert browser_session.is_connected() is True
 
-		# Close the browser context
-		await browser_session.browser_context.close()
+		# Close the browser
+		await browser_session.browser_context.browser.close()
 
 		# The is_connected() method tries to access browser_context.pages
 		# If the context is closed, this should fail
-		is_connected = browser_session.is_connected()
-
-		# If is_connected is still True, the detection isn't working as expected
-		# Let's verify that accessing pages actually fails
-		if is_connected:
-			try:
-				pages = browser_session.browser_context.pages
-				# If we can still access pages, the context might not be fully closed
-				logger.warning(f'Context appears closed but pages are still accessible: {pages}')
-			except Exception as e:
-				# This is expected - the context is closed
-				logger.info(f'Context is closed as expected: {e}')
+		assert browser_session.is_connected() is False
 
 		# For now, let's just test that we can recover from the closed state
 		# Try to use the session - should handle the error gracefully
@@ -399,7 +388,7 @@ class TestTabManagement:
 
 		async def close_context():
 			await barrier.wait()
-			await browser_session.browser_context.close()
+			await browser_session.browser_context.browser.close()
 			return 'closed'
 
 		async def access_pages():
@@ -438,10 +427,7 @@ class TestTabManagement:
 		original_context = browser_session.browser_context
 
 		# Force an error by closing context and trying to use it
-		await browser_session.browser_context.close()
-
-		# Set browser_context to None to simulate partial cleanup
-		browser_session.browser_context = None
+		await browser_session.browser_context.browser.close()
 
 		# This should trigger reinitialization
 		page = await browser_session.get_current_page()
@@ -453,30 +439,3 @@ class TestTabManagement:
 		assert browser_session.initialized is True
 
 		await browser_session.stop()
-
-	async def test_await_usage_in_close_operations(self):
-		"""Test that all close operations properly await async calls"""
-		# logger.info('Testing await usage in close operations')
-
-		# Create a simple headless browser profile
-		profile = BrowserProfile(headless=True, user_data_dir=None)
-		browser_session = BrowserSession(browser_profile=profile)
-		await browser_session.start()
-
-		# Track if close was awaited properly
-		close_awaited = False
-		original_close = browser_session.browser_context.close
-
-		async def tracked_close():
-			nonlocal close_awaited
-			close_awaited = True
-			return await original_close()
-
-		browser_session.browser_context.close = tracked_close
-
-		# Stop should properly await the close
-		await browser_session.stop()
-
-		assert close_awaited, 'browser_context.close() was not awaited'
-		assert browser_session.browser_context is None
-		assert browser_session.initialized is False

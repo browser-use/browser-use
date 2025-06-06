@@ -509,21 +509,16 @@ def get_browser_use_version() -> str:
 				content = f.read()
 				match = re.search(r'version\s*=\s*["\']([^"\']+)["\']', content)
 				if match:
-					return f'v{match.group(1)}'
-				else:
-					# Fallback to importlib if regex doesn't find version
-					from importlib.metadata import version as get_version
+					return f'{match.group(1)}'
 
-					return f'v{get_version("browser-use")}'
-		else:
-			# If pyproject.toml doesn't exist, try getting version from pip
-			from importlib.metadata import version as get_version
+		# If pyproject.toml doesn't exist, try getting version from pip
+		from importlib.metadata import version as get_version
 
-			return f'v{get_version("browser-use")}'
+		return str(get_version('browser-use'))
 
 	except Exception as e:
-		logger.debug(f'Error getting version: {e}')
-		return 'vunknown'
+		logger.debug(f'Error detecting browser-use version: {type(e).__name__}: {e}')
+		return 'unknown'
 
 
 def _log_pretty_path(path: Path | None) -> str:
