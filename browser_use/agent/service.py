@@ -10,7 +10,6 @@ import sys
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from threading import Thread
 from typing import Any, Generic, TypeVar
 
 from dotenv import load_dotenv
@@ -236,7 +235,7 @@ class Agent(Generic[Context]):
 			self.settings.use_vision = False
 		if planner_capabilities and planner_capabilities.supports_image_input is False and self.settings.use_vision_for_planner:
 			logger.warning('⚠️ Planner LLM does not support image input. Setting use_vision_for_planner=False for now...')
-      self.settings.use_vision_for_planner = False
+			self.settings.use_vision_for_planner = False
 
 		self.logger.info(
 			f'🧠 Starting a browser-use agent {self.version} with base_model={self.model_name}'
