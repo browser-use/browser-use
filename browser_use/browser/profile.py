@@ -7,7 +7,6 @@ from pathlib import Path
 from re import Pattern
 from typing import Annotated, Any, Literal, Self
 from urllib.parse import urlparse
-from venv import logger
 
 from playwright._impl._api_structures import (
 	ClientCertificate,
@@ -18,6 +17,9 @@ from playwright._impl._api_structures import (
 	ViewportSize,
 )
 from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field, model_validator
+from uuid_extensions import uuid7str
+
+from browser_use.utils import _log_pretty_path, logger
 
 # fix pydantic error on python 3.11
 # PydanticUserError: Please use `typing_extensions.TypedDict` instead of `typing.TypedDict` on Python < 3.12.
@@ -37,6 +39,7 @@ IN_DOCKER = os.environ.get('IN_DOCKER', 'false').lower()[0] in 'ty1'
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
 CHROME_DISABLED_COMPONENTS = [
 	# Playwright defaults: https://github.com/microsoft/playwright/blob/41008eeddd020e2dee1c540f7c0cdfa337e99637/packages/playwright-core/src/server/chromium/chromiumSwitches.ts#L76
+	# AcceptCHFrame,AutoExpandDetailsElement,AvoidUnnecessaryBeforeUnloadCheckSync,CertificateTransparencyComponentUpdater,DeferRendererTasksAfterInput,DestroyProfileOnBrowserClose,DialMediaRouteProvider,ExtensionManifestV2Disabled,GlobalMediaControls,HttpsUpgrades,ImprovedCookieControls,LazyFrameLoading,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate
 	# See https:#github.com/microsoft/playwright/pull/10380
 	'AcceptCHFrame',
 	# See https:#github.com/microsoft/playwright/pull/10679
@@ -66,8 +69,10 @@ CHROME_DISABLED_COMPONENTS = [
 	'ThirdPartyStoragePartitioning',
 	# See https://github.com/microsoft/playwright/issues/16126
 	'Translate',
-	'AutomationControlled',
+	###########################3
 	# Added by us:
+	'AutomationControlled',
+	'BackForwardCache',
 	'OptimizationHints',
 	'ProcessPerSiteUpToMainFrameThreshold',
 	'InterestFeedContentSuggestions',
@@ -118,43 +123,43 @@ CHROME_DETERMINISTIC_RENDERING_ARGS = [
 ]
 
 CHROME_DEFAULT_ARGS = [
-	# provided by playwright by default: https://github.com/microsoft/playwright/blob/41008eeddd020e2dee1c540f7c0cdfa337e99637/packages/playwright-core/src/server/chromium/chromiumSwitches.ts#L76
-	# we don't need to include them twice in our own config, but it's harmless
-	'--disable-field-trial-config',  # https://source.chromium.org/chromium/chromium/src/+/main:testing/variations/README.md
-	'--disable-background-networking',
-	'--disable-background-timer-throttling',  # agents might be working on background pages if the human switches to another tab
-	'--disable-backgrounding-occluded-windows',  # same deal, agents are often working on backgrounded browser windows
-	'--disable-back-forward-cache',  # Avoids surprises like main request not being intercepted during page.goBack().
-	'--disable-breakpad',
-	'--disable-client-side-phishing-detection',
-	'--disable-component-extensions-with-background-pages',
-	'--disable-component-update',  # Avoids unneeded network activity after startup.
-	'--no-default-browser-check',
-	# '--disable-default-apps',
-	'--disable-dev-shm-usage',  # crucial for docker support, harmless in non-docker environments
-	# '--disable-extensions',
-	# '--disable-features=' + disabledFeatures(assistantMode).join(','),
-	'--allow-pre-commit-input',  # let page JS run a little early before GPU rendering finishes
-	'--disable-hang-monitor',
-	'--disable-ipc-flooding-protection',  # important to be able to make lots of CDP calls in a tight loop
-	'--disable-popup-blocking',
-	'--disable-prompt-on-repost',
-	'--disable-renderer-backgrounding',
-	# '--force-color-profile=srgb',  # moved to CHROME_DETERMINISTIC_RENDERING_ARGS
-	'--metrics-recording-only',
-	'--no-first-run',
-	'--password-store=basic',
-	'--use-mock-keychain',
-	# // See https://chromium-review.googlesource.com/c/chromium/src/+/2436773
-	'--no-service-autorun',
-	'--export-tagged-pdf',
-	# // https://chromium-review.googlesource.com/c/chromium/src/+/4853540
-	'--disable-search-engine-choice-screen',
-	# // https://issues.chromium.org/41491762
-	'--unsafely-disable-devtools-self-xss-warnings',
+	# # provided by playwright by default: https://github.com/microsoft/playwright/blob/41008eeddd020e2dee1c540f7c0cdfa337e99637/packages/playwright-core/src/server/chromium/chromiumSwitches.ts#L76
+	# # we don't need to include them twice in our own config, but it's harmless
+	# '--disable-field-trial-config',  # https://source.chromium.org/chromium/chromium/src/+/main:testing/variations/README.md
+	# '--disable-background-networking',
+	# '--disable-background-timer-throttling',  # agents might be working on background pages if the human switches to another tab
+	# '--disable-backgrounding-occluded-windows',  # same deal, agents are often working on backgrounded browser windows
+	# '--disable-back-forward-cache',  # Avoids surprises like main request not being intercepted during page.goBack().
+	# '--disable-breakpad',
+	# '--disable-client-side-phishing-detection',
+	# '--disable-component-extensions-with-background-pages',
+	# '--disable-component-update',  # Avoids unneeded network activity after startup.
+	# '--no-default-browser-check',
+	# # '--disable-default-apps',
+	# '--disable-dev-shm-usage',  # crucial for docker support, harmless in non-docker environments
+	# # '--disable-extensions',
+	# # '--disable-features=' + disabledFeatures(assistantMode).join(','),
+	# '--allow-pre-commit-input',  # let page JS run a little early before GPU rendering finishes
+	# '--disable-hang-monitor',
+	# '--disable-ipc-flooding-protection',  # important to be able to make lots of CDP calls in a tight loop
+	# '--disable-popup-blocking',
+	# '--disable-prompt-on-repost',
+	# '--disable-renderer-backgrounding',
+	# # '--force-color-profile=srgb',  # moved to CHROME_DETERMINISTIC_RENDERING_ARGS
+	# '--metrics-recording-only',
+	# '--no-first-run',
+	# '--password-store=basic',
+	# '--use-mock-keychain',
+	# # // See https://chromium-review.googlesource.com/c/chromium/src/+/2436773
+	# '--no-service-autorun',
+	# '--export-tagged-pdf',
+	# # // https://chromium-review.googlesource.com/c/chromium/src/+/4853540
+	# '--disable-search-engine-choice-screen',
+	# # // https://issues.chromium.org/41491762
+	# '--unsafely-disable-devtools-self-xss-warnings',
+	# added by us:
 	'--enable-features=NetworkService,NetworkServiceInProcess',
 	'--enable-network-information-downlink-max',
-	# added by us:
 	'--test-type=gpu',
 	'--disable-sync',
 	'--allow-legacy-extension-manifests',
@@ -220,12 +225,6 @@ def get_window_adjustments() -> tuple[int, int]:
 		return -8, 0  # Windows has a border on the left
 	else:  # Linux
 		return 0, 0
-
-
-# ===== Validator functions =====
-
-BROWSERUSE_CONFIG_DIR = Path('~/.config/browseruse')
-BROWSERUSE_PROFILES_DIR = BROWSERUSE_CONFIG_DIR / 'profiles'
 
 
 def validate_url(url: str, schemes: Iterable[str] = ()) -> str:
@@ -306,6 +305,12 @@ class BrowserChannel(str, Enum):
 	MSEDGE_BETA = 'msedge-beta'
 	MSEDGE_DEV = 'msedge-dev'
 	MSEDGE_CANARY = 'msedge-canary'
+
+
+BROWSERUSE_CONFIG_DIR = Path('~/.config/browseruse').expanduser().resolve()
+BROWSERUSE_PROFILES_DIR = BROWSERUSE_CONFIG_DIR / 'profiles'
+BROWSERUSE_DEFAULT_PROFILE_DIR = BROWSERUSE_PROFILES_DIR / 'default'
+BROWSERUSE_DEFAULT_CHANNEL = BrowserChannel.CHROMIUM
 
 
 # ===== Type definitions with validators =====
@@ -424,10 +429,15 @@ class BrowserLaunchArgs(BaseModel):
 		default_factory=list, description='List of *extra* CLI args to pass to the browser when launching.'
 	)
 	ignore_default_args: list[CliArgStr] | Literal[True] = Field(
-		default_factory=lambda: ['--enable-automation', '--disable-extensions'],
+		default_factory=lambda: [
+			'--enable-automation',  # we mask the automation fingerprint via JS and other flags
+			'--disable-extensions',  # allow browser extensions
+			'--hide-scrollbars',  # always show scrollbars in screenshots so agent knows there is more content below it can scroll down to
+			'--disable-features=AcceptCHFrame,AutoExpandDetailsElement,AvoidUnnecessaryBeforeUnloadCheckSync,CertificateTransparencyComponentUpdater,DeferRendererTasksAfterInput,DestroyProfileOnBrowserClose,DialMediaRouteProvider,ExtensionManifestV2Disabled,GlobalMediaControls,HttpsUpgrades,ImprovedCookieControls,LazyFrameLoading,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate',
+		],
 		description='List of default CLI args to stop playwright from applying (see https://github.com/microsoft/playwright/blob/41008eeddd020e2dee1c540f7c0cdfa337e99637/packages/playwright-core/src/server/chromium/chromiumSwitches.ts)',
 	)
-	channel: BrowserChannel = BrowserChannel.CHROMIUM  # https://playwright.dev/docs/browsers#chromium-headless-shell
+	channel: BrowserChannel | None = None  # https://playwright.dev/docs/browsers#chromium-headless-shell
 	chromium_sandbox: bool = Field(
 		default=not IN_DOCKER, description='Whether to enable Chromium sandboxing (recommended unless inside Docker).'
 	)
@@ -437,7 +447,11 @@ class BrowserLaunchArgs(BaseModel):
 	slow_mo: float = Field(default=0, description='Slow down actions by this many milliseconds.')
 	timeout: float = Field(default=30000, description='Default timeout in milliseconds for connecting to a remote browser.')
 	proxy: ProxySettings | None = Field(default=None, description='Proxy settings to use to connect to the browser.')
-	downloads_path: str | Path | None = Field(default=None, description='Directory to save downloads to.')
+	downloads_path: str | Path | None = Field(
+		default=None,
+		description='Directory to save downloads to.',
+		validation_alias=AliasChoices('downloads_dir', 'save_downloads_path'),
+	)
 	traces_dir: str | Path | None = Field(default=None, description='Directory to save HAR trace files to.')
 	handle_sighup: bool = Field(
 		default=True, description='Whether playwright should swallow SIGHUP signals and kill the browser.'
@@ -547,11 +561,12 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	# ... extends options defined in:
 	# BrowserLaunchPersistentContextArgs, BrowserLaunchArgs, BrowserNewContextArgs, BrowserConnectArgs
 
-	# do something like this someday when we need to store these in a DB
-	# id: str = Field(default_factory=uuid7str)
+	# Unique identifier for this browser profile
+	id: str = Field(default_factory=uuid7str)
 	# label: str = 'default'
 
 	# custom options we provide that aren't native playwright kwargs
+	stealth: bool = Field(default=False, description='Use stealth mode to avoid detection by anti-bot systems.')
 	disable_security: bool = Field(default=False, description='Disable browser security features.')
 	deterministic_rendering: bool = Field(default=False, description='Enable deterministic rendering flags.')
 	allowed_domains: list[str] | None = Field(
@@ -601,20 +616,12 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	# 	description='Directory containing .crx extension files.',
 	# )
 
-	# # --- File paths ---
-	downloads_dir: Path | str | None = Field(
-		default=Path('~/.config/browseruse/downloads').expanduser(),
-		description='Directory for downloads.',
-		validation_alias=AliasChoices('save_downloads_path'),
-	)
-	# uploads_dir: Path | None = Field(default=None, description='Directory for uploads (defaults to downloads_dir if not set).')
-
 	def __repr__(self) -> str:
-		short_dir = str(self.user_data_dir).replace(str(Path('~').expanduser()), '~')
-		return f'BrowserProfile(user_data_dir={short_dir}, headless={self.headless})'
+		short_dir = _log_pretty_path(self.user_data_dir) if self.user_data_dir else '<incognito>'
+		return f'BrowserProfile[{self.id[-3:]}](user_data_dir= {short_dir}, headless={self.headless})'
 
 	def __str__(self) -> str:
-		return repr(self)
+		return f'BrowserProfile[{self.id[-3:]}]'
 
 	@model_validator(mode='after')
 	def copy_old_config_names_to_new(self) -> Self:
@@ -640,6 +647,21 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				f'For multiple browsers in parallel, use only storage_state with user_data_dir=None, '
 				f'or use separate user_data_dirs for each browser and set storage_state=None.'
 			)
+		return self
+
+	@model_validator(mode='after')
+	def warn_user_data_dir_non_default_version(self) -> Self:
+		"""If user is using default profile dir with a non-default channel, force-change it to avoid corrupting the default data dir."""
+
+		is_using_non_default_chrome = self.executable_path or self.channel not in (BROWSERUSE_DEFAULT_CHANNEL, None)
+		if self.user_data_dir == BROWSERUSE_DEFAULT_PROFILE_DIR and is_using_non_default_chrome:
+			alternate_name = (
+				self.executable_path.name.lower().replace(' ', '-') if self.executable_path else self.channel.name.lower()
+			)
+			logger.warning(
+				f'⚠️ {self} Changing user_data_dir= {_log_pretty_path(self.user_data_dir)} ➡️ .../default-{alternate_name} to avoid {alternate_name.upper()} corruping default profile created by {BROWSERUSE_DEFAULT_CHANNEL.name}'
+			)
+			self.user_data_dir = self.user_data_dir.parent / f'default-{alternate_name}'
 		return self
 
 	def get_args(self) -> list[str]:
@@ -694,8 +716,14 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		"""Create and unlock the user data dir for first-run initialization."""
 
 		if self.user_data_dir:
-			self.user_data_dir = Path(self.user_data_dir).expanduser().resolve()
-			self.user_data_dir.mkdir(parents=True, exist_ok=True)
+			try:
+				self.user_data_dir = Path(self.user_data_dir).expanduser().resolve()
+				self.user_data_dir.mkdir(parents=True, exist_ok=True)
+				(self.user_data_dir / '.browseruse_profile_id').write_text(self.id)
+			except Exception as e:
+				raise ValueError(
+					f'Unusable path provided for user_data_dir= {_log_pretty_path(self.user_data_dir)} (check for typos/permissions issues)'
+				) from e
 
 			# clear any existing locks by any other chrome processes (hacky)
 			# helps stop chrome crashes from leaving the profile dir in a locked state and breaking subsequent runs,
@@ -707,9 +735,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 					f'⚠️ Multiple chrome processes may be trying to share user_data_dir={self.user_data_dir} which can lead to crashes and profile data corruption!'
 				)
 
-		if self.downloads_dir:
-			self.downloads_dir = Path(self.downloads_dir).expanduser().resolve()
-			self.downloads_dir.mkdir(parents=True, exist_ok=True)
+		if self.downloads_path:
+			self.downloads_path = Path(self.downloads_path).expanduser().resolve()
+			self.downloads_path.mkdir(parents=True, exist_ok=True)
 
 	# def preinstall_extensions(self) -> None:
 	# 	"""Preinstall the extensions."""

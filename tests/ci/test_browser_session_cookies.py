@@ -194,12 +194,12 @@ class TestBrowserSessionCookies:
 		profile = BrowserProfile(
 			headless=True,
 			user_data_dir=None,
-			cookies_file='test_cookies.json',  # Relative path
-			downloads_dir=browser_profile_with_cookies.downloads_dir,
+			cookies_file='./test_cookies.json',  # Relative path
+			downloads_path=browser_profile_with_cookies.downloads_path,
 		)
 
 		# Copy test cookies to expected location
-		expected_path = Path(profile.downloads_dir) / 'test_cookies.json'
+		expected_path = Path('.').resolve() / 'test_cookies.json'
 		expected_path.parent.mkdir(parents=True, exist_ok=True)
 		expected_path.write_text(
 			json.dumps([{'name': 'relative_cookie', 'value': 'relative_value', 'domain': 'localhost', 'path': '/'}])

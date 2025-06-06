@@ -30,8 +30,8 @@ agent = Agent('fill out the form on this page', browser_session=browser_session)
 
 ## `BrowserSession`
 
-- `BrowserSession(**params)` is Browser Use's object that tracks a connection to a running browser. It sets up:
-  - the `playwright`, `browser`, `browser_context`, and `page` objects and tracks which tabs the agent/human are focused on
+- 🎭 `BrowserSession(**params)` is Browser Use's object that tracks a playwright connection to a running browser. It sets up:
+  - the `playwright` library, `browser` and/or `browser_context`, and `page` objects and tracks which tabs the agent & human are focused on
   - methods to interact with the browser window, apply config needed by the Agent, and run the `DOMService` for element detection
   - it can take a `browser_profile=BrowserProfile(...)` template containing some config defaults, and `**kwargs` session-specific config overrides
 
@@ -163,28 +163,68 @@ await asyncio.gather(agent1.run(), agent2.run())
 
 ## `BrowserProfile`
 
-A `BrowserProfile` is a static config template for a `BrowserSession()`.
+A `BrowserProfile` is a 📋 config template for a 🎭 `BrowserSession(...)`.
 
-It can validate and hold all the standard [playwright arguments](#playwright) and the extra config arguments Browser Use provides.
+It's basically just a typed + validated version of a `dict` to hold config.
 
-It allows you do do things like start multiple browser processes with *some* shared config:
+When you find yourself storing or re-using many browser configs, you can upgrade from:
+
+```diff
+- config = {key: val, key: val, ...}
+- BrowserSession(**config)
+```
+To this instead:
+```diff
++ config = BrowserProfile(key=val, key=val, ...)
++ BrowserSession(browser_profile=config)
+```
+
+<Tip>
+You don't ever *need* to use a `BrowserProfile`, you can always pass config parameters directly to `BrowserSession`:
+```python
+session = BrowserSession(headless=True, storage_state='auth.json', viewport={...}, ...)
+```
+</Tip>
+
+`BrowserProfile` is optional, but it provides a number of benefits over a normal `dict` for holding config:
+
+- has type hints and pydantic field descriptions that show up in your IDE
+- validates config at runtime quickly without having to start a browser
+- provides helper methods to autodetect screen size, set up local paths, save/load config as json, and more...
+
+<Tip>
+`BrowserProfiles`s are designed to easily be given 🆔 `uuid`s and put in a database + made editable by users. 
+`BrowserSession`s get their own 🆔 `uuid`s and be linked by 🖇 foreign key to whatever `BrowserProfiles` they use.  
+
+This cleanly separates the per-connection rows from the bulky re-usable config and avoids wasting space in your db.
+This is useful because a user may only have 2 or 3 profiles, but they could have 100k+ sessions within a few months.
+</Tip>
+
+
+`BrowserProfile` and `BrowserSession` can both take any of the:
+
+- [Playwright parameters](#playwright)
+- [Browser-Use parameters](#browser-use-parameters) (extra options we provide on top of `playwright`)
+
+The only parameters `BrowserProfile` can NOT take are the session-specific connection parameters and live playwright objects:  
+`cdp_url`, `wss_url`, `browser_pid`, `page`, `browser`, `browser_context`, `playwright`, etc.
+
+### Basic Example
 
 ```python
 from browser_use.browser import BrowserProfile
 
-base_config = BrowserProfile(
-    storage_state='/tmp/auth.json',
-    allowed_domains=['https://*.google.com', 'https://*.example.com'],
-    headless=True,
-    viewport={'width': 920, 'height': 674},
-    device_scale_factor=1,
+profile = BrowserProfile(
+    stealth=True,
+    storage_state='/tmp/google_docs_cookies.json',
+    allowed_domains=['docs.google.com', 'https://accounts.google.com'],
+    viewport={'width': 396, 'height': 774},
     # ... playwright args / browser-use config args ...
 )
 
-# start 3 browser instances with common config + session-specific override:
-low_res = BrowserSession(browser_profile=base_config, device_scale_factor=1)
-hi_res = BrowserSession(browser_profile=base_config, device_scale_factor=2)
-retina = BrowserSession(browser_profile=base_config, device_scale_factor=3)
+phone1 = BrowserSession(browser_profile=profile, device_scale_factor=1)
+phone2 = BrowserSession(browser_profile=profile, device_scale_factor=2)
+phone3 = BrowserSession(browser_profile=profile, device_scale_factor=3)
 ```
 
 ### Browser-Use Parameters
@@ -197,7 +237,14 @@ These parameters control Browser Use-specific features, and are outside the stan
 keep_alive: bool | None = None
 ```
 
-Keeps the browser alive after the agent has finished running. Useful for running multiple tasks with the same browser instance. If this is left as `None` and the Agent launched its own browser, the default is to close the browser after the agent completes. If the agent connected to an existing browser then it will leave it open.
+If `True` it wont close the browser after the first `agent.run()` ends. Useful for running multiple tasks with the same browser instance. If this is left as `None` and the Agent launched its own browser, the default is to close the browser after the agent completes. If the agent connected to an existing browser then it will leave it open.
+
+#### `stealth`
+
+```python
+stealth: bool = False
+```
+Set to `True` to use [`patchright`](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright) to avoid bot-blocking. (Might cause issues with some sites, requires manual testing.)
 
 <a name="restrict-urls"></a>
 
@@ -312,16 +359,6 @@ Transfer any cookies from your existing `cookies_file` to the new JSON format:
 Or run `playwright open https://example.com/ --save-storage=storage_state.json` and log into any sites you need.
 </Warning>
 
-
-#### `downloads_dir`
-
-```python
-downloads_dir: Path | str = '~/.config/browseruse/downloads'
-```
-
-Directory to save browser downloads in.
-
-(previously called `save_downloads_path` in some places)
 
 #### `profile_directory`
 
@@ -813,10 +850,12 @@ URL filter for HAR recording.
 #### `downloads_path`
 
 ```python
-downloads_path: str | Path | None = None
+downloads_path: str | Path | None = '~/.config/browseruse/downloads'
 ```
 
-Directory to save downloads to (used by launch args).
+(aliases: `downloads_dir`, `save_downloads_path`)
+
+Local filesystem directory to save downloads to.
 
 #### `traces_dir`
 
@@ -859,7 +898,7 @@ from browser_use import BrowserSession, BrowserProfile, Agent
 
 browser_profile = BrowserProfile(
     headless=False,
-    cookies_file="path/to/cookies.json",
+    storage_state="path/to/storage_state.json",
     wait_for_network_idle_page_load_time=3.0,
     viewport={"width": 1280, "height": 1100},
     locale='en-US',
@@ -904,6 +943,6 @@ Configuration parameters defined in both scopes consumed by these calls dependin
 - `BrowserLaunchPersistentContextArgs` - args for `playwright.BrowserType.launch_persistent_context(...)`
 - Browser Use's own internal methods
 
-For more details on Playwright's browser context options, see the [official documentation](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context).
+For more details on Playwright's browser context options, see their [launch args documentation](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context).
 
 ---

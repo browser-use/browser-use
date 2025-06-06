@@ -67,7 +67,7 @@ from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import (
 	AgentTelemetryEvent,
 )
-from browser_use.utils import time_execution_async, time_execution_sync
+from browser_use.utils import get_browser_use_version, time_execution_async, time_execution_sync
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +160,6 @@ class Agent(Generic[Context]):
 		extend_planner_system_message: str | None = None,
 		injected_agent_state: AgentState | None = None,
 		context: Context | None = None,
-		save_playwright_script_path: str | None = None,
 		enable_memory: bool = True,
 		memory_config: MemoryConfig | None = None,
 		source: str | None = None,
@@ -195,7 +194,6 @@ class Agent(Generic[Context]):
 			planner_llm=planner_llm,
 			planner_interval=planner_interval,
 			is_planner_reasoning=is_planner_reasoning,
-			save_playwright_script_path=save_playwright_script_path,
 			extend_planner_system_message=extend_planner_system_message,
 		)
 
@@ -408,40 +406,19 @@ class Agent(Generic[Context]):
 
 	def _set_browser_use_version_and_source(self, source_override: str | None = None) -> None:
 		"""Get the version from pyproject.toml and determine the source of the browser-use package"""
+		# Use the helper function for version detection
+		version = get_browser_use_version()
+
+		# Determine source
 		try:
 			package_root = Path(__file__).parent.parent.parent
-			pyproject_path = package_root / 'pyproject.toml'
-
-			# Try to read version from pyproject.toml
-			if pyproject_path.exists():
-				import re
-
-				with open(pyproject_path) as f:
-					content = f.read()
-					match = re.search(r'version\s*=\s*["\']([^"\']+)["\']', content)
-					if match:
-						version = f'v{match.group(1)}'
-					else:
-						# Fallback to importlib if regex doesn't find version
-						from importlib.metadata import version as get_version
-
-						version = f'v{get_version("browser-use")}'
-			else:
-				# If pyproject.toml doesn't exist, try getting version from pip
-				from importlib.metadata import version as get_version
-
-				version = f'v{get_version("browser-use")}'
-
-			# Determine source
 			repo_files = ['.git', 'README.md', 'docs', 'examples']
 			if all(Path(package_root / file).exists() for file in repo_files):
 				source = 'git'
 			else:
 				source = 'pip'
-
 		except Exception as e:
-			logger.debug(f'Error getting version: {e}')
-			version = 'vunknown'
+			logger.debug(f'Error determining source: {e}')
 			source = 'unknown'
 
 		if source_override is not None:
@@ -521,10 +498,10 @@ class Agent(Generic[Context]):
 					logger.debug(f'🛠️ Tool calling method {method} failed: Failed to parse JSON content: {e}')
 					return False
 
-			if method == 'raw':
+			if method == 'raw' or method == 'json_mode':
 				# For raw mode, test JSON response format
 				test_prompt = f"""{CAPITAL_QUESTION}
-					Respond with a JSON object like: {{"answer": "city_name_in_lowercase"}}"""
+					Respond with a json object like: {{"answer": "city_name_in_lowercase"}}"""
 
 				response = self.llm.invoke([test_prompt])
 				# Basic validation of response
@@ -652,8 +629,8 @@ class Agent(Generic[Context]):
 		if self.chat_model_library == 'ChatOpenAI':
 			if any(m in model_lower for m in ['gpt-4', 'gpt-3.5']):
 				return 'function_calling'
-			if any(m in model_lower for m in ['llama-4', 'llama-3']):
-				return 'function_calling'
+			if any(m in model_lower for m in ['llama']):
+				return 'json_mode'
 
 		# Azure OpenAI models
 		elif self.chat_model_library == 'AzureChatOpenAI':
@@ -794,6 +771,9 @@ class Agent(Generic[Context]):
 
 			# Get page-specific filtered actions
 			page_filtered_actions = self.controller.registry.get_prompt_description(current_page)
+
+			if self.sensitive_data:
+				self._message_manager.add_sensitive_data(current_page.url)
 
 			# If there are page-specific actions, add them as a special message for this step only
 			if page_filtered_actions:
@@ -1418,23 +1398,6 @@ class Agent(Generic[Context]):
 			else:
 				# ADDED: Info message when custom telemetry for SIGINT was already logged
 				logger.info('Telemetry for force exit (SIGINT) was logged by custom exit callback.')
-
-			if self.settings.save_playwright_script_path:
-				logger.info(
-					f'Agent run finished. Attempting to save Playwright script to: {self.settings.save_playwright_script_path}'
-				)
-				try:
-					# Extract sensitive data keys if sensitive_data is provided
-					keys = list(self.sensitive_data.keys()) if self.sensitive_data else None
-					# Pass browser and context config to the saving method
-					self.state.history.save_as_playwright_script(
-						self.settings.save_playwright_script_path,
-						sensitive_data_keys=keys,
-						browser_profile=self.browser_session.browser_profile,
-					)
-				except Exception as script_gen_err:
-					# Log any error during script generation/saving
-					logger.error(f'Failed to save Playwright script: {script_gen_err}', exc_info=True)
 
 			await self.close()
 

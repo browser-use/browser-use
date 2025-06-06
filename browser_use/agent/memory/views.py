@@ -38,10 +38,7 @@ class MemoryConfig(BaseModel):
 		'upstash_vector',
 		'vertex_ai_vector_search',
 		'azure_ai_search',
-		'lancedb',
-		'mongodb',
 		'redis',
-		'memory',
 	] = Field(default='faiss', description='The vector store provider to use with Mem0.')
 
 	vector_store_collection_name: str | None = Field(
@@ -51,7 +48,7 @@ class MemoryConfig(BaseModel):
 
 	vector_store_base_path: str = Field(
 		default='/tmp/mem0',
-		description='Base path for local vector stores like FAISS or Chroma if no specific path is provided in overrides.',
+		description='Base path for local vector stores like FAISS, Chroma, or Qdrant (file-based) if no specific path is provided in overrides.',
 	)
 
 	vector_store_config_override: dict[str, Any] | None = Field(
@@ -83,43 +80,82 @@ class MemoryConfig(BaseModel):
 		Returns the vector store configuration dictionary for Mem0,
 		tailored to the selected provider.
 		"""
-		# Common config items that Mem0 often expects inside the provider's 'config'
 		provider_specific_config = {'embedding_model_dims': self.embedder_dims}
 
-		# Default collection name handling
+		# --- Default collection_name handling ---
 		if self.vector_store_collection_name:
 			provider_specific_config['collection_name'] = self.vector_store_collection_name
-		elif self.vector_store_provider not in ['memory']:  # 'memory' provider might not need/use a collection name
-			if self.vector_store_provider in ['faiss', 'chroma']:
-				# Default name for local stores often includes dimensions to avoid conflicts
+		else:
+			is_local_file_storage_mode = False
+			is_qdrant_server_mode = False
+
+			if self.vector_store_provider == 'faiss':
+				is_local_file_storage_mode = True
+			elif self.vector_store_provider == 'chroma':
+				# Chroma is local file mode if not configured with host/port overrides
+				if not (
+					self.vector_store_config_override
+					and ('host' in self.vector_store_config_override or 'port' in self.vector_store_config_override)
+				):
+					is_local_file_storage_mode = True
+			elif self.vector_store_provider == 'qdrant':
+				has_path_override = self.vector_store_config_override and 'path' in self.vector_store_config_override
+				is_server_configured = self.vector_store_config_override and (
+					'host' in self.vector_store_config_override
+					or 'port' in self.vector_store_config_override
+					or 'url' in self.vector_store_config_override
+					or 'api_key' in self.vector_store_config_override
+				)
+				if has_path_override or not is_server_configured:
+					is_local_file_storage_mode = True
+				if is_server_configured:  # Can be server even if path is also set for some hybrid qdrant setups
+					is_qdrant_server_mode = True
+
+			if is_local_file_storage_mode:
 				provider_specific_config['collection_name'] = f'mem0_{self.vector_store_provider}_{self.embedder_dims}'
-			else:  # Cloud/server stores typically have user-defined or fixed names
+			elif self.vector_store_provider == 'upstash_vector':
+				provider_specific_config['collection_name'] = ''
+			elif (
+				self.vector_store_provider
+				in ['elasticsearch', 'milvus', 'pgvector', 'redis', 'weaviate', 'supabase', 'azure_ai_search']
+				or (self.vector_store_provider == 'qdrant' and is_qdrant_server_mode and not is_local_file_storage_mode)
+				or (self.vector_store_provider == 'qdrant' and not is_local_file_storage_mode)
+			):  # Qdrant in explicit server mode
+				provider_specific_config['collection_name'] = 'mem0'
+			else:
+				# Fallback for providers like Pinecone, VertexAI (where name is usually user-required)
+				# or if a new provider is added and not yet handled explicitly.
 				provider_specific_config['collection_name'] = 'mem0_default_collection'
 
-		# Default path handling for local stores (FAISS, Chroma) if not overridden by user
+		# --- Default path handling for local file-based stores ---
+		default_local_path = f'{self.vector_store_base_path}_{self.embedder_dims}_{self.vector_store_provider}'
+
 		if self.vector_store_provider == 'faiss':
-			# FAISS needs a 'path'. If not in override, set default.
 			if not (self.vector_store_config_override and 'path' in self.vector_store_config_override):
-				provider_specific_config['path'] = (
-					f'{self.vector_store_base_path}_{self.embedder_dims}_{self.vector_store_provider}'
-				)
+				provider_specific_config['path'] = default_local_path
 
 		elif self.vector_store_provider == 'chroma':
-			# Chroma can use 'path' for local or 'host'/'port' for remote.
-			# If neither 'path' nor 'host' is in override, set default 'path'.
-			if not (
-				self.vector_store_config_override
-				and ('path' in self.vector_store_config_override or 'host' in self.vector_store_config_override)
-			):
-				provider_specific_config['path'] = (
-					f'{self.vector_store_base_path}_{self.embedder_dims}_{self.vector_store_provider}'
-				)
+			# Set default path if Chroma is in local mode and path is not overridden
+			is_chroma_server_mode = self.vector_store_config_override and (
+				'host' in self.vector_store_config_override or 'port' in self.vector_store_config_override
+			)
+			path_in_override = self.vector_store_config_override and 'path' in self.vector_store_config_override
 
-		elif self.vector_store_provider == 'memory':
-			# Mem0's in-memory vector store typically only needs embedding_model_dims
-			# and doesn't use 'collection_name' or 'path'.
-			# We remove collection_name if it was added by the generic default logic.
-			provider_specific_config.pop('collection_name', None)
+			if not is_chroma_server_mode and not path_in_override:
+				provider_specific_config['path'] = default_local_path
+
+		elif self.vector_store_provider == 'qdrant':
+			# Set default path if Qdrant is in local file mode and path is not overridden
+			has_path_override = self.vector_store_config_override and 'path' in self.vector_store_config_override
+			is_server_configured = self.vector_store_config_override and (
+				'host' in self.vector_store_config_override
+				or 'port' in self.vector_store_config_override
+				or 'url' in self.vector_store_config_override
+				or 'api_key' in self.vector_store_config_override
+			)
+
+			if not has_path_override and not is_server_configured:
+				provider_specific_config['path'] = default_local_path
 
 		# Merge user-provided overrides. These can add new keys or overwrite defaults set above.
 		if self.vector_store_config_override:

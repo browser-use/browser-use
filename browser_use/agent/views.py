@@ -71,9 +71,6 @@ class AgentSettings(BaseModel):
 	is_planner_reasoning: bool = False  # type: ignore
 	extend_planner_system_message: str | None = None
 
-	# Playwright script generation setting
-	save_playwright_script_path: str | None = None  # Path to save the generated Playwright script TODO: fix or remove
-
 
 class AgentState(BaseModel):
 	"""Holds all state information for an Agent"""
