@@ -3,6 +3,27 @@ from typing import Any, Literal
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, ConfigDict, Field
 
+DEFAULT_BROWSER_USE_GRAPH_CUSTOM_PROMPT = """
+**Browser Automation Specifics:**
+	a.  Identify key browser automation entities such as: `URL`, `PageTitle`, `SearchQuery`, `HTMLElement` (e.g., 'button_submit', 'input_username', using its visible text or a descriptive name if available), `AgentAction` (e.g., 'clicked_button_login', 'navigated_to_wikipedia.org', 'inputted_text_in_search_field'), `UserTask`, `ExtractedDataPoint` (e.g., 'price_is_$20', 'article_published_on_date').
+	b.  Establish relationships reflecting the web interaction flow. Examples:
+		-   `USER_ID --TASKED_WITH--> UserTask`
+		-   `USER_ID --INITIATED_ACTION--> AgentAction` (if user input directly leads to an action)
+		-   `AGENT --PERFORMED_ACTION--> AgentAction`
+		-   `AgentAction --TARGETED_URL--> URL` (e.g., for navigation, search submissions)
+		-   `AgentAction --TARGETED_ELEMENT--> HTMLElement` (e.g., for clicks, input)
+		-   `AgentAction --USED_INPUT_VALUE--> "text_value"` (for text inputs)
+		-   `AgentAction --USED_SEARCH_QUERY--> SearchQuery`
+		-   `URL --HAS_TITLE--> PageTitle`
+		-   `URL --CONTAINS_ELEMENT--> HTMLElement`
+		-   `AGENT --EXTRACTED--> ExtractedDataPoint --FROM_PAGE--> URL`
+	c.  For `HTMLElement`, prioritize using its accessible name or label (e.g., text content of a button, aria-label). If none, use its role and a general identifier (e.g., `button_next`, `input_email`).
+	d.  Represent agent actions clearly, incorporating the main verb and target, e.g., `clicked_login_button`, `searched_for_ai_news`, `navigated_to_contact_page`.
+	e.  If a user expresses a preference or states a fact (e.g., "I like cats", "My budget is $50"), link it to `USER_ID`: `USER_ID --HAS_PREFERENCE--> "likes_cats"`, `USER_ID --HAS_BUDGET--> "$50"`.
+	f.  If an error occurs, relate it to the action or URL: `AgentAction --RESULTED_IN_ERROR--> "error_description_or_type"`.
+	g.  Link sequential actions if logically connected: `PreviousAgentAction --LED_TO--> CurrentAgentAction`.
+"""
+
 
 class MemoryConfig(BaseModel):
 	"""Configuration for procedural memory."""
@@ -225,7 +246,9 @@ class MemoryConfig(BaseModel):
 				)
 			final_graph_config['llm'] = self.graph_store_llm_config_override
 
-		if self.graph_store_custom_prompt:
+		if self.graph_store_custom_prompt is None:
+			final_graph_config['custom_prompt'] = DEFAULT_BROWSER_USE_GRAPH_CUSTOM_PROMPT
+		elif self.graph_store_custom_prompt:  # User has provided their own
 			final_graph_config['custom_prompt'] = self.graph_store_custom_prompt
 
 		return final_graph_config

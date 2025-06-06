@@ -65,7 +65,7 @@ class Memory:
 			# also disable mem0's telemetry when ANONYMIZED_TELEMETRY=False
 			if os.getenv('ANONYMIZED_TELEMETRY', 'true').lower()[0] in 'fn0':
 				os.environ['MEM0_TELEMETRY'] = 'False'
-			from mem0 import Memory as Mem0Memory
+			from mem0_example import Memory as Mem0Memory
 		except ImportError:
 			raise ImportError('mem0 is required when enable_memory=True. Please install it with `pip install mem0`.')
 
@@ -112,6 +112,17 @@ class Memory:
 			return
 		# Create a procedural memory
 		memory_content = self._create([m.message for m in messages_to_process], current_step)
+
+		if memory_content and self.config.graph_store_provider:  # Check if graph is configured
+			logger.debug(f"Adding procedural summary to graph. Content: '{memory_content[:100]}...'")
+			try:
+				graph_add_results = self.mem0.add(
+					messages=memory_content,  # Pass the summary text
+					agent_id=self.config.agent_id,
+				)
+				logger.debug(f'Result of adding summary to graph: {graph_add_results}')
+			except Exception as e_graph_add:
+				logger.error(f'Error adding procedural summary to graph: {e_graph_add}')
 
 		if not memory_content:
 			logger.warning('Failed to create procedural memory')
