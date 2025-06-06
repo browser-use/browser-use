@@ -22,9 +22,18 @@ MODELS_WITHOUT_TOOL_SUPPORT_PATTERNS = [
 	'.*gemma.*-it',
 ]
 
+MODELS_WITHOUT_SYSTEM_MESSAGE_PATTERNS = [
+	'.*gemma.*-it',
+]
+
 
 def is_model_without_tool_support(model_name: str) -> bool:
 	return any(re.match(pattern, model_name) for pattern in MODELS_WITHOUT_TOOL_SUPPORT_PATTERNS)
+
+
+def is_model_without_system_message_support(model_name: str) -> bool:
+	return any(re.match(pattern, model_name) for pattern in MODELS_WITHOUT_SYSTEM_MESSAGE_PATTERNS)
+
 
 
 def extract_json_from_model_output(content: str) -> dict:
@@ -58,22 +67,25 @@ def convert_input_messages(input_messages: list[BaseMessage], model_name: str | 
 
 	# TODO: use the auto-detected tool calling method from Agent._set_tool_calling_method(),
 	# or abstract that logic out to reuse so we can autodetect the planner model's tool calling method as well
-	if is_model_without_tool_support(model_name):
-		converted_input_messages = _convert_messages_for_non_function_calling_models(input_messages)
+	if is_model_without_tool_support(model_name) or is_model_without_system_message_support(model_name):
+		converted_input_messages = _convert_messages_for_non_function_calling_models(input_messages, model_name)
 		merged_input_messages = _merge_successive_messages(converted_input_messages, HumanMessage)
 		merged_input_messages = _merge_successive_messages(merged_input_messages, AIMessage)
 		return merged_input_messages
 	return input_messages
 
 
-def _convert_messages_for_non_function_calling_models(input_messages: list[BaseMessage]) -> list[BaseMessage]:
-	"""Convert messages for non-function-calling models"""
+def _convert_messages_for_non_function_calling_models(input_messages: list[BaseMessage], model_name: str | None = None) -> list[BaseMessage]:
+	"""Convert messages for non-function-calling models and handle system message conversion if needed"""
 	output_messages = []
 	for message in input_messages:
 		if isinstance(message, HumanMessage):
 			output_messages.append(message)
 		elif isinstance(message, SystemMessage):
-			output_messages.append(message)
+			if model_name and is_model_without_system_message_support(model_name):
+				output_messages.append(HumanMessage(content=message.content))
+			else:
+				output_messages.append(message)
 		elif isinstance(message, ToolMessage):
 			output_messages.append(HumanMessage(content=message.content))
 		elif isinstance(message, AIMessage):
