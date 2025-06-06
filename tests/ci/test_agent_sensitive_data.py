@@ -256,3 +256,39 @@ def test_filter_sensitive_data(message_manager):
 	assert '<secret>username</secret>' in result.content
 	assert '<secret>password</secret>' in result.content
 	assert '<secret>email</secret>' in result.content
+
+
+def test_get_applicable_secrets_basic():
+	"""Test basic secret retrieval without URL filtering"""
+	sensitive_data = {'API_KEY': '12345', 'DB_PASSWORD': 's3cr3t'}
+	secrets = SensitiveDataHelper.get_applicable_secrets(sensitive_data)
+	assert secrets == {'API_KEY': '12345', 'DB_PASSWORD': 's3cr3t'}
+
+
+def test_get_applicable_secrets_with_domain_filtering():
+	"""Test domain-based secret filtering"""
+	sensitive_data = {'example.com': {'USERNAME': 'user1', 'PASSWORD': 'pass1'}, 'api.example.org': {'API_KEY': 'key123'}}
+	# Test with matching domain
+	secrets = SensitiveDataHelper.get_applicable_secrets(sensitive_data, 'https://example.com/login')
+	assert secrets == {'USERNAME': 'user1', 'PASSWORD': 'pass1'}
+
+	# Test with non-matching domain
+	secrets = SensitiveDataHelper.get_applicable_secrets(sensitive_data, 'https://other.com')
+	assert secrets == {}
+
+
+def test_filter_sensitive_data_from_output():
+	"""Verify sensitive data is properly filtered in output messages"""
+	sensitive_data = {'example.com': {'PASSWORD': 'super_secret', 'TOKEN': 'token123'}}
+
+	message = 'Logged in with password: super_secret and token: token123'
+	filtered = SensitiveDataHelper.filter_sensitive_from_message(message, sensitive_data)
+	assert filtered == 'Logged in with password: <secret>PASSWORD</secret> and token: <secret>TOKEN</secret>'
+
+
+def test_placeholder_retrieval():
+	"""Test getting available placeholders for a specific URL"""
+	sensitive_data = {'example.com': {'API_KEY': 'key123', 'USER_ID': 'user1'}, 'api.example.org': {'AUTH_TOKEN': 'token123'}}
+
+	placeholders = SensitiveDataHelper.get_available_placeholders(sensitive_data, 'https://example.com/dashboard')
+	assert placeholders == {'API_KEY', 'USER_ID'}
