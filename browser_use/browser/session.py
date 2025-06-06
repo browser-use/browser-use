@@ -1473,6 +1473,70 @@ class BrowserSession(BaseModel):
 		"""
 		await self.load_storage_state(*args, **kwargs)
 
+	async def _handle_pdf_request(self, route):
+		try:
+			# Get the response for the request
+			response = await self.agent_current_page.context.request.fetch(route.request)
+			
+			# Validate the response status before processing
+			if not response.ok:
+				logger.warning(f'❌ Failed to intercept PDF: HTTP {response.status} - {route.request.url}')
+				await route.continue_()
+				return
+
+			# Check if this is a PDF response
+			content_type = response.headers.get('content-type', '').lower()
+			is_pdf = 'application/pdf' in content_type or ('.pdf' in route.request.url.lower() and 'text/html' not in content_type)
+			
+			if is_pdf:
+				logger.info(f'📄 PDF detected: {route.request.url}')
+				
+				# Prepare headers with attachment disposition
+				extra_headers = {
+					"content-disposition": response.headers.get('content-disposition', 'attachment').replace('inline', 'attachment'),
+				}
+
+				filename = self._get_pdf_filename(route.request.url)
+				if 'filename=' in extra_headers['content-disposition']:
+					filename_match = re.search(r'filename=["\']?([^"\';]+)', extra_headers['content-disposition'])
+					if filename_match:
+						filename = filename_match.group(1)
+				else:
+					extra_headers['content-disposition'] = f'attachment; filename="{filename}"'
+				
+				# Fulfill with modified headers
+				modified_headers = {**response.headers, **extra_headers}
+				await route.fulfill(
+					response=response,
+					headers=modified_headers
+				)
+				
+				# Also save the PDF if save_downloads_path is configured
+				if self.browser_profile.save_downloads_path:
+					try:
+						# Generate unique filename
+						unique_filename = self._get_unique_filename(
+							self.browser_profile.save_downloads_path, filename
+						)
+						download_path = os.path.join(self.browser_profile.save_downloads_path, unique_filename)
+						
+						# Download the PDF content
+						pdf_content = await response.body()
+						os.makedirs(os.path.dirname(download_path), exist_ok=True)
+						with open(download_path, 'wb') as f:
+							f.write(pdf_content)
+						
+						logger.info(f'⬇️ PDF downloaded and saved to: {download_path}')
+					except Exception as e:
+						logger.error(f'❌ Error saving PDF: {str(e)} - {route.request.url}')
+				return
+			
+			# For non-PDF requests, continue as normal
+			await route.continue_()
+		except Exception as e:
+			logger.error(f'❌ Error in PDF request handler: {str(e)}')
+			await route.continue_()
+
 	# @property
 	# def browser_extension_pages(self) -> list[Page]:
 	# 	if not self.browser_context:
@@ -1489,8 +1553,6 @@ class BrowserSession(BaseModel):
 	async def _wait_for_stable_network(self):
 		pending_requests = set()
 		last_activity = asyncio.get_event_loop().time()
-
-		page = await self.get_current_page()
 
 		# Define relevant resource types and content types
 		RELEVANT_RESOURCE_TYPES = {
@@ -1509,6 +1571,7 @@ class BrowserSession(BaseModel):
 			'image/',
 			'font/',
 			'application/json',
+			'application/pdf'
 		}
 
 		# Additional patterns to filter out
@@ -1670,9 +1733,18 @@ class BrowserSession(BaseModel):
 		# Start timing
 		start_time = time.time()
 
-		# Wait for page load
+		# Get the current page
 		page = await self.get_current_page()
+		if not page:
+			return
+		
+		# Register the PDF route handler before waiting for network stability
+		# This ensures any PDF requests during page load are properly intercepted
 		try:
+			await page.route('**', self._handle_pdf_request)
+			logger.debug('📄 Registered PDF request handler')
+			
+			# Wait for network to stabilize
 			await self._wait_for_stable_network()
 
 			# Check if the loaded URL is allowed
@@ -2100,6 +2172,22 @@ class BrowserSession(BaseModel):
 				pass
 
 	# region - User Actions
+
+	@staticmethod
+	def _get_pdf_filename(url):
+		"""Extract a valid PDF filename from a URL"""
+		# Try to get filename from URL path
+		filename = os.path.basename(url.split('?')[0])
+		
+		# Use default if no filename could be extracted
+		if not filename or filename == '':
+			filename = 'document.pdf'
+		
+		# Ensure filename has .pdf extension
+		if not filename.lower().endswith('.pdf'):
+			filename += '.pdf'
+			
+		return filename
 
 	@staticmethod
 	async def _get_unique_filename(directory: str, filename: str) -> str:
