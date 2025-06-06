@@ -236,23 +236,24 @@ def test_token_overflow_handling_with_real_flow(message_manager: MessageManager,
 
 
 def test_system_message_conversion():
-    """Test that system messages are converted to human messages for models that don't support them"""
-    system_msg = SystemMessage(content="System instruction")
-    human_msg = HumanMessage(content="Human message")
-    messages = [system_msg, human_msg]
+	"""Test that system messages are converted to human messages for models that don't support them"""
+	system_msg = SystemMessage(content='System instruction')
+	human_msg = HumanMessage(content='Human message')
+	messages = [system_msg, human_msg]
 
-    # Test with a model that supports system messages
-    converted = convert_input_messages(messages, "gpt-4")
-    assert isinstance(converted[0], SystemMessage)
-    assert isinstance(converted[1], HumanMessage)
-    assert len(converted) == 2
+	# Test with a model that supports system messages
+	converted = convert_input_messages(messages, 'gpt-4')
+	assert isinstance(converted[0], SystemMessage)
+	assert isinstance(converted[1], HumanMessage)
+	assert len(converted) == 2
 
-    # Test with a model that doesn't support system messages
-    converted = convert_input_messages(messages, "gemma-3-4b-it")
-    assert isinstance(converted[0], HumanMessage)
-    assert isinstance(converted[1], HumanMessage)
-    assert len(converted) == 2
-    assert converted[0].content == system_msg.content
-    assert converted[1].content == human_msg.content
+	# Test with a model that doesn't support system messages
+	converted = convert_input_messages(messages, 'gemma-3-4b-it')
+	assert isinstance(converted[0], HumanMessage)
+	assert isinstance(converted[1], HumanMessage)
+	assert len(converted) == 2
+	assert converted[0].content == system_msg.content
+	assert converted[1].content == human_msg.content
+
 
 # pytest -s browser_use/agent/message_manager/tests.py

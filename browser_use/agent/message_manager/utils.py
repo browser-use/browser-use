@@ -35,7 +35,6 @@ def is_model_without_system_message_support(model_name: str) -> bool:
 	return any(re.match(pattern, model_name) for pattern in MODELS_WITHOUT_SYSTEM_MESSAGE_PATTERNS)
 
 
-
 def extract_json_from_model_output(content: str) -> dict:
 	"""Extract JSON from model output, handling both plain JSON and code-block-wrapped JSON."""
 	try:
@@ -75,7 +74,9 @@ def convert_input_messages(input_messages: list[BaseMessage], model_name: str | 
 	return input_messages
 
 
-def _convert_messages_for_non_function_calling_models(input_messages: list[BaseMessage], model_name: str | None = None) -> list[BaseMessage]:
+def _convert_messages_for_non_function_calling_models(
+	input_messages: list[BaseMessage], model_name: str | None = None
+) -> list[BaseMessage]:
 	"""Convert messages for non-function-calling models and handle system message conversion if needed"""
 	output_messages = []
 	for message in input_messages:
