@@ -220,7 +220,7 @@ class MessageManager:
 			self._add_message_with_tokens(context_message, message_type='init')
 
 		task_message = HumanMessage(
-			content=f'Your ultimate task is: """{self.task}""". If you achieved your ultimate task, stop everything and use the done action in the next step to complete the task. If not, continue as usual.'
+			content=f'Your ultimate task is: \n<ultimate_task>\n{self.task.strip('\n')}\n</ultimate_task>.\nIf you achieved your ultimate task, stop everything and use the done action in the next step to complete the task. If not, continue as usual.'
 		)
 		self._add_message_with_tokens(task_message, message_type='init')
 
@@ -242,22 +242,21 @@ class MessageManager:
 						'current_state': {
 							'evaluation_previous_goal': """
 							Success - I successfully clicked on the 'Apple' link from the Google Search results page, 
-							which directed me to the 'Apple' company homepage. This is a good start toward finding 
-							the best place to buy a new iPhone as the Apple website often list iPhones for sale.
+							which directed me to the Apple company homepage. This aligned with my goal of finding 
+							information about iPhones.
 						""".strip(),
-							'memory': """
-							I searched for 'iPhone retailers' on Google. From the Google Search results page, 
-							I used the 'click_element_by_index' tool to click on element at index [45] labeled 'Best Buy' but calling 
-							the tool did not direct me to a new page. I then used the 'click_element_by_index' tool to click 
-							on element at index [82] labeled 'Apple' which redirected me to the 'Apple' company homepage. 
-							Currently at step 3/15.
+							'reasoning_current_state': """
+							I'm currently on the Apple homepage after clicking on the Apple link from Google Search results.
+							I can see that there are iPhone-related elements on the page, including what appears to be a 
+							navigation element or button for iPhones. My next step should be to click on this iPhone element 
+							to explore iPhone models and potentially find pricing information.
 						""".strip(),
-							'next_goal': """
-							Looking at reported structure of the current page, I can see the item '[127]<h3 iPhone/>' 
-							in the content. I think this button will lead to more information and potentially prices 
-							for iPhones. I'll click on the link at index [127] using the 'click_element_by_index' 
-							tool and hope to see prices on the next page.
-						""".strip(),
+							'add_action_history': "Successfully clicked on the 'Apple' link from the Google Search results, which redirected me to the Apple company homepage.",
+							'ultimate_goal_checklist': "[ ] Find information about iPhones\n[ ] Compare iPhone models\n[ ] Find pricing information",
+							'progress_to_ultimate_goal': "I've completed the first step by navigating to Apple's website, which is a primary retailer for iPhones. I didn't find any relevant information, pricing or comparision yet.",
+							'current_subgoal': "Navigate to the iPhone section of Apple's website and view available models.",
+							'subgoal_checklist': "[x] Search for iPhone retailers\n[x] Navigate to a retailer's website\n[ ] Find iPhone product pages",
+							'immediate_next_action_reasoning': "I can see an element labeled 'iPhone' at index [127]. Clicking this will likely take me to the iPhone section of the website where I can view models and pricing information."
 						},
 						'action': [{'click_element_by_index': {'index': 127}}],
 					},
@@ -277,7 +276,7 @@ class MessageManager:
 			self._add_message_with_tokens(filepaths_msg, message_type='init')
 
 	def add_new_task(self, new_task: str) -> None:
-		content = f'Your new ultimate task is: """{new_task}""". Take the previous context into account and finish your new ultimate task. '
+		content = f'Your new ultimate task is:\n<ultimate_task>\n{new_task.strip('\n')}\n</ultimate_task>.\nTake the previous context into account and finish your new ultimate task. '
 		msg = HumanMessage(content=content)
 		self._add_message_with_tokens(msg)
 		self.task = new_task
@@ -286,6 +285,7 @@ class MessageManager:
 	def add_state_message(
 		self,
 		browser_state_summary: BrowserStateSummary,
+		agent_state = None,
 		result: list[ActionResult] | None = None,
 		step_info: AgentStepInfo | None = None,
 		use_vision=True,
@@ -313,6 +313,7 @@ class MessageManager:
 		assert browser_state_summary
 		state_message = AgentMessagePrompt(
 			browser_state_summary=browser_state_summary,
+			agent_state=agent_state,
 			result=result,
 			include_attributes=self.settings.include_attributes,
 			step_info=step_info,
@@ -384,8 +385,8 @@ class MessageManager:
 
 		# Log message history for debugging
 		logger.debug(self._log_history_lines())
-
-		return msg
+		# return first 5 and last message
+		return msg[:5] + [msg[-1]]
 
 	def _add_message_with_tokens(
 		self, message: BaseMessage, position: int | None = None, message_type: str | None = None

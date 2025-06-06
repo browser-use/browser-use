@@ -83,9 +83,16 @@ def log_response(response: AgentOutput, registry=None) -> None:
 	else:
 		emoji = '❓'
 
-	logger.info(f'{emoji} Eval: {response.current_state.evaluation_previous_goal}')
-	logger.info(f'🧠 Memory: {response.current_state.memory}')
-	logger.info(f'🎯 Next goal: {response.current_state.next_goal}')
+	logger.info(f'{emoji} Eval:\n{response.current_state.evaluation_previous_goal}')
+	logger.info(f'🧠 Reasoning Current State:\n{response.current_state.reasoning_current_state}')
+	logger.info(f"📚 Adding to action history:\n{response.current_state.add_action_history}")
+	logger.info(f"🎯 Ultimate Goal Checklist:\n{response.current_state.ultimate_goal_checklist}")
+	logger.info(f"🎯 Progress to Ultimate Goal:\n{response.current_state.progress_to_ultimate_goal}")
+	logger.info(f"🎯 Current Subgoal:\n{response.current_state.current_subgoal}")
+	logger.info(f"🎯 Subgoal Checklist:\n{response.current_state.subgoal_checklist}")
+	logger.info(f"🎯 Progress to Subgoal:\n{response.current_state.progress_to_subgoal}")
+	logger.info(f"🎯 Saved Data:\n{response.current_state.saved_data}")
+	logger.info(f'🎯 Next goal:\n{response.current_state.immediate_next_action_reasoning}')
 
 
 Context = TypeVar('Context')
@@ -870,6 +877,7 @@ class Agent(Generic[Context]):
 				# check again if Ctrl+C was pressed before we commit the output to history
 				await self._raise_if_stopped_or_paused()
 
+				self.update_state_from_model_output(model_output)
 				self._message_manager.add_model_output(model_output)
 			except asyncio.CancelledError:
 				# Task was cancelled due to Ctrl+C
@@ -1020,7 +1028,6 @@ class Agent(Generic[Context]):
 	async def get_next_action(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get next action from LLM based on current state"""
 		input_messages = self._convert_input_messages(input_messages)
-
 		if self.tool_calling_method == 'raw':
 			self._log_llm_call_info(input_messages, self.tool_calling_method)
 			try:
@@ -1838,3 +1845,34 @@ class Agent(Generic[Context]):
 		# Update done action model too
 		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'], page=page)
 		self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
+
+	def update_state_from_model_output(self, model_output: AgentOutput) -> None:
+		"""Update agent state with data from model output."""
+		if model_output.current_state:
+			brain = model_output.current_state
+
+			# Add to action history
+			self.state.action_history.append(brain.add_action_history)
+
+			if brain.ultimate_goal_checklist:
+				self.state.ultimate_goal_checklist = brain.ultimate_goal_checklist
+
+			#if brain.progress_to_ultimate_goal:
+			self.state.progress_to_ultimate_goal = brain.progress_to_ultimate_goal
+			
+			# Update subgoal tracking
+			if brain.subgoal_checklist:
+				self.state.subgoal_checklist = brain.subgoal_checklist
+			
+			self.state.progress_to_subgoal = brain.progress_to_subgoal
+				
+			self.state.current_subgoal = brain.current_subgoal
+
+			# Update saved data
+			if brain.add_saved_data:
+				self.state.saved_data += f"\n{brain.add_saved_data}" if self.state.saved_data else brain.add_saved_data
+			
+			# If saved_data is provided (not empty), use it to overwrite the current saved_data
+			if brain.saved_data:
+				self.state.saved_data = brain.saved_data
+
