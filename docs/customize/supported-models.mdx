@@ -131,12 +131,75 @@ agent = Agent(
 )
 ```
 
+#### Gemini 2.5 Flash with Thinking Budget
+
+Gemini 2.5 Flash models support a `thinking_budget` parameter that controls internal reasoning tokens. This allows you to balance quality, cost, and latency:
+
+```python
+from langchain_google_genai import ChatGoogleGenerativeAI
+from browser_use import Agent
+
+# Enable thinking for complex reasoning tasks
+llm_with_thinking = ChatGoogleGenerativeAI(
+    model='gemini-2.5-flash-preview-04-17',
+    thinking_budget=1024  # Allow up to 1024 thinking tokens
+)
+
+# Disable thinking for faster responses
+llm_fast = ChatGoogleGenerativeAI(
+    model='gemini-2.5-flash-preview-04-17',
+    thinking_budget=0  # Disable thinking completely
+)
+
+# Create agents with different configurations
+complex_agent = Agent(
+    task="Analyze and compare multiple products with detailed reasoning",
+    llm=llm_with_thinking
+)
+
+fast_agent = Agent(
+    task="Simple navigation task",
+    llm=llm_fast
+)
+```
+
+**Parameter Guidelines:**
+- **0**: Disables thinking for maximum speed (default)
+- **1-999**: Light thinking for moderate complexity
+- **1000-5000**: Medium thinking for complex reasoning  
+- **5001-24576**: Heavy thinking for detailed analysis
+- **None**: Adaptive mode (model decides automatically)
+
+**Supported Models:**
+- `gemini-2.5-flash-preview-04-17`
+- `gemini-2.5-flash-preview-05-20`
+- `gemini-2.5-flash` (when available)
+
+**Configuration via config.json:**
+
+To configure thinking budget, edit your config file at `~/.config/browseruse/config.json`:
+
+```json
+{
+  "model": {
+    "name": "gemini-2.5-flash-preview-04-17",
+    "thinking_budget": 1024,
+    "temperature": 0.0
+  }
+}
+```
+
+**CLI Usage:**
+```bash
+# Use thinking budget configured in config.json
+browseruse --model gemini-2.5-flash-preview-04-17
+```
+
 Required environment variables:
 
 ```bash .env
 GOOGLE_API_KEY=
 ```
-
 
 ### DeepSeek-V3
 The community likes DeepSeek-V3 for its low price, no rate limits, open-source nature, and good performance.

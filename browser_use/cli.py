@@ -91,6 +91,7 @@ def get_default_config() -> dict[str, Any]:
 		'model': {
 			'name': None,
 			'temperature': 0.0,
+			'thinking_budget': 0,  # For Gemini 2.5 models that support thinking (0 = disabled for max speed)
 			'api_keys': {
 				'OPENAI_API_KEY': os.getenv('OPENAI_API_KEY', ''),
 				'ANTHROPIC_API_KEY': os.getenv('ANTHROPIC_API_KEY', ''),
@@ -186,6 +187,7 @@ def get_llm(config: dict[str, Any]):
 	api_keys = config.get('model', {}).get('api_keys', {})
 	model_name = config.get('model', {}).get('name')
 	temperature = config.get('model', {}).get('temperature', 0.0)
+	thinking_budget = config.get('model', {}).get('thinking_budget')  # Configured via config.json only
 
 	# Set environment variables if they're in the config but not in the environment
 	if api_keys.get('openai') and not os.getenv('OPENAI_API_KEY'):
@@ -210,7 +212,15 @@ def get_llm(config: dict[str, Any]):
 			if not os.getenv('GOOGLE_API_KEY'):
 				print('⚠️  Google API key not found. Please update your config or set GOOGLE_API_KEY environment variable.')
 				sys.exit(1)
-			return langchain_google_genai.ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
+
+			# Prepare base arguments for Gemini model
+			gemini_kwargs = {'model': model_name, 'temperature': temperature}
+
+			# Add thinking_budget parameter if specified and supported by the model
+			if thinking_budget is not None and _supports_thinking_budget(model_name):
+				gemini_kwargs['thinking_budget'] = thinking_budget
+
+			return langchain_google_genai.ChatGoogleGenerativeAI(**gemini_kwargs)
 
 	# Auto-detect based on available API keys
 	if os.getenv('OPENAI_API_KEY'):
@@ -218,12 +228,40 @@ def get_llm(config: dict[str, Any]):
 	elif os.getenv('ANTHROPIC_API_KEY'):
 		return langchain_anthropic.ChatAnthropic(model='claude-3.5-sonnet-exp', temperature=temperature)
 	elif os.getenv('GOOGLE_API_KEY'):
-		return langchain_google_genai.ChatGoogleGenerativeAI(model='gemini-2.0-flash-lite', temperature=temperature)
+		# Prepare base arguments for auto-detected Gemini model
+		gemini_kwargs = {'model': 'gemini-2.0-flash-lite', 'temperature': temperature}
+
+		# Add thinking_budget if specified and supported by the auto-detected model
+		if thinking_budget is not None and _supports_thinking_budget('gemini-2.0-flash-lite'):
+			gemini_kwargs['thinking_budget'] = thinking_budget
+
+		return langchain_google_genai.ChatGoogleGenerativeAI(**gemini_kwargs)
 	else:
 		print(
 			'⚠️  No API keys found. Please update your config or set one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY.'
 		)
 		sys.exit(1)
+
+
+def _supports_thinking_budget(model_name: str) -> bool:
+	"""
+	Check if a Gemini model supports the thinking_budget parameter.
+
+	Args:
+		model_name: The name of the Gemini model to check
+
+	Returns:
+		bool: True if the model supports thinking_budget, False otherwise
+	"""
+	# Currently, only Gemini 2.5 Flash models support thinking_budget
+	supported_models = [
+		'gemini-2.5-flash',
+		'gemini-2.5-flash-preview',
+		'gemini-2.5-flash-preview-04-17',
+		'gemini-2.5-flash-preview-05-20',
+	]
+
+	return any(supported_model in model_name.lower() for supported_model in supported_models)
 
 
 class RichLogHandler(logging.Handler):
@@ -426,9 +464,9 @@ class BrowserUseApp(App):
 		self.controller = None  # Will be set before app.run_async()
 		self.agent = None
 		self.llm = None  # Will be set before app.run_async()
-		self.task_history = config.get('command_history', [])
+		self.command_history = config.get('command_history', [])
 		# Track current position in history for up/down navigation
-		self.history_index = len(self.task_history)
+		self.history_index = len(self.command_history)
 
 	def setup_richlog_logging(self) -> None:
 		"""Set up logging to redirect to RichLog widget instead of stdout."""
@@ -519,10 +557,10 @@ class BrowserUseApp(App):
 		# Step 2: Set up input history
 		logger.debug('Setting up readline history...')
 		try:
-			if READLINE_AVAILABLE and self.task_history:
-				for item in self.task_history:
+			if READLINE_AVAILABLE and self.command_history:
+				for item in self.command_history:
 					readline.add_history(item)
-				logger.debug(f'Added {len(self.task_history)} items to readline history')
+				logger.debug(f'Added {len(self.command_history)} items to readline history')
 			else:
 				logger.debug('No readline history to set up')
 		except Exception as e:
@@ -557,13 +595,13 @@ class BrowserUseApp(App):
 			return
 
 		# Only process if we have history
-		if not self.task_history:
+		if not self.command_history:
 			return
 
 		# Move back in history if possible
 		if self.history_index > 0:
 			self.history_index -= 1
-			self.query_one('#task-input').value = self.task_history[self.history_index]
+			self.query_one('#task-input').value = self.command_history[self.history_index]
 			# Move cursor to end of text
 			self.query_one('#task-input').cursor_position = len(self.query_one('#task-input').value)
 
@@ -578,18 +616,18 @@ class BrowserUseApp(App):
 			return
 
 		# Only process if we have history
-		if not self.task_history:
+		if not self.command_history:
 			return
 
 		# Move forward in history or clear input if at the end
-		if self.history_index < len(self.task_history) - 1:
+		if self.history_index < len(self.command_history) - 1:
 			self.history_index += 1
-			self.query_one('#task-input').value = self.task_history[self.history_index]
+			self.query_one('#task-input').value = self.command_history[self.history_index]
 			# Move cursor to end of text
 			self.query_one('#task-input').cursor_position = len(self.query_one('#task-input').value)
-		elif self.history_index == len(self.task_history) - 1:
-			# At the end of history, go to "new line" state
-			self.history_index += 1
+		elif self.history_index == len(self.command_history) - 1:
+			# Go to empty string (beyond history)
+			self.history_index = len(self.command_history)
 			self.query_one('#task-input').value = ''
 
 		# Prevent default behavior (cursor movement)
@@ -612,13 +650,13 @@ class BrowserUseApp(App):
 				return
 
 			# Add to history if it's new
-			if task.strip() and (not self.task_history or task != self.task_history[-1]):
-				self.task_history.append(task)
-				self.config['command_history'] = self.task_history
+			if task.strip() and (not self.command_history or task != self.command_history[-1]):
+				self.command_history.append(task)
+				self.config['command_history'] = self.command_history
 				save_user_config(self.config)
 
 			# Reset history index to point past the end of history
-			self.history_index = len(self.task_history)
+			self.history_index = len(self.command_history)
 
 			# Hide logo, links, and paths panels
 			self.hide_intro_panels()
@@ -1034,13 +1072,13 @@ class BrowserUseApp(App):
 		"""Navigate to the previous item in command history."""
 		# Only process if we have history and input is focused
 		input_field = self.query_one('#task-input')
-		if not input_field.has_focus or not self.task_history:
+		if not input_field.has_focus or not self.command_history:
 			return
 
 		# Move back in history if possible
 		if self.history_index > 0:
 			self.history_index -= 1
-			input_field.value = self.task_history[self.history_index]
+			input_field.value = self.command_history[self.history_index]
 			# Move cursor to end of text
 			input_field.cursor_position = len(input_field.value)
 
@@ -1048,18 +1086,18 @@ class BrowserUseApp(App):
 		"""Navigate to the next item in command history or clear input."""
 		# Only process if we have history and input is focused
 		input_field = self.query_one('#task-input')
-		if not input_field.has_focus or not self.task_history:
+		if not input_field.has_focus or not self.command_history:
 			return
 
 		# Move forward in history or clear input if at the end
-		if self.history_index < len(self.task_history) - 1:
+		if self.history_index < len(self.command_history) - 1:
 			self.history_index += 1
-			input_field.value = self.task_history[self.history_index]
+			input_field.value = self.command_history[self.history_index]
 			# Move cursor to end of text
 			input_field.cursor_position = len(input_field.value)
-		elif self.history_index == len(self.task_history) - 1:
-			# At the end of history, go to "new line" state
-			self.history_index += 1
+		elif self.history_index == len(self.command_history) - 1:
+			# Go to empty string (beyond history)
+			self.history_index = len(self.command_history)
 			input_field.value = ''
 
 	async def action_quit(self) -> None:
