@@ -3,6 +3,27 @@ from typing import Any, Literal
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, ConfigDict, Field
 
+DEFAULT_BROWSER_USE_GRAPH_CUSTOM_PROMPT = """
+**Browser Automation Specifics:**
+	a.  Identify key browser automation entities such as: `URL`, `PageTitle`, `SearchQuery`, `HTMLElement` (e.g., 'button_submit', 'input_username', using its visible text or a descriptive name if available), `AgentAction` (e.g., 'clicked_button_login', 'navigated_to_wikipedia.org', 'inputted_text_in_search_field'), `UserTask`, `ExtractedDataPoint` (e.g., 'price_is_$20', 'article_published_on_date').
+	b.  Establish relationships reflecting the web interaction flow. Examples:
+		-   `USER_ID --TASKED_WITH--> UserTask`
+		-   `USER_ID --INITIATED_ACTION--> AgentAction` (if user input directly leads to an action)
+		-   `AGENT --PERFORMED_ACTION--> AgentAction`
+		-   `AgentAction --TARGETED_URL--> URL` (e.g., for navigation, search submissions)
+		-   `AgentAction --TARGETED_ELEMENT--> HTMLElement` (e.g., for clicks, input)
+		-   `AgentAction --USED_INPUT_VALUE--> "text_value"` (for text inputs)
+		-   `AgentAction --USED_SEARCH_QUERY--> SearchQuery`
+		-   `URL --HAS_TITLE--> PageTitle`
+		-   `URL --CONTAINS_ELEMENT--> HTMLElement`
+		-   `AGENT --EXTRACTED--> ExtractedDataPoint --FROM_PAGE--> URL`
+	c.  For `HTMLElement`, prioritize using its accessible name or label (e.g., text content of a button, aria-label). If none, use its role and a general identifier (e.g., `button_next`, `input_email`).
+	d.  Represent agent actions clearly, incorporating the main verb and target, e.g., `clicked_login_button`, `searched_for_ai_news`, `navigated_to_contact_page`.
+	e.  If a user expresses a preference or states a fact (e.g., "I like cats", "My budget is $50"), link it to `USER_ID`: `USER_ID --HAS_PREFERENCE--> "likes_cats"`, `USER_ID --HAS_BUDGET--> "$50"`.
+	f.  If an error occurs, relate it to the action or URL: `AgentAction --RESULTED_IN_ERROR--> "error_description_or_type"`.
+	g.  Link sequential actions if logically connected: `PreviousAgentAction --LED_TO--> CurrentAgentAction`.
+"""
+
 
 class MemoryConfig(BaseModel):
 	"""Configuration for procedural memory."""
@@ -54,6 +75,26 @@ class MemoryConfig(BaseModel):
 	vector_store_config_override: dict[str, Any] | None = Field(
 		default=None,
 		description="Advanced: Override or provide additional config keys that Mem0 expects for the chosen vector_store provider's 'config' dictionary (e.g., host, port, api_key).",
+	)
+
+	graph_store_provider: Literal['neo4j', 'memgraph'] | None = Field(
+		default=None,
+		description="The graph store provider to use with Mem0 (e.g., 'neo4j', 'memgraph'). Requires 'mem0ai[graph]' to be installed.",
+	)
+
+	graph_store_config_override: dict[str, Any] | None = Field(
+		default=None,
+		description="Configuration for the specific graph store provider. For 'neo4j', this should include 'url', 'username', and 'password'.",
+	)
+
+	graph_store_llm_config_override: dict[str, Any] | None = Field(
+		default=None,
+		description="Optional: LLM configuration specifically for graph operations within Mem0. Structure as {'provider': '...', 'config': {...}}.",
+	)
+
+	graph_store_custom_prompt: str | None = Field(
+		default=None,
+		description='Optional: Custom prompt for Mem0 to use for extracting entities and relationships for the graph store.',
 	)
 
 	@property
@@ -167,10 +208,60 @@ class MemoryConfig(BaseModel):
 		}
 
 	@property
-	def full_config_dict(self) -> dict[str, dict[str, Any]]:
+	def graph_store_config_dict(self) -> dict[str, Any] | None:
+		"""Returns the graph store configuration dictionary for Mem0, if configured."""
+		if not self.graph_store_provider:
+			return None
+
+		graph_config_content = self.graph_store_config_override or {}
+
+		# Validate Neo4j specific config
+		if self.graph_store_provider == 'neo4j':
+			required_keys = {'url', 'username', 'password'}
+			if not graph_config_content:  # if graph_store_config_override was None
+				raise ValueError(
+					"Neo4j graph store requires 'graph_store_config_override' with 'url', 'username', and 'password'."
+				)
+
+			missing_keys = required_keys - graph_config_content.keys()
+			if missing_keys:
+				raise ValueError(f"Missing required Neo4j config keys in 'graph_store_config_override': {missing_keys}")
+
+		elif self.graph_store_provider == 'memgraph':
+			if not graph_config_content or 'url' not in graph_config_content:
+				raise ValueError("Memgraph graph store requires 'graph_store_config_override' with at least 'url'.")
+		final_graph_config = {
+			'provider': self.graph_store_provider,
+			'config': graph_config_content,  # Pass through the user's override directly
+		}
+
+		if self.graph_store_llm_config_override:
+			if (
+				not isinstance(self.graph_store_llm_config_override, dict)
+				or not isinstance(self.graph_store_llm_config_override.get('provider'), str)
+				or not isinstance(self.graph_store_llm_config_override.get('config'), dict)
+			):
+				raise ValueError(
+					"`graph_store_llm_config_override` must be a dictionary with 'provider' (str) and 'config' (dict) keys."
+				)
+			final_graph_config['llm'] = self.graph_store_llm_config_override
+
+		if self.graph_store_custom_prompt is None:
+			final_graph_config['custom_prompt'] = DEFAULT_BROWSER_USE_GRAPH_CUSTOM_PROMPT
+		elif self.graph_store_custom_prompt:  # User has provided their own
+			final_graph_config['custom_prompt'] = self.graph_store_custom_prompt
+
+		return final_graph_config
+
+	@property
+	def full_config_dict(self) -> dict[str, Any]:
 		"""Returns the complete configuration dictionary for Mem0."""
-		return {
+		config: dict[str, Any] = {  # Explicitly type config
 			'embedder': self.embedder_config_dict,
 			'llm': self.llm_config_dict,
 			'vector_store': self.vector_store_config_dict,
 		}
+		graph_store_conf = self.graph_store_config_dict
+		if graph_store_conf:
+			config['graph_store'] = graph_store_conf  # type: ignore
+		return config
