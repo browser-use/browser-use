@@ -17,7 +17,10 @@ from browser_use.browser import BrowserSession
 from browser_use.controller.registry.service import Registry
 from browser_use.controller.views import (
 	ClickElementAction,
+	ClickElementMultipleTimesAction,
 	CloseTabAction,
+	DateNavigationMode,
+	DateTarget,
 	DoneAction,
 	DragDropAction,
 	GoToUrlAction,
@@ -839,6 +842,151 @@ class Controller(Generic[Context]):
 			await page.keyboard.press('Enter')  # make sure to commit the input so it doesn't get overwritten by the next action
 			await page.keyboard.press('ArrowUp')
 			return ActionResult(extracted_content=f'Inputted text {text}', include_in_memory=False)
+
+		@self.registry.action('Click an element multiple times for date navigation', param_model=ClickElementMultipleTimesAction)
+		async def click_element_multiple_times(params: ClickElementMultipleTimesAction, browser_session: BrowserSession):
+			"""
+			Click an element multiple times based on date navigation.
+
+			Args:
+				params: ClickElementMultipleTimesAction with mode, current, and target date components
+				browser_session: The current browser session
+
+			Returns:
+				ActionResult with success status and message
+			"""
+			try:
+				# Calculate number of clicks needed based on date navigation
+				times = _calculate_clicks_for_date_navigation(params.mode, params.current, params.target)
+
+				if times == 0:
+					return ActionResult(extracted_content='No clicks needed - already at target date', include_in_memory=True)
+				times_abs = abs(times)
+
+				logger.info(f'Clicking element {params.index} {times_abs} times for {params.mode} navigation')
+
+				results = []
+				successful_clicks = 0
+
+				for i in range(times_abs):
+					try:
+						action = self.registry.registry.actions.get('click_element_by_index')
+						if not action:
+							raise Exception('click_element_by_index action not found in registry')
+
+						click_params = ClickElementAction(index=params.index, xpath=params.xpath)
+
+						result = await action.function(params=click_params, browser_session=browser_session)
+
+						if result and hasattr(result, 'error') and result.error:
+							results.append(f'Click {i + 1}/{times_abs} failed: {result.error}')
+							break
+
+						successful_clicks += 1
+						results.append(f'Click {i + 1}/{times_abs} successful')
+
+						# Small delay between clicks
+						await asyncio.sleep(0.5)
+
+					except Exception as e:
+						results.append(f'Click {i + 1}/{times_abs} failed with error: {str(e)}')
+						break
+
+				# Prepare result message
+				direction = 'forward' if times > 0 else 'backward'
+				msg = f'🖱️  Clicked element {params.index} {times_abs} times {direction}. '
+				msg += ' | '.join(results)
+
+				return ActionResult(extracted_content=msg, include_in_memory=True, success=successful_clicks == times_abs)
+
+			except Exception as e:
+				msg = f'Error in click_element_multiple_times: {str(e)}'
+				logger.error(msg)
+				return ActionResult(error=msg, include_in_memory=True)
+
+		def _calculate_clicks_for_date_navigation(mode: DateNavigationMode, current: DateTarget, target: DateTarget) -> int:
+			"""
+			Calculate the number of clicks needed to navigate from current to target date.
+
+			Args:
+				mode: Date navigation mode
+				current: Current date components
+				target: Target date components
+
+			Returns:
+				int: Number of clicks needed
+			"""
+			try:
+				logger.debug(f'Calculating clicks for mode: {mode}')
+				logger.debug(f'Current: {current}')
+				logger.debug(f'Target: {target}')
+
+				if mode == DateNavigationMode.DATE:
+					if current.date is None or target.date is None:
+						raise ValueError("Date is required for 'date' navigation mode")
+					clicks = target.date - current.date
+
+				elif mode == DateNavigationMode.MONTH:
+					if current.month is None or target.month is None:
+						raise ValueError("Month is required for 'month' navigation mode")
+
+					month_order = [
+						'January',
+						'February',
+						'March',
+						'April',
+						'May',
+						'June',
+						'July',
+						'August',
+						'September',
+						'October',
+						'November',
+						'December',
+					]
+
+					current_idx = month_order.index(current.month)
+					target_idx = month_order.index(target.month)
+					clicks = target_idx - current_idx
+
+				elif mode == DateNavigationMode.YEAR:
+					if current.year is None or target.year is None:
+						raise ValueError("Year is required for 'year' navigation mode")
+					clicks = target.year - current.year
+
+				elif mode == DateNavigationMode.MONTH_YEAR:
+					if current.month is None or current.year is None or target.month is None or target.year is None:
+						raise ValueError("Both month and year are required for 'month-year' navigation mode")
+
+					month_order = [
+						'January',
+						'February',
+						'March',
+						'April',
+						'May',
+						'June',
+						'July',
+						'August',
+						'September',
+						'October',
+						'November',
+						'December',
+					]
+
+					current_months = int(current.year) * 12 + month_order.index(current.month)
+					target_months = int(target.year) * 12 + month_order.index(target.month)
+					clicks = target_months - current_months
+
+				else:
+					raise ValueError(f'Unsupported navigation mode: {mode}')
+
+				logger.debug(f'Calculated clicks: {clicks}')
+				return clicks
+
+			except Exception as e:
+				error_msg = f'Error calculating clicks for {mode} navigation: {str(e)}'
+				logger.error(error_msg)
+				raise ValueError(error_msg)
 
 	# Register ---------------------------------------------------------------
 

@@ -1,4 +1,7 @@
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from datetime import datetime
+from enum import Enum
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator, validator
 
 
 # Action Input Models
@@ -13,6 +16,74 @@ class GoToUrlAction(BaseModel):
 class ClickElementAction(BaseModel):
 	index: int
 	xpath: str | None = None
+
+
+class DateNavigationMode(str, Enum):
+	DATE = 'date'
+	MONTH = 'month'
+	YEAR = 'year'
+	MONTH_YEAR = 'month-year'
+
+
+class DateTarget(BaseModel):
+	"""Target date components for navigation"""
+
+	date: int | None = Field(None, ge=1, le=31, description='Day of month (1-31)')
+	month: str | None = Field(None, description="Full month name (e.g., 'January', 'February')")
+	year: int | float | None = Field(None, description='Full year (e.g., 2024)')
+
+	class Config:
+		extra = 'ignore'  # Ignore extra fields
+		arbitrary_types_allowed = True
+
+	@validator('month', pre=True)
+	def validate_month(cls, v):
+		if v is None:
+			return None
+
+		if not isinstance(v, str):
+			v = str(v)
+
+		v = v.strip().title()
+		try:
+			datetime.strptime(v, '%B')
+			return v
+		except ValueError:
+			raise ValueError("Month must be a full month name (e.g., 'January', 'February')")
+
+	@validator('year', pre=True)
+	def validate_year(cls, v):
+		if v is None:
+			return None
+
+		try:
+			return int(float(v))
+		except (ValueError, TypeError):
+			raise ValueError('Year must be a valid number')
+
+
+class ClickElementMultipleTimesAction(BaseModel):
+	"""
+	Action model for clicking an element multiple times based on date navigation.
+
+	Args:
+	    index: The index of the element to click
+	    mode: The type of date navigation ('date', 'month', 'year', 'month-year')
+	    current: Current date components
+	    target: Target date components to navigate to
+	"""
+
+	index: int
+	mode: DateNavigationMode
+	current: DateTarget
+	target: DateTarget
+	xpath: str | None = Field(None, description='XPath of the element to click (alternative to index)')
+
+	@validator('index')
+	def validate_index(cls, v):
+		if v is None:
+			raise ValueError('Index is required')
+		return int(v)  # Convert float to int if needed
 
 
 class InputTextAction(BaseModel):
