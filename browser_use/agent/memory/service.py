@@ -65,7 +65,7 @@ class Memory:
 			# also disable mem0's telemetry when ANONYMIZED_TELEMETRY=False
 			if os.getenv('ANONYMIZED_TELEMETRY', 'true').lower()[0] in 'fn0':
 				os.environ['MEM0_TELEMETRY'] = 'False'
-			from mem0_example import Memory as Mem0Memory
+			from mem0 import Memory as Mem0Memory
 		except ImportError:
 			raise ImportError('mem0 is required when enable_memory=True. Please install it with `pip install mem0`.')
 
