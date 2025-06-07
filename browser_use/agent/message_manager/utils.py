@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 from typing import Any
 
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
 	AIMessage,
 	BaseMessage,
@@ -13,6 +13,8 @@ from langchain_core.messages import (
 	SystemMessage,
 	ToolMessage,
 )
+
+from browser_use.agent.capabilities import get_llm_capabilities
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +25,9 @@ MODELS_WITHOUT_TOOL_SUPPORT_PATTERNS = [
 ]
 
 
-def is_model_without_tool_support(model_name: str) -> bool:
-	return any(re.match(pattern, model_name) for pattern in MODELS_WITHOUT_TOOL_SUPPORT_PATTERNS)
+def is_model_without_tool_support(llm: BaseChatModel) -> bool:
+	capabilities = get_llm_capabilities(llm)
+	return capabilities.supported_tool_calling_method is None
 
 
 def extract_json_from_model_output(content: str) -> dict:
@@ -51,23 +54,27 @@ def extract_json_from_model_output(content: str) -> dict:
 		raise ValueError('Could not parse response.')
 
 
-def convert_input_messages(input_messages: list[BaseMessage], model_name: str | None) -> list[BaseMessage]:
+def convert_input_messages(input_messages: list[BaseMessage], llm: BaseChatModel, model_name: str | None) -> list[BaseMessage]:
 	"""Convert input messages to a format that is compatible with the planner model"""
 	if model_name is None:
 		return input_messages
 
 	# TODO: use the auto-detected tool calling method from Agent._set_tool_calling_method(),
 	# or abstract that logic out to reuse so we can autodetect the planner model's tool calling method as well
-	if is_model_without_tool_support(model_name):
-		converted_input_messages = _convert_messages_for_non_function_calling_models(input_messages)
-		merged_input_messages = _merge_successive_messages(converted_input_messages, HumanMessage)
-		merged_input_messages = _merge_successive_messages(merged_input_messages, AIMessage)
+	if is_model_without_tool_support(llm):
+		converted_input_messages = _convert_messages_for_non_function_calling_models(input_messages, llm)
+		merged_input_messages = _merge_successive_messages(converted_input_messages, HumanMessage, llm)
+		merged_input_messages = _merge_successive_messages(merged_input_messages, AIMessage, llm)
 		return merged_input_messages
 	return input_messages
 
 
-def _convert_messages_for_non_function_calling_models(input_messages: list[BaseMessage]) -> list[BaseMessage]:
+def _convert_messages_for_non_function_calling_models(input_messages: list[BaseMessage], llm: BaseChatModel) -> list[BaseMessage]:
 	"""Convert messages for non-function-calling models"""
+	capabilities = get_llm_capabilities(llm)
+	if capabilities.supported_tool_calling_method is not None:
+		return input_messages
+
 	output_messages = []
 	for message in input_messages:
 		if isinstance(message, HumanMessage):
@@ -88,8 +95,15 @@ def _convert_messages_for_non_function_calling_models(input_messages: list[BaseM
 	return output_messages
 
 
-def _merge_successive_messages(messages: list[BaseMessage], class_to_merge: type[BaseMessage]) -> list[BaseMessage]:
+def _merge_successive_messages(
+	messages: list[BaseMessage], class_to_merge: type[BaseMessage], llm: BaseChatModel
+) -> list[BaseMessage]:
 	"""Some models like deepseek-reasoner dont allow multiple human messages in a row. This function merges them into one."""
+
+	capabilities = get_llm_capabilities(llm)
+	if capabilities.supports_multiple_human_msgs:
+		return messages
+
 	merged_messages = []
 	streak = 0
 	for message in messages:
