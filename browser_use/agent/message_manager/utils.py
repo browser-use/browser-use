@@ -27,9 +27,12 @@ def is_model_without_tool_support(model_name: str) -> bool:
 	return any(re.match(pattern, model_name) for pattern in MODELS_WITHOUT_TOOL_SUPPORT_PATTERNS)
 
 
-def extract_json_from_model_output(content: str) -> dict:
+def extract_json_from_model_output(content: str | BaseMessage) -> dict:
 	"""Extract JSON from model output, handling both plain JSON and code-block-wrapped JSON."""
 	try:
+		if isinstance(content, BaseMessage):
+			# for langchain_core.messages.BaseMessage
+			content = content.content
 		# If content is wrapped in code blocks, extract just the JSON part
 		if '```' in content:
 			# Find the JSON content between code blocks
@@ -37,6 +40,18 @@ def extract_json_from_model_output(content: str) -> dict:
 			# Remove language identifier if present (e.g., 'json\n')
 			if '\n' in content:
 				content = content.split('\n', 1)[1]
+
+		# remove html-like tags before the first { and after the last }
+		# This handles cases like <|header_start|>assistant<|header_end|> and <function=AgentOutput>
+		# Only remove content before { if content doesn't already start with {
+		if not content.strip().startswith('{'):
+			content = re.sub(r'^.*?(?=\{)', '', content, flags=re.DOTALL)
+
+		# Remove common HTML-like tags and patterns at the end, but be more conservative
+		# Look for patterns like </function>, <|header_start|>, etc. after the JSON
+		content = re.sub(r'\}(\s*<[^>]*>.*?$)', '}', content, flags=re.DOTALL)
+		content = re.sub(r'\}(\s*<\|[^|]*\|>.*?$)', '}', content, flags=re.DOTALL)
+
 		# Parse the cleaned content
 		result_dict = json.loads(content)
 
@@ -127,7 +142,7 @@ def save_conversation(input_messages: list[BaseMessage], response: Any, target: 
 def _write_messages_to_file(f: Any, messages: list[BaseMessage]) -> None:
 	"""Write messages to conversation file"""
 	for message in messages:
-		f.write(f' {message.__class__.__name__} \n')
+		f.write(f'{message.__class__.__name__} \n')
 
 		if isinstance(message.content, list):
 			for item in message.content:
@@ -145,5 +160,5 @@ def _write_messages_to_file(f: Any, messages: list[BaseMessage]) -> None:
 
 def _write_response_to_file(f: Any, response: Any) -> None:
 	"""Write model response to conversation file"""
-	f.write(' RESPONSE\n')
+	f.write('RESPONSE\n')
 	f.write(json.dumps(json.loads(response.model_dump_json(exclude_unset=True)), indent=2))

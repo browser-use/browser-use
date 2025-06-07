@@ -132,6 +132,7 @@ def setup_logging():
 		'mem0.vector_stores.faiss',
 		'mem0.vector_stores',
 		'mem0.memory',
+		'groq',
 	]
 	for logger_name in third_party_loggers:
 		third_party = logging.getLogger(logger_name)

@@ -24,6 +24,7 @@ class InputTextAction(BaseModel):
 class DoneAction(BaseModel):
 	text: str
 	success: bool
+	files_to_display: list[str] | None = []
 
 
 class SwitchTabAction(BaseModel):
