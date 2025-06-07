@@ -4,19 +4,13 @@ from pydantic import BaseModel, Field
 
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
 from browser_use.agent.views import MessageManagerState
-from browser_use.controller.registry.service import Registry
-from browser_use.utils import match_url_with_domain_pattern
+from browser_use.utils import SensitiveDataHelper, match_url_with_domain_pattern
 
 
 class SensitiveParams(BaseModel):
 	"""Test parameter model for sensitive data testing."""
 
 	text: str = Field(description='Text with sensitive data placeholders')
-
-
-@pytest.fixture
-def registry():
-	return Registry()
 
 
 @pytest.fixture
@@ -29,58 +23,58 @@ def message_manager():
 	)
 
 
-def test_replace_sensitive_data_with_missing_keys(registry, caplog):
-	"""Test that _replace_sensitive_data handles missing keys gracefully"""
+def test_replace_sensitive_placeholders_with_missing_keys(caplog):
+	"""Test that SensitiveDataHelper.replace_sensitive_placeholders handles missing keys gracefully"""
 	# Set log level to capture warnings
 	import logging
 
 	caplog.set_level(logging.WARNING)
+	logger = logging.getLogger(__name__)
 
 	# Create a simple Pydantic model with sensitive data placeholders
 	params = SensitiveParams(text='Please enter <secret>username</secret> and <secret>password</secret>')
 
 	# Case 1: All keys present
 	sensitive_data = {'username': 'user123', 'password': 'pass456'}
-	result = registry._replace_sensitive_data(params, sensitive_data)
-	assert 'user123' in result.text
-	assert 'pass456' in result.text
+	result = SensitiveDataHelper.replace_sensitive_placeholders(params.model_dump(), sensitive_data, logger=logger)
+	assert 'user123' in result['text']
+	assert 'pass456' in result['text']
 	# Both keys should be replaced
 	assert 'Missing' not in caplog.text
 	caplog.clear()
 
 	# Case 2: One key missing
 	sensitive_data = {'username': 'user123'}  # password is missing
-	result = registry._replace_sensitive_data(params, sensitive_data)
-	assert 'user123' in result.text
-	assert '<secret>password</secret>' in result.text
-	# Verify the behavior - username replaced, password kept as tag
+	result = SensitiveDataHelper.replace_sensitive_placeholders(params.model_dump(), sensitive_data, logger=logger)
+	assert 'user123' in result['text']
+	assert '<secret>password</secret>' in result['text']
 	assert 'password' in caplog.text
 	caplog.clear()
 
 	# Case 3: Multiple keys missing
 	sensitive_data = {}  # both keys missing
-	result = registry._replace_sensitive_data(params, sensitive_data)
-	assert '<secret>username</secret>' in result.text
-	assert '<secret>password</secret>' in result.text
+	result = SensitiveDataHelper.replace_sensitive_placeholders(params.model_dump(), sensitive_data, logger=logger)
+	assert '<secret>username</secret>' in result['text']
+	assert '<secret>password</secret>' in result['text']
 	# Verify both tags are preserved when keys are missing
 	assert 'Missing' in caplog.text
 	caplog.clear()
-
 	# Case 4: One key empty
 	sensitive_data = {'username': 'user123', 'password': ''}
-	result = registry._replace_sensitive_data(params, sensitive_data)
-	assert 'user123' in result.text
-	assert '<secret>password</secret>' in result.text
+	result = SensitiveDataHelper.replace_sensitive_placeholders(params.model_dump(), sensitive_data, logger=logger)
+	assert 'user123' in result['text']
+	assert '<secret>password</secret>' in result['text']
 	# Empty value should be treated the same as missing key
 	assert 'password' in caplog.text
 	caplog.clear()
 
 
-def test_simple_domain_specific_sensitive_data(registry, caplog):
+def test_simple_domain_specific_sensitive_data(caplog):
 	"""Test the basic functionality of domain-specific sensitive data replacement"""
 	# Set log level to capture warnings
 	import logging
 
+	logger = logging.getLogger(__name__)
 	caplog.set_level(logging.WARNING)
 
 	# Create a simple Pydantic model with sensitive data placeholders
@@ -93,17 +87,18 @@ def test_simple_domain_specific_sensitive_data(registry, caplog):
 	}
 
 	# Without a URL, domain-specific secrets should NOT be exposed
-	result = registry._replace_sensitive_data(params, sensitive_data)
-	assert '<secret>username</secret>' in result.text  # Should NOT be replaced without URL
-	assert '<secret>password</secret>' in result.text  # Password is missing in sensitive_data
+	result = SensitiveDataHelper.replace_sensitive_placeholders(params.model_dump(), sensitive_data, logger=logger)
+	assert '<secret>username</secret>' in result['text']  # Should NOT be replaced without URL
+	assert '<secret>password</secret>' in result['text']  # Password is missing in sensitive_data
 	assert 'username' in caplog.text  # Both should be logged as missing
 	assert 'password' in caplog.text
 	caplog.clear()
-
 	# Test with a matching URL - domain-specific secrets should be exposed
-	result = registry._replace_sensitive_data(params, sensitive_data, 'https://example.com/login')
-	assert 'example_user' in result.text  # Should be replaced with matching URL
-	assert '<secret>password</secret>' in result.text  # Password is still missing
+	result = SensitiveDataHelper.replace_sensitive_placeholders(
+		params.model_dump(), sensitive_data, 'https://example.com/login', logger=logger
+	)
+	assert 'example_user' in result['text']  # Should be replaced with matching URL
+	assert '<secret>password</secret>' in result['text']  # Password is still missing
 	assert 'password' in caplog.text  # Only password should be logged as missing
 	caplog.clear()
 
@@ -261,3 +256,39 @@ def test_filter_sensitive_data(message_manager):
 	assert '<secret>username</secret>' in result.content
 	assert '<secret>password</secret>' in result.content
 	assert '<secret>email</secret>' in result.content
+
+
+def test_get_applicable_secrets_basic():
+	"""Test basic secret retrieval without URL filtering"""
+	sensitive_data = {'API_KEY': '12345', 'DB_PASSWORD': 's3cr3t'}
+	secrets = SensitiveDataHelper.get_applicable_secrets(sensitive_data)
+	assert secrets == {'API_KEY': '12345', 'DB_PASSWORD': 's3cr3t'}
+
+
+def test_get_applicable_secrets_with_domain_filtering():
+	"""Test domain-based secret filtering"""
+	sensitive_data = {'example.com': {'USERNAME': 'user1', 'PASSWORD': 'pass1'}, 'api.example.org': {'API_KEY': 'key123'}}
+	# Test with matching domain
+	secrets = SensitiveDataHelper.get_applicable_secrets(sensitive_data, 'https://example.com/login')
+	assert secrets == {'USERNAME': 'user1', 'PASSWORD': 'pass1'}
+
+	# Test with non-matching domain
+	secrets = SensitiveDataHelper.get_applicable_secrets(sensitive_data, 'https://other.com')
+	assert secrets == {}
+
+
+def test_filter_sensitive_data_from_output():
+	"""Verify sensitive data is properly filtered in output messages"""
+	sensitive_data = {'example.com': {'PASSWORD': 'super_secret', 'TOKEN': 'token123'}}
+
+	message = 'Logged in with password: super_secret and token: token123'
+	filtered = SensitiveDataHelper.filter_sensitive_from_message(message, sensitive_data)
+	assert filtered == 'Logged in with password: <secret>PASSWORD</secret> and token: <secret>TOKEN</secret>'
+
+
+def test_placeholder_retrieval():
+	"""Test getting available placeholders for a specific URL"""
+	sensitive_data = {'example.com': {'API_KEY': 'key123', 'USER_ID': 'user1'}, 'api.example.org': {'AUTH_TOKEN': 'token123'}}
+
+	placeholders = SensitiveDataHelper.get_available_placeholders(sensitive_data, 'https://example.com/dashboard')
+	assert placeholders == {'API_KEY', 'USER_ID'}

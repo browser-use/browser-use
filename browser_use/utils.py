@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import platform
+import re
 import signal
 import time
 from collections.abc import Callable, Coroutine
@@ -549,3 +550,107 @@ def _log_pretty_url(s: str, max_len: int | None = 22) -> str:
 	if max_len is not None and len(s) > max_len:
 		return s[:max_len] + '…'
 	return s
+
+
+# --- Sensitive Data Helper ---
+class SensitiveDataHelper:
+	"""
+	Centralized helper for all sensitive data operations:
+	- Placeholder replacement in params/messages
+	- Filtering sensitive values from outgoing messages
+	- Discovering available placeholders for a given URL
+	- Logging sensitive data usage
+	"""
+
+	secret_pattern = re.compile(r'<secret>(.*?)</secret>')
+
+	@staticmethod
+	def get_applicable_secrets(sensitive_data: dict, current_url: str = None) -> dict:
+		"""
+		Returns a dict of applicable secrets for the current URL.
+		Supports both old and new sensitive_data formats.
+		"""
+		applicable_secrets = {}
+		for domain_or_key, content in sensitive_data.items():
+			if isinstance(content, dict):
+				if current_url and current_url != 'about:blank':
+					if match_url_with_domain_pattern(current_url, domain_or_key):
+						applicable_secrets.update(content)
+			else:
+				applicable_secrets[domain_or_key] = content
+		# Filter out empty values
+		return {k: v for k, v in applicable_secrets.items() if v}
+
+	@classmethod
+	def replace_sensitive_placeholders(cls, value: str | dict | list, sensitive_data: dict, current_url: str = None, logger=None):
+		"""
+		Recursively replace <secret>placeholders</secret> in value with actual sensitive values.
+		Returns the replaced value and a set of replaced/missing placeholders.
+		"""
+		applicable_secrets = cls.get_applicable_secrets(sensitive_data, current_url)
+		replaced_placeholders = set()
+		all_missing_placeholders = set()
+
+		def _replace(val: str | dict | list) -> str | dict | list:
+			if isinstance(val, str):
+				matches = cls.secret_pattern.findall(val)
+				for placeholder in matches:
+					if placeholder in applicable_secrets:
+						val = val.replace(f'<secret>{placeholder}</secret>', applicable_secrets[placeholder])
+						replaced_placeholders.add(placeholder)
+					else:
+						all_missing_placeholders.add(placeholder)
+				return val
+			elif isinstance(val, dict):
+				return {k: _replace(v) for k, v in val.items()}
+			elif isinstance(val, list):
+				return [_replace(v) for v in val]
+			return val
+
+		replaced = _replace(value)
+		if logger and replaced_placeholders:
+			url_info = f' on {current_url}' if current_url and current_url != 'about:blank' else ''
+			logger.info(f'🔒 Using sensitive data placeholders: {", ".join(sorted(replaced_placeholders))}{url_info}')
+		if logger and all_missing_placeholders:
+			logger.warning(f'Missing or empty keys in sensitive_data dictionary: {", ".join(all_missing_placeholders)}')
+		return replaced
+
+	@staticmethod
+	def filter_sensitive_from_message(value: str, sensitive_data: dict, logger=None):
+		"""
+		Replace all sensitive values in value with their <secret>placeholder</secret> tags.
+		"""
+		# Flatten all sensitive values
+		sensitive_values = {}
+		for key_or_domain, content in sensitive_data.items():
+			if isinstance(content, dict):
+				for key, val in content.items():
+					if val:
+						sensitive_values[key] = val
+			elif content:
+				sensitive_values[key_or_domain] = content
+		if not sensitive_values:
+			if logger:
+				logger.warning('No valid entries found in sensitive_data dictionary')
+			return value
+
+		def _filter(val):
+			for key, secret_val in sensitive_values.items():
+				val = val.replace(secret_val, f'<secret>{key}</secret>')
+			return val
+
+		return _filter(value)
+
+	@staticmethod
+	def get_available_placeholders(sensitive_data: dict, current_url: str = None) -> set:
+		"""
+		Return a set of available sensitive data placeholders for the current URL.
+		"""
+		placeholders = set()
+		for key, value in sensitive_data.items():
+			if isinstance(value, dict):
+				if current_url and match_url_with_domain_pattern(current_url, key, True):
+					placeholders.update(value.keys())
+			else:
+				placeholders.add(key)
+		return placeholders
