@@ -2,7 +2,7 @@
 Action filters (domains and page_filter) let you limit actions available to the Agent on a step-by-step/page-by-page basis.
 
 @registry.action(..., domains=['*'], page_filter=lambda page: return True)
-async def some_action(browser: BrowserContext):
+async def some_action(browser_session: BrowserSession):
     ...
 
 This helps prevent the LLM from deciding to use an action that is not compatible with the current page.
@@ -30,7 +30,8 @@ load_dotenv()
 from langchain_openai import ChatOpenAI
 from playwright.async_api import Page
 
-from browser_use.agent.service import Agent, Browser, BrowserContext, Controller
+from browser_use.agent.service import Agent, Controller
+from browser_use.browser import BrowserSession
 
 # Initialize controller and registry
 controller = Controller()
@@ -39,8 +40,7 @@ registry = controller.registry
 
 # Action will only be available to Agent on Google domains because of the domain filter
 @registry.action(description='Trigger disco mode', domains=['google.com', '*.google.com'])
-async def disco_mode(browser: BrowserContext):
-	page = await browser.get_current_page()
+async def disco_mode(page: Page):
 	await page.evaluate("""() => { 
         // define the wiggle animation
         document.styleSheets[0].insertRule('@keyframes wiggle { 0% { transform: rotate(0deg); } 50% { transform: rotate(10deg); } 100% { transform: rotate(0deg); } }');
@@ -58,9 +58,8 @@ def is_login_page(page: Page) -> bool:
 
 # then use it in the action decorator to limit the action to only be available on pages where the filter returns True
 @registry.action(description='Use the force, luke', page_filter=is_login_page)
-async def use_the_force(browser: BrowserContext):
+async def use_the_force(page: Page):
 	# this will only ever run on pages that matched the filter
-	page = await browser.get_current_page()
 	assert is_login_page(page)
 
 	await page.evaluate("""() => { document.querySelector('body').innerHTML = 'These are not the droids you are looking for';}""")
@@ -68,8 +67,9 @@ async def use_the_force(browser: BrowserContext):
 
 async def main():
 	"""Main function to run the example"""
-	browser = Browser()
-	llm = ChatOpenAI(model_name='gpt-4o')
+	browser_session = BrowserSession()
+	await browser_session.start()
+	llm = ChatOpenAI(model='gpt-4o')
 
 	# Create the agent
 	agent = Agent(  # disco mode will not be triggered on apple.com because the LLM won't be able to see that action available, it should work on Google.com though.
@@ -79,7 +79,7 @@ async def main():
             After that, go to the Google login page and Use the force, luke.
         """,
 		llm=llm,
-		browser=browser,
+		browser_session=browser_session,
 		controller=controller,
 	)
 
@@ -87,7 +87,7 @@ async def main():
 	await agent.run(max_steps=10)
 
 	# Cleanup
-	await browser.close()
+	await browser_session.stop()
 
 
 if __name__ == '__main__':

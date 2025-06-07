@@ -4,9 +4,68 @@ description: "Learn how to contribute to Browser Use"
 icon: "github"
 ---
 
+# Join the Browser Use Community!
 
-- check out our most active issues or ask in [Discord](https://discord.gg/zXJJHtJf3k) for ideas of what to work on
-- get inspiration / share what you build in the [`#showcase-your-work`](https://discord.com/channels/1303749220842340412/1305549200678850642) channel and on [`awesome-browser-use-prompts`](https://github.com/browser-use/awesome-prompts)!
-- no typo/style-only nit PRs, you can submit nit fixes but only if part of larger bugfix or new feature PRs
-- include a demo screenshot/gif, tests, and ideally an example script demonstrating any changes in your PR
-- bump your issues/PRs with comments periodically if you want them to be merged faster
+We're thrilled you're interested in contributing to Browser Use! This guide will help you get started with contributing to our project. Your contributions are what make the open-source community such an amazing place to learn, inspire, and create.
+
+## Quick Setup
+
+Get started with Browser Use development in minutes:
+
+```bash
+git clone https://github.com/browser-use/browser-use
+cd browser-use
+uv sync --all-extras --dev
+# or pip install -U git+https://github.com/browser-use/browser-use.git@main
+
+echo "BROWSER_USE_LOGGING_LEVEL=debug" >> .env
+```
+
+For more detailed setup instructions, see our [Local Setup Guide](/development/local-setup).
+
+## How to Contribute
+
+### Find Something to Work On
+
+- Browse our [GitHub Issues](https://github.com/browser-use/browser-use/issues) for beginner-friendly issues labeled `good-first-issue`
+- Check out our most active issues or ask in [Discord](https://discord.gg/zXJJHtJf3k) for ideas of what to work on
+- Get inspiration and share what you build in the [`#showcase-your-work`](https://discord.com/channels/1303749220842340412/1305549200678850642) channel
+- Explore or contribute to [`awesome-browser-use-prompts`](https://github.com/browser-use/awesome-prompts)!
+
+### Making a Great Pull Request
+
+When submitting a pull request, please:
+
+- Include a clear description of what the PR does and why it's needed
+- Add tests that cover your changes
+- Include a demo screenshot/gif or an example script demonstrating your changes
+- Make sure the PR passes all CI checks and tests
+- Keep your PR focused on a single issue or feature to make it easier to review
+
+Note: We appreciate quality over quantity. Instead of submitting small typo/style-only PRs, consider including those fixes as part of larger bugfix or feature PRs.
+
+### Contribution Process
+
+1. Fork the repository
+2. Create a new branch for your feature or bugfix
+3. Make your changes
+4. Run tests to ensure everything works
+5. Submit a pull request
+6. Respond to any feedback from maintainers
+7. Celebrate your contribution!
+
+Feel free to bump your issues/PRs with comments periodically if you need faster feedback.
+
+## Code of Conduct
+
+We're committed to providing a welcoming and inclusive environment for all contributors. Please be respectful and constructive in all interactions.
+
+## Getting Help
+
+If you need help at any point:
+
+- Join our [Discord community](https://link.browser-use.com/discord)
+- Ask questions in the appropriate GitHub issue
+- Check our [documentation](/introduction)
+
+We're here to help you succeed in contributing to Browser Use!

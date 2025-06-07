@@ -1,4 +1,3 @@
-import json
 import logging
 from dataclasses import dataclass
 from importlib import resources
@@ -105,10 +104,27 @@ class DomService:
 
 		# Only log performance metrics in debug mode
 		if debug_mode and 'perfMetrics' in eval_page:
+			perf = eval_page['perfMetrics']
+
+			# Get key metrics for summary
+			total_nodes = perf.get('nodeMetrics', {}).get('totalNodes', 0)
+			# processed_nodes = perf.get('nodeMetrics', {}).get('processedNodes', 0)
+
+			# Count interactive elements from the DOM map
+			interactive_count = 0
+			if 'map' in eval_page:
+				for node_data in eval_page['map'].values():
+					if isinstance(node_data, dict) and node_data.get('isInteractive'):
+						interactive_count += 1
+
+			# Create concise summary
+			url_short = self.page.url[:50] + '...' if len(self.page.url) > 50 else self.page.url
 			logger.debug(
-				'DOM Tree Building Performance Metrics for: %s\n%s',
-				self.page.url,
-				json.dumps(eval_page['perfMetrics'], indent=2),
+				'🔎 Ran buildDOMTree.js interactive element detection on: %s interactive=%d/%d',
+				url_short,
+				interactive_count,
+				total_nodes,
+				# processed_nodes,
 			)
 
 		return await self._construct_dom_tree(eval_page)

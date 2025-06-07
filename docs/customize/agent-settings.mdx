@@ -56,73 +56,62 @@ agent = Agent(
   support.
 </Note>
 
-## (Reuse) Browser Configuration
-
-You can configure how the agent interacts with the browser. To see more `Browser` options refer to the <a href="/customize/browser-settings">Browser Settings</a> documentation.
-
-### Reuse Existing Browser
-
-`browser`: A Browser Use Browser instance. When provided, the agent will reuse this browser instance and automatically create new contexts for each `run()`.
-
-```python
-from browser_use import Agent, Browser
-from browser_use.browser.context import BrowserContext
-
-# Reuse existing browser
-browser = Browser()
-agent = Agent(
-    task=task1,
-    llm=llm,
-    browser=browser  # Browser instance will be reused
-)
-
-await agent.run()
-
-# Manually close the browser
-await browser.close()
-```
-
-<Note>
-  Remember: in this scenario the `Browser` will not be closed automatically.
-</Note>
 
 ### Reuse Existing Browser Context
 
-`browser_context`: A Playwright browser context. Useful for maintaining persistent sessions. See <a href="/customize/persistent-browser">Persistent Browser</a> for more details.
+By default browser-use launches its own builtin browser using playwright chromium.
+You can also connect to a remote browser or pass any of the following 
+existing playwright objects to the Agent: `page`, `browser_context`, `browser`, `browser_session`, or `browser_profile`.
+
+These all get passed down to create a `BrowserSession` for the `Agent`:
+
 
 ```python
-from browser_use import Agent, Browser
-from playwright.async_api import BrowserContext
-
-# Use specific browser context (preferred method)
-async with await browser.new_context() as context:
-    agent = Agent(
-        task=task2,
-        llm=llm,
-        browser_context=context  # Use persistent context
-    )
-
-    # Run the agent
-    await agent.run()
-
-    # Pass the context to the next agent
-    next_agent = Agent(
-        task=task2,
-        llm=llm,
-        browser_context=context
-    )
-
-    ...
-
-await browser.close()
+agent = Agent(
+    task='book a flight to fiji',
+    llm=llm,
+    browser_profile=browser_profile,  # use this profile to create a BrowserSession
+    browser_session=BrowserSession(   # use an existing BrowserSession
+      cdp_url=...,                      # remote CDP browser to connect to
+      # or
+      wss_url=...,                      # remote wss playwright server provider
+      # or
+      browser_pid=...                   # pid of a locally running browser process to attach to
+      # or
+      executable_path=...               # provide a custom chrome binary path
+      # or
+      channel=...                       # specify chrome, chromium, ms-edge, etc.
+      # or
+      page=page,                        # use an existing playwright Page object
+      # or
+      browser_context=browser_context,  # use an existing playwright BrowserContext object
+      # or
+      browser=browser,                  # use an existing playwright Browser object
+    ),
+)
 ```
 
-For more information about how browser context works, refer to the [Playwright
-documentation](https://playwright.dev/docs/api/class-browsercontext).
+For example, to connect to an existing browser over CDP you could do:
+```python
+agent = Agent(
+    ...
+    browser_session=BrowserSession(cdp_url='http://localhost:9222'),
+)
+```
+
+For example, to connect to a local running chrome instance you can do:
+```python
+agent = Agent(
+    ...
+    browser_session=BrowserSession(browser_pid=1234),
+)
+```
+
+See <a href="/customize/real-browser">Connect to your Browser</a> for more info.
 
 <Note>
-  You can reuse the same context for multiple agents. If you do nothing, the
-  browser will be automatically created and closed on `run()` completion.
+  You can reuse the same `BrowserSession` after an agent has completed running. If you do nothing, the
+  browser will be automatically closed on `run()` completion only if it was launched by us.
 </Note>
 
 ## Running the Agent
@@ -248,7 +237,8 @@ agent = Agent(
     task="your task",
     llm=llm,
     enable_memory=True,
-    memory_config=MemoryConfig(
+    memory_config=MemoryConfig( # Ensure llm_instance is passed if not using default LLM config
+        llm_instance=llm,      # Important: Pass the agent's LLM instance here
         agent_id="my_custom_agent",
         memory_interval=15
     )
@@ -258,7 +248,7 @@ agent = Agent(
 ### Memory Parameters
 
 - `enable_memory`: Enable/disable the procedural memory system. Defaults to `True`.
-- `memory_config`: A `MemoryConfig` Pydantic model instance (required). Dictionary format is not supported.
+- `memory_config`: A `MemoryConfig` Pydantic model instance (required if `enable_memory` is `True`). Dictionary format is not supported.
 
 ### Using MemoryConfig
 
@@ -266,16 +256,29 @@ You must configure the memory system using the `MemoryConfig` Pydantic model for
 
 ```python
 from browser_use.agent.memory import MemoryConfig
+from langchain_openai import ChatOpenAI # Assuming llm is an instance of ChatOpenAI
+
+llm_for_agent = ChatOpenAI(model="gpt-4o")
 
 agent = Agent(
     task=task_description,
-    llm=llm,
+    llm=llm_for_agent,
+    enable_memory=True, # This is True by default
     memory_config=MemoryConfig(
+        llm_instance=llm_for_agent, # Pass the LLM instance for Mem0
         agent_id="my_agent",
-        memory_interval=15,
+        memory_interval=15, # Summarize every 15 steps
         embedder_provider="openai",
         embedder_model="text-embedding-3-large",
         embedder_dims=1536,
+        # --- Vector Store Customization ---
+        vector_store_provider="qdrant", # e.g., Qdrant, Pinecone, Chroma, etc.
+        vector_store_collection_name="my_browser_use_memories", # Optional: custom collection name
+        vector_store_config_override={ # Provider-specific config
+            "host": "localhost",
+            "port": 6333
+            # Add other Qdrant specific configs here if needed, e.g., api_key for cloud
+        }
     )
 )
 ```
@@ -283,8 +286,11 @@ agent = Agent(
 The `MemoryConfig` model provides these configuration options:
 
 #### Memory Settings
-- `agent_id`: Unique identifier for the agent (default: `"browser_use_agent"`)
+- `agent_id`: Unique identifier for the agent (default: `"browser_use_agent"`). Essential for persistent memory sessions if using a persistent vector store.
 - `memory_interval`: Number of steps between memory summarization (default: `10`)
+
+#### LLM Settings (for Mem0's internal operations)
+- `llm_instance`: The LangChain `BaseChatModel` instance that Mem0 will use for its internal summarization and processing. You must pass the same LLM instance used by the main agent, or another compatible one, here.
 
 #### Embedder Settings
 - `embedder_provider`: Provider for embeddings (`'openai'`, `'gemini'`, `'ollama'`, or `'huggingface'`)
@@ -292,8 +298,11 @@ The `MemoryConfig` model provides these configuration options:
 - `embedder_dims`: Dimensions for the embeddings
 
 #### Vector Store Settings
-- `vector_store_provider`: Provider for vector storage (currently only `'faiss'` is supported)
-- `vector_store_base_path`: Path for storing vector data (e.g. /tmp/mem0)
+- `vector_store_provider`: Choose the vector store backend. Supported options include:
+  `'faiss'` (default), `'qdrant'`, `'pinecone'`, `'supabase'`, `'elasticsearch'`, `'chroma'`, `'weaviate'`, `'milvus'`, `'pgvector'`, `'upstash_vector'`, `'vertex_ai_vector_search'`, `'azure_ai_search'`, `'lancedb'`, `'mongodb'`, `'redis'`, `'memory'` (in-memory, non-persistent).
+- `vector_store_collection_name`: (Optional) Specify a custom name for the collection or index in your vector store. If not provided, a default name is generated (especially for local stores like FAISS/Chroma) or used by Mem0.
+- `vector_store_base_path`: Path for local vector stores like FAISS or Chroma (e.g., `/tmp/mem0`). Default is `/tmp/mem0`.
+- `vector_store_config_override`: (Optional) A dictionary to provide or override specific configuration parameters required by Mem0 for the chosen `vector_store_provider`. This is where you'd put connection details like `host`, `port`, `api_key`, `url`, `environment`, etc., for cloud-based or server-based vector stores.
 
 The model automatically sets appropriate defaults based on the LLM being used:
 - For `ChatOpenAI`: Uses OpenAI's `text-embedding-3-small` embeddings
@@ -302,18 +311,21 @@ The model automatically sets appropriate defaults based on the LLM being used:
 - Default: Uses Hugging Face's `all-MiniLM-L6-v2` embeddings
 
 <Note>
-  Always pass a properly constructed `MemoryConfig` object to the `memory_config` parameter. 
-  Dictionary-based configuration is no longer supported.
+  **Important:**
+  - Always pass a properly constructed `MemoryConfig` object to the `memory_config` parameter.
+  - Ensure the `llm_instance` is provided to `MemoryConfig` so Mem0 can perform its operations.
+  - For persistent memory across agent runs or for shared memory, choose a scalable vector store provider (like Qdrant, Pinecone, etc.) and configure it correctly using `vector_store_provider` and `vector_store_config_override`. The default 'faiss' provider stores data locally in `vector_store_base_path`.
 </Note>
 
 ### How Memory Works
 
 When enabled, the agent periodically compresses its conversation history into concise summaries:
 
-1. Every `memory_interval` steps, the agent reviews its recent interactions
-2. It creates a procedural memory summary using the same LLM as the agent
-3. The original messages are replaced with the summary, reducing token usage
-4. This process helps maintain important context while freeing up the context window
+1. Every `memory_interval` steps, the agent reviews its recent interactions.
+2. It uses Mem0 (configured with your chosen LLM and vector store) to create a procedural memory summary.
+3. The original messages in the agent's active context are replaced with this summary, reducing token usage.
+4. This process helps maintain important context while freeing up the context window for new information.
+
 
 ### Disabling Memory
 

@@ -13,8 +13,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
 
 from browser_use import Agent
-from browser_use.browser.browser import Browser, BrowserConfig
-from browser_use.browser.context import BrowserContext, BrowserContextConfig
+from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.controller.service import Controller
 
 
@@ -49,21 +48,18 @@ args = parser.parse_args()
 
 llm = get_llm(args.provider)
 
-
-browser = Browser(
-	config=BrowserConfig(
-		# browser_binary_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+browser_session = BrowserSession(
+	browser_profile=BrowserProfile(
+		user_agent='foobarfoo',
+		user_data_dir='~/.config/browseruse/profiles/default',
 	)
 )
-
-browser_context = BrowserContext(config=BrowserContextConfig(user_agent='foobarfoo'), browser=browser)
 
 agent = Agent(
 	task=args.query,
 	llm=llm,
 	controller=controller,
-	# browser=browser,
-	browser_context=browser_context,
+	browser_session=browser_session,
 	use_vision=True,
 	max_actions_per_step=1,
 )
@@ -73,7 +69,7 @@ async def main():
 	await agent.run(max_steps=25)
 
 	input('Press Enter to close the browser...')
-	await browser_context.close()
+	await browser_session.close()
 
 
 asyncio.run(main())

@@ -15,8 +15,8 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.signature import SignatureVerifier
 from slack_sdk.web.async_client import AsyncWebClient
 
-from browser_use import BrowserConfig
-from browser_use.agent.service import Agent, Browser
+from browser_use.agent.service import Agent
+from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.logging_config import setup_logging
 
 setup_logging()
@@ -32,14 +32,14 @@ class SlackBot:
 		bot_token: str,
 		signing_secret: str,
 		ack: bool = False,
-		browser_config: BrowserConfig = BrowserConfig(headless=True),
+		browser_profile: BrowserProfile = BrowserProfile(headless=True),
 	):
 		if not bot_token or not signing_secret:
 			raise ValueError('Bot token and signing secret must be provided')
 
 		self.llm = llm
 		self.ack = ack
-		self.browser_config = browser_config
+		self.browser_profile = browser_profile
 		self.client = AsyncWebClient(token=bot_token)
 		self.signature_verifier = SignatureVerifier(signing_secret)
 		self.processed_events = set()
@@ -82,8 +82,8 @@ class SlackBot:
 
 	async def run_agent(self, task: str) -> str:
 		try:
-			browser = Browser(config=self.browser_config)
-			agent = Agent(task=task, llm=self.llm, browser=browser)
+			browser_session = BrowserSession(browser_profile=self.browser_profile)
+			agent = Agent(task=task, llm=self.llm, browser_session=browser_session)
 			result = await agent.run()
 
 			agent_message = None

@@ -11,8 +11,7 @@ load_dotenv()
 from langchain_openai import ChatOpenAI
 
 from browser_use import Agent
-from browser_use.browser.browser import Browser, BrowserConfig
-from browser_use.browser.context import BrowserContextConfig
+from browser_use.browser import BrowserProfile, BrowserSession
 
 llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
 task = (
@@ -21,19 +20,18 @@ task = (
 
 allowed_domains = ['google.com']
 
-browser = Browser(
-	config=BrowserConfig(
-		browser_binary_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-		new_context_config=BrowserContextConfig(
-			allowed_domains=allowed_domains,
-		),
+browser_session = BrowserSession(
+	browser_profile=BrowserProfile(
+		executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+		allowed_domains=allowed_domains,
+		user_data_dir='~/.config/browseruse/profiles/default',
 	),
 )
 
 agent = Agent(
 	task=task,
 	llm=llm,
-	browser=browser,
+	browser_session=browser_session,
 )
 
 
@@ -41,7 +39,7 @@ async def main():
 	await agent.run(max_steps=25)
 
 	input('Press Enter to close the browser...')
-	await browser.close()
+	await browser_session.close()
 
 
 asyncio.run(main())

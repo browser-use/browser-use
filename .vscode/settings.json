@@ -7,5 +7,6 @@
       "source.fixAll.ruff": "explicit",
       "source.organizeImports.ruff": "explicit"
     }
-  }
+  },
+  "python.analysis.inlayHints.variableTypes": false
 }

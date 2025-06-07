@@ -13,7 +13,8 @@ import anyio
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
-from browser_use import Agent, Browser, BrowserConfig, Controller
+from browser_use import Agent, Controller
+from browser_use.browser import BrowserProfile, BrowserSession
 
 links = [
 	'https://docs.mem0.ai/components/llms/models/litellm',
@@ -72,8 +73,8 @@ Guidelines:
 
 
 async def main(max_steps=500):
-	config = BrowserConfig(headless=True)
-	browser = Browser(config=config)
+	browser_profile = BrowserProfile(headless=True)
+	browser_session = BrowserSession(browser_profile=browser_profile)
 
 	agent = Agent(
 		task=task_description,
@@ -81,7 +82,7 @@ async def main(max_steps=500):
 		controller=controller,
 		initial_actions=initial_actions,
 		enable_memory=True,
-		browser=browser,
+		browser_session=browser_session,
 	)
 	history = await agent.run(max_steps=max_steps)
 	result = history.final_result()

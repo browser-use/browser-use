@@ -11,14 +11,14 @@ load_dotenv()
 from langchain_openai import ChatOpenAI
 
 from browser_use.agent.service import Agent
-from browser_use.browser.browser import Browser, BrowserConfig
-from browser_use.browser.context import BrowserContextConfig
+from browser_use.browser import BrowserProfile, BrowserSession
 
-browser = Browser(
-	config=BrowserConfig(
+browser_session = BrowserSession(
+	browser_profile=BrowserProfile(
 		disable_security=True,
 		headless=False,
-		new_context_config=BrowserContextConfig(save_recording_path='./tmp/recordings'),
+		save_recording_path='./tmp/recordings',
+		user_data_dir='~/.config/browseruse/profiles/default',
 	)
 )
 llm = ChatOpenAI(model='gpt-4o')
@@ -26,7 +26,7 @@ llm = ChatOpenAI(model='gpt-4o')
 
 async def main():
 	agents = [
-		Agent(task=task, llm=llm, browser=browser)
+		Agent(task=task, llm=llm, browser_session=browser_session)
 		for task in [
 			'Search Google for weather in Tokyo',
 			'Check Reddit front page title',
@@ -43,16 +43,14 @@ async def main():
 
 	await asyncio.gather(*[agent.run() for agent in agents])
 
-	# async with await browser.new_context() as context:
 	agentX = Agent(
 		task='Go to apple.com and return the title of the page',
 		llm=llm,
-		browser=browser,
-		# browser_context=context,
+		browser_session=browser_session,
 	)
 	await agentX.run()
 
-	await browser.close()
+	await browser_session.close()
 
 
 if __name__ == '__main__':

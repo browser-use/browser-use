@@ -20,7 +20,7 @@
         },
         {
             "name": "Python: Debug extend_actions",
-            "type": "module",
+            "type": "debugpy",
             "request": "launch",
             "module": "examples.extend_actions",
             "console": "integratedTerminal",
@@ -31,7 +31,7 @@
         },
         {
             "name": "Python: Debug Captcha Tests",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "module": "pytest",
             "args": [
@@ -46,7 +46,7 @@
         },
         {
             "name": "Python: Debug Ecommerce Interaction",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "module": "pytest",
             "args": [
@@ -61,7 +61,7 @@
         },
         {
             "name": "Python: Debug Core Functionality",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/.venv/bin/pytest",
             "args": [
@@ -73,7 +73,7 @@
         },
         {
             "name": "pytest: Debug Current File",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "module": "pytest",
             "args": [

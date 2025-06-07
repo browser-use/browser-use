@@ -143,16 +143,17 @@ The community likes DeepSeek-V3 for its low price, no rate limits, open-source n
 The example is available [here](https://github.com/browser-use/browser-use/blob/main/examples/models/deepseek.py).
 
 ```python
-from langchain_openai import ChatOpenAI
+from langchain_deepseek import ChatDeepSeek
 from browser_use import Agent
 from pydantic import SecretStr
 from dotenv import load_dotenv
+import os
 
 load_dotenv()
 api_key = os.getenv("DEEPSEEK_API_KEY")
 
 # Initialize the model
-llm=ChatOpenAI(base_url='https://api.deepseek.com/v1', model='deepseek-chat', api_key=SecretStr(api_key))
+llm=ChatDeepSeek(base_url='https://api.deepseek.com/v1', model='deepseek-chat', api_key=SecretStr(api_key))
 
 # Create agent with the model
 agent = Agent(
@@ -173,16 +174,17 @@ We support DeepSeek-R1. Its not fully tested yet, more and more functionality wi
 The example is available [here](https://github.com/browser-use/browser-use/blob/main/examples/models/deepseek-r1.py).
 It does not support vision. The model is open-source so you could also use it with Ollama, but we have not tested it.
 ```python
-from langchain_openai import ChatOpenAI
+from langchain_deepseek import ChatDeepSeek
 from browser_use import Agent
 from pydantic import SecretStr
 from dotenv import load_dotenv
+import os
 
 load_dotenv()
 api_key = os.getenv("DEEPSEEK_API_KEY")
 
 # Initialize the model
-llm=ChatOpenAI(base_url='https://api.deepseek.com/v1', model='deepseek-reasoner', api_key=SecretStr(api_key))
+llm=ChatDeepSeek(base_url='https://api.deepseek.com/v1', model='deepseek-reasoner', api_key=SecretStr(api_key))
 
 # Create agent with the model
 agent = Agent(

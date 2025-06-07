@@ -10,25 +10,27 @@ load_dotenv()
 
 from langchain_openai import ChatOpenAI
 
-from browser_use import Agent, Browser, BrowserConfig
+from browser_use import Agent
+from browser_use.browser import BrowserProfile, BrowserSession
 
-browser = Browser(
-	config=BrowserConfig(
-		# NOTE: you need to close your chrome browser - so that this can open your browser in debug mode
-		browser_binary_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-	)
+browser_profile = BrowserProfile(
+	# NOTE: you need to close your chrome browser - so that this can open your browser in debug mode
+	executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+	user_data_dir='~/.config/browseruse/profiles/default',
+	headless=False,
 )
+browser_session = BrowserSession(browser_profile=browser_profile)
 
 
 async def main():
 	agent = Agent(
-		task='In docs.google.com write my Papa a quick letter',
+		task='Find todays DOW stock price',
 		llm=ChatOpenAI(model='gpt-4o'),
-		browser=browser,
+		browser_session=browser_session,
 	)
 
 	await agent.run()
-	await browser.close()
+	await browser_session.close()
 
 	input('Press Enter to close...')
 

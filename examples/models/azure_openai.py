@@ -27,10 +27,9 @@ if not azure_openai_api_key or not azure_openai_endpoint:
 
 # Initialize the Azure OpenAI client
 llm = AzureChatOpenAI(
-	model_name='gpt-4o',
-	openai_api_key=azure_openai_api_key,
+	model='gpt-4o',
+	api_key=azure_openai_api_key,
 	azure_endpoint=azure_openai_endpoint,  # Corrected to use azure_endpoint instead of openai_api_base
-	deployment_name='gpt-4o',  # Use deployment_name for Azure models
 	api_version='2024-08-01-preview',  # Explicitly set the API version here
 )
 

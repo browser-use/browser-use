@@ -4,11 +4,45 @@ description: "Set up Browser Use development environment locally"
 icon: "laptop-code"
 ---
 
+# Welcome to Browser Use Development!
+
+We're excited to have you join our community of contributors. This guide will help you set up your local development environment quickly and easily.
+
+## Quick Setup
+
+If you're familiar with Python development, here's the quick way to get started:
+
+```bash
+git clone https://github.com/browser-use/browser-use
+cd browser-use
+uv sync --all-extras --dev
+# or pip install -U git+https://github.com/browser-use/browser-use.git@main
+
+echo "BROWSER_USE_LOGGING_LEVEL=debug" >> .env
+```
+
+## Helper Scripts
+
+We provide several convenient shell scripts in the `bin/` directory to help with common development tasks:
+
+```bash
+# Complete setup script - installs uv, creates a venv, and installs dependencies
+./bin/setup.sh
+
+# Run all pre-commit hooks (formatting, linting, type checking)
+./bin/lint.sh
+
+# Run the core test suite that's executed in CI
+./bin/test.sh
+```
+
 ## Prerequisites
 
 Browser Use requires Python 3.11 or higher. We recommend using [uv](https://docs.astral.sh/uv/) for Python environment management.
 
-## Clone the Repository
+## Detailed Setup Instructions
+
+### Clone the Repository
 
 First, clone the Browser Use repository:
 
@@ -17,7 +51,7 @@ git clone https://github.com/browser-use/browser-use
 cd browser-use
 ```
 
-## Environment Setup
+### Environment Setup
 
 1. Create and activate a virtual environment:
 
@@ -56,6 +90,7 @@ GOOGLE_API_KEY=
 DEEPSEEK_API_KEY=
 GROK_API_KEY=
 NOVITA_API_KEY=
+BROWSER_USE_LOGGING_LEVEL=debug  # Helpful for development
 ```
 
 <Note>
@@ -78,6 +113,8 @@ After setup, you can:
 ```bash
 # Run the linter on the whole project (must pass for PR to be allowed to merge)
 uv run pre-commit run --all-files
+# or use our convenience script
+./bin/lint.sh
 
 # Install the linter & formatter pre-commit hooks to run automatically
 pre-commit install --install-hooks
@@ -89,7 +126,10 @@ uv run type
 ### Tests
 
 ```bash
-# Run tests
+# Run all tests that run in CI
+./bin/test.sh
+
+# Run specific tests
 uv run pytest                                                                         # run everything
 uv run pytest tests/test_controller.py                                                # run a specific test file
 uv run pytest tests/test_sensitive_data.py tests/test_tab_management.py               # run two test files
@@ -102,7 +142,7 @@ uv run pytest tests/test_tab_management.py::TestTabManagement::test_user_changes
 uv build
 uv pip install dist/*.whl
 
-# bush build to PyPI (automatically run by Github Actions CI)
+# push build to PyPI (automatically run by Github Actions CI)
 uv publish
 ```
 

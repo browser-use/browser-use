@@ -1,58 +1,43 @@
-import asyncio
-import os
-
 import pytest
-from langchain_openai import AzureChatOpenAI
-from pydantic import SecretStr
 
 from browser_use.agent.service import Agent
 from browser_use.agent.views import AgentHistoryList
-from browser_use.browser.browser import Browser, BrowserConfig
+from browser_use.browser import BrowserSession
 from browser_use.controller.service import Controller
 
 # run with:
 # python -m pytest tests/test_excluded_actions.py -v -k "test_only_open_tab_allowed" --capture=no
 
 
-@pytest.fixture(scope='session')
-def event_loop():
-	"""Create an instance of the default event loop for each test case."""
-	loop = asyncio.get_event_loop_policy().new_event_loop()
-	yield loop
-	loop.close()
+class MockLLM:
+	"""Mock LLM for testing"""
+
+	async def ainvoke(self, prompt):
+		class MockResponse:
+			content = 'Mocked LLM response'
+
+		return MockResponse()
 
 
-@pytest.fixture(scope='session')
-async def browser(event_loop):
-	browser_instance = Browser(
-		config=BrowserConfig(
-			headless=True,
-		)
+@pytest.fixture(scope='module')
+async def browser_session():
+	browser_session = BrowserSession(
+		headless=True,
+		user_data_dir=None,
 	)
-	yield browser_instance
-	await browser_instance.close()
-
-
-@pytest.fixture
-async def context(browser):
-	async with await browser.new_context() as context:
-		yield context
+	await browser_session.start()
+	yield browser_session
+	await browser_session.stop()
 
 
 @pytest.fixture
 def llm():
 	"""Initialize language model for testing"""
-	return AzureChatOpenAI(
-		model='gpt-4o',
-		api_version='2024-10-21',
-		azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT', ''),
-		api_key=SecretStr(os.getenv('AZURE_OPENAI_KEY', '')),
-	)
+	return MockLLM()
 
 
 # pytest tests/test_excluded_actions.py -v -k "test_only_open_tab_allowed" --capture=no
-@pytest.mark.asyncio
-async def test_only_open_tab_allowed(llm, context):
+async def test_only_open_tab_allowed(llm, browser_session):
 	"""Test that only open_tab action is available while others are excluded"""
 
 	# Create list of all default actions except open_tab
@@ -80,7 +65,7 @@ async def test_only_open_tab_allowed(llm, context):
 	agent = Agent(
 		task="Go to google.com and search for 'python programming'",
 		llm=llm,
-		browser_context=context,
+		browser_session=browser_session,
 		controller=controller,
 	)
 

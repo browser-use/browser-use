@@ -13,6 +13,7 @@ on:
     types: [published]     # publish full release to PyPI when a release is created on Github
   schedule:
     - cron: "0 17 * * FRI" # tag a pre-release on Github every Friday at 5 PM UTC
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -27,40 +28,76 @@ jobs:
       - name: Create pre-release tag
         run: |
           git fetch --tags
-          latest_tag=$(git tag --list --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+rc[0-9]+$' | head -n 1)
+          latest_tag=$(git tag --list --sort=-v:refname | grep -E '^[0-9]+\.[0-9]+\.[0-9]+(rc[0-9]+)?$' | head -n 1)
           if [ -z "$latest_tag" ]; then
-            new_tag="v0.1.0rc1"
+            echo "Failed to find the latest git tag from list:" > /dev/stderr
+            git tag --list --sort=-v:refname
+            exit 1
           else
-            new_tag=$(echo $latest_tag | awk -F'rc' '{print $1 "rc" $2+1}')
+            # Bump the tag rc version
+            if [[ "$latest_tag" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(rc([0-9]+))?$ ]]; then
+              major="${BASH_REMATCH[1]}"
+              minor="${BASH_REMATCH[2]}"
+              patch="${BASH_REMATCH[3]}"
+              rc="${BASH_REMATCH[5]}"
+              echo "latest_tag: ${major}.${minor}.${patch}rc${rc:-0}"
+              if [ -z "$rc" ]; then
+                # No rc, so bump patch and set rc=1            # 0.2.1 -> 0.2.2rc1
+                patch=$((patch + 1))
+                new_tag="${major}.${minor}.${patch}rc1"
+              else
+                if [ "$rc" -ge 99 ]; then
+                  echo "Error: rc version is already at 99 for tag $latest_tag, refusing to increment further." > /dev/stderr
+                  exit 1
+                fi
+                rc=$((rc + 1))
+                new_tag="${major}.${minor}.${patch}rc${rc}"    # 0.2.1rc1 -> 0.2.1rc2
+              fi
+            else
+              echo "Error: latest_tag '$latest_tag' does not match expected version pattern." > /dev/stderr
+              exit 1
+            fi
           fi
+          echo "new_tag: $new_tag"
           git tag $new_tag
           git push origin $new_tag
 
   publish_to_pypi:
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    env:
+      IN_DOCKER: 'True'
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.x"
-      - uses: astral-sh/setup-uv@v5
-      - run: uv run ruff check --no-fix --select PLE # check only for syntax errors
+          enable-cache: true
+          activate-environment: true
+      - run: uv sync
+
+      - run: uv run ruff check --no-fix --select PLE # quick check for syntax errors to avoid waiting time doing the rest of the build
       - run: uv build
-      - run: uv run --isolated --no-project --with pytest --with dist/*.whl tests/conftest.py
-      - run: uv run --isolated --no-project --with pytest --with dist/*.tar.gz tests/conftest.py
-      - run: uv run --with=dotenv pytest \
-          --ignore=tests/test_dropdown_error.py \
-          --ignore=tests/test_gif_path.py \
-          --ignore=tests/test_models.py \
-          --ignore=tests/test_react_dropdown.py \
-          --ignore=tests/test_save_conversation.py \
-          --ignore=tests/test_vision.py \
-          --ignore=tests/test_wait_for_element.py || true
+
+      - name: Detect installed Playwright version
+        run: echo "PLAYWRIGHT_VERSION=$(uv pip list --format json | jq -r '.[] | select(.name == "playwright") | .version')" >> $GITHUB_ENV
+
+      - name: Cache playwright binaries
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ env.PLAYWRIGHT_VERSION }}
+
+      - run: playwright install chrome
+      - run: playwright install chromium
+
+      # TODO: just depend on the other test.yml action for this instead of re-running the tests here
+      - run: uv run pytest tests/ci                  # dont push the package to PyPI if the tests fail
+      
+      # publish to PyPI
       - run: uv publish --trusted-publishing always
       - name: Push to stable branch (if stable release)
-        if: startsWith(github.ref_name, 'v') && !contains(github.ref_name, 'rc')
+        if: github.event_name == 'release' && !contains(github.ref_name, 'rc')
         run: |
           git checkout -b stable
-          git push origin stable
+          git push origin -f stable

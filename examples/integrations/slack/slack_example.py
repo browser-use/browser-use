@@ -10,7 +10,7 @@ load_dotenv()
 from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import SecretStr
 
-from browser_use import BrowserConfig
+from browser_use.browser import BrowserProfile
 from examples.integrations.slack.slack_api import SlackBot, app
 
 # load credentials from environment variables
@@ -33,7 +33,7 @@ slack_bot = SlackBot(
 	bot_token=bot_token,  # required; Slack bot token
 	signing_secret=signing_secret,  # required; Slack signing secret
 	ack=True,  # optional; whether to acknowledge task receipt with a message, defaults to False
-	browser_config=BrowserConfig(
+	browser_profile=BrowserProfile(
 		headless=True
 	),  # optional; useful for changing headless mode or other browser configs, defaults to headless mode
 )

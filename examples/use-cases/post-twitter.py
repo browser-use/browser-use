@@ -33,7 +33,7 @@ load_dotenv()
 from langchain_openai import ChatOpenAI
 
 from browser_use import Agent, Controller
-from browser_use.browser.browser import Browser, BrowserConfig
+from browser_use.browser import BrowserProfile, BrowserSession
 
 if not os.getenv('OPENAI_API_KEY'):
 	raise ValueError('OPENAI_API_KEY is not set. Please add it to your environment variables.')
@@ -68,12 +68,11 @@ config = TwitterConfig(
 def create_twitter_agent(config: TwitterConfig) -> Agent:
 	llm = ChatOpenAI(model=config.model, api_key=config.openai_api_key)
 
-	browser = Browser(
-		config=BrowserConfig(
-			headless=config.headless,
-			browser_binary_path=config.chrome_path,
-		)
+	browser_profile = BrowserProfile(
+		headless=config.headless,
+		executable_path=config.chrome_path,
 	)
+	browser_session = BrowserSession(browser_profile=browser_profile)
 
 	controller = Controller()
 
@@ -105,7 +104,7 @@ def create_twitter_agent(config: TwitterConfig) -> Agent:
         """,
 		llm=llm,
 		controller=controller,
-		browser=browser,
+		browser_session=browser_session,
 	)
 
 

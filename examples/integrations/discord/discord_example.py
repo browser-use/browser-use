@@ -44,7 +44,7 @@ load_dotenv()
 from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import SecretStr
 
-from browser_use import BrowserConfig
+from browser_use.browser import BrowserProfile
 from examples.integrations.discord.discord_api import DiscordBot
 
 # load credentials from environment variables
@@ -62,7 +62,7 @@ bot = DiscordBot(
 	llm=llm,  # required; instance of BaseChatModel
 	prefix='$bu',  # optional; prefix of messages to trigger browser-use, defaults to "$bu"
 	ack=True,  # optional; whether to acknowledge task receipt with a message, defaults to False
-	browser_config=BrowserConfig(
+	browser_profile=BrowserProfile(
 		headless=False
 	),  # optional; useful for changing headless mode or other browser configs, defaults to headless mode
 )

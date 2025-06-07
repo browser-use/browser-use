@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import traceback
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -10,11 +9,9 @@ from typing import Any, Literal
 from langchain_core.language_models.chat_models import BaseChatModel
 from openai import RateLimitError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
+from uuid_extensions import uuid7str
 
 from browser_use.agent.message_manager.views import MessageManagerState
-from browser_use.agent.playwright_script_generator import PlaywrightScriptGenerator
-from browser_use.browser.browser import BrowserConfig
-from browser_use.browser.context import BrowserContextConfig
 from browser_use.browser.views import BrowserStateHistory
 from browser_use.controller.registry.views import ActionModel
 from browser_use.dom.history_tree_processor.service import (
@@ -38,7 +35,7 @@ REQUIRED_LLM_API_ENV_VARS = {
 
 
 class AgentSettings(BaseModel):
-	"""Options for the agent"""
+	"""Configuration options for the Agent"""
 
 	use_vision: bool = True
 	use_vision_for_planner: bool = False
@@ -74,14 +71,11 @@ class AgentSettings(BaseModel):
 	is_planner_reasoning: bool = False  # type: ignore
 	extend_planner_system_message: str | None = None
 
-	# Playwright script generation setting
-	save_playwright_script_path: str | None = None  # Path to save the generated Playwright script
-
 
 class AgentState(BaseModel):
 	"""Holds all state information for an Agent"""
 
-	agent_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+	agent_id: str = Field(default_factory=uuid7str)
 	n_steps: int = 1
 	consecutive_failures: int = 0
 	last_result: list[ActionResult] | None = None
@@ -132,7 +126,7 @@ class StepMetadata(BaseModel):
 
 
 class AgentBrain(BaseModel):
-	"""Current state of the agent"""
+	"""Current internal working memory of the agent, we ask the LLM to decide new values for these on each output"""
 
 	evaluation_previous_goal: str
 	memory: str
@@ -140,9 +134,20 @@ class AgentBrain(BaseModel):
 
 
 class AgentOutput(BaseModel):
-	"""Output model for agent
-
-	@dev note: this model is extended with custom actions in AgentService. You can also use some fields that are not in this model as provided by the linter, as long as they are registered in the DynamicActions model.
+	"""
+	Output model for LLM, i.e. what we are expecting in LLM structured output in response to our prompt.
+	{
+		current_state: AgentBrain({
+			evaluation_previous_goal: "we did ok, team",
+			memory: "filled in xyz into page, still need to do xyz...",
+			next_goal: "click on the link at index 127, then open that new tab"
+		}),
+		"action": [
+			ActionModel({action_name: "click_element_by_index", action_params: {index: 127}}),
+			ActionModel({action_name: "switch_to_tab", action_params: {page_id: 3}}),
+			... other multi-action steps ...
+		],
+	}
 	"""
 
 	model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -213,7 +218,7 @@ class AgentHistory(BaseModel):
 
 
 class AgentHistoryList(BaseModel):
-	"""List of agent history items"""
+	"""List of AgentHistory messages, i.e. the history of the agent's actions and thoughts."""
 
 	history: list[AgentHistory]
 
@@ -259,34 +264,37 @@ class AgentHistoryList(BaseModel):
 		except Exception as e:
 			raise e
 
-	def save_as_playwright_script(
-		self,
-		output_path: str | Path,
-		sensitive_data_keys: list[str] | None = None,
-		browser_config: BrowserConfig | None = None,
-		context_config: BrowserContextConfig | None = None,
-	) -> None:
-		"""
-		Generates a Playwright script based on the agent's history and saves it to a file.
-		Args:
-			output_path: The path where the generated Python script will be saved.
-			sensitive_data_keys: A list of keys used as placeholders for sensitive data
-								 (e.g., ['username_placeholder', 'password_placeholder']).
-								 These will be loaded from environment variables in the
-								 generated script.
-			browser_config: Configuration of the original Browser instance.
-			context_config: Configuration of the original BrowserContext instance.
-		"""
-		try:
-			serialized_history = self.model_dump()['history']
-			generator = PlaywrightScriptGenerator(serialized_history, sensitive_data_keys, browser_config, context_config)
-			script_content = generator.generate_script_content()
-			path_obj = Path(output_path)
-			path_obj.parent.mkdir(parents=True, exist_ok=True)
-			with open(path_obj, 'w', encoding='utf-8') as f:
-				f.write(script_content)
-		except Exception as e:
-			raise e
+	# def save_as_playwright_script(
+	# 	self,
+	# 	output_path: str | Path,
+	# 	sensitive_data_keys: list[str] | None = None,
+	# 	browser_config: BrowserConfig | None = None,
+	# 	context_config: BrowserContextConfig | None = None,
+	# ) -> None:
+	# 	"""
+	# 	Generates a Playwright script based on the agent's history and saves it to a file.
+	# 	Args:
+	# 		output_path: The path where the generated Python script will be saved.
+	# 		sensitive_data_keys: A list of keys used as placeholders for sensitive data
+	# 							 (e.g., ['username_placeholder', 'password_placeholder']).
+	# 							 These will be loaded from environment variables in the
+	# 							 generated script.
+	# 		browser_config: Configuration of the original Browser instance.
+	# 		context_config: Configuration of the original BrowserContext instance.
+	# 	"""
+	# 	from browser_use.agent.playwright_script_generator import PlaywrightScriptGenerator
+
+	# 	try:
+	# 		serialized_history = self.model_dump()['history']
+	# 		generator = PlaywrightScriptGenerator(serialized_history, sensitive_data_keys, browser_config, context_config)
+
+	# 		script_content = generator.generate_script_content()
+	# 		path_obj = Path(output_path)
+	# 		path_obj.parent.mkdir(parents=True, exist_ok=True)
+	# 		with open(path_obj, 'w', encoding='utf-8') as f:
+	# 			f.write(script_content)
+	# 	except Exception as e:
+	# 		raise e
 
 	def model_dump(self, **kwargs) -> dict[str, Any]:
 		"""Custom serialization that properly uses AgentHistory's model_dump"""

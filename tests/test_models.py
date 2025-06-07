@@ -1,4 +1,3 @@
-import asyncio
 import os
 
 import httpx
@@ -11,32 +10,19 @@ from pydantic import SecretStr
 
 from browser_use.agent.service import Agent
 from browser_use.agent.views import AgentHistoryList
-from browser_use.browser.browser import Browser, BrowserConfig
-
-
-@pytest.fixture(scope='function')
-def event_loop():
-	"""Create an instance of the default event loop for each test case."""
-	loop = asyncio.get_event_loop_policy().new_event_loop()
-	yield loop
-	loop.close()
-
-
-@pytest.fixture(scope='function')
-async def browser(event_loop):
-	browser_instance = Browser(
-		config=BrowserConfig(
-			headless=True,
-		)
-	)
-	yield browser_instance
-	await browser_instance.close()
+from browser_use.browser import BrowserProfile, BrowserSession
 
 
 @pytest.fixture
-async def context(browser):
-	async with await browser.new_context() as context:
-		yield context
+async def browser_session():
+	browser_session = BrowserSession(
+		browser_profile=BrowserProfile(
+			headless=True,
+		)
+	)
+	await browser_session.start()
+	yield browser_session
+	await browser_session.stop()
 
 
 api_key_gemini = SecretStr(os.getenv('GOOGLE_API_KEY') or '')
@@ -105,8 +91,7 @@ async def llm(request):
 	return request.param
 
 
-@pytest.mark.asyncio
-async def test_model_search(llm, context):
+async def test_model_search(llm, browser_session):
 	"""Test 'Search Google' action"""
 	model_name = llm.model if hasattr(llm, 'model') else llm.model_name
 	print(f'\nTesting model: {model_name}')
@@ -134,7 +119,7 @@ async def test_model_search(llm, context):
 	agent = Agent(
 		task="Search Google for 'elon musk' then click on the first result and scroll down.",
 		llm=llm,
-		browser_context=context,
+		browser_session=browser_session,
 		max_failures=2,
 		use_vision=use_vision,
 	)

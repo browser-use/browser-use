@@ -1,7 +1,14 @@
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
+from langchain_core.language_models.chat_models import BaseChatModel
 from playwright.async_api import Page
 from pydantic import BaseModel, ConfigDict
+
+from browser_use.browser import BrowserSession
+
+if TYPE_CHECKING:
+	from browser_use.agent.service import Context
 
 
 class RegisteredAction(BaseModel):
@@ -76,7 +83,7 @@ class ActionRegistry(BaseModel):
 		Match a list of domain glob patterns against a URL.
 
 		Args:
-			domain_patterns: A list of domain patterns that can include glob patterns (* wildcard)
+			domains: A list of domain patterns that can include glob patterns (* wildcard)
 			url: The URL to match against
 
 		Returns:
@@ -86,26 +93,13 @@ class ActionRegistry(BaseModel):
 		if domains is None or not url:
 			return True
 
-		import fnmatch
-		from urllib.parse import urlparse
+		# Use the centralized URL matching logic from utils
+		from browser_use.utils import match_url_with_domain_pattern
 
-		# Parse the URL to get the domain
-		try:
-			parsed_url = urlparse(url)
-			if not parsed_url.netloc:
-				return False
-
-			domain = parsed_url.netloc
-			# Remove port if present
-			if ':' in domain:
-				domain = domain.split(':')[0]
-
-			for domain_pattern in domains:
-				if fnmatch.fnmatch(domain, domain_pattern):  # Perform glob *.matching.*
-					return True
-			return False
-		except Exception:
-			return False
+		for domain_pattern in domains:
+			if match_url_with_domain_pattern(url, domain_pattern):
+				return True
+		return False
 
 	@staticmethod
 	def _match_page_filter(page_filter: Callable[[Page], bool] | None, page: Page) -> bool:
@@ -147,3 +141,39 @@ class ActionRegistry(BaseModel):
 				filtered_actions.append(action)
 
 		return '\n'.join(action.prompt_description() for action in filtered_actions)
+
+
+class SpecialActionParameters(BaseModel):
+	"""Model defining all special parameters that can be injected into actions"""
+
+	model_config = ConfigDict(arbitrary_types_allowed=True)
+
+	# optional user-provided context object passed down from Agent(context=...)
+	# e.g. can contain anything, external db connections, file handles, queues, runtime config objects, etc.
+	# that you might want to be able to access quickly from within many of your actions
+	# browser-use code doesn't use this at all, we just pass it down to your actions for convenience
+	context: 'Context | None' = None
+
+	# browser-use session object, can be used to create new tabs, navigate, access playwright objects, etc.
+	browser_session: BrowserSession | None = None
+
+	# legacy support for actions that ask for the old model names
+	browser: BrowserSession | None = None
+	browser_context: BrowserSession | None = (
+		None  # extra confusing, this is actually not referring to a playwright BrowserContext,
+		# but rather the name for BrowserUse's own old BrowserContext object from <v0.2.0
+		# should be deprecated then removed after v0.3.0 to avoid ambiguity
+	)  # we can't change it too fast because many people's custom actions out in the wild expect this argument
+
+	# actions can get the playwright Page, shortcut for page = await browser_session.get_current_page()
+	page: Page | None = None
+
+	# extra injected config if the action asks for these arg names
+	page_extraction_llm: BaseChatModel | None = None
+	available_file_paths: list[str] | None = None
+	has_sensitive_data: bool = False
+
+	@classmethod
+	def get_browser_requiring_params(cls) -> set[str]:
+		"""Get parameter names that require browser_session"""
+		return {'browser_session', 'browser', 'browser_context', 'page'}

@@ -13,8 +13,7 @@ from pydantic import BaseModel
 
 from browser_use import Agent, Controller
 from browser_use.agent.views import ActionResult
-from browser_use.browser.browser import Browser, BrowserConfig
-from browser_use.browser.context import BrowserContext
+from browser_use.browser import BrowserProfile, BrowserSession
 
 
 class HoverAction(BaseModel):
@@ -23,10 +22,8 @@ class HoverAction(BaseModel):
 	selector: str | None = None
 
 
-browser = Browser(
-	config=BrowserConfig(
-		headless=False,
-	)
+browser_profile = BrowserProfile(
+	headless=False,
 )
 controller = Controller()
 
@@ -35,29 +32,27 @@ controller = Controller()
 	'Hover over an element',
 	param_model=HoverAction,  # Define this model with at least "index: int" field
 )
-async def hover_element(params: HoverAction, browser: BrowserContext):
+async def hover_element(params: HoverAction, browser_session: BrowserSession):
 	"""
 	Hovers over the element specified by its index from the cached selector map or by XPath.
 	"""
-	session = await browser.get_session()
-	state = session.cached_state
-
 	if params.xpath:
 		# Use XPath to locate the element
-		element_handle = await browser.get_locate_element_by_xpath(params.xpath)
+		element_handle = await browser_session.get_locate_element_by_xpath(params.xpath)
 		if element_handle is None:
 			raise Exception(f'Failed to locate element with XPath {params.xpath}')
 	elif params.selector:
 		# Use CSS selector to locate the element
-		element_handle = await browser.get_locate_element_by_css_selector(params.selector)
+		element_handle = await browser_session.get_locate_element_by_css_selector(params.selector)
 		if element_handle is None:
 			raise Exception(f'Failed to locate element with CSS Selector {params.selector}')
 	elif params.index is not None:
 		# Use index to locate the element
-		if state is None or params.index not in state.selector_map:
+		selector_map = await browser_session.get_selector_map()
+		if params.index not in selector_map:
 			raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
-		element_node = state.selector_map[params.index]
-		element_handle = await browser.get_locate_element(element_node)
+		element_node = selector_map[params.index]
+		element_handle = await browser_session.get_locate_element(element_node)
 		if element_handle is None:
 			raise Exception(f'Failed to locate element with index {params.index}')
 	else:
@@ -80,15 +75,17 @@ async def main():
 	task = 'Open https://testpages.eviltester.com/styled/csspseudo/css-hover.html and hover the element with the css selector #hoverdivpara, then click on "Can you click me?"'
 	# task = 'Open https://testpages.eviltester.com/styled/csspseudo/css-hover.html and hover the element with the xpath //*[@id="hoverdivpara"], then click on "Can you click me?"'
 	model = ChatOpenAI(model='gpt-4o')
+	browser_session = BrowserSession(browser_profile=browser_profile)
+	await browser_session.start()
 	agent = Agent(
 		task=task,
 		llm=model,
 		controller=controller,
-		browser=browser,
+		browser_session=browser_session,
 	)
 
 	await agent.run()
-	await browser.close()
+	await browser_session.stop()
 
 	input('Press Enter to close...')
 

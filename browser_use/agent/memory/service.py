@@ -57,7 +57,7 @@ class Memory:
 				self.config.embedder_dims = 512
 		else:
 			# Ensure LLM instance is set in the config
-			self.config = MemoryConfig(config)  # re-validate user-provided config
+			self.config = MemoryConfig.model_validate(config)  # revalidate using Pydantic
 			self.config.llm_instance = llm
 
 		# Check for required packages
@@ -89,7 +89,7 @@ class Memory:
 		Args:
 		    current_step: The current step number of the agent
 		"""
-		logger.info(f'Creating procedural memory at step {current_step}')
+		logger.debug(f'Creating procedural memory at step {current_step}')
 
 		# Get all messages
 		all_messages = self.message_manager.state.history.messages
@@ -108,7 +108,7 @@ class Memory:
 
 		# Need at least 2 messages to create a meaningful summary
 		if len(messages_to_process) <= 1:
-			logger.info('Not enough non-memory messages to summarize')
+			logger.debug('Not enough non-memory messages to summarize')
 			return
 		# Create a procedural memory
 		memory_content = self._create([m.message for m in messages_to_process], current_step)

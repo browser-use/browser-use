@@ -17,17 +17,16 @@ load_dotenv()
 from langchain_openai import ChatOpenAI
 
 from browser_use import Agent, Controller
-from browser_use.browser.browser import Browser, BrowserConfig
+from browser_use.browser import BrowserProfile, BrowserSession
 
 if not os.getenv('OPENAI_API_KEY'):
 	raise ValueError('OPENAI_API_KEY is not set. Please add it to your environment variables.')
 
 
-browser = Browser(
-	config=BrowserConfig(
-		browser_binary_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-	)
+browser_profile = BrowserProfile(
+	executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 )
+browser_session = BrowserSession(browser_profile=browser_profile)
 controller = Controller()
 
 
@@ -36,11 +35,11 @@ async def main():
 		task='Click "Go cross-site (simple page)" button on https://csreis.github.io/tests/cross-site-iframe.html then tell me the text within',
 		llm=ChatOpenAI(model='gpt-4o', temperature=0.0),
 		controller=controller,
-		browser=browser,
+		browser_session=browser_session,
 	)
 
 	await agent.run()
-	await browser.close()
+	await browser_session.close()
 
 	input('Press Enter to close...')
 

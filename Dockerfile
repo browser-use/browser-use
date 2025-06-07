@@ -17,7 +17,7 @@
 #########################################################################################
 
 
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 LABEL name="browseruse" \
     maintainer="Nick Sweeting <dockerfile@browser-use.com>" \
@@ -157,7 +157,8 @@ RUN --mount=type=cache,target=/root/.cache,sharing=locked,id=cache-$TARGETARCH$T
 RUN --mount=type=cache,target=/root/.cache,sharing=locked,id=cache-$TARGETARCH$TARGETVARIANT \
      echo "[+] Installing playwright via pip using version from pyproject.toml..." \
      && ( \
-        uv pip install "$(grep -oP 'p....right>=([0-9.])+' pyproject.toml)" \
+        uv pip install "$(grep -oP 'p....right>=([0-9.])+' pyproject.toml | head -n 1)" \
+        && uv pip install "$(grep -oP 'p....right>=([0-9.])+' pyproject.toml | tail -n 1)" \
         && which playwright \
         && playwright --version \
         && echo -e '\n\n' \
@@ -169,6 +170,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked,id=apt-$TARGETARCH$T
     echo "[+] Installing chromium apt pkgs and binary to /root/.cache/ms-playwright..." \
     && apt-get update -qq \
     && playwright install --with-deps --no-shell chromium \
+    # && playwright install --with-deps chrome \
     && rm -rf /var/lib/apt/lists/* \
     && export CHROME_BINARY="$(python -c 'from playwright.sync_api import sync_playwright; print(sync_playwright().start().chromium.executable_path)')" \
     && ln -s "$CHROME_BINARY" /usr/bin/chromium-browser \

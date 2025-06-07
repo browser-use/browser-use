@@ -1,4 +1,6 @@
 name: test
+permissions:
+  contents: read
 
 on:
   push:
@@ -12,48 +14,58 @@ on:
   workflow_dispatch:
     
 jobs:
-  tests:
-    name: ${{matrix.test}} 
+  find_tests:
     runs-on: ubuntu-latest
+    outputs:
+      TEST_FILENAMES: ${{ steps.lsgrep.outputs.TEST_FILENAMES }}
+      # ["test_browser", "test_controller", "test_browser_session", "test_tab_management", ...]
+    steps:
+      - uses: actions/checkout@v4
+      - id: lsgrep
+        run: |
+          TEST_FILENAMES="$(ls tests/ci/test_*.py | sed 's|^tests/ci/||' | sed 's|\.py$||' | jq -R -s -c 'split("\n")[:-1]')"
+          echo "TEST_FILENAMES=${TEST_FILENAMES}" >> "$GITHUB_OUTPUT"
+          echo "$TEST_FILENAMES"
+        # https://code.dblock.org/2021/09/03/generating-task-matrix-by-looping-over-repo-files-with-github-actions.html
+      - name: Check that at least one test file is found
+        run: |
+          if [ -z "${{ steps.lsgrep.outputs.TEST_FILENAMES }}" ]; then
+            echo "Failed to find any test_*.py files in tests/ci/ folder!" > /dev/stderr
+            exit 1
+          fi
+
+  tests:
+    needs: find_tests
+    runs-on: ubuntu-latest
+    env:
+      IN_DOCKER: 'True'
     strategy:
       matrix:
-        test:
-        # TODO:
-        # - browser/patchright
-        # - browser/playwright
-        # - browser/user_binary
-        # - browser/remote_cdp
-        # - models/openai
-        # - models/google
-        # - models/anthropic
-        # - models/azure
-        # - models/deepseek
-        # - models/grok
-        # - functionality/click
-        # - functionality/tabs
-        # - functionality/input
-        # - functionality/scroll
-        # - functionality/upload
-        # - functionality/download
-        # - functionality/save
-        # - functionality/vision
-        # - functionality/memory
-        # - functionality/planner
-        # - functionality/hooks
-        - test_controller
-        - test_tab_management
-        - test_sensitive_data
-        - test_url_allowlist_security
+        test_filename: ${{ fromJson(needs.find_tests.outputs.TEST_FILENAMES || '["FAILED_TO_DISCOVER_TESTS"]') }}
+        # autodiscovers all the files in tests/ci/test_*.py
+        # - test_browser
+        # - test_controller
+        # - test_browser_session
+        # - test_tab_management
+        # ... and more
+    name: ${{ matrix.test_filename }}
     steps:
+      - name: Check that the previous step managed to find some test files for us to run
+        run: |
+          if [[ "${{ matrix.test_filename }}" == "FAILED_TO_DISCOVER_TESTS" ]]; then
+            echo "Failed get list of test files in tests/ci/test_*.py from find_tests job" > /dev/stderr
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
           activate-environment: true
 
-      - run: uv sync
+      - run: uv sync --dev
 
-      - name: Detect installed Playwright or Patchright version
+      - name: Detect installed Playwright version
         run: echo "PLAYWRIGHT_VERSION=$(uv pip list --format json | jq -r '.[] | select(.name == "playwright") | .version')" >> $GITHUB_ENV
 
       - name: Cache playwright binaries
@@ -63,6 +75,7 @@ jobs:
             ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ env.PLAYWRIGHT_VERSION }}
 
-      - run: playwright install --no-shell chromium
+      #- run: playwright install chrome     # tests that need it can install it manually
+      - run: playwright install chromium
 
-      - run: pytest tests/${{ matrix.test }}.py
+      - run: pytest --numprocesses auto -x tests/ci/${{ matrix.test_filename }}.py

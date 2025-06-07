@@ -1,4 +1,3 @@
-import asyncio
 import os
 
 import pytest
@@ -7,32 +6,20 @@ from pydantic import BaseModel, SecretStr
 
 from browser_use.agent.service import Agent
 from browser_use.agent.views import AgentHistoryList
-from browser_use.browser.browser import Browser, BrowserConfig
+from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.controller.service import Controller
 
 
-@pytest.fixture(scope='session')
-def event_loop():
-	loop = asyncio.get_event_loop_policy().new_event_loop()
-	yield loop
-	loop.close()
-
-
-@pytest.fixture(scope='session')
-async def browser(event_loop):
-	browser_instance = Browser(
-		config=BrowserConfig(
+@pytest.fixture
+async def browser_session():
+	browser_session = BrowserSession(
+		browser_profile=BrowserProfile(
 			headless=True,
 		)
 	)
-	yield browser_instance
-	await browser_instance.close()
-
-
-@pytest.fixture
-async def context(browser):
-	async with await browser.new_context() as context:
-		yield context
+	await browser_session.start()
+	yield browser_session
+	await browser_session.stop()
 
 
 @pytest.fixture
@@ -101,7 +88,6 @@ def llm():
 
 
 # @pytest.mark.skip(reason="Skipping test for now")
-@pytest.mark.asyncio
 async def test_self_registered_actions_no_pydantic(llm, controller):
 	"""Test self-registered actions with individual arguments"""
 	agent = Agent(
@@ -119,7 +105,6 @@ async def test_self_registered_actions_no_pydantic(llm, controller):
 
 
 # @pytest.mark.skip(reason="Skipping test for now")
-@pytest.mark.asyncio
 async def test_mixed_arguments_actions(llm, controller):
 	"""Test actions with mixed argument types"""
 
@@ -150,7 +135,6 @@ async def test_mixed_arguments_actions(llm, controller):
 		pytest.fail(f'{correct} not found in extracted content')
 
 
-@pytest.mark.asyncio
 async def test_pydantic_simple_model(llm, controller):
 	"""Test action with a simple Pydantic model argument"""
 	agent = Agent(
@@ -172,7 +156,6 @@ async def test_pydantic_simple_model(llm, controller):
 		pytest.fail(f'{correct} not found in extracted content')
 
 
-@pytest.mark.asyncio
 async def test_pydantic_nested_model(llm, controller):
 	"""Test action with a nested Pydantic model argument"""
 	agent = Agent(

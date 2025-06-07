@@ -233,28 +233,6 @@ class DOMElementNode(DOMBaseNode):
 		process_node(self, 0)
 		return '\n'.join(formatted_text)
 
-	def get_file_upload_element(self, check_siblings: bool = True) -> Optional['DOMElementNode']:
-		# Check if current element is a file input
-		if self.tag_name == 'input' and self.attributes.get('type') == 'file':
-			return self
-
-		# Check children
-		for child in self.children:
-			if isinstance(child, DOMElementNode):
-				result = child.get_file_upload_element(check_siblings=False)
-				if result:
-					return result
-
-		# Check siblings only for the initial call
-		if check_siblings and self.parent:
-			for sibling in self.parent.children:
-				if sibling is not self and isinstance(sibling, DOMElementNode):
-					result = sibling.get_file_upload_element(check_siblings=False)
-					if result:
-						return result
-
-		return None
-
 
 SelectorMap = dict[int, DOMElementNode]
 
