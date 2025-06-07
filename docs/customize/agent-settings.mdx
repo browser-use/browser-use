@@ -317,6 +317,43 @@ The model automatically sets appropriate defaults based on the LLM being used:
   - For persistent memory across agent runs or for shared memory, choose a scalable vector store provider (like Qdrant, Pinecone, etc.) and configure it correctly using `vector_store_provider` and `vector_store_config_override`. The default 'faiss' provider stores data locally in `vector_store_base_path`.
 </Note>
 
+#### Graph Memory Settings
+In addition to vector search, you can enable graph-based memory to create a structured knowledge graph of the agent's interactions. This is useful for capturing complex relationships between actions, UI elements, and data.
+
+<Note>
+To use graph memory, you must install the required dependencies: `pip install "mem0ai[graph]"`.
+</Note>
+
+- `graph_store_provider`: The graph database to use. Supported options: `'neo4j'`, `'memgraph'`.
+- `graph_store_config_override`: A dictionary with connection details for your graph database (e.g., `url`, `username`, `password`). This is required.
+- `graph_store_custom_prompt`: (Optional) A custom prompt for the LLM to extract entities and relationships. Browser Use provides a default prompt specifically optimized for web automation workflows.
+- `graph_store_llm_config_override`: (Optional) Configure a different LLM just for graph-related processing, potentially saving costs.
+
+```python
+from browser_use.agent.memory import MemoryConfig
+from langchain_openai import ChatOpenAI
+
+llm_for_agent = ChatOpenAI(model="gpt-4o")
+
+agent = Agent(
+    task="Research the founders of Y Combinator and their other ventures.",
+    llm=llm_for_agent,
+    enable_memory=True,
+    memory_config=MemoryConfig(
+        llm_instance=llm_for_agent,
+        agent_id="yc_researcher",
+        # --- Graph Store ---
+        graph_store_provider="neo4j",
+        graph_store_config_override={
+            "url": "neo4j+s://your-instance.databases.neo4j.io",
+            "username": "neo4j",
+            "password": "your-db-password"
+        }
+    )
+)
+```
+When graph memory is enabled, each procedural memory summary is also processed to extract key entities (like URLs, actions, data points) and their relationships, which are then saved to your graph database.
+
 ### How Memory Works
 
 When enabled, the agent periodically compresses its conversation history into concise summaries:
