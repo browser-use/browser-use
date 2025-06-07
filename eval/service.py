@@ -42,16 +42,59 @@ import asyncio
 import base64
 import io
 import logging
+import os
 import re
 import shutil
 
 import anyio
+import requests
+from dotenv import load_dotenv
 from PIL import Image
 
 MAX_IMAGE = 5
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Load dotenv
+load_dotenv()
+
+# Check for Anchor Browser API key
+ANCHOR_BROWSER_API_KEY = os.getenv('ANCHOR_BROWSER_API_KEY')
+if ANCHOR_BROWSER_API_KEY:
+	logger.info('ANCHOR_BROWSER_API_KEY is set. Tasks will use Anchor Browser.')
+else:
+	logger.warning('ANCHOR_BROWSER_API_KEY is not set. Tasks will use local browser.')
+
+def create_anchor_browser_session(headless: bool = False) -> str:
+	"""Create an Anchor Browser session and return CDP URL"""
+	browser_configuration = {
+		'session': {'proxy': {'type': 'anchor_residential', 'active': True}},
+		'browser': {'adblock': {'active': True}, 'captcha_solver': {'active': True}, 'headless': {'active': headless}},
+	}
+
+	try:
+		response = requests.post(
+			'https://api.anchorbrowser.io/v1/sessions',
+			headers={
+				'anchor-api-key': ANCHOR_BROWSER_API_KEY,
+				'Content-Type': 'application/json',
+			},
+			json=browser_configuration,
+		)
+		response.raise_for_status()
+		session_data = response.json()['data']
+		session_id = session_data['id']
+
+		# Return only the CDP URL
+		return f'wss://connect.anchorbrowser.io?apiKey={ANCHOR_BROWSER_API_KEY}&sessionId={session_id}'
+
+	except requests.RequestException as e:
+		logger.error(f'Failed to create Anchor Browser session: {type(e).__name__}: {e}')
+		raise
+	except KeyError as e:
+		logger.error(f'Unexpected response format from Anchor Browser API: {e}')
+		raise
 
 
 def encode_image(image):
@@ -273,13 +316,11 @@ async def Online_Mind2Web_eval_with_retry(task, last_actions, images_path, model
 import argparse
 import http.client
 import json
-import os
 import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
 
-import requests
 from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -1011,20 +1052,40 @@ async def load_existing_result(task_folder: Path) -> dict:
 
 async def setup_browser_session(task: Task, headless: bool) -> BrowserSession:
 	"""Setup browser session for the task"""
-	logger.debug(f'Browser setup: Creating unique user data directory for task {task.task_id}')
-	# Create unique user data directory
-	base_user_data_dir = Path(BrowserProfile().user_data_dir).parent
-	unique_user_data_dir = base_user_data_dir / f'task_{task.task_id}'
-	unique_user_data_dir.mkdir(parents=True, exist_ok=True)
 
-	logger.debug(f'Browser setup: Initializing BrowserSession for task {task.task_id}')
-	browser_session = BrowserSession(
-		browser_profile=BrowserProfile(
-			user_data_dir=str(unique_user_data_dir),
-			headless=headless,
-			chromium_sandbox=False,
-		),
-	)
+	# Check for Anchor Browser API key
+	cdp_url = None
+
+	if ANCHOR_BROWSER_API_KEY:
+		try:
+			logger.debug(f'Browser setup: Creating Anchor Browser session for task {task.task_id}')
+			cdp_url = await asyncio.to_thread(create_anchor_browser_session, headless)
+		except Exception as e:
+			logger.error(
+				f'Browser setup: Failed to create Anchor Browser session for task {task.task_id}: {type(e).__name__}: {e}'
+			)
+			logger.info(f'Browser setup: Falling back to local browser for task {task.task_id}')
+			cdp_url = None
+
+	if cdp_url:
+		# Use Anchor Browser
+		browser_session = BrowserSession(cdp_url=cdp_url)
+	else:
+		# Use local browser
+		logger.debug(f'Browser setup: Creating unique user data directory for task {task.task_id}')
+		# Create unique user data directory
+		base_user_data_dir = Path(BrowserProfile().user_data_dir).parent
+		unique_user_data_dir = base_user_data_dir / f'task_{task.task_id}'
+		unique_user_data_dir.mkdir(parents=True, exist_ok=True)
+
+		logger.debug(f'Browser setup: Initializing BrowserSession for task {task.task_id}')
+		browser_session = BrowserSession(
+			browser_profile=BrowserProfile(
+				user_data_dir=str(unique_user_data_dir),
+				headless=headless,
+				chromium_sandbox=False,
+			)
+		)
 
 	# Start browser session
 	logger.debug(f'Browser setup: Starting browser session for task {task.task_id}')
