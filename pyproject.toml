@@ -15,7 +15,7 @@ dependencies = [
     "httpx>=0.27.2",
     "pydantic>=2.11.5",
     "python-dotenv>=1.0.1",
-    "requests>=2.32.3",
+    "requests>=2.32.2",
     "posthog>=3.7.0",
     "playwright>=1.52.0",
     "markdownify==1.1.0",
