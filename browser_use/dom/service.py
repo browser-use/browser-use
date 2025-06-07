@@ -39,8 +39,9 @@ class DomService:
 		highlight_elements: bool = True,
 		focus_element: int = -1,
 		viewport_expansion: int = 0,
+		**kwargs,
 	) -> DOMState:
-		element_tree, selector_map = await self._build_dom_tree(highlight_elements, focus_element, viewport_expansion)
+		element_tree, selector_map = await self._build_dom_tree(highlight_elements, focus_element, viewport_expansion, **kwargs)
 		return DOMState(element_tree=element_tree, selector_map=selector_map)
 
 	@time_execution_async('--get_cross_origin_iframes')
@@ -63,10 +64,7 @@ class DomService:
 
 	@time_execution_async('--build_dom_tree')
 	async def _build_dom_tree(
-		self,
-		highlight_elements: bool,
-		focus_element: int,
-		viewport_expansion: int,
+		self, highlight_elements: bool, focus_element: int, viewport_expansion: int, **kwargs
 	) -> tuple[DOMElementNode, SelectorMap]:
 		if await self.page.evaluate('1+1') != 2:
 			raise ValueError('The page cannot evaluate javascript code properly')
@@ -94,6 +92,7 @@ class DomService:
 			'focusHighlightIndex': focus_element,
 			'viewportExpansion': viewport_expansion,
 			'debugMode': debug_mode,
+			'additionalArgs': kwargs,
 		}
 
 		try:
