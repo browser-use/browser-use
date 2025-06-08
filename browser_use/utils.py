@@ -20,7 +20,6 @@ _exiting = False
 R = TypeVar('R')
 P = ParamSpec('P')
 
-
 class SignalHandler:
 	"""
 	A modular and reusable signal handling system for managing SIGINT (Ctrl+C), SIGTERM,
@@ -350,6 +349,11 @@ def singleton(cls):
 
 	return wrapper
 
+import re  
+
+def clean_whitespace(text: str) -> str:
+    """Normalize all whitespace to a single space and strip leading/trailing."""
+    return re.sub(r'\s+', ' ', text).strip()
 
 def check_env_variables(keys: list[str], any_or_all=all) -> bool:
 	"""Check if all required environment variables are set"""
