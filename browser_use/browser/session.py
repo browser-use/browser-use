@@ -188,7 +188,7 @@ class BrowserSession(BaseModel):
 		validation_alias=AliasChoices('playwright_browser'),
 		exclude=True,
 	)
-	browser_context: InstanceOf[BrowserContext] | None = Field(
+	browser_context: BrowserContext | None = Field(
 		default=None,
 		description='playwright BrowserContext object to use (optional)',
 		validation_alias=AliasChoices('playwright_browser_context', 'context'),

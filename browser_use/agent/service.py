@@ -52,8 +52,9 @@ from browser_use.agent.views import (
 	StepMetadata,
 	ToolCallingMethod,
 )
+import patchright.async_api
 from browser_use.browser import BrowserProfile, BrowserSession
-
+from patchright.async_api import BrowserContext as PatchrightBrowserContext
 # from lmnr.sdk.decorators import observe
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.controller.registry.views import ActionModel
