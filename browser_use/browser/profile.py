@@ -656,12 +656,12 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		is_using_non_default_chrome = self.executable_path or self.channel not in (BROWSERUSE_DEFAULT_CHANNEL, None)
 		if self.user_data_dir == BROWSERUSE_DEFAULT_PROFILE_DIR and is_using_non_default_chrome:
 			alternate_name = (
-				self.executable_path.name.lower().replace(' ', '-') if self.executable_path else self.channel.name.lower()
+				Path(self.executable_path).name.lower().replace(' ', '-') if self.executable_path else self.channel.name.lower()
 			)
 			logger.warning(
 				f'⚠️ {self} Changing user_data_dir= {_log_pretty_path(self.user_data_dir)} ➡️ .../default-{alternate_name} to avoid {alternate_name.upper()} corruping default profile created by {BROWSERUSE_DEFAULT_CHANNEL.name}'
 			)
-			self.user_data_dir = self.user_data_dir.parent / f'default-{alternate_name}'
+			self.user_data_dir = Path(self.user_data_dir).parent / f'default-{alternate_name}'
 		return self
 
 	def get_args(self) -> list[str]:
