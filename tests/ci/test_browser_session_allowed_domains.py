@@ -7,7 +7,7 @@ class TestUrlAllowlistSecurity:
 	def test_authentication_bypass_prevention(self):
 		"""Test that the URL allowlist cannot be bypassed using authentication credentials."""
 		# Create a context config with a sample allowed domain
-		browser_profile = BrowserProfile(allowed_domains=['example.com'])
+		browser_profile = BrowserProfile(allowed_domains=['example.com'], headless=True, user_data_dir=None)
 		browser_session = BrowserSession(browser_profile=browser_profile)
 
 		# Security vulnerability test cases
@@ -23,7 +23,7 @@ class TestUrlAllowlistSecurity:
 	def test_glob_pattern_matching(self):
 		"""Test that glob patterns in allowed_domains work correctly."""
 		# Test *.example.com pattern (should match subdomains and main domain)
-		browser_profile = BrowserProfile(allowed_domains=['*.example.com'])
+		browser_profile = BrowserProfile(allowed_domains=['*.example.com'], headless=True, user_data_dir=None)
 		browser_session = BrowserSession(browser_profile=browser_profile)
 
 		# Should match subdomains
@@ -39,7 +39,9 @@ class TestUrlAllowlistSecurity:
 
 		# Test more complex glob patterns
 		browser_profile = BrowserProfile(
-			allowed_domains=['*.google.com', 'https://wiki.org', 'https://good.com', 'chrome://version', 'brave://*']
+			allowed_domains=['*.google.com', 'https://wiki.org', 'https://good.com', 'chrome://version', 'brave://*'],
+			headless=True,
+			user_data_dir=None,
 		)
 		browser_session = BrowserSession(browser_profile=browser_profile)
 
@@ -75,7 +77,7 @@ class TestUrlAllowlistSecurity:
 	def test_glob_pattern_edge_cases(self):
 		"""Test edge cases for glob pattern matching to ensure proper behavior."""
 		# Test with domains containing glob pattern in the middle
-		browser_profile = BrowserProfile(allowed_domains=['*.google.com', 'https://wiki.org'])
+		browser_profile = BrowserProfile(allowed_domains=['*.google.com', 'https://wiki.org'], headless=True, user_data_dir=None)
 		browser_session = BrowserSession(browser_profile=browser_profile)
 
 		# Verify that 'wiki*' pattern doesn't match domains that merely contain 'wiki' in the middle
@@ -87,7 +89,7 @@ class TestUrlAllowlistSecurity:
 		assert browser_session._is_url_allowed('https://mygoogle.company.com') is False
 
 		# Create context with potentially risky glob pattern that demonstrates security concerns
-		browser_profile = BrowserProfile(allowed_domains=['*.google.com', '*.google.co.uk'])
+		browser_profile = BrowserProfile(allowed_domains=['*.google.com', '*.google.co.uk'], headless=True, user_data_dir=None)
 		browser_session = BrowserSession(browser_profile=browser_profile)
 
 		# Should match legitimate Google domains

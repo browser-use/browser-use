@@ -17,7 +17,7 @@ from browser_use.agent.message_manager.views import MessageMetadata
 from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.agent.views import ActionResult, AgentOutput, AgentStepInfo, MessageManagerState
 from browser_use.browser.views import BrowserStateSummary
-from browser_use.utils import time_execution_sync
+from browser_use.utils import match_url_with_domain_pattern, time_execution_sync
 
 logger = logging.getLogger(__name__)
 
@@ -224,12 +224,6 @@ class MessageManager:
 		)
 		self._add_message_with_tokens(task_message, message_type='init')
 
-		if self.settings.sensitive_data:
-			info = f'Here are placeholders for sensitive data: {list(self.settings.sensitive_data.keys())}'
-			info += '\nTo use them, write <secret>the placeholder name</secret>'
-			info_message = HumanMessage(content=info)
-			self._add_message_with_tokens(info_message, message_type='init')
-
 		placeholder_message = HumanMessage(content='Example output:')
 		self._add_message_with_tokens(placeholder_message, message_type='init')
 
@@ -281,6 +275,28 @@ class MessageManager:
 		msg = HumanMessage(content=content)
 		self._add_message_with_tokens(msg)
 		self.task = new_task
+
+	def add_sensitive_data(self, current_page_url) -> None:
+		sensitive_data = self.settings.sensitive_data
+		if not sensitive_data:
+			return
+
+		# Collect placeholders for sensitive data
+		placeholders = set()
+
+		for key, value in sensitive_data.items():
+			if isinstance(value, dict):
+				# New format: {domain: {key: value}}
+				if match_url_with_domain_pattern(current_page_url, key, True):
+					placeholders.update(value.keys())
+			else:
+				# Old format: {key: value}
+				placeholders.add(key)
+		if placeholders:
+			info = f'Here are placeholders for sensitive data: {list(placeholders)}'
+			info += '\nTo use them, write <secret>the placeholder name</secret>'
+			info_message = HumanMessage(content=info)
+			self._add_message_with_tokens(info_message, message_type='init')
 
 	@time_execution_sync('--add_state_message')
 	def add_state_message(

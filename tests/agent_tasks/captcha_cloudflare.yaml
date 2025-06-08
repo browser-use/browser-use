@@ -1,0 +1,6 @@
+name: Cloudflare captcha
+task: Go to https://2captcha.com/demo/cloudflare-turnstile and solve the captcha then click on check and return the hostname of the dictionary
+judge_context:
+  - The agent must solve the captcha
+  - The hostname should be example.com
+max_steps: 6

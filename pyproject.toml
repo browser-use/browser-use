@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.2.6"
+version = "0.2.5"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -36,6 +36,7 @@ dependencies = [
     "mem0ai>=0.1.104",
     "uuid7>=0.1.0",
     "patchright>=1.52.4",
+    "aiofiles>=24.1.0",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -83,7 +84,7 @@ build-backend = "hatchling.build"
 
 
 [tool.codespell]
-ignore-words-list = "bu,wit,dont,cant,wont,re-use,re-used,re-using,thats"
+ignore-words-list = "bu,wit,dont,cant,wont,re-use,re-used,re-using,re-usable,thats,doesnt"
 skip = "*.json"
 
 [tool.ruff]
@@ -136,7 +137,7 @@ filterwarnings = [
     "ignore::pytest.PytestDeprecationWarning",
     "ignore::DeprecationWarning",
 ]
-log_level = "INFO"
+log_level = "DEBUG"
 
 
 [tool.hatch.metadata]
@@ -148,7 +149,7 @@ dev-dependencies = [
     "tokencost>=0.1.16",
     "build>=1.2.2",
     "pytest>=8.3.5",
-    "pytest-asyncio>=0.24.0",
+    "pytest-asyncio>=1.0.0",
     "pytest-httpserver>=1.0.8",
     "fastapi>=0.115.8",
     "inngest>=0.4.19",
@@ -159,4 +160,6 @@ dev-dependencies = [
     "codespell>=2.4.1",
     "pyright>=1.1.399",
     "ty>=0.0.1a1",
+    "pytest-playwright-asyncio>=0.7.0",
+    "pytest-xdist>=3.7.0",
 ]

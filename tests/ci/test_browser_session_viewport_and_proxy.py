@@ -33,6 +33,7 @@ async def test_window_size_with_real_browser():
 	"""
 	# Create browser profile with headless mode and specific dimensions
 	browser_profile = BrowserProfile(
+		user_data_dir=None,
 		headless=True,  # window size gets converted to viewport size in headless mode
 		window_size={'width': 999, 'height': 888},
 		maximum_wait_page_load_time=2.0,
@@ -125,6 +126,7 @@ async def test_proxy_with_real_browser():
 	browser_profile = BrowserProfile(
 		headless=True,
 		proxy=proxy_settings,
+		user_data_dir=None,
 	)
 
 	# Create browser session

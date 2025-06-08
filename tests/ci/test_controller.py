@@ -24,72 +24,76 @@ from browser_use.controller.views import (
 )
 
 
+@pytest.fixture(scope='session')
+def http_server():
+	"""Create and provide a test HTTP server that serves static content."""
+	server = HTTPServer()
+	server.start()
+
+	# Add routes for common test pages
+	server.expect_request('/').respond_with_data(
+		'<html><head><title>Test Home Page</title></head><body><h1>Test Home Page</h1><p>Welcome to the test site</p></body></html>',
+		content_type='text/html',
+	)
+
+	server.expect_request('/page1').respond_with_data(
+		'<html><head><title>Test Page 1</title></head><body><h1>Test Page 1</h1><p>This is test page 1</p></body></html>',
+		content_type='text/html',
+	)
+
+	server.expect_request('/page2').respond_with_data(
+		'<html><head><title>Test Page 2</title></head><body><h1>Test Page 2</h1><p>This is test page 2</p></body></html>',
+		content_type='text/html',
+	)
+
+	server.expect_request('/search').respond_with_data(
+		"""
+		<html>
+		<head><title>Search Results</title></head>
+		<body>
+			<h1>Search Results</h1>
+			<div class="results">
+				<div class="result">Result 1</div>
+				<div class="result">Result 2</div>
+				<div class="result">Result 3</div>
+			</div>
+		</body>
+		</html>
+		""",
+		content_type='text/html',
+	)
+
+	yield server
+	server.stop()
+
+
+@pytest.fixture(scope='session')
+def base_url(http_server):
+	"""Return the base URL for the test HTTP server."""
+	return f'http://{http_server.host}:{http_server.port}'
+
+
+@pytest.fixture(scope='module')
+async def browser_session():
+	"""Create and provide a Browser instance with security disabled."""
+	browser_session = BrowserSession(
+		# browser_profile=BrowserProfile(),
+		headless=True,
+		user_data_dir=None,
+	)
+	await browser_session.start()
+	yield browser_session
+	await browser_session.stop()
+
+
+@pytest.fixture(scope='function')
+def controller():
+	"""Create and provide a Controller instance."""
+	return Controller()
+
+
 class TestControllerIntegration:
 	"""Integration tests for Controller using actual browser instances."""
-
-	@pytest.fixture(scope='module')
-	def http_server(self):
-		"""Create and provide a test HTTP server that serves static content."""
-		server = HTTPServer()
-		server.start()
-
-		# Add routes for common test pages
-		server.expect_request('/').respond_with_data(
-			'<html><head><title>Test Home Page</title></head><body><h1>Test Home Page</h1><p>Welcome to the test site</p></body></html>',
-			content_type='text/html',
-		)
-
-		server.expect_request('/page1').respond_with_data(
-			'<html><head><title>Test Page 1</title></head><body><h1>Test Page 1</h1><p>This is test page 1</p></body></html>',
-			content_type='text/html',
-		)
-
-		server.expect_request('/page2').respond_with_data(
-			'<html><head><title>Test Page 2</title></head><body><h1>Test Page 2</h1><p>This is test page 2</p></body></html>',
-			content_type='text/html',
-		)
-
-		server.expect_request('/search').respond_with_data(
-			"""
-			<html>
-			<head><title>Search Results</title></head>
-			<body>
-				<h1>Search Results</h1>
-				<div class="results">
-					<div class="result">Result 1</div>
-					<div class="result">Result 2</div>
-					<div class="result">Result 3</div>
-				</div>
-			</body>
-			</html>
-			""",
-			content_type='text/html',
-		)
-
-		yield server
-		server.stop()
-
-	@pytest.fixture
-	def base_url(self, http_server):
-		"""Return the base URL for the test HTTP server."""
-		return f'http://{http_server.host}:{http_server.port}'
-
-	@pytest.fixture
-	async def browser_session(self):
-		"""Create and provide a Browser instance with security disabled."""
-		browser_session = BrowserSession(
-			# browser_profile=BrowserProfile(),
-			headless=True,
-			user_data_dir=None,
-		)
-		await browser_session.start()
-		yield browser_session
-		await browser_session.stop()
-
-	@pytest.fixture
-	def controller(self):
-		"""Create and provide a Controller instance."""
-		return Controller()
 
 	async def test_go_to_url_action(self, controller, browser_session, base_url):
 		"""Test that GoToUrlAction navigates to the specified URL."""
