@@ -11,14 +11,11 @@ from browser_use.utils import singleton
 
 load_dotenv()
 
-
 logger = logging.getLogger(__name__)
-
 
 POSTHOG_EVENT_SETTINGS = {
 	'process_person_profile': True,
 }
-
 
 def xdg_cache_home() -> Path:
 	default = Path.home() / '.cache'
@@ -26,7 +23,6 @@ def xdg_cache_home() -> Path:
 	if env_var and (path := Path(env_var)).is_absolute():
 		return path
 	return default
-
 
 @singleton
 class ProductTelemetry:
@@ -95,8 +91,9 @@ class ProductTelemetry:
 	def flush(self) -> None:
 		if self._posthog_client:
 			try:
+				queue_size = len(getattr(self._posthog_client, '_queue', []))
+				logger.debug(f'🔄 Flushing PostHog telemetry queue ({queue_size} events)')
 				self._posthog_client.flush()
-				logger.debug('PostHog client telemetry queue flushed.')
 			except Exception as e:
 				logger.error(f'Failed to flush PostHog client: {e}')
 		else:
@@ -107,8 +104,6 @@ class ProductTelemetry:
 		if self._curr_user_id:
 			return self._curr_user_id
 
-		# File access may fail due to permissions or other reasons. We don't want to
-		# crash so we catch all exceptions.
 		try:
 			if not os.path.exists(self.USER_ID_PATH):
 				os.makedirs(os.path.dirname(self.USER_ID_PATH), exist_ok=True)
