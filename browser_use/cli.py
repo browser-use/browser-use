@@ -25,7 +25,6 @@ except ImportError:
 import langchain_anthropic
 import langchain_google_genai
 import langchain_openai
-from patchright.async_api import async_playwright
 
 try:
 	import readline
@@ -1239,7 +1238,7 @@ async def textual_interface(config: dict[str, Any]):
 		# Create BrowserSession directly with config parameters
 		browser_session = BrowserSession(
 			**browser_config,
-			playwright=(await async_playwright().start()),
+			playwright=(await ().start()),
 			channel=BrowserChannel.CHROME,
 			user_data_dir='~/.browseruse/profiles/default/cli',
 		)
