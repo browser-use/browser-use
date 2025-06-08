@@ -71,6 +71,16 @@ GROK_API_KEY=
 NOVITA_API_KEY=
 ```
 
+## 🔑 API Key Requirements
+
+Some example scripts require external API keys to work properly:
+
+- `find_influencer_profiles.py` → Requires `BEARER_TOKEN`
+- `google_sheets.py` → Requires `GOOGLE_SHEETS_API_KEY`
+- `weather_check.py` → Requires `OPENAI_API_KEY`
+
+Make sure to define these in a `.env` file before running the script.
+
 For other settings, models, and more, check out the [documentation 📕](https://docs.browser-use.com).
 
 ### Test with UI
