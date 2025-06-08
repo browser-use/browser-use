@@ -91,6 +91,10 @@ You can test browser-use using its [Web UI](https://github.com/browser-use/web-u
 
 You can also use our `browser-use` interactive CLI (similar to `claude` code):
 
+## ⚠️ Limitations for External Contributors
+
+Some scripts, such as `eval/service.py`, require internal evaluation keys (e.g., `EVALUATION_TOOL_SECRET_KEY`) and are **not usable** for forked users. Please refer to comments at the top of the script.
+
 ```bash
 pip install browser-use[cli]
 browser-use
