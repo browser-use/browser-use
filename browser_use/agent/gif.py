@@ -5,6 +5,7 @@ import io
 import logging
 import os
 import platform
+import re
 from typing import TYPE_CHECKING
 
 from browser_use.agent.views import AgentHistoryList
@@ -13,6 +14,94 @@ if TYPE_CHECKING:
 	from PIL import Image, ImageFont
 
 logger = logging.getLogger(__name__)
+
+
+def detect_text_language(text: str) -> str:
+	"""Detect the primary language of the text based on character ranges."""
+
+	if not text:
+		return 'latin'
+	
+	# Count character types
+	korean_count = len(re.findall(r'[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]', text))
+	chinese_count = len(re.findall(r'[\u4E00-\u9FFF]', text))
+	japanese_count = len(re.findall(r'[\u3040-\u309F\u30A0-\u30FF]', text))
+
+	# Return the dominant CJK language
+	if korean_count > chinese_count and korean_count > japanese_count:
+		return 'korean'
+	elif chinese_count > japanese_count:
+		return 'chinese'
+	elif japanese_count > 0:
+		return 'japanese'
+	
+	return 'latin'
+
+
+def get_font_options_by_language(language: str) -> list[str]:
+	"""Get prioritized font list based on detected language."""
+	
+	base_fonts = ['Arial', 'DejaVuSans', 'Verdana', 'Helvetica']
+	
+	if language == 'korean':
+		return [
+			'Noto Sans CJK KR',     # Noto Sans Korean (highest priority)
+			'Malgun Gothic',        # Malgun Gothic (Windows)
+			'AppleGothic',          # AppleGothic (macOS)
+			*base_fonts
+		]
+	elif language == 'japanese':
+		return [
+			'Noto Sans CJK JP',    # Japanese highest priority
+			'Yu Gothic',           # Yu Gothic (Windows)
+			'Hiragino Sans GB',       # Hiragino Sans (macOS)
+			*base_fonts
+		]
+	elif language == 'chinese':
+		return [
+			'Microsoft YaHei',      # Microsoft YaHei (highest priority)
+			'SimHei',              # SimHei
+			'SimSun',              # SimSun
+			'PingFang SC',			   # PingFang SC (macOS)
+			'Noto Sans CJK SC',    # Noto Sans CJK Simplified Chinese
+			'WenQuanYi Micro Hei', # WenQuanYi Micro Hei
+			'Noto Sans CJK KR',    # Korean but supports Chinese
+			*base_fonts
+		]
+
+	else:  # latin or fallback
+		return [
+			'Helvetica',
+			'Arial',
+			'DejaVuSans',
+			'Verdana',
+			# CJK fonts as fallback for mixed content
+			'Noto Sans CJK KR',
+			'Microsoft YaHei',
+			'SimHei',
+		]
+
+
+def load_best_font(font_options: list[str], font_size: int) -> 'ImageFont.FreeTypeFont | None':
+	"""
+	Load the first available font from the options list.
+	Handles Windows font path resolution automatically.
+	
+	Returns None if no fonts are available.
+	"""
+	from PIL import ImageFont
+	for font_name in font_options:
+		try:
+			if platform.system() == 'Windows':
+				# Need to specify the abs font path on Windows
+				font_path = os.path.join(os.getenv('WIN_FONT_DIR', 'C:\\Windows\\Fonts'), font_name + '.ttf')
+			else:
+				font_path = font_name
+			best_font = ImageFont.truetype(font_path, font_size)
+			return best_font
+		except OSError:
+			continue
+	return None
 
 
 def decode_unicode_escapes_to_utf8(text: str) -> str:
@@ -45,7 +134,9 @@ def create_history_gif(
 	margin: int = 40,
 	line_spacing: float = 1.5,
 ) -> None:
-	"""Create a GIF from the agent's history with overlaid task and goal text."""
+	"""
+	Create a GIF from the agent's history with overlaid task and goal text.
+	"""
 	if not history.history:
 		logger.warning('No history to create GIF from')
 		return
@@ -60,43 +151,19 @@ def create_history_gif(
 		return
 
 	# Try to load nicer fonts
-	try:
-		# Try different font options in order of preference
-		# ArialUni is a font that comes with Office and can render most non-alphabet characters
-		font_options = [
-			'Microsoft YaHei',  # 微软雅黑
-			'SimHei',  # 黑体
-			'SimSun',  # 宋体
-			'Noto Sans CJK SC',  # 思源黑体
-			'WenQuanYi Micro Hei',  # 文泉驿微米黑
-			'Helvetica',
-			'Arial',
-			'DejaVuSans',
-			'Verdana',
-		]
-		font_loaded = False
-
-		for font_name in font_options:
-			try:
-				if platform.system() == 'Windows':
-					# Need to specify the abs font path on Windows
-					font_name = os.path.join(os.getenv('WIN_FONT_DIR', 'C:\\Windows\\Fonts'), font_name + '.ttf')
-				regular_font = ImageFont.truetype(font_name, font_size)
-				title_font = ImageFont.truetype(font_name, title_font_size)
-				goal_font = ImageFont.truetype(font_name, goal_font_size)
-				font_loaded = True
-				break
-			except OSError:
-				continue
-
-		if not font_loaded:
-			raise OSError('No preferred fonts found')
-
-	except OSError:
-		regular_font = ImageFont.load_default()
-		title_font = ImageFont.load_default()
-
-		goal_font = regular_font
+	font_options = get_font_options_by_language(detect_text_language(task))
+	
+	# Load fonts with different sizes
+	regular_font = load_best_font(font_options, font_size)
+	title_font = load_best_font(font_options, title_font_size)
+	goal_font = load_best_font(font_options, goal_font_size)
+	
+	# Fallback to default fonts if loading fails
+	if not regular_font or not title_font or not goal_font:
+		from PIL import ImageFont
+		regular_font = regular_font or ImageFont.load_default()
+		title_font = title_font or ImageFont.load_default()
+		goal_font = goal_font or regular_font
 
 	# Load logo if requested
 	logo = None
@@ -175,6 +242,11 @@ def _create_task_frame(
 	template = Image.open(io.BytesIO(img_data))
 	image = Image.new('RGB', template.size, (0, 0, 0))
 	draw = ImageDraw.Draw(image)
+	
+	# Detect language and get appropriate font for task text
+	task_language = detect_text_language(task)
+	font_options = get_font_options_by_language(task_language)
+	task_font = load_best_font(font_options, regular_font.size) or regular_font
 
 	# Calculate vertical center of image
 	center_y = image.height // 2
@@ -184,9 +256,9 @@ def _create_task_frame(
 	max_width = image.width - (2 * margin)
 
 	# Dynamic font size calculation based on task length
-	# Start with base font size (regular + 16)
-	base_font_size = regular_font.size + 16
-	min_font_size = max(regular_font.size - 10, 16)  # Don't go below 16pt
+	# Start with base font size (task_font + 16)
+	base_font_size = task_font.size + 16
+	min_font_size = max(task_font.size - 10, 16)  # Don't go below 16pt
 	max_font_size = base_font_size  # Cap at the base font size
 
 	# Calculate dynamic font size based on text length and complexity
@@ -198,7 +270,7 @@ def _create_task_frame(
 	else:
 		font_size = base_font_size
 
-	larger_font = ImageFont.truetype(regular_font.path, font_size)
+	larger_font = ImageFont.truetype(task_font.path, font_size)
 
 	# Generate wrapped text with the calculated font size
 	wrapped_text = _wrap_text(task, larger_font, max_width)
@@ -249,9 +321,14 @@ def _add_overlay_to_image(
 ) -> Image.Image:
 	"""Add step number and goal overlay to an image."""
 
-	from PIL import Image, ImageDraw
+	from PIL import Image, ImageDraw, ImageFont
 
 	goal_text = decode_unicode_escapes_to_utf8(goal_text)
+	
+	# Detect language and get appropriate font for goal text
+	goal_language = detect_text_language(goal_text)
+	font_options = get_font_options_by_language(goal_language)
+	goal_font = load_best_font(font_options, title_font.size) or title_font
 	image = image.convert('RGBA')
 	txt_layer = Image.new('RGBA', image.size, (0, 0, 0, 0))
 	draw = ImageDraw.Draw(txt_layer)
@@ -290,8 +367,8 @@ def _add_overlay_to_image(
 
 	# Draw goal text (centered, bottom)
 	max_width = image.width - (4 * margin)
-	wrapped_goal = _wrap_text(goal_text, title_font, max_width)
-	goal_bbox = draw.multiline_textbbox((0, 0), wrapped_goal, font=title_font)
+	wrapped_goal = _wrap_text(goal_text, goal_font, max_width)
+	goal_bbox = draw.multiline_textbbox((0, 0), wrapped_goal, font=goal_font)
 	goal_width = goal_bbox[2] - goal_bbox[0]
 	goal_height = goal_bbox[3] - goal_bbox[1]
 
@@ -317,7 +394,7 @@ def _add_overlay_to_image(
 	draw.multiline_text(
 		(x_goal, y_goal),
 		wrapped_goal,
-		font=title_font,
+		font=goal_font,
 		fill=text_color,
 		align='center',
 	)
