@@ -21,7 +21,7 @@ def detect_text_language(text: str) -> str:
 
 	if not text:
 		return 'latin'
-	
+
 	# Count character types
 	korean_count = len(re.findall(r'[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]', text))
 	chinese_count = len(re.findall(r'[\u4E00-\u9FFF]', text))
@@ -34,39 +34,39 @@ def detect_text_language(text: str) -> str:
 		return 'chinese'
 	elif japanese_count > 0:
 		return 'japanese'
-	
+
 	return 'latin'
 
 
 def get_font_options_by_language(language: str) -> list[str]:
 	"""Get prioritized font list based on detected language."""
-	
+
 	base_fonts = ['Arial', 'DejaVuSans', 'Verdana', 'Helvetica']
-	
+
 	if language == 'korean':
 		return [
-			'Noto Sans CJK KR',     # Noto Sans Korean (highest priority)
-			'Malgun Gothic',        # Malgun Gothic (Windows)
-			'AppleGothic',          # AppleGothic (macOS)
-			*base_fonts
+			'Noto Sans CJK KR',  # Noto Sans Korean (highest priority)
+			'Malgun Gothic',  # Malgun Gothic (Windows)
+			'AppleGothic',  # AppleGothic (macOS)
+			*base_fonts,
 		]
 	elif language == 'japanese':
 		return [
-			'Noto Sans CJK JP',    # Japanese highest priority
-			'Yu Gothic',           # Yu Gothic (Windows)
-			'Hiragino Sans GB',       # Hiragino Sans (macOS)
-			*base_fonts
+			'Noto Sans CJK JP',  # Japanese highest priority
+			'Yu Gothic',  # Yu Gothic (Windows)
+			'Hiragino Sans GB',  # Hiragino Sans (macOS)
+			*base_fonts,
 		]
 	elif language == 'chinese':
 		return [
-			'Microsoft YaHei',      # Microsoft YaHei (highest priority)
-			'SimHei',              # SimHei
-			'SimSun',              # SimSun
-			'PingFang SC',			   # PingFang SC (macOS)
-			'Noto Sans CJK SC',    # Noto Sans CJK Simplified Chinese
-			'WenQuanYi Micro Hei', # WenQuanYi Micro Hei
-			'Noto Sans CJK KR',    # Korean but supports Chinese
-			*base_fonts
+			'Microsoft YaHei',  # Microsoft YaHei (highest priority)
+			'SimHei',  # SimHei
+			'SimSun',  # SimSun
+			'PingFang SC',  # PingFang SC (macOS)
+			'Noto Sans CJK SC',  # Noto Sans CJK Simplified Chinese
+			'WenQuanYi Micro Hei',  # WenQuanYi Micro Hei
+			'Noto Sans CJK KR',  # Korean but supports Chinese
+			*base_fonts,
 		]
 
 	else:  # latin or fallback
@@ -82,14 +82,15 @@ def get_font_options_by_language(language: str) -> list[str]:
 		]
 
 
-def load_best_font(font_options: list[str], font_size: int) -> 'ImageFont.FreeTypeFont | None':
+def load_best_font(font_options: list[str], font_size: int) -> ImageFont.FreeTypeFont | None:
 	"""
 	Load the first available font from the options list.
 	Handles Windows font path resolution automatically.
-	
+
 	Returns None if no fonts are available.
 	"""
 	from PIL import ImageFont
+
 	for font_name in font_options:
 		try:
 			if platform.system() == 'Windows':
@@ -152,15 +153,16 @@ def create_history_gif(
 
 	# Try to load nicer fonts
 	font_options = get_font_options_by_language(detect_text_language(task))
-	
+
 	# Load fonts with different sizes
 	regular_font = load_best_font(font_options, font_size)
 	title_font = load_best_font(font_options, title_font_size)
 	goal_font = load_best_font(font_options, goal_font_size)
-	
+
 	# Fallback to default fonts if loading fails
 	if not regular_font or not title_font or not goal_font:
 		from PIL import ImageFont
+
 		regular_font = regular_font or ImageFont.load_default()
 		title_font = title_font or ImageFont.load_default()
 		goal_font = goal_font or regular_font
@@ -242,7 +244,7 @@ def _create_task_frame(
 	template = Image.open(io.BytesIO(img_data))
 	image = Image.new('RGB', template.size, (0, 0, 0))
 	draw = ImageDraw.Draw(image)
-	
+
 	# Detect language and get appropriate font for task text
 	task_language = detect_text_language(task)
 	font_options = get_font_options_by_language(task_language)
@@ -321,10 +323,10 @@ def _add_overlay_to_image(
 ) -> Image.Image:
 	"""Add step number and goal overlay to an image."""
 
-	from PIL import Image, ImageDraw, ImageFont
+	from PIL import Image, ImageDraw
 
 	goal_text = decode_unicode_escapes_to_utf8(goal_text)
-	
+
 	# Detect language and get appropriate font for goal text
 	goal_language = detect_text_language(goal_text)
 	font_options = get_font_options_by_language(goal_language)
