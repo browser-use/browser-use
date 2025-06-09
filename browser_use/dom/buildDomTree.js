@@ -1068,7 +1068,7 @@
       typeof element.onclick === 'function';
 
     // Check for semantic class names suggesting interactivity
-    const hasInteractiveClass = /\b(btn|clickable|menu|item|entry|link)\b/i.test(element.className || '');
+    const hasInteractiveClass = /\b(btn|clickable|menu|item|entry|link)\b|(\w*[-_]?btn\b)/i.test(element.className || '');
 
     // Determine whether the element is inside a known interactive container
     const isInKnownContainer = Boolean(
