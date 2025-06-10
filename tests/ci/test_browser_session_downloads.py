@@ -5,10 +5,10 @@ import time
 
 import pytest
 
-from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.browser import BrowserSession
 
 
-@pytest.fixture
+@pytest.fixture(scope='function')
 async def test_server(httpserver):
 	"""Setup test HTTP server with a simple page."""
 	html_content = """
@@ -32,17 +32,14 @@ async def test_server(httpserver):
 	return httpserver
 
 
-@pytest.mark.asyncio
 async def test_download_detection_timing(test_server, tmp_path):
 	"""Test that download detection adds 5 second delay to clicks when downloads_dir is set."""
 
 	# Test 1: With downloads_dir set (default behavior)
 	browser_with_downloads = BrowserSession(
-		browser_profile=BrowserProfile(
-			headless=True,
-			downloads_dir=str(tmp_path / 'downloads'),
-			user_data_dir=None,
-		)
+		headless=True,
+		downloads_dir=str(tmp_path / 'downloads'),
+		user_data_dir=None,
 	)
 
 	await browser_with_downloads.start()
@@ -75,11 +72,9 @@ async def test_download_detection_timing(test_server, tmp_path):
 
 	# Test 2: With downloads_dir set to empty string (disables download detection)
 	browser_no_downloads = BrowserSession(
-		browser_profile=BrowserProfile(
-			headless=True,
-			downloads_dir=None,
-			user_data_dir=None,
-		)
+		headless=True,
+		downloads_dir=None,
+		user_data_dir=None,
 	)
 
 	await browser_no_downloads.start()
@@ -122,19 +117,16 @@ async def test_download_detection_timing(test_server, tmp_path):
 	assert duration_no_downloads < 3, f'Expected <3s without downloads_dir, got {duration_no_downloads:.2f}s'
 
 
-@pytest.mark.asyncio
 async def test_actual_download_detection(test_server, tmp_path):
 	"""Test that actual downloads are detected correctly."""
 
-	downloads_dir = tmp_path / 'downloads'
-	downloads_dir.mkdir()
+	downloads_path = tmp_path / 'downloads'
+	downloads_path.mkdir()
 
 	browser_session = BrowserSession(
-		browser_profile=BrowserProfile(
-			headless=True,
-			downloads_dir=str(downloads_dir),
-			user_data_dir=None,
-		)
+		headless=True,
+		downloads_path=str(downloads_path),
+		user_data_dir=None,
 	)
 
 	await browser_session.start()
@@ -167,7 +159,3 @@ async def test_actual_download_detection(test_server, tmp_path):
 	assert duration < 2.0, f'Download detection took {duration:.2f}s, expected <2s'
 
 	await browser_session.close()
-
-
-if __name__ == '__main__':
-	pytest.main([__file__, '-v', '-s'])

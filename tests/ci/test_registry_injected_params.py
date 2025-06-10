@@ -17,26 +17,19 @@ to avoid the conflict when the Registry also adds it to extra_args.
 This test validates the issue exists and confirms the fix works.
 """
 
-import asyncio
 import logging
 
+import pytest
 from pydantic import Field
 
+from browser_use.browser import BrowserSession
 from browser_use.controller.registry.service import Registry
 from browser_use.controller.registry.views import ActionModel
 
-# Configure logging
-logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
-# Use real browser session for testing
-import pytest
-
-from browser_use.browser import BrowserSession
-
-
-@pytest.fixture
+@pytest.fixture(scope='function')
 async def browser_session():
 	"""Create and provide a real BrowserSession instance."""
 	browser_session = BrowserSession(
@@ -45,7 +38,7 @@ async def browser_session():
 	)
 	await browser_session.start()
 	yield browser_session
-	await browser_session.stop()
+	await browser_session.kill()
 
 
 # Model that doesn't include browser_session (renamed to avoid pytest collecting it)
@@ -64,7 +57,7 @@ class TestContext:
 	pass
 
 
-async def main(browser_session):
+async def test_browser_session_parameter_issue(browser_session):
 	"""Run the test to diagnose browser_session parameter issue
 
 	This test demonstrates the problem and our fix. The issue happens because:
@@ -231,26 +224,3 @@ async def main(browser_session):
 		# logger.info(f'Success with our fix! Result: {result3}')
 	except Exception as e:
 		logger.error(f'Error with our manual test: {str(e)}')
-
-
-# Add a proper pytest test function
-import pytest
-
-
-async def test_browser_session_parameter_issue(browser_session):
-	"""Test that the browser_session parameter issue is fixed."""
-	# Run the main test logic
-	await main(browser_session)
-
-
-if __name__ == '__main__':
-	# For direct execution (not through pytest)
-	async def run_with_real_browser():
-		browser_session = BrowserSession(headless=True, user_data_dir=None)
-		await browser_session.start()
-		try:
-			await main(browser_session)
-		finally:
-			await browser_session.stop()
-
-	asyncio.run(run_with_real_browser())

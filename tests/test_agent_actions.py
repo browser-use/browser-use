@@ -23,7 +23,7 @@ def llm():
 	# return ChatOpenAI(model='gpt-4o-mini')
 
 
-@pytest.fixture(scope='session')
+@pytest.fixture
 async def browser_session():
 	browser_session = BrowserSession(
 		browser_profile=BrowserProfile(

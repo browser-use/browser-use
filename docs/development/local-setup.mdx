@@ -56,7 +56,7 @@ cd browser-use
 1. Create and activate a virtual environment:
 
 ```bash
-uv venv
+uv venv --python 3.11
 source .venv/bin/activate
 ```
 
@@ -64,7 +64,7 @@ source .venv/bin/activate
 
 ```bash
 # Install the package in editable mode with all development dependencies
-uv sync --all-extras --upgrade
+uv sync --all-extras
 
 # Install the default browser
 playwright install chromium --with-deps --no-shell

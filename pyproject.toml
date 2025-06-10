@@ -12,16 +12,16 @@ classifiers = [
 ]
 dependencies = [
     "anyio>=4.9.0",
-    "httpx>=0.27.2",
+    "httpx>=0.28.1",
     "pydantic>=2.11.5",
     "python-dotenv>=1.0.1",
     "requests>=2.32.3",
     "posthog>=3.7.0",
     "playwright>=1.52.0",
     "markdownify==1.1.0",
-    "langchain-core==0.3.63",
-    "langchain-openai==0.3.19",
-    "langchain-anthropic==0.3.14",
+    "langchain-core==0.3.64",
+    "langchain-openai==0.3.21",
+    "langchain-anthropic==0.3.15",
     "langchain-ollama==0.3.3",
     "langchain-google-genai==2.1.5",
     "langchain-deepseek>=0.1.3",
@@ -34,9 +34,10 @@ dependencies = [
     "typing-extensions>=4.12.2",
     "psutil>=7.0.0",
     "faiss-cpu>=1.11.0",
-    "mem0ai>=0.1.104",
+    "mem0ai>=0.1.106",
     "uuid7>=0.1.0",
-    "patchright>=1.52.4",
+    "patchright>=1.52.5",
+    "aiofiles>=24.1.0",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -82,7 +83,7 @@ build-backend = "hatchling.build"
 
 
 [tool.codespell]
-ignore-words-list = "bu,wit,dont,cant,wont,re-use,re-used,re-using,thats"
+ignore-words-list = "bu,wit,dont,cant,wont,re-use,re-used,re-using,re-usable,thats,doesnt"
 skip = "*.json"
 
 [tool.ruff]
@@ -116,8 +117,8 @@ include = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "module"
-asyncio_default_test_loop_scope = "module"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 markers = [
     "slow: marks tests as slow (deselect with `-m 'not slow'`)",
     "integration: marks tests as integration tests",
@@ -135,7 +136,7 @@ filterwarnings = [
     "ignore::pytest.PytestDeprecationWarning",
     "ignore::DeprecationWarning",
 ]
-log_level = "INFO"
+log_level = "DEBUG"
 
 
 [tool.hatch.metadata]
@@ -147,7 +148,7 @@ dev-dependencies = [
     "tokencost>=0.1.16",
     "build>=1.2.2",
     "pytest>=8.3.5",
-    "pytest-asyncio>=0.24.0",
+    "pytest-asyncio>=1.0.0",
     "pytest-httpserver>=1.0.8",
     "fastapi>=0.115.8",
     "inngest>=0.4.19",
@@ -158,4 +159,6 @@ dev-dependencies = [
     "codespell>=2.4.1",
     "pyright>=1.1.399",
     "ty>=0.0.1a1",
+    "pytest-playwright-asyncio>=0.7.0",
+    "pytest-xdist>=3.7.0",
 ]
