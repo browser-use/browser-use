@@ -178,12 +178,18 @@ agent = Agent(
    )
    ```
 
-3. **Enable keep_alive for multiple tasks**: Keep the browser open between agent runs:
+3. **Enable `keep_alive=True`** If you want to use a single `BrowserSession` with more than one agent:
    ```python
    browser_session = BrowserSession(
        keep_alive=True,
        ...
    )
+   await browser_session.start()  # start the session yourself before passing to Agent
+   ...
+   agent = Agent(..., browser_session=browser_session)
+   await agent.run()
+   ...
+   await browser_session.kill()   # end the session yourself, shortcut for keep_alive=False + .stop()
    ```
 
 ## Re-Using a Browser
@@ -233,8 +239,7 @@ await agent2.run()
 ### Sequential Agents, Same Profile, Same Browser
 
 If you are only running one agent at a time, they can re-use the same active `BrowserSession` and avoid having to relaunch chrome.
-Each agent will start off looking at the same tab the last agent ended off on. 
-You can also pass in a specific playwright page using `Agent(..., page=page)` if you prefer.
+Each agent will start off looking at the same tab the last agent ended off on.
 
 ```python
 from browser_use import Agent, BrowserSession
@@ -244,11 +249,12 @@ reused_session = BrowserSession(
     user_data_dir='~/.config/browseruse/profiles/default',
     keep_alive=True,  # dont close browser after 1st agent.run() ends
 )
+await reused_session.start()   # when keep_alive=True, session must be started manually
 
 agent1 = Agent(
     task="The first task...",
     llm=ChatOpenAI(model="gpt-4o-mini"),
-    browser_session=reused_session,      # pass a session or page=page
+    browser_session=reused_session,
 )
 await agent1.run()
 
@@ -274,6 +280,7 @@ shared_browser = BrowserSession(
     keep_alive=True,
     headless=True,
 )
+await shared_browser.start()   # when keep_alive=True, you must start the session yourself
 
 agent1 = Agent(
     task="The first task...",
@@ -308,20 +315,22 @@ context = await browser.new_context()
 shared_page = await context.new_page()
 await shared_page.goto('https://example.com', wait_until='domcontentloaded')
 
+shared_session = BrowserSession(page=shared_page, keep_alive=True)
+await shared_session.start()
+
 agent1 = Agent(
     task="Fill out the form in section A...",
     llm=ChatOpenAI(model="gpt-4o-mini"),
-    page=shared_page,                              # pass the Page in
-    # ^ shortcut for: browser_session=BrowserSession(page=page)
+    browser_session=shared_session
 )
 agent2 = Agent(
     task="Fill out the form in section B...",
     llm=ChatOpenAI(model="gpt-4o-mini"),
-    page=shared_page,                           # re-use the same Page
+    browser_session=shared_session,
 )
 await asyncio.gather(agent1.run(), agent2.run()) # run in parallel
 
-await browser.close()
+await shared_session.kill()
 ```
 
 ### Parallel Agents, Same Profile, Different Browsers
@@ -351,9 +360,11 @@ shared_profile = BrowserProfile(
 )
 
 window1 = BrowserSession(browser_profile=profile_a)
+await window1.start()
 agent1 = Agent(browser_session=window1)
 
 window2 = BrowserSession(browser_profile=profile_a)
+await window2.start()
 agent2 = Agent(browser_session=window2)
 
 await asyncio.gather(agent1.run(), agent2.run())  # run in parallel

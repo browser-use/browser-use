@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import warnings
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
@@ -79,7 +80,33 @@ class Memory:
 				)
 
 		# Initialize Mem0 with the configuration
-		self.mem0 = Mem0Memory.from_config(config_dict=self.config.full_config_dict)
+		with warnings.catch_warnings():
+			warnings.filterwarnings('ignore', category=DeprecationWarning)
+			try:
+				self.mem0 = Mem0Memory.from_config(config_dict=self.config.full_config_dict)
+			except Exception as e:
+				if 'history_old' in str(e) and 'sqlite3.OperationalError' in str(type(e)):
+					# Handle the migration error by using a unique history database path
+					import tempfile
+					import uuid
+
+					logger.warning(
+						f'⚠️ Mem0 SQLite migration error detected in {self.config.full_config_dict}. Using a temporary database to avoid conflicts.\n{type(e).__name__}: {e}'
+					)
+					# Create a unique temporary database path
+					temp_dir = tempfile.gettempdir()
+					unique_id = str(uuid.uuid4())[:8]
+					history_db_path = os.path.join(temp_dir, f'browser_use_mem0_history_{unique_id}.db')
+
+					# Add the history_db_path to the config
+					config_with_history_path = self.config.full_config_dict.copy()
+					config_with_history_path['history_db_path'] = history_db_path
+
+					# Try again with the new config
+					self.mem0 = Mem0Memory.from_config(config_dict=config_with_history_path)
+				else:
+					# Re-raise if it's a different error
+					raise
 
 	@time_execution_sync('--create_procedural_memory')
 	def create_procedural_memory(self, current_step: int) -> None:

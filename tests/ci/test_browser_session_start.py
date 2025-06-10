@@ -16,8 +16,8 @@ from pathlib import Path
 import pytest
 
 from browser_use.browser.profile import (
+	BROWSERUSE_CHROMIUM_USER_DATA_DIR,
 	BROWSERUSE_DEFAULT_CHANNEL,
-	BROWSERUSE_DEFAULT_PROFILE_DIR,
 	BrowserChannel,
 	BrowserProfile,
 )
@@ -42,15 +42,7 @@ class TestBrowserSessionStart:
 		"""Create a BrowserSession instance without starting it."""
 		session = BrowserSession(browser_profile=browser_profile)
 		yield session
-		# Cleanup: ensure session is stopped
-		try:
-			# logger.info(f'Fixture cleanup: keep_alive={session.browser_profile.keep_alive}, setting to False')
-			session.browser_profile.keep_alive = False
-			await session.stop()
-			# logger.info('Fixture cleanup completed')
-		except Exception as e:
-			# logger.error(f'Fixture cleanup failed: {e}')
-			pass
+		await session.kill()
 
 	async def test_start_already_started_session(self, browser_session):
 		"""Test calling .start() on a session that's already started."""
@@ -495,14 +487,7 @@ class TestBrowserSessionStart:
 			assert session.browser.is_connected()
 
 		finally:
-			# Force complete cleanup
-			session.browser_profile.keep_alive = False
-			await session.stop()
-
-			# Ensure playwright is stopped
-			if hasattr(session, 'playwright') and session.playwright:
-				await session.playwright.stop()
-				session.playwright = None
+			await session.kill()
 
 	async def test_user_data_dir_not_allowed_to_corrupt_default_profile(self, caplog):
 		"""Test user_data_dir handling for different browser channels and version mismatches."""
@@ -510,7 +495,7 @@ class TestBrowserSessionStart:
 		# Test 1: Chromium with default user_data_dir and default channel should work fine
 		session = BrowserSession(
 			headless=True,
-			user_data_dir=BROWSERUSE_DEFAULT_PROFILE_DIR,
+			user_data_dir=BROWSERUSE_CHROMIUM_USER_DATA_DIR,
 			channel=BROWSERUSE_DEFAULT_CHANNEL,  # chromium
 			keep_alive=False,
 		)
@@ -520,22 +505,21 @@ class TestBrowserSessionStart:
 			assert session.initialized is True
 			assert session.browser_context is not None
 			# Verify the user_data_dir wasn't changed
-			assert session.browser_profile.user_data_dir == BROWSERUSE_DEFAULT_PROFILE_DIR
+			assert session.browser_profile.user_data_dir == BROWSERUSE_CHROMIUM_USER_DATA_DIR
 		finally:
-			session.browser_profile.keep_alive = False
-			await session.stop()
+			await session.kill()
 
 		# Test 2: Chrome with default user_data_dir should show warning and change dir
 		profile2 = BrowserProfile(
 			headless=True,
-			user_data_dir=BROWSERUSE_DEFAULT_PROFILE_DIR,
+			user_data_dir=BROWSERUSE_CHROMIUM_USER_DATA_DIR,
 			channel=BrowserChannel.CHROME,
 			keep_alive=False,
 		)
 
 		# The validator should have changed the user_data_dir
-		assert profile2.user_data_dir != BROWSERUSE_DEFAULT_PROFILE_DIR
-		assert profile2.user_data_dir == BROWSERUSE_DEFAULT_PROFILE_DIR.parent / 'default-chrome'
+		assert profile2.user_data_dir != BROWSERUSE_CHROMIUM_USER_DATA_DIR
+		assert profile2.user_data_dir == BROWSERUSE_CHROMIUM_USER_DATA_DIR.parent / 'default-chrome'
 
 		# Check warning was logged
 		warning_found = any(
@@ -568,3 +552,416 @@ class TestBrowserSessionStart:
 		# open chrome with corrupted user_data_dir
 		with pytest.raises(Exception, match='Failed parsing extensions'):
 			await chromium_session.start()
+
+
+class TestBrowserSessionReusePatterns:
+	"""Tests for all browser re-use patterns documented in docs/customize/real-browser.mdx"""
+
+	@pytest.fixture(scope='module')
+	def mock_llm(self):
+		"""Mock LLM for agent tests"""
+		from unittest.mock import MagicMock
+
+		from langchain_core.language_models.chat_models import BaseChatModel
+
+		# Create a MagicMock that supports dictionary-style access
+		mock = MagicMock(spec=BaseChatModel)
+
+		# Skip verification by setting these attributes
+		mock._verified_api_keys = True
+		mock._verified_tool_calling_method = 'raw'
+
+		# Mock the invoke method to return a proper response
+		def mock_invoke(*args, **kwargs):
+			response = MagicMock()
+			# Return a valid JSON response that completes the task
+			response.content = """
+			{
+				"current_state": {
+					"evaluation_previous_goal": "Starting the task",
+					"memory": "Task started",
+					"next_goal": "Complete the task"
+				},
+				"action": [
+					{
+						"done": {
+							"text": "Task completed successfully",
+							"success": true
+						}
+					}
+				]
+			}
+			"""
+			return response
+
+		mock.invoke = mock_invoke
+		mock.ainvoke = MagicMock(side_effect=mock_invoke)
+
+		return mock
+
+	def create_mock_llm_with_actions(self, action_sequence):
+		"""Factory to create mock LLMs with specific action sequences"""
+		from unittest.mock import MagicMock
+
+		from langchain_core.language_models.chat_models import BaseChatModel
+
+		# Create a MagicMock that supports dictionary-style access
+		mock = MagicMock(spec=BaseChatModel)
+
+		# Skip verification by setting these attributes
+		mock._verified_api_keys = True
+		mock._verified_tool_calling_method = 'raw'
+
+		# Track which action to return next
+		action_index = 0
+
+		# Mock the invoke method to return actions in sequence
+		def mock_invoke(*args, **kwargs):
+			nonlocal action_index
+			response = MagicMock()
+
+			if action_index < len(action_sequence):
+				response.content = action_sequence[action_index]
+				action_index += 1
+			else:
+				# Default to done action if we run out of actions
+				response.content = """
+				{
+					"current_state": {
+						"evaluation_previous_goal": "All actions completed",
+						"memory": "Task completed",
+						"next_goal": "Complete the task"
+					},
+					"action": [
+						{
+							"done": {
+								"text": "Task completed successfully",
+								"success": true
+							}
+						}
+					]
+				}
+				"""
+			return response
+
+		mock.invoke = mock_invoke
+		mock.ainvoke = MagicMock(side_effect=mock_invoke)
+
+		return mock
+
+	async def test_sequential_agents_same_profile_different_browser(self, mock_llm):
+		"""Test Sequential Agents, Same Profile, Different Browser pattern"""
+		from browser_use import Agent
+		from browser_use.browser.profile import BrowserProfile
+
+		# Create a reusable profile
+		reused_profile = BrowserProfile(
+			user_data_dir=None,  # Use temp dir for testing
+			headless=True,
+		)
+
+		# First agent
+		agent1 = Agent(
+			task='The first task...',
+			llm=mock_llm,
+			browser_profile=reused_profile,
+			tool_calling_method='raw',  # Use raw mode for tests
+			enable_memory=False,  # Disable memory for tests
+		)
+		await agent1.run()
+
+		# Verify first agent's session is closed
+		assert agent1.browser_session is not None
+		assert not agent1.browser_session.initialized
+
+		# Second agent with same profile
+		agent2 = Agent(
+			task='The second task...',
+			llm=mock_llm,
+			browser_profile=reused_profile,
+			tool_calling_method='raw',  # Use raw mode for tests
+			enable_memory=False,  # Disable memory for tests
+		)
+		await agent2.run()
+
+		# Verify second agent created a new session
+		assert agent2.browser_session is not None
+		assert agent1.browser_session is not agent2.browser_session
+		assert not agent2.browser_session.initialized
+
+	async def test_sequential_agents_same_profile_same_browser(self, mock_llm):
+		"""Test Sequential Agents, Same Profile, Same Browser pattern"""
+		from browser_use import Agent, BrowserSession
+
+		# Create a reusable session with keep_alive
+		reused_session = BrowserSession(
+			user_data_dir=None,  # Use temp dir for testing
+			headless=True,
+			keep_alive=True,  # Don't close browser after agent.run()
+		)
+
+		try:
+			# Start the session manually (agents will reuse this initialized session)
+			await reused_session.start()
+
+			# First agent
+			agent1 = Agent(
+				task='The first task...',
+				llm=mock_llm,
+				browser_session=reused_session,
+				tool_calling_method='raw',  # Use raw mode for tests
+				enable_memory=False,  # Disable memory for tests
+			)
+			await agent1.run()
+
+			# Verify session is still alive
+			assert reused_session.initialized
+			assert reused_session.browser_context is not None
+
+			# Second agent reusing the same session
+			agent2 = Agent(
+				task='The second task...',
+				llm=mock_llm,
+				browser_session=reused_session,
+				tool_calling_method='raw',  # Use raw mode for tests
+				enable_memory=False,  # Disable memory for tests
+			)
+			await agent2.run()
+
+			# Verify same browser was used (using __eq__ to check browser_pid, cdp_url, wss_url)
+			assert agent1.browser_session == agent2.browser_session
+			assert agent1.browser_session == reused_session
+			assert reused_session.initialized
+
+		finally:
+			await reused_session.kill()
+
+	async def test_parallel_agents_same_browser_multiple_tabs(self):
+		"""Test Parallel Agents, Same Browser, Multiple Tabs pattern"""
+		import tempfile
+
+		from browser_use import Agent, BrowserSession
+
+		# Create a shared browser session
+		with tempfile.NamedTemporaryFile(suffix='.json', delete=False, mode='w') as f:
+			# Write minimal valid storage state
+			f.write('{"cookies": [], "origins": []}')
+			storage_state_path = f.name
+
+		# Convert to Path object to fix storage state type error
+		from pathlib import Path
+
+		storage_state_path = Path(storage_state_path)
+
+		shared_browser = BrowserSession(
+			storage_state=storage_state_path,
+			user_data_dir=None,
+			keep_alive=True,
+			headless=True,
+		)
+
+		try:
+			# Start the session before passing it to agents
+			await shared_browser.start()
+
+			# Create action sequences for each agent
+			# Each agent creates a new tab then completes
+			tab_creation_action = """
+			{
+				"current_state": {
+					"evaluation_previous_goal": "Starting the task",
+					"memory": "Need to create a new tab",
+					"next_goal": "Create a new tab to work in"
+				},
+				"action": [
+					{
+						"open_tab": {
+							"url": "https://example.com"
+						}
+					}
+				]
+			}
+			"""
+
+			done_action = """
+			{
+				"current_state": {
+					"evaluation_previous_goal": "Tab created",
+					"memory": "Task completed in new tab",
+					"next_goal": "Complete the task"
+				},
+				"action": [
+					{
+						"done": {
+							"text": "Task completed successfully",
+							"success": true
+						}
+					}
+				]
+			}
+			"""
+
+			# Create 3 agents sharing the same browser session
+			# Each gets its own mock LLM with the same action sequence
+			mock_llm1 = self.create_mock_llm_with_actions([tab_creation_action, done_action])
+			mock_llm2 = self.create_mock_llm_with_actions([tab_creation_action, done_action])
+			mock_llm3 = self.create_mock_llm_with_actions([tab_creation_action, done_action])
+
+			agent1 = Agent(
+				task='First parallel task...',
+				llm=mock_llm1,
+				browser_session=shared_browser,
+				tool_calling_method='raw',  # Use raw mode for tests
+				enable_memory=False,  # Disable memory for tests
+			)
+			agent2 = Agent(
+				task='Second parallel task...',
+				llm=mock_llm2,
+				browser_session=shared_browser,
+				tool_calling_method='raw',  # Use raw mode for tests
+				enable_memory=False,  # Disable memory for tests
+			)
+			agent3 = Agent(
+				task='Third parallel task...',
+				llm=mock_llm3,
+				browser_session=shared_browser,
+				tool_calling_method='raw',  # Use raw mode for tests
+				enable_memory=False,  # Disable memory for tests
+			)
+
+			# Run all agents in parallel
+			results = await asyncio.gather(agent1.run(), agent2.run(), agent3.run())
+
+			# Verify all agents used the same browser session (using __eq__ to check browser_pid, cdp_url, wss_url)
+			# Debug: print the browser sessions to see what's different
+			print(f'Agent1 session: {agent1.browser_session}')
+			print(f'Agent2 session: {agent2.browser_session}')
+			print(f'Agent3 session: {agent3.browser_session}')
+			print(f'Shared session: {shared_browser}')
+
+			# Check each pair individually
+			assert agent1.browser_session == agent2.browser_session, (
+				f'agent1 != agent2: {agent1.browser_session} != {agent2.browser_session}'
+			)
+			assert agent2.browser_session == agent3.browser_session, (
+				f'agent2 != agent3: {agent2.browser_session} != {agent3.browser_session}'
+			)
+			assert agent1.browser_session == shared_browser, f'agent1 != shared: {agent1.browser_session} != {shared_browser}'
+			assert shared_browser.initialized
+
+			# Verify multiple tabs were created
+			tabs_info = await shared_browser.get_tabs_info()
+			# Should have at least 3 tabs (one per agent)
+			assert len(tabs_info) >= 3
+
+		finally:
+			await shared_browser.kill()
+			storage_state_path.unlink(missing_ok=True)
+
+	async def test_parallel_agents_same_browser_same_tab(self, mock_llm):
+		"""Test Parallel Agents, Same Browser, Same Tab pattern (not recommended)"""
+		from browser_use import Agent, BrowserSession
+
+		# Create a browser session and start it first
+		shared_browser = BrowserSession(
+			user_data_dir=None,
+			headless=True,
+			keep_alive=True,  # Keep the browser alive for reuse
+		)
+
+		try:
+			await shared_browser.start()
+
+			# Create agents sharing the same browser session
+			# They will share the same tab since we're not creating new tabs
+			agent1 = Agent(
+				task='Fill out the form in section A...',
+				llm=mock_llm,
+				browser_session=shared_browser,
+				tool_calling_method='raw',  # Use raw mode for tests
+				enable_memory=False,  # Disable memory for tests
+			)
+			agent2 = Agent(
+				task='Fill out the form in section B...',
+				llm=mock_llm,
+				browser_session=shared_browser,
+				tool_calling_method='raw',  # Use raw mode for tests
+				enable_memory=False,  # Disable memory for tests
+			)
+
+			# Navigate to a page before running agents
+			page = await shared_browser.get_current_page()
+			await page.goto('https://example.com', wait_until='domcontentloaded')
+
+			# Run agents in parallel (may interfere with each other)
+			results = await asyncio.gather(agent1.run(), agent2.run(), return_exceptions=True)
+
+			# Verify both agents used the same browser session
+			assert agent1.browser_session == agent2.browser_session
+			assert agent1.browser_session == shared_browser
+
+		finally:
+			# Clean up
+			await shared_browser.kill()
+
+	async def test_parallel_agents_same_profile_different_browsers(self, mock_llm):
+		"""Test Parallel Agents, Same Profile, Different Browsers pattern (recommended)"""
+		import tempfile
+
+		from browser_use import Agent
+		from browser_use.browser import BrowserProfile, BrowserSession
+
+		# Create a shared profile with storage state
+		with tempfile.NamedTemporaryFile(suffix='.json', delete=False, mode='w') as f:
+			# Write minimal valid storage state
+			f.write('{"cookies": [], "origins": []}')
+			auth_json_path = f.name
+
+		# Convert to Path object
+		from pathlib import Path
+
+		auth_json_path = Path(auth_json_path)
+
+		shared_profile = BrowserProfile(
+			headless=True,
+			user_data_dir=None,  # Use dedicated tmp user_data_dir per session
+			storage_state=auth_json_path,  # Load/save cookies to/from json file
+			keep_alive=True,
+		)
+
+		try:
+			# Create separate browser sessions from the same profile
+			window1 = BrowserSession(browser_profile=shared_profile)
+			await window1.start()
+			agent1 = Agent(
+				task='First agent task...', llm=mock_llm, browser_session=window1, tool_calling_method='raw', enable_memory=False
+			)
+
+			window2 = BrowserSession(browser_profile=shared_profile)
+			await window2.start()
+			agent2 = Agent(
+				task='Second agent task...', llm=mock_llm, browser_session=window2, tool_calling_method='raw', enable_memory=False
+			)
+
+			# Run agents in parallel
+			results = await asyncio.gather(agent1.run(), agent2.run())
+
+			# Verify different browser sessions were used
+			assert agent1.browser_session is not agent2.browser_session
+			assert window1 is not window2
+
+			# Both sessions should be initialized
+			assert window1.initialized
+			assert window2.initialized
+
+			# Save storage state from both sessions
+			await window1.save_storage_state()
+			await window2.save_storage_state()
+
+			# Verify storage state file exists
+			assert Path(auth_json_path).exists()
+
+		finally:
+			await window1.kill()
+			await window2.kill()
+			auth_json_path.unlink(missing_ok=True)

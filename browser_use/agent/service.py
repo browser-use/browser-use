@@ -90,7 +90,7 @@ def log_response(response: AgentOutput, registry=None, logger=None) -> None:
 
 	logger.info(f'{emoji} Eval: {response.current_state.evaluation_previous_goal}')
 	logger.info(f'🧠 Memory: {response.current_state.memory}')
-	logger.info(f'🎯 Next goal: {response.current_state.next_goal}')
+	logger.info(f'🎯 Next goal: {response.current_state.next_goal}\n')
 
 
 Context = TypeVar('Context')
@@ -99,7 +99,7 @@ AgentHookFunc = Callable[['Agent'], Awaitable[None]]
 
 
 class Agent(Generic[Context]):
-	@time_execution_sync('--init (agent)')
+	@time_execution_sync('--init')
 	def __init__(
 		self,
 		task: str,
@@ -313,12 +313,24 @@ class Agent(Generic[Context]):
 		browser_profile = browser_profile or DEFAULT_BROWSER_PROFILE
 
 		if browser_session:
-			# always copy sessions that are passed in to avoid conflicting with other agents sharing the same session
+			# Check if user is trying to reuse an uninitialized session
+			if browser_session.browser_profile.keep_alive and not browser_session.initialized:
+				self.logger.error(
+					'❌ Passed a BrowserSession with keep_alive=True that is not initialized. '
+					'Call await browser_session.start() before passing it to Agent() to reuse the same browser. '
+					'Otherwise, each agent will launch its own browser instance.'
+				)
+				raise ValueError(
+					'BrowserSession with keep_alive=True must be initialized before passing to Agent. '
+					'Call: await browser_session.start()'
+				)
+
+			# always copy sessions that are passed in to avoid agents overwriting each other's agent_current_page and human_current_page by accident
 			self.browser_session = browser_session.model_copy(
-				update={
-					'agent_current_page': None,
-					'human_current_page': None,
-				},
+				# update={
+				# 	'agent_current_page': None,   # dont reset these, let the next agent start on the same page as the last agent
+				# 	'human_current_page': None,
+				# },
 			)
 		else:
 			self.browser_session = BrowserSession(
@@ -452,7 +464,7 @@ class Agent(Generic[Context]):
 
 		if source_override is not None:
 			source = source_override
-		self.logger.debug(f'Version: {version}, Source: {source}')
+		# self.logger.debug(f'Version: {version}, Source: {source}')  # moved later to _log_agent_run so that people are more likely to include it in copy-pasted support ticket logs
 		self.version = version
 		self.source = source
 
@@ -778,7 +790,7 @@ class Agent(Generic[Context]):
 			raise InterruptedError
 
 	# @observe(name='agent.step', ignore_output=True, ignore_input=True)
-	@time_execution_async('--step (agent)')
+	@time_execution_async('--step')
 	async def step(self, step_info: AgentStepInfo | None = None) -> None:
 		"""Execute one step of the task"""
 		browser_state_summary = None
@@ -958,7 +970,7 @@ class Agent(Generic[Context]):
 			# Log step completion summary
 			self._log_step_completion_summary(step_start_time, result)
 
-	@time_execution_async('--handle_step_error (agent)')
+	@time_execution_async('--handle_step_error')
 	async def _handle_step_error(self, error: Exception) -> list[ActionResult]:
 		"""Handle all types of errors that can occur during a step"""
 		include_trace = self.logger.isEnabledFor(logging.DEBUG)
@@ -1047,7 +1059,7 @@ class Agent(Generic[Context]):
 		else:
 			return input_messages
 
-	@time_execution_async('--get_next_action (agent)')
+	@time_execution_async('--get_next_action')
 	async def get_next_action(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get next action from LLM based on current state"""
 		input_messages = self._convert_input_messages(input_messages)
@@ -1135,12 +1147,13 @@ class Agent(Generic[Context]):
 		"""Log the agent run"""
 		self.logger.info(f'🚀 Starting task: {self.task}')
 
-		self.logger.debug(f'Version: {self.version}, Source: {self.source}')
+		self.logger.debug(f'🤖 Browser-Use Version: v{self.version} ({self.source})')
 
 	def _log_step_context(self, current_page, browser_state_summary) -> None:
 		"""Log step context information"""
 		url_short = current_page.url[:50] + '...' if len(current_page.url) > 50 else current_page.url
 		interactive_count = len(browser_state_summary.selector_map) if browser_state_summary else 0
+		print(file=sys.stderr)  # just to visually separate stuff nicely
 		self.logger.info(
 			f'📍 Step {self.state.n_steps}: Evaluating page with {interactive_count} interactive elements on: {url_short}'
 		)
@@ -1180,9 +1193,9 @@ class Agent(Generic[Context]):
 
 		# Create summary based on single vs multi-action
 		if action_count == 1:
-			self.logger.info(f'⚡️ Decided next action: {action_name}{param_str}')
+			self.logger.info(f'☝️ Decided next action: {action_name}{param_str}')
 		else:
-			summary_lines = [f'⚡️ Decided next {action_count} multi-actions:']
+			summary_lines = [f'✌️ Decided next {action_count} multi-actions:']
 			for i, detail in enumerate(action_details):
 				summary_lines.append(f'          {i + 1}. {detail}')
 			self.logger.info('\n'.join(summary_lines))
@@ -1308,7 +1321,7 @@ class Agent(Generic[Context]):
 		return False, False
 
 	# @observe(name='agent.run', ignore_output=True)
-	@time_execution_async('--run (agent)')
+	@time_execution_async('--run')
 	async def run(
 		self, max_steps: int = 100, on_step_start: AgentHookFunc | None = None, on_step_end: AgentHookFunc | None = None
 	) -> AgentHistoryList:
@@ -1499,7 +1512,8 @@ class Agent(Generic[Context]):
 				# Get action name from the action model
 				action_data = action.model_dump(exclude_unset=True)
 				action_name = next(iter(action_data.keys())) if action_data else 'unknown'
-				self.logger.info(f'☑️ Executed action {i + 1}/{len(actions)}: {action_name}')
+				action_params = getattr(action, action_name, '')
+				self.logger.info(f'☑️ Executed action {i + 1}/{len(actions)}: {action_name}({action_params})')
 				if results[-1].is_done or results[-1].error or i == len(actions) - 1:
 					break
 

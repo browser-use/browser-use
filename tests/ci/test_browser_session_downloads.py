@@ -8,7 +8,7 @@ import pytest
 from browser_use.browser import BrowserSession
 
 
-@pytest.fixture
+@pytest.fixture(scope='function')
 async def test_server(httpserver):
 	"""Setup test HTTP server with a simple page."""
 	html_content = """
@@ -32,7 +32,6 @@ async def test_server(httpserver):
 	return httpserver
 
 
-@pytest.mark.asyncio
 async def test_download_detection_timing(test_server, tmp_path):
 	"""Test that download detection adds 5 second delay to clicks when downloads_dir is set."""
 
@@ -118,7 +117,6 @@ async def test_download_detection_timing(test_server, tmp_path):
 	assert duration_no_downloads < 3, f'Expected <3s without downloads_dir, got {duration_no_downloads:.2f}s'
 
 
-@pytest.mark.asyncio
 async def test_actual_download_detection(test_server, tmp_path):
 	"""Test that actual downloads are detected correctly."""
 
