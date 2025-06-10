@@ -435,36 +435,33 @@ def create_controller_with_serp_search():
 	"""Create a controller with SERP search instead of Google search"""
 	controller = Controller(exclude_actions=['search_google'])
 
-	@controller.registry.action('Search the web for a specific query')
+	@controller.registry.action('Search the web for a specific query. Returns a short description and links of the results.')
 	async def search_web(query: str):
-		"""Search the web using Serper API"""
-		if not SERPER_API_KEY:
-			return ActionResult(extracted_content='Search unavailable: SERPER_API_KEY not configured', include_in_memory=False)
+		# do a serp search for the query
+		conn = http.client.HTTPSConnection('google.serper.dev')
+		payload = json.dumps({'q': query})
+		headers = {'X-API-KEY': SERPER_API_KEY, 'Content-Type': 'application/json'}
+		conn.request('POST', '/search', payload, headers)
+		res = conn.getresponse()
+		data = res.read()
+		serp_data = json.loads(data.decode('utf-8'))
 
-		try:
-			# Make request to Serper API
-			conn = http.client.HTTPSConnection('google.serper.dev')
-			payload = json.dumps({'q': query})
-			headers = {'X-API-KEY': SERPER_API_KEY, 'Content-Type': 'application/json'}
-			conn.request('POST', '/search', payload, headers)
-			res = conn.getresponse()
-			data = res.read()
-			serp_data = json.loads(data.decode('utf-8'))
+		# exclude searchParameters and credits
+		serp_data = {k: v for k, v in serp_data.items() if k not in ['searchParameters', 'credits']}
 
-			# Exclude searchParameters and credits to reduce noise
-			serp_data = {k: v for k, v in serp_data.items() if k not in ['searchParameters', 'credits']}
+		# keep the value of the key "organic"
 
-			# Log the search data for debugging
-			logger.debug(f"SERP search for '{query}': {json.dumps(serp_data, indent=2)}")
+		organic = serp_data.get('organic', [])
+		# remove the key "position"
+		organic = [{k: v for k, v in d.items() if k != 'position'} for d in organic]
 
-			# Convert to string for the agent
-			serp_data_str = json.dumps(serp_data)
+		# print the original data
+		logger.debug(json.dumps(organic, indent=2))
 
-			return ActionResult(extracted_content=serp_data_str, include_in_memory=False)
+		# to string
+		organic_str = json.dumps(organic)
 
-		except Exception as e:
-			logger.error(f'Error in SERP search: {type(e).__name__}: {e}')
-			return ActionResult(extracted_content=f'Search error: {str(e)}', include_in_memory=False)
+		return ActionResult(extracted_content=organic_str, include_in_memory=False)
 
 	return controller
 
@@ -493,10 +490,12 @@ def get_llm(model_name: str):
 		)
 		api_key = None
 
+	temperature = 0.1
+	max_tokens = 8192
 	api_key_secret = SecretStr(api_key) if api_key else None
 	match provider:
 		case 'openai':
-			kwargs = {'model': config['model_name'], 'temperature': 0.0}
+			kwargs = {'model': config['model_name'], 'temperature': temperature, 'max_tokens': max_tokens}
 			# Must set temperatue=1 if model is gpt-o4-mini
 			if model_name == 'gpt-o4-mini':
 				kwargs['temperature'] = 1
@@ -504,17 +503,28 @@ def get_llm(model_name: str):
 				kwargs['api_key'] = api_key_secret
 			return ChatOpenAI(**kwargs)
 		case 'anthropic':
-			kwargs = {'model_name': config['model_name'], 'temperature': 0.0, 'timeout': 100, 'stop': None}
+			kwargs = {
+				'model_name': config['model_name'],
+				'temperature': temperature,
+				'timeout': 100,
+				'stop': None,
+				'max_tokens': max_tokens,
+			}
 			if api_key_secret:
 				kwargs['api_key'] = api_key_secret
 			return ChatAnthropic(**kwargs)
 		case 'google':
-			kwargs = {'model': config['model_name'], 'temperature': 0.0}
+			kwargs = {'model': config['model_name'], 'temperature': temperature, 'max_tokens': max_tokens}
 			if api_key_secret:
 				kwargs['api_key'] = api_key_secret
 			return ChatGoogleGenerativeAI(**kwargs)
 		case 'openai_compatible':
-			kwargs = {'model': config['model_name'], 'base_url': config['base_url'], 'temperature': 0.0}
+			kwargs = {
+				'model': config['model_name'],
+				'base_url': config['base_url'],
+				'temperature': temperature,
+				'max_tokens': max_tokens,
+			}
 			if api_key_secret:
 				kwargs['api_key'] = api_key_secret
 			elif config.get('base_url'):

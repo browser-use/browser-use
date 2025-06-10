@@ -37,7 +37,7 @@ if not SERP_API_KEY:
 controller = Controller(exclude_actions=['search_google'], output_model=PersonList)
 
 
-@controller.registry.action('Search the web for a specific query')
+@controller.registry.action('Search the web for a specific query. Returns a short description and links of the results.')
 async def search_web(query: str):
 	# do a serp search for the query
 	conn = http.client.HTTPSConnection('google.serper.dev')
@@ -51,13 +51,19 @@ async def search_web(query: str):
 	# exclude searchParameters and credits
 	serp_data = {k: v for k, v in serp_data.items() if k not in ['searchParameters', 'credits']}
 
+	# keep the value of the key "organic"
+
+	organic = serp_data.get('organic', [])
+	# remove the key "position"
+	organic = [{k: v for k, v in d.items() if k != 'position'} for d in organic]
+
 	# print the original data
-	logger.debug(json.dumps(serp_data, indent=2))
+	logger.debug(json.dumps(organic, indent=2))
 
 	# to string
-	serp_data_str = json.dumps(serp_data)
+	organic_str = json.dumps(organic)
 
-	return ActionResult(extracted_content=serp_data_str, include_in_memory=False)
+	return ActionResult(extracted_content=organic_str, include_in_memory=False)
 
 
 names = [

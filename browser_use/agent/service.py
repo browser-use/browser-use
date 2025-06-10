@@ -7,7 +7,9 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 import time
+import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from threading import Thread
@@ -18,7 +20,6 @@ from dotenv import load_dotenv
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
 
 load_dotenv()
-
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
 	BaseMessage,
@@ -63,11 +64,12 @@ from browser_use.dom.history_tree_processor.service import (
 	HistoryTreeProcessor,
 )
 from browser_use.exceptions import LLMException
+from browser_use.filesystem.file_system import FileSystem
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import (
 	AgentTelemetryEvent,
 )
-from browser_use.utils import get_browser_use_version, time_execution_async, time_execution_sync
+from browser_use.utils import get_browser_use_version, handle_llm_error, time_execution_async, time_execution_sync
 
 logger = logging.getLogger(__name__)
 
@@ -81,13 +83,14 @@ def log_response(response: AgentOutput, registry=None, logger=None) -> None:
 	if logger is None:
 		logger = logging.getLogger(__name__)
 
-	if 'Success' in response.current_state.evaluation_previous_goal:
+	if 'success' in response.current_state.evaluation_previous_goal.lower():
 		emoji = '👍'
-	elif 'Failed' in response.current_state.evaluation_previous_goal:
+	elif 'failure' in response.current_state.evaluation_previous_goal.lower():
 		emoji = '⚠️'
 	else:
-		emoji = '❓'
+		emoji = '❔'
 
+	logger.info(f'💡 Thinking:\n{response.current_state.thinking}')
 	logger.info(f'{emoji} Eval: {response.current_state.evaluation_previous_goal}')
 	logger.info(f'🧠 Memory: {response.current_state.memory}')
 	logger.info(f'🎯 Next goal: {response.current_state.next_goal}\n')
@@ -167,6 +170,7 @@ class Agent(Generic[Context]):
 		enable_memory: bool = True,
 		memory_config: MemoryConfig | None = None,
 		source: str | None = None,
+		file_system_path: str | None = None,
 	):
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
@@ -215,6 +219,9 @@ class Agent(Generic[Context]):
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
 
+		# Initialize file system
+		self._set_file_system(file_system_path)
+
 		# Action setup
 		self._setup_action_models()
 		self._set_browser_use_version_and_source(source)
@@ -255,6 +262,7 @@ class Agent(Generic[Context]):
 			f'{f" planner_model={self.planner_model_name}" if self.planner_model_name else ""}'
 			f'{" +reasoning" if self.settings.is_planner_reasoning else ""}'
 			f'{" +vision" if self.settings.use_vision_for_planner else ""} '
+			f'{" +file_system" if self.file_system else ""}'
 		)
 
 		# Initialize available actions for system prompt (only non-filtered actions)
@@ -273,6 +281,7 @@ class Agent(Generic[Context]):
 				override_system_message=override_system_message,
 				extend_system_message=extend_system_message,
 			).get_system_message(),
+			file_system=self.file_system,
 			settings=MessageManagerSettings(
 				max_input_tokens=self.settings.max_input_tokens,
 				include_attributes=self.settings.include_attributes,
@@ -435,6 +444,44 @@ class Agent(Generic[Context]):
 	@property
 	def browser_profile(self) -> BrowserProfile:
 		return self.browser_session.browser_profile
+
+	def _set_file_system(self, file_system_path: str | None = None) -> None:
+		# Initialize file system
+		if file_system_path:
+			self.file_system = FileSystem(file_system_path)
+			self.file_system_path = file_system_path
+		else:
+			# create a temporary file system
+			base_tmp = tempfile.gettempdir()  # e.g., /tmp on Unix
+			self.file_system_path = os.path.join(base_tmp, str(uuid.uuid4()))
+			self.file_system = FileSystem(self.file_system_path)
+
+		logger.info(f'💾 File system path: {self.file_system_path}')
+
+		# if file system is set, add actions to the controller
+		@self.controller.registry.action('Write content to file_name in file system')
+		async def write_file(file_name: str, content: str):
+			result = await self.file_system.write_file(file_name, content)
+			logger.info(f'💾 {result}')
+			return ActionResult(extracted_content=result, include_in_memory=True, memory=result)
+
+		@self.controller.registry.action('Append content to file_name in file system')
+		async def append_file(file_name: str, content: str):
+			result = await self.file_system.append_file(file_name, content)
+			logger.info(f'💾 {result}')
+			return ActionResult(extracted_content=result, include_in_memory=True, memory=result)
+
+		@self.controller.registry.action('Read file_name from file system')
+		async def read_file(file_name: str):
+			result = await self.file_system.read_file(file_name)
+			max_len = 50
+			if len(result) > max_len:
+				display_result = result[:max_len] + '\n...'
+			else:
+				display_result = result
+			logger.info(f'💾 {display_result}')
+			memory = result.split('\n')[-1]
+			return ActionResult(extracted_content=result, include_in_memory=True, memory=memory, update_read_state=True)
 
 	def _set_message_context(self) -> str | None:
 		if self.tool_calling_method == 'raw':
@@ -670,8 +717,12 @@ class Agent(Generic[Context]):
 		if self.chat_model_library == 'ChatOpenAI':
 			if any(m in model_lower for m in ['gpt-4', 'gpt-3.5']):
 				return 'function_calling'
-			if any(m in model_lower for m in ['llama']):
-				return 'json_mode'
+			if any(m in model_lower for m in ['llama-4', 'llama-3']):
+				return 'function_calling'
+
+		elif self.chat_model_library == 'ChatGroq':
+			if any(m in model_lower for m in ['llama-4', 'llama-3']):
+				return 'function_calling'
 
 		# Azure OpenAI models
 		elif self.chat_model_library == 'AzureChatOpenAI':
@@ -844,9 +895,11 @@ class Agent(Generic[Context]):
 
 			self._message_manager.add_state_message(
 				browser_state_summary=browser_state_summary,
+				model_output=self.state.last_model_output,
 				result=self.state.last_result,
 				step_info=step_info,
 				use_vision=self.settings.use_vision,
+				page_filtered_actions=page_filtered_actions if page_filtered_actions else None,
 			)
 
 			# Run planner at specified intervals if planner is configured
@@ -913,7 +966,7 @@ class Agent(Generic[Context]):
 				# check again if Ctrl+C was pressed before we commit the output to history
 				await self._raise_if_stopped_or_paused()
 
-				self._message_manager.add_model_output(model_output)
+				# self._message_manager.add_model_output(model_output)
 			except asyncio.CancelledError:
 				# Task was cancelled due to Ctrl+C
 				self._message_manager._remove_last_state_message()
@@ -930,6 +983,7 @@ class Agent(Generic[Context]):
 			result: list[ActionResult] = await self.multi_act(model_output.action)
 
 			self.state.last_result = result
+			self.state.last_model_output = model_output
 
 			if len(result) > 0 and result[-1].is_done:
 				self.logger.info(f'📄 Result: {result[-1].extracted_content}')
@@ -991,9 +1045,11 @@ class Agent(Generic[Context]):
 					f'Cutting tokens from history - new max input tokens: {self._message_manager.settings.max_input_tokens}'
 				)
 				self._message_manager.cut_messages()
-			elif 'Could not parse response' in error_msg:
-				# give model a hint how output should look like
-				error_msg += '\n\nReturn a valid JSON object with the required fields.'
+		elif 'Could not parse response' in error_msg or 'tool_use_failed' in error_msg:
+			# give model a hint how output should look like
+			logger.debug(f'Tool calling method: {self.tool_calling_method} with model: {self.model_name} failed')
+			error_msg += '\n\nReturn a valid JSON object with the required fields.'
+			logger.error(f'{prefix}{error_msg}')
 
 		else:
 			from anthropic import RateLimitError as AnthropicRateLimitError
@@ -1007,8 +1063,8 @@ class Agent(Generic[Context]):
 				AnthropicRateLimitError,  # Anthropic
 			)
 
-			if isinstance(error, RATE_LIMIT_ERRORS):
-				self.logger.warning(f'{prefix}{error_msg}')
+			if isinstance(error, RATE_LIMIT_ERRORS) or 'on tokens per minute (TPM): Limit' in error_msg:
+				logger.warning(f'{prefix}{error_msg}')
 				await asyncio.sleep(self.settings.retry_delay)
 			else:
 				self.logger.error(f'{prefix}{error_msg}')
@@ -1071,7 +1127,7 @@ class Agent(Generic[Context]):
 				response = {'raw': output, 'parsed': None}
 			except Exception as e:
 				self.logger.error(f'Failed to invoke model: {str(e)}')
-				raise LLMException(401, 'LLM API call failed') from e
+				raise LLMException(401, 'LLM API call failed' + str(e)) from e
 			# TODO: currently invoke does not return reasoning_content, we should override invoke
 			output.content = self._remove_think_tags(str(output.content))
 			try:
@@ -1079,8 +1135,8 @@ class Agent(Generic[Context]):
 				parsed = self.AgentOutput(**parsed_json)
 				response['parsed'] = parsed
 			except (ValueError, ValidationError) as e:
-				self.logger.warning(f'Failed to parse model output: {output} {str(e)}')
-				raise ValueError('Could not parse response.')
+				logger.warning(f'Failed to parse model output: {output} {str(e)}')
+				raise ValueError('Could not parse response.' + str(e))
 
 		elif self.tool_calling_method is None:
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True)
@@ -1089,13 +1145,17 @@ class Agent(Generic[Context]):
 				parsed: AgentOutput | None = response['parsed']
 
 			except Exception as e:
-				self.logger.error(f'Failed to invoke model: {str(e)}')
-				raise LLMException(401, 'LLM API call failed') from e
+				response, raw = handle_llm_error(e)
 
 		else:
-			self._log_llm_call_info(input_messages, self.tool_calling_method)
-			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True, method=self.tool_calling_method)
-			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
+			try:
+				self._log_llm_call_info(input_messages, self.tool_calling_method)
+				structured_llm = self.llm.with_structured_output(
+					self.AgentOutput, include_raw=True, method=self.tool_calling_method
+				)
+				response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
+			except Exception as e:
+				response, raw = handle_llm_error(e)
 
 		# Handle tool call responses
 		if response.get('parsing_error') and 'raw' in response:
@@ -1127,11 +1187,11 @@ class Agent(Generic[Context]):
 
 		if not parsed:
 			try:
-				parsed_json = extract_json_from_model_output(response['raw'].content)
+				parsed_json = extract_json_from_model_output(response['raw'])
 				parsed = self.AgentOutput(**parsed_json)
 			except Exception as e:
-				self.logger.warning(f'Failed to parse model output: {response["raw"].content} {str(e)}')
-				raise ValueError('Could not parse response.')
+				logger.warning(f'Failed to parse model output: {response["raw"]} {str(e)}')
+				raise ValueError(f'Could not parse response. {str(e)}')
 
 		# cut the number of actions to max_actions_per_step if needed
 		if len(parsed.action) > self.settings.max_actions_per_step:
@@ -1185,8 +1245,9 @@ class Agent(Generic[Context]):
 						param_summary.append(f'url="{value}"')
 					elif key == 'success':
 						param_summary.append(f'success={value}')
-					elif isinstance(value, (str, int, bool)) and len(str(value)) < 20:
-						param_summary.append(f'{key}={value}')
+					elif isinstance(value, (str, int, bool)):
+						val_str = str(value)[:30] + '...' if len(str(value)) > 30 else str(value)
+						param_summary.append(f'{key}={val_str}')
 
 			param_str = f'({", ".join(param_summary)})' if param_summary else ''
 			action_details.append(f'{action_name}{param_str}')
@@ -1472,6 +1533,13 @@ class Agent(Generic[Context]):
 		await self.browser_session.remove_highlights()
 
 		for i, action in enumerate(actions):
+			# DO NOT ALLOW TO CALL `done` AS A SINGLE ACTION
+			if i > 0 and action.model_dump(exclude_unset=True).get('done') is not None:
+				msg = f'Done action is allowed only as a single action - stopped after action {i} / {len(actions)}.'
+				logger.info(msg)
+				results.append(ActionResult(extracted_content=msg, include_in_memory=True, memory=msg))
+				break
+
 			if action.get_index() is not None and i != 0:
 				new_browser_state_summary = await self.browser_session.get_state_summary(cache_clickable_elements_hashes=False)
 				new_selector_map = new_browser_state_summary.selector_map
@@ -1483,16 +1551,16 @@ class Agent(Generic[Context]):
 				new_target_hash = new_target.hash.branch_path_hash if new_target else None
 				if orig_target_hash != new_target_hash:
 					msg = f'Element index changed after action {i} / {len(actions)}, because page changed.'
-					self.logger.info(msg)
-					results.append(ActionResult(extracted_content=msg, include_in_memory=True))
+					logger.info(msg)
+					results.append(ActionResult(extracted_content=msg, include_in_memory=True, memory=msg))
 					break
 
 				new_path_hashes = {e.hash.branch_path_hash for e in new_selector_map.values()}
 				if check_for_new_elements and not new_path_hashes.issubset(cached_path_hashes):
 					# next action requires index but there are new elements on the page
 					msg = f'Something new appeared after action {i} / {len(actions)}'
-					self.logger.info(msg)
-					results.append(ActionResult(extracted_content=msg, include_in_memory=True))
+					logger.info(msg)
+					results.append(ActionResult(extracted_content=msg, include_in_memory=True, memory=msg))
 					break
 
 			try:
@@ -1501,6 +1569,7 @@ class Agent(Generic[Context]):
 				result = await self.controller.act(
 					action=action,
 					browser_session=self.browser_session,
+					file_system=self.file_system,
 					page_extraction_llm=self.settings.page_extraction_llm,
 					sensitive_data=self.sensitive_data,
 					available_file_paths=self.settings.available_file_paths,
@@ -1571,7 +1640,7 @@ class Agent(Generic[Context]):
 		if not is_valid:
 			self.logger.info(f'❌ Validator decision: {parsed.reason}')
 			msg = f'The output is not yet correct. {parsed.reason}.'
-			self.state.last_result = [ActionResult(extracted_content=msg, include_in_memory=True)]
+			self.state.last_result = [ActionResult(extracted_content=msg, include_in_memory=True, memory=msg)]
 		else:
 			self.logger.info(f'✅ Validator decision: {parsed.reason}')
 		return is_valid
@@ -1846,7 +1915,7 @@ class Agent(Generic[Context]):
 			response = await self.settings.planner_llm.ainvoke(planner_messages)
 		except Exception as e:
 			self.logger.error(f'Failed to invoke planner: {str(e)}')
-			raise LLMException(401, 'LLM API call failed') from e
+			raise LLMException(401, 'LLM API call failed' + str(e)) from e
 
 		plan = str(response.content)
 		# if deepseek-reasoner, remove think tags
