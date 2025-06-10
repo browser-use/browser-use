@@ -161,6 +161,14 @@ Tell your computer what to do, and it gets it done.
 
 We love contributions! Feel free to open issues for bugs or feature requests. To contribute to the docs, check out the `/docs` folder.
 
+
+## 🧪 How to make your agents robust?
+
+We offer to run your tasks in our CI—automatically, on every update!
+
+- **Add your task:** Add a YAML file in `tests/agent_tasks/` (see the [`README there`](tests/agent_tasks/README.md) for details).
+- **Automatic validation:** Every time we push updates, your task will be run by the agent and evaluated using your criteria.
+
 ## Local Setup
 
 To learn more about the library, check out the [local setup 📕](https://docs.browser-use.com/development/local-setup).

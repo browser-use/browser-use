@@ -25,7 +25,6 @@ except ImportError:
 import langchain_anthropic
 import langchain_google_genai
 import langchain_openai
-from patchright.async_api import async_playwright
 
 try:
 	import readline
@@ -41,14 +40,13 @@ os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'result'
 from browser_use import Agent, Controller
 from browser_use.agent.views import AgentSettings
 from browser_use.browser import BrowserSession
-from browser_use.browser.profile import BrowserChannel
 from browser_use.logging_config import addLoggingLevel
 
 # Paths
 USER_CONFIG_DIR = Path.home() / '.config' / 'browseruse'
 USER_CONFIG_FILE = USER_CONFIG_DIR / 'config.json'
 CHROME_PROFILES_DIR = USER_CONFIG_DIR / 'profiles'
-USER_DATA_DIR = CHROME_PROFILES_DIR / 'default'
+USER_DATA_DIR = CHROME_PROFILES_DIR / 'cli'
 
 # Default User settings
 MAX_HISTORY_LENGTH = 100
@@ -1178,7 +1176,11 @@ async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
 
 		# Create browser session with config parameters
 		browser_config = config.get('browser', {})
-		browser_session = BrowserSession(stealth=True, **browser_config)
+		browser_session = BrowserSession(
+			stealth=True,
+			user_data_dir=USER_DATA_DIR,
+			**browser_config,
+		)
 
 		# Create and run agent
 		agent = Agent(
@@ -1238,10 +1240,9 @@ async def textual_interface(config: dict[str, Any]):
 
 		# Create BrowserSession directly with config parameters
 		browser_session = BrowserSession(
+			stealth=True,
+			user_data_dir=USER_DATA_DIR,
 			**browser_config,
-			playwright=(await async_playwright().start()),
-			channel=BrowserChannel.CHROME,
-			user_data_dir='~/.browseruse/profiles/default/cli',
 		)
 		logger.debug('BrowserSession initialized successfully')
 

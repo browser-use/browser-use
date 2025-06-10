@@ -1,6 +1,8 @@
 name: test
 permissions:
   contents: read
+  pull-requests: write  # Allow writing comments on PRs
+  issues: write         # Allow writing comments on issues
 
 on:
   push:
@@ -39,6 +41,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       IN_DOCKER: 'True'
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
     strategy:
       matrix:
         test_filename: ${{ fromJson(needs.find_tests.outputs.TEST_FILENAMES || '["FAILED_TO_DISCOVER_TESTS"]') }}
@@ -79,3 +86,115 @@ jobs:
       - run: playwright install chromium
 
       - run: pytest --numprocesses auto -x tests/ci/${{ matrix.test_filename }}.py
+
+  evaluate-tasks:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          activate-environment: true
+
+      - run: uv sync --dev
+
+      - name: Detect installed Playwright version
+        run: echo "PLAYWRIGHT_VERSION=$(uv pip list --format json | jq -r '.[] | select(.name == "playwright") | .version')" >> $GITHUB_ENV
+
+      - name: Cache playwright binaries
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ env.PLAYWRIGHT_VERSION }}
+
+      - run: playwright install chromium
+
+      - name: Run agent tasks evaluation and capture score
+        id: eval
+        run: |
+          python tests/ci/evaluate_tasks.py > result.txt
+          cat result.txt
+          echo "PASSED=$(grep '^PASSED=' result.txt | cut -d= -f2)" >> $GITHUB_ENV
+          echo "TOTAL=$(grep '^TOTAL=' result.txt | cut -d= -f2)" >> $GITHUB_ENV
+          echo "DETAILED_RESULTS=$(grep '^DETAILED_RESULTS=' result.txt | cut -d= -f2-)" >> $GITHUB_ENV
+
+      - name: Print agent evaluation summary
+        run: |
+          echo "Agent tasks passed: $PASSED / $TOTAL"
+
+      - name: Write agent evaluation summary to workflow overview
+        run: |
+          if [ "$PASSED" = "$TOTAL" ]; then
+            COLOR="green"
+          else
+            COLOR="yellow"
+          fi
+          echo "<h2>Agent Tasks Score: <span style='color:$COLOR;'>$PASSED/$TOTAL</span></h2>" >> $GITHUB_STEP_SUMMARY
+
+      - name: Comment PR with agent evaluation results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const passed = parseInt(process.env.PASSED);
+            const total = parseInt(process.env.TOTAL);
+            const detailedResults = JSON.parse(process.env.DETAILED_RESULTS);
+            const score = `${passed}/${total}`;
+            const percentage = Math.round((passed / total) * 100);
+            
+            // Create detailed table
+            let tableRows = '';
+            detailedResults.forEach(result => {
+              const emoji = result.success ? '✅' : '❌';
+              const status = result.success ? 'Pass' : 'Fail';
+              tableRows += `| ${result.task} | ${emoji} ${status} | ${result.reason} |\n`;
+            });
+            
+            const comment = `## Agent Task Evaluation Results: ${score} (${percentage}%)
+            
+            <details>
+            <summary>View detailed results</summary>
+            
+            | Task | Result | Reason |
+            |------|--------|--------|
+            ${tableRows}
+            
+            Check the [evaluate-tasks job](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for detailed task execution logs.
+            </details>`;
+            
+            // Find existing comment to update or create new one
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('Agent Task Evaluation Results')
+            );
+            
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: comment
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            }

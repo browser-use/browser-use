@@ -7,7 +7,7 @@ on:
 jobs:
   run_evaluation:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 60
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -18,21 +18,23 @@ jobs:
       EVALUATION_TOOL_URL: ${{ secrets.EVALUATION_TOOL_URL }}
       EVALUATION_TOOL_SECRET_KEY: ${{ secrets.EVALUATION_TOOL_SECRET_KEY }}
       ANCHOR_BROWSER_API_KEY: ${{ secrets.ANCHOR_BROWSER_API_KEY }}
+      SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
 
     steps:
-      - name: Determine branch to checkout
-        id: determine_branch
+      - name: Determine ref to checkout
+        id: determine_ref
         run: |
-          # Use the branch from client_payload or default to main
-          BRANCH="${{ github.event.client_payload.branch }}"
-          BRANCH="${BRANCH:-main}"
-          echo "BRANCH=$BRANCH" >> $GITHUB_OUTPUT
-          echo "::notice title=Branch Selection::Will checkout and run evaluation on branch: $BRANCH"
+          # Use the ref from client_payload or default to main
+          # This can be a branch name, tag, commit SHA, or any valid Git ref
+          REF="${{ github.event.client_payload.ref }}"
+          REF="${REF:-main}"
+          echo "REF=$REF" >> $GITHUB_OUTPUT
+          echo "::notice title=Ref Selection::Will checkout and run evaluation on ref: $REF"
 
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.determine_branch.outputs.BRANCH }}
+          ref: ${{ steps.determine_ref.outputs.REF }}
 
       - name: Set up Python and uv
         uses: astral-sh/setup-uv@v6
@@ -126,6 +128,7 @@ jobs:
           USER_MESSAGE="${{ github.event.client_payload.script_args.user_message }}"
           DEVELOPER_ID="${{ github.event.client_payload.script_args.developer_id }}"
           PLANNER_MODEL="${{ github.event.client_payload.script_args.planner_model }}"
+          RUN_ID="${{ github.event.client_payload.script_args.run_id }}"
 
           # Build command using array for cleaner construction
           CMD_ARGS=(
@@ -150,11 +153,13 @@ jobs:
           [[ "${{ github.event.client_payload.script_args.use_serp }}" == "true" ]] && CMD_ARGS+=("--use-serp")
           [[ "${{ github.event.client_payload.script_args.enable_memory }}" == "true" ]] && CMD_ARGS+=("--enable-memory")
           [[ "${{ github.event.client_payload.script_args.validate_output }}" == "true" ]] && CMD_ARGS+=("--validate-output")
+          [[ "${{ github.event.client_payload.script_args.include_result }}" == "true" ]] && CMD_ARGS+=("--include-result")
 
           # Add optional string parameters
           [[ -n "$USER_MESSAGE" ]] && CMD_ARGS+=("--user-message" "$USER_MESSAGE")
           [[ -n "$DEVELOPER_ID" ]] && CMD_ARGS+=("--developer-id" "$DEVELOPER_ID")
           [[ -n "$PLANNER_MODEL" ]] && CMD_ARGS+=("--planner-model" "$PLANNER_MODEL")
+          [[ -n "$RUN_ID" ]] && CMD_ARGS+=("--run-id" "$RUN_ID")
 
           # Convert array to command string with proper escaping
           printf -v CMD_STRING '%q ' "${CMD_ARGS[@]}"

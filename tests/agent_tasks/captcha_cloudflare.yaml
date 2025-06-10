@@ -1,0 +1,6 @@
+name: Cloudflare captcha
+task: Go to https://2captcha.com/demo/cloudflare-turnstile and solve the captcha, wait a few seconds, then click on check, wait a few more seconds for it to complete, then extract the "hostname" value from the displayed dictionary under "Captcha is passed successfully!"
+judge_context:
+  - The agent must solve the captcha
+  - The hostname returned should be "example.com"
+max_steps: 6

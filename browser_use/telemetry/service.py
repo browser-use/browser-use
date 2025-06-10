@@ -72,8 +72,6 @@ class ProductTelemetry:
 		if self._posthog_client is None:
 			return
 
-		if self.debug_logging:
-			logger.debug(f'Telemetry event: {event.name} {event.properties}')
 		self._direct_capture(event)
 
 	def _direct_capture(self, event: BaseTelemetryEvent) -> None:

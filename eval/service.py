@@ -410,6 +410,19 @@ SUPPORTED_MODELS = {
 		'base_url': 'https://api.groq.com/openai/v1',
 		'api_key_env': 'GROQ_API_KEY',
 	},
+	# SambaNova
+	'deepseek-r1-sambanova': {
+		'provider': 'openai_compatible',
+		'model_name': 'DeepSeek-R1',
+		'base_url': 'https://api.sambanova.ai/v1',
+		'api_key_env': 'SAMBANOVA_API_KEY',
+	},
+	'llama-4-maverick-sambanova': {
+		'provider': 'openai_compatible',
+		'model_name': 'Llama-4-Maverick-17B-128E-Instruct',
+		'base_url': 'https://api.sambanova.ai/v1',
+		'api_key_env': 'SAMBANOVA_API_KEY',
+	},
 }
 
 # Check for SERPER API key
@@ -518,7 +531,12 @@ def clean_action_dict(action_dict: dict) -> dict:
 
 
 async def reformat_agent_history(
-	agent_history: AgentHistoryList, task_id: str, run_id: str, task: str, base_path: str = 'saved_trajectories'
+	agent_history: AgentHistoryList,
+	task_id: str,
+	run_id: str,
+	task: str,
+	base_path: str = 'saved_trajectories',
+	include_result: bool = False,
 ) -> dict:
 	# Update directory name
 	task_dir = Path(base_path) / task_id
@@ -607,6 +625,10 @@ async def reformat_agent_history(
 				except (ValueError, TypeError) as e:
 					logger.warning(f'Could not calculate task duration due to invalid timestamp format: {e}')
 
+	# Conditionally include the final result in action history
+	if include_result and final_result and final_result.strip():
+		action_history = action_history + [final_result]
+
 	# Create results structure with new fields
 	results = {
 		'task_id': task_id,
@@ -633,16 +655,43 @@ async def reformat_agent_history(
 
 
 class Task:
-	def __init__(self, task_id, confirmed_task, website=None, reference_length=None, level=None, cluster_id=None):
+	def __init__(self, task_id, confirmed_task, **kwargs):
+		# Validate required fields
+		if not task_id:
+			raise ValueError('task_id is required and cannot be empty')
+		if not confirmed_task:
+			raise ValueError('confirmed_task is required and cannot be empty')
+
+		# Set required fields
 		self.task_id = task_id
 		self.confirmed_task = confirmed_task
-		self.website = website
-		self.reference_length = reference_length
-		self.level = level
-		self.cluster_id = cluster_id
+
+		# Set optional fields dynamically
+		# Known optional fields with defaults
+		self.website = kwargs.get('website', None)
+		self.reference_length = kwargs.get('reference_length', None)
+		self.level = kwargs.get('level', None)
+		self.cluster_id = kwargs.get('cluster_id', None)
+		self.login_cookie = kwargs.get('login_cookie', None)
+		self.login_type = kwargs.get('login_type', None)
+		self.category = kwargs.get('category', None)
+
+		# Store any additional optional fields
+		known_fields = {'website', 'reference_length', 'level', 'cluster_id', 'login_cookie', 'login_type', 'category'}
+		self.additional_fields = {k: v for k, v in kwargs.items() if k not in known_fields}
+
+		# Make all additional fields accessible as attributes
+		for key, value in self.additional_fields.items():
+			setattr(self, key, value)
 
 	def __str__(self):
-		return f'Task(task_id={self.task_id}, confirmed_task={self.confirmed_task}, website={self.website}, reference_length={self.reference_length}, level={self.level}, cluster_id={self.cluster_id})'
+		# Include main fields and indicate if there are additional fields
+		base_str = f'Task(task_id={self.task_id}, confirmed_task={self.confirmed_task}, website={self.website}, reference_length={self.reference_length}, level={self.level}, cluster_id={self.cluster_id}, login_cookie={self.login_cookie}, login_type={self.login_type}, category={self.category}'
+		if self.additional_fields:
+			additional_str = ', '.join(f'{k}={v}' for k, v in self.additional_fields.items())
+			base_str += f', {additional_str}'
+		base_str += ')'
+		return base_str
 
 	def __repr__(self):
 		return self.__str__()
@@ -1141,6 +1190,7 @@ async def run_task_with_semaphore(
 	validate_output: bool = False,
 	planner_llm: BaseChatModel | None = None,
 	planner_interval: int = 1,
+	include_result: bool = False,
 ) -> dict:
 	"""Clean pipeline approach for running tasks"""
 	logger.info(f'Task {task.task_id}: Waiting to acquire semaphore (current value: ~{semaphore_runs._value})')
@@ -1223,7 +1273,9 @@ async def run_task_with_semaphore(
 							logger.info(f'Task {task.task_id}: History formatting starting.')
 							formatted_data = await run_stage(
 								Stage.FORMAT_HISTORY,
-								lambda: reformat_agent_history(agent_history, task.task_id, run_id, task.confirmed_task),
+								lambda: reformat_agent_history(
+									agent_history, task.task_id, run_id, task.confirmed_task, include_result=include_result
+								),
 							)
 							task_result.stage_completed(Stage.FORMAT_HISTORY, formatted_data)
 							logger.info(f'Task {task.task_id}: Agent history formatted.')
@@ -1378,6 +1430,7 @@ async def run_multiple_tasks(
 	validate_output: bool = False,
 	planner_llm: BaseChatModel | None = None,
 	planner_interval: int = 1,
+	include_result: bool = False,
 ) -> dict:
 	"""
 	Run multiple tasks in parallel and evaluate results.
@@ -1410,6 +1463,7 @@ async def run_multiple_tasks(
 				validate_output=validate_output,
 				planner_llm=planner_llm,
 				planner_interval=planner_interval,
+				include_result=include_result,
 			)
 			for task in tasks_to_run
 		),
@@ -1528,7 +1582,7 @@ def get_git_info():
 
 
 # Helper function to start a new run on the server
-def start_new_run(convex_url: str, secret_key: str, run_details: dict):
+def start_new_run(convex_url: str, secret_key: str, run_details: dict, existing_run_id: str = None):
 	"""Sends a request to start a new evaluation run and returns the run ID."""
 	if not convex_url or not secret_key:
 		logger.error('Error: Convex URL or Secret Key not provided for starting run.')
@@ -1540,13 +1594,18 @@ def start_new_run(convex_url: str, secret_key: str, run_details: dict):
 		'Content-Type': 'application/json',
 	}
 
+	# Add existing_run_id to the payload if provided
+	payload = run_details.copy()
+	if existing_run_id:
+		payload['runId'] = existing_run_id
+
 	logger.info(f'Sending request to start run at {endpoint_url}...')
 	# Avoid logging secret key in run_details if it were ever passed
-	loggable_details = {k: v for k, v in run_details.items() if k != 'secret_key'}
+	loggable_details = {k: v for k, v in payload.items() if k != 'secret_key'}
 	logger.info(f'Run details: {json.dumps(loggable_details, indent=2)}')
 
 	try:
-		response = requests.post(endpoint_url, headers=headers, json=run_details)
+		response = requests.post(endpoint_url, headers=headers, json=payload)
 		logger.info(f'Start Run Status Code: {response.status_code}')
 
 		if response.status_code == 200:
@@ -1665,6 +1724,17 @@ if __name__ == '__main__':
 	parser.add_argument(
 		'--test-case', type=str, default='OnlineMind2Web', help='Name of the test case to fetch (default: OnlineMind2Web)'
 	)
+	parser.add_argument(
+		'--run-id',
+		type=str,
+		default=None,
+		help='Existing run ID to continue adding results to (if not provided, a new run will be started)',
+	)
+	parser.add_argument(
+		'--include-result',
+		action='store_true',
+		help='Include result flag (functionality to be implemented)',
+	)
 	args = parser.parse_args()
 
 	# Set up logging - Make sure logger is configured before use in fetch function
@@ -1735,16 +1805,20 @@ if __name__ == '__main__':
 		try:
 			tasks = [Task(**task_data) for task_data in fetched_task_data]
 			logger.info(f'Successfully loaded {len(tasks)} tasks from the server.')
-		except TypeError as e:
+		except (TypeError, ValueError) as e:
 			logger.error(
-				f'Error creating Task objects from fetched data. Ensure the data structure includes required fields (task_id, confirmed_task). Optional fields: website, reference_length, level, cluster_id. Error: {type(e).__name__}: {e}'
+				f'Error creating Task objects from fetched data. Ensure the data structure includes required fields (task_id, confirmed_task). Known optional fields: website, reference_length, level, cluster_id, login_cookie, login_type, category. Any additional fields will be accepted dynamically. Error: {type(e).__name__}: {e}'
 			)
 			logger.error(f'First item in fetched data: {fetched_task_data[0] if fetched_task_data else "None"}')
 			exit(1)
 		# -----------------------------
 
-		# --- Start Run on Server ---
-		logger.info('Attempting to start a new run on the server...')
+		# --- Start Run on Server (with optional existing Run ID) ---
+		if args.run_id:
+			logger.info(f'Initializing existing run ID: {args.run_id} with git info...')
+		else:
+			logger.info('Attempting to start a new run on the server...')
+
 		git_info = get_git_info()
 
 		# Collect additional data from args to store with the run
@@ -1757,6 +1831,15 @@ if __name__ == '__main__':
 			'use_vision': not args.no_vision,
 			'task_source': args.test_case,
 			'llm_judge': args.eval_model,
+			'fresh_start': args.fresh_start,
+			'use_serp': args.use_serp,
+			'enable_memory': args.enable_memory,
+			'memory_interval': args.memory_interval,
+			'max_actions_per_step': args.max_actions_per_step,
+			'validate_output': args.validate_output,
+			'planner_model': args.planner_model,
+			'planner_interval': args.planner_interval,
+			'include_result': args.include_result,
 		}
 
 		run_data = {
@@ -1773,10 +1856,10 @@ if __name__ == '__main__':
 			'additionalData': additional_run_data,
 		}
 
-		run_id = start_new_run(CONVEX_URL, SECRET_KEY, run_data)
+		run_id = start_new_run(CONVEX_URL, SECRET_KEY, run_data, existing_run_id=args.run_id)
 
 		if not run_id:
-			logger.error('Failed to start a new run on the server. Exiting.')
+			logger.error('Failed to start/initialize run on the server. Exiting.')
 			exit(1)
 
 		logger.info(f'Successfully obtained run ID: {run_id}. Proceeding with tasks...')
@@ -1868,6 +1951,7 @@ if __name__ == '__main__':
 				validate_output=args.validate_output,
 				planner_llm=planner_llm,
 				planner_interval=args.planner_interval,
+				include_result=args.include_result,
 			)
 		)
 
