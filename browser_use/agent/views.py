@@ -130,6 +130,7 @@ class AgentBrain(BaseModel):
 	evaluation_previous_goal: str
 	memory: str
 	next_goal: str
+	reasoning_task_status: str
 
 
 class AgentOutput(BaseModel):
