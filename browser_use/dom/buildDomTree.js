@@ -863,6 +863,17 @@
     return false
   }
 
+  /**
+   *  Helper to check if rectA is almost fully contained in rectB (allowing for px tolerance)
+   */ 
+  function isRectContained(rectA, rectB, tolerance = 10) {
+    return (
+      rectA.left >= rectB.left - tolerance &&
+      rectA.right <= rectB.right + tolerance &&
+      rectA.top >= rectB.top - tolerance &&
+      rectA.bottom <= rectB.bottom + tolerance
+    );
+  }
 
   /**
    * Checks if an element is the topmost element at its position.
@@ -921,17 +932,7 @@
 
         const topElRects = getCachedClientRects(topEl);
         const elementRects = getCachedClientRects(element);
-        
-        // Helper to check if rectA is almost fully contained in rectB (allowing for 1px tolerance)
-        function isRectContained(rectA, rectB, tolerance = 10) {
-          return (
-            rectA.left >= rectB.left - tolerance &&
-            rectA.right <= rectB.right + tolerance &&
-            rectA.top >= rectB.top - tolerance &&
-            rectA.bottom <= rectB.bottom + tolerance
-          );
-        }
-        
+                
         // Only return true if both topEl and element have exactly one rect,
         // and the topEl rect is contained in the element rect
         if (
@@ -960,6 +961,19 @@
     try {
       const topEl = document.elementFromPoint(centerX, centerY);
       if (!topEl) return false;
+
+      const topElRects = getCachedClientRects(topEl);
+      const elementRects = getCachedClientRects(element);
+              
+      // Only return true if both topEl and element have exactly one rect,
+      // and the topEl rect is contained in the element rect
+      if (
+        topElRects.length === 1 &&
+        elementRects.length === 1 &&
+        isRectContained(topElRects[0], elementRects[0])
+      ) {
+        return true;
+      }
 
       let current = topEl;
       while (current && current !== document.documentElement) {
