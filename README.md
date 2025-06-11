@@ -10,8 +10,8 @@
 [![Discord](https://img.shields.io/discord/1303749220842340412?color=7289DA&label=Discord&logo=discord&logoColor=white)](https://link.browser-use.com/discord)
 [![Cloud](https://img.shields.io/badge/Cloud-☁️-blue)](https://cloud.browser-use.com)
 [![Documentation](https://img.shields.io/badge/Documentation-📕-blue)](https://docs.browser-use.com)
-[![Twitter Follow](https://img.shields.io/twitter/follow/Gregor?style=social)](https://x.com/gregpr07)
-[![Twitter Follow](https://img.shields.io/twitter/follow/Magnus?style=social)](https://x.com/mamagnus00)
+[![Twitter Follow](https://img.shields.io/twitter/follow/Gregor?style=social)](https://x.com/intent/user?screen_name=gregpr07)
+[![Twitter Follow](https://img.shields.io/twitter/follow/Magnus?style=social)](https://x.com/intent/user?screen_name=mamagnus00)
 [![Weave Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fapp.workweave.ai%2Fapi%2Frepository%2Fbadge%2Forg_T5Pvn3UBswTHIsN1dWS3voPg%2F881458615&labelColor=#EC6341)](https://app.workweave.ai/reports/repository/org_T5Pvn3UBswTHIsN1dWS3voPg/881458615)
 
 🌐 Browser-use is the easiest way to connect your AI agents with the browser.
@@ -34,19 +34,19 @@ For memory functionality (requires Python<3.13 due to PyTorch compatibility):
 pip install "browser-use[memory]"
 ```
 
-Install Patchright:
+Install the browser:
 ```bash
-patchright install chromium
+playwright install chromium --with-deps --no-shell
 ```
 
 Spin up your agent:
 
 ```python
-from langchain_openai import ChatOpenAI
-from browser_use import Agent
 import asyncio
 from dotenv import load_dotenv
 load_dotenv()
+from browser_use import Agent
+from langchain_openai import ChatOpenAI
 
 async def main():
     agent = Agent(
@@ -65,7 +65,7 @@ OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
 AZURE_OPENAI_ENDPOINT=
 AZURE_OPENAI_KEY=
-GEMINI_API_KEY=
+GOOGLE_API_KEY=
 DEEPSEEK_API_KEY=
 GROK_API_KEY=
 NOVITA_API_KEY=
@@ -79,10 +79,11 @@ You can test browser-use using its [Web UI](https://github.com/browser-use/web-u
 
 ### Test with an interactive CLI
 
-You can also use our interactive CLI (similar to `claude` code):
+You can also use our `browser-use` interactive CLI (similar to `claude` code):
 
 ```bash
-$ browser-use
+pip install browser-use[cli]
+browser-use
 ```
 
 # Demos
@@ -91,13 +92,13 @@ $ browser-use
 
 [Task](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/shopping.py): Add grocery items to cart, and checkout.
 
-[![AI Did My Groceries](https://github.com/user-attachments/assets/d9359085-bde6-41d4-aa4e-6520d0221872)](https://www.youtube.com/watch?v=L2Ya9PYNns8)
+[![AI Did My Groceries](https://github.com/user-attachments/assets/a0ffd23d-9a11-4368-8893-b092703abc14)](https://www.youtube.com/watch?v=L2Ya9PYNns8)
 
 <br/><br/>
 
 Prompt: Add my latest LinkedIn follower to my leads in Salesforce.
 
-![LinkedIn to Salesforce](https://github.com/user-attachments/assets/1440affc-a552-442e-b702-d0d3b277b0ae)
+![LinkedIn to Salesforce](https://github.com/user-attachments/assets/50d6e691-b66b-4077-a46c-49e9d4707e07)
 
 <br/><br/>
 
@@ -160,6 +161,14 @@ Tell your computer what to do, and it gets it done.
 
 We love contributions! Feel free to open issues for bugs or feature requests. To contribute to the docs, check out the `/docs` folder.
 
+
+## 🧪 How to make your agents robust?
+
+We offer to run your tasks in our CI—automatically, on every update!
+
+- **Add your task:** Add a YAML file in `tests/agent_tasks/` (see the [`README there`](tests/agent_tasks/README.md) for details).
+- **Automatic validation:** Every time we push updates, your task will be run by the agent and evaluated using your criteria.
+
 ## Local Setup
 
 To learn more about the library, check out the [local setup 📕](https://docs.browser-use.com/development/local-setup).
@@ -189,8 +198,8 @@ If you use Browser Use in your research or project, please cite:
 
  <div align="center"> <img src="https://github.com/user-attachments/assets/06fa3078-8461-4560-b434-445510c1766f" width="400"/> 
  
-[![Twitter Follow](https://img.shields.io/twitter/follow/Gregor?style=social)](https://x.com/gregpr07)
-[![Twitter Follow](https://img.shields.io/twitter/follow/Magnus?style=social)](https://x.com/mamagnus00)
+[![Twitter Follow](https://img.shields.io/twitter/follow/Gregor?style=social)](https://x.com/intent/user?screen_name=gregpr07)
+[![Twitter Follow](https://img.shields.io/twitter/follow/Magnus?style=social)](https://x.com/intent/user?screen_name=mamagnus00)
  
  </div>
 

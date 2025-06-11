@@ -1,12 +1,18 @@
-import discord
-from discord.ext import commands
-from dotenv import load_dotenv
-from langchain_core.language_models.chat_models import BaseChatModel
+import os
+import sys
 
-from browser_use import BrowserConfig
-from browser_use.agent.service import Agent, Browser
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+
+from dotenv import load_dotenv
 
 load_dotenv()
+
+import discord
+from discord.ext import commands
+from langchain_core.language_models.chat_models import BaseChatModel
+
+from browser_use.agent.service import Agent
+from browser_use.browser import BrowserProfile, BrowserSession
 
 
 class DiscordBot(commands.Bot):
@@ -20,7 +26,7 @@ class DiscordBot(commands.Bot):
 	    llm (BaseChatModel): Language model instance to use for task processing
 	    prefix (str, optional): Command prefix for triggering browser tasks. Defaults to "$bu"
 	    ack (bool, optional): Whether to acknowledge task receipt with a message. Defaults to False
-	    browser_config (BrowserConfig, optional): Browser configuration settings.
+	    browser_profile (BrowserProfile, optional): Browser profile settings.
 	        Defaults to headless mode
 
 	Usage:
@@ -42,12 +48,12 @@ class DiscordBot(commands.Bot):
 		llm: BaseChatModel,
 		prefix: str = '$bu',
 		ack: bool = False,
-		browser_config: BrowserConfig = BrowserConfig(headless=True),
+		browser_profile: BrowserProfile = BrowserProfile(headless=True),
 	):
 		self.llm = llm
 		self.prefix = prefix.strip()
 		self.ack = ack
-		self.browser_config = browser_config
+		self.browser_profile = browser_profile
 
 		# Define intents.
 		intents = discord.Intents.default()
@@ -100,8 +106,8 @@ class DiscordBot(commands.Bot):
 
 	async def run_agent(self, task: str) -> str:
 		try:
-			browser = Browser(config=self.browser_config)
-			agent = Agent(task=(task), llm=self.llm, browser=browser)
+			browser_session = BrowserSession(browser_profile=self.browser_profile)
+			agent = Agent(task=(task), llm=self.llm, browser_session=browser_session)
 			result = await agent.run()
 
 			agent_message = None

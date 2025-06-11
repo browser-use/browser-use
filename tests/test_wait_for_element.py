@@ -14,8 +14,7 @@ from langchain_openai import ChatOpenAI
 from browser_use import Agent, Controller
 
 # Local imports
-from browser_use.browser.browser import Browser, BrowserConfig
-from browser_use.browser.context import BrowserContext
+from browser_use.browser import BrowserProfile, BrowserSession
 
 # Load environment variables.
 load_dotenv()
@@ -35,33 +34,35 @@ async def test_wait_for_element():
 		# {'wait_for_element': {'selector': '#search', 'timeout': 30}},
 	]
 
-	# Set up the browser context.
-	context = BrowserContext(
-		browser=Browser(config=BrowserConfig(headless=False, disable_security=True)),
-	)
+	# Set up the browser session.
+	browser_session = BrowserSession(browser_profile=BrowserProfile(headless=True, disable_security=True))
+	await browser_session.start()
 
-	# Create the agent with the task.
-	agent = Agent(
-		task="Wait for element '#search' to be visible with a timeout of 30 seconds.",
-		llm=llm,
-		browser_context=context,
-		initial_actions=initial_actions,
-		controller=controller,
-	)
+	try:
+		# Create the agent with the task.
+		agent = Agent(
+			task="Wait for element '#search' to be visible with a timeout of 30 seconds.",
+			llm=llm,
+			browser_session=browser_session,
+			initial_actions=initial_actions,
+			controller=controller,
+		)
 
-	# Run the agent for a few steps to trigger navigation and then the wait action.
-	history = await agent.run(max_steps=3)
-	action_names = history.action_names()
+		# Run the agent for a few steps to trigger navigation and then the wait action.
+		history = await agent.run(max_steps=3)
+		action_names = history.action_names()
 
-	# Ensure that the wait_for_element action was executed.
-	assert 'wait_for_element' in action_names, 'Expected wait_for_element action to be executed.'
+		# Ensure that the wait_for_element action was executed.
+		assert 'wait_for_element' in action_names, 'Expected wait_for_element action to be executed.'
 
-	# Verify that the #search element is visible by querying the page.
-	page = await context.get_current_page()
-	header_handle = await page.query_selector('#search')
-	assert header_handle is not None, 'Expected to find a #search element on the page.'
-	is_visible = await header_handle.is_visible()
-	assert is_visible, 'Expected the #search element to be visible.'
+		# Verify that the #search element is visible by querying the page.
+		page = await browser_session.get_current_page()
+		header_handle = await page.query_selector('#search')
+		assert header_handle is not None, 'Expected to find a #search element on the page.'
+		is_visible = await header_handle.is_visible()
+		assert is_visible, 'Expected the #search element to be visible.'
+	finally:
+		await browser_session.stop()
 
 
 if __name__ == '__main__':

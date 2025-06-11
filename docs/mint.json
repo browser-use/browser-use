@@ -77,7 +77,7 @@
     },
     {
       "group": "Cloud API",
-      "pages": ["cloud/quickstart", "cloud/implementation"]
+      "pages": ["cloud/quickstart", "cloud/implementation", "cloud/webhooks"]
     }
   ],
   "footerSocials": {

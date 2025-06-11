@@ -77,8 +77,8 @@ def setup_logging():
 
 	class BrowserUseFormatter(logging.Formatter):
 		def format(self, record):
-			if isinstance(record.name, str) and record.name.startswith('browser_use.'):
-				record.name = record.name.split('.')[-2]
+			# if isinstance(record.name, str) and record.name.startswith('browser_use.'):
+			# 	record.name = record.name.split('.')[-2]
 			return super().format(record)
 
 	# Setup single handler for all loggers
@@ -110,8 +110,8 @@ def setup_logging():
 
 	logger = logging.getLogger('browser_use')
 	# logger.info('BrowserUse logging setup complete with level %s', log_type)
-	# Silence third-party loggers
-	for logger in [
+	# Silence or adjust third-party loggers
+	third_party_loggers = [
 		'WDM',
 		'httpx',
 		'selenium',
@@ -119,6 +119,8 @@ def setup_logging():
 		'urllib3',
 		'asyncio',
 		'langchain',
+		'langsmith',
+		'langsmith.client',
 		'openai',
 		'httpcore',
 		'charset_normalizer',
@@ -126,7 +128,14 @@ def setup_logging():
 		'PIL.PngImagePlugin',
 		'trafilatura.htmlprocessing',
 		'trafilatura',
-	]:
-		third_party = logging.getLogger(logger)
+		'mem0',
+		'mem0.vector_stores.faiss',
+		'mem0.vector_stores',
+		'mem0.memory',
+	]
+	for logger_name in third_party_loggers:
+		third_party = logging.getLogger(logger_name)
 		third_party.setLevel(logging.ERROR)
 		third_party.propagate = False
+
+	return logger

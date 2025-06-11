@@ -8,33 +8,32 @@ To test this locally, follow these steps:
 3. Open a web browser and navigate to `http://localhost:9222/json/version` to verify that the Remote Debugging Protocol (CDP) is running.
 4. Launch this example.
 
-@dev You need to set the `GEMINI_API_KEY` environment variable before proceeding.
+@dev You need to set the `GOOGLE_API_KEY` environment variable before proceeding.
 """
 
+import asyncio
 import os
 import sys
 
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
 from dotenv import load_dotenv
-from pydantic import SecretStr
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import asyncio
-
-from langchain_google_genai import ChatGoogleGenerativeAI
-
-from browser_use import Agent, Controller
-from browser_use.browser.browser import Browser, BrowserConfig
 
 load_dotenv()
-api_key = os.getenv('GEMINI_API_KEY')
-if not api_key:
-	raise ValueError('GEMINI_API_KEY is not set')
 
-browser = Browser(
-	config=BrowserConfig(
-		headless=False,
-		cdp_url='http://localhost:9222',
-	)
+from langchain_google_genai import ChatGoogleGenerativeAI
+from pydantic import SecretStr
+
+from browser_use import Agent, Controller
+from browser_use.browser import BrowserSession
+
+api_key = os.getenv('GOOGLE_API_KEY')
+if not api_key:
+	raise ValueError('GOOGLE_API_KEY is not set')
+
+browser_session = BrowserSession(
+	headless=False,
+	cdp_url='http://localhost:9222',
 )
 controller = Controller()
 
@@ -42,16 +41,16 @@ controller = Controller()
 async def main():
 	task = 'In docs.google.com write my Papa a quick thank you for everything letter \n - Magnus'
 	task += ' and save the document as pdf'
-	model = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=SecretStr(str(api_key)))
+	model = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=SecretStr(api_key))
 	agent = Agent(
 		task=task,
 		llm=model,
 		controller=controller,
-		browser=browser,
+		browser_session=browser_session,
 	)
 
 	await agent.run()
-	await browser.close()
+	await browser_session.close()
 
 	input('Press Enter to close...')
 

@@ -15,12 +15,33 @@ The Browser Use Cloud API lets you create and manage browser automation agents p
 
 ## Pricing
 
-The Browser Use Cloud API is priced at <b>$0.05 per step</b> that the agent executes.
+The Browser Use Cloud API pricing consists of two components:
 
-<Note>
-  Since Browser Use can execute multiple steps at the same time, the price for
-  filling out forms is much lower than other services.
-</Note>
+1. **Task Initialization Cost**: $0.01 per started task
+2. **Task Step Cost**: Additional cost based on the specific model used for each step
+
+### LLM Model Step Pricing
+
+The following table shows the total cost per step for each available LLM model:
+
+| Model                          | Cost per Step |
+| ------------------------------ | ------------- |
+| GPT-4o                         | $0.03         |
+| GPT-4.1                        | $0.03         |
+| Claude 3.7 Sonnet (2025-02-19) | $0.03         |
+| GPT-4o mini                    | $0.01         |
+| GPT-4.1 mini                   | $0.01         |
+| Gemini 2.0 Flash               | $0.01         |
+| Gemini 2.0 Flash Lite          | $0.01         |
+| Llama 4 Maverick               | $0.01         |
+
+### Example Cost Calculation
+
+For example, using GPT-4o for a 10 step task:
+
+- Task initialization: $0.01
+- 10 steps × $0.03 per step
+- Total cost: $0.31
 
 ## Creating Your First Agent
 

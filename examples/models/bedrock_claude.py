@@ -11,14 +11,18 @@ import asyncio
 import os
 import sys
 
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import boto3
 from botocore.config import Config
 from langchain_aws import ChatBedrockConverse
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from browser_use import Agent
-from browser_use.browser.browser import Browser, BrowserConfig
+from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.controller.service import Controller
 
 
@@ -48,24 +52,23 @@ args = parser.parse_args()
 
 llm = get_llm()
 
-browser = Browser(
-	config=BrowserConfig(
-		# browser_binary_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-	)
+browser_profile = BrowserProfile(
+	# executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 )
+browser_session = BrowserSession(browser_profile=browser_profile)
 
 agent = Agent(
 	task=args.query,
 	llm=llm,
 	controller=Controller(),
-	browser=browser,
+	browser_session=browser_session,
 	validate_output=True,
 )
 
 
 async def main():
 	await agent.run(max_steps=30)
-	await browser.close()
+	await browser_session.close()
 
 
 asyncio.run(main())

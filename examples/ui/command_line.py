@@ -18,15 +18,15 @@ import os
 import sys
 
 # Ensure local repository (browser_use) is accessible
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from dotenv import load_dotenv
 
-from browser_use import Agent
-from browser_use.browser.browser import Browser, BrowserConfig
-from browser_use.controller.service import Controller
-
 load_dotenv()
+
+from browser_use import Agent
+from browser_use.browser import BrowserSession
+from browser_use.controller.service import Controller
 
 
 def get_llm(provider: str):
@@ -71,27 +71,27 @@ def initialize_agent(query: str, provider: str):
 	"""Initialize the browser agent with the given query and provider."""
 	llm = get_llm(provider)
 	controller = Controller()
-	browser = Browser(config=BrowserConfig())
+	browser_session = BrowserSession()
 
 	return Agent(
 		task=query,
 		llm=llm,
 		controller=controller,
-		browser=browser,
+		browser_session=browser_session,
 		use_vision=True,
 		max_actions_per_step=1,
-	), browser
+	), browser_session
 
 
 async def main():
 	"""Main async function to run the agent."""
 	args = parse_arguments()
-	agent, browser = initialize_agent(args.query, args.provider)
+	agent, browser_session = initialize_agent(args.query, args.provider)
 
 	await agent.run(max_steps=25)
 
 	input('Press Enter to close the browser...')
-	await browser.close()
+	await browser_session.close()
 
 
 if __name__ == '__main__':

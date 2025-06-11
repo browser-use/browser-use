@@ -1,4 +1,0 @@
-environment:
-- OPENAI_API_KEY=empty
-- AZURE_OPENAI_KEY=empty
-from: pytest

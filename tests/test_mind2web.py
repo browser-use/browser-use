@@ -2,7 +2,6 @@
 Test browser automation using Mind2Web dataset tasks with pytest framework.
 """
 
-import asyncio
 import json
 import os
 from typing import Any
@@ -12,7 +11,7 @@ from langchain_openai import AzureChatOpenAI
 from pydantic import SecretStr
 
 from browser_use.agent.service import Agent
-from browser_use.browser.browser import Browser, BrowserConfig
+from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.utils import logger
 
 # Constants
@@ -20,31 +19,19 @@ MAX_STEPS = 50
 TEST_SUBSET_SIZE = 10
 
 
-@pytest.fixture(scope='session')
-def event_loop():
-	loop = asyncio.get_event_loop_policy().new_event_loop()
-	yield loop
-	loop.close()
-
-
-@pytest.fixture(scope='session')
-async def browser(event_loop):
-	browser_instance = Browser(
-		config=BrowserConfig(
+@pytest.fixture
+async def browser_session():
+	browser_session = BrowserSession(
+		browser_profile=BrowserProfile(
 			headless=True,
 		)
 	)
-	yield browser_instance
-	await browser_instance.close()
+	await browser_session.start()
+	yield browser_session
+	await browser_session.stop()
 
 
 @pytest.fixture
-async def context(browser):
-	async with await browser.new_context() as new_context:
-		yield new_context
-
-
-@pytest.fixture(scope='session')
 def test_cases() -> list[dict[str, Any]]:
 	"""Load test cases from Mind2Web dataset"""
 	file_path = os.path.join(os.path.dirname(__file__), 'mind2web_data/processed.json')
@@ -72,8 +59,7 @@ def llm():
 
 
 # run with: pytest -s -v tests/test_mind2web.py:test_random_samples
-@pytest.mark.asyncio
-async def test_random_samples(test_cases: list[dict[str, Any]], llm, context, validator):
+async def test_random_samples(test_cases: list[dict[str, Any]], llm, browser_session):
 	"""Test a random sampling of tasks across different websites"""
 	import random
 
@@ -87,7 +73,7 @@ async def test_random_samples(test_cases: list[dict[str, Any]], llm, context, va
 		logger.info(f'--- Random Sample {i}/{len(samples)} ---')
 		logger.info(f'Task: {task}\n')
 
-		agent = Agent(task, llm, browser_context=context)
+		agent = Agent(task, llm, browser_session=browser_session)
 
 		await agent.run()
 

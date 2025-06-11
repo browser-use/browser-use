@@ -1,0 +1,84 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+## 🧠 General Guidelines for Contributing to `browser-use`
+
+**Browser-Use** is an AI agent that autonomously interacts with the web. It takes a user-defined task, navigates web pages using Chromium via Playwright, processes HTML, and repeatedly queries a language model (like `gpt-4o`) to decide the next action—until the task is completed.
+
+### 🗂️ File Documentation
+
+When you create a **new file**:
+
+* **For humans**: At the top of the file, include a docstring in natural language explaining:
+
+  * What this file does.
+  * How it fits into the browser-use system.
+  * If it introduces a new abstraction or replaces an old one.
+* **For LLMs/AI**: Include structured metadata using standardized comments such as:
+
+  ```python
+  # @file purpose: Defines <purpose>
+  ```
+
+---
+
+### 🧰 Development Rules
+
+* ✅ **Always use [`uv`](mdc:https:/github.com/astral-sh/uv) instead of `pip`**
+  For deterministic and fast dependency installs.
+
+```bash
+uv venv --python 3.11
+source .venv/bin/activate
+uv sync
+```
+
+* ✅ **Use real model names**
+  Do **not** replace `gpt-4o` with `gpt-4`. The model `gpt-4o` is a distinct release and supported.
+
+* ✅ **Type-safe coding**
+  Use **Pydantic v2 models** for all internal action schemas, task inputs/outputs, and controller I/O. This ensures robust validation and LLM-call integrity.
+
+---
+
+## ⚙️ Adding New Actions
+
+To add a new action that your browser agent can execute:
+
+```python
+from playwright.async_api import Page
+from browser_use.core.controller import Controller, ActionResult
+
+controller = Controller()
+
+@controller.registry.action("Search the web for a specific query")
+async def search_web(query: str, page: Page):
+    # Implement your logic here, e.g., query a search engine and return results
+    result = ...
+    return ActionResult(extracted_content=result, include_in_memory=True)
+```
+
+### Notes:
+
+* Use descriptive names and docstrings for each action.
+* Prefer returning `ActionResult` with structured content to help the agent reason better.
+
+---
+
+## 🧠 Creating and Running an Agent
+
+To define a task and run a browser-use agent:
+
+```python
+from browser_use import Agent
+from langchain.chat_models import ChatOpenAI
+
+task = "Find the CEO of OpenAI and return their name"
+model = ChatOpenAI(model="gpt-4o")
+
+agent = Agent(task=task, llm=model, controller=controller)
+
+history = await agent.run()
+```

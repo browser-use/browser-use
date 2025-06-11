@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock
 
 import pytest
-from patchright.async_api import Page
+from playwright.async_api import Page
 from pydantic import BaseModel
 
 from browser_use.controller.registry.service import Registry

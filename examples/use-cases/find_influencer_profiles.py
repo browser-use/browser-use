@@ -4,25 +4,23 @@ Show how to use custom outputs.
 @dev You need to add OPENAI_API_KEY to your environment variables.
 """
 
+import asyncio
 import json
 import os
 import sys
 
-import httpx
-
-from browser_use.agent.views import ActionResult
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import asyncio
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from dotenv import load_dotenv
+
+load_dotenv()
+
+import httpx
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 from browser_use import Agent, Controller
-
-load_dotenv()
+from browser_use.agent.views import ActionResult
 
 
 class Profile(BaseModel):

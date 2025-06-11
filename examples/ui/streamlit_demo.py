@@ -9,18 +9,17 @@ import asyncio
 import os
 import sys
 
-import streamlit as st
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
 from dotenv import load_dotenv
 
-# Ensure local repository (browser_use) is accessible
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+load_dotenv()
+
+import streamlit as st
 
 from browser_use import Agent
-from browser_use.browser.browser import Browser, BrowserConfig
+from browser_use.browser import BrowserSession
 from browser_use.controller.service import Controller
-
-# Load environment variables
-load_dotenv()
 
 if os.name == 'nt':
 	asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -55,16 +54,16 @@ def get_llm(provider: str):
 def initialize_agent(query: str, provider: str):
 	llm = get_llm(provider)
 	controller = Controller()
-	browser = Browser(config=BrowserConfig())
+	browser_session = BrowserSession()
 
 	return Agent(
 		task=query,
 		llm=llm,
 		controller=controller,
-		browser=browser,
+		browser_session=browser_session,
 		use_vision=True,
 		max_actions_per_step=1,
-	), browser
+	), browser_session
 
 
 # Streamlit UI
@@ -75,7 +74,7 @@ provider = st.radio('Select LLM Provider:', ['openai', 'anthropic'], index=0)
 
 if st.button('Run Agent'):
 	st.write('Initializing agent...')
-	agent, browser = initialize_agent(query, provider)
+	agent, browser_session = initialize_agent(query, provider)
 
 	async def run_agent():
 		with st.spinner('Running automation...'):
@@ -84,4 +83,4 @@ if st.button('Run Agent'):
 
 	asyncio.run(run_agent())
 
-	st.button('Close Browser', on_click=lambda: asyncio.run(browser.close()))
+	st.button('Close Browser', on_click=lambda: asyncio.run(browser_session.close()))

@@ -1,18 +1,23 @@
-.DS_Store
-
 # Cache files
+.DS_Store
 __pycache__/
 *.py[cod]
 *$py.class
 .mypy_cache/
-.ruff_cache
+.ruff_cache/
+.pytest_cache/
 .ipynb_checkpoints
+~/
 
-# VirtualEnvironments
-.venv
+# Virtual Environments
+.venv*
 venv/
-.vscode
 
+# IDEs
+.vscode/
+.idea/
+
+# Build files
 dist/
 
 # Data files
@@ -22,6 +27,8 @@ dist/
 *.csv
 *.json
 *.jsonl
+*.log
+*.bak
 
 # Secrets and sensitive files
 secrets.env
@@ -34,5 +41,8 @@ AgentHistory.json
 AgentHistoryList.json
 private_example.py
 private_example
+CLAUDE.local.md
 
 uv.lock
+temp
+tmp

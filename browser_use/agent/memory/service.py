@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
+import warnings
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
@@ -14,8 +16,6 @@ from browser_use.agent.memory.views import MemoryConfig
 from browser_use.agent.message_manager.service import MessageManager
 from browser_use.agent.message_manager.views import ManagedMessage, MessageMetadata
 from browser_use.utils import time_execution_sync
-
-logger = logging.getLogger(__name__)
 
 
 class Memory:
@@ -33,9 +33,11 @@ class Memory:
 		message_manager: MessageManager,
 		llm: BaseChatModel,
 		config: MemoryConfig | None = None,
+		logger: logging.Logger | None = None,
 	):
 		self.message_manager = message_manager
 		self.llm = llm
+		self.logger = logger or logging.getLogger(__name__)
 
 		# Initialize configuration with defaults based on the LLM if not provided
 		if config is None:
@@ -57,7 +59,7 @@ class Memory:
 				self.config.embedder_dims = 512
 		else:
 			# Ensure LLM instance is set in the config
-			self.config = MemoryConfig(config)  # re-validate user-provided config
+			self.config = MemoryConfig.model_validate(config)  # revalidate using Pydantic
 			self.config.llm_instance = llm
 
 		# Check for required packages
@@ -72,14 +74,40 @@ class Memory:
 		if self.config.embedder_provider == 'huggingface':
 			try:
 				# check that required package is installed if huggingface is used
-				from sentence_transformers import SentenceTransformer  # noqa: F401
+				from sentence_transformers import SentenceTransformer  # noqa: F401 # type: ignore
 			except ImportError:
 				raise ImportError(
 					'sentence_transformers is required when enable_memory=True and embedder_provider="huggingface". Please install it with `pip install sentence-transformers`.'
 				)
 
 		# Initialize Mem0 with the configuration
-		self.mem0 = Mem0Memory.from_config(config_dict=self.config.full_config_dict)
+		with warnings.catch_warnings():
+			warnings.filterwarnings('ignore', category=DeprecationWarning)
+			try:
+				self.mem0 = Mem0Memory.from_config(config_dict=self.config.full_config_dict)
+			except Exception as e:
+				if 'history_old' in str(e) and 'sqlite3.OperationalError' in str(type(e)):
+					# Handle the migration error by using a unique history database path
+					import tempfile
+					import uuid
+
+					self.logger.warning(
+						f'⚠️ Mem0 SQLite migration error detected in {self.config.full_config_dict}. Using a temporary database to avoid conflicts.\n{type(e).__name__}: {e}'
+					)
+					# Create a unique temporary database path
+					temp_dir = tempfile.gettempdir()
+					unique_id = str(uuid.uuid4())[:8]
+					history_db_path = os.path.join(temp_dir, f'browser_use_mem0_history_{unique_id}.db')
+
+					# Add the history_db_path to the config
+					config_with_history_path = self.config.full_config_dict.copy()
+					config_with_history_path['history_db_path'] = history_db_path
+
+					# Try again with the new config
+					self.mem0 = Mem0Memory.from_config(config_dict=config_with_history_path)
+				else:
+					# Re-raise if it's a different error
+					raise
 
 	@time_execution_sync('--create_procedural_memory')
 	def create_procedural_memory(self, current_step: int) -> None:
@@ -89,7 +117,7 @@ class Memory:
 		Args:
 		    current_step: The current step number of the agent
 		"""
-		logger.info(f'Creating procedural memory at step {current_step}')
+		self.logger.debug(f'📜 Creating procedural memory at step {current_step}')
 
 		# Get all messages
 		all_messages = self.message_manager.state.history.messages
@@ -108,13 +136,22 @@ class Memory:
 
 		# Need at least 2 messages to create a meaningful summary
 		if len(messages_to_process) <= 1:
-			logger.info('Not enough non-memory messages to summarize')
+			self.logger.debug('📜 Not enough non-memory messages to summarize')
 			return
-		# Create a procedural memory
-		memory_content = self._create([m.message for m in messages_to_process], current_step)
+		# Create a procedural memory with timeout
+		try:
+			with ThreadPoolExecutor(max_workers=1) as executor:
+				future = executor.submit(self._create, [m.message for m in messages_to_process], current_step)
+				memory_content = future.result(timeout=5)
+		except TimeoutError:
+			self.logger.warning('📜 Procedural memory creation timed out after 30 seconds')
+			return
+		except Exception as e:
+			self.logger.error(f'📜 Error during procedural memory creation: {e}')
+			return
 
 		if not memory_content:
-			logger.warning('Failed to create procedural memory')
+			self.logger.warning('📜 Failed to create procedural memory')
 			return
 
 		# Replace the processed messages with the consolidated memory
@@ -132,7 +169,7 @@ class Memory:
 		self.message_manager.state.history.messages = new_messages
 		self.message_manager.state.history.current_tokens -= removed_tokens
 		self.message_manager.state.history.current_tokens += memory_tokens
-		logger.info(f'Messages consolidated: {len(messages_to_process)} messages converted to procedural memory')
+		self.logger.info(f'📜 History consolidated: {len(messages_to_process)} steps converted to long-term memory')
 
 	def _create(self, messages: list[BaseMessage], current_step: int) -> str | None:
 		parsed_messages = convert_to_openai_messages(messages)
@@ -147,5 +184,5 @@ class Memory:
 				return results.get('results', [])[0].get('memory')
 			return None
 		except Exception as e:
-			logger.error(f'Error creating procedural memory: {e}')
+			self.logger.error(f'📜 Error creating procedural memory: {e}')
 			return None

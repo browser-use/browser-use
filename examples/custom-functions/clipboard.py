@@ -1,22 +1,23 @@
+import asyncio
 import os
 import sys
 
-from browser_use.agent.views import ActionResult
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import asyncio
+from dotenv import load_dotenv
+
+load_dotenv()
 
 import pyperclip
 from langchain_openai import ChatOpenAI
+from playwright.async_api import Page
 
 from browser_use import Agent, Controller
-from browser_use.browser.browser import Browser, BrowserConfig
-from browser_use.browser.context import BrowserContext
+from browser_use.agent.views import ActionResult
+from browser_use.browser import BrowserProfile, BrowserSession
 
-browser = Browser(
-	config=BrowserConfig(
-		headless=False,
-	)
+browser_profile = BrowserProfile(
+	headless=False,
 )
 controller = Controller()
 
@@ -28,10 +29,9 @@ def copy_to_clipboard(text: str):
 
 
 @controller.registry.action('Paste text from clipboard')
-async def paste_from_clipboard(browser: BrowserContext):
+async def paste_from_clipboard(page: Page):
 	text = pyperclip.paste()
 	# send text to browser
-	page = await browser.get_current_page()
 	await page.keyboard.type(text)
 
 	return ActionResult(extracted_content=text)
@@ -40,15 +40,17 @@ async def paste_from_clipboard(browser: BrowserContext):
 async def main():
 	task = 'Copy the text "Hello, world!" to the clipboard, then go to google.com and paste the text'
 	model = ChatOpenAI(model='gpt-4o')
+	browser_session = BrowserSession(browser_profile=browser_profile)
+	await browser_session.start()
 	agent = Agent(
 		task=task,
 		llm=model,
 		controller=controller,
-		browser=browser,
+		browser_session=browser_session,
 	)
 
 	await agent.run()
-	await browser.close()
+	await browser_session.stop()
 
 	input('Press Enter to close...')
 

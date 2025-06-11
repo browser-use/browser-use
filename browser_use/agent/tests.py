@@ -7,7 +7,7 @@ from browser_use.agent.views import (
 	AgentHistoryList,
 	AgentOutput,
 )
-from browser_use.browser.views import BrowserState, BrowserStateHistory, TabInfo
+from browser_use.browser.views import BrowserStateHistory, BrowserStateSummary, TabInfo
 from browser_use.controller.registry.service import Registry
 from browser_use.controller.views import ClickElementAction, DoneAction, ExtractPageContentAction
 from browser_use.dom.views import DOMElementNode
@@ -15,7 +15,7 @@ from browser_use.dom.views import DOMElementNode
 
 @pytest.fixture
 def sample_browser_state():
-	return BrowserState(
+	return BrowserStateSummary(
 		url='https://example.com',
 		title='Example Page',
 		tabs=[TabInfo(url='https://example.com', title='Example Page', page_id=1)],
