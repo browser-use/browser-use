@@ -16,15 +16,14 @@ from playwright.async_api import FrameLocator as PlaywrightFrameLocator
 from playwright.async_api import Page as PlaywrightPage
 from playwright.async_api import Playwright as _Playwright
 from playwright.async_api import async_playwright as _async_playwright
-from pydantic import InstanceOf
 
 # Define types to be Union[Patchright, Playwright]
-Browser = InstanceOf[PatchrightBrowser] | InstanceOf[PlaywrightBrowser]
-BrowserContext = InstanceOf[PatchrightBrowserContext] | InstanceOf[PlaywrightBrowserContext]
-Page = InstanceOf[PatchrightPage] | InstanceOf[PlaywrightPage]
-ElementHandle = InstanceOf[PatchrightElementHandle] | InstanceOf[PlaywrightElementHandle]
-FrameLocator = InstanceOf[PatchrightFrameLocator] | InstanceOf[PlaywrightFrameLocator]
-PlaywrightOrPatchright = InstanceOf[_Patchright] | InstanceOf[_Playwright]
+Browser = PatchrightBrowser | PlaywrightBrowser
+BrowserContext = PatchrightBrowserContext | PlaywrightBrowserContext
+Page = PatchrightPage | PlaywrightPage
+ElementHandle = PatchrightElementHandle | PlaywrightElementHandle
+FrameLocator = PatchrightFrameLocator | PlaywrightFrameLocator
+PlaywrightOrPatchright = _Patchright | _Playwright
 
 async_patchright = _async_patchright
 async_playwright = _async_playwright
