@@ -77,8 +77,8 @@ def setup_logging():
 
 	class BrowserUseFormatter(logging.Formatter):
 		def format(self, record):
-			if isinstance(record.name, str) and record.name.startswith('browser_use.'):
-				record.name = record.name.split('.')[-2]
+			# if isinstance(record.name, str) and record.name.startswith('browser_use.'):
+			# 	record.name = record.name.split('.')[-2]
 			return super().format(record)
 
 	# Setup single handler for all loggers

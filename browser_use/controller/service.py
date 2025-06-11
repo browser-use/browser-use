@@ -86,7 +86,7 @@ class Controller(Generic[Context]):
 			search_url = f'https://www.google.com/search?q={params.query}&udm=14'
 
 			page = await browser_session.get_current_page()
-			if page.url in ('about:blank', 'https://www.google.com'):
+			if page.url.strip('/') == 'https://www.google.com':
 				await page.goto(search_url)
 				await page.wait_for_load_state()
 			else:
@@ -128,8 +128,24 @@ class Controller(Generic[Context]):
 		async def click_element_by_index(params: ClickElementAction, browser_session: BrowserSession):
 			# Browser is now a BrowserSession itself
 
-			if params.index not in await browser_session.get_selector_map():
-				raise Exception(f'Element with index {params.index} does not exist - retry or use alternative actions')
+			# Check if element exists in current selector map
+			selector_map = await browser_session.get_selector_map()
+			if params.index not in selector_map:
+				# Force a state refresh in case the cache is stale
+				logger.info(f'Element with index {params.index} not found in selector map, refreshing state...')
+				await browser_session.get_state_summary(
+					cache_clickable_elements_hashes=True
+				)  # This will refresh the cached state
+				selector_map = await browser_session.get_selector_map()
+
+				if params.index not in selector_map:
+					# Return informative message with the new state instead of error
+					max_index = max(selector_map.keys()) if selector_map else -1
+					return ActionResult(
+						extracted_content=f'Element with index {params.index} does not exist. Page has {len(selector_map)} interactive elements (indices 0-{max_index}). State has been refreshed - please use the updated element indices.',
+						include_in_memory=True,
+						success=False,
+					)
 
 			element_node = await browser_session.get_dom_element_by_index(params.index)
 			initial_pages = len(browser_session.tabs)
@@ -138,7 +154,7 @@ class Controller(Generic[Context]):
 			if await browser_session.find_file_upload_element_by_index(params.index) is not None:
 				msg = f'Index {params.index} - has an element which opens file upload dialog. To upload files please use a specific function to upload files '
 				logger.info(msg)
-				return ActionResult(extracted_content=msg, include_in_memory=True)
+				return ActionResult(extracted_content=msg, include_in_memory=True, success=False)
 
 			msg = None
 
@@ -158,8 +174,17 @@ class Controller(Generic[Context]):
 					await browser_session.switch_to_tab(-1)
 				return ActionResult(extracted_content=msg, include_in_memory=True)
 			except Exception as e:
-				logger.warning(f'Element not clickable with index {params.index} - most likely the page changed')
-				return ActionResult(error=str(e))
+				error_msg = str(e)
+				if 'Execution context was destroyed' in error_msg or 'Cannot find context with specified id' in error_msg:
+					# Page navigated during click - refresh state and return it
+					logger.info('Page context changed during click, refreshing state...')
+					await browser_session.get_state_summary(cache_clickable_elements_hashes=True)
+					return ActionResult(
+						error='Page navigated during click. Refreshed state provided.', include_in_memory=True, success=False
+					)
+				else:
+					logger.warning(f'Element not clickable with index {params.index} - most likely the page changed')
+					return ActionResult(error=error_msg, success=False)
 
 		@self.registry.action(
 			'Input text into a input interactive element',
@@ -232,19 +257,37 @@ class Controller(Generic[Context]):
 			page_extraction_llm: BaseChatModel,
 			include_links: bool = False,
 		):
+			from functools import partial
+
 			import markdownify
 
 			strip = []
 			if not include_links:
 				strip = ['a', 'img']
 
-			content = markdownify.markdownify(await page.content(), strip=strip)
+			# Run markdownify in a thread pool to avoid blocking the event loop
+			loop = asyncio.get_event_loop()
+			page_html = await page.content()
+			markdownify_func = partial(markdownify.markdownify, strip=strip)
+			content = await loop.run_in_executor(None, markdownify_func, page_html)
 
 			# manually append iframe text into the content so it's readable by the LLM (includes cross-origin iframes)
 			for iframe in page.frames:
+				try:
+					await iframe.wait_for_load_state(timeout=5000)  # extra on top of already loaded page
+				except Exception as e:
+					pass
+
 				if iframe.url != page.url and not iframe.url.startswith('data:'):
 					content += f'\n\nIFRAME {iframe.url}:\n'
-					content += markdownify.markdownify(await iframe.content())
+					# Run markdownify in a thread pool for iframe content as well
+					try:
+						iframe_html = await iframe.content()
+						iframe_markdown = await loop.run_in_executor(None, markdownify_func, iframe_html)
+					except Exception as e:
+						logger.debug(f'Error extracting iframe content from within page {page.url}: {type(e).__name__}: {e}')
+						iframe_markdown = ''
+					content += iframe_markdown
 
 			prompt = 'Your task is to extract the content of the page. You will be given a page and a goal and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format. Extraction goal: {goal}, Page: {page}'
 			template = PromptTemplate(input_variables=['goal', 'page'], template=prompt)

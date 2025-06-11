@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import warnings
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
@@ -15,8 +16,6 @@ from browser_use.agent.memory.views import MemoryConfig
 from browser_use.agent.message_manager.service import MessageManager
 from browser_use.agent.message_manager.views import ManagedMessage, MessageMetadata
 from browser_use.utils import time_execution_sync
-
-logger = logging.getLogger(__name__)
 
 
 class Memory:
@@ -34,9 +33,11 @@ class Memory:
 		message_manager: MessageManager,
 		llm: BaseChatModel,
 		config: MemoryConfig | None = None,
+		logger: logging.Logger | None = None,
 	):
 		self.message_manager = message_manager
 		self.llm = llm
+		self.logger = logger or logging.getLogger(__name__)
 
 		# Initialize configuration with defaults based on the LLM if not provided
 		if config is None:
@@ -73,7 +74,7 @@ class Memory:
 		if self.config.embedder_provider == 'huggingface':
 			try:
 				# check that required package is installed if huggingface is used
-				from sentence_transformers import SentenceTransformer  # noqa: F401
+				from sentence_transformers import SentenceTransformer  # noqa: F401 # type: ignore
 			except ImportError:
 				raise ImportError(
 					'sentence_transformers is required when enable_memory=True and embedder_provider="huggingface". Please install it with `pip install sentence-transformers`.'
@@ -90,7 +91,7 @@ class Memory:
 					import tempfile
 					import uuid
 
-					logger.warning(
+					self.logger.warning(
 						f'⚠️ Mem0 SQLite migration error detected in {self.config.full_config_dict}. Using a temporary database to avoid conflicts.\n{type(e).__name__}: {e}'
 					)
 					# Create a unique temporary database path
@@ -116,7 +117,7 @@ class Memory:
 		Args:
 		    current_step: The current step number of the agent
 		"""
-		logger.debug(f'Creating procedural memory at step {current_step}')
+		self.logger.debug(f'📜 Creating procedural memory at step {current_step}')
 
 		# Get all messages
 		all_messages = self.message_manager.state.history.messages
@@ -135,13 +136,22 @@ class Memory:
 
 		# Need at least 2 messages to create a meaningful summary
 		if len(messages_to_process) <= 1:
-			logger.debug('Not enough non-memory messages to summarize')
+			self.logger.debug('📜 Not enough non-memory messages to summarize')
 			return
-		# Create a procedural memory
-		memory_content = self._create([m.message for m in messages_to_process], current_step)
+		# Create a procedural memory with timeout
+		try:
+			with ThreadPoolExecutor(max_workers=1) as executor:
+				future = executor.submit(self._create, [m.message for m in messages_to_process], current_step)
+				memory_content = future.result(timeout=5)
+		except TimeoutError:
+			self.logger.warning('📜 Procedural memory creation timed out after 30 seconds')
+			return
+		except Exception as e:
+			self.logger.error(f'📜 Error during procedural memory creation: {e}')
+			return
 
 		if not memory_content:
-			logger.warning('Failed to create procedural memory')
+			self.logger.warning('📜 Failed to create procedural memory')
 			return
 
 		# Replace the processed messages with the consolidated memory
@@ -159,7 +169,7 @@ class Memory:
 		self.message_manager.state.history.messages = new_messages
 		self.message_manager.state.history.current_tokens -= removed_tokens
 		self.message_manager.state.history.current_tokens += memory_tokens
-		logger.info(f'Messages consolidated: {len(messages_to_process)} messages converted to procedural memory')
+		self.logger.info(f'📜 History consolidated: {len(messages_to_process)} steps converted to long-term memory')
 
 	def _create(self, messages: list[BaseMessage], current_step: int) -> str | None:
 		parsed_messages = convert_to_openai_messages(messages)
@@ -174,5 +184,5 @@ class Memory:
 				return results.get('results', [])[0].get('memory')
 			return None
 		except Exception as e:
-			logger.error(f'Error creating procedural memory: {e}')
+			self.logger.error(f'📜 Error creating procedural memory: {e}')
 			return None

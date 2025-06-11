@@ -618,10 +618,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	def __repr__(self) -> str:
 		short_dir = _log_pretty_path(self.user_data_dir) if self.user_data_dir else '<incognito>'
-		return f'BrowserProfile[{self.id[-4:]}](user_data_dir= {short_dir}, headless={self.headless})'
+		return f'BrowserProfile#{self.id[-4:]}(user_data_dir= {short_dir}, headless={self.headless})'
 
 	def __str__(self) -> str:
-		return f'BrowserProfile[{self.id[-4:]}]'
+		return f'BrowserProfile#{self.id[-4:]}'
 
 	@model_validator(mode='after')
 	def copy_old_config_names_to_new(self) -> Self:

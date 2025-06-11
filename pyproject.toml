@@ -160,6 +160,6 @@ dev-dependencies = [
     "codespell>=2.4.1",
     "pyright>=1.1.399",
     "ty>=0.0.1a1",
-    "pytest-playwright-asyncio>=0.7.0",
+    # "pytest-playwright-asyncio>=0.7.0",  # not actually needed I think
     "pytest-xdist>=3.7.0",
 ]

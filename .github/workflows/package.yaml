@@ -33,6 +33,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.11", "3.13"]
+    env:
+      ANONYMIZED_TELEMETRY: 'false'
 
     steps:
       - uses: actions/checkout@v4

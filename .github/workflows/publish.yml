@@ -67,6 +67,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       IN_DOCKER: 'True'
+      ANONYMIZED_TELEMETRY: 'false'
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6

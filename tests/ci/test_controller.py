@@ -268,17 +268,14 @@ class TestControllerIntegration:
 	async def test_error_handling(self, controller, browser_session):
 		"""Test error handling when an action fails."""
 		# Create an action with an invalid index
-		invalid_action = {'click_element_by_index': ClickElementAction(index=9999)}
+		invalid_action = {'click_element_by_index': ClickElementAction(index=999)}  # doesn't exist on page
 
 		class ClickActionModel(ActionModel):
 			click_element_by_index: ClickElementAction | None = None
 
 		# This should fail since the element doesn't exist
-		with pytest.raises(Exception) as excinfo:
-			await controller.act(ClickActionModel(**invalid_action), browser_session)
-
-		# Verify that an appropriate error is raised
-		assert 'does not exist' in str(excinfo.value) or 'Element with index' in str(excinfo.value)
+		result = await controller.act(ClickActionModel(**invalid_action), browser_session)
+		assert result.success is False
 
 	async def test_wait_action(self, controller, browser_session):
 		"""Test that the wait action correctly waits for the specified duration."""

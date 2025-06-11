@@ -570,6 +570,7 @@ class TestBrowserSessionReusePatterns:
 		# Skip verification by setting these attributes
 		mock._verified_api_keys = True
 		mock._verified_tool_calling_method = 'raw'
+		mock.model_name = 'mock-llm'
 
 		# Mock the invoke method to return a proper response
 		def mock_invoke(*args, **kwargs):
@@ -595,7 +596,12 @@ class TestBrowserSessionReusePatterns:
 			return response
 
 		mock.invoke = mock_invoke
-		mock.ainvoke = MagicMock(side_effect=mock_invoke)
+
+		# Create an async version of the mock_invoke
+		async def mock_ainvoke(*args, **kwargs):
+			return mock_invoke(*args, **kwargs)
+
+		mock.ainvoke = mock_ainvoke
 
 		return mock
 
@@ -645,7 +651,12 @@ class TestBrowserSessionReusePatterns:
 			return response
 
 		mock.invoke = mock_invoke
-		mock.ainvoke = MagicMock(side_effect=mock_invoke)
+
+		# Create an async version of the mock_invoke
+		async def mock_ainvoke(*args, **kwargs):
+			return mock_invoke(*args, **kwargs)
+
+		mock.ainvoke = mock_ainvoke
 
 		return mock
 
@@ -736,7 +747,7 @@ class TestBrowserSessionReusePatterns:
 		finally:
 			await reused_session.kill()
 
-	async def test_parallel_agents_same_browser_multiple_tabs(self):
+	async def test_parallel_agents_same_browser_multiple_tabs(self, httpserver):
 		"""Test Parallel Agents, Same Browser, Multiple Tabs pattern"""
 		import tempfile
 
@@ -761,12 +772,17 @@ class TestBrowserSessionReusePatterns:
 		)
 
 		try:
+			# Set up httpserver
+			httpserver.expect_request('/').respond_with_data('<html><body>Test page</body></html>')
+			test_url = httpserver.url_for('/')
+
 			# Start the session before passing it to agents
 			await shared_browser.start()
 
 			# Create action sequences for each agent
 			# Each agent creates a new tab then completes
-			tab_creation_action = """
+			tab_creation_action = (
+				"""
 			{
 				"current_state": {
 					"evaluation_previous_goal": "Starting the task",
@@ -776,12 +792,14 @@ class TestBrowserSessionReusePatterns:
 				"action": [
 					{
 						"open_tab": {
-							"url": "https://example.com"
+							"url": "%s"
 						}
 					}
 				]
 			}
 			"""
+				% test_url
+			)
 
 			done_action = """
 			{
@@ -858,7 +876,7 @@ class TestBrowserSessionReusePatterns:
 			await shared_browser.kill()
 			storage_state_path.unlink(missing_ok=True)
 
-	async def test_parallel_agents_same_browser_same_tab(self, mock_llm):
+	async def test_parallel_agents_same_browser_same_tab(self, mock_llm, httpserver):
 		"""Test Parallel Agents, Same Browser, Same Tab pattern (not recommended)"""
 		from browser_use import Agent, BrowserSession
 
@@ -889,9 +907,10 @@ class TestBrowserSessionReusePatterns:
 				enable_memory=False,  # Disable memory for tests
 			)
 
-			# Navigate to a page before running agents
+			# Set up httpserver and navigate to a page before running agents
+			httpserver.expect_request('/').respond_with_data('<html><body>Test page</body></html>')
 			page = await shared_browser.get_current_page()
-			await page.goto('https://example.com', wait_until='domcontentloaded')
+			await page.goto(httpserver.url_for('/'), wait_until='domcontentloaded')
 
 			# Run agents in parallel (may interfere with each other)
 			results = await asyncio.gather(agent1.run(), agent2.run(), return_exceptions=True)

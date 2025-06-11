@@ -313,6 +313,15 @@ def time_execution_sync(additional_text: str = '') -> Callable[[Callable[P, R]],
 			execution_time = time.time() - start_time
 			# Only log if execution takes more than 0.25 seconds
 			if execution_time > 0.25:
+				self_has_logger = args and getattr(args[0], 'logger', None)
+				if self_has_logger:
+					logger = args[0].logger
+				elif 'agent' in kwargs:
+					logger = kwargs['agent'].logger
+				elif 'browser_session' in kwargs:
+					logger = kwargs['browser_session'].logger
+				else:
+					logger = logging.getLogger(__name__)
 				logger.debug(f'⏳ {additional_text.strip("-")}() took {execution_time:.2f}s')
 			return result
 
@@ -333,6 +342,15 @@ def time_execution_async(
 			# Only log if execution takes more than 0.25 seconds to avoid spamming the logs
 			# you can lower this threshold locally when you're doing dev work to performance optimize stuff
 			if execution_time > 0.25:
+				self_has_logger = args and getattr(args[0], 'logger', None)
+				if self_has_logger:
+					logger = args[0].logger
+				elif 'agent' in kwargs:
+					logger = kwargs['agent'].logger
+				elif 'browser_session' in kwargs:
+					logger = kwargs['browser_session'].logger
+				else:
+					logger = logging.getLogger(__name__)
 				logger.debug(f'⏳ {additional_text.strip("-")}() took {execution_time:.2f}s')
 			return result
 
