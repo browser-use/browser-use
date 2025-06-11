@@ -19,19 +19,6 @@ os.environ['PW_TEST_SCREENSHOT_NO_FONTS_READY'] = '1'  # https://github.com/micr
 
 import anyio
 import psutil
-from patchright.async_api import Browser as PatchrightBrowser
-from patchright.async_api import BrowserContext as PatchrightBrowserContext
-from patchright.async_api import ElementHandle as PatchrightElementHandle
-from patchright.async_api import FrameLocator as PatchrightFrameLocator
-from patchright.async_api import Page as PatchrightPage
-from patchright.async_api import Playwright as Patchright
-from patchright.async_api import async_playwright as async_patchright
-from playwright.async_api import Browser as PlaywrightBrowser
-from playwright.async_api import BrowserContext as PlaywrightBrowserContext
-from playwright.async_api import ElementHandle as PlaywrightElementHandle
-from playwright.async_api import FrameLocator as PlaywrightFrameLocator
-from playwright.async_api import Page as PlaywrightPage
-from playwright.async_api import Playwright, async_playwright
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, InstanceOf, PrivateAttr, model_validator
 from uuid_extensions import uuid7str
 
@@ -45,19 +32,17 @@ from browser_use.browser.views import (
 from browser_use.dom.clickable_element_processor.service import ClickableElementProcessor
 from browser_use.dom.service import DomService
 from browser_use.dom.views import DOMBaseNode, DOMElementNode, SelectorMap
+from browser_use.typing import (
+	Browser,
+	BrowserContext,
+	ElementHandle,
+	FrameLocator,
+	Page,
+	PlaywrightOrPatchright,
+	async_patchright,
+	async_playwright,
+)
 from browser_use.utils import match_url_with_domain_pattern, merge_dicts, time_execution_async, time_execution_sync
-
-# Define types to be Union[Patchright, Playwright]
-Browser = PatchrightBrowser | PlaywrightBrowser
-BrowserInstance = InstanceOf[PatchrightBrowser] | InstanceOf[PlaywrightBrowser]
-BrowserContext = PatchrightBrowserContext | PlaywrightBrowserContext
-BrowserContextInstance = InstanceOf[PatchrightBrowserContext] | InstanceOf[PlaywrightBrowserContext]
-Page = PatchrightPage | PlaywrightPage
-PageInstance = InstanceOf[PatchrightPage] | InstanceOf[PlaywrightPage]
-ElementHandle = PatchrightElementHandle | PlaywrightElementHandle
-ElementHandleInstance = InstanceOf[PatchrightElementHandle] | InstanceOf[PlaywrightElementHandle]
-FrameLocator = PatchrightFrameLocator | PlaywrightFrameLocator
-FrameLocatorInstance = InstanceOf[PatchrightFrameLocator] | InstanceOf[PlaywrightFrameLocator]
 
 # Check if running in Docker
 IN_DOCKER = os.environ.get('IN_DOCKER', 'false').lower()[0] in 'ty1'
@@ -185,18 +170,18 @@ class BrowserSession(BaseModel):
 		description='pid of a running chromium-based browser process to connect to on localhost',
 		validation_alias=AliasChoices('chrome_pid'),  # old deprecated name = chrome_pid
 	)
-	playwright: Playwright | Patchright | None = Field(
+	playwright: PlaywrightOrPatchright | None = Field(
 		default=None,
 		description='Playwright library object returned by: await (playwright or patchright).async_playwright().start()',
 		exclude=True,
 	)
-	browser: BrowserInstance | None = Field(
+	browser: Browser | None = Field(
 		default=None,
 		description='playwright Browser object to use (optional)',
 		validation_alias=AliasChoices('playwright_browser'),
 		exclude=True,
 	)
-	browser_context: BrowserContextInstance | None = Field(
+	browser_context: BrowserContext | None = Field(
 		default=None,
 		description='playwright BrowserContext object to use (optional)',
 		validation_alias=AliasChoices('playwright_browser_context', 'context'),
@@ -209,13 +194,13 @@ class BrowserSession(BaseModel):
 		description='Mark BrowserSession launch/connection as already ready and skip setup (not recommended)',
 		validation_alias=AliasChoices('is_initialized'),
 	)
-	agent_current_page: PageInstance | None = Field(  # mutated by self.create_new_tab(url)
+	agent_current_page: Page | None = Field(  # mutated by self.create_new_tab(url)
 		default=None,
 		description='Foreground Page that the agent is focused on',
 		validation_alias=AliasChoices('current_page', 'page'),  # alias page= allows passing in a playwright Page object easily
 		exclude=True,
 	)
-	human_current_page: PageInstance | None = Field(  # mutated by self._setup_current_page_change_listeners()
+	human_current_page: Page | None = Field(  # mutated by self._setup_current_page_change_listeners()
 		default=None,
 		description='Foreground Page that the human is focused on',
 		exclude=True,
@@ -342,11 +327,7 @@ class BrowserSession(BaseModel):
 			else (self.browser_profile.channel or BROWSERUSE_DEFAULT_CHANNEL).name.lower().replace('_', '-').replace(' ', '-')
 		)  # Google Chrome Canary.exe -> google-chrome-canary
 		driver_name = 'playwright'
-		if (
-			isinstance(self.playwright, Patchright)
-			or isinstance(self.browser_context, PatchrightBrowserContext)
-			or self.browser_profile.stealth
-		):
+		if self.browser_profile.stealth:
 			driver_name = 'patchright'
 		return (
 			f'cdp_url={self.cdp_url}'
@@ -991,7 +972,7 @@ class BrowserSession(BaseModel):
 			else:
 				raise
 
-		if self.browser_profile.stealth and not isinstance(self.playwright, Patchright):
+		if self.browser_profile.stealth:
 			self.logger.warning('⚠️ Failed to set up stealth mode. (...) got normal playwright objects as input.')
 
 	# async def _fork_locked_user_data_dir(self) -> None:
@@ -1053,7 +1034,7 @@ class BrowserSession(BaseModel):
 		self.human_current_page = self.human_current_page or foreground_page
 		# self.logger.debug('About to define _BrowserUseonTabVisibilityChange callback')
 
-		def _BrowserUseonTabVisibilityChange(source: dict[str, PageInstance]):
+		def _BrowserUseonTabVisibilityChange(source: dict[str, Page]):
 			"""hook callback fired when init script injected into a page detects a focus event"""
 			new_page = source['page']
 
@@ -1484,7 +1465,7 @@ class BrowserSession(BaseModel):
 					await self._check_and_handle_navigation(page)
 
 			try:
-				return await perform_click(lambda: element_handle.click(timeout=1500))
+				return await perform_click(lambda: element_handle and element_handle.click(timeout=1500))
 			except URLNotAllowedError as e:
 				raise e
 			except Exception as e:
@@ -2638,7 +2619,7 @@ class BrowserSession(BaseModel):
 			if isinstance(current_frame, FrameLocator):
 				element_handle = await current_frame.locator(css_selector).element_handle()
 				return element_handle
-			else:
+			elif isinstance(current_frame, Page):
 				# Try to scroll into view if hidden
 				element_handle = await current_frame.query_selector(css_selector)
 				if element_handle:
@@ -2647,6 +2628,8 @@ class BrowserSession(BaseModel):
 						await element_handle.scroll_into_view_if_needed()
 					return element_handle
 				return None
+			else:
+				raise ValueError(f'Invalid current frame type: {type(current_frame)}')
 		except Exception as e:
 			self.logger.error(
 				f'❌ Failed to locate element {css_selector} on page {_log_pretty_url(page.url)}: {type(e).__name__}: {e}'

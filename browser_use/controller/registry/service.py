@@ -8,7 +8,6 @@ from inspect import Parameter, iscoroutinefunction, signature
 from typing import Any, Generic, Optional, TypeVar, Union, get_args, get_origin
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from playwright.async_api import Page
 from pydantic import BaseModel, Field, create_model
 
 from browser_use.browser import BrowserSession
@@ -23,6 +22,7 @@ from browser_use.telemetry.views import (
 	ControllerRegisteredFunctionsTelemetryEvent,
 	RegisteredFunction,
 )
+from browser_use.typing import Page
 from browser_use.utils import match_url_with_domain_pattern, time_execution_async
 
 Context = TypeVar('Context')
@@ -366,7 +366,9 @@ class Registry(Generic[Context]):
 			url_info = f' on {current_url}' if current_url and current_url != 'about:blank' else ''
 			logger.info(f'🔒 Using sensitive data placeholders: {", ".join(sorted(placeholders_used))}{url_info}')
 
-	def _replace_sensitive_data(self, params: BaseModel, sensitive_data: dict[str, Any], current_url: str = None) -> BaseModel:
+	def _replace_sensitive_data(
+		self, params: BaseModel, sensitive_data: dict[str, Any], current_url: str | None = None
+	) -> BaseModel:
 		"""
 		Replaces sensitive data placeholders in params with actual values.
 

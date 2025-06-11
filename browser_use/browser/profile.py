@@ -8,32 +8,11 @@ from re import Pattern
 from typing import Annotated, Any, Literal, Self
 from urllib.parse import urlparse
 
-from playwright._impl._api_structures import (
-	ClientCertificate,
-	Geolocation,
-	HttpCredentials,
-	ProxySettings,
-	StorageState,
-	ViewportSize,
-)
 from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field, model_validator
 from uuid_extensions import uuid7str
 
+from browser_use.typing import ClientCertificate, Geolocation, HttpCredentials, ProxySettings, ViewportSize
 from browser_use.utils import _log_pretty_path, logger
-
-# fix pydantic error on python 3.11
-# PydanticUserError: Please use `typing_extensions.TypedDict` instead of `typing.TypedDict` on Python < 3.12.
-# For further information visit https://errors.pydantic.dev/2.10/u/typed-dict-version
-if sys.version_info < (3, 12):
-	from typing_extensions import TypedDict
-
-	# convert new-style typing.TypedDict used by playwright to old-style typing_extensions.TypedDict used by pydantic
-	ClientCertificate = TypedDict('ClientCertificate', ClientCertificate.__annotations__, total=ClientCertificate.__total__)
-	Geolocation = TypedDict('Geolocation', Geolocation.__annotations__, total=Geolocation.__total__)
-	ProxySettings = TypedDict('ProxySettings', ProxySettings.__annotations__, total=ProxySettings.__total__)
-	ViewportSize = TypedDict('ViewportSize', ViewportSize.__annotations__, total=ViewportSize.__total__)
-	HttpCredentials = TypedDict('HttpCredentials', HttpCredentials.__annotations__, total=HttpCredentials.__total__)
-	StorageState = TypedDict('StorageState', StorageState.__annotations__, total=StorageState.__total__)
 
 IN_DOCKER = os.environ.get('IN_DOCKER', 'false').lower()[0] in 'ty1'
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222

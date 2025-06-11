@@ -25,7 +25,6 @@ from langchain_core.messages import (
 	HumanMessage,
 	SystemMessage,
 )
-from playwright.async_api import Browser, BrowserContext, Page
 from pydantic import BaseModel, ValidationError
 from uuid_extensions import uuid7str
 
@@ -68,6 +67,7 @@ from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import (
 	AgentTelemetryEvent,
 )
+from browser_use.typing import Browser, BrowserContext, Page
 from browser_use.utils import get_browser_use_version, time_execution_async, time_execution_sync
 
 logger = logging.getLogger(__name__)
@@ -435,11 +435,13 @@ class Agent(Generic[Context]):
 	@property
 	def browser(self) -> Browser:
 		assert self.browser_session is not None, 'BrowserSession is not set up'
+		assert self.browser_session.browser is not None, 'Browser is not set up'
 		return self.browser_session.browser
 
 	@property
 	def browser_context(self) -> BrowserContext:
 		assert self.browser_session is not None, 'BrowserSession is not set up'
+		assert self.browser_session.browser_context is not None, 'BrowserContext is not set up'
 		return self.browser_session.browser_context
 
 	@property
