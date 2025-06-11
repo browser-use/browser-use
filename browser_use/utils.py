@@ -539,7 +539,7 @@ def get_browser_use_version() -> str:
 		return 'unknown'
 
 
-def _log_pretty_path(path: Path | None) -> str:
+def _log_pretty_path(path: str | Path | None) -> str:
 	"""Pretty-print a path, shorten home dir to ~ and cwd to ."""
 
 	if not path or not str(path).strip():

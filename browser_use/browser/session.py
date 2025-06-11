@@ -44,7 +44,7 @@ from browser_use.browser.views import (
 )
 from browser_use.dom.clickable_element_processor.service import ClickableElementProcessor
 from browser_use.dom.service import DomService
-from browser_use.dom.views import DOMElementNode, SelectorMap
+from browser_use.dom.views import DOMBaseNode, DOMElementNode, SelectorMap
 from browser_use.utils import match_url_with_domain_pattern, merge_dicts, time_execution_async, time_execution_sync
 
 # Define types to be Union[Patchright, Playwright]
@@ -386,7 +386,13 @@ class BrowserSession(BaseModel):
 						# Add timeout to prevent hanging on close if context is already closed
 						try:
 							async with asyncio.timeout(5):  # 5 second timeout for close operation
-								await (self.browser or self.browser_context.browser or self.browser_context).close()
+								close_target = (
+									self.browser
+									or (self.browser_context and self.browser_context.browser)
+									or self.browser_context
+								)
+								if close_target is not None:
+									await close_target.close()
 						except TimeoutError:
 							self.logger.warning('⏱️ Timeout while closing browser/context, has it become unresponsive?')
 					except Exception as e:
@@ -710,6 +716,7 @@ class BrowserSession(BaseModel):
 		# we could automatically relaunch the browser process with that arg added here, but they may have tabs open they dont want to lose
 		self.cdp_url = self.cdp_url or f'http://localhost:{debug_port}/'
 		self.logger.info(f'🌎 Connecting to existing local browser process: browser_pid={self.browser_pid} on {self.cdp_url}')
+		assert self.playwright is not None, 'playwright instance is None'
 		self.browser = self.browser or await self.playwright.chromium.connect_over_cdp(
 			self.cdp_url,
 			**self.browser_profile.kwargs_for_connect().model_dump(),
@@ -725,6 +732,7 @@ class BrowserSession(BaseModel):
 			return  # no wss_url provided, nothing to do
 
 		self.logger.info(f'🌎 Connecting to existing remote chromium playwright node.js server over WSS: {self.wss_url}')
+		assert self.playwright is not None, 'playwright instance is None'
 		self.browser = self.browser or await self.playwright.chromium.connect(
 			self.wss_url,
 			**self.browser_profile.kwargs_for_connect().model_dump(),
@@ -740,6 +748,7 @@ class BrowserSession(BaseModel):
 			return  # no cdp_url provided, nothing to do
 
 		self.logger.info(f'🌎 Connecting to existing remote chromium-based browser over CDP: {self.cdp_url}')
+		assert self.playwright is not None, 'playwright instance is None'
 		self.browser = self.browser or await self.playwright.chromium.connect_over_cdp(
 			self.cdp_url,
 			**self.browser_profile.kwargs_for_connect().model_dump(),
@@ -761,8 +770,8 @@ class BrowserSession(BaseModel):
 					**self.browser_profile.kwargs_for_new_context().model_dump()
 				)
 				storage_info = (
-					f' + loaded storage_state={len(self.browser_profile.storage_state.cookies) if self.browser_profile.storage_state else 0} cookies'
-					if self.browser_profile.storage_state
+					f' + loaded storage_state={len(self.browser_profile.storage_state) if self.browser_profile.storage_state else 0} cookies'
+					if self.browser_profile.storage_state and isinstance(self.browser_profile.storage_state, dict)
 					else ''
 				)
 				self.logger.info(
@@ -771,6 +780,7 @@ class BrowserSession(BaseModel):
 
 		# if we still have no browser_context by now, launch a new local one using launch_persistent_context()
 		if not self.browser_context:
+			assert self.browser_profile.channel is not None, 'browser_profile.channel is None'
 			self.logger.info(
 				f'🌎 Launching new local browser '
 				f'{str(type(self.playwright).__module__).split(".")[0]}:{self.browser_profile.channel.name.lower()} keep_alive={self.browser_profile.keep_alive or False} '
@@ -780,6 +790,7 @@ class BrowserSession(BaseModel):
 				# self.logger.debug('🌎 Launching local browser in incognito mode')
 				# if no user_data_dir is provided, launch an incognito context with no persistent user_data_dir
 				try:
+					assert self.playwright is not None, 'playwright instance is None'
 					async with asyncio.timeout(10):  # Reduced timeout from 30s to 10s
 						self.browser = self.browser or await self.playwright.chromium.launch(
 							**self.browser_profile.kwargs_for_launch().model_dump()
@@ -797,6 +808,7 @@ class BrowserSession(BaseModel):
 					# Force recreation of the playwright object
 					await self._recreate_playwright_instance()
 					# Retry the operation with the new playwright instance
+					assert self.playwright is not None, 'playwright instance is None'
 					async with asyncio.timeout(10):
 						self.browser = await self.playwright.chromium.launch(
 							**self.browser_profile.kwargs_for_launch().model_dump()
@@ -823,6 +835,7 @@ class BrowserSession(BaseModel):
 				try:
 					async with asyncio.timeout(10):  # Reduced timeout from 30s to 10s
 						try:
+							assert self.playwright is not None, 'playwright instance is None'
 							self.browser_context = await self.playwright.chromium.launch_persistent_context(
 								**self.browser_profile.kwargs_for_launch_persistent_context().model_dump()
 							)
@@ -839,6 +852,7 @@ class BrowserSession(BaseModel):
 					await self._recreate_playwright_instance()
 					# Retry the operation with the new playwright instance
 					async with asyncio.timeout(10):
+						assert self.playwright is not None, 'playwright instance is None'
 						self.browser_context = await self.playwright.chromium.launch_persistent_context(
 							**self.browser_profile.kwargs_for_launch_persistent_context().model_dump()
 						)
@@ -849,10 +863,13 @@ class BrowserSession(BaseModel):
 					test_browser_version = '???'
 					try:
 						# user_data_dir is corrupted or unreadable because it was migrated to a newer version of chrome than we are running with
-						user_data_dir_chrome_version = (self.browser_profile.user_data_dir / 'Last Version').read_text().strip()
+						user_data_dir_chrome_version = (
+							(Path(self.browser_profile.user_data_dir) / 'Last Version').read_text().strip()
+						)
 					except Exception:
 						pass  # let the logger below handle it
 					try:
+						assert self.playwright is not None, 'playwright instance is None'
 						test_browser = await self.playwright.chromium.launch(headless=True)
 						test_browser_version = test_browser.version
 						await test_browser.close()
@@ -1036,7 +1053,7 @@ class BrowserSession(BaseModel):
 		self.human_current_page = self.human_current_page or foreground_page
 		# self.logger.debug('About to define _BrowserUseonTabVisibilityChange callback')
 
-		def _BrowserUseonTabVisibilityChange(source: dict[str, str]):
+		def _BrowserUseonTabVisibilityChange(source: dict[str, PageInstance]):
 			"""hook callback fired when init script injected into a page detects a focus event"""
 			new_page = source['page']
 
@@ -1154,7 +1171,7 @@ class BrowserSession(BaseModel):
 			+ (f'timezone_id={self.browser_profile.timezone_id} ' if self.browser_profile.timezone_id else '')
 			+ (f'geolocation={self.browser_profile.geolocation} ' if self.browser_profile.geolocation else '')
 			+ (f'permissions={",".join(self.browser_profile.permissions or ["<none>"])} ')
-			+ f'storage_state={_log_pretty_path(self.browser_profile.storage_state or self.browser_profile.cookies_file) or "<none>"} '
+			+ f'storage_state={_log_pretty_path(str(self.browser_profile.storage_state or self.browser_profile.cookies_file or "<none>"))} '
 		)
 
 		# if we have any viewport settings in the profile, make sure to apply them to the entire browser_context as defaults
@@ -1178,7 +1195,7 @@ class BrowserSession(BaseModel):
 			)
 		try:
 			if self.browser_profile.extra_http_headers:
-				self.browser_context.set_extra_http_headers(self.browser_profile.extra_http_headers)
+				await self.browser_context.set_extra_http_headers(self.browser_profile.extra_http_headers)
 		except Exception as e:
 			self.logger.warning(
 				f'⚠️ Failed to setup playwright extra_http_headers: {type(e).__name__}: {e}'
@@ -1231,10 +1248,10 @@ class BrowserSession(BaseModel):
 					# fallback to javascript resize if cdp setWindowBounds fails
 					await page.evaluate(
 						"""(width, height) => {window.resizeTo(width, height)}""",
-						**self.browser_profile.window_size,
+						self.browser_profile.window_size,
 					)
 					return
-				except Exception as e:
+				except Exception:
 					pass
 
 				self.logger.warning(
@@ -1367,6 +1384,7 @@ class BrowserSession(BaseModel):
 
 	@require_initialization
 	async def switch_tab(self, tab_index: int) -> Page:
+		assert self.browser_context is not None, 'BrowserContext is not set up'
 		pages = self.browser_context.pages
 		if not pages or tab_index >= len(pages):
 			raise IndexError('Tab index out of range')
@@ -1413,7 +1431,7 @@ class BrowserSession(BaseModel):
 			# Don't raise the error since this is not critical functionality
 
 	@require_initialization
-	async def get_dom_element_by_index(self, index: int) -> Any | None:
+	async def get_dom_element_by_index(self, index: int) -> DOMElementNode | None:
 		"""Get DOM element by index."""
 		selector_map = await self.get_selector_map()
 		return selector_map.get(index)
@@ -1515,7 +1533,7 @@ class BrowserSession(BaseModel):
 	@time_execution_async('--get_tabs_info')
 	async def get_tabs_info(self) -> list[TabInfo]:
 		"""Get information about all tabs"""
-
+		assert self.browser_context is not None, 'BrowserContext is not set up'
 		tabs_info = []
 		for page_id, page in enumerate(self.browser_context.pages):
 			try:
@@ -1531,6 +1549,7 @@ class BrowserSession(BaseModel):
 
 	@require_initialization
 	async def close_tab(self, tab_index: int | None = None) -> None:
+		assert self.browser_context is not None, 'BrowserContext is not set up'
 		pages = self.browser_context.pages
 		if not pages:
 			return
@@ -1569,7 +1588,7 @@ class BrowserSession(BaseModel):
 
 	async def get_cookies(self) -> list[dict[str, Any]]:
 		if self.browser_context:
-			return await self.browser_context.cookies()
+			return [dict(x) for x in await self.browser_context.cookies()]
 		return []
 
 	async def save_cookies(self, *args, **kwargs) -> None:
@@ -1587,6 +1606,7 @@ class BrowserSession(BaseModel):
 			cookies_file_path.parent.mkdir(parents=True, exist_ok=True)
 
 			# Write to a temporary file first
+			cookies = cookies or []
 			temp_path = cookies_file_path.with_suffix('.tmp')
 			temp_path.write_text(json.dumps(cookies, indent=4))
 
@@ -1603,11 +1623,12 @@ class BrowserSession(BaseModel):
 				f'❌ Failed to save cookies to cookies_file= {_log_pretty_path(cookies_file_path)}: {type(e).__name__}: {e}'
 			)
 
-	async def _save_storage_state_to_file(self, path: Path, storage_state: dict[str, Any] | None) -> None:
+	async def _save_storage_state_to_file(self, path: str | Path, storage_state: dict[str, Any] | None) -> None:
 		try:
 			json_path = Path(path).expanduser().resolve()
 			json_path.parent.mkdir(parents=True, exist_ok=True)
-			storage_state = storage_state or await self.browser_context.storage_state()
+			assert self.browser_context is not None, 'BrowserContext is not set up'
+			storage_state = storage_state or dict(await self.browser_context.storage_state())
 
 			# always atomic merge storage states, never overwrite (so two browsers can share the same storage_state.json)
 			merged_storage_state = storage_state
@@ -1642,7 +1663,8 @@ class BrowserSession(BaseModel):
 		if not (path or self.browser_profile.storage_state or self.browser_profile.cookies_file):
 			return
 
-		storage_state = await self.browser_context.storage_state()
+		assert self.browser_context is not None, 'BrowserContext is not set up'
+		storage_state: dict[str, Any] = dict(await self.browser_context.storage_state())
 		cookies = storage_state['cookies']
 
 		# they passed an explicit path, only save to that path and return
@@ -1729,10 +1751,10 @@ class BrowserSession(BaseModel):
 			if isinstance(storage_state, (str, Path)):
 				try:
 					storage_state_text = await anyio.Path(storage_state).read_text()
-					storage_state = json.loads(storage_state_text)
+					storage_state = dict(json.loads(storage_state_text))
 				except Exception as e:
 					self.logger.warning(
-						f'❌ Failed to load cookies from storage_state= {_log_pretty_path(self.browser_profile.storage_state)}: {type(e).__name__}: {e}'
+						f'❌ Failed to load cookies from storage_state= {_log_pretty_path(storage_state)}: {type(e).__name__}: {e}'
 					)
 					return
 
@@ -1743,13 +1765,9 @@ class BrowserSession(BaseModel):
 				# playwright doesn't provide an API for setting these before launch
 				# https://playwright.dev/python/docs/auth#session-storage
 				# await self.browser_context.add_local_storage(storage_state['localStorage'])
-				self.logger.info(
-					f'🍪 Loaded {len(storage_state["cookies"])} cookies from storage_state= {_log_pretty_path(self.browser_profile.storage_state)}'
-				)
+				self.logger.info(f'🍪 Loaded {len(storage_state["cookies"])} cookies from storage_state= {storage_state}')
 			except Exception as e:
-				self.logger.warning(
-					f'❌ Failed to load cookies from storage_state= {_log_pretty_path(self.browser_profile.storage_state)}: {type(e).__name__}: {e}'
-				)
+				self.logger.warning(f'❌ Failed to load cookies from storage_state= {storage_state}: {type(e).__name__}: {e}')
 				return
 
 	async def load_cookies_from_file(self, *args, **kwargs) -> None:
@@ -2393,7 +2411,7 @@ class BrowserSession(BaseModel):
 	# region - User Actions
 
 	@staticmethod
-	async def _get_unique_filename(directory: str, filename: str) -> str:
+	async def _get_unique_filename(directory: str | Path, filename: str) -> str:
 		"""Generate a unique filename for downloads by appending (1), (2), etc., if a file already exists."""
 		base, ext = os.path.splitext(filename)
 		counter = 1
@@ -2837,6 +2855,7 @@ class BrowserSession(BaseModel):
 			raise BrowserError(f'Cannot create new tab with non-allowed URL: {url}')
 
 		try:
+			assert self.browser_context is not None, 'Browser context is not set'
 			new_page = await self.browser_context.new_page()
 		except Exception as e:
 			self.initialized = False
@@ -2880,6 +2899,7 @@ class BrowserSession(BaseModel):
 		# 	assert self.agent_current_page.url == 'about:blank'
 
 		# if there are any unused about:blank tabs after we open a new tab, close them to clean up unused tabs
+		assert self.browser_context is not None, 'Browser context is not set'
 		for page in self.browser_context.pages:
 			if page.url == 'about:blank' and page != self.agent_current_page:
 				await page.close()
@@ -2928,7 +2948,7 @@ class BrowserSession(BaseModel):
 			def is_file_input(node: DOMElementNode) -> bool:
 				return isinstance(node, DOMElementNode) and node.tag_name == 'input' and node.attributes.get('type') == 'file'
 
-			def find_element_by_id(node: DOMElementNode, element_id: str) -> DOMElementNode | None:
+			def find_element_by_id(node: DOMBaseNode, element_id: str) -> DOMElementNode | None:
 				if isinstance(node, DOMElementNode):
 					if node.attributes.get('id') == element_id:
 						return node
@@ -2972,7 +2992,7 @@ class BrowserSession(BaseModel):
 			if candidate_element.tag_name == 'label' and candidate_element.attributes.get('for'):
 				input_id = candidate_element.attributes.get('for')
 				root_element = get_root(candidate_element)
-
+				assert input_id is not None, 'input_id is None'
 				target_input = find_element_by_id(root_element, input_id)
 				if target_input and is_file_input(target_input):
 					return target_input

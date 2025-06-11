@@ -41,6 +41,7 @@ from browser_use.agent.message_manager.utils import (
 from browser_use.agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
 from browser_use.agent.views import (
 	ActionResult,
+	AgentBrain,
 	AgentError,
 	AgentHistory,
 	AgentHistoryList,
@@ -115,7 +116,7 @@ class Agent(Generic[Context]):
 		browser_session: BrowserSession | None = None,
 		controller: Controller[Context] = Controller(),
 		# Initial agent run parameters
-		sensitive_data: dict[str, str] | dict[str, dict[str, str]] | None = None,
+		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
 		# Cloud Callbacks
 		register_new_step_callback: (
@@ -334,11 +335,13 @@ class Agent(Generic[Context]):
 				# },
 			)
 		else:
+			if browser is not None:
+				assert isinstance(browser, Browser), 'Browser is not set up'
 			self.browser_session = BrowserSession(
 				browser_profile=browser_profile,
 				browser=browser,
 				browser_context=browser_context,
-				page=page,
+				agent_current_page=page,
 				id=uuid7str()[:-4] + self.id[-4:],  # re-use the same 4-char suffix so they show up together in logs
 			)
 
@@ -431,14 +434,17 @@ class Agent(Generic[Context]):
 
 	@property
 	def browser(self) -> Browser:
+		assert self.browser_session is not None, 'BrowserSession is not set up'
 		return self.browser_session.browser
 
 	@property
 	def browser_context(self) -> BrowserContext:
+		assert self.browser_session is not None, 'BrowserSession is not set up'
 		return self.browser_session.browser_context
 
 	@property
 	def browser_profile(self) -> BrowserProfile:
+		assert self.browser_session is not None, 'BrowserSession is not set up'
 		return self.browser_session.browser_profile
 
 	def _set_message_context(self) -> str | None:
@@ -805,6 +811,7 @@ class Agent(Generic[Context]):
 		tokens = 0
 
 		try:
+			assert self.browser_session is not None, 'BrowserSession is not set up'
 			browser_state_summary = await self.browser_session.get_state_summary(cache_clickable_elements_hashes=True)
 			current_page = await self.browser_session.get_current_page()
 
@@ -1127,7 +1134,7 @@ class Agent(Generic[Context]):
 				# Create action from tool call
 				action = {tool_call_name: tool_call_args}
 
-				parsed = self.AgentOutput(current_state=current_state, action=[self.ActionModel(**action)])
+				parsed = self.AgentOutput(current_state=AgentBrain(**current_state), action=[self.ActionModel(**action)])
 			else:
 				parsed = None
 		else:
@@ -1473,6 +1480,7 @@ class Agent(Generic[Context]):
 		"""Execute multiple actions"""
 		results = []
 
+		assert self.browser_session is not None, 'BrowserSession is not set up'
 		cached_selector_map = await self.browser_session.get_selector_map()
 		cached_path_hashes = {e.hash.branch_path_hash for e in cached_selector_map.values()}
 
@@ -1550,7 +1558,7 @@ class Agent(Generic[Context]):
 			f' example: {{"is_valid": false, "reason": "The user wanted to search for "cat photos", but the agent searched for "dog photos" instead."}}'
 		)
 
-		if self.browser_context:
+		if self.browser_context and self.browser_session:
 			browser_state_summary = await self.browser_session.get_state_summary(cache_clickable_elements_hashes=False)
 			assert browser_state_summary
 			content = AgentMessagePrompt(
@@ -1661,6 +1669,7 @@ class Agent(Generic[Context]):
 
 	async def _execute_history_step(self, history_item: AgentHistory, delay: float) -> list[ActionResult]:
 		"""Execute a single step from history with element validation"""
+		assert self.browser_session is not None, 'BrowserSession is not set up'
 		state = await self.browser_session.get_state_summary(cache_clickable_elements_hashes=False)
 		if not state or not history_item.model_output:
 			raise ValueError('Invalid state or model output')
@@ -1757,10 +1766,11 @@ class Agent(Generic[Context]):
 
 		# playwright browser is always immediately killed by the first Ctrl+C (no way to stop that)
 		# so we need to restart the browser if user wants to continue
+		# the _init() method exists, even through its shows a linter error
 		if self.browser:
 			self.logger.info('🌎 Restarting/reconnecting to browser...')
 			loop = asyncio.get_event_loop()
-			loop.create_task(self.browser._init())
+			loop.create_task(self.browser._init())  # type: ignore
 			loop.create_task(asyncio.sleep(5))
 
 	def stop(self) -> None:
@@ -1811,6 +1821,7 @@ class Agent(Generic[Context]):
 			return None
 
 		# Get current state to filter actions by page
+		assert self.browser_session is not None, 'BrowserSession is not set up'
 		page = await self.browser_session.get_current_page()
 
 		# Get all standard actions (no filter) and page-specific actions
@@ -1883,6 +1894,7 @@ class Agent(Generic[Context]):
 		"""Close all resources"""
 		try:
 			# First close browser resources
+			assert self.browser_session is not None, 'BrowserSession is not set up'
 			await self.browser_session.stop()
 
 			# Force garbage collection
