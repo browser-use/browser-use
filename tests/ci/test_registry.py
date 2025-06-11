@@ -752,7 +752,7 @@ class TestValidationRules:
 		registry = Registry()
 
 		# Using 'page' with str type should error
-		with pytest.raises(ValueError, match='conflicts with special argument.*page: Page'):
+		with pytest.raises(ValueError, match=rf'conflicts with special argument.*page: {repr(Page)}'):
 
 			@registry.action('Navigate')
 			async def navigate_to_page(page: str, browser_session: BrowserSession):
@@ -926,7 +926,7 @@ class TestErrorMessages:
 			error_msg = str(e)
 			assert 'page: str' in error_msg
 			assert 'conflicts' in error_msg
-			assert 'page: Page' in error_msg  # Show expected type
+			assert f'page: {repr(Page)}' in error_msg  # Show expected type
 			assert 'bad' in error_msg.lower()  # Show function name
 
 
