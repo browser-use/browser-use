@@ -14,7 +14,6 @@ import asyncio
 import logging
 
 import pytest
-from playwright.async_api import Page
 from pydantic import Field
 from pytest_httpserver import HTTPServer
 from pytest_httpserver.httpserver import HandlerType
@@ -29,6 +28,7 @@ from browser_use.controller.views import (
 	NoParamsAction,
 	SearchGoogleAction,
 )
+from browser_use.typing import Page
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -752,7 +752,7 @@ class TestValidationRules:
 		registry = Registry()
 
 		# Using 'page' with str type should error
-		with pytest.raises(ValueError, match='conflicts with special argument.*page: Page'):
+		with pytest.raises(ValueError, match=rf'conflicts with special argument.*page: {repr(Page)}'):
 
 			@registry.action('Navigate')
 			async def navigate_to_page(page: str, browser_session: BrowserSession):
@@ -926,7 +926,7 @@ class TestErrorMessages:
 			error_msg = str(e)
 			assert 'page: str' in error_msg
 			assert 'conflicts' in error_msg
-			assert 'page: Page' in error_msg  # Show expected type
+			assert f'page: {repr(Page)}' in error_msg  # Show expected type
 			assert 'bad' in error_msg.lower()  # Show function name
 
 
