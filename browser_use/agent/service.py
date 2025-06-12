@@ -70,7 +70,7 @@ from browser_use.telemetry.views import (
 from browser_use.utils import get_browser_use_version, time_execution_async, time_execution_sync
 
 logger = logging.getLogger(__name__)
-
+AGENT_NAME = "browser-use-agent"
 SKIP_LLM_API_KEY_VERIFICATION = os.environ.get('SKIP_LLM_API_KEY_VERIFICATION', 'false').lower()[0] in 'ty1'
 
 
