@@ -376,14 +376,6 @@ window_position: dict | None = {"width": 0, "height": 0}
 
 Window position from top-left corner.
 
-#### `save_recording_path`
-
-```python
-save_recording_path: str | None = None
-```
-
-Directory path for saving video recordings.
-
 #### `trace_path`
 
 ```python
@@ -797,6 +789,10 @@ record_video_dir: str | Path | None = None
 ```
 
 Directory to save video recordings. [Playwright Docs: `record_video_dir`](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context-option-record-video-dir)
+
+<Note>
+This is the standard Playwright parameter for video recording. If you previously used `save_recording_path`, please update your code to use `record_video_dir` instead.
+</Note>
 
 #### `record_video_size`
 

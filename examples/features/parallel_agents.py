@@ -17,7 +17,7 @@ browser_session = BrowserSession(
 	browser_profile=BrowserProfile(
 		disable_security=True,
 		headless=False,
-		save_recording_path='./tmp/recordings',
+		record_video_dir='./tmp/recordings',
 		user_data_dir='~/.config/browseruse/profiles/default',
 	)
 )

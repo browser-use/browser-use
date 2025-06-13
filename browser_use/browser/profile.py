@@ -600,7 +600,6 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	profile_directory: str = 'Default'  # e.g. 'Profile 1', 'Profile 2', 'Custom Profile', etc.
 
-	save_recording_path: str | None = Field(default=None, description='Directory for video recordings.')
 	save_har_path: str | None = Field(default=None, description='Directory for saving HAR files.')
 	trace_path: str | None = Field(default=None, description='Directory for saving trace files.')
 
