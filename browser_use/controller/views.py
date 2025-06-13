@@ -70,7 +70,17 @@ class Position(BaseModel):
 
 
 class DragDropAction(BaseModel):
-	# Element-based approach
+	# Index-based approach (preferred)
+	source_index: int | None = Field(None, description='Index of the element to drag from')
+	target_index: int | None = Field(None, description='Index of the element to drop onto')
+	source_offset: Position | None = Field(
+		None, description='Precise position within the source element to start drag (in pixels from top-left corner)'
+	)
+	target_offset: Position | None = Field(
+		None, description='Precise position within the target element to drop (in pixels from top-left corner)'
+	)
+
+	# Element-based approach (legacy)
 	element_source: str | None = Field(None, description='CSS selector or XPath of the element to drag from')
 	element_target: str | None = Field(None, description='CSS selector or XPath of the element to drop onto')
 	element_source_offset: Position | None = Field(

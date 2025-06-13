@@ -600,40 +600,66 @@ class Controller(Generic[Context]):
 			'Drag and drop elements or between coordinates on the page - useful for canvas drawing, sortable lists, sliders, file uploads, and UI rearrangement',
 			param_model=DragDropAction,
 		)
-		async def drag_drop(params: DragDropAction, page: Page) -> ActionResult:
+		async def drag_drop(params: DragDropAction, browser_session: BrowserSession) -> ActionResult:
 			"""
 			Performs a precise drag and drop operation between elements or coordinates.
+			Supports three approaches:
+			1. Index-based (preferred): Use source_index and target_index
+			2. Element-based (legacy): Use element_source and element_target selectors
+			3. Coordinate-based: Use direct coordinates
 			"""
 
 			async def get_drag_elements(
 				page: Page,
-				source_selector: str,
-				target_selector: str,
+				source_selector: str | None,
+				target_selector: str | None,
+				source_index: int | None,
+				target_index: int | None,
+				selector_map: dict[int, any],
 			) -> tuple[ElementHandle | None, ElementHandle | None]:
 				"""Get source and target elements with appropriate error handling."""
 				source_element = None
 				target_element = None
 
 				try:
-					# page.locator() auto-detects CSS and XPath
-					source_locator = page.locator(source_selector)
-					target_locator = page.locator(target_selector)
+					# Case 1: Index-based approach
+					if source_index is not None and target_index is not None:
+						if source_index not in selector_map:
+							logger.warning(f'Source element with index {source_index} not found in selector map')
+							return None, None
+						if target_index not in selector_map:
+							logger.warning(f'Target element with index {target_index} not found in selector map')
+							return None, None
 
-					# Check if elements exist
-					source_count = await source_locator.count()
-					target_count = await target_locator.count()
+						source_dom = selector_map[source_index]
+						target_dom = selector_map[target_index]
 
-					if source_count > 0:
-						source_element = await source_locator.first.element_handle()
-						logger.debug(f'Found source element with selector: {source_selector}')
-					else:
-						logger.warning(f'Source element not found: {source_selector}')
+						# Get elements using xpath from dom nodes
+						source_element = await page.locator('//' + source_dom.xpath).first.element_handle()
+						target_element = await page.locator('//' + target_dom.xpath).first.element_handle()
 
-					if target_count > 0:
-						target_element = await target_locator.first.element_handle()
-						logger.debug(f'Found target element with selector: {target_selector}')
-					else:
-						logger.warning(f'Target element not found: {target_selector}')
+						logger.debug(f'Found source element with index {source_index}')
+						logger.debug(f'Found target element with index {target_index}')
+
+					# Case 2: Element-based approach
+					elif source_selector and target_selector:
+						source_locator = page.locator(source_selector)
+						target_locator = page.locator(target_selector)
+
+						source_count = await source_locator.count()
+						target_count = await target_locator.count()
+
+						if source_count > 0:
+							source_element = await source_locator.first.element_handle()
+							logger.debug(f'Found source element with selector: {source_selector}')
+						else:
+							logger.warning(f'Source element not found: {source_selector}')
+
+						if target_count > 0:
+							target_element = await target_locator.first.element_handle()
+							logger.debug(f'Found target element with selector: {target_selector}')
+						else:
+							logger.warning(f'Target element not found: {target_selector}')
 
 				except Exception as e:
 					logger.error(f'Error finding elements: {str(e)}')
@@ -735,14 +761,48 @@ class Controller(Generic[Context]):
 				steps = max(1, params.steps or 10)
 				delay_ms = max(0, params.delay_ms or 5)
 
-				# Case 1: Element selectors provided
-				if params.element_source and params.element_target:
+				page = await browser_session.get_current_page()
+				selector_map = await browser_session.get_selector_map()
+
+				# Case 1: Index-based approach (preferred)
+				if params.source_index is not None and params.target_index is not None:
+					logger.debug('Using index-based approach')
+
+					source_element, target_element = await get_drag_elements(
+						page,
+						None,  # No selectors for index-based approach
+						None,
+						params.source_index,
+						params.target_index,
+						selector_map,
+					)
+
+					if not source_element or not target_element:
+						error_msg = f'Failed to find {"source" if not source_element else "target"} element by index'
+						return ActionResult(error=error_msg, include_in_memory=True)
+
+					source_coords, target_coords = await get_element_coordinates(
+						source_element, target_element, params.source_offset, params.target_offset
+					)
+
+					if not source_coords or not target_coords:
+						error_msg = f'Failed to determine {"source" if not source_coords else "target"} coordinates'
+						return ActionResult(error=error_msg, include_in_memory=True)
+
+					source_x, source_y = source_coords
+					target_x, target_y = target_coords
+
+				# Case 2: Element selectors provided (legacy)
+				elif params.element_source and params.element_target:
 					logger.debug('Using element-based approach with selectors')
 
 					source_element, target_element = await get_drag_elements(
 						page,
 						params.element_source,
 						params.element_target,
+						None,  # No indices for selector-based approach
+						None,
+						selector_map,
 					)
 
 					if not source_element or not target_element:
@@ -760,7 +820,7 @@ class Controller(Generic[Context]):
 					source_x, source_y = source_coords
 					target_x, target_y = target_coords
 
-				# Case 2: Coordinates provided directly
+				# Case 3: Coordinates provided directly
 				elif all(
 					coord is not None
 					for coord in [params.coord_source_x, params.coord_source_y, params.coord_target_x, params.coord_target_y]
@@ -771,7 +831,7 @@ class Controller(Generic[Context]):
 					target_x = params.coord_target_x
 					target_y = params.coord_target_y
 				else:
-					error_msg = 'Must provide either source/target selectors or source/target coordinates'
+					error_msg = 'Must provide either source/target indices, source/target selectors, or source/target coordinates'
 					return ActionResult(error=error_msg, include_in_memory=True)
 
 				# Validate coordinates
@@ -795,7 +855,9 @@ class Controller(Generic[Context]):
 					return ActionResult(error=message, include_in_memory=True)
 
 				# Create descriptive message
-				if params.element_source and params.element_target:
+				if params.source_index is not None and params.target_index is not None:
+					msg = f'🖱️ Dragged element with index {params.source_index} to element with index {params.target_index}'
+				elif params.element_source and params.element_target:
 					msg = f"🖱️ Dragged element '{params.element_source}' to '{params.element_target}'"
 				else:
 					msg = f'🖱️ Dragged from ({source_x}, {source_y}) to ({target_x}, {target_y})'
