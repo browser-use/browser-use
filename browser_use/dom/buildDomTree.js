@@ -1126,13 +1126,17 @@
     if (element.hasAttribute('onclick') || typeof element.onclick === 'function') {
       return true;
     }
+    // Check for draggable attribute  
+    if (element.hasAttribute('draggable') === 'true') {
+      return true;
+    }
     
     // Check for other common interaction event listeners
     try {
       const getEventListenersForNode = window.getEventListenersForNode;
       if (typeof getEventListenersForNode === 'function') {
         const listeners = getEventListenersForNode(element);
-        const interactionEvents = ['click', 'mousedown', 'mouseup', 'keydown', 'keyup', 'submit', 'change', 'input', 'focus', 'blur'];
+        const interactionEvents = ['click', 'mousedown', 'mouseup', 'keydown', 'keyup', 'submit', 'change', 'input', 'focus', 'blur', 'dragstart', 'drop'];
         for (const eventType of interactionEvents) {
           for (const listener of listeners) {
             if (listener.type === eventType) {
