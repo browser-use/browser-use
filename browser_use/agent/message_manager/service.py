@@ -17,7 +17,7 @@ from browser_use.agent.message_manager.views import MessageMetadata
 from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.agent.views import ActionResult, AgentOutput, AgentStepInfo, MessageManagerState
 from browser_use.browser.views import BrowserStateSummary
-from browser_use.utils import match_url_with_domain_pattern, time_execution_sync
+from browser_use.utils import SensitiveDataHelper, time_execution_sync
 
 logger = logging.getLogger(__name__)
 
@@ -280,18 +280,7 @@ class MessageManager:
 		sensitive_data = self.settings.sensitive_data
 		if not sensitive_data:
 			return
-
-		# Collect placeholders for sensitive data
-		placeholders = set()
-
-		for key, value in sensitive_data.items():
-			if isinstance(value, dict):
-				# New format: {domain: {key: value}}
-				if match_url_with_domain_pattern(current_page_url, key, True):
-					placeholders.update(value.keys())
-			else:
-				# Old format: {key: value}
-				placeholders.add(key)
+		placeholders = SensitiveDataHelper.get_available_placeholders(sensitive_data, current_page_url)
 		if placeholders:
 			info = f'Here are placeholders for sensitive data: {list(placeholders)}'
 			info += '\nTo use them, write <secret>the placeholder name</secret>'
@@ -421,43 +410,18 @@ class MessageManager:
 	@time_execution_sync('--filter_sensitive_data')
 	def _filter_sensitive_data(self, message: BaseMessage) -> BaseMessage:
 		"""Filter out sensitive data from the message"""
-
-		def replace_sensitive(value: str) -> str:
-			if not self.settings.sensitive_data:
-				return value
-
-			# Collect all sensitive values, immediately converting old format to new format
-			sensitive_values: dict[str, str] = {}
-
-			# Process all sensitive data entries
-			for key_or_domain, content in self.settings.sensitive_data.items():
-				if isinstance(content, dict):
-					# Already in new format: {domain: {key: value}}
-					for key, val in content.items():
-						if val:  # Skip empty values
-							sensitive_values[key] = val
-				elif content:  # Old format: {key: value} - convert to new format internally
-					# We treat this as if it was {'http*://*': {key_or_domain: content}}
-					sensitive_values[key_or_domain] = content
-
-			# If there are no valid sensitive data entries, just return the original value
-			if not sensitive_values:
-				logger.warning('No valid entries found in sensitive_data dictionary')
-				return value
-
-			# Replace all valid sensitive data values with their placeholder tags
-			for key, val in sensitive_values.items():
-				value = value.replace(val, f'<secret>{key}</secret>')
-
-			return value
-
-		if isinstance(message.content, str):
-			message.content = replace_sensitive(message.content)
-		elif isinstance(message.content, list):
-			for i, item in enumerate(message.content):
-				if isinstance(item, dict) and 'text' in item:
-					item['text'] = replace_sensitive(item['text'])
-					message.content[i] = item
+		if self.settings.sensitive_data:
+			if isinstance(message.content, str):
+				message.content = SensitiveDataHelper.filter_sensitive_from_message(
+					message.content, self.settings.sensitive_data, logger=logger
+				)
+			elif isinstance(message.content, list):
+				for i, item in enumerate(message.content):
+					if isinstance(item, dict) and 'text' in item:
+						item['text'] = SensitiveDataHelper.filter_sensitive_from_message(
+							item['text'], self.settings.sensitive_data, logger=logger
+						)
+						message.content[i] = item
 		return message
 
 	def _count_tokens(self, message: BaseMessage) -> int:

@@ -2,7 +2,6 @@ import asyncio
 import functools
 import inspect
 import logging
-import re
 from collections.abc import Callable
 from inspect import Parameter, iscoroutinefunction, signature
 from typing import Any, Generic, Optional, TypeVar, Union, get_args, get_origin
@@ -23,7 +22,7 @@ from browser_use.telemetry.views import (
 	ControllerRegisteredFunctionsTelemetryEvent,
 	RegisteredFunction,
 )
-from browser_use.utils import match_url_with_domain_pattern, time_execution_async
+from browser_use.utils import SensitiveDataHelper, time_execution_async
 
 Context = TypeVar('Context')
 
@@ -325,7 +324,11 @@ class Registry(Generic[Context]):
 					else:
 						current_page = await browser_session.get_current_page()
 						current_url = current_page.url if current_page else None
-				validated_params = self._replace_sensitive_data(validated_params, sensitive_data, current_url)
+				validated_params = type(validated_params).model_validate(
+					SensitiveDataHelper.replace_sensitive_placeholders(
+						validated_params.model_dump(), sensitive_data, current_url, logger=logger
+					)
+				)
 
 			# Build special context dict
 			special_context = {
@@ -359,82 +362,6 @@ class Registry(Generic[Context]):
 				raise RuntimeError(f'Error executing action {action_name}: {str(e)}') from e
 		except Exception as e:
 			raise RuntimeError(f'Error executing action {action_name}: {str(e)}') from e
-
-	def _log_sensitive_data_usage(self, placeholders_used: set[str], current_url: str | None) -> None:
-		"""Log when sensitive data is being used on a page"""
-		if placeholders_used:
-			url_info = f' on {current_url}' if current_url and current_url != 'about:blank' else ''
-			logger.info(f'🔒 Using sensitive data placeholders: {", ".join(sorted(placeholders_used))}{url_info}')
-
-	def _replace_sensitive_data(self, params: BaseModel, sensitive_data: dict[str, Any], current_url: str = None) -> BaseModel:
-		"""
-		Replaces sensitive data placeholders in params with actual values.
-
-		Args:
-			params: The parameter object containing <secret>placeholder</secret> tags
-			sensitive_data: Dictionary of sensitive data, either in old format {key: value}
-						   or new format {domain_pattern: {key: value}}
-			current_url: Optional current URL for domain matching
-
-		Returns:
-			BaseModel: The parameter object with placeholders replaced by actual values
-		"""
-		secret_pattern = re.compile(r'<secret>(.*?)</secret>')
-
-		# Set to track all missing placeholders across the full object
-		all_missing_placeholders = set()
-		# Set to track successfully replaced placeholders
-		replaced_placeholders = set()
-
-		# Process sensitive data based on format and current URL
-		applicable_secrets = {}
-
-		for domain_or_key, content in sensitive_data.items():
-			if isinstance(content, dict):
-				# New format: {domain_pattern: {key: value}}
-				# Only include secrets for domains that match the current URL
-				if current_url and current_url != 'about:blank':
-					# it's a real url, check it using our custom allowed_domains scheme://*.example.com glob matching
-					if match_url_with_domain_pattern(current_url, domain_or_key):
-						applicable_secrets.update(content)
-			else:
-				# Old format: {key: value}, expose to all domains (only allowed for legacy reasons)
-				applicable_secrets[domain_or_key] = content
-
-		# Filter out empty values
-		applicable_secrets = {k: v for k, v in applicable_secrets.items() if v}
-
-		def recursively_replace_secrets(value: str | dict | list) -> str | dict | list:
-			if isinstance(value, str):
-				matches = secret_pattern.findall(value)
-
-				for placeholder in matches:
-					if placeholder in applicable_secrets:
-						value = value.replace(f'<secret>{placeholder}</secret>', applicable_secrets[placeholder])
-						replaced_placeholders.add(placeholder)
-					else:
-						# Keep track of missing placeholders
-						all_missing_placeholders.add(placeholder)
-						# Don't replace the tag, keep it as is
-
-				return value
-			elif isinstance(value, dict):
-				return {k: recursively_replace_secrets(v) for k, v in value.items()}
-			elif isinstance(value, list):
-				return [recursively_replace_secrets(v) for v in value]
-			return value
-
-		params_dump = params.model_dump()
-		processed_params = recursively_replace_secrets(params_dump)
-
-		# Log sensitive data usage
-		self._log_sensitive_data_usage(replaced_placeholders, current_url)
-
-		# Log a warning if any placeholders are missing
-		if all_missing_placeholders:
-			logger.warning(f'Missing or empty keys in sensitive_data dictionary: {", ".join(all_missing_placeholders)}')
-
-		return type(params).model_validate(processed_params)
 
 	# @time_execution_sync('--create_action_model')
 	def create_action_model(self, include_actions: list[str] | None = None, page=None) -> type[ActionModel]:
