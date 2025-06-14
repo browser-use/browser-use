@@ -150,6 +150,17 @@ class Memory:
 			self.logger.error(f'📜 Error during procedural memory creation: {e}')
 			return
 
+		if memory_content and self.config.graph_store_provider:  # Check if graph is configured
+			logger.debug(f"Adding procedural summary to graph. Content: '{memory_content[:100]}...'")
+			try:
+				graph_add_results = self.mem0.add(
+					messages=memory_content,  # Pass the summary text
+					agent_id=self.config.agent_id,
+				)
+				logger.debug(f'Result of adding summary to graph: {graph_add_results}')
+			except Exception as e_graph_add:
+				logger.error(f'Error adding procedural summary to graph: {e_graph_add}')
+
 		if not memory_content:
 			self.logger.warning('📜 Failed to create procedural memory')
 			return
