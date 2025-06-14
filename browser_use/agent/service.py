@@ -36,7 +36,7 @@ from browser_use.agent.message_manager.utils import (
 	is_model_without_tool_support,
 	save_conversation,
 )
-from browser_use.agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
+from browser_use.agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt, TaskEnhancementPrompt
 from browser_use.agent.views import (
 	ActionResult,
 	AgentError,
@@ -169,6 +169,7 @@ class Agent(Generic[Context]):
 		enable_memory: bool = True,
 		memory_config: MemoryConfig | None = None,
 		source: str | None = None,
+		enhance_task: bool = True,
 		task_id: str | None = None,
 	):
 		if page_extraction_llm is None:
@@ -183,6 +184,9 @@ class Agent(Generic[Context]):
 		self.llm = llm
 		self.controller = controller
 		self.sensitive_data = sensitive_data
+
+		# Store enhance_task flag for later use in run()
+		self._should_enhance_task = enhance_task
 
 		self.settings = AgentSettings(
 			use_vision=use_vision,
@@ -266,7 +270,7 @@ class Agent(Generic[Context]):
 		# Initialize message manager with state
 		# Initial system prompt with all actions - will be updated during each step
 		self._message_manager = MessageManager(
-			task=task,
+			task=self.task,
 			system_message=SystemPrompt(
 				action_description=self.unfiltered_actions,
 				max_actions_per_step=self.settings.max_actions_per_step,
@@ -1362,6 +1366,14 @@ class Agent(Generic[Context]):
 		signal_handler.register()
 
 		try:
+			# Enhance task if LLM is available
+			if self.llm and self._should_enhance_task:
+				try:
+					enhanced_task = await self._enhance_task_async(self.task)
+					self.task = enhanced_task
+				except Exception as e:
+					self.logger.warning(f'Failed to enhance task: {e}. Using original task.')
+
 			self._log_agent_run()
 
 			# Execute initial actions if provided
@@ -1904,3 +1916,18 @@ class Agent(Generic[Context]):
 		# Update done action model too
 		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'], page=page)
 		self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
+
+	async def _enhance_task_async(self, task: str) -> str:
+		"""Enhance the task description only when needed to clarify completion criteria or resolve ambiguity."""
+		system_msg = TaskEnhancementPrompt.get_system_message()
+
+		try:
+			msg = [SystemMessage(content=system_msg), HumanMessage(content=task)]
+			response = await self.llm.ainvoke(msg)
+			enhanced_task = response.content.strip()
+
+			self.logger.info(f"Task enhanced from: '{task}' to: '{enhanced_task}'")
+			return enhanced_task
+		except Exception as e:
+			self.logger.warning(f'Failed to enhance task: {e}')
+			return task

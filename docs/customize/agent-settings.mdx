@@ -35,6 +35,7 @@ agent = Agent(
     llm=llm,
     controller=custom_controller,  # For custom tool calling
     use_vision=True,              # Enable vision capabilities
+    enhance_task=True,            # Enable automatic task enhancement
     save_conversation_path="logs/conversation"  # Save chat logs
 )
 ```
@@ -46,6 +47,11 @@ agent = Agent(
   - When enabled, the model processes visual information from web pages
   - Disable to reduce costs or use models without vision support
   - For GPT-4o, image processing costs approximately 800-1000 tokens (~$0.002 USD) per image (but this depends on the defined screen size)
+- `enhance_task`: Enable/disable automatic task enhancement. Defaults to `True`.
+  - When enabled, the agent uses the LLM to clarify task completion criteria before execution
+  - Helps resolve ambiguous tasks by adding minimal clarification without expanding scope
+  - Example: "Get the report" becomes "Locate and access the report"
+  - Disable if you want tasks executed exactly as written without any modification
 - `save_conversation_path`: Path to save the complete conversation history. Useful for debugging.
 - `override_system_message`: Completely replace the default system prompt with a custom one.
 - `extend_system_message`: Add additional instructions to the default system prompt.
