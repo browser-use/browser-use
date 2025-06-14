@@ -929,7 +929,17 @@ class Controller(Generic[Context]):
 				)
 
 				# Laminar.set_span_output(result)
-
+					if isinstance(result, str):
+						return ActionResult(extracted_content=result)
+					elif isinstance(result, ActionResult):
+						return result
+					elif result is None:
+						return ActionResult()
+					else:
+						raise ValueError(f'Invalid action result type: {type(result)} of {result}')
+			return ActionResult()
+		except Exception as e:
+			raise e
 				if isinstance(result, str):
 					return ActionResult(extracted_content=result)
 				elif isinstance(result, ActionResult):
