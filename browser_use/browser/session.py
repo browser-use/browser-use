@@ -3053,19 +3053,16 @@ class BrowserSession(BaseModel):
 		return element_handle
 
 	@require_initialization
-	async def find_file_upload_element_by_index(self, index: int) -> DOMElementNode | None:
+	async def find_file_upload_element_by_index(
+		self, index: int, max_height: int = 3, max_descendant_depth: int = 3
+	) -> DOMElementNode | None:
 		"""
-		Find a file upload element related to the element at the given index:
-		- Check if the element itself is a file input
-		- Check if it's a label pointing to a file input
-		- Recursively search children for file inputs
-		- Check siblings for file inputs
-
-		Args:
-			index: The index of the candidate element (could be a file input, label, or parent element)
-
-		Returns:
-			The DOM element for the file input if found, None otherwise
+		Find the closest file input to the selected element by traversing the DOM bottom-up.
+		At each level (up to max_height ancestors):
+		- Check the current node itself
+		- Check all its children/descendants up to max_descendant_depth
+		- Check all siblings (and their descendants up to max_descendant_depth)
+		Returns the first file input found, or None if not found.
 		"""
 		try:
 			selector_map = await self.get_selector_map()
@@ -3075,70 +3072,47 @@ class BrowserSession(BaseModel):
 			candidate_element = selector_map[index]
 
 			def is_file_input(node: DOMElementNode) -> bool:
-				return isinstance(node, DOMElementNode) and node.tag_name == 'input' and node.attributes.get('type') == 'file'
+				return (
+					isinstance(node, DOMElementNode)
+					and getattr(node, 'tag_name', '').lower() == 'input'
+					and node.attributes.get('type', '').lower() == 'file'
+				)
 
-			def find_element_by_id(node: DOMElementNode, element_id: str) -> DOMElementNode | None:
-				if isinstance(node, DOMElementNode):
-					if node.attributes.get('id') == element_id:
-						return node
-					for child in node.children:
-						result = find_element_by_id(child, element_id)
-						if result:
-							return result
-				return None
-
-			def get_root(node: DOMElementNode) -> DOMElementNode:
-				root = node
-				while root.parent:
-					root = root.parent
-				return root
-
-			# Recursively search for file input in node and its children
-			def find_file_input_recursive(
-				node: DOMElementNode, max_depth: int = 3, current_depth: int = 0
-			) -> DOMElementNode | None:
-				if current_depth > max_depth or not isinstance(node, DOMElementNode):
+			def find_file_input_in_descendants(node: DOMElementNode, depth: int) -> DOMElementNode | None:
+				if depth < 0 or not isinstance(node, DOMElementNode):
 					return None
-
-				# Check current element
 				if is_file_input(node):
 					return node
-
-				# Recursively check children
-				if node.children and current_depth < max_depth:
-					for child in node.children:
-						if isinstance(child, DOMElementNode):
-							result = find_file_input_recursive(child, max_depth, current_depth + 1)
-							if result:
-								return result
+				for child in getattr(node, 'children', []):
+					result = find_file_input_in_descendants(child, depth - 1)
+					if result:
+						return result
 				return None
 
-			# Check if current element is a file input
-			if is_file_input(candidate_element):
-				return candidate_element
-
-			# Check if it's a label pointing to a file input
-			if candidate_element.tag_name == 'label' and candidate_element.attributes.get('for'):
-				input_id = candidate_element.attributes.get('for')
-				root_element = get_root(candidate_element)
-
-				target_input = find_element_by_id(root_element, input_id)
-				if target_input and is_file_input(target_input):
-					return target_input
-
-			# Recursively check children
-			child_result = find_file_input_recursive(candidate_element)
-			if child_result:
-				return child_result
-
-			# Check siblings
-			if candidate_element.parent:
-				for sibling in candidate_element.parent.children:
-					if sibling is not candidate_element and isinstance(sibling, DOMElementNode):
+			current = candidate_element
+			for _ in range(max_height + 1):  # include the candidate itself
+				# 1. Check the current node itself
+				if is_file_input(current):
+					return current
+				# 2. Check all descendants of the current node
+				result = find_file_input_in_descendants(current, max_descendant_depth)
+				if result:
+					return result
+				# 3. Check all siblings and their descendants
+				parent = getattr(current, 'parent', None)
+				if parent:
+					for sibling in getattr(parent, 'children', []):
+						if sibling is current:
+							continue
 						if is_file_input(sibling):
 							return sibling
+						result = find_file_input_in_descendants(sibling, max_descendant_depth)
+						if result:
+							return result
+				current = parent
+				if not current:
+					break
 			return None
-
 		except Exception as e:
 			page = await self.get_current_page()
 			self.logger.debug(
