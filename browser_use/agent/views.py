@@ -39,7 +39,7 @@ class AgentSettings(BaseModel):
 
 	use_vision: bool = True
 	use_vision_for_planner: bool = False
-	save_conversation_path: str | None = None
+	save_conversation_path: str | Path | None = None
 	save_conversation_path_encoding: str | None = 'utf-8'
 	max_failures: int = 3
 	retry_delay: int = 10

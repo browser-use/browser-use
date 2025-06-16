@@ -29,20 +29,11 @@ from browser_use.controller.views import (
 	NoParamsAction,
 	SearchGoogleAction,
 )
+from tests.ci.mocks import create_mock_llm
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-
-
-class MockLLM:
-	"""Mock LLM for testing"""
-
-	async def ainvoke(self, prompt):
-		class MockResponse:
-			content = 'Mocked LLM response'
-
-		return MockResponse()
 
 
 class TestContext:
@@ -92,7 +83,7 @@ def base_url(http_server):
 @pytest.fixture(scope='module')
 def mock_llm():
 	"""Create a mock LLM"""
-	return MockLLM()
+	return create_mock_llm()
 
 
 @pytest.fixture(scope='function')
@@ -240,7 +231,9 @@ class TestActionRegistryParameterPatterns:
 		assert isinstance(result, ActionResult)
 		assert 'Text: hello' in result.extracted_content
 		assert base_url in result.extracted_content
-		assert 'LLM: Mocked LLM response' in result.extracted_content
+		# The mock LLM returns a JSON response
+		assert 'LLM: \n\t{\n\t\t"current_state":' in result.extracted_content
+		assert '"Task completed successfully"' in result.extracted_content
 		assert 'Files: 2' in result.extracted_content
 
 	async def test_no_params_action(self, registry, browser_session):
@@ -834,7 +827,7 @@ class TestDecoratedFunctionBehavior:
 		special_context = {
 			'page': MockPage(),
 			'browser_session': None,
-			'page_extraction_llm': MockLLM(),
+			'page_extraction_llm': create_mock_llm(),
 			'context': {'extra': 'data'},
 			'unknown_param': 'ignored',
 		}

@@ -10,6 +10,7 @@ Tests cover:
 """
 
 import asyncio
+import json
 import logging
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from browser_use.browser.profile import (
 	BrowserProfile,
 )
 from browser_use.browser.session import BrowserSession
+from tests.ci.mocks import create_mock_llm
 
 # Set up test logging
 logger = logging.getLogger('browser_session_start_tests')
@@ -605,61 +607,6 @@ class TestBrowserSessionReusePatterns:
 
 		return mock
 
-	def create_mock_llm_with_actions(self, action_sequence):
-		"""Factory to create mock LLMs with specific action sequences"""
-		from unittest.mock import MagicMock
-
-		from langchain_core.language_models.chat_models import BaseChatModel
-
-		# Create a MagicMock that supports dictionary-style access
-		mock = MagicMock(spec=BaseChatModel)
-
-		# Skip verification by setting these attributes
-		mock._verified_api_keys = True
-		mock._verified_tool_calling_method = 'raw'
-
-		# Track which action to return next
-		action_index = 0
-
-		# Mock the invoke method to return actions in sequence
-		def mock_invoke(*args, **kwargs):
-			nonlocal action_index
-			response = MagicMock()
-
-			if action_index < len(action_sequence):
-				response.content = action_sequence[action_index]
-				action_index += 1
-			else:
-				# Default to done action if we run out of actions
-				response.content = """
-				{
-					"current_state": {
-						"evaluation_previous_goal": "All actions completed",
-						"memory": "Task completed",
-						"next_goal": "Complete the task"
-					},
-					"action": [
-						{
-							"done": {
-								"text": "Task completed successfully",
-								"success": true
-							}
-						}
-					]
-				}
-				"""
-			return response
-
-		mock.invoke = mock_invoke
-
-		# Create an async version of the mock_invoke
-		async def mock_ainvoke(*args, **kwargs):
-			return mock_invoke(*args, **kwargs)
-
-		mock.ainvoke = mock_ainvoke
-
-		return mock
-
 	async def test_sequential_agents_same_profile_different_browser(self, mock_llm):
 		"""Test Sequential Agents, Same Profile, Different Browser pattern"""
 		from browser_use import Agent
@@ -821,9 +768,9 @@ class TestBrowserSessionReusePatterns:
 
 			# Create 3 agents sharing the same browser session
 			# Each gets its own mock LLM with the same action sequence
-			mock_llm1 = self.create_mock_llm_with_actions([tab_creation_action, done_action])
-			mock_llm2 = self.create_mock_llm_with_actions([tab_creation_action, done_action])
-			mock_llm3 = self.create_mock_llm_with_actions([tab_creation_action, done_action])
+			mock_llm1 = create_mock_llm([tab_creation_action, done_action])
+			mock_llm2 = create_mock_llm([tab_creation_action, done_action])
+			mock_llm3 = create_mock_llm([tab_creation_action, done_action])
 
 			agent1 = Agent(
 				task='First parallel task...',
@@ -933,7 +880,7 @@ class TestBrowserSessionReusePatterns:
 		# Create a shared profile with storage state
 		with tempfile.NamedTemporaryFile(suffix='.json', delete=False, mode='w') as f:
 			# Write minimal valid storage state
-			f.write('{"cookies": [], "origins": []}')
+			f.write('{"cookies": [], "origins": [{"origin": "https://example.com", "localStorage": []}]}')
 			auth_json_path = f.name
 
 		# Convert to Path object
@@ -979,6 +926,11 @@ class TestBrowserSessionReusePatterns:
 
 			# Verify storage state file exists
 			assert Path(auth_json_path).exists()
+
+			# Verify storage state file was not wiped
+			storage_state = json.loads(auth_json_path.read_text())
+			assert 'origins' in storage_state
+			assert len(storage_state['origins']) > 0
 
 		finally:
 			await window1.kill()

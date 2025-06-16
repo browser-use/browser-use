@@ -85,8 +85,9 @@ Optional `BrowserProfile` template containing default config to use for the `Bro
 playwright: Playwright | None = None
 ```
 
-Optional playwright or patchright API client object to use, the
-result of `(await async_playwright().start())` or `(await async_patchright().start())`. See here for [more detailed usage instructions](https://docs.browser-use.com/customize/real-browser#method-b%3A-connect-using-existing-playwright-objects).
+Optional playwright or patchright API client handle to use, the result of `(await async_playwright().start())` or `(await async_patchright().start())`, which spawns a node.js child subprocess that relays commands to the browser over CDP.
+
+See here for [more detailed usage instructions](https://docs.browser-use.com/customize/real-browser#method-b%3A-connect-using-existing-playwright-objects).
 
 #### `browser`
 
@@ -120,7 +121,7 @@ Foreground Page that the agent is focused on, can also be passed as `page=...` a
 human_current_page: Page | None = None
 ```
 
-Foreground Page that the human is focused on to start, usually not necessary to set manually.
+Foreground Page that the human is focused on to start, not necessary to set manually.
 
 #### `initialized`
 
@@ -270,7 +271,12 @@ Glob patterns are supported:
 disable_security: bool = False
 ```
 
-Completely disables all basic browser security features. Allows interacting across cross-site iFrames boundaries, but very INSECURE, don't visit untrusted URLs or use cookies.
+Completely disables all basic browser security features. Allows interacting across cross-site iFrames boundaries, but 
+
+<Warning>
+This option is very INSECURE and is only for niche use cases. DO NOT LET YOUR AGENT visit untrusted URLs or give it real cookies when `disable_security=True`.
+Visiting a single malicious site in this mode can trivially compromise *all* the cookies in the browser profile in under 1 second.
+</Warning>
 
 #### `deterministic_rendering`
 
@@ -278,7 +284,14 @@ Completely disables all basic browser security features. Allows interacting acro
 deterministic_rendering: bool = False
 ```
 
-Enable deterministic rendering flags for consistent screenshots.
+Attempt to forced more deterministic rendering for consistent screenshots across different host operating systems and hardware.
+
+Disables OS-specific font hints, aliasing, GPU-accelerated rendering, normalizes DPI, and sets a specific JS random seed to try to avoid nondeterministic JS.
+
+<Warning>
+This flag is for niche use cases (e.g. screenshot diffing) where pixel-perfect rendering across different server operating systems is more important than stability.
+It makes the agent more likely to be blocked as a bot and triggers some glitchy behavior in chrome occasionally, it's not recommended unless you know you need it.
+</Warning>
 
 #### `highlight_elements`
 
@@ -348,15 +361,15 @@ cookies_file: str | None = None
 JSON file path to save cookies to.
 
 <Warning>
-This option is DEPRECATED. Use [`storage_state`](#storage-state) instead, it's the standard playwright format and also supports `localStorage`!
+This option is DEPRECATED. Use [`storage_state`](#storage-state) instead, it's the standard playwright format and also supports `localStorage` and `indexedDB`!
 
-Transfer any cookies from your existing `cookies_file` to the new JSON format:
+The library will automatically save a new `storage_state.json` next to any `cookies_file` path you provide, just use `storage_state='path/to/storage_state.json' to switch to the new format:
 
 `cookies_file.json`: `[{cookie}, {cookie}, {cookie}]`  
 ⬇️
 `storage_state.json`: `{"cookies": [{cookie}, {cookie}, {cookie}], "origins": {... optional localstorage state ...}}`
 
-Or run `playwright open https://example.com/ --save-storage=storage_state.json` and log into any sites you need.
+Or run `playwright open https://example.com/ --save-storage=storage_state.json` and log into any sites you need to generate a fresh storage state file.
 </Warning>
 
 
@@ -367,6 +380,7 @@ profile_directory: str = 'Default'
 ```
 
 Chrome profile subdirectory name inside of your `user_data_dir` (e.g. `Default`, `Profile 1`, `Work`, etc.).
+No need to set this unless you have multiple profiles set up in a single `user_data_dir` and need to use a specific one.
 
 #### `window_position`
 
@@ -374,15 +388,7 @@ Chrome profile subdirectory name inside of your `user_data_dir` (e.g. `Default`,
 window_position: dict | None = {"width": 0, "height": 0}
 ```
 
-Window position from top-left corner.
-
-#### `trace_path`
-
-```python
-trace_path: str | None = None
-```
-
-Directory path for saving Agent trace files. Files are automatically named as `{trace_path}/{context_id}.zip`.
+Window position from top-left.
 
 
 ---
@@ -401,7 +407,9 @@ They are defined in `browser_use/browser/profile.py`. See here for the [official
 headless: bool | None = None
 ```
 
-Runs the browser without a visible UI. If None, auto-detects based on display availability.
+Runs the browser without a visible UI. If None, auto-detects based on display availability. If you set `headless=False` on a server with no monitor attached, the browser will fail to launch (use `xvfb` + vnc to give a headless server a virtual display you can remote control). 
+
+`headless=False` is recommended for maximum stealth and is required for human-in-the-loop workflows.
 
 #### `channel`
 
@@ -409,9 +417,9 @@ Runs the browser without a visible UI. If None, auto-detects based on display av
 channel: BrowserChannel = 'chromium'
 ```
 
-Browser channel: `'chromium'`, `'chrome'`, `'chrome-beta'`, `'chrome-dev'`, `'chrome-canary'`, `'msedge'`, `'msedge-beta'`, `'msedge-dev'`, `'msedge-canary'`
+Browser channel: `['chromium']` (default when `stealth=False`), `'chrome'` (default when `stealth=True`), `'chrome-beta'`, `'chrome-dev'`, `'chrome-canary'`, `'msedge'`, `'msedge-beta'`, `'msedge-dev'`, `'msedge-canary'`
 
-Don't worry, other chromium-based browsers not in this list (e.g. `brave`) are still supported if you provide your own [`executable_path`](#executable_path).
+Don't worry, other chromium-based browsers not in this list (e.g. `brave`) are still supported if you provide your own [`executable_path`](#executable_path), just set it to `chromium` for those.
 
 #### `executable_path`
 
@@ -784,14 +792,17 @@ Note: Browser Use also provides some of our own recording-related options not li
 
 #### `record_video_dir`
 
+<a name="record-video-dir"></a>
+<a name="save-recording-path"></a>
+
 ```python
 record_video_dir: str | Path | None = None
 ```
 
-Directory to save video recordings. [Playwright Docs: `record_video_dir`](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context-option-record-video-dir)
+Directory to save `.webm` video recordings. [Playwright Docs: `record_video_dir`](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context-option-record-video-dir)
 
 <Note>
-This is the standard Playwright parameter for video recording. If you previously used `save_recording_path`, please update your code to use `record_video_dir` instead.
+This parameter also has an alias `save_recording_path` for backwards compatibility with past versions, but we recommend using the standard Playwright name `record_video_dir` going forward.
 </Note>
 
 #### `record_video_size`
@@ -805,11 +816,18 @@ Video size. Example: `{"width": 1280, "height": 720}`
 
 #### `record_har_path`
 
+<a name="record-har-path"></a>
+<a name="save-har-path"></a>
+
 ```python
 record_har_path: str | Path | None = None
 ```
 
-Path to save HAR file with network activity.
+Path to save `.har` network trace files. [Playwright Docs: `record_har_path`](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context-option-record-har-path)
+
+<Note>
+This parameter also has an alias `save_har_path` for backwards compatibility with past versions, but we recommend using the standard Playwright name `record_har_path` going forward.
+</Note>
 
 #### `record_har_content`
 
@@ -851,15 +869,22 @@ downloads_path: str | Path | None = '~/.config/browseruse/downloads'
 
 (aliases: `downloads_dir`, `save_downloads_path`)
 
-Local filesystem directory to save downloads to.
+Local filesystem directory to save browser file downloads to.
 
 #### `traces_dir`
+
+<a name="traces-dir"></a>
+<a name="trace-path"></a>
 
 ```python
 traces_dir: str | Path | None = None
 ```
 
-Directory to save HAR trace files to.
+Directory to save all-in-one trace files. Files are automatically named as `{traces_dir}/{context_id}.zip`. [Playwright Docs: `traces_dir`](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context-option-traces-dir)
+
+<Note>
+This parameter also has an alias `trace_path` for backwards compatibility with past versions, but we recommend using the standard Playwright name `traces_dir` going forward.
+</Note>
 
 #### `handle_sighup`
 

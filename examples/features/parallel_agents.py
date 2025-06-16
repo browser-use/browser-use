@@ -11,20 +11,19 @@ load_dotenv()
 from langchain_openai import ChatOpenAI
 
 from browser_use.agent.service import Agent
-from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.browser import BrowserSession
 
 browser_session = BrowserSession(
-	browser_profile=BrowserProfile(
-		disable_security=True,
-		headless=False,
-		record_video_dir='./tmp/recordings',
-		user_data_dir='~/.config/browseruse/profiles/default',
-	)
+	keep_alive=True,
+	headless=False,
+	save_recording_path='./tmp/recordings',
+	user_data_dir='~/.config/browseruse/profiles/default',
 )
 llm = ChatOpenAI(model='gpt-4o')
 
 
 async def main():
+	await browser_session.start()
 	agents = [
 		Agent(task=task, llm=llm, browser_session=browser_session)
 		for task in [
@@ -32,7 +31,7 @@ async def main():
 			'Check Reddit front page title',
 			'Look up Bitcoin price on Coinbase',
 			'Find NASA image of the day',
-			# 'Check top story on CNN',
+			'Check top story on CNN',
 			# 'Search latest SpaceX launch date',
 			# 'Look up population of Paris',
 			# 'Find current time in Sydney',
@@ -41,16 +40,8 @@ async def main():
 		]
 	]
 
-	await asyncio.gather(*[agent.run() for agent in agents])
-
-	agentX = Agent(
-		task='Go to apple.com and return the title of the page',
-		llm=llm,
-		browser_session=browser_session,
-	)
-	await agentX.run()
-
-	await browser_session.close()
+	print(await asyncio.gather(*[agent.run() for agent in agents]))
+	await browser_session.kill()
 
 
 if __name__ == '__main__':

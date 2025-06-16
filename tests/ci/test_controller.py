@@ -1338,3 +1338,107 @@ class TestControllerIntegration:
 		# Verify the click actually had an effect on the page
 		result_text = await page.evaluate("document.getElementById('result').textContent")
 		assert result_text == expected_result_text, f"Expected result text '{expected_result_text}', got '{result_text}'"
+
+	async def test_empty_css_selector_fallback(self, controller, browser_session, httpserver):
+		"""Test that clicking elements with empty CSS selectors falls back to XPath."""
+		# Create a test page with an element that would produce an empty CSS selector
+		# This could happen with elements that have no tag name or unusual XPath structures
+		httpserver.expect_request('/empty_css_test').respond_with_data(
+			"""
+			<html>
+			<head><title>Empty CSS Selector Test</title></head>
+			<body>
+				<div id="container">
+					<!-- Element with minimal attributes that might produce empty CSS selector -->
+					<custom-element>Click Me</custom-element>
+					<div id="result">Not clicked</div>
+				</div>
+				<script>
+					// Add click handler to the custom element
+					document.querySelector('custom-element').addEventListener('click', function() {
+						document.getElementById('result').textContent = 'Clicked!';
+					});
+				</script>
+			</body>
+			</html>
+			""",
+			content_type='text/html',
+		)
+
+		# Navigate to the test page
+		page = await browser_session.get_current_page()
+		await page.goto(httpserver.url_for('/empty_css_test'))
+		await page.wait_for_load_state()
+
+		# Get the page state which includes clickable elements
+		state = await browser_session.get_state_summary(cache_clickable_elements_hashes=False)
+
+		# Find the custom element index
+		custom_element_index = None
+		for index, element in state.selector_map.items():
+			if element.tag_name == 'custom-element':
+				custom_element_index = index
+				break
+
+		assert custom_element_index is not None, 'Could not find custom-element in selector map'
+
+		# Mock a scenario where CSS selector generation returns empty string
+		# by temporarily patching the method (we'll test the actual fallback behavior)
+		original_method = browser_session._enhanced_css_selector_for_element
+		empty_css_called = False
+
+		def mock_css_selector(element, include_dynamic_attributes=True):
+			nonlocal empty_css_called
+			# Return empty string for our custom element to trigger fallback
+			if element.tag_name == 'custom-element':
+				empty_css_called = True
+				return ''
+			return original_method(element, include_dynamic_attributes)
+
+		# Temporarily replace the method
+		browser_session._enhanced_css_selector_for_element = mock_css_selector
+
+		try:
+			# Create click action for the custom element
+			click_action = {'click_element_by_index': ClickElementAction(index=custom_element_index)}
+
+			class ClickActionModel(ActionModel):
+				click_element_by_index: ClickElementAction | None = None
+
+			# Execute the click - should use XPath fallback
+			result = await controller.act(ClickActionModel(**click_action), browser_session)
+
+			# Verify the click succeeded
+			assert result.error is None, f'Click failed with error: {result.error}'
+			assert result.success is True, 'Click was not successful'
+			assert empty_css_called, 'CSS selector method was not called'
+
+			# Verify the element was actually clicked by checking the result
+			result_text = await page.evaluate("document.getElementById('result').textContent")
+			assert result_text == 'Clicked!', f'Element was not clicked, result text: {result_text}'
+
+		finally:
+			# Restore the original method
+			browser_session._enhanced_css_selector_for_element = original_method
+
+	async def test_go_to_url_network_error(self, controller, browser_session):
+		"""Test that go_to_url handles network errors gracefully instead of throwing hard errors."""
+		# Create action model for go_to_url with an invalid domain
+		action_data = {'go_to_url': GoToUrlAction(url='https://www.nonexistentdndbeyond.com/')}
+
+		# Create the ActionModel instance
+		class GoToUrlActionModel(ActionModel):
+			go_to_url: GoToUrlAction | None = None
+
+		action_model = GoToUrlActionModel(**action_data)
+
+		# Execute the action - should return soft error instead of throwing
+		result = await controller.act(action_model, browser_session)
+
+		# Verify the result
+		assert isinstance(result, ActionResult)
+		assert result.success is False, 'Expected success=False for network error'
+		assert result.error is not None, 'Expected error message to be set'
+		assert 'Site unavailable' in result.error, f"Expected 'Site unavailable' in error message, got: {result.error}"
+		assert 'nonexistentdndbeyond.com' in result.error, 'Expected URL in error message'
+		assert result.include_in_memory is True, 'Network errors should be included in memory'

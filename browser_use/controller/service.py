@@ -98,15 +98,35 @@ class Controller(Generic[Context]):
 
 		@self.registry.action('Navigate to URL in the current tab', param_model=GoToUrlAction)
 		async def go_to_url(params: GoToUrlAction, browser_session: BrowserSession):
-			page = await browser_session.get_current_page()
-			if page:
-				await page.goto(params.url)
-				await page.wait_for_load_state()
-			else:
-				page = await browser_session.create_new_tab(params.url)
-			msg = f'🔗  Navigated to {params.url}'
-			logger.info(msg)
-			return ActionResult(extracted_content=msg, include_in_memory=True)
+			try:
+				page = await browser_session.get_current_page()
+				if page:
+					await page.goto(params.url)
+					await page.wait_for_load_state()
+				else:
+					page = await browser_session.create_new_tab(params.url)
+				msg = f'🔗  Navigated to {params.url}'
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True)
+			except Exception as e:
+				error_msg = str(e)
+				# Check for network-related errors
+				if any(
+					err in error_msg
+					for err in [
+						'ERR_NAME_NOT_RESOLVED',
+						'ERR_INTERNET_DISCONNECTED',
+						'ERR_CONNECTION_REFUSED',
+						'ERR_TIMED_OUT',
+						'net::',
+					]
+				):
+					site_unavailable_msg = f'Site unavailable: {params.url} - {error_msg}'
+					logger.warning(site_unavailable_msg)
+					return ActionResult(success=False, error=site_unavailable_msg, include_in_memory=True)
+				else:
+					# Re-raise non-network errors
+					raise
 
 		@self.registry.action('Go back', param_model=NoParamsAction)
 		async def go_back(params: NoParamsAction, browser_session: BrowserSession):
@@ -172,7 +192,7 @@ class Controller(Generic[Context]):
 					msg += f' - {new_tab_msg}'
 					logger.info(new_tab_msg)
 					await browser_session.switch_to_tab(-1)
-				return ActionResult(extracted_content=msg, include_in_memory=True)
+				return ActionResult(extracted_content=msg, include_in_memory=True, success=True)
 			except Exception as e:
 				error_msg = str(e)
 				if 'Execution context was destroyed' in error_msg or 'Cannot find context with specified id' in error_msg:
@@ -221,17 +241,21 @@ class Controller(Generic[Context]):
 		@self.registry.action('Switch tab', param_model=SwitchTabAction)
 		async def switch_tab(params: SwitchTabAction, browser_session: BrowserSession):
 			await browser_session.switch_to_tab(params.page_id)
-			# Wait for tab to be ready and ensure references are synchronized
 			page = await browser_session.get_current_page()
-			await page.wait_for_load_state()
-			msg = f'🔄  Switched to tab {params.page_id}'
+			try:
+				await page.wait_for_load_state(state='domcontentloaded', timeout=5_000)
+				# page was already loaded when we first navigated, this is additional to wait for onfocus/onblur animations/ajax to settle
+			except Exception as e:
+				pass
+			msg = f'🔄  Switched to tab #{params.page_id} with url {page.url}'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
 		@self.registry.action('Open a specific url in new tab', param_model=OpenTabAction)
 		async def open_tab(params: OpenTabAction, browser_session: BrowserSession):
-			await browser_session.create_new_tab(params.url)
-			msg = f'🔗  Opened new tab with {params.url}'
+			page = await browser_session.create_new_tab(params.url)
+			tab_idx = browser_session.tabs.index(page)
+			msg = f'🔗  Opened new tab #{tab_idx} with url {params.url}'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
