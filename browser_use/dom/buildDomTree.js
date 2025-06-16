@@ -786,7 +786,7 @@
     }
 
     // Check for draggable attribute  
-    if (element.draggable || element.getAttribute('draggable') === 'true') {
+    if (element.getAttribute('draggable') === 'true') {
 		  return true;
 	  }
     
@@ -1033,7 +1033,6 @@
 
     // Quick attribute checks without getting full lists
     const hasQuickInteractiveAttr = element.hasAttribute("onclick") ||
-      element.draggable ||
       element.hasAttribute("role") ||
       element.hasAttribute("tabindex") ||
       element.hasAttribute("aria-") ||
@@ -1133,7 +1132,7 @@
       return true;
     }
     // Check for draggable attribute  
-    if (element.draggable || element.getAttribute('draggable') === 'true') {
+    if (element.getAttribute('draggable') === 'true') {
 		  return true;
 	  }
     
