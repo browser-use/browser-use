@@ -632,7 +632,8 @@
       element.offsetWidth > 0 &&
       element.offsetHeight > 0 &&
       style.visibility !== "hidden" &&
-      style.display !== "none"
+      style.display !== "none" &&
+      style.opacity !== "0"
     );
   }
 
