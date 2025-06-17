@@ -26,11 +26,11 @@ from browser_use.browser.profile import BROWSERUSE_DEFAULT_CHANNEL, BrowserChann
 from browser_use.browser.types import (
 	Browser,
 	BrowserContext,
+	BrowserDriver,
 	ElementHandle,
 	FrameLocator,
 	Page,
 	Patchright,
-	PlaywrightOrPatchright,
 	async_patchright,
 	async_playwright,
 )
@@ -171,7 +171,7 @@ class BrowserSession(BaseModel):
 		description='pid of a running chromium-based browser process to connect to on localhost',
 		validation_alias=AliasChoices('chrome_pid'),  # old deprecated name = chrome_pid
 	)
-	playwright: PlaywrightOrPatchright | None = Field(
+	playwright: BrowserDriver | None = Field(
 		default=None,
 		description='Playwright library object returned by: await (playwright or patchright).async_playwright().start()',
 		exclude=True,
@@ -557,7 +557,7 @@ class BrowserSession(BaseModel):
 				self.logger.warning(f'Error force-killing browser in BrowserSession.__del__: {type(e).__name__}: {e}')
 
 	@staticmethod
-	async def _start_global_playwright_subprocess(is_stealth: bool) -> PlaywrightOrPatchright:
+	async def _start_global_playwright_subprocess(is_stealth: bool) -> BrowserDriver:
 		"""Create and return a new playwright or patchright node.js subprocess / API connector"""
 		global GLOBAL_PLAYWRIGHT_API_OBJECT, GLOBAL_PATCHRIGHT_API_OBJECT
 		global GLOBAL_PLAYWRIGHT_EVENT_LOOP, GLOBAL_PATCHRIGHT_EVENT_LOOP

@@ -19,19 +19,28 @@ from playwright.async_api import Page as PlaywrightPage
 from playwright.async_api import Playwright as Playwright
 from playwright.async_api import async_playwright as _async_playwright
 
+from browser_use.browser.driver_socket import async_driver_socket as _async_driver_socket
+from browser_use.browser.generic import Driver as GenericDriver
+from browser_use.browser.generic import ElementHandle as GenericElementHandle
+from browser_use.browser.generic import FrameLocator as GenericFrameLocator
+from browser_use.browser.generic import GenericBrowser, GenericBrowserContext
+from browser_use.browser.generic import Page as GenericPage
+
 # Define types to be Union[Patchright, Playwright]
-Browser = PatchrightBrowser | PlaywrightBrowser
-BrowserContext = PatchrightBrowserContext | PlaywrightBrowserContext
-Page = PatchrightPage | PlaywrightPage
-ElementHandle = PatchrightElementHandle | PlaywrightElementHandle
-FrameLocator = PatchrightFrameLocator | PlaywrightFrameLocator
+Browser = PatchrightBrowser | PlaywrightBrowser | GenericBrowser
+BrowserContext = PatchrightBrowserContext | PlaywrightBrowserContext | GenericBrowserContext
+Page = PatchrightPage | PlaywrightPage | GenericPage
+ElementHandle = PatchrightElementHandle | PlaywrightElementHandle | GenericElementHandle
+FrameLocator = PatchrightFrameLocator | PlaywrightFrameLocator | GenericFrameLocator
 Playwright = Playwright
 Patchright = Patchright
-PlaywrightOrPatchright = Patchright | Playwright
+GenericDriver = GenericDriver
+BrowserDriver = Patchright | Playwright | GenericDriver
 TargetClosedError = PatchrightTargetClosedError | PlaywrightTargetClosedError
 
 async_patchright = _async_patchright
 async_playwright = _async_playwright
+async_driver_socket = _async_driver_socket
 
 from playwright._impl._api_structures import (
 	ClientCertificate,
