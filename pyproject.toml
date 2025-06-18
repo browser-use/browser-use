@@ -37,8 +37,7 @@ dependencies = [
     "mem0ai>=0.1.106",
     "uuid7>=0.1.0",
     "patchright>=1.52.5",
-    "aiofiles>=24.1.0",
-]
+    "aiofiles>=24.1.0"]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
 # pyobjc: only used to get screen resolution on macOS
@@ -65,6 +64,9 @@ examples = [
     "imgcat>=0.6.0",
     "stagehand-py>=0.3.6",
     "browserbase>=0.4.0",
+]
+eval = [
+    "lmnr[all]>=0.6.11",
 ]
 all = [
     "browser-use[memory,cli,examples]",
@@ -160,5 +162,5 @@ dev-dependencies = [
     "pyright>=1.1.399",
     "ty>=0.0.1a1",
     # "pytest-playwright-asyncio>=0.7.0",  # not actually needed I think
-    "pytest-xdist>=3.7.0",
+    "pytest-xdist>=3.7.0"
 ]

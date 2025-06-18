@@ -193,7 +193,7 @@ class Controller(Generic[Context]):
 					msg += f' - {new_tab_msg}'
 					logger.info(new_tab_msg)
 					await browser_session.switch_to_tab(-1)
-				return ActionResult(extracted_content=msg, include_in_memory=True, success=True)
+				return ActionResult(extracted_content=msg, include_in_memory=True)
 			except Exception as e:
 				error_msg = str(e)
 				if 'Execution context was destroyed' in error_msg or 'Cannot find context with specified id' in error_msg:

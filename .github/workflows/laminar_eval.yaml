@@ -1,8 +1,8 @@
-name: Run Evaluation Script
+name: Run Laminar Eval Script
 
 on:
   repository_dispatch:
-    types: [run-eval]
+    types: [run-laminar-eval]
   workflow_dispatch:
 
 jobs:
@@ -136,7 +136,7 @@ jobs:
 
           # Build command using array for cleaner construction
           CMD_ARGS=(
-            "python" "eval/service.py"
+            "python" "eval/laminar_eval.py"
             "--model" "$MODEL"
             "--eval-model" "$EVAL_MODEL"
             "--parallel-runs" "$PARALLEL_RUNS"
