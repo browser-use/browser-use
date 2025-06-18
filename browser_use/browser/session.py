@@ -672,7 +672,7 @@ class BrowserSession(BaseModel):
 			self.browser = browser_from_context
 
 		if self.browser or self.browser_context:
-			self.logger.info(f'🎭 Connected to existing user-provided browser: {self.browser_context}')
+			self.logger.info(f'🎭 Connected to existing user-provided browser: {self.browser or self.browser_context}')
 			self._set_browser_keep_alive(True)  # we connected to an existing browser, dont kill it at the end
 
 	async def setup_browser_via_browser_pid(self) -> None:

@@ -532,66 +532,24 @@ class FrameLocator(ABC):
 
 
 class Driver(ABC):
-	def __init__(self, profile: BrowserProfile) -> None:
-		self.profile = profile
-		self.impl: GenericBrowser | None = None
-		logger.info(f'🌎🚗 Created BrowserDriver instance: name={self.__class__.__name__}, profile={self.profile}')
-
-	@property
-	def chromium(self) -> GenericBrowser:
-		assert self.profile.channel == 'chromium', f'Invalid browser class: {self.profile.channel}'
-		assert self.impl is not None, f'Driver {self.__class__.__name__} is not initialized'
-		return self.impl
-
-	@property
-	def firefox(self) -> GenericBrowser:
-		assert self.profile.channel == 'firefox', f'Invalid browser class: {self.profile.channel}'
-		assert self.impl is not None, f'Driver {self.__class__.__name__} is not initialized'
-		return self.impl
-
-	@property
-	def webkit(self) -> GenericBrowser:
-		assert self.profile.channel == 'webkit', f'Invalid browser class: {self.profile.channel}'
-		assert self.impl is not None, f'Driver {self.__class__.__name__} is not initialized'
-		return self.impl
 
 	@abstractmethod
-	async def init_impl(self) -> None: ...
+	async def configure(self, **kwargs: Any) -> None: ...
 
-	"""
-	Initialize the driver implementation.
+	@abstractmethod
+	async def stop(self) -> None: ...
 	
-	"""
-
-	async def setup(self) -> Driver:
-		logger.info(f'🌎🚗 BrowserDriver.setup(): name={self.__class__.__name__}')
-
-		await self.init_impl()
-		assert self.impl is not None, f'Driver {self.__class__.__name__} is not initialized'
-		await self.impl.open()
-		return self
-
-	async def stop(self) -> None:
-		logger.info(f'\U0001f30e\U0001f697 BrowserDriver.stop(): name={self.__class__.__name__}')
-		assert self.impl is not None, f'Driver {self.__class__.__name__} is not initialized'
-		await self.impl.close()
-
-	async def __aenter__(self):
-		logger.info(f'🌎🚗 BrowserDriver.__aenter__(): name={self.__class__.__name__}')
-		await self.setup()
-		return self
-
-	async def __aexit__(self, exc_type: Any, exc: Any, tb: Any):
-		logger.info(f'🌎🚗 BrowserDriver.__aexit__(): name={self.__class__.__name__}')
-		await self.stop()
-
-	@classmethod
+	@property
 	@abstractmethod
-	async def async_driver(cls, profile: BrowserProfile) -> Driver:
-		"""
-		Async factory method to create a driver instance.
-		"""
-		pass
+	def chromium(self) -> GenericBrowser: ...
+
+	@property
+	@abstractmethod
+	def firefox(self) -> GenericBrowser: ...
+
+	@property
+	@abstractmethod
+	def webkit(self) -> GenericBrowser: ...
 
 
 class CDPSession(ABC):
