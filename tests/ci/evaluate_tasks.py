@@ -78,7 +78,7 @@ async def run_single_task(task_file):
 		# Test if browser is working
 		try:
 			await session.start()
-			page = await session.create_page()
+			page = await session.create_new_tab()
 			print('[DEBUG] Browser test: page created successfully', file=sys.stderr)
 			await page.goto('https://httpbin.org/get', timeout=10000)
 			print('[DEBUG] Browser test: navigation successful', file=sys.stderr)

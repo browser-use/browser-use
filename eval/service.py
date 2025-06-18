@@ -1690,6 +1690,21 @@ def save_task_result_to_server(convex_url: str, secret_key: str, result_details:
 		return False
 
 
+# ==============================================================================================================
+# Laminar tracing integration (auto-instrumentation for eval tool)
+import os
+
+try:
+	from lmnr import Laminar
+except ImportError:
+	print('⚠️  Laminar tracing not enabled: lmnr package not installed. Install with `pip install "lmnr[all]"` to enable tracing.')
+else:
+	laminar_api_key = os.getenv('LMNR_PROJECT_API_KEY')
+	if laminar_api_key:
+		Laminar.initialize(project_api_key=laminar_api_key)
+# ==============================================================================================================
+
+
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Run and evaluate browser automation tasks')
 	parser.add_argument('--parallel-runs', type=int, default=3, help='Number of parallel tasks to run')
