@@ -2,10 +2,10 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from playwright.async_api import Page
 from pydantic import BaseModel, ConfigDict
 
 from browser_use.browser import BrowserSession
+from browser_use.browser.types import Page
 
 if TYPE_CHECKING:
 	from browser_use.agent.service import Context

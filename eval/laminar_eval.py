@@ -1765,84 +1765,6 @@ def save_task_result_to_server(convex_url: str, secret_key: str, result_details:
 		return False
 
 
-async def run_evaluation_pipeline(
-	tasks: list[Task],
-	llm: BaseChatModel,
-	run_id: str,
-	test_case: str,
-	user_message: str,
-	convex_url: str,
-	secret_key: str,
-	eval_model: BaseChatModel,
-	max_parallel_runs: int = 3,
-	max_steps_per_task: int = 25,
-	start_index: int = 0,
-	end_index: int | None = None,
-	headless: bool = False,
-	use_vision: bool = True,
-	fresh_start: bool = True,
-	use_serp: bool = False,
-	enable_memory: bool = False,
-	memory_interval: int = 10,
-	max_actions_per_step: int = 10,
-	validate_output: bool = False,
-	planner_llm: BaseChatModel | None = None,
-	planner_interval: int = 1,
-	include_result: bool = False,
-) -> dict:
-	"""
-	Complete evaluation pipeline that handles Laminar setup and task execution in the same event loop
-	"""
-	# --- Create Laminar Evaluation ---
-	logger.info('Creating Laminar evaluation...')
-	lmnr_run_id = None
-	laminar_eval_link = None
-	try:
-		lmnr_run_id = await laminar_client.evals.create_evaluation(
-			group_name=test_case,  # Dataset name
-			name=user_message if user_message else f'{test_case} Evaluation',  # Eval name (dev message)
-		)
-		project_id = 'f07da4a9-b7de-488a-91e3-e17c5f6d676a'
-		laminar_eval_link = f'https://www.lmnr.ai/project/{project_id}/evaluations/{lmnr_run_id}'
-		logger.info(f'📊 Laminar evaluation created: {laminar_eval_link}')
-
-	except Exception as e:
-		logger.error(f'Failed to create Laminar evaluation: {type(e).__name__}: {e}')
-		logger.warning('⚠️ Continuing without Laminar evaluation tracking...')
-	# -------------------------
-
-	# Update run data with Laminar link
-	run_data_update = {'laminarEvalLink': laminar_eval_link}
-	# TODO: Update the run data on the server with the Laminar link if needed
-
-	# Run the tasks
-	return await run_multiple_tasks(
-		tasks=tasks,
-		llm=llm,
-		run_id=run_id,
-		lmnr_run_id=lmnr_run_id,
-		laminar_eval_link=laminar_eval_link,
-		convex_url=convex_url,
-		secret_key=secret_key,
-		eval_model=eval_model,
-		max_parallel_runs=max_parallel_runs,
-		max_steps_per_task=max_steps_per_task,
-		start_index=start_index,
-		end_index=end_index,
-		headless=headless,
-		use_vision=use_vision,
-		fresh_start=fresh_start,
-		use_serp=use_serp,
-		enable_memory=enable_memory,
-		memory_interval=memory_interval,
-		max_actions_per_step=max_actions_per_step,
-		validate_output=validate_output,
-		planner_llm=planner_llm,
-		planner_interval=planner_interval,
-		include_result=include_result,
-	)
-
-
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Run and evaluate browser automation tasks')
 	parser.add_argument('--parallel-runs', type=int, default=3, help='Number of parallel tasks to run')
@@ -2001,6 +1923,26 @@ if __name__ == '__main__':
 			'include_result': args.include_result,
 		}
 
+		# --- Create Laminar Evaluation ---
+		logger.info('Creating Laminar evaluation...')
+		lmnr_run_id = None
+		laminar_eval_link = None
+		try:
+			lmnr_run_id = asyncio.run(
+				laminar_client.evals.create_evaluation(
+					group_name=args.test_case,  # Dataset name
+					name=args.user_message if args.user_message else f'{args.test_case} Evaluation',  # Eval name (dev message)
+				)
+			)
+			project_id = 'f07da4a9-b7de-488a-91e3-e17c5f6d676a'
+			laminar_eval_link = f'https://www.lmnr.ai/project/{project_id}/evaluations/{lmnr_run_id}'
+			logger.info(f'📊 Laminar evaluation created: {laminar_eval_link}')
+
+		except Exception as e:
+			logger.error(f'Failed to create Laminar evaluation: {type(e).__name__}: {e}')
+			logger.warning('⚠️ Continuing without Laminar evaluation tracking...')
+		# -------------------------
+
 		run_data = {
 			'model': args.model,
 			'gitBranch': git_info['branch'],
@@ -2013,7 +1955,7 @@ if __name__ == '__main__':
 			'totalTasks': len(tasks) - args.start if args.end is None else args.end - args.start,
 			'testCaseName': args.test_case,
 			'additionalData': additional_run_data,
-			'laminarEvalLink': None,  # Will be updated after evaluation creation
+			'laminarEvalLink': laminar_eval_link,  # Add Laminar link to run data
 		}
 
 		run_id = start_new_run(CONVEX_URL, SECRET_KEY, run_data, existing_run_id=args.run_id)
@@ -2090,12 +2032,12 @@ if __name__ == '__main__':
 		# -----------------
 
 		results = asyncio.run(
-			run_evaluation_pipeline(
+			run_multiple_tasks(
 				tasks=tasks,
 				llm=llm,
 				run_id=run_id,
-				test_case=args.test_case,
-				user_message=args.user_message,
+				lmnr_run_id=lmnr_run_id,
+				laminar_eval_link=laminar_eval_link,
 				convex_url=CONVEX_URL,
 				secret_key=SECRET_KEY,
 				eval_model=eval_model,

@@ -10,11 +10,11 @@ load_dotenv()
 
 import pyperclip
 from langchain_openai import ChatOpenAI
-from playwright.async_api import Page
 
 from browser_use import Agent, Controller
 from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.browser.types import Page
 
 browser_profile = BrowserProfile(
 	headless=False,

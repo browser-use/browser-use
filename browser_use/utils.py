@@ -42,7 +42,7 @@ class SignalHandler:
 		resume_callback: Callable[[], None] | None = None,
 		custom_exit_callback: Callable[[], None] | None = None,
 		exit_on_second_int: bool = True,
-		interruptible_task_patterns: list[str] = None,
+		interruptible_task_patterns: list[str] | None = None,
 	):
 		"""
 		Initialize the signal handler.
@@ -193,7 +193,7 @@ class SignalHandler:
 				self._handle_second_ctrl_c()
 
 		# Mark that Ctrl+C was pressed
-		self.loop.ctrl_c_pressed = True
+		setattr(self.loop, 'ctrl_c_pressed', True)
 
 		# Cancel current tasks that should be interruptible - this is crucial for immediate pausing
 		self._cancel_interruptible_tasks()
@@ -299,9 +299,9 @@ class SignalHandler:
 		"""Reset state after resuming."""
 		# Clear the flags
 		if hasattr(self.loop, 'ctrl_c_pressed'):
-			self.loop.ctrl_c_pressed = False
+			setattr(self.loop, 'ctrl_c_pressed', False)
 		if hasattr(self.loop, 'waiting_for_input'):
-			self.loop.waiting_for_input = False
+			setattr(self.loop, 'waiting_for_input', False)
 
 
 def time_execution_sync(additional_text: str = '') -> Callable[[Callable[P, R]], Callable[P, R]]:
@@ -315,11 +315,11 @@ def time_execution_sync(additional_text: str = '') -> Callable[[Callable[P, R]],
 			if execution_time > 0.25:
 				self_has_logger = args and getattr(args[0], 'logger', None)
 				if self_has_logger:
-					logger = args[0].logger
+					logger = getattr(args[0], 'logger')
 				elif 'agent' in kwargs:
-					logger = kwargs['agent'].logger
+					logger = getattr(kwargs['agent'], 'logger')
 				elif 'browser_session' in kwargs:
-					logger = kwargs['browser_session'].logger
+					logger = getattr(kwargs['browser_session'], 'logger')
 				else:
 					logger = logging.getLogger(__name__)
 				logger.debug(f'⏳ {additional_text.strip("-")}() took {execution_time:.2f}s')
@@ -344,11 +344,11 @@ def time_execution_async(
 			if execution_time > 0.25:
 				self_has_logger = args and getattr(args[0], 'logger', None)
 				if self_has_logger:
-					logger = args[0].logger
+					logger = getattr(args[0], 'logger')
 				elif 'agent' in kwargs:
-					logger = kwargs['agent'].logger
+					logger = getattr(kwargs['agent'], 'logger')
 				elif 'browser_session' in kwargs:
-					logger = kwargs['browser_session'].logger
+					logger = getattr(kwargs['browser_session'], 'logger')
 				else:
 					logger = logging.getLogger(__name__)
 				logger.debug(f'⏳ {additional_text.strip("-")}() took {execution_time:.2f}s')
@@ -527,19 +527,23 @@ def get_browser_use_version() -> str:
 				content = f.read()
 				match = re.search(r'version\s*=\s*["\']([^"\']+)["\']', content)
 				if match:
-					return f'{match.group(1)}'
+					version = f'{match.group(1)}'
+					os.environ['LIBRARY_VERSION'] = version
+					return version
 
 		# If pyproject.toml doesn't exist, try getting version from pip
 		from importlib.metadata import version as get_version
 
-		return str(get_version('browser-use'))
+		version = str(get_version('browser-use'))
+		os.environ['LIBRARY_VERSION'] = version
+		return version
 
 	except Exception as e:
 		logger.debug(f'Error detecting browser-use version: {type(e).__name__}: {e}')
 		return 'unknown'
 
 
-def _log_pretty_path(path: Path | None) -> str:
+def _log_pretty_path(path: str | Path | None) -> str:
 	"""Pretty-print a path, shorten home dir to ~ and cwd to ."""
 
 	if not path or not str(path).strip():

@@ -12,9 +12,9 @@ load_dotenv()
 
 from imgcat import imgcat
 from langchain_openai import ChatOpenAI
-from patchright.async_api import async_playwright as async_patchright
 
 from browser_use.browser import BrowserSession
+from browser_use.browser.types import async_patchright
 
 llm = ChatOpenAI(model='gpt-4o')
 

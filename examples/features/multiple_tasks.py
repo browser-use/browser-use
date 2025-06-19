@@ -9,11 +9,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from playwright.async_api import async_playwright
 from pydantic import SecretStr
 
 from browser_use import Agent
 from browser_use.browser import BrowserSession
+from browser_use.browser.types import async_playwright
 
 api_key = os.getenv('GOOGLE_API_KEY')
 

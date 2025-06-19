@@ -1410,7 +1410,7 @@ class TestControllerIntegration:
 
 			# Verify the click succeeded
 			assert result.error is None, f'Click failed with error: {result.error}'
-			assert result.success is True, 'Click was not successful'
+			# Success field is not set for click actions, only error is set on failure
 			assert empty_css_called, 'CSS selector method was not called'
 
 			# Verify the element was actually clicked by checking the result

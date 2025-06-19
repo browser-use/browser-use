@@ -8,32 +8,11 @@ from re import Pattern
 from typing import Annotated, Any, Literal, Self
 from urllib.parse import urlparse
 
-from playwright._impl._api_structures import (
-	ClientCertificate,
-	Geolocation,
-	HttpCredentials,
-	ProxySettings,
-	StorageState,
-	ViewportSize,
-)
 from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field, model_validator
 from uuid_extensions import uuid7str
 
+from browser_use.browser.types import ClientCertificate, Geolocation, HttpCredentials, ProxySettings, ViewportSize
 from browser_use.utils import _log_pretty_path, logger
-
-# fix pydantic error on python 3.11
-# PydanticUserError: Please use `typing_extensions.TypedDict` instead of `typing.TypedDict` on Python < 3.12.
-# For further information visit https://errors.pydantic.dev/2.10/u/typed-dict-version
-if sys.version_info < (3, 12):
-	from typing_extensions import TypedDict
-
-	# convert new-style typing.TypedDict used by playwright to old-style typing_extensions.TypedDict used by pydantic
-	ClientCertificate = TypedDict('ClientCertificate', ClientCertificate.__annotations__, total=ClientCertificate.__total__)
-	Geolocation = TypedDict('Geolocation', Geolocation.__annotations__, total=Geolocation.__total__)
-	ProxySettings = TypedDict('ProxySettings', ProxySettings.__annotations__, total=ProxySettings.__total__)
-	ViewportSize = TypedDict('ViewportSize', ViewportSize.__annotations__, total=ViewportSize.__total__)
-	HttpCredentials = TypedDict('HttpCredentials', HttpCredentials.__annotations__, total=HttpCredentials.__total__)
-	StorageState = TypedDict('StorageState', StorageState.__annotations__, total=StorageState.__total__)
 
 IN_DOCKER = os.environ.get('IN_DOCKER', 'false').lower()[0] in 'ty1'
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
@@ -196,7 +175,7 @@ CHROME_DEFAULT_ARGS = [
 def get_display_size() -> ViewportSize | None:
 	# macOS
 	try:
-		from AppKit import NSScreen
+		from AppKit import NSScreen  # type: ignore[import]
 
 		screen = NSScreen.mainScreen().frame()
 		return ViewportSize(width=int(screen.size.width), height=int(screen.size.height))
@@ -637,9 +616,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			logger.warning(
 				f'⚠️ BrowserProfile(window_width=..., window_height=...) are deprecated, use BrowserProfile(window_size={"width": 1280, "height": 1100}) instead.'
 			)
-			self.window_size = self.window_size or {}
-			self.window_size['width'] = (self.window_size or {}).get('width') or self.window_width or 1280
-			self.window_size['height'] = (self.window_size or {}).get('height') or self.window_height or 1100
+			window_size = self.window_size or ViewportSize(width=0, height=0)
+			window_size['width'] = window_size['width'] or self.window_width or 1280
+			window_size['height'] = window_size['height'] or self.window_height or 1100
+			self.window_size = window_size
 		return self
 
 	@model_validator(mode='after')
@@ -669,12 +649,16 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		is_not_using_default_chromium = self.executable_path or self.channel not in (BROWSERUSE_DEFAULT_CHANNEL, None)
 		if self.user_data_dir == BROWSERUSE_CHROMIUM_USER_DATA_DIR and is_not_using_default_chromium:
 			alternate_name = (
-				self.executable_path.name.lower().replace(' ', '-') if self.executable_path else self.channel.name.lower()
+				Path(self.executable_path).name.lower().replace(' ', '-')
+				if self.executable_path
+				else self.channel.name.lower()
+				if self.channel
+				else 'None'
 			)
 			logger.warning(
 				f'⚠️ {self} Changing user_data_dir= {_log_pretty_path(self.user_data_dir)} ➡️ .../default-{alternate_name} to avoid {alternate_name.upper()} corruping default profile created by {BROWSERUSE_DEFAULT_CHANNEL.name}'
 			)
-			self.user_data_dir = self.user_data_dir.parent / f'default-{alternate_name}'
+			self.user_data_dir = BROWSERUSE_CHROMIUM_USER_DATA_DIR.parent / f'default-{alternate_name}'
 		return self
 
 	def get_args(self) -> list[str]:
@@ -718,11 +702,11 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	def kwargs_for_new_context(self) -> BrowserNewContextArgs:
 		"""Return the kwargs for BrowserContext.new_context()."""
-		return BrowserNewContextArgs(**self.model_dump(exclude={'args'}), args=self.get_args())
+		return BrowserNewContextArgs(**self.model_dump(exclude={'args'}))
 
 	def kwargs_for_connect(self) -> BrowserConnectArgs:
 		"""Return the kwargs for BrowserType.connect()."""
-		return BrowserConnectArgs(**self.model_dump(exclude={'args'}), args=self.get_args())
+		return BrowserConnectArgs(**self.model_dump(exclude={'args'}))
 
 	def kwargs_for_launch(self) -> BrowserLaunchArgs:
 		"""Return the kwargs for BrowserType.connect_over_cdp()."""

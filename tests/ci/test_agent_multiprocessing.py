@@ -19,10 +19,10 @@ from unittest.mock import AsyncMock
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
-from playwright.async_api import async_playwright
 
 from browser_use import Agent, setup_logging
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.browser.types import async_playwright
 from tests.ci.mocks import create_mock_llm
 
 # Set up test logging

@@ -5,13 +5,14 @@ import logging
 import re
 from collections.abc import Callable
 from inspect import Parameter, iscoroutinefunction, signature
+from types import UnionType
 from typing import Any, Generic, Optional, TypeVar, Union, get_args, get_origin
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from playwright.async_api import Page
 from pydantic import BaseModel, Field, create_model
 
 from browser_use.browser import BrowserSession
+from browser_use.browser.types import Page
 from browser_use.controller.registry.views import (
 	ActionModel,
 	ActionRegistry,
@@ -38,7 +39,7 @@ class Registry(Generic[Context]):
 		self.telemetry = ProductTelemetry()
 		self.exclude_actions = exclude_actions if exclude_actions is not None else []
 
-	def _get_special_param_types(self) -> dict[str, type]:
+	def _get_special_param_types(self) -> dict[str, type | UnionType | None]:
 		"""Get the expected types for special parameters from SpecialActionParameters"""
 		# Manually define the expected types to avoid issues with Optional handling.
 		# we should try to reduce this list to 0 if possible, give as few standardized objects to all the actions
@@ -146,6 +147,7 @@ class Registry(Generic[Context]):
 					f'{func.__name__}_Params',
 					__base__=ActionModel,
 				)
+		assert param_model is not None, f'param_model is None for {func.__name__}'
 
 		# Step 4: Create normalized wrapper function
 		@functools.wraps(func)
@@ -233,7 +235,7 @@ class Registry(Generic[Context]):
 		# Add **kwargs to accept and ignore extra params
 		new_params.append(Parameter('kwargs', Parameter.VAR_KEYWORD))
 
-		normalized_wrapper.__signature__ = sig.replace(parameters=new_params)
+		normalized_wrapper.__signature__ = sig.replace(parameters=new_params)  # type: ignore[attr-defined]
 
 		return normalized_wrapper, param_model
 
@@ -366,7 +368,9 @@ class Registry(Generic[Context]):
 			url_info = f' on {current_url}' if current_url and current_url != 'about:blank' else ''
 			logger.info(f'🔒 Using sensitive data placeholders: {", ".join(sorted(placeholders_used))}{url_info}')
 
-	def _replace_sensitive_data(self, params: BaseModel, sensitive_data: dict[str, Any], current_url: str = None) -> BaseModel:
+	def _replace_sensitive_data(
+		self, params: BaseModel, sensitive_data: dict[str, Any], current_url: str | None = None
+	) -> BaseModel:
 		"""
 		Replaces sensitive data placeholders in params with actual values.
 

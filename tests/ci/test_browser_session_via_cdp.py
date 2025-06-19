@@ -1,7 +1,7 @@
 import pytest
-from playwright.async_api import async_playwright
 
 from browser_use.browser import BrowserSession
+from browser_use.browser.types import async_playwright
 
 
 async def test_connection_via_cdp():
