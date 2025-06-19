@@ -527,12 +527,16 @@ def get_browser_use_version() -> str:
 				content = f.read()
 				match = re.search(r'version\s*=\s*["\']([^"\']+)["\']', content)
 				if match:
-					return f'{match.group(1)}'
+					version = f'{match.group(1)}'
+					os.environ['LIBRARY_VERSION'] = version
+					return version
 
 		# If pyproject.toml doesn't exist, try getting version from pip
 		from importlib.metadata import version as get_version
 
-		return str(get_version('browser-use'))
+		version = str(get_version('browser-use'))
+		os.environ['LIBRARY_VERSION'] = version
+		return version
 
 	except Exception as e:
 		logger.debug(f'Error detecting browser-use version: {type(e).__name__}: {e}')

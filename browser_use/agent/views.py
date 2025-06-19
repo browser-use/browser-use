@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from openai import RateLimitError
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model, model_validator
 from uuid_extensions import uuid7str
 
 from browser_use.agent.message_manager.views import MessageManagerState
@@ -108,6 +108,17 @@ class ActionResult(BaseModel):
 	extracted_content: str | None = None
 	error: str | None = None
 	include_in_memory: bool = False  # whether to include in past messages as context or not
+
+	@model_validator(mode='after')
+	def validate_success_requires_done(self):
+		"""Ensure success=True can only be set when is_done=True"""
+		if self.success is True and self.is_done is not True:
+			raise ValueError(
+				'success=True can only be set when is_done=True. '
+				'For regular actions that succeed, leave success as None. '
+				'Use success=False only for actions that fail.'
+			)
+		return self
 
 
 class StepMetadata(BaseModel):

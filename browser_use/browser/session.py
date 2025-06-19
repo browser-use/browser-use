@@ -237,14 +237,16 @@ class BrowserSession(BaseModel):
 		"""Get instance-specific logger with session ID in the name"""
 		if self._logger is None:
 			# Create a child logger with the session ID
-			self._logger = logging.getLogger(f'browser_use.BrowserSession⛶{self.id[-4:]}.{str(id(self.agent_current_page))[-2:]}')
+			self._logger = logging.getLogger(
+				f'browser_use.BrowserSession🆂 {self.id[-4:]}.{str(id(self.agent_current_page))[-2:]}'
+			)
 		return self._logger
 
 	def __repr__(self) -> str:
-		return f'BrowserSession⛶{self.id[-4:]}(profile={self.browser_profile}, {self._connection_str}) ref#={str(id(self))[-2:]}'
+		return f'BrowserSession🆂 {self.id[-4:]}(profile={self.browser_profile}, {self._connection_str}) ref#={str(id(self))[-2:]}'
 
 	def __str__(self) -> str:
-		return f'BrowserSession⛶{self.id[-4:]}.{str(id(self.agent_current_page))[-2:]}'
+		return f'BrowserSession🆂 {self.id[-4:]}.{str(id(self.agent_current_page))[-2:]}'
 
 	# def __getattr__(self, key: str) -> Any:
 	# 	"""
@@ -258,13 +260,13 @@ class BrowserSession(BaseModel):
 		"""
 		Starts the browser session by either connecting to an existing browser or launching a new one.
 		Precedence order for launching/connecting:
-			1. page=Page playwright object, will use its page.context as browser_context
-			2. browser_context=PlaywrightBrowserContext object, will use its browser
-			3. browser=PlaywrightBrowser object, will use its first available context
-			4. browser_pid=int, will connect to a local chromium-based browser via pid
-			5. wss_url=str, will connect to a remote playwright browser server via WSS
-			6. cdp_url=str, will connect to a remote chromium-based browser via CDP
-			7. playwright=Playwright object, will use its chromium instance to launch a new browser
+		        1. page=Page playwright object, will use its page.context as browser_context
+		        2. browser_context=PlaywrightBrowserContext object, will use its browser
+		        3. browser=PlaywrightBrowser object, will use its first available context
+		        4. browser_pid=int, will connect to a local chromium-based browser via pid
+		        5. wss_url=str, will connect to a remote playwright browser server via WSS
+		        6. cdp_url=str, will connect to a remote chromium-based browser via CDP
+		        7. playwright=Playwright object, will use its chromium instance to launch a new browser
 		"""
 
 		# if we're already initialized and the connection is still valid, return the existing session state and start from scratch
@@ -518,7 +520,7 @@ class BrowserSession(BaseModel):
 			user_data_dir = getattr(profile, 'user_data_dir', None)
 			if self.initialized:
 				self.logger.debug(
-					f'🛑 Stopping (garbage collected BrowserSession ⛶{self.id[-4:]}.{str(id(self.agent_current_page))[-2:]} ref #{str(id(self))[-4:]}) keep_alive={keep_alive} user_data_dir= {_log_pretty_path(user_data_dir) or "<incognito>"}'
+					f'🛑 Stopping (garbage collected BrowserSession 🆂{self.id[-4:]}.{str(id(self.agent_current_page))[-2:]} ref #{str(id(self))[-4:]}) keep_alive={keep_alive} user_data_dir= {_log_pretty_path(user_data_dir) or "<incognito>"}'
 				)
 
 			self._kill_child_processes()
@@ -558,6 +560,56 @@ class BrowserSession(BaseModel):
 
 	@staticmethod
 	async def _start_global_playwright_subprocess(is_stealth: bool) -> BrowserDriver:
+		"""Create and return a new playwright or patchright node.js subprocess / API connector"""
+		global GLOBAL_PLAYWRIGHT_API_OBJECT, GLOBAL_PATCHRIGHT_API_OBJECT
+		global GLOBAL_PLAYWRIGHT_EVENT_LOOP, GLOBAL_PATCHRIGHT_EVENT_LOOP
+
+		try:
+			current_loop = asyncio.get_running_loop()
+		except RuntimeError:
+			current_loop = None
+
+		if is_stealth:
+			GLOBAL_PATCHRIGHT_API_OBJECT = await async_patchright().start()
+			GLOBAL_PATCHRIGHT_EVENT_LOOP = current_loop
+			return GLOBAL_PATCHRIGHT_API_OBJECT
+		else:
+			GLOBAL_PLAYWRIGHT_API_OBJECT = await async_playwright().start()
+			GLOBAL_PLAYWRIGHT_EVENT_LOOP = current_loop
+			return GLOBAL_PLAYWRIGHT_API_OBJECT
+
+	def _kill_child_processes(self) -> None:
+		"""Kill any child processes that might be related to the browser"""
+
+		if not self.browser_profile.keep_alive and self.browser_pid:
+			try:
+				browser_proc = psutil.Process(self.browser_pid)
+				try:
+					browser_proc.terminate()
+					browser_proc.wait(
+						timeout=5
+					)  # wait up to 5 seconds for the process to exit cleanly and commit its user_data_dir changes
+				except (psutil.NoSuchProcess, psutil.AccessDenied, TimeoutError):
+					pass
+
+				# Kill all child processes first (recursive)
+				for child in browser_proc.children(recursive=True):
+					try:
+						# self.logger.debug(f'Force killing child process: {child.pid} ({child.name()})')
+						child.kill()
+					except (psutil.NoSuchProcess, psutil.AccessDenied):
+						pass
+
+				# Kill the main browser process
+				# self.logger.debug(f'Force killing browser process: {self.browser_pid}')
+				browser_proc.kill()
+			except psutil.NoSuchProcess:
+				pass
+			except Exception as e:
+				self.logger.warning(f'Error force-killing browser in BrowserSession.__del__: {type(e).__name__}: {e}')
+
+	@staticmethod
+	async def _start_global_playwright_subprocess(is_stealth: bool) -> PlaywrightOrPatchright:
 		"""Create and return a new playwright or patchright node.js subprocess / API connector"""
 		global GLOBAL_PLAYWRIGHT_API_OBJECT, GLOBAL_PATCHRIGHT_API_OBJECT
 		global GLOBAL_PLAYWRIGHT_EVENT_LOOP, GLOBAL_PATCHRIGHT_EVENT_LOOP
@@ -1249,21 +1301,14 @@ class BrowserSession(BaseModel):
 		- Browser_context's browser exists but is disconnected
 		- Browser_context itself is closed/unusable
 		"""
-		# Check if browser_context is missing
 		if not self.browser_context:
 			return False
 
-		# Check if browser exists but is disconnected
-		if self.browser and not self.browser.is_connected():
-			return False
-
-		# Check if browser_context's browser exists but is disconnected
 		if self.browser_context.browser and not self.browser_context.browser.is_connected():
 			return False
 
 		# Check if the browser_context itself is closed/unusable
 		try:
-			# Try to access a property that would fail if the context is closed
 			_ = self.browser_context.pages
 			return True
 		except Exception:
@@ -2286,9 +2331,9 @@ class BrowserSession(BaseModel):
 		Parameters:
 		-----------
 		cache_clickable_elements_hashes: bool
-			If True, cache the clickable elements hashes for the current state.
-			This is used to calculate which elements are new to the LLM since the last message,
-			which helps reduce token usage.
+		        If True, cache the clickable elements hashes for the current state.
+		        This is used to calculate which elements are new to the LLM since the last message,
+		        which helps reduce token usage.
 		"""
 		await self._wait_for_page_and_frames_load()
 		updated_state = await self._get_updated_state()
@@ -2398,7 +2443,7 @@ class BrowserSession(BaseModel):
 			await page.wait_for_load_state(
 				timeout=5000,
 			)  # page has already loaded by this point, this is extra for previous action animations/frame loads to settle
-		except Exception as e:
+		except Exception:
 			pass
 
 		# 0. Attempt full-page screenshot (sometimes times out for huge pages)
@@ -2557,10 +2602,10 @@ class BrowserSession(BaseModel):
 		Creates a CSS selector for a DOM element, handling various edge cases and special characters.
 
 		Args:
-				element: The DOM element to create a selector for
+		                element: The DOM element to create a selector for
 
 		Returns:
-				A valid CSS selector string
+		                A valid CSS selector string
 		"""
 		try:
 			# Get base selector from XPath
@@ -2966,7 +3011,7 @@ class BrowserSession(BaseModel):
 		try:
 			assert self.browser_context is not None, 'Browser context is not set'
 			new_page = await self.browser_context.new_page()
-		except Exception as e:
+		except Exception:
 			self.initialized = False
 
 		if not self.initialized or not self.is_connected():

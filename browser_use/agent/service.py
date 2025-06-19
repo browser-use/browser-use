@@ -15,8 +15,18 @@ from typing import Any, Generic, TypeVar
 
 from dotenv import load_dotenv
 
+from browser_use.agent.cloud_events import (
+	CreateAgentOutputFileEvent,
+	CreateAgentSessionEvent,
+	CreateAgentStepEvent,
+	CreateAgentTaskEvent,
+	UpdateAgentTaskEvent,
+)
+
 load_dotenv()
 
+# from lmnr.sdk.decorators import observe
+from bubus import EventBus
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
 	BaseMessage,
@@ -53,20 +63,13 @@ from browser_use.agent.views import (
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
 from browser_use.browser.types import Browser, BrowserContext, Page
-
-# from lmnr.sdk.decorators import observe
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.controller.registry.views import ActionModel
 from browser_use.controller.service import Controller
-from browser_use.dom.history_tree_processor.service import (
-	DOMHistoryElement,
-	HistoryTreeProcessor,
-)
+from browser_use.dom.history_tree_processor.service import DOMHistoryElement, HistoryTreeProcessor
 from browser_use.exceptions import LLMException
 from browser_use.telemetry.service import ProductTelemetry
-from browser_use.telemetry.views import (
-	AgentTelemetryEvent,
-)
+from browser_use.telemetry.views import AgentTelemetryEvent
 from browser_use.utils import _log_pretty_path, get_browser_use_version, time_execution_async, time_execution_sync
 
 logger = logging.getLogger(__name__)
@@ -178,6 +181,9 @@ class Agent(Generic[Context]):
 		self.id = task_id or uuid7str()
 		self.task_id: str = self.id
 		self.session_id: str = uuid7str()
+
+		# Create instance-specific logger
+		self._logger = logging.getLogger(f'browser_use.Agent[{self.task_id[-3:]}]')
 
 		# Core components
 		self.task = task
@@ -418,6 +424,11 @@ class Agent(Generic[Context]):
 		# Telemetry
 		self.telemetry = ProductTelemetry()
 
+		# Event bus with WAL persistence
+		# Default to ~/.config/browseruse/events/{agent_task_id}.jsonl
+		wal_path = Path.home() / '.config' / 'browseruse' / 'events' / f'{self.task_id}.jsonl'
+		self.eventbus = EventBus(name='Agent', wal_path=wal_path)
+
 		if self.settings.save_conversation_path:
 			self.settings.save_conversation_path = Path(self.settings.save_conversation_path).expanduser().resolve()
 			self.logger.info(f'💬 Saving conversation to {_log_pretty_path(self.settings.save_conversation_path)}')
@@ -430,7 +441,7 @@ class Agent(Generic[Context]):
 
 		_browser_session_id = self.browser_session.id if self.browser_session else self.id
 		_current_page_id = str(id(self.browser_session and self.browser_session.agent_current_page))[-2:]
-		return logging.getLogger(f'browser_use.Agent✻{self.task_id[-4:]} on ⛶{_browser_session_id[-4:]}.{_current_page_id}')
+		return logging.getLogger(f'browser_use.Agent🅰 {self.task_id[-4:]} on 🆂 {_browser_session_id[-4:]}.{_current_page_id}')
 
 	@property
 	def browser(self) -> Browser:
@@ -993,7 +1004,20 @@ class Agent(Generic[Context]):
 			# Log step completion summary
 			self._log_step_completion_summary(step_start_time, result)
 
-	@time_execution_async('--handle_step_error')
+			# Emit both step created and executed events
+			if browser_state_summary and model_output:
+				# Extract key step data for the event
+				actions_data = []
+				if model_output.action:
+					for action in model_output.action:
+						action_dict = action.model_dump() if hasattr(action, 'model_dump') else {}
+						actions_data.append(action_dict)
+
+				# Emit CreateAgentStepEvent
+				step_event = CreateAgentStepEvent.from_agent_step(self, model_output, result, actions_data, browser_state_summary)
+				self.eventbus.dispatch(step_event)
+
+	@time_execution_async('--handle_step_error (agent)')
 	async def _handle_step_error(self, error: Exception) -> list[ActionResult]:
 		"""Handle all types of errors that can occur during a step"""
 		include_trace = self.logger.isEnabledFor(logging.DEBUG)
@@ -1379,6 +1403,16 @@ class Agent(Generic[Context]):
 		try:
 			self._log_agent_run()
 
+			# Initialize timing for session and task
+			self._session_start_time = time.time()
+			self._task_start_time = self._session_start_time  # Initialize task start time
+
+			# Emit CreateAgentSessionEvent at the START of run()
+			self.eventbus.dispatch(CreateAgentSessionEvent.from_agent(self))
+
+			# Emit CreateAgentTaskEvent at the START of run()
+			self.eventbus.dispatch(CreateAgentTaskEvent.from_agent(self))
+
 			# Execute initial actions if provided
 			if self.initial_actions:
 				result = await self.multi_act(self.initial_actions, check_for_new_elements=False)
@@ -1472,14 +1506,29 @@ class Agent(Generic[Context]):
 				# ADDED: Info message when custom telemetry for SIGINT was already logged
 				self.logger.info('Telemetry for force exit (SIGINT) was logged by custom exit callback.')
 
-			await self.close()
+			# NOTE: CreateAgentSessionEvent and CreateAgentTaskEvent are now emitted at the START of run()
+			# to match backend requirements for CREATE events to be fired when entities are created,
+			# not when they are completed
 
+			# Emit UpdateAgentTaskEvent at the END of run() with final task state
+			self.eventbus.dispatch(UpdateAgentTaskEvent.from_agent(self))
+
+			# Generate GIF if needed before stopping event bus
 			if self.settings.generate_gif:
 				output_path: str = 'agent_history.gif'
 				if isinstance(self.settings.generate_gif, str):
 					output_path = self.settings.generate_gif
 
 				create_history_gif(task=self.task, history=self.state.history, output_path=output_path)
+
+				# Emit output file generated event for GIF
+				output_event = await CreateAgentOutputFileEvent.from_agent_and_file(self, output_path)
+				self.eventbus.dispatch(output_event)
+
+			# Stop the event bus gracefully, waiting for all events to be processed
+			await self.eventbus.stop(timeout=5.0)
+
+			await self.close()
 
 	# @observe(name='controller.multi_act')
 	@time_execution_async('--multi_act')

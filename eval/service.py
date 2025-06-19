@@ -46,12 +46,16 @@ import re
 import shutil
 
 import anyio
+from lmnr import AsyncLaminarClient, Laminar, observe
 from PIL import Image
 
 MAX_IMAGE = 5
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+Laminar.initialize()
+laminar_client = AsyncLaminarClient()
 
 
 def encode_image(image):
@@ -857,7 +861,15 @@ class StageError(Exception):
 class TaskResult:
 	"""Simplified task state tracker with auto-updating server payload"""
 
-	def __init__(self, task_id: str, run_id: str, task_description: str, task: Task, max_steps: int):
+	def __init__(
+		self,
+		task_id: str,
+		run_id: str,
+		task_description: str,
+		task: Task,
+		max_steps: int,
+		laminar_task_link: str | None = None,
+	):
 		self.task_id = task_id
 		self.completed_stages = set()
 		self.stage_data = {}  # Store actual results from each stage
@@ -888,6 +900,7 @@ class TaskResult:
 			'tokensUsed': 0,
 			'taskDuration': None,
 			'steps': 0,
+			'laminarTaskLink': laminar_task_link,  # Add field for task-specific Laminar link
 		}
 
 	def stage_completed(self, stage: Stage, data: Any = None):
@@ -1095,6 +1108,7 @@ async def setup_browser_session(task: Task, headless: bool) -> BrowserSession:
 	return browser_session
 
 
+@observe(name='executor', span_type='EXECUTOR')
 async def run_agent_with_browser(
 	browser_session: BrowserSession,
 	task: Task,
@@ -1137,6 +1151,7 @@ async def run_agent_with_browser(
 	return agent.state.history
 
 
+@observe(name='evaluate_task_result', span_type='EVALUATOR')
 async def evaluate_task_result(eval_model: BaseChatModel, task_folder: Path) -> dict:
 	"""Evaluate the task result"""
 	return await judge_task_result(eval_model, task_folder, score_threshold=3)
@@ -1177,9 +1192,12 @@ def determine_current_stage(completed_stages: set) -> Stage:
 		return Stage.LOAD_EXISTING  # Default starting stage
 
 
+@observe(name='evaluation', span_type='EVALUATION')
 async def run_task_with_semaphore(
 	task: Task,
 	run_id: str,
+	lmnr_run_id: str,
+	laminar_eval_link: str,
 	convex_url: str,
 	secret_key: str,
 	eval_model: BaseChatModel,
@@ -1204,10 +1222,50 @@ async def run_task_with_semaphore(
 		logger.info(f'Task {task.task_id}: Semaphore acquired (remaining slots: ~{semaphore_runs._value})')
 		task_result = None
 		browser_session = None
+		laminar_task_link = None
+		datapoint_id = None
 
 		try:
-			# Initialize task result and basic setup
-			task_result = TaskResult(task.task_id, run_id, task.confirmed_task, task, max_steps_per_task)
+			if lmnr_run_id:
+				try:
+					datapoint_id = await laminar_client.evals.create_datapoint(
+						eval_id=lmnr_run_id,
+						data={
+							'task_id': task.task_id,
+							'confirmed_task': task.confirmed_task,
+							'website': task.website,
+							'reference_length': task.reference_length,
+							'level': task.level,
+							'cluster_id': task.cluster_id,
+							'category': task.category,
+						},
+						metadata={
+							'use_vision': str(use_vision),
+							'use_serp': str(use_serp),
+							'enable_memory': str(enable_memory),
+							'memory_interval': str(memory_interval),
+							'max_actions_per_step': str(max_actions_per_step),
+							'validate_output': str(validate_output),
+							'planner_model': str(planner_llm),
+							'planner_interval': str(planner_interval),
+							'include_result': str(include_result),
+						},
+						trace_id=Laminar.get_trace_id(),
+					)
+					# Only create task-specific link if we have the evaluation link
+					if laminar_eval_link:
+						laminar_task_link = f'{laminar_eval_link}?traceId={Laminar.get_trace_id()}&datapointId={datapoint_id}'
+						logger.info(f'Task {task.task_id}: Laminar link: {laminar_task_link}')
+					else:
+						logger.debug(f'Task {task.task_id}: No Laminar evaluation link available, task link not created')
+				except Exception as e:
+					logger.warning(f'Task {task.task_id}: Failed to create Laminar datapoint: {type(e).__name__}: {e}')
+			else:
+				logger.debug(f'Task {task.task_id}: No Laminar run ID available, skipping datapoint creation')
+
+				# Initialize task result and basic setup
+			task_result = TaskResult(task.task_id, run_id, task.confirmed_task, task, max_steps_per_task, laminar_task_link)
+
 			task_folder = Path(f'saved_trajectories/{task.task_id}')
 
 			logger.info(f'Task {task.task_id}: Starting execution pipeline.')
@@ -1247,6 +1305,7 @@ async def run_task_with_semaphore(
 					if browser_session:  # Only run agent if browser setup succeeded
 						try:
 							logger.info(f'Task {task.task_id}: Agent run starting.')
+
 							agent_history = await run_stage(
 								Stage.RUN_AGENT,
 								lambda: run_agent_with_browser(
@@ -1265,6 +1324,7 @@ async def run_task_with_semaphore(
 								),
 								timeout=600,
 							)
+
 							task_result.stage_completed(Stage.RUN_AGENT)
 							logger.info(f'Task {task.task_id}: Agent run completed.')
 						except Exception as e:
@@ -1300,6 +1360,15 @@ async def run_task_with_semaphore(
 						)
 						task_result.stage_completed(Stage.EVALUATE, evaluation)
 						logger.info(f'Task {task.task_id}: Evaluation completed.')
+
+						if lmnr_run_id and datapoint_id:
+							await laminar_client.evals.update_datapoint(
+								eval_id=lmnr_run_id,
+								datapoint_id=datapoint_id,
+								scores={
+									'accuracy': evaluation['score'],
+								},
+							)
 					except Exception as e:
 						error = StageError(Stage.EVALUATE, 'exception', str(e))
 						task_result.stage_failed(Stage.EVALUATE, error)
@@ -1380,7 +1449,9 @@ async def run_task_with_semaphore(
 			if task_result is None:
 				# Create minimal task result for server reporting
 				try:
-					task_result = TaskResult(task.task_id, run_id, task.confirmed_task, task, max_steps_per_task)
+					task_result = TaskResult(
+						task.task_id, run_id, task.confirmed_task, task, max_steps_per_task, laminar_task_link
+					)
 					task_result.mark_critical_error(f'Initialization failed: {str(init_error)}')
 				except Exception as result_error:
 					logger.critical(f'Task {task.task_id}: Cannot create TaskResult: {str(result_error)}')
@@ -1419,6 +1490,8 @@ async def run_multiple_tasks(
 	tasks: list[Task],
 	llm: BaseChatModel,
 	run_id: str,
+	lmnr_run_id: str,
+	laminar_eval_link: str,
 	convex_url: str,
 	secret_key: str,
 	eval_model: BaseChatModel,
@@ -1453,6 +1526,8 @@ async def run_multiple_tasks(
 			run_task_with_semaphore(
 				task=task,
 				run_id=run_id,
+				lmnr_run_id=lmnr_run_id,
+				laminar_eval_link=laminar_eval_link,
 				convex_url=convex_url,
 				secret_key=secret_key,
 				eval_model=eval_model,
@@ -1690,19 +1765,82 @@ def save_task_result_to_server(convex_url: str, secret_key: str, result_details:
 		return False
 
 
-# ==============================================================================================================
-# Laminar tracing integration (auto-instrumentation for eval tool)
-import os
+async def run_evaluation_pipeline(
+	tasks: list[Task],
+	llm: BaseChatModel,
+	run_id: str,
+	test_case: str,
+	user_message: str,
+	convex_url: str,
+	secret_key: str,
+	eval_model: BaseChatModel,
+	max_parallel_runs: int = 3,
+	max_steps_per_task: int = 25,
+	start_index: int = 0,
+	end_index: int | None = None,
+	headless: bool = False,
+	use_vision: bool = True,
+	fresh_start: bool = True,
+	use_serp: bool = False,
+	enable_memory: bool = False,
+	memory_interval: int = 10,
+	max_actions_per_step: int = 10,
+	validate_output: bool = False,
+	planner_llm: BaseChatModel | None = None,
+	planner_interval: int = 1,
+	include_result: bool = False,
+) -> dict:
+	"""
+	Complete evaluation pipeline that handles Laminar setup and task execution in the same event loop
+	"""
+	# --- Create Laminar Evaluation ---
+	logger.info('Creating Laminar evaluation...')
+	lmnr_run_id = None
+	laminar_eval_link = None
+	try:
+		lmnr_run_id = await laminar_client.evals.create_evaluation(
+			group_name=test_case,  # Dataset name
+			name=user_message if user_message else f'{test_case} Evaluation',  # Eval name (dev message)
+		)
+		project_id = 'f07da4a9-b7de-488a-91e3-e17c5f6d676a'
+		laminar_eval_link = f'https://www.lmnr.ai/project/{project_id}/evaluations/{lmnr_run_id}'
+		logger.info(f'📊 Laminar evaluation created: {laminar_eval_link}')
 
-try:
-	from lmnr import Laminar
-except ImportError:
-	print('⚠️  Laminar tracing not enabled: lmnr package not installed. Install with `pip install "lmnr[all]"` to enable tracing.')
-else:
-	laminar_api_key = os.getenv('LMNR_PROJECT_API_KEY')
-	if laminar_api_key:
-		Laminar.initialize(project_api_key=laminar_api_key)
-# ==============================================================================================================
+	except Exception as e:
+		logger.error(f'Failed to create Laminar evaluation: {type(e).__name__}: {e}')
+		logger.warning('⚠️ Continuing without Laminar evaluation tracking...')
+	# -------------------------
+
+	# Update run data with Laminar link
+	run_data_update = {'laminarEvalLink': laminar_eval_link}
+	# TODO: Update the run data on the server with the Laminar link if needed
+
+	# Run the tasks
+	return await run_multiple_tasks(
+		tasks=tasks,
+		llm=llm,
+		run_id=run_id,
+		lmnr_run_id=lmnr_run_id,
+		laminar_eval_link=laminar_eval_link,
+		convex_url=convex_url,
+		secret_key=secret_key,
+		eval_model=eval_model,
+		max_parallel_runs=max_parallel_runs,
+		max_steps_per_task=max_steps_per_task,
+		start_index=start_index,
+		end_index=end_index,
+		headless=headless,
+		use_vision=use_vision,
+		fresh_start=fresh_start,
+		use_serp=use_serp,
+		enable_memory=enable_memory,
+		memory_interval=memory_interval,
+		max_actions_per_step=max_actions_per_step,
+		validate_output=validate_output,
+		planner_llm=planner_llm,
+		planner_interval=planner_interval,
+		include_result=include_result,
+	)
 
 
 if __name__ == '__main__':
@@ -1875,6 +2013,7 @@ if __name__ == '__main__':
 			'totalTasks': len(tasks) - args.start if args.end is None else args.end - args.start,
 			'testCaseName': args.test_case,
 			'additionalData': additional_run_data,
+			'laminarEvalLink': None,  # Will be updated after evaluation creation
 		}
 
 		run_id = start_new_run(CONVEX_URL, SECRET_KEY, run_data, existing_run_id=args.run_id)
@@ -1951,10 +2090,12 @@ if __name__ == '__main__':
 		# -----------------
 
 		results = asyncio.run(
-			run_multiple_tasks(
+			run_evaluation_pipeline(
 				tasks=tasks,
 				llm=llm,
 				run_id=run_id,
+				test_case=args.test_case,
+				user_message=args.user_message,
 				convex_url=CONVEX_URL,
 				secret_key=SECRET_KEY,
 				eval_model=eval_model,
