@@ -32,7 +32,7 @@ class ChatAnthropic(BaseChatModel):
 	"""
 
 	# Model configuration
-	model_name: str | ModelParam
+	model: str | ModelParam
 	max_tokens: int
 	temperature: float | None = None
 
@@ -87,7 +87,7 @@ class ChatAnthropic(BaseChatModel):
 
 	@property
 	def name(self) -> str:
-		return str(self.model_name)
+		return str(self.model)
 
 	@overload
 	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> str: ...
@@ -103,7 +103,7 @@ class ChatAnthropic(BaseChatModel):
 				# Normal completion without structured output
 				response = await self.get_client().messages.create(
 					max_tokens=self.max_tokens,
-					model=self.model_name,
+					model=self.model,
 					messages=anthropic_messages,
 					temperature=self.temperature or NotGiven(),
 					system=system_prompt or NotGiven(),
@@ -135,7 +135,7 @@ class ChatAnthropic(BaseChatModel):
 
 				response = await self.get_client().messages.create(
 					max_tokens=self.max_tokens,
-					model=self.model_name,
+					model=self.model,
 					messages=anthropic_messages,
 					temperature=self.temperature or NotGiven(),
 					system=system_prompt or NotGiven(),
@@ -160,10 +160,10 @@ class ChatAnthropic(BaseChatModel):
 				raise ValueError('Expected tool use in response but none found')
 
 		except APIConnectionError as e:
-			raise ModelProviderError(message=e.message, model_name=self.name) from e
+			raise ModelProviderError(message=e.message, model=self.name) from e
 		except RateLimitError as e:
-			raise ModelRateLimitError(message=e.message, model_name=self.name) from e
+			raise ModelRateLimitError(message=e.message, model=self.name) from e
 		except APIStatusError as e:
-			raise ModelProviderError(message=e.message, status_code=e.status_code, model_name=self.name) from e
+			raise ModelProviderError(message=e.message, status_code=e.status_code, model=self.name) from e
 		except Exception as e:
-			raise ModelProviderError(message=str(e), model_name=self.name) from e
+			raise ModelProviderError(message=str(e), model=self.name) from e

@@ -53,7 +53,7 @@ class TestChatModels:
 		if not os.getenv('OPENAI_API_KEY'):
 			pytest.skip('OPENAI_API_KEY not set')
 
-		chat = ChatOpenAI(model_name='gpt-4o-mini', temperature=0)
+		chat = ChatOpenAI(model='gpt-4o-mini', temperature=0)
 		response = await chat.ainvoke(self.CONVERSATION_MESSAGES)
 
 		assert isinstance(response, str)
@@ -66,7 +66,7 @@ class TestChatModels:
 		if not os.getenv('OPENAI_API_KEY'):
 			pytest.skip('OPENAI_API_KEY not set')
 
-		chat = ChatOpenAI(model_name='gpt-4o-mini', temperature=0)
+		chat = ChatOpenAI(model='gpt-4o-mini', temperature=0)
 		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
 
 		assert isinstance(response, CapitalResponse)
@@ -81,7 +81,7 @@ class TestChatModels:
 		if not os.getenv('ANTHROPIC_API_KEY'):
 			pytest.skip('ANTHROPIC_API_KEY not set')
 
-		chat = ChatAnthropic(model_name='claude-3-5-haiku-latest', max_tokens=100, temperature=0)
+		chat = ChatAnthropic(model='claude-3-5-haiku-latest', max_tokens=100, temperature=0)
 		response = await chat.ainvoke(self.CONVERSATION_MESSAGES)
 
 		assert isinstance(response, str)
@@ -94,7 +94,7 @@ class TestChatModels:
 		if not os.getenv('ANTHROPIC_API_KEY'):
 			pytest.skip('ANTHROPIC_API_KEY not set')
 
-		chat = ChatAnthropic(model_name='claude-3-5-haiku-latest', max_tokens=100, temperature=0)
+		chat = ChatAnthropic(model='claude-3-5-haiku-latest', max_tokens=100, temperature=0)
 		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
 
 		assert isinstance(response, CapitalResponse)
@@ -109,7 +109,7 @@ class TestChatModels:
 		if not os.getenv('GEMINI_API_KEY'):
 			pytest.skip('GEMINI_API_KEY not set')
 
-		chat = ChatGoogle(model_name='gemini-2.0-flash', api_key=os.getenv('GEMINI_API_KEY'), temperature=0)
+		chat = ChatGoogle(model='gemini-2.0-flash', api_key=os.getenv('GEMINI_API_KEY'), temperature=0)
 		response = await chat.ainvoke(self.CONVERSATION_MESSAGES)
 
 		assert isinstance(response, str)
@@ -122,7 +122,7 @@ class TestChatModels:
 		if not os.getenv('GEMINI_API_KEY'):
 			pytest.skip('GEMINI_API_KEY not set')
 
-		chat = ChatGoogle(model_name='gemini-2.0-flash', api_key=os.getenv('GEMINI_API_KEY'), temperature=0)
+		chat = ChatGoogle(model='gemini-2.0-flash', api_key=os.getenv('GEMINI_API_KEY'), temperature=0)
 		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
 
 		assert isinstance(response, CapitalResponse)
@@ -138,7 +138,7 @@ class TestChatModels:
 			pytest.skip('GOOGLE_CLOUD_PROJECT not set')
 
 		chat = ChatGoogle(
-			model_name='gemini-2.0-flash',
+			model='gemini-2.0-flash',
 			vertexai=True,
 			project=os.getenv('GOOGLE_CLOUD_PROJECT'),
 			location='us-central1',
@@ -157,7 +157,7 @@ class TestChatModels:
 			pytest.skip('GOOGLE_CLOUD_PROJECT not set')
 
 		chat = ChatGoogle(
-			model_name='gemini-2.0-flash',
+			model='gemini-2.0-flash',
 			vertexai=True,
 			project=os.getenv('GOOGLE_CLOUD_PROJECT'),
 			location='us-central1',
@@ -178,7 +178,7 @@ class TestChatModels:
 		if not os.getenv('GROQ_API_KEY'):
 			pytest.skip('GROQ_API_KEY not set')
 
-		chat = ChatGroq(model_name='meta-llama/llama-4-maverick-17b-128e-instruct', temperature=0)
+		chat = ChatGroq(model='meta-llama/llama-4-maverick-17b-128e-instruct', temperature=0)
 		response = await chat.ainvoke(self.CONVERSATION_MESSAGES)
 
 		assert isinstance(response, str)
@@ -191,7 +191,7 @@ class TestChatModels:
 		if not os.getenv('GROQ_API_KEY'):
 			pytest.skip('GROQ_API_KEY not set')
 
-		chat = ChatGroq(model_name='meta-llama/llama-4-maverick-17b-128e-instruct', temperature=0)
+		chat = ChatGroq(model='meta-llama/llama-4-maverick-17b-128e-instruct', temperature=0)
 		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
 
 		assert isinstance(response, CapitalResponse)

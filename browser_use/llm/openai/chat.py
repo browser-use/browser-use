@@ -19,12 +19,12 @@ class ChatOpenAI(BaseChatModel):
 	"""
 	A wrapper around AsyncOpenAI that implements the BaseLLM protocol.
 
-	This class accepts all AsyncOpenAI parameters while adding model_name
+	This class accepts all AsyncOpenAI parameters while adding model
 	and temperature parameters for the LLM interface.
 	"""
 
 	# Model configuration
-	model_name: ChatModel | str
+	model: ChatModel | str
 	temperature: float | None = None
 
 	# Client initialization parameters
@@ -86,7 +86,7 @@ class ChatOpenAI(BaseChatModel):
 
 	@property
 	def name(self) -> str:
-		return str(self.model_name)
+		return str(self.model)
 
 	@overload
 	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> str: ...
@@ -112,14 +112,14 @@ class ChatOpenAI(BaseChatModel):
 			if output_format is None:
 				# Return string response
 				response = await self.get_client().chat.completions.create(
-					model=self.model_name, messages=openai_messages, temperature=self.temperature
+					model=self.model, messages=openai_messages, temperature=self.temperature
 				)
 				return response.choices[0].message.content or ''
 
 			else:
 				# Return structured response
 				response = await self.get_client().beta.chat.completions.parse(
-					model=self.model_name,
+					model=self.model,
 					messages=openai_messages,
 					temperature=self.temperature,
 					response_format=output_format,
@@ -129,7 +129,7 @@ class ChatOpenAI(BaseChatModel):
 					raise ModelProviderError(
 						message='Failed to parse structured output from model response',
 						status_code=500,
-						model_name=self.name,
+						model=self.name,
 					)
 				return response.choices[0].message.parsed
 
@@ -141,11 +141,11 @@ class ChatOpenAI(BaseChatModel):
 			raise ModelProviderError(
 				message=error_message,
 				status_code=e.response.status_code,
-				model_name=self.name,
+				model=self.name,
 			) from e
 
 		except APIConnectionError as e:
-			raise ModelProviderError(message=str(e), model_name=self.name) from e
+			raise ModelProviderError(message=str(e), model=self.name) from e
 
 		except APIStatusError as e:
 			try:
@@ -158,8 +158,8 @@ class ChatOpenAI(BaseChatModel):
 			raise ModelProviderError(
 				message=error_message,
 				status_code=e.response.status_code,
-				model_name=self.name,
+				model=self.name,
 			) from e
 
 		except Exception as e:
-			raise ModelProviderError(message=str(e), model_name=self.name) from e
+			raise ModelProviderError(message=str(e), model=self.name) from e

@@ -19,12 +19,12 @@ class ChatGoogle(BaseChatModel):
 	"""
 	A wrapper around Google's Gemini chat model using the genai client.
 
-	This class accepts all genai.Client parameters while adding model_name
+	This class accepts all genai.Client parameters while adding model
 	and temperature parameters for the LLM interface.
 	"""
 
 	# Model configuration
-	model_name: str
+	model: str
 	temperature: float | None = None
 
 	# Client initialization parameters
@@ -73,7 +73,7 @@ class ChatGoogle(BaseChatModel):
 
 	@property
 	def name(self) -> str:
-		return str(self.model_name)
+		return str(self.model)
 
 	@overload
 	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> str: ...
@@ -109,7 +109,7 @@ class ChatGoogle(BaseChatModel):
 			if output_format is None:
 				# Return string response
 				response = await self.get_client().aio.models.generate_content(
-					model=self.model_name,
+					model=self.model,
 					contents=contents,  # type: ignore
 					config=config,
 				)
@@ -125,7 +125,7 @@ class ChatGoogle(BaseChatModel):
 				config['response_schema'] = output_format
 
 				response = await self.get_client().aio.models.generate_content(
-					model=self.model_name,
+					model=self.model,
 					contents=contents,  # type: ignore
 					config=config,
 				)
@@ -135,7 +135,7 @@ class ChatGoogle(BaseChatModel):
 					raise ModelProviderError(
 						message='No parsed response from model',
 						status_code=500,
-						model_name=self.model_name,
+						model=self.model,
 					)
 
 				# Ensure we return the correct type
@@ -159,5 +159,5 @@ class ChatGoogle(BaseChatModel):
 			raise ModelProviderError(
 				message=error_message,
 				status_code=status_code or 502,  # Use default if None
-				model_name=self.name,
+				model=self.name,
 			) from e

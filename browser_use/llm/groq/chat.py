@@ -18,7 +18,7 @@ class ChatGroq(ChatOpenAILike):
 	    base_url (str): The base url to which the requests are sent.
 	"""
 
-	model_name: str = 'meta-llama/llama-4-maverick-17b-128e-instruct'
+	model: str = 'meta-llama/llama-4-maverick-17b-128e-instruct'
 	provider: str = 'Groq'
 	name: str = 'Groq'
 

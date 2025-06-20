@@ -4,7 +4,7 @@ from browser_use.llm.groq.chat import ChatGroq
 
 # do some test calls with groq with structured output and ask the model to put some weird caracters like \ / or \` /' ect into the output
 llm = ChatGroq(
-	model_name='meta-llama/llama-4-maverick-17b-128e-instruct',
+	model='meta-llama/llama-4-maverick-17b-128e-instruct',
 	temperature=0.5,
 )
 

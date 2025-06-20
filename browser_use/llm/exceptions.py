@@ -12,10 +12,10 @@ class ModelProviderError(ModelError):
 		self,
 		message: str,
 		status_code: int = 502,
-		model_name: Optional[str] = None,
+		model: Optional[str] = None,
 	):
 		super().__init__(message, status_code)
-		self.model_name = model_name
+		self.model = model
 
 
 class ModelRateLimitError(ModelProviderError):
@@ -25,6 +25,6 @@ class ModelRateLimitError(ModelProviderError):
 		self,
 		message: str,
 		status_code: int = 429,
-		model_name: Optional[str] = None,
+		model: Optional[str] = None,
 	):
-		super().__init__(message, status_code, model_name)
+		super().__init__(message, status_code, model)

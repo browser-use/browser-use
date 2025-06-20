@@ -16,7 +16,7 @@ T = TypeVar('T', bound=BaseModel)
 class BaseChatModel(Protocol):
 	_verified_api_keys: bool = False
 
-	model_name: str
+	model: str
 
 	@property
 	def provider(self) -> str: ...
