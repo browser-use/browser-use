@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping, Type, TypeVar, Union
+from typing import Any, Dict, Mapping, Type, TypeVar, Union, overload
 
 import httpx
 from anthropic import (
@@ -88,6 +88,12 @@ class ChatAnthropic(BaseChatModel):
 	@property
 	def name(self) -> str:
 		return str(self.model_name)
+
+	@overload
+	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> str: ...
+
+	@overload
+	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T]) -> T: ...
 
 	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T] | None = None) -> T | str:
 		anthropic_messages, system_prompt = AnthropicMessageSerializer.serialize_messages(messages)

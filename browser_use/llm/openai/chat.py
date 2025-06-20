@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping, Type, TypeVar
+from typing import Any, Dict, Mapping, Type, TypeVar, overload
 
 import httpx
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI, RateLimitError
@@ -87,6 +87,12 @@ class ChatOpenAI(BaseChatModel):
 	@property
 	def name(self) -> str:
 		return str(self.model_name)
+
+	@overload
+	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> str: ...
+
+	@overload
+	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T]) -> T: ...
 
 	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T] | None = None) -> T | str:
 		"""

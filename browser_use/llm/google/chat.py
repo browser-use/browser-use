@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Dict, Type, TypeVar
+from typing import Any, Dict, Type, TypeVar, overload
 
 from google import genai
 from google.auth.credentials import Credentials
@@ -74,6 +74,12 @@ class ChatGoogle(BaseChatModel):
 	@property
 	def name(self) -> str:
 		return str(self.model_name)
+
+	@overload
+	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> str: ...
+
+	@overload
+	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T]) -> T: ...
 
 	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T] | None = None) -> T | str:
 		"""

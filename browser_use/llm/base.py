@@ -6,10 +6,9 @@ For easier transition we have
 
 from typing import Protocol, Type, TypeVar, overload
 
-from openai.types.chat.chat_completion_message_param import (
-	ChatCompletionMessageParam,
-)
 from pydantic import BaseModel
+
+from browser_use.llm.messages import BaseMessage
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -29,9 +28,9 @@ class BaseChatModel(Protocol):
 	def name(self) -> str: ...
 
 	@overload
-	async def ainvoke(self, messages: list[ChatCompletionMessageParam], output_format: None = None) -> str: ...
+	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> str: ...
 
 	@overload
-	async def ainvoke(self, messages: list[ChatCompletionMessageParam], output_format: Type[T]) -> T: ...
+	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T]) -> T: ...
 
-	async def ainvoke(self, messages: list[ChatCompletionMessageParam], output_format: Type[T] | None = None) -> T | str: ...
+	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T] | None = None) -> T | str: ...
