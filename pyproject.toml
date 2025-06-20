@@ -39,6 +39,7 @@ dependencies = [
     "typing-extensions>=4.12.2",
     "uuid7>=0.1.0",
     "authlib>=1.6.0",
+    "google-genai>=1.21.1",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -114,7 +115,7 @@ docstring-code-line-length = 140
 skip-magic-trailing-comma = false
 
 [tool.pyright]
-typeCheckingMode = "off"
+typeCheckingMode = "on"
 
 [tool.hatch.build]
 include = [
