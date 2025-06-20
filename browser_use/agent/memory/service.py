@@ -5,16 +5,11 @@ import os
 import warnings
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import (
-	BaseMessage,
-	HumanMessage,
-)
-from langchain_core.messages.utils import convert_to_openai_messages
-
 from browser_use.agent.memory.views import MemoryConfig
 from browser_use.agent.message_manager.service import MessageManager
 from browser_use.agent.message_manager.views import ManagedMessage, MessageMetadata
+from browser_use.llm.base import BaseChatModel
+from browser_use.llm.messages import BaseMessage
 from browser_use.utils import time_execution_sync
 
 

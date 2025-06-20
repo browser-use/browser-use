@@ -24,6 +24,7 @@ from browser_use.agent.cloud_events import (
 	CreateAgentTaskEvent,
 	UpdateAgentTaskEvent,
 )
+from browser_use.llm.messages import UserMessage
 
 load_dotenv()
 
@@ -305,7 +306,8 @@ class Agent(Generic[Context]):
 			state=self.state.message_manager_state,
 		)
 
-		if self.enable_memory:
+		# TODO: FIX MEMORY
+		if self.enable_memory and False:
 			try:
 				# Initialize memory
 				self.memory = Memory(
@@ -921,7 +923,7 @@ class Agent(Generic[Context]):
 			# If there are page-specific actions, add them as a special message for this step only
 			if page_filtered_actions:
 				page_action_message = f'For this page, these additional actions are available:\n{page_filtered_actions}'
-				self._message_manager._add_message_with_tokens(HumanMessage(content=page_action_message))
+				self._message_manager._add_message_with_tokens(UserMessage(content=page_action_message))
 
 			# If using raw tool calling method, we need to update the message context with new actions
 			if self.tool_calling_method == 'raw':
@@ -963,7 +965,7 @@ class Agent(Generic[Context]):
 				msg += '\nIf the task is fully finished, set success in "done" to true.'
 				msg += '\nInclude everything you found out for the ultimate task in the done text.'
 				self.logger.info('Last step finishing up')
-				self._message_manager._add_message_with_tokens(HumanMessage(content=msg))
+				self._message_manager._add_message_with_tokens(UserMessage(content=msg))
 				self.AgentOutput = self.DoneAgentOutput
 
 			input_messages = self._message_manager.get_messages()

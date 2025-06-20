@@ -2,7 +2,7 @@ import importlib.resources
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from browser_use.llm.messages import SystemMessage, UserMessage
 
 if TYPE_CHECKING:
 	from browser_use.agent.views import AgentStepInfo
@@ -75,7 +75,7 @@ class AgentMessagePrompt:
 		sensitive_data: str | None = None,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
-		self.file_system: 'FileSystem' | None = file_system
+		self.file_system: 'FileSystem | None' = file_system
 		self.agent_history_description: str | None = agent_history_description
 		self.read_state_description: str | None = read_state_description
 		self.task: str | None = task
@@ -143,19 +143,19 @@ Interactive elements from top layer of the current page inside the viewport{trun
 		time_str = datetime.now().strftime('%Y-%m-%d %H:%M')
 		step_info_description += f'Current date and time: {time_str}'
 
-		todo_contents = self.file_system.get_todo_contents()
-		if not len(todo_contents):
-			todo_contents = '[Current todo.md is empty, fill it with your plan when applicable]'
+		_todo_contents = self.file_system.get_todo_contents() if self.file_system else ''
+		if not len(_todo_contents):
+			_todo_contents = '[Current todo.md is empty, fill it with your plan when applicable]'
 
 		agent_state = f"""
 <user_request>
 {self.task}
 </user_request>
 <file_system>
-{self.file_system.describe()}
+{self.file_system.describe() if self.file_system else ''}
 </file_system>
 <todo_contents>
-{todo_contents}
+{_todo_contents}
 </todo_contents>
 """
 		if self.sensitive_data:
@@ -164,18 +164,26 @@ Interactive elements from top layer of the current page inside the viewport{trun
 		agent_state += f'<step_info>\n{step_info_description}\n</step_info>\n'
 		return agent_state
 
-	def get_user_message(self, use_vision: bool = True) -> HumanMessage:
-		state_description = '<agent_history>\n' + self.agent_history_description.strip('\n') + '\n</agent_history>\n'
+	def get_user_message(self, use_vision: bool = True) -> UserMessage:
+		state_description = (
+			'<agent_history>\n'
+			+ (self.agent_history_description.strip('\n') if self.agent_history_description else '')
+			+ '\n</agent_history>\n'
+		)
 		state_description += '<agent_state>\n' + self._get_agent_state_description().strip('\n') + '\n</agent_state>\n'
 		state_description += '<browser_state>\n' + self._get_browser_state_description().strip('\n') + '\n</browser_state>\n'
-		state_description += '<read_state>\n' + self.read_state_description.strip('\n') + '\n</read_state>\n'
+		state_description += (
+			'<read_state>\n'
+			+ (self.read_state_description.strip('\n') if self.read_state_description else '')
+			+ '\n</read_state>\n'
+		)
 		if self.page_filtered_actions:
 			state_description += 'For this page, these additional actions are available:\n'
 			state_description += self.page_filtered_actions + '\n'
 
 		if self.browser_state.screenshot and use_vision is True:
 			# Format message for vision model
-			return HumanMessage(
+			return UserMessage(
 				content=[
 					{'type': 'text', 'text': state_description},
 					{
@@ -185,7 +193,7 @@ Interactive elements from top layer of the current page inside the viewport{trun
 				]
 			)
 
-		return HumanMessage(content=state_description)
+		return UserMessage(content=state_description)
 
 
 class PlannerPrompt(SystemPrompt):
@@ -194,7 +202,7 @@ class PlannerPrompt(SystemPrompt):
 
 	def get_system_message(
 		self, is_planner_reasoning: bool, extended_planner_system_prompt: str | None = None
-	) -> SystemMessage | HumanMessage:
+	) -> SystemMessage | UserMessage:
 		"""Get the system message for the planner.
 
 		Args:
@@ -233,6 +241,6 @@ Keep your responses concise and focused on actionable insights.
 			planner_prompt_text += f'\n{extended_planner_system_prompt}'
 
 		if is_planner_reasoning:
-			return HumanMessage(content=planner_prompt_text)
+			return UserMessage(content=planner_prompt_text)
 		else:
 			return SystemMessage(content=planner_prompt_text)

@@ -1,13 +1,11 @@
 import pytest
-from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_openai import AzureChatOpenAI, ChatOpenAI
 
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
 from browser_use.agent.views import ActionResult
 from browser_use.browser.views import BrowserStateSummary, TabInfo
 from browser_use.dom.views import DOMElementNode, DOMTextNode
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.llm.openai.chat import ChatOpenAI
 
 
 @pytest.fixture(

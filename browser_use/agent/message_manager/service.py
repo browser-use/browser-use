@@ -1,16 +1,10 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 import shutil
 
-from langchain_core.messages import (
-	AIMessage,
-	BaseMessage,
-	HumanMessage,
-	SystemMessage,
-	ToolMessage,
-)
 from pydantic import BaseModel
 
 from browser_use.agent.message_manager.views import MessageMetadata
@@ -18,6 +12,7 @@ from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.agent.views import ActionResult, AgentOutput, AgentStepInfo, MessageManagerState
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.llm.messages import AssistantMessage, BaseMessage, SystemMessage, UserMessage
 from browser_use.utils import match_url_with_domain_pattern, time_execution_sync
 
 logger = logging.getLogger(__name__)
@@ -221,24 +216,23 @@ class MessageManager:
 		self._add_message_with_tokens(self.system_prompt, message_type='init')
 
 		if self.settings.message_context:
-			context_message = HumanMessage(content='<task_context>' + self.settings.message_context + '</task_context>')
+			context_message = UserMessage(content='<task_context>' + self.settings.message_context + '</task_context>')
 			self._add_message_with_tokens(context_message, message_type='init')
 
 		if self.settings.sensitive_data:
 			info = f'<sensitive_data>Here are placeholders for sensitive data: {list(self.settings.sensitive_data.keys())}'
 			info += '\nTo use them, write <secret>the placeholder name</secret> </sensitive_data>'
-			info_message = HumanMessage(content=info)
+			info_message = UserMessage(content=info)
 			self._add_message_with_tokens(info_message, message_type='init')
 
-		placeholder_message = HumanMessage(
+		placeholder_message = UserMessage(
 			content='<example_1>\nHere is an example output of thinking and tool call. You can use it as a reference but do not copy it exactly.'
 		)
 		# placeholder_message = HumanMessage(content='Example output:')
 		self._add_message_with_tokens(placeholder_message, message_type='init')
 
-		example_tool_call_1 = AIMessage(
-			content='',
-			tool_calls=[
+		example_tool_call_1 = AssistantMessage(
+			content=json.dumps(
 				{
 					'name': 'AgentOutput',
 					'args': {
@@ -288,8 +282,8 @@ The file system actions do not change the browser state, so I can also click on 
 					},
 					'id': str(self.state.tool_id),
 					'type': 'tool_call',
-				},
-			],
+				}
+			),
 		)
 		self._add_message_with_tokens(example_tool_call_1, message_type='init')
 		self.add_tool_message(
@@ -297,12 +291,11 @@ The file system actions do not change the browser state, so I can also click on 
 			message_type='init',
 		)
 
-		placeholder_message = HumanMessage(content='<example_2>Example thinking and tool call 2:')
+		placeholder_message = UserMessage(content='<example_2>Example thinking and tool call 2:')
 		# self._add_message_with_tokens(placeholder_message, message_type='init')
 
-		example_tool_call_2 = AIMessage(
-			content='',
-			tool_calls=[
+		example_tool_call_2 = AssistantMessage(
+			content=json.dumps(
 				{
 					'name': 'AgentOutput',
 					'args': {
@@ -335,13 +328,13 @@ My next action is to click on the iPhone link at index [4] to navigate to Apple'
 					'id': str(self.state.tool_id),
 					'type': 'tool_call',
 				},
-			],
+			),
 		)
 		# self._add_message_with_tokens(example_tool_call_2, message_type='init')
 		# self.add_tool_message(content='Clicked on index [4]. </example_2>', message_type='init')
 
 		if self.settings.available_file_paths:
-			filepaths_msg = HumanMessage(
+			filepaths_msg = UserMessage(
 				content=f'<available_file_paths>Here are file paths you can use: {self.settings.available_file_paths}</available_file_paths>'
 			)
 			self._add_message_with_tokens(filepaths_msg, message_type='init')
