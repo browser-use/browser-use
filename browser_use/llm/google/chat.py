@@ -6,10 +6,10 @@ from google.auth.credentials import Credentials
 from google.genai import types
 from pydantic import BaseModel
 
-from browser_use.llm import BaseMessage
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError
 from browser_use.llm.google.serializer import GoogleMessageSerializer
+from browser_use.llm.messages import BaseMessage
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -90,34 +90,22 @@ class ChatGoogle(BaseChatModel):
 		# Serialize messages to Google format
 		contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages)
 
-		# For now, convert contents to a single string for simplicity
-		# This matches the example usage pattern
-		content_parts = []
-		if system_instruction and system_instruction.parts:
-			for part in system_instruction.parts:
-				if part.text:
-					content_parts.append(f'System: {part.text}')
+		# Return string response
+		config: types.GenerateContentConfigDict = {}
+		if self.temperature is not None:
+			config['temperature'] = self.temperature
 
-		for content in contents:
-			role_prefix = 'User' if content.role == 'user' else 'Assistant'
-			if content.parts:
-				for part in content.parts:
-					if part.text:
-						content_parts.append(f'{role_prefix}: {part.text}')
-
-		contents_str = '\n\n'.join(content_parts)
+		# Add system instruction if present
+		if system_instruction:
+			config['system_instruction'] = system_instruction
 
 		try:
 			if output_format is None:
 				# Return string response
-				config: types.GenerateContentConfigDict = {}
-				if self.temperature is not None:
-					config['temperature'] = self.temperature
-
 				response = await self.get_client().aio.models.generate_content(
 					model=self.model_name,
-					contents=contents_str,
-					config=config if config else None,
+					contents=contents,  # type: ignore
+					config=config,
 				)
 
 				# Handle case where response.text might be None
@@ -127,25 +115,21 @@ class ChatGoogle(BaseChatModel):
 
 			else:
 				# Return structured response
-				config: types.GenerateContentConfigDict = {
-					'response_mime_type': 'application/json',
-					'response_schema': output_format,
-				}
-				if self.temperature is not None:
-					config['temperature'] = self.temperature
+				config['response_mime_type'] = 'application/json'
+				config['response_schema'] = output_format
 
 				response = await self.get_client().aio.models.generate_content(
 					model=self.model_name,
-					contents=contents_str,
+					contents=contents,  # type: ignore
 					config=config,
 				)
 
-				# The parsed response is already a Pydantic model instance
+				# Handle case where response.parsed might be None
 				if response.parsed is None:
 					raise ModelProviderError(
-						message='Failed to parse structured output from model response',
+						message='No parsed response from model',
 						status_code=500,
-						model_name=self.name,
+						model_name=self.model_name,
 					)
 
 				# Ensure we return the correct type

@@ -1,6 +1,6 @@
-from typing import List, Union
+from typing import List, Optional, Tuple
 
-from google.genai import types
+from google.genai.types import Content, Part
 
 from browser_use.llm.messages import (
 	AssistantMessage,
@@ -17,98 +17,79 @@ class GoogleMessageSerializer:
 	"""Serializer for converting messages to Google Gemini format."""
 
 	@staticmethod
-	def serialize(message: BaseMessage) -> types.Content:
-		"""
-		Convert a single BaseMessage to Google Content format.
-
-		Args:
-		    message: The message to convert
-
-		Returns:
-		    A Google Content object
-		"""
-		# Determine the role
-		if isinstance(message, SystemMessage):
-			# Google doesn't have a system role in Content, system messages are handled separately
-			role = 'user'  # We'll handle system messages in serialize_messages
-		elif isinstance(message, UserMessage):
-			role = 'user'
-		elif isinstance(message, AssistantMessage):
-			role = 'model'
-		else:
-			# Default to user for any unknown message types
-			role = 'user'
-
-		# Extract text content
-		text_content = ''
-		if isinstance(message.content, str):
-			text_content = message.content
-		elif message.content is not None:
-			# Handle Iterable of content parts
-			parts = []
-			for part in message.content:
-				if isinstance(part, ContentPartTextParam):
-					parts.append(part.text)
-				elif isinstance(part, ContentPartRefusalParam):
-					parts.append(f'[Refusal] {part.refusal}')
-				elif isinstance(part, ContentPartImageParam):
-					# For images, we'll include a placeholder text
-					# Google's API handles images differently via FileData
-					parts.append(f'[Image: {part.image_url.url}]')
-			text_content = '\n'.join(parts)
-
-		# Create a Part object with the text content
-		part = types.Part(text=text_content)
-
-		# Create and return the Content object
-		return types.Content(role=role, parts=[part])
-
-	@staticmethod
-	def serialize_messages(messages: List[BaseMessage]) -> tuple[List[types.Content], Union[types.Content, None]]:
+	def serialize_messages(messages: List[BaseMessage]) -> Tuple[List[Content], Optional[str]]:
 		"""
 		Convert a list of BaseMessages to Google format, extracting system message.
 
 		Google handles system instructions separately from the conversation, so we need to:
-		1. Extract any system messages and return them separately
+		1. Extract any system messages and return them separately as a string
 		2. Convert the remaining messages to Content objects
 
 		Args:
 		    messages: List of messages to convert
 
 		Returns:
-		    A tuple of (contents, system_instruction) where:
-		    - contents: List of Content objects for the conversation
-		    - system_instruction: Content object for system instruction or None
+		    A tuple of (formatted_messages, system_message) where:
+		    - formatted_messages: List of Content objects for the conversation
+		    - system_message: System instruction string or None
 		"""
-		contents = []
-		system_instruction = None
-		system_parts = []
+		formatted_messages: List[Content] = []
+		system_message: Optional[str] = None
 
 		for message in messages:
-			if isinstance(message, SystemMessage):
-				# Google expects system instruction as a separate parameter
-				# Extract text content
-				text_content = ''
+			role = message.role if hasattr(message, 'role') else None
+
+			# Handle system/developer messages
+			if isinstance(message, SystemMessage) or role in ['system', 'developer']:
+				# Extract system message content as string
 				if isinstance(message.content, str):
-					text_content = message.content
-				else:
+					system_message = message.content
+				elif message.content is not None:
 					# Handle Iterable of content parts
 					parts = []
 					for part in message.content:
 						if isinstance(part, ContentPartTextParam):
 							parts.append(part.text)
-					text_content = '\n'.join(parts)
+					system_message = '\n'.join(parts)
+				continue
 
-				system_parts.append(types.Part(text=text_content))
+			# Determine the role for non-system messages
+			if isinstance(message, UserMessage):
+				role = 'user'
+			elif isinstance(message, AssistantMessage):
+				role = 'model'
 			else:
-				# Convert non-system messages normally
-				contents.append(GoogleMessageSerializer.serialize(message))
+				# Default to user for any unknown message types
+				role = 'user'
 
-		# Create system instruction if we have system messages
-		if system_parts:
-			system_instruction = types.Content(
-				role='user',  # System instructions use "user" role
-				parts=system_parts,
-			)
+			# Initialize message parts
+			message_parts: List[Part] = []
 
-		return contents, system_instruction
+			# Extract content and create parts
+			if isinstance(message.content, str):
+				# Regular text content
+				message_parts = [Part.from_text(text=message.content)]
+			elif message.content is not None:
+				# Handle Iterable of content parts
+				text_parts = []
+				for part in message.content:
+					if isinstance(part, ContentPartTextParam):
+						text_parts.append(part.text)
+					elif isinstance(part, ContentPartRefusalParam):
+						text_parts.append(f'[Refusal] {part.refusal}')
+					elif isinstance(part, ContentPartImageParam):
+						# For images, we'll include a placeholder text
+						# In a full implementation, you'd handle images properly
+						text_parts.append(f'[Image: {part.image_url.url}]')
+
+				# Combine all text parts into a single Part
+				if text_parts:
+					combined_text = '\n'.join(text_parts)
+					message_parts = [Part.from_text(text=combined_text)]
+
+			# Create the Content object
+			if message_parts:
+				final_message = Content(role=role, parts=message_parts)
+				formatted_messages.append(final_message)
+
+		return formatted_messages, system_message

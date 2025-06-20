@@ -3,9 +3,7 @@ import os
 import pytest
 from pydantic import BaseModel
 
-from browser_use.llm.anthropic.chat import ChatAnthropic
-from browser_use.llm.messages import AssistantMessage, BaseMessage, SystemMessage, UserMessage
-from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use.llm import ChatAnthropic, ChatGoogle, ChatOpenAI
 
 
 class CapitalResponse(BaseModel):
@@ -15,83 +13,158 @@ class CapitalResponse(BaseModel):
 	capital: str
 
 
-# OpenAI Tests
-@pytest.mark.asyncio
-async def test_openai_ainvoke_normal():
-	"""Test normal text response from OpenAI"""
-	# Skip if no API key
-	if not os.getenv('OPENAI_API_KEY'):
-		pytest.skip('OPENAI_API_KEY not set')
+class TestChatModels:
+	from browser_use.llm.messages import (
+		AssistantMessage,
+		BaseMessage,
+		SystemMessage,
+		UserMessage,
+	)
 
-	chat = ChatOpenAI(model_name='gpt-4o-mini', temperature=0)
+	"""Test suite for all chat model implementations"""
 
-	messages: list[BaseMessage] = [
-		SystemMessage(content='You are a helpful assistant.'),
-		UserMessage(content='What is the capital of France? Answer in one word.'),
-		AssistantMessage(content='Paris'),
-		UserMessage(content='What is the capital of Germany? Answer in one word.'),
+	# Test Constants
+	SYSTEM_MESSAGE = SystemMessage(content='You are a helpful assistant.')
+	FRANCE_QUESTION = UserMessage(content='What is the capital of France? Answer in one word.')
+	FRANCE_ANSWER = AssistantMessage(content='Paris')
+	GERMANY_QUESTION = UserMessage(content='What is the capital of Germany? Answer in one word.')
+
+	# Expected values
+	EXPECTED_GERMANY_CAPITAL = 'berlin'
+	EXPECTED_FRANCE_COUNTRY = 'france'
+	EXPECTED_FRANCE_CAPITAL = 'paris'
+
+	# Test messages for conversation
+	CONVERSATION_MESSAGES: list[BaseMessage] = [
+		SYSTEM_MESSAGE,
+		FRANCE_QUESTION,
+		FRANCE_ANSWER,
+		GERMANY_QUESTION,
 	]
 
-	response = await chat.ainvoke(messages)
+	# Test messages for structured output
+	STRUCTURED_MESSAGES: list[BaseMessage] = [UserMessage(content='What is the capital of France?')]
 
-	assert isinstance(response, str)
-	assert 'berlin' in response.lower()
+	# OpenAI Tests
+	@pytest.mark.asyncio
+	async def test_openai_ainvoke_normal(self):
+		"""Test normal text response from OpenAI"""
+		# Skip if no API key
+		if not os.getenv('OPENAI_API_KEY'):
+			pytest.skip('OPENAI_API_KEY not set')
 
+		chat = ChatOpenAI(model_name='gpt-4o-mini', temperature=0)
+		response = await chat.ainvoke(self.CONVERSATION_MESSAGES)
 
-@pytest.mark.asyncio
-async def test_openai_ainvoke_structured():
-	"""Test structured output from OpenAI"""
-	# Skip if no API key
-	if not os.getenv('OPENAI_API_KEY'):
-		pytest.skip('OPENAI_API_KEY not set')
+		assert isinstance(response, str)
+		assert self.EXPECTED_GERMANY_CAPITAL in response.lower()
 
-	chat = ChatOpenAI(model_name='gpt-4o-mini', temperature=0)
+	@pytest.mark.asyncio
+	async def test_openai_ainvoke_structured(self):
+		"""Test structured output from OpenAI"""
+		# Skip if no API key
+		if not os.getenv('OPENAI_API_KEY'):
+			pytest.skip('OPENAI_API_KEY not set')
 
-	messages: list[BaseMessage] = [UserMessage(content='What is the capital of France?')]
+		chat = ChatOpenAI(model_name='gpt-4o-mini', temperature=0)
+		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
 
-	response = await chat.ainvoke(messages, output_format=CapitalResponse)
+		assert isinstance(response, CapitalResponse)
+		assert response.country.lower() == self.EXPECTED_FRANCE_COUNTRY
+		assert response.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
 
-	assert isinstance(response, CapitalResponse)
-	assert response.country.lower() == 'france'
-	assert response.capital.lower() == 'paris'
+	# Anthropic Tests
+	@pytest.mark.asyncio
+	async def test_anthropic_ainvoke_normal(self):
+		"""Test normal text response from Anthropic"""
+		# Skip if no API key
+		if not os.getenv('ANTHROPIC_API_KEY'):
+			pytest.skip('ANTHROPIC_API_KEY not set')
 
+		chat = ChatAnthropic(model_name='claude-3-5-haiku-latest', max_tokens=100, temperature=0)
+		response = await chat.ainvoke(self.CONVERSATION_MESSAGES)
 
-# Anthropic Tests
-@pytest.mark.asyncio
-async def test_anthropic_ainvoke_normal():
-	"""Test normal text response from Anthropic"""
-	# Skip if no API key
-	if not os.getenv('ANTHROPIC_API_KEY'):
-		pytest.skip('ANTHROPIC_API_KEY not set')
+		assert isinstance(response, str)
+		assert self.EXPECTED_GERMANY_CAPITAL in response.lower()
 
-	chat = ChatAnthropic(model_name='claude-3-5-haiku-latest', max_tokens=100, temperature=0)
+	@pytest.mark.asyncio
+	async def test_anthropic_ainvoke_structured(self):
+		"""Test structured output from Anthropic"""
+		# Skip if no API key
+		if not os.getenv('ANTHROPIC_API_KEY'):
+			pytest.skip('ANTHROPIC_API_KEY not set')
 
-	messages: list[BaseMessage] = [
-		SystemMessage(content='You are a helpful assistant.'),
-		UserMessage(content='What is the capital of France? Answer in one word.'),
-		AssistantMessage(content='Paris'),
-		UserMessage(content='What is the capital of Germany? Answer in one word.'),
-	]
+		chat = ChatAnthropic(model_name='claude-3-5-haiku-latest', max_tokens=100, temperature=0)
+		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
 
-	response = await chat.ainvoke(messages)
+		assert isinstance(response, CapitalResponse)
+		assert response.country.lower() == self.EXPECTED_FRANCE_COUNTRY
+		assert response.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
 
-	assert isinstance(response, str)
-	assert 'berlin' in response.lower()
+	# Google Gemini Tests
+	@pytest.mark.asyncio
+	async def test_google_ainvoke_normal(self):
+		"""Test normal text response from Google Gemini"""
+		# Skip if no API key
+		if not os.getenv('GEMINI_API_KEY'):
+			pytest.skip('GEMINI_API_KEY not set')
 
+		chat = ChatGoogle(model_name='gemini-2.0-flash', api_key=os.getenv('GEMINI_API_KEY'), temperature=0)
+		response = await chat.ainvoke(self.CONVERSATION_MESSAGES)
 
-@pytest.mark.asyncio
-async def test_anthropic_ainvoke_structured():
-	"""Test structured output from Anthropic"""
-	# Skip if no API key
-	if not os.getenv('ANTHROPIC_API_KEY'):
-		pytest.skip('ANTHROPIC_API_KEY not set')
+		assert isinstance(response, str)
+		assert self.EXPECTED_GERMANY_CAPITAL in response.lower()
 
-	chat = ChatAnthropic(model_name='claude-3-5-haiku-latest', max_tokens=100, temperature=0)
+	@pytest.mark.asyncio
+	async def test_google_ainvoke_structured(self):
+		"""Test structured output from Google Gemini"""
+		# Skip if no API key
+		if not os.getenv('GEMINI_API_KEY'):
+			pytest.skip('GEMINI_API_KEY not set')
 
-	messages: list[BaseMessage] = [UserMessage(content='What is the capital of France?')]
+		chat = ChatGoogle(model_name='gemini-2.0-flash', api_key=os.getenv('GEMINI_API_KEY'), temperature=0)
+		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
 
-	response = await chat.ainvoke(messages, output_format=CapitalResponse)
+		assert isinstance(response, CapitalResponse)
+		assert response.country.lower() == self.EXPECTED_FRANCE_COUNTRY
+		assert response.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
 
-	assert isinstance(response, CapitalResponse)
-	assert response.country.lower() == 'france'
-	assert response.capital.lower() == 'paris'
+	# Google Gemini with Vertex AI Tests
+	@pytest.mark.asyncio
+	async def test_google_vertex_ainvoke_normal(self):
+		"""Test normal text response from Google Gemini via Vertex AI"""
+		# Skip if no project ID
+		if not os.getenv('GOOGLE_CLOUD_PROJECT'):
+			pytest.skip('GOOGLE_CLOUD_PROJECT not set')
+
+		chat = ChatGoogle(
+			model_name='gemini-2.0-flash',
+			vertexai=True,
+			project=os.getenv('GOOGLE_CLOUD_PROJECT'),
+			location='us-central1',
+			temperature=0,
+		)
+		response = await chat.ainvoke(self.CONVERSATION_MESSAGES)
+
+		assert isinstance(response, str)
+		assert self.EXPECTED_GERMANY_CAPITAL in response.lower()
+
+	@pytest.mark.asyncio
+	async def test_google_vertex_ainvoke_structured(self):
+		"""Test structured output from Google Gemini via Vertex AI"""
+		# Skip if no project ID
+		if not os.getenv('GOOGLE_CLOUD_PROJECT'):
+			pytest.skip('GOOGLE_CLOUD_PROJECT not set')
+
+		chat = ChatGoogle(
+			model_name='gemini-2.0-flash',
+			vertexai=True,
+			project=os.getenv('GOOGLE_CLOUD_PROJECT'),
+			location='us-central1',
+			temperature=0,
+		)
+		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
+
+		assert isinstance(response, CapitalResponse)
+		assert response.country.lower() == self.EXPECTED_FRANCE_COUNTRY
+		assert response.capital.lower() == self.EXPECTED_FRANCE_CAPITAL

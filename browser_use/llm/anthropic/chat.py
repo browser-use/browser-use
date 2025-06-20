@@ -17,10 +17,10 @@ from anthropic.types.tool_choice_tool_param import ToolChoiceToolParam
 from httpx import Timeout
 from pydantic import BaseModel
 
-from browser_use.llm import BaseMessage
 from browser_use.llm.anthropic.serializer import AnthropicMessageSerializer
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
+from browser_use.llm.messages import BaseMessage
 
 T = TypeVar('T', bound=BaseModel)
 
