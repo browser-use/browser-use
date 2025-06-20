@@ -6,9 +6,9 @@ from openai import APIConnectionError, APIStatusError, AsyncOpenAI, RateLimitErr
 from openai.types.shared.chat_model import ChatModel
 from pydantic import BaseModel
 
-from browser_use.llm import BaseMessage
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError
+from browser_use.llm.messages import BaseMessage
 from browser_use.llm.openai.serializer import OpenAIMessageSerializer
 
 T = TypeVar('T', bound=BaseModel)

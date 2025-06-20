@@ -7,6 +7,7 @@ For easier transition we have
 from browser_use.llm.anthropic.chat import ChatAnthropic
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.groq.chat import ChatGroq
 from browser_use.llm.messages import (
 	AssistantMessage,
 	BaseMessage,
@@ -26,4 +27,5 @@ __all__ = [
 	'ChatOpenAI',
 	'ChatGoogle',
 	'ChatAnthropic',
+	'ChatGroq',
 ]

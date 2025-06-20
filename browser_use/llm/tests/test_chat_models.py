@@ -3,7 +3,7 @@ import os
 import pytest
 from pydantic import BaseModel
 
-from browser_use.llm import ChatAnthropic, ChatGoogle, ChatOpenAI
+from browser_use.llm import ChatAnthropic, ChatGoogle, ChatGroq, ChatOpenAI
 
 
 class CapitalResponse(BaseModel):
@@ -163,6 +163,35 @@ class TestChatModels:
 			location='us-central1',
 			temperature=0,
 		)
+		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
+
+		assert isinstance(response, CapitalResponse)
+		assert response.country.lower() == self.EXPECTED_FRANCE_COUNTRY
+		assert response.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
+
+	# Groq Tests
+
+	@pytest.mark.asyncio
+	async def test_groq_ainvoke_normal(self):
+		"""Test normal text response from Groq"""
+		# Skip if no API key
+		if not os.getenv('GROQ_API_KEY'):
+			pytest.skip('GROQ_API_KEY not set')
+
+		chat = ChatGroq(model_name='meta-llama/llama-4-maverick-17b-128e-instruct', temperature=0)
+		response = await chat.ainvoke(self.CONVERSATION_MESSAGES)
+
+		assert isinstance(response, str)
+		assert self.EXPECTED_GERMANY_CAPITAL in response.lower()
+
+	@pytest.mark.asyncio
+	async def test_groq_ainvoke_structured(self):
+		"""Test structured output from Groq"""
+		# Skip if no API key
+		if not os.getenv('GROQ_API_KEY'):
+			pytest.skip('GROQ_API_KEY not set')
+
+		chat = ChatGroq(model_name='meta-llama/llama-4-maverick-17b-128e-instruct', temperature=0)
 		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
 
 		assert isinstance(response, CapitalResponse)
