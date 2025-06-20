@@ -801,7 +801,7 @@ class Agent(Generic[Context]):
 	def _log_llm_call_info(self, input_messages: list[BaseMessage], method: str):
 		message_count = len(input_messages)
 		total_chars = sum(len(str(msg.content)) for msg in input_messages)
-		has_images = any(isinstance(msg.content, list) and any(item.get('type') == 'image_url' for item in msg.content) for msg in input_messages)
+		has_images = any(isinstance(msg.content, list) and any(isinstance(item, dict) and item.get('type') == 'image_url' for item in msg.content) for msg in input_messages)
 		current_tokens = getattr(self._message_manager.state.history, 'current_tokens', 0)
 		tool_count = len(self.ActionModel.model_fields) if hasattr(self, 'ActionModel') else 0
 		image_status = ', 📷 img' if has_images else ''
@@ -1088,7 +1088,7 @@ class Agent(Generic[Context]):
 		planner_messages = [PlannerPrompt(all_actions).get_system_message(is_planner_reasoning=self.settings.is_planner_reasoning, extended_planner_system_prompt=self.settings.extend_planner_system_message), *self._message_manager.get_messages()[1:]]
 		if not self.settings.use_vision_for_planner and self.settings.use_vision:
 			last_state_message = planner_messages[-1]
-			new_msg = ''.join(msg['text'] for msg in last_state_message.content if msg['type'] == 'text')
+			new_msg = ''.join(item['text'] for item in last_state_message.content if isinstance(item, dict) and item.get('type') == 'text')
 			planner_messages[-1] = HumanMessage(content=new_msg)
 		planner_messages = convert_input_messages(planner_messages, self.planner_model_name)
 		try:

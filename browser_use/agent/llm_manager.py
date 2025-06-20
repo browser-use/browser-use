@@ -15,7 +15,7 @@ from browser_use.agent.message_manager.utils import is_model_without_tool_suppor
 
 logger = logging.getLogger(__name__)
 
-SKIP_LLM_API_KEY_VERIFICATION = os.environ.get('SKIP_LLM_API_KEY_VERIFICATION', 'false').lower()[0] in 'ty1'
+SKIP_LLM_API_KEY_VERIFICATION = os.environ.get('SKIP_LLM_API_KEY_VERIFICATION', 'false').lower().startswith(('t', 'y', '1'))
 
 
 class LLMManager:

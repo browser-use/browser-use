@@ -2,6 +2,7 @@ import logging
 from importlib import resources
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
+from dataclasses import dataclass, field
 
 if TYPE_CHECKING:
 	from browser_use.browser.types import Page
