@@ -1,34 +1,37 @@
+import asyncio
 import os
 import sys
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import asyncio
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from langchain_openai import ChatOpenAI
 
 from browser_use.agent.service import Agent
-from browser_use.browser.browser import Browser, BrowserConfig
-from browser_use.browser.context import BrowserContextConfig
+from browser_use.browser import BrowserSession
 
-browser = Browser(
-	config=BrowserConfig(
-		disable_security=True,
-		headless=False,
-		new_context_config=BrowserContextConfig(save_recording_path='./tmp/recordings'),
-	)
+browser_session = BrowserSession(
+	keep_alive=True,
+	headless=False,
+	save_recording_path='./tmp/recordings',
+	user_data_dir='~/.config/browseruse/profiles/default',
 )
 llm = ChatOpenAI(model='gpt-4o')
 
 
 async def main():
+	await browser_session.start()
 	agents = [
-		Agent(task=task, llm=llm, browser=browser)
+		Agent(task=task, llm=llm, browser_session=browser_session)
 		for task in [
 			'Search Google for weather in Tokyo',
 			'Check Reddit front page title',
 			'Look up Bitcoin price on Coinbase',
 			'Find NASA image of the day',
-			# 'Check top story on CNN',
+			'Check top story on CNN',
 			# 'Search latest SpaceX launch date',
 			# 'Look up population of Paris',
 			# 'Find current time in Sydney',
@@ -37,18 +40,8 @@ async def main():
 		]
 	]
 
-	await asyncio.gather(*[agent.run() for agent in agents])
-
-	# async with await browser.new_context() as context:
-	agentX = Agent(
-		task='Go to apple.com and return the title of the page',
-		llm=llm,
-		browser=browser,
-		# browser_context=context,
-	)
-	await agentX.run()
-
-	await browser.close()
+	print(await asyncio.gather(*[agent.run() for agent in agents]))
+	await browser_session.kill()
 
 
 if __name__ == '__main__':

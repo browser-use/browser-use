@@ -1,10 +1,12 @@
+import asyncio
 import os
 import sys
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import asyncio
-from typing import List, Optional
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
@@ -24,7 +26,7 @@ class Model(BaseModel):
 
 
 class Models(BaseModel):
-	models: List[Model]
+	models: list[Model]
 
 
 @controller.action('Save models', param_model=Models)
@@ -36,7 +38,7 @@ def save_models(params: Models):
 
 # video: https://preview.screen.studio/share/EtOhIk0P
 async def main():
-	task = f'Look up models with a license of cc-by-sa-4.0 and sort by most likes on Hugging face, save top 5 to file.'
+	task = 'Look up models with a license of cc-by-sa-4.0 and sort by most likes on Hugging face, save top 5 to file.'
 
 	model = ChatOpenAI(model='gpt-4o')
 	agent = Agent(task=task, llm=model, controller=controller)

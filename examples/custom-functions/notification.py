@@ -1,17 +1,16 @@
+import asyncio
 import os
 import sys
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import asyncio
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
-from pydantic import BaseModel
-
-from browser_use import ActionResult, Agent, Controller
 
 load_dotenv()
+
+from langchain_openai import ChatOpenAI
+
+from browser_use import ActionResult, Agent, Controller
 
 controller = Controller()
 
@@ -22,7 +21,7 @@ async def done(text: str):
 
 	# To send emails use
 	# STEP 1: go to https://support.google.com/accounts/answer/185833
-	# STEP 2: Create an app password (you cant use here your normal gmail password)
+	# STEP 2: Create an app password (you can't use here your normal gmail password)
 	# STEP 3: Use the app password in the code below for the password
 	yag = yagmail.SMTP('your_email@gmail.com', 'your_app_password')
 	yag.send(

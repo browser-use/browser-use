@@ -1,13 +1,31 @@
 import asyncio
 import logging
 import os
+import platform
 import signal
 import time
-from functools import wraps
+from collections.abc import Callable, Coroutine
+from fnmatch import fnmatch
+from functools import cache, wraps
+from pathlib import Path
 from sys import stderr
-from typing import Any, Callable, Coroutine, List, Optional, ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+
+# Import error types - these may need to be adjusted based on actual import paths
+try:
+	from openai import BadRequestError as OpenAIBadRequestError
+except ImportError:
+	OpenAIBadRequestError = None
+
+try:
+	from groq import BadRequestError as GroqBadRequestError
+except ImportError:
+	GroqBadRequestError = None
+# Browser Use configuration directory
+BROWSER_USE_CONFIG_DIR = Path.home() / '.config' / 'browseruse'
 
 # Global flag to prevent duplicate exit messages
 _exiting = False
@@ -27,16 +45,17 @@ class SignalHandler:
 	- Support for custom pause/resume callbacks
 	- Management of event loop state across signals
 	- Standardized handling of first and second Ctrl+C presses
+	- Cross-platform compatibility (with simplified behavior on Windows)
 	"""
 
 	def __init__(
 		self,
-		loop: Optional[asyncio.AbstractEventLoop] = None,
-		pause_callback: Optional[Callable[[], None]] = None,
-		resume_callback: Optional[Callable[[], None]] = None,
-		custom_exit_callback: Optional[Callable[[], None]] = None,
+		loop: asyncio.AbstractEventLoop | None = None,
+		pause_callback: Callable[[], None] | None = None,
+		resume_callback: Callable[[], None] | None = None,
+		custom_exit_callback: Callable[[], None] | None = None,
 		exit_on_second_int: bool = True,
-		interruptible_task_patterns: List[str] = None,
+		interruptible_task_patterns: list[str] | None = None,
 	):
 		"""
 		Initialize the signal handler.
@@ -56,6 +75,7 @@ class SignalHandler:
 		self.custom_exit_callback = custom_exit_callback
 		self.exit_on_second_int = exit_on_second_int
 		self.interruptible_task_patterns = interruptible_task_patterns or ['step', 'multi_act', 'get_next_action']
+		self.is_windows = platform.system() == 'Windows'
 
 		# Initialize loop state attributes
 		self._initialize_loop_state()
@@ -71,21 +91,46 @@ class SignalHandler:
 
 	def register(self) -> None:
 		"""Register signal handlers for SIGINT and SIGTERM."""
-		self.original_sigint_handler = self.loop.add_signal_handler(signal.SIGINT, lambda: self.sigint_handler())
-		self.original_sigterm_handler = self.loop.add_signal_handler(signal.SIGTERM, lambda: self.sigterm_handler())
+		try:
+			if self.is_windows:
+				# On Windows, use simple signal handling with immediate exit on Ctrl+C
+				def windows_handler(sig, frame):
+					print('\n\n🛑 Got Ctrl+C. Exiting immediately on Windows...\n', file=stderr)
+					# Run the custom exit callback if provided
+					if self.custom_exit_callback:
+						self.custom_exit_callback()
+					os._exit(0)
+
+				self.original_sigint_handler = signal.signal(signal.SIGINT, windows_handler)
+			else:
+				# On Unix-like systems, use asyncio's signal handling for smoother experience
+				self.original_sigint_handler = self.loop.add_signal_handler(signal.SIGINT, lambda: self.sigint_handler())
+				self.original_sigterm_handler = self.loop.add_signal_handler(signal.SIGTERM, lambda: self.sigterm_handler())
+
+		except Exception:
+			# there are situations where signal handlers are not supported, e.g.
+			# - when running in a thread other than the main thread
+			# - some operating systems
+			# - inside jupyter notebooks
+			pass
 
 	def unregister(self) -> None:
 		"""Unregister signal handlers and restore original handlers if possible."""
 		try:
-			# Remove signal handlers
-			self.loop.remove_signal_handler(signal.SIGINT)
-			self.loop.remove_signal_handler(signal.SIGTERM)
+			if self.is_windows:
+				# On Windows, just restore the original SIGINT handler
+				if self.original_sigint_handler:
+					signal.signal(signal.SIGINT, self.original_sigint_handler)
+			else:
+				# On Unix-like systems, use asyncio's signal handler removal
+				self.loop.remove_signal_handler(signal.SIGINT)
+				self.loop.remove_signal_handler(signal.SIGTERM)
 
-			# Restore original handlers if available
-			if self.original_sigint_handler:
-				signal.signal(signal.SIGINT, self.original_sigint_handler)
-			if self.original_sigterm_handler:
-				signal.signal(signal.SIGTERM, self.original_sigterm_handler)
+				# Restore original handlers if available
+				if self.original_sigint_handler:
+					signal.signal(signal.SIGINT, self.original_sigint_handler)
+				if self.original_sigterm_handler:
+					signal.signal(signal.SIGTERM, self.original_sigterm_handler)
 		except Exception as e:
 			logger.warning(f'Error while unregistering signal handlers: {e}')
 
@@ -108,6 +153,34 @@ class SignalHandler:
 
 		# Force immediate exit - more reliable than sys.exit()
 		print('\n\n🛑  Got second Ctrl+C. Exiting immediately...\n', file=stderr)
+
+		# Reset terminal to a clean state by sending multiple escape sequences
+		# Order matters for terminal resets - we try different approaches
+
+		# Reset terminal modes for both stdout and stderr
+		print('\033[?25h', end='', flush=True, file=stderr)  # Show cursor
+		print('\033[?25h', end='', flush=True)  # Show cursor
+
+		# Reset text attributes and terminal modes
+		print('\033[0m', end='', flush=True, file=stderr)  # Reset text attributes
+		print('\033[0m', end='', flush=True)  # Reset text attributes
+
+		# Disable special input modes that may cause arrow keys to output control chars
+		print('\033[?1l', end='', flush=True, file=stderr)  # Reset cursor keys to normal mode
+		print('\033[?1l', end='', flush=True)  # Reset cursor keys to normal mode
+
+		# Disable bracketed paste mode
+		print('\033[?2004l', end='', flush=True, file=stderr)
+		print('\033[?2004l', end='', flush=True)
+
+		# Carriage return helps ensure a clean line
+		print('\r', end='', flush=True, file=stderr)
+		print('\r', end='', flush=True)
+
+		# these ^^ attempts dont work as far as we can tell
+		# we still dont know what causes the broken input, if you know how to fix it, please let us know
+		print('(tip: press [Enter] once to fix escape codes appearing after chrome exit)', file=stderr)
+
 		os._exit(0)
 
 	def sigint_handler(self) -> None:
@@ -133,7 +206,7 @@ class SignalHandler:
 				self._handle_second_ctrl_c()
 
 		# Mark that Ctrl+C was pressed
-		self.loop.ctrl_c_pressed = True
+		setattr(self.loop, 'ctrl_c_pressed', True)
 
 		# Cancel current tasks that should be interruptible - this is crucial for immediate pausing
 		self._cancel_interruptible_tasks()
@@ -199,7 +272,12 @@ class SignalHandler:
 		# Temporarily restore default signal handling for SIGINT
 		# This ensures KeyboardInterrupt will be raised during input()
 		original_handler = signal.getsignal(signal.SIGINT)
-		signal.signal(signal.SIGINT, signal.default_int_handler)
+		try:
+			signal.signal(signal.SIGINT, signal.default_int_handler)
+		except ValueError:
+			# we are running in a thread other than the main thread
+			# or signal handlers are not supported for some other reason
+			pass
 
 		green = '\x1b[32;1m'
 		red = '\x1b[31m'
@@ -234,9 +312,9 @@ class SignalHandler:
 		"""Reset state after resuming."""
 		# Clear the flags
 		if hasattr(self.loop, 'ctrl_c_pressed'):
-			self.loop.ctrl_c_pressed = False
+			setattr(self.loop, 'ctrl_c_pressed', False)
 		if hasattr(self.loop, 'waiting_for_input'):
-			self.loop.waiting_for_input = False
+			setattr(self.loop, 'waiting_for_input', False)
 
 
 def time_execution_sync(additional_text: str = '') -> Callable[[Callable[P, R]], Callable[P, R]]:
@@ -246,7 +324,18 @@ def time_execution_sync(additional_text: str = '') -> Callable[[Callable[P, R]],
 			start_time = time.time()
 			result = func(*args, **kwargs)
 			execution_time = time.time() - start_time
-			logger.debug(f'{additional_text} Execution time: {execution_time:.2f} seconds')
+			# Only log if execution takes more than 0.25 seconds
+			if execution_time > 0.25:
+				self_has_logger = args and getattr(args[0], 'logger', None)
+				if self_has_logger:
+					logger = getattr(args[0], 'logger')
+				elif 'agent' in kwargs:
+					logger = getattr(kwargs['agent'], 'logger')
+				elif 'browser_session' in kwargs:
+					logger = getattr(kwargs['browser_session'], 'logger')
+				else:
+					logger = logging.getLogger(__name__)
+				logger.debug(f'⏳ {additional_text.strip("-")}() took {execution_time:.2f}s')
 			return result
 
 		return wrapper
@@ -263,7 +352,19 @@ def time_execution_async(
 			start_time = time.time()
 			result = await func(*args, **kwargs)
 			execution_time = time.time() - start_time
-			logger.debug(f'{additional_text} Execution time: {execution_time:.2f} seconds')
+			# Only log if execution takes more than 0.25 seconds to avoid spamming the logs
+			# you can lower this threshold locally when you're doing dev work to performance optimize stuff
+			if execution_time > 0.25:
+				self_has_logger = args and getattr(args[0], 'logger', None)
+				if self_has_logger:
+					logger = getattr(args[0], 'logger')
+				elif 'agent' in kwargs:
+					logger = getattr(kwargs['agent'], 'logger')
+				elif 'browser_session' in kwargs:
+					logger = getattr(kwargs['browser_session'], 'logger')
+				else:
+					logger = logging.getLogger(__name__)
+				logger.debug(f'⏳ {additional_text.strip("-")}() took {execution_time:.2f}s')
 			return result
 
 		return wrapper
@@ -284,4 +385,260 @@ def singleton(cls):
 
 def check_env_variables(keys: list[str], any_or_all=all) -> bool:
 	"""Check if all required environment variables are set"""
-	return any_or_all(os.getenv(key).strip() for key in keys)
+	return any_or_all(os.getenv(key, '').strip() for key in keys)
+
+
+def is_unsafe_pattern(pattern: str) -> bool:
+	"""
+	Check if a domain pattern has complex wildcards that could match too many domains.
+
+	Args:
+		pattern: The domain pattern to check
+
+	Returns:
+		bool: True if the pattern has unsafe wildcards, False otherwise
+	"""
+	# Extract domain part if there's a scheme
+	if '://' in pattern:
+		_, pattern = pattern.split('://', 1)
+
+	# Remove safe patterns (*.domain and domain.*)
+	bare_domain = pattern.replace('.*', '').replace('*.', '')
+
+	# If there are still wildcards, it's potentially unsafe
+	return '*' in bare_domain
+
+
+def match_url_with_domain_pattern(url: str, domain_pattern: str, log_warnings: bool = False) -> bool:
+	"""
+	Check if a URL matches a domain pattern. SECURITY CRITICAL.
+
+	Supports optional glob patterns and schemes:
+	- *.example.com will match sub.example.com and example.com
+	- *google.com will match google.com, agoogle.com, and www.google.com
+	- http*://example.com will match http://example.com, https://example.com
+	- chrome-extension://* will match chrome-extension://aaaaaaaaaaaa and chrome-extension://bbbbbbbbbbbbb
+
+	When no scheme is specified, https is used by default for security.
+	For example, 'example.com' will match 'https://example.com' but not 'http://example.com'.
+
+	Note: about:blank must be handled at the callsite, not inside this function.
+
+	Args:
+		url: The URL to check
+		domain_pattern: Domain pattern to match against
+		log_warnings: Whether to log warnings about unsafe patterns
+
+	Returns:
+		bool: True if the URL matches the pattern, False otherwise
+	"""
+	try:
+		# Note: about:blank should be handled at the callsite, not here
+		if url == 'about:blank':
+			return False
+
+		parsed_url = urlparse(url)
+
+		# Extract only the hostname and scheme components
+		scheme = parsed_url.scheme.lower() if parsed_url.scheme else ''
+		domain = parsed_url.hostname.lower() if parsed_url.hostname else ''
+
+		if not scheme or not domain:
+			return False
+
+		# Normalize the domain pattern
+		domain_pattern = domain_pattern.lower()
+
+		# Handle pattern with scheme
+		if '://' in domain_pattern:
+			pattern_scheme, pattern_domain = domain_pattern.split('://', 1)
+		else:
+			pattern_scheme = 'https'  # Default to matching only https for security
+			pattern_domain = domain_pattern
+
+		# Handle port in pattern (we strip ports from patterns since we already
+		# extracted only the hostname from the URL)
+		if ':' in pattern_domain and not pattern_domain.startswith(':'):
+			pattern_domain = pattern_domain.split(':', 1)[0]
+
+		# If scheme doesn't match, return False
+		if not fnmatch(scheme, pattern_scheme):
+			return False
+
+		# Check for exact match
+		if pattern_domain == '*' or domain == pattern_domain:
+			return True
+
+		# Handle glob patterns
+		if '*' in pattern_domain:
+			# Check for unsafe glob patterns
+			# First, check for patterns like *.*.domain which are unsafe
+			if pattern_domain.count('*.') > 1 or pattern_domain.count('.*') > 1:
+				if log_warnings:
+					logger = logging.getLogger(__name__)
+					logger.error(f'⛔️ Multiple wildcards in pattern=[{domain_pattern}] are not supported')
+				return False  # Don't match unsafe patterns
+
+			# Check for wildcards in TLD part (example.*)
+			if pattern_domain.endswith('.*'):
+				if log_warnings:
+					logger = logging.getLogger(__name__)
+					logger.error(f'⛔️ Wildcard TLDs like in pattern=[{domain_pattern}] are not supported for security')
+				return False  # Don't match unsafe patterns
+
+			# Then check for embedded wildcards
+			bare_domain = pattern_domain.replace('*.', '')
+			if '*' in bare_domain:
+				if log_warnings:
+					logger = logging.getLogger(__name__)
+					logger.error(f'⛔️ Only *.domain style patterns are supported, ignoring pattern=[{domain_pattern}]')
+				return False  # Don't match unsafe patterns
+
+			# Special handling so that *.google.com also matches bare google.com
+			if pattern_domain.startswith('*.'):
+				parent_domain = pattern_domain[2:]
+				if domain == parent_domain or fnmatch(domain, parent_domain):
+					return True
+
+			# Normal case: match domain against pattern
+			if fnmatch(domain, pattern_domain):
+				return True
+
+		return False
+	except Exception as e:
+		logger = logging.getLogger(__name__)
+		logger.error(f'⛔️ Error matching URL {url} with pattern {domain_pattern}: {type(e).__name__}: {e}')
+		return False
+
+
+def merge_dicts(a: dict, b: dict, path: tuple[str, ...] = ()):
+	for key in b:
+		if key in a:
+			if isinstance(a[key], dict) and isinstance(b[key], dict):
+				merge_dicts(a[key], b[key], path + (str(key),))
+			elif isinstance(a[key], list) and isinstance(b[key], list):
+				a[key] = a[key] + b[key]
+			elif a[key] != b[key]:
+				raise Exception('Conflict at ' + '.'.join(path + (str(key),)))
+		else:
+			a[key] = b[key]
+	return a
+
+
+class LLMException(Exception):
+	"""Custom exception for LLM-related errors."""
+
+	def __init__(self, code: int, message: str):
+		self.code = code
+		self.message = message
+		super().__init__(message)
+
+
+def handle_llm_error(e: Exception) -> tuple[dict[str, Any], Any | None]:
+	"""
+	Handle LLM API errors and extract failed generation data when available.
+
+	Args:
+	    e: The exception that occurred during LLM API call
+
+	Returns:
+	    Tuple containing:
+	    - response: Dict with 'raw' and 'parsed' keys
+	    - parsed: Parsed data (None if extraction was needed)
+
+	Raises:
+	    LLMException: If the error is not a recognized type with failed generation data
+	"""
+	# Handle OpenAI BadRequestError with failed_generation
+	if (
+		OpenAIBadRequestError
+		and isinstance(e, OpenAIBadRequestError)
+		and hasattr(e, 'body')
+		and e.body
+		and 'failed_generation' in e.body
+	):
+		raw = e.body['failed_generation']
+		response = {'raw': raw, 'parsed': None}
+		parsed = None
+		logger.debug(f'Failed to do tool call, trying to parse raw response: {raw}')
+		return response, parsed
+
+	# Handle Groq BadRequestError with failed_generation
+	if (
+		GroqBadRequestError
+		and isinstance(e, GroqBadRequestError)
+		and hasattr(e, 'body')
+		and e.body
+		and 'error' in e.body
+		and 'failed_generation' in e.body['error']
+	):
+		raw = e.body['error']['failed_generation']  # type: ignore
+		response = {'raw': raw, 'parsed': None}
+		parsed = None
+		logger.debug(f'Failed to do tool call, trying to parse raw response: {raw}')
+		return response, parsed
+
+	# If it's not a recognized error type, log and raise
+	logger.error(f'Failed to invoke model: {str(e)}')
+	raise LLMException(401, 'LLM API call failed' + str(e)) from e
+
+
+@cache
+def get_browser_use_version() -> str:
+	"""Get the browser-use package version using the same logic as Agent._set_browser_use_version_and_source"""
+	try:
+		package_root = Path(__file__).parent.parent
+		pyproject_path = package_root / 'pyproject.toml'
+
+		# Try to read version from pyproject.toml
+		if pyproject_path.exists():
+			import re
+
+			with open(pyproject_path, encoding='utf-8') as f:
+				content = f.read()
+				match = re.search(r'version\s*=\s*["\']([^"\']+)["\']', content)
+				if match:
+					version = f'{match.group(1)}'
+					os.environ['LIBRARY_VERSION'] = version
+					return version
+
+		# If pyproject.toml doesn't exist, try getting version from pip
+		from importlib.metadata import version as get_version
+
+		version = str(get_version('browser-use'))
+		os.environ['LIBRARY_VERSION'] = version
+		return version
+
+	except Exception as e:
+		logger.debug(f'Error detecting browser-use version: {type(e).__name__}: {e}')
+		return 'unknown'
+
+
+def _log_pretty_path(path: str | Path | None) -> str:
+	"""Pretty-print a path, shorten home dir to ~ and cwd to ."""
+
+	if not path or not str(path).strip():
+		return ''  # always falsy in -> falsy out so it can be used in ternaries
+
+	# dont print anything thats not a path
+	if not isinstance(path, (str, Path)):
+		# no other types are safe to just str(path) and log to terminal unless we know what they are
+		# e.g. what if we get storage_date=dict | Path and the dict version could contain real cookies
+		return f'<{type(path).__name__}>'
+
+	# replace home dir and cwd with ~ and .
+	pretty_path = str(path).replace(str(Path.home()), '~').replace(str(Path.cwd().resolve()), '.')
+
+	# wrap in quotes if it contains spaces
+	if pretty_path.strip() and ' ' in pretty_path:
+		pretty_path = f'"{pretty_path}"'
+
+	return pretty_path
+
+
+def _log_pretty_url(s: str, max_len: int | None = 22) -> str:
+	"""Truncate/pretty-print a URL with a maximum length, removing the protocol and www. prefix"""
+	s = s.replace('https://', '').replace('http://', '').replace('www.', '')
+	if max_len is not None and len(s) > max_len:
+		return s[:max_len] + '…'
+	return s

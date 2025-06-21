@@ -1,14 +1,17 @@
 import asyncio
 import os
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
+
+load_dotenv()
+
+from langchain_deepseek import ChatDeepSeek
 from pydantic import SecretStr
 
 from browser_use import Agent
-
-# dotenv
-load_dotenv()
 
 api_key = os.getenv('DEEPSEEK_API_KEY', '')
 if not api_key:
@@ -18,7 +21,7 @@ if not api_key:
 async def run_search():
 	agent = Agent(
 		task=('go to amazon.com, search for laptop, sort by best rating, and give me the price of the first result'),
-		llm=ChatOpenAI(
+		llm=ChatDeepSeek(
 			base_url='https://api.deepseek.com/v1',
 			model='deepseek-reasoner',
 			api_key=SecretStr(api_key),

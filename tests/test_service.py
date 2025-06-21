@@ -2,13 +2,13 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 
 from browser_use.agent.service import Agent
 from browser_use.agent.views import ActionResult
-from browser_use.browser.browser import Browser
-from browser_use.browser.context import BrowserContext
-from browser_use.browser.views import BrowserState
+from browser_use.browser import BrowserSession
+from browser_use.browser.views import BrowserStateSummary
 from browser_use.controller.registry.service import Registry
 from browser_use.controller.registry.views import ActionModel
 from browser_use.controller.service import Controller
@@ -33,14 +33,10 @@ class TestAgent:
 		return Mock(spec=BaseChatModel)
 
 	@pytest.fixture
-	def mock_browser(self):
-		return Mock(spec=Browser)
+	def mock_browser_session(self):
+		return Mock(spec=BrowserSession)
 
-	@pytest.fixture
-	def mock_browser_context(self):
-		return Mock(spec=BrowserContext)
-
-	def test_convert_initial_actions(self, mock_controller, mock_llm, mock_browser, mock_browser_context):  # type: ignore
+	def test_convert_initial_actions(self, mock_controller, mock_llm, mock_browser_session):  # type: ignore
 		"""
 		Test that the _convert_initial_actions method correctly converts
 		dictionary-based actions to ActionModel instances.
@@ -52,9 +48,7 @@ class TestAgent:
 		4. The method returns a list of ActionModel instances.
 		"""
 		# Arrange
-		agent = Agent(
-			task='Test task', llm=mock_llm, controller=mock_controller, browser=mock_browser, browser_context=mock_browser_context
-		)
+		agent = Agent(task='Test task', llm=mock_llm, controller=mock_controller, browser_session=mock_browser_session)
 		initial_actions = [{'test_action': {'param1': 'value1', 'param2': 'value2'}}]
 
 		# Mock the ActionModel
@@ -80,7 +74,6 @@ class TestAgent:
 		assert 'test_action' in call_args
 		assert call_args['test_action'] == mock_controller.registry.registry.actions['test_action'].param_model.return_value  # type: ignore
 
-	@pytest.mark.asyncio
 	async def test_step_error_handling(self):
 		"""
 		Test the error handling in the step method of the Agent class.
@@ -98,10 +91,10 @@ class TestAgent:
 			# Mock the get_next_action method to raise an exception
 			agent.get_next_action = AsyncMock(side_effect=ValueError('Test error'))
 
-			# Mock the browser_context
-			agent.browser_context = AsyncMock()
-			agent.browser_context.get_state = AsyncMock(
-				return_value=BrowserState(
+			# Mock the browser_session
+			agent.browser_session = AsyncMock()
+			agent.browser_session.get_state_summary = AsyncMock(
+				return_value=BrowserStateSummary(
 					url='https://example.com',
 					title='Example',
 					element_tree=MagicMock(),  # Mocked element tree
@@ -122,7 +115,7 @@ class TestAgent:
 			assert len(agent._last_result) == 1
 			assert isinstance(agent._last_result[0], ActionResult)
 			assert 'Test error' in agent._last_result[0].error
-			assert agent._last_result[0].include_in_memory == True
+			assert agent._last_result[0].include_in_memory is True
 
 
 class TestRegistry:
@@ -159,7 +152,6 @@ class TestRegistry:
 		# Assert that the included action was added to the registry
 		assert 'included_action' in registry_with_excludes.registry.actions
 
-	@pytest.mark.asyncio
 	async def test_execute_action_with_and_without_browser_context(self):
 		"""
 		Test that the execute_action method correctly handles actions with and without a browser context.
@@ -218,3 +210,124 @@ class TestRegistry:
 			param1='test_value', browser=mock_browser
 		)
 		registry.registry.actions['test_action_without_browser'].function.assert_called_once_with(param1='test_value')
+
+
+class TestAgentRetry:
+	@pytest.fixture
+	def mock_llm(self):
+		return AsyncMock()
+
+	@pytest.fixture
+	def mock_controller(self):
+		controller = Mock()
+		controller.registry = Mock()
+		controller.registry.registry = Mock()
+		controller.registry.registry.actions = {}
+		return controller
+
+	@pytest.fixture
+	def mock_browser_session(self):
+		browser_session = Mock()
+		browser_session.get_state_summary = AsyncMock(
+			return_value=BrowserStateSummary(
+				url='https://parabank.parasoft.com/parabank/index.htm',
+				title='ParaBank',
+				element_tree=MagicMock(),
+				tabs=[],
+				selector_map={},
+				screenshot='',
+			)
+		)
+		return browser_session
+
+	@pytest.fixture
+	def mock_action_model(self):
+		action_model = Mock(spec=ActionModel)
+		return action_model
+
+	@pytest.mark.asyncio
+	async def test_step_empty_action_retry(self, mock_llm, mock_controller, mock_browser_session, mock_action_model):
+		"""
+		Test that the step method retries and handles empty actions correctly.
+		"""
+		# Arrange
+		agent = Agent(
+			task='Test task',
+			llm=mock_llm,
+			controller=mock_controller,
+			browser_session=mock_browser_session,
+		)
+		agent.ActionModel = mock_action_model  # Inject the mock ActionModel
+
+		# Mock get_next_action to return empty action the first time, then a valid action
+		empty_model_output = MagicMock()
+		empty_model_output.action = []  # Empty action
+		valid_model_output = MagicMock()
+		valid_action = MagicMock()
+		valid_model_output.action = [valid_action]
+
+		mock_llm.return_value.invoke.side_effect = [empty_model_output, valid_model_output]
+		agent.get_next_action = mock_llm.return_value.invoke
+
+		# Act
+		await agent.step()
+
+		# Assert
+		# Check that get_next_action was called twice (initial call + retry)
+		assert agent.get_next_action.call_count == 2
+		# Check that the LLM was called twice
+		assert mock_llm.return_value.invoke.call_count == 2
+
+		# Check that the second call to get_next_action included the clarification message
+		_, retry_messages = mock_llm.return_value.invoke.call_args_list[1]
+		assert len(retry_messages[0]) == 2  # input_messages + clarification message
+		assert isinstance(retry_messages[0][1], HumanMessage)
+		assert 'You forgot to return an action' in retry_messages[0][1].content
+
+		# Check that _last_result contains the valid action
+		assert len(agent._last_result) == 1
+		assert agent._last_result[0].action == valid_action
+
+	@pytest.mark.asyncio
+	async def test_step_empty_action_retry_and_fail(self, mock_llm, mock_controller, mock_browser_session, mock_action_model):
+		"""
+		Test that the step method handles the case where get_next_action returns
+		empty actions twice, and inserts a safe noop action.
+		"""
+		# Arrange
+		agent = Agent(
+			task='Test task',
+			llm=mock_llm,
+			controller=mock_controller,
+			browser_session=mock_browser_session,
+		)
+		agent.ActionModel = mock_action_model  # Inject the mock ActionModel
+
+		# Mock get_next_action to return empty action both times
+		empty_model_output = MagicMock()
+		empty_model_output.action = []  # Empty action
+		mock_llm.return_value.invoke.return_value = empty_model_output
+		agent.get_next_action = mock_llm.return_value.invoke
+
+		# Mock the ActionModel instance creation
+		mock_action_instance = MagicMock()
+		mock_action_model.return_value = mock_action_instance
+
+		# Act
+		await agent.step()
+
+		# Assert
+		# Check that get_next_action was called twice
+		assert agent.get_next_action.call_count == 2
+		# Check that the LLM was called twice
+		assert mock_llm.return_value.invoke.call_count == 2
+
+		# Check that ActionModel was instantiated with the noop action
+		mock_action_model.assert_called_once()
+		call_args = mock_action_model.call_args[1]
+		assert 'done' in call_args
+		assert call_args['done'] == {'success': False, 'text': 'No action returned, safe exit.'}
+
+		# Check that _last_result contains the noop action
+		assert len(agent._last_result) == 1
+		assert agent._last_result[0].action == mock_action_instance

@@ -1,0 +1,137 @@
+name: 🎯 AI Agent ✚ Page Interaction Issue
+description: Agent fails to detect, click, scroll, input, or otherwise interact with some type of element on some page(s)
+labels: ["bug", "element-detection"]
+title: "Interaction Issue: ..."
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report! Please fill out the form below to help us reproduce and fix the issue.
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        > [!IMPORTANT]
+        > 🙏 Please **go check *right now before filling this out* that that you are *actually* on the [⬆️ LATEST VERSION](https://github.com/browser-use/browser-use/releases)**.
+        > 🚀 We ship changes every hour and we might've already fixed your issue today!  
+        > <a href="https://github.com/browser-use/browser-use/releases"><img src="https://github.com/user-attachments/assets/4cd34ee6-bafb-4f24-87e2-27a31dc5b9a4" width="500px"/></a>
+        > If you are running an old version, the **first thing we will ask you to do is *upgrade to the latest version* and try again**:
+        > - 🆕 [`beta`](https://docs.browser-use.com/development/local-setup):   `uv pip install --upgrade git+https://github.com/browser-use/browser-use.git@main`
+        > - 📦 [`stable`](https://pypi.org/project/browser-use/#history): `uv pip install --upgrade browser-use`
+
+
+  - type: input
+    id: version
+    attributes:
+      label: Browser Use Version
+      description: |
+        What version of `browser-use` are you using? (Run `uv pip show browser-use` or `git log -n 1`)  
+        **DO NOT JUST WRITE `latest release` or `main` or a very old version or we will close your issue!**
+      placeholder: "e.g. 0.4.45 or 62760baaefd"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: model
+    attributes:
+      label: LLM Model
+      description: Which LLM model(s) are you using?
+      multiple: true
+      options:
+        - gpt-4o
+        - gpt-4o-mini
+        - gpt-4
+        - gpt-4.1
+        - gpt-4.1-mini
+        - gpt-4.1-nano
+        - claude-3.7-sonnet
+        - claude-3.5-sonnet
+        - gemini-2.6-flash-preview
+        - gemini-2.5-pro
+        - gemini-2.0-flash
+        - gemini-2.0-flash-lite
+        - gemini-1.5-flash
+        - deepseek-chat
+        - Local Model (Specify model in description)
+        - Other (specify in description)
+    validations:
+      required: true
+
+  - type: textarea
+    id: prompt
+    attributes:
+      label: Screenshots, Description, and task prompt given to Agent
+      description: |
+        A description of the issue + screenshots, and the full task prompt you're giving the agent (redact sensitive data).  
+        To help us fix it even faster, screenshot the Chome devtools [`Computed Styles` pane](https://developer.chrome.com/docs/devtools/css/reference#computed) for each failing element.
+      placeholder: |
+        🎯 High-level goal: Compare the prices of 3 items on a few different seller pages
+        💬 Agent(task='''
+           1. go to https://example.com and click the "xyz" dropdown
+           2. type "abc" into search then select the "abc" option  <- ❌ agent fails to select this option
+           3. ...
+        ☝️ please include real URLs 🔗 and screenshots 📸 when possible!
+    validations:
+      required: true
+
+  - type: textarea
+    id: html
+    attributes:
+      label: "HTML around where it's failing"
+      description: A snippet of the HTML from the failing page around where the Agent is failing to interact.
+      render: html
+      placeholder: |
+        <form na-someform="abc">               <!-- ⬅️ at least one parent element above -->
+          <div class="element-to-click">
+            <div data-isbutton="true">Click me</div>
+          </div>
+          <input id="someinput" name="someinput" type="text" />  <!-- ⬅️ failing element -->
+          ...
+        </form>
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating System & Browser Versions
+      description: What operating system and browser are you using?
+      placeholder: "e.g. Ubuntu 24.04 + playwright chromium v136, Windows 11 + Chrome.exe v133, macOS ..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: code
+    attributes:
+      label: Python Code Sample
+      description: Include some python code that reproduces the issue
+      render: python
+      placeholder: |
+        from dotenv import load_dotenv
+        load_dotenv()  # tip: always load_dotenv() before other imports
+        from browser_use import Agent, BrowserSession, Controller
+        from langchain_openai import ChatOpenAI
+
+        agent = Agent(
+            task='...',
+            llm=ChatOpenAI(model="gpt-4o"),
+            browser_session=BrowserSession(headless=False),
+        )
+        ...
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Full DEBUG Log Output
+      description: Please copy and paste the *full* log output *from the start of the run*. Make sure to set `BROWSER_USE_LOG_LEVEL=DEBUG` in your `.env` or shell environment.
+      render: shell
+      placeholder: |
+        $ python /app/browser-use/examples/browser/real_browser.py
+        DEBUG    [browser] 🌎  Initializing new browser
+        DEBUG    [agent] Version: 0.1.46-9-g62760ba, Source: git
+        INFO     [agent] 🧠 Starting an agent with main_model=gpt-4o +tools +vision +memory, planner_model=None, extraction_model=gpt-4o
+        DEBUG    [agent] Verifying the ChatOpenAI LLM knows the capital of France...
+        DEBUG    [langsmith.client] Sending multipart request with context: trace=91282a01-6667-48a1-8cd7-21aa9337a580,id=91282a01-6667-48a1-8cd7-21aa9337a580
+        DEBUG    [agent] 🪪 LLM API keys OPENAI_API_KEY work, ChatOpenAI model is connected & responding correctly.
+        ...

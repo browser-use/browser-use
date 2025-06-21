@@ -1,5 +1,12 @@
 import asyncio
 import os
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from langchain_ollama import ChatOllama
 
@@ -9,10 +16,7 @@ from browser_use import Agent
 async def run_search():
 	agent = Agent(
 		task=(
-			'1. Go to https://www.reddit.com/r/LocalLLaMA'
-			"2. Search for 'browser use' in the search bar"
-			'3. Click search'
-			'4. Call done'
+			"1. Go to https://www.reddit.com/r/LocalLLaMA2. Search for 'browser use' in the search bar3. Click search4. Call done"
 		),
 		llm=ChatOllama(
 			# model='qwen2.5:32b-instruct-q4_K_M',

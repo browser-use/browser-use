@@ -1,11 +1,9 @@
-import asyncio
-
 import pytest
 from langchain_ollama import ChatOllama
 
 from browser_use.agent.service import Agent
 from browser_use.agent.views import AgentHistoryList
-from browser_use.browser.browser import Browser, BrowserConfig
+from browser_use.browser import BrowserProfile, BrowserSession
 
 
 @pytest.fixture
@@ -20,38 +18,25 @@ def llm():
 	)
 
 
-@pytest.fixture(scope='session')
-def event_loop():
-	"""Create an instance of the default event loop for each test case."""
-	loop = asyncio.get_event_loop_policy().new_event_loop()
-	yield loop
-	loop.close()
-
-
-@pytest.fixture(scope='session')
-async def browser(event_loop):
-	browser_instance = Browser(
-		config=BrowserConfig(
+@pytest.fixture
+async def browser_session():
+	browser_session = BrowserSession(
+		browser_profile=BrowserProfile(
 			headless=True,
 		)
 	)
-	yield browser_instance
-	await browser_instance.close()
-
-
-@pytest.fixture
-async def context(browser):
-	async with await browser.new_context() as context:
-		yield context
+	await browser_session.start()
+	yield browser_session
+	await browser_session.stop()
 
 
 # pytest tests/test_qwen.py -v -k "test_qwen_url" --capture=no
-# @pytest.mark.asyncio
-async def test_qwen_url(llm, context):
+async def test_qwen_url(llm, browser_session):
 	"""Test complex ecommerce interaction sequence"""
 	agent = Agent(
 		task='go_to_url amazon.com',
 		llm=llm,
+		browser_session=browser_session,
 	)
 
 	history: AgentHistoryList = await agent.run(max_steps=3)

@@ -4,26 +4,23 @@ Show how to use custom outputs.
 @dev You need to add OPENAI_API_KEY to your environment variables.
 """
 
+import asyncio
 import json
 import os
 import sys
-from typing import List
 
-import requests
-
-from browser_use.agent.views import ActionResult
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import asyncio
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from dotenv import load_dotenv
+
+load_dotenv()
+
+import httpx
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 from browser_use import Agent, Controller
-
-load_dotenv()
+from browser_use.agent.views import ActionResult
 
 
 class Profile(BaseModel):
@@ -32,7 +29,7 @@ class Profile(BaseModel):
 
 
 class Profiles(BaseModel):
-	profiles: List[Profile]
+	profiles: list[Profile]
 
 
 controller = Controller(exclude_actions=['search_google'], output_model=Profiles)
@@ -48,11 +45,16 @@ if not BEARER_TOKEN:
 async def search_web(query: str):
 	keys_to_use = ['url', 'title', 'content', 'author', 'score']
 	headers = {'Authorization': f'Bearer {BEARER_TOKEN}'}
-	response = requests.post('https://asktessa.ai/api/search', headers=headers, json={'query': query})
+	async with httpx.AsyncClient() as client:
+		response = await client.post(
+			'https://asktessa.ai/api/search',
+			headers=headers,
+			json={'query': query},
+		)
 
 	final_results = [
 		{key: source[key] for key in keys_to_use if key in source}
-		for source in response.json()['sources']
+		for source in await response.json()['sources']
 		if source['score'] >= 0.2
 	]
 	# print(json.dumps(final_results, indent=4))

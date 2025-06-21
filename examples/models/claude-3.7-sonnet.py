@@ -3,17 +3,17 @@ Simple script that runs the task of opening amazon and searching.
 @dev Ensure we have a `ANTHROPIC_API_KEY` variable in our `.env` file.
 """
 
+import asyncio
 import os
 import sys
-from dotenv import load_dotenv
-from langchain_anthropic import ChatAnthropic
 
-# Load environment variables from .env file
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from dotenv import load_dotenv
+
 load_dotenv()
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import asyncio
+from langchain_anthropic import ChatAnthropic
 
 from browser_use import Agent
 

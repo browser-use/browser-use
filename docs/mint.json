@@ -60,21 +60,24 @@
         "customize/output-format",
         "customize/system-prompt",
         "customize/sensitive-data",
-        "customize/custom-functions"
+        "customize/custom-functions",
+        "customize/hooks"
       ]
     },
     {
       "group": "Development",
       "pages": [
+        "development/contribution-guide",
         "development/local-setup",
         "development/telemetry",
         "development/observability",
+        "development/evaluations",
         "development/roadmap"
       ]
     },
     {
       "group": "Cloud API",
-      "pages": ["cloud/quickstart", "cloud/implementation"]
+      "pages": ["cloud/quickstart", "cloud/implementation", "cloud/webhooks"]
     }
   ],
   "footerSocials": {

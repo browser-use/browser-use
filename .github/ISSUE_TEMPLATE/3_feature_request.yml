@@ -1,0 +1,93 @@
+name: 💡 New Feature or Enhancement Request
+description: Suggest an idea or improvement for the browser-use library or Agent capabilities
+title: "Feature Request: ..."
+type: 'Enhancement'
+labels: ['enhancement']
+body:
+  - type: textarea
+    id: current_problem
+    attributes:
+      label: "What is the problem that your feature request solves?"
+      description: |
+        Describe the problem or need that your feature request solves, include screenshots and example URLs if relevant.
+      placeholder: |
+        e.g. I need to be able to simulate dragging in a circle to test the paint feature on a drawing site: https://example.com/draw
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: "What is your proposed solution?"
+      description: |
+        Describe the ideal specific solution you'd want, *and whether it fits into any broader scope of changes*.
+      placeholder: |
+        e.g. I want to add a default action that can hover/drag the mouse on a path when given a series
+        of x,y coordinates. More broadly it may be useful add a computer-use/x,y-coordinate-style automation
+        method fallback that can do complex mouse movements.
+    validations:
+      required: true
+
+  - type: textarea
+    id: workarounds_tried
+    attributes:
+      label: "What hacks or alternative solutions have you tried to solve the problem?"
+      description: |
+        A description of any troubleshooting, alternative approaches, workarounds, or other ideas you've considered to fix the problem.
+      placeholder: |
+        e.g. I tried upgrading to the latest version and telling it to hover in the prompt. I also tried 
+        telling the agent to ask for human help (using a custom controller action) when it gets to this 
+        step, then I manually click a browser extension in the navbar that automates the mouse movevement.
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: What version of browser-use are you currently using?
+      description: |
+        Run `pip show browser-use` or `git log -n 1` and share the exact number or git hash. DO NOT JUST ENTER `latest release` OR `main`.  
+        We need to know what version of the browser-use library you're running in order to contextualize your feature request.  
+        Sometimes features are already available and just need to be enabled with config on certain versions.
+      placeholder: "e.g. 0.1.48 or 62760baaefd"
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        > [!IMPORTANT]
+        > 🙏 Please **go check *right now before filling this out* that that you have tried the [⬆️ LATEST VERSION](https://github.com/browser-use/browser-use/releases)**.
+        > 🚀 We ship *hundreds* of improvements a day and we might've already added a solution to your need yesterday!  
+        > <a href="https://github.com/browser-use/browser-use/releases"><img src="https://github.com/user-attachments/assets/4cd34ee6-bafb-4f24-87e2-27a31dc5b9a4" width="500px"/></a>
+        > If you are running an old version, the **first thing we will ask you to do is *try the latest `beta`***:
+        > - 🆕 [`beta`](https://docs.browser-use.com/development/local-setup):   `uv pip install --upgrade git+https://github.com/browser-use/browser-use.git@main`
+        > - 📦 [`stable`](https://pypi.org/project/browser-use/#history): `pip install --upgrade browser-use`
+
+  - type: checkboxes
+    id: priority
+    attributes:
+      label: "How badly do you want this new feature?"
+      options:
+        - label: "It's an urgent deal-breaker, I can't live without it"
+          required: false
+        - label: "It's important to add it in the near-mid term future"
+          required: false
+        - label: "It would be nice to add it sometime in the next 2 years"
+          required: false
+        - label: "💪 I'm willing to [start a PR](https://docs.browser-use.com/development/contribution-guide) to work on this myself"
+          required: false
+        - label: "💼 My company would spend >$5k on [Browser-Use Cloud](https://browser-use.com) if it solved this reliably for us"
+          required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        > [!TIP]
+        > Start conversations about your feature request in other places too, the more  
+        > 📣 hype we see around a request the more likely we are to add it!
+        >
+        > - 👾 Discord: [https://link.browser-use.com/discord](https://link.browser-use.com/discord)
+        > - 𝕏  Twitter: [https://x.com/browser_use](https://x.com/browser_use)

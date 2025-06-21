@@ -5,8 +5,9 @@ from langchain_openai import AzureChatOpenAI, ChatOpenAI
 
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
 from browser_use.agent.views import ActionResult
-from browser_use.browser.views import BrowserState, TabInfo
+from browser_use.browser.views import BrowserStateSummary, TabInfo
 from browser_use.dom.views import DOMElementNode, DOMTextNode
+from browser_use.filesystem.file_system import FileSystem
 
 
 @pytest.fixture(
@@ -20,6 +21,13 @@ from browser_use.dom.views import DOMElementNode, DOMTextNode
 def message_manager(request: pytest.FixtureRequest):
 	task = 'Test task'
 	action_descriptions = 'Test actions'
+
+	import os
+	import tempfile
+	import uuid
+
+	base_tmp = tempfile.gettempdir()  # e.g., /tmp on Unix
+	file_system_path = os.path.join(base_tmp, str(uuid.uuid4()))
 	return MessageManager(
 		task=task,
 		system_message=SystemMessage(content=action_descriptions),
@@ -28,6 +36,7 @@ def message_manager(request: pytest.FixtureRequest):
 			estimated_characters_per_token=3,
 			image_tokens=800,
 		),
+		file_system=FileSystem(file_system_path),
 	)
 
 
@@ -42,7 +51,7 @@ def test_initial_messages(message_manager: MessageManager):
 
 def test_add_state_message(message_manager: MessageManager):
 	"""Test adding browser state message"""
-	state = BrowserState(
+	state = BrowserStateSummary(
 		url='https://test.com',
 		title='Test Page',
 		element_tree=DOMElementNode(
@@ -56,7 +65,7 @@ def test_add_state_message(message_manager: MessageManager):
 		selector_map={},
 		tabs=[TabInfo(page_id=1, url='https://test.com', title='Test Page')],
 	)
-	message_manager.add_state_message(state)
+	message_manager.add_state_message(browser_state_summary=state)
 
 	messages = message_manager.get_messages()
 	assert len(messages) == 3
@@ -66,7 +75,7 @@ def test_add_state_message(message_manager: MessageManager):
 
 def test_add_state_with_memory_result(message_manager: MessageManager):
 	"""Test adding state with result that should be included in memory"""
-	state = BrowserState(
+	state = BrowserStateSummary(
 		url='https://test.com',
 		title='Test Page',
 		element_tree=DOMElementNode(
@@ -82,7 +91,7 @@ def test_add_state_with_memory_result(message_manager: MessageManager):
 	)
 	result = ActionResult(extracted_content='Important content', include_in_memory=True)
 
-	message_manager.add_state_message(state, [result])
+	message_manager.add_state_message(browser_state_summary=state, result=[result])
 	messages = message_manager.get_messages()
 
 	# Should have system, task, extracted content, and state messages
@@ -95,7 +104,7 @@ def test_add_state_with_memory_result(message_manager: MessageManager):
 
 def test_add_state_with_non_memory_result(message_manager: MessageManager):
 	"""Test adding state with result that should not be included in memory"""
-	state = BrowserState(
+	state = BrowserStateSummary(
 		url='https://test.com',
 		title='Test Page',
 		element_tree=DOMElementNode(
@@ -111,7 +120,7 @@ def test_add_state_with_non_memory_result(message_manager: MessageManager):
 	)
 	result = ActionResult(extracted_content='Temporary content', include_in_memory=False)
 
-	message_manager.add_state_message(state, [result])
+	message_manager.add_state_message(browser_state_summary=state, result=[result])
 	messages = message_manager.get_messages()
 
 	# Should have system, task, and combined state+result message
@@ -130,7 +139,7 @@ def test_token_overflow_handling_with_real_flow(message_manager: MessageManager,
 	# Create a long sequence of interactions
 	for i in range(200):  # Simulate 40 steps of interaction
 		# Create state with varying content length
-		state = BrowserState(
+		state = BrowserStateSummary(
 			url=f'https://test{i}.com',
 			title=f'Test Page {i}',
 			element_tree=DOMElementNode(
@@ -162,9 +171,9 @@ def test_token_overflow_handling_with_real_flow(message_manager: MessageManager,
 
 		# Add state message
 		if result:
-			message_manager.add_state_message(state, [result])
+			message_manager.add_state_message(browser_state_summary=state, result=[result])
 		else:
-			message_manager.add_state_message(state)
+			message_manager.add_state_message(browser_state_summary=state)
 
 		try:
 			messages = message_manager.get_messages()
