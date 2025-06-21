@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.2.7"
+version = "0.3.2"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -13,8 +13,7 @@ classifiers = [
 dependencies = [
     "aiofiles>=24.1.0",
     "anyio>=4.9.0",
-    "bubus>=1.0.2",
-    "faiss-cpu>=1.11.0",
+    "bubus>=1.1.2",
     "google-api-core>=2.25.0",
     "httpx>=0.28.1",
     "langchain-anthropic==0.3.15",
@@ -38,6 +37,7 @@ dependencies = [
     "screeninfo>=0.8.1; platform_system != 'darwin'",
     "typing-extensions>=4.12.2",
     "uuid7>=0.1.0",
+    "authlib>=1.6.0",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -52,6 +52,7 @@ dependencies = [
 [project.optional-dependencies]
 memory = [
     # sentence-transformers: depends on pytorch, which does not support python 3.13 yet
+    "faiss-cpu>=1.11.0",
     "sentence-transformers>=4.0.2",
 ]
 cli = [
@@ -62,7 +63,7 @@ cli = [
 examples = [
     # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
     "botocore>=1.37.23",
-    "langchain-aws>=0.2.24",
+    # "langchain-aws>=0.2.24",  # depends on version of numpy that doesnt have python 3.12 wheels yet, breaks CI
     "imgcat>=0.6.0",
     "stagehand-py>=0.3.6",
     "browserbase>=0.4.0",
@@ -73,6 +74,11 @@ eval = [
 all = [
     "browser-use[memory,cli,examples]",
 ]
+
+# will prefer to use local source code checked out in ../../browser-use (if present) instead of pypi browser-use package
+# [tool.uv.sources]
+# bubus = { path = "../bubus", editable = true }
+
 
 [project.urls]
 Repository = "https://github.com/browser-use/browser-use"
@@ -108,7 +114,9 @@ docstring-code-line-length = 140
 skip-magic-trailing-comma = false
 
 [tool.pyright]
-typeCheckingMode = "off"
+typeCheckingMode = "basic"
+exclude = ["tests/old/", ".venv/", ".git/", "__pycache__/"]
+
 
 [tool.hatch.build]
 include = [
@@ -117,6 +125,7 @@ include = [
     "!browser_use/**/tests.py",
     "browser_use/agent/system_prompt.md",
     "browser_use/dom/buildDomTree.js",
+    "!tests/**/*.py",
 ]
 
 [tool.pytest.ini_options]
@@ -147,6 +156,15 @@ log_level = "DEBUG"
 allow-direct-references = true
 
 [tool.uv]
+required-environments = [
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+    # "sys_platform == 'linux' and platform_machine == 'arm64'",  # no pytorch wheels available yet
+    "sys_platform == 'win32' and platform_machine == 'x86_64'",
+    # "sys_platform == 'win32' and platform_machine == 'arm64'",  # no pytorch wheels available yet
+]
 dev-dependencies = [
     "ruff>=0.11.2",
     "tokencost>=0.1.16",
@@ -163,6 +181,6 @@ dev-dependencies = [
     "codespell>=2.4.1",
     "pyright>=1.1.399",
     "ty>=0.0.1a1",
+    "pytest-xdist>=3.7.0",
     # "pytest-playwright-asyncio>=0.7.0",  # not actually needed I think
-    "pytest-xdist>=3.7.0"
 ]

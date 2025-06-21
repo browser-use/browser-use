@@ -4,16 +4,14 @@ from bubus import BaseEvent
 from pydantic import Field, field_validator
 from uuid_extensions import uuid7str
 
-MAX_STRING_LENGTH = 10000  # 10K chars for most strings
-MAX_URL_LENGTH = 2000
-MAX_TASK_LENGTH = 5000
+MAX_STRING_LENGTH = 100000  # 100K chars ~ 25k tokens should be enough
+MAX_URL_LENGTH = 100000
+MAX_TASK_LENGTH = 100000
 MAX_COMMENT_LENGTH = 2000
 MAX_FILE_CONTENT_SIZE = 50 * 1024 * 1024  # 50MB
 
 
 class UpdateAgentTaskEvent(BaseEvent):
-	event_type: str = Field(default='UpdateAgentTask', frozen=True)
-
 	# Required fields for identification
 	id: str  # The task ID to update
 	user_id: str = Field(max_length=255)  # For authorization
@@ -43,14 +41,15 @@ class UpdateAgentTaskEvent(BaseEvent):
 			done_output=done_output,
 			finished_at=datetime.now(timezone.utc) if agent.state.history and agent.state.history.is_done() else None,
 			agent_state=agent.state.model_dump() if hasattr(agent.state, 'model_dump') else {},
+			user_feedback_type=None,
+			user_comment=None,
+			gif_url=None,
 			# user_feedback_type and user_comment would be set by the API/frontend
 			# gif_url would be set after GIF generation if needed
 		)
 
 
 class CreateAgentOutputFileEvent(BaseEvent):
-	event_type: str = Field(default='CreateAgentOutputFile', frozen=True)
-
 	# Model fields
 	id: str = Field(default_factory=uuid7str)
 	user_id: str = Field(max_length=255)
@@ -107,8 +106,6 @@ class CreateAgentOutputFileEvent(BaseEvent):
 
 
 class CreateAgentStepEvent(BaseEvent):
-	event_type: str = Field(default='CreateAgentStep', frozen=True)
-
 	# Model fields
 	id: str = Field(default_factory=uuid7str)
 	user_id: str = Field(max_length=255)  # Added for authorization checks
@@ -166,8 +163,6 @@ class CreateAgentStepEvent(BaseEvent):
 
 
 class CreateAgentTaskEvent(BaseEvent):
-	event_type: str = Field(default='CreateAgentTask', frozen=True)
-
 	# Model fields
 	id: str = Field(default_factory=uuid7str)
 	user_id: str = Field(max_length=255)  # Added for authorization checks
@@ -200,12 +195,13 @@ class CreateAgentTaskEvent(BaseEvent):
 			done_output=None,
 			started_at=datetime.fromtimestamp(agent._task_start_time, tz=timezone.utc),
 			finished_at=None,
+			user_feedback_type=None,
+			user_comment=None,
+			gif_url=None,
 		)
 
 
 class CreateAgentSessionEvent(BaseEvent):
-	event_type: str = Field(default='CreateAgentSession', frozen=True)
-
 	# Model fields
 	id: str = Field(default_factory=uuid7str)
 	user_id: str = Field(max_length=255)

@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import streamlit as st
+import streamlit as st  # type: ignore
 
 from browser_use import Agent
 from browser_use.browser import BrowserSession
@@ -48,6 +48,7 @@ def get_llm(provider: str):
 	else:
 		st.error(f'Unsupported provider: {provider}')
 		st.stop()
+		return None  # Never reached, but helps with type checking
 
 
 # Function to initialize the agent
@@ -58,7 +59,7 @@ def initialize_agent(query: str, provider: str):
 
 	return Agent(
 		task=query,
-		llm=llm,
+		llm=llm,  # type: ignore
 		controller=controller,
 		browser_session=browser_session,
 		use_vision=True,

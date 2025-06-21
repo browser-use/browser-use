@@ -1,4 +1,3 @@
-import os
 import sys
 from collections.abc import Iterable
 from enum import Enum
@@ -12,9 +11,9 @@ from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field,
 from uuid_extensions import uuid7str
 
 from browser_use.browser.types import ClientCertificate, Geolocation, HttpCredentials, ProxySettings, ViewportSize
+from browser_use.config import CONFIG
 from browser_use.utils import _log_pretty_path, logger
 
-IN_DOCKER = os.environ.get('IN_DOCKER', 'false').lower()[0] in 'ty1'
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
 CHROME_DISABLED_COMPONENTS = [
 	# Playwright defaults: https://github.com/microsoft/playwright/blob/41008eeddd020e2dee1c540f7c0cdfa337e99637/packages/playwright-core/src/server/chromium/chromiumSwitches.ts#L76
@@ -286,9 +285,7 @@ class BrowserChannel(str, Enum):
 	MSEDGE_CANARY = 'msedge-canary'
 
 
-BROWSERUSE_CONFIG_DIR = Path('~/.config/browseruse').expanduser().resolve()
-BROWSERUSE_PROFILES_DIR = BROWSERUSE_CONFIG_DIR / 'profiles'
-BROWSERUSE_CHROMIUM_USER_DATA_DIR = BROWSERUSE_PROFILES_DIR / 'default'
+# Using constants from central location in browser_use.config
 BROWSERUSE_DEFAULT_CHANNEL = BrowserChannel.CHROMIUM
 
 
@@ -420,7 +417,7 @@ class BrowserLaunchArgs(BaseModel):
 	)
 	channel: BrowserChannel | None = None  # https://playwright.dev/docs/browsers#chromium-headless-shell
 	chromium_sandbox: bool = Field(
-		default=not IN_DOCKER, description='Whether to enable Chromium sandboxing (recommended unless inside Docker).'
+		default=not CONFIG.IN_DOCKER, description='Whether to enable Chromium sandboxing (recommended unless inside Docker).'
 	)
 	devtools: bool = Field(
 		default=False, description='Whether to open DevTools panel automatically for every page, only works when headless=False.'
@@ -519,7 +516,7 @@ class BrowserLaunchPersistentContextArgs(BrowserLaunchArgs, BrowserContextArgs):
 	model_config = ConfigDict(extra='ignore', validate_assignment=False, revalidate_instances='always')
 
 	# Required parameter specific to launch_persistent_context, but can be None to use incognito temp dir
-	user_data_dir: str | Path | None = BROWSERUSE_CHROMIUM_USER_DATA_DIR
+	user_data_dir: str | Path | None = CONFIG.BROWSER_USE_DEFAULT_USER_DATA_DIR
 
 
 class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, BrowserLaunchArgs, BrowserNewContextArgs):
@@ -647,7 +644,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		"""
 
 		is_not_using_default_chromium = self.executable_path or self.channel not in (BROWSERUSE_DEFAULT_CHANNEL, None)
-		if self.user_data_dir == BROWSERUSE_CHROMIUM_USER_DATA_DIR and is_not_using_default_chromium:
+		if self.user_data_dir == CONFIG.BROWSER_USE_DEFAULT_USER_DATA_DIR and is_not_using_default_chromium:
 			alternate_name = (
 				Path(self.executable_path).name.lower().replace(' ', '-')
 				if self.executable_path
@@ -658,7 +655,16 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			logger.warning(
 				f'⚠️ {self} Changing user_data_dir= {_log_pretty_path(self.user_data_dir)} ➡️ .../default-{alternate_name} to avoid {alternate_name.upper()} corruping default profile created by {BROWSERUSE_DEFAULT_CHANNEL.name}'
 			)
-			self.user_data_dir = BROWSERUSE_CHROMIUM_USER_DATA_DIR.parent / f'default-{alternate_name}'
+			self.user_data_dir = CONFIG.BROWSER_USE_DEFAULT_USER_DATA_DIR.parent / f'default-{alternate_name}'
+		return self
+
+	@model_validator(mode='after')
+	def warn_deterministic_rendering_weirdness(self) -> Self:
+		if self.deterministic_rendering:
+			logger.warning(
+				'⚠️ BrowserSession(deterministic_rendering=True) is NOT RECOMMENDED. It breaks many sites and increases chances of getting blocked by anti-bot systems. '
+				'It hardcodes the JS random seed and forces browsers across Linux/Mac/Windows to use the same font rendering engine so that identical screenshots can be generated.'
+			)
 		return self
 
 	def get_args(self) -> list[str]:
@@ -676,7 +682,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			*default_args,
 			*self.args,
 			f'--profile-directory={self.profile_directory}',
-			*(CHROME_DOCKER_ARGS if IN_DOCKER else []),
+			*(CHROME_DOCKER_ARGS if CONFIG.IN_DOCKER else []),
 			*(CHROME_HEADLESS_ARGS if self.headless else []),
 			*(CHROME_DISABLE_SECURITY_ARGS if self.disable_security else []),
 			*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.deterministic_rendering else []),

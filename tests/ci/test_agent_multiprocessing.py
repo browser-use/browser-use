@@ -23,7 +23,7 @@ from langchain_core.messages import AIMessage
 from browser_use import Agent, setup_logging
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.types import async_playwright
-from tests.ci.mocks import create_mock_llm
+from tests.ci.conftest import create_mock_llm
 
 # Set up test logging
 setup_logging()
@@ -49,11 +49,10 @@ def run_agent_in_subprocess_module(task_description):
 
 		response_content = """
 		{
-			"current_state": {
-				"evaluation_previous_goal": "Starting the task",
-				"memory": "Task completed",
-				"next_goal": "Complete the task"
-			},
+			"thinking": "null",
+			"evaluation_previous_goal": "Starting the task",
+			"memory": "Task completed",
+			"next_goal": "Complete the task",
 			"action": [
 				{
 					"done": {
@@ -148,9 +147,11 @@ class TestParallelism:
 
 		# Create a shared browser session
 		browser_session = BrowserSession(
-			headless=True,
-			user_data_dir=None,  # Use temp directory
-			keep_alive=True,
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,  # Use temp directory
+				keep_alive=True,
+			)
 		)
 
 		try:
@@ -198,9 +199,11 @@ class TestParallelism:
 
 		# Create a shared browser session
 		browser_session = BrowserSession(
-			headless=True,
-			user_data_dir=None,  # Use temp directory
-			keep_alive=True,
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,  # Use temp directory
+				keep_alive=True,
+			)
 		)
 
 		try:
@@ -364,11 +367,10 @@ class TestParallelism:
 		# Create action sequences - each agent creates a new tab
 		tab_action = """
 		{
-			"current_state": {
-				"evaluation_previous_goal": "Starting task",
-				"memory": "Need new tab",
-				"next_goal": "Create new tab"
-			},
+			"thinking": "null",
+			"evaluation_previous_goal": "Starting task",
+			"memory": "Need new tab",
+			"next_goal": "Create new tab",
 			"action": [
 				{
 					"open_tab": {
@@ -381,11 +383,10 @@ class TestParallelism:
 
 		done_action = """
 		{
-			"current_state": {
-				"evaluation_previous_goal": "Tab created",
-				"memory": "Task done",
-				"next_goal": "Complete"
-			},
+			"thinking": "null",
+			"evaluation_previous_goal": "Tab created",
+			"memory": "Task done",
+			"next_goal": "Complete",
 			"action": [
 				{
 					"done": {
@@ -403,9 +404,11 @@ class TestParallelism:
 
 		# Create shared browser session
 		shared_session = BrowserSession(
-			headless=True,
-			user_data_dir=None,
-			keep_alive=True,
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,
+				keep_alive=True,
+			)
 		)
 
 		try:
@@ -462,9 +465,11 @@ class TestParallelism:
 
 		# Create a session with keep_alive
 		session = BrowserSession(
-			headless=True,
-			user_data_dir=None,
-			keep_alive=True,
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,
+				keep_alive=True,
+			)
 		)
 
 		try:
@@ -517,13 +522,15 @@ class TestParallelism:
 
 			# Create session with existing playwright objects
 			browser_session = BrowserSession(
-				page=page,
+				browser_profile=BrowserProfile(
+					headless=True,
+					user_data_dir=None,
+					keep_alive=False,
+				),
+				agent_current_page=page,
 				browser_context=context,
 				browser=browser,
 				playwright=playwright,
-				headless=True,
-				user_data_dir=None,
-				keep_alive=False,
 			)
 
 			# Create mock LLM

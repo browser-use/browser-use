@@ -6,6 +6,7 @@ import time
 import pytest
 
 from browser_use.browser import BrowserSession
+from browser_use.browser.profile import BrowserProfile
 
 
 @pytest.fixture(scope='function')
@@ -37,9 +38,11 @@ async def test_download_detection_timing(test_server, tmp_path):
 
 	# Test 1: With downloads_dir set (default behavior)
 	browser_with_downloads = BrowserSession(
-		headless=True,
-		downloads_dir=str(tmp_path / 'downloads'),
-		user_data_dir=None,
+		browser_profile=BrowserProfile(
+			headless=True,
+			downloads_path=str(tmp_path / 'downloads'),
+			user_data_dir=None,
+		)
 	)
 
 	await browser_with_downloads.start()
@@ -72,9 +75,11 @@ async def test_download_detection_timing(test_server, tmp_path):
 
 	# Test 2: With downloads_dir set to empty string (disables download detection)
 	browser_no_downloads = BrowserSession(
-		headless=True,
-		downloads_dir=None,
-		user_data_dir=None,
+		browser_profile=BrowserProfile(
+			headless=True,
+			downloads_path=None,
+			user_data_dir=None,
+		)
 	)
 
 	await browser_no_downloads.start()
@@ -124,9 +129,11 @@ async def test_actual_download_detection(test_server, tmp_path):
 	downloads_path.mkdir()
 
 	browser_session = BrowserSession(
-		headless=True,
-		downloads_path=str(downloads_path),
-		user_data_dir=None,
+		browser_profile=BrowserProfile(
+			headless=True,
+			downloads_path=str(downloads_path),
+			user_data_dir=None,
+		)
 	)
 
 	await browser_session.start()

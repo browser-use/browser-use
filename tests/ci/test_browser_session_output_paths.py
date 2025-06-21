@@ -10,7 +10,7 @@ import pytest
 
 from browser_use import Agent, AgentHistoryList
 from browser_use.browser import BrowserProfile, BrowserSession
-from tests.ci.mocks import create_mock_llm
+from tests.ci.conftest import create_mock_llm
 
 
 @pytest.fixture
@@ -54,11 +54,10 @@ def interactive_llm(httpserver_url):
 		# First action: Navigate to the page
 		f"""
 		{{
-			"current_state": {{
-				"evaluation_previous_goal": "Starting the task",
-				"memory": "Need to navigate to the test page",
-				"next_goal": "Navigate to the URL"
-			}},
+			"thinking": "null",
+			"evaluation_previous_goal": "Starting the task",
+			"memory": "Need to navigate to the test page",
+			"next_goal": "Navigate to the URL",
 			"action": [
 				{{
 					"go_to_url": {{
@@ -71,11 +70,10 @@ def interactive_llm(httpserver_url):
 		# Second action: Click in the search box
 		"""
 		{
-			"current_state": {
-				"evaluation_previous_goal": "Successfully navigated to the page",
-				"memory": "Page loaded, can see search box and submit button",
-				"next_goal": "Click on the search box to focus it"
-			},
+			"thinking": "null",
+			"evaluation_previous_goal": "Successfully navigated to the page",
+			"memory": "Page loaded, can see search box and submit button",
+			"next_goal": "Click on the search box to focus it",
 			"action": [
 				{
 					"click_element_by_index": {
@@ -88,11 +86,10 @@ def interactive_llm(httpserver_url):
 		# Third action: Type text in the search box
 		"""
 		{
-			"current_state": {
-				"evaluation_previous_goal": "Clicked on search box",
-				"memory": "Search box is focused and ready for input",
-				"next_goal": "Type 'test' in the search box"
-			},
+			"thinking": "null",
+			"evaluation_previous_goal": "Clicked on search box",
+			"memory": "Search box is focused and ready for input",
+			"next_goal": "Type 'test' in the search box",
 			"action": [
 				{
 					"input_text": {
@@ -106,11 +103,10 @@ def interactive_llm(httpserver_url):
 		# Fourth action: Click submit button
 		"""
 		{
-			"current_state": {
-				"evaluation_previous_goal": "Typed 'test' in search box",
-				"memory": "Text 'test' has been entered successfully",
-				"next_goal": "Click the submit button to complete the task"
-			},
+			"thinking": "null",
+			"evaluation_previous_goal": "Typed 'test' in search box",
+			"memory": "Text 'test' has been entered successfully",
+			"next_goal": "Click the submit button to complete the task",
 			"action": [
 				{
 					"click_element_by_index": {
@@ -198,6 +194,7 @@ class TestAgentRecordings:
 				for gif in gif_files:
 					gif.unlink()
 			else:  # custom_path
+				assert expected_gif_path is not None, 'expected_gif_path should be set for custom_path'
 				assert expected_gif_path.exists(), f'GIF was not created at {expected_gif_path}'
 		finally:
 			await browser_session.stop()
@@ -220,10 +217,10 @@ class TestBrowserProfileRecordings:
 		video_dir = test_dir / f'videos_{context_type}_{alias}'
 		user_data_dir = None if context_type == 'incognito' else str(test_dir / 'user_data')
 
+		# Create profile with dynamic alias
+		profile_kwargs = {'headless': True, 'disable_security': True, 'user_data_dir': user_data_dir, alias: str(video_dir)}
 		browser_session = BrowserSession(
-			browser_profile=BrowserProfile(
-				headless=True, disable_security=True, user_data_dir=user_data_dir, **{alias: str(video_dir)}
-			)
+			browser_profile=BrowserProfile(**profile_kwargs)  # type: ignore
 		)
 		await browser_session.start()
 		try:
@@ -262,7 +259,10 @@ class TestBrowserProfileRecordings:
 
 		browser_session = BrowserSession(
 			browser_profile=BrowserProfile(
-				headless=True, disable_security=True, user_data_dir=user_data_dir, **{alias: str(har_path)}
+				headless=True,
+				disable_security=True,
+				user_data_dir=user_data_dir,
+				**{alias: str(har_path)},  # type: ignore
 			)
 		)
 		await browser_session.start()
@@ -311,7 +311,7 @@ class TestBrowserProfileRecordings:
 		if alias == 'trace_path':
 			browser_session.browser_profile.traces_dir = str(trace_dir)
 		else:
-			setattr(browser_session.browser_profile, alias, str(trace_dir))
+			setattr(browser_session.browser_profile, alias, str(trace_dir))  # type: ignore
 
 		await browser_session.start()
 		try:

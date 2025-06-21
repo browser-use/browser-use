@@ -141,7 +141,7 @@ Reply in JSON with keys: success (true/false), explanation (string).
 If the agent provided no output, explain what might have gone wrong.
 """
 		structured_llm = judge_llm.with_structured_output(JudgeResponse)
-		judge_response = await structured_llm.ainvoke(judge_prompt)
+		judge_response: JudgeResponse = await structured_llm.ainvoke(judge_prompt)  # type: ignore[assignment]
 
 		result = {
 			'file': os.path.basename(task_file),

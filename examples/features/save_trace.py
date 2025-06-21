@@ -19,7 +19,7 @@ llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
 async def main():
 	browser_session = BrowserSession(
 		browser_profile=BrowserProfile(
-			trace_path='./tmp/traces/',
+			traces_dir='./tmp/traces/',
 			user_data_dir='~/.config/browseruse/profiles/default',
 		)
 	)
