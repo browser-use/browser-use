@@ -27,6 +27,11 @@ class BaseChatModel(Protocol):
 	@property
 	def name(self) -> str: ...
 
+	@property
+	def model_name(self) -> str:
+		# for legacy support
+		return self.model
+
 	@overload
 	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> str: ...
 

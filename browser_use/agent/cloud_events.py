@@ -188,7 +188,7 @@ class CreateAgentTaskEvent(BaseEvent):
 			user_id='',  # To be filled by cloud handler
 			agent_session_id=str(agent.session_id),
 			task=agent.task,
-			llm_model=agent.model_name,
+			llm_model=agent.llm.model_name,
 			agent_state=agent.state.model_dump() if hasattr(agent.state, 'model_dump') else {},
 			stopped=False,
 			paused=False,

@@ -158,7 +158,7 @@ class AgentBrain(BaseModel):
 
 
 class AgentOutput(BaseModel):
-	model_config = ConfigDict(arbitrary_types_allowed=True)
+	model_config = ConfigDict(arbitrary_types_allowed=True, extra='forbid')
 
 	thinking: str
 	evaluation_previous_goal: str

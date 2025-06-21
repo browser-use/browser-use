@@ -9,8 +9,11 @@ from browser_use.agent.views import (
 )
 from browser_use.browser.views import BrowserStateHistory, BrowserStateSummary, TabInfo
 from browser_use.controller.registry.service import Registry
+from browser_use.controller.service import Controller
 from browser_use.controller.views import ClickElementAction, DoneAction, ExtractPageContentAction
 from browser_use.dom.views import DOMElementNode
+from browser_use.llm.messages import SystemMessage, UserMessage
+from browser_use.llm.openai.chat import ChatOpenAI
 
 
 @pytest.fixture
@@ -191,6 +194,27 @@ def test_action_creation(action_registry):
 	click_action = action_registry(click_element={'index': 1})
 
 	assert click_action.model_dump(exclude_none=True) == {'click_element': {'index': 1}}
+
+
+async def test_agent_single_mock_step():
+	llm = ChatOpenAI(model='gpt-4.1')
+
+	system_message = 'Pretend you are thinking about this and follow the structured output. Then fill it with random data'
+
+	controller = Controller()
+	ActionModel = controller.registry.create_action_model()
+	# Create output model with the dynamic actions
+	AgentOutput_ = AgentOutput.type_with_custom_actions(ActionModel)
+
+	response = await llm.ainvoke(
+		messages=[
+			SystemMessage(role='system', content=system_message),
+			UserMessage(role='user', content='What is the weather in Tokyo?'),
+		],
+		output_format=AgentOutput_,
+	)
+
+	assert isinstance(response, AgentOutput_)
 
 
 # run this with:

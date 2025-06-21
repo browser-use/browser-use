@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from pathlib import Path
 from typing import Any
 
@@ -11,16 +10,6 @@ import anyio
 from browser_use.llm.messages import BaseMessage
 
 logger = logging.getLogger(__name__)
-
-MODELS_WITHOUT_TOOL_SUPPORT_PATTERNS = [
-	'deepseek-reasoner',
-	'deepseek-r1',
-	'.*gemma.*-it',
-]
-
-
-def is_model_without_tool_support(model_name: str) -> bool:
-	return any(re.match(pattern, model_name) for pattern in MODELS_WITHOUT_TOOL_SUPPORT_PATTERNS)
 
 
 async def save_conversation(

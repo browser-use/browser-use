@@ -48,7 +48,7 @@ class ActionModel(BaseModel):
 	# click_element = param_model = ClickElementParams
 	# done = param_model = None
 	#
-	model_config = ConfigDict(arbitrary_types_allowed=True)
+	model_config = ConfigDict(arbitrary_types_allowed=True, extra='forbid')
 
 	def get_index(self) -> int | None:
 		"""Get the index of the action"""
@@ -153,7 +153,7 @@ class SpecialActionParameters(BaseModel):
 	# e.g. can contain anything, external db connections, file handles, queues, runtime config objects, etc.
 	# that you might want to be able to access quickly from within many of your actions
 	# browser-use code doesn't use this at all, we just pass it down to your actions for convenience
-	context: 'Context | None' = None
+	context: 'Context | None' = None  # type: ignore
 
 	# browser-use session object, can be used to create new tabs, navigate, access playwright objects, etc.
 	browser_session: BrowserSession | None = None

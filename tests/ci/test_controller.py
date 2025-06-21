@@ -16,7 +16,6 @@ from browser_use.controller.views import (
 	DragDropAction,
 	GoToUrlAction,
 	InputTextAction,
-	NoParamsAction,
 	OpenTabAction,
 	ScrollAction,
 	SearchGoogleAction,
@@ -344,10 +343,10 @@ class TestControllerIntegration:
 		assert f'{base_url}/page2' in second_url
 
 		# Execute go back action
-		go_back_action = {'go_back': NoParamsAction()}
+		go_back_action = {'go_back': None}
 
 		class GoBackActionModel(ActionModel):
-			go_back: NoParamsAction | None = None
+			go_back: None | None = None
 
 		result = await controller.act(GoBackActionModel(**go_back_action), browser_session)
 
@@ -386,10 +385,10 @@ class TestControllerIntegration:
 
 		# Go back twice and verify each step
 		for expected_url in reversed(urls[:-1]):
-			go_back_action = {'go_back': NoParamsAction()}
+			go_back_action = {'go_back': None}
 
 			class GoBackActionModel(ActionModel):
-				go_back: NoParamsAction | None = None
+				go_back = None
 
 			await controller.act(GoBackActionModel(**go_back_action), browser_session)
 			await asyncio.sleep(1)  # Wait for navigation to complete
