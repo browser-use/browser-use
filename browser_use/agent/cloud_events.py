@@ -43,6 +43,9 @@ class UpdateAgentTaskEvent(BaseEvent):
 			agent_state=agent.state.model_dump() if hasattr(agent.state, 'model_dump') else {},
 			# user_feedback_type and user_comment would be set by the API/frontend
 			# gif_url would be set after GIF generation if needed
+			user_feedback_type=None,
+			user_comment=None,
+			gif_url=None,
 		)
 
 
@@ -192,6 +195,9 @@ class CreateAgentTaskEvent(BaseEvent):
 			done_output=None,
 			started_at=datetime.fromtimestamp(agent._task_start_time, tz=timezone.utc),
 			finished_at=None,
+			user_feedback_type=None,
+			user_comment=None,
+			gif_url=None,
 		)
 
 
