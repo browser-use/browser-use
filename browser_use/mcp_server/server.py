@@ -13,7 +13,7 @@ browser control operations.
 import asyncio
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
 import httpx
 from fastmcp import FastMCP
@@ -38,7 +38,7 @@ class BrowserActionServerClient:
 		self.host = host
 		self.port = port
 		self.base_url = f'http://{host}:{port}'
-		self._client: Optional[httpx.AsyncClient] = None
+		self._client: httpx.AsyncClient | None = None
 
 	async def _get_client(self) -> httpx.AsyncClient:
 		"""Get or create HTTP client"""
@@ -76,7 +76,7 @@ class BrowserActionServerClient:
 			logger.error(f'Failed to start Browser Action Server: {e}')
 			return False
 
-	async def make_request(self, endpoint: str, data: Optional[Dict[str, Any]] = None, method: str = 'auto') -> Dict[str, Any]:
+	async def make_request(self, endpoint: str, data: dict[str, Any] | None = None, method: str = 'auto') -> dict[str, Any]:
 		"""Make HTTP request to Browser Action Server"""
 		if not await self.ensure_server_running():
 			return {'success': False, 'error': {'type': 'ServerUnavailable', 'message': 'Browser Action Server is not available'}}

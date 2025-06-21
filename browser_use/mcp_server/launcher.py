@@ -9,7 +9,6 @@ import logging
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +22,7 @@ def find_server_script() -> Path:
 
 
 def start_mcp_server(
-	python_executable: Optional[str] = None, server_host: str = '127.0.0.1', server_port: int = 8766
+	python_executable: str | None = None, server_host: str = '127.0.0.1', server_port: int = 8766
 ) -> subprocess.Popen:
 	"""
 	Start the MCP server in a subprocess.
@@ -58,7 +57,7 @@ def start_mcp_server(
 
 def get_claude_mcp_config(
 	server_name: str = 'browser-use',
-	python_executable: Optional[str] = None,
+	python_executable: str | None = None,
 	server_host: str = '127.0.0.1',
 	server_port: int = 8766,
 ) -> dict:
@@ -90,7 +89,7 @@ def get_claude_mcp_config(
 	}
 
 
-def print_claude_mcp_instructions(server_name: str = 'browser-use', python_executable: Optional[str] = None):
+def print_claude_mcp_instructions(server_name: str = 'browser-use', python_executable: str | None = None):
 	"""
 	Print instructions for adding the MCP server to Claude Code.
 
