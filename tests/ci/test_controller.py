@@ -1459,7 +1459,7 @@ class TestControllerIntegration:
 			</html>
 			""",
 			content_type='text/html',
-		)		# Navigate to the clickable elements test page
+		)  # Navigate to the clickable elements test page
 		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/span-placeholder')}
 
 		class GoToUrlActionModel(ActionModel):
@@ -1476,6 +1476,6 @@ class TestControllerIntegration:
 
 		# Get the selector map
 		selector_map = await browser_session.get_selector_map()
-		
-  		# Verify that the input[type=text] is detected correctly
-		assert any(s for s in selector_map.values() if s.tag_name == "input"), 'No input field detected'
+
+		# Verify that the input[type=text] is detected correctly
+		assert any(s for s in selector_map.values() if s.tag_name == 'input'), 'No input field detected'
