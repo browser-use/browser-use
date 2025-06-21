@@ -5,9 +5,6 @@ from google.genai.types import Content, Part
 from browser_use.llm.messages import (
 	AssistantMessage,
 	BaseMessage,
-	ContentPartImageParam,
-	ContentPartRefusalParam,
-	ContentPartTextParam,
 	SystemMessage,
 	UserMessage,
 )
@@ -48,8 +45,8 @@ class GoogleMessageSerializer:
 					# Handle Iterable of content parts
 					parts = []
 					for part in message.content:
-						if isinstance(part, ContentPartTextParam):
-							parts.append(part.text)
+						if part['type'] == 'text':
+							parts.append(part['text'])
 					system_message = '\n'.join(parts)
 				continue
 
@@ -73,14 +70,14 @@ class GoogleMessageSerializer:
 				# Handle Iterable of content parts
 				text_parts = []
 				for part in message.content:
-					if isinstance(part, ContentPartTextParam):
-						text_parts.append(part.text)
-					elif isinstance(part, ContentPartRefusalParam):
-						text_parts.append(f'[Refusal] {part.refusal}')
-					elif isinstance(part, ContentPartImageParam):
+					if part['type'] == 'text':
+						text_parts.append(part['text'])
+					elif part['type'] == 'refusal':
+						text_parts.append(f'[Refusal] {part["refusal"]}')
+					elif part['type'] == 'image_url':
 						# For images, we'll include a placeholder text
 						# In a full implementation, you'd handle images properly
-						text_parts.append(f'[Image: {part.image_url.url}]')
+						text_parts.append(f'[Image: {part["image_url"]["url"]}]')
 
 				# Combine all text parts into a single Part
 				if text_parts:

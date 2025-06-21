@@ -8,7 +8,6 @@ from inspect import Parameter, iscoroutinefunction, signature
 from types import UnionType
 from typing import Any, Generic, Optional, TypeVar, Union, get_args, get_origin
 
-from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, Field, create_model
 
 from browser_use.browser import BrowserSession
@@ -20,6 +19,7 @@ from browser_use.controller.registry.views import (
 	SpecialActionParameters,
 )
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.llm.base import BaseChatModel
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import (
 	ControllerRegisteredFunctionsTelemetryEvent,

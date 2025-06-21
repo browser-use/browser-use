@@ -6,10 +6,6 @@ import re
 from collections.abc import Awaitable, Callable
 from typing import Any, Generic, TypeVar, cast
 
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.prompts import PromptTemplate
-
-# from lmnr.sdk.laminar import Laminar
 from pydantic import BaseModel
 
 from browser_use.agent.views import ActionModel, ActionResult
@@ -32,6 +28,8 @@ from browser_use.controller.views import (
 	SwitchTabAction,
 )
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.llm.base import BaseChatModel
+from browser_use.llm.messages import UserMessage
 from browser_use.utils import time_execution_sync
 
 logger = logging.getLogger(__name__)
@@ -429,10 +427,9 @@ Only use this for extracting info from a single product/article page, not for en
 3. Some/all of the information is not available
 
 Explain the content of the page and that the requested information is not available in the page. Respond in JSON format.\nQuery: {query}\n Website:\n{page}"""
-			template = PromptTemplate(input_variables=['query', 'page'], template=prompt)
 			try:
-				output = await page_extraction_llm.ainvoke(template.format(query=query, page=content))
-				output_text = output.content
+				formatted_prompt = prompt.format(query=query, page=content)
+				output_text = await page_extraction_llm.ainvoke([UserMessage(content=formatted_prompt)])
 				extracted_content = f'Page Link: {page.url}\nQuery: {query}\nExtracted Content:\n{output_text}'
 
 				# if content is small include it to memory
@@ -502,7 +499,7 @@ Explain the content of the page and that the requested information is not availa
 				dy = dy_result
 
 			try:
-				await browser_session._scroll_container(dy)
+				await browser_session._scroll_container(dy)  # type: ignore
 			except Exception as e:
 				# Hard fallback: always works on root scroller
 				await page.evaluate('(y) => window.scrollBy(0, y)', dy)
@@ -530,7 +527,7 @@ Explain the content of the page and that the requested information is not availa
 				)
 				if action_result:
 					return action_result
-				dy = -(dy_result)
+				dy = -(dy_result)  # type: ignore
 
 			try:
 				await browser_session._scroll_container(dy)

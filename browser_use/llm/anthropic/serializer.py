@@ -48,12 +48,12 @@ class AnthropicMessageSerializer:
 	@staticmethod
 	def _serialize_content_part_text(part: ContentPartTextParam) -> TextBlockParam:
 		"""Convert a text content part to Anthropic's TextBlockParam."""
-		return TextBlockParam(text=part.text, type='text')
+		return TextBlockParam(text=part['text'], type='text')
 
 	@staticmethod
 	def _serialize_content_part_image(part: ContentPartImageParam) -> ImageBlockParam:
 		"""Convert an image content part to Anthropic's ImageBlockParam."""
-		url = part.image_url.url
+		url = part['image_url']['url']
 
 		if AnthropicMessageSerializer._is_base64_image(url):
 			# Handle base64 encoded images
@@ -78,7 +78,7 @@ class AnthropicMessageSerializer:
 
 		serialized_blocks: list[TextBlockParam] = []
 		for part in content:
-			if isinstance(part, ContentPartTextParam):
+			if part['type'] == 'text':
 				serialized_blocks.append(AnthropicMessageSerializer._serialize_content_part_text(part))
 
 		return serialized_blocks
@@ -93,9 +93,9 @@ class AnthropicMessageSerializer:
 
 		serialized_blocks: list[Union[TextBlockParam, ImageBlockParam]] = []
 		for part in content:
-			if isinstance(part, ContentPartTextParam):
+			if part['type'] == 'text':
 				serialized_blocks.append(AnthropicMessageSerializer._serialize_content_part_text(part))
-			elif isinstance(part, ContentPartImageParam):
+			elif part['type'] == 'image_url':
 				serialized_blocks.append(AnthropicMessageSerializer._serialize_content_part_image(part))
 
 		return serialized_blocks
@@ -158,12 +158,12 @@ class AnthropicMessageSerializer:
 				else:
 					# Process content parts (text and refusal)
 					for part in message.content:
-						if isinstance(part, ContentPartTextParam):
+						if part['type'] == 'text':
 							blocks.append(AnthropicMessageSerializer._serialize_content_part_text(part))
 						# Note: Anthropic doesn't have a specific refusal block type,
 						# so we convert refusals to text blocks
-						elif hasattr(part, 'refusal'):
-							blocks.append(TextBlockParam(text=f'[Refusal] {part.refusal}', type='text'))
+						elif part['type'] == 'refusal':
+							blocks.append(TextBlockParam(text=f'[Refusal] {part["refusal"]}', type='text'))
 
 			# Add tool use blocks if present
 			if message.tool_calls:

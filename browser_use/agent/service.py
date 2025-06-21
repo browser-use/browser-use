@@ -12,7 +12,6 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from threading import Thread
 from typing import Any, Generic, TypeVar
 
 from dotenv import load_dotenv
@@ -24,18 +23,13 @@ from browser_use.agent.cloud_events import (
 	CreateAgentTaskEvent,
 	UpdateAgentTaskEvent,
 )
-from browser_use.llm.messages import UserMessage
+from browser_use.llm.base import BaseChatModel
+from browser_use.llm.messages import BaseMessage, UserMessage
 
 load_dotenv()
 
 # from lmnr.sdk.decorators import observe
 from bubus import EventBus
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import (
-	BaseMessage,
-	HumanMessage,
-	SystemMessage,
-)
 from pydantic import BaseModel, ValidationError
 from uuid_extensions import uuid7str
 
@@ -44,8 +38,6 @@ from browser_use.agent.memory import Memory, MemoryConfig
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
 from browser_use.agent.message_manager.utils import (
 	convert_input_messages,
-	extract_json_from_model_output,
-	is_model_without_tool_support,
 	save_conversation,
 )
 from browser_use.agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
@@ -76,7 +68,6 @@ from browser_use.telemetry.views import AgentTelemetryEvent
 from browser_use.utils import (
 	_log_pretty_path,
 	get_browser_use_version,
-	handle_llm_error,
 	time_execution_async,
 	time_execution_sync,
 )
@@ -594,285 +585,6 @@ class Agent(Generic[Context]):
 		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'])
 		self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
 
-	def _test_tool_calling_method(self, method: str | None) -> bool:
-		"""Test if a specific tool calling method works with the current LLM."""
-		try:
-			# Test configuration
-			CAPITAL_QUESTION = 'What is the capital of France? Respond with just the city name in lowercase.'
-			EXPECTED_ANSWER = 'paris'
-
-			class CapitalResponse(BaseModel):
-				"""Response model for capital city question"""
-
-				answer: str  # The name of the capital city in lowercase
-
-			def is_valid_raw_response(response, expected_answer: str) -> bool:
-				"""
-				Cleans and validates a raw JSON response string against an expected answer.
-				"""
-				content = getattr(response, 'content', '').strip()
-				# self.logger.debug(f'Raw response content: {content}')
-
-				# Remove surrounding markdown code blocks if present
-				if content.startswith('```json') and content.endswith('```'):
-					content = content[7:-3].strip()
-				elif content.startswith('```') and content.endswith('```'):
-					content = content[3:-3].strip()
-
-				# Attempt to parse and validate the answer
-				try:
-					result = json.loads(content)
-					answer = str(result.get('answer', '')).strip().lower().strip(' .')
-
-					if expected_answer.lower() not in answer:
-						self.logger.debug(f"🛠️ Tool calling method {method} failed: expected '{expected_answer}', got '{answer}'")
-						return False
-
-					return True
-
-				except (json.JSONDecodeError, AttributeError, TypeError) as e:
-					self.logger.debug(f'🛠️ Tool calling method {method} failed: Failed to parse JSON content: {e}')
-					return False
-
-			if method == 'raw' or method == 'json_mode':
-				# For raw mode, test JSON response format
-				test_prompt = f"""{CAPITAL_QUESTION}
-					Respond with a json object like: {{"answer": "city_name_in_lowercase"}}"""
-
-				response = self.llm.invoke([test_prompt])
-				# Basic validation of response
-				if not response or not hasattr(response, 'content'):
-					return False
-
-				if not is_valid_raw_response(response, EXPECTED_ANSWER):
-					return False
-				return True
-			else:
-				# For other methods, try to use structured output
-				structured_llm = self.llm.with_structured_output(CapitalResponse, include_raw=True, method=method)
-				response = structured_llm.invoke([HumanMessage(content=CAPITAL_QUESTION)])
-
-				if not response:
-					self.logger.debug(f'🛠️ Tool calling method {method} failed: empty response')
-					return False
-
-				def extract_parsed(response: Any) -> CapitalResponse | None:
-					if isinstance(response, dict):
-						return response.get('parsed')
-					return getattr(response, 'parsed', None)
-
-				parsed = extract_parsed(response)
-
-				if not isinstance(parsed, CapitalResponse):
-					self.logger.debug(f'🛠️ Tool calling method {method} failed: LLM responded with invalid JSON')
-					return False
-
-				if EXPECTED_ANSWER not in parsed.answer.lower():
-					self.logger.debug(f'🛠️ Tool calling method {method} failed: LLM failed to answer test question correctly')
-					return False
-				return True
-
-		except Exception as e:
-			self.logger.debug(f"🛠️ Tool calling method '{method}' test failed: {type(e).__name__}: {str(e)}")
-			return False
-
-	async def _test_tool_calling_method_async(self, method: str) -> tuple[str, bool]:
-		"""Test if a specific tool calling method works with the current LLM (async version)."""
-		# Run the synchronous test in a thread pool to avoid blocking
-		loop = asyncio.get_event_loop()
-		result = await loop.run_in_executor(None, self._test_tool_calling_method, method)
-		return (method, result)
-
-	def _detect_best_tool_calling_method(self) -> str | None:
-		"""Detect the best supported tool calling method by testing each one."""
-		start_time = time.time()
-
-		# Order of preference for tool calling methods
-		methods_to_try = [
-			'function_calling',  # Most capable and efficient
-			'tools',  # Works with some models that don't support function_calling
-			'json_mode',  # More basic structured output
-			'raw',  # Fallback - no tool calling support
-		]
-
-		# Try parallel testing for faster detection
-		try:
-			# Run async parallel tests
-			async def test_all_methods():
-				tasks = [self._test_tool_calling_method_async(method) for method in methods_to_try]
-				results = await asyncio.gather(*tasks, return_exceptions=True)
-				return results
-
-			# Execute async tests
-			try:
-				loop = asyncio.get_running_loop()
-				# Running loop: create a new loop in a separate thread
-				result = {}
-
-				def run_in_thread():
-					new_loop = asyncio.new_event_loop()
-					asyncio.set_event_loop(new_loop)
-					try:
-						result['value'] = new_loop.run_until_complete(test_all_methods())
-					except Exception as e:
-						result['error'] = e
-					finally:
-						new_loop.close()
-
-				t = Thread(target=run_in_thread)
-				t.start()
-				t.join()
-				if 'error' in result:
-					raise result['error']
-				results = result['value']
-
-			except RuntimeError as e:
-				if 'no running event loop' in str(e):
-					results = asyncio.run(test_all_methods())
-				else:
-					raise
-
-			# Process results in order of preference
-			for i, method in enumerate(methods_to_try):
-				if not isinstance(results, list):
-					continue
-				ith_result = results[i]
-				if isinstance(ith_result, tuple) and ith_result[1]:  # (method, success)
-					setattr(self.llm, '_verified_api_keys', True)
-					setattr(self.llm, '_verified_tool_calling_method', method)  # Cache on LLM instance
-					elapsed = time.time() - start_time
-					self.logger.debug(f'🛠️ Tested LLM in parallel and chose tool calling method: [{method}] in {elapsed:.2f}s')
-					return method
-
-		except Exception as e:
-			self.logger.debug(f'Parallel testing failed: {e}, falling back to sequential')
-			# Fall back to sequential testing
-			for method in methods_to_try:
-				if self._test_tool_calling_method(method):
-					# if we found the method which means api is verified.
-					setattr(self.llm, '_verified_api_keys', True)
-					setattr(self.llm, '_verified_tool_calling_method', method)  # Cache on LLM instance
-					elapsed = time.time() - start_time
-					self.logger.debug(f'🛠️ Tested LLM and chose tool calling method: [{method}] in {elapsed:.2f}s')
-					return method
-
-		# If we get here, no methods worked
-		raise ConnectionError('Failed to connect to LLM. Please check your API key and network connection.')
-
-	def _get_known_tool_calling_method(self) -> str | None:
-		"""Get known tool calling method for common model/library combinations."""
-		# Fast path for known combinations
-		model_lower = self.model_name.lower()
-
-		# OpenAI models
-		if self.chat_model_library == 'ChatOpenAI':
-			if any(m in model_lower for m in ['gpt-4', 'gpt-3.5']):
-				return 'function_calling'
-			if any(m in model_lower for m in ['llama-4', 'llama-3']):
-				return 'function_calling'
-
-		elif self.chat_model_library == 'ChatGroq':
-			if any(m in model_lower for m in ['llama-4', 'llama-3']):
-				return 'function_calling'
-
-		# Azure OpenAI models
-		elif self.chat_model_library == 'AzureChatOpenAI':
-			if 'gpt-4-' in model_lower:
-				return 'tools'
-			else:
-				return 'function_calling'
-
-		# Google models
-		elif self.chat_model_library == 'ChatGoogleGenerativeAI':
-			return None  # Google uses native tool support
-
-		# Anthropic models
-		elif self.chat_model_library in ['ChatAnthropic', 'AnthropicChat']:
-			if any(m in model_lower for m in ['claude-3', 'claude-2']):
-				return 'tools'
-
-		# Models known to not support tools
-		elif is_model_without_tool_support(self.model_name):
-			return 'raw'
-
-		return None  # Unknown combination, needs testing
-
-	def _set_tool_calling_method(self) -> ToolCallingMethod | None:
-		"""Determine the best tool calling method to use with the current LLM."""
-
-		# old hardcoded logic
-		# 			if is_model_without_tool_support(self.model_name):
-		# 				return 'raw'
-		# 			elif self.chat_model_library == 'ChatGoogleGenerativeAI':
-		# 				return None
-		# 			elif self.chat_model_library == 'ChatOpenAI':
-		# 				return 'function_calling'
-		# 			elif self.chat_model_library == 'AzureChatOpenAI':
-		# 				# Azure OpenAI API requires 'tools' parameter for GPT-4
-		# 				# The error 'content must be either a string or an array' occurs when
-		# 				# the API expects a tools array but gets something else
-		# 				if 'gpt-4-' in self.model_name.lower():
-		# 					return 'tools'
-		# 				else:
-		# 					return 'function_calling'
-
-		# If a specific method is set, use it
-		if self.settings.tool_calling_method != 'auto':
-			# Skip test if already verified
-			if getattr(self.llm, '_verified_api_keys', None) is True or SKIP_LLM_API_KEY_VERIFICATION:
-				setattr(self.llm, '_verified_api_keys', True)
-				setattr(self.llm, '_verified_tool_calling_method', self.settings.tool_calling_method)
-				return self.settings.tool_calling_method
-
-			if not self._test_tool_calling_method(self.settings.tool_calling_method):
-				if self.settings.tool_calling_method == 'raw':
-					# if raw failed means error in API key or network connection
-					raise ConnectionError('Failed to connect to LLM. Please check your API key and network connection.')
-				else:
-					raise RuntimeError(
-						f"Configured tool calling method '{self.settings.tool_calling_method}' "
-						'is not supported by the current LLM.'
-					)
-			setattr(self.llm, '_verified_tool_calling_method', self.settings.tool_calling_method)
-			return self.settings.tool_calling_method
-
-		# Check if we already have a cached method on this LLM instance
-		if hasattr(self.llm, '_verified_tool_calling_method'):
-			self.logger.debug(
-				f'🛠️ Using cached tool calling method for {self.chat_model_library}/{self.model_name}: [{getattr(self.llm, "_verified_tool_calling_method")}]'
-			)
-			return getattr(self.llm, '_verified_tool_calling_method')
-
-		# Try fast path for known model/library combinations
-		known_method = self._get_known_tool_calling_method()
-		if known_method is not None:
-			# Trust known combinations without testing if verification is already done or skipped
-			if getattr(self.llm, '_verified_api_keys', None) is True or SKIP_LLM_API_KEY_VERIFICATION:
-				setattr(self.llm, '_verified_api_keys', True)
-				setattr(self.llm, '_verified_tool_calling_method', known_method)  # Cache on LLM instance
-				self.logger.debug(
-					f'🛠️ Using known tool calling method for {self.chat_model_library}/{self.model_name}: [{known_method}] (skipped test)'
-				)
-				return known_method  # type: ignore
-
-			start_time = time.time()
-			# Verify the known method works
-			if self._test_tool_calling_method(known_method):
-				setattr(self.llm, '_verified_api_keys', True)
-				setattr(self.llm, '_verified_tool_calling_method', known_method)  # Cache on LLM instance
-				elapsed = time.time() - start_time
-				self.logger.debug(
-					f'🛠️ Using known tool calling method for {self.chat_model_library}/{self.model_name}: [{known_method}] in {elapsed:.2f}s'
-				)
-				return known_method  # type: ignore
-			# If known method fails, fall back to detection
-			self.logger.debug(
-				f'Known method {known_method} failed for {self.chat_model_library}/{self.model_name}, falling back to detection'
-			)
-
-		# Auto-detect the best method
-		return self._detect_best_tool_calling_method()  # type: ignore
-
 	def add_new_task(self, new_task: str) -> None:
 		"""Add a new task to the agent, keeping the same task_id as tasks are continuous"""
 		# Simply delegate to message manager - no need for new task_id or events
@@ -980,7 +692,7 @@ class Agent(Generic[Context]):
 				):
 					self.logger.warning('Model returned empty action. Retrying...')
 
-					clarification_message = HumanMessage(
+					clarification_message = UserMessage(
 						content='You forgot to return an action. Please respond only with a valid JSON action according to the expected format.'
 					)
 
@@ -1181,85 +893,11 @@ class Agent(Generic[Context]):
 		text = re.sub(self.STRAY_CLOSE_TAG, '', text)
 		return text.strip()
 
-	def _convert_input_messages(self, input_messages: list[BaseMessage]) -> list[BaseMessage]:
-		"""Convert input messages to the correct format"""
-		if is_model_without_tool_support(self.model_name):
-			return convert_input_messages(input_messages, self.model_name)
-		else:
-			return input_messages
-
 	@time_execution_async('--get_next_action')
 	async def get_next_action(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get next action from LLM based on current state"""
-		input_messages = self._convert_input_messages(input_messages)
 
-		if self.tool_calling_method == 'raw':
-			self._log_llm_call_info(input_messages, self.tool_calling_method)
-			try:
-				output = await self.llm.ainvoke(input_messages)
-				response = {'raw': output, 'parsed': None}
-			except Exception as e:
-				self.logger.error(f'Failed to invoke model: {str(e)}')
-				# Extract status code if available (e.g., from HTTP exceptions)
-				status_code = getattr(e, 'status_code', None) or getattr(e, 'code', None) or 500
-				error_msg = f'LLM API call failed: {type(e).__name__}: {str(e)}'
-				raise LLMException(status_code, error_msg) from e
-			# TODO: currently invoke does not return reasoning_content, we should override invoke
-			output.content = self._remove_think_tags(str(output.content))
-			try:
-				parsed_json = extract_json_from_model_output(output.content)
-				parsed = self.AgentOutput(**parsed_json)
-				response['parsed'] = parsed
-			except (ValueError, ValidationError) as e:
-				logger.warning(f'Failed to parse model output: {output} {str(e)}')
-				raise ValueError('Could not parse response.' + str(e))
-
-		elif self.tool_calling_method is None:
-			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True)
-			try:
-				response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
-				parsed: AgentOutput | None = response['parsed']
-
-			except Exception as e:
-				response, raw = handle_llm_error(e)
-
-		else:
-			try:
-				self._log_llm_call_info(input_messages, self.tool_calling_method)
-				structured_llm = self.llm.with_structured_output(
-					self.AgentOutput, include_raw=True, method=self.tool_calling_method
-				)
-				response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
-			except Exception as e:
-				response, raw = handle_llm_error(e)
-
-		# Handle tool call responses
-		if response.get('parsing_error') and 'raw' in response:
-			raw_msg = response['raw']
-			parsing_error = response.get('parsing_error')
-			if hasattr(raw_msg, 'tool_calls') and raw_msg.tool_calls:
-				# Convert tool calls to AgentOutput format
-				tool_call = raw_msg.tool_calls[0]  # Take first tool call
-				tool_call_args = tool_call['args']
-				parsed = self.AgentOutput(**tool_call_args)
-
-				try:
-					action = parsed.action[0].model_dump(exclude_unset=True)
-				except Exception as e:
-					raise ValueError(f'Could not parse response. {parsing_error} tried to parse {response["raw"]} to {parsed}')
-
-			else:
-				parsed = None
-		else:
-			parsed = response['parsed']
-
-		if not parsed:
-			try:
-				parsed_json = extract_json_from_model_output(response['raw'])
-				parsed = self.AgentOutput(**parsed_json)
-			except Exception as e:
-				logger.warning(f'Failed to parse model output: {response["raw"]} {str(e)}')
-				raise ValueError(f'Could not parse response. {str(e)}')
+		parsed = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
 
 		# cut the number of actions to max_actions_per_step if needed
 		if len(parsed.action) > self.settings.max_actions_per_step:

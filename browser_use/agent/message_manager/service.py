@@ -24,28 +24,19 @@ logger = logging.getLogger(__name__)
 # All logging functions start with _log_ for easy identification.
 
 
-def _log_get_message_emoji(message_type: str) -> str:
+def _log_get_message_emoji(message: BaseMessage) -> str:
 	"""Get emoji for a message type - used only for logging display"""
 	emoji_map = {
-		'HumanMessage': '💬',
-		'AIMessage': '🧠',
-		'ToolMessage': '🔨',
+		'UserMessage': '💬',
+		'SystemMessage': '🧠',
+		'AssistantMessage': '🔨',
 	}
-	return emoji_map.get(message_type, '🎮')
+	return emoji_map.get(message.__class__.__name__, '🎮')
 
 
 def _log_clean_whitespace(text: str) -> str:
 	"""Replace all repeated whitespace with single space and strip - used only for logging display"""
 	return re.sub(r'\s+', ' ', text).strip()
-
-
-def _log_extract_text_from_list_content(content: list) -> str:
-	"""Extract text from list content structure - used only for logging display"""
-	text_content = ''
-	for item in content:
-		if isinstance(item, dict) and 'text' in item:
-			text_content += item['text']
-	return text_content
 
 
 def _log_format_agent_output_content(tool_call: dict) -> str:
@@ -101,7 +92,7 @@ def _log_extract_message_content(message: BaseMessage, is_last_message: bool, me
 			return text_content
 
 		# Standard content extraction
-		cleaned_content = _log_clean_whitespace(str(message.content))
+		cleaned_content = _log_clean_whitespace(message.text)
 
 		# Handle AIMessages with tool calls
 		if hasattr(message, 'tool_calls') and message.tool_calls and not cleaned_content:
@@ -300,7 +291,7 @@ The file system actions do not change the browser state, so I can also click on 
 					'name': 'AgentOutput',
 					'args': {
 						'current_state': {
-							'thinking': """
+							'thinking': """I 
 **Understanding the Current State:**
 I am currently on Apple's main homepage, having successfully clicked on an 'Apple' link in the previous step. The page has loaded and I can see the typical Apple website layout with navigation elements. I can see an interactive element at index [4] that is labeled 'iPhone', which indicates this is a navigation link to Apple's iPhone product section.
 

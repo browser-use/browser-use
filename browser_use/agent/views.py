@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from langchain_core.language_models.chat_models import BaseChatModel
 from openai import RateLimitError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model, model_validator
 from uuid_extensions import uuid7str
@@ -20,6 +19,7 @@ from browser_use.dom.history_tree_processor.service import (
 	HistoryTreeProcessor,
 )
 from browser_use.dom.views import SelectorMap
+from browser_use.llm.base import BaseChatModel
 
 ToolCallingMethod = Literal['function_calling', 'json_mode', 'raw', 'auto', 'tools']
 REQUIRED_LLM_API_ENV_VARS = {

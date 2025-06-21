@@ -5,14 +5,16 @@ from browser_use.agent.views import ActionResult
 from browser_use.browser.views import BrowserStateSummary, TabInfo
 from browser_use.dom.views import DOMElementNode, DOMTextNode
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.llm.anthropic.chat import ChatAnthropic
+from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.llm.openai.chat import ChatOpenAI
 
 
 @pytest.fixture(
 	params=[
 		ChatOpenAI(model='gpt-4o-mini'),
-		AzureChatOpenAI(model='gpt-4o', api_version='2024-02-15-preview'),
-		ChatAnthropic(model_name='claude-3-5-sonnet-20240620', timeout=100, temperature=0.0, stop=None),
+		# AzureChatOpenAI(model='gpt-4o', api_version='2024-02-15-preview'),
+		ChatAnthropic(model='claude-3-5-sonnet-20240620', temperature=0.0),
 	],
 	ids=['gpt-4o-mini', 'gpt-4o', 'claude-3-5-sonnet'],
 )
@@ -43,7 +45,7 @@ def test_initial_messages(message_manager: MessageManager):
 	messages = message_manager.get_messages()
 	assert len(messages) == 2
 	assert isinstance(messages[0], SystemMessage)
-	assert isinstance(messages[1], HumanMessage)
+	assert isinstance(messages[1], UserMessage)
 	assert 'Test task' in messages[1].content
 
 
