@@ -204,6 +204,37 @@
   }
 
   /**
+   *  Helper to check if rectA is almost fully contained in rectB (allowing for px tolerance)
+   */ 
+  function isRectContained(rectA, rectB, tolerance = 10) {
+    return (
+      rectA.left >= rectB.left - tolerance &&
+      rectA.right <= rectB.right + tolerance &&
+      rectA.top >= rectB.top - tolerance &&
+      rectA.bottom <= rectB.bottom + tolerance
+    );
+  }
+
+  
+  /**
+   * New helper function to check if one element is contained in another's client rect
+   */
+  function isElementContainedInClientRect(innerElement, outerElement) {
+    const innerRects = getCachedClientRects(innerElement);
+    const outerRects = getCachedClientRects(outerElement);
+
+    // Only return true if both have exactly one rect and the inner rect is contained in the outer rect
+    if (
+      innerRects.length === 1 &&
+      outerRects.length === 1 &&
+      isRectContained(innerRects[0], outerRects[0])
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Hash map of DOM nodes indexed by their highlight index.
    *
    * @type {Object<string, any>}
@@ -864,18 +895,6 @@
   }
 
   /**
-   *  Helper to check if rectA is almost fully contained in rectB (allowing for px tolerance)
-   */ 
-  function isRectContained(rectA, rectB, tolerance = 10) {
-    return (
-      rectA.left >= rectB.left - tolerance &&
-      rectA.right <= rectB.right + tolerance &&
-      rectA.top >= rectB.top - tolerance &&
-      rectA.bottom <= rectB.bottom + tolerance
-    );
-  }
-
-  /**
    * Checks if an element is the topmost element at its position.
    */
   function isTopElement(element) {
@@ -930,16 +949,7 @@
         );
         if (!topEl) return false;
 
-        const topElRects = getCachedClientRects(topEl);
-        const elementRects = getCachedClientRects(element);
-                
-        // Only return true if both topEl and element have exactly one rect,
-        // and the topEl rect is contained in the element rect
-        if (
-          topElRects.length === 1 &&
-          elementRects.length === 1 &&
-          isRectContained(topElRects[0], elementRects[0])
-        ) {
+        if (isElementContainedInClientRect(topEl, element)) {
           return true;
         }
                 
@@ -962,16 +972,7 @@
       const topEl = document.elementFromPoint(centerX, centerY);
       if (!topEl) return false;
 
-      const topElRects = getCachedClientRects(topEl);
-      const elementRects = getCachedClientRects(element);
-              
-      // Only return true if both topEl and element have exactly one rect,
-      // and the topEl rect is contained in the element rect
-      if (
-        topElRects.length === 1 &&
-        elementRects.length === 1 &&
-        isRectContained(topElRects[0], elementRects[0])
-      ) {
+      if (isElementContainedInClientRect(topEl, element)) {
         return true;
       }
 
