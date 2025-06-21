@@ -64,8 +64,7 @@ class AgentSettings(BaseModel):
 	]
 	max_actions_per_step: int = 10
 
-	tool_calling_method: ToolCallingMethod | None = 'auto'
-	page_extraction_llm: BaseChatModel | None = None
+	page_extraction_llm: BaseChatModel
 	planner_llm: BaseChatModel | None = None
 	planner_interval: int = 1  # Run planner every N steps
 	is_planner_reasoning: bool = False  # type: ignore

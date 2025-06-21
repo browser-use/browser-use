@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
-import shutil
 
 from pydantic import BaseModel
 
@@ -34,102 +32,16 @@ def _log_get_message_emoji(message: BaseMessage) -> str:
 	return emoji_map.get(message.__class__.__name__, '🎮')
 
 
-def _log_clean_whitespace(text: str) -> str:
-	"""Replace all repeated whitespace with single space and strip - used only for logging display"""
-	return re.sub(r'\s+', ' ', text).strip()
-
-
-def _log_format_agent_output_content(tool_call: dict) -> str:
-	"""Format AgentOutput tool call into readable content - used only for logging display"""
-	try:
-		args = tool_call.get('args', {})
-		action_info = ''
-
-		# Get action name
-		if 'action' in args and args['action']:
-			first_action = args['action'][0] if isinstance(args['action'], list) and args['action'] else args['action']
-			if isinstance(first_action, dict):
-				action_name = next(iter(first_action.keys())) if first_action else 'unknown'
-				action_info = f'{action_name}()'
-
-		# Get goal
-		goal_info = ''
-		if 'current_state' in args and isinstance(args['current_state'], dict):
-			next_goal = args['current_state'].get('next_goal', '').strip()
-			if next_goal:
-				# Clean whitespace from goal text to prevent newlines
-				next_goal = _log_clean_whitespace(next_goal)
-				goal_info = f': {next_goal}'
-
-		# Combine action and goal info
-		if action_info and goal_info:
-			return f'{action_info}{goal_info}'
-		elif action_info:
-			return action_info
-		elif goal_info:
-			return goal_info[2:]  # Remove ': ' prefix for goal-only
-		else:
-			return 'AgentOutput'
-	except Exception as e:
-		logger.warning(f'Failed to format agent output content for logging: {e}')
-		return 'AgentOutput'
-
-
-def _log_extract_message_content(message: BaseMessage, is_last_message: bool, metadata: MessageMetadata | None = None) -> str:
-	"""Extract content from a message for logging display only"""
-	try:
-		message_type = message.__class__.__name__
-
-		if is_last_message and message_type == 'HumanMessage' and isinstance(message.content, list):
-			# Special handling for last message with list content
-			text_content = _log_extract_text_from_list_content(message.content)
-			text_content = _log_clean_whitespace(text_content)
-
-			# Look for current state section
-			if '[Current state starts here]' in text_content:
-				start_idx = text_content.find('[Current state starts here]')
-				return text_content[start_idx:]
-			return text_content
-
-		# Standard content extraction
-		cleaned_content = _log_clean_whitespace(message.text)
-
-		# Handle AIMessages with tool calls
-		if hasattr(message, 'tool_calls') and message.tool_calls and not cleaned_content:
-			tool_call = message.tool_calls[0]
-			tool_name = tool_call.get('name', 'unknown')
-
-			if tool_name == 'AgentOutput':
-				# Skip formatting for init example messages
-				if metadata and metadata.message_type == 'init':
-					return '[Example AgentOutput]'
-				content = _log_format_agent_output_content(tool_call)
-			else:
-				content = f'[TOOL: {tool_name}]'
-		else:
-			content = cleaned_content
-
-		# Shorten "Action result:" to "Result:" for display
-		if content.startswith('Action result:'):
-			content = 'Result:' + content[14:]
-
-		return content
-	except Exception as e:
-		logger.warning(f'Failed to extract message content for logging: {e}')
-		return '[Error extracting content]'
-
-
-def _log_format_message_line(
-	message_with_metadata: object, content: str, is_last_message: bool, terminal_width: int
-) -> list[str]:
+def _log_format_message_line(message: BaseMessage, content: str, is_last_message: bool, terminal_width: int) -> list[str]:
 	"""Format a single message for logging display"""
 	try:
 		lines = []
 
 		# Get emoji and token info
-		message_type = message_with_metadata.message.__class__.__name__
-		emoji = _log_get_message_emoji(message_type)
-		token_str = str(message_with_metadata.metadata.tokens).rjust(4)
+		emoji = _log_get_message_emoji(message)
+		# token_str = str(message.metadata.tokens).rjust(4)
+		# TODO: fix the token count
+		token_str = '??? (TODO)'
 		prefix = f'{emoji}[{token_str}]: '
 
 		# Calculate available width (emoji=2 visual cols + [token]: =8 chars)
@@ -285,42 +197,43 @@ The file system actions do not change the browser state, so I can also click on 
 		placeholder_message = UserMessage(content='<example_2>Example thinking and tool call 2:')
 		# self._add_message_with_tokens(placeholder_message, message_type='init')
 
-		example_tool_call_2 = AssistantMessage(
-			content=json.dumps(
-				{
-					'name': 'AgentOutput',
-					'args': {
-						'current_state': {
-							'thinking': """I 
-**Understanding the Current State:**
-I am currently on Apple's main homepage, having successfully clicked on an 'Apple' link in the previous step. The page has loaded and I can see the typical Apple website layout with navigation elements. I can see an interactive element at index [4] that is labeled 'iPhone', which indicates this is a navigation link to Apple's iPhone product section.
+		# TODO: add this back
+		# 		example_tool_call_2 = AssistantMessage(
+		# 			content=json.dumps(
+		# 				{
+		# 					'name': 'AgentOutput',
+		# 					'args': {
+		# 						'current_state': {
+		# 							'thinking': """I
+		# **Understanding the Current State:**
+		# I am currently on Apple's main homepage, having successfully clicked on an 'Apple' link in the previous step. The page has loaded and I can see the typical Apple website layout with navigation elements. I can see an interactive element at index [4] that is labeled 'iPhone', which indicates this is a navigation link to Apple's iPhone product section.
 
-**Evaluating the Previous Action:**
-The click on the 'Apple' link was successful and brought me to Apple's homepage as expected. The page loaded properly and I can see the navigation structure including the iPhone link. This confirms that the previous navigation action worked correctly and I'm now in the right place to continue with the iPhone-related task.
+		# **Evaluating the Previous Action:**
+		# The click on the 'Apple' link was successful and brought me to Apple's homepage as expected. The page loaded properly and I can see the navigation structure including the iPhone link. This confirms that the previous navigation action worked correctly and I'm now in the right place to continue with the iPhone-related task.
 
-**Tracking and Planning with todo.md:**
-Based on the context, this seems to be part of a larger task involving Apple products. I should be prepared to update my todo.md file if there are multiple iPhone models or other Apple products to investigate. The current goal is to access the iPhone section to see what product information is available.
+		# **Tracking and Planning with todo.md:**
+		# Based on the context, this seems to be part of a larger task involving Apple products. I should be prepared to update my todo.md file if there are multiple iPhone models or other Apple products to investigate. The current goal is to access the iPhone section to see what product information is available.
 
-**Writing Intermediate Results:**
-Once I reach the iPhone page, I'll need to extract information about different iPhone models, their specifications, prices, or other details. I should accumulate all findings in results.md in a structured format as I collect the information.
+		# **Writing Intermediate Results:**
+		# Once I reach the iPhone page, I'll need to extract information about different iPhone models, their specifications, prices, or other details. I should accumulate all findings in results.md in a structured format as I collect the information.
 
-**Preparing what goes into my memory:**
-I need to capture that I'm in the process of navigating to the iPhone section and preparing to collect product information.
+		# **Preparing what goes into my memory:**
+		# I need to capture that I'm in the process of navigating to the iPhone section and preparing to collect product information.
 
-**Planning my next action:**
-My next action is to click on the iPhone link at index [4] to navigate to Apple's iPhone product page. This will give me access to the iPhone lineup and allow me to gather the requested information.
-""",
-							'evaluation_previous_goal': 'Clicked Apple link and reached the homepage. Verdict: Success',
-							'memory': 'On Apple homepage with iPhone link at index [4].',
-							'next_goal': 'Click iPhone link.',
-						},
-						'action': [{'click_element_by_index': {'index': 4}}],
-					},
-					'id': str(self.state.tool_id),
-					'type': 'tool_call',
-				},
-			),
-		)
+		# **Planning my next action:**
+		# My next action is to click on the iPhone link at index [4] to navigate to Apple's iPhone product page. This will give me access to the iPhone lineup and allow me to gather the requested information.
+		# """,
+		# 							'evaluation_previous_goal': 'Clicked Apple link and reached the homepage. Verdict: Success',
+		# 							'memory': 'On Apple homepage with iPhone link at index [4].',
+		# 							'next_goal': 'Click iPhone link.',
+		# 						},
+		# 						'action': [{'click_element_by_index': {'index': 4}}],
+		# 					},
+		# 					'id': str(self.state.tool_id),
+		# 					'type': 'tool_call',
+		# 				},
+		# 			),
+		# 		)
 		# self._add_message_with_tokens(example_tool_call_2, message_type='init')
 		# self.add_tool_message(content='Clicked on index [4]. </example_2>', message_type='init')
 
@@ -439,75 +352,61 @@ Step goal: {model_output.current_state.next_goal}
 			page_filtered_actions=page_filtered_actions,
 			sensitive_data=self.sensitive_data_description,
 		).get_user_message(use_vision)
+
 		self._add_message_with_tokens(state_message)
 
-	def add_model_output(self, model_output: AgentOutput) -> None:
-		"""Add model output as AI message"""
-		tool_calls = [
-			{
-				'name': 'AgentOutput',
-				'args': model_output.model_dump(mode='json', exclude_unset=True),
-				'id': str(self.state.tool_id),
-				'type': 'tool_call',
-			}
-		]
-
-		msg = AIMessage(
-			content='',
-			tool_calls=tool_calls,
-		)
-
-		self._add_message_with_tokens(msg)
-		# empty tool response
-		self.add_tool_message(content='')
-
 	def add_plan(self, plan: str | None, position: int | None = None) -> None:
-		if plan:
-			msg = AIMessage(content=plan)
-			self._add_message_with_tokens(msg, position)
+		if not plan:
+			return
+
+		msg = AssistantMessage(content=plan)
+		self._add_message_with_tokens(msg, position)
 
 	def _log_history_lines(self) -> str:
 		"""Generate a formatted log string of message history for debugging / printing to terminal"""
-		try:
-			total_input_tokens = 0
-			message_lines = []
-			terminal_width = shutil.get_terminal_size((80, 20)).columns
+		# TODO: fix logging
 
-			for i, m in enumerate(self.state.history.messages):
-				try:
-					total_input_tokens += m.metadata.tokens
-					is_last_message = i == len(self.state.history.messages) - 1
+		# try:
+		# 	total_input_tokens = 0
+		# 	message_lines = []
+		# 	terminal_width = shutil.get_terminal_size((80, 20)).columns
 
-					# Extract content for logging
-					content = _log_extract_message_content(m.message, is_last_message, m.metadata)
+		# 	for i, m in enumerate(self.state.history.messages):
+		# 		try:
+		# 			total_input_tokens += m.metadata.tokens
+		# 			is_last_message = i == len(self.state.history.messages) - 1
 
-					# Format the message line(s)
-					lines = _log_format_message_line(m, content, is_last_message, terminal_width)
-					message_lines.extend(lines)
-				except Exception as e:
-					logger.warning(f'Failed to format message {i} for logging: {e}')
-					# Add a fallback line for this message
-					message_lines.append('❓[   ?]: [Error formatting this message]')
+		# 			# Extract content for logging
+		# 			content = _log_extract_message_content(m.message, is_last_message, m.metadata)
 
-			# Build final log message
-			return (
-				f'📜 LLM Message history ({len(self.state.history.messages)} messages, {total_input_tokens} tokens):\n'
-				+ '\n'.join(message_lines)
-			)
-		except Exception as e:
-			logger.warning(f'Failed to generate history log: {e}')
-			# Return a minimal fallback message
-			return f'📜 LLM Message history (error generating log: {e})'
+		# 			# Format the message line(s)
+		# 			lines = _log_format_message_line(m, content, is_last_message, terminal_width)
+		# 			message_lines.extend(lines)
+		# 		except Exception as e:
+		# 			logger.warning(f'Failed to format message {i} for logging: {e}')
+		# 			# Add a fallback line for this message
+		# 			message_lines.append('❓[   ?]: [Error formatting this message]')
+
+		# 	# Build final log message
+		# 	return (
+		# 		f'📜 LLM Message history ({len(self.state.history.messages)} messages, {total_input_tokens} tokens):\n'
+		# 		+ '\n'.join(message_lines)
+		# 	)
+		# except Exception as e:
+		# 	logger.warning(f'Failed to generate history log: {e}')
+		# 	# Return a minimal fallback message
+		# 	return f'📜 LLM Message history (error generating log: {e})'
+
+		return ''
 
 	@time_execution_sync('--get_messages')
 	def get_messages(self) -> list[BaseMessage]:
 		"""Get current message list, potentially trimmed to max tokens"""
-		msg = [m.message for m in self.state.history.messages]
 
 		# Log message history for debugging
 		logger.debug(self._log_history_lines())
 
-		return msg
+		return [m.message for m in self.state.history.messages]
 
 	def _add_message_with_tokens(
 		self, message: BaseMessage, position: int | None = None, message_type: str | None = None
@@ -576,73 +475,14 @@ Step goal: {model_output.current_state.next_goal}
 				elif isinstance(item, dict) and 'text' in item:
 					tokens += self._count_text_tokens(item['text'])
 		else:
-			msg = message.content
-			if hasattr(message, 'tool_calls'):
-				msg += str(message.tool_calls)  # type: ignore
-			tokens += self._count_text_tokens(msg)
+			tokens += self._count_text_tokens(message.text)
 		return tokens
 
 	def _count_text_tokens(self, text: str) -> int:
 		"""Count tokens in a text string"""
+		# TODO: fix the token count
 		tokens = len(text) // self.settings.estimated_characters_per_token  # Rough estimate if no tokenizer available
 		return tokens
-
-	def cut_messages(self):
-		"""Get current message list, potentially trimmed to max tokens"""
-		diff = self.state.history.current_tokens - self.settings.max_input_tokens
-		if diff <= 0:
-			return None
-
-		msg = self.state.history.messages[-1]
-
-		# if list with image remove image
-		if isinstance(msg.message.content, list):
-			text = ''
-			for item in msg.message.content:
-				if 'image_url' in item:
-					msg.message.content.remove(item)
-					diff -= self.settings.image_tokens
-					msg.metadata.tokens -= self.settings.image_tokens
-					self.state.history.current_tokens -= self.settings.image_tokens
-					logger.debug(
-						f'Removed image with {self.settings.image_tokens} tokens - total tokens now: {self.state.history.current_tokens}/{self.settings.max_input_tokens}'
-					)
-				elif 'text' in item and isinstance(item, dict):
-					text += item['text']
-			msg.message.content = text
-			self.state.history.messages[-1] = msg
-
-		if diff <= 0:
-			return None
-
-		# if still over, remove text from state message proportionally to the number of tokens needed with buffer
-		# Calculate the proportion of content to remove
-		proportion_to_remove = diff / msg.metadata.tokens
-		if proportion_to_remove > 0.99:
-			raise ValueError(
-				f'Max token limit reached - history is too long - reduce the system prompt or task. '
-				f'proportion_to_remove: {proportion_to_remove}'
-			)
-		logger.debug(
-			f'Removing {proportion_to_remove * 100:.2f}% of the last message  {proportion_to_remove * msg.metadata.tokens:.2f} / {msg.metadata.tokens:.2f} tokens)'
-		)
-
-		content = msg.message.content
-		characters_to_remove = int(len(content) * proportion_to_remove)
-		content = content[:-characters_to_remove]
-
-		# remove tokens and old long message
-		self.state.history.remove_last_state_message()
-
-		# new message with updated content
-		msg = HumanMessage(content=content)
-		self._add_message_with_tokens(msg)
-
-		last_msg = self.state.history.messages[-1]
-
-		logger.debug(
-			f'Added message with {last_msg.metadata.tokens} tokens - total tokens now: {self.state.history.current_tokens}/{self.settings.max_input_tokens} - total messages: {len(self.state.history.messages)}'
-		)
 
 	def _remove_last_state_message(self) -> None:
 		"""Remove last state message from history"""
@@ -650,6 +490,6 @@ Step goal: {model_output.current_state.next_goal}
 
 	def add_tool_message(self, content: str, message_type: str | None = None) -> None:
 		"""Add tool message to history"""
-		msg = ToolMessage(content=content, tool_call_id=str(self.state.tool_id))
+		msg = UserMessage(content=content)
 		self.state.tool_id += 1
 		self._add_message_with_tokens(msg, message_type=message_type)

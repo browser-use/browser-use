@@ -188,7 +188,11 @@ Interactive elements from top layer of the current page inside the viewport{trun
 					{'type': 'text', 'text': state_description},
 					{
 						'type': 'image_url',
-						'image_url': {'url': f'data:image/png;base64,{self.browser_state.screenshot}'},  # , 'detail': 'low'
+						'image_url': {
+							'url': f'data:image/png;base64,{self.browser_state.screenshot}',
+							'media_type': 'image/png',
+							'detail': 'auto',
+						},
 					},
 				]
 			)

@@ -30,17 +30,16 @@ load_dotenv()
 
 # from lmnr.sdk.decorators import observe
 from bubus import EventBus
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 from uuid_extensions import uuid7str
 
 from browser_use.agent.gif import create_history_gif
 from browser_use.agent.memory import Memory, MemoryConfig
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
 from browser_use.agent.message_manager.utils import (
-	convert_input_messages,
 	save_conversation,
 )
-from browser_use.agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
+from browser_use.agent.prompts import PlannerPrompt, SystemPrompt
 from browser_use.agent.views import (
 	ActionResult,
 	AgentError,
@@ -52,7 +51,6 @@ from browser_use.agent.views import (
 	AgentStepInfo,
 	BrowserStateHistory,
 	StepMetadata,
-	ToolCallingMethod,
 )
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
@@ -163,7 +161,6 @@ class Agent(Generic[Context]):
 			'aria-checked',
 		],
 		max_actions_per_step: int = 1,
-		tool_calling_method: ToolCallingMethod | None = 'auto',
 		page_extraction_llm: BaseChatModel | None = None,
 		planner_llm: BaseChatModel | None = None,
 		planner_interval: int = 1,  # Run planner every N steps
@@ -209,7 +206,6 @@ class Agent(Generic[Context]):
 			available_file_paths=available_file_paths,
 			include_attributes=include_attributes,
 			max_actions_per_step=max_actions_per_step,
-			tool_calling_method=tool_calling_method,
 			page_extraction_llm=page_extraction_llm,
 			planner_llm=planner_llm,
 			planner_interval=planner_interval,
@@ -232,39 +228,35 @@ class Agent(Generic[Context]):
 		self._set_browser_use_version_and_source(source)
 		self.initial_actions = self._convert_initial_actions(initial_actions) if initial_actions else None
 
-		# Model setup
-		self._set_model_names()
-
 		# Verify we can connect to the LLM and setup the tool calling method
 		self._verify_and_setup_llm()
 
+		# TODO: move this logic to the LLMs
 		# Handle users trying to use use_vision=True with DeepSeek models
-		if 'deepseek' in self.model_name.lower():
+		if 'deepseek' in self.llm.model.lower():
 			self.logger.warning('⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
-		if 'deepseek' in (self.planner_model_name or '').lower():
+		if self.settings.planner_llm and 'deepseek' in (self.settings.planner_llm.model or '').lower():
 			self.logger.warning(
 				'⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision_for_planner=False for now...'
 			)
 			self.settings.use_vision_for_planner = False
 		# Handle users trying to use use_vision=True with XAI models
-		if 'grok' in self.model_name.lower():
+		if 'grok' in self.llm.model.lower():
 			self.logger.warning('⚠️ XAI models do not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
-		if 'grok' in (self.planner_model_name or '').lower():
+		if self.settings.planner_llm and 'grok' in (self.settings.planner_llm.model or '').lower():
 			self.logger.warning(
 				'⚠️ XAI models do not support use_vision=True yet. Setting use_vision_for_planner=False for now...'
 			)
 			self.settings.use_vision_for_planner = False
 
 		self.logger.info(
-			f'🧠 Starting a browser-use agent {self.version} with base_model={self.model_name}'
-			f'{" +tools" if self.tool_calling_method == "function_calling" else ""}'
-			f'{" +rawtools" if self.tool_calling_method == "raw" else ""}'
+			f'🧠 Starting a browser-use agent {self.version} with base_model={self.llm.model}'
 			f'{" +vision" if self.settings.use_vision else ""}'
 			f'{" +memory" if self.enable_memory else ""}'
-			f' extraction_model={getattr(self.settings.page_extraction_llm, "model_name", None)}'
-			f'{f" planner_model={self.planner_model_name}" if self.planner_model_name else ""}'
+			f' extraction_model={self.settings.page_extraction_llm.model if self.settings.page_extraction_llm else "Unknown"}'
+			f'{f" planner_model={self.settings.planner_llm.model}" if self.settings.planner_llm else ""}'
 			f'{" +reasoning" if self.settings.is_planner_reasoning else ""}'
 			f'{" +vision" if self.settings.use_vision_for_planner else ""} '
 			f'{" +file_system" if self.file_system else ""}'
@@ -273,8 +265,6 @@ class Agent(Generic[Context]):
 		# Initialize available actions for system prompt (only non-filtered actions)
 		# These will be used for the system prompt to maintain caching
 		self.unfiltered_actions = self.controller.registry.get_prompt_description()
-
-		self.settings.message_context = self._set_message_context()
 
 		# Initialize message manager with state
 		# Initial system prompt with all actions - will be updated during each step
@@ -492,6 +482,8 @@ class Agent(Generic[Context]):
 
 		logger.info(f'💾 File system path: {self.file_system_path}')
 
+		# TODO: move this logic to special registries -> we have methods to combine controllers
+
 		# if file system is set, add actions to the controller
 		@self.controller.registry.action('Write content to file_name in file system, use only .md or .txt extensions.')
 		async def write_file(file_name: str, content: str):
@@ -522,15 +514,6 @@ class Agent(Generic[Context]):
 				include_extracted_content_only_once=True,
 			)
 
-	def _set_message_context(self) -> str | None:
-		if self.tool_calling_method == 'raw':
-			# For raw tool calling, only include actions with no filters initially
-			if self.settings.message_context:
-				self.settings.message_context += f'\n\nAvailable actions: {self.unfiltered_actions}'
-			else:
-				self.settings.message_context = f'Available actions: {self.unfiltered_actions}'
-		return self.settings.message_context
-
 	def _set_browser_use_version_and_source(self, source_override: str | None = None) -> None:
 		"""Get the version from pyproject.toml and determine the source of the browser-use package"""
 		# Use the helper function for version detection
@@ -554,25 +537,19 @@ class Agent(Generic[Context]):
 		self.version = version
 		self.source = source
 
-	def _set_model_names(self) -> None:
-		self.chat_model_library = self.llm.__class__.__name__
-		self.model_name = 'Unknown'
-		if hasattr(self.llm, 'model_name'):
-			model = self.llm.model_name  # type: ignore
-			self.model_name = model if model is not None else 'Unknown'
-		elif hasattr(self.llm, 'model'):
-			model = self.llm.model  # type: ignore
-			self.model_name = model if model is not None else 'Unknown'
+	# def _set_model_names(self) -> None:
+	# 	self.chat_model_library = self.llm.provider
+	# 	self.model_name = self.llm.model
 
-		if self.settings.planner_llm:
-			if hasattr(self.settings.planner_llm, 'model_name'):
-				self.planner_model_name = self.settings.planner_llm.model_name  # type: ignore
-			elif hasattr(self.settings.planner_llm, 'model'):
-				self.planner_model_name = self.settings.planner_llm.model  # type: ignore
-			else:
-				self.planner_model_name = 'Unknown'
-		else:
-			self.planner_model_name = None
+	# 	if self.settings.planner_llm:
+	# 		if hasattr(self.settings.planner_llm, 'model_name'):
+	# 			self.planner_model_name = self.settings.planner_llm.model_name  # type: ignore
+	# 		elif hasattr(self.settings.planner_llm, 'model'):
+	# 			self.planner_model_name = self.settings.planner_llm.model  # type: ignore
+	# 		else:
+	# 			self.planner_model_name = 'Unknown'
+	# 	else:
+	# 		self.planner_model_name = None
 
 	def _setup_action_models(self) -> None:
 		"""Setup dynamic action models from controller's registry"""
@@ -636,23 +613,6 @@ class Agent(Generic[Context]):
 			if page_filtered_actions:
 				page_action_message = f'For this page, these additional actions are available:\n{page_filtered_actions}'
 				self._message_manager._add_message_with_tokens(UserMessage(content=page_action_message))
-
-			# If using raw tool calling method, we need to update the message context with new actions
-			if self.tool_calling_method == 'raw':
-				# For raw tool calling, get all non-filtered actions plus the page-filtered ones
-				all_unfiltered_actions = self.controller.registry.get_prompt_description()
-				all_actions = all_unfiltered_actions
-				if page_filtered_actions:
-					all_actions += '\n' + page_filtered_actions
-
-				context_lines = (self._message_manager.settings.message_context or '').split('\n')
-				non_action_lines = [line for line in context_lines if not line.startswith('Available actions:')]
-				updated_context = '\n'.join(non_action_lines)
-				if updated_context:
-					updated_context += f'\n\nAvailable actions: {all_actions}'
-				else:
-					updated_context = f'Available actions: {all_actions}'
-				self._message_manager.settings.message_context = updated_context
 
 			self._message_manager.add_state_message(
 				browser_state_summary=browser_state_summary,
@@ -829,10 +789,12 @@ class Agent(Generic[Context]):
 				self.logger.info(
 					f'Cutting tokens from history - new max input tokens: {self._message_manager.settings.max_input_tokens}'
 				)
-				self._message_manager.cut_messages()
+
+				# no longer cutting messages, because we revamped the message manager
+				# self._message_manager.cut_messages()
 		elif 'Could not parse response' in error_msg or 'tool_use_failed' in error_msg:
 			# give model a hint how output should look like
-			logger.debug(f'Tool calling method: {self.tool_calling_method} with model: {self.model_name} failed')
+			logger.debug(f'Model: {self.llm.model} failed')
 			error_msg += '\n\nReturn a valid JSON object with the required fields.'
 			logger.error(f'{prefix}{error_msg}')
 
@@ -1015,7 +977,7 @@ class Agent(Generic[Context]):
 		term_width = shutil.get_terminal_size((80, 20)).columns
 		print('=' * term_width)
 		self.logger.info(
-			f'🧠 LLM call => {self.chat_model_library} [✉️ {message_count} msg, ~{current_tokens} tk, {total_chars} char{image_status}] {output_format}{tool_info}'
+			f'🧠 LLM call => {self.llm.provider}/{self.llm.model} [✉️ {message_count} msg, ~{current_tokens} tk, {total_chars} char{image_status}] {output_format}{tool_info}'
 		)
 
 	def _log_agent_event(self, max_steps: int, agent_run_error: str | None = None) -> None:
@@ -1042,9 +1004,9 @@ class Agent(Generic[Context]):
 		self.telemetry.capture(
 			AgentTelemetryEvent(
 				task=self.task,
-				model=self.model_name,
-				model_provider=self.chat_model_library,
-				planner_llm=self.planner_model_name,
+				model=self.llm.model,
+				model_provider=self.llm.provider,
+				planner_llm=self.settings.planner_llm.model if self.settings.planner_llm else None,
 				max_steps=max_steps,
 				max_actions_per_step=self.settings.max_actions_per_step,
 				use_vision=self.settings.use_vision,
@@ -1072,10 +1034,6 @@ class Agent(Generic[Context]):
 		await self.step()
 
 		if self.state.history.is_done():
-			if self.settings.validate_output:
-				if not await self._validate_output():
-					return True, False
-
 			await self.log_completion()
 			if self.register_done_callback:
 				if inspect.iscoroutinefunction(self.register_done_callback):
@@ -1169,10 +1127,6 @@ class Agent(Generic[Context]):
 					await on_step_end(self)
 
 				if self.state.history.is_done():
-					if self.settings.validate_output and step < max_steps - 1:
-						if not await self._validate_output():
-							continue
-
 					await self.log_completion()
 
 					# Task completed
@@ -1332,52 +1286,6 @@ class Agent(Generic[Context]):
 				raise InterruptedError('Action cancelled by user')
 
 		return results
-
-	async def _validate_output(self) -> bool:
-		"""Validate the output of the last action is what the user wanted"""
-		system_msg = (
-			f'You are a validator of an agent who interacts with a browser. '
-			f'Validate if the output of last action is what the user wanted and if the task is completed. '
-			f'If the task is unclear defined, you can let it pass. But if something is missing or the image does not show what was requested dont let it pass. '
-			f'Try to understand the page and help the model with suggestions like scroll, do x, ... to get the solution right. '
-			f'Task to validate: {self.task}. Return a JSON object with 2 keys: is_valid and reason. '
-			f'is_valid is a boolean that indicates if the output is correct. '
-			f'reason is a string that explains why it is valid or not.'
-			f' example: {{"is_valid": false, "reason": "The user wanted to search for "cat photos", but the agent searched for "dog photos" instead."}}'
-		)
-
-		if self.browser_context and self.browser_session:
-			browser_state_summary = await self.browser_session.get_state_summary(cache_clickable_elements_hashes=False)
-			assert browser_state_summary
-			content = AgentMessagePrompt(
-				browser_state_summary=browser_state_summary,
-				result=self.state.last_result,
-				include_attributes=self.settings.include_attributes,
-			)
-			msg = [SystemMessage(content=system_msg), content.get_user_message(self.settings.use_vision)]
-		else:
-			# if no browser session, we can't validate the output
-			return True
-
-		class ValidationResult(BaseModel):
-			"""
-			Validation results.
-			"""
-
-			is_valid: bool
-			reason: str
-
-		validator = self.llm.with_structured_output(ValidationResult, include_raw=True)
-		response: dict[str, Any] = await validator.ainvoke(msg)  # type: ignore
-		parsed: ValidationResult = response['parsed']
-		is_valid = parsed.is_valid
-		if not is_valid:
-			self.logger.info(f'❌ Validator decision: {parsed.reason}')
-			msg = f'The output is not yet correct. {parsed.reason}.'
-			self.state.last_result = [ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)]
-		else:
-			self.logger.info(f'✅ Validator decision: {parsed.reason}')
-		return is_valid
 
 	async def log_completion(self) -> None:
 		"""Log the completion of the task"""
@@ -1595,7 +1503,6 @@ class Agent(Generic[Context]):
 		Verify that the LLM API keys are setup and the LLM API is responding properly.
 		Also handles tool calling method detection if in auto mode.
 		"""
-		self.tool_calling_method = self._set_tool_calling_method()
 
 		# Skip verification if already done
 		if getattr(self.llm, '_verified_api_keys', None) is True or SKIP_LLM_API_KEY_VERIFICATION:
@@ -1631,7 +1538,7 @@ class Agent(Generic[Context]):
 		]
 
 		if not self.settings.use_vision_for_planner and self.settings.use_vision:
-			last_state_message: HumanMessage = planner_messages[-1]
+			last_state_message: UserMessage = planner_messages[-1]
 			# remove image from last state message
 			new_msg = ''
 			if isinstance(last_state_message.content, list):
@@ -1643,9 +1550,7 @@ class Agent(Generic[Context]):
 			else:
 				new_msg = last_state_message.content
 
-			planner_messages[-1] = HumanMessage(content=new_msg)
-
-		planner_messages = convert_input_messages(planner_messages, self.planner_model_name)
+			planner_messages[-1] = UserMessage(content=new_msg)
 
 		# Get planner output
 		try:
@@ -1657,10 +1562,10 @@ class Agent(Generic[Context]):
 			error_msg = f'Planner LLM API call failed: {type(e).__name__}: {str(e)}'
 			raise LLMException(status_code, error_msg) from e
 
-		plan = str(response.content)
+		plan = response
 		# if deepseek-reasoner, remove think tags
-		if self.planner_model_name and (
-			'deepseek-r1' in self.planner_model_name or 'deepseek-reasoner' in self.planner_model_name
+		if self.settings.planner_llm and (
+			'deepseek-r1' in self.settings.planner_llm.model or 'deepseek-reasoner' in self.settings.planner_llm.model
 		):
 			plan = self._remove_think_tags(plan)
 		try:

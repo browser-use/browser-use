@@ -170,3 +170,7 @@ class OpenAIMessageSerializer:
 
 		else:
 			raise ValueError(f'Unknown message type: {type(message)}')
+
+	@staticmethod
+	def serialize_messages(messages: list[BaseMessage]) -> list[ChatCompletionMessageParam]:
+		return [OpenAIMessageSerializer.serialize(m) for m in messages]
