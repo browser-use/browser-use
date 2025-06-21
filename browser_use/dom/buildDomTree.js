@@ -957,7 +957,7 @@
       return true;
     }
 
-    const rects = element.getClientRects(); // Use getClientRects
+    const rects = getCachedClientRects(element); // Use cached client rects
 
     if (!rects || rects.length === 0) {
       // Fallback to getBoundingClientRect if getClientRects is empty,
