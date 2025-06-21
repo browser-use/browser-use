@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 
-async def run_server(host: str, port: int, debug: bool) -> None:
+async def run_server(host: str, port: int, debug: bool, user_data_dir: str | None = None) -> None:
 	"""Run the Browser Action Server"""
 	
 	# Set up logging
@@ -31,7 +31,7 @@ async def run_server(host: str, port: int, debug: bool) -> None:
 	try:
 		from browser_use.action_server.service import BrowserActionServer
 		
-		server = BrowserActionServer(host=host, port=port, debug=debug)
+		server = BrowserActionServer(host=host, port=port, debug=debug, user_data_dir=user_data_dir)
 		
 		# Set up signal handlers for graceful shutdown
 		shutdown_event = asyncio.Event()
@@ -69,6 +69,7 @@ def main():
 	parser.add_argument('--host', default='127.0.0.1', help='Server host (default: 127.0.0.1)')
 	parser.add_argument('--port', type=int, default=8766, help='Server port (default: 8766)')
 	parser.add_argument('--debug', action='store_true', help='Enable debug logging')
+	parser.add_argument('--user-data-dir', help='Browser user data directory for persistent sessions')
 	
 	args = parser.parse_args()
 	
@@ -85,7 +86,7 @@ def main():
 	
 	# Run server
 	try:
-		asyncio.run(run_server(args.host, args.port, args.debug))
+		asyncio.run(run_server(args.host, args.port, args.debug, args.user_data_dir))
 	except KeyboardInterrupt:
 		print('\n✅ Server stopped')
 
