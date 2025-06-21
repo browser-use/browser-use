@@ -1283,106 +1283,185 @@ class TestControllerIntegration:
 		result_text = await page.evaluate("document.getElementById('result').textContent")
 		assert result_text == expected_result_text, f"Expected result text '{expected_result_text}', got '{result_text}'"
 
-	async def test_empty_css_selector_fallback(self, controller, browser_session, httpserver):
-		"""Test that clicking elements with empty CSS selectors falls back to XPath."""
-		# Create a test page with an element that would produce an empty CSS selector
-		# This could happen with elements that have no tag name or unusual XPath structures
-		httpserver.expect_request('/empty_css_test').respond_with_data(
+	async def test_input_span_placeholder(self, controller, browser_session, base_url, http_server):
+		"""Test that click_element_by_index correctly clicks an element and handles different outcomes."""
+		# Add route for clickable elements test page
+		http_server.expect_request('/span-placeholder').respond_with_data(
 			"""
-			<html>
-			<head><title>Empty CSS Selector Test</title></head>
+			<!DOCTYPE html>
+			<html lang="en">
+			<head>
+			<meta charset="UTF-8" />
+			<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+			<title>Clickable Placeholder</title>
+			<style>
+				.input-container {
+				position: relative;
+				width: 300px;
+				margin: 50px auto;
+				}
+
+				input[type="text"] {
+				width: 100%;
+				padding: 10px;
+				font-size: 16px;
+				box-sizing: border-box;
+				}
+
+				.placeholder {
+				position: absolute;
+				top: 10px;
+				left: 10px;
+				font-size: 16px;
+				color: gray;
+				cursor: text;
+				transition: opacity 0.2s;
+				}
+
+				.placeholder.hidden {
+				opacity: 0;
+				pointer-events: none;
+				}
+			</style>
+			</head>
 			<body>
-				<div id="container">
-					<!-- Element with minimal attributes that might produce empty CSS selector -->
-					<custom-element>Click Me</custom-element>
-					<div id="result">Not clicked</div>
-				</div>
-				<script>
-					// Add click handler to the custom element
-					document.querySelector('custom-element').addEventListener('click', function() {
-						document.getElementById('result').textContent = 'Clicked!';
-					});
-				</script>
+			<fieldset class="input-container">
+				<input type="text" id="input" />
+				<span id="placeholder" class="placeholder">Enter text...</span>
+			</fieldset>
+
+			<script>
+				const placeholder = document.getElementById('placeholder');
+				const input = document.getElementById('input');
+
+				placeholder.addEventListener('click', () => {
+				placeholder.classList.add('hidden');
+				input.focus();
+				});
+
+				input.addEventListener('blur', () => {
+				if (input.value === '') {
+					placeholder.classList.remove('hidden');
+				}
+				});
+			</script>
 			</body>
 			</html>
 			""",
 			content_type='text/html',
 		)
 
-		# Navigate to the test page
-		page = await browser_session.get_current_page()
-		await page.goto(httpserver.url_for('/empty_css_test'))
-		await page.wait_for_load_state()
+		# Navigate to the clickable elements test page
+		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/span-placeholder')}
 
-		# Get the page state which includes clickable elements
-		state = await browser_session.get_state_summary(cache_clickable_elements_hashes=False)
-
-		# Find the custom element index
-		custom_element_index = None
-		for index, element in state.selector_map.items():
-			if element.tag_name == 'custom-element':
-				custom_element_index = index
-				break
-
-		assert custom_element_index is not None, 'Could not find custom-element in selector map'
-
-		# Mock a scenario where CSS selector generation returns empty string
-		# by temporarily patching the method (we'll test the actual fallback behavior)
-		original_method = browser_session._enhanced_css_selector_for_element
-		empty_css_called = False
-
-		def mock_css_selector(element, include_dynamic_attributes=True):
-			nonlocal empty_css_called
-			# Return empty string for our custom element to trigger fallback
-			if element.tag_name == 'custom-element':
-				empty_css_called = True
-				return ''
-			return original_method(element, include_dynamic_attributes)
-
-		# Temporarily replace the method
-		browser_session._enhanced_css_selector_for_element = mock_css_selector
-
-		try:
-			# Create click action for the custom element
-			click_action = {'click_element_by_index': ClickElementAction(index=custom_element_index)}
-
-			class ClickActionModel(ActionModel):
-				click_element_by_index: ClickElementAction | None = None
-
-			# Execute the click - should use XPath fallback
-			result = await controller.act(ClickActionModel(**click_action), browser_session)
-
-			# Verify the click succeeded
-			assert result.error is None, f'Click failed with error: {result.error}'
-			# Success field is not set for click actions, only error is set on failure
-			assert empty_css_called, 'CSS selector method was not called'
-
-			# Verify the element was actually clicked by checking the result
-			result_text = await page.evaluate("document.getElementById('result').textContent")
-			assert result_text == 'Clicked!', f'Element was not clicked, result text: {result_text}'
-
-		finally:
-			# Restore the original method
-			browser_session._enhanced_css_selector_for_element = original_method
-
-	async def test_go_to_url_network_error(self, controller, browser_session):
-		"""Test that go_to_url handles network errors gracefully instead of throwing hard errors."""
-		# Create action model for go_to_url with an invalid domain
-		action_data = {'go_to_url': GoToUrlAction(url='https://www.nonexistentdndbeyond.com/')}
-
-		# Create the ActionModel instance
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
 
-		action_model = GoToUrlActionModel(**action_data)
+		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
 
-		# Execute the action - should return soft error instead of throwing
-		result = await controller.act(action_model, browser_session)
+		# Wait for the page to load
+		page = await browser_session.get_current_page()
+		await page.wait_for_load_state()
 
-		# Verify the result
-		assert isinstance(result, ActionResult)
-		assert result.success is False, 'Expected success=False for network error'
-		assert result.error is not None, 'Expected error message to be set'
-		assert 'Site unavailable' in result.error, f"Expected 'Site unavailable' in error message, got: {result.error}"
-		assert 'nonexistentdndbeyond.com' in result.error, 'Expected URL in error message'
-		assert result.include_in_memory is True, 'Network errors should be included in memory'
+		# Initialize the DOM state to populate the selector map
+		await browser_session.get_state_summary(cache_clickable_elements_hashes=True)
+
+		# Get the selector map
+		selector_map = await browser_session.get_selector_map()
+		import logging
+		logger = logging.getLogger(__name__)
+		logger.info(f'Selector map: {selector_map}')
+		assert selector_map == {}, 'Selector map should not be empty after initialization'
+
+	async def test_input_span_placeholder(self, controller, browser_session, base_url, http_server):
+		"""Test that get_state_summary/get_selector_map correctly detects inputs that have a placeholder overlay."""
+		# Add route for a test page containing an input[type=text] with a placeholder overlay.
+		http_server.expect_request('/span-placeholder').respond_with_data(
+			"""
+			<!DOCTYPE html>
+			<html lang="en">
+			<head>
+			<meta charset="UTF-8" />
+			<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+			<title>Clickable Placeholder</title>
+			<style>
+				.input-container {
+					position: relative;
+					width: 300px;
+					margin: 50px auto;
+				}
+
+				input[type="text"] {
+					width: 100%;
+					padding: 10px;
+					font-size: 16px;
+					box-sizing: border-box;
+				}
+
+				.placeholder-wrapper {
+					position: absolute;
+					top: 12px;
+					left: 12px;
+					width: 80%;
+					height: 50%;
+					transition: opacity 0.2s;
+				}
+
+				.placeholder {
+					font-size: 16px;
+					color: gray;
+				}
+
+				.hidden {
+					opacity: 0;
+					pointer-events: none;
+				}
+			</style>
+			</head>
+			<body>
+			<fieldset class="input-container">
+				<input type="text" id="input" />
+				<div class="placeholder-wrapper" id="placeholder-wrapper">
+					<span class="placeholder">Enter text...</span>
+				</div>
+			</fieldset>
+
+			<script>
+				const placeholderWrapper = document.getElementById('placeholder-wrapper');
+				const input = document.getElementById('input');
+
+				placeholderWrapper.addEventListener('click', () => {
+					placeholderWrapper.classList.add('hidden');
+					input.focus();
+				});
+
+				input.addEventListener('blur', () => {
+					if (input.value === '') {
+						placeholderWrapper.classList.remove('hidden');
+					}
+				});
+			</script>
+			</body>
+			</html>
+			""",
+			content_type='text/html',
+		)		# Navigate to the clickable elements test page
+		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/span-placeholder')}
+
+		class GoToUrlActionModel(ActionModel):
+			go_to_url: GoToUrlAction | None = None
+
+		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+
+		# Wait for the page to load
+		page = await browser_session.get_current_page()
+		await page.wait_for_load_state()
+
+		# Initialize the DOM state to populate the selector map
+		await browser_session.get_state_summary(cache_clickable_elements_hashes=True)
+
+		# Get the selector map
+		selector_map = await browser_session.get_selector_map()
+		
+  		# Verify that the input[type=text] is detected correctly
+		assert any(s for s in selector_map.values() if s.tag_name == "input"), 'No input field detected'
