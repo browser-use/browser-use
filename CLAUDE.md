@@ -55,3 +55,67 @@ When doing any truly massive refactors, trend towards using simple event buses a
 
 If you struggle to update or edit files in-place, try shortening your match string to 1 or 2 lines instead of 3.
 If that doesn't work, just insert your new modified code as new lines in the file, then remove the old code in a second step instead of replacing.
+
+## Claude Code Integration
+
+This repository includes a Claude Code integration feature:
+
+### Browser Action Server
+Allows Claude Code sessions to directly control browsers through individual HTTP commands.
+
+**Purpose**: Enable Claude Code to perform browser automation directly from chat sessions without blocking the terminal.
+
+**Architecture**: 
+```
+Claude Code (chat) → HTTP POST → Browser Action Server → Playwright → HTTP Response → Claude Code
+```
+
+**Key Requirements**:
+- **Non-blocking terminal usage** - Claude Code can only have one active terminal session
+- **Individual action commands** - Each HTTP request performs one browser action and returns immediately  
+- **Real-time feedback** - Claude Code gets response after each action to decide next step
+- **Session persistence** - Browser state maintained across multiple action requests
+- **Background operation** - Server runs independently, doesn't block Claude Code's terminal
+
+**Usage Pattern**:
+```python
+# In Claude Code chat:
+import httpx
+response = httpx.post("http://localhost:8766/navigate", json={"url": "amazon.com"})
+print(response.json())  # {"success": true, "title": "Amazon", "url": "https://amazon.com"}
+
+# Terminal is immediately free for next command
+response = httpx.post("http://localhost:8766/click", json={"selector": "#search-box"})
+print(response.json())  # {"success": true, "element": "input#search-box"}
+```
+
+**API Endpoints**:
+- `POST /navigate` - Navigate to URL
+- `POST /click` - Click element by selector
+- `POST /type` - Type text into element
+- `POST /scroll` - Scroll page
+- `GET /screenshot` - Take screenshot
+- `GET /status` - Get current page state
+- `GET /html` - Get page HTML
+- `POST /wait` - Wait for element/condition
+
+**Implementation Location**: `browser_use/action_server/`
+
+**Status**: ✅ Complete - fully functional action server with comprehensive testing
+
+**CLI Tool**: `./browser-action` - Simple command-line interface for quick browser actions
+
+**CLI Usage**:
+```bash
+./browser-action server start                    # Start server
+./browser-action navigate https://example.com   # Navigate
+./browser-action click "#button"                # Click element  
+./browser-action type "#input" "text"           # Type text
+./browser-action screenshot                      # Take screenshot
+./browser-action status                          # Get page info
+```
+
+When working on Claude Code integration features:
+- Each feature must be complete and tested before proceeding to the next
+- Maintain backward compatibility with existing functionality
+- Test integration thoroughly with real browser automation scenarios

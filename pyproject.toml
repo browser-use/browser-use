@@ -12,6 +12,7 @@ classifiers = [
 ]
 dependencies = [
     "aiofiles>=24.1.0",
+    "aiohttp>=3.10.0",
     "anyio>=4.9.0",
     "bubus>=1.1.0",
     "faiss-cpu>=1.11.0",
