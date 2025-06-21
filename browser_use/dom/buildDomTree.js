@@ -784,6 +784,11 @@
     if (element.getAttribute("contenteditable") === "true" || element.isContentEditable) {
       return true;
     }
+
+    // Check for draggable attribute  
+    if (element.getAttribute('draggable') === 'true') {
+		  return true;
+	  }
     
     // Added enhancement to capture dropdown interactive elements
     if (element.classList && (
@@ -839,7 +844,7 @@
       const getEventListenersForNode = window.getEventListenersForNode;
       if (typeof getEventListenersForNode === 'function') {
         const listeners = getEventListenersForNode(element);
-          const interactionEvents = ['click', 'mousedown', 'mouseup', 'keydown', 'keyup', 'submit', 'change', 'input', 'focus', 'blur'];
+          const interactionEvents = ['click', 'mousedown', 'mouseup', 'keydown', 'keyup', 'submit', 'change', 'input', 'focus', 'blur', 'dragstart', 'dragend', 'dragover', 'drop'];
           for (const eventType of interactionEvents) {
             for (const listener of listeners) {
               if (listener.type === eventType) {
@@ -849,12 +854,12 @@
           }
       }
       // Fallback: Check common event attributes if getEventListeners is not available (getEventListeners doesn't work in page.evaluate context)
-        const commonMouseAttrs = ['onclick', 'onmousedown', 'onmouseup', 'ondblclick'];
-        for (const attr of commonMouseAttrs) {
-          if (element.hasAttribute(attr) || typeof element[attr] === 'function') {
-            return true;
-          }
+      const commonMouseAttrs = ['onclick', 'onmousedown', 'onmouseup', 'ondblclick', 'ondragstart', 'ondragend', 'ondragover', 'ondrop'];
+      for (const attr of commonMouseAttrs) {
+        if (element.hasAttribute(attr) || typeof element[attr] === 'function') {
+          return true;
         }
+      }
     } catch (e) {
       // console.warn(`Could not check event listeners for ${element.tagName}:`, e);
       // If checking listeners fails, rely on other checks
@@ -1126,13 +1131,17 @@
     if (element.hasAttribute('onclick') || typeof element.onclick === 'function') {
       return true;
     }
+    // Check for draggable attribute  
+    if (element.getAttribute('draggable') === 'true') {
+		  return true;
+	  }
     
     // Check for other common interaction event listeners
     try {
       const getEventListenersForNode = window.getEventListenersForNode;
       if (typeof getEventListenersForNode === 'function') {
         const listeners = getEventListenersForNode(element);
-        const interactionEvents = ['click', 'mousedown', 'mouseup', 'keydown', 'keyup', 'submit', 'change', 'input', 'focus', 'blur'];
+        const interactionEvents = ['click', 'mousedown', 'mouseup', 'keydown', 'keyup', 'submit', 'change', 'input', 'focus', 'blur', 'dragstart', 'dragend', 'dragover', 'drop'];
         for (const eventType of interactionEvents) {
           for (const listener of listeners) {
             if (listener.type === eventType) {
@@ -1142,10 +1151,10 @@
         }
       }
       // Fallback: Check common event attributes if getEventListeners is not available (getEventListenersForNode doesn't work in page.evaluate context)
-        const commonEventAttrs = ['onmousedown', 'onmouseup', 'onkeydown', 'onkeyup', 'onsubmit', 'onchange', 'oninput', 'onfocus', 'onblur'];
-        if (commonEventAttrs.some(attr => element.hasAttribute(attr))) {
-          return true;
-        }
+      const commonEventAttrs = ['onmousedown', 'onmouseup', 'onkeydown', 'onkeyup', 'onsubmit', 'onchange', 'oninput', 'onfocus', 'onblur', 'ondragstart', 'ondragend', 'ondragover', 'ondrop'];
+      if (commonEventAttrs.some(attr => element.hasAttribute(attr))) {
+        return true;
+      }
     } catch (e) {
       // console.warn(`Could not check event listeners for ${element.tagName}:`, e);
       // If checking listeners fails, rely on other checks
