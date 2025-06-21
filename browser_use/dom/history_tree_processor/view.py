@@ -31,8 +31,8 @@ class CoordinateSet(BaseModel):
 
 
 class ViewportInfo(BaseModel):
-	scroll_x: int
-	scroll_y: int
+	scroll_x: int | None = None
+	scroll_y: int | None = None
 	width: int
 	height: int
 

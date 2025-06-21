@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from amazoncaptcha import AmazonCaptcha
+from amazoncaptcha import AmazonCaptcha  # type: ignore
 from langchain_openai import ChatOpenAI
 
 from browser_use import ActionResult

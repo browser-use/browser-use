@@ -1,11 +1,11 @@
 import logging
-from dataclasses import dataclass
 from importlib import resources
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
-	from playwright.async_api import Page
+	from browser_use.browser.types import Page
+
 
 from browser_use.dom.views import (
 	DOMBaseNode,
@@ -13,22 +13,23 @@ from browser_use.dom.views import (
 	DOMState,
 	DOMTextNode,
 	SelectorMap,
+	ViewportInfo,
 )
 from browser_use.utils import time_execution_async
 
-logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ViewportInfo:
-	width: int
-	height: int
+# @dataclass
+# class ViewportInfo:
+# 	width: int
+# 	height: int
 
 
 class DomService:
-	def __init__(self, page: 'Page'):
+	logger: logging.Logger
+
+	def __init__(self, page: 'Page', logger: logging.Logger | None = None):
 		self.page = page
 		self.xpath_cache = {}
+		self.logger = logger or logging.getLogger(__name__)
 
 		self.js_code = resources.files('browser_use.dom').joinpath('buildDomTree.js').read_text()
 
@@ -88,7 +89,7 @@ class DomService:
 		# NOTE: We execute JS code in the browser to extract important DOM information.
 		#       The returned hash map contains information about the DOM tree and the
 		#       relationship between the DOM elements.
-		debug_mode = logger.getEffectiveLevel() == logging.DEBUG
+		debug_mode = self.logger.getEffectiveLevel() == logging.DEBUG
 		args = {
 			'doHighlightElements': highlight_elements,
 			'focusHighlightIndex': focus_element,
@@ -99,7 +100,7 @@ class DomService:
 		try:
 			eval_page: dict = await self.page.evaluate(self.js_code, args)
 		except Exception as e:
-			logger.error('Error evaluating JavaScript: %s', e)
+			self.logger.error('Error evaluating JavaScript: %s', e)
 			raise
 
 		# Only log performance metrics in debug mode
@@ -119,8 +120,8 @@ class DomService:
 
 			# Create concise summary
 			url_short = self.page.url[:50] + '...' if len(self.page.url) > 50 else self.page.url
-			logger.debug(
-				'🔎 Ran buildDOMTree.js interactive element detection on: %s interactive=%d/%d',
+			self.logger.debug(
+				'🔎 Ran buildDOMTree.js interactive element detection on: %s interactive=%d/%d\n',
 				url_short,
 				interactive_count,
 				total_nodes,

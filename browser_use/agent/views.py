@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from openai import RateLimitError
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model, model_validator
 from uuid_extensions import uuid7str
 
 from browser_use.agent.message_manager.views import MessageManagerState
@@ -39,7 +39,7 @@ class AgentSettings(BaseModel):
 
 	use_vision: bool = True
 	use_vision_for_planner: bool = False
-	save_conversation_path: str | None = None
+	save_conversation_path: str | Path | None = None
 	save_conversation_path_encoding: str | None = 'utf-8'
 	max_failures: int = 3
 	retry_delay: int = 10
@@ -81,6 +81,7 @@ class AgentState(BaseModel):
 	last_result: list[ActionResult] | None = None
 	history: AgentHistoryList = Field(default_factory=lambda: AgentHistoryList(history=[]))
 	last_plan: str | None = None
+	last_model_output: AgentOutput | None = None
 	paused: bool = False
 	stopped: bool = False
 
@@ -103,11 +104,37 @@ class AgentStepInfo:
 class ActionResult(BaseModel):
 	"""Result of executing an action"""
 
+	# For done action
 	is_done: bool | None = False
 	success: bool | None = None
-	extracted_content: str | None = None
+
+	# Error handling - always include in long term memory
 	error: str | None = None
-	include_in_memory: bool = False  # whether to include in past messages as context or not
+
+	# Files
+	attachments: list[str] | None = None  # Files to display in the done message
+
+	# Always include in long term memory
+	long_term_memory: str | None = None  # Memory of this action
+
+	# if update_only_read_state is True we add the extracted_content to the agent context only once for the next step
+	# if update_only_read_state is False we add the extracted_content to the agent long term memory if no long_term_memory is provided
+	extracted_content: str | None = None
+	include_extracted_content_only_once: bool = False  # Whether the extracted content should be used to update the read_state
+
+	# Deprecated
+	include_in_memory: bool = False  # whether to include in extracted_content inside long_term_memory
+
+	@model_validator(mode='after')
+	def validate_success_requires_done(self):
+		"""Ensure success=True can only be set when is_done=True"""
+		if self.success is True and self.is_done is not True:
+			raise ValueError(
+				'success=True can only be set when is_done=True. '
+				'For regular actions that succeed, leave success as None. '
+				'Use success=False only for actions that fail.'
+			)
+		return self
 
 
 class StepMetadata(BaseModel):
@@ -125,38 +152,34 @@ class StepMetadata(BaseModel):
 
 
 class AgentBrain(BaseModel):
-	"""Current internal working memory of the agent, we ask the LLM to decide new values for these on each output"""
-
+	thinking: str
 	evaluation_previous_goal: str
 	memory: str
 	next_goal: str
 
 
 class AgentOutput(BaseModel):
-	"""
-	Output model for LLM, i.e. what we are expecting in LLM structured output in response to our prompt.
-	{
-		current_state: AgentBrain({
-			evaluation_previous_goal: "we did ok, team",
-			memory: "filled in xyz into page, still need to do xyz...",
-			next_goal: "click on the link at index 127, then open that new tab"
-		}),
-		"action": [
-			ActionModel({action_name: "click_element_by_index", action_params: {index: 127}}),
-			ActionModel({action_name: "switch_to_tab", action_params: {page_id: 3}}),
-			... other multi-action steps ...
-		],
-	}
-	"""
-
 	model_config = ConfigDict(arbitrary_types_allowed=True)
 
-	current_state: AgentBrain
+	thinking: str
+	evaluation_previous_goal: str
+	memory: str
+	next_goal: str
 	action: list[ActionModel] = Field(
 		...,
 		description='List of actions to execute',
 		json_schema_extra={'min_items': 1},  # Ensure at least one action is provided
 	)
+
+	@property
+	def current_state(self) -> AgentBrain:
+		"""For backward compatibility - returns an AgentBrain with the flattened properties"""
+		return AgentBrain(
+			thinking=self.thinking,
+			evaluation_previous_goal=self.evaluation_previous_goal,
+			memory=self.memory,
+			next_goal=self.next_goal,
+		)
 
 	@staticmethod
 	def type_with_custom_actions(custom_actions: type[ActionModel]) -> type[AgentOutput]:
@@ -204,7 +227,10 @@ class AgentHistory(BaseModel):
 		if self.model_output:
 			action_dump = [action.model_dump(exclude_none=True) for action in self.model_output.action]
 			model_output_dump = {
-				'current_state': self.model_output.current_state.model_dump(),
+				'thinking': self.model_output.thinking,
+				'evaluation_previous_goal': self.model_output.evaluation_previous_goal,
+				'memory': self.model_output.memory,
+				'next_goal': self.model_output.next_goal,
 				'action': action_dump,  # This preserves the actual action data
 			}
 

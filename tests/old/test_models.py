@@ -12,6 +12,15 @@ from browser_use.agent.service import Agent
 from browser_use.agent.views import AgentHistoryList
 from browser_use.browser import BrowserProfile, BrowserSession
 
+# Set env vars for testing
+os.environ.setdefault('SKIP_LLM_API_KEY_VERIFICATION', 'true')
+os.environ.setdefault('AZURE_OPENAI_ENDPOINT', 'https://test.openai.azure.com')
+os.environ.setdefault('AZURE_OPENAI_KEY', 'test-key')
+os.environ.setdefault('ANTHROPIC_API_KEY', 'test-key')
+os.environ.setdefault('GOOGLE_API_KEY', 'test-key')
+os.environ.setdefault('DEEPSEEK_API_KEY', 'test-key')
+os.environ.setdefault('OPENAI_API_KEY', 'test-key')
+
 
 @pytest.fixture
 async def browser_session():

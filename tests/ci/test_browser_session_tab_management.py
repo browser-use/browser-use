@@ -8,6 +8,7 @@ from pytest_httpserver import HTTPServer
 load_dotenv()
 
 from browser_use.agent.views import ActionModel
+from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
 from browser_use.controller.service import Controller
 
@@ -50,9 +51,11 @@ def base_url(http_server):
 async def browser_session(base_url):
 	"""Create and provide a BrowserSession instance with a properly initialized tab."""
 	browser_session = BrowserSession(
-		user_data_dir=None,
-		headless=True,
-		keep_alive=True,
+		browser_profile=BrowserProfile(
+			user_data_dir=None,
+			headless=True,
+			keep_alive=True,
+		)
 	)
 	await browser_session.start()
 
@@ -110,8 +113,9 @@ class TestTabManagement:
 		browser_session.agent_current_page = None
 
 		# close all existing tabs
-		for page in browser_session.browser_context.pages:
-			await page.close()
+		if browser_session.browser_context:
+			for page in browser_session.browser_context.pages:  # type: ignore
+				await page.close()
 
 		await asyncio.sleep(0.5)
 

@@ -14,7 +14,7 @@ Run with: python browser_use/dom/tests/test_accessibility_playground.py
 
 import asyncio
 
-from playwright.async_api import async_playwright
+from browser_use.browser.types import async_playwright
 
 # Change this to any site you want to test
 

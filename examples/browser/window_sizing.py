@@ -53,12 +53,15 @@ async def example_custom_window_size():
 		actual_content_size = await page.evaluate("""() => ({width: window.innerWidth, height: window.innerHeight})""")
 
 		if profile.viewport:
-			expected_page_size = profile.viewport
+			expected_page_size = dict(profile.viewport)
 		elif profile.window_size:
 			expected_page_size = {
 				'width': profile.window_size['width'],
 				'height': profile.window_size['height'] - 87,
 			}  # 87px is the height of the navbar, title, rim ish
+		else:
+			# Default expected size if neither viewport nor window_size is set
+			expected_page_size = {'width': 800, 'height': 600}
 		_log_size = lambda size: f'{size["width"]}x{size["height"]}px'
 		print(f'Expected {_log_size(expected_page_size)} vs actual {_log_size(actual_content_size)}')
 
@@ -95,7 +98,10 @@ async def example_no_viewport_option():
 
 		# Get viewport size (inner dimensions)
 		viewport = await page.evaluate('() => ({width: window.innerWidth, height: window.innerHeight})')
-		print(f'Configured size: width={profile.window_size["width"]}, height={profile.window_size["height"]}')
+		if profile.window_size:
+			print(f'Configured size: width={profile.window_size["width"]}, height={profile.window_size["height"]}')
+		else:
+			print('No window size configured')
 		print(f'Actual viewport size: {viewport}')
 
 		# Get the actual window size (outer dimensions)
@@ -118,7 +124,11 @@ async def example_no_viewport_option():
 
 
 def validate_window_size(configured: dict[str, Any], actual: dict[str, Any]) -> None:
-	"""Compare configured window size with actual size and report differences"""
+	"""Compare configured window size with actual size and report differences.
+
+	Raises:
+		Exception: If the window size difference exceeds tolerance
+	"""
 	# Allow for small differences due to browser chrome, scrollbars, etc.
 	width_diff = abs(configured['width'] - actual['width'])
 	height_diff = abs(configured['height'] - actual['height'])
@@ -132,6 +142,8 @@ def validate_window_size(configured: dict[str, Any], actual: dict[str, Any]) -> 
 		raise Exception('Window size validation failed')
 	else:
 		print('✅ Window size validation passed: actual size matches configured size within tolerance')
+
+	return None
 
 
 async def main():

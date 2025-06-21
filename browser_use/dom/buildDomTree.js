@@ -1428,10 +1428,16 @@
       }
     }
 
-    // Skip empty anchor tags
+    // Skip empty anchor tags only if they have no dimensions and no children
     if (nodeData.tagName === 'a' && nodeData.children.length === 0 && !nodeData.attributes.href) {
-      if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
-      return null;
+      // Check if the anchor has actual dimensions
+      const rect = getCachedBoundingRect(node);
+      const hasSize = (rect && rect.width > 0 && rect.height > 0) || (node.offsetWidth > 0 || node.offsetHeight > 0);
+      
+      if (!hasSize) {
+        if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
+        return null;
+      }
     }
 
     const id = `${ID.current++}`;

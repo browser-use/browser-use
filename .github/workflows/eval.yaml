@@ -3,12 +3,15 @@ name: Run Evaluation Script
 on:
   repository_dispatch:
     types: [run-eval]
+  workflow_dispatch:
 
 jobs:
   run_evaluation:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 360
     env:
+      #IN_DOCKER: 'true'
+      #ANONYMIZED_TELEMETRY: 'false'
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -19,8 +22,22 @@ jobs:
       EVALUATION_TOOL_SECRET_KEY: ${{ secrets.EVALUATION_TOOL_SECRET_KEY }}
       ANCHOR_BROWSER_API_KEY: ${{ secrets.ANCHOR_BROWSER_API_KEY }}
       SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+      LMNR_PROJECT_API_KEY: ${{ secrets.LMNR_PROJECT_API_KEY }}
 
     steps:
+      - name: System Info and Resource Check
+        run: |
+          echo "=== SYSTEM INFORMATION ==="
+          echo "Runner OS: $(uname -a)"
+          echo "CPU Info: $(nproc) cores"
+          echo "Memory Info:"
+          free -h
+          echo "Disk Space:"
+          df -h
+          echo "Load Average:"
+          uptime
+          echo "=========================="
+
       - name: Determine ref to checkout
         id: determine_ref
         run: |
@@ -43,7 +60,10 @@ jobs:
           activate-environment: true
 
       - name: Install dependencies
-        run: uv sync
+        run: |
+          echo "Installing dependencies..."
+          uv sync --extra eval
+          echo "Dependencies installed successfully"
 
       - name: Detect installed Playwright version
         id: playwright_version
@@ -58,13 +78,31 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install Playwright browser dependencies
-        run: playwright install --no-shell chromium
+        run: |
+          echo "Installing Playwright browsers..."
+          playwright install --no-shell chromium
+          echo "Playwright browsers installed successfully"
 
       - name: Install Xvfb for headed mode
         if: github.event.client_payload.script_args.headless == 'false'
         run: |
+          echo "Installing Xvfb for headed mode..."
           sudo apt-get update
           sudo apt-get install -y xvfb
+          echo "Xvfb installed successfully"
+
+      - name: Pre-execution Resource Check
+        run: |
+          echo "=== PRE-EXECUTION RESOURCE CHECK ==="
+          echo "Memory usage:"
+          free -h
+          echo "CPU load:"
+          uptime
+          echo "Disk usage:"
+          df -h
+          echo "Process count:"
+          ps aux | wc -l
+          echo "================================="
 
       - name: Construct eval command
         id: eval_command
@@ -129,6 +167,7 @@ jobs:
           DEVELOPER_ID="${{ github.event.client_payload.script_args.developer_id }}"
           PLANNER_MODEL="${{ github.event.client_payload.script_args.planner_model }}"
           RUN_ID="${{ github.event.client_payload.script_args.run_id }}"
+          LAMINAR_EVAL_ID="${{ github.event.client_payload.script_args.laminar_eval_id }}"
 
           # Build command using array for cleaner construction
           CMD_ARGS=(
@@ -154,12 +193,14 @@ jobs:
           [[ "${{ github.event.client_payload.script_args.enable_memory }}" == "true" ]] && CMD_ARGS+=("--enable-memory")
           [[ "${{ github.event.client_payload.script_args.validate_output }}" == "true" ]] && CMD_ARGS+=("--validate-output")
           [[ "${{ github.event.client_payload.script_args.include_result }}" == "true" ]] && CMD_ARGS+=("--include-result")
+          [[ "${{ github.event.client_payload.script_args.highlight_elements }}" == "false" ]] && CMD_ARGS+=("--no-highlight-elements")
 
           # Add optional string parameters
           [[ -n "$USER_MESSAGE" ]] && CMD_ARGS+=("--user-message" "$USER_MESSAGE")
           [[ -n "$DEVELOPER_ID" ]] && CMD_ARGS+=("--developer-id" "$DEVELOPER_ID")
           [[ -n "$PLANNER_MODEL" ]] && CMD_ARGS+=("--planner-model" "$PLANNER_MODEL")
           [[ -n "$RUN_ID" ]] && CMD_ARGS+=("--run-id" "$RUN_ID")
+          [[ -n "$LAMINAR_EVAL_ID" ]] && CMD_ARGS+=("--laminar-eval-id" "$LAMINAR_EVAL_ID")
 
           # Convert array to command string with proper escaping
           printf -v CMD_STRING '%q ' "${CMD_ARGS[@]}"
@@ -172,5 +213,169 @@ jobs:
           echo "FULL_COMMAND=$CMD_STRING" >> $GITHUB_OUTPUT
           echo "::notice title=Eval Command::$CMD_STRING"
 
+      - name: Start Resource Monitoring
+        run: |
+          echo "Starting background resource monitoring..."
+          # Create a background script that monitors resources every 30 seconds
+          cat > monitor_resources.sh << 'EOF'
+          #!/bin/bash
+          while true; do
+            echo "=== RESOURCE MONITOR $(date) ==="
+            echo "Memory:"
+            free -h
+            echo "CPU Load:"
+            uptime
+            echo "Top processes by CPU:"
+            ps aux --sort=-%cpu | head -10
+            echo "Top processes by Memory:"
+            ps aux --sort=-%mem | head -10
+            echo "Chrome/Chromium processes:"
+            ps aux | grep -i chrome | grep -v grep || echo "No Chrome processes found"
+            echo "Python processes:"
+            ps aux | grep python | grep -v grep || echo "No Python processes found"
+            echo "=================================="
+            sleep 30
+          done
+          EOF
+          chmod +x monitor_resources.sh
+          # Start the monitor in background and save PID
+          nohup ./monitor_resources.sh > resource_monitor.log 2>&1 &
+          echo $! > monitor_pid.txt
+          echo "Resource monitoring started with PID: $(cat monitor_pid.txt)"
+
       - name: Run evaluation script
-        run: ${{ steps.eval_command.outputs.FULL_COMMAND }}
+        id: run_eval
+        run: |
+          echo "=== STARTING EVALUATION ==="
+          echo "Command: ${{ steps.eval_command.outputs.FULL_COMMAND }}"
+          echo "Starting time: $(date)"
+          echo "============================"
+          
+          # Set up signal handlers and run the command
+          set -e
+          trap 'echo "=== EVALUATION INTERRUPTED ==="; echo "Time: $(date)"; echo "Last 50 lines of output:"; tail -50 eval_output.log; exit 130' INT TERM
+          
+          # Run the evaluation with output capture
+          ${{ steps.eval_command.outputs.FULL_COMMAND }} 2>&1 | tee eval_output.log
+          EVAL_EXIT_CODE=${PIPESTATUS[0]}
+          
+          echo "=== EVALUATION COMPLETED ==="
+          echo "Exit code: $EVAL_EXIT_CODE"
+          echo "Completion time: $(date)"
+          echo "============================"
+          
+          exit $EVAL_EXIT_CODE
+
+      - name: Post-execution Resource Check
+        if: always()
+        run: |
+          echo "=== POST-EXECUTION RESOURCE CHECK ==="
+          echo "Memory usage:"
+          free -h
+          echo "CPU load:"
+          uptime
+          echo "Disk usage:"
+          df -h
+          echo "Process count:"
+          ps aux | wc -l
+          echo "Chrome/Chromium processes still running:"
+          ps aux | grep -i chrome | grep -v grep || echo "No Chrome processes found"
+          echo "Python processes still running:"
+          ps aux | grep python | grep -v grep || echo "No Python processes found"
+          echo "==================================="
+
+      - name: Stop Resource Monitoring and Collect Logs
+        if: always()
+        run: |
+          echo "Stopping resource monitoring..."
+          if [ -f monitor_pid.txt ]; then
+            MONITOR_PID=$(cat monitor_pid.txt)
+            if kill -0 $MONITOR_PID 2>/dev/null; then
+              kill $MONITOR_PID
+              echo "Resource monitor stopped"
+            else
+              echo "Resource monitor was already stopped"
+            fi
+          fi
+          
+          echo "=== RESOURCE MONITORING LOG ==="
+          if [ -f resource_monitor.log ]; then
+            tail -100 resource_monitor.log
+          else
+            echo "No resource monitor log found"
+          fi
+          echo "==============================="
+
+      - name: Collect Debug Information
+        if: always()
+        run: |
+          echo "=== COLLECTING DEBUG INFORMATION ==="
+          
+          # System information
+          echo "Final system state:"
+          uptime
+          free -h
+          df -h
+          
+          # Process information
+          echo "All running processes:"
+          ps aux --sort=-%cpu | head -20
+          
+          # Check for core dumps
+          echo "Checking for core dumps:"
+          find . -name "core*" -type f 2>/dev/null || echo "No core dumps found"
+          
+          # Check for any crash logs
+          echo "Checking for crash logs:"
+          find . -name "*crash*" -type f 2>/dev/null || echo "No crash logs found"
+          
+          # Check kernel messages for OOM kills
+          echo "Checking for OOM kills in kernel messages:"
+          sudo dmesg | grep -i "killed process" | tail -10 || echo "No OOM kills found"
+          
+          # Check evaluation output
+          echo "Last 100 lines of evaluation output:"
+          if [ -f eval_output.log ]; then
+            tail -100 eval_output.log
+          else
+            echo "No evaluation output log found"
+          fi
+          
+          # Check for saved trajectories
+          echo "Saved trajectories directory:"
+          if [ -d saved_trajectories ]; then
+            find saved_trajectories -type f -name "*.json" | head -10
+            echo "Total trajectory files: $(find saved_trajectories -type f -name "*.json" | wc -l)"
+          else
+            echo "No saved_trajectories directory found"
+          fi
+          
+          echo "===================================="
+
+      - name: Upload Debug Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-logs-${{ github.run_id }}
+          path: |
+            eval_output.log
+            resource_monitor.log
+            saved_trajectories/
+          retention-days: 7
+
+      - name: Final Status Summary
+        if: always()
+        run: |
+          echo "=== FINAL STATUS SUMMARY ==="
+          echo "Workflow run ID: ${{ github.run_id }}"
+          echo "Job completion time: $(date)"
+          echo "Evaluation step status: ${{ steps.run_eval.outcome }}"
+          
+          if [ "${{ steps.run_eval.outcome }}" != "success" ]; then
+            echo "❌ Evaluation failed or was interrupted"
+            echo "Check the debug artifacts and logs above for more information"
+          else
+            echo "✅ Evaluation completed successfully"
+          fi
+          
+          echo "==========================="

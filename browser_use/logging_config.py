@@ -1,10 +1,11 @@
 import logging
-import os
 import sys
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+from browser_use.config import CONFIG
 
 
 def addLoggingLevel(levelName, levelNum, methodName=None):
@@ -65,7 +66,7 @@ def setup_logging():
 	except AttributeError:
 		pass  # Level already exists, which is fine
 
-	log_type = os.getenv('BROWSER_USE_LOGGING_LEVEL', 'info').lower()
+	log_type = CONFIG.BROWSER_USE_LOGGING_LEVEL
 
 	# Check if handlers are already set up
 	if logging.getLogger().hasHandlers():
@@ -77,8 +78,8 @@ def setup_logging():
 
 	class BrowserUseFormatter(logging.Formatter):
 		def format(self, record):
-			if isinstance(record.name, str) and record.name.startswith('browser_use.'):
-				record.name = record.name.split('.')[-2]
+			# if isinstance(record.name, str) and record.name.startswith('browser_use.'):
+			# 	record.name = record.name.split('.')[-2]
 			return super().format(record)
 
 	# Setup single handler for all loggers
@@ -132,6 +133,7 @@ def setup_logging():
 		'mem0.vector_stores.faiss',
 		'mem0.vector_stores',
 		'mem0.memory',
+		'groq',
 	]
 	for logger_name in third_party_loggers:
 		third_party = logging.getLogger(logger_name)

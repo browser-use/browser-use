@@ -59,19 +59,22 @@ async def run_agent_with_memory_config(
 	# Let's refine how to access summaries. The summary is added as a 'memory' type message.
 
 	summaries_created = []
-	for step_messages in agent.message_manager.state.history.get_messages():
-		if isinstance(step_messages, list):
-			for msg in step_messages:
-				if (
-					hasattr(msg, 'additional_kwargs')
-					and msg.additional_kwargs.get('metadata', {}).get('message_type') == 'memory'
-				):
-					summaries_created.append(msg.content)
-		elif (
-			hasattr(step_messages, 'additional_kwargs')
-			and step_messages.additional_kwargs.get('metadata', {}).get('message_type') == 'memory'
-		):  # if it's a list of messages
-			summaries_created.append(step_messages.content)
+	for item in agent.message_manager.state.history.get_messages():
+		# get_messages() returns tuples of (step_number, messages)
+		if isinstance(item, tuple) and len(item) == 2:
+			step_number, step_messages = item
+			if isinstance(step_messages, list):
+				for msg in step_messages:
+					if (
+						hasattr(msg, 'additional_kwargs')
+						and msg.additional_kwargs.get('metadata', {}).get('message_type') == 'memory'
+					):
+						summaries_created.append(msg.content)
+			elif (
+				hasattr(step_messages, 'additional_kwargs')
+				and step_messages.additional_kwargs.get('metadata', {}).get('message_type') == 'memory'
+			):
+				summaries_created.append(step_messages.content)
 
 	if summaries_created:
 		print('\nProcedural Summaries Created during run:')
@@ -169,5 +172,9 @@ if __name__ == '__main__':
 	import sys
 
 	if sys.platform.startswith('win'):
-		asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+		# WindowsProactorEventLoopPolicy is only available on Windows
+		try:
+			asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())  # type: ignore
+		except AttributeError:
+			pass  # Not on Windows, ignore
 	asyncio.run(main())

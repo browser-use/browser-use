@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.2.6"
+version = "0.3.2"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -11,33 +11,33 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
+    "aiofiles>=24.1.0",
     "anyio>=4.9.0",
+    "bubus>=1.1.2",
+    "google-api-core>=2.25.0",
     "httpx>=0.28.1",
+    "langchain-anthropic==0.3.15",
+    "langchain-core==0.3.64",
+    "langchain-deepseek>=0.1.3",
+    "langchain-google-genai==2.1.5",
+    "langchain-ollama==0.3.3",
+    "langchain-openai==0.3.21",
+    "langchain>=0.3.25",
+    "markdownify==1.1.0",
+    "mem0ai>=0.1.106",
+    "patchright>=1.52.5",
+    "playwright>=1.52.0",
+    "posthog>=3.7.0",
+    "psutil>=7.0.0",
     "pydantic>=2.11.5",
+    "pyobjc>=11.0; platform_system == 'darwin'",
+    "pyperclip>=1.9.0",
     "python-dotenv>=1.0.1",
     "requests>=2.32.3",
-    "posthog>=3.7.0",
-    "playwright>=1.52.0",
-    "markdownify==1.1.0",
-    "langchain-core==0.3.64",
-    "langchain-openai==0.3.21",
-    "langchain-anthropic==0.3.15",
-    "langchain-ollama==0.3.3",
-    "langchain-google-genai==2.1.5",
-    "langchain-deepseek>=0.1.3",
-    "langchain>=0.3.25",
-    "langchain-aws>=0.2.24",
-    "google-api-core>=2.25.0",
-    "pyperclip>=1.9.0",
-    "pyobjc>=11.0; platform_system == 'darwin'",
     "screeninfo>=0.8.1; platform_system != 'darwin'",
     "typing-extensions>=4.12.2",
-    "psutil>=7.0.0",
-    "faiss-cpu>=1.11.0",
-    "mem0ai>=0.1.106",
     "uuid7>=0.1.0",
-    "patchright>=1.52.5",
-    "aiofiles>=24.1.0",
+    "authlib>=1.6.0",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -52,6 +52,7 @@ dependencies = [
 [project.optional-dependencies]
 memory = [
     # sentence-transformers: depends on pytorch, which does not support python 3.13 yet
+    "faiss-cpu>=1.11.0",
     "sentence-transformers>=4.0.2",
 ]
 cli = [
@@ -62,13 +63,22 @@ cli = [
 examples = [
     # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
     "botocore>=1.37.23",
+    # "langchain-aws>=0.2.24",  # depends on version of numpy that doesnt have python 3.12 wheels yet, breaks CI
     "imgcat>=0.6.0",
     "stagehand-py>=0.3.6",
     "browserbase>=0.4.0",
 ]
+eval = [
+    "lmnr[all]>=0.6.11",
+]
 all = [
     "browser-use[memory,cli,examples]",
 ]
+
+# will prefer to use local source code checked out in ../../browser-use (if present) instead of pypi browser-use package
+# [tool.uv.sources]
+# bubus = { path = "../bubus", editable = true }
+
 
 [project.urls]
 Repository = "https://github.com/browser-use/browser-use"
@@ -83,7 +93,7 @@ build-backend = "hatchling.build"
 
 
 [tool.codespell]
-ignore-words-list = "bu,wit,dont,cant,wont,re-use,re-used,re-using,re-usable,thats,doesnt"
+ignore-words-list = "bu,wit,dont,cant,wont,re-use,re-used,re-using,re-usable,thats,doesnt,doubleclick"
 skip = "*.json"
 
 [tool.ruff]
@@ -104,7 +114,9 @@ docstring-code-line-length = 140
 skip-magic-trailing-comma = false
 
 [tool.pyright]
-typeCheckingMode = "off"
+typeCheckingMode = "basic"
+exclude = ["tests/old/", ".venv/", ".git/", "__pycache__/"]
+
 
 [tool.hatch.build]
 include = [
@@ -113,6 +125,7 @@ include = [
     "!browser_use/**/tests.py",
     "browser_use/agent/system_prompt.md",
     "browser_use/dom/buildDomTree.js",
+    "!tests/**/*.py",
 ]
 
 [tool.pytest.ini_options]
@@ -143,6 +156,15 @@ log_level = "DEBUG"
 allow-direct-references = true
 
 [tool.uv]
+required-environments = [
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+    # "sys_platform == 'linux' and platform_machine == 'arm64'",  # no pytorch wheels available yet
+    "sys_platform == 'win32' and platform_machine == 'x86_64'",
+    # "sys_platform == 'win32' and platform_machine == 'arm64'",  # no pytorch wheels available yet
+]
 dev-dependencies = [
     "ruff>=0.11.2",
     "tokencost>=0.1.16",
@@ -159,6 +181,6 @@ dev-dependencies = [
     "codespell>=2.4.1",
     "pyright>=1.1.399",
     "ty>=0.0.1a1",
-    "pytest-playwright-asyncio>=0.7.0",
     "pytest-xdist>=3.7.0",
+    # "pytest-playwright-asyncio>=0.7.0",  # not actually needed I think
 ]

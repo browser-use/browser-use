@@ -25,14 +25,16 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import SecretStr
 
 from browser_use import Agent, Controller
-from browser_use.browser import BrowserSession
+from browser_use.browser import BrowserProfile, BrowserSession
 
 api_key = os.getenv('GOOGLE_API_KEY')
 if not api_key:
 	raise ValueError('GOOGLE_API_KEY is not set')
 
 browser_session = BrowserSession(
-	headless=False,
+	browser_profile=BrowserProfile(
+		headless=False,
+	),
 	cdp_url='http://localhost:9222',
 )
 controller = Controller()
@@ -41,6 +43,8 @@ controller = Controller()
 async def main():
 	task = 'In docs.google.com write my Papa a quick thank you for everything letter \n - Magnus'
 	task += ' and save the document as pdf'
+	# Assert api_key is not None to satisfy type checker
+	assert api_key is not None, 'GOOGLE_API_KEY must be set'
 	model = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=SecretStr(api_key))
 	agent = Agent(
 		task=task,
