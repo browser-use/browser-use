@@ -8,6 +8,86 @@
 ) => {
   const { doHighlightElements, focusHighlightIndex, viewportExpansion, debugMode } = args;
   let highlightIndex = 0; // Reset highlight index
+  
+  // Two-pass system for better element prioritization
+  const interactiveElements = []; // Store all interactive elements for prioritized indexing
+  
+  /**
+   * Determines the priority of an interactive element for indexing.
+   * Lower numbers = higher priority (gets lower index)
+   */
+  function getElementPriority(element, nodeData) {
+    const tagName = element.tagName.toLowerCase();
+    const type = element.type?.toLowerCase();
+    const role = element.getAttribute('role')?.toLowerCase();
+    
+    // Highest priority: Form submit elements
+    if (type === 'submit' || 
+        (tagName === 'button' && (type === 'submit' || element.form)) ||
+        (tagName === 'input' && type === 'submit')) {
+      return 1;
+    }
+    
+    // High priority: Primary action buttons in forms
+    if (tagName === 'button' && element.form) {
+      return 2;
+    }
+    
+    // Medium-high priority: Input fields (user needs to interact with these)
+    if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
+      return 3;
+    }
+    
+    // Medium priority: Action buttons (not in forms)
+    if (tagName === 'button' || role === 'button') {
+      return 4;
+    }
+    
+    // Lower priority: Generic clickable elements
+    if (tagName === 'a' || role === 'link') {
+      // Deprioritize navigation/logo links
+      const href = element.href || element.getAttribute('href') || '';
+      const id = element.id || '';
+      const className = element.className || '';
+      const textContent = element.textContent?.toLowerCase() || '';
+      
+      // Very low priority for logo/navigation links
+      if (id.includes('logo') || className.includes('logo') || 
+          href === '/' || href.endsWith('.com') || href.endsWith('.com/') ||
+          textContent.includes('logo') || textContent.includes('home')) {
+        return 10;
+      }
+      
+      return 6;
+    }
+    
+    // Default priority for other interactive elements
+    return 5;
+  }
+  
+  /**
+   * Assigns highlight indices to interactive elements based on priority
+   */
+  function assignPrioritizedIndices() {
+    // Sort elements by priority, then by DOM order for stable sorting
+    interactiveElements.sort((a, b) => {
+      const priorityDiff = a.priority - b.priority;
+      if (priorityDiff !== 0) return priorityDiff;
+      
+      // Use DOM order as secondary sort (compareDocumentPosition)
+      const position = a.element.compareDocumentPosition(b.element);
+      if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+      if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+      return 0;
+    });
+    
+    // Assign indices based on sorted order
+    interactiveElements.forEach((item, index) => {
+      item.nodeData.highlightIndex = index;
+    });
+    
+    highlightIndex = interactiveElements.length;
+  }
 
   // Add timing stack to handle recursion
   const TIMING_STACK = {
@@ -1183,24 +1263,23 @@
     }
 
     if (shouldHighlight) {
-      // Check viewport status before assigning index and highlighting
+      // Check viewport status before collecting element
       nodeData.isInViewport = isInExpandedViewport(node, viewportExpansion);
       
       // When viewportExpansion is -1, all interactive elements should get a highlight index
       // regardless of viewport status
       if (nodeData.isInViewport || viewportExpansion === -1) {
-        nodeData.highlightIndex = highlightIndex++;
-
-        if (doHighlightElements) {
-          if (focusHighlightIndex >= 0) {
-            if (focusHighlightIndex === nodeData.highlightIndex) {
-              highlightElement(node, nodeData.highlightIndex, parentIframe);
-            }
-          } else {
-            highlightElement(node, nodeData.highlightIndex, parentIframe);
-          }
-          return true; // Successfully highlighted
-        }
+        // Collect element for prioritized indexing instead of immediately assigning index
+        const priority = getElementPriority(node, nodeData);
+        interactiveElements.push({
+          element: node,
+          nodeData: nodeData,
+          priority: priority,
+          parentIframe: parentIframe
+        });
+        
+        // Note: Actual highlighting will happen after all elements are collected and prioritized
+        return true; // Successfully collected for highlighting
       } else {
         // console.log(`Skipping highlight for ${nodeData.tagName} (outside viewport)`);
       }
@@ -1420,6 +1499,22 @@
   getEffectiveScroll = measureTime(getEffectiveScroll);
 
   const rootId = buildDomTree(document.body);
+  
+  // After building the DOM tree, assign prioritized indices and perform highlighting
+  assignPrioritizedIndices();
+  
+  // Now perform the actual highlighting with the correctly prioritized indices
+  if (doHighlightElements) {
+    interactiveElements.forEach(item => {
+      if (focusHighlightIndex >= 0) {
+        if (focusHighlightIndex === item.nodeData.highlightIndex) {
+          highlightElement(item.element, item.nodeData.highlightIndex, item.parentIframe);
+        }
+      } else {
+        highlightElement(item.element, item.nodeData.highlightIndex, item.parentIframe);
+      }
+    });
+  }
 
   // Clear the cache before starting
   DOM_CACHE.clearCache();
