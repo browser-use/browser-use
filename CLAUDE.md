@@ -115,6 +115,63 @@ print(response.json())  # {"success": true, "element": "input#search-box"}
 ./browser-action status                          # Get page info
 ```
 
+### MCP Server
+
+Model Context Protocol server that allows Claude Code to control browsers through native MCP tools.
+
+**Purpose**: Provide browser automation capabilities as standard MCP tools that Claude Code can call directly.
+
+**Architecture**: 
+```
+Claude Code → MCP Protocol → Browser MCP Server → HTTP Requests → Browser Action Server → Playwright
+```
+
+**Key Features**:
+- **Native MCP Integration** - Appears as built-in tools in Claude Code's tool palette
+- **Automatic Server Management** - Starts Browser Action Server automatically when needed
+- **Tool Discovery** - All browser tools are automatically available and documented
+- **Error Handling** - Comprehensive error reporting and fallback mechanisms
+- **Session Management** - Maintains browser state across tool calls
+
+**Available Tools**:
+```python
+# Navigation and page control
+browser_navigate(url, wait_until="domcontentloaded", timeout=30.0)
+browser_status(timeout=10.0)
+browser_screenshot(timeout=10.0)
+
+# Element interaction
+browser_click(selector, timeout=10.0)
+browser_type(selector, text, timeout=10.0)
+browser_wait_for_element(selector, timeout=10.0)
+
+# Page manipulation
+browser_scroll(direction="down", amount=300, timeout=10.0)
+
+# Server management
+browser_server_status()
+browser_server_start(port=8766, debug=False)
+```
+
+**Installation**:
+```bash
+# Install MCP server to Claude Code
+claude mcp add browser-use /path/to/browser-use/mcp-server
+
+# Or use the installation helper
+./install-mcp-server.sh
+```
+
+**Usage in Claude Code**:
+Simply ask Claude Code to use browser tools:
+- "Navigate to https://example.com and take a screenshot"
+- "Click the login button and type my credentials"
+- "Scroll down and find the product listings"
+
+**Implementation Location**: `browser_use/mcp_server/`
+
+**Status**: ✅ Complete - fully functional MCP server with comprehensive tool set
+
 When working on Claude Code integration features:
 - Each feature must be complete and tested before proceeding to the next
 - Maintain backward compatibility with existing functionality
