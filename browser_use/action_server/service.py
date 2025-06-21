@@ -10,7 +10,9 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import os
 import time
+from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
@@ -28,12 +30,14 @@ logger = logging.getLogger(__name__)
 class BrowserSessionManager:
 	"""Manages browser session and Playwright integration"""
 	
-	def __init__(self):
+	def __init__(self, user_data_dir: str | None = None):
+		self.user_data_dir = user_data_dir
 		self.browser: Any = None
 		self.context: Any = None
 		self.page: Any = None
 		self._start_time = time.time()
 		self._request_count = 0
+		self._is_persistent = user_data_dir is not None
 		
 	async def ensure_browser(self) -> None:
 		"""Ensure browser is running and page is available"""
@@ -99,14 +103,15 @@ class BrowserActionServer:
 	Provides REST API for Claude Code to control browsers through individual commands.
 	"""
 	
-	def __init__(self, host: str = '127.0.0.1', port: int = 8766, debug: bool = False):
+	def __init__(self, host: str = '127.0.0.1', port: int = 8766, debug: bool = False, user_data_dir: str | None = None):
 		self.host = host
 		self.port = port
 		self.debug = debug
+		self.user_data_dir = user_data_dir
 		self.app: Any = None
 		self.server_task: asyncio.Task | None = None
 		self._logger = self._setup_logger()
-		self._session = BrowserSessionManager()
+		self._session = BrowserSessionManager(user_data_dir=user_data_dir)
 		
 	def _setup_logger(self) -> logging.Logger:
 		"""Set up logging for the action server"""
@@ -308,6 +313,14 @@ class BrowserActionServer:
 			self._log_request('POST', '/wait')
 			
 			response = await handle_request(self._handle_wait, request)
+			return response.model_dump()
+		
+		@self.app.post('/upload')
+		async def upload_file(request: UploadRequest):
+			"""Upload file to input element"""
+			self._log_request('POST', '/upload')
+			
+			response = await handle_request(self._handle_upload, request)
 			return response.model_dump()
 		
 		# Information endpoints
@@ -729,4 +742,55 @@ class BrowserActionServer:
 				selector=selector,
 				found=False,
 				element_info={'error': str(e)}
+			)
+	
+	async def _handle_upload(self, request: UploadRequest) -> ActionResponse:
+		"""Handle file upload request"""
+		page = self._session.page
+		
+		try:
+			element = page.locator(request.selector)
+			
+			# Wait for element to be attached (don't require visible for hidden file inputs)
+			await element.wait_for(state='attached', timeout=request.timeout * 1000)
+			
+			# Verify it's a file input element
+			input_type = await element.get_attribute('type')
+			if input_type != 'file':
+				return ActionResponse(
+					success=False,
+					data={},
+					message=f"Element {request.selector} is not a file input (type={input_type})"
+				)
+			
+			# Check if file exists
+			file_path = Path(request.file_path)
+			if not file_path.exists():
+				return ActionResponse(
+					success=False,
+					data={},
+					message=f"File not found: {request.file_path}"
+				)
+			
+			# Upload the file
+			await element.set_input_files(str(file_path))
+			
+			# Get file info
+			file_info = {
+				'file_path': request.file_path,
+				'file_name': file_path.name,
+				'file_size': file_path.stat().st_size,
+				'selector': request.selector
+			}
+			
+			return ActionResponse(
+				data=file_info,
+				message=f"Uploaded file: {file_path.name}"
+			)
+			
+		except Exception as e:
+			return ActionResponse(
+				success=False,
+				data={},
+				message=f"Upload failed: {str(e)}"
 			)

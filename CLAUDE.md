@@ -133,20 +133,36 @@ Claude Code → MCP Protocol → Browser MCP Server → HTTP Requests → Browse
 - **Error Handling** - Comprehensive error reporting and fallback mechanisms
 - **Session Management** - Maintains browser state across tool calls
 
-**Available Tools**:
+**Available Tools** (21 total):
 ```python
 # Navigation and page control
 browser_navigate(url, wait_until="domcontentloaded", timeout=30.0)
+browser_reload(timeout=30.0)
+browser_go_back(timeout=30.0)
+browser_go_forward(timeout=30.0)
+browser_search_google(query, timeout=30.0)
 browser_status(timeout=10.0)
 browser_screenshot(timeout=10.0)
 
 # Element interaction
 browser_click(selector, timeout=10.0)
 browser_type(selector, text, timeout=10.0)
+browser_hover(selector, timeout=10.0)
 browser_wait_for_element(selector, timeout=10.0)
 
-# Page manipulation
+# Advanced wait conditions
+browser_wait_for_text(text, timeout=30.0)
+browser_wait_for_url(url, timeout=30.0)
+browser_wait_timeout(seconds)
+
+# Page manipulation and content
 browser_scroll(direction="down", amount=300, timeout=10.0)
+browser_scroll_to_text(text, timeout=10.0)
+browser_get_html(timeout=10.0)
+browser_get_element_info(selector, timeout=10.0)
+
+# File operations
+browser_upload_file(selector, file_path, timeout=10.0)
 
 # Server management
 browser_server_status()
@@ -165,12 +181,16 @@ claude mcp add browser-use /path/to/browser-use/mcp-server
 **Usage in Claude Code**:
 Simply ask Claude Code to use browser tools:
 - "Navigate to https://example.com and take a screenshot"
-- "Click the login button and type my credentials"
-- "Scroll down and find the product listings"
+- "Search Google for 'best laptops 2024' and click the first result"
+- "Go back to the previous page and scroll to find the pricing section"
+- "Hover over the menu and wait for the dropdown to appear"
+- "Upload the document from /path/to/file.pdf to the file input"
+- "Get the HTML content and find all the product links"
+- "Wait for the text 'Loading complete' to appear on the page"
 
 **Implementation Location**: `browser_use/mcp_server/`
 
-**Status**: ✅ Complete - fully functional MCP server with comprehensive tool set
+**Status**: ✅ Enhanced - 21 comprehensive browser automation tools (233% more than initial implementation)
 
 When working on Claude Code integration features:
 - Each feature must be complete and tested before proceeding to the next
