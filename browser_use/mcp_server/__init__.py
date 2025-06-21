@@ -8,6 +8,6 @@ The MCP server acts as a thin wrapper, translating MCP tool calls into HTTP requ
 to the Browser Action Server and returning responses in MCP format.
 """
 
-from browser_use.mcp_server.server import BrowserMCPServer
+from browser_use.mcp_server.server import mcp
 
-__all__ = ['BrowserMCPServer']
+__all__ = ['mcp']

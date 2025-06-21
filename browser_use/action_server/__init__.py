@@ -9,17 +9,17 @@ Architecture:
 
 Key Features:
 - Non-blocking terminal usage
-- Individual action commands  
+- Individual action commands
 - Real-time feedback
 - Session persistence
 - Background operation
 
 Usage:
     from browser_use.action_server import BrowserActionServer
-    
+
     server = BrowserActionServer(port=8766)
     await server.start()  # Runs in background
-    
+
     # In Claude Code chat:
     import httpx
     response = httpx.post("http://localhost:8766/navigate", json={"url": "example.com"})
@@ -28,21 +28,21 @@ Usage:
 
 from .service import BrowserActionServer
 from .views import (
-	NavigateRequest,
-	ClickRequest, 
-	TypeRequest,
-	ScrollRequest,
-	WaitRequest,
 	ActionResponse,
+	ClickRequest,
 	ErrorResponse,
+	NavigateRequest,
 	PageStatusResponse,
+	ScrollRequest,
+	TypeRequest,
+	WaitRequest,
 )
 
 __all__ = [
 	'BrowserActionServer',
 	'NavigateRequest',
 	'ClickRequest',
-	'TypeRequest', 
+	'TypeRequest',
 	'ScrollRequest',
 	'WaitRequest',
 	'ActionResponse',
