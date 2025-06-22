@@ -4,7 +4,7 @@ import json
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from openai import RateLimitError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model, model_validator
@@ -20,18 +20,6 @@ from browser_use.dom.history_tree_processor.service import (
 )
 from browser_use.dom.views import SelectorMap
 from browser_use.llm.base import BaseChatModel
-
-ToolCallingMethod = Literal['function_calling', 'json_mode', 'raw', 'auto', 'tools']
-REQUIRED_LLM_API_ENV_VARS = {
-	'ChatOpenAI': ['OPENAI_API_KEY'],
-	'AzureChatOpenAI': ['AZURE_OPENAI_ENDPOINT', 'AZURE_OPENAI_KEY'],
-	'ChatBedrockConverse': ['ANTHROPIC_API_KEY'],
-	'ChatAnthropic': ['ANTHROPIC_API_KEY'],
-	'ChatGoogleGenerativeAI': ['GOOGLE_API_KEY'],
-	'ChatDeepSeek': ['DEEPSEEK_API_KEY'],
-	'ChatOllama': [],
-	'ChatGrok': ['GROK_API_KEY'],
-}
 
 
 class AgentSettings(BaseModel):

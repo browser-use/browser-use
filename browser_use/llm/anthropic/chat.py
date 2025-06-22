@@ -33,7 +33,7 @@ class ChatAnthropic(BaseChatModel):
 
 	# Model configuration
 	model: str | ModelParam
-	max_tokens: int = 3_000
+	max_tokens: int = 8192
 	temperature: float | None = None
 
 	# Client initialization parameters
@@ -71,6 +71,19 @@ class ChatAnthropic(BaseChatModel):
 
 		return client_params
 
+	def _get_client_params_for_invoke(self):
+		"""Prepare client parameters dictionary for invoke."""
+
+		client_params = {}
+
+		if self.temperature is not None:
+			client_params['temperature'] = self.temperature
+
+		if self.max_tokens is not None:
+			client_params['max_tokens'] = self.max_tokens
+
+		return client_params
+
 	def get_client(self) -> AsyncAnthropic:
 		"""
 		Returns an AsyncAnthropic client.
@@ -102,11 +115,7 @@ class ChatAnthropic(BaseChatModel):
 			if output_format is None:
 				# Normal completion without structured output
 				response = await self.get_client().messages.create(
-					max_tokens=self.max_tokens,
-					model=self.model,
-					messages=anthropic_messages,
-					temperature=self.temperature or NotGiven(),
-					system=system_prompt or NotGiven(),
+					model=self.model, messages=anthropic_messages, **self._get_client_params_for_invoke()
 				)
 
 				# Extract text from the first content block
@@ -134,13 +143,11 @@ class ChatAnthropic(BaseChatModel):
 				tool_choice = ToolChoiceToolParam(type='tool', name=tool_name)
 
 				response = await self.get_client().messages.create(
-					max_tokens=self.max_tokens,
 					model=self.model,
 					messages=anthropic_messages,
-					temperature=self.temperature or NotGiven(),
-					system=system_prompt or NotGiven(),
 					tools=[tool],
 					tool_choice=tool_choice,
+					**self._get_client_params_for_invoke(),
 				)
 
 				# Extract the tool use block

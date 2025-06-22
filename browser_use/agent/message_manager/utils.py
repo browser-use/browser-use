@@ -17,7 +17,6 @@ async def save_conversation(
 ) -> None:
 	"""Save conversation history to file asynchronously."""
 	target_path = Path(target)
-
 	# create folders if not exists
 	if target_path.parent:
 		await anyio.Path(target_path.parent).mkdir(parents=True, exist_ok=True)
@@ -31,6 +30,8 @@ async def _format_conversation(messages: list[BaseMessage], response: Any) -> st
 
 	# Format messages
 	for message in messages:
+		lines.append(f' {message.role} ')
+
 		lines.append(message.text)
 		lines.append('')  # Empty line after each message
 
