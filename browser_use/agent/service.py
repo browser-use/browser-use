@@ -694,7 +694,6 @@ class Agent(Generic[Context]):
 				# check again if Ctrl+C was pressed before we commit the output to history
 				await self._raise_if_stopped_or_paused()
 
-				# self._message_manager.add_model_output(model_output)
 			except asyncio.CancelledError:
 				# Task was cancelled due to Ctrl+C
 				self._message_manager._remove_last_state_message()

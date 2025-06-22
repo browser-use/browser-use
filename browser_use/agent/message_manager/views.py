@@ -6,13 +6,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import Literal
 
 from browser_use.llm.messages import (
-	AssistantMessage,
 	BaseMessage,
 	UserMessage,
 )
 
 if TYPE_CHECKING:
-	from browser_use.agent.views import AgentOutput
+	pass
 
 
 SupportedMessageTypes = Literal['init', 'memory']
@@ -47,14 +46,6 @@ class MessageHistory(BaseModel):
 		else:
 			self.messages.insert(position, ManagedMessage(message=message, metadata=metadata))
 		self.current_tokens += metadata.tokens
-
-	def add_model_output(self, output: AgentOutput) -> None:
-		"""Add model output as AI message"""
-
-		msg = AssistantMessage(
-			content=output.model_dump_json(),
-		)
-		self.add_message(msg, MessageMetadata(tokens=100))  # Estimate tokens for tool calls
 
 	def get_messages(self) -> list[BaseMessage]:
 		"""Get all messages"""
