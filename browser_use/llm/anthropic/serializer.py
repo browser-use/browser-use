@@ -1,4 +1,4 @@
-from typing import Iterable, Union, overload
+from typing import List, Union, overload
 
 from anthropic.types import (
 	Base64ImageSourceParam,
@@ -72,7 +72,7 @@ class AnthropicMessageSerializer:
 			return ImageBlockParam(source=URLImageSourceParam(url=url, type='url'), type='image')
 
 	@staticmethod
-	def _serialize_content_to_str(content: Union[str, Iterable[ContentPartTextParam]]) -> str | list[TextBlockParam]:
+	def _serialize_content_to_str(content: Union[str, List[ContentPartTextParam]]) -> str | list[TextBlockParam]:
 		"""Serialize content to a string."""
 		if isinstance(content, str):
 			return content
@@ -86,7 +86,7 @@ class AnthropicMessageSerializer:
 
 	@staticmethod
 	def _serialize_content(
-		content: Union[str, Iterable[Union[ContentPartTextParam, ContentPartImageParam]]],
+		content: Union[str, List[Union[ContentPartTextParam, ContentPartImageParam]]],
 	) -> Union[str, list[Union[TextBlockParam, ImageBlockParam]]]:
 		"""Serialize content to Anthropic format."""
 		if isinstance(content, str):
@@ -185,7 +185,7 @@ class AnthropicMessageSerializer:
 			raise ValueError(f'Unknown message type: {type(message)}')
 
 	@staticmethod
-	def serialize_messages(messages: list[BaseMessage]) -> tuple[list[MessageParam], str | Iterable[TextBlockParam] | None]:
+	def serialize_messages(messages: list[BaseMessage]) -> tuple[list[MessageParam], str | List[TextBlockParam] | None]:
 		"""Serialize a list of messages, extracting any system message.
 
 		Returns:
@@ -195,7 +195,7 @@ class AnthropicMessageSerializer:
 		messages = [m.model_copy(deep=True) for m in messages]
 
 		serialized_messages: list[MessageParam] = []
-		system_message: str | Iterable[TextBlockParam] | None = None
+		system_message: str | List[TextBlockParam] | None = None
 
 		for message in messages:
 			result = AnthropicMessageSerializer.serialize(message)
