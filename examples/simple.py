@@ -2,7 +2,7 @@ import asyncio
 import os
 import sys
 
-from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.openai.chat import ChatOpenAI
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -18,14 +18,10 @@ Laminar.initialize()
 
 
 # Initialize the model
-# llm = ChatOpenAI(
-# 	model='gpt-4.1',
-# 	temperature=0.0,
-# )
-# llm = ChatGroq(
-# 	model='meta-llama/llama-4-maverick-17b-128e-instruct',
-# )
-llm = ChatGoogle(model='models/gemini-2.0-flash')
+llm = ChatOpenAI(
+	model='gpt-4.1',
+)
+
 
 task = 'Go to google.com/travel/flights and find the cheapest one-way flight from Zurich to San Francisco in 3 weeks.'
 agent = Agent(task=task, llm=llm)
