@@ -685,9 +685,18 @@ class BrowserSession(BaseModel):
 		if not self.browser_pid:
 			return  # no browser_pid provided, nothing to do
 
-		chrome_process = psutil.Process(pid=self.browser_pid)
-		assert chrome_process.is_running(), 'Chrome process is not running'
-		args = chrome_process.cmdline()
+		try:
+			chrome_process = psutil.Process(pid=self.browser_pid)
+			if not chrome_process.is_running():
+				self.logger.warning(f'Chrome process with pid={self.browser_pid} is not running')
+				return
+			args = chrome_process.cmdline()
+		except psutil.NoSuchProcess:
+			self.logger.warning(f'Chrome process with pid={self.browser_pid} not found')
+			return
+		except Exception as e:
+			self.logger.warning(f'Error accessing chrome process with pid={self.browser_pid}: {type(e).__name__}: {e}')
+			return
 		debug_port = next((arg for arg in args if arg.startswith('--remote-debugging-port=')), '').split('=')[-1].strip()
 		if not debug_port:
 			# provided pid is unusable, it's either not running or doesnt have an open debug port we can connect to
@@ -900,13 +909,18 @@ class BrowserSession(BaseModel):
 			new_chrome_procs = []
 
 		if new_chrome_procs and not self.browser_pid:
-			self.browser_pid = new_chrome_procs[0].pid
-			cmdline = new_chrome_procs[0].cmdline()
-			executable_path = cmdline[0] if cmdline else 'unknown'
-			self.logger.info(f' ↳ Spawned browser_pid={self.browser_pid} {_log_pretty_path(executable_path)}')
-			if cmdline:
-				self.logger.debug(' '.join(cmdline))  # print the entire launch command for debugging
-			self._set_browser_keep_alive(False)  # close the browser at the end because we launched it
+			try:
+				self.browser_pid = new_chrome_procs[0].pid
+				cmdline = new_chrome_procs[0].cmdline()
+				executable_path = cmdline[0] if cmdline else 'unknown'
+				self.logger.info(f' ↳ Spawned browser_pid={self.browser_pid} {_log_pretty_path(executable_path)}')
+				if cmdline:
+					self.logger.debug(' '.join(cmdline))  # print the entire launch command for debugging
+				self._set_browser_keep_alive(False)  # close the browser at the end because we launched it
+			except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+				self.logger.warning(
+					f'Browser process {self.browser_pid} disappeared immediately after launch: {type(e).__name__}'
+				)
 
 		if self.browser:
 			assert self.browser.is_connected(), (
