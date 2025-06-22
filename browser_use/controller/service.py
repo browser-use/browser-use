@@ -428,8 +428,9 @@ Only use this for extracting info from a single product/article page, not for en
 Explain the content of the page and that the requested information is not available in the page. Respond in JSON format.\nQuery: {query}\n Website:\n{page}"""
 			try:
 				formatted_prompt = prompt.format(query=query, page=content)
-				output_text = await page_extraction_llm.ainvoke([UserMessage(content=formatted_prompt)])
-				extracted_content = f'Page Link: {page.url}\nQuery: {query}\nExtracted Content:\n{output_text}'
+				response = await page_extraction_llm.ainvoke([UserMessage(content=formatted_prompt)])
+
+				extracted_content = f'Page Link: {page.url}\nQuery: {query}\nExtracted Content:\n{response.completion}'
 
 				# if content is small include it to memory
 				if len(extracted_content) < 1000:

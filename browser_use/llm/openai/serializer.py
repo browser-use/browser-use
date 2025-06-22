@@ -10,6 +10,7 @@ from openai.types.chat import (
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam,
 )
+from openai.types.chat.chat_completion_content_part_image_param import ImageURL
 from openai.types.chat.chat_completion_message_tool_call_param import Function
 
 from browser_use.llm.messages import (
@@ -34,7 +35,7 @@ class OpenAIMessageSerializer:
 	@staticmethod
 	def _serialize_content_part_image(part: ContentPartImageParam) -> ChatCompletionContentPartImageParam:
 		return ChatCompletionContentPartImageParam(
-			image_url=part.image_url,  # type: ignore idk what this is
+			image_url=ImageURL(url=part.image_url.url, detail=part.image_url.detail),
 			type='image_url',
 		)
 

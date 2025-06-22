@@ -6,6 +6,7 @@ import random
 from lmnr import Laminar
 from PIL import Image, ImageDraw, ImageFont
 
+from browser_use.llm.anthropic.chat import ChatAnthropic
 from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.google.serializer import GoogleMessageSerializer
 from browser_use.llm.messages import (
@@ -16,11 +17,12 @@ from browser_use.llm.messages import (
 	SystemMessage,
 	UserMessage,
 )
+from browser_use.llm.openai.chat import ChatOpenAI
 
 Laminar.initialize()
 
 
-def create_random_text_image(text: str = 'hello world', width: int = 400, height: int = 200) -> str:
+def create_random_text_image(text: str = 'hello world', width: int = 4000, height: int = 4000) -> str:
 	# Create image with random background color
 	bg_color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
 	image = Image.new('RGB', (width, height), bg_color)
@@ -56,6 +58,8 @@ async def test_gemini_image_vision():
 
 	# Create the LLM
 	llm = ChatGoogle(model='gemini-2.0-flash-exp')
+	llm = ChatAnthropic('claude-3-5-sonnet-latest')
+	llm = ChatOpenAI(model='gpt-4.1')
 
 	# Create a random image with text
 	image_data_url = create_random_text_image('Hello Gemini! Can you see this text?')
@@ -82,7 +86,8 @@ async def test_gemini_image_vision():
 	try:
 		response = await llm.ainvoke(messages)
 		print('\n=== Gemini Response ===')
-		print(response)
+		print(response.completion)
+		print(response.usage)
 		print('=======================')
 	except Exception as e:
 		print(f'Error calling Gemini: {e}')

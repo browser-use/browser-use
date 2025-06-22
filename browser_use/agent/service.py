@@ -858,7 +858,8 @@ class Agent(Generic[Context]):
 	async def get_next_action(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get next action from LLM based on current state"""
 
-		parsed = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
+		response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
+		parsed = response.completion
 
 		# cut the number of actions to max_actions_per_step if needed
 		if len(parsed.action) > self.settings.max_actions_per_step:
@@ -1561,7 +1562,7 @@ class Agent(Generic[Context]):
 			error_msg = f'Planner LLM API call failed: {type(e).__name__}: {str(e)}'
 			raise LLMException(status_code, error_msg) from e
 
-		plan = response
+		plan = response.completion
 		# if deepseek-reasoner, remove think tags
 		if self.settings.planner_llm and (
 			'deepseek-r1' in self.settings.planner_llm.model or 'deepseek-reasoner' in self.settings.planner_llm.model

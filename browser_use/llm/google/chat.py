@@ -5,12 +5,14 @@ from typing import Any, Dict, Type, TypeVar, overload
 from google import genai
 from google.auth.credentials import Credentials
 from google.genai import types
+from google.genai.types import MediaModality
 from pydantic import BaseModel
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError
 from browser_use.llm.google.serializer import GoogleMessageSerializer
 from browser_use.llm.messages import BaseMessage
+from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -149,13 +151,36 @@ class ChatGoogle(BaseChatModel):
 	def name(self) -> str:
 		return str(self.model)
 
-	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> str: ...
+	def _get_usage(self, response: types.GenerateContentResponse) -> ChatInvokeUsage | None:
+		usage: ChatInvokeUsage | None = None
+
+		if response.usage_metadata is not None:
+			image_tokens = 0
+			if response.usage_metadata.prompt_tokens_details is not None:
+				image_tokens = sum(
+					detail.token_count or 0
+					for detail in response.usage_metadata.prompt_tokens_details
+					if detail.modality == MediaModality.IMAGE
+				)
+
+			usage = ChatInvokeUsage(
+				prompt_tokens=response.usage_metadata.prompt_token_count or 0,
+				completion_tokens=response.usage_metadata.candidates_token_count or 0,
+				total_tokens=response.usage_metadata.total_token_count or 0,
+				image_tokens=image_tokens,
+			)
+
+		return usage
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T]) -> T: ...
+	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> ChatInvokeCompletion[str]: ...
 
-	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T] | None = None) -> T | str:
+	@overload
+	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T]) -> ChatInvokeCompletion[T]: ...
+
+	async def ainvoke(
+		self, messages: list[BaseMessage], output_format: Type[T] | None = None
+	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		"""
 		Invoke the model with the given messages.
 
@@ -189,9 +214,14 @@ class ChatGoogle(BaseChatModel):
 				)
 
 				# Handle case where response.text might be None
-				if response.text is None:
-					return ''
-				return response.text
+				text = response.text or ''
+
+				usage = self._get_usage(response)
+
+				return ChatInvokeCompletion(
+					completion=text,
+					usage=usage,
+				)
 
 			else:
 				# Return structured response
@@ -205,6 +235,8 @@ class ChatGoogle(BaseChatModel):
 					config=config,
 				)
 
+				usage = self._get_usage(response)
+
 				# Handle case where response.parsed might be None
 				if response.parsed is None:
 					# When using response_schema, Gemini returns JSON as text
@@ -212,7 +244,10 @@ class ChatGoogle(BaseChatModel):
 						try:
 							# Parse the JSON text and validate with the Pydantic model
 							parsed_data = json.loads(response.text)
-							return output_format.model_validate(parsed_data)
+							return ChatInvokeCompletion(
+								completion=output_format.model_validate(parsed_data),
+								usage=usage,
+							)
 						except (json.JSONDecodeError, ValueError) as e:
 							raise ModelProviderError(
 								message=f'Failed to parse or validate response: {str(e)}',
@@ -228,10 +263,16 @@ class ChatGoogle(BaseChatModel):
 
 				# Ensure we return the correct type
 				if isinstance(response.parsed, output_format):
-					return response.parsed
+					return ChatInvokeCompletion(
+						completion=response.parsed,
+						usage=usage,
+					)
 				else:
 					# If it's not the expected type, try to validate it
-					return output_format.model_validate(response.parsed)
+					return ChatInvokeCompletion(
+						completion=output_format.model_validate(response.parsed),
+						usage=usage,
+					)
 
 		except Exception as e:
 			# Handle specific Google API errors

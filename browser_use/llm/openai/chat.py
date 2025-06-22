@@ -3,6 +3,7 @@ from typing import Any, Dict, Mapping, Type, TypeVar, overload
 
 import httpx
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI, RateLimitError
+from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.shared.chat_model import ChatModel
 from pydantic import BaseModel
 
@@ -10,6 +11,7 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.openai.serializer import OpenAIMessageSerializer
+from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -88,13 +90,27 @@ class ChatOpenAI(BaseChatModel):
 	def name(self) -> str:
 		return str(self.model)
 
-	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> str: ...
+	def _get_usage(self, response: ChatCompletion) -> ChatInvokeUsage | None:
+		usage = (
+			ChatInvokeUsage(
+				prompt_tokens=response.usage.prompt_tokens,
+				completion_tokens=response.usage.completion_tokens,
+				total_tokens=response.usage.total_tokens,
+			)
+			if response.usage is not None
+			else None
+		)
+		return usage
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T]) -> T: ...
+	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> ChatInvokeCompletion[str]: ...
 
-	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T] | None = None) -> T | str:
+	@overload
+	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T]) -> ChatInvokeCompletion[T]: ...
+
+	async def ainvoke(
+		self, messages: list[BaseMessage], output_format: Type[T] | None = None
+	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		"""
 		Invoke the model with the given messages.
 
@@ -114,7 +130,12 @@ class ChatOpenAI(BaseChatModel):
 				response = await self.get_client().chat.completions.create(
 					model=self.model, messages=openai_messages, temperature=self.temperature
 				)
-				return response.choices[0].message.content or ''
+
+				usage = self._get_usage(response)
+				return ChatInvokeCompletion(
+					completion=response.choices[0].message.content or '',
+					usage=usage,
+				)
 
 			else:
 				# Return structured response
@@ -131,7 +152,12 @@ class ChatOpenAI(BaseChatModel):
 						status_code=500,
 						model=self.name,
 					)
-				return response.choices[0].message.parsed
+
+				usage = self._get_usage(response)
+				return ChatInvokeCompletion(
+					completion=response.choices[0].message.parsed,
+					usage=usage,
+				)
 
 		except RateLimitError as e:
 			error_message = e.response.json().get('error', {})

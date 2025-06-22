@@ -56,9 +56,10 @@ class TestChatModels:
 
 		chat = ChatOpenAI(model='gpt-4o-mini', temperature=0)
 		response = await chat.ainvoke(self.CONVERSATION_MESSAGES)
+		completion = response.completion
 
-		assert isinstance(response, str)
-		assert self.EXPECTED_GERMANY_CAPITAL in response.lower()
+		assert isinstance(completion, str)
+		assert self.EXPECTED_GERMANY_CAPITAL in completion.lower()
 
 	@pytest.mark.asyncio
 	async def test_openai_ainvoke_structured(self):
@@ -69,10 +70,11 @@ class TestChatModels:
 
 		chat = ChatOpenAI(model='gpt-4o-mini', temperature=0)
 		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
+		completion = response.completion
 
-		assert isinstance(response, CapitalResponse)
-		assert response.country.lower() == self.EXPECTED_FRANCE_COUNTRY
-		assert response.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
+		assert isinstance(completion, CapitalResponse)
+		assert completion.country.lower() == self.EXPECTED_FRANCE_COUNTRY
+		assert completion.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
 
 	# Anthropic Tests
 	@pytest.mark.asyncio
@@ -84,9 +86,10 @@ class TestChatModels:
 
 		chat = ChatAnthropic(model='claude-3-5-haiku-latest', max_tokens=100, temperature=0)
 		response = await chat.ainvoke(self.CONVERSATION_MESSAGES)
+		completion = response.completion
 
-		assert isinstance(response, str)
-		assert self.EXPECTED_GERMANY_CAPITAL in response.lower()
+		assert isinstance(completion, str)
+		assert self.EXPECTED_GERMANY_CAPITAL in completion.lower()
 
 	@pytest.mark.asyncio
 	async def test_anthropic_ainvoke_structured(self):
@@ -97,10 +100,11 @@ class TestChatModels:
 
 		chat = ChatAnthropic(model='claude-3-5-haiku-latest', max_tokens=100, temperature=0)
 		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
+		completion = response.completion
 
-		assert isinstance(response, CapitalResponse)
-		assert response.country.lower() == self.EXPECTED_FRANCE_COUNTRY
-		assert response.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
+		assert isinstance(completion, CapitalResponse)
+		assert completion.country.lower() == self.EXPECTED_FRANCE_COUNTRY
+		assert completion.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
 
 	# Google Gemini Tests
 	@pytest.mark.asyncio
@@ -112,9 +116,10 @@ class TestChatModels:
 
 		chat = ChatGoogle(model='gemini-2.0-flash', api_key=os.getenv('GEMINI_API_KEY'), temperature=0)
 		response = await chat.ainvoke(self.CONVERSATION_MESSAGES)
+		completion = response.completion
 
-		assert isinstance(response, str)
-		assert self.EXPECTED_GERMANY_CAPITAL in response.lower()
+		assert isinstance(completion, str)
+		assert self.EXPECTED_GERMANY_CAPITAL in completion.lower()
 
 	@pytest.mark.asyncio
 	async def test_google_ainvoke_structured(self):
@@ -125,10 +130,11 @@ class TestChatModels:
 
 		chat = ChatGoogle(model='gemini-2.0-flash', api_key=os.getenv('GEMINI_API_KEY'), temperature=0)
 		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
+		completion = response.completion
 
-		assert isinstance(response, CapitalResponse)
-		assert response.country.lower() == self.EXPECTED_FRANCE_COUNTRY
-		assert response.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
+		assert isinstance(completion, CapitalResponse)
+		assert completion.country.lower() == self.EXPECTED_FRANCE_COUNTRY
+		assert completion.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
 
 	# Google Gemini with Vertex AI Tests
 	@pytest.mark.asyncio
@@ -146,9 +152,10 @@ class TestChatModels:
 			temperature=0,
 		)
 		response = await chat.ainvoke(self.CONVERSATION_MESSAGES)
+		completion = response.completion
 
-		assert isinstance(response, str)
-		assert self.EXPECTED_GERMANY_CAPITAL in response.lower()
+		assert isinstance(completion, str)
+		assert self.EXPECTED_GERMANY_CAPITAL in completion.lower()
 
 	@pytest.mark.asyncio
 	async def test_google_vertex_ainvoke_structured(self):
@@ -165,10 +172,11 @@ class TestChatModels:
 			temperature=0,
 		)
 		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
+		completion = response.completion
 
-		assert isinstance(response, CapitalResponse)
-		assert response.country.lower() == self.EXPECTED_FRANCE_COUNTRY
-		assert response.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
+		assert isinstance(completion, CapitalResponse)
+		assert completion.country.lower() == self.EXPECTED_FRANCE_COUNTRY
+		assert completion.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
 
 	# Groq Tests
 
@@ -181,9 +189,10 @@ class TestChatModels:
 
 		chat = ChatGroq(model='meta-llama/llama-4-maverick-17b-128e-instruct', temperature=0)
 		response = await chat.ainvoke(self.CONVERSATION_MESSAGES)
+		completion = response.completion
 
-		assert isinstance(response, str)
-		assert self.EXPECTED_GERMANY_CAPITAL in response.lower()
+		assert isinstance(completion, str)
+		assert self.EXPECTED_GERMANY_CAPITAL in completion.lower()
 
 	@pytest.mark.asyncio
 	async def test_groq_ainvoke_structured(self):
@@ -195,6 +204,8 @@ class TestChatModels:
 		chat = ChatGroq(model='meta-llama/llama-4-maverick-17b-128e-instruct', temperature=0)
 		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
 
-		assert isinstance(response, CapitalResponse)
-		assert response.country.lower() == self.EXPECTED_FRANCE_COUNTRY
-		assert response.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
+		completion = response.completion
+
+		assert isinstance(completion, CapitalResponse)
+		assert completion.country.lower() == self.EXPECTED_FRANCE_COUNTRY
+		assert completion.capital.lower() == self.EXPECTED_FRANCE_CAPITAL

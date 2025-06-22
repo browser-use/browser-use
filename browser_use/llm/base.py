@@ -9,6 +9,7 @@ from typing import Any, Protocol, Type, TypeVar, overload
 from pydantic import BaseModel
 
 from browser_use.llm.messages import BaseMessage
+from browser_use.llm.views import ChatInvokeCompletion
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -33,12 +34,14 @@ class BaseChatModel(Protocol):
 		return self.model
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> str: ...
+	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> ChatInvokeCompletion[str]: ...
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T]) -> T: ...
+	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T]) -> ChatInvokeCompletion[T]: ...
 
-	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T] | None = None) -> T | str: ...
+	async def ainvoke(
+		self, messages: list[BaseMessage], output_format: Type[T] | None = None
+	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]: ...
 
 	@classmethod
 	def __get_pydantic_core_schema__(

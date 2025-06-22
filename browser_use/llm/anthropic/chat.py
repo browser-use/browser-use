@@ -10,7 +10,7 @@ from anthropic import (
 	NotGiven,
 	RateLimitError,
 )
-from anthropic.types import ToolParam
+from anthropic.types import Message, ToolParam
 from anthropic.types.model_param import ModelParam
 from anthropic.types.text_block import TextBlock
 from anthropic.types.tool_choice_tool_param import ToolChoiceToolParam
@@ -21,6 +21,7 @@ from browser_use.llm.anthropic.serializer import AnthropicMessageSerializer
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
+from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -102,13 +103,23 @@ class ChatAnthropic(BaseChatModel):
 	def name(self) -> str:
 		return str(self.model)
 
-	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> str: ...
+	def _get_usage(self, response: Message) -> ChatInvokeUsage | None:
+		usage = ChatInvokeUsage(
+			prompt_tokens=response.usage.input_tokens,
+			completion_tokens=response.usage.output_tokens,
+			total_tokens=response.usage.input_tokens + response.usage.output_tokens,
+		)
+		return usage
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T]) -> T: ...
+	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> ChatInvokeCompletion[str]: ...
 
-	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T] | None = None) -> T | str:
+	@overload
+	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T]) -> ChatInvokeCompletion[T]: ...
+
+	async def ainvoke(
+		self, messages: list[BaseMessage], output_format: Type[T] | None = None
+	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		anthropic_messages, system_prompt = AnthropicMessageSerializer.serialize_messages(messages)
 
 		try:
@@ -118,13 +129,21 @@ class ChatAnthropic(BaseChatModel):
 					model=self.model, messages=anthropic_messages, **self._get_client_params_for_invoke()
 				)
 
+				usage = self._get_usage(response)
+
 				# Extract text from the first content block
 				first_content = response.content[0]
 				if isinstance(first_content, TextBlock):
-					return first_content.text
+					response_text = first_content.text
 				else:
 					# If it's not a text block, convert to string
-					return str(first_content)
+					response_text = str(first_content)
+
+				return ChatInvokeCompletion(
+					completion=response_text,
+					usage=usage,
+				)
+
 			else:
 				# Use tool calling for structured output
 				# Create a tool that represents the output format
@@ -150,17 +169,22 @@ class ChatAnthropic(BaseChatModel):
 					**self._get_client_params_for_invoke(),
 				)
 
+				usage = self._get_usage(response)
+
 				# Extract the tool use block
 				for content_block in response.content:
 					if hasattr(content_block, 'type') and content_block.type == 'tool_use':
 						# Parse the tool input as the structured output
 						try:
-							return output_format.model_validate(content_block.input)
+							return ChatInvokeCompletion(completion=output_format.model_validate(content_block.input), usage=usage)
 						except Exception as e:
 							# If validation fails, try to parse it as JSON first
 							if isinstance(content_block.input, str):
 								data = json.loads(content_block.input)
-								return output_format.model_validate(data)
+								return ChatInvokeCompletion(
+									completion=output_format.model_validate(data),
+									usage=usage,
+								)
 							raise e
 
 				# If no tool use block found, raise an error

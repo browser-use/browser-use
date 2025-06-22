@@ -40,8 +40,9 @@ async def main():
 		print('-' * 50)
 		print(f'start loop {i}')
 		response = await llm.ainvoke(message, output_format=Output)
-		print(f'start reasoning: {response.reasoning}')
-		print(f'answer: {response.answer}')
+		completion = response.completion
+		print(f'start reasoning: {completion.reasoning}')
+		print(f'answer: {completion.answer}')
 		print('-' * 50)
 
 

@@ -19,8 +19,11 @@ class ChatInvokeUsage(BaseModel):
 	total_tokens: int
 	"""The total number of tokens in the response."""
 
+	image_tokens: int | None = None
+	"""The number of tokens in the image. Google only (prompt tokens is the text tokens + image tokens in that case)"""
 
-class ChatInvokeCompletion[T: BaseModel | None](BaseModel):
+
+class ChatInvokeCompletion[T: BaseModel | str](BaseModel):
 	"""
 	Response from a chat model invocation.
 	"""
@@ -29,8 +32,8 @@ class ChatInvokeCompletion[T: BaseModel | None](BaseModel):
 	"""The completion of the response."""
 
 	# Thinking stuff
-	thinking: str | None
-	redacted_thinking: str | None
+	thinking: str | None = None
+	redacted_thinking: str | None = None
 
-	usage: ChatInvokeUsage
+	usage: ChatInvokeUsage | None
 	"""The usage of the response."""

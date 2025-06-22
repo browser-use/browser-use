@@ -213,8 +213,9 @@ async def test_agent_single_mock_step():
 		],
 		output_format=AgentOutput_,
 	)
+	completion = response.completion
 
-	assert isinstance(response, AgentOutput_)
+	assert isinstance(completion, AgentOutput_)
 
 
 # run this with:

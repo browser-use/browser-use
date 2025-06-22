@@ -15,13 +15,14 @@ import warnings
 
 import aiofiles
 import yaml
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 from browser_use.agent.service import Agent
 from browser_use.agent.views import AgentHistoryList
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
+from browser_use.llm import ChatOpenAI
+from browser_use.llm.messages import UserMessage
 
 # --- CONFIG ---
 MAX_PARALLEL = 10
@@ -105,8 +106,8 @@ async def run_single_task(task_file):
 
 		# Test if LLM is working by making a simple call
 		try:
-			test_response = await agent_llm.ainvoke("Say 'test'")
-			print(f'[DEBUG] LLM test call successful: {test_response.content[:50]}', file=sys.stderr)
+			response = await agent_llm.ainvoke([UserMessage(content="Say 'test'")])
+			print(f'[DEBUG] LLM test call successful: {response.completion[:50]}', file=sys.stderr)
 		except Exception as llm_error:
 			print(f'[DEBUG] LLM test call failed: {str(llm_error)}', file=sys.stderr)
 
@@ -140,8 +141,8 @@ Criteria for success:
 Reply in JSON with keys: success (true/false), explanation (string).
 If the agent provided no output, explain what might have gone wrong.
 """
-		structured_llm = judge_llm.with_structured_output(JudgeResponse)
-		judge_response = await structured_llm.ainvoke(judge_prompt)
+		response = await judge_llm.ainvoke([UserMessage(content=judge_prompt)], output_format=JudgeResponse)
+		judge_response = response.completion
 
 		result = {
 			'file': os.path.basename(task_file),

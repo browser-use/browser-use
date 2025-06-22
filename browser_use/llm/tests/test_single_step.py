@@ -1,11 +1,15 @@
 import tempfile
 
+import pytest
+
 from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.agent.service import Agent
 from browser_use.browser.views import BrowserStateSummary, TabInfo
 from browser_use.dom.views import DOMElementNode, SelectorMap
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.llm.anthropic.chat import ChatAnthropic
 from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.openai.chat import ChatOpenAI
 
 
 def create_mock_state_message(temp_dir: str):
@@ -77,9 +81,18 @@ def create_mock_state_message(temp_dir: str):
 	return message
 
 
-async def test_single_step():
-	llm = ChatGoogle(model='gemini-2.0-flash-exp')
-	# llm = ChatGroq(model='meta-llama/llama-4-maverick-17b-128e-instruct')
+# Pytest parameterized version
+@pytest.mark.parametrize(
+	'llm_class,model_name',
+	[
+		(ChatGoogle, 'gemini-2.0-flash-exp'),
+		(ChatOpenAI, 'gpt-4o-mini'),
+		(ChatAnthropic, 'claude-3-5-haiku-20241022'),
+	],
+)
+async def test_single_step_parametrized(llm_class, model_name):
+	"""Test single step with different LLM providers using pytest parametrize."""
+	llm = llm_class(model=model_name)
 
 	agent = Agent(task='Click the button on the page', llm=llm)
 
@@ -88,11 +101,6 @@ async def test_single_step():
 		# Create mock state message
 		mock_message = create_mock_state_message(temp_dir)
 
-		# Print the mock message content to see what it looks like
-		print('Mock state message:')
-		print(mock_message.content)
-		print('\n' + '=' * 50 + '\n')
-
 		agent.message_manager._add_message_with_tokens(mock_message)
 
 		messages = agent.message_manager.get_messages()
@@ -100,7 +108,51 @@ async def test_single_step():
 		# Test with simple question
 		response = await llm.ainvoke(messages, agent.AgentOutput)
 
-		print('Simple response:', response)
+		# Basic assertions to ensure response is valid
+		assert response.completion is not None
+		assert response.usage is not None
+		assert response.usage.total_tokens > 0
+
+
+async def test_single_step():
+	"""Original test function that tests all models in a loop."""
+	# Create a list of models to test
+	models = [
+		ChatGoogle(model='gemini-2.0-flash-exp'),
+		ChatOpenAI(model='gpt-4.1'),
+		ChatAnthropic(model='claude-3-5-sonnet-latest'),  # Using haiku for cost efficiency
+	]
+
+	for llm in models:
+		print(f'\n{"=" * 60}')
+		print(f'Testing with model: {llm.provider} - {llm.model}')
+		print(f'{"=" * 60}\n')
+
+		agent = Agent(task='Click the button on the page', llm=llm)
+
+		# Create temporary directory that will stay alive during the test
+		with tempfile.TemporaryDirectory() as temp_dir:
+			# Create mock state message
+			mock_message = create_mock_state_message(temp_dir)
+
+			# Print the mock message content to see what it looks like
+			print('Mock state message:')
+			print(mock_message.content)
+			print('\n' + '=' * 50 + '\n')
+
+			agent.message_manager._add_message_with_tokens(mock_message)
+
+			messages = agent.message_manager.get_messages()
+
+			# Test with simple question
+			try:
+				response = await llm.ainvoke(messages, agent.AgentOutput)
+				print(f'Response from {llm.provider}:', response.completion)
+				print('Usage:', response.usage)
+			except Exception as e:
+				print(f'Error with {llm.provider}: {type(e).__name__}: {str(e)}')
+
+		print(f'\n{"=" * 60}\n')
 
 
 if __name__ == '__main__':
