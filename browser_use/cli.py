@@ -9,6 +9,10 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from browser_use.llm.anthropic.chat import ChatAnthropic
+from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.openai.chat import ChatOpenAI
+
 load_dotenv()
 
 try:
@@ -22,9 +26,6 @@ except ImportError:
 	print('⚠️ CLI addon is not installed. Please install it with: `pip install browser-use[cli]` and try again.')
 	sys.exit(1)
 
-import langchain_anthropic
-import langchain_google_genai
-import langchain_openai
 
 try:
 	import readline
@@ -198,25 +199,25 @@ def get_llm(config: dict[str, Any]):
 			if not os.getenv('OPENAI_API_KEY'):
 				print('⚠️  OpenAI API key not found. Please update your config or set OPENAI_API_KEY environment variable.')
 				sys.exit(1)
-			return langchain_openai.ChatOpenAI(model=model_name, temperature=temperature)
+			return ChatOpenAI(model=model_name, temperature=temperature)
 		elif model_name.startswith('claude'):
 			if not os.getenv('ANTHROPIC_API_KEY'):
 				print('⚠️  Anthropic API key not found. Please update your config or set ANTHROPIC_API_KEY environment variable.')
 				sys.exit(1)
-			return langchain_anthropic.ChatAnthropic(model=model_name, temperature=temperature)
+			return ChatAnthropic(model=model_name, temperature=temperature)
 		elif model_name.startswith('gemini'):
 			if not os.getenv('GOOGLE_API_KEY'):
 				print('⚠️  Google API key not found. Please update your config or set GOOGLE_API_KEY environment variable.')
 				sys.exit(1)
-			return langchain_google_genai.ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
+			return ChatGoogle(model=model_name, temperature=temperature)
 
 	# Auto-detect based on available API keys
 	if os.getenv('OPENAI_API_KEY'):
-		return langchain_openai.ChatOpenAI(model='gpt-4o', temperature=temperature)
+		return ChatOpenAI(model='gpt-4o', temperature=temperature)
 	elif os.getenv('ANTHROPIC_API_KEY'):
-		return langchain_anthropic.ChatAnthropic(model='claude-3.5-sonnet-exp', temperature=temperature)
+		return ChatAnthropic(model='claude-3.5-sonnet-exp', temperature=temperature)
 	elif os.getenv('GOOGLE_API_KEY'):
-		return langchain_google_genai.ChatGoogleGenerativeAI(model='gemini-2.0-flash-lite', temperature=temperature)
+		return ChatGoogle(model='gemini-2.0-flash-lite', temperature=temperature)
 	else:
 		print(
 			'⚠️  No API keys found. Please update your config or set one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY.'
