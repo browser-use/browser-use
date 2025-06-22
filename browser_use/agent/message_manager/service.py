@@ -5,7 +5,7 @@ import logging
 
 from pydantic import BaseModel
 
-from browser_use.agent.message_manager.views import MessageMetadata
+from browser_use.agent.message_manager.views import MessageMetadata, SupportedMessageTypes
 from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.agent.views import ActionResult, AgentOutput, AgentStepInfo, MessageManagerState
 from browser_use.browser.views import BrowserStateSummary
@@ -403,7 +403,7 @@ Step goal: {model_output.current_state.next_goal}
 		return [m.message for m in self.state.history.messages]
 
 	def _add_message_with_tokens(
-		self, message: BaseMessage, position: int | None = None, message_type: str | None = None
+		self, message: BaseMessage, position: int | None = None, message_type: SupportedMessageTypes | None = None
 	) -> None:
 		"""Add message with token count metadata
 		position: None for last, -1 for second last, etc.

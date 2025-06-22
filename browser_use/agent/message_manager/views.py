@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
+from typing_extensions import Literal
 
 from browser_use.llm.messages import (
 	AssistantMessage,
@@ -15,11 +16,14 @@ if TYPE_CHECKING:
 	from browser_use.agent.views import AgentOutput
 
 
+SupportedMessageTypes = Literal['init', 'memory']
+
+
 class MessageMetadata(BaseModel):
 	"""Metadata for a message"""
 
 	tokens: int = 0
-	message_type: str | None = None
+	message_type: SupportedMessageTypes | None = None
 
 
 class ManagedMessage(BaseModel):
