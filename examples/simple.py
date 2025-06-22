@@ -27,7 +27,7 @@ Laminar.initialize()
 # )
 llm = ChatGoogle(model='models/gemini-2.0-flash')
 
-task = 'Go to kayak.com and find the cheapest one-way flight from Zurich to San Francisco in 3 weeks.'
+task = 'Go to google.com/travel/flights and find the cheapest one-way flight from Zurich to San Francisco in 3 weeks.'
 agent = Agent(task=task, llm=llm)
 
 
