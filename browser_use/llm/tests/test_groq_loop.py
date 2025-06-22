@@ -1,5 +1,6 @@
 import asyncio
 
+from browser_use.llm import ContentText
 from browser_use.llm.groq.chat import ChatGroq
 
 # do some test calls with groq with structured output and ask the model to put some weird caracters like \ / or \` /' ect into the output
@@ -7,6 +8,7 @@ llm = ChatGroq(
 	model='meta-llama/llama-4-maverick-17b-128e-instruct',
 	temperature=0.5,
 )
+# llm = ChatOpenAI(model='gpt-4.1-mini')
 
 from pydantic import BaseModel
 
@@ -23,8 +25,12 @@ The user\'s request is to find the lowest priced women\'s plus size one piece sw
 message = [
 	SystemMessage(content='You are a helpful assistant that can answer questions and help with tasks.'),
 	UserMessage(
-		content="Why is the sky blue? write exactly this into reasoning make sure to output ' with \ exactly like in the input : "
-		+ text
+		content=[
+			ContentText(
+				text="Why is the sky blue? write exactly this into reasoning make sure to output ' with \ exactly like in the input : "
+			),
+			# ContentText(text=text),
+		]
 	),
 ]
 

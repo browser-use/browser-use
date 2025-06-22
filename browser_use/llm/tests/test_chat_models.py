@@ -4,6 +4,7 @@ import pytest
 from pydantic import BaseModel
 
 from browser_use.llm import ChatAnthropic, ChatGoogle, ChatGroq, ChatOpenAI
+from browser_use.llm.messages import ContentPartTextParam
 
 
 class CapitalResponse(BaseModel):
@@ -24,7 +25,7 @@ class TestChatModels:
 	"""Test suite for all chat model implementations"""
 
 	# Test Constants
-	SYSTEM_MESSAGE = SystemMessage(content='You are a helpful assistant.')
+	SYSTEM_MESSAGE = SystemMessage(content=[ContentPartTextParam(text='You are a helpful assistant.', type='text')])
 	FRANCE_QUESTION = UserMessage(content='What is the capital of France? Answer in one word.')
 	FRANCE_ANSWER = AssistantMessage(content='Paris')
 	GERMANY_QUESTION = UserMessage(content='What is the capital of Germany? Answer in one word.')

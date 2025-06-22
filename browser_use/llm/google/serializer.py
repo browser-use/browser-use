@@ -30,6 +30,9 @@ class GoogleMessageSerializer:
 		    - formatted_messages: List of Content objects for the conversation
 		    - system_message: System instruction string or None
 		"""
+
+		messages = [m.model_copy(deep=True) for m in messages]
+
 		formatted_messages: List[Content] = []
 		system_message: Optional[str] = None
 
@@ -45,8 +48,8 @@ class GoogleMessageSerializer:
 					# Handle Iterable of content parts
 					parts = []
 					for part in message.content:
-						if part['type'] == 'text':
-							parts.append(part['text'])
+						if part.type == 'text':
+							parts.append(part.text)
 					system_message = '\n'.join(parts)
 				continue
 
@@ -70,14 +73,14 @@ class GoogleMessageSerializer:
 				# Handle Iterable of content parts
 				text_parts = []
 				for part in message.content:
-					if part['type'] == 'text':
-						text_parts.append(part['text'])
-					elif part['type'] == 'refusal':
-						text_parts.append(f'[Refusal] {part["refusal"]}')
-					elif part['type'] == 'image_url':
+					if part.type == 'text':
+						text_parts.append(part.text)
+					elif part.type == 'refusal':
+						text_parts.append(f'[Refusal] {part.refusal}')
+					elif part.type == 'image_url':
 						# For images, we'll include a placeholder text
 						# In a full implementation, you'd handle images properly
-						text_parts.append(f'[Image: {part["image_url"]["url"]}]')
+						text_parts.append(f'[Image: {part.image_url.url}]')
 
 				# Combine all text parts into a single Part
 				if text_parts:

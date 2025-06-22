@@ -106,7 +106,7 @@ class ChatOpenAI(BaseChatModel):
 			Either a string response or an instance of output_format
 		"""
 
-		openai_messages = [OpenAIMessageSerializer.serialize(message) for message in messages]
+		openai_messages = OpenAIMessageSerializer.serialize_messages(messages)
 
 		try:
 			if output_format is None:

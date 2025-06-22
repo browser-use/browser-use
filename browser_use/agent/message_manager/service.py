@@ -10,7 +10,14 @@ from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.agent.views import ActionResult, AgentOutput, AgentStepInfo, MessageManagerState
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.filesystem.file_system import FileSystem
-from browser_use.llm.messages import AssistantMessage, BaseMessage, SystemMessage, UserMessage
+from browser_use.llm.messages import (
+	AssistantMessage,
+	BaseMessage,
+	ContentPartImageParam,
+	ContentPartTextParam,
+	SystemMessage,
+	UserMessage,
+)
 from browser_use.utils import match_url_with_domain_pattern, time_execution_sync
 
 logger = logging.getLogger(__name__)
@@ -174,8 +181,10 @@ The file system actions do not change the browser state, so I can also click on 
 			)
 		)
 		self._add_message_with_tokens(example_tool_call_1, message_type='init')
-		self.add_tool_message(
-			content='Data written to todo.md.\nData written to github.md.\nClicked element with index 4.\n</example_1>',
+		self._add_message_with_tokens(
+			UserMessage(
+				content='Data written to todo.md.\nData written to github.md.\nClicked element with index 4.\n</example_1>',
+			),
 			message_type='init',
 		)
 
@@ -445,8 +454,8 @@ Step goal: {model_output.current_state.next_goal}
 			message.content = replace_sensitive(message.content)
 		elif isinstance(message.content, list):
 			for i, item in enumerate(message.content):
-				if isinstance(item, dict) and 'text' in item:
-					item['text'] = replace_sensitive(item['text'])
+				if isinstance(item, ContentPartTextParam):
+					item.text = replace_sensitive(item.text)
 					message.content[i] = item
 		return message
 
@@ -455,10 +464,10 @@ Step goal: {model_output.current_state.next_goal}
 		tokens = 0
 		if isinstance(message.content, list):
 			for item in message.content:
-				if 'image_url' in item:
+				if isinstance(item, ContentPartImageParam):
 					tokens += self.settings.image_tokens
-				elif isinstance(item, dict) and 'text' in item:
-					tokens += self._count_text_tokens(item['text'])
+				elif isinstance(item, ContentPartTextParam):
+					tokens += self._count_text_tokens(item.text)
 		else:
 			tokens += self._count_text_tokens(message.text)
 		return tokens
@@ -472,9 +481,3 @@ Step goal: {model_output.current_state.next_goal}
 	def _remove_last_state_message(self) -> None:
 		"""Remove last state message from history"""
 		self.state.history.remove_last_state_message()
-
-	def add_tool_message(self, content: str, message_type: str | None = None) -> None:
-		"""Add tool message to history"""
-		msg = UserMessage(content=content)
-		self.state.tool_id += 1
-		self._add_message_with_tokens(msg, message_type=message_type)

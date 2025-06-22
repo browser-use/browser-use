@@ -1543,10 +1543,10 @@ class Agent(Generic[Context]):
 			new_msg = ''
 			if isinstance(last_state_message.content, list):
 				for msg in last_state_message.content:
-					if msg['type'] == 'text':  # type: ignore
-						new_msg += msg['text']  # type: ignore
-					elif msg['type'] == 'image_url':  # type: ignore
-						continue  # type: ignore
+					if msg.type == 'text':
+						new_msg += msg.text
+					elif msg.type == 'image_url':
+						continue
 			else:
 				new_msg = last_state_message.content
 

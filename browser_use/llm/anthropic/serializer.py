@@ -14,6 +14,7 @@ from browser_use.llm.messages import (
 	BaseMessage,
 	ContentPartImageParam,
 	ContentPartTextParam,
+	SupportedImageMediaType,
 	SystemMessage,
 	UserMessage,
 )
@@ -28,7 +29,7 @@ class AnthropicMessageSerializer:
 		return url.startswith('data:image/')
 
 	@staticmethod
-	def _parse_base64_url(url: str) -> tuple[str, str]:
+	def _parse_base64_url(url: str) -> tuple[SupportedImageMediaType, str]:
 		"""Parse a base64 data URL to extract media type and data."""
 		# Format: data:image/jpeg;base64,<data>
 		if not url.startswith('data:'):
@@ -41,19 +42,19 @@ class AnthropicMessageSerializer:
 		supported_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 		if media_type not in supported_types:
 			# Default to jpeg if not recognized
-			media_type = 'image/jpeg'
+			media_type = 'image/png'
 
-		return media_type, data
+		return media_type, data  # type: ignore
 
 	@staticmethod
 	def _serialize_content_part_text(part: ContentPartTextParam) -> TextBlockParam:
 		"""Convert a text content part to Anthropic's TextBlockParam."""
-		return TextBlockParam(text=part['text'], type='text')
+		return TextBlockParam(text=part.text, type='text')
 
 	@staticmethod
 	def _serialize_content_part_image(part: ContentPartImageParam) -> ImageBlockParam:
 		"""Convert an image content part to Anthropic's ImageBlockParam."""
-		url = part['image_url']['url']
+		url = part.image_url.url
 
 		if AnthropicMessageSerializer._is_base64_image(url):
 			# Handle base64 encoded images
@@ -61,7 +62,7 @@ class AnthropicMessageSerializer:
 			return ImageBlockParam(
 				source=Base64ImageSourceParam(
 					data=data,
-					media_type=media_type,  # type: ignore
+					media_type=media_type,
 					type='base64',
 				),
 				type='image',
@@ -78,7 +79,7 @@ class AnthropicMessageSerializer:
 
 		serialized_blocks: list[TextBlockParam] = []
 		for part in content:
-			if part['type'] == 'text':
+			if part.type == 'text':
 				serialized_blocks.append(AnthropicMessageSerializer._serialize_content_part_text(part))
 
 		return serialized_blocks
@@ -93,9 +94,9 @@ class AnthropicMessageSerializer:
 
 		serialized_blocks: list[Union[TextBlockParam, ImageBlockParam]] = []
 		for part in content:
-			if part['type'] == 'text':
+			if part.type == 'text':
 				serialized_blocks.append(AnthropicMessageSerializer._serialize_content_part_text(part))
-			elif part['type'] == 'image_url':
+			elif part.type == 'image_url':
 				serialized_blocks.append(AnthropicMessageSerializer._serialize_content_part_image(part))
 
 		return serialized_blocks
@@ -158,12 +159,12 @@ class AnthropicMessageSerializer:
 				else:
 					# Process content parts (text and refusal)
 					for part in message.content:
-						if part['type'] == 'text':
+						if part.type == 'text':
 							blocks.append(AnthropicMessageSerializer._serialize_content_part_text(part))
-						# Note: Anthropic doesn't have a specific refusal block type,
-						# so we convert refusals to text blocks
-						elif part['type'] == 'refusal':
-							blocks.append(TextBlockParam(text=f'[Refusal] {part["refusal"]}', type='text'))
+						# # Note: Anthropic doesn't have a specific refusal block type,
+						# # so we convert refusals to text blocks
+						# elif part.type == 'refusal':
+						# 	blocks.append(TextBlockParam(text=f'[Refusal] {part.refusal}', type='text'))
 
 			# Add tool use blocks if present
 			if message.tool_calls:
@@ -191,6 +192,8 @@ class AnthropicMessageSerializer:
 		    A tuple of (messages, system_message) where system_message is extracted
 		    from any SystemMessage in the list.
 		"""
+		messages = [m.model_copy(deep=True) for m in messages]
+
 		serialized_messages: list[MessageParam] = []
 		system_message: str | Iterable[TextBlockParam] | None = None
 

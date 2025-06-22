@@ -2,7 +2,7 @@ import importlib.resources
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from browser_use.llm.messages import SystemMessage, UserMessage
+from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam, ImageURL, SystemMessage, UserMessage
 
 if TYPE_CHECKING:
 	from browser_use.agent.views import AgentStepInfo
@@ -185,15 +185,13 @@ Interactive elements from top layer of the current page inside the viewport{trun
 			# Format message for vision model
 			return UserMessage(
 				content=[
-					{'type': 'text', 'text': state_description},
-					{
-						'type': 'image_url',
-						'image_url': {
-							'url': f'data:image/png;base64,{self.browser_state.screenshot}',
-							'media_type': 'image/png',
-							'detail': 'auto',
-						},
-					},
+					ContentPartTextParam(text=state_description),
+					ContentPartImageParam(
+						image_url=ImageURL(
+							url=f'data:image/png;base64,{self.browser_state.screenshot}',
+							media_type='image/png',
+						),
+					),
 				]
 			)
 

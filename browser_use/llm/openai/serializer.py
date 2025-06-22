@@ -10,6 +10,7 @@ from openai.types.chat import (
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam,
 )
+from openai.types.chat.chat_completion_message_tool_call_param import Function
 
 from browser_use.llm.messages import (
 	AssistantMessage,
@@ -28,18 +29,18 @@ class OpenAIMessageSerializer:
 
 	@staticmethod
 	def _serialize_content_part_text(part: ContentPartTextParam) -> ChatCompletionContentPartTextParam:
-		return ChatCompletionContentPartTextParam(text=part['text'], type='text')
+		return ChatCompletionContentPartTextParam(text=part.text, type='text')
 
 	@staticmethod
 	def _serialize_content_part_image(part: ContentPartImageParam) -> ChatCompletionContentPartImageParam:
 		return ChatCompletionContentPartImageParam(
-			image_url=part['image_url'],  # type: ignore idk what this is
+			image_url=part.image_url,  # type: ignore idk what this is
 			type='image_url',
 		)
 
 	@staticmethod
 	def _serialize_content_part_refusal(part: ContentPartRefusalParam) -> ChatCompletionContentPartRefusalParam:
-		return ChatCompletionContentPartRefusalParam(refusal=part['refusal'], type='refusal')
+		return ChatCompletionContentPartRefusalParam(refusal=part.refusal, type='refusal')
 
 	@staticmethod
 	def _serialize_user_content(
@@ -51,9 +52,9 @@ class OpenAIMessageSerializer:
 
 		serialized_parts: list[Union[ChatCompletionContentPartTextParam, ChatCompletionContentPartImageParam]] = []
 		for part in content:
-			if part['type'] == 'text':
+			if part.type == 'text':
 				serialized_parts.append(OpenAIMessageSerializer._serialize_content_part_text(part))
-			elif part['type'] == 'image_url':
+			elif part.type == 'image_url':
 				serialized_parts.append(OpenAIMessageSerializer._serialize_content_part_image(part))
 		return serialized_parts
 
@@ -67,7 +68,7 @@ class OpenAIMessageSerializer:
 
 		serialized_parts: list[ChatCompletionContentPartTextParam] = []
 		for part in content:
-			if part['type'] == 'text':
+			if part.type == 'text':
 				serialized_parts.append(OpenAIMessageSerializer._serialize_content_part_text(part))
 		return serialized_parts
 
@@ -81,7 +82,7 @@ class OpenAIMessageSerializer:
 
 		serialized_parts: list[ChatCompletionContentPartTextParam] = []
 		for part in content:
-			if part['type'] == 'text':
+			if part.type == 'text':
 				serialized_parts.append(OpenAIMessageSerializer._serialize_content_part_text(part))
 		return serialized_parts
 
@@ -97,17 +98,17 @@ class OpenAIMessageSerializer:
 
 		serialized_parts: list[Union[ChatCompletionContentPartTextParam, ChatCompletionContentPartRefusalParam]] = []
 		for part in content:
-			if part['type'] == 'text':
+			if part.type == 'text':
 				serialized_parts.append(OpenAIMessageSerializer._serialize_content_part_text(part))
-			elif part['type'] == 'refusal':
+			elif part.type == 'refusal':
 				serialized_parts.append(OpenAIMessageSerializer._serialize_content_part_refusal(part))
 		return serialized_parts
 
 	@staticmethod
 	def _serialize_tool_call(tool_call: ToolCall) -> ChatCompletionMessageToolCallParam:
 		return ChatCompletionMessageToolCallParam(
-			id=tool_call['id'],
-			function={'name': tool_call['function']['name'], 'arguments': tool_call['function']['arguments']},
+			id=tool_call.id,
+			function=Function(name=tool_call.function.name, arguments=tool_call.function.arguments),
 			type='function',
 		)
 
@@ -129,6 +130,7 @@ class OpenAIMessageSerializer:
 	@staticmethod
 	def serialize(message: BaseMessage) -> ChatCompletionMessageParam:
 		"""Serialize a custom message to an OpenAI message param."""
+
 		if isinstance(message, UserMessage):
 			user_result: ChatCompletionUserMessageParam = {
 				'role': 'user',
