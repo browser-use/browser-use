@@ -29,7 +29,7 @@ Each hook should be an `async` callable function that accepts the `agent` instan
 
 ```python
 from browser_use import Agent
-from langchain_openai import ChatOpenAI
+from browser_use.llm import ChatOpenAI
 
 
 async def my_step_hook(agent: Agent):
@@ -233,7 +233,7 @@ import asyncio
 import requests
 from dotenv import load_dotenv
 from pyobjtojson import obj_to_json
-from langchain_openai import ChatOpenAI
+from browser_use.llm import ChatOpenAI
 from browser_use import Agent
 
 # Load environment variables (for API keys)
