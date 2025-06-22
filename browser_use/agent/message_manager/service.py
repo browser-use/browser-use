@@ -118,16 +118,6 @@ class MessageManager:
 		"""Initialize the message history with system message, context, task, and other initial messages"""
 		self._add_message_with_tokens(self.system_prompt, message_type='init')
 
-		if self.settings.message_context:
-			context_message = UserMessage(content='<task_context>' + self.settings.message_context + '</task_context>')
-			self._add_message_with_tokens(context_message, message_type='init')
-
-		if self.settings.sensitive_data:
-			info = f'<sensitive_data>Here are placeholders for sensitive data: {list(self.settings.sensitive_data.keys())}'
-			info += '\nTo use them, write <secret>the placeholder name</secret> </sensitive_data>'
-			info_message = UserMessage(content=info)
-			self._add_message_with_tokens(info_message, message_type='init')
-
 		placeholder_message = UserMessage(
 			content='<example_1>\nHere is an example output of thinking and tool call. You can use it as a reference but do not copy it exactly.'
 		)
@@ -137,23 +127,21 @@ class MessageManager:
 		example_tool_call_1 = AssistantMessage(
 			content=json.dumps(
 				{
-					'name': 'AgentOutput',
-					'args': {
-						'thinking': """I have successfully navigated to https://github.com/explore and can see the page has loaded with a list of featured repositories. The page contains interactive elements and I can identify specific repositories like bytedance/UI-TARS-desktop (index [4]) and ray-project/kuberay (index [5]). The user's request is to explore GitHub repositories and collect information about them such as descriptions, stars, or other metadata. So far, I haven't collected any information.
+					'thinking': """I have successfully navigated to https://github.com/explore and can see the page has loaded with a list of featured repositories. The page contains interactive elements and I can identify specific repositories like bytedance/UI-TARS-desktop (index [4]) and ray-project/kuberay (index [5]). The user's request is to explore GitHub repositories and collect information about them such as descriptions, stars, or other metadata. So far, I haven't collected any information.
 My navigation to the GitHub explore page was successful. The page loaded correctly and I can see the expected content.
 I need to capture the key repositories I've identified so far into my memory and into a file.
 Since this appears to be a multi-step task involving visiting multiple repositories and collecting their information, I need to create a structured plan in todo.md.
 After writing todo.md, I can also initialize a github.md file to accumulate the information I've collected.
 The file system actions do not change the browser state, so I can also click on the bytedance/UI-TARS-desktop (index [4]) to start collecting information.
 """,
-						'evaluation_previous_goal': 'Navigated to GitHub explore page. Verdict: Success',
-						'memory': 'Found initial repositories such as bytedance/UI-TARS-desktop and ray-project/kuberay.',
-						'next_goal': 'Create todo.md checklist to track progress, initialize github.md for collecting information, and click on bytedance/UI-TARS-desktop.',
-						'action': [
-							{
-								'write_file': {
-									'path': 'todo.md',
-									'content': """
+					'evaluation_previous_goal': 'Navigated to GitHub explore page. Verdict: Success',
+					'memory': 'Found initial repositories such as bytedance/UI-TARS-desktop and ray-project/kuberay.',
+					'next_goal': 'Create todo.md checklist to track progress, initialize github.md for collecting information, and click on bytedance/UI-TARS-desktop.',
+					'action': [
+						{
+							'write_file': {
+								'path': 'todo.md',
+								'content': """
 # Interesting Github Repositories in Explore Section
 
 ## Tasks
@@ -166,27 +154,24 @@ The file system actions do not change the browser state, so I can also click on 
 - [ ] Validate that I have not missed anything in the page
 - [ ] Report final results to user
 """.strip('\n'),
-								}
-							},
-							{
-								'write_file': {
-									'path': 'github.md',
-									'content': """
+							}
+						},
+						{
+							'write_file': {
+								'path': 'github.md',
+								'content': """
 # Github Repositories:
 """,
-								}
-							},
-							{
-								'click_element_by_index': {
-									'index': 4,
-								}
-							},
-						],
-					},
-					'id': str(self.state.tool_id),
-					'type': 'tool_call',
+							}
+						},
+						{
+							'click_element_by_index': {
+								'index': 4,
+							}
+						},
+					],
 				}
-			),
+			)
 		)
 		self._add_message_with_tokens(example_tool_call_1, message_type='init')
 		self.add_tool_message(
