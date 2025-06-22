@@ -8,7 +8,6 @@ from typing_extensions import Literal
 from browser_use.llm.messages import (
 	AssistantMessage,
 	BaseMessage,
-	SystemMessage,
 	UserMessage,
 )
 
@@ -65,18 +64,9 @@ class MessageHistory(BaseModel):
 		"""Get total tokens in history"""
 		return self.current_tokens
 
-	def remove_oldest_message(self) -> None:
-		"""Remove oldest non-system message"""
-		for i, msg in enumerate(self.messages):
-			if not isinstance(msg, SystemMessage):
-				# self.current_tokens -= msg.metadata.tokens
-				# TODO: FIX TOKENS
-				self.messages.pop(i)
-				break
-
 	def remove_last_state_message(self) -> None:
 		"""Remove last state message from history"""
-		if len(self.messages) > 2 and isinstance(self.messages[-1], UserMessage):
+		if len(self.messages) > 2 and isinstance(self.messages[-1].message, UserMessage):
 			# self.current_tokens -= self.messages[-1].metadata.tokens
 			# TODO: FIX TOKENS
 			self.messages.pop()
