@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from typing import Any, Dict, Type, TypeVar, overload
 
@@ -12,6 +13,79 @@ from browser_use.llm.google.serializer import GoogleMessageSerializer
 from browser_use.llm.messages import BaseMessage
 
 T = TypeVar('T', bound=BaseModel)
+
+
+def pydantic_to_gemini_schema(model_class: Type[BaseModel]) -> dict[str, Any]:
+	"""
+	Convert a Pydantic model to a Gemini-compatible schema.
+
+	This function removes unsupported properties like 'additionalProperties' and resolves
+	$ref references that Gemini doesn't support.
+	"""
+	schema = model_class.model_json_schema()
+
+	# Handle $defs and $ref resolution
+	if '$defs' in schema:
+		defs = schema.pop('$defs')
+
+		def resolve_refs(obj: Any) -> Any:
+			if isinstance(obj, dict):
+				if '$ref' in obj:
+					ref = obj.pop('$ref')
+					ref_name = ref.split('/')[-1]
+					if ref_name in defs:
+						# Replace the reference with the actual definition
+						resolved = defs[ref_name].copy()
+						# Merge any additional properties from the reference
+						for key, value in obj.items():
+							if key != '$ref':
+								resolved[key] = value
+						return resolve_refs(resolved)
+					return obj
+				else:
+					# Recursively process all dictionary values
+					return {k: resolve_refs(v) for k, v in obj.items()}
+			elif isinstance(obj, list):
+				return [resolve_refs(item) for item in obj]
+			return obj
+
+		schema = resolve_refs(schema)
+
+	# Remove unsupported properties
+	def clean_schema(obj: Any) -> Any:
+		if isinstance(obj, dict):
+			# Remove unsupported properties
+			cleaned = {}
+			for key, value in obj.items():
+				if key not in ['additionalProperties', 'title', 'default']:
+					cleaned_value = clean_schema(value)
+					# Handle empty object properties - Gemini doesn't allow empty OBJECT types
+					if (
+						key == 'properties'
+						and isinstance(cleaned_value, dict)
+						and len(cleaned_value) == 0
+						and obj.get('type', '').upper() == 'OBJECT'
+					):
+						# Convert empty object to have at least one property
+						cleaned['properties'] = {'_placeholder': {'type': 'string'}}
+					else:
+						cleaned[key] = cleaned_value
+
+			# If this is an object type with empty properties, add a placeholder
+			if (
+				cleaned.get('type', '').upper() == 'OBJECT'
+				and 'properties' in cleaned
+				and isinstance(cleaned['properties'], dict)
+				and len(cleaned['properties']) == 0
+			):
+				cleaned['properties'] = {'_placeholder': {'type': 'string'}}
+
+			return cleaned
+		elif isinstance(obj, list):
+			return [clean_schema(item) for item in obj]
+		return obj
+
+	return clean_schema(schema)
 
 
 @dataclass
@@ -122,21 +196,35 @@ class ChatGoogle(BaseChatModel):
 			else:
 				# Return structured response
 				config['response_mime_type'] = 'application/json'
-				config['response_schema'] = output_format
+				# Convert Pydantic model to Gemini-compatible schema
+				config['response_schema'] = pydantic_to_gemini_schema(output_format)
 
 				response = await self.get_client().aio.models.generate_content(
 					model=self.model,
-					contents=contents,  # type: ignore
+					contents=contents,
 					config=config,
 				)
 
 				# Handle case where response.parsed might be None
 				if response.parsed is None:
-					raise ModelProviderError(
-						message='No parsed response from model',
-						status_code=500,
-						model=self.model,
-					)
+					# When using response_schema, Gemini returns JSON as text
+					if response.text:
+						try:
+							# Parse the JSON text and validate with the Pydantic model
+							parsed_data = json.loads(response.text)
+							return output_format.model_validate(parsed_data)
+						except (json.JSONDecodeError, ValueError) as e:
+							raise ModelProviderError(
+								message=f'Failed to parse or validate response: {str(e)}',
+								status_code=500,
+								model=self.model,
+							) from e
+					else:
+						raise ModelProviderError(
+							message='No response from model',
+							status_code=500,
+							model=self.model,
+						)
 
 				# Ensure we return the correct type
 				if isinstance(response.parsed, output_format):

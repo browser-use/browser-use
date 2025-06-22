@@ -1,6 +1,7 @@
+import base64
 from typing import List, Optional, Tuple
 
-from google.genai.types import Content, Part
+from google.genai.types import Content, ContentListUnion, Part
 
 from browser_use.llm.messages import (
 	AssistantMessage,
@@ -14,7 +15,7 @@ class GoogleMessageSerializer:
 	"""Serializer for converting messages to Google Gemini format."""
 
 	@staticmethod
-	def serialize_messages(messages: List[BaseMessage]) -> Tuple[List[Content], Optional[str]]:
+	def serialize_messages(messages: List[BaseMessage]) -> Tuple[ContentListUnion, Optional[str]]:
 		"""
 		Convert a list of BaseMessages to Google format, extracting system message.
 
@@ -33,7 +34,7 @@ class GoogleMessageSerializer:
 
 		messages = [m.model_copy(deep=True) for m in messages]
 
-		formatted_messages: List[Content] = []
+		formatted_messages: ContentListUnion = []
 		system_message: Optional[str] = None
 
 		for message in messages:
@@ -71,21 +72,28 @@ class GoogleMessageSerializer:
 				message_parts = [Part.from_text(text=message.content)]
 			elif message.content is not None:
 				# Handle Iterable of content parts
-				text_parts = []
 				for part in message.content:
 					if part.type == 'text':
-						text_parts.append(part.text)
+						message_parts.append(Part.from_text(text=part.text))
 					elif part.type == 'refusal':
-						text_parts.append(f'[Refusal] {part.refusal}')
+						message_parts.append(Part.from_text(text=f'[Refusal] {part.refusal}'))
 					elif part.type == 'image_url':
-						# For images, we'll include a placeholder text
-						# In a full implementation, you'd handle images properly
-						text_parts.append(f'[Image: {part.image_url.url}]')
+						# Handle images
+						url = part.image_url.url
 
-				# Combine all text parts into a single Part
-				if text_parts:
-					combined_text = '\n'.join(text_parts)
-					message_parts = [Part.from_text(text=combined_text)]
+						# Format: data:image/png;base64,<data>
+						header, data = url.split(',', 1)
+						# Decode base64 to bytes
+						image_bytes = base64.b64decode(data)
+
+						# Save the image to a file
+						with open('tmp/image.png', 'wb') as f:
+							f.write(image_bytes)
+
+						# Add image part
+						image_part = Part.from_bytes(data=image_bytes, mime_type='image/png')
+
+						message_parts.append(image_part)
 
 			# Create the Content object
 			if message_parts:
