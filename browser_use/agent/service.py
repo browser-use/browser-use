@@ -24,7 +24,7 @@ from browser_use.agent.cloud_events import (
 )
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import BaseMessage, UserMessage
-from browser_use.token_cost.service import TokenCost
+from browser_use.tokens.service import TokenCost
 
 load_dotenv()
 

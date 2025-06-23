@@ -18,7 +18,7 @@ import httpx
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.views import ChatInvokeUsage
-from browser_use.token_cost.views import CachedPricingData, ModelPricing, ModelUsageStats, TokenUsageEntry, UsageSummary
+from browser_use.tokens.views import CachedPricingData, ModelPricing, ModelUsageStats, TokenUsageEntry, UsageSummary
 from browser_use.utils import xdg_cache_home
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,9 @@ class TokenCost:
 	CACHE_DURATION = timedelta(days=1)
 	PRICING_URL = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json'
 
-	def __init__(self):
+	def __init__(self, include_cost: bool = False):
+		self.include_cost = include_cost or os.getenv('BROWSER_USE_CALCULATE_COST', 'false').lower() == 'true'
+
 		self.usage_history: List[TokenUsageEntry] = []
 		self.registered_llms: Dict[str, BaseChatModel] = {}
 		self._pricing_data: Optional[Dict[str, Any]] = None
@@ -42,7 +44,8 @@ class TokenCost:
 	async def initialize(self) -> None:
 		"""Initialize the service by loading pricing data"""
 		if not self._initialized:
-			await self._load_pricing_data()
+			if self.include_cost:
+				await self._load_pricing_data()
 			self._initialized = True
 
 	async def _load_pricing_data(self) -> None:
@@ -160,8 +163,8 @@ class TokenCost:
 		)
 
 	def calculate_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> tuple[float, float]:
-		"""Calculate cost for given token counts. Returns 0 if pricing data is not available."""
-		if not self._pricing_data or model not in self._pricing_data:
+		"""Calculate cost for given token counts. Returns 0 if pricing data is not available or cost tracking is disabled."""
+		if not self.include_cost or not self._pricing_data or model not in self._pricing_data:
 			return 0.0, 0.0
 
 		data = self._pricing_data[model]
@@ -193,9 +196,6 @@ class TokenCost:
 		if not self._initialized:
 			await self.initialize()
 
-		input_cost, output_cost = self.calculate_cost(model, usage.prompt_tokens, usage.completion_tokens)
-		cost = input_cost + output_cost
-
 		# ANSI color codes
 		C_CYAN = '\033[96m'
 		C_YELLOW = '\033[93m'
@@ -206,10 +206,17 @@ class TokenCost:
 		prompt_tokens_fmt = self._format_tokens(usage.prompt_tokens)
 		completion_tokens_fmt = self._format_tokens(usage.completion_tokens)
 
-		# Format tokens with or without cost based on whether cost is available
-		if cost > 0:
-			input_part = f'{C_YELLOW}{prompt_tokens_fmt} (${input_cost:.4f}){C_RESET}'
-			output_part = f'{C_GREEN}{completion_tokens_fmt} (${output_cost:.4f}){C_RESET}'
+		# Format tokens with or without cost based on whether cost tracking is enabled
+		if self.include_cost:
+			input_cost, output_cost = self.calculate_cost(model, usage.prompt_tokens, usage.completion_tokens)
+			cost = input_cost + output_cost
+
+			if cost > 0:
+				input_part = f'{C_YELLOW}{prompt_tokens_fmt} (${input_cost:.4f}){C_RESET}'
+				output_part = f'{C_GREEN}{completion_tokens_fmt} (${output_cost:.4f}){C_RESET}'
+			else:
+				input_part = f'{C_YELLOW}{prompt_tokens_fmt}{C_RESET}'
+				output_part = f'{C_GREEN}{completion_tokens_fmt}{C_RESET}'
 		else:
 			input_part = f'{C_YELLOW}{prompt_tokens_fmt}{C_RESET}'
 			output_part = f'{C_GREEN}{completion_tokens_fmt}{C_RESET}'
@@ -340,7 +347,7 @@ class TokenCost:
 		if not self.usage_history:
 			return
 
-		summary = self.get_usage_summary(calculate_cost=True)
+		summary = self.get_usage_summary(calculate_cost=self.include_cost)
 
 		if summary.entry_count == 0:
 			return
@@ -359,15 +366,34 @@ class TokenCost:
 		prompt_tokens_fmt = self._format_tokens(summary.total_prompt_tokens)
 		completion_tokens_fmt = self._format_tokens(summary.total_completion_tokens)
 
-		cost_logger.info(
-			f'💲 {C_BOLD}Total Usage Summary{C_RESET}: {C_BLUE}{total_tokens_fmt} tokens{C_RESET} (${C_MAGENTA}{summary.total_cost:.4f}{C_RESET}) | ⬅️ {C_YELLOW}{prompt_tokens_fmt}{C_RESET} | ➡️ {C_GREEN}{completion_tokens_fmt}{C_RESET}'
-		)
+		# Format cost breakdowns for input and output (only if cost tracking is enabled)
+		if self.include_cost and summary.total_cost > 0:
+			total_cost_part = f' (${C_MAGENTA}{summary.total_cost:.4f}{C_RESET})'
+			prompt_cost_part = f' (${summary.total_prompt_cost:.4f})'
+			completion_cost_part = f' (${summary.total_completion_cost:.4f})'
+		else:
+			total_cost_part = ''
+			prompt_cost_part = ''
+			completion_cost_part = ''
+
+		if len(summary.by_model) > 1:
+			cost_logger.info(
+				f'💲 {C_BOLD}Total Usage Summary{C_RESET}: {C_BLUE}{total_tokens_fmt} tokens{C_RESET}{total_cost_part} | '
+				f'⬅️ {C_YELLOW}{prompt_tokens_fmt}{prompt_cost_part}{C_RESET} | ➡️ {C_GREEN}{completion_tokens_fmt}{completion_cost_part}{C_RESET}'
+			)
 
 		# Log per-model breakdown
-		if len(summary.by_model) > 1:  # Only show breakdown if multiple models
-			cost_logger.info(f'📊 {C_BOLD}Per-Model Breakdown{C_RESET}:')
+		cost_logger.info(f'📊 {C_BOLD}Per-Model Usage Breakdown{C_RESET}:')
 
-			for model, stats in summary.by_model.items():
+		for model, stats in summary.by_model.items():
+			# Format tokens
+			model_total_fmt = self._format_tokens(stats.total_tokens)
+			model_prompt_fmt = self._format_tokens(stats.prompt_tokens)
+			model_completion_fmt = self._format_tokens(stats.completion_tokens)
+			avg_tokens_fmt = self._format_tokens(int(stats.average_tokens_per_invocation))
+
+			# Format cost display (only if cost tracking is enabled)
+			if self.include_cost:
 				# Calculate per-model costs on-the-fly
 				total_model_cost = 0.0
 				model_prompt_cost = 0.0
@@ -382,13 +408,6 @@ class TokenCost:
 
 				total_model_cost = model_prompt_cost + model_completion_cost
 
-				# Format tokens
-				model_total_fmt = self._format_tokens(stats.total_tokens)
-				model_prompt_fmt = self._format_tokens(stats.prompt_tokens)
-				model_completion_fmt = self._format_tokens(stats.completion_tokens)
-				avg_tokens_fmt = self._format_tokens(int(stats.average_tokens_per_invocation))
-
-				# Format cost display
 				if total_model_cost > 0:
 					cost_part = f' (${C_MAGENTA}{total_model_cost:.4f}{C_RESET})'
 					prompt_part = f'{C_YELLOW}{model_prompt_fmt} (${model_prompt_cost:.4f}){C_RESET}'
@@ -397,16 +416,20 @@ class TokenCost:
 					cost_part = ''
 					prompt_part = f'{C_YELLOW}{model_prompt_fmt}{C_RESET}'
 					completion_part = f'{C_GREEN}{model_completion_fmt}{C_RESET}'
+			else:
+				cost_part = ''
+				prompt_part = f'{C_YELLOW}{model_prompt_fmt}{C_RESET}'
+				completion_part = f'{C_GREEN}{model_completion_fmt}{C_RESET}'
 
-				cost_logger.info(
-					f'  🤖 {C_CYAN}{model}{C_RESET}: {C_BLUE}{model_total_fmt} tokens{C_RESET}{cost_part} | '
-					f'⬅️ {prompt_part} | ➡️ {completion_part} | '
-					f'📞 {stats.invocations} calls | 📈 {avg_tokens_fmt}/call'
-				)
+			cost_logger.info(
+				f'  🤖 {C_CYAN}{model}{C_RESET}: {C_BLUE}{model_total_fmt} tokens{C_RESET}{cost_part} | '
+				f'⬅️ {prompt_part} | ➡️ {completion_part} | '
+				f'📞 {stats.invocations} calls | 📈 {avg_tokens_fmt}/call'
+			)
 
 	def get_cost_by_model(self) -> Dict[str, ModelUsageStats]:
 		"""Get cost breakdown by model"""
-		summary = self.get_usage_summary()
+		summary = self.get_usage_summary(calculate_cost=self.include_cost)
 		return summary.by_model
 
 	def clear_history(self) -> None:
@@ -415,7 +438,8 @@ class TokenCost:
 
 	async def refresh_pricing_data(self) -> None:
 		"""Force refresh of pricing data from GitHub"""
-		await self._fetch_and_cache_pricing_data()
+		if self.include_cost:
+			await self._fetch_and_cache_pricing_data()
 
 	async def clean_old_caches(self, keep_count: int = 3) -> None:
 		"""Clean up old cache files, keeping only the most recent ones"""
@@ -440,6 +464,6 @@ class TokenCost:
 
 	async def ensure_pricing_loaded(self) -> None:
 		"""Ensure pricing data is loaded in the background. Call this after creating the service."""
-		if not self._initialized:
+		if not self._initialized and self.include_cost:
 			# This will run in the background and won't block
 			await self.initialize()

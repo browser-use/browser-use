@@ -9,7 +9,7 @@ import logging
 
 from browser_use.llm import ChatOpenAI
 from browser_use.llm.messages import AssistantMessage, SystemMessage, UserMessage
-from browser_use.token_cost.service import TokenCost
+from browser_use.tokens.service import TokenCost
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
