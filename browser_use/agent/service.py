@@ -140,7 +140,6 @@ class Agent(Generic[Context]):
 		retry_delay: int = 10,
 		override_system_message: str | None = None,
 		extend_system_message: str | None = None,
-		max_input_tokens: int = 128000,
 		validate_output: bool = False,
 		message_context: str | None = None,
 		generate_gif: bool | str = False,
@@ -199,7 +198,6 @@ class Agent(Generic[Context]):
 			retry_delay=retry_delay,
 			override_system_message=override_system_message,
 			extend_system_message=extend_system_message,
-			max_input_tokens=max_input_tokens,
 			validate_output=validate_output,
 			message_context=message_context,
 			generate_gif=generate_gif,
@@ -278,7 +276,6 @@ class Agent(Generic[Context]):
 			).get_system_message(),
 			file_system=self.file_system,
 			settings=MessageManagerSettings(
-				max_input_tokens=self.settings.max_input_tokens,
 				include_attributes=self.settings.include_attributes,
 				message_context=self.settings.message_context,
 				sensitive_data=sensitive_data,
@@ -588,7 +585,6 @@ class Agent(Generic[Context]):
 		model_output = None
 		result: list[ActionResult] = []
 		step_start_time = time.time()
-		tokens = 0
 
 		try:
 			assert self.browser_session is not None, 'BrowserSession is not set up'
@@ -612,7 +608,7 @@ class Agent(Generic[Context]):
 			# If there are page-specific actions, add them as a special message for this step only
 			if page_filtered_actions:
 				page_action_message = f'For this page, these additional actions are available:\n{page_filtered_actions}'
-				self._message_manager._add_message_with_tokens(UserMessage(content=page_action_message))
+				self._message_manager._add_message_with_type(UserMessage(content=page_action_message))
 
 			self._message_manager.add_state_message(
 				browser_state_summary=browser_state_summary,
@@ -637,11 +633,10 @@ class Agent(Generic[Context]):
 				msg += '\nIf the task is fully finished, set success in "done" to true.'
 				msg += '\nInclude everything you found out for the ultimate task in the done text.'
 				self.logger.info('Last step finishing up')
-				self._message_manager._add_message_with_tokens(UserMessage(content=msg))
+				self._message_manager._add_message_with_type(UserMessage(content=msg))
 				self.AgentOutput = self.DoneAgentOutput
 
 			input_messages = self._message_manager.get_messages()
-			tokens = self._message_manager.state.history.current_tokens
 
 			try:
 				model_output = await self.get_next_action(input_messages)
@@ -748,7 +743,6 @@ class Agent(Generic[Context]):
 					step_number=self.state.n_steps,
 					step_start_time=step_start_time,
 					step_end_time=step_end_time,
-					input_tokens=tokens,
 				)
 				self._make_history_item(model_output, browser_state_summary, result, metadata)
 
@@ -784,10 +778,12 @@ class Agent(Generic[Context]):
 			self.logger.error(f'{prefix}{error_msg}')
 			if 'Max token limit reached' in error_msg:
 				# cut tokens from history
-				self._message_manager.settings.max_input_tokens = self.settings.max_input_tokens - 500
-				self.logger.info(
-					f'Cutting tokens from history - new max input tokens: {self._message_manager.settings.max_input_tokens}'
-				)
+				# self._message_manager.settings.max_input_tokens = self.settings.max_input_tokens - 500
+				# self.logger.info(
+				# 	f'Cutting tokens from history - new max input tokens: {self._message_manager.settings.max_input_tokens}'
+				# )
+				# TODO: figure out what to do here
+				pass
 
 				# no longer cutting messages, because we revamped the message manager
 				# self._message_manager.cut_messages()
@@ -959,7 +955,6 @@ class Agent(Generic[Context]):
 			and any(isinstance(item, dict) and item.get('type') == 'image_url' for item in msg.content)
 			for msg in input_messages
 		)
-		current_tokens = getattr(self._message_manager.state.history, 'current_tokens', 0)
 
 		# Count available tools/actions from the current ActionModel
 		# This gives us the actual number of tools exposed to the LLM for this specific call
@@ -976,6 +971,10 @@ class Agent(Generic[Context]):
 
 		term_width = shutil.get_terminal_size((80, 20)).columns
 		print('=' * term_width)
+
+		# TODO: how to print tokens before?
+		current_tokens = '???'  # TODO: fix this
+
 		self.logger.info(
 			f'🧠 LLM call => {self.llm.provider}/{self.llm.model} [✉️ {message_count} msg, ~{current_tokens} tk, {total_chars} char{image_status}] {output_format}{tool_info}'
 		)
@@ -1294,7 +1293,6 @@ class Agent(Generic[Context]):
 		else:
 			self.logger.info('❌ Task completed without success')
 
-		total_tokens = self.state.history.total_input_tokens()
 		self.logger.debug(f'💲 Total input tokens used (approximate): {total_tokens}')
 
 		if self.register_done_callback:

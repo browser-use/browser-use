@@ -31,11 +31,7 @@ def message_manager(request: pytest.FixtureRequest):
 	return MessageManager(
 		task=task,
 		system_message=SystemMessage(content=action_descriptions),
-		settings=MessageManagerSettings(
-			max_input_tokens=1000,
-			estimated_characters_per_token=3,
-			image_tokens=800,
-		),
+		settings=MessageManagerSettings(),
 		file_system=FileSystem(file_system_path),
 	)
 

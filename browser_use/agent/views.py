@@ -31,7 +31,6 @@ class AgentSettings(BaseModel):
 	save_conversation_path_encoding: str | None = 'utf-8'
 	max_failures: int = 3
 	retry_delay: int = 10
-	max_input_tokens: int = 128000
 	validate_output: bool = False
 	message_context: str | None = None
 	generate_gif: bool | str = False
@@ -129,7 +128,6 @@ class StepMetadata(BaseModel):
 
 	step_start_time: float
 	step_end_time: float
-	input_tokens: int  # Approximate tokens from message manager for this step
 	step_number: int
 
 	@property
@@ -241,22 +239,6 @@ class AgentHistoryList(BaseModel):
 			if h.metadata:
 				total += h.metadata.duration_seconds
 		return total
-
-	def total_input_tokens(self) -> int:
-		"""
-		Get total tokens used across all steps.
-		Note: These are from the approximate token counting of the message manager.
-		For accurate token counting, use tools like LangChain Smith or OpenAI's token counters.
-		"""
-		total = 0
-		for h in self.history:
-			if h.metadata:
-				total += h.metadata.input_tokens
-		return total
-
-	def input_token_usage(self) -> list[int]:
-		"""Get token usage for each step"""
-		return [h.metadata.input_tokens for h in self.history if h.metadata]
 
 	def __str__(self) -> str:
 		"""Representation of the AgentHistoryList object"""

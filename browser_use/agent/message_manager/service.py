@@ -13,7 +13,6 @@ from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.messages import (
 	AssistantMessage,
 	BaseMessage,
-	ContentPartImageParam,
 	ContentPartTextParam,
 	SystemMessage,
 	UserMessage,
@@ -90,9 +89,6 @@ def _log_format_message_line(message: BaseMessage, content: str, is_last_message
 
 
 class MessageManagerSettings(BaseModel):
-	max_input_tokens: int = 128000
-	estimated_characters_per_token: int = 3
-	image_tokens: int = 800
 	include_attributes: list[str] = []
 	message_context: str | None = None
 	# Support both old format {key: value} and new format {domain: {key: value}}
@@ -123,13 +119,13 @@ class MessageManager:
 
 	def _init_messages(self) -> None:
 		"""Initialize the message history with system message, context, task, and other initial messages"""
-		self._add_message_with_tokens(self.system_prompt, message_type='init')
+		self._add_message_with_type(self.system_prompt, message_type='init')
 
 		placeholder_message = UserMessage(
 			content='<example_1>\nHere is an example output of thinking and tool call. You can use it as a reference but do not copy it exactly.'
 		)
 		# placeholder_message = HumanMessage(content='Example output:')
-		self._add_message_with_tokens(placeholder_message, message_type='init')
+		self._add_message_with_type(placeholder_message, message_type='init')
 
 		example_tool_call_1 = AssistantMessage(
 			content=json.dumps(
@@ -180,8 +176,8 @@ The file system actions do not change the browser state, so I can also click on 
 				}
 			)
 		)
-		self._add_message_with_tokens(example_tool_call_1, message_type='init')
-		self._add_message_with_tokens(
+		self._add_message_with_type(example_tool_call_1, message_type='init')
+		self._add_message_with_type(
 			UserMessage(
 				content='Data written to todo.md.\nData written to github.md.\nClicked element with index 4.\n</example_1>',
 			),
@@ -235,7 +231,7 @@ The file system actions do not change the browser state, so I can also click on 
 			filepaths_msg = UserMessage(
 				content=f'<available_file_paths>Here are file paths you can use: {self.settings.available_file_paths}</available_file_paths>'
 			)
-			self._add_message_with_tokens(filepaths_msg, message_type='init')
+			self._add_message_with_type(filepaths_msg, message_type='init')
 
 	def add_new_task(self, new_task: str) -> None:
 		self.task = new_task
@@ -347,14 +343,14 @@ Step goal: {model_output.current_state.next_goal}
 			sensitive_data=self.sensitive_data_description,
 		).get_user_message(use_vision)
 
-		self._add_message_with_tokens(state_message)
+		self._add_message_with_type(state_message)
 
 	def add_plan(self, plan: str | None, position: int | None = None) -> None:
 		if not plan:
 			return
 
 		msg = AssistantMessage(content=plan)
-		self._add_message_with_tokens(msg, position)
+		self._add_message_with_type(msg, position)
 
 	def _log_history_lines(self) -> str:
 		"""Generate a formatted log string of message history for debugging / printing to terminal"""
@@ -402,7 +398,7 @@ Step goal: {model_output.current_state.next_goal}
 
 		return [m.message for m in self.state.history.messages]
 
-	def _add_message_with_tokens(
+	def _add_message_with_type(
 		self, message: BaseMessage, position: int | None = None, message_type: SupportedMessageTypes | None = None
 	) -> None:
 		"""Add message with token count metadata
@@ -413,8 +409,7 @@ Step goal: {model_output.current_state.next_goal}
 		if self.settings.sensitive_data:
 			message = self._filter_sensitive_data(message)
 
-		token_count = self._count_tokens(message)
-		metadata = MessageMetadata(tokens=token_count, message_type=message_type)
+		metadata = MessageMetadata(message_type=message_type)
 		self.state.history.add_message(message, metadata, position)
 
 	@time_execution_sync('--filter_sensitive_data')
@@ -458,25 +453,6 @@ Step goal: {model_output.current_state.next_goal}
 					item.text = replace_sensitive(item.text)
 					message.content[i] = item
 		return message
-
-	def _count_tokens(self, message: BaseMessage) -> int:
-		"""Count tokens in a message using the model's tokenizer"""
-		tokens = 0
-		if isinstance(message.content, list):
-			for item in message.content:
-				if isinstance(item, ContentPartImageParam):
-					tokens += self.settings.image_tokens
-				elif isinstance(item, ContentPartTextParam):
-					tokens += self._count_text_tokens(item.text)
-		else:
-			tokens += self._count_text_tokens(message.text)
-		return tokens
-
-	def _count_text_tokens(self, text: str) -> int:
-		"""Count tokens in a text string"""
-		# TODO: fix the token count
-		tokens = len(text) // self.settings.estimated_characters_per_token  # Rough estimate if no tokenizer available
-		return tokens
 
 	def _remove_last_state_message(self) -> None:
 		"""Remove last state message from history"""

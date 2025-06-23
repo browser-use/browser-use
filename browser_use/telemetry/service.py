@@ -1,13 +1,12 @@
 import logging
 import os
-from pathlib import Path
 
 from dotenv import load_dotenv
 from posthog import Posthog
 from uuid_extensions import uuid7str
 
 from browser_use.telemetry.views import BaseTelemetryEvent
-from browser_use.utils import singleton
+from browser_use.utils import singleton, xdg_cache_home
 
 load_dotenv()
 
@@ -18,14 +17,6 @@ logger = logging.getLogger(__name__)
 POSTHOG_EVENT_SETTINGS = {
 	'process_person_profile': True,
 }
-
-
-def xdg_cache_home() -> Path:
-	default = Path.home() / '.cache'
-	env_var = os.getenv('XDG_CACHE_HOME')
-	if env_var and (path := Path(env_var)).is_absolute():
-		return path
-	return default
 
 
 @singleton

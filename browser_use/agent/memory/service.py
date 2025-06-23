@@ -153,19 +153,14 @@ class Memory:
 
 		# Replace the processed messages with the consolidated memory
 		memory_message = UserMessage(content=memory_content)
-		memory_tokens = self.message_manager._count_tokens(memory_message)
-		memory_metadata = MessageMetadata(tokens=memory_tokens, message_type='memory')
-
-		# Calculate the total tokens being removed
-		removed_tokens = sum(m.metadata.tokens for m in messages_to_process)
+		memory_metadata = MessageMetadata(message_type='memory')
 
 		# Add the memory message
 		new_messages.append(ManagedMessage(message=memory_message, metadata=memory_metadata))
 
 		# Update the history
 		self.message_manager.state.history.messages = new_messages
-		self.message_manager.state.history.current_tokens -= removed_tokens
-		self.message_manager.state.history.current_tokens += memory_tokens
+
 		self.logger.info(f'📜 History consolidated: {len(messages_to_process)} steps converted to long-term memory')
 
 	def _create(self, messages: list[BaseMessage], current_step: int) -> str | None:

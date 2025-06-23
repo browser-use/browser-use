@@ -20,7 +20,6 @@ SupportedMessageTypes = Literal['init', 'memory']
 class MessageMetadata(BaseModel):
 	"""Metadata for a message"""
 
-	tokens: int = 0
 	message_type: SupportedMessageTypes | None = None
 
 
@@ -35,7 +34,6 @@ class MessageHistory(BaseModel):
 	"""History of messages with metadata"""
 
 	messages: list[ManagedMessage] = Field(default_factory=list)
-	current_tokens: int = 0
 
 	model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -45,21 +43,14 @@ class MessageHistory(BaseModel):
 			self.messages.append(ManagedMessage(message=message, metadata=metadata))
 		else:
 			self.messages.insert(position, ManagedMessage(message=message, metadata=metadata))
-		self.current_tokens += metadata.tokens
 
 	def get_messages(self) -> list[BaseMessage]:
 		"""Get all messages"""
 		return [m.message for m in self.messages]
 
-	def get_total_tokens(self) -> int:
-		"""Get total tokens in history"""
-		return self.current_tokens
-
 	def remove_last_state_message(self) -> None:
 		"""Remove last state message from history"""
 		if len(self.messages) > 2 and isinstance(self.messages[-1].message, UserMessage):
-			# self.current_tokens -= self.messages[-1].metadata.tokens
-			# TODO: FIX TOKENS
 			self.messages.pop()
 
 

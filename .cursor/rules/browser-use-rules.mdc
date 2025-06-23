@@ -82,3 +82,7 @@ agent = Agent(task=task, llm=model, controller=controller)
 
 history = await agent.run()
 ```
+
+# Never create random examples
+
+When I ask you to implement a feature never create new files that show off that feature -> the code just gets messy. If you do anything to test it out, just do the inline code inside the terminal (if you want).
