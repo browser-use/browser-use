@@ -15,6 +15,7 @@ from pathlib import Path
 from threading import Thread
 from typing import Any, Generic, TypeVar
 
+import anyio
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -298,6 +299,7 @@ class Agent(Generic[Context]):
 				sensitive_data=sensitive_data,
 				available_file_paths=self.settings.available_file_paths,
 			),
+			available_file_paths=self.settings.available_file_paths,
 			state=self.state.message_manager_state,
 		)
 
@@ -505,15 +507,27 @@ class Agent(Generic[Context]):
 			return ActionResult(extracted_content=result, include_in_memory=True, long_term_memory=result)
 
 		@self.controller.registry.action('Read file_name from file system')
-		async def read_file(file_name: str):
-			result = await self.file_system.read_file(file_name)
-			max_len = 50
-			if len(result) > max_len:
-				display_result = result[:max_len] + '\n...'
+		async def read_file(file_name: str, available_file_paths: list[str]):
+			if file_name in available_file_paths:
+				async with await anyio.open_file(file_name, 'r') as f:
+					content = await f.read()
+					result = f'Read from file {file_name}.\n<content>\n{content}\n</content>'
 			else:
-				display_result = result
-			logger.info(f'💾 {display_result}')
-			memory = result.split('\n')[-1]
+				result = await self.file_system.read_file(file_name)
+
+			MAX_MEMORY_SIZE = 1000
+			if len(result) > MAX_MEMORY_SIZE:
+				lines = result.splitlines()
+				display = ''
+				for line in lines:
+					if len(display) + len(line) < MAX_MEMORY_SIZE:
+						display += line + '\n'
+					else:
+						break
+				memory = f'{display}{len(lines) - len(display)} more lines...'
+			else:
+				memory = result
+			logger.info(f'💾 {memory}')
 			return ActionResult(
 				extracted_content=result,
 				include_in_memory=True,

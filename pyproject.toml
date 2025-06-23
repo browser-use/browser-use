@@ -52,7 +52,8 @@ dependencies = [
 [project.optional-dependencies]
 memory = [
     # sentence-transformers: depends on pytorch, which does not support python 3.13 yet
-    "faiss-cpu>=1.11.0",
+    # faiss-cpu: >= 1.11.0 breaks on some macOS hosts, make sure to test before upgrading
+    "faiss-cpu>=1.10.0",
     "sentence-transformers>=4.0.2",
 ]
 cli = [
@@ -156,15 +157,15 @@ log_level = "DEBUG"
 allow-direct-references = true
 
 [tool.uv]
-required-environments = [
-    "sys_platform == 'darwin' and platform_machine == 'arm64'",
-    "sys_platform == 'darwin' and platform_machine == 'x86_64'",
-    "sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "sys_platform == 'linux' and platform_machine == 'aarch64'",
-    # "sys_platform == 'linux' and platform_machine == 'arm64'",  # no pytorch wheels available yet
-    "sys_platform == 'win32' and platform_machine == 'x86_64'",
-    # "sys_platform == 'win32' and platform_machine == 'arm64'",  # no pytorch wheels available yet
-]
+# required-environments = [
+#     "sys_platform == 'darwin' and platform_machine == 'arm64'",
+#     "sys_platform == 'darwin' and platform_machine == 'x86_64'",
+#     "sys_platform == 'linux' and platform_machine == 'x86_64'",
+#     "sys_platform == 'linux' and platform_machine == 'aarch64'",
+#     # "sys_platform == 'linux' and platform_machine == 'arm64'",  # no pytorch wheels available yet
+#     "sys_platform == 'win32' and platform_machine == 'x86_64'",
+#     # "sys_platform == 'win32' and platform_machine == 'arm64'",  # no pytorch wheels available yet
+# ]
 dev-dependencies = [
     "ruff>=0.11.2",
     "tokencost>=0.1.16",

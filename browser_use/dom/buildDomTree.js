@@ -836,7 +836,7 @@
         }
       }
 
-      const getEventListenersForNode = window.getEventListenersForNode;
+      const getEventListenersForNode = element?.ownerDocument?.defaultView?.getEventListenersForNode || window.getEventListenersForNode;
       if (typeof getEventListenersForNode === 'function') {
         const listeners = getEventListenersForNode(element);
           const interactionEvents = ['click', 'mousedown', 'mouseup', 'keydown', 'keyup', 'submit', 'change', 'input', 'focus', 'blur'];
@@ -1129,7 +1129,7 @@
     
     // Check for other common interaction event listeners
     try {
-      const getEventListenersForNode = window.getEventListenersForNode;
+      const getEventListenersForNode = element?.ownerDocument?.defaultView?.getEventListenersForNode || window.getEventListenersForNode;
       if (typeof getEventListenersForNode === 'function') {
         const listeners = getEventListenersForNode(element);
         const interactionEvents = ['click', 'mousedown', 'mouseup', 'keydown', 'keyup', 'submit', 'change', 'input', 'focus', 'blur'];

@@ -116,7 +116,7 @@ jobs:
           DEFAULT_END_INDEX="100"
           DEFAULT_EVAL_GROUP="PRTests"
           DEFAULT_HEADLESS="true"
-          DEFAULT_FRESH_START="true"
+
           DEFAULT_MEMORY_INTERVAL="10"
           DEFAULT_MAX_ACTIONS_PER_STEP="10"
           DEFAULT_PLANNER_INTERVAL="1"
@@ -147,8 +147,7 @@ jobs:
           HEADLESS="${{ github.event.client_payload.script_args.headless }}"
           HEADLESS="${HEADLESS:-$DEFAULT_HEADLESS}"
 
-          FRESH_START="${{ github.event.client_payload.script_args.fresh_start }}"
-          FRESH_START="${FRESH_START:-$DEFAULT_FRESH_START}"
+
 
           MEMORY_INTERVAL="${{ github.event.client_payload.script_args.memory_interval }}"
           MEMORY_INTERVAL="${MEMORY_INTERVAL:-$DEFAULT_MEMORY_INTERVAL}"
@@ -178,7 +177,7 @@ jobs:
             "--max-steps" "$MAX_STEPS"
             "--start" "$START_INDEX"
             "--end" "$END_INDEX"
-            "--fresh-start" "$FRESH_START"
+
             "--eval-group" "$EVAL_GROUP"
             "--memory-interval" "$MEMORY_INTERVAL"
             "--max-actions-per-step" "$MAX_ACTIONS_PER_STEP"
@@ -194,6 +193,7 @@ jobs:
           [[ "${{ github.event.client_payload.script_args.validate_output }}" == "true" ]] && CMD_ARGS+=("--validate-output")
           [[ "${{ github.event.client_payload.script_args.include_result }}" == "true" ]] && CMD_ARGS+=("--include-result")
           [[ "${{ github.event.client_payload.script_args.highlight_elements }}" == "false" ]] && CMD_ARGS+=("--no-highlight-elements")
+          [[ "${{ github.event.client_payload.script_args.use_mind2web_judge }}" == "true" ]] && CMD_ARGS+=("--use-mind2web-judge")
 
           # Add optional string parameters
           [[ -n "$USER_MESSAGE" ]] && CMD_ARGS+=("--user-message" "$USER_MESSAGE")
@@ -249,20 +249,30 @@ jobs:
           echo "=== STARTING EVALUATION ==="
           echo "Command: ${{ steps.eval_command.outputs.FULL_COMMAND }}"
           echo "Starting time: $(date)"
+          echo "Use Mind2Web Judge: ${{ github.event.client_payload.script_args.use_mind2web_judge }}"
           echo "============================"
           
           # Set up signal handlers and run the command
           set -e
           trap 'echo "=== EVALUATION INTERRUPTED ==="; echo "Time: $(date)"; echo "Last 50 lines of output:"; tail -50 eval_output.log; exit 130' INT TERM
           
-          # Run the evaluation with output capture
+          # Run the evaluation with output capture and better error handling
+          set +e  # Don't exit on errors, we want to capture them
           ${{ steps.eval_command.outputs.FULL_COMMAND }} 2>&1 | tee eval_output.log
           EVAL_EXIT_CODE=${PIPESTATUS[0]}
+          set -e  # Re-enable exit on error
           
           echo "=== EVALUATION COMPLETED ==="
           echo "Exit code: $EVAL_EXIT_CODE"
           echo "Completion time: $(date)"
           echo "============================"
+          
+          # Show last part of log for context
+          if [ $EVAL_EXIT_CODE -ne 0 ]; then
+            echo "=== EVALUATION FAILED - LAST 100 LINES OF OUTPUT ==="
+            tail -100 eval_output.log
+            echo "=================================================="
+          fi
           
           exit $EVAL_EXIT_CODE
 

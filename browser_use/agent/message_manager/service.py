@@ -204,6 +204,7 @@ class MessageManager:
 		task: str,
 		system_message: SystemMessage,
 		file_system: FileSystem,
+		available_file_paths: list[str] | None = None,
 		settings: MessageManagerSettings = MessageManagerSettings(),
 		state: MessageManagerState = MessageManagerState(),
 	):
@@ -212,9 +213,10 @@ class MessageManager:
 		self.state = state
 		self.system_prompt = system_message
 		self.file_system = file_system
-		self.agent_history_description = 'Agent initialized.\n'
+		self.agent_history_description = '<system>Agent initialized</system>\n'
 		self.read_state_description = ''
 		self.sensitive_data_description = ''
+		self.available_file_paths = available_file_paths
 		# Only initialize messages if state is empty
 		if len(self.state.history.messages) == 0:
 			self._init_messages()
@@ -343,15 +345,9 @@ My next action is to click on the iPhone link at index [4] to navigate to Apple'
 		# self._add_message_with_tokens(example_tool_call_2, message_type='init')
 		# self.add_tool_message(content='Clicked on index [4]. </example_2>', message_type='init')
 
-		if self.settings.available_file_paths:
-			filepaths_msg = HumanMessage(
-				content=f'<available_file_paths>Here are file paths you can use: {self.settings.available_file_paths}</available_file_paths>'
-			)
-			self._add_message_with_tokens(filepaths_msg, message_type='init')
-
 	def add_new_task(self, new_task: str) -> None:
 		self.task = new_task
-		self.agent_history_description += f'\nUser updated USER REQUEST to: {new_task}\n'
+		self.agent_history_description += f'\n<system>User updated USER REQUEST to: {new_task}</system>\n'
 
 	def _update_agent_history_description(
 		self,
@@ -365,8 +361,7 @@ My next action is to click on the iPhone link at index [4] to navigate to Apple'
 			result = []
 		step_number = step_info.step_number if step_info else 'unknown'
 
-		self.read_state_initialization = 'This is displayed only **one time**, save this information if you need it later.\n'
-		self.read_state_description = self.read_state_initialization
+		self.read_state_description = ''
 
 		action_results = ''
 		result_len = len(result)
@@ -376,35 +371,35 @@ My next action is to click on the iPhone link at index [4] to navigate to Apple'
 				logger.debug(f'Added extracted_content to read_state_description: {action_result.extracted_content}')
 
 			if action_result.long_term_memory:
-				action_results += f'Action {idx + 1}/{result_len} response: {action_result.long_term_memory}\n'
+				action_results += f'Action {idx + 1}/{result_len}: {action_result.long_term_memory}\n'
 				logger.debug(f'Added long_term_memory to action_results: {action_result.long_term_memory}')
 			elif action_result.extracted_content and not action_result.include_extracted_content_only_once:
-				action_results += f'Action {idx + 1}/{result_len} response: {action_result.extracted_content}\n'
+				action_results += f'Action {idx + 1}/{result_len}: {action_result.extracted_content}\n'
 				logger.debug(f'Added extracted_content to action_results: {action_result.extracted_content}')
 
 			if action_result.error:
-				action_results += f'Action {idx + 1}/{result_len} response: {action_result.error[:200]}\n'
+				action_results += f'Action {idx + 1}/{result_len}: {action_result.error[:200]}\n'
 				logger.debug(f'Added error to action_results: {action_result.error[:200]}')
+
+		if action_results:
+			action_results = f'Action Results:\n{action_results}'
+		action_results = action_results.strip('\n')
 
 		# Handle case where model_output is None (e.g., parsing failed)
 		if model_output is None:
 			if isinstance(step_number, int) and step_number > 0:
-				self.agent_history_description += f"""## Step {step_number}
-No model output (parsing failed)
-{action_results}
+				self.agent_history_description += f"""<step_{step_number}>
+Agent failed to output in the right format.
+</step_{step_number}>
 """
 		else:
-			self.agent_history_description += f"""## Step {step_number}
-Step evaluation: {model_output.current_state.evaluation_previous_goal}
-Step memory: {model_output.current_state.memory}
-Step goal: {model_output.current_state.next_goal}
+			self.agent_history_description += f"""<step_{step_number}>
+Evaluation of Previous Step: {model_output.current_state.evaluation_previous_goal}
+Memory: {model_output.current_state.memory}
+Next Goal: {model_output.current_state.next_goal}
 {action_results}
+</step_{step_number}>
 """
-
-		if self.read_state_description == self.read_state_initialization:
-			self.read_state_description = ''
-		else:
-			self.read_state_description += '\nMAKE SURE TO SAVE THIS INFORMATION INTO A FILE OR TO MEMORY IF YOU NEED IT LATER.'
 
 	def _get_sensitive_data_description(self, current_page_url) -> str:
 		sensitive_data = self.settings.sensitive_data
@@ -457,6 +452,7 @@ Step goal: {model_output.current_state.next_goal}
 			step_info=step_info,
 			page_filtered_actions=page_filtered_actions,
 			sensitive_data=self.sensitive_data_description,
+			available_file_paths=self.available_file_paths,
 		).get_user_message(use_vision)
 		self._add_message_with_tokens(state_message)
 
