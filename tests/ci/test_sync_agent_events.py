@@ -15,8 +15,8 @@ from dotenv import load_dotenv
 
 # Load environment variables before any imports
 load_dotenv()
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage
+from browser_use.llm import BaseChatModel
+from browser_use.llm import AssistantMessage
 from pytest_httpserver import HTTPServer
 
 from browser_use.agent.cloud_events import (
@@ -65,7 +65,7 @@ def mock_llm():
 	}
 
 	# Create a mock response with the JSON
-	mock_response = AIMessage(content=json.dumps(json_response))
+	mock_response = AssistantMessage(content=json.dumps(json_response))
 
 	# Make the LLM return our mock response
 	llm.invoke = lambda *args, **kwargs: mock_response

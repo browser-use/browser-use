@@ -10,11 +10,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, SecretStr
 
 from browser_use.agent.service import Agent
 from browser_use.controller.service import Controller
+from browser_use.llm import ChatOpenAI
 
 if not os.getenv('OPENAI_API_KEY'):
 	raise ValueError('OPENAI_API_KEY is not set. Please add it to your environment variables.')

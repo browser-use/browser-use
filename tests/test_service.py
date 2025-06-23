@@ -1,8 +1,6 @@
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 
 from browser_use.agent.service import Agent
@@ -12,6 +10,8 @@ from browser_use.browser.views import BrowserStateSummary
 from browser_use.controller.registry.service import Registry
 from browser_use.controller.registry.views import ActionModel
 from browser_use.controller.service import Controller
+from browser_use.llm import BaseChatModel
+from browser_use.llm.messages import UserMessage
 
 # run with python -m pytest tests/test_service.py
 
@@ -281,7 +281,7 @@ class TestAgentRetry:
 		# Check that the second call to get_next_action included the clarification message
 		_, retry_messages = mock_llm.return_value.invoke.call_args_list[1]
 		assert len(retry_messages[0]) == 2  # input_messages + clarification message
-		assert isinstance(retry_messages[0][1], HumanMessage)
+		assert isinstance(retry_messages[0][1], UserMessage)
 		assert 'You forgot to return an action' in retry_messages[0][1].content
 
 		# Check that _last_result contains the valid action

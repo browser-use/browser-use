@@ -8,10 +8,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_openai import ChatOpenAI
-
 from browser_use import Agent
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.llm import ChatOpenAI
 
 browser_profile = BrowserProfile(
 	# NOTE: you need to close your chrome browser - so that this can open your browser in debug mode
@@ -25,7 +24,7 @@ browser_session = BrowserSession(browser_profile=browser_profile)
 async def main():
 	agent = Agent(
 		task='Find todays DOW stock price',
-		llm=ChatOpenAI(model='gpt-4o'),
+		llm=ChatOpenAI(model='gpt-4.1'),
 		browser_session=browser_session,
 	)
 

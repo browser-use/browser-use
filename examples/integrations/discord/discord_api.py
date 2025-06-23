@@ -1,6 +1,8 @@
 import os
 import sys
 
+from browser_use.llm.base import BaseChatModel
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 from dotenv import load_dotenv
@@ -9,7 +11,6 @@ load_dotenv()
 
 import discord
 from discord.ext import commands
-from langchain_core.language_models.chat_models import BaseChatModel
 
 from browser_use.agent.service import Agent
 from browser_use.browser import BrowserProfile, BrowserSession
@@ -31,7 +32,7 @@ class DiscordBot(commands.Bot):
 
 	Usage:
 	    ```python
-	    from langchain_openai import ChatOpenAI
+	    from browser_use.llm import ChatOpenAI
 
 	    llm = ChatOpenAI()
 	    bot = DiscordBot(llm=llm, prefix='$bu', ack=True)

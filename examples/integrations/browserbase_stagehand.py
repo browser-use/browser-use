@@ -8,6 +8,7 @@ load_dotenv()
 from stagehand import Stagehand, StagehandConfig
 
 from browser_use.agent.service import Agent
+from browser_use.llm import ChatOpenAI
 
 
 async def main():
@@ -45,13 +46,13 @@ async def main():
 	await stagehand.page.act('search for openai')
 
 	# Combine with Browser Use
-	agent = Agent(task='click the first result', page=stagehand.page)
+	agent = Agent(task='click the first result', page=stagehand.page, llm=ChatOpenAI(model='gpt-4.1'))
 	await agent.run()
 
 	# go back and forth
 	await stagehand.page.act('open the 3 first links on the page in new tabs')
 
-	await Agent(task='click the first result', page=stagehand.page).run()
+	await Agent(task='click the first result', page=stagehand.page, llm=ChatOpenAI(model='gpt-4.1')).run()
 
 
 if __name__ == '__main__':

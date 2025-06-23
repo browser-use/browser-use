@@ -14,10 +14,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 from browser_use import Agent, Controller
+from browser_use.llm import ChatOpenAI
 
 
 class Post(BaseModel):

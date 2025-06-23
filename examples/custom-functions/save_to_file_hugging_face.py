@@ -8,11 +8,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 from browser_use.agent.service import Agent
 from browser_use.controller.service import Controller
+from browser_use.llm import ChatOpenAI
 
 # Initialize controller first
 controller = Controller()

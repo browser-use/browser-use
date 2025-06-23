@@ -564,7 +564,7 @@ class TestBrowserSessionReusePatterns:
 		"""Mock LLM for agent tests"""
 		from unittest.mock import MagicMock
 
-		from langchain_core.language_models.chat_models import BaseChatModel
+		from browser_use.llm import BaseChatModel
 
 		# Create a MagicMock that supports dictionary-style access
 		mock = MagicMock(spec=BaseChatModel)
@@ -622,7 +622,6 @@ class TestBrowserSessionReusePatterns:
 			task='The first task...',
 			llm=mock_llm,
 			browser_profile=reused_profile,
-			tool_calling_method='raw',  # Use raw mode for tests
 			enable_memory=False,  # Disable memory for tests
 		)
 		await agent1.run()
@@ -636,7 +635,6 @@ class TestBrowserSessionReusePatterns:
 			task='The second task...',
 			llm=mock_llm,
 			browser_profile=reused_profile,
-			tool_calling_method='raw',  # Use raw mode for tests
 			enable_memory=False,  # Disable memory for tests
 		)
 		await agent2.run()
@@ -666,7 +664,6 @@ class TestBrowserSessionReusePatterns:
 				task='The first task...',
 				llm=mock_llm,
 				browser_session=reused_session,
-				tool_calling_method='raw',  # Use raw mode for tests
 				enable_memory=False,  # Disable memory for tests
 			)
 			await agent1.run()
@@ -680,7 +677,6 @@ class TestBrowserSessionReusePatterns:
 				task='The second task...',
 				llm=mock_llm,
 				browser_session=reused_session,
-				tool_calling_method='raw',  # Use raw mode for tests
 				enable_memory=False,  # Disable memory for tests
 			)
 			await agent2.run()
@@ -773,21 +769,18 @@ class TestBrowserSessionReusePatterns:
 				task='First parallel task...',
 				llm=mock_llm1,
 				browser_session=shared_browser,
-				tool_calling_method='raw',  # Use raw mode for tests
 				enable_memory=False,  # Disable memory for tests
 			)
 			agent2 = Agent(
 				task='Second parallel task...',
 				llm=mock_llm2,
 				browser_session=shared_browser,
-				tool_calling_method='raw',  # Use raw mode for tests
 				enable_memory=False,  # Disable memory for tests
 			)
 			agent3 = Agent(
 				task='Third parallel task...',
 				llm=mock_llm3,
 				browser_session=shared_browser,
-				tool_calling_method='raw',  # Use raw mode for tests
 				enable_memory=False,  # Disable memory for tests
 			)
 
@@ -840,14 +833,12 @@ class TestBrowserSessionReusePatterns:
 				task='Fill out the form in section A...',
 				llm=mock_llm,
 				browser_session=shared_browser,
-				tool_calling_method='raw',  # Use raw mode for tests
 				enable_memory=False,  # Disable memory for tests
 			)
 			agent2 = Agent(
 				task='Fill out the form in section B...',
 				llm=mock_llm,
 				browser_session=shared_browser,
-				tool_calling_method='raw',  # Use raw mode for tests
 				enable_memory=False,  # Disable memory for tests
 			)
 
@@ -871,7 +862,6 @@ class TestBrowserSessionReusePatterns:
 		"""Test Parallel Agents, Same Profile, Different Browsers pattern (recommended)"""
 		import tempfile
 
-		from browser_use import Agent
 		from browser_use.browser import BrowserProfile, BrowserSession
 
 		# Create a shared profile with storage state
@@ -896,15 +886,9 @@ class TestBrowserSessionReusePatterns:
 			# Create separate browser sessions from the same profile
 			window1 = BrowserSession(browser_profile=shared_profile)
 			await window1.start()
-			agent1 = Agent(
-				task='First agent task...', llm=mock_llm, browser_session=window1, tool_calling_method='raw', enable_memory=False
-			)
 
 			window2 = BrowserSession(browser_profile=shared_profile)
 			await window2.start()
-			agent2 = Agent(
-				task='Second agent task...', llm=mock_llm, browser_session=window2, tool_calling_method='raw', enable_memory=False
-			)
 
 			# Run agents in parallel
 			results = await asyncio.gather(agent1.run(), agent2.run())

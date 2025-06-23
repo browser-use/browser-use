@@ -2,15 +2,13 @@ import os
 
 import httpx
 import pytest
-from langchain_anthropic import ChatAnthropic
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_ollama import ChatOllama
-from langchain_openai import AzureChatOpenAI, ChatOpenAI
 from pydantic import SecretStr
 
 from browser_use.agent.service import Agent
 from browser_use.agent.views import AgentHistoryList
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.llm import ChatAnthropic, ChatAzureOpenAI, ChatOpenAI
+from browser_use.llm.google.chat import ChatGoogle
 
 # Set env vars for testing
 os.environ.setdefault('SKIP_LLM_API_KEY_VERIFICATION', 'true')
@@ -35,7 +33,6 @@ async def browser_session():
 
 
 api_key_gemini = SecretStr(os.getenv('GOOGLE_API_KEY') or '')
-api_key_deepseek = SecretStr(os.getenv('DEEPSEEK_API_KEY') or '')
 api_key_anthropic = SecretStr(os.getenv('ANTHROPIC_API_KEY') or '')
 
 
@@ -44,11 +41,9 @@ api_key_anthropic = SecretStr(os.getenv('ANTHROPIC_API_KEY') or '')
 	params=[
 		ChatOpenAI(model='gpt-4o'),
 		ChatOpenAI(model='gpt-4o-mini'),
-		AzureChatOpenAI(
+		ChatAzureOpenAI(
 			model='gpt-4o',
 			api_version='2024-10-21',
-			azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT', ''),
-			api_key=SecretStr(os.getenv('AZURE_OPENAI_KEY', '')),
 		),
 		# ChatOpenAI(
 		# base_url='https://api.deepseek.com/v1',
@@ -56,31 +51,26 @@ api_key_anthropic = SecretStr(os.getenv('ANTHROPIC_API_KEY') or '')
 		# api_key=api_key_deepseek,
 		# ),
 		# run: ollama start
-		ChatOllama(
-			model='qwen2.5:latest',
-			num_ctx=128000,
-		),
-		AzureChatOpenAI(
+		# ChatOllama(
+		# 	model='qwen2.5:latest',
+		# 	num_ctx=128000,
+		# ),
+		ChatAzureOpenAI(
 			model='gpt-4o-mini',
 			api_version='2024-10-21',
 			azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT', ''),
-			api_key=SecretStr(os.getenv('AZURE_OPENAI_KEY', '')),
 		),
 		ChatAnthropic(
-			model_name='claude-3-5-sonnet-20240620',
-			timeout=100,
-			temperature=0.0,
-			stop=None,
-			api_key=api_key_anthropic,
+			model='claude-3-5-sonnet-20240620',
 		),
-		ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=api_key_gemini),
-		ChatGoogleGenerativeAI(model='gemini-1.5-pro', api_key=api_key_gemini),
-		ChatGoogleGenerativeAI(model='gemini-1.5-flash-latest', api_key=api_key_gemini),
-		ChatOpenAI(
-			base_url='https://api.deepseek.com/v1',
-			model='deepseek-chat',
-			api_key=api_key_deepseek,
-		),
+		ChatGoogle(model='gemini-2.0-flash-exp'),
+		ChatGoogle(model='gemini-1.5-pro'),
+		ChatGoogle(model='gemini-1.5-flash-latest'),
+		# ChatOpenAI(
+		# 	base_url='https://api.deepseek.com/v1',
+		# 	model='deepseek-chat',
+		# 	api_key=api_key_deepseek,
+		# ),
 	],
 	ids=[
 		'gpt-4o',

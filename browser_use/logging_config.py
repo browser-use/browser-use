@@ -118,7 +118,6 @@ def setup_logging():
 		'playwright',
 		'urllib3',
 		'asyncio',
-		'langchain',
 		'langsmith',
 		'langsmith.client',
 		'openai',

@@ -10,11 +10,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import anyio
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 from browser_use import Agent, Controller
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.llm import ChatOpenAI
 
 links = [
 	'https://docs.mem0.ai/components/llms/models/litellm',

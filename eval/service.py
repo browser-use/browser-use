@@ -285,15 +285,12 @@ from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
-from langchain_anthropic import ChatAnthropic
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
 from pydantic.types import SecretStr
 
 from browser_use import ActionResult, Agent, BrowserSession, Controller
 from browser_use.agent.memory import MemoryConfig
 from browser_use.agent.views import AgentHistoryList
+from browser_use.llm import BaseChatModel, ChatAnthropic, ChatGoogle, ChatOpenAI
 
 SUPPORTED_MODELS = {
 	# Anthropic
@@ -484,7 +481,7 @@ def create_controller(use_serp: bool = False):
 		return Controller()
 
 
-def get_llm(model_name: str):
+def get_llm(model_name: str) -> BaseChatModel:
 	"""Instantiates the correct LangChain ChatModel based on the model name."""
 	if model_name not in SUPPORTED_MODELS:
 		raise ValueError(f'Unsupported model: {model_name}. Supported models are: {list(SUPPORTED_MODELS.keys())}')
@@ -511,7 +508,7 @@ def get_llm(model_name: str):
 				kwargs['api_key'] = api_key_secret
 			return ChatOpenAI(**kwargs)
 		case 'anthropic':
-			kwargs = {'model_name': config['model_name'], 'temperature': 0.0, 'timeout': 100, 'stop': None}
+			kwargs = {'model': config['model_name'], 'temperature': 0.0}
 			if api_key_secret:
 				kwargs['api_key'] = api_key_secret
 			return ChatAnthropic(**kwargs)
@@ -519,7 +516,7 @@ def get_llm(model_name: str):
 			kwargs = {'model': config['model_name'], 'temperature': 0.0}
 			if api_key_secret:
 				kwargs['api_key'] = api_key_secret
-			return ChatGoogleGenerativeAI(**kwargs)
+			return ChatGoogle(**kwargs)
 		case 'openai_compatible':
 			kwargs = {'model': config['model_name'], 'base_url': config['base_url'], 'temperature': 0.0}
 			if api_key_secret:

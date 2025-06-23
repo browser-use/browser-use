@@ -29,6 +29,7 @@ from browser_use.controller.views import (
 	NoParamsAction,
 	SearchGoogleAction,
 )
+from browser_use.llm.messages import UserMessage
 from tests.ci.mocks import create_mock_llm
 
 # Configure logging
@@ -200,7 +201,7 @@ class TestActionRegistryParameterPatterns:
 	async def test_mixed_special_parameters(self, registry, browser_session, base_url, mock_llm):
 		"""Test action with multiple special injected parameters"""
 
-		from langchain_core.language_models.chat_models import BaseChatModel
+		from browser_use.llm import BaseChatModel
 
 		@registry.action('Action with multiple special params')
 		async def multi_special_action(
@@ -209,11 +210,11 @@ class TestActionRegistryParameterPatterns:
 			page_extraction_llm: BaseChatModel,
 			available_file_paths: list,
 		):
-			llm_response = await page_extraction_llm.ainvoke('test')
+			llm_response = await page_extraction_llm.ainvoke([UserMessage(content='test')])
 			files = available_file_paths or []
 
 			return ActionResult(
-				extracted_content=f'Text: {text}, URL: {page.url}, LLM: {llm_response.content}, Files: {len(files)}'
+				extracted_content=f'Text: {text}, URL: {page.url}, LLM: {llm_response.completion}, Files: {len(files)}'
 			)
 
 		# Navigate to test page first
@@ -470,7 +471,7 @@ class TestRegistryEdgeCases:
 	async def test_missing_required_llm(self, registry, browser_session):
 		"""Test that actions requiring page_extraction_llm fail appropriately when not provided"""
 
-		from langchain_core.language_models.chat_models import BaseChatModel
+		from browser_use.llm import BaseChatModel
 
 		@registry.action('Requires LLM')
 		async def requires_llm(text: str, browser_session: BrowserSession, page_extraction_llm: BaseChatModel):
@@ -647,7 +648,7 @@ class TestType1Pattern:
 			goal: str
 			include_links: bool = False
 
-		from langchain_core.language_models.chat_models import BaseChatModel
+		from browser_use.llm import BaseChatModel
 
 		@registry.action('Extract content', param_model=ExtractAction)
 		async def extract_content(
@@ -928,7 +929,7 @@ class TestParameterOrdering:
 	def test_mixed_param_ordering(self):
 		"""Should handle any ordering of action params and special params"""
 		registry = Registry()
-		from langchain_core.language_models.chat_models import BaseChatModel
+		from browser_use.llm import BaseChatModel
 
 		# Special params mixed throughout
 		@registry.action('Mixed params')
@@ -938,7 +939,7 @@ class TestParameterOrdering:
 			second: int,
 			page: Page,
 			third: bool = True,
-			page_extraction_llm: BaseChatModel = None,
+			page_extraction_llm: BaseChatModel | None = None,
 		):
 			return ActionResult()
 

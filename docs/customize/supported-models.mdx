@@ -10,7 +10,7 @@ Here's how to configure the models.
 
 ### Migration from Langchain
 
-We have recently switched from Langchain to our own implementation of the models. To migrate the previous code, just replace `from langchain_openai import ChatOpenAI` with `from browser_use.llm import ChatOpenAI` etc. The methods should be compatible(ish).
+We have recently switched from Langchain to our own implementation of the models. To migrate the previous code, just replace `from browser_use.llm import ChatOpenAI` with `from browser_use.llm import ChatOpenAI` etc. The methods should be compatible(ish).
 
 ## Model Recommendations
 
@@ -104,7 +104,7 @@ Required environment variables:
 
 ```bash .env
 AZURE_OPENAI_ENDPOINT=https://your-endpoint.openai.azure.com/
-AZURE_OPENAI_KEY=
+AZURE_OPENAI_API_KEY=
 ```
 
 ### Gemini

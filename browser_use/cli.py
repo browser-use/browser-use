@@ -486,7 +486,6 @@ class BrowserUseApp(App):
 			'playwright',
 			'urllib3',
 			'asyncio',
-			'langchain',
 			'openai',
 			'httpcore',
 			'charset_normalizer',

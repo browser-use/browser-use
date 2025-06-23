@@ -43,7 +43,7 @@ uv run playwright install
 Then you can use the agent as follows:
 
 ```python agent.py
-from langchain_openai import ChatOpenAI
+from browser_use.llm import ChatOpenAI
 from browser_use import Agent
 from dotenv import load_dotenv
 load_dotenv()
@@ -65,12 +65,11 @@ asyncio.run(main())
 
 ## Set up your LLM API keys
 
-`ChatOpenAI` and other Langchain chat models require API keys. You should store these in your `.env` file. For example, for OpenAI and Anthropic, you can set the API keys in your `.env` file, such as:
-
+`ChatOpenAI` and other chat models require API keys. You should store these in your `.env` file. For example, for OpenAI and Anthropic, you can set the API keys in your `.env` file, such as:
 
 ```bash .env
 OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
 ```
 
-For other LLM models you can refer to the [Langchain documentation](https://python.langchain.com/docs/integrations/chat/) to find how to set them up with their specific API keys.
+For other LLM models you can refer to the [Supported Models](/customize/supported-models) page to find how to set them up with their specific API keys.

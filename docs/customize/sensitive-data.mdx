@@ -34,10 +34,10 @@ Here's a basic example of how to use sensitive data:
 from dotenv import load_dotenv
 load_dotenv()
 
-from langchain_openai import ChatOpenAI
+from browser_use.llm import ChatOpenAI
 from browser_use import Agent, BrowserSession
 
-llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
+llm = ChatOpenAI(model='gpt-4.1')
 
 # Define sensitive data
 # The LLM will only see placeholder names (x_member_number, x_passphrase), never the actual values
@@ -89,7 +89,7 @@ This approach ensures that sensitive information remains secure while still allo
 - Always restrict your sensitive data to only the exact domains that need it, `https://travel.example.com` is better than `*.example.com`
 - Always restrict [`BrowserSession(allowed_domains=[...])`](https://docs.browser-use.com/customize/browser-settings#allowed-domains) to only the domains the agent needs to visit to accomplish its task. This helps guard against prompt injection attacks, jailbreaks, and LLM mistakes.
 - Only use `sensitive_data` for strings that can be inputted verbatim as text. The LLM never sees the actual values, so it can't "understand" them, adapt them, or split them up for multiple input fields. For example, you can't ask the Agent to click through a datepicker UI to input the sensitive value `1990-12-31`. For these situations you can implement a [custom function](/customize/custom-functions) the LLM can call that updates the DOM using Python / JS.
-- Don't use `sensitive_data` for login credentials, it's better to use [`storage_state`](docs.browser-use.com/customize/browser-settings#storage-state) or a [`user_data_dir`](/customize/browser-settings#user-data-dir) to log into the sites the agent needs in advance & reuse the cookies:  
+- Don't use `sensitive_data` for login credentials, it's better to use [`storage_state`](docs.browser-use.com/customize/browser-settings#storage-state) or a [`user_data_dir`](/customize/browser-settings#user-data-dir) to log into the sites the agent needs in advance & reuse the cookies:
 
 ```bash
 # open a browser to log into the sites you need & save the cookies
@@ -110,10 +110,8 @@ It's recommended to set `Agent(use_vision=False)` when working with `sensitive_d
 
 </Warning>
 
-
 <a name="allowed_domains"></a>
 <a name="domain-pattern-format"></a>
-
 
 ### Allowed Domains
 
@@ -125,7 +123,7 @@ Domain patterns in `sensitive_data` follow the same format as [`allowed_domains`
 - `chrome-extension://*` - Matches any Chrome extension URL e.g. `chrome-extension://anyextensionid/options.html`
 
 > **Security Warning**: For security reasons, certain patterns are explicitly rejected:
-> 
+>
 > - Wildcards in TLD part (e.g., `example.*`) are **not allowed** (`google.*` would match `google.ninja`, `google.pizza`, etc. which is a bad idea)
 > - Embedded wildcards (e.g., `g*e.com`) are rejected to prevent overly broad matches
 > - Multiple wildcards like `*.*.domain` are not supported currently, open an issue if you need this feature
@@ -142,7 +140,6 @@ When working with sensitive data, keep these details in mind:
 - If you provide an empty value for a key in the `sensitive_data` dictionary, it will be treated the same as a missing key.
 - The system will always attempt to process all valid substitutions, even if some keys are missing or empty.
 
-
 ---
 
 ### Full Example
@@ -153,11 +150,11 @@ Here's a more complex example demonstrating multiple domains and sensitive data 
 from dotenv import load_dotenv
 load_dotenv()
 
-from langchain_openai import ChatOpenAI
+from browser_use.llm import ChatOpenAI
 from browser_use import Agent, BrowserSession
 
 
-llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
+llm = ChatOpenAI(model='gpt-4.1')
 
 # Domain-specific sensitive data
 sensitive_data = {

@@ -8,13 +8,13 @@ if project_root not in sys.path:
 
 import pytest
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
 
 # Third-party imports
 from browser_use import Agent, Controller
 
 # Local imports
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.llm import ChatOpenAI
 
 # Load environment variables.
 load_dotenv()

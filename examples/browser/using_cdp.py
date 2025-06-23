@@ -21,11 +21,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_google_genai import ChatGoogleGenerativeAI
-from pydantic import SecretStr
 
 from browser_use import Agent, Controller
 from browser_use.browser import BrowserSession
+from browser_use.llm import ChatGoogle
 
 api_key = os.getenv('GOOGLE_API_KEY')
 if not api_key:
@@ -41,7 +40,7 @@ controller = Controller()
 async def main():
 	task = 'In docs.google.com write my Papa a quick thank you for everything letter \n - Magnus'
 	task += ' and save the document as pdf'
-	model = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=SecretStr(api_key))
+	model = ChatGoogle(model='gemini-2.0-flash-exp')
 	agent = Agent(
 		task=task,
 		llm=model,

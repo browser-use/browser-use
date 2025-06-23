@@ -2,8 +2,7 @@
 
 from unittest.mock import AsyncMock
 
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage
+from browser_use.llm import AssistantMessage, BaseChatModel
 
 
 def create_mock_llm(actions=None):
@@ -42,10 +41,10 @@ def create_mock_llm(actions=None):
 
 	if actions is None:
 		# No actions provided, just return done action
-		mock.invoke.return_value = AIMessage(content=default_done_action)
+		mock.invoke.return_value = AssistantMessage(content=default_done_action)
 
 		async def async_invoke(*args, **kwargs):
-			return AIMessage(content=default_done_action)
+			return AssistantMessage(content=default_done_action)
 
 		mock.ainvoke.side_effect = async_invoke
 	else:
@@ -63,13 +62,13 @@ def create_mock_llm(actions=None):
 
 		# Mock the invoke method
 		def mock_invoke(*args, **kwargs):
-			return AIMessage(content=get_next_action())
+			return AssistantMessage(content=get_next_action())
 
 		mock.invoke.side_effect = mock_invoke
 
 		# Create an async version
 		async def mock_ainvoke(*args, **kwargs):
-			return AIMessage(content=get_next_action())
+			return AssistantMessage(content=get_next_action())
 
 		mock.ainvoke.side_effect = mock_ainvoke
 

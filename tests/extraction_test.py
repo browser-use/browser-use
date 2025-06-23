@@ -2,32 +2,11 @@ import asyncio
 import os
 
 import anyio
-from langchain_openai import ChatOpenAI
 
 from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.dom.service import DomService
-
-
-def count_string_tokens(string: str, model: str) -> tuple[int, float]:
-	"""Count the number of tokens in a string using a specified model."""
-
-	def get_price_per_token(model: str) -> float:
-		"""Get the price per token for a specified model.
-
-		@todo: move to utils, use a package or sth
-		"""
-		prices = {
-			'gpt-4o': 2.5 / 1e6,
-			'gpt-4o-mini': 0.15 / 1e6,
-		}
-		return prices[model]
-
-	llm = ChatOpenAI(model=model)
-	token_count = llm.get_num_tokens(string)
-	price = token_count * get_price_per_token(model)
-	return token_count, price
-
+from browser_use.filesystem.file_system import FileSystem
 
 TIMEOUT = 60
 
@@ -101,19 +80,19 @@ async def test_focus_vs_all_elements():
 				# print(all_elements_state.element_tree.clickable_elements_to_string())
 				prompt = AgentMessagePrompt(
 					browser_state_summary=all_elements_state,
-					result=None,
 					include_attributes=DEFAULT_INCLUDE_ATTRIBUTES,
 					step_info=None,
+					file_system=FileSystem(dir_path='./tmp'),
 				)
 				# print(prompt.get_user_message(use_vision=False).content)
 				# Write the user message to a file for analysis
-				user_message = prompt.get_user_message(use_vision=False).content
+				user_message = prompt.get_user_message(use_vision=False)
 				os.makedirs('./tmp', exist_ok=True)
 				async with await anyio.open_file('./tmp/user_message.txt', 'w', encoding='utf-8') as f:
-					await f.write(user_message)
+					await f.write(user_message.text)
 
-				token_count, price = count_string_tokens(user_message, model='gpt-4o')
-				print(f'Prompt token count: {token_count}, price: {round(price, 4)} USD')
+				# token_count, price = count_string_tokens(user_message, model='gpt-4o')
+				# print(f'Prompt token count: {token_count}, price: {round(price, 4)} USD')
 				print('User message written to ./tmp/user_message.txt')
 
 				# also save all_elements_state.element_tree.clickable_elements_to_string() to a file

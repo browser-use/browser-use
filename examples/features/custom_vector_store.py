@@ -9,10 +9,10 @@ import asyncio
 import os
 
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
 
 from browser_use import Agent
 from browser_use.agent.memory import MemoryConfig
+from browser_use.llm import ChatOpenAI
 
 # Load environment variables (e.g., OPENAI_API_KEY)
 load_dotenv()
