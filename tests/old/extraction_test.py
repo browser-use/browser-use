@@ -7,6 +7,7 @@ from langchain_openai import ChatOpenAI
 from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.dom.service import DomService
+from browser_use.filesystem.file_system import FileSystem
 
 
 def count_string_tokens(string: str, model: str) -> tuple[int, float]:
@@ -101,7 +102,7 @@ async def test_focus_vs_all_elements():
 				# print(all_elements_state.element_tree.clickable_elements_to_string())
 				prompt = AgentMessagePrompt(
 					browser_state_summary=all_elements_state,
-					result=None,
+					file_system=FileSystem(working_dir='./tmp'),
 					include_attributes=DEFAULT_INCLUDE_ATTRIBUTES,
 					step_info=None,
 				)
@@ -110,9 +111,15 @@ async def test_focus_vs_all_elements():
 				user_message = prompt.get_user_message(use_vision=False).content
 				os.makedirs('./tmp', exist_ok=True)
 				async with await anyio.open_file('./tmp/user_message.txt', 'w', encoding='utf-8') as f:
-					await f.write(user_message)
+					if isinstance(user_message, str):
+						await f.write(user_message)
+					else:
+						await f.write(str(user_message))
 
-				token_count, price = count_string_tokens(user_message, model='gpt-4o')
+				if isinstance(user_message, str):
+					token_count, price = count_string_tokens(user_message, model='gpt-4o')
+				else:
+					token_count, price = count_string_tokens(str(user_message), model='gpt-4o')
 				print(f'Prompt token count: {token_count}, price: {round(price, 4)} USD')
 				print('User message written to ./tmp/user_message.txt')
 

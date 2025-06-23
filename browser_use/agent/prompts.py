@@ -5,8 +5,9 @@ from typing import TYPE_CHECKING, Optional
 from langchain_core.messages import HumanMessage, SystemMessage
 
 if TYPE_CHECKING:
-	from browser_use.agent.views import ActionResult, AgentStepInfo
+	from browser_use.agent.views import AgentStepInfo
 	from browser_use.browser.views import BrowserStateSummary
+	from browser_use.filesystem.file_system import FileSystem
 
 
 class SystemPrompt:
@@ -35,7 +36,7 @@ class SystemPrompt:
 		"""Load the prompt template from the markdown file."""
 		try:
 			# This works both in development and when installed as a package
-			with importlib.resources.files('browser_use.agent').joinpath('system_prompt.md').open('r') as f:
+			with importlib.resources.files('browser_use.agent').joinpath('system_prompt.md').open('r', encoding='utf-8') as f:
 				self.prompt_template = f.read()
 		except Exception as e:
 			raise RuntimeError(f'Failed to load system prompt template: {e}')
@@ -63,74 +64,135 @@ class AgentMessagePrompt:
 	def __init__(
 		self,
 		browser_state_summary: 'BrowserStateSummary',
-		result: list['ActionResult'] | None = None,
+		file_system: 'FileSystem',
+		agent_history_description: str | None = None,
+		read_state_description: str | None = None,
+		task: str | None = None,
 		include_attributes: list[str] | None = None,
 		step_info: Optional['AgentStepInfo'] = None,
+		page_filtered_actions: str | None = None,
+		max_clickable_elements_length: int = 40000,
+		sensitive_data: str | None = None,
+		available_file_paths: list[str] | None = None,
 	):
-		self.state: 'BrowserStateSummary' = browser_state_summary
-		self.result = result
+		self.browser_state: 'BrowserStateSummary' = browser_state_summary
+		self.file_system: 'FileSystem | None' = file_system
+		self.agent_history_description: str | None = agent_history_description
+		self.read_state_description: str | None = read_state_description
+		self.task: str | None = task
 		self.include_attributes = include_attributes or []
 		self.step_info = step_info
-		assert self.state
+		self.page_filtered_actions: str | None = page_filtered_actions
+		self.max_clickable_elements_length: int = max_clickable_elements_length
+		self.sensitive_data: str | None = sensitive_data
+		self.available_file_paths: list[str] | None = available_file_paths
+		assert self.browser_state
 
-	def get_user_message(self, use_vision: bool = True) -> HumanMessage:
-		elements_text = self.state.element_tree.clickable_elements_to_string(include_attributes=self.include_attributes)
+	def _get_browser_state_description(self) -> str:
+		elements_text = self.browser_state.element_tree.clickable_elements_to_string(include_attributes=self.include_attributes)
 
-		has_content_above = (self.state.pixels_above or 0) > 0
-		has_content_below = (self.state.pixels_below or 0) > 0
+		if len(elements_text) > self.max_clickable_elements_length:
+			elements_text = elements_text[: self.max_clickable_elements_length]
+			truncated_text = f' (truncated to {self.max_clickable_elements_length} characters)'
+		else:
+			truncated_text = ''
+
+		has_content_above = (self.browser_state.pixels_above or 0) > 0
+		has_content_below = (self.browser_state.pixels_below or 0) > 0
 
 		if elements_text != '':
 			if has_content_above:
-				elements_text = (
-					f'... {self.state.pixels_above} pixels above - scroll or extract content to see more ...\n{elements_text}'
-				)
+				elements_text = f'... {self.browser_state.pixels_above} pixels above - scroll to see more or extract structured data if you are looking for specific information ...\n{elements_text}'
 			else:
 				elements_text = f'[Start of page]\n{elements_text}'
 			if has_content_below:
-				elements_text = (
-					f'{elements_text}\n... {self.state.pixels_below} pixels below - scroll or extract content to see more ...'
-				)
+				elements_text = f'{elements_text}\n... {self.browser_state.pixels_below} pixels below - scroll to see more or extract structured data if you are looking for specific information ...'
 			else:
 				elements_text = f'{elements_text}\n[End of page]'
 		else:
 			elements_text = 'empty page'
 
+		tabs_text = ''
+		current_tab_candidates = []
+
+		# Find tabs that match both URL and title to identify current tab more reliably
+		for tab in self.browser_state.tabs:
+			if tab.url == self.browser_state.url and tab.title == self.browser_state.title:
+				current_tab_candidates.append(tab.page_id)
+
+		# If we have exactly one match, mark it as current
+		# Otherwise, don't mark any tab as current to avoid confusion
+		current_tab_id = current_tab_candidates[0] if len(current_tab_candidates) == 1 else None
+
+		for tab in self.browser_state.tabs:
+			tabs_text += f'Tab {tab.page_id}: {tab.url} - {tab.title[:30]}\n'
+
+		current_tab_text = f'Current tab: {current_tab_id}' if current_tab_id is not None else ''
+
+		browser_state = f"""{current_tab_text}
+Available tabs:
+{tabs_text}
+Interactive elements from top layer of the current page inside the viewport{truncated_text}:
+{elements_text}
+"""
+		return browser_state
+
+	def _get_agent_state_description(self) -> str:
 		if self.step_info:
-			step_info_description = f'Current step: {self.step_info.step_number + 1}/{self.step_info.max_steps}'
+			step_info_description = f'Step {self.step_info.step_number + 1} of {self.step_info.max_steps} max possible steps\n'
 		else:
 			step_info_description = ''
 		time_str = datetime.now().strftime('%Y-%m-%d %H:%M')
 		step_info_description += f'Current date and time: {time_str}'
 
-		state_description = f"""
-[Task history memory ends]
-[Current state starts here]
-The following is one-time information - if you need to remember it write it to memory:
-Current url: {self.state.url}
-Available tabs:
-{self.state.tabs}
-Interactive elements from top layer of the current page inside the viewport:
-{elements_text}
-{step_info_description}
+		todo_contents = self.file_system.get_todo_contents() if self.file_system else ''
+		if not len(todo_contents):
+			todo_contents = '[Current todo.md is empty, fill it with your plan when applicable]'
+
+		agent_state = f"""
+<user_request>
+{self.task}
+</user_request>
+<file_system>
+{self.file_system.describe() if self.file_system else 'No file system available'}
+</file_system>
+<todo_contents>
+{todo_contents}
+</todo_contents>
 """
+		if self.sensitive_data:
+			agent_state += f'<sensitive_data>\n{self.sensitive_data}\n</sensitive_data>\n'
 
-		if self.result:
-			for i, result in enumerate(self.result):
-				if result.extracted_content:
-					state_description += f'\nAction result {i + 1}/{len(self.result)}: {result.extracted_content}'
-				if result.error:
-					# only use last line of error
-					error = result.error.split('\n')[-1]
-					state_description += f'\nAction error {i + 1}/{len(self.result)}: ...{error}'
+		agent_state += f'<step_info>\n{step_info_description}\n</step_info>\n'
+		if self.available_file_paths:
+			agent_state += '<available_file_paths>\n' + '\n'.join(self.available_file_paths) + '\n</available_file_paths>\n'
+		return agent_state
 
-		if self.state.screenshot and use_vision is True:
+	def get_user_message(self, use_vision: bool = True) -> HumanMessage:
+		state_description = (
+			'<agent_history>\n'
+			+ (self.agent_history_description.strip('\n') if self.agent_history_description else '')
+			+ '\n</agent_history>\n'
+		)
+		state_description += '<agent_state>\n' + self._get_agent_state_description().strip('\n') + '\n</agent_state>\n'
+		state_description += '<browser_state>\n' + self._get_browser_state_description().strip('\n') + '\n</browser_state>\n'
+		state_description += (
+			'<read_state>\n'
+			+ (self.read_state_description.strip('\n') if self.read_state_description else '')
+			+ '\n</read_state>\n'
+		)
+		if self.page_filtered_actions:
+			state_description += 'For this page, these additional actions are available:\n'
+			state_description += self.page_filtered_actions + '\n'
+
+		if self.browser_state.screenshot and use_vision is True:
 			# Format message for vision model
 			return HumanMessage(
 				content=[
 					{'type': 'text', 'text': state_description},
 					{
 						'type': 'image_url',
-						'image_url': {'url': f'data:image/png;base64,{self.state.screenshot}'},  # , 'detail': 'low'
+						'image_url': {'url': f'data:image/png;base64,{self.browser_state.screenshot}'},  # , 'detail': 'low'
 					},
 				]
 			)

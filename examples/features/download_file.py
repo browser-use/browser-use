@@ -18,11 +18,16 @@ api_key = os.getenv('GOOGLE_API_KEY')
 if not api_key:
 	raise ValueError('GOOGLE_API_KEY is not set')
 
+assert api_key is not None, 'GOOGLE_API_KEY must be set'
 llm = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=SecretStr(api_key))
 
+from browser_use.browser import BrowserProfile
+
 browser_session = BrowserSession(
-	downloads_path='~/Downloads',
-	user_data_dir='~/.config/browseruse/profiles/default',
+	browser_profile=BrowserProfile(
+		downloads_path='~/Downloads',
+		user_data_dir='~/.config/browseruse/profiles/default',
+	)
 )
 
 

@@ -1,4 +1,3 @@
-import os
 import sys
 from collections.abc import Iterable
 from enum import Enum
@@ -8,34 +7,13 @@ from re import Pattern
 from typing import Annotated, Any, Literal, Self
 from urllib.parse import urlparse
 
-from playwright._impl._api_structures import (
-	ClientCertificate,
-	Geolocation,
-	HttpCredentials,
-	ProxySettings,
-	StorageState,
-	ViewportSize,
-)
 from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field, model_validator
 from uuid_extensions import uuid7str
 
+from browser_use.browser.types import ClientCertificate, Geolocation, HttpCredentials, ProxySettings, ViewportSize
+from browser_use.config import CONFIG
 from browser_use.utils import _log_pretty_path, logger
 
-# fix pydantic error on python 3.11
-# PydanticUserError: Please use `typing_extensions.TypedDict` instead of `typing.TypedDict` on Python < 3.12.
-# For further information visit https://errors.pydantic.dev/2.10/u/typed-dict-version
-if sys.version_info < (3, 12):
-	from typing_extensions import TypedDict
-
-	# convert new-style typing.TypedDict used by playwright to old-style typing_extensions.TypedDict used by pydantic
-	ClientCertificate = TypedDict('ClientCertificate', ClientCertificate.__annotations__, total=ClientCertificate.__total__)
-	Geolocation = TypedDict('Geolocation', Geolocation.__annotations__, total=Geolocation.__total__)
-	ProxySettings = TypedDict('ProxySettings', ProxySettings.__annotations__, total=ProxySettings.__total__)
-	ViewportSize = TypedDict('ViewportSize', ViewportSize.__annotations__, total=ViewportSize.__total__)
-	HttpCredentials = TypedDict('HttpCredentials', HttpCredentials.__annotations__, total=HttpCredentials.__total__)
-	StorageState = TypedDict('StorageState', StorageState.__annotations__, total=StorageState.__total__)
-
-IN_DOCKER = os.environ.get('IN_DOCKER', 'false').lower()[0] in 'ty1'
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
 CHROME_DISABLED_COMPONENTS = [
 	# Playwright defaults: https://github.com/microsoft/playwright/blob/41008eeddd020e2dee1c540f7c0cdfa337e99637/packages/playwright-core/src/server/chromium/chromiumSwitches.ts#L76
@@ -196,7 +174,7 @@ CHROME_DEFAULT_ARGS = [
 def get_display_size() -> ViewportSize | None:
 	# macOS
 	try:
-		from AppKit import NSScreen
+		from AppKit import NSScreen  # type: ignore[import]
 
 		screen = NSScreen.mainScreen().frame()
 		return ViewportSize(width=int(screen.size.width), height=int(screen.size.height))
@@ -307,9 +285,7 @@ class BrowserChannel(str, Enum):
 	MSEDGE_CANARY = 'msedge-canary'
 
 
-BROWSERUSE_CONFIG_DIR = Path('~/.config/browseruse').expanduser().resolve()
-BROWSERUSE_PROFILES_DIR = BROWSERUSE_CONFIG_DIR / 'profiles'
-BROWSERUSE_CHROMIUM_USER_DATA_DIR = BROWSERUSE_PROFILES_DIR / 'default'
+# Using constants from central location in browser_use.config
 BROWSERUSE_DEFAULT_CHANNEL = BrowserChannel.CHROMIUM
 
 
@@ -375,9 +351,11 @@ class BrowserContextArgs(BaseModel):
 	record_har_content: RecordHarContent = RecordHarContent.EMBED
 	record_har_mode: RecordHarMode = RecordHarMode.FULL
 	record_har_omit_content: bool = False
-	record_har_path: str | Path | None = None
+	record_har_path: str | Path | None = Field(default=None, validation_alias=AliasChoices('save_har_path', 'record_har_path'))
 	record_har_url_filter: str | Pattern | None = None
-	record_video_dir: str | Path | None = None
+	record_video_dir: str | Path | None = Field(
+		default=None, validation_alias=AliasChoices('save_recording_path', 'record_video_dir')
+	)
 	record_video_size: ViewportSize | None = None
 
 
@@ -439,7 +417,7 @@ class BrowserLaunchArgs(BaseModel):
 	)
 	channel: BrowserChannel | None = None  # https://playwright.dev/docs/browsers#chromium-headless-shell
 	chromium_sandbox: bool = Field(
-		default=not IN_DOCKER, description='Whether to enable Chromium sandboxing (recommended unless inside Docker).'
+		default=not CONFIG.IN_DOCKER, description='Whether to enable Chromium sandboxing (recommended unless inside Docker).'
 	)
 	devtools: bool = Field(
 		default=False, description='Whether to open DevTools panel automatically for every page, only works when headless=False.'
@@ -452,7 +430,11 @@ class BrowserLaunchArgs(BaseModel):
 		description='Directory to save downloads to.',
 		validation_alias=AliasChoices('downloads_dir', 'save_downloads_path'),
 	)
-	traces_dir: str | Path | None = Field(default=None, description='Directory to save HAR trace files to.')
+	traces_dir: str | Path | None = Field(
+		default=None,
+		description='Directory for saving playwright trace.zip files (playwright actions, screenshots, DOM snapshots, HAR traces).',
+		validation_alias=AliasChoices('trace_path', 'traces_dir'),
+	)
 	handle_sighup: bool = Field(
 		default=True, description='Whether playwright should swallow SIGHUP signals and kill the browser.'
 	)
@@ -534,12 +516,12 @@ class BrowserLaunchPersistentContextArgs(BrowserLaunchArgs, BrowserContextArgs):
 	model_config = ConfigDict(extra='ignore', validate_assignment=False, revalidate_instances='always')
 
 	# Required parameter specific to launch_persistent_context, but can be None to use incognito temp dir
-	user_data_dir: str | Path | None = BROWSERUSE_CHROMIUM_USER_DATA_DIR
+	user_data_dir: str | Path | None = CONFIG.BROWSER_USE_DEFAULT_USER_DATA_DIR
 
 
 class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, BrowserLaunchArgs, BrowserNewContextArgs):
 	"""
-	A BrowserProfile is a static collection of kwargs that get passed to:
+	A BrowserProfile is a static template collection of kwargs that can be passed to:
 		- BrowserType.launch(**BrowserLaunchArgs)
 		- BrowserType.connect(**BrowserConnectArgs)
 		- BrowserType.connect_over_cdp(**BrowserConnectArgs)
@@ -575,7 +557,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	keep_alive: bool | None = Field(default=None, description='Keep browser alive after agent run.')
 	window_size: ViewportSize | None = Field(
 		default=None,
-		description='Window size to use for the browser when headless=False.',
+		description='Browser window size to use when headless=False.',
 	)
 	window_height: int | None = Field(default=None, description='DEPRECATED, use window_size["height"] instead', exclude=True)
 	window_width: int | None = Field(default=None, description='DEPRECATED, use window_size["width"] instead', exclude=True)
@@ -599,13 +581,16 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	profile_directory: str = 'Default'  # e.g. 'Profile 1', 'Profile 2', 'Custom Profile', etc.
 
-	save_har_path: str | None = Field(default=None, description='Directory for saving HAR files.')
-	trace_path: str | None = Field(default=None, description='Directory for saving trace files.')
+	# these can be found in BrowserLaunchArgs, BrowserLaunchPersistentContextArgs, BrowserNewContextArgs, BrowserConnectArgs:
+	# save_recording_path: alias of record_video_dir
+	# save_har_path: alias of record_har_path
+	# trace_path: alias of traces_dir
 
 	cookies_file: Path | None = Field(
 		default=None, description='File to save cookies to. DEPRECATED, use `storage_state` instead.'
 	)
 
+	# TODO: finish implementing extension support in extensions.py
 	# extension_ids_to_preinstall: list[str] = Field(
 	# 	default_factory=list, description='List of Chrome extension IDs to preinstall.'
 	# )
@@ -625,9 +610,13 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	def copy_old_config_names_to_new(self) -> Self:
 		"""Copy old config window_width & window_height to window_size."""
 		if self.window_width or self.window_height:
-			self.window_size = self.window_size or {}
-			self.window_size['width'] = (self.window_size or {}).get('width') or self.window_width or 1280
-			self.window_size['height'] = (self.window_size or {}).get('height') or self.window_height or 1100
+			logger.warning(
+				f'⚠️ BrowserProfile(window_width=..., window_height=...) are deprecated, use BrowserProfile(window_size={"width": 1280, "height": 1100}) instead.'
+			)
+			window_size = self.window_size or ViewportSize(width=0, height=0)
+			window_size['width'] = window_size['width'] or self.window_width or 1280
+			window_size['height'] = window_size['height'] or self.window_height or 1100
+			self.window_size = window_size
 		return self
 
 	@model_validator(mode='after')
@@ -643,26 +632,44 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				f'⚠️ BrowserSession(...) was passed both {static_source} AND user_data_dir. {static_source}={self.storage_state or self.cookies_file} will forcibly overwrite '
 				f'cookies/localStorage/sessionStorage in user_data_dir={self.user_data_dir}. '
 				f'For multiple browsers in parallel, use only storage_state with user_data_dir=None, '
-				f'or use separate user_data_dirs for each browser and set storage_state=None.'
+				f'or use a separate user_data_dir for each browser and set storage_state=None.'
 			)
 		return self
 
 	@model_validator(mode='after')
 	def warn_user_data_dir_non_default_version(self) -> Self:
-		"""If user is using default profile dir with a non-default channel, force-change it to avoid corrupting the default data dir."""
+		"""
+		If user is using default profile dir with a non-default channel, force-change it
+		to avoid corrupting the default data dir created with a different channel.
+		"""
 
 		is_not_using_default_chromium = self.executable_path or self.channel not in (BROWSERUSE_DEFAULT_CHANNEL, None)
-		if self.user_data_dir == BROWSERUSE_CHROMIUM_USER_DATA_DIR and is_not_using_default_chromium:
+		if self.user_data_dir == CONFIG.BROWSER_USE_DEFAULT_USER_DATA_DIR and is_not_using_default_chromium:
 			alternate_name = (
-				self.executable_path.name.lower().replace(' ', '-') if self.executable_path else self.channel.name.lower()
+				Path(self.executable_path).name.lower().replace(' ', '-')
+				if self.executable_path
+				else self.channel.name.lower()
+				if self.channel
+				else 'None'
 			)
 			logger.warning(
 				f'⚠️ {self} Changing user_data_dir= {_log_pretty_path(self.user_data_dir)} ➡️ .../default-{alternate_name} to avoid {alternate_name.upper()} corruping default profile created by {BROWSERUSE_DEFAULT_CHANNEL.name}'
 			)
-			self.user_data_dir = self.user_data_dir.parent / f'default-{alternate_name}'
+			self.user_data_dir = CONFIG.BROWSER_USE_DEFAULT_USER_DATA_DIR.parent / f'default-{alternate_name}'
+		return self
+
+	@model_validator(mode='after')
+	def warn_deterministic_rendering_weirdness(self) -> Self:
+		if self.deterministic_rendering:
+			logger.warning(
+				'⚠️ BrowserSession(deterministic_rendering=True) is NOT RECOMMENDED. It breaks many sites and increases chances of getting blocked by anti-bot systems. '
+				'It hardcodes the JS random seed and forces browsers across Linux/Mac/Windows to use the same font rendering engine so that identical screenshots can be generated.'
+			)
 		return self
 
 	def get_args(self) -> list[str]:
+		"""Get the list of all Chrome CLI launch args for this profile (compiled from defaults, user-provided, and system-specific)."""
+
 		if isinstance(self.ignore_default_args, list):
 			default_args = set(CHROME_DEFAULT_ARGS) - set(self.ignore_default_args)
 		elif self.ignore_default_args is True:
@@ -675,7 +682,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			*default_args,
 			*self.args,
 			f'--profile-directory={self.profile_directory}',
-			*(CHROME_DOCKER_ARGS if IN_DOCKER else []),
+			*(CHROME_DOCKER_ARGS if CONFIG.IN_DOCKER else []),
 			*(CHROME_HEADLESS_ARGS if self.headless else []),
 			*(CHROME_DISABLE_SECURITY_ARGS if self.disable_security else []),
 			*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.deterministic_rendering else []),
@@ -691,6 +698,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			),
 		]
 
+		# convert to dict and back to dedupe and merge duplicate args
 		final_args_list = BrowserLaunchArgs.args_as_list(BrowserLaunchArgs.args_as_dict(pre_conversion_args))
 		return final_args_list
 
@@ -700,42 +708,15 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	def kwargs_for_new_context(self) -> BrowserNewContextArgs:
 		"""Return the kwargs for BrowserContext.new_context()."""
-		return BrowserNewContextArgs(**self.model_dump(exclude={'args'}), args=self.get_args())
+		return BrowserNewContextArgs(**self.model_dump(exclude={'args'}))
 
 	def kwargs_for_connect(self) -> BrowserConnectArgs:
 		"""Return the kwargs for BrowserType.connect()."""
-		return BrowserConnectArgs(**self.model_dump(exclude={'args'}), args=self.get_args())
+		return BrowserConnectArgs(**self.model_dump(exclude={'args'}))
 
 	def kwargs_for_launch(self) -> BrowserLaunchArgs:
 		"""Return the kwargs for BrowserType.connect_over_cdp()."""
 		return BrowserLaunchArgs(**self.model_dump(exclude={'args'}), args=self.get_args())
-
-	def prepare_user_data_dir(self) -> None:
-		"""Create and unlock the user data dir for first-run initialization."""
-
-		if self.user_data_dir:
-			try:
-				self.user_data_dir = Path(self.user_data_dir).expanduser().resolve()
-				self.user_data_dir.mkdir(parents=True, exist_ok=True)
-				(self.user_data_dir / '.browseruse_profile_id').write_text(self.id)
-			except Exception as e:
-				raise ValueError(
-					f'Unusable path provided for user_data_dir= {_log_pretty_path(self.user_data_dir)} (check for typos/permissions issues)'
-				) from e
-
-			# clear any existing locks by any other chrome processes (hacky)
-			# helps stop chrome crashes from leaving the profile dir in a locked state and breaking subsequent runs,
-			# but can cause conflicts if the user actually tries to run multiple chrome copies on the same user_data_dir
-			singleton_lock = self.user_data_dir / 'SingletonLock'
-			if singleton_lock.exists():
-				singleton_lock.unlink()
-				logger.warning(
-					f'⚠️ Multiple chrome processes may be trying to share user_data_dir={self.user_data_dir} which can lead to crashes and profile data corruption!'
-				)
-
-		if self.downloads_path:
-			self.downloads_path = Path(self.downloads_path).expanduser().resolve()
-			self.downloads_path.mkdir(parents=True, exist_ok=True)
 
 	# def preinstall_extensions(self) -> None:
 	# 	"""Preinstall the extensions."""

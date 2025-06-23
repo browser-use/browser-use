@@ -19,109 +19,20 @@ from unittest.mock import AsyncMock
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
-from playwright.async_api import async_playwright
 
 from browser_use import Agent, setup_logging
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.browser.types import async_playwright
+from tests.ci.conftest import create_mock_llm
 
 # Set up test logging
 setup_logging()
 logger = logging.getLogger(__name__)
 
 
-def create_mock_llm():
-	"""Create a mock LLM that returns a done action"""
-	mock = AsyncMock(spec=BaseChatModel)
-	mock._verified_api_keys = True
-	mock._verified_tool_calling_method = 'raw'
-
-	# Add model_name attribute for logging
-	mock.model_name = 'mock-llm'
-
-	# Create the response
-	response_content = """
-	{
-		"current_state": {
-			"evaluation_previous_goal": "Starting the task",
-			"memory": "Task completed",
-			"next_goal": "Complete the task"
-		},
-		"action": [
-			{
-				"done": {
-					"text": "Task completed successfully",
-					"success": true
-				}
-			}
-		]
-	}
-	"""
-
-	# Mock the invoke method to return an AIMessage
-	mock.invoke.return_value = AIMessage(content=response_content)
-
-	# Make ainvoke return a coroutine that returns the AIMessage
-	async def async_invoke(*args, **kwargs):
-		return AIMessage(content=response_content)
-
-	mock.ainvoke.side_effect = async_invoke
-
-	return mock
-
-
-def create_mock_llm_with_actions(action_sequence):
-	"""Factory to create mock LLMs with specific action sequences"""
-	mock = AsyncMock(spec=BaseChatModel)
-	mock._verified_api_keys = True
-	mock._verified_tool_calling_method = 'raw'
-
-	# Add model_name attribute for logging
-	mock.model_name = 'mock-llm'
-
-	action_index = 0
-
-	def mock_invoke(*args, **kwargs):
-		nonlocal action_index
-		if action_index < len(action_sequence):
-			content = action_sequence[action_index]
-			action_index += 1
-		else:
-			# Default to done action
-			content = """
-			{
-				"current_state": {
-					"evaluation_previous_goal": "All actions completed",
-					"memory": "Task completed",
-					"next_goal": "Complete the task"
-				},
-				"action": [
-					{
-						"done": {
-							"text": "Task completed successfully",
-							"success": true
-						}
-					}
-				]
-			}
-			"""
-		return AIMessage(content=content)
-
-	# Create async version for ainvoke
-	async def async_mock_invoke(*args, **kwargs):
-		return mock_invoke(*args, **kwargs)
-
-	mock.invoke.side_effect = mock_invoke
-	mock.ainvoke.side_effect = async_mock_invoke
-	return mock
-
-
 def run_agent_in_subprocess_module(task_description):
 	"""Module-level function to run an agent in a subprocess"""
 	import asyncio
-	from unittest.mock import AsyncMock
-
-	from langchain_core.language_models.chat_models import BaseChatModel
-	from langchain_core.messages import AIMessage
 
 	from browser_use import Agent
 
@@ -138,11 +49,10 @@ def run_agent_in_subprocess_module(task_description):
 
 		response_content = """
 		{
-			"current_state": {
-				"evaluation_previous_goal": "Starting the task",
-				"memory": "Task completed",
-				"next_goal": "Complete the task"
-			},
+			"thinking": "null",
+			"evaluation_previous_goal": "Starting the task",
+			"memory": "Task completed",
+			"next_goal": "Complete the task",
 			"action": [
 				{
 					"done": {
@@ -237,9 +147,11 @@ class TestParallelism:
 
 		# Create a shared browser session
 		browser_session = BrowserSession(
-			headless=True,
-			user_data_dir=None,  # Use temp directory
-			keep_alive=True,
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,  # Use temp directory
+				keep_alive=True,
+			)
 		)
 
 		try:
@@ -287,9 +199,11 @@ class TestParallelism:
 
 		# Create a shared browser session
 		browser_session = BrowserSession(
-			headless=True,
-			user_data_dir=None,  # Use temp directory
-			keep_alive=True,
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,  # Use temp directory
+				keep_alive=True,
+			)
 		)
 
 		try:
@@ -453,11 +367,10 @@ class TestParallelism:
 		# Create action sequences - each agent creates a new tab
 		tab_action = """
 		{
-			"current_state": {
-				"evaluation_previous_goal": "Starting task",
-				"memory": "Need new tab",
-				"next_goal": "Create new tab"
-			},
+			"thinking": "null",
+			"evaluation_previous_goal": "Starting task",
+			"memory": "Need new tab",
+			"next_goal": "Create new tab",
 			"action": [
 				{
 					"open_tab": {
@@ -470,11 +383,10 @@ class TestParallelism:
 
 		done_action = """
 		{
-			"current_state": {
-				"evaluation_previous_goal": "Tab created",
-				"memory": "Task done",
-				"next_goal": "Complete"
-			},
+			"thinking": "null",
+			"evaluation_previous_goal": "Tab created",
+			"memory": "Task done",
+			"next_goal": "Complete",
 			"action": [
 				{
 					"done": {
@@ -487,14 +399,16 @@ class TestParallelism:
 		"""
 
 		# Create mocks with tab creation actions
-		mock_llm1 = create_mock_llm_with_actions([tab_action, done_action])
-		mock_llm2 = create_mock_llm_with_actions([tab_action, done_action])
+		mock_llm1 = create_mock_llm([tab_action, done_action])
+		mock_llm2 = create_mock_llm([tab_action, done_action])
 
 		# Create shared browser session
 		shared_session = BrowserSession(
-			headless=True,
-			user_data_dir=None,
-			keep_alive=True,
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,
+				keep_alive=True,
+			)
 		)
 
 		try:
@@ -551,9 +465,11 @@ class TestParallelism:
 
 		# Create a session with keep_alive
 		session = BrowserSession(
-			headless=True,
-			user_data_dir=None,
-			keep_alive=True,
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,
+				keep_alive=True,
+			)
 		)
 
 		try:
@@ -606,13 +522,15 @@ class TestParallelism:
 
 			# Create session with existing playwright objects
 			browser_session = BrowserSession(
-				page=page,
+				browser_profile=BrowserProfile(
+					headless=True,
+					user_data_dir=None,
+					keep_alive=False,
+				),
+				agent_current_page=page,
 				browser_context=context,
 				browser=browser,
 				playwright=playwright,
-				headless=True,
-				user_data_dir=None,
-				keep_alive=False,
 			)
 
 			# Create mock LLM

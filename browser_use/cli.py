@@ -1,3 +1,4 @@
+# pyright: reportMissingImports=false
 import asyncio
 import json
 import logging
@@ -39,20 +40,17 @@ os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'result'
 
 from browser_use import Agent, Controller
 from browser_use.agent.views import AgentSettings
-from browser_use.browser import BrowserSession
+from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.config import CONFIG
 from browser_use.logging_config import addLoggingLevel
 
-# Paths
-USER_CONFIG_DIR = Path.home() / '.config' / 'browseruse'
-USER_CONFIG_FILE = USER_CONFIG_DIR / 'config.json'
-CHROME_PROFILES_DIR = USER_CONFIG_DIR / 'profiles'
-USER_DATA_DIR = CHROME_PROFILES_DIR / 'cli'
+USER_DATA_DIR = CONFIG.BROWSER_USE_PROFILES_DIR / 'cli'
 
 # Default User settings
 MAX_HISTORY_LENGTH = 100
 
 # Ensure directories exist
-USER_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+CONFIG.BROWSER_USE_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
 USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -90,11 +88,11 @@ def get_default_config() -> dict[str, Any]:
 			'name': None,
 			'temperature': 0.0,
 			'api_keys': {
-				'OPENAI_API_KEY': os.getenv('OPENAI_API_KEY', ''),
-				'ANTHROPIC_API_KEY': os.getenv('ANTHROPIC_API_KEY', ''),
-				'GOOGLE_API_KEY': os.getenv('GOOGLE_API_KEY', ''),
-				'DEEPSEEK_API_KEY': os.getenv('DEEPSEEK_API_KEY', ''),
-				'GROK_API_KEY': os.getenv('GROK_API_KEY', ''),
+				'OPENAI_API_KEY': CONFIG.OPENAI_API_KEY,
+				'ANTHROPIC_API_KEY': CONFIG.ANTHROPIC_API_KEY,
+				'GOOGLE_API_KEY': CONFIG.GOOGLE_API_KEY,
+				'DEEPSEEK_API_KEY': CONFIG.DEEPSEEK_API_KEY,
+				'GROK_API_KEY': CONFIG.GROK_API_KEY,
 			},
 		},
 		'agent': {},  # AgentSettings will use defaults
@@ -109,14 +107,14 @@ def get_default_config() -> dict[str, Any]:
 
 def load_user_config() -> dict[str, Any]:
 	"""Load user configuration from file."""
-	if not USER_CONFIG_FILE.exists():
+	if not CONFIG.BROWSER_USE_CONFIG_FILE.exists():
 		# Create default config
 		config = get_default_config()
 		save_user_config(config)
 		return config
 
 	try:
-		with open(USER_CONFIG_FILE) as f:
+		with open(CONFIG.BROWSER_USE_CONFIG_FILE) as f:
 			data = json.load(f)
 			# Ensure data is a dictionary, not a list
 			if isinstance(data, list):
@@ -137,7 +135,7 @@ def save_user_config(config: dict[str, Any]) -> None:
 		if len(config['command_history']) > MAX_HISTORY_LENGTH:
 			config['command_history'] = config['command_history'][-MAX_HISTORY_LENGTH:]
 
-	with open(USER_CONFIG_FILE, 'w') as f:
+	with open(CONFIG.BROWSER_USE_CONFIG_FILE, 'w') as f:
 		json.dump(config, f, indent=2)
 
 
@@ -186,36 +184,38 @@ def get_llm(config: dict[str, Any]):
 	temperature = config.get('model', {}).get('temperature', 0.0)
 
 	# Set environment variables if they're in the config but not in the environment
-	if api_keys.get('openai') and not os.getenv('OPENAI_API_KEY'):
+	if api_keys.get('openai') and not CONFIG.OPENAI_API_KEY:
 		os.environ['OPENAI_API_KEY'] = api_keys['openai']
-	if api_keys.get('anthropic') and not os.getenv('ANTHROPIC_API_KEY'):
+	if api_keys.get('anthropic') and not CONFIG.ANTHROPIC_API_KEY:
 		os.environ['ANTHROPIC_API_KEY'] = api_keys['anthropic']
-	if api_keys.get('google') and not os.getenv('GOOGLE_API_KEY'):
+	if api_keys.get('google') and not CONFIG.GOOGLE_API_KEY:
 		os.environ['GOOGLE_API_KEY'] = api_keys['google']
 
 	if model_name:
 		if model_name.startswith('gpt'):
-			if not os.getenv('OPENAI_API_KEY'):
+			if not CONFIG.OPENAI_API_KEY:
 				print('⚠️  OpenAI API key not found. Please update your config or set OPENAI_API_KEY environment variable.')
 				sys.exit(1)
 			return langchain_openai.ChatOpenAI(model=model_name, temperature=temperature)
 		elif model_name.startswith('claude'):
-			if not os.getenv('ANTHROPIC_API_KEY'):
+			if not CONFIG.ANTHROPIC_API_KEY:
 				print('⚠️  Anthropic API key not found. Please update your config or set ANTHROPIC_API_KEY environment variable.')
 				sys.exit(1)
-			return langchain_anthropic.ChatAnthropic(model=model_name, temperature=temperature)
+			return langchain_anthropic.ChatAnthropic(model_name=model_name, temperature=temperature, timeout=30, stop=None)
 		elif model_name.startswith('gemini'):
-			if not os.getenv('GOOGLE_API_KEY'):
+			if not CONFIG.GOOGLE_API_KEY:
 				print('⚠️  Google API key not found. Please update your config or set GOOGLE_API_KEY environment variable.')
 				sys.exit(1)
 			return langchain_google_genai.ChatGoogleGenerativeAI(model=model_name, temperature=temperature)
 
 	# Auto-detect based on available API keys
-	if os.getenv('OPENAI_API_KEY'):
+	if CONFIG.OPENAI_API_KEY:
 		return langchain_openai.ChatOpenAI(model='gpt-4o', temperature=temperature)
-	elif os.getenv('ANTHROPIC_API_KEY'):
-		return langchain_anthropic.ChatAnthropic(model='claude-3.5-sonnet-exp', temperature=temperature)
-	elif os.getenv('GOOGLE_API_KEY'):
+	elif CONFIG.ANTHROPIC_API_KEY:
+		return langchain_anthropic.ChatAnthropic(
+			model_name='claude-3.5-sonnet-exp', temperature=temperature, timeout=30, stop=None
+		)
+	elif CONFIG.GOOGLE_API_KEY:
 		return langchain_google_genai.ChatGoogleGenerativeAI(model='gemini-2.0-flash-lite', temperature=temperature)
 	else:
 		print(
@@ -420,10 +420,10 @@ class BrowserUseApp(App):
 	def __init__(self, config: dict[str, Any], *args, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.config = config
-		self.browser_session = None  # Will be set before app.run_async()
-		self.controller = None  # Will be set before app.run_async()
-		self.agent = None
-		self.llm = None  # Will be set before app.run_async()
+		self.browser_session: BrowserSession | None = None  # Will be set before app.run_async()
+		self.controller: Controller | None = None  # Will be set before app.run_async()
+		self.agent: Agent | None = None
+		self.llm: Any | None = None  # Will be set before app.run_async()
 		self.task_history = config.get('command_history', [])
 		# Track current position in history for up/down navigation
 		self.history_index = len(self.task_history)
@@ -437,7 +437,7 @@ class BrowserUseApp(App):
 			pass  # Level already exists, which is fine
 
 		# Get the RichLog widget
-		rich_log = self.query_one('#results-log')
+		rich_log = self.query_one('#results-log', RichLog)
 
 		# Create and set up the custom handler
 		log_handler = RichLogHandler(rich_log)
@@ -530,7 +530,7 @@ class BrowserUseApp(App):
 		# Step 3: Focus the input field
 		logger.debug('Focusing input field...')
 		try:
-			input_field = self.query_one('#task-input')
+			input_field = self.query_one('#task-input', Input)
 			input_field.focus()
 			logger.debug('Input field focused')
 		except Exception as e:
@@ -550,8 +550,9 @@ class BrowserUseApp(App):
 
 	def on_input_key_up(self, event: events.Key) -> None:
 		"""Handle up arrow key in the input field."""
-		# Check if event is from the input field
-		if event.sender.id != 'task-input':
+		# For textual key events, we need to check focus manually
+		input_field = self.query_one('#task-input', Input)
+		if not input_field.has_focus:
 			return
 
 		# Only process if we have history
@@ -561,9 +562,10 @@ class BrowserUseApp(App):
 		# Move back in history if possible
 		if self.history_index > 0:
 			self.history_index -= 1
-			self.query_one('#task-input').value = self.task_history[self.history_index]
+			task_input = self.query_one('#task-input', Input)
+			task_input.value = self.task_history[self.history_index]
 			# Move cursor to end of text
-			self.query_one('#task-input').cursor_position = len(self.query_one('#task-input').value)
+			task_input.cursor_position = len(task_input.value)
 
 		# Prevent default behavior (cursor movement)
 		event.prevent_default()
@@ -571,8 +573,9 @@ class BrowserUseApp(App):
 
 	def on_input_key_down(self, event: events.Key) -> None:
 		"""Handle down arrow key in the input field."""
-		# Check if event is from the input field
-		if event.sender.id != 'task-input':
+		# For textual key events, we need to check focus manually
+		input_field = self.query_one('#task-input', Input)
+		if not input_field.has_focus:
 			return
 
 		# Only process if we have history
@@ -582,13 +585,14 @@ class BrowserUseApp(App):
 		# Move forward in history or clear input if at the end
 		if self.history_index < len(self.task_history) - 1:
 			self.history_index += 1
-			self.query_one('#task-input').value = self.task_history[self.history_index]
+			task_input = self.query_one('#task-input', Input)
+			task_input.value = self.task_history[self.history_index]
 			# Move cursor to end of text
-			self.query_one('#task-input').cursor_position = len(self.query_one('#task-input').value)
+			task_input.cursor_position = len(task_input.value)
 		elif self.history_index == len(self.task_history) - 1:
 			# At the end of history, go to "new line" state
 			self.history_index += 1
-			self.query_one('#task-input').value = ''
+			self.query_one('#task-input', Input).value = ''
 
 		# Prevent default behavior (cursor movement)
 		event.prevent_default()
@@ -677,7 +681,7 @@ class BrowserUseApp(App):
 
 	def update_browser_panel(self) -> None:
 		"""Update browser information panel with details about the browser."""
-		browser_info = self.query_one('#browser-info')
+		browser_info = self.query_one('#browser-info', RichLog)
 		browser_info.clear()
 
 		# Try to use the agent's browser session if available
@@ -772,7 +776,7 @@ class BrowserUseApp(App):
 
 	def update_model_panel(self) -> None:
 		"""Update model information panel with details about the LLM."""
-		model_info = self.query_one('#model-info')
+		model_info = self.query_one('#model-info', RichLog)
 		model_info.clear()
 
 		if self.llm:
@@ -810,8 +814,12 @@ class BrowserUseApp(App):
 					# Get the last step metadata to show the most recent LLM response time
 				if num_steps > 0 and self.agent.state.history.history[-1].metadata:
 					last_step = self.agent.state.history.history[-1]
-					step_duration = last_step.metadata.duration_seconds
-					step_tokens = last_step.metadata.input_tokens
+					if last_step.metadata:
+						step_duration = last_step.metadata.duration_seconds
+						step_tokens = last_step.metadata.input_tokens
+					else:
+						step_duration = 0
+						step_tokens = 0
 
 					if step_tokens > 0:
 						tokens_per_second = step_tokens / step_duration if step_duration > 0 else 0
@@ -827,7 +835,7 @@ class BrowserUseApp(App):
 
 				# Add current state information
 				if hasattr(self.agent, 'running'):
-					if self.agent.running:
+					if getattr(self.agent, 'running', False):
 						model_info.write('[yellow]LLM is thinking[blink]...[/][/]')
 					elif hasattr(self.agent, 'state') and hasattr(self.agent.state, 'paused') and self.agent.state.paused:
 						model_info.write('[orange]LLM paused[/]')
@@ -836,7 +844,7 @@ class BrowserUseApp(App):
 
 	def update_tasks_panel(self) -> None:
 		"""Update tasks information panel with details about the tasks and steps hierarchy."""
-		tasks_info = self.query_one('#tasks-info')
+		tasks_info = self.query_one('#tasks-info', RichLog)
 		tasks_info.clear()
 
 		if self.agent:
@@ -942,7 +950,7 @@ class BrowserUseApp(App):
 						tasks_info.write('')
 
 			# If agent is actively running, show a status indicator
-			if hasattr(self.agent, 'running') and self.agent.running:
+			if hasattr(self.agent, 'running') and getattr(self.agent, 'running', False):
 				tasks_info.write('[yellow]Agent is actively working[blink]...[/][/]')
 			elif hasattr(self.agent, 'state') and hasattr(self.agent.state, 'paused') and self.agent.state.paused:
 				tasks_info.write('[orange]Agent is paused (press Enter to resume)[/]')
@@ -973,14 +981,16 @@ class BrowserUseApp(App):
 		self.update_info_panels()
 
 		# Clear the log to start fresh
-		rich_log = self.query_one('#results-log')
+		rich_log = self.query_one('#results-log', RichLog)
 		rich_log.clear()
 
 		if self.agent is None:
+			if not self.llm:
+				raise RuntimeError('LLM not initialized')
 			self.agent = Agent(
 				task=task,
 				llm=self.llm,
-				controller=self.controller,
+				controller=self.controller if self.controller else Controller(),
 				browser_session=self.browser_session,
 				source='cli',
 				**agent_settings.model_dump(),
@@ -996,19 +1006,22 @@ class BrowserUseApp(App):
 			logger.debug('\n🚀 Working on task: %s', task)
 
 			# Set flags to indicate the agent is running
-			self.agent.running = True
-			self.agent.last_response_time = 0
+			if self.agent:
+				self.agent.running = True  # type: ignore
+				self.agent.last_response_time = 0  # type: ignore
 
 			# Panel updates are already happening via the timer in update_info_panels
 
 			try:
 				# Run the agent task, redirecting output to RichLog through our handler
-				await self.agent.run()
+				if self.agent:
+					await self.agent.run()
 			except Exception as e:
 				logger.error('\nError running agent: %s', str(e))
 			finally:
 				# Clear the running flag
-				self.agent.running = False
+				if self.agent:
+					self.agent.running = False  # type: ignore
 
 				# No need to call update_info_panels() here as it's already updating via timer
 
@@ -1019,7 +1032,7 @@ class BrowserUseApp(App):
 				task_input_container.display = True
 
 				# Refocus the input field
-				input_field = self.query_one('#task-input')
+				input_field = self.query_one('#task-input', Input)
 				input_field.focus()
 
 				# Ensure the input is visible by scrolling to it
@@ -1031,7 +1044,7 @@ class BrowserUseApp(App):
 	def action_input_history_prev(self) -> None:
 		"""Navigate to the previous item in command history."""
 		# Only process if we have history and input is focused
-		input_field = self.query_one('#task-input')
+		input_field = self.query_one('#task-input', Input)
 		if not input_field.has_focus or not self.task_history:
 			return
 
@@ -1045,7 +1058,7 @@ class BrowserUseApp(App):
 	def action_input_history_next(self) -> None:
 		"""Navigate to the next item in command history or clear input."""
 		# Only process if we have history and input is focused
-		input_field = self.query_one('#task-input')
+		input_field = self.query_one('#task-input', Input)
 		if not input_field.has_focus or not self.task_history:
 			return
 
@@ -1131,7 +1144,7 @@ class BrowserUseApp(App):
 
 			# Paths panel
 			yield Static(
-				f' ⚙️  Settings & history saved to:    {str(USER_CONFIG_FILE.resolve()).replace(str(Path.home()), "~")}\n'
+				f' ⚙️  Settings & history saved to:    {str(CONFIG.BROWSER_USE_CONFIG_FILE.resolve()).replace(str(Path.home()), "~")}\n'
 				f' 📁 Outputs & recordings saved to:  {str(Path(".").resolve()).replace(str(Path.home()), "~")}',
 				id='paths-panel',
 				markup=True,
@@ -1176,10 +1189,10 @@ async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
 
 		# Create browser session with config parameters
 		browser_config = config.get('browser', {})
+		# Create BrowserProfile with user_data_dir
+		profile = BrowserProfile(user_data_dir=str(USER_DATA_DIR), **browser_config)
 		browser_session = BrowserSession(
-			stealth=True,
-			user_data_dir=USER_DATA_DIR,
-			**browser_config,
+			browser_profile=profile,
 		)
 
 		# Create and run agent
@@ -1239,19 +1252,17 @@ async def textual_interface(config: dict[str, Any]):
 			logger.info('Browser mode: visible')
 
 		# Create BrowserSession directly with config parameters
+		# Create BrowserProfile with user_data_dir
+		profile = BrowserProfile(user_data_dir=str(USER_DATA_DIR), **browser_config)
 		browser_session = BrowserSession(
-			stealth=True,
-			user_data_dir=USER_DATA_DIR,
-			**browser_config,
+			browser_profile=profile,
 		)
 		logger.debug('BrowserSession initialized successfully')
 
 		# Log browser version if available
 		try:
-			if hasattr(browser_session, 'version') and browser_session.version:
-				logger.info(f'Browser version: {browser_session.version}')
-			elif hasattr(browser_session, 'playwright_browser') and browser_session.playwright_browser:
-				version = browser_session.playwright_browser.version
+			if hasattr(browser_session, 'browser') and browser_session.browser:
+				version = browser_session.browser.version
 				logger.info(f'Browser version: {version}')
 		except Exception as e:
 			logger.debug(f'Could not determine browser version: {e}')
@@ -1375,7 +1386,7 @@ def main(ctx: click.Context, debug: bool = False, **kwargs):
 	logger.debug('Loading user configuration...')
 	try:
 		config = load_user_config()
-		logger.debug(f'User configuration loaded from {USER_CONFIG_FILE}')
+		logger.debug(f'User configuration loaded from {CONFIG.BROWSER_USE_CONFIG_FILE}')
 	except Exception as e:
 		logger.error(f'Error loading user configuration: {str(e)}', exc_info=True)
 		print(f'Error loading configuration: {str(e)}')

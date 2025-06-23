@@ -12,7 +12,24 @@ from sys import stderr
 from typing import Any, ParamSpec, TypeVar
 from urllib.parse import urlparse
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
 logger = logging.getLogger(__name__)
+
+# Import error types - these may need to be adjusted based on actual import paths
+try:
+	from openai import BadRequestError as OpenAIBadRequestError
+except ImportError:
+	OpenAIBadRequestError = None
+
+try:
+	from groq import BadRequestError as GroqBadRequestError  # type: ignore[import-not-found]
+except ImportError:
+	GroqBadRequestError = None
+
 
 # Global flag to prevent duplicate exit messages
 _exiting = False
@@ -42,7 +59,7 @@ class SignalHandler:
 		resume_callback: Callable[[], None] | None = None,
 		custom_exit_callback: Callable[[], None] | None = None,
 		exit_on_second_int: bool = True,
-		interruptible_task_patterns: list[str] = None,
+		interruptible_task_patterns: list[str] | None = None,
 	):
 		"""
 		Initialize the signal handler.
@@ -193,7 +210,7 @@ class SignalHandler:
 				self._handle_second_ctrl_c()
 
 		# Mark that Ctrl+C was pressed
-		self.loop.ctrl_c_pressed = True
+		setattr(self.loop, 'ctrl_c_pressed', True)
 
 		# Cancel current tasks that should be interruptible - this is crucial for immediate pausing
 		self._cancel_interruptible_tasks()
@@ -299,9 +316,9 @@ class SignalHandler:
 		"""Reset state after resuming."""
 		# Clear the flags
 		if hasattr(self.loop, 'ctrl_c_pressed'):
-			self.loop.ctrl_c_pressed = False
+			setattr(self.loop, 'ctrl_c_pressed', False)
 		if hasattr(self.loop, 'waiting_for_input'):
-			self.loop.waiting_for_input = False
+			setattr(self.loop, 'waiting_for_input', False)
 
 
 def time_execution_sync(additional_text: str = '') -> Callable[[Callable[P, R]], Callable[P, R]]:
@@ -315,11 +332,11 @@ def time_execution_sync(additional_text: str = '') -> Callable[[Callable[P, R]],
 			if execution_time > 0.25:
 				self_has_logger = args and getattr(args[0], 'logger', None)
 				if self_has_logger:
-					logger = args[0].logger
+					logger = getattr(args[0], 'logger')
 				elif 'agent' in kwargs:
-					logger = kwargs['agent'].logger
+					logger = getattr(kwargs['agent'], 'logger')
 				elif 'browser_session' in kwargs:
-					logger = kwargs['browser_session'].logger
+					logger = getattr(kwargs['browser_session'], 'logger')
 				else:
 					logger = logging.getLogger(__name__)
 				logger.debug(f'⏳ {additional_text.strip("-")}() took {execution_time:.2f}s')
@@ -344,11 +361,11 @@ def time_execution_async(
 			if execution_time > 0.25:
 				self_has_logger = args and getattr(args[0], 'logger', None)
 				if self_has_logger:
-					logger = args[0].logger
+					logger = getattr(args[0], 'logger')
 				elif 'agent' in kwargs:
-					logger = kwargs['agent'].logger
+					logger = getattr(kwargs['agent'], 'logger')
 				elif 'browser_session' in kwargs:
-					logger = kwargs['browser_session'].logger
+					logger = getattr(kwargs['browser_session'], 'logger')
 				else:
 					logger = logging.getLogger(__name__)
 				logger.debug(f'⏳ {additional_text.strip("-")}() took {execution_time:.2f}s')
@@ -512,6 +529,66 @@ def merge_dicts(a: dict, b: dict, path: tuple[str, ...] = ()):
 	return a
 
 
+class LLMException(Exception):
+	"""Custom exception for LLM-related errors."""
+
+	def __init__(self, code: int, message: str):
+		self.code = code
+		self.message = message
+		super().__init__(message)
+
+
+def handle_llm_error(e: Exception) -> tuple[dict[str, Any], Any | None]:
+	"""
+	Handle LLM API errors and extract failed generation data when available.
+
+	Args:
+		e: The exception that occurred during LLM API call
+
+	Returns:
+		Tuple containing:
+		- response: Dict with 'raw' and 'parsed' keys
+		- parsed: Parsed data (None if extraction was needed)
+
+	Raises:
+		LLMException: If the error is not a recognized type with failed generation data
+	"""
+	# Handle OpenAI BadRequestError with failed_generation
+	if (
+		OpenAIBadRequestError
+		and isinstance(e, OpenAIBadRequestError)
+		and hasattr(e, 'body')
+		and e.body  # type: ignore[attr-defined]
+		and 'failed_generation' in e.body  # type: ignore[operator]
+	):
+		raw = e.body['failed_generation']  # type: ignore[index]
+		response = {'raw': raw, 'parsed': None}
+		parsed = None
+		logger.debug(f'Failed to do tool call, trying to parse raw response: {raw}')
+		return response, parsed
+
+	# Handle Groq BadRequestError with failed_generation
+	if (
+		GroqBadRequestError is not None
+		and isinstance(e, GroqBadRequestError)
+		and hasattr(e, 'body')
+		and e.body  # type: ignore[attr-defined]
+		and isinstance(e.body, dict)  # type: ignore[attr-defined]
+		and 'error' in e.body  # type: ignore[attr-defined]
+		and isinstance(e.body['error'], dict)  # type: ignore[attr-defined,index]
+		and 'failed_generation' in e.body['error']  # type: ignore[attr-defined,index]
+	):
+		raw = e.body['error']['failed_generation']  # type: ignore[attr-defined,index]
+		response = {'raw': raw, 'parsed': None}
+		parsed = None
+		logger.debug(f'Failed to do tool call, trying to parse raw response: {raw}')
+		return response, parsed
+
+	# If it's not a recognized error type, log and raise
+	logger.error(f'Failed to invoke model: {str(e)}')
+	raise LLMException(401, 'LLM API call failed' + str(e)) from e
+
+
 @cache
 def get_browser_use_version() -> str:
 	"""Get the browser-use package version using the same logic as Agent._set_browser_use_version_and_source"""
@@ -527,19 +604,23 @@ def get_browser_use_version() -> str:
 				content = f.read()
 				match = re.search(r'version\s*=\s*["\']([^"\']+)["\']', content)
 				if match:
-					return f'{match.group(1)}'
+					version = f'{match.group(1)}'
+					os.environ['LIBRARY_VERSION'] = version  # used by bubus event_schema so all Event schemas include versioning
+					return version
 
 		# If pyproject.toml doesn't exist, try getting version from pip
 		from importlib.metadata import version as get_version
 
-		return str(get_version('browser-use'))
+		version = str(get_version('browser-use'))
+		os.environ['LIBRARY_VERSION'] = version
+		return version
 
 	except Exception as e:
 		logger.debug(f'Error detecting browser-use version: {type(e).__name__}: {e}')
 		return 'unknown'
 
 
-def _log_pretty_path(path: Path | None) -> str:
+def _log_pretty_path(path: str | Path | None) -> str:
 	"""Pretty-print a path, shorten home dir to ~ and cwd to ."""
 
 	if not path or not str(path).strip():

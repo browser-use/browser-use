@@ -146,6 +146,7 @@ jobs:
       - name: Comment PR with agent evaluation results
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
+        continue-on-error: true
         with:
           script: |
             const passed = parseInt(process.env.PASSED);

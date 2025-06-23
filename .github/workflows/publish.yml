@@ -11,8 +11,8 @@ name: publish
 on:
   release:
     types: [published]     # publish full release to PyPI when a release is created on Github
-  schedule:
-    - cron: "0 17 * * FRI" # tag a pre-release on Github every Friday at 5 PM UTC
+  # schedule:
+  #   - cron: "0 17 * * FRI" # tag a pre-release on Github every Friday at 5 PM UTC
   workflow_dispatch:
 
 permissions:
@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   tag_pre_release:
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

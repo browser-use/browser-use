@@ -68,7 +68,10 @@ class TestCoreFunctionality:
 	@pytest.fixture(scope='module')
 	async def browser_session(self):
 		"""Create and provide a BrowserSession instance with security disabled."""
-		browser_session = BrowserSession(headless=True, user_data_dir=None)
+		from browser_use.browser.profile import BrowserProfile
+
+		profile = BrowserProfile(headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=profile)
 		yield browser_session
 		await browser_session.kill()
 

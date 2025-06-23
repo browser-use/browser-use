@@ -1,5 +1,5 @@
 from browser_use.browser import BrowserSession
-from browser_use.browser.profile import ProxySettings
+from browser_use.browser.profile import BrowserProfile, ProxySettings
 
 
 async def test_proxy_settings_pydantic_model():
@@ -33,11 +33,13 @@ async def test_window_size_with_real_browser():
 	"""
 	# Create browser profile with headless mode and specific dimensions
 	browser_session = BrowserSession(
-		user_data_dir=None,
-		headless=True,  # window size gets converted to viewport size in headless mode
-		window_size={'width': 999, 'height': 888},
-		maximum_wait_page_load_time=2.0,
-		minimum_wait_page_load_time=0.2,
+		browser_profile=BrowserProfile(
+			user_data_dir=None,
+			headless=True,  # window size gets converted to viewport size in headless mode
+			window_size={'width': 999, 'height': 888},
+			maximum_wait_page_load_time=2.0,
+			minimum_wait_page_load_time=0.2,
+		)
 	)
 	await browser_session.start()
 	page = await browser_session.get_current_page()
@@ -117,9 +119,11 @@ async def test_proxy_with_real_browser():
 
 	# Create browser session
 	browser_session = BrowserSession(
-		headless=True,
-		proxy=proxy_settings,
-		user_data_dir=None,
+		browser_profile=BrowserProfile(
+			headless=True,
+			proxy=proxy_settings,
+			user_data_dir=None,
+		)
 	)
 	await browser_session.start()
 	# Success - the browser was initialized with our proxy settings

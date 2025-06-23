@@ -5,20 +5,22 @@ We want our library APIs to be ergonomic, intuitive, and hard to get wrong.
 
 - Use async python
 - Use tabs for indentation in all python code, not spaces
-- Use the modern python >3.12 typing style, e.g. use `str | None` instead of `Optional[str]`, and `list[str]` instead of `List[str]`
+- Use the modern python >3.12 typing style, e.g. use `str | None` instead of `Optional[str]`, and `list[str]` instead of `List[str]`, `dict[str, Any]` instead of `Dict[str, Any]`
 - Try to keep all console logging logic in separate methods all prefixed with `_log_...`, e.g. `def _log_pretty_path(path: Path) -> str` so as not to clutter up the main logic.
 - Use pydantic v2 models to represent internal data, and any user-facing API parameter that might otherwise be a dict
 - In pydantic models Use `model_config = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True, ...)` etc. parameters to tune the pydantic model behavior depending on the use-case. Use `Annotated[..., AfterValidator(...)]` to encode as much validation logic as possible instead of helper methods on the model.
 - We keep the main code for each sub-component in a `service.py` file usually, and we keep most pydantic models in `views.py` files unless they are long enough deserve their own file
 - Use runtime assertions at the start and end of functions to enforce constraints and assumptions
 - Prefer `from uuid_extensions import uuid7str` +  `id: str = Field(default_factory=uuid7str)` for all new id fields
+- Run tests using `uv run pytest -vx tests/ci`
+- Run the type checker using `uv run pyright`
 
 ## Keep Examples & Tests Up-To-Date
 
 - Make sure to read relevant examples in the `examples/` directory for context and keep them up-to-date when making changes.
 - Make sure to read the relevant tests in the `tests/` directory (especially `tests/ci/*.py`) and keep them up-to-date as well. 
 - Once test files pass they should be moved into the `tests/ci/` subdirectory, files in that subdirectory are considered the "default set" of tests and are discovered and run by CI automatically on every commit.
-- Try to almost never use mocks in tests, instead use pytest fixtures to set up real objects
+- Never use mocks in tests other than for the llm, instead use pytest fixtures to set up real objects and pytest-httpserver
 - Never use real remote URLs in tests (e.g. `https://google.com` or `https://example.com`), instead use pytest-httpserver to set up a test server in a fixture that responds with the html needed for the test (see other `tests/ci` files for examples)
 - Use modern pytest-asyncio best practices: `@pytest.mark.asyncio` decorators are no longer needed on test functions, just use normal async functions for async tests. Use `loop = asyncio.get_event_loop()` inside tests that need it instead of passing `event_loop` as a function argument. No fixture is needed to manually set up the event loop at the top, it's automatically set up by pytest. Fixture functions (even async ones) only need a simple `@pytest.fixture` decorator with no arguments.
 

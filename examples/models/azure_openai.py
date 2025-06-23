@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from langchain_openai import AzureChatOpenAI
+from pydantic import SecretStr
 
 from browser_use import Agent
 
@@ -28,7 +29,7 @@ if not azure_openai_api_key or not azure_openai_endpoint:
 # Initialize the Azure OpenAI client
 llm = AzureChatOpenAI(
 	model='gpt-4o',
-	api_key=azure_openai_api_key,
+	api_key=SecretStr(azure_openai_api_key) if azure_openai_api_key else None,
 	azure_endpoint=azure_openai_endpoint,  # Corrected to use azure_endpoint instead of openai_api_base
 	api_version='2024-08-01-preview',  # Explicitly set the API version here
 )

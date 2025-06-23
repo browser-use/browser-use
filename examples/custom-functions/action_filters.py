@@ -28,10 +28,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from langchain_openai import ChatOpenAI
-from playwright.async_api import Page
 
 from browser_use.agent.service import Agent, Controller
 from browser_use.browser import BrowserSession
+from browser_use.browser.types import Page
 
 # Initialize controller and registry
 controller = Controller()

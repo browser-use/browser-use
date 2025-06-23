@@ -5,19 +5,21 @@ import logging
 import re
 from collections.abc import Callable
 from inspect import Parameter, iscoroutinefunction, signature
+from types import UnionType
 from typing import Any, Generic, Optional, TypeVar, Union, get_args, get_origin
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from playwright.async_api import Page
 from pydantic import BaseModel, Field, create_model
 
 from browser_use.browser import BrowserSession
+from browser_use.browser.types import Page
 from browser_use.controller.registry.views import (
 	ActionModel,
 	ActionRegistry,
 	RegisteredAction,
 	SpecialActionParameters,
 )
+from browser_use.filesystem.file_system import FileSystem
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import (
 	ControllerRegisteredFunctionsTelemetryEvent,
@@ -38,7 +40,7 @@ class Registry(Generic[Context]):
 		self.telemetry = ProductTelemetry()
 		self.exclude_actions = exclude_actions if exclude_actions is not None else []
 
-	def _get_special_param_types(self) -> dict[str, type]:
+	def _get_special_param_types(self) -> dict[str, type | UnionType | None]:
 		"""Get the expected types for special parameters from SpecialActionParameters"""
 		# Manually define the expected types to avoid issues with Optional handling.
 		# we should try to reduce this list to 0 if possible, give as few standardized objects to all the actions
@@ -53,6 +55,7 @@ class Registry(Generic[Context]):
 			'page_extraction_llm': BaseChatModel,
 			'available_file_paths': list,
 			'has_sensitive_data': bool,
+			'file_system': FileSystem,
 		}
 
 	def _normalize_action_function_signature(
@@ -146,6 +149,7 @@ class Registry(Generic[Context]):
 					f'{func.__name__}_Params',
 					__base__=ActionModel,
 				)
+		assert param_model is not None, f'param_model is None for {func.__name__}'
 
 		# Step 4: Create normalized wrapper function
 		@functools.wraps(func)
@@ -195,6 +199,10 @@ class Registry(Generic[Context]):
 								raise ValueError(f'Action {func.__name__} requires browser_session but none provided.')
 							elif param.name == 'page_extraction_llm':
 								raise ValueError(f'Action {func.__name__} requires page_extraction_llm but none provided.')
+							elif param.name == 'file_system':
+								raise ValueError(f'Action {func.__name__} requires file_system but none provided.')
+							elif param.name == 'page':
+								raise ValueError(f'Action {func.__name__} requires page but none provided.')
 							else:
 								raise ValueError(f"{func.__name__}() missing required special parameter '{param.name}'")
 						call_args.append(value)
@@ -206,6 +214,10 @@ class Registry(Generic[Context]):
 							raise ValueError(f'Action {func.__name__} requires browser_session but none provided.')
 						elif param.name == 'page_extraction_llm':
 							raise ValueError(f'Action {func.__name__} requires page_extraction_llm but none provided.')
+						elif param.name == 'file_system':
+							raise ValueError(f'Action {func.__name__} requires file_system but none provided.')
+						elif param.name == 'page':
+							raise ValueError(f'Action {func.__name__} requires page but none provided.')
 						else:
 							raise ValueError(f"{func.__name__}() missing required special parameter '{param.name}'")
 				else:
@@ -233,7 +245,7 @@ class Registry(Generic[Context]):
 		# Add **kwargs to accept and ignore extra params
 		new_params.append(Parameter('kwargs', Parameter.VAR_KEYWORD))
 
-		normalized_wrapper.__signature__ = sig.replace(parameters=new_params)
+		normalized_wrapper.__signature__ = sig.replace(parameters=new_params)  # type: ignore[attr-defined]
 
 		return normalized_wrapper, param_model
 
@@ -299,6 +311,7 @@ class Registry(Generic[Context]):
 		params: dict,
 		browser_session: BrowserSession | None = None,
 		page_extraction_llm: BaseChatModel | None = None,
+		file_system: FileSystem | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		available_file_paths: list[str] | None = None,
 		#
@@ -336,6 +349,7 @@ class Registry(Generic[Context]):
 				'page_extraction_llm': page_extraction_llm,
 				'available_file_paths': available_file_paths,
 				'has_sensitive_data': action_name == 'input_text' and bool(sensitive_data),
+				'file_system': file_system,
 			}
 
 			# Handle async page parameter if needed
@@ -347,7 +361,19 @@ class Registry(Generic[Context]):
 
 			# All functions are now normalized to accept kwargs only
 			# Call with params and unpacked special context
-			return await action.function(params=validated_params, **special_context)
+			try:
+				return await action.function(params=validated_params, **special_context)
+			except Exception as e:
+				# Retry once if it's a page error
+				logger.warning(f'⚠️ Action {action_name}() failed: {type(e).__name__}: {e}, trying one more time...')
+				special_context['page'] = browser_session and await browser_session.get_current_page()
+				try:
+					return await action.function(params=validated_params, **special_context)
+				except Exception as retry_error:
+					raise RuntimeError(
+						f'Action {action_name}() failed: {type(e).__name__}: {e} (page may have closed or navigated away mid-action)'
+					) from retry_error
+				raise
 
 		except ValueError as e:
 			# Preserve ValueError messages from validation
@@ -366,7 +392,9 @@ class Registry(Generic[Context]):
 			url_info = f' on {current_url}' if current_url and current_url != 'about:blank' else ''
 			logger.info(f'🔒 Using sensitive data placeholders: {", ".join(sorted(placeholders_used))}{url_info}')
 
-	def _replace_sensitive_data(self, params: BaseModel, sensitive_data: dict[str, Any], current_url: str = None) -> BaseModel:
+	def _replace_sensitive_data(
+		self, params: BaseModel, sensitive_data: dict[str, Any], current_url: str | None = None
+	) -> BaseModel:
 		"""
 		Replaces sensitive data placeholders in params with actual values.
 

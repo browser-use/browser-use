@@ -34,3 +34,13 @@ jobs:
         uses: anthropics/claude-code-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          allowed_tools: |
+            Bash(pytest)
+            Bash(sed)
+            Bash(grep)
+            Bash(python)
+            Bash(uv)
+            Bash(./bin/lint.sh)
+            Bash(./bin/test.sh)
+            Edit
+            Replace

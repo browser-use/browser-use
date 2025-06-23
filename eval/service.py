@@ -1,3 +1,4 @@
+# pyright: reportMissingImports=false
 # ==============================================================================================================
 # Documentation for this evaluation file.
 
@@ -40,18 +41,223 @@
 # ==============================================================================================================
 import asyncio
 import base64
+import gc
 import io
 import logging
 import re
-import shutil
+import signal
+import sys
+import threading
+import time
+from uuid import UUID
 
 import anyio
+import psutil
+from lmnr import AsyncLaminarClient, Laminar, observe
 from PIL import Image
 
 MAX_IMAGE = 5
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s: %(message)s')
 logger = logging.getLogger(__name__)
+
+Laminar.initialize()
+laminar_client = AsyncLaminarClient()
+
+# Global variables for resource monitoring
+_resource_monitor_task = None
+_resource_monitor_stop_event = None
+_graceful_shutdown_initiated = False
+
+
+def get_system_resources():
+	"""Get current system resource usage"""
+	try:
+		# Memory usage
+		memory = psutil.virtual_memory()
+		memory_percent = memory.percent
+		memory_available_gb = memory.available / (1024**3)
+
+		# CPU usage
+		cpu_percent = psutil.cpu_percent(interval=1)
+
+		# Load average (Unix only)
+		try:
+			load_avg = psutil.getloadavg()
+			load_1min = load_avg[0]
+		except (AttributeError, OSError):
+			load_1min = 0.0
+
+		# Process count
+		process_count = len(psutil.pids())
+
+		# Chrome/Browser processes
+		chrome_processes = []
+		python_processes = []
+		for proc in psutil.process_iter(['pid', 'name', 'memory_percent', 'cpu_percent']):
+			try:
+				name = proc.info['name'].lower()
+				if 'chrome' in name or 'chromium' in name:
+					chrome_processes.append(proc.info)
+				elif 'python' in name:
+					python_processes.append(proc.info)
+			except (psutil.NoSuchProcess, psutil.AccessDenied):
+				continue
+
+		return {
+			'memory_percent': memory_percent,
+			'memory_available_gb': memory_available_gb,
+			'cpu_percent': cpu_percent,
+			'load_1min': load_1min,
+			'process_count': process_count,
+			'chrome_process_count': len(chrome_processes),
+			'python_process_count': len(python_processes),
+			'chrome_processes': chrome_processes[:5],  # Top 5 chrome processes
+			'python_processes': python_processes[:5],  # Top 5 python processes
+		}
+	except Exception as e:
+		logger.warning(f'Failed to get system resources: {type(e).__name__}: {e}')
+		return {
+			'memory_percent': 0,
+			'memory_available_gb': 0,
+			'cpu_percent': 0,
+			'load_1min': 0,
+			'process_count': 0,
+			'chrome_process_count': 0,
+			'python_process_count': 0,
+			'chrome_processes': [],
+			'python_processes': [],
+		}
+
+
+def log_system_resources(context: str = ''):
+	"""Log current system resource usage"""
+	resources = get_system_resources()
+	logger.info(f'=== SYSTEM RESOURCES {context} ===')
+	logger.info(f'Memory: {resources["memory_percent"]:.1f}% used, {resources["memory_available_gb"]:.2f}GB available')
+	logger.info(f'CPU: {resources["cpu_percent"]:.1f}%, Load: {resources["load_1min"]:.2f}')
+	logger.info(
+		f'Processes: {resources["process_count"]} total, {resources["chrome_process_count"]} Chrome, {resources["python_process_count"]} Python'
+	)
+
+	if resources['chrome_processes']:
+		logger.info('Top Chrome processes:')
+		for proc in resources['chrome_processes']:
+			logger.info(
+				f'  PID {proc["pid"]}: {proc["name"]} - CPU: {proc["cpu_percent"]:.1f}%, Memory: {proc["memory_percent"]:.1f}%'
+			)
+
+	logger.info('=' * (20 + len(context)))
+
+
+async def start_resource_monitoring(interval: int = 30):
+	"""Start background resource monitoring"""
+	global _resource_monitor_task, _resource_monitor_stop_event
+
+	if _resource_monitor_task is not None:
+		logger.warning('Resource monitoring is already running')
+		return
+
+	_resource_monitor_stop_event = asyncio.Event()
+
+	async def monitor_loop():
+		"""Background monitoring loop"""
+		logger.info(f'Starting resource monitoring (interval: {interval}s)')
+		try:
+			while _resource_monitor_stop_event is not None and not _resource_monitor_stop_event.is_set():
+				try:
+					log_system_resources('MONITOR')
+
+					# Check for concerning resource levels
+					resources = get_system_resources()
+					if resources['memory_percent'] > 85:
+						logger.warning(f'⚠️ HIGH MEMORY USAGE: {resources["memory_percent"]:.1f}%')
+					if resources['cpu_percent'] > 90:
+						logger.warning(f'⚠️ HIGH CPU USAGE: {resources["cpu_percent"]:.1f}%')
+					if resources['chrome_process_count'] > 20:
+						logger.warning(f'⚠️ HIGH CHROME PROCESS COUNT: {resources["chrome_process_count"]}')
+
+					# Force garbage collection periodically
+					if resources['memory_percent'] > 70:
+						logger.info('Running garbage collection due to high memory usage')
+						gc.collect()
+
+				except Exception as e:
+					logger.error(f'Error in resource monitoring: {type(e).__name__}: {e}')
+
+				try:
+					if _resource_monitor_stop_event is not None:
+						await asyncio.wait_for(_resource_monitor_stop_event.wait(), timeout=interval)
+					else:
+						await asyncio.sleep(interval)
+					break  # Event was set, exit loop
+				except TimeoutError:
+					continue  # Timeout reached, continue monitoring
+		except Exception as e:
+			logger.error(f'Resource monitoring loop crashed: {type(e).__name__}: {e}')
+		finally:
+			logger.info('Resource monitoring stopped')
+
+	_resource_monitor_task = asyncio.create_task(monitor_loop())
+
+
+async def stop_resource_monitoring():
+	"""Stop background resource monitoring"""
+	global _resource_monitor_task, _resource_monitor_stop_event
+
+	if _resource_monitor_stop_event is not None:
+		_resource_monitor_stop_event.set()
+
+	if _resource_monitor_task is not None:
+		try:
+			await asyncio.wait_for(_resource_monitor_task, timeout=5.0)
+		except TimeoutError:
+			logger.warning('Resource monitoring task did not stop gracefully')
+			_resource_monitor_task.cancel()
+			try:
+				await _resource_monitor_task
+			except asyncio.CancelledError:
+				pass
+
+		_resource_monitor_task = None
+		_resource_monitor_stop_event = None
+
+
+def setup_signal_handlers():
+	"""Setup signal handlers for graceful shutdown"""
+	global _graceful_shutdown_initiated
+
+	def signal_handler(signum, frame):
+		global _graceful_shutdown_initiated
+		if _graceful_shutdown_initiated:
+			logger.critical('🔥 FORCE EXIT: Second signal received, terminating immediately')
+			sys.exit(1)
+
+		_graceful_shutdown_initiated = True
+		logger.warning(f'⚠️ GRACEFUL SHUTDOWN: Received signal {signum}, initiating graceful shutdown...')
+		log_system_resources('SHUTDOWN')
+
+		# Try to stop resource monitoring
+		try:
+			loop = asyncio.get_event_loop()
+			if loop.is_running():
+				loop.create_task(stop_resource_monitoring())
+		except Exception as e:
+			logger.error(f'Failed to stop resource monitoring during shutdown: {e}')
+
+		# Give some time for cleanup, then force exit
+		def force_exit():
+			time.sleep(10)
+			if _graceful_shutdown_initiated:
+				logger.critical('🔥 FORCE EXIT: Graceful shutdown timeout, terminating')
+				sys.exit(1)
+
+		threading.Thread(target=force_exit, daemon=True).start()
+
+	# Register signal handlers
+	signal.signal(signal.SIGINT, signal_handler)
+	signal.signal(signal.SIGTERM, signal_handler)
 
 
 def encode_image(image):
@@ -275,12 +481,176 @@ import http.client
 import json
 import os
 import subprocess
-import time
-from datetime import datetime
+from dataclasses import dataclass, field
+
+# Define Stage enum and related classes for the pipeline
+from enum import Enum
 from pathlib import Path
+from typing import Any
 
 import requests
 from dotenv import load_dotenv
+
+# Import the new comprehensive judge system (conditional import for backwards compatibility)
+try:
+	from judge_system import evaluate_task_with_comprehensive_judge
+
+	COMPREHENSIVE_JUDGE_AVAILABLE = True
+except ImportError:
+	logger.warning('Comprehensive judge system not available. Only Mind2Web judge will be available.')
+	COMPREHENSIVE_JUDGE_AVAILABLE = False
+
+	async def evaluate_task_with_comprehensive_judge(*args, **kwargs) -> dict[str, Any]:
+		"""Fallback function when comprehensive judge system is not available"""
+		raise ImportError('Comprehensive judge system not available')
+
+
+class Stage(Enum):
+	SETUP_BROWSER = 'setup_browser'
+	RUN_AGENT = 'run_agent'
+	FORMAT_HISTORY = 'format_history'
+	EVALUATE = 'evaluate'
+	SAVE_SERVER = 'save_server'
+
+
+@dataclass
+class StageError:
+	stage: Stage
+	error_type: str
+	message: str
+
+
+@dataclass
+class TaskResult:
+	task_id: str
+	run_id: str
+	confirmed_task: str
+	task: Any
+	max_steps: int
+	laminar_link: str | None = None
+	completed_stages: set[Stage] = field(default_factory=set)
+	stage_data: dict[Stage, Any] = field(default_factory=dict)
+	errors: list = field(default_factory=list)
+	cancelled: bool = False
+	critical_error: str | None = None
+	server_save_failed: bool = False
+
+	def stage_completed(self, stage: Stage, data: Any = None):
+		self.completed_stages.add(stage)
+		if data is not None:
+			self.stage_data[stage] = data
+
+	def stage_failed(self, stage: Stage, error: StageError):
+		self.errors.append(error)
+
+	def mark_cancelled(self):
+		self.cancelled = True
+
+	def mark_critical_error(self, error: str):
+		self.critical_error = error
+
+	def mark_server_save_failed(self, error: str):
+		self.server_save_failed = True
+		self.errors.append(StageError(Stage.SAVE_SERVER, 'server_save', error))
+
+	def has_execution_data(self) -> bool:
+		return Stage.RUN_AGENT in self.completed_stages or Stage.FORMAT_HISTORY in self.completed_stages
+
+	@property
+	def server_payload(self) -> dict[str, Any]:
+		"""Generate payload for server submission"""
+		payload = {
+			'taskId': self.task_id,
+			'runId': self.run_id,
+			'task': self.confirmed_task,
+			'completed_stages': [stage.value for stage in self.completed_stages],
+			'has_errors': len(self.errors) > 0,
+			'cancelled': self.cancelled,
+			'critical_error': self.critical_error,
+			'server_save_failed': self.server_save_failed,
+			'laminarTaskLink': self.laminar_link,
+		}
+
+		# Add task execution data if available
+		if Stage.FORMAT_HISTORY in self.completed_stages:
+			format_data = self.stage_data.get(Stage.FORMAT_HISTORY, {})
+			payload.update(
+				{
+					'actionHistory': format_data.get('action_history', []),
+					'finalResultResponse': format_data.get('final_result_response', ''),
+					'selfReportCompleted': format_data.get('self_report_completed', False),
+					'selfReportSuccess': format_data.get('self_report_success', False),
+					'taskDuration': format_data.get('task_duration'),
+					'steps': format_data.get('steps'),
+					'maxSteps': self.max_steps,
+					'tokensUsed': format_data.get('tokensUsed'),
+					'completeHistory': format_data.get('complete_history', []),  # Add complete step history
+				}
+			)
+
+		# Add evaluation data if available
+		if Stage.EVALUATE in self.completed_stages:
+			eval_data = self.stage_data.get(Stage.EVALUATE, {})
+
+			# Handle comprehensive judge evaluation
+			comp_eval = eval_data.get('comprehensive_evaluation') or eval_data.get('comprehensive_judge')
+			if comp_eval:
+				# Convert enum lists to string lists for database storage
+				task_categories = comp_eval.get('task_categories', [])
+				if task_categories and hasattr(task_categories[0], 'value'):
+					task_categories = [cat.value for cat in task_categories]
+
+				error_categories = comp_eval.get('error_categories', [])
+				if error_categories and hasattr(error_categories[0], 'value'):
+					error_categories = [err.value for err in error_categories]
+
+				payload.update(
+					{
+						'comprehensiveJudgeEvaluationSummary': comp_eval.get('task_summary'),
+						'comprehensiveJudgeEvaluationReasoning': comp_eval.get('reasoning'),
+						'comprehensiveJudgeEvaluationPassed': comp_eval.get('passed'),
+						'comprehensiveJudgeEvaluationScore': comp_eval.get('final_score'),
+						'comprehensiveJudgeEvaluationCategories': task_categories,
+						'comprehensiveJudgeEvaluationErrors': error_categories,
+						'comprehensiveJudgeEvaluationTips': comp_eval.get('improvement_tips', []),
+						'comprehensiveJudgeEvaluationCriticalIssues': comp_eval.get('critical_issues', []),
+						'comprehensiveJudgeEvaluationScores': comp_eval.get('scores'),
+						'comprehensiveJudgeEvaluationFull': comp_eval,  # Include full comprehensive eval data
+					}
+				)
+
+			# Handle legacy Mind2Web evaluation (for compatibility)
+			payload.update(
+				{
+					'onlineMind2WebEvaluationJudgement': eval_data.get('judgement'),
+					'onlineMind2WebEvaluationError': eval_data.get('error'),
+					'onlineMind2WebEvaluationSuccess': eval_data.get('success', False),
+					'onlineMind2WebEvaluationScore': eval_data.get('score', 0.0),
+				}
+			)
+
+		# Ensure all data in payload is JSON serializable
+		serialized_payload = make_json_serializable(payload)
+		# Type assertion since we know payload is a dict and make_json_serializable preserves dict structure
+		assert isinstance(serialized_payload, dict), 'Payload serialization should preserve dict structure'
+		return serialized_payload
+
+	def get_local_status(self) -> dict[str, Any]:
+		"""Get local status summary"""
+		success = (
+			Stage.EVALUATE in self.completed_stages
+			and not self.cancelled
+			and self.critical_error is None
+			and len([e for e in self.errors if e.error_type == 'exception']) == 0
+		)
+		return {
+			'task_id': self.task_id,
+			'success': success,
+			'error': self.critical_error or (self.errors[0].message if self.errors else None),
+			'completed_stages': [stage.value for stage in self.completed_stages],
+		}
+
+
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -336,6 +706,7 @@ SUPPORTED_MODELS = {
 	'gemini-2.0-flash-lite': {'provider': 'google', 'model_name': 'gemini-2.0-flash-lite', 'api_key_env': 'GEMINI_API_KEY'},
 	'gemini-2.0-flash': {'provider': 'google', 'model_name': 'gemini-2.0-flash', 'api_key_env': 'GEMINI_API_KEY'},
 	'gemini-2.5-pro': {'provider': 'google', 'model_name': 'gemini-2.5-pro-preview-03-25', 'api_key_env': 'GEMINI_API_KEY'},
+	'gemini-2.5-flash': {'provider': 'google', 'model_name': 'gemini-2.5-flash-latest', 'api_key_env': 'GEMINI_API_KEY'},
 	'gemini-2.5-pro-preview-05-06': {
 		'provider': 'google',
 		'model_name': 'gemini-2.5-pro-preview-05-06',
@@ -439,7 +810,7 @@ def create_controller_with_serp_search():
 	async def search_web(query: str):
 		"""Search the web using Serper API"""
 		if not SERPER_API_KEY:
-			return ActionResult(extracted_content='Search unavailable: SERPER_API_KEY not configured', include_in_memory=False)
+			return ActionResult(extracted_content='Search unavailable: SERPER_API_KEY not configured', include_in_memory=True)
 
 		try:
 			# Make request to Serper API
@@ -460,11 +831,13 @@ def create_controller_with_serp_search():
 			# Convert to string for the agent
 			serp_data_str = json.dumps(serp_data)
 
-			return ActionResult(extracted_content=serp_data_str, include_in_memory=False)
+			return ActionResult(
+				extracted_content=serp_data_str, include_in_memory=False, include_extracted_content_only_once=True
+			)
 
 		except Exception as e:
 			logger.error(f'Error in SERP search: {type(e).__name__}: {e}')
-			return ActionResult(extracted_content=f'Search error: {str(e)}', include_in_memory=False)
+			return ActionResult(error=f'Search error: {str(e)}')
 
 	return controller
 
@@ -528,6 +901,27 @@ def get_llm(model_name: str):
 
 def clean_action_dict(action_dict: dict) -> dict:
 	return {k: clean_action_dict(v) if isinstance(v, dict) else v for k, v in action_dict.items() if v is not None}
+
+
+def make_json_serializable(obj: Any) -> Any:
+	"""
+	Convert objects to JSON-serializable types.
+	Handles common non-serializable types like enums, custom objects, etc.
+	"""
+	if obj is None:
+		return None
+	elif isinstance(obj, (str, int, float, bool)):
+		return obj
+	elif isinstance(obj, dict):
+		return {k: make_json_serializable(v) for k, v in obj.items()}
+	elif isinstance(obj, (list, tuple)):
+		return [make_json_serializable(item) for item in obj]
+	elif hasattr(obj, 'value'):  # Handle enums
+		return obj.value
+	elif hasattr(obj, '__dict__'):  # Handle custom objects
+		return str(obj)
+	else:
+		return str(obj)
 
 
 async def reformat_agent_history(
@@ -697,12 +1091,16 @@ class Task:
 		return self.__str__()
 
 
-async def judge_task_result(model, task_folder: Path, score_threshold: float = 3) -> dict:
+async def judge_task_result(model, task_folder: Path, score_threshold: float = 3, use_mind2web: bool = False) -> dict:
 	"""
-	Judge a single task result based on the success value of the final action.
+	Judge a single task result using the comprehensive judge system by default,
+	with optional fallback to the original Online_Mind2Web evaluation.
 
 	Args:
+	    model: The model to use for evaluation
 	    task_folder: Path to the task result folder
+	    score_threshold: Score threshold for image filtering (used only for Mind2Web)
+	    use_mind2web: If True, use the original Online_Mind2Web evaluation instead
 
 	Returns:
 	    Dictionary containing judgment results
@@ -715,51 +1113,132 @@ async def judge_task_result(model, task_folder: Path, score_threshold: float = 3
 		async with await anyio.open_file(result_file) as f:
 			result = json.loads(await f.read())
 
-		# If a Online_Mind2Web_evaluation is already saved, we can skip the eval
-		if result.get('Online_Mind2Web_evaluation'):
-			return result.get('Online_Mind2Web_evaluation')
+		# Check if we should use the original Mind2Web evaluation
+		if use_mind2web:
+			logger.info(f'Task {task_folder.name}: Using original Online_Mind2Web evaluation')
 
-		# Get the screenshot paths, task description, and action history
-		screenshot_paths = result.get('screenshot_paths', [])
-		task_description = result.get('task')
-		action_history = result.get('action_history', [])
+			# If a Online_Mind2Web_evaluation is already saved, we can skip the eval
+			if result.get('Online_Mind2Web_evaluation'):
+				return result.get('Online_Mind2Web_evaluation')
 
-		# Use the retry wrapper for evaluation
-		try:
-			# Await the async function directly instead of using asyncio.run()
-			eval_result = await Online_Mind2Web_eval_with_retry(
-				task_description, action_history, screenshot_paths, model, score_threshold
-			)
+			# Get the screenshot paths, task description, and action history
+			screenshot_paths = result.get('screenshot_paths', [])
+			task_description = result.get('task')
+			action_history = result.get('action_history', [])
 
-			if eval_result is None:
-				raise Exception('Evaluation failed after all retries')
+			# Use the retry wrapper for evaluation
+			try:
+				# Await the async function directly instead of using asyncio.run()
+				eval_result = await Online_Mind2Web_eval_with_retry(
+					task_description, action_history, screenshot_paths, model, score_threshold
+				)
 
-			messages, text, system_msg, record, key_points = eval_result
+				if eval_result is None:
+					raise Exception('Evaluation failed after all retries')
 
-			# Final steps to get judgement - run invoke in a thread
-			judgement_msg = await asyncio.to_thread(model.invoke, messages)
-			judgement = judgement_msg.content
+				messages, text, system_msg, record, key_points = eval_result
 
-			if 'success' in judgement.lower().split('status:')[1]:  # This is the official criteria for success
-				evaluation = {'task_id': task_folder.name, 'judgement': judgement, 'success': True, 'error': None, 'score': 1.0}
-			else:  # This is the official criteria for failure
-				evaluation = {'task_id': task_folder.name, 'judgement': judgement, 'success': False, 'error': None, 'score': 0.0}
+				# Final steps to get judgement - run invoke in a thread
+				judgement_msg = await asyncio.to_thread(model.invoke, messages)
+				judgement = judgement_msg.content
 
-			# Save the Online_Mind2Web_evaluation into the result.json file
-			result['Online_Mind2Web_evaluation'] = evaluation
-			async with await anyio.open_file(result_file, 'w') as f:
-				await f.write(json.dumps(result, indent=2))
+				if 'success' in judgement.lower().split('status:')[1]:  # This is the official criteria for success
+					evaluation = {
+						'task_id': task_folder.name,
+						'judgement': judgement,
+						'success': True,
+						'error': None,
+						'score': 1.0,
+					}
+				else:  # This is the official criteria for failure
+					evaluation = {
+						'task_id': task_folder.name,
+						'judgement': judgement,
+						'success': False,
+						'error': None,
+						'score': 0.0,
+					}
 
-			return evaluation
+				# Save the Online_Mind2Web_evaluation into the result.json file
+				result['Online_Mind2Web_evaluation'] = evaluation
+				async with await anyio.open_file(result_file, 'w') as f:
+					await f.write(json.dumps(result, indent=2))
 
-		except Exception as err:
-			return {
-				'task_id': task_folder.name,
-				'judgement': None,
-				'success': False,
-				'error': f'{type(err).__name__}: {err}',
-				'score': 0.0,
-			}
+				return evaluation
+
+			except Exception as err:
+				return {
+					'task_id': task_folder.name,
+					'judgement': None,
+					'success': False,
+					'error': f'{type(err).__name__}: {err}',
+					'score': 0.0,
+				}
+
+		else:
+			# Use the new comprehensive judge system (default)
+			logger.info(f'Task {task_folder.name}: Using comprehensive judge evaluation')
+
+			# Check if comprehensive judge is available
+			if not COMPREHENSIVE_JUDGE_AVAILABLE:
+				logger.warning(f'Task {task_folder.name}: Comprehensive judge not available, falling back to Mind2Web')
+				return await judge_task_result(model, task_folder, score_threshold, use_mind2web=True)
+
+			# Check if comprehensive judge result already exists
+			if result.get('comprehensive_judge_evaluation'):
+				existing_eval = result['comprehensive_judge_evaluation']
+				return {
+					'task_id': task_folder.name,
+					'judgement': existing_eval.get('reasoning', 'Comprehensive evaluation completed'),
+					'success': existing_eval.get('passed', False),
+					'error': None,
+					'score': existing_eval.get('final_score', 0) / 100.0,  # Convert to 0-1 scale
+					'comprehensive_evaluation': existing_eval,
+				}
+
+			try:
+				# Run comprehensive judge evaluation
+				comprehensive_result = await evaluate_task_with_comprehensive_judge(
+					task_folder=task_folder, model=model, max_images=10
+				)
+
+				if comprehensive_result.get('error'):
+					return {
+						'task_id': task_folder.name,
+						'judgement': None,
+						'success': False,
+						'error': comprehensive_result['error'],
+						'score': 0.0,
+					}
+
+				comp_eval = comprehensive_result.get('comprehensive_judge')
+				if comp_eval:
+					return {
+						'task_id': task_folder.name,
+						'judgement': comp_eval.get('reasoning', 'Comprehensive evaluation completed'),
+						'success': comp_eval.get('passed', False),
+						'error': None,
+						'score': comp_eval.get('final_score', 0) / 100.0,  # Convert to 0-1 scale
+						'comprehensive_evaluation': comp_eval,
+					}
+				else:
+					return {
+						'task_id': task_folder.name,
+						'judgement': None,
+						'success': False,
+						'error': 'Comprehensive judge failed to return results',
+						'score': 0.0,
+					}
+
+			except Exception as err:
+				logger.error(f'Comprehensive judge evaluation failed for {task_folder.name}: {err}')
+				return {
+					'task_id': task_folder.name,
+					'judgement': None,
+					'success': False,
+					'error': f'Comprehensive judge error: {type(err).__name__}: {err}',
+					'score': 0.0,
+				}
 
 	except Exception as err:
 		return {
@@ -771,266 +1250,6 @@ async def judge_task_result(model, task_folder: Path, score_threshold: float = 3
 		}
 
 
-def calculate_local_summary(results_dir: str | None = None) -> dict:
-	"""
-	Calculates a summary of task results by reading the saved result.json files.
-	Does not make any network requests.
-	"""
-	if results_dir is None:
-		results_dir = 'saved_trajectories'
-
-	path = Path(results_dir)
-	if not path.is_dir():
-		logger.warning(f'Results directory {results_dir} does not exist')
-		return {
-			'timestamp': datetime.now().isoformat(),
-			'total_tasks': 0,
-			'successful_tasks': 0,
-			'failed_tasks': 0,
-			'success_rate': 0,
-			'average_score': 0,
-		}
-
-	# Collect all task folders
-	task_folders = [f for f in path.iterdir() if f.is_dir()]
-	total_tasks = len(task_folders)
-	successful_tasks = 0
-	total_score = 0.0
-	results_with_score = 0
-
-	for folder in task_folders:
-		result_file = folder / 'result.json'
-		if result_file.exists():
-			try:
-				with open(result_file) as f:
-					result_data = json.load(f)
-
-				# Look for evaluation data
-				evaluation = result_data.get('Online_Mind2Web_evaluation', {})
-				if evaluation:
-					if evaluation.get('success', False):
-						successful_tasks += 1
-
-					score = evaluation.get('score', 0.0)
-					if score > 0:
-						total_score += score
-						results_with_score += 1
-			except Exception as e:
-				logger.error(f'Error reading result file {result_file}: {type(e).__name__}: {e}')
-
-	# Calculate statistics
-	failed_tasks = total_tasks - successful_tasks
-	success_rate = successful_tasks / total_tasks if total_tasks > 0 else 0
-	average_score = total_score / results_with_score if results_with_score > 0 else 0
-
-	return {
-		'timestamp': datetime.now().isoformat(),
-		'total_tasks': total_tasks,
-		'successful_tasks': successful_tasks,
-		'failed_tasks': failed_tasks,
-		'success_rate': success_rate,
-		'average_score': average_score,
-	}
-
-
-from dataclasses import dataclass
-from enum import Enum
-from typing import Any
-
-
-class Stage(Enum):
-	LOAD_EXISTING = 'load_existing'
-	SETUP_BROWSER = 'setup_browser'
-	RUN_AGENT = 'run_agent'
-	FORMAT_HISTORY = 'format_history'
-	EVALUATE = 'evaluate'
-	SAVE_SERVER = 'save_server'
-
-
-@dataclass
-class StageError(Exception):
-	stage: Stage
-	error_type: str  # "timeout", "cancelled", "exception"
-	message: str
-
-
-class TaskResult:
-	"""Simplified task state tracker with auto-updating server payload"""
-
-	def __init__(self, task_id: str, run_id: str, task_description: str, task: Task, max_steps: int):
-		self.task_id = task_id
-		self.completed_stages = set()
-		self.stage_data = {}  # Store actual results from each stage
-		self.failed_stages = {}  # Store errors from failed stages
-		self.local_error = None
-
-		# Initialize server payload with defaults
-		self.server_payload = {
-			'runId': run_id,
-			'taskId': task_id,
-			'task': task_description,
-			'taskWebsite': task.website,
-			'taskReferenceLength': task.reference_length,
-			'taskLevel': task.level,
-			'taskClusterId': task.cluster_id,
-			'actionHistory': [],
-			'finalResultResponse': 'None',
-			'selfReportCompleted': False,
-			'selfReportSuccess': None,
-			'browserCrash': False,
-			'browserCrashReason': None,
-			'onlineMind2WebEvaluationJudgement': 'Not Attempted',
-			'onlineMind2WebEvaluationError': None,
-			'onlineMind2WebEvaluationSuccess': False,
-			'onlineMind2WebEvaluationScore': 0.0,
-			'completeHistory': [],
-			'maxSteps': max_steps,
-			'tokensUsed': 0,
-			'taskDuration': None,
-			'steps': 0,
-		}
-
-	def stage_completed(self, stage: Stage, data: Any = None):
-		"""Mark stage as completed and update server payload"""
-		self.completed_stages.add(stage)
-		if data is not None:
-			self.stage_data[stage] = data
-		self._auto_update_payload()
-
-	def stage_failed(self, stage: Stage, error: StageError):
-		"""Mark stage as failed and update server payload"""
-		self.failed_stages[stage] = error
-		self._auto_update_payload()
-
-	def has_execution_data(self) -> bool:
-		"""Check if we have execution data from either loading existing or completing execution"""
-		return Stage.LOAD_EXISTING in self.completed_stages or Stage.FORMAT_HISTORY in self.completed_stages
-
-	def execution_succeeded(self) -> bool:
-		"""Check if execution pipeline succeeded"""
-		return (
-			Stage.LOAD_EXISTING in self.completed_stages or Stage.FORMAT_HISTORY in self.completed_stages
-		) and not self._has_execution_failures()
-
-	def _has_execution_failures(self) -> bool:
-		"""Check if any execution-related stages failed"""
-		execution_stages = {Stage.SETUP_BROWSER, Stage.RUN_AGENT, Stage.FORMAT_HISTORY}
-		return any(stage in self.failed_stages for stage in execution_stages)
-
-	def _auto_update_payload(self):
-		"""Automatically update server_payload based on current state"""
-		# Update execution data if available
-		if Stage.LOAD_EXISTING in self.completed_stages:
-			existing_data = self.stage_data[Stage.LOAD_EXISTING]
-			self.server_payload.update(
-				{
-					'actionHistory': existing_data.get('action_history', []),
-					'finalResultResponse': existing_data.get('final_result_response', 'None'),
-					'selfReportCompleted': existing_data.get('self_report_completed', False),
-					'selfReportSuccess': existing_data.get('self_report_success', None),
-					'completeHistory': existing_data.get('complete_history', []),
-					'taskDuration': existing_data.get('task_duration'),
-					'steps': existing_data.get('steps', 0),
-					'tokensUsed': existing_data.get('tokensUsed', 0),
-				}
-			)
-		elif Stage.FORMAT_HISTORY in self.completed_stages:
-			formatted_data = self.stage_data[Stage.FORMAT_HISTORY]
-			self.server_payload.update(
-				{
-					'actionHistory': formatted_data.get('action_history', []),
-					'finalResultResponse': formatted_data.get('final_result_response', 'None'),
-					'selfReportCompleted': formatted_data.get('self_report_completed', False),
-					'selfReportSuccess': formatted_data.get('self_report_success', None),
-					'completeHistory': formatted_data.get('complete_history', []),
-					'taskDuration': formatted_data.get('task_duration'),
-					'steps': formatted_data.get('steps', 0),
-					'tokensUsed': formatted_data.get('tokensUsed', 0),
-				}
-			)
-
-		# Update evaluation data if available
-		if Stage.EVALUATE in self.completed_stages:
-			eval_data = self.stage_data[Stage.EVALUATE]
-			judgement = eval_data.get('judgement')
-			self.server_payload.update(
-				{
-					'onlineMind2WebEvaluationJudgement': judgement if judgement is not None else 'None',
-					'onlineMind2WebEvaluationError': eval_data.get('error'),
-					'onlineMind2WebEvaluationSuccess': eval_data.get('success', False),
-					'onlineMind2WebEvaluationScore': eval_data.get('score', 0.0),
-				}
-			)
-
-		# Update failure states
-		self._update_failure_states()
-
-	def _update_failure_states(self):
-		"""Update server payload based on failed stages"""
-		# Check for browser/execution failures
-		for stage, error in self.failed_stages.items():
-			if stage in {Stage.SETUP_BROWSER, Stage.RUN_AGENT}:
-				self.server_payload['browserCrash'] = True
-				if error.error_type == 'timeout':
-					self.server_payload['browserCrashReason'] = f'{stage.value} timed out: {error.message}'
-				elif error.error_type == 'cancelled':
-					self.server_payload['browserCrashReason'] = f'{stage.value} was cancelled: {error.message}'
-				else:
-					self.server_payload['browserCrashReason'] = f'{stage.value} failed: {error.message}'
-
-			# Update evaluation failures
-			elif stage == Stage.EVALUATE:
-				if error.error_type == 'timeout':
-					self.server_payload['onlineMind2WebEvaluationJudgement'] = 'Evaluation Timed Out'
-					self.server_payload['onlineMind2WebEvaluationError'] = 'Evaluation process timed out'
-				elif error.error_type == 'cancelled':
-					self.server_payload['onlineMind2WebEvaluationJudgement'] = 'Evaluation Cancelled'
-					self.server_payload['onlineMind2WebEvaluationError'] = 'Evaluation was cancelled'
-				else:
-					self.server_payload['onlineMind2WebEvaluationJudgement'] = 'Evaluation Process Error'
-					self.server_payload['onlineMind2WebEvaluationError'] = f'Evaluation Error: {error.message}'
-
-	def mark_cancelled(self):
-		"""Mark task as cancelled"""
-		self.server_payload.update(
-			{
-				'finalResultResponse': 'Task was cancelled',
-				'onlineMind2WebEvaluationJudgement': 'Task Cancelled',
-				'onlineMind2WebEvaluationError': 'Task was cancelled',
-				'onlineMind2WebEvaluationSuccess': False,
-				'onlineMind2WebEvaluationScore': 0.0,
-			}
-		)
-		self.local_error = 'Task cancelled'
-
-	def mark_critical_error(self, error_msg: str):
-		"""Mark task as having critical error"""
-		self.server_payload.update(
-			{
-				'finalResultResponse': f'Critical Error: {error_msg}',
-				'onlineMind2WebEvaluationJudgement': 'Critical System Error',
-				'onlineMind2WebEvaluationError': f'Critical flow error: {error_msg}',
-				'onlineMind2WebEvaluationSuccess': False,
-				'onlineMind2WebEvaluationScore': 0.0,
-			}
-		)
-		self.local_error = f'Critical flow error: {error_msg}'
-
-	def mark_server_save_failed(self, error_msg: str):
-		"""Mark server save as failed"""
-		if self.local_error:
-			self.local_error += f'; Server save failed: {error_msg}'
-		else:
-			self.local_error = f'Server save failed: {error_msg}'
-
-	def get_local_status(self) -> dict:
-		"""Return local processing status"""
-		success = self.execution_succeeded() and (
-			Stage.EVALUATE in self.completed_stages or not self.has_execution_data() or Stage.EVALUATE in self.failed_stages
-		)
-		return {'task_id': self.task_id, 'success': success and not self.local_error, 'error': self.local_error}
-
-
 async def run_stage(stage: Stage, stage_func, timeout: int | None = None):
 	"""Generic stage runner with timeout"""
 	if timeout:
@@ -1038,39 +1257,17 @@ async def run_stage(stage: Stage, stage_func, timeout: int | None = None):
 	return await stage_func()
 
 
-async def load_existing_result(task_folder: Path) -> dict:
-	"""Load existing result if available"""
-	result_file = task_folder / 'result.json'
-	if not result_file.exists():
-		raise FileNotFoundError('No existing result found')
-
-	async with await anyio.open_file(result_file) as f:
-		existing_result = json.loads(await f.read())
-
-	# Check if evaluation is also present
-	existing_eval = existing_result.get('Online_Mind2Web_evaluation')
-	if existing_eval:
-		existing_result['has_evaluation'] = True
-		existing_result['evaluation_data'] = existing_eval
-	else:
-		existing_result['has_evaluation'] = False
-
-	return existing_result
-
-
-async def setup_browser_session(task: Task, headless: bool) -> BrowserSession:
+async def setup_browser_session(task: Task, headless: bool, highlight_elements: bool = True) -> BrowserSession:
 	"""Setup browser session for the task"""
-	logger.debug(f'Browser setup: Creating unique user data directory for task {task.task_id}')
-	# Create unique user data directory
-	base_user_data_dir = Path(BrowserProfile().user_data_dir).parent
-	unique_user_data_dir = base_user_data_dir / f'task_{task.task_id}'
-	unique_user_data_dir.mkdir(parents=True, exist_ok=True)
-
 	logger.debug(f'Browser setup: Initializing BrowserSession for task {task.task_id}')
-	browser_session = BrowserSession(
-		user_data_dir=str(unique_user_data_dir),
+
+	# Use incognito mode (user_data_dir=None) for evaluations to avoid state pollution
+	profile = BrowserProfile(
+		user_data_dir=None,  # Incognito mode - no persistent state
 		headless=headless,
 		chromium_sandbox=False,  # running in docker
+		highlight_elements=highlight_elements,  # Control element highlighting (passed to profile)
+		keep_alive=True,
 		# higher timeouts = higher success rates on long tail of slow sites or if on a slow CI server
 		# timeout=60_000,
 		# default_timeout=60_000,
@@ -1080,6 +1277,8 @@ async def setup_browser_session(task: Task, headless: bool) -> BrowserSession:
 		# wait_between_actions=0.5,
 		# ignore_https_errors=True,  # some eval tasks have http:// or broken https sites in them
 	)
+
+	browser_session = BrowserSession(browser_profile=profile)
 
 	# Start browser session
 	logger.debug(f'Browser setup: Starting browser session for task {task.task_id}')
@@ -1095,6 +1294,7 @@ async def setup_browser_session(task: Task, headless: bool) -> BrowserSession:
 	return browser_session
 
 
+@observe(name='executor', span_type='EXECUTOR')  # type: ignore[arg-type]
 async def run_agent_with_browser(
 	browser_session: BrowserSession,
 	task: Task,
@@ -1137,9 +1337,10 @@ async def run_agent_with_browser(
 	return agent.state.history
 
 
-async def evaluate_task_result(eval_model: BaseChatModel, task_folder: Path) -> dict:
+@observe(name='evaluate_task_result', span_type='EVALUATOR')  # type: ignore[arg-type]
+async def evaluate_task_result(eval_model: BaseChatModel, task_folder: Path, use_mind2web: bool = False) -> dict:
 	"""Evaluate the task result"""
-	return await judge_task_result(eval_model, task_folder, score_threshold=3)
+	return await judge_task_result(eval_model, task_folder, score_threshold=3, use_mind2web=use_mind2web)
 
 
 def save_result_to_server(convex_url: str, secret_key: str, payload: dict) -> bool:
@@ -1151,7 +1352,7 @@ async def cleanup_browser_safe(browser_session: BrowserSession):
 	"""Safe browser cleanup with timeout"""
 	try:
 		logger.debug('Browser cleanup: Starting close operation for session')
-		await asyncio.wait_for(browser_session.close(), timeout=30)
+		await asyncio.wait_for(browser_session.kill(), timeout=30)
 		logger.debug('Browser cleanup: Close operation completed successfully')
 	except TimeoutError:
 		logger.warning('Browser cleanup: Timed out after 30 seconds')
@@ -1171,15 +1372,16 @@ def determine_current_stage(completed_stages: set) -> Stage:
 		return Stage.RUN_AGENT
 	elif Stage.SETUP_BROWSER in completed_stages:
 		return Stage.SETUP_BROWSER
-	elif Stage.LOAD_EXISTING in completed_stages:
-		return Stage.LOAD_EXISTING
 	else:
-		return Stage.LOAD_EXISTING  # Default starting stage
+		return Stage.SETUP_BROWSER  # Default starting stage
 
 
+@observe(name='evaluation', span_type='EVALUATION')  # type: ignore[arg-type]
 async def run_task_with_semaphore(
 	task: Task,
 	run_id: str,
+	lmnr_run_id: str | None,
+	laminar_eval_link: str | None,
 	convex_url: str,
 	secret_key: str,
 	eval_model: BaseChatModel,
@@ -1188,7 +1390,6 @@ async def run_task_with_semaphore(
 	headless: bool,
 	use_vision: bool,
 	semaphore_runs: asyncio.Semaphore,  # Pass semaphore as argument
-	fresh_start: bool = True,
 	use_serp: bool = False,
 	enable_memory: bool = False,
 	memory_interval: int = 10,
@@ -1197,120 +1398,171 @@ async def run_task_with_semaphore(
 	planner_llm: BaseChatModel | None = None,
 	planner_interval: int = 1,
 	include_result: bool = False,
+	highlight_elements: bool = True,
+	use_mind2web_judge: bool = False,
 ) -> dict:
 	"""Clean pipeline approach for running tasks"""
-	logger.info(f'Task {task.task_id}: Waiting to acquire semaphore (current value: ~{semaphore_runs._value})')
+	task_start_time = time.time()
+	logger.info(f'🚀 Task {task.task_id}: Starting execution pipeline')
+	logger.info(f'📊 Task {task.task_id}: Waiting to acquire semaphore (current available: ~{semaphore_runs._value})')
+	log_system_resources(f'TASK_START_{task.task_id}')
+
+	semaphore_acquired_time = None
 	async with semaphore_runs:
-		logger.info(f'Task {task.task_id}: Semaphore acquired (remaining slots: ~{semaphore_runs._value})')
+		semaphore_acquired_time = time.time()
+		wait_time = semaphore_acquired_time - task_start_time
+		logger.info(
+			f'✅ Task {task.task_id}: Semaphore acquired after {wait_time:.2f}s (remaining slots: ~{semaphore_runs._value})'
+		)
+		log_system_resources(f'SEMAPHORE_ACQUIRED_{task.task_id}')
+
 		task_result = None
 		browser_session = None
+		laminar_task_link = None
+		datapoint_id = None
 
 		try:
-			# Initialize task result and basic setup
-			task_result = TaskResult(task.task_id, run_id, task.confirmed_task, task, max_steps_per_task)
+			if lmnr_run_id:
+				try:
+					datapoint_id = await laminar_client.evals.create_datapoint(
+						eval_id=UUID(lmnr_run_id),
+						data={
+							'task_id': task.task_id,
+							'confirmed_task': task.confirmed_task,
+							'website': task.website,
+							'reference_length': task.reference_length,
+							'level': task.level,
+							'cluster_id': task.cluster_id,
+							'category': task.category,
+						},
+						metadata={
+							'use_vision': str(use_vision),
+							'use_serp': str(use_serp),
+							'enable_memory': str(enable_memory),
+							'memory_interval': str(memory_interval),
+							'max_actions_per_step': str(max_actions_per_step),
+							'validate_output': str(validate_output),
+							'planner_model': str(planner_llm),
+							'planner_interval': str(planner_interval),
+							'include_result': str(include_result),
+						},
+						trace_id=Laminar.get_trace_id(),
+					)
+					# Only create task-specific link if we have the evaluation link
+					if laminar_eval_link:
+						laminar_task_link = f'{laminar_eval_link}?traceId={Laminar.get_trace_id()}&datapointId={datapoint_id}'
+						logger.info(f'Task {task.task_id}: Laminar link: {laminar_task_link}')
+					else:
+						logger.debug(f'Task {task.task_id}: No Laminar evaluation link available, task link not created')
+				except Exception as e:
+					logger.warning(f'Task {task.task_id}: Failed to create Laminar datapoint: {type(e).__name__}: {e}')
+			else:
+				logger.debug(f'Task {task.task_id}: No Laminar run ID available, skipping datapoint creation')
+
+				# Initialize task result and basic setup
+			task_result = TaskResult(task.task_id, run_id, task.confirmed_task, task, max_steps_per_task, laminar_task_link)
+
 			task_folder = Path(f'saved_trajectories/{task.task_id}')
 
 			logger.info(f'Task {task.task_id}: Starting execution pipeline.')
 			try:
-				# Stage 1: Try to load existing result
+				agent_history = None  # Initialize to track agent execution
+
+				# Stage 1: Setup browser
 				try:
-					existing_data = await run_stage(Stage.LOAD_EXISTING, lambda: load_existing_result(task_folder))
-					task_result.stage_completed(Stage.LOAD_EXISTING, existing_data)
+					logger.info(f'Task {task.task_id}: Browser setup starting.')
+					browser_session = await run_stage(
+						Stage.SETUP_BROWSER, lambda: setup_browser_session(task, headless, highlight_elements), timeout=120
+					)
+					task_result.stage_completed(Stage.SETUP_BROWSER)
+					logger.info(f'Task {task.task_id}: Browser session started successfully.')
+				except Exception as e:
+					error = StageError(Stage.SETUP_BROWSER, 'exception', str(e))
+					task_result.stage_failed(Stage.SETUP_BROWSER, error)
+					logger.error(f'Task {task.task_id}: Browser setup failed: {str(e)}')
+					# Continue to server save instead of early return
 
-					# If evaluation is also present, mark it as completed
-					if existing_data.get('has_evaluation'):
-						task_result.stage_completed(Stage.EVALUATE, existing_data['evaluation_data'])
-
-					logger.info(f'Task {task.task_id}: Successfully loaded existing result. Skipping execution.')
-
-				except Exception:
-					# No existing result, need to execute full pipeline
-					logger.info(f'Task {task.task_id}: No existing result found. Starting execution pipeline.')
-
-					agent_history = None  # Initialize to track agent execution
-
-					# Stage 2: Setup browser
+				# Stage 2: Run agent
+				if browser_session:  # Only run agent if browser setup succeeded
 					try:
-						logger.info(f'Task {task.task_id}: Browser setup starting.')
-						browser_session = await run_stage(
-							Stage.SETUP_BROWSER, lambda: setup_browser_session(task, headless), timeout=120
+						logger.info(f'Task {task.task_id}: Agent run starting.')
+
+						agent_history = await run_stage(
+							Stage.RUN_AGENT,
+							lambda: run_agent_with_browser(
+								browser_session,
+								task,
+								llm,
+								max_steps_per_task,
+								use_vision,
+								use_serp,
+								enable_memory,
+								memory_interval,
+								max_actions_per_step,
+								validate_output,
+								planner_llm,
+								planner_interval,
+							),
+							timeout=1000,
 						)
-						task_result.stage_completed(Stage.SETUP_BROWSER)
-						logger.info(f'Task {task.task_id}: Browser session started successfully.')
+
+						task_result.stage_completed(Stage.RUN_AGENT)
+						logger.info(f'Task {task.task_id}: Agent run completed.')
 					except Exception as e:
-						error = StageError(Stage.SETUP_BROWSER, 'exception', str(e))
-						task_result.stage_failed(Stage.SETUP_BROWSER, error)
-						logger.error(f'Task {task.task_id}: Browser setup failed: {str(e)}')
+						error = StageError(Stage.RUN_AGENT, 'exception', str(e))
+						task_result.stage_failed(Stage.RUN_AGENT, error)
+						logger.error(f'Task {task.task_id}: Agent run failed: {str(e)}')
 						# Continue to server save instead of early return
 
-					# Stage 3: Run agent
-					if browser_session:  # Only run agent if browser setup succeeded
-						try:
-							logger.info(f'Task {task.task_id}: Agent run starting.')
-							agent_history = await run_stage(
-								Stage.RUN_AGENT,
-								lambda: run_agent_with_browser(
-									browser_session,
-									task,
-									llm,
-									max_steps_per_task,
-									use_vision,
-									use_serp,
-									enable_memory,
-									memory_interval,
-									max_actions_per_step,
-									validate_output,
-									planner_llm,
-									planner_interval,
-								),
-								timeout=600,
-							)
-							task_result.stage_completed(Stage.RUN_AGENT)
-							logger.info(f'Task {task.task_id}: Agent run completed.')
-						except Exception as e:
-							error = StageError(Stage.RUN_AGENT, 'exception', str(e))
-							task_result.stage_failed(Stage.RUN_AGENT, error)
-							logger.error(f'Task {task.task_id}: Agent run failed: {str(e)}')
-							# Continue to server save instead of early return
+				# Stage 3: Format history
+				if agent_history is not None:  # Only format if agent ran successfully
+					try:
+						logger.info(f'Task {task.task_id}: History formatting starting.')
+						formatted_data = await run_stage(
+							Stage.FORMAT_HISTORY,
+							lambda: reformat_agent_history(
+								agent_history, task.task_id, run_id, task.confirmed_task, include_result=include_result
+							),
+						)
+						task_result.stage_completed(Stage.FORMAT_HISTORY, formatted_data)
+						logger.info(f'Task {task.task_id}: Agent history formatted.')
+					except Exception as e:
+						error = StageError(Stage.FORMAT_HISTORY, 'exception', str(e))
+						task_result.stage_failed(Stage.FORMAT_HISTORY, error)
+						logger.error(f'Task {task.task_id}: History formatting failed: {str(e)}')
+						# Continue to server save instead of early return
 
-					# Stage 4: Format history
-					if agent_history is not None:  # Only format if agent ran successfully
-						try:
-							logger.info(f'Task {task.task_id}: History formatting starting.')
-							formatted_data = await run_stage(
-								Stage.FORMAT_HISTORY,
-								lambda: reformat_agent_history(
-									agent_history, task.task_id, run_id, task.confirmed_task, include_result=include_result
-								),
-							)
-							task_result.stage_completed(Stage.FORMAT_HISTORY, formatted_data)
-							logger.info(f'Task {task.task_id}: Agent history formatted.')
-						except Exception as e:
-							error = StageError(Stage.FORMAT_HISTORY, 'exception', str(e))
-							task_result.stage_failed(Stage.FORMAT_HISTORY, error)
-							logger.error(f'Task {task.task_id}: History formatting failed: {str(e)}')
-							# Continue to server save instead of early return
-
-				# Stage 5: Evaluate (if we have execution data and no existing evaluation)
+				# Stage 4: Evaluate (if we have execution data and no existing evaluation)
 				if task_result.has_execution_data() and Stage.EVALUATE not in task_result.completed_stages:
 					try:
 						logger.info(f'Task {task.task_id}: Evaluation starting.')
 						evaluation = await run_stage(
-							Stage.EVALUATE, lambda: evaluate_task_result(eval_model, task_folder), timeout=300
+							Stage.EVALUATE, lambda: evaluate_task_result(eval_model, task_folder, use_mind2web_judge), timeout=300
 						)
 						task_result.stage_completed(Stage.EVALUATE, evaluation)
 						logger.info(f'Task {task.task_id}: Evaluation completed.')
+
+						if lmnr_run_id and datapoint_id:
+							await laminar_client.evals.update_datapoint(
+								eval_id=UUID(lmnr_run_id),
+								datapoint_id=datapoint_id,
+								scores={
+									'accuracy': evaluation['score'],
+								},
+							)
 					except Exception as e:
 						error = StageError(Stage.EVALUATE, 'exception', str(e))
 						task_result.stage_failed(Stage.EVALUATE, error)
 						logger.error(f'Task {task.task_id}: Evaluation failed: {str(e)}')
 
-				# Stage 6: Save to server (always attempt)
+				# Stage 5: Save to server (always attempt)
 				try:
 					logger.info(f'Task {task.task_id}: Saving result to server.')
 					await run_stage(
 						Stage.SAVE_SERVER,
-						lambda: asyncio.to_thread(save_result_to_server, convex_url, secret_key, task_result.server_payload),
+						lambda: asyncio.to_thread(
+							save_result_to_server, convex_url, secret_key, task_result.server_payload if task_result else {}
+						),
 						timeout=60,
 					)
 					task_result.stage_completed(Stage.SAVE_SERVER)
@@ -1332,7 +1584,9 @@ async def run_task_with_semaphore(
 					logger.info(f'Task {task.task_id}: Attempting server save after timeout.')
 					await run_stage(
 						Stage.SAVE_SERVER,
-						lambda: asyncio.to_thread(save_result_to_server, convex_url, secret_key, task_result.server_payload),
+						lambda: asyncio.to_thread(
+							save_result_to_server, convex_url, secret_key, task_result.server_payload if task_result else {}
+						),
 						timeout=30,  # Shorter timeout for emergency save
 					)
 					task_result.stage_completed(Stage.SAVE_SERVER)
@@ -1349,7 +1603,9 @@ async def run_task_with_semaphore(
 					logger.info(f'Task {task.task_id}: Attempting server save after cancellation.')
 					await run_stage(
 						Stage.SAVE_SERVER,
-						lambda: asyncio.to_thread(save_result_to_server, convex_url, secret_key, task_result.server_payload),
+						lambda: asyncio.to_thread(
+							save_result_to_server, convex_url, secret_key, task_result.server_payload if task_result else {}
+						),
 						timeout=30,  # Shorter timeout for emergency save
 					)
 					task_result.stage_completed(Stage.SAVE_SERVER)
@@ -1366,7 +1622,9 @@ async def run_task_with_semaphore(
 					logger.info(f'Task {task.task_id}: Attempting server save after critical error.')
 					await run_stage(
 						Stage.SAVE_SERVER,
-						lambda: asyncio.to_thread(save_result_to_server, convex_url, secret_key, task_result.server_payload),
+						lambda: asyncio.to_thread(
+							save_result_to_server, convex_url, secret_key, task_result.server_payload if task_result else {}
+						),
 						timeout=30,  # Shorter timeout for emergency save
 					)
 					task_result.stage_completed(Stage.SAVE_SERVER)
@@ -1380,7 +1638,9 @@ async def run_task_with_semaphore(
 			if task_result is None:
 				# Create minimal task result for server reporting
 				try:
-					task_result = TaskResult(task.task_id, run_id, task.confirmed_task, task, max_steps_per_task)
+					task_result = TaskResult(
+						task.task_id, run_id, task.confirmed_task, task, max_steps_per_task, laminar_task_link
+					)
 					task_result.mark_critical_error(f'Initialization failed: {str(init_error)}')
 				except Exception as result_error:
 					logger.critical(f'Task {task.task_id}: Cannot create TaskResult: {str(result_error)}')
@@ -1394,7 +1654,9 @@ async def run_task_with_semaphore(
 			# Try emergency server save
 			try:
 				logger.info(f'Task {task.task_id}: Attempting emergency server save after initialization error.')
-				await asyncio.to_thread(save_result_to_server, convex_url, secret_key, task_result.server_payload)
+				await asyncio.to_thread(
+					save_result_to_server, convex_url, secret_key, task_result.server_payload if task_result else {}
+				)
 			except Exception as save_e:
 				logger.error(f'Task {task.task_id}: Emergency server save after initialization error failed: {str(save_e)}')
 
@@ -1407,18 +1669,34 @@ async def run_task_with_semaphore(
 			else:
 				logger.info(f'Task {task.task_id}: No browser to cleanup')
 
-		logger.info(f'Task {task.task_id}: About to release semaphore (remaining slots: ~{semaphore_runs._value})')
-		return (
+		task_end_time = time.time()
+		total_task_time = task_end_time - task_start_time
+		semaphore_hold_time = task_end_time - (semaphore_acquired_time or task_start_time)
+
+		logger.info(
+			f'🏁 Task {task.task_id}: Completed in {total_task_time:.2f}s (semaphore held for {semaphore_hold_time:.2f}s)'
+		)
+		logger.info(f'📊 Task {task.task_id}: About to release semaphore (remaining slots will be: ~{semaphore_runs._value + 1})')
+		log_system_resources(f'TASK_END_{task.task_id}')
+
+		final_result = (
 			task_result.get_local_status()
 			if task_result
 			else {'task_id': task.task_id, 'success': False, 'error': 'Task result not available'}
 		)
+
+		logger.info(
+			f'🎯 Task {task.task_id}: Final status - Success: {final_result.get("success", False)}, Error: {final_result.get("error", "None")}'
+		)
+		return final_result
 
 
 async def run_multiple_tasks(
 	tasks: list[Task],
 	llm: BaseChatModel,
 	run_id: str,
+	lmnr_run_id: str | None,
+	laminar_eval_link: str | None,
 	convex_url: str,
 	secret_key: str,
 	eval_model: BaseChatModel,
@@ -1428,7 +1706,6 @@ async def run_multiple_tasks(
 	end_index: int | None = None,
 	headless: bool = False,
 	use_vision: bool = True,
-	fresh_start: bool = True,
 	use_serp: bool = False,
 	enable_memory: bool = False,
 	memory_interval: int = 10,
@@ -1437,44 +1714,117 @@ async def run_multiple_tasks(
 	planner_llm: BaseChatModel | None = None,
 	planner_interval: int = 1,
 	include_result: bool = False,
+	highlight_elements: bool = True,
+	use_mind2web_judge: bool = False,
 ) -> dict:
 	"""
 	Run multiple tasks in parallel and evaluate results.
 	"""
-	logger.info(f'Creating semaphore with max_parallel_runs={max_parallel_runs}')
+	batch_start_time = time.time()
+	logger.info(f'🚀 BATCH START: Creating semaphore with max_parallel_runs={max_parallel_runs}')
+	log_system_resources('BATCH_START')
+
 	semaphore_runs = asyncio.Semaphore(max_parallel_runs)
 	tasks_to_run = tasks[start_index:end_index] if end_index else tasks[start_index:]
 
-	logger.info(f'Starting {len(tasks_to_run)} tasks with parallel limit of {max_parallel_runs}')
+	logger.info(f'📊 Starting {len(tasks_to_run)} tasks with parallel limit of {max_parallel_runs}')
+	logger.info(f'📋 Task range: {start_index} to {end_index or len(tasks)} (total tasks available: {len(tasks)})')
 
-	# Run all tasks in parallel with additional parameters
-	task_results = await asyncio.gather(
-		*(
-			run_task_with_semaphore(
-				task=task,
-				run_id=run_id,
-				convex_url=convex_url,
-				secret_key=secret_key,
-				eval_model=eval_model,
-				llm=llm,  # Pass the agent LLM
-				max_steps_per_task=max_steps_per_task,
-				headless=headless,
-				use_vision=use_vision,
-				semaphore_runs=semaphore_runs,  # Pass the semaphore
-				fresh_start=fresh_start,
-				use_serp=use_serp,
-				enable_memory=enable_memory,
-				memory_interval=memory_interval,
-				max_actions_per_step=max_actions_per_step,
-				validate_output=validate_output,
-				planner_llm=planner_llm,
-				planner_interval=planner_interval,
-				include_result=include_result,
-			)
-			for task in tasks_to_run
-		),
-		return_exceptions=True,  # Prevent task cancellation cascade
-	)
+	# Start resource monitoring
+	await start_resource_monitoring(interval=30)
+
+	# Setup signal handlers for graceful shutdown
+	setup_signal_handlers()
+
+	# Create a heartbeat task for long-running operations
+	heartbeat_task = None
+	heartbeat_stop_event = asyncio.Event()
+
+	async def heartbeat_logger():
+		"""Log periodic heartbeat to show the process is alive"""
+		heartbeat_count = 0
+		while not heartbeat_stop_event.is_set():
+			try:
+				await asyncio.wait_for(heartbeat_stop_event.wait(), timeout=60.0)  # 1-minute heartbeat
+				break  # Event was set, exit
+			except TimeoutError:
+				heartbeat_count += 1
+				elapsed = time.time() - batch_start_time
+				logger.info(f'💓 HEARTBEAT {heartbeat_count}: Batch still running after {elapsed:.1f}s')
+				log_system_resources('HEARTBEAT')
+
+				# Check for potential issues
+				resources = get_system_resources()
+				if resources['memory_percent'] > 90:
+					logger.critical(f'🚨 CRITICAL: Memory usage at {resources["memory_percent"]:.1f}% - potential OOM risk!')
+				if resources['chrome_process_count'] > 50:
+					logger.warning(f'⚠️ HIGH BROWSER PROCESS COUNT: {resources["chrome_process_count"]} Chrome processes')
+
+	try:
+		# Start heartbeat logging
+		heartbeat_task = asyncio.create_task(heartbeat_logger())
+		logger.info('💓 Heartbeat monitoring started')
+
+		# Run all tasks in parallel with additional parameters
+		logger.info(f'🚀 Launching {len(tasks_to_run)} parallel task executions...')
+
+		task_results = await asyncio.gather(
+			*(
+				run_task_with_semaphore(
+					task=task,
+					run_id=run_id,
+					lmnr_run_id=lmnr_run_id,
+					laminar_eval_link=laminar_eval_link,
+					convex_url=convex_url,
+					secret_key=secret_key,
+					eval_model=eval_model,
+					llm=llm,  # Pass the agent LLM
+					max_steps_per_task=max_steps_per_task,
+					headless=headless,
+					use_vision=use_vision,
+					semaphore_runs=semaphore_runs,  # Pass the semaphore
+					use_serp=use_serp,
+					enable_memory=enable_memory,
+					memory_interval=memory_interval,
+					max_actions_per_step=max_actions_per_step,
+					validate_output=validate_output,
+					planner_llm=planner_llm,
+					planner_interval=planner_interval,
+					include_result=include_result,
+					highlight_elements=highlight_elements,
+					use_mind2web_judge=use_mind2web_judge,
+				)
+				for task in tasks_to_run
+			),
+			return_exceptions=True,  # Prevent task cancellation cascade
+		)
+
+		logger.info(f'✅ All {len(tasks_to_run)} parallel task executions completed')
+
+	except Exception as e:
+		logger.critical(f'🚨 CRITICAL ERROR in batch execution: {type(e).__name__}: {e}', exc_info=True)
+		log_system_resources('BATCH_ERROR')
+		# Create error results for all tasks
+		task_results = [
+			{'task_id': task.task_id, 'success': False, 'error': f'Batch execution failed: {str(e)}'} for task in tasks_to_run
+		]
+
+	finally:
+		# Cleanup: Stop heartbeat and resource monitoring
+		batch_end_time = time.time()
+		total_batch_time = batch_end_time - batch_start_time
+		logger.info(f'🏁 BATCH END: Total execution time {total_batch_time:.2f}s')
+
+		if heartbeat_task and not heartbeat_task.done():
+			heartbeat_stop_event.set()
+			try:
+				await asyncio.wait_for(heartbeat_task, timeout=5.0)
+			except TimeoutError:
+				logger.warning('Heartbeat task did not stop gracefully')
+				heartbeat_task.cancel()
+
+		await stop_resource_monitoring()
+		log_system_resources('BATCH_CLEANUP')
 
 	# Process task results and handle any exceptions returned by gather
 	processed_results = []
@@ -1483,28 +1833,23 @@ async def run_multiple_tasks(
 
 	for i, result in enumerate(task_results):
 		if isinstance(result, Exception):
-			logger.error(f'Task {i} failed with exception: {type(result).__name__}: {result}')
-			processed_results.append({'task_id': f'task_{i}', 'success': False, 'error': str(result)})
+			logger.error(f'❌ Task {i} failed with exception: {type(result).__name__}: {result}')
+			task_id = tasks_to_run[i].task_id if i < len(tasks_to_run) else f'unknown_task_{i}'
+			processed_results.append({'task_id': task_id, 'success': False, 'error': str(result)})
 			failed_tasks += 1
 		else:
 			processed_results.append(result)
-			if result.get('success', False):
+			if isinstance(result, dict) and result.get('success', False):
 				successful_tasks += 1
 			else:
 				failed_tasks += 1
 
-	logger.info(f'All {len(tasks_to_run)} tasks completed. Success: {successful_tasks}, Failed: {failed_tasks}')
+	logger.info(f'📊 FINAL RESULTS: {len(tasks_to_run)} tasks completed. Success: {successful_tasks}, Failed: {failed_tasks}')
+	logger.info(f'📈 Success rate: {successful_tasks / len(tasks_to_run) * 100:.1f}%')
 
-	# After all tasks are complete, calculate a local summary
-	logger.info('All tasks completed. Calculating result summary...')
-	summary = calculate_local_summary()
+	logger.info('📋 All tasks completed.')
 
-	# Log the summary statistics
-	logger.info(f'Completed {summary["total_tasks"]} tasks')
-	logger.info(f'Success rate: {summary["success_rate"]:.2%}')
-	logger.info(f'Average score: {summary["average_score"]:.2f}')
-
-	return {'task_results': processed_results, 'summary': summary}
+	return {'task_results': processed_results}
 
 
 # Helper function to fetch tasks from the server
@@ -1588,7 +1933,7 @@ def get_git_info():
 
 
 # Helper function to start a new run on the server
-def start_new_run(convex_url: str, secret_key: str, run_details: dict, existing_run_id: str = None):
+def start_new_run(convex_url: str, secret_key: str, run_details: dict, existing_run_id: str | None = None):
 	"""Sends a request to start a new evaluation run and returns the run ID."""
 	if not convex_url or not secret_key:
 		logger.error('Error: Convex URL or Secret Key not provided for starting run.')
@@ -1690,6 +2035,85 @@ def save_task_result_to_server(convex_url: str, secret_key: str, result_details:
 		return False
 
 
+async def run_evaluation_pipeline(
+	tasks: list[Task],
+	llm: BaseChatModel,
+	run_id: str,
+	test_case: str,
+	user_message: str,
+	convex_url: str,
+	secret_key: str,
+	eval_model: BaseChatModel,
+	max_parallel_runs: int = 3,
+	max_steps_per_task: int = 25,
+	start_index: int = 0,
+	end_index: int | None = None,
+	headless: bool = False,
+	use_vision: bool = True,
+	use_serp: bool = False,
+	enable_memory: bool = False,
+	memory_interval: int = 10,
+	max_actions_per_step: int = 10,
+	validate_output: bool = False,
+	planner_llm: BaseChatModel | None = None,
+	planner_interval: int = 1,
+	include_result: bool = False,
+	laminar_eval_id: str | None = None,
+	highlight_elements: bool = True,
+	use_mind2web_judge: bool = False,
+) -> dict:
+	"""
+	Complete evaluation pipeline that handles Laminar setup and task execution in the same event loop
+	"""
+	# --- Use provided Laminar Evaluation ID or skip tracking ---
+	lmnr_run_id = None
+	laminar_eval_link = None
+
+	if laminar_eval_id:
+		# Use existing evaluation ID provided from frontend
+		lmnr_run_id = laminar_eval_id
+		project_id = 'f07da4a9-b7de-488a-91e3-e17c5f6d676a'
+		laminar_eval_link = f'https://www.lmnr.ai/project/{project_id}/evaluations/{lmnr_run_id}'
+		logger.info(f'📊 Using provided Laminar evaluation ID: {lmnr_run_id}')
+		logger.info(f'📊 Laminar evaluation link: {laminar_eval_link}')
+	else:
+		# No Laminar evaluation ID provided, skip tracking
+		logger.info('📊 No Laminar evaluation ID provided, skipping Laminar tracking')
+	# -------------------------
+
+	# Update run data with Laminar link
+	# run_data_update = {'laminarEvalLink': laminar_eval_link}
+	# TODO: Update the run data on the server with the Laminar link if needed
+
+	# Run the tasks
+	return await run_multiple_tasks(
+		tasks=tasks,
+		llm=llm,
+		run_id=run_id,
+		lmnr_run_id=lmnr_run_id,
+		laminar_eval_link=laminar_eval_link,
+		convex_url=convex_url,
+		secret_key=secret_key,
+		eval_model=eval_model,
+		max_parallel_runs=max_parallel_runs,
+		max_steps_per_task=max_steps_per_task,
+		start_index=start_index,
+		end_index=end_index,
+		headless=headless,
+		use_vision=use_vision,
+		use_serp=use_serp,
+		enable_memory=enable_memory,
+		memory_interval=memory_interval,
+		max_actions_per_step=max_actions_per_step,
+		validate_output=validate_output,
+		planner_llm=planner_llm,
+		planner_interval=planner_interval,
+		include_result=include_result,
+		highlight_elements=highlight_elements,
+		use_mind2web_judge=use_mind2web_judge,
+	)
+
+
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Run and evaluate browser automation tasks')
 	parser.add_argument('--parallel-runs', type=int, default=3, help='Number of parallel tasks to run')
@@ -1697,7 +2121,7 @@ if __name__ == '__main__':
 	parser.add_argument('--start', type=int, default=0, help='Start index')
 	parser.add_argument('--end', type=int, default=None, help='End index (exclusive)')
 	parser.add_argument('--headless', action='store_true', help='Run in headless mode')
-	parser.add_argument('--evaluate-only', action='store_true', help='Only evaluate existing results without running new tasks')
+
 	parser.add_argument(
 		'--model', type=str, default='gpt-4o', choices=list(SUPPORTED_MODELS.keys()), help='Model to use for the agent'
 	)
@@ -1705,12 +2129,7 @@ if __name__ == '__main__':
 		'--eval-model', type=str, default='gpt-4o', choices=list(SUPPORTED_MODELS.keys()), help='Model to use for evaluation'
 	)
 	parser.add_argument('--no-vision', action='store_true', help='Disable vision capabilities in the agent')
-	parser.add_argument(
-		'--fresh-start',
-		type=lambda x: (str(x).lower() == 'true'),
-		default=True,
-		help='Clear saved_trajectories before starting. Set to False to keep existing trajectories (default: True)',
-	)
+
 	parser.add_argument('--user-message', type=str, default='', help='User message to include in the run')
 	parser.add_argument('--eval-group', type=str, default='', help='Evaluation group to include in the run')
 	parser.add_argument('--developer-id', type=str, default=None, help='Name of the developer starting the run')
@@ -1741,205 +2160,185 @@ if __name__ == '__main__':
 		action='store_true',
 		help='Include result flag (functionality to be implemented)',
 	)
+	parser.add_argument(
+		'--no-highlight-elements',
+		action='store_false',
+		dest='highlight_elements',
+		default=True,
+		help='Disable highlighting of interactive elements on the page (highlighting is enabled by default)',
+	)
+	parser.add_argument(
+		'--laminar-eval-id',
+		type=str,
+		default=None,
+		help='Existing Laminar evaluation ID to use (if not provided, a new evaluation will be created)',
+	)
+	parser.add_argument('--use-mind2web-judge', action='store_true', help='Use original judge')
+
 	args = parser.parse_args()
 
 	# Set up logging - Make sure logger is configured before use in fetch function
 	logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 	logger = logging.getLogger(__name__)  # Define logger for the module
 
-	if args.evaluate_only:
-		# Just evaluate existing results
-		logger.info('Evaluating existing results...')
-		summary = calculate_local_summary()
+	logger.info('Running tasks...')
+	# Run tasks and evaluate
+	load_dotenv()
 
-		# Save evaluation results
-		timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-		eval_file = f'saved_trajectories/evaluation_summary_{timestamp}.json'
-		with open(eval_file, 'w') as f:
-			json.dump(summary, f, indent=2)
+	# --- Fetch Tasks from Server ---
+	CONVEX_URL = os.getenv('EVALUATION_TOOL_URL')
+	SECRET_KEY = os.getenv('EVALUATION_TOOL_SECRET_KEY')
 
-		logger.info(f'Evaluation complete. Success rate: {summary["success_rate"]:.2%}')
-		logger.info(f'Average score: {summary["average_score"]:.2f}')
-		logger.info(f'Full results saved to {eval_file}')
+	if not CONVEX_URL or not SECRET_KEY:
+		logger.error('Error: EVALUATION_TOOL_URL or EVALUATION_TOOL_SECRET_KEY environment variables not set.')
+		exit(1)  # Exit if config is missing
 
+	logger.info(f"Attempting to fetch task list '{args.test_case}' from server...")
+	fetched_task_data = fetch_tasks_from_server(CONVEX_URL, SECRET_KEY, args.test_case)
+
+	if fetched_task_data is None:
+		logger.error('Failed to fetch tasks from the server. Exiting.')
+		exit(1)  # Exit if fetch fails
+
+	try:
+		tasks = [Task(**task_data) for task_data in fetched_task_data]
+		logger.info(f'Successfully loaded {len(tasks)} tasks from the server.')
+	except (TypeError, ValueError) as e:
+		logger.error(
+			f'Error creating Task objects from fetched data. Ensure the data structure includes required fields (task_id, confirmed_task). Known optional fields: website, reference_length, level, cluster_id, login_cookie, login_type, category. Any additional fields will be accepted dynamically. Error: {type(e).__name__}: {e}'
+		)
+		logger.error(f'First item in fetched data: {fetched_task_data[0] if fetched_task_data else "None"}')
+		exit(1)
+	# -----------------------------
+
+	# --- Start Run on Server (with optional existing Run ID) ---
+	if args.run_id:
+		logger.info(f'Initializing existing run ID: {args.run_id} with git info...')
 	else:
-		logger.info('Running tasks...')
-		# Run tasks and evaluate
-		load_dotenv()
+		logger.info('Attempting to start a new run on the server...')
 
-		# --- Clear trajectories if fresh_start is True ---
-		results_dir_path = Path('saved_trajectories')
-		if args.fresh_start:
-			logger.info(f'--fresh-start is True. Clearing {results_dir_path}...')
-			if results_dir_path.exists():
-				try:
-					shutil.rmtree(results_dir_path)
-					logger.info(f'Successfully removed {results_dir_path}.')
-				except OSError as e:
-					logger.error(f'Error removing directory {results_dir_path}: {type(e).__name__}: {e}')
-					# Decide if you want to exit or continue
-					# exit(1) # Uncomment to exit on error
-			else:
-				logger.info(f'{results_dir_path} does not exist, no need to clear.')
+	git_info = get_git_info()
 
-			# Recreate the directory
-			try:
-				results_dir_path.mkdir(parents=True, exist_ok=True)
-				logger.info(f'Recreated directory {results_dir_path}.')
-			except OSError as e:
-				logger.error(f'Error creating directory {results_dir_path}: {type(e).__name__}: {e}')
-				# exit(1) # Uncomment to exit on error
+	# Collect additional data from args to store with the run
+	additional_run_data = {
+		'max_steps': args.max_steps,
+		'parallel_runs': args.parallel_runs,
+		'start_index': args.start,
+		'end_index': args.end,
+		'headless': args.headless,
+		'use_vision': not args.no_vision,
+		'task_source': args.test_case,
+		'llm_judge': args.eval_model,
+		'use_serp': args.use_serp,
+		'enable_memory': args.enable_memory,
+		'memory_interval': args.memory_interval,
+		'max_actions_per_step': args.max_actions_per_step,
+		'validate_output': args.validate_output,
+		'planner_model': args.planner_model,
+		'planner_interval': args.planner_interval,
+		'include_result': args.include_result,
+	}
+
+	run_data = {
+		'model': args.model,
+		'gitBranch': git_info['branch'],
+		'gitCommitHash': git_info['hash'],
+		'gitCommitTimestamp': git_info['timestamp'],
+		'gitRepo': git_info['repo'],
+		'userMessage': args.user_message,
+		'evalGroup': args.eval_group,
+		'developerId': args.developer_id,
+		'totalTasks': len(tasks) - args.start if args.end is None else args.end - args.start,
+		'testCaseName': args.test_case,
+		'additionalData': additional_run_data,
+		'laminarEvalLink': None,  # Will be updated after evaluation creation
+	}
+
+	run_id = start_new_run(CONVEX_URL, SECRET_KEY, run_data, existing_run_id=args.run_id)
+
+	if not run_id:
+		logger.error('Failed to start/initialize run on the server. Exiting.')
+		exit(1)
+
+	logger.info(f'Successfully obtained run ID: {run_id}. Proceeding with tasks...')
+
+	# Log search mode being used
+	if args.use_serp:
+		if SERPER_API_KEY:
+			logger.info('🔍 Using SERP search (Serper API) instead of Google search')
 		else:
-			logger.info('--fresh-start is False. Existing trajectories in saved_trajectories will be kept.')
-		# -------------------------------------------------
+			logger.warning('⚠️ --use-serp flag provided but SERPER_API_KEY not set. Search will fail!')
+	else:
+		logger.info('🔍 Using default Google search')
 
-		# --- Fetch Tasks from Server ---
-		CONVEX_URL = os.getenv('EVALUATION_TOOL_URL')
-		SECRET_KEY = os.getenv('EVALUATION_TOOL_SECRET_KEY')
+	# Log memory configuration
+	if args.enable_memory:
+		logger.info(f'🧠 Memory enabled: mem0 system with interval={args.memory_interval} steps')
+	else:
+		logger.info('🧠 Memory disabled')
 
-		if not CONVEX_URL or not SECRET_KEY:
-			logger.error('Error: EVALUATION_TOOL_URL or EVALUATION_TOOL_SECRET_KEY environment variables not set.')
-			exit(1)  # Exit if config is missing
+	# Log other agent configuration
+	logger.info(f'🎯 Max actions per step: {args.max_actions_per_step}')
 
-		logger.info(f"Attempting to fetch task list '{args.test_case}' from server...")
-		fetched_task_data = fetch_tasks_from_server(CONVEX_URL, SECRET_KEY, args.test_case)
+	if args.validate_output:
+		logger.info('✅ Output validation enabled')
+	else:
+		logger.info('✅ Output validation disabled')
 
-		if fetched_task_data is None:
-			logger.error('Failed to fetch tasks from the server. Exiting.')
-			exit(1)  # Exit if fetch fails
+	if args.planner_model:
+		logger.info(f'🗺️ Planner enabled: {args.planner_model} (interval={args.planner_interval} steps)')
+	else:
+		logger.info('🗺️ Planner disabled')
+	# -------------------------
 
+	# --- Get LLMs ---
+	logger.info(f'Instantiating agent LLM: {args.model}')
+	try:
+		# Get the selected LLM for the agent
+		llm = get_llm(args.model)
+		logger.info('Agent LLM instantiated successfully.')
+	except Exception as e:
+		logger.error(f'Failed to instantiate agent LLM ({args.model}): {type(e).__name__}: {e}', exc_info=True)
+		exit(1)
+
+	logger.info(f'Instantiating evaluation LLM: {args.eval_model}')
+	try:
+		eval_model = get_llm(args.eval_model)
+		logger.info(f'Evaluation LLM ({args.eval_model}) instantiated successfully.')
+	except Exception as e:
+		logger.error(
+			f'Failed to instantiate evaluation LLM ({args.eval_model}): {type(e).__name__}: {e}. Make sure required API keys are set.',
+			exc_info=True,
+		)
+		exit(1)
+
+	# Get planner LLM if specified
+	planner_llm = None
+	if args.planner_model:
+		logger.info(f'Instantiating planner LLM: {args.planner_model}')
 		try:
-			tasks = [Task(**task_data) for task_data in fetched_task_data]
-			logger.info(f'Successfully loaded {len(tasks)} tasks from the server.')
-		except (TypeError, ValueError) as e:
-			logger.error(
-				f'Error creating Task objects from fetched data. Ensure the data structure includes required fields (task_id, confirmed_task). Known optional fields: website, reference_length, level, cluster_id, login_cookie, login_type, category. Any additional fields will be accepted dynamically. Error: {type(e).__name__}: {e}'
-			)
-			logger.error(f'First item in fetched data: {fetched_task_data[0] if fetched_task_data else "None"}')
-			exit(1)
-		# -----------------------------
-
-		# --- Start Run on Server (with optional existing Run ID) ---
-		if args.run_id:
-			logger.info(f'Initializing existing run ID: {args.run_id} with git info...')
-		else:
-			logger.info('Attempting to start a new run on the server...')
-
-		git_info = get_git_info()
-
-		# Collect additional data from args to store with the run
-		additional_run_data = {
-			'max_steps': args.max_steps,
-			'parallel_runs': args.parallel_runs,
-			'start_index': args.start,
-			'end_index': args.end,
-			'headless': args.headless,
-			'use_vision': not args.no_vision,
-			'task_source': args.test_case,
-			'llm_judge': args.eval_model,
-			'fresh_start': args.fresh_start,
-			'use_serp': args.use_serp,
-			'enable_memory': args.enable_memory,
-			'memory_interval': args.memory_interval,
-			'max_actions_per_step': args.max_actions_per_step,
-			'validate_output': args.validate_output,
-			'planner_model': args.planner_model,
-			'planner_interval': args.planner_interval,
-			'include_result': args.include_result,
-		}
-
-		run_data = {
-			'model': args.model,
-			'gitBranch': git_info['branch'],
-			'gitCommitHash': git_info['hash'],
-			'gitCommitTimestamp': git_info['timestamp'],
-			'gitRepo': git_info['repo'],
-			'userMessage': args.user_message,
-			'evalGroup': args.eval_group,
-			'developerId': args.developer_id,
-			'totalTasks': len(tasks) - args.start if args.end is None else args.end - args.start,
-			'testCaseName': args.test_case,
-			'additionalData': additional_run_data,
-		}
-
-		run_id = start_new_run(CONVEX_URL, SECRET_KEY, run_data, existing_run_id=args.run_id)
-
-		if not run_id:
-			logger.error('Failed to start/initialize run on the server. Exiting.')
-			exit(1)
-
-		logger.info(f'Successfully obtained run ID: {run_id}. Proceeding with tasks...')
-
-		# Log search mode being used
-		if args.use_serp:
-			if SERPER_API_KEY:
-				logger.info('🔍 Using SERP search (Serper API) instead of Google search')
-			else:
-				logger.warning('⚠️ --use-serp flag provided but SERPER_API_KEY not set. Search will fail!')
-		else:
-			logger.info('🔍 Using default Google search')
-
-		# Log memory configuration
-		if args.enable_memory:
-			logger.info(f'🧠 Memory enabled: mem0 system with interval={args.memory_interval} steps')
-		else:
-			logger.info('🧠 Memory disabled')
-
-		# Log other agent configuration
-		logger.info(f'🎯 Max actions per step: {args.max_actions_per_step}')
-
-		if args.validate_output:
-			logger.info('✅ Output validation enabled')
-		else:
-			logger.info('✅ Output validation disabled')
-
-		if args.planner_model:
-			logger.info(f'🗺️ Planner enabled: {args.planner_model} (interval={args.planner_interval} steps)')
-		else:
-			logger.info('🗺️ Planner disabled')
-		# -------------------------
-
-		# --- Get LLMs ---
-		logger.info(f'Instantiating agent LLM: {args.model}')
-		try:
-			# Get the selected LLM for the agent
-			llm = get_llm(args.model)
-			logger.info('Agent LLM instantiated successfully.')
-		except Exception as e:
-			logger.error(f'Failed to instantiate agent LLM ({args.model}): {type(e).__name__}: {e}', exc_info=True)
-			exit(1)
-
-		logger.info(f'Instantiating evaluation LLM: {args.eval_model}')
-		try:
-			eval_model = get_llm(args.eval_model)
-			logger.info(f'Evaluation LLM ({args.eval_model}) instantiated successfully.')
+			planner_llm = get_llm(args.planner_model)
+			logger.info(f'Planner LLM ({args.planner_model}) instantiated successfully.')
 		except Exception as e:
 			logger.error(
-				f'Failed to instantiate evaluation LLM ({args.eval_model}): {type(e).__name__}: {e}. Make sure required API keys are set.',
+				f'Failed to instantiate planner LLM ({args.planner_model}): {type(e).__name__}: {e}. Make sure required API keys are set.',
 				exc_info=True,
 			)
 			exit(1)
+	# -----------------
 
-		# Get planner LLM if specified
-		planner_llm = None
-		if args.planner_model:
-			logger.info(f'Instantiating planner LLM: {args.planner_model}')
-			try:
-				planner_llm = get_llm(args.planner_model)
-				logger.info(f'Planner LLM ({args.planner_model}) instantiated successfully.')
-			except Exception as e:
-				logger.error(
-					f'Failed to instantiate planner LLM ({args.planner_model}): {type(e).__name__}: {e}. Make sure required API keys are set.',
-					exc_info=True,
-				)
-				exit(1)
-		# -----------------
+	# Log initial system state
+	logger.info('🔧 EVALUATION STARTUP')
+	log_system_resources('STARTUP')
 
+	try:
 		results = asyncio.run(
-			run_multiple_tasks(
+			run_evaluation_pipeline(
 				tasks=tasks,
 				llm=llm,
 				run_id=run_id,
+				test_case=args.test_case,
+				user_message=args.user_message,
 				convex_url=CONVEX_URL,
 				secret_key=SECRET_KEY,
 				eval_model=eval_model,
@@ -1949,7 +2348,6 @@ if __name__ == '__main__':
 				end_index=args.end,
 				headless=args.headless,
 				use_vision=not args.no_vision,
-				fresh_start=args.fresh_start,
 				use_serp=args.use_serp,
 				enable_memory=args.enable_memory,
 				memory_interval=args.memory_interval,
@@ -1958,23 +2356,22 @@ if __name__ == '__main__':
 				planner_llm=planner_llm,
 				planner_interval=args.planner_interval,
 				include_result=args.include_result,
+				laminar_eval_id=args.laminar_eval_id,
+				highlight_elements=args.highlight_elements,
+				use_mind2web_judge=args.use_mind2web_judge,
 			)
 		)
 
-		logger.info('Task completed. Saving results...')
-		# Save results
-		timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-		results_file = f'saved_trajectories/eval_results_{timestamp}.json'
+		logger.info('✅ EVALUATION COMPLETED SUCCESSFULLY')
+		log_system_resources('SUCCESS_COMPLETION')
 
-		# Convert results to JSON-serializable format
-		serializable_results = {'summary': results['summary']}
+	except KeyboardInterrupt:
+		logger.warning('⚠️ EVALUATION INTERRUPTED by user (Ctrl+C)')
+		log_system_resources('INTERRUPTED')
+		raise
+	except Exception as e:
+		logger.critical(f'🚨 EVALUATION FAILED: {type(e).__name__}: {e}', exc_info=True)
+		log_system_resources('FAILED_COMPLETION')
+		raise
 
-		with open(results_file, 'w') as f:
-			json.dump(serializable_results, f, indent=2)
-
-		# Print summary
-		summary = results['summary']
-		logger.info(f'Completed {summary["total_tasks"]} tasks.')
-		logger.info(f'Success rate: {summary["success_rate"]:.2%}')
-		logger.info(f'Average score: {summary["average_score"]:.2f}')
-		logger.info(f'Results saved to {results_file}')
+	logger.info('✅ All tasks completed successfully.')

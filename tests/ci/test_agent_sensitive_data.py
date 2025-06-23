@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
 from browser_use.agent.views import MessageManagerState
 from browser_use.controller.registry.service import Registry
+from browser_use.filesystem.file_system import FileSystem
 from browser_use.utils import match_url_with_domain_pattern
 
 
@@ -21,11 +22,18 @@ def registry():
 
 @pytest.fixture
 def message_manager():
+	import os
+	import tempfile
+	import uuid
+
+	base_tmp = tempfile.gettempdir()  # e.g., /tmp on Unix
+	file_system_path = os.path.join(base_tmp, str(uuid.uuid4()))
 	return MessageManager(
 		task='Test task',
 		system_message=SystemMessage(content='System message'),
 		settings=MessageManagerSettings(),
 		state=MessageManagerState(),
+		file_system=FileSystem(file_system_path),
 	)
 
 
@@ -34,7 +42,12 @@ def test_replace_sensitive_data_with_missing_keys(registry, caplog):
 	# Set log level to capture warnings
 	import logging
 
-	caplog.set_level(logging.WARNING)
+	# Temporarily enable propagation for browser_use logger to capture logs
+	browser_use_logger = logging.getLogger('browser_use')
+	original_propagate = browser_use_logger.propagate
+	browser_use_logger.propagate = True
+
+	caplog.set_level(logging.WARNING, logger='browser_use.controller.registry.service')
 
 	# Create a simple Pydantic model with sensitive data placeholders
 	params = SensitiveParams(text='Please enter <secret>username</secret> and <secret>password</secret>')
@@ -75,13 +88,21 @@ def test_replace_sensitive_data_with_missing_keys(registry, caplog):
 	assert 'password' in caplog.text
 	caplog.clear()
 
+	# Restore original propagate setting
+	browser_use_logger.propagate = original_propagate
+
 
 def test_simple_domain_specific_sensitive_data(registry, caplog):
 	"""Test the basic functionality of domain-specific sensitive data replacement"""
 	# Set log level to capture warnings
 	import logging
 
-	caplog.set_level(logging.WARNING)
+	# Temporarily enable propagation for browser_use logger to capture logs
+	browser_use_logger = logging.getLogger('browser_use')
+	original_propagate = browser_use_logger.propagate
+	browser_use_logger.propagate = True
+
+	caplog.set_level(logging.WARNING, logger='browser_use.controller.registry.service')
 
 	# Create a simple Pydantic model with sensitive data placeholders
 	params = SensitiveParams(text='Please enter <secret>username</secret> and <secret>password</secret>')
@@ -106,6 +127,9 @@ def test_simple_domain_specific_sensitive_data(registry, caplog):
 	assert '<secret>password</secret>' in result.text  # Password is still missing
 	assert 'password' in caplog.text  # Only password should be logged as missing
 	caplog.clear()
+
+	# Restore original propagate setting
+	browser_use_logger.propagate = original_propagate
 
 
 def test_match_url_with_domain_pattern():

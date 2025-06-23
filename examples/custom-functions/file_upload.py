@@ -10,26 +10,25 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import anyio
+from lmnr import Laminar
+
+try:
+	Laminar.initialize(project_api_key=os.getenv('LMNR_PROJECT_API_KEY'))
+except Exception:
+	pass
+
 from langchain_openai import ChatOpenAI
 
 from browser_use import Agent, Controller
 from browser_use.agent.views import ActionResult
-from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.browser import BrowserSession
 
 logger = logging.getLogger(__name__)
 
-# Initialize browser and controller
-browser_profile = BrowserProfile(
-	headless=False,
-	executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-)
 controller = Controller()
 
 
-@controller.action(
-	'Upload file to interactive element with file path ',
-)
+@controller.action('Upload file to interactive element with file path')
 async def upload_file(index: int, path: str, browser_session: BrowserSession, available_file_paths: list[str]):
 	if path not in available_file_paths:
 		return ActionResult(error=f'File path {path} is not available')
@@ -37,7 +36,7 @@ async def upload_file(index: int, path: str, browser_session: BrowserSession, av
 	if not os.path.exists(path):
 		return ActionResult(error=f'File {path} does not exist')
 
-	file_upload_dom_el = await browser_session.find_file_upload_element_by_index(index)
+	file_upload_dom_el = await browser_session.find_file_upload_element_by_index(index, max_height=3, max_descendant_depth=3)
 
 	if file_upload_dom_el is None:
 		msg = f'No file upload element found at index {index}'
@@ -62,18 +61,6 @@ async def upload_file(index: int, path: str, browser_session: BrowserSession, av
 		return ActionResult(error=msg)
 
 
-@controller.action('Read the file content of a file given a path')
-async def read_file(path: str, available_file_paths: list[str]):
-	if path not in available_file_paths:
-		return ActionResult(error=f'File path {path} is not available')
-
-	async with await anyio.open_file(path, 'r') as f:
-		content = await f.read()
-	msg = f'File content: {content}'
-	logger.info(msg)
-	return ActionResult(extracted_content=msg, include_in_memory=True)
-
-
 def create_file(file_type: str = 'txt'):
 	with open(f'tmp.{file_type}', 'w') as f:
 		f.write('test')
@@ -84,23 +71,18 @@ def create_file(file_type: str = 'txt'):
 
 async def main():
 	task = 'Go to https://kzmpmkh2zfk1ojnpxfn1.lite.vusercontent.net/ and - read the file content and upload them to fields'
-
+	task = 'Go to https://www.freepdfconvert.com/, upload the file tmp.pdf into the field choose a file - dont click the fileupload button'
 	available_file_paths = [create_file('txt'), create_file('pdf'), create_file('csv')]
 
-	model = ChatOpenAI(model='gpt-4o')
-	browser_session = BrowserSession(browser_profile=browser_profile)
-	await browser_session.start()
+	model = ChatOpenAI(model='gpt-4.1-mini')
 	agent = Agent(
 		task=task,
 		llm=model,
 		controller=controller,
-		browser_session=browser_session,
 		available_file_paths=available_file_paths,
 	)
 
 	await agent.run()
-
-	await browser_session.stop()
 
 	input('Press Enter to close...')
 
