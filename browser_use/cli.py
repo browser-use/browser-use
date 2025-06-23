@@ -799,24 +799,24 @@ class BrowserUseApp(App):
 			# Show token usage statistics if agent exists and has history
 			if self.agent and hasattr(self.agent, 'state') and hasattr(self.agent.state, 'history'):
 				# Get total tokens used
-				total_tokens = self.agent.state.history.total_input_tokens()
-				model_info.write(f'[white]Input tokens:[/] [green]{total_tokens:,}[/]')
+				# total_tokens = self.agent.state.history.total_input_tokens()
+				# model_info.write(f'[white]Input tokens:[/] [green]{total_tokens:,}[/]')
 
 				# Calculate tokens per step
 				num_steps = len(self.agent.state.history.history)
-				if num_steps > 0:
-					avg_tokens_per_step = total_tokens / num_steps
-					model_info.write(f'[white]Avg tokens/step:[/] [green]{avg_tokens_per_step:,.1f}[/]')
+				# if num_steps > 0:
+				# avg_tokens_per_step = total_tokens / num_steps
+				# model_info.write(f'[white]Avg tokens/step:[/] [green]{avg_tokens_per_step:,.1f}[/]')
 
-					# Get the last step metadata to show the most recent LLM response time
+				# Get the last step metadata to show the most recent LLM response time
 				if num_steps > 0 and self.agent.state.history.history[-1].metadata:
 					last_step = self.agent.state.history.history[-1]
 					step_duration = last_step.metadata.duration_seconds
-					step_tokens = last_step.metadata.input_tokens
+					# step_tokens = last_step.metadata.input_tokens
 
-					if step_tokens > 0:
-						tokens_per_second = step_tokens / step_duration if step_duration > 0 else 0
-						model_info.write(f'[white]Avg tokens/sec:[/] [magenta]{tokens_per_second:.1f}[/]')
+					# if step_tokens > 0:
+					# 	tokens_per_second = step_tokens / step_duration if step_duration > 0 else 0
+					# 	model_info.write(f'[white]Avg tokens/sec:[/] [magenta]{tokens_per_second:.1f}[/]')
 
 				# Show total duration
 				total_duration = self.agent.state.history.total_duration_seconds()
