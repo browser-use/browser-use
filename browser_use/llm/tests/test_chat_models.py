@@ -111,10 +111,10 @@ class TestChatModels:
 	async def test_google_ainvoke_normal(self):
 		"""Test normal text response from Google Gemini"""
 		# Skip if no API key
-		if not os.getenv('GEMINI_API_KEY'):
-			pytest.skip('GEMINI_API_KEY not set')
+		if not os.getenv('GOOGLE_API_KEY'):
+			pytest.skip('GOOGLE_API_KEY not set')
 
-		chat = ChatGoogle(model='gemini-2.0-flash', api_key=os.getenv('GEMINI_API_KEY'), temperature=0)
+		chat = ChatGoogle(model='gemini-2.0-flash', api_key=os.getenv('GOOGLE_API_KEY'), temperature=0)
 		response = await chat.ainvoke(self.CONVERSATION_MESSAGES)
 		completion = response.completion
 
@@ -125,10 +125,10 @@ class TestChatModels:
 	async def test_google_ainvoke_structured(self):
 		"""Test structured output from Google Gemini"""
 		# Skip if no API key
-		if not os.getenv('GEMINI_API_KEY'):
-			pytest.skip('GEMINI_API_KEY not set')
+		if not os.getenv('GOOGLE_API_KEY'):
+			pytest.skip('GOOGLE_API_KEY not set')
 
-		chat = ChatGoogle(model='gemini-2.0-flash', api_key=os.getenv('GEMINI_API_KEY'), temperature=0)
+		chat = ChatGoogle(model='gemini-2.0-flash', api_key=os.getenv('GOOGLE_API_KEY'), temperature=0)
 		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
 		completion = response.completion
 
