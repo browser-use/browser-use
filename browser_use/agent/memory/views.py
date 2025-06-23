@@ -22,7 +22,7 @@ class MemoryConfig(BaseModel):
 	embedder_dims: int = Field(default=384, gt=10, lt=10000)
 
 	# LLM settings - the LLM instance can be passed separately
-	llm_provider: Literal['langchain'] = 'langchain'
+	llm_provider: Literal['anthropic', 'openai', 'google', 'groq', 'azure'] = 'openai'
 	llm_instance: BaseChatModel | None = None
 
 	# Vector store settings

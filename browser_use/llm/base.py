@@ -1,7 +1,7 @@
 """
-We have switched all of our code from langchain to openai.types.chat.chat_completion_message_param.
+Base chat model protocol for native LLM implementations.
 
-For easier transition we have
+This module defines the common interface for all LLM provider implementations.
 """
 
 from typing import Any, Protocol, Type, TypeVar, overload

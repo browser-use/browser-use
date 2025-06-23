@@ -11,7 +11,7 @@
 # This is the LLM as a judge evaluation system from the OSU-NLP Group paper
 # Any adaptiations made should be explicitly stated here:
 # Adaptations:
-# We are using our langchain wrapper for the OpenAI API
+# We are using our native OpenAI API implementation
 # This means we changed model.generate to model.invoke. The behavior of the model should be identical.
 # Added a Online_Mind2Web_eval_with_retry wrapper with retry logic in case of API rate limiting or other issues.
 

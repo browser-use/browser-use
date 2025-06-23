@@ -1,7 +1,7 @@
 """
-We have switched all of our code from langchain to openai.types.chat.chat_completion_message_param.
+Native LLM implementation using openai.types.chat.chat_completion_message_param.
 
-For easier transition we have
+This module provides native implementations for various LLM providers.
 """
 
 from browser_use.llm.anthropic.chat import ChatAnthropic
@@ -29,7 +29,7 @@ from browser_use.llm.openai.chat import ChatOpenAI
 # Make better names for the message
 
 __all__ = [
-	# Message types -> for easier transition from langchain
+	# Message types
 	'BaseMessage',
 	'UserMessage',
 	'SystemMessage',
