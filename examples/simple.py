@@ -24,11 +24,11 @@ llm = ChatOpenAI(
 	model='gpt-4.1-mini',
 )
 
-llm = ChatGoogle('gemini-2.5-flash-preview-05-20')
 llm = ChatGroq('meta-llama/llama-4-maverick-17b-128e-instruct')
+llm = ChatGoogle('gemini-2.5-flash-preview-05-20')
 
 
-task = 'Go to google.com/travel/flights and find the cheapest one-way flight from Zurich to San Francisco in 3 weeks.'
+task = 'Go to google.com/travel/flights, then go back (IMPORTANT), then back to google.com/travel/flights and find the cheapest one-way flight from Zurich to San Francisco in 3 weeks.'
 agent = Agent(task=task, llm=llm)
 
 

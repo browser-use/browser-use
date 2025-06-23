@@ -19,6 +19,7 @@ from browser_use.controller.views import (
 	DragDropAction,
 	GoToUrlAction,
 	InputTextAction,
+	NoParamsAction,
 	OpenTabAction,
 	Position,
 	ScrollAction,
@@ -196,8 +197,8 @@ class Controller(Generic[Context]):
 					# Re-raise non-network errors (including URLNotAllowedError for unauthorized domains)
 					raise
 
-		@self.registry.action('Go back')
-		async def go_back(browser_session: BrowserSession):
+		@self.registry.action('Go back', param_model=NoParamsAction)
+		async def go_back(_: NoParamsAction, browser_session: BrowserSession):
 			await browser_session.go_back()
 			msg = '🔙  Navigated back'
 			logger.info(msg)

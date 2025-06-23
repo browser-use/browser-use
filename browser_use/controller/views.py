@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # Action Input Models
@@ -49,6 +49,16 @@ class SendKeysAction(BaseModel):
 
 class ExtractPageContentAction(BaseModel):
 	value: str
+
+
+class NoParamsAction(BaseModel):
+	"""
+	Accepts absolutely anything in the incoming data
+	and discards it, so the final parsed model is empty.
+	"""
+
+	model_config = ConfigDict(extra='ignore')
+	# No fields defined - all inputs are ignored automatically
 
 
 class Position(BaseModel):

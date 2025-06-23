@@ -1,3 +1,4 @@
+import logging
 import tempfile
 
 import pytest
@@ -9,9 +10,14 @@ from browser_use.dom.views import DOMElementNode, SelectorMap
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.anthropic.chat import ChatAnthropic
 from browser_use.llm.azure.chat import ChatAzureOpenAI
+from browser_use.llm.base import BaseChatModel
 from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.groq.chat import ChatGroq
 from browser_use.llm.openai.chat import ChatOpenAI
+
+# Set logging level to INFO for this module
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def create_mock_state_message(temp_dir: str):
@@ -121,7 +127,7 @@ async def test_single_step_parametrized(llm_class, model_name):
 async def test_single_step():
 	"""Original test function that tests all models in a loop."""
 	# Create a list of models to test
-	models = [
+	models: list[BaseChatModel] = [
 		ChatGroq(model='meta-llama/llama-4-maverick-17b-128e-instruct'),
 		ChatGoogle(model='gemini-2.0-flash-exp'),
 		ChatOpenAI(model='gpt-4.1'),
@@ -153,10 +159,11 @@ async def test_single_step():
 			# Test with simple question
 			try:
 				response = await llm.ainvoke(messages, agent.AgentOutput)
-				print(f'Response from {llm.provider}:', response.completion)
-				print('Usage:', response.usage)
+				logger.info(f'Response from {llm.provider}: {response.completion}')
+				logger.info(f'Actions: {str(response.completion.action)}')
+
 			except Exception as e:
-				print(f'Error with {llm.provider}: {type(e).__name__}: {str(e)}')
+				logger.error(f'Error with {llm.provider}: {type(e).__name__}: {str(e)}')
 
 		print(f'\n{"=" * 60}\n')
 
