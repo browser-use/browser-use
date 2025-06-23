@@ -22,6 +22,7 @@ from browser_use.token_cost.views import CachedPricingData, ModelPricing, ModelU
 from browser_use.utils import xdg_cache_home
 
 logger = logging.getLogger(__name__)
+cost_logger = logging.getLogger('cost')
 
 
 class TokenCost:
@@ -189,6 +190,9 @@ class TokenCost:
 
 	async def _log_usage(self, model: str, usage: TokenUsageEntry) -> None:
 		"""Log usage to the logger"""
+		if not self._initialized:
+			await self.initialize()
+
 		input_cost, output_cost = self.calculate_cost(model, usage.prompt_tokens, usage.completion_tokens)
 		cost = input_cost + output_cost
 
@@ -196,14 +200,21 @@ class TokenCost:
 		C_CYAN = '\033[96m'
 		C_YELLOW = '\033[93m'
 		C_GREEN = '\033[92m'
-		C_MAGENTA = '\033[95m'
 		C_RESET = '\033[0m'
 
-		logger.info(
-			f'📞 LLM Call: {C_CYAN}{model}{C_RESET} | '
-			f'Tokens: {C_YELLOW}{usage.prompt_tokens:,} (${input_cost:.4f}) ⬅️ {C_GREEN}{usage.completion_tokens:,}{C_RESET} (${output_cost:.4f}) ➡️ | '
-			f'💰 Cost: {C_MAGENTA}${cost:.4f}{C_RESET}'
-		)
+		# Format tokens with k notation
+		prompt_tokens_fmt = self._format_tokens(usage.prompt_tokens)
+		completion_tokens_fmt = self._format_tokens(usage.completion_tokens)
+
+		# Format tokens with or without cost based on whether cost is available
+		if cost > 0:
+			input_part = f'{C_YELLOW}{prompt_tokens_fmt} (${input_cost:.4f}){C_RESET}'
+			output_part = f'{C_GREEN}{completion_tokens_fmt} (${output_cost:.4f}){C_RESET}'
+		else:
+			input_part = f'{C_YELLOW}{prompt_tokens_fmt}{C_RESET}'
+			output_part = f'{C_GREEN}{completion_tokens_fmt}{C_RESET}'
+
+		cost_logger.info(f'🧠 llm : {C_CYAN}{model}{C_RESET} | ⬅️ tokens: {input_part} | ➡️ tokens: {output_part}')
 
 	def register_llm(self, llm: BaseChatModel) -> BaseChatModel:
 		"""
@@ -313,6 +324,85 @@ class TokenCost:
 			models=models,
 			by_model=model_stats,
 		)
+
+	def _format_tokens(self, tokens: int) -> str:
+		"""Format token count with k suffix for thousands"""
+		if tokens >= 1000:
+			return f'{tokens / 1000:.1f}k'
+		if tokens >= 1000000:
+			return f'{tokens / 1000000:.1f}M'
+		if tokens >= 1000000000:
+			return f'{tokens / 1000000000:.1f}B'
+		return str(tokens)
+
+	async def log_usage_summary(self) -> None:
+		"""Log a comprehensive usage summary per model with colors and nice formatting"""
+		if not self.usage_history:
+			return
+
+		summary = self.get_usage_summary(calculate_cost=True)
+
+		if summary.entry_count == 0:
+			return
+
+		# ANSI color codes
+		C_CYAN = '\033[96m'
+		C_YELLOW = '\033[93m'
+		C_GREEN = '\033[92m'
+		C_BLUE = '\033[94m'
+		C_MAGENTA = '\033[95m'
+		C_RESET = '\033[0m'
+		C_BOLD = '\033[1m'
+
+		# Log overall summary
+		total_tokens_fmt = self._format_tokens(summary.total_tokens)
+		prompt_tokens_fmt = self._format_tokens(summary.total_prompt_tokens)
+		completion_tokens_fmt = self._format_tokens(summary.total_completion_tokens)
+
+		cost_logger.info(
+			f'💲 {C_BOLD}Total Usage Summary{C_RESET}: {C_BLUE}{total_tokens_fmt} tokens{C_RESET} (${C_MAGENTA}{summary.total_cost:.4f}{C_RESET}) | ⬅️ {C_YELLOW}{prompt_tokens_fmt}{C_RESET} | ➡️ {C_GREEN}{completion_tokens_fmt}{C_RESET}'
+		)
+
+		# Log per-model breakdown
+		if len(summary.by_model) > 1:  # Only show breakdown if multiple models
+			cost_logger.info(f'📊 {C_BOLD}Per-Model Breakdown{C_RESET}:')
+
+			for model, stats in summary.by_model.items():
+				# Calculate per-model costs on-the-fly
+				total_model_cost = 0.0
+				model_prompt_cost = 0.0
+				model_completion_cost = 0.0
+
+				# Calculate costs for this model
+				for entry in self.usage_history:
+					if entry.model == model:
+						input_cost, output_cost = self.calculate_cost(entry.model, entry.prompt_tokens, entry.completion_tokens)
+						model_prompt_cost += input_cost
+						model_completion_cost += output_cost
+
+				total_model_cost = model_prompt_cost + model_completion_cost
+
+				# Format tokens
+				model_total_fmt = self._format_tokens(stats.total_tokens)
+				model_prompt_fmt = self._format_tokens(stats.prompt_tokens)
+				model_completion_fmt = self._format_tokens(stats.completion_tokens)
+				avg_tokens_fmt = self._format_tokens(int(stats.average_tokens_per_invocation))
+
+				# Format cost display
+				if total_model_cost > 0:
+					cost_part = f' (${C_MAGENTA}{total_model_cost:.4f}{C_RESET})'
+					prompt_part = f'{C_YELLOW}{model_prompt_fmt} (${model_prompt_cost:.4f}){C_RESET}'
+					completion_part = f'{C_GREEN}{model_completion_fmt} (${model_completion_cost:.4f}){C_RESET}'
+				else:
+					cost_part = ''
+					prompt_part = f'{C_YELLOW}{model_prompt_fmt}{C_RESET}'
+					completion_part = f'{C_GREEN}{model_completion_fmt}{C_RESET}'
+
+				cost_logger.info(
+					f'  🤖 {C_CYAN}{model}{C_RESET}: {C_BLUE}{model_total_fmt} tokens{C_RESET}{cost_part} | '
+					f'⬅️ {prompt_part} | ➡️ {completion_part} | '
+					f'📞 {stats.invocations} calls | 📈 {avg_tokens_fmt}/call'
+				)
 
 	def get_cost_by_model(self) -> Dict[str, ModelUsageStats]:
 		"""Get cost breakdown by model"""

@@ -5,7 +5,6 @@ import json
 import logging
 import os
 import re
-import shutil
 import sys
 import tempfile
 import time
@@ -952,41 +951,6 @@ class Agent(Generic[Context]):
 
 		self.logger.info(f'📍 Step {self.state.n_steps}: Ran {action_count} actions in {step_duration:.2f}s: {status_str}')
 
-	def _log_llm_call_info(self, input_messages: list[BaseMessage], method: str) -> None:
-		"""Log comprehensive information about the LLM call being made"""
-		# Count messages and check for images
-		message_count = len(input_messages)
-		total_chars = sum(len(str(msg.content)) for msg in input_messages)
-		has_images = any(
-			hasattr(msg, 'content')
-			and isinstance(msg.content, list)
-			and any(isinstance(item, dict) and item.get('type') == 'image_url' for item in msg.content)
-			for msg in input_messages
-		)
-
-		# Count available tools/actions from the current ActionModel
-		# This gives us the actual number of tools exposed to the LLM for this specific call
-		tool_count = len(self.ActionModel.model_fields) if hasattr(self, 'ActionModel') else 0
-
-		# Format the log message parts
-		image_status = ', 📷 img' if has_images else ''
-		if method == 'raw':
-			output_format = '=> raw text'
-			tool_info = ''
-		else:
-			output_format = '=> JSON out'
-			tool_info = f' + 🔨 {tool_count} tools ({method})'
-
-		term_width = shutil.get_terminal_size((80, 20)).columns
-		print('=' * term_width)
-
-		# TODO: how to print tokens before?
-		current_tokens = '???'  # TODO: fix this
-
-		self.logger.info(
-			f'🧠 LLM call => {self.llm.provider}/{self.llm.model} [✉️ {message_count} msg, ~{current_tokens} tk, {total_chars} char{image_status}] {output_format}{tool_info}'
-		)
-
 	def _log_agent_event(self, max_steps: int, agent_run_error: str | None = None) -> None:
 		"""Sent the agent event for this run to telemetry"""
 
@@ -1174,14 +1138,11 @@ class Agent(Generic[Context]):
 			raise e
 
 		finally:
+			# Log token usage summary
+			await self.token_cost_service.log_usage_summary()
+
 			# Unregister signal handlers before cleanup
 			signal_handler.unregister()
-
-			# Log token usage summary
-			usage_summary = self.token_cost_service.get_usage_summary()
-			self.logger.info(
-				f'💲 The model cost breakdown: {usage_summary.total_tokens} tokens (${usage_summary.total_cost:.4f}); {usage_summary.total_prompt_tokens} input tokens; {usage_summary.total_completion_tokens} output tokens'
-			)
 
 			if not self._force_exit_telemetry_logged:  # MODIFIED: Check the flag
 				try:

@@ -20,7 +20,6 @@ async def test_iterative_country_generation():
 
 	# Initialize token cost service
 	tc = TokenCost()
-	await tc.initialize()
 
 	# System prompt that explains the iterative task
 	system_prompt = """You are a country name generator. When asked, you will provide exactly ONE country name and nothing else.
