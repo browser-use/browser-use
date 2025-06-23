@@ -21,10 +21,13 @@ Laminar.initialize()
 llm = ChatOpenAI(
 	model='gpt-4.1',
 )
+page_extraction_llm = ChatOpenAI(
+	model='gpt-4.1-mini',
+)
 
 
 task = 'Go to google.com/travel/flights and find the cheapest one-way flight from Zurich to San Francisco in 3 weeks.'
-agent = Agent(task=task, llm=llm)
+agent = Agent(task=task, llm=llm, page_extraction_llm=page_extraction_llm)
 
 
 async def main():

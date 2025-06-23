@@ -25,6 +25,7 @@ from browser_use.agent.cloud_events import (
 )
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import BaseMessage, UserMessage
+from browser_use.token_cost.service import TokenCost
 
 load_dotenv()
 
@@ -210,6 +211,13 @@ class Agent(Generic[Context]):
 			is_planner_reasoning=is_planner_reasoning,
 			extend_planner_system_message=extend_planner_system_message,
 		)
+
+		# Token cost service
+		self.token_cost_service = TokenCost()
+		self.token_cost_service.register_llm(llm)
+		self.token_cost_service.register_llm(self.settings.page_extraction_llm)
+		if self.settings.planner_llm:
+			self.token_cost_service.register_llm(self.settings.planner_llm)
 
 		# Memory settings
 		self.enable_memory = enable_memory
@@ -982,6 +990,8 @@ class Agent(Generic[Context]):
 	def _log_agent_event(self, max_steps: int, agent_run_error: str | None = None) -> None:
 		"""Sent the agent event for this run to telemetry"""
 
+		total_input_tokens = self.token_cost_service.get_usage_summary(calculate_cost=False).total_prompt_tokens
+
 		# Prepare action_history data correctly
 		action_history_data = []
 		for item in self.state.history.history:
@@ -1016,7 +1026,7 @@ class Agent(Generic[Context]):
 				action_history=action_history_data,
 				urls_visited=self.state.history.urls(),
 				steps=self.state.n_steps,
-				total_input_tokens=self.state.history.total_input_tokens(),
+				total_input_tokens=total_input_tokens,
 				total_duration_seconds=self.state.history.total_duration_seconds(),
 				success=self.state.history.is_successful(),
 				final_result_response=final_result_str,
@@ -1167,6 +1177,12 @@ class Agent(Generic[Context]):
 			# Unregister signal handlers before cleanup
 			signal_handler.unregister()
 
+			# Log token usage summary
+			usage_summary = self.token_cost_service.get_usage_summary()
+			self.logger.info(
+				f'💲 The model cost breakdown: {usage_summary.total_tokens} tokens (${usage_summary.total_cost:.4f}); {usage_summary.total_prompt_tokens} input tokens; {usage_summary.total_completion_tokens} output tokens'
+			)
+
 			if not self._force_exit_telemetry_logged:  # MODIFIED: Check the flag
 				try:
 					self._log_agent_event(max_steps=max_steps, agent_run_error=agent_run_error)
@@ -1292,8 +1308,6 @@ class Agent(Generic[Context]):
 			self.logger.info('✅ Task completed successfully')
 		else:
 			self.logger.info('❌ Task completed without success')
-
-		self.logger.debug(f'💲 Total input tokens used (approximate): {total_tokens}')
 
 		if self.register_done_callback:
 			if inspect.iscoroutinefunction(self.register_done_callback):
