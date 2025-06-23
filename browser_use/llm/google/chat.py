@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, Type, TypeVar, overload
+from typing import Any, Dict, Literal, Type, TypeVar, overload
 
 from google import genai
 from google.auth.credentials import Credentials
@@ -17,77 +17,9 @@ from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 T = TypeVar('T', bound=BaseModel)
 
 
-def pydantic_to_gemini_schema(model_class: Type[BaseModel]) -> dict[str, Any]:
-	"""
-	Convert a Pydantic model to a Gemini-compatible schema.
-
-	This function removes unsupported properties like 'additionalProperties' and resolves
-	$ref references that Gemini doesn't support.
-	"""
-	schema = model_class.model_json_schema()
-
-	# Handle $defs and $ref resolution
-	if '$defs' in schema:
-		defs = schema.pop('$defs')
-
-		def resolve_refs(obj: Any) -> Any:
-			if isinstance(obj, dict):
-				if '$ref' in obj:
-					ref = obj.pop('$ref')
-					ref_name = ref.split('/')[-1]
-					if ref_name in defs:
-						# Replace the reference with the actual definition
-						resolved = defs[ref_name].copy()
-						# Merge any additional properties from the reference
-						for key, value in obj.items():
-							if key != '$ref':
-								resolved[key] = value
-						return resolve_refs(resolved)
-					return obj
-				else:
-					# Recursively process all dictionary values
-					return {k: resolve_refs(v) for k, v in obj.items()}
-			elif isinstance(obj, list):
-				return [resolve_refs(item) for item in obj]
-			return obj
-
-		schema = resolve_refs(schema)
-
-	# Remove unsupported properties
-	def clean_schema(obj: Any) -> Any:
-		if isinstance(obj, dict):
-			# Remove unsupported properties
-			cleaned = {}
-			for key, value in obj.items():
-				if key not in ['additionalProperties', 'title', 'default']:
-					cleaned_value = clean_schema(value)
-					# Handle empty object properties - Gemini doesn't allow empty OBJECT types
-					if (
-						key == 'properties'
-						and isinstance(cleaned_value, dict)
-						and len(cleaned_value) == 0
-						and obj.get('type', '').upper() == 'OBJECT'
-					):
-						# Convert empty object to have at least one property
-						cleaned['properties'] = {'_placeholder': {'type': 'string'}}
-					else:
-						cleaned[key] = cleaned_value
-
-			# If this is an object type with empty properties, add a placeholder
-			if (
-				cleaned.get('type', '').upper() == 'OBJECT'
-				and 'properties' in cleaned
-				and isinstance(cleaned['properties'], dict)
-				and len(cleaned['properties']) == 0
-			):
-				cleaned['properties'] = {'_placeholder': {'type': 'string'}}
-
-			return cleaned
-		elif isinstance(obj, list):
-			return [clean_schema(item) for item in obj]
-		return obj
-
-	return clean_schema(schema)
+VerifiedGeminiModels = Literal[
+	'gemini-2.0-flash', 'gemini-2.0-flash-exp', 'gemini-2.0-flash-lite-preview-02-05', 'Gemini-2.0-exp'
+]
 
 
 @dataclass
@@ -100,7 +32,7 @@ class ChatGoogle(BaseChatModel):
 	"""
 
 	# Model configuration
-	model: str
+	model: VerifiedGeminiModels | str
 	temperature: float | None = None
 
 	# Client initialization parameters
@@ -142,10 +74,6 @@ class ChatGoogle(BaseChatModel):
 		"""
 		client_params = self._get_client_params()
 		return genai.Client(**client_params)
-
-	@property
-	def llm_type(self) -> str:
-		return 'google'
 
 	@property
 	def name(self) -> str:
@@ -227,7 +155,7 @@ class ChatGoogle(BaseChatModel):
 				# Return structured response
 				config['response_mime_type'] = 'application/json'
 				# Convert Pydantic model to Gemini-compatible schema
-				config['response_schema'] = pydantic_to_gemini_schema(output_format)
+				config['response_schema'] = self._pydantic_to_gemini_schema(output_format)
 
 				response = await self.get_client().aio.models.generate_content(
 					model=self.model,
@@ -290,3 +218,75 @@ class ChatGoogle(BaseChatModel):
 				status_code=status_code or 502,  # Use default if None
 				model=self.name,
 			) from e
+
+	def _pydantic_to_gemini_schema(self, model_class: Type[BaseModel]) -> dict[str, Any]:
+		"""
+		Convert a Pydantic model to a Gemini-compatible schema.
+
+		This function removes unsupported properties like 'additionalProperties' and resolves
+		$ref references that Gemini doesn't support.
+		"""
+		schema = model_class.model_json_schema()
+
+		# Handle $defs and $ref resolution
+		if '$defs' in schema:
+			defs = schema.pop('$defs')
+
+			def resolve_refs(obj: Any) -> Any:
+				if isinstance(obj, dict):
+					if '$ref' in obj:
+						ref = obj.pop('$ref')
+						ref_name = ref.split('/')[-1]
+						if ref_name in defs:
+							# Replace the reference with the actual definition
+							resolved = defs[ref_name].copy()
+							# Merge any additional properties from the reference
+							for key, value in obj.items():
+								if key != '$ref':
+									resolved[key] = value
+							return resolve_refs(resolved)
+						return obj
+					else:
+						# Recursively process all dictionary values
+						return {k: resolve_refs(v) for k, v in obj.items()}
+				elif isinstance(obj, list):
+					return [resolve_refs(item) for item in obj]
+				return obj
+
+			schema = resolve_refs(schema)
+
+		# Remove unsupported properties
+		def clean_schema(obj: Any) -> Any:
+			if isinstance(obj, dict):
+				# Remove unsupported properties
+				cleaned = {}
+				for key, value in obj.items():
+					if key not in ['additionalProperties', 'title', 'default']:
+						cleaned_value = clean_schema(value)
+						# Handle empty object properties - Gemini doesn't allow empty OBJECT types
+						if (
+							key == 'properties'
+							and isinstance(cleaned_value, dict)
+							and len(cleaned_value) == 0
+							and obj.get('type', '').upper() == 'OBJECT'
+						):
+							# Convert empty object to have at least one property
+							cleaned['properties'] = {'_placeholder': {'type': 'string'}}
+						else:
+							cleaned[key] = cleaned_value
+
+				# If this is an object type with empty properties, add a placeholder
+				if (
+					cleaned.get('type', '').upper() == 'OBJECT'
+					and 'properties' in cleaned
+					and isinstance(cleaned['properties'], dict)
+					and len(cleaned['properties']) == 0
+				):
+					cleaned['properties'] = {'_placeholder': {'type': 'string'}}
+
+				return cleaned
+			elif isinstance(obj, list):
+				return [clean_schema(item) for item in obj]
+			return obj
+
+		return clean_schema(schema)

@@ -3,6 +3,7 @@ import os
 import sys
 
 from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.groq.chat import ChatGroq
 from browser_use.llm.openai.chat import ChatOpenAI
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -24,6 +25,7 @@ llm = ChatOpenAI(
 )
 
 llm = ChatGoogle('gemini-2.5-flash-preview-05-20')
+llm = ChatGroq('meta-llama/llama-4-maverick-17b-128e-instruct')
 
 
 task = 'Go to google.com/travel/flights and find the cheapest one-way flight from Zurich to San Francisco in 3 weeks.'

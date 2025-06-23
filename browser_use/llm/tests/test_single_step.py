@@ -9,6 +9,7 @@ from browser_use.dom.views import DOMElementNode, SelectorMap
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.anthropic.chat import ChatAnthropic
 from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.groq.chat import ChatGroq
 from browser_use.llm.openai.chat import ChatOpenAI
 
 
@@ -85,9 +86,10 @@ def create_mock_state_message(temp_dir: str):
 @pytest.mark.parametrize(
 	'llm_class,model_name',
 	[
+		(ChatGroq, 'meta-llama/llama-4-maverick-17b-128e-instruct'),
 		(ChatGoogle, 'gemini-2.0-flash-exp'),
 		(ChatOpenAI, 'gpt-4o-mini'),
-		(ChatAnthropic, 'claude-3-5-haiku-20241022'),
+		(ChatAnthropic, 'claude-3-5-sonnet-latest'),
 	],
 )
 async def test_single_step_parametrized(llm_class, model_name):
@@ -118,6 +120,7 @@ async def test_single_step():
 	"""Original test function that tests all models in a loop."""
 	# Create a list of models to test
 	models = [
+		ChatGroq(model='meta-llama/llama-4-maverick-17b-128e-instruct'),
 		ChatGoogle(model='gemini-2.0-flash-exp'),
 		ChatOpenAI(model='gpt-4.1'),
 		ChatAnthropic(model='claude-3-5-sonnet-latest'),  # Using haiku for cost efficiency

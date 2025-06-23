@@ -96,10 +96,6 @@ class ChatAnthropic(BaseChatModel):
 		return AsyncAnthropic(**client_params)
 
 	@property
-	def llm_type(self) -> str:
-		return 'anthropic'
-
-	@property
 	def name(self) -> str:
 		return str(self.model)
 

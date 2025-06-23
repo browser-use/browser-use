@@ -23,9 +23,6 @@ class BaseChatModel(Protocol):
 	def provider(self) -> str: ...
 
 	@property
-	def llm_type(self) -> str: ...
-
-	@property
 	def name(self) -> str: ...
 
 	@property

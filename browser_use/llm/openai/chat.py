@@ -27,6 +27,8 @@ class ChatOpenAI(BaseChatModel):
 
 	# Model configuration
 	model: ChatModel | str
+
+	# Model params
 	temperature: float | None = None
 
 	# Client initialization parameters
@@ -81,10 +83,6 @@ class ChatOpenAI(BaseChatModel):
 		"""
 		client_params = self._get_client_params()
 		return AsyncOpenAI(**client_params)
-
-	@property
-	def llm_type(self) -> str:
-		return 'openai'
 
 	@property
 	def name(self) -> str:
