@@ -214,7 +214,7 @@ class Agent(Generic[Context]):
 		# Token cost service
 		self.token_cost_service = TokenCost()
 		self.token_cost_service.register_llm(llm)
-		self.token_cost_service.register_llm(self.settings.page_extraction_llm)
+		self.token_cost_service.register_llm(page_extraction_llm)
 		if self.settings.planner_llm:
 			self.token_cost_service.register_llm(self.settings.planner_llm)
 
