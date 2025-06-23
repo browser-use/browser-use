@@ -48,6 +48,7 @@ class ProductTelemetry:
 
 		if telemetry_disabled:
 			self._posthog_client = None
+			self._secondary_posthog_client = None
 		else:
 			logger.info(
 				'Anonymized telemetry enabled. See https://docs.browser-use.com/development/telemetry for more information.'
@@ -64,11 +65,29 @@ class ProductTelemetry:
 				posthog_logger = logging.getLogger('posthog')
 				posthog_logger.disabled = True
 
-		if self._posthog_client is None:
+			# Check for secondary PostHog telemetry configuration.
+			secondary_api_key = os.getenv('SECONDARY_POSTHOG_PROJECT_API_KEY')
+			secondary_host = os.getenv('SECONDARY_POSTHOG_HOST')
+			if secondary_api_key and secondary_host:
+				logging.info(
+					"Secondary telemetry enabled. Metrics will also be sent to the secondary PostHog account."
+				)
+				self._secondary_posthog_client = Posthog(
+					project_api_key=secondary_api_key,
+					host=secondary_host,
+					disable_geoip=False,
+				)
+				if not self.debug_logging:
+					secondary_logger = logging.getLogger('posthog_secondary')
+					secondary_logger.disabled = True
+			else:
+				self._secondary_posthog_client = None
+
+		if self._posthog_client is None and self._secondary_posthog_client is None:
 			logger.debug('Telemetry disabled')
 
 	def capture(self, event: BaseTelemetryEvent) -> None:
-		if self._posthog_client is None:
+		if self._posthog_client is None and self._secondary_posthog_client is None:
 			return
 
 		self._direct_capture(event)
@@ -77,17 +96,23 @@ class ProductTelemetry:
 		"""
 		Should not be thread blocking because posthog magically handles it
 		"""
-		if self._posthog_client is None:
-			return
+		merged_properties = {**event.properties, **POSTHOG_EVENT_SETTINGS}
 
-		try:
-			self._posthog_client.capture(
-				self.user_id,
-				event.name,
-				{**event.properties, **POSTHOG_EVENT_SETTINGS},
-			)
-		except Exception as e:
-			logger.error(f'Failed to send telemetry event {event.name}: {e}')
+		clients = [
+			(self._posthog_client, "primary"),
+			(self._secondary_posthog_client, "secondary")
+		]
+		for client, client_name in clients:
+			if client is None:
+				continue
+			try:
+				client.capture(
+					self.user_id,
+					event.name,
+					merged_properties,
+				)
+			except Exception as e:
+				logger.error(f'Failed to send telemetry event {event.name} on {client_name} client: {e}')
 
 	def flush(self) -> None:
 		if self._posthog_client:
