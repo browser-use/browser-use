@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Optional
 
 from browser_use.llm.openai.chat import ChatOpenAI
 
@@ -14,7 +13,4 @@ class ChatOpenAILike(ChatOpenAI):
 	    api_key (Optional[str]): The API key to use. Defaults to "not-provided".
 	"""
 
-	model: str = 'not-provided'
-	api_key: Optional[str] = 'not-provided'
-	provider: str = 'OpenAILike'
-	name: str = 'OpenAILike'
+	model: str

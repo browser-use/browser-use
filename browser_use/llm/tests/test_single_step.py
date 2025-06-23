@@ -8,6 +8,7 @@ from browser_use.browser.views import BrowserStateSummary, TabInfo
 from browser_use.dom.views import DOMElementNode, SelectorMap
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.anthropic.chat import ChatAnthropic
+from browser_use.llm.azure.chat import ChatAzureOpenAI
 from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.groq.chat import ChatGroq
 from browser_use.llm.openai.chat import ChatOpenAI
@@ -90,6 +91,7 @@ def create_mock_state_message(temp_dir: str):
 		(ChatGoogle, 'gemini-2.0-flash-exp'),
 		(ChatOpenAI, 'gpt-4o-mini'),
 		(ChatAnthropic, 'claude-3-5-sonnet-latest'),
+		(ChatAzureOpenAI, 'gpt-4o-mini'),
 	],
 )
 async def test_single_step_parametrized(llm_class, model_name):
@@ -124,6 +126,7 @@ async def test_single_step():
 		ChatGoogle(model='gemini-2.0-flash-exp'),
 		ChatOpenAI(model='gpt-4.1'),
 		ChatAnthropic(model='claude-3-5-sonnet-latest'),  # Using haiku for cost efficiency
+		ChatAzureOpenAI(model='gpt-4o-mini'),
 	]
 
 	for llm in models:
