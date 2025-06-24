@@ -12,7 +12,7 @@
 # This is the LLM as a judge evaluation system from the OSU-NLP Group paper
 # Any adaptiations made should be explicitly stated here:
 # Adaptations:
-# We are using our langchain wrapper for the OpenAI API
+# We are using our own wrapper for the OpenAI API
 # This means we changed model.generate to model.invoke. The behavior of the model should be identical.
 # Added a Online_Mind2Web_eval_with_retry wrapper with retry logic in case of API rate limiting or other issues.
 
@@ -55,6 +55,11 @@ import anyio
 import psutil
 from lmnr import AsyncLaminarClient, Laminar, observe
 from PIL import Image
+
+from browser_use.llm.anthropic.chat import ChatAnthropic
+from browser_use.llm.base import BaseChatModel
+from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.openai.chat import ChatOpenAI
 
 MAX_IMAGE = 5
 
@@ -651,12 +656,6 @@ class TaskResult:
 		}
 
 
-from langchain_anthropic import ChatAnthropic
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
-from pydantic.types import SecretStr
-
 from browser_use import ActionResult, Agent, BrowserProfile, BrowserSession, Controller
 from browser_use.agent.memory import MemoryConfig
 from browser_use.agent.views import AgentHistoryList
@@ -866,30 +865,29 @@ def get_llm(model_name: str):
 		)
 		api_key = None
 
-	api_key_secret = SecretStr(api_key) if api_key else None
 	match provider:
 		case 'openai':
 			kwargs = {'model': config['model_name'], 'temperature': 0.0}
 			# Must set temperatue=1 if model is gpt-o4-mini
 			if model_name == 'gpt-o4-mini':
 				kwargs['temperature'] = 1
-			if api_key_secret:
-				kwargs['api_key'] = api_key_secret
+			if api_key:
+				kwargs['api_key'] = api_key
 			return ChatOpenAI(**kwargs)
 		case 'anthropic':
 			kwargs = {'model_name': config['model_name'], 'temperature': 0.0, 'timeout': 100, 'stop': None}
-			if api_key_secret:
-				kwargs['api_key'] = api_key_secret
+			if api_key:
+				kwargs['api_key'] = api_key
 			return ChatAnthropic(**kwargs)
 		case 'google':
 			kwargs = {'model': config['model_name'], 'temperature': 0.0}
-			if api_key_secret:
-				kwargs['api_key'] = api_key_secret
-			return ChatGoogleGenerativeAI(**kwargs)
+			if api_key:
+				kwargs['api_key'] = api_key
+			return ChatGoogle(**kwargs)
 		case 'openai_compatible':
 			kwargs = {'model': config['model_name'], 'base_url': config['base_url'], 'temperature': 0.0}
-			if api_key_secret:
-				kwargs['api_key'] = api_key_secret
+			if api_key:
+				kwargs['api_key'] = api_key
 			elif config.get('base_url'):
 				logger.warning(
 					f'API key for {model_name} at {config["base_url"]} is missing, but base_url is specified. Authentication may fail.'
