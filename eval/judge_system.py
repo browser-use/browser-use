@@ -25,8 +25,17 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from langchain_core.language_models.chat_models import BaseChatModel
 from PIL import Image
+
+from browser_use.llm.base import BaseChatModel
+from browser_use.llm.messages import (
+	BaseMessage,
+	ContentPartImageParam,
+	ContentPartTextParam,
+	ImageURL,
+	SystemMessage,
+	UserMessage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -267,20 +276,12 @@ async def comprehensive_judge(
 	selected_images = filter_images(screenshot_paths, max_images)
 
 	# Encode images
-	encoded_images = []
+	encoded_images: list[ContentPartImageParam] = []
 	for img_path in selected_images:
 		if Path(img_path).exists():
 			encoded_img = encode_image(img_path)
 			if encoded_img:
-				encoded_images.append(
-					{
-						'type': 'image_url',
-						'image_url': {
-							'url': f'data:image/jpeg;base64,{encoded_img}',
-							'detail': 'high',
-						},
-					}
-				)
+				encoded_images.append(ContentPartImageParam(image_url=ImageURL(url=f'data:image/jpeg;base64,{encoded_img}')))
 
 	# Construct the evaluation prompt
 	system_prompt = """You are an expert judge evaluating browser automation agent performance. 
@@ -370,24 +371,21 @@ Respond with EXACTLY this JSON structure (no additional text):
 Analyze this execution and respond with the exact JSON structure requested."""
 
 	# Build messages
-	content_parts = [{'type': 'text', 'text': user_prompt}]
+	content_parts: list[ContentPartTextParam | ContentPartImageParam] = [ContentPartTextParam(text=user_prompt)]
 	content_parts.extend(encoded_images)
 
-	messages = [
-		{'role': 'system', 'content': system_prompt},
-		{'role': 'user', 'content': content_parts},
+	messages: list[BaseMessage] = [
+		SystemMessage(content=system_prompt),
+		UserMessage(content=content_parts),
 	]
 
 	# Get structured response
 	try:
-		response = await asyncio.to_thread(model.invoke, messages)
+		response = await model.ainvoke(messages)
 
 		# Parse the JSON response
 		# Handle both string and list content types
-		if isinstance(response.content, list):
-			response_text = str(response.content[0]) if response.content else ''
-		else:
-			response_text = str(response.content)
+		response_text = response.completion
 		response_text = response_text.strip()
 
 		# Try to extract JSON if wrapped in markdown
