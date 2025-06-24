@@ -633,6 +633,53 @@ Explain the content of the page and that the requested information is not availa
 				logger.error(msg)
 				return ActionResult(error=msg, include_in_memory=True)
 
+		# File System Actions
+		@self.registry.action('Write content to file_name in file system, use only .md or .txt extensions.')
+		async def write_file(file_name: str, content: str, file_system: FileSystem):
+			result = await file_system.write_file(file_name, content)
+			logger.info(f'💾 {result}')
+			return ActionResult(extracted_content=result, include_in_memory=True, long_term_memory=result)
+
+		@self.registry.action('Append content to file_name in file system')
+		async def append_file(file_name: str, content: str, file_system: FileSystem):
+			result = await file_system.append_file(file_name, content)
+			logger.info(f'💾 {result}')
+			return ActionResult(extracted_content=result, include_in_memory=True, long_term_memory=result)
+
+		@self.registry.action('Read file_name from file system')
+		async def read_file(file_name: str, available_file_paths: list[str], file_system: FileSystem):
+			if available_file_paths and file_name in available_file_paths:
+				import anyio
+
+				async with await anyio.open_file(file_name, 'r') as f:
+					content = await f.read()
+					result = f'Read from file {file_name}.\n<content>\n{content}\n</content>'
+			else:
+				result = await file_system.read_file(file_name)
+
+			MAX_MEMORY_SIZE = 1000
+			if len(result) > MAX_MEMORY_SIZE:
+				lines = result.splitlines()
+				display = ''
+				lines_count = 0
+				for line in lines:
+					if len(display) + len(line) < MAX_MEMORY_SIZE:
+						display += line + '\n'
+						lines_count += 1
+					else:
+						break
+				remaining_lines = len(lines) - lines_count
+				memory = f'{display}{remaining_lines} more lines...' if remaining_lines > 0 else display
+			else:
+				memory = result
+			logger.info(f'💾 {memory}')
+			return ActionResult(
+				extracted_content=result,
+				include_in_memory=True,
+				long_term_memory=memory,
+				include_extracted_content_only_once=True,
+			)
+
 		@self.registry.action(
 			description='Get all options from a native dropdown',
 		)

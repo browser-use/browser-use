@@ -15,7 +15,6 @@ from pathlib import Path
 from threading import Thread
 from typing import Any, Generic, TypeVar
 
-import anyio
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -184,6 +183,8 @@ class Agent(Generic[Context]):
 	):
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
+		if available_file_paths is None:
+			available_file_paths = []
 
 		self.id = task_id or uuid7str()
 		self.task_id: str = self.id
@@ -492,48 +493,6 @@ class Agent(Generic[Context]):
 			self.file_system = FileSystem(self.file_system_path)
 
 		logger.info(f'💾 File system path: {self.file_system_path}')
-
-		# if file system is set, add actions to the controller
-		@self.controller.registry.action('Write content to file_name in file system, use only .md or .txt extensions.')
-		async def write_file(file_name: str, content: str):
-			result = await self.file_system.write_file(file_name, content)
-			logger.info(f'💾 {result}')
-			return ActionResult(extracted_content=result, include_in_memory=True, long_term_memory=result)
-
-		@self.controller.registry.action('Append content to file_name in file system')
-		async def append_file(file_name: str, content: str):
-			result = await self.file_system.append_file(file_name, content)
-			logger.info(f'💾 {result}')
-			return ActionResult(extracted_content=result, include_in_memory=True, long_term_memory=result)
-
-		@self.controller.registry.action('Read file_name from file system')
-		async def read_file(file_name: str, available_file_paths: list[str]):
-			if file_name in available_file_paths:
-				async with await anyio.open_file(file_name, 'r') as f:
-					content = await f.read()
-					result = f'Read from file {file_name}.\n<content>\n{content}\n</content>'
-			else:
-				result = await self.file_system.read_file(file_name)
-
-			MAX_MEMORY_SIZE = 1000
-			if len(result) > MAX_MEMORY_SIZE:
-				lines = result.splitlines()
-				display = ''
-				for line in lines:
-					if len(display) + len(line) < MAX_MEMORY_SIZE:
-						display += line + '\n'
-					else:
-						break
-				memory = f'{display}{len(lines) - len(display)} more lines...'
-			else:
-				memory = result
-			logger.info(f'💾 {memory}')
-			return ActionResult(
-				extracted_content=result,
-				include_in_memory=True,
-				long_term_memory=memory,
-				include_extracted_content_only_once=True,
-			)
 
 	def _set_message_context(self) -> str | None:
 		if self.tool_calling_method == 'raw':

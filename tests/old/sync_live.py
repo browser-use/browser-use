@@ -77,11 +77,11 @@
 
 # 	Environment variables required:
 # 	- RUN_LIVE_TESTS=1 (to enable the test)
-# 	- BROWSER_USE_CLOUD_URL (optional, defaults to https://cloud.browser-use.com)
+# 	- BROWSER_USE_CLOUD_API_URL (optional, defaults to https://cloud.browser-use.com)
 # 	"""
 
 # 	# Configuration
-# 	backend_url = os.getenv('BROWSER_USE_CLOUD_URL', 'http://localhost:8000')
+# 	backend_url = os.getenv('BROWSER_USE_CLOUD_API_URL', 'http://localhost:8000')
 # 	logger.info(f'Running live integration test against: {backend_url}')
 
 # 	# Create mock LLM
@@ -89,7 +89,7 @@
 
 # 	# Set environment variables for cloud sync
 # 	os.environ['BROWSERUSE_CLOUD_SYNC'] = 'true'
-# 	os.environ['BROWSER_USE_CLOUD_URL'] = backend_url
+# 	os.environ['BROWSER_USE_CLOUD_API_URL'] = backend_url
 
 # 	# Create browser session with real profile
 # 	browser_session = BrowserSession(
@@ -147,7 +147,7 @@
 # 	This is a simpler test that just verifies event sending works.
 # 	"""
 
-# 	backend_url = os.getenv('BROWSER_USE_CLOUD_URL', 'http://localhost:8000')
+# 	backend_url = os.getenv('BROWSER_USE_CLOUD_API_URL', 'http://localhost:8000')
 # 	logger.info(f'Testing cloud sync against: {backend_url}')
 
 # 	# Create cloud sync service

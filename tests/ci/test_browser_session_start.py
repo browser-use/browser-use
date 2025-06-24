@@ -927,8 +927,8 @@ class TestBrowserSessionReusePatterns:
 		await browser_session1.start()
 		await browser_session2.start()
 
-		assert browser_session1.is_connected()
-		assert browser_session2.is_connected()
+		assert await browser_session1.is_connected()
+		assert await browser_session2.is_connected()
 		assert browser_session1.browser_context != browser_session2.browser_context
 
 		await browser_session1.create_new_tab('chrome://version')
@@ -937,7 +937,7 @@ class TestBrowserSessionReusePatterns:
 		await browser_session2.kill()
 
 		# ensure that the browser_session1 is still connected and unaffected by the kill of browser_session2
-		assert browser_session1.is_connected()
+		assert await browser_session1.is_connected()
 		assert browser_session1.browser_context is not None
 		await browser_session1.create_new_tab('chrome://settings')
 		await browser_session1.browser_context.pages[0].evaluate('alert(1)')
@@ -996,7 +996,7 @@ class TestBrowserSessionReusePatterns:
 		# ensure all are connected and usable
 		new_tab_tasks = []
 		for browser_session in browser_sessions:
-			assert browser_session.is_connected()
+			assert await browser_session.is_connected()
 			assert browser_session.browser_context is not None
 			new_tab_tasks.append(browser_session.create_new_tab('chrome://version'))
 		await asyncio.gather(*new_tab_tasks)
@@ -1012,7 +1012,7 @@ class TestBrowserSessionReusePatterns:
 		new_tab_tasks = []
 		screenshot_tasks = []
 		for browser_session in filter(bool, browser_sessions):
-			assert browser_session.is_connected()
+			assert await browser_session.is_connected()
 			assert browser_session.browser_context is not None
 			new_tab_tasks.append(browser_session.create_new_tab('chrome://version'))
 			screenshot_tasks.append(browser_session.take_screenshot())

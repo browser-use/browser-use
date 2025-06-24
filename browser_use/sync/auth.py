@@ -61,7 +61,7 @@ class DeviceAuthClient:
 
 	def __init__(self, base_url: str | None = None, http_client: httpx.AsyncClient | None = None):
 		# Backend API URL for OAuth requests - can be passed directly or defaults to env var
-		self.base_url = base_url or CONFIG.BROWSER_USE_CLOUD_URL
+		self.base_url = base_url or CONFIG.BROWSER_USE_CLOUD_API_URL
 		self.client_id = 'library'
 		self.scope = 'read write'
 
@@ -257,7 +257,7 @@ class DeviceAuthClient:
 			device_auth = await self.start_device_authorization(agent_session_id)
 
 			# Use frontend URL for user-facing links
-			frontend_url = CONFIG.BROWSER_USE_CLOUD_UI_URL or self.base_url
+			frontend_url = CONFIG.BROWSER_USE_CLOUD_UI_URL or self.base_url.replace('//api.', '//cloud.')
 
 			# Replace backend URL with frontend URL in verification URIs
 			verification_uri = device_auth['verification_uri'].replace(self.base_url, frontend_url)
@@ -293,7 +293,7 @@ class DeviceAuthClient:
 				response = getattr(e, 'response')
 				if hasattr(response, 'status_code') and hasattr(response, 'text'):
 					logger.debug(
-						f'Failed to get pre-auth token for cloud sync: HTTP {response.status_code} - {response.text[:200]}'
+						f'Failed to get pre-auth token for cloud sync: HTTP {response.request.url} {response.status_code} - {response.text}'
 					)
 				else:
 					logger.debug(f'Failed to get pre-auth token for cloud sync: {type(e).__name__}: {e}')

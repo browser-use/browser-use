@@ -42,7 +42,7 @@ def setup_test_environment():
 		'SKIP_LLM_API_KEY_VERIFICATION': 'true',
 		'ANONYMIZED_TELEMETRY': 'false',
 		'BROWSER_USE_CLOUD_SYNC': 'true',
-		'BROWSER_USE_CLOUD_URL': 'http://placeholder-will-be-replaced-by-specific-test-fixtures',
+		'BROWSER_USE_CLOUD_API_URL': 'http://placeholder-will-be-replaced-by-specific-test-fixtures',
 		'BROWSER_USE_CLOUD_UI_URL': 'http://placeholder-will-be-replaced-by-specific-test-fixtures',
 		'BROWSER_USE_CONFIG_DIR': config_dir,
 	}
@@ -169,7 +169,7 @@ def cloud_sync(httpserver: HTTPServer):
 
 	# Set up test environment
 	test_http_server_url = httpserver.url_for('')
-	os.environ['BROWSER_USE_CLOUD_URL'] = test_http_server_url
+	os.environ['BROWSER_USE_CLOUD_API_URL'] = test_http_server_url
 	os.environ['BROWSER_USE_CLOUD_UI_URL'] = test_http_server_url
 	os.environ['BROWSER_USE_CLOUD_SYNC'] = 'true'
 

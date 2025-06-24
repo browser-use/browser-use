@@ -12,7 +12,7 @@ We want our library APIs to be ergonomic, intuitive, and hard to get wrong.
 - We keep the main code for each sub-component in a `service.py` file usually, and we keep most pydantic models in `views.py` files unless they are long enough deserve their own file
 - Use runtime assertions at the start and end of functions to enforce constraints and assumptions
 - Prefer `from uuid_extensions import uuid7str` +  `id: str = Field(default_factory=uuid7str)` for all new id fields
-- Run tests using `uv run pytest -vx tests/ci`
+- Run tests using `uv run pytest -vxs tests/ci`
 - Run the type checker using `uv run pyright`
 
 ## Keep Examples & Tests Up-To-Date

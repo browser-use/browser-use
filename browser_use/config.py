@@ -54,9 +54,9 @@ class Config:
 		return os.getenv('BROWSER_USE_CLOUD_SYNC', str(self.ANONYMIZED_TELEMETRY)).lower()[:1] in 'ty1'
 
 	@property
-	def BROWSER_USE_CLOUD_URL(self) -> str:
-		url = os.getenv('BROWSER_USE_CLOUD_URL', 'https://cloud.browser-use.com')
-		assert '://' in url, 'BROWSER_USE_CLOUD_URL must be a valid URL'
+	def BROWSER_USE_CLOUD_API_URL(self) -> str:
+		url = os.getenv('BROWSER_USE_CLOUD_API_URL', 'https://api.browser-use.com')
+		assert '://' in url, 'BROWSER_USE_CLOUD_API_URL must be a valid URL'
 		return url
 
 	@property

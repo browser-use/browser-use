@@ -276,7 +276,7 @@ class BrowserSession(BaseModel):
 		async with asyncio.timeout(60):  # 60 second overall timeout for entire launching process to avoid deadlocks
 			async with self._start_lock:  # prevent parallel calls to start() / stop() / save_storage_state() from clashing
 				if self.initialized:
-					if self.is_connected():
+					if await self.is_connected():
 						return self
 					else:
 						next_step = (
@@ -353,7 +353,7 @@ class BrowserSession(BaseModel):
 			async with self._start_lock:
 				# save cookies to disk if cookies_file or storage_state is configured
 				# but only if the browser context is still connected
-				if self.is_connected():
+				if self.browser_context:
 					try:
 						await asyncio.wait_for(self.save_storage_state(), timeout=5)
 					except Exception as e:
@@ -1278,7 +1278,7 @@ class BrowserSession(BaseModel):
 		if self.browser_profile.keep_alive is None:
 			self.browser_profile.keep_alive = keep_alive
 
-	def is_connected(self) -> bool:
+	async def is_connected(self, restart: bool = True) -> bool:
 		"""
 		Check if the browser session has valid, connected browser and context objects.
 		Returns False if any of the following conditions are met:
@@ -1286,6 +1286,10 @@ class BrowserSession(BaseModel):
 		- Browser exists but is disconnected
 		- Browser_context's browser exists but is disconnected
 		- Browser_context itself is closed/unusable
+
+		Args:
+			restart: If True, will attempt to create a new tab if no pages exist (valid contexts must always have at least one page open).
+			        If False, will only check connection status without side effects.
 		"""
 		if not self.browser_context:
 			return False
@@ -1298,7 +1302,13 @@ class BrowserSession(BaseModel):
 			# TODO: figure out a better synchronous test for whether browser_context is usable
 			# this is a hacky workaround for the fact that playwright's browser_context has no is_connected() method
 			# and browser_context.browser is None when we launch with a persistent context (basically always)
-			return bool(self.browser_context.pages)
+			if self.browser_context.pages:
+				return True
+			elif restart:
+				await self.create_new_tab()
+				return True
+			else:
+				return False
 		except Exception:
 			return False
 
@@ -1423,7 +1433,7 @@ class BrowserSession(BaseModel):
 				self.agent_current_page = first_available_tab
 				self.human_current_page = first_available_tab
 			else:
-				# if all tabs are closed, open a new one
+				# if all tabs are closed, open a new one, never allow a context with 0 tabs
 				new_tab = await self.create_new_tab()
 				self.agent_current_page = new_tab
 				self.human_current_page = new_tab
@@ -3016,9 +3026,9 @@ class BrowserSession(BaseModel):
 		except Exception:
 			self.initialized = False
 
-		if not self.initialized or not self.is_connected():
+		if not self.initialized or not self.browser_context:
 			# If we were initialized but lost connection, reset state first to avoid infinite loops
-			if self.initialized and not self.is_connected():
+			if self.initialized and not self.browser_context:
 				self.logger.warning(
 					f'💔 Browser {self._connection_str} disconnected while trying to create a new tab, reconnecting...'
 				)

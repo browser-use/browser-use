@@ -21,7 +21,7 @@ class CloudSync:
 
 	def __init__(self, base_url: str | None = None, enable_auth: bool = True):
 		# Backend API URL for all API requests - can be passed directly or defaults to env var
-		self.base_url = base_url or CONFIG.BROWSER_USE_CLOUD_URL
+		self.base_url = base_url or CONFIG.BROWSER_USE_CLOUD_API_URL
 		self.enable_auth = enable_auth
 		self.auth_client = DeviceAuthClient(base_url=self.base_url) if enable_auth else None
 		self.pending_events: list[BaseEvent] = []
@@ -75,7 +75,9 @@ class CloudSync:
 					self.pending_events.append(event)
 				elif response.status_code >= 400:
 					# Log error but don't raise - we want to fail silently
-					logger.warning(f'Failed to send event to cloud: HTTP {response.status_code} - {response.text[:200]}')
+					logger.warning(
+						f'Failed to send event to cloud: POST {response.request.url} {response.status_code} - {response.text}'
+					)
 		except httpx.TimeoutException:
 			logger.warning(f'⚠️ Event send timed out after 10 seconds: {event}')
 		except httpx.ConnectError as e:

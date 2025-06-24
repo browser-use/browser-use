@@ -331,14 +331,14 @@ class TestTabManagement:
 		assert browser_session.browser_context is not None
 		assert browser_session.browser_context != original_context
 		assert browser_session.initialized is True
-		assert browser_session.is_connected() is True
+		assert (await browser_session.is_connected()) is True
 
 	async def test_concurrent_context_access_during_closure(self, browser_session):
 		"""Test concurrent access to browser context during closure"""
 		# logger.info('Testing concurrent context access during closure')
 
 		await browser_session.start()
-		assert browser_session.is_connected() is True
+		assert (await browser_session.is_connected()) is True
 
 		# Create a barrier to synchronize operations
 		barrier = asyncio.Barrier(3)
@@ -346,7 +346,7 @@ class TestTabManagement:
 		async def close_context():
 			await barrier.wait()
 			await browser_session.browser_context.close()
-			assert browser_session.is_connected() is False
+			assert (await browser_session.is_connected()) is False
 			return 'closed'
 
 		async def access_pages():
@@ -360,7 +360,7 @@ class TestTabManagement:
 		async def check_connection():
 			await barrier.wait()
 			await asyncio.sleep(0.01)  # Small delay to let close start
-			connected = browser_session.is_connected()
+			connected = await browser_session.is_connected()
 			return f'connected: {connected}'
 
 		# Run all operations concurrently
