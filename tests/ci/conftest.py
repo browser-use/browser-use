@@ -107,32 +107,41 @@ def create_mock_llm(actions: list[str] | None = None) -> BaseChatModel:
 	}
 	"""
 
-	default_done_action_parsed = AgentOutputWithActions.model_validate_json(default_done_action)
+	# Unified logic for both cases
+	action_index = 0
 
-	if actions is None:
-		# No actions provided, just return done action
-		async def async_invoke(*args, **kwargs):
-			return ChatInvokeCompletion(completion=default_done_action_parsed, usage=None)
+	def get_next_action() -> str:
+		nonlocal action_index
+		if actions is not None and action_index < len(actions):
+			action = actions[action_index]
+			action_index += 1
+			return action
+		else:
+			return default_done_action
 
-		llm.ainvoke.side_effect = async_invoke
+	async def mock_ainvoke(*args, **kwargs):
+		# Check if output_format is provided (2nd argument or in kwargs)
+		output_format = None
+		if len(args) >= 2:
+			output_format = args[1]
+		elif 'output_format' in kwargs:
+			output_format = kwargs['output_format']
 
-	else:
-		# Actions provided, return them in sequence with structured output support
-		action_index = 0
+		action_json = get_next_action()
 
-		def get_next_action() -> str:
-			nonlocal action_index
-			if action_index < len(actions):
-				action = actions[action_index]
-				action_index += 1
-				return action
+		if output_format is None:
+			# Return string completion
+			return ChatInvokeCompletion(completion=action_json, usage=None)
+		else:
+			# Parse with provided output_format (could be AgentOutputWithActions or another model)
+			if output_format == AgentOutputWithActions:
+				parsed = AgentOutputWithActions.model_validate_json(action_json)
 			else:
-				return default_done_action
+				# For other output formats, try to parse the JSON with that model
+				parsed = output_format.model_validate_json(action_json)
+			return ChatInvokeCompletion(completion=parsed, usage=None)
 
-		async def mock_ainvoke(*args, **kwargs):
-			return ChatInvokeCompletion(completion=AgentOutputWithActions.model_validate_json(get_next_action()), usage=None)
-
-		llm.ainvoke.side_effect = mock_ainvoke
+	llm.ainvoke.side_effect = mock_ainvoke
 
 	return llm
 
