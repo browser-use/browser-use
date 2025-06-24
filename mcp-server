@@ -1,0 +1,4 @@
+#!/bin/bash
+# Browser-Use MCP Server Startup Script
+cd "$(dirname "$0")"
+exec uv run python3 browser_use/mcp_server/server.py "$@"

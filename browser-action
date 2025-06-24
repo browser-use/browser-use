@@ -1,0 +1,5 @@
+#!/bin/bash
+# Browser Action CLI Wrapper
+cd "$(dirname "$0")"
+source .venv/bin/activate
+python3 browser_use/action_server/browser_cli.py "$@"

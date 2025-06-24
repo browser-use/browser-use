@@ -57,3 +57,144 @@ When doing any truly massive refactors, trend towards using simple event buses a
 
 If you struggle to update or edit files in-place, try shortening your match string to 1 or 2 lines instead of 3.
 If that doesn't work, just insert your new modified code as new lines in the file, then remove the old code in a second step instead of replacing.
+
+## Claude Code Integration
+
+This repository includes a Claude Code integration feature:
+
+### Browser Action Server
+Allows Claude Code sessions to directly control browsers through individual HTTP commands.
+
+**Purpose**: Enable Claude Code to perform browser automation directly from chat sessions without blocking the terminal.
+
+**Architecture**: 
+```
+Claude Code (chat) → HTTP POST → Browser Action Server → Playwright → HTTP Response → Claude Code
+```
+
+**Key Requirements**:
+- **Non-blocking terminal usage** - Claude Code can only have one active terminal session
+- **Individual action commands** - Each HTTP request performs one browser action and returns immediately  
+- **Real-time feedback** - Claude Code gets response after each action to decide next step
+- **Session persistence** - Browser state maintained across multiple action requests
+- **Background operation** - Server runs independently, doesn't block Claude Code's terminal
+
+**Usage Pattern**:
+```python
+# In Claude Code chat:
+import httpx
+response = httpx.post("http://localhost:8766/navigate", json={"url": "amazon.com"})
+print(response.json())  # {"success": true, "title": "Amazon", "url": "https://amazon.com"}
+
+# Terminal is immediately free for next command
+response = httpx.post("http://localhost:8766/click", json={"selector": "#search-box"})
+print(response.json())  # {"success": true, "element": "input#search-box"}
+```
+
+**API Endpoints**:
+- `POST /navigate` - Navigate to URL
+- `POST /click` - Click element by selector
+- `POST /type` - Type text into element
+- `POST /scroll` - Scroll page
+- `GET /screenshot` - Take screenshot
+- `GET /status` - Get current page state
+- `GET /html` - Get page HTML
+- `POST /wait` - Wait for element/condition
+
+**Implementation Location**: `browser_use/action_server/`
+
+**Status**: ✅ Complete - fully functional action server with comprehensive testing
+
+**CLI Tool**: `./browser-action` - Simple command-line interface for quick browser actions
+
+**CLI Usage**:
+```bash
+./browser-action server start                    # Start server
+./browser-action navigate https://example.com   # Navigate
+./browser-action click "#button"                # Click element  
+./browser-action type "#input" "text"           # Type text
+./browser-action screenshot                      # Take screenshot
+./browser-action status                          # Get page info
+```
+
+### MCP Server
+
+Model Context Protocol server that allows Claude Code to control browsers through native MCP tools.
+
+**Purpose**: Provide browser automation capabilities as standard MCP tools that Claude Code can call directly.
+
+**Architecture**: 
+```
+Claude Code → MCP Protocol → Browser MCP Server → HTTP Requests → Browser Action Server → Playwright
+```
+
+**Key Features**:
+- **Native MCP Integration** - Appears as built-in tools in Claude Code's tool palette
+- **Automatic Server Management** - Starts Browser Action Server automatically when needed
+- **Tool Discovery** - All browser tools are automatically available and documented
+- **Error Handling** - Comprehensive error reporting and fallback mechanisms
+- **Session Management** - Maintains browser state across tool calls
+
+**Available Tools** (21 total):
+```python
+# Navigation and page control
+browser_navigate(url, wait_until="domcontentloaded", timeout=30.0)
+browser_reload(timeout=30.0)
+browser_go_back(timeout=30.0)
+browser_go_forward(timeout=30.0)
+browser_search_google(query, timeout=30.0)
+browser_status(timeout=10.0)
+browser_screenshot(timeout=10.0)
+
+# Element interaction
+browser_click(selector, timeout=10.0)
+browser_type(selector, text, timeout=10.0)
+browser_hover(selector, timeout=10.0)
+browser_wait_for_element(selector, timeout=10.0)
+
+# Advanced wait conditions
+browser_wait_for_text(text, timeout=30.0)
+browser_wait_for_url(url, timeout=30.0)
+browser_wait_timeout(seconds)
+
+# Page manipulation and content
+browser_scroll(direction="down", amount=300, timeout=10.0)
+browser_scroll_to_text(text, timeout=10.0)
+browser_get_html(timeout=10.0)
+browser_get_element_info(selector, timeout=10.0)
+
+# File operations
+browser_upload_file(selector, file_path, timeout=10.0)
+
+# Server management
+browser_server_status()
+browser_server_start(port=8766, debug=False)
+```
+
+**Installation**:
+```bash
+# Install MCP server to Claude Code
+claude mcp add browser-use /path/to/browser-use/mcp-server
+
+# Or use the installation helper
+./install-mcp-server.sh
+```
+
+**Usage in Claude Code**:
+Simply ask Claude Code to use browser tools:
+- "Navigate to https://example.com and take a screenshot"
+- "Search Google for 'best laptops 2024' and click the first result"
+- "Go back to the previous page and scroll to find the pricing section"
+- "Hover over the menu and wait for the dropdown to appear"
+- "Upload the document from /path/to/file.pdf to the file input"
+- "Get the HTML content and find all the product links"
+- "Wait for the text 'Loading complete' to appear on the page"
+
+**Implementation Location**: `browser_use/mcp_server/`
+
+**Status**: ✅ Enhanced - 21 comprehensive browser automation tools (233% more than initial implementation)
+
+When working on Claude Code integration features:
+- Each feature must be complete and tested before proceeding to the next
+- Maintain backward compatibility with existing functionality
+- Test integration thoroughly with real browser automation scenarios

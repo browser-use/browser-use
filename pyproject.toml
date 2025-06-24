@@ -12,6 +12,7 @@ classifiers = [
 ]
 dependencies = [
     "aiofiles>=24.1.0",
+    "aiohttp>=3.10.0",
     "anyio>=4.9.0",
     "bubus>=1.1.2",
     "google-api-core>=2.25.0",
@@ -38,6 +39,8 @@ dependencies = [
     "typing-extensions>=4.12.2",
     "uuid7>=0.1.0",
     "authlib>=1.6.0",
+    "mcp>=1.0.0",
+    "fastmcp[cli]>=2.8.1",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
