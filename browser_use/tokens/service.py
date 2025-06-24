@@ -10,19 +10,30 @@ import logging
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import aiofiles
 import aiofiles.os
 import httpx
+from dotenv import load_dotenv
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.views import ChatInvokeUsage
 from browser_use.tokens.views import CachedPricingData, ModelPricing, ModelUsageStats, TokenUsageEntry, UsageSummary
-from browser_use.utils import xdg_cache_home
+
+load_dotenv()
+
+from browser_use.config import CONFIG
 
 logger = logging.getLogger(__name__)
 cost_logger = logging.getLogger('cost')
+
+
+def xdg_cache_home() -> Path:
+	default = Path.home() / '.cache'
+	if CONFIG.XDG_CACHE_HOME and (path := Path(CONFIG.XDG_CACHE_HOME)).is_absolute():
+		return path
+	return default
 
 
 class TokenCost:
@@ -35,9 +46,9 @@ class TokenCost:
 	def __init__(self, include_cost: bool = False):
 		self.include_cost = include_cost or os.getenv('BROWSER_USE_CALCULATE_COST', 'false').lower() == 'true'
 
-		self.usage_history: List[TokenUsageEntry] = []
-		self.registered_llms: Dict[str, BaseChatModel] = {}
-		self._pricing_data: Optional[Dict[str, Any]] = None
+		self.usage_history: list[TokenUsageEntry] = []
+		self.registered_llms: dict[str, BaseChatModel] = {}
+		self._pricing_data: dict[str, Any] | None = None
 		self._initialized = False
 		self._cache_dir = xdg_cache_home() / self.CACHE_DIR_NAME
 
@@ -58,7 +69,7 @@ class TokenCost:
 		else:
 			await self._fetch_and_cache_pricing_data()
 
-	async def _find_valid_cache(self) -> Optional[Path]:
+	async def _find_valid_cache(self) -> Path | None:
 		"""Find the most recent valid cache file"""
 		try:
 			# Ensure cache directory exists
@@ -143,7 +154,7 @@ class TokenCost:
 			# Fall back to empty pricing data
 			self._pricing_data = {}
 
-	async def get_model_pricing(self, model_name: str) -> Optional[ModelPricing]:
+	async def get_model_pricing(self, model_name: str) -> ModelPricing | None:
 		"""Get pricing information for a specific model"""
 		# Ensure we're initialized
 		if not self._initialized:
@@ -266,7 +277,7 @@ class TokenCost:
 		return llm
 
 	def get_usage_summary(
-		self, model: Optional[str] = None, since: Optional[datetime] = None, calculate_cost: bool = True
+		self, model: str | None = None, since: datetime | None = None, calculate_cost: bool = True
 	) -> UsageSummary:
 		"""Get summary of token usage and costs (costs calculated on-the-fly)"""
 		filtered_usage = self.usage_history
@@ -292,10 +303,10 @@ class TokenCost:
 		total_prompt = sum(u.prompt_tokens for u in filtered_usage)
 		total_completion = sum(u.completion_tokens for u in filtered_usage)
 		total_tokens = sum(u.total_tokens for u in filtered_usage)
-		models = list(set(u.model for u in filtered_usage))
+		models = list({u.model for u in filtered_usage})
 
 		# Calculate per-model stats with on-the-fly cost calculation
-		model_stats: Dict[str, ModelUsageStats] = {}
+		model_stats: dict[str, ModelUsageStats] = {}
 		total_prompt_cost = 0.0
 		total_completion_cost = 0.0
 
@@ -427,7 +438,7 @@ class TokenCost:
 				f'📞 {stats.invocations} calls | 📈 {avg_tokens_fmt}/call'
 			)
 
-	def get_cost_by_model(self) -> Dict[str, ModelUsageStats]:
+	def get_cost_by_model(self) -> dict[str, ModelUsageStats]:
 		"""Get cost breakdown by model"""
 		summary = self.get_usage_summary(calculate_cost=self.include_cost)
 		return summary.by_model
