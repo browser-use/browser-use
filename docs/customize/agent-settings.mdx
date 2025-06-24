@@ -208,7 +208,7 @@ agent = Agent(
 
 ### Planner Parameters
 
-- `planner_llm`: A LangChain chat model instance used for high-level task planning. Can be a smaller/cheaper model than the main LLM.
+- `planner_llm`: A chat model instance used for high-level task planning. Can be a smaller/cheaper model than the main LLM.
 - `use_vision_for_planner`: Enable/disable vision capabilities for the planner model. Defaults to `True`.
 - `planner_interval`: Number of steps between planning phases. Defaults to `1`.
 
@@ -298,7 +298,7 @@ The `MemoryConfig` model provides these configuration options:
 
 #### LLM Settings (for Mem0's internal operations)
 
-- `llm_instance`: The LangChain `BaseChatModel` instance that Mem0 will use for its internal summarization and processing. You must pass the same LLM instance used by the main agent, or another compatible one, here.
+- `llm_instance`: The `BaseChatModel` instance that Mem0 will use for its internal summarization and processing. You must pass the same LLM instance used by the main agent, or another compatible one, here.
 
 #### Embedder Settings
 
