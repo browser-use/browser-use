@@ -394,10 +394,10 @@ class TestControllerIntegration:
 
 		# Go back twice and verify each step
 		for expected_url in reversed(urls[:-1]):
-			go_back_action = {'go_back': None}
+			go_back_action = {'go_back': NoParamsAction()}
 
 			class GoBackActionModel(ActionModel):
-				go_back = None
+				go_back: NoParamsAction | None = None
 
 			await controller.act(GoBackActionModel(**go_back_action), browser_session)
 			await asyncio.sleep(1)  # Wait for navigation to complete
