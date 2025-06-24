@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import pyotp
+import pyotp  # type: ignore
 from langchain_openai import ChatOpenAI
 
 from browser_use import ActionResult, Agent, Controller

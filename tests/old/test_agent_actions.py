@@ -25,10 +25,10 @@ def llm():
 
 @pytest.fixture
 async def browser_session():
-	browser_session = BrowserSession(
-		headless=True,
-		user_data_dir=None,
-	)
+	from browser_use.browser.profile import BrowserProfile
+
+	profile = BrowserProfile(headless=True, user_data_dir=None)
+	browser_session = BrowserSession(browser_profile=profile)
 	await browser_session.start()
 	yield browser_session
 	await browser_session.stop()

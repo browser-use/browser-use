@@ -20,7 +20,7 @@ load_dotenv()
 
 from langchain_openai import AzureChatOpenAI
 from pydantic import BaseModel, SecretStr
-from PyPDF2 import PdfReader
+from PyPDF2 import PdfReader  # type: ignore
 
 from browser_use import ActionResult, Agent, Controller
 from browser_use.browser import BrowserProfile, BrowserSession

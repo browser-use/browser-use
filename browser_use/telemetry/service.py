@@ -1,15 +1,17 @@
 import logging
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from posthog import Posthog
 from uuid_extensions import uuid7str
 
 from browser_use.telemetry.views import BaseTelemetryEvent
-from browser_use.utils import singleton, xdg_cache_home
+from browser_use.utils import singleton
 
 load_dotenv()
 
+from browser_use.config import CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +19,13 @@ logger = logging.getLogger(__name__)
 POSTHOG_EVENT_SETTINGS = {
 	'process_person_profile': True,
 }
+
+
+def xdg_cache_home() -> Path:
+	default = Path.home() / '.cache'
+	if CONFIG.XDG_CACHE_HOME and (path := Path(CONFIG.XDG_CACHE_HOME)).is_absolute():
+		return path
+	return default
 
 
 @singleton
@@ -35,8 +44,8 @@ class ProductTelemetry:
 	_curr_user_id = None
 
 	def __init__(self) -> None:
-		telemetry_disabled = os.getenv('ANONYMIZED_TELEMETRY', 'true').lower() == 'false'
-		self.debug_logging = os.getenv('BROWSER_USE_LOGGING_LEVEL', 'info').lower() == 'debug'
+		telemetry_disabled = not CONFIG.ANONYMIZED_TELEMETRY
+		self.debug_logging = CONFIG.BROWSER_USE_LOGGING_LEVEL == 'debug'
 
 		if telemetry_disabled:
 			self._posthog_client = None

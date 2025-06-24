@@ -81,7 +81,7 @@ class MemoryConfig(BaseModel):
 		Returns the vector store configuration dictionary for Mem0,
 		tailored to the selected provider.
 		"""
-		provider_specific_config = {'embedding_model_dims': self.embedder_dims}
+		provider_specific_config: dict[str, Any] = {'embedding_model_dims': self.embedder_dims}
 
 		# --- Default collection_name handling ---
 		if self.vector_store_collection_name:
@@ -168,7 +168,7 @@ class MemoryConfig(BaseModel):
 		}
 
 	@property
-	def full_config_dict(self) -> dict[str, dict[str, Any]]:
+	def full_config_dict(self) -> dict[str, Any]:
 		"""Returns the complete configuration dictionary for Mem0."""
 		return {
 			'embedder': self.embedder_config_dict,

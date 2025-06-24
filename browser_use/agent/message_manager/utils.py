@@ -13,7 +13,10 @@ logger = logging.getLogger(__name__)
 
 
 async def save_conversation(
-	input_messages: list[BaseMessage], response: Any, target: str | Path, encoding: str | None = None
+	input_messages: list[BaseMessage],
+	response: Any,
+	target: str | Path,
+	encoding: str | None = None,
 ) -> None:
 	"""Save conversation history to file asynchronously."""
 	target_path = Path(target)
@@ -21,7 +24,10 @@ async def save_conversation(
 	if target_path.parent:
 		await anyio.Path(target_path.parent).mkdir(parents=True, exist_ok=True)
 
-	await anyio.Path(target_path).write_text(await _format_conversation(input_messages, response), encoding=encoding or 'utf-8')
+	await anyio.Path(target_path).write_text(
+		await _format_conversation(input_messages, response),
+		encoding=encoding or 'utf-8',
+	)
 
 
 async def _format_conversation(messages: list[BaseMessage], response: Any) -> str:

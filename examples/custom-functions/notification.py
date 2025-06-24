@@ -17,7 +17,7 @@ controller = Controller()
 
 @controller.registry.action('Done with task ')
 async def done(text: str):
-	import yagmail
+	import yagmail  # type: ignore
 
 	# To send emails use
 	# STEP 1: go to https://support.google.com/accounts/answer/185833

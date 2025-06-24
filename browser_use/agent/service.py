@@ -35,7 +35,10 @@ from uuid_extensions import uuid7str
 
 from browser_use.agent.gif import create_history_gif
 from browser_use.agent.memory import Memory, MemoryConfig
-from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
+from browser_use.agent.message_manager.service import (
+	MessageManager,
+	MessageManagerSettings,
+)
 from browser_use.agent.message_manager.utils import (
 	save_conversation,
 )
@@ -56,11 +59,16 @@ from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
 from browser_use.browser.types import Browser, BrowserContext, Page
 from browser_use.browser.views import BrowserStateSummary
+from browser_use.config import CONFIG
 from browser_use.controller.registry.views import ActionModel
 from browser_use.controller.service import Controller
-from browser_use.dom.history_tree_processor.service import DOMHistoryElement, HistoryTreeProcessor
+from browser_use.dom.history_tree_processor.service import (
+	DOMHistoryElement,
+	HistoryTreeProcessor,
+)
 from browser_use.exceptions import LLMException
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.sync import CloudSync
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import AgentTelemetryEvent
 from browser_use.utils import (
@@ -71,8 +79,6 @@ from browser_use.utils import (
 )
 
 logger = logging.getLogger(__name__)
-
-SKIP_LLM_API_KEY_VERIFICATION = os.environ.get('SKIP_LLM_API_KEY_VERIFICATION', 'false').lower()[0] in 'ty1'
 
 
 def log_response(response: AgentOutput, registry=None, logger=None) -> None:
@@ -172,9 +178,12 @@ class Agent(Generic[Context]):
 		source: str | None = None,
 		file_system_path: str | None = None,
 		task_id: str | None = None,
+		cloud_sync: CloudSync | None = None,
 	):
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
+		if available_file_paths is None:
+			available_file_paths = []
 
 		self.id = task_id or uuid7str()
 		self.task_id: str = self.id
@@ -288,6 +297,7 @@ class Agent(Generic[Context]):
 				sensitive_data=sensitive_data,
 				available_file_paths=self.settings.available_file_paths,
 			),
+			available_file_paths=self.settings.available_file_paths,
 			state=self.state.message_manager_state,
 		)
 
@@ -427,18 +437,14 @@ class Agent(Generic[Context]):
 		self.telemetry = ProductTelemetry()
 
 		# Event bus with WAL persistence
-		# Default to ~/.config/browseruse/events/{agent_task_id}.jsonl
-		from browser_use.utils import BROWSER_USE_CONFIG_DIR
-
-		wal_path = BROWSER_USE_CONFIG_DIR / 'events' / f'{self.task_id}.jsonl'
+		# Default to ~/.config/browseruse/events/{agent_session_id}.jsonl
+		wal_path = CONFIG.BROWSER_USE_CONFIG_DIR / 'events' / f'{self.session_id}.jsonl'
 		self.eventbus = EventBus(name='Agent', wal_path=wal_path)
 
 		# Cloud sync service
-		self.enable_cloud_sync = os.environ.get('BROWSERUSE_CLOUD_SYNC', 'true').lower()[0] in 'ty1'
-		if self.enable_cloud_sync:
-			from browser_use.sync import CloudSync
-
-			self.cloud_sync = CloudSync()
+		self.enable_cloud_sync = CONFIG.BROWSER_USE_CLOUD_SYNC
+		if self.enable_cloud_sync or cloud_sync is not None:
+			self.cloud_sync = cloud_sync or CloudSync()
 			# Register cloud sync handler
 			self.eventbus.on('*', self.cloud_sync.handle_event)
 
@@ -493,13 +499,21 @@ class Agent(Generic[Context]):
 		async def write_file(file_name: str, content: str):
 			result = await self.file_system.write_file(file_name, content)
 			logger.info(f'💾 {result}')
-			return ActionResult(extracted_content=result, include_in_memory=True, long_term_memory=result)
+			return ActionResult(
+				extracted_content=result,
+				include_in_memory=True,
+				long_term_memory=result,
+			)
 
 		@self.controller.registry.action('Append content to file_name in file system')
 		async def append_file(file_name: str, content: str):
 			result = await self.file_system.append_file(file_name, content)
 			logger.info(f'💾 {result}')
-			return ActionResult(extracted_content=result, include_in_memory=True, long_term_memory=result)
+			return ActionResult(
+				extracted_content=result,
+				include_in_memory=True,
+				long_term_memory=result,
+			)
 
 		@self.controller.registry.action('Read file_name from file system')
 		async def read_file(file_name: str):
@@ -517,6 +531,9 @@ class Agent(Generic[Context]):
 				long_term_memory=memory,
 				include_extracted_content_only_once=True,
 			)
+
+	def _set_message_context(self) -> str | None:
+		return self.settings.message_context
 
 	def _set_browser_use_version_and_source(self, source_override: str | None = None) -> None:
 		"""Get the version from pyproject.toml and determine the source of the browser-use package"""
@@ -689,7 +706,12 @@ class Agent(Generic[Context]):
 					conversation_dir = Path(self.settings.save_conversation_path)
 					conversation_filename = f'conversation_{self.id}_{self.state.n_steps}.txt'
 					target = conversation_dir / conversation_filename
-					await save_conversation(input_messages, model_output, target, self.settings.save_conversation_path_encoding)
+					await save_conversation(
+						input_messages,
+						model_output,
+						target,
+						self.settings.save_conversation_path_encoding,
+					)
 
 				self._message_manager._remove_last_state_message()  # we dont want the whole state in the chat history
 
@@ -727,7 +749,8 @@ class Agent(Generic[Context]):
 			# self.logger.debug('Agent paused')
 			self.state.last_result = [
 				ActionResult(
-					error='The agent was paused mid-step - the last action might need to be repeated', include_in_memory=True
+					error='The agent was paused mid-step - the last action might need to be repeated',
+					include_in_memory=True,
 				)
 			]
 			return
@@ -779,7 +802,12 @@ class Agent(Generic[Context]):
 
 		if 'Browser closed' in error_msg:
 			self.logger.error('❌  Browser is closed or disconnected, unable to proceed')
-			return [ActionResult(error='Browser closed or disconnected, unable to proceed', include_in_memory=True)]
+			return [
+				ActionResult(
+					error='Browser closed or disconnected, unable to proceed',
+					include_in_memory=True,
+				)
+			]
 
 		if isinstance(error, (ValidationError, ValueError)):
 			self.logger.error(f'{prefix}{error_msg}')
@@ -842,7 +870,12 @@ class Agent(Generic[Context]):
 			screenshot=browser_state_summary.screenshot,
 		)
 
-		history_item = AgentHistory(model_output=model_output, result=result, state=state_history, metadata=metadata)
+		history_item = AgentHistory(
+			model_output=model_output,
+			result=result,
+			state=state_history,
+			metadata=metadata,
+		)
 
 		self.state.history.history.append(history_item)
 
@@ -1002,7 +1035,7 @@ class Agent(Generic[Context]):
 		"""Take a step
 
 		Returns:
-			Tuple[bool, bool]: (is_done, is_valid)
+		        Tuple[bool, bool]: (is_done, is_valid)
 		"""
 		await self.step()
 
@@ -1020,7 +1053,10 @@ class Agent(Generic[Context]):
 	# @observe(name='agent.run', ignore_output=True)
 	@time_execution_async('--run')
 	async def run(
-		self, max_steps: int = 100, on_step_start: AgentHookFunc | None = None, on_step_end: AgentHookFunc | None = None
+		self,
+		max_steps: int = 100,
+		on_step_start: AgentHookFunc | None = None,
+		on_step_end: AgentHookFunc | None = None,
 	) -> AgentHistoryList:
 		"""Execute the task with maximum number of steps"""
 
@@ -1216,7 +1252,13 @@ class Agent(Generic[Context]):
 				if orig_target_hash != new_target_hash:
 					msg = f'Element index changed after action {i} / {len(actions)}, because page changed.'
 					logger.info(msg)
-					results.append(ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg))
+					results.append(
+						ActionResult(
+							extracted_content=msg,
+							include_in_memory=True,
+							long_term_memory=msg,
+						)
+					)
 					break
 
 				new_path_hashes = {e.hash.branch_path_hash for e in new_selector_map.values()}
@@ -1224,7 +1266,13 @@ class Agent(Generic[Context]):
 					# next action requires index but there are new elements on the page
 					msg = f'Something new appeared after action {i} / {len(actions)}, following actions are NOT executed and should be retried.'
 					logger.info(msg)
-					results.append(ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg))
+					results.append(
+						ActionResult(
+							extracted_content=msg,
+							include_in_memory=True,
+							long_term_memory=msg,
+						)
+					)
 					break
 
 			try:
@@ -1258,7 +1306,12 @@ class Agent(Generic[Context]):
 				self.logger.info(f'Action {i + 1} was cancelled due to Ctrl+C')
 				if not results:
 					# Add a result for the cancelled action
-					results.append(ActionResult(error='The action was cancelled due to Ctrl+C', include_in_memory=True))
+					results.append(
+						ActionResult(
+							error='The action was cancelled due to Ctrl+C',
+							include_in_memory=True,
+						)
+					)
 				raise InterruptedError('Action cancelled by user')
 
 		return results
@@ -1287,13 +1340,13 @@ class Agent(Generic[Context]):
 		Rerun a saved history of actions with error handling and retry logic.
 
 		Args:
-				history: The history to replay
-				max_retries: Maximum number of retries per action
-				skip_failures: Whether to skip failed actions or stop execution
-				delay_between_actions: Delay between actions in seconds
+		                history: The history to replay
+		                max_retries: Maximum number of retries per action
+		                skip_failures: Whether to skip failed actions or stop execution
+		                delay_between_actions: Delay between actions in seconds
 
 		Returns:
-				List of action results
+		                List of action results
 		"""
 		# Execute initial actions if provided
 		if self.initial_actions:
@@ -1391,8 +1444,8 @@ class Agent(Generic[Context]):
 		Load history from file and rerun it.
 
 		Args:
-				history_file: Path to the history file
-				**kwargs: Additional arguments passed to rerun_history
+		                history_file: Path to the history file
+		                **kwargs: Additional arguments passed to rerun_history
 		"""
 		if not history_file:
 			history_file = 'AgentHistory.json'
@@ -1478,7 +1531,7 @@ class Agent(Generic[Context]):
 		"""
 
 		# Skip verification if already done
-		if getattr(self.llm, '_verified_api_keys', None) is True or SKIP_LLM_API_KEY_VERIFICATION:
+		if getattr(self.llm, '_verified_api_keys', None) is True or CONFIG.SKIP_LLM_API_KEY_VERIFICATION:
 			setattr(self.llm, '_verified_api_keys', True)
 			return True
 

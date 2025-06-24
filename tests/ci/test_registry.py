@@ -20,6 +20,7 @@ from pytest_httpserver.httpserver import HandlerType
 
 from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
+from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.types import Page
 from browser_use.controller.registry.service import Registry
 from browser_use.controller.registry.views import ActionModel as BaseActionModel
@@ -29,7 +30,7 @@ from browser_use.controller.views import (
 	NoParamsAction,
 	SearchGoogleAction,
 )
-from tests.ci.mocks import create_mock_llm
+from tests.ci.conftest import create_mock_llm
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -96,8 +97,10 @@ def registry():
 async def browser_session(base_url):
 	"""Create a real BrowserSession for testing"""
 	browser_session = BrowserSession(
-		headless=True,
-		user_data_dir=None,
+		browser_profile=BrowserProfile(
+			headless=True,
+			user_data_dir=None,
+		)
 	)
 	await browser_session.start()
 	await browser_session.create_new_tab(f'{base_url}/test')
@@ -119,6 +122,7 @@ class TestActionRegistryParameterPatterns:
 		result = await registry.execute_action('simple_action', {'text': 'hello', 'number': 42})
 
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'Text: hello, Number: 42' in result.extracted_content
 
 	async def test_individual_parameters_with_browser(self, registry, browser_session, base_url):
@@ -136,6 +140,7 @@ class TestActionRegistryParameterPatterns:
 		result = await registry.execute_action('action_with_browser', {'text': 'hello'}, browser_session=browser_session)
 
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'Text: hello, URL:' in result.extracted_content
 		assert base_url in result.extracted_content
 
@@ -154,6 +159,7 @@ class TestActionRegistryParameterPatterns:
 		result = await registry.execute_action('action_with_page', {'text': 'hello'}, browser_session=browser_session)
 
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'Text: hello, Page Title: Test Page' in result.extracted_content
 
 	async def test_pydantic_model_with_page_parameter(self, registry, browser_session, base_url):
@@ -173,6 +179,7 @@ class TestActionRegistryParameterPatterns:
 		)
 
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'Text: test, Number: 100, Page Title: Test Page' in result.extracted_content
 
 	async def test_pydantic_model_parameters(self, registry, browser_session, base_url):
@@ -194,6 +201,7 @@ class TestActionRegistryParameterPatterns:
 		)
 
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'Text: test, Number: 100, Flag: True' in result.extracted_content
 		assert base_url in result.extracted_content
 
@@ -229,6 +237,7 @@ class TestActionRegistryParameterPatterns:
 		)
 
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'Text: hello' in result.extracted_content
 		assert base_url in result.extracted_content
 		# The mock LLM returns a JSON response
@@ -248,6 +257,7 @@ class TestActionRegistryParameterPatterns:
 		)
 
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'No params action executed on' in result.extracted_content
 		assert '/test' in result.extracted_content
 
@@ -266,11 +276,13 @@ class TestActionRegistryParameterPatterns:
 
 		# Test legacy browser parameter
 		result1 = await registry.execute_action('legacy_browser_action', {'text': 'test1'}, browser_session=browser_session)
+		assert result1.extracted_content is not None
 		assert 'Legacy browser: test1, URL:' in result1.extracted_content
 		assert '/test' in result1.extracted_content
 
 		# Test legacy browser_context parameter
 		result2 = await registry.execute_action('legacy_context_action', {'text': 'test2'}, browser_session=browser_session)
+		assert result2.extracted_content is not None
 		assert 'Legacy context: test2, URL:' in result2.extracted_content
 		assert '/test' in result2.extracted_content
 
@@ -296,11 +308,13 @@ class TestActionRegistryParameterPatterns:
 
 		# Test direct page parameter
 		result1 = await registry.execute_action('direct_page_action', {'text': 'optimized'}, browser_session=browser_session)
+		assert result1.extracted_content is not None
 		assert 'Direct page: optimized, URL:' in result1.extracted_content
 		assert '/test' in result1.extracted_content
 
 		# Test browser_session parameter (should still work)
 		result2 = await registry.execute_action('browser_session_action', {'text': 'legacy'}, browser_session=browser_session)
+		assert result2.extracted_content is not None
 		assert 'Browser session: legacy, URL:' in result2.extracted_content
 		assert '/test' in result2.extracted_content
 
@@ -313,6 +327,7 @@ class TestActionRegistryParameterPatterns:
 			return ActionResult(extracted_content=f'Pydantic page: {params.message}, URL: {page.url}')
 
 		result3 = await registry.execute_action('pydantic_page_action', {'message': 'pydantic'}, browser_session=browser_session)
+		assert result3.extracted_content is not None
 		assert 'Pydantic page: pydantic, URL:' in result3.extracted_content
 		assert '/test' in result3.extracted_content
 
@@ -346,6 +361,7 @@ class TestActionToActionCalling:
 		result = await registry.execute_action('calling_action', {'message': 'test'}, browser_session=browser_session)
 
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'Called result: First: Helper processed: test on' in result.extracted_content
 		assert '/test' in result.extracted_content
 
@@ -373,13 +389,14 @@ class TestActionToActionCalling:
 			# Get the action's param model to call it properly
 			action = registry.registry.actions['select_cell_or_range_fixed']
 			params = action.param_model(cell_or_range=range_name)
-			await select_cell_or_range_fixed(params=params, browser_session=browser_session)
+			await select_cell_or_range_fixed(cell_or_range=range_name, browser_session=browser_session)
 			return ActionResult(extracted_content=f'Updated range {range_name} with {new_contents}')
 
 		# Test the fixed version (should work)
 		result_fixed = await registry.execute_action(
 			'select_cell_or_range_fixed', {'cell_or_range': 'A1:F100'}, browser_session=browser_session
 		)
+		assert result_fixed.extracted_content is not None
 		assert 'Selected cell A1:F100 on' in result_fixed.extracted_content
 		assert '/test' in result_fixed.extracted_content
 
@@ -387,6 +404,7 @@ class TestActionToActionCalling:
 		result_chain = await registry.execute_action(
 			'update_range_contents', {'range_name': 'B2:D4', 'new_contents': 'test data'}, browser_session=browser_session
 		)
+		assert result_chain.extracted_content is not None
 		assert 'Updated range B2:D4 with test data' in result_chain.extracted_content
 
 		# Test the problematic version (should work with enhanced registry)
@@ -394,6 +412,7 @@ class TestActionToActionCalling:
 			'select_cell_or_range', {'cell_or_range': 'A1:F100'}, browser_session=browser_session
 		)
 		# With the enhanced registry, this should succeed
+		assert result_problematic.extracted_content is not None
 		assert 'Selected cell A1:F100 on' in result_problematic.extracted_content
 		assert '/test' in result_problematic.extracted_content
 
@@ -425,6 +444,7 @@ class TestActionToActionCalling:
 		result = await registry.execute_action('top_action', {'original': 'test'}, browser_session=browser_session)
 
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'Top: Middle: Base: processed-enhanced-test on' in result.extracted_content
 		assert '/test' in result.extracted_content
 
@@ -444,11 +464,12 @@ class TestRegistryEdgeCases:
 		with pytest.raises(
 			TypeError, match='test_action\\(\\) does not accept positional arguments, only keyword arguments are allowed'
 		):
-			await test_action(browser_session, 'A1:B2')
+			await test_action('A1:B2', browser_session)
 
 		# Test that calling with keyword arguments works
 		result = await test_action(browser_session=browser_session, cell_or_range='A1:B2')
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'Selected cell A1:B2 on' in result.extracted_content
 
 	async def test_missing_required_browser_session(self, registry):
@@ -520,6 +541,7 @@ class TestRegistryEdgeCases:
 		result = await registry.execute_action('sync_action', {'text': 'test'}, browser_session=browser_session)
 
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'Sync: test' in result.extracted_content
 
 	async def test_excluded_actions(self, browser_session):
@@ -545,6 +567,7 @@ class TestRegistryEdgeCases:
 
 		# Included action should work
 		result = await registry_with_exclusions.execute_action('included_action', {'text': 'test'})
+		assert result.extracted_content is not None
 		assert 'Should execute: test' in result.extracted_content
 
 
@@ -568,14 +591,17 @@ class TestExistingControllerActions:
 
 		# Test SearchGoogleAction
 		result1 = await registry.execute_action('test_search', {'query': 'python testing'}, browser_session=browser_session)
+		assert result1.extracted_content is not None
 		assert 'Searched for: python testing' in result1.extracted_content
 
 		# Test ClickElementAction
 		result2 = await registry.execute_action('test_click', {'index': 42}, browser_session=browser_session)
+		assert result2.extracted_content is not None
 		assert 'Clicked element: 42' in result2.extracted_content
 
 		# Test InputTextAction
 		result3 = await registry.execute_action('test_input', {'index': 5, 'text': 'test input'}, browser_session=browser_session)
+		assert result3.extracted_content is not None
 		assert 'Input text: test input at index: 5' in result3.extracted_content
 
 	async def test_pydantic_vs_individual_params_consistency(self, registry, browser_session):
@@ -603,7 +629,9 @@ class TestExistingControllerActions:
 		result2 = await registry.execute_action('pydantic_params_action', test_data, browser_session=browser_session)
 
 		# Both should extract the same content (just different prefixes)
+		assert result1.extracted_content is not None
 		assert 'hello-42' in result1.extracted_content
+		assert result2.extracted_content is not None
 		assert 'hello-42' in result2.extracted_content
 		assert 'Individual:' in result1.extracted_content
 		assert 'Pydantic:' in result2.extracted_content
@@ -683,7 +711,7 @@ class TestType2Pattern:
 		registry = Registry()
 
 		@registry.action('Scroll page')
-		async def scroll_page(direction: str = 'down', amount: int = 100, browser_session: BrowserSession = None):
+		async def scroll_page(direction: str = 'down', amount: int = 100, browser_session: BrowserSession = None):  # type: ignore
 			return ActionResult(extracted_content=f'Scrolled {direction} by {amount}')
 
 		action = registry.registry.actions['scroll_page']
@@ -847,7 +875,11 @@ class TestParamsModelGeneration:
 
 		@registry.action('Complex action')
 		async def complex_action(
-			query: str, max_results: int, include_images: bool = True, page: Page = None, browser_session: BrowserSession = None
+			query: str,
+			max_results: int,
+			include_images: bool = True,
+			page: Page = None,  # type: ignore
+			browser_session: BrowserSession = None,  # type: ignore
 		):
 			return ActionResult()
 
@@ -869,7 +901,11 @@ class TestParamsModelGeneration:
 
 		@registry.action('Typed action')
 		async def typed_action(
-			count: int, rate: float, enabled: bool, name: str | None = None, browser_session: BrowserSession = None
+			count: int,
+			rate: float,
+			enabled: bool,
+			name: str | None = None,
+			browser_session: BrowserSession = None,  # type: ignore
 		):
 			return ActionResult()
 
@@ -938,7 +974,7 @@ class TestParameterOrdering:
 			second: int,
 			page: Page,
 			third: bool = True,
-			page_extraction_llm: BaseChatModel = None,
+			page_extraction_llm: BaseChatModel = None,  # type: ignore
 		):
 			return ActionResult()
 
@@ -1006,6 +1042,7 @@ class TestParameterOrdering:
 
 		# Should retry once and succeed
 		result = await registry.execute_action('flaky_action', {'value': 'test'}, browser_session=browser_session)
+		assert result.extracted_content is not None
 		assert 'Success on attempt 2' in result.extracted_content
 		assert call_count == 2
 
@@ -1070,7 +1107,7 @@ class TestParamsModelArgsAndKwargs:
 		# Model that includes browser_session
 		class ModelWithBrowser(ActionModel):
 			value: str = Field(description='Test value')
-			browser_session: BrowserSession = None
+			browser_session: BrowserSession = None  # type: ignore
 
 		# Create a custom param model for select_cell_or_range
 		class CellRangeParams(ActionModel):
@@ -1136,7 +1173,9 @@ class TestParamsModelArgsAndKwargs:
 		# logger.info('\n--- Testing original problematic version ---')
 		try:
 			result1 = await registry.execute_action(
-				'select_cell_or_range', {'cell_or_range': 'A1:F100'}, browser_session=browser_session
+				'select_cell_or_range',
+				{'cell_or_range': 'A1:F100'},
+				browser_session=browser_session,  # type: ignore
 			)
 			# logger.info(f'Success! Result: {result1}')
 		except Exception as e:
@@ -1146,7 +1185,9 @@ class TestParamsModelArgsAndKwargs:
 		# logger.info('\n--- Testing fixed version (positional args) ---')
 		try:
 			result2 = await registry.execute_action(
-				'select_cell_or_range_fixed', {'cell_or_range': 'A1:F100'}, browser_session=browser_session
+				'select_cell_or_range_fixed',
+				{'cell_or_range': 'A1:F100'},
+				browser_session=browser_session,  # type: ignore
 			)
 			# logger.info(f'Success! Result: {result2}')
 		except Exception as e:
@@ -1156,7 +1197,9 @@ class TestParamsModelArgsAndKwargs:
 		# logger.info('\n--- Testing kwargs simulation version ---')
 		try:
 			result3 = await registry.execute_action(
-				'select_with_kwargs', {'cell_or_range': 'A1:F100'}, browser_session=browser_session
+				'select_with_kwargs',
+				{'cell_or_range': 'A1:F100'},
+				browser_session=browser_session,  # type: ignore
 			)
 			# logger.info(f'Success! Result: {result3}')
 		except Exception as e:

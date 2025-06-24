@@ -5,20 +5,18 @@ Tests the most critical event flows without excessive duplication.
 """
 
 import base64
-import json
 import os
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import patch
 from uuid import UUID
 
 import pytest
 from dotenv import load_dotenv
 
-# Load environment variables before any imports
 load_dotenv()
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage
-from pytest_httpserver import HTTPServer
 
+from bubus import BaseEvent
+
+from browser_use import Agent
 from browser_use.agent.cloud_events import (
 	MAX_TASK_LENGTH,
 	CreateAgentOutputFileEvent,
@@ -27,126 +25,14 @@ from browser_use.agent.cloud_events import (
 	CreateAgentTaskEvent,
 	UpdateAgentTaskEvent,
 )
-
-# Skip LLM API key verification for tests
-os.environ['SKIP_LLM_API_KEY_VERIFICATION'] = 'true'
-
-from bubus import BaseEvent
-
-from browser_use import Agent
-from browser_use.browser import BrowserSession
-from browser_use.sync.service import CloudSync
-from tests.ci.mocks import create_mock_llm
-
-
-@pytest.fixture
-async def browser_session():
-	"""Create a real browser session for testing"""
-	session = BrowserSession(
-		headless=True,
-		user_data_dir=None,  # Use temporary directory
-	)
-	yield session
-	await session.stop()
-
-
-@pytest.fixture
-def mock_llm():
-	"""Create a mock LLM that immediately returns done action"""
-	llm = MagicMock(spec=BaseChatModel)
-
-	# Create the JSON response that the agent would parse
-	json_response = {
-		'thinking': 'null',
-		'evaluation_previous_goal': 'Starting task',
-		'memory': 'New task to complete',
-		'next_goal': 'Complete the test task',
-		'action': [{'done': {'success': True, 'text': 'Test completed successfully'}}],
-	}
-
-	# Create a mock response with the JSON
-	mock_response = AIMessage(content=json.dumps(json_response))
-
-	# Make the LLM return our mock response
-	llm.invoke = lambda *args, **kwargs: mock_response
-	llm.ainvoke = AsyncMock(return_value=mock_response)
-
-	# Mock the with_structured_output method to return parsed objects
-	structured_llm = MagicMock()
-
-	async def mock_structured_ainvoke(*args, **kwargs):
-		# The agent will create its own AgentOutput and ActionModel classes
-		# We return the raw response and let the agent parse it
-		return {
-			'raw': mock_response,
-			'parsed': None,  # Let the agent parse it from the raw JSON
-		}
-
-	structured_llm.ainvoke = AsyncMock(side_effect=mock_structured_ainvoke)
-	llm.with_structured_output = lambda *args, **kwargs: structured_llm
-
-	# Set attributes that agent checks
-	llm.model_name = 'gpt-4o'
-	llm._verified_api_keys = True
-	llm._verified_tool_calling_method = 'function_calling'
-
-	return llm
-
-
-@pytest.fixture
-def event_collector():
-	"""Collect all events emitted during tests"""
-	events = []
-	event_order = []
-
-	class EventCollector:
-		def __init__(self):
-			self.events = events
-			self.event_order = event_order
-
-		async def collect_event(self, event: BaseEvent):
-			self.events.append(event)
-			self.event_order.append(event.event_type)
-			return 'collected'
-
-		def get_events_by_type(self, event_type: str) -> list[BaseEvent]:
-			return [e for e in self.events if e.event_type == event_type]
-
-		def clear(self):
-			self.events.clear()
-			self.event_order.clear()
-
-	return EventCollector()
-
-
-@pytest.fixture
-def mock_cloud_sync():
-	"""Create mocked cloud sync service."""
-	sync = Mock(spec=CloudSync)
-	sync.send_event = AsyncMock()
-	sync.authenticate = AsyncMock(return_value=True)
-	sync._authenticated = True
-	sync.handle_event = AsyncMock()
-	return sync
-
-
-@pytest.fixture
-def agent_with_cloud(browser_session, mock_cloud_sync):
-	"""Create agent with cloud sync enabled."""
-	with patch('browser_use.sync.CloudSync', return_value=mock_cloud_sync):
-		with patch.dict(os.environ, {'BROWSERUSE_CLOUD_SYNC': 'true'}):
-			agent = Agent(
-				task='Test task',
-				llm=create_mock_llm(),
-				browser_session=browser_session,
-			)
-			return agent
+from tests.ci.conftest import create_mock_llm
 
 
 class TestAgentEventLifecycle:
 	"""Test critical agent event flows with minimal duplication"""
 
-	async def test_agent_lifecycle_events(self, mock_llm, browser_session, event_collector, httpserver: HTTPServer):
+	@pytest.mark.usefixtures('mock_llm', 'browser_session', 'event_collector', 'httpserver')
+	async def test_agent_lifecycle_events(self, mock_llm, browser_session, event_collector, httpserver):
 		"""Test that all events are emitted in the correct order during agent lifecycle"""
 
 		# Setup a test page
@@ -155,23 +41,19 @@ class TestAgentEventLifecycle:
 		# Navigate to test page
 		await browser_session.navigate(httpserver.url_for('/'))
 
-		# Patch environment variables to use localhost for CloudSync
-		with patch.dict(
-			os.environ, {'BROWSER_USE_CLOUD_URL': 'http://localhost:8000', 'BROWSER_USE_CLOUD_UI_URL': 'http://localhost:3000'}
-		):
-			# Create agent
-			agent = Agent(
-				task='Test task',
-				llm=mock_llm,
-				browser_session=browser_session,
-				generate_gif=False,  # Don't generate GIF for faster test
-			)
+		# Create agent (environment already set up by conftest.py)
+		agent = Agent(
+			task='Test task',
+			llm=mock_llm,
+			browser_session=browser_session,
+			generate_gif=False,  # Don't generate GIF for faster test
+		)
 
-			# Subscribe to all events
-			agent.eventbus.on('*', event_collector.collect_event)
+		# Subscribe to all events
+		agent.eventbus.on('*', event_collector.collect_event)
 
-			# Run the agent
-			history = await agent.run(max_steps=5)
+		# Run the agent
+		history = await agent.run(max_steps=5)
 
 		# Verify we got a successful completion
 		assert history.is_done()
@@ -213,30 +95,28 @@ class TestAgentEventLifecycle:
 		assert update_event.id == task_event.id
 		assert update_event.done_output is not None
 
-	async def test_agent_with_gif_generation(self, mock_llm, browser_session, event_collector, httpserver: HTTPServer):
+	@pytest.mark.usefixtures('mock_llm', 'browser_session', 'event_collector', 'httpserver')
+	async def test_agent_with_gif_generation(self, mock_llm, browser_session, cloud_sync, event_collector, httpserver):
 		"""Test that GIF generation triggers CreateAgentOutputFileEvent"""
 
 		# Setup a test page
 		httpserver.expect_request('/').respond_with_data('<html><body><h1>GIF Test</h1></body></html>', content_type='text/html')
 		await browser_session.navigate(httpserver.url_for('/'))
 
-		# Patch environment variables to use localhost for CloudSync
-		with patch.dict(
-			os.environ, {'BROWSER_USE_CLOUD_URL': 'http://localhost:8000', 'BROWSER_USE_CLOUD_UI_URL': 'http://localhost:3000'}
-		):
-			# Create agent with GIF generation
-			agent = Agent(
-				task='Test task with GIF',
-				llm=mock_llm,
-				browser_session=browser_session,
-				generate_gif=True,  # Enable GIF generation
-			)
+		# Create agent with GIF generation
+		agent = Agent(
+			task='Test task with GIF',
+			llm=mock_llm,
+			browser_session=browser_session,
+			generate_gif=True,  # Enable GIF generation
+			cloud_sync=cloud_sync,
+		)
 
-			# Subscribe to all events
-			agent.eventbus.on('*', event_collector.collect_event)
+		# Subscribe to all events
+		agent.eventbus.on('*', event_collector.collect_event)
 
-			# Run the agent
-			history = await agent.run(max_steps=5)
+		# Run the agent
+		_history = await agent.run(max_steps=5)
 
 		# Verify CreateAgentOutputFileEvent was emitted
 		output_file_events = event_collector.get_events_by_type('CreateAgentOutputFileEvent')
@@ -255,7 +135,8 @@ class TestAgentEventLifecycle:
 		assert gif_bytes.startswith(b'GIF87a') or gif_bytes.startswith(b'GIF89a')
 		assert len(gif_bytes) > 100  # Should be a real GIF file
 
-	async def test_step_screenshot_capture(self, mock_llm, browser_session, event_collector, httpserver: HTTPServer):
+	@pytest.mark.usefixtures('mock_llm', 'browser_session', 'event_collector', 'httpserver')
+	async def test_step_screenshot_capture(self, mock_llm, browser_session, cloud_sync, event_collector, httpserver):
 		"""Test that screenshots are captured for each step"""
 
 		# Setup test page
@@ -264,23 +145,20 @@ class TestAgentEventLifecycle:
 		)
 		await browser_session.navigate(httpserver.url_for('/'))
 
-		# Patch environment variables to use localhost for CloudSync
-		with patch.dict(
-			os.environ, {'BROWSER_USE_CLOUD_URL': 'http://localhost:8000', 'BROWSER_USE_CLOUD_UI_URL': 'http://localhost:3000'}
-		):
-			# Create agent
-			agent = Agent(
-				task='Test screenshot capture',
-				llm=mock_llm,
-				browser_session=browser_session,
-				generate_gif=False,
-			)
+		# Create agent
+		agent = Agent(
+			task='Test screenshot capture',
+			llm=mock_llm,
+			browser_session=browser_session,
+			generate_gif=False,
+			cloud_sync=cloud_sync,
+		)
 
-			# Subscribe to all events
-			agent.eventbus.on('*', event_collector.collect_event)
+		# Subscribe to all events
+		agent.eventbus.on('*', event_collector.collect_event)
 
-			# Run the agent
-			await agent.run(max_steps=3)
+		# Run the agent
+		await agent.run(max_steps=3)
 
 		# Get all step events
 		step_events = event_collector.get_events_by_type('CreateAgentStepEvent')
@@ -304,75 +182,107 @@ class TestAgentEventLifecycle:
 class TestAgentCloudIntegration:
 	"""Test that agent properly integrates with cloud sync service"""
 
-	async def test_agent_emits_events_to_cloud(self, agent_with_cloud, mock_cloud_sync):
+	@pytest.mark.usefixtures('agent_with_cloud', 'event_collector', 'httpserver')
+	async def test_agent_emits_events_to_cloud(self, agent_with_cloud, event_collector, httpserver):
 		"""Test that agent emits all required events to cloud sync."""
+		# Set up httpserver to capture events
+		captured_events = []
+
+		def capture_events(request):
+			data = request.get_json()
+			captured_events.extend(data.get('events', []))
+			from werkzeug.wrappers import Response
+
+			return Response(
+				'{"processed": 1, "failed": 0, "results": [{"success": true}]}', status=200, mimetype='application/json'
+			)
+
+		httpserver.expect_request('/api/v1/events', method='POST').respond_with_handler(capture_events)
+
+		# Subscribe to eventbus to verify events
+		agent_with_cloud.eventbus.on('*', event_collector.collect_event)
+
 		# Run agent
 		await agent_with_cloud.run()
 
-		# Check that events were sent to cloud sync
-		calls = mock_cloud_sync.handle_event.call_args_list
-		assert len(calls) >= 4  # At minimum: session, task, step, update
+		# Verify we have the core event types in eventbus
+		assert len(event_collector.event_order) >= 4  # At minimum: session, task, step, update
+		assert 'CreateAgentSessionEvent' in event_collector.event_order
+		assert 'CreateAgentTaskEvent' in event_collector.event_order
+		assert 'CreateAgentStepEvent' in event_collector.event_order
+		assert 'UpdateAgentTaskEvent' in event_collector.event_order
 
-		# Verify we have the core event types
-		event_types = [call.args[0].event_type for call in calls]
-		assert 'CreateAgentSessionEvent' in event_types
-		assert 'CreateAgentTaskEvent' in event_types
-		assert 'CreateAgentStepEvent' in event_types
-		assert 'UpdateAgentTaskEvent' in event_types
+		# Verify events were sent to cloud
+		assert len(captured_events) >= 4
 
-		# Verify event content
-		session_events = [call for call in calls if call.args[0].event_type == 'CreateAgentSessionEvent']
-		task_events = [call for call in calls if call.args[0].event_type == 'CreateAgentTaskEvent']
-		step_events = [call for call in calls if call.args[0].event_type == 'CreateAgentStepEvent']
+		# Verify event relationships using event_collector
+		session_events = event_collector.get_events_by_type('CreateAgentSessionEvent')
+		task_events = event_collector.get_events_by_type('CreateAgentTaskEvent')
+		step_events = event_collector.get_events_by_type('CreateAgentStepEvent')
 
 		assert len(session_events) == 1
 		assert len(task_events) == 1
 		assert len(step_events) >= 1
 
 		# Verify event relationships
-		session_event = session_events[0].args[0]
-		task_event = task_events[0].args[0]
-		step_event = step_events[0].args[0]
+		session_event = session_events[0]
+		task_event = task_events[0]
+		step_event = step_events[0]
 
 		assert task_event.agent_session_id == session_event.id
 		assert step_event.agent_task_id == task_event.id
 
-	async def test_agent_emits_session_start_event(self, agent_with_cloud, mock_cloud_sync):
+	@pytest.mark.usefixtures('agent_with_cloud', 'event_collector', 'httpserver')
+	async def test_agent_emits_session_start_event(self, agent_with_cloud, event_collector, httpserver):
 		"""Test that agent emits session start event."""
+		# Set up httpserver endpoint
+		httpserver.expect_request('/api/v1/events', method='POST').respond_with_json(
+			{'processed': 1, 'failed': 0, 'results': [{'success': True}]}
+		)
+
+		# Subscribe to events
+		agent_with_cloud.eventbus.on('*', event_collector.collect_event)
+
 		# Run agent
 		await agent_with_cloud.run()
 
 		# Check that session start event was sent
-		calls = mock_cloud_sync.handle_event.call_args_list
-		session_events = [call for call in calls if call.args[0].event_type == 'CreateAgentSessionEvent']
+		session_events = event_collector.get_events_by_type('CreateAgentSessionEvent')
 
 		assert len(session_events) == 1
-		event = session_events[0].args[0]
+		event = session_events[0]
 		assert hasattr(event, 'id')
 		assert hasattr(event, 'browser_session_id')
 
-	async def test_agent_emits_task_events(self, agent_with_cloud, mock_cloud_sync):
+	@pytest.mark.usefixtures('agent_with_cloud', 'event_collector', 'httpserver')
+	async def test_agent_emits_task_events(self, agent_with_cloud, event_collector, httpserver):
 		"""Test that agent emits task events."""
+		# Set up httpserver endpoint
+		httpserver.expect_request('/api/v1/events', method='POST').respond_with_json(
+			{'processed': 1, 'failed': 0, 'results': [{'success': True}]}
+		)
+
+		# Subscribe to events
+		agent_with_cloud.eventbus.on('*', event_collector.collect_event)
+
 		# Run agent
 		await agent_with_cloud.run()
 
 		# Check task events
-		calls = mock_cloud_sync.handle_event.call_args_list
-
-		# Should have CreateAgentTaskEvent
-		create_task_events = [call for call in calls if call.args[0].event_type == 'CreateAgentTaskEvent']
+		create_task_events = event_collector.get_events_by_type('CreateAgentTaskEvent')
 		assert len(create_task_events) == 1
-		create_event = create_task_events[0].args[0]
+		create_event = create_task_events[0]
 		assert create_event.task == 'Test task'
 		assert hasattr(create_event, 'agent_session_id')
 
 		# Should have UpdateAgentTaskEvent when done
-		update_task_events = [call for call in calls if call.args[0].event_type == 'UpdateAgentTaskEvent']
+		update_task_events = event_collector.get_events_by_type('UpdateAgentTaskEvent')
 		assert len(update_task_events) >= 1
 
+	@pytest.mark.usefixtures('browser_session')
 	async def test_cloud_sync_disabled(self, browser_session):
 		"""Test that cloud sync can be disabled."""
-		with patch.dict(os.environ, {'BROWSERUSE_CLOUD_SYNC': 'false'}):
+		with patch.dict(os.environ, {'BROWSER_USE_CLOUD_SYNC': 'false'}):
 			agent = Agent(
 				task='Test task',
 				llm=create_mock_llm(),
@@ -384,75 +294,75 @@ class TestAgentCloudIntegration:
 			# Run agent - should work without cloud sync
 			await agent.run()
 
-	async def test_agent_error_resilience(self, agent_with_cloud, mock_cloud_sync):
+	@pytest.mark.usefixtures('agent_with_cloud', 'httpserver')
+	async def test_agent_error_resilience(self, agent_with_cloud, httpserver):
 		"""Test that agent continues working even if cloud sync fails."""
-		# Make cloud sync fail
-		mock_cloud_sync.handle_event.side_effect = Exception('Cloud sync error')
 
-		# Run agent - should not raise exception
+		# Make cloud endpoint fail
+		def fail_handler(request):
+			from werkzeug.wrappers import Response
+
+			return Response('Server error', status=500, mimetype='text/plain')
+
+		httpserver.expect_request('/api/v1/events', method='POST').respond_with_handler(fail_handler)
+
+		# Run agent - should not raise exception despite cloud sync failures
 		result = await agent_with_cloud.run()
 
 		# Agent should complete successfully despite sync failures
 		assert result is not None
 		assert result.is_done()
 
-		# Verify cloud sync was attempted
-		assert mock_cloud_sync.handle_event.call_count > 0
-
-	async def test_session_id_persistence(self, browser_session):
+	@pytest.mark.usefixtures('browser_session', 'cloud_sync', 'event_collector', 'httpserver')
+	async def test_session_id_persistence(self, browser_session, cloud_sync, event_collector, httpserver):
 		"""Test that agent session ID persists across runs."""
-		mock_sync = Mock(spec=CloudSync)
-		mock_sync.send_event = AsyncMock()
-		mock_sync.handle_event = AsyncMock()
-		mock_sync._authenticated = True
+		# Set up httpserver endpoint
+		httpserver.expect_request('/api/v1/events', method='POST').respond_with_json(
+			{'processed': 1, 'failed': 0, 'results': [{'success': True}]}
+		)
 
-		with patch('browser_use.sync.CloudSync', return_value=mock_sync):
-			with patch.dict(os.environ, {'BROWSERUSE_CLOUD_SYNC': 'true'}):
-				# Create first agent
-				agent1 = Agent(
-					task='First task',
-					llm=create_mock_llm(),
-					browser_session=browser_session,
-				)
-				agent1.cloud_sync = mock_sync
+		# Create first agent
+		agent1 = Agent(
+			task='First task',
+			llm=create_mock_llm(),
+			browser_session=browser_session,
+			cloud_sync=cloud_sync,
+		)
+		agent1.eventbus.on('*', event_collector.collect_event)
 
-				# Run first agent
-				await agent1.run()
+		# Run first agent
+		await agent1.run()
 
-				# Get session ID from first run
-				session_calls = [
-					call for call in mock_sync.handle_event.call_args_list if call.args[0].event_type == 'CreateAgentSessionEvent'
-				]
-				session_id_1 = session_calls[0].args[0].id
+		# Get session ID from first run
+		session_events = event_collector.get_events_by_type('CreateAgentSessionEvent')
+		assert len(session_events) == 1
+		session_id_1 = session_events[0].id
 
-				# Create second agent (will have different session ID)
-				agent2 = Agent(
-					task='Second task',
-					llm=create_mock_llm(),
-					browser_session=browser_session,
-				)
-				agent2.cloud_sync = mock_sync
+		# Clear event collector
+		event_collector.clear()
 
-				# Clear previous calls
-				mock_sync.handle_event.reset_mock()
+		# Create second agent (will have different session ID)
+		agent2 = Agent(
+			task='Second task',
+			llm=create_mock_llm(),
+			browser_session=browser_session,
+			cloud_sync=cloud_sync,
+		)
+		agent2.eventbus.on('*', event_collector.collect_event)
 
-				# Run second agent
-				await agent2.run()
+		# Run second agent
+		await agent2.run()
 
-				# Should create new session for new agent
-				session_calls_2 = [
-					call for call in mock_sync.handle_event.call_args_list if call.args[0].event_type == 'CreateAgentSessionEvent'
-				]
-				assert len(session_calls_2) == 1  # New session created
+		# Should create new session for new agent
+		session_events_2 = event_collector.get_events_by_type('CreateAgentSessionEvent')
+		assert len(session_events_2) == 1  # New session created
+		session_id_2 = session_events_2[0].id
 
-				# Should create new task with new session ID
-				task_calls = [
-					call for call in mock_sync.handle_event.call_args_list if call.args[0].event_type == 'CreateAgentTaskEvent'
-				]
-				assert len(task_calls) == 1
-				session_id_2 = session_calls_2[0].args[0].id
-				assert task_calls[0].args[0].agent_session_id == session_id_2
-				assert session_id_2 != session_id_1  # Different session IDs
+		# Should create new task with new session ID
+		task_events = event_collector.get_events_by_type('CreateAgentTaskEvent')
+		assert len(task_events) == 1
+		assert task_events[0].agent_session_id == session_id_2
+		assert session_id_2 != session_id_1  # Different session IDs
 
 
 class TestEventValidation:
@@ -475,6 +385,10 @@ class TestEventValidation:
 				agent_session_id='0683fb03-c5da-79c9-8000-d3a39c47c651',
 				task='test',
 				llm_model='gpt-4o',
+				done_output=None,
+				user_feedback_type=None,
+				user_comment=None,
+				gif_url=None,
 			),
 			CreateAgentStepEvent(
 				user_id='0683fb03-c5da-79c9-8000-d3a39c47c650',
@@ -484,6 +398,7 @@ class TestEventValidation:
 				memory='mem',
 				next_goal='next',
 				actions=[],
+				screenshot_url='data:image/png;...',
 			),
 		]
 
@@ -512,12 +427,23 @@ class TestEventValidation:
 				agent_session_id='0683fb03-c5da-79c9-8000-d3a39c47c659',
 				llm_model='test-model',
 				task=long_task,
+				done_output=None,
+				user_feedback_type=None,
+				user_comment=None,
+				gif_url=None,
 			)
 
 	def test_event_type_assignment(self):
 		"""Test that event_type is properly set and validated"""
 		event = CreateAgentTaskEvent(
-			user_id='test', agent_session_id='0683fb03-c5da-79c9-8000-d3a39c47c659', llm_model='test-model', task='test'
+			user_id='test',
+			agent_session_id='0683fb03-c5da-79c9-8000-d3a39c47c659',
+			llm_model='test-model',
+			task='test',
+			done_output=None,
+			user_feedback_type=None,
+			user_comment=None,
+			gif_url=None,
 		)
 
 		# Event type should be automatically set

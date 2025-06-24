@@ -5,8 +5,8 @@ from pydantic import Field, field_validator
 from uuid_extensions import uuid7str
 
 MAX_STRING_LENGTH = 100000  # 100K chars ~ 25k tokens should be enough
-MAX_URL_LENGTH = 10000
-MAX_TASK_LENGTH = 10000
+MAX_URL_LENGTH = 100000
+MAX_TASK_LENGTH = 100000
 MAX_COMMENT_LENGTH = 2000
 MAX_FILE_CONTENT_SIZE = 50 * 1024 * 1024  # 50MB
 
@@ -41,11 +41,11 @@ class UpdateAgentTaskEvent(BaseEvent):
 			done_output=done_output,
 			finished_at=datetime.now(timezone.utc) if agent.state.history and agent.state.history.is_done() else None,
 			agent_state=agent.state.model_dump() if hasattr(agent.state, 'model_dump') else {},
-			# user_feedback_type and user_comment would be set by the API/frontend
-			# gif_url would be set after GIF generation if needed
 			user_feedback_type=None,
 			user_comment=None,
 			gif_url=None,
+			# user_feedback_type and user_comment would be set by the API/frontend
+			# gif_url would be set after GIF generation if needed
 		)
 
 

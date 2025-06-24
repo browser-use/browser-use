@@ -4,11 +4,10 @@
     focusHighlightIndex: -1,
     viewportExpansion: 0,
     debugMode: false,
-    initialIndex: 0,
   }
 ) => {
-  const { doHighlightElements, focusHighlightIndex, viewportExpansion, debugMode, initialIndex } = args;
-  let highlightIndex = initialIndex; // Reset highlight index
+  const { doHighlightElements, focusHighlightIndex, viewportExpansion, debugMode } = args;
+  let highlightIndex = 0; // Reset highlight index
 
   // Add timing stack to handle recursion
   const TIMING_STACK = {
@@ -211,7 +210,7 @@
    */
   const DOM_HASH_MAP = {};
 
-  const ID = { current: initialIndex };
+  const ID = { current: 0 };
 
   const HIGHLIGHT_CONTAINER_ID = "playwright-highlight-container";
 
@@ -837,7 +836,7 @@
         }
       }
 
-      const getEventListenersForNode = window.getEventListenersForNode;
+      const getEventListenersForNode = element?.ownerDocument?.defaultView?.getEventListenersForNode || window.getEventListenersForNode;
       if (typeof getEventListenersForNode === 'function') {
         const listeners = getEventListenersForNode(element);
           const interactionEvents = ['click', 'mousedown', 'mouseup', 'keydown', 'keyup', 'submit', 'change', 'input', 'focus', 'blur'];
@@ -1130,7 +1129,7 @@
     
     // Check for other common interaction event listeners
     try {
-      const getEventListenersForNode = window.getEventListenersForNode;
+      const getEventListenersForNode = element?.ownerDocument?.defaultView?.getEventListenersForNode || window.getEventListenersForNode;
       if (typeof getEventListenersForNode === 'function') {
         const listeners = getEventListenersForNode(element);
         const interactionEvents = ['click', 'mousedown', 'mouseup', 'keydown', 'keyup', 'submit', 'change', 'input', 'focus', 'blur'];
@@ -1355,7 +1354,6 @@
               if (domElement) nodeData.children.push(domElement);
             }
           }
-          nodeData.hasIframeContent = true; 
         } catch (e) {
           console.warn("Unable to access iframe:", e);
         }

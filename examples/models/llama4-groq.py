@@ -9,13 +9,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
 
 from browser_use import Agent
 
+groq_api_key = os.environ.get('GROQ_API_KEY')
 llm = ChatOpenAI(
 	model='meta-llama/llama-4-maverick-17b-128e-instruct',
 	base_url='https://api.groq.com/openai/v1',
-	api_key=os.environ.get('GROQ_API_KEY'),
+	api_key=SecretStr(groq_api_key) if groq_api_key else None,
 	temperature=0.0,
 )
 

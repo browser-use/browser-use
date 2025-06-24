@@ -87,7 +87,10 @@ async def run_single_task(task_file):
 			print(f"[DEBUG] Browser test: got title '{title}'", file=sys.stderr)
 		except Exception as browser_error:
 			print(f'[DEBUG] Browser test failed: {str(browser_error)}', file=sys.stderr)
-			print(f'[DEBUG] Browser error type: {type(browser_error).__name__}', file=sys.stderr)
+			print(
+				f'[DEBUG] Browser error type: {type(browser_error).__name__}',
+				file=sys.stderr,
+			)
 
 		print('[DEBUG] Starting agent execution...', file=sys.stderr)
 		agent = Agent(task=task, llm=agent_llm, browser_session=session)
@@ -96,7 +99,10 @@ async def run_single_task(task_file):
 			history: AgentHistoryList = await agent.run(max_steps=max_steps)
 			print('[DEBUG] Agent.run() returned successfully', file=sys.stderr)
 		except Exception as agent_error:
-			print(f'[DEBUG] Agent.run() failed with error: {str(agent_error)}', file=sys.stderr)
+			print(
+				f'[DEBUG] Agent.run() failed with error: {str(agent_error)}',
+				file=sys.stderr,
+			)
 			print(f'[DEBUG] Error type: {type(agent_error).__name__}', file=sys.stderr)
 			# Re-raise to be caught by outer try-catch
 			raise agent_error
@@ -107,7 +113,10 @@ async def run_single_task(task_file):
 		# Test if LLM is working by making a simple call
 		try:
 			response = await agent_llm.ainvoke([UserMessage(content="Say 'test'")])
-			print(f'[DEBUG] LLM test call successful: {response.completion[:50]}', file=sys.stderr)
+			print(
+				f'[DEBUG] LLM test call successful: {response.completion[:50]}',
+				file=sys.stderr,
+			)
 		except Exception as llm_error:
 			print(f'[DEBUG] LLM test call failed: {str(llm_error)}', file=sys.stderr)
 
@@ -121,7 +130,10 @@ async def run_single_task(task_file):
 		# Log to stderr so it shows up in GitHub Actions (won't interfere with JSON output to stdout)
 		print(f'[DEBUG] Task {os.path.basename(task_file)}: {debug_info}', file=sys.stderr)
 		if agent_output:
-			print(f'[DEBUG] Agent output preview: {agent_output[:200]}...', file=sys.stderr)
+			print(
+				f'[DEBUG] Agent output preview: {agent_output[:200]}...',
+				file=sys.stderr,
+			)
 		else:
 			print('[DEBUG] Agent produced no output!', file=sys.stderr)
 
@@ -162,7 +174,11 @@ If the agent provided no output, explain what might have gone wrong.
 		except Exception:
 			pass
 
-		return {'file': os.path.basename(task_file), 'success': False, 'explanation': f'Task failed with error: {str(e)}'}
+		return {
+			'file': os.path.basename(task_file),
+			'success': False,
+			'explanation': f'Task failed with error: {str(e)}',
+		}
 
 
 async def run_task_subprocess(task_file, semaphore):
@@ -296,7 +312,13 @@ async def main():
 	# Output detailed results as JSON for GitHub Actions
 	detailed_results = []
 	for r in results:
-		detailed_results.append({'task': r['file'].replace('.yaml', ''), 'success': r['success'], 'reason': r['explanation']})
+		detailed_results.append(
+			{
+				'task': r['file'].replace('.yaml', ''),
+				'success': r['success'],
+				'reason': r['explanation'],
+			}
+		)
 
 	print('DETAILED_RESULTS=' + json.dumps(detailed_results))
 

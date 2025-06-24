@@ -40,7 +40,10 @@ async def done(text: str) -> str:
 
 @pytest.mark.skip(reason='this is for local testing only')
 async def test_vision():
-	browser_session = BrowserSession(headless=True, user_data_dir=None)
+	from browser_use.browser.profile import BrowserProfile
+
+	profile = BrowserProfile(headless=True, user_data_dir=None)
+	browser_session = BrowserSession(browser_profile=profile)
 	await browser_session.start()
 	try:
 		agent = Agent(
