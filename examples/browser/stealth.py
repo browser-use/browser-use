@@ -12,11 +12,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from imgcat import imgcat
-from langchain_openai import ChatOpenAI
 
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.types import async_patchright
+from browser_use.llm import ChatOpenAI
 
 llm = ChatOpenAI(model='gpt-4o')
 

@@ -28,13 +28,14 @@ With pip (Python>=3.11):
 pip install browser-use
 ```
 
-For memory functionality (requires Python<3.13 due to PyTorch compatibility):  
+For memory functionality (requires Python<3.13 due to PyTorch compatibility):
 
 ```bash
 pip install "browser-use[memory]"
 ```
 
 Install the browser:
+
 ```bash
 playwright install chromium --with-deps --no-shell
 ```
@@ -46,7 +47,7 @@ import asyncio
 from dotenv import load_dotenv
 load_dotenv()
 from browser_use import Agent
-from langchain_openai import ChatOpenAI
+from browser_use.llm import ChatOpenAI
 
 async def main():
     agent = Agent(
@@ -156,11 +157,9 @@ Tell your computer what to do, and it gets it done.
 
 - [ ] Human work is sequential. The real power of a browser agent comes into reality if we can parallelize similar tasks. For example, if you want to find contact information for 100 companies, this can all be done in parallel and reported back to a main agent, which processes the results and kicks off parallel subtasks again.
 
-
 ## Contributing
 
 We love contributions! Feel free to open issues for bugs or feature requests. To contribute to the docs, check out the `/docs` folder.
-
 
 ## 🧪 How to make your agents robust?
 
@@ -172,7 +171,6 @@ We offer to run your tasks in our CI—automatically, on every update!
 ## Local Setup
 
 To learn more about the library, check out the [local setup 📕](https://docs.browser-use.com/development/local-setup).
-
 
 `main` is the primary development branch with frequent changes. For production use, install a stable [versioned release](https://github.com/browser-use/browser-use/releases) instead.
 

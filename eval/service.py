@@ -850,7 +850,7 @@ def create_controller(use_serp: bool = False):
 
 
 def get_llm(model_name: str):
-	"""Instantiates the correct LangChain ChatModel based on the model name."""
+	"""Instantiates the correct ChatModel based on the model name."""
 	if model_name not in SUPPORTED_MODELS:
 		raise ValueError(f'Unsupported model: {model_name}. Supported models are: {list(SUPPORTED_MODELS.keys())}')
 
