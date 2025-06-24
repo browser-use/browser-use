@@ -11,9 +11,8 @@ from browser_use.browser import BrowserProfile, BrowserSession
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from langchain_openai import ChatOpenAI
-
 from browser_use import Agent, AgentHistoryList
+from browser_use.llm import ChatOpenAI
 
 llm = ChatOpenAI(model='gpt-4o')
 browser_session = BrowserSession(browser_profile=BrowserProfile(headless=True))

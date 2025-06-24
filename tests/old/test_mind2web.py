@@ -7,11 +7,10 @@ import os
 from typing import Any
 
 import pytest
-from langchain_openai import AzureChatOpenAI
-from pydantic import SecretStr
 
 from browser_use.agent.service import Agent
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.llm.azure.chat import ChatAzureOpenAI
 from browser_use.utils import logger
 
 # Constants
@@ -50,11 +49,8 @@ def llm():
 	"""Initialize language model for testing"""
 
 	# return ChatAnthropic(model_name='claude-3-5-sonnet-20240620', timeout=25, stop=None)
-	return AzureChatOpenAI(
+	return ChatAzureOpenAI(
 		model='gpt-4o',
-		api_version='2024-10-21',
-		azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT', ''),
-		api_key=SecretStr(os.getenv('AZURE_OPENAI_KEY', '')),
 	)
 
 

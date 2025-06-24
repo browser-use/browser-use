@@ -13,9 +13,8 @@ import pytest
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-from langchain_openai import ChatOpenAI
-
 from browser_use import Agent, AgentHistoryList, BrowserSession, Controller
+from browser_use.llm import ChatOpenAI
 
 llm = ChatOpenAI(model='gpt-4o')
 controller = Controller()
