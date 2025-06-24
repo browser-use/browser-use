@@ -30,10 +30,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_openai import ChatOpenAI
-
 from browser_use import Agent, Controller
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.llm import ChatOpenAI
 
 if not os.getenv('OPENAI_API_KEY'):
 	raise ValueError('OPENAI_API_KEY is not set. Please add it to your environment variables.')
@@ -69,9 +68,7 @@ config = TwitterConfig(
 
 
 def create_twitter_agent(config: TwitterConfig) -> Agent:
-	from pydantic import SecretStr
-
-	llm = ChatOpenAI(model=config.model, api_key=SecretStr(config.openai_api_key))
+	llm = ChatOpenAI(model=config.model, api_key=config.openai_api_key)
 
 	browser_profile = BrowserProfile(
 		headless=config.headless,
