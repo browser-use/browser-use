@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from pydantic import BaseModel
-from PyPDF2 import PdfReader
+from PyPDF2 import PdfReader  # type: ignore
 
 from browser_use import ActionResult, Agent, Controller
 from browser_use.browser import BrowserProfile, BrowserSession

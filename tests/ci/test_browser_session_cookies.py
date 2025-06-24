@@ -62,7 +62,7 @@ class TestBrowserSessionCookies:
 	@pytest.fixture
 	async def browser_profile_with_cookies(self, temp_cookies_file):
 		"""Create a BrowserProfile with cookies_file set."""
-		profile = BrowserProfile(headless=True, user_data_dir=None, cookies_file=str(temp_cookies_file))
+		profile = BrowserProfile(headless=True, user_data_dir=None, cookies_file=temp_cookies_file)
 		yield profile
 
 	@pytest.fixture
@@ -158,7 +158,7 @@ class TestBrowserSessionCookies:
 	async def test_nonexistent_cookies_file(self):
 		"""Test that browser starts normally when cookies_file doesn't exist."""
 		# Use a non-existent file path
-		profile = BrowserProfile(headless=True, user_data_dir=None, cookies_file='/tmp/nonexistent_cookies.json')
+		profile = BrowserProfile(headless=True, user_data_dir=None, cookies_file=Path('/tmp/nonexistent_cookies.json'))
 
 		session = BrowserSession(browser_profile=profile)
 		# Should start without errors
@@ -176,7 +176,7 @@ class TestBrowserSessionCookies:
 		invalid_file = tmp_path / 'invalid_cookies.json'
 		invalid_file.write_text('not valid json')
 
-		profile = BrowserProfile(headless=True, user_data_dir=None, cookies_file=str(invalid_file))
+		profile = BrowserProfile(headless=True, user_data_dir=None, cookies_file=invalid_file)
 
 		session = BrowserSession(browser_profile=profile)
 		# Should start without errors (warning logged)
@@ -194,7 +194,7 @@ class TestBrowserSessionCookies:
 		profile = BrowserProfile(
 			headless=True,
 			user_data_dir=None,
-			cookies_file='./test_cookies.json',  # Relative path
+			cookies_file=Path('./test_cookies.json'),  # Relative path
 			downloads_path=browser_profile_with_cookies.downloads_path,
 		)
 

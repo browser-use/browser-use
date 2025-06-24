@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import discord
-from discord.ext import commands
+import discord  # type: ignore
+from discord.ext import commands  # type: ignore
 
 from browser_use.agent.service import Agent
 from browser_use.browser import BrowserProfile, BrowserSession
@@ -57,7 +57,7 @@ class DiscordBot(commands.Bot):
 		self.browser_profile = browser_profile
 
 		# Define intents.
-		intents = discord.Intents.default()
+		intents = discord.Intents.default()  # type: ignore
 		intents.message_content = True  # Enable message content intent
 		intents.members = True  # Enable members intent for user info
 

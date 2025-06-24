@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from onepassword.client import Client  # pip install onepassword-sdk
+from onepassword.client import Client  # type: ignore  # pip install onepassword-sdk
 
 from browser_use import ActionResult, Agent, Controller
 from browser_use.llm import ChatOpenAI

@@ -21,7 +21,7 @@ from browser_use import Agent, setup_logging
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.types import async_playwright
 from browser_use.llm import AssistantMessage, BaseChatModel
-from tests.ci.mocks import create_mock_llm
+from tests.ci.conftest import create_mock_llm
 
 # Set up test logging
 setup_logging()
@@ -143,9 +143,11 @@ class TestParallelism:
 
 		# Create a shared browser session
 		browser_session = BrowserSession(
-			headless=True,
-			user_data_dir=None,  # Use temp directory
-			keep_alive=True,
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,  # Use temp directory
+				keep_alive=True,
+			)
 		)
 
 		try:
@@ -191,9 +193,11 @@ class TestParallelism:
 
 		# Create a shared browser session
 		browser_session = BrowserSession(
-			headless=True,
-			user_data_dir=None,  # Use temp directory
-			keep_alive=True,
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,  # Use temp directory
+				keep_alive=True,
+			)
 		)
 
 		try:
@@ -389,9 +393,11 @@ class TestParallelism:
 
 		# Create shared browser session
 		shared_session = BrowserSession(
-			headless=True,
-			user_data_dir=None,
-			keep_alive=True,
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,
+				keep_alive=True,
+			)
 		)
 
 		try:
@@ -446,9 +452,11 @@ class TestParallelism:
 
 		# Create a session with keep_alive
 		session = BrowserSession(
-			headless=True,
-			user_data_dir=None,
-			keep_alive=True,
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,
+				keep_alive=True,
+			)
 		)
 
 		try:
@@ -499,13 +507,15 @@ class TestParallelism:
 
 			# Create session with existing playwright objects
 			browser_session = BrowserSession(
-				page=page,
+				browser_profile=BrowserProfile(
+					headless=True,
+					user_data_dir=None,
+					keep_alive=False,
+				),
+				agent_current_page=page,
 				browser_context=context,
 				browser=browser,
 				playwright=playwright,
-				headless=True,
-				user_data_dir=None,
-				keep_alive=False,
 			)
 
 			# Create mock LLM

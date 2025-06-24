@@ -17,7 +17,7 @@
 # from browser_use import Agent
 # from browser_use.browser.browser import BrowserSession
 # from browser_use.sync.service import CloudSync
-# from tests.ci.mocks import create_mock_llm
+# from tests.ci.conftest import create_mock_llm
 
 # logger = logging.getLogger(__name__)
 

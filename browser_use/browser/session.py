@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
 import base64
 import json
 import logging
 import os
 import re
+import shutil
+import tempfile
 import time
 from dataclasses import dataclass
 from functools import wraps
@@ -13,6 +16,7 @@ from pathlib import Path
 from typing import Any, Self
 from urllib.parse import urlparse
 
+from browser_use.config import CONFIG
 from browser_use.utils import _log_pretty_path, _log_pretty_url
 
 os.environ['PW_TEST_SCREENSHOT_NO_FONTS_READY'] = '1'  # https://github.com/microsoft/playwright/issues/35972
@@ -44,10 +48,6 @@ from browser_use.dom.clickable_element_processor.service import ClickableElement
 from browser_use.dom.service import DomService
 from browser_use.dom.views import DOMElementNode, SelectorMap
 from browser_use.utils import match_url_with_domain_pattern, merge_dicts, time_execution_async, time_execution_sync
-
-# Check if running in Docker
-IN_DOCKER = os.environ.get('IN_DOCKER', 'false').lower()[0] in 'ty1'
-
 
 _GLOB_WARNING_SHOWN = False  # used inside _is_url_allowed to avoid spamming the logs with the same warning multiple times
 
@@ -83,7 +83,7 @@ def require_initialization(func):
 
 			if not self.agent_current_page or self.agent_current_page.is_closed():
 				self.agent_current_page = (
-					self.browser_context.pages[0] if (self.browser_context and self.browser_context.pages) else None
+					self.browser_context.pages[0] if (self.browser_context and len(self.browser_context.pages) > 0) else None
 				)
 
 			if not self.agent_current_page or self.agent_current_page.is_closed():
@@ -260,13 +260,13 @@ class BrowserSession(BaseModel):
 		"""
 		Starts the browser session by either connecting to an existing browser or launching a new one.
 		Precedence order for launching/connecting:
-		        1. page=Page playwright object, will use its page.context as browser_context
-		        2. browser_context=PlaywrightBrowserContext object, will use its browser
-		        3. browser=PlaywrightBrowser object, will use its first available context
-		        4. browser_pid=int, will connect to a local chromium-based browser via pid
-		        5. wss_url=str, will connect to a remote playwright browser server via WSS
-		        6. cdp_url=str, will connect to a remote chromium-based browser via CDP
-		        7. playwright=Playwright object, will use its chromium instance to launch a new browser
+			1. page=Page playwright object, will use its page.context as browser_context
+			2. browser_context=PlaywrightBrowserContext object, will use its browser
+			3. browser=PlaywrightBrowser object, will use its first available context
+			4. browser_pid=int, will connect to a local chromium-based browser via pid
+			5. wss_url=str, will connect to a remote playwright browser server via WSS
+			6. cdp_url=str, will connect to a remote chromium-based browser via CDP
+			7. playwright=Playwright object, will use its chromium instance to launch a new browser
 		"""
 
 		# if we're already initialized and the connection is still valid, return the existing session state and start from scratch
@@ -414,9 +414,10 @@ class BrowserSession(BaseModel):
 						except TimeoutError:
 							self.logger.warning('⏱️ Timeout while closing browser/context, has it become unresponsive?')
 					except Exception as e:
-						self.logger.warning(
-							f'❌ Error closing playwright browser_context={self.browser_context}: {type(e).__name__}: {e}'
-						)
+						if 'browser has been closed' not in str(e):
+							self.logger.warning(
+								f'❌ Error closing playwright browser_context={self.browser_context}: {type(e).__name__}: {e}'
+							)
 					finally:
 						# Always clear references to ensure a fresh start next time
 						self.browser_context = None
@@ -426,7 +427,8 @@ class BrowserSession(BaseModel):
 				if self.browser_pid:
 					try:
 						proc = psutil.Process(pid=self.browser_pid)
-						executable_path = proc.cmdline()[0]
+						cmdline = proc.cmdline()
+						executable_path = cmdline[0] if cmdline else 'unknown'
 						self.logger.info(f' ↳ Killing browser_pid={self.browser_pid} {_log_pretty_path(executable_path)}')
 						# Add timeout for process termination
 						try:
@@ -440,11 +442,19 @@ class BrowserSession(BaseModel):
 							)
 							proc.kill()  # Force kill if terminate didn't work
 						self.browser_pid = None
+					except psutil.NoSuchProcess:
+						self.browser_pid = None
 					except Exception as e:
 						if 'NoSuchProcess' not in type(e).__name__:
 							self.logger.debug(
 								f'❌ Error terminating subprocess with browser_pid={self.browser_pid}: {type(e).__name__}: {e}'
 							)
+
+				# if the user_data_dir is a temporary one, delete it
+				if self.browser_profile.user_data_dir and Path(self.browser_profile.user_data_dir).name.startswith(
+					'browseruse-tmp'
+				):
+					shutil.rmtree(self.browser_profile.user_data_dir, ignore_errors=True)
 
 				self._reset_connection_state()
 				# self.logger.debug('🛑 Shutdown complete.')
@@ -461,31 +471,8 @@ class BrowserSession(BaseModel):
 		self.browser_profile.keep_alive = False
 		await self.stop()
 
-		# Clean up playwright instance to prevent background tasks from running
-		if self.playwright:
-			try:
-				await self.playwright.stop()
-				# Give playwright tasks a moment to clean up properly
-				# This prevents "Task was destroyed but it is pending!" warnings
-				await asyncio.sleep(0.1)
-				# self.logger.debug('🎭 Stopped playwright node.js API worker')
-			except Exception as e:
-				self.logger.warning(f'❌ Error stopping playwright node.js API subprocess: {type(e).__name__}: {e}')
-			finally:
-				# Clear global references if they match this instance
-				global GLOBAL_PLAYWRIGHT_API_OBJECT, GLOBAL_PATCHRIGHT_API_OBJECT
-				global GLOBAL_PLAYWRIGHT_EVENT_LOOP, GLOBAL_PATCHRIGHT_EVENT_LOOP
-
-				if self.playwright == GLOBAL_PLAYWRIGHT_API_OBJECT:
-					GLOBAL_PLAYWRIGHT_API_OBJECT = None
-					GLOBAL_PLAYWRIGHT_EVENT_LOOP = None
-					# self.logger.debug('🧹 Cleared global playwright references')
-				elif self.playwright == GLOBAL_PATCHRIGHT_API_OBJECT:
-					GLOBAL_PATCHRIGHT_API_OBJECT = None
-					GLOBAL_PATCHRIGHT_EVENT_LOOP = None
-					# self.logger.debug('🧹 Cleared global patchright references')
-
-				self.playwright = None
+		# do not stop self.playwright here as its likely used by other parallel browser_sessions
+		# let it be cleaned up by the garbage collector when no refs use it anymore
 
 	async def new_context(self, **kwargs):
 		"""Deprecated: Provides backwards-compatibility with old class method Browser().new_context()."""
@@ -527,56 +514,6 @@ class BrowserSession(BaseModel):
 		except BaseException:
 			# Never let __del__ raise exceptions
 			pass
-
-	def _kill_child_processes(self) -> None:
-		"""Kill any child processes that might be related to the browser"""
-
-		if not self.browser_profile.keep_alive and self.browser_pid:
-			try:
-				browser_proc = psutil.Process(self.browser_pid)
-				try:
-					browser_proc.terminate()
-					browser_proc.wait(
-						timeout=5
-					)  # wait up to 5 seconds for the process to exit cleanly and commit its user_data_dir changes
-				except (psutil.NoSuchProcess, psutil.AccessDenied, TimeoutError):
-					pass
-
-				# Kill all child processes first (recursive)
-				for child in browser_proc.children(recursive=True):
-					try:
-						# self.logger.debug(f'Force killing child process: {child.pid} ({child.name()})')
-						child.kill()
-					except (psutil.NoSuchProcess, psutil.AccessDenied):
-						pass
-
-				# Kill the main browser process
-				# self.logger.debug(f'Force killing browser process: {self.browser_pid}')
-				browser_proc.kill()
-			except psutil.NoSuchProcess:
-				pass
-			except Exception as e:
-				self.logger.warning(f'Error force-killing browser in BrowserSession.__del__: {type(e).__name__}: {e}')
-
-	@staticmethod
-	async def _start_global_playwright_subprocess(is_stealth: bool) -> PlaywrightOrPatchright:
-		"""Create and return a new playwright or patchright node.js subprocess / API connector"""
-		global GLOBAL_PLAYWRIGHT_API_OBJECT, GLOBAL_PATCHRIGHT_API_OBJECT
-		global GLOBAL_PLAYWRIGHT_EVENT_LOOP, GLOBAL_PATCHRIGHT_EVENT_LOOP
-
-		try:
-			current_loop = asyncio.get_running_loop()
-		except RuntimeError:
-			current_loop = None
-
-		if is_stealth:
-			GLOBAL_PATCHRIGHT_API_OBJECT = await async_patchright().start()
-			GLOBAL_PATCHRIGHT_EVENT_LOOP = current_loop
-			return GLOBAL_PATCHRIGHT_API_OBJECT
-		else:
-			GLOBAL_PLAYWRIGHT_API_OBJECT = await async_playwright().start()
-			GLOBAL_PLAYWRIGHT_EVENT_LOOP = current_loop
-			return GLOBAL_PLAYWRIGHT_API_OBJECT
 
 	def _kill_child_processes(self) -> None:
 		"""Kill any child processes that might be related to the browser"""
@@ -694,6 +631,22 @@ class BrowserSession(BaseModel):
 			if self.browser_profile.headless or not self.browser_profile.no_viewport:
 				self.logger.info(' 🪄 For maximum stealth, BrowserSession(...) should be passed headless=False & viewport=None')
 
+		# register a shutdown hook to stop the shared global playwright node.js client when the program exits (if an event loop is still running)
+		def shudown_playwright():
+			if not self.playwright:
+				return
+			try:
+				loop = asyncio.get_running_loop()
+				self.logger.debug('🛑 Shutting down shared global playwright node.js client')
+				task = loop.create_task(self.playwright.stop())
+				if hasattr(task, '_log_destroy_pending'):
+					task._log_destroy_pending = False  # type: ignore
+			except Exception:
+				pass
+			self.playwright = None
+
+		atexit.register(shudown_playwright)
+
 	async def setup_browser_via_passed_objects(self) -> None:
 		"""Override to customize the set up of the connection to an existing browser"""
 
@@ -735,14 +688,36 @@ class BrowserSession(BaseModel):
 		if not self.browser_pid:
 			return  # no browser_pid provided, nothing to do
 
-		chrome_process = psutil.Process(pid=self.browser_pid)
-		assert chrome_process.is_running(), 'Chrome process is not running'
-		args = chrome_process.cmdline()
+		# check that browser_pid process is running, otherwise we cannot connect to it
+		try:
+			chrome_process = psutil.Process(pid=self.browser_pid)
+			if not chrome_process.is_running():
+				self.logger.warning(f'Chrome process with pid={self.browser_pid} is not running')
+				return
+			args = chrome_process.cmdline()
+		except psutil.NoSuchProcess:
+			self.logger.warning(f'Chrome process with pid={self.browser_pid} not found')
+			return
+		except Exception as e:
+			self.browser_pid = None
+			self.logger.warning(f'Error accessing chrome process with pid={self.browser_pid}: {type(e).__name__}: {e}')
+			return
+
+		# check that browser_pid process is exposing a debug port we can connect to, otherwise we cannot connect to it
 		debug_port = next((arg for arg in args if arg.startswith('--remote-debugging-port=')), '').split('=')[-1].strip()
-		assert debug_port, (
-			f'Could not find --remote-debugging-port=... to connect to in browser launch args: browser_pid={self.browser_pid} {args}'
-		)
-		# we could automatically relaunch the browser process with that arg added here, but they may have tabs open they dont want to lose
+		if not debug_port:
+			# provided pid is unusable, it's either not running or doesnt have an open debug port we can connect to
+			if '--remote-debugging-pipe' in args:
+				self.logger.error(
+					f'❌ Found --remote-debugging-pipe in browser launch args for browser_pid={self.browser_pid} but it was started by a different BrowserSession, cannot connect to it'
+				)
+			else:
+				self.logger.error(
+					f'❌ Could not find --remote-debugging-port=... to connect to in browser launch args for browser_pid={self.browser_pid}: {" ".join(args)}'
+				)
+			self.browser_pid = None
+			return
+
 		self.cdp_url = self.cdp_url or f'http://localhost:{debug_port}/'
 		self.logger.info(f'🌎 Connecting to existing local browser process: browser_pid={self.browser_pid} on {self.cdp_url}')
 		assert self.playwright is not None, 'playwright instance is None'
@@ -815,112 +790,86 @@ class BrowserSession(BaseModel):
 				f'{str(type(self.playwright).__module__).split(".")[0]}:{self.browser_profile.channel.name.lower()} keep_alive={self.browser_profile.keep_alive or False} '
 				f'user_data_dir= {_log_pretty_path(self.browser_profile.user_data_dir) or "<incognito>"}'
 			)
+
+			# if no user_data_dir is provided, generate a unique one for this temporary browser_context (will be used to uniquely identify the browser_pid later)
 			if not self.browser_profile.user_data_dir:
 				# self.logger.debug('🌎 Launching local browser in incognito mode')
-				# if no user_data_dir is provided, launch an incognito context with no persistent user_data_dir
-				try:
-					assert self.playwright is not None, 'playwright instance is None'
-					async with asyncio.timeout(10):  # Reduced timeout from 30s to 10s
-						self.browser = self.browser or await self.playwright.chromium.launch(
-							**self.browser_profile.kwargs_for_launch().model_dump()
-						)
-					# self.logger.debug('🌎 Launching new incognito context in browser')
-					async with asyncio.timeout(10):  # Reduced timeout from 30s to 10s
-						self.browser_context = await self.browser.new_context(
-							**self.browser_profile.kwargs_for_new_context().model_dump(mode='json')
-						)
-				except TimeoutError:
-					self.logger.warning(
-						'Browser operation timed out. This may indicate the playwright instance is invalid due to event loop changes. '
-						'Recreating playwright instance and retrying...'
-					)
-					# Force recreation of the playwright object
-					self.playwright = await self._start_global_playwright_subprocess(is_stealth=self.browser_profile.stealth)
-					# Retry the operation with the new playwright instance
-					assert self.playwright is not None, 'playwright instance is None'
-					async with asyncio.timeout(10):
-						self.browser = await self.playwright.chromium.launch(
-							**self.browser_profile.kwargs_for_launch().model_dump()
-						)
-					async with asyncio.timeout(10):
-						self.browser_context = await self.browser.new_context(
-							**self.browser_profile.kwargs_for_new_context().model_dump()
-						)
-				# self.logger.debug('🌎 Created new incognito context in browser')
-			else:
-				# user data dir was provided, prepare it for use
-				self.prepare_user_data_dir()
+				# if no user_data_dir is provided, generate a unique one for this temporary browser_context (will be used to uniquely identify the browser_pid later)
+				self.browser_profile.user_data_dir = self.browser_profile.user_data_dir or Path(
+					tempfile.mkdtemp(prefix='browseruse-tmp-')
+				)
 
-				# search for potentially conflicting local processes running on the same user_data_dir
-				for proc in psutil.process_iter(['pid', 'cmdline']):
-					if f'--user-data-dir={self.browser_profile.user_data_dir}' in (proc.info['cmdline'] or []):
-						self.logger.error(
-							f'🚨 Found potentially conflicting browser process browser_pid={proc.info["pid"]} '
-							f'already running with the same user_data_dir= {_log_pretty_path(self.browser_profile.user_data_dir)}'
-						)
-						break
+			# user data dir was provided, prepare it for use
+			self.prepare_user_data_dir()
 
-				# if a user_data_dir is provided, launch a persistent context with that user_data_dir
-				try:
-					async with asyncio.timeout(10):  # Reduced timeout from 30s to 10s
-						try:
-							assert self.playwright is not None, 'playwright instance is None'
-							self.browser_context = await self.playwright.chromium.launch_persistent_context(
-								**self.browser_profile.kwargs_for_launch_persistent_context().model_dump(mode='json')
-							)
-						except Exception as e:
-							# Re-raise if not a timeout
-							if not isinstance(e, asyncio.TimeoutError):
-								raise
-				except TimeoutError:
-					self.logger.warning(
-						'Browser operation timed out. This may indicate the playwright instance is invalid due to event loop changes. '
-						'Recreating playwright instance and retrying...'
+			# search for potentially conflicting local processes running on the same user_data_dir
+			for proc in psutil.process_iter(['pid', 'cmdline']):
+				if f'--user-data-dir={self.browser_profile.user_data_dir}' in (proc.info['cmdline'] or []):
+					self.logger.error(
+						f'🚨 Found potentially conflicting browser process browser_pid={proc.info["pid"]} '
+						f'already running with the same user_data_dir= {_log_pretty_path(self.browser_profile.user_data_dir)}'
 					)
-					# Force recreation of the playwright object
-					self.playwright = await self._start_global_playwright_subprocess(is_stealth=self.browser_profile.stealth)
-					# Retry the operation with the new playwright instance
-					async with asyncio.timeout(10):
+					break
+
+			# if a user_data_dir is provided, launch a persistent context with that user_data_dir
+			try:
+				async with asyncio.timeout(self.browser_profile.timeout / 1000):
+					try:
 						assert self.playwright is not None, 'playwright instance is None'
 						self.browser_context = await self.playwright.chromium.launch_persistent_context(
-							**self.browser_profile.kwargs_for_launch_persistent_context().model_dump()
+							**self.browser_profile.kwargs_for_launch_persistent_context().model_dump(mode='json')
 						)
-				except Exception as e:
-					# show a nice logger hint explaining what went wrong with the user_data_dir
-					# calculate the version of the browser that the user_data_dir is for, and the version of the browser we are running with
-					user_data_dir_chrome_version = '???'
-					test_browser_version = '???'
-					try:
-						# user_data_dir is corrupted or unreadable because it was migrated to a newer version of chrome than we are running with
-						user_data_dir_chrome_version = (
-							(Path(self.browser_profile.user_data_dir) / 'Last Version').read_text().strip()
-						)
-					except Exception:
-						pass  # let the logger below handle it
-					try:
-						assert self.playwright is not None, 'playwright instance is None'
-						test_browser = await self.playwright.chromium.launch(headless=True)
-						test_browser_version = test_browser.version
-						await test_browser.close()
-					except Exception:
-						pass
+					except Exception as e:
+						# Re-raise if not a timeout
+						if not isinstance(e, asyncio.TimeoutError):
+							raise
+			except TimeoutError:
+				self.logger.warning(
+					'Browser operation timed out. This may indicate the playwright instance is invalid due to event loop changes. '
+					'Recreating playwright instance and retrying...'
+				)
+				# Force recreation of the playwright object
+				self.playwright = await self._start_global_playwright_subprocess(is_stealth=self.browser_profile.stealth)
+				# Retry the operation with the new playwright instance
+				async with asyncio.timeout(self.browser_profile.timeout / 1000):
+					assert self.playwright is not None, 'playwright instance is None'
+					self.browser_context = await self.playwright.chromium.launch_persistent_context(
+						**self.browser_profile.kwargs_for_launch_persistent_context().model_dump()
+					)
+			except Exception as e:
+				# show a nice logger hint explaining what went wrong with the user_data_dir
+				# calculate the version of the browser that the user_data_dir is for, and the version of the browser we are running with
+				user_data_dir_chrome_version = '???'
+				test_browser_version = '???'
+				try:
+					# user_data_dir is corrupted or unreadable because it was migrated to a newer version of chrome than we are running with
+					user_data_dir_chrome_version = (Path(self.browser_profile.user_data_dir) / 'Last Version').read_text().strip()
+				except Exception:
+					pass  # let the logger below handle it
+				try:
+					assert self.playwright is not None, 'playwright instance is None'
+					test_browser = await self.playwright.chromium.launch(headless=True)
+					test_browser_version = test_browser.version
+					await test_browser.close()
+				except Exception:
+					pass
 
-					# failed to parse extensions == most common error text when user_data_dir is corrupted / has an unusable schema
-					reason = 'due to bad' if 'Failed parsing extensions' in str(e) else 'for unknown reason with'
-					driver = str(type(self.playwright).__module__).split('.')[0].lower()
-					browser_channel = (
-						Path(self.browser_profile.executable_path).name.replace(' ', '-').replace('.exe', '').lower()
-						if self.browser_profile.executable_path
-						else (self.browser_profile.channel or BROWSERUSE_DEFAULT_CHANNEL).name.lower()
-					)
-					self.logger.error(
-						f'❌ Launching new local browser {driver}:{browser_channel} (v{test_browser_version}) failed!'
-						f'\n\tFailed {reason} user_data_dir= {_log_pretty_path(self.browser_profile.user_data_dir)} (created with v{user_data_dir_chrome_version})'
-						'\n\tTry using a different browser version/channel or delete the user_data_dir to start over with a fresh profile.'
-						'\n\t(can happen if different versions of Chrome/Chromium/Brave/etc. tried to share one dir)'
-						f'\n\n{type(e).__name__} {e}'
-					)
-					raise
+				# failed to parse extensions == most common error text when user_data_dir is corrupted / has an unusable schema
+				reason = 'due to bad' if 'Failed parsing extensions' in str(e) else 'for unknown reason with'
+				driver = str(type(self.playwright).__module__).split('.')[0].lower()
+				browser_channel = (
+					Path(self.browser_profile.executable_path).name.replace(' ', '-').replace('.exe', '').lower()
+					if self.browser_profile.executable_path
+					else (self.browser_profile.channel or BROWSERUSE_DEFAULT_CHANNEL).name.lower()
+				)
+				self.logger.error(
+					f'❌ Launching new local browser {driver}:{browser_channel} (v{test_browser_version}) failed!'
+					f'\n\tFailed {reason} user_data_dir= {_log_pretty_path(self.browser_profile.user_data_dir)} (created with v{user_data_dir_chrome_version})'
+					'\n\tTry using a different browser version/channel or delete the user_data_dir to start over with a fresh profile.'
+					'\n\t(can happen if different versions of Chrome/Chromium/Brave/etc. tried to share one dir)'
+					f'\n\n{type(e).__name__} {e}'
+				)
+				raise
 
 		# Only restore browser from context if it's connected, otherwise keep it None to force new launch
 		browser_from_context = self.browser_context and self.browser_context.browser
@@ -930,22 +879,59 @@ class BrowserSession(BaseModel):
 		# playwright does not give us a browser object at all when we use launch_persistent_context()!
 
 		# Detect any new child chrome processes that we might have launched above
-		try:
-			child_pids_after_launch = {child.pid for child in current_process.children(recursive=True)}
-			new_child_pids = child_pids_after_launch - child_pids_before_launch
-			new_child_procs = [psutil.Process(pid) for pid in new_child_pids]
-			new_chrome_procs = [proc for proc in new_child_procs if 'Helper' not in proc.name() and proc.status() == 'running']
-		except Exception as e:
-			self.logger.debug(
-				f'❌ Error trying to find child chrome processes after launching new browser: {type(e).__name__}: {e}'
-			)
-			new_chrome_procs = []
+		def is_our_chrome_proc(pid: int) -> psutil.Process | None:
+			try:
+				proc = psutil.Process(pid)
+				cmdline = proc.cmdline()
+				if 'Helper' in proc.name():
+					return None
+				if proc.status() != 'running':
+					return None
+				if (
+					self.browser_profile.executable_path
+					and Path(cmdline[0]).expanduser().resolve()
+					!= Path(self.browser_profile.executable_path).expanduser().resolve()
+				):
+					# self.logger.debug(f'❌ Found new child chrome process that does not match our executable: {str(cmdline)[:50]}')
+					return None
+				if (
+					self.browser_profile.user_data_dir
+					and f'--user-data-dir={Path(self.browser_profile.user_data_dir).expanduser().resolve()}' in cmdline
+				):
+					# self.logger.debug(f'✅ Found new child chrome process that matches our user_data_dir: {str(cmdline)[:50]}')
+					return proc
+				else:
+					# self.logger.debug(f'❌ Found new child chrome process that does not match our user_data_dir: {[arg for arg in cmdline if "--user-data-dir=" in arg]}')
+					return None
+			except Exception:
+				pass
+			return None
 
-		if new_chrome_procs and not self.browser_pid:
-			self.browser_pid = new_chrome_procs[0].pid
-			self.logger.info(f' ↳ Spawned browser_pid={self.browser_pid} {_log_pretty_path(new_chrome_procs[0].cmdline()[0])}')
-			self.logger.debug(' '.join(new_chrome_procs[0].cmdline()))  # print the entire launch command for debugging
-			self._set_browser_keep_alive(False)  # close the browser at the end because we launched it
+		child_pids_after_launch = {child.pid for child in current_process.children(recursive=True)}
+		new_child_pids = child_pids_after_launch - child_pids_before_launch
+		new_child_procs = list(filter(bool, (is_our_chrome_proc(pid) for pid in new_child_pids)))
+		if not new_child_procs:
+			self.logger.debug(f'❌ Failed to find any new child chrome processes after launching new browser: {new_child_pids}')
+			new_chrome_proc = None
+		elif len(new_child_procs) > 1:
+			self.logger.debug(f'❌ Found multiple new child chrome processes after launching new browser: {new_child_procs}')
+			new_chrome_proc = None
+		else:
+			new_chrome_proc = new_child_procs[0]
+
+		if new_chrome_proc and not self.browser_pid:
+			# look through the discovered new chrome processes to uniquely identify the one that *we* launched,
+			# match using unique user_data_dir
+			try:
+				self.browser_pid = new_chrome_proc.pid
+				cmdline = new_chrome_proc.cmdline()
+				executable_path = cmdline[0] if cmdline else 'unknown'
+				self.logger.info(f' ↳ Spawned browser_pid={self.browser_pid} {_log_pretty_path(executable_path)}')
+				if cmdline:
+					self.logger.debug(' '.join(cmdline))  # print the entire launch command for debugging
+				self._set_browser_keep_alive(False)  # close the browser at the end because we launched it
+			except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+				self.logger.warning(f'Browser process {self.browser_pid} died immediately after launch: {type(e).__name__}')
 
 		if self.browser:
 			assert self.browser.is_connected(), (
@@ -1071,7 +1057,7 @@ class BrowserSession(BaseModel):
 		if pages:
 			foreground_page = pages[0]
 			self.logger.debug(
-				f'👁️‍🗨️ Found {len(pages)} existing tabs in browser, agent session {self.id[-4:]}.{str(id(self.agent_current_page))[-2:]} will start focused on Tab [{pages.index(foreground_page)}]: {foreground_page.url}'
+				f'👁️‍🗨️ Found {len(pages)} existing tabs in browser, agent session {self.id[-4:]}.{str(id(self.agent_current_page))[-2:]} will start focused on Tab [{pages.index(foreground_page)}]: {foreground_page.url}'  # type: ignore
 			)
 		else:
 			foreground_page = await self.browser_context.new_page()
@@ -1090,15 +1076,15 @@ class BrowserSession(BaseModel):
 			old_foreground = self.human_current_page
 			assert self.browser_context is not None, 'BrowserContext object is not set'
 			assert old_foreground is not None, 'Old foreground page is not set'
-			old_tab_idx = self.browser_context.pages.index(old_foreground)
+			old_tab_idx = self.browser_context.pages.index(old_foreground)  # type: ignore
 			self.human_current_page = new_page
-			new_tab_idx = self.browser_context.pages.index(new_page)
+			new_tab_idx = self.browser_context.pages.index(new_page)  # type: ignore
 
 			# Log before and after for debugging
 			old_url = old_foreground and old_foreground.url or 'about:blank'
 			new_url = new_page and new_page.url or 'about:blank'
 			agent_url = self.agent_current_page and self.agent_current_page.url or 'about:blank'
-			agent_tab_idx = self.browser_context.pages.index(self.agent_current_page)
+			agent_tab_idx = self.browser_context.pages.index(self.agent_current_page)  # type: ignore
 			if old_url != new_url:
 				self.logger.info(
 					f'👁️ Foregound tab changed by human from [{old_tab_idx}]{_log_pretty_url(old_url)} '
@@ -1167,7 +1153,7 @@ class BrowserSession(BaseModel):
 				await page.evaluate(update_tab_focus_script)
 				# self.logger.debug(f'👁️ Added visibility listener to existing tab: {page.url}')
 			except Exception as e:
-				page_idx = self.browser_context.pages.index(page)
+				page_idx = self.browser_context.pages.index(page)  # type: ignore
 				self.logger.debug(
 					f'⚠️ Failed to add visibility listener to existing tab, is it crashed or ignoring CDP commands?: [{page_idx}]{page.url}: {type(e).__name__}: {e}'
 				)
@@ -1258,7 +1244,7 @@ class BrowserSession(BaseModel):
 
 			# cdp api: https://chromedevtools.github.io/devtools-protocol/tot/Browser/#method-setWindowBounds
 			try:
-				cdp_session = await page.context.new_cdp_session(page)
+				cdp_session = await page.context.new_cdp_session(page)  # type: ignore
 				window_id_result = await cdp_session.send('Browser.getWindowForTarget')
 				await cdp_session.send(
 					'Browser.setWindowBounds',
@@ -1277,7 +1263,7 @@ class BrowserSession(BaseModel):
 					# fallback to javascript resize if cdp setWindowBounds fails
 					await page.evaluate(
 						"""(width, height) => {window.resizeTo(width, height)}""",
-						**self.browser_profile.window_size,
+						[self.browser_profile.window_size['width'], self.browser_profile.window_size['height']],
 					)
 					return
 				except Exception:
@@ -1309,8 +1295,10 @@ class BrowserSession(BaseModel):
 
 		# Check if the browser_context itself is closed/unusable
 		try:
-			_ = self.browser_context.pages
-			return True
+			# TODO: figure out a better synchronous test for whether browser_context is usable
+			# this is a hacky workaround for the fact that playwright's browser_context has no is_connected() method
+			# and browser_context.browser is None when we launch with a persistent context (basically always)
+			return bool(self.browser_context.pages)
 		except Exception:
 			return False
 
@@ -1480,30 +1468,25 @@ class BrowserSession(BaseModel):
 		"""
 		page = await self.get_current_page()
 		try:
-			script = """
-                try {
-                    // Remove the highlight container and all its contents
-                    const container = document.getElementById('playwright-highlight-container');
-                    if (container) {
-                        container.remove();
-                    }
+			await page.evaluate(
+				"""
+				try {
+					// Remove the highlight container and all its contents
+					const container = document.getElementById('playwright-highlight-container');
+					if (container) {
+						container.remove();
+					}
 
-                    // Remove highlight attributes from elements
-                    const highlightedElements = document.querySelectorAll('[browser-user-highlight-id^="playwright-highlight-"]');
-                    highlightedElements.forEach(el => {
-                        el.removeAttribute('browser-user-highlight-id');
-                    });
-                } catch (e) {
-                    console.error('Failed to remove highlights:', e);
-                }
-                """
-
-			await page.evaluate(script)
-
-			for iframe in page.frames:
-				if iframe.url and iframe.url != page.url and not iframe.url.startswith('data:'):
-					await iframe.evaluate(script)
-
+					// Remove highlight attributes from elements
+					const highlightedElements = document.querySelectorAll('[browser-user-highlight-id^="playwright-highlight-"]');
+					highlightedElements.forEach(el => {
+						el.removeAttribute('browser-user-highlight-id');
+					});
+				} catch (e) {
+					console.error('Failed to remove highlights:', e);
+				}
+				"""
+			)
 		except Exception as e:
 			self.logger.debug(f'⚠️ Failed to remove highlights (this is usually ok): {type(e).__name__}: {e}')
 			# Don't raise the error since this is not critical functionality
@@ -1650,6 +1633,8 @@ class BrowserSession(BaseModel):
 			page = await self.get_current_page()
 		else:
 			# otherwise close the tab at the given index
+			if tab_index >= len(pages) or tab_index < 0:
+				raise IndexError(f'Tab index {tab_index} out of range. Available tabs: {len(pages)}')
 			page = pages[tab_index]
 
 		await page.close()
@@ -2347,9 +2332,9 @@ class BrowserSession(BaseModel):
 		Parameters:
 		-----------
 		cache_clickable_elements_hashes: bool
-		        If True, cache the clickable elements hashes for the current state.
-		        This is used to calculate which elements are new to the LLM since the last message,
-		        which helps reduce token usage.
+			If True, cache the clickable elements hashes for the current state.
+			This is used to calculate which elements are new to the LLM since the last message,
+			which helps reduce token usage.
 		"""
 		await self._wait_for_page_and_frames_load()
 		updated_state = await self._get_updated_state()
@@ -2632,10 +2617,10 @@ class BrowserSession(BaseModel):
 		Creates a CSS selector for a DOM element, handling various edge cases and special characters.
 
 		Args:
-		                element: The DOM element to create a selector for
+						element: The DOM element to create a selector for
 
 		Returns:
-		                A valid CSS selector string
+						A valid CSS selector string
 		"""
 		try:
 			# Get base selector from XPath
@@ -2930,10 +2915,6 @@ class BrowserSession(BaseModel):
 		Handles different types of input fields and ensures proper element state before input.
 		"""
 		try:
-			# Highlight before typing
-			# if element_node.highlight_index is not None:
-			# 	await self._update_state(focus_element=element_node.highlight_index)
-
 			element_handle = await self.get_locate_element(element_node)
 
 			if element_handle is None:
@@ -2948,6 +2929,18 @@ class BrowserSession(BaseModel):
 			except Exception:
 				pass
 
+			# let's first try to click and type
+			try:
+				await element_handle.evaluate('el => {el.textContent = ""; el.value = "";}')
+				await element_handle.click()
+				await asyncio.sleep(0.1)  # Increased sleep time
+				page = await self.get_current_page()
+				await page.keyboard.type(text)
+				return
+			except Exception as e:
+				self.logger.debug(f'Input text with click and type failed, trying element handle method: {e}')
+				pass
+
 			# Get element properties to determine input method
 			tag_handle = await element_handle.get_property('tagName')
 			tag_name = (await tag_handle.json_value()).lower()
@@ -2958,25 +2951,15 @@ class BrowserSession(BaseModel):
 			readonly = await readonly_handle.json_value() if readonly_handle else False
 			disabled = await disabled_handle.json_value() if disabled_handle else False
 
-			# always click the element first to make sure it's in the focus
-			await element_handle.click()
-			await asyncio.sleep(0.1)
-
 			try:
 				if (await is_contenteditable.json_value() or tag_name == 'input') and not (readonly or disabled):
 					await element_handle.evaluate('el => {el.textContent = ""; el.value = "";}')
 					await element_handle.type(text, delay=5)
 				else:
 					await element_handle.fill(text)
-			except Exception:
-				# last resort fallback, assume it's already focused after we clicked on it,
-				# just simulate keypresses on the entire page
-				try:
-					page = await self.get_current_page()
-					await page.keyboard.type(text)
-				except Exception as fallback_error:
-					# If we can't even get the current page, re-raise with a clear error
-					raise BrowserError(f'Failed to input text into element: {element_node.xpath}') from fallback_error
+			except Exception as e:
+				self.logger.error(f'Error during input text into element: {type(e).__name__}: {e}')
+				raise BrowserError(f'Failed to input text into element: {repr(element_node)}')
 
 		except Exception as e:
 			# Get current page URL safely for error message
@@ -3127,6 +3110,23 @@ class BrowserSession(BaseModel):
 		element_handle = await self.get_locate_element(selector_map[index])
 		return element_handle
 
+	async def is_file_input_by_index(self, index: int) -> bool:
+		try:
+			selector_map = await self.get_selector_map()
+			node = selector_map[index]
+			return self.is_file_input(node)
+		except Exception as e:
+			self.logger.debug(f'❌ Error in is_file_input(index={index}): {type(e).__name__}: {e}')
+			return False
+
+	@staticmethod
+	def is_file_input(node: DOMElementNode) -> bool:
+		return (
+			isinstance(node, DOMElementNode)
+			and getattr(node, 'tag_name', '').lower() == 'input'
+			and node.attributes.get('type', '').lower() == 'file'
+		)
+
 	@require_initialization
 	async def find_file_upload_element_by_index(
 		self, index: int, max_height: int = 3, max_descendant_depth: int = 3
@@ -3146,17 +3146,10 @@ class BrowserSession(BaseModel):
 
 			candidate_element = selector_map[index]
 
-			def is_file_input(node: DOMElementNode) -> bool:
-				return (
-					isinstance(node, DOMElementNode)
-					and getattr(node, 'tag_name', '').lower() == 'input'
-					and node.attributes.get('type', '').lower() == 'file'
-				)
-
 			def find_file_input_in_descendants(node: DOMElementNode, depth: int) -> DOMElementNode | None:
 				if depth < 0 or not isinstance(node, DOMElementNode):
 					return None
-				if is_file_input(node):
+				if self.is_file_input(node):
 					return node
 				for child in getattr(node, 'children', []):
 					result = find_file_input_in_descendants(child, depth - 1)
@@ -3167,7 +3160,7 @@ class BrowserSession(BaseModel):
 			current = candidate_element
 			for _ in range(max_height + 1):  # include the candidate itself
 				# 1. Check the current node itself
-				if is_file_input(current):
+				if self.is_file_input(current):
 					return current
 				# 2. Check all descendants of the current node
 				result = find_file_input_in_descendants(current, max_descendant_depth)
@@ -3179,7 +3172,7 @@ class BrowserSession(BaseModel):
 					for sibling in getattr(parent, 'children', []):
 						if sibling is current:
 							continue
-						if is_file_input(sibling):
+						if self.is_file_input(sibling):
 							return sibling
 						result = find_file_input_in_descendants(sibling, max_descendant_depth)
 						if result:
@@ -3244,7 +3237,7 @@ class BrowserSession(BaseModel):
 		Injects a DVD screensaver-style bouncing logo loading animation overlay into the given Playwright Page.
 		This is used to visually indicate that the browser is setting up or waiting.
 		"""
-		if os.environ.get('IS_IN_EVALS', 'false').lower()[0] in 'ty1':
+		if CONFIG.IS_IN_EVALS:
 			# dont bother wasting CPU showing animations during evals
 			return
 

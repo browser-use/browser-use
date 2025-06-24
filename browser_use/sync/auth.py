@@ -11,6 +11,8 @@ from datetime import datetime
 import httpx
 from pydantic import BaseModel
 
+from browser_use.config import CONFIG
+
 # Temporary user ID for pre-auth events (matches cloud backend)
 TEMP_USER_ID = '99999999-9999-9999-9999-999999999999'
 
@@ -25,9 +27,8 @@ class CloudAuthConfig(BaseModel):
 	@classmethod
 	def load_from_file(cls) -> 'CloudAuthConfig':
 		"""Load auth config from local file"""
-		from browser_use.utils import BROWSER_USE_CONFIG_DIR
 
-		config_path = BROWSER_USE_CONFIG_DIR / 'cloud_auth.json'
+		config_path = CONFIG.BROWSER_USE_CONFIG_DIR / 'cloud_auth.json'
 		if config_path.exists():
 			try:
 				with open(config_path) as f:
@@ -40,11 +41,10 @@ class CloudAuthConfig(BaseModel):
 
 	def save_to_file(self) -> None:
 		"""Save auth config to local file"""
-		from browser_use.utils import BROWSER_USE_CONFIG_DIR
 
-		BROWSER_USE_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+		CONFIG.BROWSER_USE_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
-		config_path = BROWSER_USE_CONFIG_DIR / 'cloud_auth.json'
+		config_path = CONFIG.BROWSER_USE_CONFIG_DIR / 'cloud_auth.json'
 		with open(config_path, 'w') as f:
 			json.dump(self.model_dump(mode='json'), f, indent=2, default=str)
 
@@ -61,7 +61,7 @@ class DeviceAuthClient:
 
 	def __init__(self, base_url: str | None = None, http_client: httpx.AsyncClient | None = None):
 		# Backend API URL for OAuth requests - can be passed directly or defaults to env var
-		self.base_url = base_url or os.getenv('BROWSER_USE_CLOUD_URL', 'https://cloud.browser-use.com')
+		self.base_url = base_url or CONFIG.BROWSER_USE_CLOUD_URL
 		self.client_id = 'library'
 		self.scope = 'read write'
 
@@ -124,8 +124,8 @@ class DeviceAuthClient:
 	async def poll_for_token(
 		self,
 		device_code: str,
-		interval: int = 5,
-		timeout: int = 1800,
+		interval: float = 3.0,
+		timeout: float = 1800.0,
 	) -> dict | None:
 		"""
 		Poll for the access token.
@@ -257,7 +257,7 @@ class DeviceAuthClient:
 			device_auth = await self.start_device_authorization(agent_session_id)
 
 			# Use frontend URL for user-facing links
-			frontend_url = os.getenv('BROWSER_USE_CLOUD_UI_URL', self.base_url)
+			frontend_url = CONFIG.BROWSER_USE_CLOUD_UI_URL or self.base_url
 
 			# Replace backend URL with frontend URL in verification URIs
 			verification_uri = device_auth['verification_uri'].replace(self.base_url, frontend_url)
@@ -290,9 +290,13 @@ class DeviceAuthClient:
 		except Exception as e:
 			# Log the error details for debugging
 			if hasattr(e, 'response'):
-				logger.debug(
-					f'Failed to get pre-auth token for cloud sync: HTTP {e.response.status_code} - {e.response.text[:200]}'
-				)
+				response = getattr(e, 'response')
+				if hasattr(response, 'status_code') and hasattr(response, 'text'):
+					logger.debug(
+						f'Failed to get pre-auth token for cloud sync: HTTP {response.status_code} - {response.text[:200]}'
+					)
+				else:
+					logger.debug(f'Failed to get pre-auth token for cloud sync: {type(e).__name__}: {e}')
 			else:
 				logger.debug(f'Failed to get pre-auth token for cloud sync: {type(e).__name__}: {e}')
 

@@ -8,6 +8,7 @@ import platform
 from typing import TYPE_CHECKING
 
 from browser_use.agent.views import AgentHistoryList
+from browser_use.config import CONFIG
 
 if TYPE_CHECKING:
 	from PIL import Image, ImageFont
@@ -80,7 +81,7 @@ def create_history_gif(
 			try:
 				if platform.system() == 'Windows':
 					# Need to specify the abs font path on Windows
-					font_name = os.path.join(os.getenv('WIN_FONT_DIR', 'C:\\Windows\\Fonts'), font_name + '.ttf')
+					font_name = os.path.join(CONFIG.WIN_FONT_DIR, font_name + '.ttf')
 				regular_font = ImageFont.truetype(font_name, font_size)
 				title_font = ImageFont.truetype(font_name, title_font_size)
 				goal_font = ImageFont.truetype(font_name, goal_font_size)

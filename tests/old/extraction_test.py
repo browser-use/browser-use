@@ -80,19 +80,20 @@ async def test_focus_vs_all_elements():
 				# print(all_elements_state.element_tree.clickable_elements_to_string())
 				prompt = AgentMessagePrompt(
 					browser_state_summary=all_elements_state,
+					file_system=FileSystem(dir_path='./tmp'),
 					include_attributes=DEFAULT_INCLUDE_ATTRIBUTES,
 					step_info=None,
-					file_system=FileSystem(dir_path='./tmp'),
 				)
 				# print(prompt.get_user_message(use_vision=False).content)
 				# Write the user message to a file for analysis
-				user_message = prompt.get_user_message(use_vision=False)
+				user_message = prompt.get_user_message(use_vision=False).content
 				os.makedirs('./tmp', exist_ok=True)
 				async with await anyio.open_file('./tmp/user_message.txt', 'w', encoding='utf-8') as f:
-					await f.write(user_message.text)
+					if isinstance(user_message, str):
+						await f.write(user_message)
+					else:
+						await f.write(str(user_message))
 
-				# token_count, price = count_string_tokens(user_message, model='gpt-4o')
-				# print(f'Prompt token count: {token_count}, price: {round(price, 4)} USD')
 				print('User message written to ./tmp/user_message.txt')
 
 				# also save all_elements_state.element_tree.clickable_elements_to_string() to a file

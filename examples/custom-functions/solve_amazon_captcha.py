@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from amazoncaptcha import AmazonCaptcha
+from amazoncaptcha import AmazonCaptcha  # type: ignore
 
 from browser_use import ActionResult
 from browser_use.agent.service import Agent

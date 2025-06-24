@@ -10,15 +10,18 @@ load_dotenv()
 
 
 from browser_use import Agent
+from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
 from browser_use.llm import ChatOpenAI
 
 
 async def main():
 	browser_session = BrowserSession(
-		keep_alive=True,
-		user_data_dir=None,
-		headless=False,
+		browser_profile=BrowserProfile(
+			keep_alive=True,
+			user_data_dir=None,
+			headless=False,
+		)
 	)
 	await browser_session.start()
 

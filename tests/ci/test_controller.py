@@ -8,6 +8,7 @@ from pytest_httpserver import HTTPServer
 
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
+from browser_use.browser.profile import BrowserProfile
 from browser_use.controller.service import Controller
 from browser_use.controller.views import (
 	ClickElementAction,
@@ -78,9 +79,10 @@ def base_url(http_server):
 async def browser_session():
 	"""Create and provide a Browser instance with security disabled."""
 	browser_session = BrowserSession(
-		# browser_profile=BrowserProfile(),
-		headless=True,
-		user_data_dir=None,
+		browser_profile=BrowserProfile(
+			headless=True,
+			user_data_dir=None,
+		)
 	)
 	await browser_session.start()
 	yield browser_session
@@ -112,6 +114,7 @@ class TestControllerIntegration:
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert f'Navigated to {base_url}/page1' in result.extracted_content
 
 		# Verify the current page URL
@@ -139,6 +142,7 @@ class TestControllerIntegration:
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'Scrolled down' in result.extracted_content
 
 		# Create scroll up action
@@ -152,6 +156,7 @@ class TestControllerIntegration:
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'Scrolled up' in result.extracted_content
 
 	async def test_registry_actions(self, controller, browser_session):
@@ -207,6 +212,7 @@ class TestControllerIntegration:
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'Custom action executed with: test_value on' in result.extracted_content
 		assert f'{base_url}/page1' in result.extracted_content
 
@@ -261,6 +267,7 @@ class TestControllerIntegration:
 			result = await controller.act(InputTextActionModel(**input_action), browser_session)
 			# If successful, verify the result
 			assert isinstance(result, ActionResult)
+			assert result.extracted_content is not None
 			assert 'Input' in result.extracted_content
 		except Exception as e:
 			# If it fails due to DOM issues, that's expected in a test environment
@@ -352,6 +359,7 @@ class TestControllerIntegration:
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'Navigated back' in result.extracted_content
 
 		# Add another delay to allow the navigation to complete
@@ -474,6 +482,7 @@ class TestControllerIntegration:
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'Searched for "Python web automation" in Google' in result.extracted_content
 
 		# For our test purposes, we just verify we're on some URL
@@ -507,6 +516,7 @@ class TestControllerIntegration:
 
 			# Verify the result
 			assert isinstance(result, ActionResult)
+			assert result.extracted_content is not None
 			assert success_done_message in result.extracted_content
 			assert result.success is True
 			assert result.is_done is True
@@ -522,6 +532,7 @@ class TestControllerIntegration:
 
 			# Verify the result
 			assert isinstance(result, ActionResult)
+			assert result.extracted_content is not None
 			assert failed_done_message in result.extracted_content
 			assert result.success is False
 			assert result.is_done is True
@@ -717,6 +728,10 @@ class TestControllerIntegration:
 		drag_action = {
 			'drag_drop': DragDropAction(
 				# Use the coordinate-based approach
+				element_source=None,
+				element_target=None,
+				element_source_offset=None,
+				element_target_offset=None,
 				coord_source_x=element_info['source']['x'],
 				coord_source_y=element_info['source']['y'],
 				coord_target_x=element_info['target']['x'],
@@ -735,6 +750,7 @@ class TestControllerIntegration:
 		# Step 5: Verify the controller action result
 		assert result.error is None, f'Drag operation failed with error: {result.error}'
 		assert result.is_done is False
+		assert result.extracted_content is not None
 		assert '🖱️ Dragged from' in result.extracted_content
 
 		# Step 6: Verify the element was moved by checking its new parent
@@ -826,7 +842,8 @@ class TestControllerIntegration:
 
 		# Verify navigation result
 		assert isinstance(goto_result, ActionResult)
-		assert f'Navigated to {base_url}/keyboard' in goto_result.extracted_content
+		assert goto_result.extracted_content is not None
+		assert goto_result.extracted_content is not None and f'Navigated to {base_url}/keyboard' in goto_result.extracted_content
 		assert goto_result.error is None
 		assert goto_result.is_done is False
 
@@ -852,7 +869,8 @@ class TestControllerIntegration:
 
 		# Verify Tab action result
 		assert isinstance(tab_result, ActionResult)
-		assert 'Sent keys: Tab' in tab_result.extracted_content
+		assert tab_result.extracted_content is not None
+		assert tab_result.extracted_content is not None and 'Sent keys: Tab' in tab_result.extracted_content
 		assert tab_result.error is None
 		assert tab_result.is_done is False
 
@@ -872,7 +890,8 @@ class TestControllerIntegration:
 
 		# Verify typing action result
 		assert isinstance(type_result, ActionResult)
-		assert f'Sent keys: {test_text}' in type_result.extracted_content
+		assert type_result.extracted_content is not None
+		assert type_result.extracted_content is not None and f'Sent keys: {test_text}' in type_result.extracted_content
 		assert type_result.error is None
 		assert type_result.is_done is False
 
@@ -893,7 +912,11 @@ class TestControllerIntegration:
 
 		# Verify select all action result
 		assert isinstance(select_all_result, ActionResult)
-		assert 'Sent keys: ControlOrMeta+a' in select_all_result.extracted_content
+		assert select_all_result.extracted_content is not None
+		assert (
+			select_all_result.extracted_content is not None
+			and 'Sent keys: ControlOrMeta+a' in select_all_result.extracted_content
+		)
 		assert select_all_result.error is None
 
 		# Verify selection length matches the text length
@@ -914,7 +937,8 @@ class TestControllerIntegration:
 
 		# Verify second Tab action result
 		assert isinstance(tab_result2, ActionResult)
-		assert 'Sent keys: Tab' in tab_result2.extracted_content
+		assert tab_result2.extracted_content is not None
+		assert tab_result2.extracted_content is not None and 'Sent keys: Tab' in tab_result2.extracted_content
 		assert tab_result2.error is None
 
 		# Verify we moved to the textarea
@@ -932,7 +956,10 @@ class TestControllerIntegration:
 
 		# Verify textarea typing action result
 		assert isinstance(textarea_result, ActionResult)
-		assert f'Sent keys: {textarea_text}' in textarea_result.extracted_content
+		assert textarea_result.extracted_content is not None
+		assert (
+			textarea_result.extracted_content is not None and f'Sent keys: {textarea_text}' in textarea_result.extracted_content
+		)
 		assert textarea_result.error is None
 		assert textarea_result.is_done is False
 
@@ -1037,6 +1064,7 @@ class TestControllerIntegration:
 		assert isinstance(result, ActionResult)
 
 		# Core logic validation: Verify all options are returned
+		assert result.extracted_content is not None
 		for option in expected_options[1:]:  # Skip the placeholder option
 			assert option['text'] in result.extracted_content, f"Option '{option['text']}' not found in result content"
 
@@ -1134,6 +1162,7 @@ class TestControllerIntegration:
 		assert isinstance(result, ActionResult)
 
 		# Core logic validation: Verify selection was successful
+		assert result.extracted_content is not None
 		assert 'selected option' in result.extracted_content.lower()
 		assert 'Second Option' in result.extracted_content
 
@@ -1222,26 +1251,32 @@ class TestControllerIntegration:
 		expected_result_text = 'Button 1 clicked'
 
 		# Verify the button text matches what we expect
-		assert expected_button_text in button_text, f"Expected button text '{expected_button_text}' not found in '{button_text}'"
+		assert button_text is not None and expected_button_text in button_text, (
+			f"Expected button text '{expected_button_text}' not found in '{button_text}'"
+		)
 
 		# Create a model for the click_element_by_index action
 		class ClickElementActionModel(ActionModel):
 			click_element_by_index: ClickElementAction | None = None
 
 		# Execute the action with the button index
-		result = await controller.act(ClickElementActionModel(click_element_by_index={'index': button_index}), browser_session)
+		result = await controller.act(
+			ClickElementActionModel(click_element_by_index=ClickElementAction(index=button_index)), browser_session
+		)
 
 		# Verify the result structure
 		assert isinstance(result, ActionResult), 'Result should be an ActionResult instance'
 		assert result.error is None, f'Expected no error but got: {result.error}'
 
 		# Core logic validation: Verify click was successful
+		assert result.extracted_content is not None
 		assert f'Clicked button with index {button_index}' in result.extracted_content, (
 			f'Expected click confirmation in result content, got: {result.extracted_content}'
 		)
-		assert button_text in result.extracted_content, (
-			f"Button text '{button_text}' not found in result content: {result.extracted_content}"
-		)
+		if button_text:
+			assert result.extracted_content is not None and button_text in result.extracted_content, (
+				f"Button text '{button_text}' not found in result content: {result.extracted_content}"
+			)
 
 		# Verify the click actually had an effect on the page
 		result_text = await page.evaluate("document.getElementById('result').textContent")

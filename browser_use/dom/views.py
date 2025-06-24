@@ -223,20 +223,12 @@ class DOMElementNode(DOMBaseNode):
 			elif isinstance(node, DOMTextNode):
 				# Add text only if it doesn't have a highlighted parent
 				if (
-					node.parent.highlight_index is None and node.parent and node.parent.is_visible and node.parent.is_top_element
+					node.parent and node.parent.highlight_index is None and node.parent.is_visible and node.parent.is_top_element
 				):  # and node.is_parent_top_element()
 					formatted_text.append(f'{depth_str}{node.text}')
 
 		process_node(self, 0)
 		return '\n'.join(formatted_text)
-
-	def is_iframe_element(self, url: str, name: str | None = None, id: str | None = None) -> bool:
-		return (
-			self.tag_name.lower() == 'iframe'
-			and self.attributes.get('src') == url
-			and (name is None or self.attributes.get('name') == name)
-			and (id is None or self.attributes.get('id') == id)
-		)
 
 
 SelectorMap = dict[int, DOMElementNode]

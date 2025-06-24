@@ -2,7 +2,13 @@ import importlib.resources
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam, ImageURL, SystemMessage, UserMessage
+from browser_use.llm.messages import (
+	ContentPartImageParam,
+	ContentPartTextParam,
+	ImageURL,
+	SystemMessage,
+	UserMessage,
+)
 
 if TYPE_CHECKING:
 	from browser_use.agent.views import AgentStepInfo
@@ -36,7 +42,7 @@ class SystemPrompt:
 		"""Load the prompt template from the markdown file."""
 		try:
 			# This works both in development and when installed as a package
-			with importlib.resources.files('browser_use.agent').joinpath('system_prompt.md').open('r') as f:
+			with importlib.resources.files('browser_use.agent').joinpath('system_prompt.md').open('r', encoding='utf-8') as f:
 				self.prompt_template = f.read()
 		except Exception as e:
 			raise RuntimeError(f'Failed to load system prompt template: {e}')
@@ -73,6 +79,7 @@ class AgentMessagePrompt:
 		page_filtered_actions: str | None = None,
 		max_clickable_elements_length: int = 40000,
 		sensitive_data: str | None = None,
+		available_file_paths: list[str] | None = None,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
@@ -84,6 +91,7 @@ class AgentMessagePrompt:
 		self.page_filtered_actions: str | None = page_filtered_actions
 		self.max_clickable_elements_length: int = max_clickable_elements_length
 		self.sensitive_data: str | None = sensitive_data
+		self.available_file_paths: list[str] | None = available_file_paths
 		assert self.browser_state
 
 	def _get_browser_state_description(self) -> str:
@@ -152,7 +160,7 @@ Interactive elements from top layer of the current page inside the viewport{trun
 {self.task}
 </user_request>
 <file_system>
-{self.file_system.describe() if self.file_system else ''}
+{self.file_system.describe() if self.file_system else 'No file system available'}
 </file_system>
 <todo_contents>
 {_todo_contents}
@@ -162,6 +170,8 @@ Interactive elements from top layer of the current page inside the viewport{trun
 			agent_state += f'<sensitive_data>\n{self.sensitive_data}\n</sensitive_data>\n'
 
 		agent_state += f'<step_info>\n{step_info_description}\n</step_info>\n'
+		if self.available_file_paths:
+			agent_state += '<available_file_paths>\n' + '\n'.join(self.available_file_paths) + '\n</available_file_paths>\n'
 		return agent_state
 
 	def get_user_message(self, use_vision: bool = True) -> UserMessage:
@@ -203,7 +213,9 @@ class PlannerPrompt(SystemPrompt):
 		self.available_actions = available_actions
 
 	def get_system_message(
-		self, is_planner_reasoning: bool, extended_planner_system_prompt: str | None = None
+		self,
+		is_planner_reasoning: bool,
+		extended_planner_system_prompt: str | None = None,
 	) -> SystemMessage | UserMessage:
 		"""Get the system message for the planner.
 

@@ -23,7 +23,7 @@ load_dotenv()
 
 
 from browser_use import Agent, Controller
-from browser_use.browser import BrowserSession
+from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.llm import ChatGoogle
 
 api_key = os.getenv('GOOGLE_API_KEY')
@@ -31,7 +31,9 @@ if not api_key:
 	raise ValueError('GOOGLE_API_KEY is not set')
 
 browser_session = BrowserSession(
-	headless=False,
+	browser_profile=BrowserProfile(
+		headless=False,
+	),
 	cdp_url='http://localhost:9222',
 )
 controller = Controller()

@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -9,7 +9,7 @@ from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 
 if TYPE_CHECKING:
-	from browser_use.agent.service import Context
+	pass
 
 
 class RegisteredAction(BaseModel):
@@ -84,11 +84,11 @@ class ActionRegistry(BaseModel):
 		Match a list of domain glob patterns against a URL.
 
 		Args:
-			domains: A list of domain patterns that can include glob patterns (* wildcard)
-			url: The URL to match against
+		        domains: A list of domain patterns that can include glob patterns (* wildcard)
+		        url: The URL to match against
 
 		Returns:
-			True if the URL's domain matches the pattern, False otherwise
+		        True if the URL's domain matches the pattern, False otherwise
 		"""
 
 		if domains is None or not url:
@@ -113,12 +113,12 @@ class ActionRegistry(BaseModel):
 		"""Get a description of all actions for the prompt
 
 		Args:
-			page: If provided, filter actions by page using page_filter and domains.
+		        page: If provided, filter actions by page using page_filter and domains.
 
 		Returns:
-			A string description of available actions.
-			- If page is None: return only actions with no page_filter and no domains (for system prompt)
-			- If page is provided: return only filtered actions that match the current page (excluding unfiltered actions)
+		        A string description of available actions.
+		        - If page is None: return only actions with no page_filter and no domains (for system prompt)
+		        - If page is provided: return only filtered actions that match the current page (excluding unfiltered actions)
 		"""
 		if page is None:
 			# For system prompt (no page provided), include only actions with no filters
@@ -153,7 +153,7 @@ class SpecialActionParameters(BaseModel):
 	# e.g. can contain anything, external db connections, file handles, queues, runtime config objects, etc.
 	# that you might want to be able to access quickly from within many of your actions
 	# browser-use code doesn't use this at all, we just pass it down to your actions for convenience
-	context: 'Context | None' = None  # type: ignore
+	context: Any | None = None
 
 	# browser-use session object, can be used to create new tabs, navigate, access playwright objects, etc.
 	browser_session: BrowserSession | None = None

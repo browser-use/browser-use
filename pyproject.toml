@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.3.1"
+version = "0.3.2"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -13,8 +13,7 @@ classifiers = [
 dependencies = [
     "aiofiles>=24.1.0",
     "anyio>=4.9.0",
-    "bubus>=1.1.0",
-    "faiss-cpu>=1.11.0",
+    "bubus>=1.1.2",
     "google-api-core>=2.25.0",
     "httpx>=0.28.1",
     "markdownify==1.1.0",
@@ -50,6 +49,8 @@ dependencies = [
 [project.optional-dependencies]
 memory = [
     # sentence-transformers: depends on pytorch, which does not support python 3.13 yet
+    # faiss-cpu: >= 1.11.0 breaks on some macOS hosts, make sure to test before upgrading
+    "faiss-cpu>=1.10.0",
     "sentence-transformers>=4.0.2",
 ]
 cli = [
@@ -110,7 +111,9 @@ docstring-code-line-length = 140
 skip-magic-trailing-comma = false
 
 [tool.pyright]
-typeCheckingMode = "on"
+typeCheckingMode = "basic"
+exclude = ["tests/old/", ".venv/", ".git/", "__pycache__/"]
+
 
 [tool.hatch.build]
 include = [
@@ -119,6 +122,7 @@ include = [
     "!browser_use/**/tests.py",
     "browser_use/agent/system_prompt.md",
     "browser_use/dom/buildDomTree.js",
+    "!tests/**/*.py",
 ]
 
 [tool.pytest.ini_options]
@@ -149,6 +153,15 @@ log_level = "DEBUG"
 allow-direct-references = true
 
 [tool.uv]
+# required-environments = [
+#     "sys_platform == 'darwin' and platform_machine == 'arm64'",
+#     "sys_platform == 'darwin' and platform_machine == 'x86_64'",
+#     "sys_platform == 'linux' and platform_machine == 'x86_64'",
+#     "sys_platform == 'linux' and platform_machine == 'aarch64'",
+#     # "sys_platform == 'linux' and platform_machine == 'arm64'",  # no pytorch wheels available yet
+#     "sys_platform == 'win32' and platform_machine == 'x86_64'",
+#     # "sys_platform == 'win32' and platform_machine == 'arm64'",  # no pytorch wheels available yet
+# ]
 dev-dependencies = [
     "ruff>=0.11.2",
     "tokencost>=0.1.16",
@@ -164,6 +177,6 @@ dev-dependencies = [
     "codespell>=2.4.1",
     "pyright>=1.1.399",
     "ty>=0.0.1a1",
-    "pytest-xdist>=3.7.0"
+    "pytest-xdist>=3.7.0",
     # "pytest-playwright-asyncio>=0.7.0",  # not actually needed I think
 ]

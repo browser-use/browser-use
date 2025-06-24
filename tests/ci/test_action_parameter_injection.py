@@ -58,9 +58,10 @@ class TestBrowserContext:
 	async def browser_session(self):
 		"""Create and provide a BrowserSession instance with security disabled."""
 		browser_session = BrowserSession(
-			# browser_profile=BrowserProfile(...),
-			headless=True,
-			user_data_dir=None,
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,
+			)
 		)
 		await browser_session.start()
 		yield browser_session
@@ -356,7 +357,7 @@ class TestBrowserContext:
 		assert 'simple_action' in action_model.model_fields
 
 		# Create an instance with the simple_action
-		action_instance = action_model(simple_action={})
+		action_instance = action_model(simple_action={})  # type: ignore[call-arg]
 
 		# Test that model_dump works correctly
 		dumped = action_instance.model_dump(exclude_unset=True)

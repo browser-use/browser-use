@@ -13,7 +13,15 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, Generic, TypeVar
 
+import anyio
 from dotenv import load_dotenv
+
+load_dotenv()
+
+# from lmnr.sdk.decorators import observe
+from bubus import EventBus
+from pydantic import ValidationError
+from uuid_extensions import uuid7str
 
 from browser_use.agent.cloud_events import (
 	CreateAgentOutputFileEvent,
@@ -29,9 +37,6 @@ from browser_use.tokens.service import TokenCost
 load_dotenv()
 
 # from lmnr.sdk.decorators import observe
-from bubus import EventBus
-from pydantic import ValidationError
-from uuid_extensions import uuid7str
 
 from browser_use.agent.gif import create_history_gif
 from browser_use.agent.memory import Memory, MemoryConfig
@@ -56,11 +61,13 @@ from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
 from browser_use.browser.types import Browser, BrowserContext, Page
 from browser_use.browser.views import BrowserStateSummary
+from browser_use.config import CONFIG
 from browser_use.controller.registry.views import ActionModel
 from browser_use.controller.service import Controller
 from browser_use.dom.history_tree_processor.service import DOMHistoryElement, HistoryTreeProcessor
 from browser_use.exceptions import LLMException
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.sync import CloudSync
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import AgentTelemetryEvent
 from browser_use.utils import (
@@ -71,8 +78,6 @@ from browser_use.utils import (
 )
 
 logger = logging.getLogger(__name__)
-
-SKIP_LLM_API_KEY_VERIFICATION = os.environ.get('SKIP_LLM_API_KEY_VERIFICATION', 'false').lower()[0] in 'ty1'
 
 
 def log_response(response: AgentOutput, registry=None, logger=None) -> None:
@@ -172,6 +177,7 @@ class Agent(Generic[Context]):
 		source: str | None = None,
 		file_system_path: str | None = None,
 		task_id: str | None = None,
+		cloud_sync: CloudSync | None = None,
 	):
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
@@ -288,6 +294,7 @@ class Agent(Generic[Context]):
 				sensitive_data=sensitive_data,
 				available_file_paths=self.settings.available_file_paths,
 			),
+			available_file_paths=self.settings.available_file_paths,
 			state=self.state.message_manager_state,
 		)
 
@@ -427,18 +434,14 @@ class Agent(Generic[Context]):
 		self.telemetry = ProductTelemetry()
 
 		# Event bus with WAL persistence
-		# Default to ~/.config/browseruse/events/{agent_task_id}.jsonl
-		from browser_use.utils import BROWSER_USE_CONFIG_DIR
-
-		wal_path = BROWSER_USE_CONFIG_DIR / 'events' / f'{self.task_id}.jsonl'
+		# Default to ~/.config/browseruse/events/{agent_session_id}.jsonl
+		wal_path = CONFIG.BROWSER_USE_CONFIG_DIR / 'events' / f'{self.session_id}.jsonl'
 		self.eventbus = EventBus(name='Agent', wal_path=wal_path)
 
 		# Cloud sync service
-		self.enable_cloud_sync = os.environ.get('BROWSERUSE_CLOUD_SYNC', 'true').lower()[0] in 'ty1'
-		if self.enable_cloud_sync:
-			from browser_use.sync import CloudSync
-
-			self.cloud_sync = CloudSync()
+		self.enable_cloud_sync = CONFIG.BROWSER_USE_CLOUD_SYNC
+		if self.enable_cloud_sync or cloud_sync is not None:
+			self.cloud_sync = cloud_sync or CloudSync()
 			# Register cloud sync handler
 			self.eventbus.on('*', self.cloud_sync.handle_event)
 
@@ -502,15 +505,27 @@ class Agent(Generic[Context]):
 			return ActionResult(extracted_content=result, include_in_memory=True, long_term_memory=result)
 
 		@self.controller.registry.action('Read file_name from file system')
-		async def read_file(file_name: str):
-			result = await self.file_system.read_file(file_name)
-			max_len = 50
-			if len(result) > max_len:
-				display_result = result[:max_len] + '\n...'
+		async def read_file(file_name: str, available_file_paths: list[str]):
+			if file_name in available_file_paths:
+				async with await anyio.open_file(file_name, 'r') as f:
+					content = await f.read()
+					result = f'Read from file {file_name}.\n<content>\n{content}\n</content>'
 			else:
-				display_result = result
-			logger.info(f'💾 {display_result}')
-			memory = result.split('\n')[-1]
+				result = await self.file_system.read_file(file_name)
+
+			MAX_MEMORY_SIZE = 1000
+			if len(result) > MAX_MEMORY_SIZE:
+				lines = result.splitlines()
+				display = ''
+				for line in lines:
+					if len(display) + len(line) < MAX_MEMORY_SIZE:
+						display += line + '\n'
+					else:
+						break
+				memory = f'{display}{len(lines) - len(display)} more lines...'
+			else:
+				memory = result
+			logger.info(f'💾 {memory}')
 			return ActionResult(
 				extracted_content=result,
 				include_in_memory=True,
@@ -1478,7 +1493,7 @@ class Agent(Generic[Context]):
 		"""
 
 		# Skip verification if already done
-		if getattr(self.llm, '_verified_api_keys', None) is True or SKIP_LLM_API_KEY_VERIFICATION:
+		if getattr(self.llm, '_verified_api_keys', None) is True or CONFIG.SKIP_LLM_API_KEY_VERIFICATION:
 			setattr(self.llm, '_verified_api_keys', True)
 			return True
 
