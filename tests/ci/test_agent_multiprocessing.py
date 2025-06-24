@@ -15,10 +15,6 @@ import asyncio
 import logging
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
-from unittest.mock import AsyncMock
-
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage
 
 from browser_use import Agent, setup_logging
 from browser_use.browser import BrowserProfile, BrowserSession
@@ -42,40 +38,11 @@ def run_agent_in_subprocess_module(task_description):
 
 	async def run_agent():
 		# Create mock LLM inline to avoid pickling issues
-		mock_llm = AsyncMock(spec=BaseChatModel)
-		mock_llm._verified_api_keys = True
-		mock_llm._verified_tool_calling_method = 'raw'
-		mock_llm.model_name = 'mock-llm'
-
-		response_content = """
-		{
-			"thinking": "null",
-			"evaluation_previous_goal": "Starting the task",
-			"memory": "Task completed",
-			"next_goal": "Complete the task",
-			"action": [
-				{
-					"done": {
-						"text": "Task completed successfully",
-						"success": true
-					}
-				}
-			]
-		}
-		"""
-
-		mock_llm.invoke.return_value = AIMessage(content=response_content)
-
-		# Make ainvoke return a coroutine
-		async def async_invoke(*args, **kwargs):
-			return AIMessage(content=response_content)
-
-		mock_llm.ainvoke.side_effect = async_invoke
+		mock_llm = create_mock_llm()
 
 		agent = Agent(
 			task=task_description,
 			llm=mock_llm,
-			tool_calling_method='raw',
 			enable_memory=False,
 			browser_profile=BrowserProfile(headless=True, user_data_dir=None),
 		)
@@ -124,7 +91,6 @@ class TestParallelism:
 		agent = Agent(
 			task='Test task',
 			llm=mock_llm,
-			tool_calling_method='raw',
 			enable_memory=False,
 			browser_profile=BrowserProfile(headless=True, user_data_dir=None),
 		)
@@ -162,7 +128,6 @@ class TestParallelism:
 				task='First parallel task',
 				llm=mock_llm,
 				browser_session=browser_session,
-				tool_calling_method='raw',
 				enable_memory=False,
 			)
 
@@ -170,7 +135,6 @@ class TestParallelism:
 				task='Second parallel task',
 				llm=mock_llm,
 				browser_session=browser_session,
-				tool_calling_method='raw',
 				enable_memory=False,
 			)
 
@@ -214,7 +178,6 @@ class TestParallelism:
 				task='First sequential task',
 				llm=mock_llm,
 				browser_session=browser_session,
-				tool_calling_method='raw',
 				enable_memory=False,
 			)
 			result1 = await agent1.run()
@@ -224,7 +187,6 @@ class TestParallelism:
 				task='Second sequential task',
 				llm=mock_llm,
 				browser_session=browser_session,
-				tool_calling_method='raw',
 				enable_memory=False,
 			)
 			result2 = await agent2.run()
@@ -253,7 +215,6 @@ class TestParallelism:
 		agent1 = Agent(
 			task='First loop task',
 			llm=mock_llm,
-			tool_calling_method='raw',
 			enable_memory=False,
 			browser_profile=BrowserProfile(headless=True, user_data_dir=None),
 		)
@@ -262,7 +223,6 @@ class TestParallelism:
 		agent2 = Agent(
 			task='Second loop task',
 			llm=mock_llm,
-			tool_calling_method='raw',
 			enable_memory=False,
 			browser_profile=BrowserProfile(headless=True, user_data_dir=None),
 		)
@@ -296,7 +256,6 @@ class TestParallelism:
 					agent = Agent(
 						task=task_description,
 						llm=mock_llm,
-						tool_calling_method='raw',
 						enable_memory=False,
 						browser_profile=BrowserProfile(headless=True, user_data_dir=None),
 					)
@@ -419,7 +378,6 @@ class TestParallelism:
 				task='Task in tab 1',
 				llm=mock_llm1,
 				browser_session=shared_session,
-				tool_calling_method='raw',
 				enable_memory=False,
 			)
 
@@ -427,7 +385,6 @@ class TestParallelism:
 				task='Task in tab 2',
 				llm=mock_llm2,
 				browser_session=shared_session,
-				tool_calling_method='raw',
 				enable_memory=False,
 			)
 
@@ -481,7 +438,6 @@ class TestParallelism:
 				task='First task',
 				llm=mock_llm,
 				browser_session=session,
-				tool_calling_method='raw',
 				enable_memory=False,
 			)
 			result1 = await agent1.run()
@@ -495,7 +451,6 @@ class TestParallelism:
 				task='Second task',
 				llm=mock_llm,
 				browser_session=session,
-				tool_calling_method='raw',
 				enable_memory=False,
 			)
 			result2 = await agent2.run()
@@ -541,7 +496,6 @@ class TestParallelism:
 				task='Test with existing playwright objects',
 				llm=mock_llm,
 				browser_session=browser_session,
-				tool_calling_method='raw',
 				enable_memory=False,
 			)
 

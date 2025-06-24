@@ -1,11 +1,12 @@
 import pytest
-from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
 from browser_use.agent.views import MessageManagerState
 from browser_use.controller.registry.service import Registry
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.llm import SystemMessage, UserMessage
+from browser_use.llm.messages import ContentPartTextParam
 from browser_use.utils import match_url_with_domain_pattern
 
 
@@ -248,7 +249,7 @@ def test_url_components():
 def test_filter_sensitive_data(message_manager):
 	"""Test that _filter_sensitive_data handles all sensitive data scenarios correctly"""
 	# Set up a message with sensitive information
-	message = HumanMessage(content='My username is admin and password is secret123')
+	message = UserMessage(content='My username is admin and password is secret123')
 
 	# Case 1: No sensitive data provided
 	message_manager.settings.sensitive_data = None
@@ -262,10 +263,10 @@ def test_filter_sensitive_data(message_manager):
 	assert '<secret>password</secret>' in result.content
 
 	# Case 3: Make sure it works with nested content
-	nested_message = HumanMessage(content=[{'type': 'text', 'text': 'My username is admin and password is secret123'}])
+	nested_message = UserMessage(content=[ContentPartTextParam(text='My username is admin and password is secret123')])
 	result = message_manager._filter_sensitive_data(nested_message)
-	assert '<secret>username</secret>' in result.content[0]['text']
-	assert '<secret>password</secret>' in result.content[0]['text']
+	assert '<secret>username</secret>' in result.content[0].text
+	assert '<secret>password</secret>' in result.content[0].text
 
 	# Case 4: Test with empty values
 	message_manager.settings.sensitive_data = {'username': 'admin', 'password': ''}
@@ -279,7 +280,7 @@ def test_filter_sensitive_data(message_manager):
 		'google.com': {'email': 'user@example.com', 'password': 'google_pass'},
 	}
 	# Update the message to include the values we're going to test
-	message = HumanMessage(content='My username is admin, email is user@example.com and password is secret123 or google_pass')
+	message = UserMessage(content='My username is admin, email is user@example.com and password is secret123 or google_pass')
 	result = message_manager._filter_sensitive_data(message)
 	# All sensitive values should be replaced regardless of domain
 	assert '<secret>username</secret>' in result.content

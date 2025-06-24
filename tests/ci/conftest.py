@@ -6,13 +6,16 @@ Sets up environment variables to ensure tests never connect to production servic
 
 import os
 import tempfile
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 from dotenv import load_dotenv
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage
 from pytest_httpserver import HTTPServer
+
+from browser_use.agent.views import AgentOutput
+from browser_use.controller.service import Controller
+from browser_use.llm import BaseChatModel
+from browser_use.llm.views import ChatInvokeCompletion
 
 # Load environment variables before any imports
 load_dotenv()
@@ -62,7 +65,7 @@ def setup_test_environment():
 
 
 # not a fixture, mock_llm() provides this in a fixture below, this is a helper so that it can accept args
-def create_mock_llm(actions=None):
+def create_mock_llm(actions: list[str] | None = None) -> BaseChatModel:
 	"""Create a mock LLM that returns specified actions or a default done action.
 
 	Args:
@@ -73,11 +76,18 @@ def create_mock_llm(actions=None):
 	Returns:
 		Mock LLM that will return the actions in order, or just a done action if no actions provided.
 	"""
+	controller = Controller()
+	ActionModel = controller.registry.create_action_model()
+	AgentOutputWithActions = AgentOutput.type_with_custom_actions(ActionModel)
+
 	llm = AsyncMock(spec=BaseChatModel)
-	llm.model_name = 'mock-llm'
+	llm.model = 'mock-llm'
 	llm._verified_api_keys = True
-	llm._verified_tool_calling_method = 'raw'
-	# llm._verified_tool_calling_method = 'function_calling'
+
+	# Add missing properties from BaseChatModel protocol
+	llm.provider = 'mock'
+	llm.name = 'mock-llm'
+	llm.model_name = 'mock-llm'  # Ensure this returns a string, not a mock
 
 	# Default done action
 	default_done_action = """
@@ -97,18 +107,20 @@ def create_mock_llm(actions=None):
 	}
 	"""
 
+	default_done_action_parsed = AgentOutputWithActions.model_validate_json(default_done_action)
+
 	if actions is None:
 		# No actions provided, just return done action
 		async def async_invoke(*args, **kwargs):
-			return AIMessage(content=default_done_action)
+			return ChatInvokeCompletion(completion=default_done_action_parsed, usage=None)
 
-		llm.invoke.return_value = AIMessage(content=default_done_action)
 		llm.ainvoke.side_effect = async_invoke
+
 	else:
 		# Actions provided, return them in sequence with structured output support
 		action_index = 0
 
-		def get_next_action():
+		def get_next_action() -> str:
 			nonlocal action_index
 			if action_index < len(actions):
 				action = actions[action_index]
@@ -118,27 +130,9 @@ def create_mock_llm(actions=None):
 				return default_done_action
 
 		async def mock_ainvoke(*args, **kwargs):
-			return AIMessage(content=get_next_action())
+			return ChatInvokeCompletion(completion=AgentOutputWithActions.model_validate_json(get_next_action()), usage=None)
 
-		def mock_invoke(*args, **kwargs):
-			return AIMessage(content=get_next_action())
-
-		llm.invoke.side_effect = mock_invoke
 		llm.ainvoke.side_effect = mock_ainvoke
-
-		# Mock the with_structured_output method to return parsed objects
-		structured_llm = MagicMock()
-
-		async def mock_structured_ainvoke(*args, **kwargs):
-			# The agent will create its own AgentOutput and ActionModel classes
-			# We return the raw response and let the agent parse it
-			return {
-				'raw': AIMessage(content=get_next_action()),
-				'parsed': None,  # Let the agent parse it from the raw JSON
-			}
-
-		structured_llm.ainvoke = AsyncMock(side_effect=mock_structured_ainvoke)
-		llm.with_structured_output = lambda *args, **kwargs: structured_llm
 
 	return llm
 
