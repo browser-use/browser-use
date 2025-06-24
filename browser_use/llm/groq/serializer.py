@@ -1,4 +1,4 @@
-from typing import List, Union, overload
+from typing import overload
 
 from groq.types.chat import (
 	ChatCompletionAssistantMessageParam,
@@ -40,13 +40,13 @@ class GroqMessageSerializer:
 
 	@staticmethod
 	def _serialize_user_content(
-		content: Union[str, List[Union[ContentPartTextParam, ContentPartImageParam]]],
-	) -> Union[str, list[Union[ChatCompletionContentPartTextParam, ChatCompletionContentPartImageParam]]]:
+		content: str | list[ContentPartTextParam | ContentPartImageParam],
+	) -> str | list[ChatCompletionContentPartTextParam | ChatCompletionContentPartImageParam]:
 		"""Serialize content for user messages (text and images allowed)."""
 		if isinstance(content, str):
 			return content
 
-		serialized_parts: list[Union[ChatCompletionContentPartTextParam, ChatCompletionContentPartImageParam]] = []
+		serialized_parts: list[ChatCompletionContentPartTextParam | ChatCompletionContentPartImageParam] = []
 		for part in content:
 			if part.type == 'text':
 				serialized_parts.append(GroqMessageSerializer._serialize_content_part_text(part))
@@ -56,7 +56,7 @@ class GroqMessageSerializer:
 
 	@staticmethod
 	def _serialize_system_content(
-		content: Union[str, List[ContentPartTextParam]],
+		content: str | list[ContentPartTextParam],
 	) -> str:
 		"""Serialize content for system messages (text only)."""
 		if isinstance(content, str):
@@ -71,8 +71,8 @@ class GroqMessageSerializer:
 
 	@staticmethod
 	def _serialize_tool_content(
-		content: Union[str, List[ContentPartTextParam]],
-	) -> Union[str, list[ChatCompletionContentPartTextParam]]:
+		content: str | list[ContentPartTextParam],
+	) -> str | list[ChatCompletionContentPartTextParam]:
 		"""Serialize content for tool messages (text only)."""
 		if isinstance(content, str):
 			return content
@@ -85,8 +85,8 @@ class GroqMessageSerializer:
 
 	@staticmethod
 	def _serialize_assistant_content(
-		content: Union[str, List[Union[ContentPartTextParam, ContentPartRefusalParam]], None],
-	) -> Union[str, list[ChatCompletionContentPartTextParam], None]:
+		content: str | list[ContentPartTextParam | ContentPartRefusalParam] | None,
+	) -> str | list[ChatCompletionContentPartTextParam] | None:
 		"""Serialize content for assistant messages (text and refusal allowed)."""
 		if content is None:
 			return None

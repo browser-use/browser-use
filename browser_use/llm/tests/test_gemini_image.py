@@ -31,7 +31,7 @@ def create_random_text_image(text: str = 'hello world', width: int = 4000, heigh
 	# Try to use a default font, fallback to default if not available
 	try:
 		font = ImageFont.truetype('arial.ttf', 24)
-	except:
+	except Exception:
 		font = ImageFont.load_default()
 
 	# Calculate text position to center it

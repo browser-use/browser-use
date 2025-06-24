@@ -4,7 +4,7 @@ We have switched all of our code from langchain to openai.types.chat.chat_comple
 For easier transition we have
 """
 
-from typing import Any, Protocol, Type, TypeVar, overload
+from typing import Any, Protocol, TypeVar, overload
 
 from pydantic import BaseModel
 
@@ -34,10 +34,10 @@ class BaseChatModel(Protocol):
 	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> ChatInvokeCompletion[str]: ...
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T]) -> ChatInvokeCompletion[T]: ...
+	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T]) -> ChatInvokeCompletion[T]: ...
 
 	async def ainvoke(
-		self, messages: list[BaseMessage], output_format: Type[T] | None = None
+		self, messages: list[BaseMessage], output_format: type[T] | None = None
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]: ...
 
 	@classmethod

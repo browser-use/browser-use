@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
-from typing_extensions import Literal
 
 from browser_use.llm.messages import (
 	BaseMessage,

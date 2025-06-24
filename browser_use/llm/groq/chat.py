@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Literal, Optional, Type, TypeVar, overload
+from typing import Literal, TypeVar, overload
 
 from groq import (
 	DEFAULT_MAX_RETRIES,
@@ -45,7 +45,7 @@ class ChatGroq(BaseChatModel):
 	temperature: float | None = None
 
 	# Client initialization parameters
-	api_key: Optional[str] = None
+	api_key: str | None = None
 	base_url: str | URL | None = None
 	timeout: float | Timeout | NotGiven | None = None
 	max_retries: int = DEFAULT_MAX_RETRIES
@@ -77,10 +77,10 @@ class ChatGroq(BaseChatModel):
 	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> ChatInvokeCompletion[str]: ...
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T]) -> ChatInvokeCompletion[T]: ...
+	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T]) -> ChatInvokeCompletion[T]: ...
 
 	async def ainvoke(
-		self, messages: list[BaseMessage], output_format: Type[T] | None = None
+		self, messages: list[BaseMessage], output_format: type[T] | None = None
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		groq_messages = GroqMessageSerializer.serialize_messages(messages)
 

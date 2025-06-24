@@ -1,6 +1,3 @@
-from typing import Optional
-
-
 class ModelError(Exception):
 	pass
 
@@ -12,7 +9,7 @@ class ModelProviderError(ModelError):
 		self,
 		message: str,
 		status_code: int = 502,
-		model: Optional[str] = None,
+		model: str | None = None,
 	):
 		super().__init__(message, status_code)
 		self.model = model
@@ -25,6 +22,6 @@ class ModelRateLimitError(ModelProviderError):
 		self,
 		message: str,
 		status_code: int = 429,
-		model: Optional[str] = None,
+		model: str | None = None,
 	):
 		super().__init__(message, status_code, model)

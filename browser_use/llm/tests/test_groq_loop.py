@@ -4,7 +4,6 @@ from browser_use.llm import ContentText
 from browser_use.llm.groq.chat import ChatGroq
 from browser_use.llm.messages import SystemMessage, UserMessage
 
-# do some test calls with groq with structured output and ask the model to put some weird caracters like \ / or \` /' ect into the output
 llm = ChatGroq(
 	model='meta-llama/llama-4-maverick-17b-128e-instruct',
 	temperature=0.5,
@@ -24,7 +23,7 @@ async def main():
 		UserMessage(
 			content=[
 				ContentText(
-					text="Why is the sky blue? write exactly this into reasoning make sure to output ' with \ exactly like in the input : "
+					text=r"Why is the sky blue? write exactly this into reasoning make sure to output ' with \ exactly like in the input : "
 				),
 				ContentText(
 					text="""

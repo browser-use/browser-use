@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional, TypeVar
+from typing import Any, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -14,25 +14,25 @@ class TokenUsageEntry(BaseModel):
 	prompt_tokens: int
 	completion_tokens: int
 	total_tokens: int
-	image_tokens: Optional[int] = None
+	image_tokens: int | None = None
 
 
 class ModelPricing(BaseModel):
 	"""Pricing information for a model"""
 
 	model: str
-	input_cost_per_token: Optional[float] = None
-	output_cost_per_token: Optional[float] = None
-	max_tokens: Optional[int] = None
-	max_input_tokens: Optional[int] = None
-	max_output_tokens: Optional[int] = None
+	input_cost_per_token: float | None = None
+	output_cost_per_token: float | None = None
+	max_tokens: int | None = None
+	max_input_tokens: int | None = None
+	max_output_tokens: int | None = None
 
 
 class CachedPricingData(BaseModel):
 	"""Cached pricing data with timestamp"""
 
 	timestamp: datetime
-	data: Dict[str, Any]
+	data: dict[str, Any]
 
 
 class ModelUsageStats(BaseModel):
@@ -57,5 +57,5 @@ class UsageSummary(BaseModel):
 	total_tokens: int
 	total_cost: float
 	entry_count: int
-	models: List[str] = Field(default_factory=list)
-	by_model: Dict[str, ModelUsageStats] = Field(default_factory=dict)
+	models: list[str] = Field(default_factory=list)
+	by_model: dict[str, ModelUsageStats] = Field(default_factory=dict)

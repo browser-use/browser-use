@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, Literal, Type, TypeVar, overload
+from typing import Any, Literal, TypeVar, overload
 
 from google import genai
 from google.auth.credentials import Credentials
@@ -48,7 +48,7 @@ class ChatGoogle(BaseChatModel):
 	def provider(self) -> str:
 		return 'google'
 
-	def _get_client_params(self) -> Dict[str, Any]:
+	def _get_client_params(self) -> dict[str, Any]:
 		"""Prepare client parameters dictionary."""
 		# Define base client params
 		base_params = {
@@ -104,10 +104,10 @@ class ChatGoogle(BaseChatModel):
 	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> ChatInvokeCompletion[str]: ...
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T]) -> ChatInvokeCompletion[T]: ...
+	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T]) -> ChatInvokeCompletion[T]: ...
 
 	async def ainvoke(
-		self, messages: list[BaseMessage], output_format: Type[T] | None = None
+		self, messages: list[BaseMessage], output_format: type[T] | None = None
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		"""
 		Invoke the model with the given messages.
@@ -219,7 +219,7 @@ class ChatGoogle(BaseChatModel):
 				model=self.name,
 			) from e
 
-	def _pydantic_to_gemini_schema(self, model_class: Type[BaseModel]) -> dict[str, Any]:
+	def _pydantic_to_gemini_schema(self, model_class: type[BaseModel]) -> dict[str, Any]:
 		"""
 		Convert a Pydantic model to a Gemini-compatible schema.
 

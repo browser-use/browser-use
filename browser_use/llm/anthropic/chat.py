@@ -1,6 +1,7 @@
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping, Type, TypeVar, Union, overload
+from typing import Any, TypeVar, overload
 
 import httpx
 from anthropic import (
@@ -41,7 +42,7 @@ class ChatAnthropic(BaseChatModel):
 	api_key: str | None = None
 	auth_token: str | None = None
 	base_url: str | httpx.URL | None = None
-	timeout: Union[float, Timeout, None, NotGiven] = NotGiven()
+	timeout: float | Timeout | None | NotGiven = NotGiven()
 	max_retries: int = 2
 	default_headers: Mapping[str, str] | None = None
 	default_query: Mapping[str, object] | None = None
@@ -51,7 +52,7 @@ class ChatAnthropic(BaseChatModel):
 	def provider(self) -> str:
 		return 'anthropic'
 
-	def _get_client_params(self) -> Dict[str, Any]:
+	def _get_client_params(self) -> dict[str, Any]:
 		"""Prepare client parameters dictionary."""
 		# Define base client params
 		base_params = {
@@ -111,10 +112,10 @@ class ChatAnthropic(BaseChatModel):
 	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> ChatInvokeCompletion[str]: ...
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: Type[T]) -> ChatInvokeCompletion[T]: ...
+	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T]) -> ChatInvokeCompletion[T]: ...
 
 	async def ainvoke(
-		self, messages: list[BaseMessage], output_format: Type[T] | None = None
+		self, messages: list[BaseMessage], output_format: type[T] | None = None
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		anthropic_messages, system_prompt = AnthropicMessageSerializer.serialize_messages(messages)
 

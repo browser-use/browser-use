@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 import httpx
 from openai import AsyncAzureOpenAI as AsyncAzureOpenAIClient
@@ -23,25 +23,25 @@ class ChatAzureOpenAI(ChatOpenAILike):
 	model: str | ChatModel
 
 	# Client initialization parameters
-	api_key: Optional[str] = None
-	api_version: Optional[str] = '2024-10-21'
-	azure_endpoint: Optional[str] = None
-	azure_deployment: Optional[str] = None
-	base_url: Optional[str] = None
-	azure_ad_token: Optional[str] = None
-	azure_ad_token_provider: Optional[Any] = None
+	api_key: str | None = None
+	api_version: str | None = '2024-10-21'
+	azure_endpoint: str | None = None
+	azure_deployment: str | None = None
+	base_url: str | None = None
+	azure_ad_token: str | None = None
+	azure_ad_token_provider: Any | None = None
 
-	default_headers: Optional[Dict[str, str]] = None
-	default_query: Optional[Dict[str, Any]] = None
+	default_headers: dict[str, str] | None = None
+	default_query: dict[str, Any] | None = None
 
-	client: Optional[AsyncAzureOpenAIClient] = None
+	client: AsyncAzureOpenAIClient | None = None
 
 	@property
 	def provider(self) -> str:
 		return 'azure'
 
-	def _get_client_params(self) -> Dict[str, Any]:
-		_client_params: Dict[str, Any] = {}
+	def _get_client_params(self) -> dict[str, Any]:
+		_client_params: dict[str, Any] = {}
 
 		self.api_key = self.api_key or os.getenv('AZURE_OPENAI_API_KEY')
 		self.azure_endpoint = self.azure_endpoint or os.getenv('AZURE_OPENAI_ENDPOINT')
@@ -76,7 +76,7 @@ class ChatAzureOpenAI(ChatOpenAILike):
 		if self.client:
 			return self.client
 
-		_client_params: Dict[str, Any] = self._get_client_params()
+		_client_params: dict[str, Any] = self._get_client_params()
 
 		if self.http_client:
 			_client_params['http_client'] = self.http_client

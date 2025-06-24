@@ -1,5 +1,4 @@
 import base64
-from typing import List, Optional, Tuple
 
 from google.genai.types import Content, ContentListUnion, Part
 
@@ -15,7 +14,7 @@ class GoogleMessageSerializer:
 	"""Serializer for converting messages to Google Gemini format."""
 
 	@staticmethod
-	def serialize_messages(messages: List[BaseMessage]) -> Tuple[ContentListUnion, Optional[str]]:
+	def serialize_messages(messages: list[BaseMessage]) -> tuple[ContentListUnion, str | None]:
 		"""
 		Convert a list of BaseMessages to Google format, extracting system message.
 
@@ -35,7 +34,7 @@ class GoogleMessageSerializer:
 		messages = [m.model_copy(deep=True) for m in messages]
 
 		formatted_messages: ContentListUnion = []
-		system_message: Optional[str] = None
+		system_message: str | None = None
 
 		for message in messages:
 			role = message.role if hasattr(message, 'role') else None
@@ -64,7 +63,7 @@ class GoogleMessageSerializer:
 				role = 'user'
 
 			# Initialize message parts
-			message_parts: List[Part] = []
+			message_parts: list[Part] = []
 
 			# Extract content and create parts
 			if isinstance(message.content, str):

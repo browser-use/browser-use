@@ -1,4 +1,4 @@
-from typing import List, Union, overload
+from typing import overload
 
 from anthropic.types import (
 	Base64ImageSourceParam,
@@ -72,7 +72,7 @@ class AnthropicMessageSerializer:
 			return ImageBlockParam(source=URLImageSourceParam(url=url, type='url'), type='image')
 
 	@staticmethod
-	def _serialize_content_to_str(content: Union[str, List[ContentPartTextParam]]) -> str | list[TextBlockParam]:
+	def _serialize_content_to_str(content: str | list[ContentPartTextParam]) -> str | list[TextBlockParam]:
 		"""Serialize content to a string."""
 		if isinstance(content, str):
 			return content
@@ -86,13 +86,13 @@ class AnthropicMessageSerializer:
 
 	@staticmethod
 	def _serialize_content(
-		content: Union[str, List[Union[ContentPartTextParam, ContentPartImageParam]]],
-	) -> Union[str, list[Union[TextBlockParam, ImageBlockParam]]]:
+		content: str | list[ContentPartTextParam | ContentPartImageParam],
+	) -> str | list[TextBlockParam | ImageBlockParam]:
 		"""Serialize content to Anthropic format."""
 		if isinstance(content, str):
 			return content
 
-		serialized_blocks: list[Union[TextBlockParam, ImageBlockParam]] = []
+		serialized_blocks: list[TextBlockParam | ImageBlockParam] = []
 		for part in content:
 			if part.type == 'text':
 				serialized_blocks.append(AnthropicMessageSerializer._serialize_content_part_text(part))
@@ -150,7 +150,7 @@ class AnthropicMessageSerializer:
 
 		elif isinstance(message, AssistantMessage):
 			# Handle content and tool calls
-			blocks: list[Union[TextBlockParam, ToolUseBlockParam]] = []
+			blocks: list[TextBlockParam | ToolUseBlockParam] = []
 
 			# Add content blocks if present
 			if message.content is not None:
@@ -185,7 +185,7 @@ class AnthropicMessageSerializer:
 			raise ValueError(f'Unknown message type: {type(message)}')
 
 	@staticmethod
-	def serialize_messages(messages: list[BaseMessage]) -> tuple[list[MessageParam], str | List[TextBlockParam] | None]:
+	def serialize_messages(messages: list[BaseMessage]) -> tuple[list[MessageParam], str | list[TextBlockParam] | None]:
 		"""Serialize a list of messages, extracting any system message.
 
 		Returns:
@@ -195,7 +195,7 @@ class AnthropicMessageSerializer:
 		messages = [m.model_copy(deep=True) for m in messages]
 
 		serialized_messages: list[MessageParam] = []
-		system_message: str | List[TextBlockParam] | None = None
+		system_message: str | list[TextBlockParam] | None = None
 
 		for message in messages:
 			result = AnthropicMessageSerializer.serialize(message)
