@@ -14,11 +14,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_openai import ChatOpenAI
-
 from browser_use import Agent
+from browser_use.llm import ChatOpenAI
 
-llm = ChatOpenAI(model='gpt-4o')
+# All the models are type safe from OpenAI in case you need a list of supported models
+llm = ChatOpenAI(model='gpt-4.1')
 agent = Agent(
 	task='Go to amazon.com, search for laptop, sort by best rating, and give me the price of the first result',
 	llm=llm,

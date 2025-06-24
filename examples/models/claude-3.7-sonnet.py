@@ -13,11 +13,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_anthropic import ChatAnthropic
-
 from browser_use import Agent
+from browser_use.llm import ChatAnthropic
 
-llm = ChatAnthropic(model_name='claude-3-7-sonnet-20250219', temperature=0.0, timeout=30, stop=None)
+llm = ChatAnthropic(model='claude-3-7-sonnet-20250219', temperature=0.0)
 
 agent = Agent(
 	task='Go to amazon.com, search for laptop, sort by best rating, and give me the price of the first result',
