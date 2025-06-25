@@ -54,7 +54,7 @@ def run_agent_in_subprocess_module(task_description):
 		if len(result.history) > 0:
 			last_history = result.history[-1]
 			if last_history.model_output and last_history.model_output.action:
-				has_done = any(hasattr(action, 'done') for action in last_history.model_output.action)
+				has_done = any('done' in action.model_dump() for action in last_history.model_output.action)
 		return {'success': has_done, 'error': None}
 	except Exception as e:
 		return {'success': False, 'error': str(e)}
@@ -102,7 +102,7 @@ class TestParallelism:
 		# Check that the last action was 'done'
 		last_history = result.history[-1]
 		if last_history.model_output and last_history.model_output.action:
-			assert any(hasattr(action, 'done') for action in last_history.model_output.action)
+			assert any('done' in action.model_dump() for action in last_history.model_output.action)
 
 	async def test_one_event_loop_two_parallel_agents(self):
 		"""Test one event loop with two different parallel agents"""
@@ -147,7 +147,7 @@ class TestParallelism:
 				assert len(result.history) > 0
 				last_history = result.history[-1]
 				if last_history.model_output and last_history.model_output.action:
-					assert any(hasattr(action, 'done') for action in last_history.model_output.action)
+					assert any('done' in action.model_dump() for action in last_history.model_output.action)
 
 			# Verify they used different browser sessions
 			assert agent1.browser_session is not agent2.browser_session
@@ -196,7 +196,7 @@ class TestParallelism:
 				assert len(result.history) > 0
 				last_history = result.history[-1]
 				if last_history.model_output and last_history.model_output.action:
-					assert any(hasattr(action, 'done') for action in last_history.model_output.action)
+					assert any('done' in action.model_dump() for action in last_history.model_output.action)
 
 			# Verify they used different browser sessions
 			assert agent1.browser_session is not agent2.browser_session
@@ -233,7 +233,7 @@ class TestParallelism:
 			assert len(result.history) > 0
 			last_history = result.history[-1]
 			if last_history.model_output and last_history.model_output.action:
-				assert any(hasattr(action, 'done') for action in last_history.model_output.action)
+				assert any('done' in action.model_dump() for action in last_history.model_output.action)
 
 	async def test_two_event_loops_one_per_thread(self):
 		"""Test two event loops, one per thread, with one agent in each loop"""
@@ -302,7 +302,7 @@ class TestParallelism:
 			assert len(result.history) > 0
 			last_history = result.history[-1]
 			if last_history.model_output and last_history.model_output.action:
-				assert any(hasattr(action, 'done') for action in last_history.model_output.action)
+				assert any('done' in action.model_dump() for action in last_history.model_output.action)
 
 	def test_two_subprocesses_one_agent_per_subprocess(self):
 		"""Test two subprocesses, with one agent per subprocess"""
@@ -396,7 +396,7 @@ class TestParallelism:
 				assert len(result.history) > 0
 				last_history = result.history[-1]
 				if last_history.model_output and last_history.model_output.action:
-					assert any(hasattr(action, 'done') for action in last_history.model_output.action)
+					assert any('done' in action.model_dump() for action in last_history.model_output.action)
 
 			# Verify multiple tabs were created
 			tabs = await shared_session.get_tabs_info()
@@ -460,7 +460,7 @@ class TestParallelism:
 				assert len(result.history) > 0
 				last_history = result.history[-1]
 				if last_history.model_output and last_history.model_output.action:
-					assert any(hasattr(action, 'done') for action in last_history.model_output.action)
+					assert any('done' in action.model_dump() for action in last_history.model_output.action)
 			assert session.browser_pid == initial_browser_pid
 
 		finally:
@@ -506,8 +506,12 @@ class TestParallelism:
 			assert len(result.history) > 0
 			last_history = result.history[-1]
 			if last_history.model_output and last_history.model_output.action:
-				assert any(hasattr(action, 'done') for action in last_history.model_output.action)
+				assert any('done' in action.model_dump() for action in last_history.model_output.action)
 
 			await browser.close()
 			await browser_session.kill()
 		await playwright.stop()
+
+
+if __name__ == '__main__':
+	asyncio.run(TestParallelism().test_one_event_loop_with_asyncio_run_and_one_task())
