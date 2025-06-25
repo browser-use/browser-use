@@ -38,6 +38,15 @@ from uuid_extensions import uuid7str
 # from browser_use.agent.gif import create_history_gif
 from browser_use.agent.message_manager.service import (
 	MessageManager,
+from browser_use.agent.gif import create_history_gif
+from browser_use.agent.json_logger import AgentJSONLogger
+from browser_use.agent.memory import Memory, MemoryConfig
+from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
+from browser_use.agent.message_manager.utils import (
+	convert_input_messages,
+	extract_json_from_model_output,
+	is_model_without_tool_support,
+	save_conversation,
 )
 from browser_use.agent.prompts import SystemPrompt
 from browser_use.agent.views import (
@@ -170,6 +179,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		flash_mode: bool = False,
 		max_history_items: int = 40,
 		images_per_step: int = 1,
+		# JSON结构化日志配置
+		save_json_log_path: str | Path | None = None,
+		json_session_name: str | None = None,
+
+		tool_calling_method: ToolCallingMethod | None = 'auto',
 		page_extraction_llm: BaseChatModel | None = None,
 		planner_llm: BaseChatModel | None = None,  # Deprecated
 		planner_interval: int = 1,  # Deprecated
@@ -249,6 +263,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			validate_output=validate_output,
 			message_context=message_context,
 			generate_gif=generate_gif,
+			available_file_paths=available_file_paths,
+			save_json_log_path=save_json_log_path,
+			json_session_name=json_session_name,
 			include_attributes=include_attributes,
 			max_actions_per_step=max_actions_per_step,
 			use_thinking=use_thinking,
@@ -334,6 +351,33 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			images_per_step=self.settings.images_per_step,
 			include_tool_call_examples=self.settings.include_tool_call_examples,
 		)
+
+		if self.enable_memory:
+			try:
+				# Initialize memory
+				self.memory = Memory(
+					message_manager=self._message_manager,
+					llm=self.llm,
+					config=self.memory_config,
+				)
+			except ImportError:
+				self.logger.warning(
+					'⚠️ Agent(enable_memory=True) is set but missing some required packages, install and re-run to use memory features: pip install browser-use[memory]'
+				)
+				self.memory = None
+				self.enable_memory = False
+		else:
+			self.memory = None
+
+		# Initialize JSON logger if enabled
+		self.json_logger: AgentJSONLogger | None = None
+		if self.settings.save_json_log_path:
+			self.json_logger = AgentJSONLogger(
+				log_dir=self.settings.save_json_log_path,
+				session_name=self.settings.json_session_name
+			)
+			self.json_logger.set_task(task)
+			self.logger.info(f'📄 JSON logging enabled: {self.json_logger.get_log_file_path()}')
 
 		if isinstance(browser, BrowserSession):
 			browser_session = browser_session or browser
@@ -758,6 +802,23 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Handle callbacks and conversation saving
 		await self._handle_post_llm_processing(browser_state_summary, input_messages)
+				if self.register_new_step_callback:
+					if inspect.iscoroutinefunction(self.register_new_step_callback):
+						await self.register_new_step_callback(browser_state_summary, model_output, self.state.n_steps)
+					else:
+						self.register_new_step_callback(browser_state_summary, model_output, self.state.n_steps)
+				if self.settings.save_conversation_path:
+					# Treat save_conversation_path as a directory (consistent with other recording paths)
+					conversation_dir = Path(self.settings.save_conversation_path)
+					conversation_filename = f'conversation_{self.id}_{self.state.n_steps}.txt'
+					target = conversation_dir / conversation_filename
+					await save_conversation(input_messages, model_output, target, self.settings.save_conversation_path_encoding)
+
+				# Log to JSON if enabled
+				if self.json_logger:
+					self.json_logger.log_step(self.state.n_steps, browser_state_summary, model_output)
+
+				self._message_manager._remove_last_state_message()  # we dont want the whole state in the chat history
 
 		# check again if Ctrl+C was pressed before we commit the output to history
 		await self._raise_if_stopped_or_paused()
@@ -1321,6 +1382,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			# Unregister signal handlers before cleanup
 			signal_handler.unregister()
+
+			# Finalize JSON logger session if enabled
+			if self.json_logger:
+				# Determine success based on last action being 'done' with success=True
+				success = False
+				if self.state.history.history:
+					last_history = self.state.history.history[-1]
+					if last_history.model_output and last_history.model_output.action:
+						last_action = last_history.model_output.action[-1]
+						if hasattr(last_action, 'done') and hasattr(last_action.done, 'success'):
+							success = last_action.done.success
+				self.json_logger.finalize_session(success=success)
 
 			if not self._force_exit_telemetry_logged:  # MODIFIED: Check the flag
 				try:

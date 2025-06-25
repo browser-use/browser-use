@@ -39,6 +39,10 @@ class AgentSettings(BaseModel):
 	generate_gif: bool | str = False
 	override_system_message: str | None = None
 	extend_system_message: str | None = None
+	
+	# JSON结构化日志配置
+	save_json_log_path: str | Path | None = None
+	json_session_name: str | None = None
 	include_attributes: list[str] = [
 		'title',
 		'type',
