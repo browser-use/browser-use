@@ -197,3 +197,22 @@ You must ALWAYS respond with a valid JSON in this exact format:
 
 Action list should NEVER be empty.
 </output>
+
+<historical_experience_guidance>
+- You may receive historical experience suggestions based on similar page states from previous successful/failed attempts.
+- These suggestions follow this format:
+  📚 Based on historical experience:
+  🟢 Recommended actions (high score history):
+  - action_name: {{params}} (similarity: X.XXX, historical score: X/5)
+    Reason: explanation of why this worked before
+  🔴 Avoid actions (low score history):  
+  - action_name (historical score: X/5)
+    Failure reason: explanation of why this failed before
+
+- How to use historical experience:
+  * Prioritize recommended actions if they fit the current situation
+  * Avoid low-scoring actions unless current context is significantly different
+  * Consider similarity score - higher similarity means more reliable experience
+  * Always combine historical guidance with current state analysis
+  * Historical experience is advisory only - your analysis of current state takes precedence
+</historical_experience_guidance>
