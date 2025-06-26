@@ -5,20 +5,20 @@ Simple try of the agent.
 """
 
 import asyncio
-import os
-import sys
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from dotenv import load_dotenv
+from lmnr import Laminar
+
+from browser_use import Agent
+from browser_use.llm import ChatOpenAI
 
 load_dotenv()
 
-from langchain_openai import ChatOpenAI
 
-from browser_use import Agent
+Laminar.initialize()
 
-llm = ChatOpenAI(model='gpt-4o')
+# All the models are type safe from OpenAI in case you need a list of supported models
+llm = ChatOpenAI(model='gpt-4.1')
 agent = Agent(
 	task='Go to amazon.com, search for laptop, sort by best rating, and give me the price of the first result',
 	llm=llm,

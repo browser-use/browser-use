@@ -4,9 +4,8 @@ import json
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-from langchain_core.language_models.chat_models import BaseChatModel
 from openai import RateLimitError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model, model_validator
 from uuid_extensions import uuid7str
@@ -20,18 +19,8 @@ from browser_use.dom.history_tree_processor.service import (
 	HistoryTreeProcessor,
 )
 from browser_use.dom.views import SelectorMap
-
-ToolCallingMethod = Literal['function_calling', 'json_mode', 'raw', 'auto', 'tools']
-REQUIRED_LLM_API_ENV_VARS = {
-	'ChatOpenAI': ['OPENAI_API_KEY'],
-	'AzureChatOpenAI': ['AZURE_OPENAI_ENDPOINT', 'AZURE_OPENAI_KEY'],
-	'ChatBedrockConverse': ['ANTHROPIC_API_KEY'],
-	'ChatAnthropic': ['ANTHROPIC_API_KEY'],
-	'ChatGoogleGenerativeAI': ['GOOGLE_API_KEY'],
-	'ChatDeepSeek': ['DEEPSEEK_API_KEY'],
-	'ChatOllama': [],
-	'ChatGrok': ['GROK_API_KEY'],
-}
+from browser_use.filesystem.file_system import FileSystemState
+from browser_use.llm.base import BaseChatModel
 
 
 class AgentSettings(BaseModel):
@@ -43,7 +32,6 @@ class AgentSettings(BaseModel):
 	save_conversation_path_encoding: str | None = 'utf-8'
 	max_failures: int = 3
 	retry_delay: int = 10
-	max_input_tokens: int = 128000
 	validate_output: bool = False
 	message_context: str | None = None
 	generate_gif: bool | str = False
@@ -63,13 +51,14 @@ class AgentSettings(BaseModel):
 		'aria-expanded',
 	]
 	max_actions_per_step: int = 10
+	use_thinking: bool = True
 
-	tool_calling_method: ToolCallingMethod | None = 'auto'
 	page_extraction_llm: BaseChatModel | None = None
 	planner_llm: BaseChatModel | None = None
 	planner_interval: int = 1  # Run planner every N steps
 	is_planner_reasoning: bool = False  # type: ignore
 	extend_planner_system_message: str | None = None
+	calculate_cost: bool = False
 
 
 class AgentState(BaseModel):
@@ -86,6 +75,7 @@ class AgentState(BaseModel):
 	stopped: bool = False
 
 	message_manager_state: MessageManagerState = Field(default_factory=MessageManagerState)
+	file_system_state: FileSystemState | None = None
 
 	# class Config:
 	# 	arbitrary_types_allowed = True
@@ -142,7 +132,6 @@ class StepMetadata(BaseModel):
 
 	step_start_time: float
 	step_end_time: float
-	input_tokens: int  # Approximate tokens from message manager for this step
 	step_number: int
 
 	@property
@@ -152,16 +141,16 @@ class StepMetadata(BaseModel):
 
 
 class AgentBrain(BaseModel):
-	thinking: str
+	thinking: str | None = None
 	evaluation_previous_goal: str
 	memory: str
 	next_goal: str
 
 
 class AgentOutput(BaseModel):
-	model_config = ConfigDict(arbitrary_types_allowed=True)
+	model_config = ConfigDict(arbitrary_types_allowed=True, extra='forbid')
 
-	thinking: str
+	thinking: str | None = None
 	evaluation_previous_goal: str
 	memory: str
 	next_goal: str
@@ -184,15 +173,39 @@ class AgentOutput(BaseModel):
 	@staticmethod
 	def type_with_custom_actions(custom_actions: type[ActionModel]) -> type[AgentOutput]:
 		"""Extend actions with custom actions"""
+
 		model_ = create_model(
 			'AgentOutput',
 			__base__=AgentOutput,
 			action=(
-				list[custom_actions],
+				list[custom_actions],  # type: ignore
 				Field(..., description='List of actions to execute', json_schema_extra={'min_items': 1}),
 			),
 			__module__=AgentOutput.__module__,
 		)
+		model_.__doc__ = 'AgentOutput model with custom actions'
+		return model_
+
+	@staticmethod
+	def type_with_custom_actions_no_thinking(custom_actions: type[ActionModel]) -> type[AgentOutput]:
+		"""Extend actions with custom actions and exclude thinking field"""
+
+		# Create a base model without thinking, but inheriting from AgentOutput
+		# Override only the fields we need to change
+		model_ = create_model(
+			'AgentOutput',
+			__base__=AgentOutput,
+			thinking=(
+				type(None),  # type: ignore
+				Field(default=None, exclude=True),
+			),  # Exclude thinking from schema
+			action=(
+				list[custom_actions],  # type: ignore
+				Field(..., description='List of actions to execute', json_schema_extra={'min_items': 1}),
+			),
+			__module__=AgentOutput.__module__,
+		)
+
 		model_.__doc__ = 'AgentOutput model with custom actions'
 		return model_
 
@@ -227,12 +240,14 @@ class AgentHistory(BaseModel):
 		if self.model_output:
 			action_dump = [action.model_dump(exclude_none=True) for action in self.model_output.action]
 			model_output_dump = {
-				'thinking': self.model_output.thinking,
 				'evaluation_previous_goal': self.model_output.evaluation_previous_goal,
 				'memory': self.model_output.memory,
 				'next_goal': self.model_output.next_goal,
 				'action': action_dump,  # This preserves the actual action data
 			}
+			# Only include thinking if it's present
+			if self.model_output.thinking is not None:
+				model_output_dump['thinking'] = self.model_output.thinking
 
 		return {
 			'model_output': model_output_dump,
@@ -254,22 +269,6 @@ class AgentHistoryList(BaseModel):
 			if h.metadata:
 				total += h.metadata.duration_seconds
 		return total
-
-	def total_input_tokens(self) -> int:
-		"""
-		Get total tokens used across all steps.
-		Note: These are from the approximate token counting of the message manager.
-		For accurate token counting, use tools like LangChain Smith or OpenAI's token counters.
-		"""
-		total = 0
-		for h in self.history:
-			if h.metadata:
-				total += h.metadata.input_tokens
-		return total
-
-	def input_token_usage(self) -> list[int]:
-		"""Get token usage for each step"""
-		return [h.metadata.input_tokens for h in self.history if h.metadata]
 
 	def __str__(self) -> str:
 		"""Representation of the AgentHistoryList object"""

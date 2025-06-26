@@ -123,10 +123,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import requests
-from langchain_openai import ChatOpenAI
 from pyobjtojson import obj_to_json  # type: ignore
 
 from browser_use import Agent
+from browser_use.llm import ChatOpenAI
 
 # import prettyprinter
 # prettyprinter.install_extras()

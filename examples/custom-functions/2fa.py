@@ -10,9 +10,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import pyotp  # type: ignore
-from langchain_openai import ChatOpenAI
 
 from browser_use import ActionResult, Agent, Controller
+from browser_use.llm import ChatOpenAI
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)

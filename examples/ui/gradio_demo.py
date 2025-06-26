@@ -12,13 +12,13 @@ load_dotenv()
 
 # Third-party imports
 import gradio as gr  # type: ignore
-from langchain_openai import ChatOpenAI
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
 # Local module imports
 from browser_use import Agent
+from browser_use.llm import ChatOpenAI
 
 
 @dataclass

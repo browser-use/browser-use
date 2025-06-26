@@ -9,10 +9,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from aiohttp import web  # make sure to install aiohttp: pip install aiohttp
-from langchain_openai import ChatOpenAI
 
-# from langchain_google_genai import ChatGoogleGenerativeAI
 from browser_use import Agent, Controller
+from browser_use.llm import ChatOpenAI
 
 # Define a simple HTML page
 HTML_CONTENT = """

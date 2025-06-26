@@ -5,17 +5,14 @@ import os
 import warnings
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import (
-	BaseMessage,
-	HumanMessage,
-)
-from langchain_core.messages.utils import convert_to_openai_messages
-
 from browser_use.agent.memory.views import MemoryConfig
 from browser_use.agent.message_manager.service import MessageManager
 from browser_use.agent.message_manager.views import ManagedMessage, MessageMetadata
 from browser_use.config import CONFIG
+from browser_use.llm import UserMessage
+from browser_use.llm.base import BaseChatModel
+from browser_use.llm.messages import BaseMessage
+from browser_use.llm.openai.serializer import OpenAIMessageSerializer
 from browser_use.utils import time_execution_sync
 
 
@@ -102,7 +99,7 @@ class Memory:
 
 					# Add the history_db_path to the config
 					config_with_history_path = self.config.full_config_dict.copy()
-					config_with_history_path['history_db_path'] = history_db_path
+					config_with_history_path['history_db_path'] = history_db_path  # type: ignore
 
 					# Try again with the new config
 					self.mem0 = Mem0Memory.from_config(config_dict=config_with_history_path)
@@ -132,7 +129,7 @@ class Memory:
 				# Keep system and memory messages as they are
 				new_messages.append(msg)
 			else:
-				if len(msg.message.content) > 0:
+				if len(msg.message.text) > 0:
 					messages_to_process.append(msg)
 
 		# Need at least 2 messages to create a meaningful summary
@@ -156,24 +153,19 @@ class Memory:
 			return
 
 		# Replace the processed messages with the consolidated memory
-		memory_message = HumanMessage(content=memory_content)
-		memory_tokens = self.message_manager._count_tokens(memory_message)
-		memory_metadata = MessageMetadata(tokens=memory_tokens, message_type='memory')
-
-		# Calculate the total tokens being removed
-		removed_tokens = sum(m.metadata.tokens for m in messages_to_process)
+		memory_message = UserMessage(content=memory_content)
+		memory_metadata = MessageMetadata(message_type='memory')
 
 		# Add the memory message
 		new_messages.append(ManagedMessage(message=memory_message, metadata=memory_metadata))
 
 		# Update the history
 		self.message_manager.state.history.messages = new_messages
-		self.message_manager.state.history.current_tokens -= removed_tokens
-		self.message_manager.state.history.current_tokens += memory_tokens
+
 		self.logger.info(f'📜 History consolidated: {len(messages_to_process)} steps converted to long-term memory')
 
 	def _create(self, messages: list[BaseMessage], current_step: int) -> str | None:
-		parsed_messages = convert_to_openai_messages(messages)
+		parsed_messages = OpenAIMessageSerializer.serialize_messages(messages)
 		try:
 			results = self.mem0.add(
 				messages=parsed_messages,

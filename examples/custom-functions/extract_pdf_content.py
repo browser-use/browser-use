@@ -16,13 +16,13 @@ load_dotenv()
 import asyncio
 import logging
 
-from langchain_openai import ChatOpenAI
 from mistralai import Mistral  # type: ignore
 from pydantic import BaseModel, Field
 
 from browser_use import Agent, Controller
 from browser_use.agent.views import ActionResult
 from browser_use.browser.context import BrowserContext
+from browser_use.llm import ChatOpenAI
 
 if not os.getenv('OPENAI_API_KEY'):
 	raise ValueError('OPENAI_API_KEY is not set. Please add it to your environment variables.')

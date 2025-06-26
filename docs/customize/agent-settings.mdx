@@ -12,7 +12,7 @@ The `Agent` class is the core component of Browser Use that handles browser auto
 
 ```python
 from browser_use import Agent
-from langchain_openai import ChatOpenAI
+from browser_use.llm import ChatOpenAI
 
 agent = Agent(
     task="Search for latest news about AI",
@@ -23,7 +23,7 @@ agent = Agent(
 ### Required Parameters
 
 - `task`: The instruction for the agent to execute
-- `llm`: A LangChain chat model instance. See <a href="/customize/supported-models">LangChain Models</a> for supported models.
+- `llm`: A chat model instance. See <a href="/customize/supported-models">Supported Models</a> for supported models.
 
 ## Agent Behavior
 
@@ -56,15 +56,13 @@ agent = Agent(
   support.
 </Note>
 
-
 ### Reuse Existing Browser Context
 
 By default browser-use launches its own builtin browser using playwright chromium.
-You can also connect to a remote browser or pass any of the following 
+You can also connect to a remote browser or pass any of the following
 existing playwright objects to the Agent: `page`, `browser_context`, `browser`, `browser_session`, or `browser_profile`.
 
 These all get passed down to create a `BrowserSession` for the `Agent`:
-
 
 ```python
 agent = Agent(
@@ -92,6 +90,7 @@ agent = Agent(
 ```
 
 For example, to connect to an existing browser over CDP you could do:
+
 ```python
 agent = Agent(
     ...
@@ -100,6 +99,7 @@ agent = Agent(
 ```
 
 For example, to connect to a local running chrome instance you can do:
+
 ```python
 agent = Agent(
     ...
@@ -110,8 +110,9 @@ agent = Agent(
 See <a href="/customize/real-browser">Connect to your Browser</a> for more info.
 
 <Note>
-  You can reuse the same `BrowserSession` after an agent has completed running. If you do nothing, the
-  browser will be automatically closed on `run()` completion only if it was launched by us.
+  You can reuse the same `BrowserSession` after an agent has completed running.
+  If you do nothing, the browser will be automatically closed on `run()`
+  completion only if it was launched by us.
 </Note>
 
 ## Running the Agent
@@ -153,8 +154,10 @@ The `AgentHistoryList` provides many helper methods to analyze the execution:
 </Note>
 
 ## Run initial actions without LLM
+
 With [this example](https://github.com/browser-use/browser-use/blob/main/examples/features/initial_actions.py) you can run initial actions without the LLM.
 Specify the action as a dictionary where the key is the action name and the value is the action parameters. You can find all our actions in the [Controller](https://github.com/browser-use/browser-use/blob/main/browser_use/controller/service.py) source code.
+
 ```python
 
 initial_actions = [
@@ -174,7 +177,7 @@ agent = Agent(
 You can configure the agent and provide a separate message to help the LLM understand the task better.
 
 ```python
-from langchain_openai import ChatOpenAI
+from browser_use.llm import ChatOpenAI
 
 agent = Agent(
     task="your task",
@@ -188,7 +191,7 @@ agent = Agent(
 You can configure the agent to use a separate planner model for high-level task planning:
 
 ```python
-from langchain_openai import ChatOpenAI
+from browser_use.llm import ChatOpenAI
 
 # Initialize models
 llm = ChatOpenAI(model='gpt-4o')
@@ -205,17 +208,19 @@ agent = Agent(
 
 ### Planner Parameters
 
-- `planner_llm`: A LangChain chat model instance used for high-level task planning. Can be a smaller/cheaper model than the main LLM.
+- `planner_llm`: A chat model instance used for high-level task planning. Can be a smaller/cheaper model than the main LLM.
 - `use_vision_for_planner`: Enable/disable vision capabilities for the planner model. Defaults to `True`.
 - `planner_interval`: Number of steps between planning phases. Defaults to `1`.
 
 Using a separate planner model can help:
+
 - Reduce costs by using a smaller model for high-level planning
 - Improve task decomposition and strategic thinking
 - Better handle complex, multi-step tasks
 
 <Note>
-  The planner model is optional. If not specified, the agent will not use the planner model.
+  The planner model is optional. If not specified, the agent will not use the
+  planner model.
 </Note>
 
 ### Optional Parameters
@@ -226,6 +231,7 @@ Using a separate planner model can help:
 - `max_failures`: Maximum number of failures before giving up. Defaults to `3`.
 - `retry_delay`: Time to wait between retries in seconds when rate limited. Defaults to `10`.
 - `generate_gif`: Enable/disable GIF generation. Defaults to `False`. Set to `True` or a string path to save the GIF.
+
 ## Memory Management
 
 Browser Use includes a procedural memory system using [Mem0](https://mem0.ai) that automatically summarizes the agent's conversation history at regular intervals to optimize context window usage during long tasks.
@@ -256,7 +262,7 @@ You must configure the memory system using the `MemoryConfig` Pydantic model for
 
 ```python
 from browser_use.agent.memory import MemoryConfig
-from langchain_openai import ChatOpenAI # Assuming llm is an instance of ChatOpenAI
+from browser_use.llm import ChatOpenAI # Assuming llm is an instance of ChatOpenAI
 
 llm_for_agent = ChatOpenAI(model="gpt-4o")
 
@@ -286,18 +292,22 @@ agent = Agent(
 The `MemoryConfig` model provides these configuration options:
 
 #### Memory Settings
+
 - `agent_id`: Unique identifier for the agent (default: `"browser_use_agent"`). Essential for persistent memory sessions if using a persistent vector store.
 - `memory_interval`: Number of steps between memory summarization (default: `10`)
 
 #### LLM Settings (for Mem0's internal operations)
-- `llm_instance`: The LangChain `BaseChatModel` instance that Mem0 will use for its internal summarization and processing. You must pass the same LLM instance used by the main agent, or another compatible one, here.
+
+- `llm_instance`: The `BaseChatModel` instance that Mem0 will use for its internal summarization and processing. You must pass the same LLM instance used by the main agent, or another compatible one, here.
 
 #### Embedder Settings
+
 - `embedder_provider`: Provider for embeddings (`'openai'`, `'gemini'`, `'ollama'`, or `'huggingface'`)
 - `embedder_model`: Model name for the embedder
 - `embedder_dims`: Dimensions for the embeddings
 
 #### Vector Store Settings
+
 - `vector_store_provider`: Choose the vector store backend. Supported options include:
   `'faiss'` (default), `'qdrant'`, `'pinecone'`, `'supabase'`, `'elasticsearch'`, `'chroma'`, `'weaviate'`, `'milvus'`, `'pgvector'`, `'upstash_vector'`, `'vertex_ai_vector_search'`, `'azure_ai_search'`, `'lancedb'`, `'mongodb'`, `'redis'`, `'memory'` (in-memory, non-persistent).
 - `vector_store_collection_name`: (Optional) Specify a custom name for the collection or index in your vector store. If not provided, a default name is generated (especially for local stores like FAISS/Chroma) or used by Mem0.
@@ -305,16 +315,20 @@ The `MemoryConfig` model provides these configuration options:
 - `vector_store_config_override`: (Optional) A dictionary to provide or override specific configuration parameters required by Mem0 for the chosen `vector_store_provider`. This is where you'd put connection details like `host`, `port`, `api_key`, `url`, `environment`, etc., for cloud-based or server-based vector stores.
 
 The model automatically sets appropriate defaults based on the LLM being used:
+
 - For `ChatOpenAI`: Uses OpenAI's `text-embedding-3-small` embeddings
 - For `ChatGoogleGenerativeAI`: Uses Gemini's `models/text-embedding-004` embeddings
 - For `ChatOllama`: Uses Ollama's `nomic-embed-text` embeddings
 - Default: Uses Hugging Face's `all-MiniLM-L6-v2` embeddings
 
 <Note>
-  **Important:**
-  - Always pass a properly constructed `MemoryConfig` object to the `memory_config` parameter.
-  - Ensure the `llm_instance` is provided to `MemoryConfig` so Mem0 can perform its operations.
-  - For persistent memory across agent runs or for shared memory, choose a scalable vector store provider (like Qdrant, Pinecone, etc.) and configure it correctly using `vector_store_provider` and `vector_store_config_override`. The default 'faiss' provider stores data locally in `vector_store_base_path`.
+  **Important:** - Always pass a properly constructed `MemoryConfig` object to
+  the `memory_config` parameter. - Ensure the `llm_instance` is provided to
+  `MemoryConfig` so Mem0 can perform its operations. - For persistent memory
+  across agent runs or for shared memory, choose a scalable vector store
+  provider (like Qdrant, Pinecone, etc.) and configure it correctly using
+  `vector_store_provider` and `vector_store_config_override`. The default
+  'faiss' provider stores data locally in `vector_store_base_path`.
 </Note>
 
 ### How Memory Works
@@ -325,7 +339,6 @@ When enabled, the agent periodically compresses its conversation history into co
 2. It uses Mem0 (configured with your chosen LLM and vector store) to create a procedural memory summary.
 3. The original messages in the agent's active context are replaced with this summary, reducing token usage.
 4. This process helps maintain important context while freeing up the context window for new information.
-
 
 ### Disabling Memory
 

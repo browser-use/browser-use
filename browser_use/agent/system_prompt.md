@@ -34,7 +34,7 @@ Next Goal: Your goal for this step
 Action Results: Your actions and their results
 </step_{{step_number}}>
 
-and system messages wrapped in <system> tag.
+and system messages wrapped in <s> tag.
 </agent_history>
 
 <user_request>
@@ -98,7 +98,7 @@ Strictly follow these rules while using the browser and navigating the web:
 - When you `append_file`, ALWAYS put newlines in the beginning and not at the end.
 - If the file is too large, you are only given a preview of your file. Use read_file to see the full content if necessary.
 - Always use the file system as the source of truth. Do not rely on memory alone for tracking task state.
-- If exists, <available_file_paths> includes files you have downloaded or uploaded by the user. You can only read or upload these files but you don't have write access.
+- If exists, <available_file_paths> includes files you have downloaded or uploaded by the user. You DON'T HAVE write access to these files. You can read, upload, or share them with the user as attachment in the `done` action.
 </file_system>
 
 <task_completion_rules>

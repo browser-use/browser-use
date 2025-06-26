@@ -1,7 +1,8 @@
 from typing import Any, Literal
 
-from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, ConfigDict, Field
+
+from browser_use.llm.base import BaseChatModel
 
 
 class MemoryConfig(BaseModel):
@@ -84,7 +85,7 @@ class MemoryConfig(BaseModel):
 
 		# --- Default collection_name handling ---
 		if self.vector_store_collection_name:
-			provider_specific_config['collection_name'] = self.vector_store_collection_name
+			provider_specific_config['collection_name'] = self.vector_store_collection_name  # type: ignore
 		else:
 			is_local_file_storage_mode = False
 			is_qdrant_server_mode = False
@@ -112,27 +113,27 @@ class MemoryConfig(BaseModel):
 					is_qdrant_server_mode = True
 
 			if is_local_file_storage_mode:
-				provider_specific_config['collection_name'] = f'mem0_{self.vector_store_provider}_{self.embedder_dims}'
+				provider_specific_config['collection_name'] = f'mem0_{self.vector_store_provider}_{self.embedder_dims}'  # type: ignore
 			elif self.vector_store_provider == 'upstash_vector':
-				provider_specific_config['collection_name'] = ''
+				provider_specific_config['collection_name'] = ''  # type: ignore
 			elif (
 				self.vector_store_provider
 				in ['elasticsearch', 'milvus', 'pgvector', 'redis', 'weaviate', 'supabase', 'azure_ai_search']
 				or (self.vector_store_provider == 'qdrant' and is_qdrant_server_mode and not is_local_file_storage_mode)
 				or (self.vector_store_provider == 'qdrant' and not is_local_file_storage_mode)
 			):  # Qdrant in explicit server mode
-				provider_specific_config['collection_name'] = 'mem0'
+				provider_specific_config['collection_name'] = 'mem0'  # type: ignore
 			else:
 				# Fallback for providers like Pinecone, VertexAI (where name is usually user-required)
 				# or if a new provider is added and not yet handled explicitly.
-				provider_specific_config['collection_name'] = 'mem0_default_collection'
+				provider_specific_config['collection_name'] = 'mem0_default_collection'  # type: ignore
 
 		# --- Default path handling for local file-based stores ---
 		default_local_path = f'{self.vector_store_base_path}_{self.embedder_dims}_{self.vector_store_provider}'
 
 		if self.vector_store_provider == 'faiss':
 			if not (self.vector_store_config_override and 'path' in self.vector_store_config_override):
-				provider_specific_config['path'] = default_local_path
+				provider_specific_config['path'] = default_local_path  # type: ignore
 
 		elif self.vector_store_provider == 'chroma':
 			# Set default path if Chroma is in local mode and path is not overridden
@@ -142,7 +143,7 @@ class MemoryConfig(BaseModel):
 			path_in_override = self.vector_store_config_override and 'path' in self.vector_store_config_override
 
 			if not is_chroma_server_mode and not path_in_override:
-				provider_specific_config['path'] = default_local_path
+				provider_specific_config['path'] = default_local_path  # type: ignore
 
 		elif self.vector_store_provider == 'qdrant':
 			# Set default path if Qdrant is in local file mode and path is not overridden
@@ -155,7 +156,7 @@ class MemoryConfig(BaseModel):
 			)
 
 			if not has_path_override and not is_server_configured:
-				provider_specific_config['path'] = default_local_path
+				provider_specific_config['path'] = default_local_path  # type: ignore
 
 		# Merge user-provided overrides. These can add new keys or overwrite defaults set above.
 		if self.vector_store_config_override:

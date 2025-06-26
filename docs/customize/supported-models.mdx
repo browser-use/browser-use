@@ -1,40 +1,46 @@
 ---
 title: "Supported Models"
-description: "Guide to using different LangChain chat models with Browser Use"
+description: "Guide to using different chat models with Browser Use"
 icon: "robot"
 ---
 
 ## Overview
 
-Browser Use supports various LangChain chat models. Here's how to configure and use the most popular ones. The full list is available in the [LangChain documentation](https://python.langchain.com/docs/integrations/chat/).
+Here's how to configure the models.
+
+### Migration from Langchain
+
+We have recently switched from Langchain to our own implementation of the models. To migrate the previous code, just replace `from langchain_openai import ChatOpenAI` with `from browser_use.llm import ChatOpenAI` etc. The methods should be compatible(ish).
 
 ## Model Recommendations
 
-We have yet to test performance across all models. Currently, we achieve the best results using GPT-4o with an 89% accuracy on the [WebVoyager Dataset](https://browser-use.com/posts/sota-technical-report). DeepSeek-V3 is 30 times cheaper than GPT-4o. Gemini-2.0-exp is also gaining popularity in the community because it is currently free.
-We also support local models, like Qwen 2.5, but be aware that small models often return the wrong output structure-which lead to parsing errors. We believe that local models will improve significantly this year.
-
-
-<Note>
-  All models require their respective API keys. Make sure to set them in your
-  environment variables before running the agent.
-</Note>
+We recommend using GPT-4.1 for the best performance (best accuracy ~$0.01 per step). The best price to performance can be achieved using `gemini-2.0-flash-exp` (currently also the most popular model, costs ~$0.001 per step).
 
 ## Supported Models
 
-All LangChain chat models, which support tool-calling are available. We will document the most popular ones here.
+Our library natively supports the following models:
+
+- OpenAI
+- Anthropic
+- Azure OpenAI
+- Gemini
+- Groq
+
+We also support all other models that can be called via OpenAI compatible API (deepseek, novita, x, qwen). Please open a PR if you want to add a model.
+
+We have natively switched to structured output when possible,
 
 ### OpenAI
 
-OpenAI's GPT-4o models are recommended for best performance.
+OpenAI's GPT-4.1 models are recommended for best performance.
 
 ```python
-from langchain_openai import ChatOpenAI
+from browser_use.llm import ChatOpenAI
 from browser_use import Agent
 
 # Initialize the model
 llm = ChatOpenAI(
-    model="gpt-4o",
-    temperature=0.0,
+    model="gpt-4.1",
 )
 
 # Create agent with the model
@@ -52,16 +58,13 @@ OPENAI_API_KEY=
 
 ### Anthropic
 
-
 ```python
-from langchain_anthropic import ChatAnthropic
+from browser_use.llm import ChatAnthropic
 from browser_use import Agent
 
 # Initialize the model
 llm = ChatAnthropic(
     model_name="claude-3-5-sonnet-20240620",
-    temperature=0.0,
-    timeout=100, # Increase for complex tasks
 )
 
 # Create agent with the model
@@ -80,17 +83,14 @@ ANTHROPIC_API_KEY=
 ### Azure OpenAI
 
 ```python
-from langchain_openai import AzureChatOpenAI
+from browser_use.llm import ChatAzureOpenAI
 from browser_use import Agent
 from pydantic import SecretStr
 import os
 
 # Initialize the model
-llm = AzureChatOpenAI(
-    model="gpt-4o",
-    api_version='2024-10-21',
-    azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT', ''),
-    api_key=SecretStr(os.getenv('AZURE_OPENAI_KEY', '')),
+llm = ChatAzureOpenAI(
+    model="gpt-4.1",
 )
 
 # Create agent with the model
@@ -104,17 +104,15 @@ Required environment variables:
 
 ```bash .env
 AZURE_OPENAI_ENDPOINT=https://your-endpoint.openai.azure.com/
-AZURE_OPENAI_KEY=
+AZURE_OPENAI_API_KEY=
 ```
-
 
 ### Gemini
 
-> [!IMPORTANT]
-> `GEMINI_API_KEY` was the old environment var name, it should be called `GOOGLE_API_KEY` as of 2025-05.
+> [!IMPORTANT] `GEMINI_API_KEY` was the old environment var name, it should be called `GOOGLE_API_KEY` as of 2025-05.
 
 ```python
-from langchain_google_genai import ChatGoogleGenerativeAI
+from browser_use.llm import ChatGoogle
 from browser_use import Agent
 from dotenv import load_dotenv
 
@@ -122,7 +120,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Initialize the model
-llm = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp')
+llm = ChatGoogle(model='gemini-2.0-flash-exp')
 
 # Create agent with the model
 agent = Agent(
@@ -137,159 +135,22 @@ Required environment variables:
 GOOGLE_API_KEY=
 ```
 
-
-### DeepSeek-V3
-The community likes DeepSeek-V3 for its low price, no rate limits, open-source nature, and good performance.
-The example is available [here](https://github.com/browser-use/browser-use/blob/main/examples/models/deepseek.py).
+## Groq
 
 ```python
-from langchain_deepseek import ChatDeepSeek
+from browser_use.llm import ChatGroq
 from browser_use import Agent
-from pydantic import SecretStr
-from dotenv import load_dotenv
-import os
 
-load_dotenv()
-api_key = os.getenv("DEEPSEEK_API_KEY")
+llm = ChatGroq(model="meta-llama/llama-4-maverick-17b-128e-instruct")
 
-# Initialize the model
-llm=ChatDeepSeek(base_url='https://api.deepseek.com/v1', model='deepseek-chat', api_key=SecretStr(api_key))
-
-# Create agent with the model
-agent = Agent(
-    task="Your task here",
-    llm=llm,
-    use_vision=False
-)
-```
-
-Required environment variables:
-
-```bash .env
-DEEPSEEK_API_KEY=
-```
-
-### DeepSeek-R1
-We support DeepSeek-R1. Its not fully tested yet, more and more functionality will be added, like e.g. the output of it'sreasoning content.
-The example is available [here](https://github.com/browser-use/browser-use/blob/main/examples/models/deepseek-r1.py).
-It does not support vision. The model is open-source so you could also use it with Ollama, but we have not tested it.
-```python
-from langchain_deepseek import ChatDeepSeek
-from browser_use import Agent
-from pydantic import SecretStr
-from dotenv import load_dotenv
-import os
-
-load_dotenv()
-api_key = os.getenv("DEEPSEEK_API_KEY")
-
-# Initialize the model
-llm=ChatDeepSeek(base_url='https://api.deepseek.com/v1', model='deepseek-reasoner', api_key=SecretStr(api_key))
-
-# Create agent with the model
-agent = Agent(
-    task="Your task here",
-    llm=llm,
-    use_vision=False
-)
-```
-
-Required environment variables:
-
-```bash .env
-DEEPSEEK_API_KEY=
-```
-
-### Ollama
-Many users asked for local models. Here they are.
-
-1. Download Ollama from [here](https://ollama.ai/download)
-2. Run `ollama pull model_name`. Pick a model which supports tool-calling from [here](https://ollama.com/search?c=tools)
-3. Run `ollama start`
-
-```python
-from langchain_ollama import ChatOllama
-from browser_use import Agent
-from pydantic import SecretStr
-
-
-# Initialize the model
-llm=ChatOllama(model="qwen2.5", num_ctx=32000)
-
-# Create agent with the model
 agent = Agent(
     task="Your task here",
     llm=llm
 )
 ```
 
-Required environment variables: None!
-
-### Novita AI
-[Novita AI](https://novita.ai) is an LLM API provider that offers a wide range of models. Note: choose a model that supports function calling.
-
-```python
-from langchain_openai import ChatOpenAI
-from browser_use import Agent
-from pydantic import SecretStr
-from dotenv import load_dotenv
-import os
-
-load_dotenv()
-api_key = os.getenv("NOVITA_API_KEY")
-
-# Initialize the model
-llm = ChatOpenAI(base_url='https://api.novita.ai/v3/openai', model='deepseek/deepseek-v3-0324', api_key=SecretStr(api_key))
-
-# Create agent with the model
-agent = Agent(
-    task="Your task here",
-    llm=llm,
-    use_vision=False
-)
-```
-
 Required environment variables:
 
 ```bash .env
-NOVITA_API_KEY=
+GROQ_API_KEY=
 ```
-### X AI
-[X AI](https://x.ai) is an LLM API provider that offers a wide range of models. Note: choose a model that supports function calling.
-
-```python
-from langchain_openai import ChatOpenAI
-from browser_use import Agent
-from pydantic import SecretStr
-from dotenv import load_dotenv
-import os
-
-load_dotenv()
-api_key = os.getenv("GROK_API_KEY")
-
-# Initialize the model
-llm = ChatOpenAI(
-    base_url='https://api.x.ai/v1',
-    model='grok-3-beta',
-    api_key=SecretStr(api_key)
-)
-
-# Create agent with the model
-agent = Agent(
-    task="Your task here",
-    llm=llm,
-    use_vision=False
-)
-```
-
-Required environment variables:
-
-```bash .env
-GROK_API_KEY=
-```
-
-## Coming soon
-(We are working on it)
-- Groq
-- Github
-- Fine-tuned models

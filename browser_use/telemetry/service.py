@@ -6,11 +6,12 @@ from dotenv import load_dotenv
 from posthog import Posthog
 from uuid_extensions import uuid7str
 
+from browser_use.telemetry.views import BaseTelemetryEvent
+from browser_use.utils import singleton
+
 load_dotenv()
 
 from browser_use.config import CONFIG
-from browser_use.telemetry.views import BaseTelemetryEvent
-from browser_use.utils import singleton
 
 logger = logging.getLogger(__name__)
 

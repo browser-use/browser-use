@@ -2,7 +2,7 @@ import importlib.resources
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam, ImageURL, SystemMessage, UserMessage
 
 if TYPE_CHECKING:
 	from browser_use.agent.views import AgentStepInfo
@@ -17,9 +17,11 @@ class SystemPrompt:
 		max_actions_per_step: int = 10,
 		override_system_message: str | None = None,
 		extend_system_message: str | None = None,
+		use_thinking: bool = True,
 	):
 		self.default_action_description = action_description
 		self.max_actions_per_step = max_actions_per_step
+		self.use_thinking = use_thinking
 		prompt = ''
 		if override_system_message:
 			prompt = override_system_message
@@ -30,13 +32,16 @@ class SystemPrompt:
 		if extend_system_message:
 			prompt += f'\n{extend_system_message}'
 
-		self.system_message = SystemMessage(content=prompt)
+		self.system_message = SystemMessage(content=prompt, cache=True)
 
 	def _load_prompt_template(self) -> None:
 		"""Load the prompt template from the markdown file."""
 		try:
+			# Choose the appropriate template based on use_thinking setting
+			template_filename = 'system_prompt.md' if self.use_thinking else 'system_prompt_no_thinking.md'
+
 			# This works both in development and when installed as a package
-			with importlib.resources.files('browser_use.agent').joinpath('system_prompt.md').open('r', encoding='utf-8') as f:
+			with importlib.resources.files('browser_use.agent').joinpath(template_filename).open('r', encoding='utf-8') as f:
 				self.prompt_template = f.read()
 		except Exception as e:
 			raise RuntimeError(f'Failed to load system prompt template: {e}')
@@ -145,9 +150,9 @@ Interactive elements from top layer of the current page inside the viewport{trun
 		time_str = datetime.now().strftime('%Y-%m-%d %H:%M')
 		step_info_description += f'Current date and time: {time_str}'
 
-		todo_contents = self.file_system.get_todo_contents() if self.file_system else ''
-		if not len(todo_contents):
-			todo_contents = '[Current todo.md is empty, fill it with your plan when applicable]'
+		_todo_contents = self.file_system.get_todo_contents() if self.file_system else ''
+		if not len(_todo_contents):
+			_todo_contents = '[Current todo.md is empty, fill it with your plan when applicable]'
 
 		agent_state = f"""
 <user_request>
@@ -157,7 +162,7 @@ Interactive elements from top layer of the current page inside the viewport{trun
 {self.file_system.describe() if self.file_system else 'No file system available'}
 </file_system>
 <todo_contents>
-{todo_contents}
+{_todo_contents}
 </todo_contents>
 """
 		if self.sensitive_data:
@@ -168,7 +173,7 @@ Interactive elements from top layer of the current page inside the viewport{trun
 			agent_state += '<available_file_paths>\n' + '\n'.join(self.available_file_paths) + '\n</available_file_paths>\n'
 		return agent_state
 
-	def get_user_message(self, use_vision: bool = True) -> HumanMessage:
+	def get_user_message(self, use_vision: bool = True) -> UserMessage:
 		state_description = (
 			'<agent_history>\n'
 			+ (self.agent_history_description.strip('\n') if self.agent_history_description else '')
@@ -187,26 +192,28 @@ Interactive elements from top layer of the current page inside the viewport{trun
 
 		if self.browser_state.screenshot and use_vision is True:
 			# Format message for vision model
-			return HumanMessage(
+			return UserMessage(
 				content=[
-					{'type': 'text', 'text': state_description},
-					{
-						'type': 'image_url',
-						'image_url': {'url': f'data:image/png;base64,{self.browser_state.screenshot}'},  # , 'detail': 'low'
-					},
+					ContentPartTextParam(text=state_description),
+					ContentPartImageParam(
+						image_url=ImageURL(
+							url=f'data:image/png;base64,{self.browser_state.screenshot}',
+							media_type='image/png',
+						),
+					),
 				]
 			)
 
-		return HumanMessage(content=state_description)
+		return UserMessage(content=state_description)
 
 
-class PlannerPrompt(SystemPrompt):
+class PlannerPrompt:
 	def __init__(self, available_actions: str):
 		self.available_actions = available_actions
 
 	def get_system_message(
 		self, is_planner_reasoning: bool, extended_planner_system_prompt: str | None = None
-	) -> SystemMessage | HumanMessage:
+	) -> SystemMessage | UserMessage:
 		"""Get the system message for the planner.
 
 		Args:
@@ -245,6 +252,6 @@ Keep your responses concise and focused on actionable insights.
 			planner_prompt_text += f'\n{extended_planner_system_prompt}'
 
 		if is_planner_reasoning:
-			return HumanMessage(content=planner_prompt_text)
+			return UserMessage(content=planner_prompt_text)
 		else:
 			return SystemMessage(content=planner_prompt_text)

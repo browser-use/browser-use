@@ -18,12 +18,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_openai import AzureChatOpenAI
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel
 from PyPDF2 import PdfReader  # type: ignore
 
 from browser_use import ActionResult, Agent, Controller
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.llm import ChatAzureOpenAI
 
 required_env_vars = ['AZURE_OPENAI_KEY', 'AZURE_OPENAI_ENDPOINT']
 for var in required_env_vars:
@@ -136,11 +136,8 @@ async def main():
 		# + 'go to https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/Taiwan%2C-Remote/Fulfillment-Analyst---New-College-Graduate-2025_JR1988949/apply/autofillWithResume?workerSubType=0c40f6bd1d8f10adf6dae42e46d44a17&workerSubType=ab40a98049581037a3ada55b087049b7 NVIDIA',
 		# ground_task + '\n' + 'Meta',
 	]
-	model = AzureChatOpenAI(
+	model = ChatAzureOpenAI(
 		model='gpt-4o',
-		api_version='2024-10-21',
-		azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT', ''),
-		api_key=SecretStr(os.getenv('AZURE_OPENAI_KEY', '')),
 	)
 
 	agents = []

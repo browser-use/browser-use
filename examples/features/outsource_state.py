@@ -15,11 +15,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import anyio
-from langchain_openai import ChatOpenAI
 
 from browser_use import Agent
 from browser_use.agent.views import AgentState
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.llm import ChatOpenAI
 
 
 async def main():

@@ -9,17 +9,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_anthropic import ChatAnthropic
-from langchain_openai import ChatOpenAI
-
 from browser_use import Agent
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.controller.service import Controller
+from browser_use.llm import ChatAnthropic, ChatOpenAI
 
 
 def get_llm(provider: str):
 	if provider == 'anthropic':
-		return ChatAnthropic(model_name='claude-3-5-sonnet-20240620', timeout=25, stop=None, temperature=0.0)
+		return ChatAnthropic(model='claude-3-5-sonnet-20240620', temperature=0.0)
 	elif provider == 'openai':
 		return ChatOpenAI(model='gpt-4o', temperature=0.0)
 

@@ -5,20 +5,21 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
+from lmnr import Laminar
 
 load_dotenv()
 
-from langchain_openai import ChatOpenAI
-from pydantic import SecretStr
+
+Laminar.initialize()
+
 
 from browser_use import Agent
+from browser_use.llm import ChatGroq
 
 groq_api_key = os.environ.get('GROQ_API_KEY')
-llm = ChatOpenAI(
+llm = ChatGroq(
 	model='meta-llama/llama-4-maverick-17b-128e-instruct',
-	base_url='https://api.groq.com/openai/v1',
-	api_key=SecretStr(groq_api_key) if groq_api_key else None,
-	temperature=0.0,
+	# temperature=0.1,
 )
 
 # llm = ChatGroq(
@@ -27,7 +28,7 @@ llm = ChatOpenAI(
 # 	temperature=0.0,
 # )
 
-task = 'Find the founders of browser-use'
+task = 'Go to amazon.com, search for laptop, sort by best rating, and give me the price of the first result'
 
 
 async def main():

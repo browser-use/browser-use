@@ -1,8 +1,8 @@
 import pytest
-from langchain_openai import ChatOpenAI
 from pytest_httpserver import HTTPServer
 
 from browser_use import setup_logging
+from browser_use.llm import ChatOpenAI
 
 setup_logging()
 

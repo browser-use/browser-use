@@ -12,7 +12,7 @@
 # This is the LLM as a judge evaluation system from the OSU-NLP Group paper
 # Any adaptiations made should be explicitly stated here:
 # Adaptations:
-# We are using our langchain wrapper for the OpenAI API
+# We are using our own wrapper for the OpenAI API
 # This means we changed model.generate to model.invoke. The behavior of the model should be identical.
 # Added a Online_Mind2Web_eval_with_retry wrapper with retry logic in case of API rate limiting or other issues.
 
@@ -55,6 +55,11 @@ import anyio
 import psutil
 from lmnr import AsyncLaminarClient, Laminar, observe
 from PIL import Image
+
+from browser_use.llm.anthropic.chat import ChatAnthropic
+from browser_use.llm.base import BaseChatModel
+from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.openai.chat import ChatOpenAI
 
 MAX_IMAGE = 5
 
@@ -292,8 +297,8 @@ async def identify_key_points(task, model):
 			'content': [{'type': 'text', 'text': text}],
 		},
 	]
-	response = await asyncio.to_thread(model.invoke, messages)
-	return response.content
+	response = await model.ainvoke(messages)
+	return response.completion
 
 
 async def judge_image(task, image_path, key_points, model):
@@ -345,8 +350,8 @@ The snapshot of the web page is shown in the image."""
 			],
 		},
 	]
-	response = await asyncio.to_thread(model.invoke, messages)
-	return response.content
+	response = await model.ainvoke(messages)
+	return response.completion
 
 
 async def Online_Mind2Web_eval(task, last_actions, images_path, model, score_threshold):
@@ -622,7 +627,7 @@ class TaskResult:
 			# Handle legacy Mind2Web evaluation (for compatibility)
 			payload.update(
 				{
-					'onlineMind2WebEvaluationJudgement': eval_data.get('judgement'),
+					'onlineMind2WebEvaluationJudgement': eval_data.get('judgement') or 'No evaluation available',
 					'onlineMind2WebEvaluationError': eval_data.get('error'),
 					'onlineMind2WebEvaluationSuccess': eval_data.get('success', False),
 					'onlineMind2WebEvaluationScore': eval_data.get('score', 0.0),
@@ -650,12 +655,6 @@ class TaskResult:
 			'completed_stages': [stage.value for stage in self.completed_stages],
 		}
 
-
-from langchain_anthropic import ChatAnthropic
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
-from pydantic.types import SecretStr
 
 from browser_use import ActionResult, Agent, BrowserProfile, BrowserSession, Controller
 from browser_use.agent.memory import MemoryConfig
@@ -851,7 +850,7 @@ def create_controller(use_serp: bool = False):
 
 
 def get_llm(model_name: str):
-	"""Instantiates the correct LangChain ChatModel based on the model name."""
+	"""Instantiates the correct ChatModel based on the model name."""
 	if model_name not in SUPPORTED_MODELS:
 		raise ValueError(f'Unsupported model: {model_name}. Supported models are: {list(SUPPORTED_MODELS.keys())}')
 
@@ -866,30 +865,33 @@ def get_llm(model_name: str):
 		)
 		api_key = None
 
-	api_key_secret = SecretStr(api_key) if api_key else None
 	match provider:
 		case 'openai':
 			kwargs = {'model': config['model_name'], 'temperature': 0.0}
 			# Must set temperatue=1 if model is gpt-o4-mini
 			if model_name == 'gpt-o4-mini':
 				kwargs['temperature'] = 1
-			if api_key_secret:
-				kwargs['api_key'] = api_key_secret
+			if api_key:
+				kwargs['api_key'] = api_key
 			return ChatOpenAI(**kwargs)
 		case 'anthropic':
-			kwargs = {'model_name': config['model_name'], 'temperature': 0.0, 'timeout': 100, 'stop': None}
-			if api_key_secret:
-				kwargs['api_key'] = api_key_secret
+			kwargs = {
+				'model': config['model_name'],
+				'temperature': 0.0,
+				'timeout': 100,
+			}
+			if api_key:
+				kwargs['api_key'] = api_key
 			return ChatAnthropic(**kwargs)
 		case 'google':
 			kwargs = {'model': config['model_name'], 'temperature': 0.0}
-			if api_key_secret:
-				kwargs['api_key'] = api_key_secret
-			return ChatGoogleGenerativeAI(**kwargs)
+			if api_key:
+				kwargs['api_key'] = api_key
+			return ChatGoogle(**kwargs)
 		case 'openai_compatible':
 			kwargs = {'model': config['model_name'], 'base_url': config['base_url'], 'temperature': 0.0}
-			if api_key_secret:
-				kwargs['api_key'] = api_key_secret
+			if api_key:
+				kwargs['api_key'] = api_key
 			elif config.get('base_url'):
 				logger.warning(
 					f'API key for {model_name} at {config["base_url"]} is missing, but base_url is specified. Authentication may fail.'
@@ -929,6 +931,7 @@ async def reformat_agent_history(
 	task_id: str,
 	run_id: str,
 	task: str,
+	last_message: str,
 	base_path: str = 'saved_trajectories',
 	include_result: bool = False,
 ) -> dict:
@@ -1031,6 +1034,7 @@ async def reformat_agent_history(
 		'action_history': action_history,
 		'screenshot_paths': screenshot_paths,
 		'final_result_response': final_result,
+		'last_message': last_message,
 		'self_report_completed': self_report_completed,
 		'self_report_success': self_report_success,
 		'complete_history': complete_history,
@@ -1107,7 +1111,13 @@ async def judge_task_result(model, task_folder: Path, score_threshold: float = 3
 	"""
 	result_file = task_folder / 'result.json'
 	if not result_file.exists():
-		return {'task_id': task_folder.name, 'judgement': None, 'success': False, 'error': 'No result.json found', 'score': 0.0}
+		return {
+			'task_id': task_folder.name,
+			'judgement': 'No result.json found',
+			'success': False,
+			'error': 'No result.json found',
+			'score': 0.0,
+		}
 
 	try:
 		async with await anyio.open_file(result_file) as f:
@@ -1138,9 +1148,9 @@ async def judge_task_result(model, task_folder: Path, score_threshold: float = 3
 
 				messages, text, system_msg, record, key_points = eval_result
 
-				# Final steps to get judgement - run invoke in a thread
-				judgement_msg = await asyncio.to_thread(model.invoke, messages)
-				judgement = judgement_msg.content
+				# Final steps to get judgement - use async invoke directly
+				judgement_response = await model.ainvoke(messages)
+				judgement = judgement_response.completion
 
 				if 'success' in judgement.lower().split('status:')[1]:  # This is the official criteria for success
 					evaluation = {
@@ -1169,7 +1179,7 @@ async def judge_task_result(model, task_folder: Path, score_threshold: float = 3
 			except Exception as err:
 				return {
 					'task_id': task_folder.name,
-					'judgement': None,
+					'judgement': f'Mind2Web evaluation failed: {type(err).__name__}: {err}',
 					'success': False,
 					'error': f'{type(err).__name__}: {err}',
 					'score': 0.0,
@@ -1205,7 +1215,7 @@ async def judge_task_result(model, task_folder: Path, score_threshold: float = 3
 				if comprehensive_result.get('error'):
 					return {
 						'task_id': task_folder.name,
-						'judgement': None,
+						'judgement': f'Comprehensive evaluation failed: {comprehensive_result["error"]}',
 						'success': False,
 						'error': comprehensive_result['error'],
 						'score': 0.0,
@@ -1224,7 +1234,7 @@ async def judge_task_result(model, task_folder: Path, score_threshold: float = 3
 				else:
 					return {
 						'task_id': task_folder.name,
-						'judgement': None,
+						'judgement': 'Comprehensive judge failed to return results',
 						'success': False,
 						'error': 'Comprehensive judge failed to return results',
 						'score': 0.0,
@@ -1234,7 +1244,7 @@ async def judge_task_result(model, task_folder: Path, score_threshold: float = 3
 				logger.error(f'Comprehensive judge evaluation failed for {task_folder.name}: {err}')
 				return {
 					'task_id': task_folder.name,
-					'judgement': None,
+					'judgement': f'Comprehensive judge error: {type(err).__name__}: {err}',
 					'success': False,
 					'error': f'Comprehensive judge error: {type(err).__name__}: {err}',
 					'score': 0.0,
@@ -1243,7 +1253,7 @@ async def judge_task_result(model, task_folder: Path, score_threshold: float = 3
 	except Exception as err:
 		return {
 			'task_id': task_folder.name,
-			'judgement': None,
+			'judgement': f'Evaluation failed: {type(err).__name__}: {err}',
 			'success': False,
 			'error': f'{type(err).__name__}: {err}',
 			'score': 0.0,
@@ -1308,7 +1318,7 @@ async def run_agent_with_browser(
 	validate_output: bool = False,
 	planner_llm: BaseChatModel | None = None,
 	planner_interval: int = 1,
-) -> AgentHistoryList:
+) -> tuple[AgentHistoryList, str]:
 	"""Run agent with the browser session"""
 	# Create controller, optionally with SERP search
 	controller = create_controller(use_serp=use_serp)
@@ -1332,9 +1342,11 @@ async def run_agent_with_browser(
 		planner_interval=planner_interval,
 		source='eval_platform',
 	)
-
+	# get last message
 	await agent.run(max_steps=max_steps)
-	return agent.state.history
+	last_input_messages = agent.message_manager.last_input_messages
+	last_message = last_input_messages[-1].text
+	return agent.state.history, last_message
 
 
 @observe(name='evaluate_task_result', span_type='EVALUATOR')  # type: ignore[arg-type]
@@ -1487,7 +1499,7 @@ async def run_task_with_semaphore(
 					try:
 						logger.info(f'Task {task.task_id}: Agent run starting.')
 
-						agent_history = await run_stage(
+						agent_history, last_message = await run_stage(
 							Stage.RUN_AGENT,
 							lambda: run_agent_with_browser(
 								browser_session,
@@ -1511,7 +1523,8 @@ async def run_task_with_semaphore(
 					except Exception as e:
 						error = StageError(Stage.RUN_AGENT, 'exception', str(e))
 						task_result.stage_failed(Stage.RUN_AGENT, error)
-						logger.error(f'Task {task.task_id}: Agent run failed: {str(e)}')
+						logger.error(f'Task {task.task_id}: Agent run failed: {str(e) + " " + str(e.__traceback__)}')
+
 						# Continue to server save instead of early return
 
 				# Stage 3: Format history
@@ -1521,7 +1534,12 @@ async def run_task_with_semaphore(
 						formatted_data = await run_stage(
 							Stage.FORMAT_HISTORY,
 							lambda: reformat_agent_history(
-								agent_history, task.task_id, run_id, task.confirmed_task, include_result=include_result
+								agent_history,
+								task.task_id,
+								run_id,
+								task.confirmed_task,
+								last_message,
+								include_result=include_result,
 							),
 						)
 						task_result.stage_completed(Stage.FORMAT_HISTORY, formatted_data)

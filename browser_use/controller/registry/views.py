@@ -1,12 +1,12 @@
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, ConfigDict
 
 from browser_use.browser import BrowserSession
 from browser_use.browser.types import Page
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.llm.base import BaseChatModel
 
 if TYPE_CHECKING:
 	pass
@@ -48,7 +48,7 @@ class ActionModel(BaseModel):
 	# click_element = param_model = ClickElementParams
 	# done = param_model = None
 	#
-	model_config = ConfigDict(arbitrary_types_allowed=True)
+	model_config = ConfigDict(arbitrary_types_allowed=True, extra='forbid')
 
 	def get_index(self) -> int | None:
 		"""Get the index of the action"""

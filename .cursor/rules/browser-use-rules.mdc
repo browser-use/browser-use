@@ -73,7 +73,7 @@ To define a task and run a browser-use agent:
 
 ```python
 from browser_use import Agent
-from langchain.chat_models import ChatOpenAI
+from browser_use.llm import ChatOpenAI
 
 task = "Find the CEO of OpenAI and return their name"
 model = ChatOpenAI(model="gpt-4o")
@@ -82,3 +82,7 @@ agent = Agent(task=task, llm=model, controller=controller)
 
 history = await agent.run()
 ```
+
+# Never create random examples
+
+When I ask you to implement a feature never create new files that show off that feature -> the code just gets messy. If you do anything to test it out, just do the inline code inside the terminal (if you want).

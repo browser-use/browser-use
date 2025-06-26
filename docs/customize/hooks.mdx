@@ -8,15 +8,14 @@ author: "Carlos A. Planchón"
 Browser-Use provides lifecycle hooks that allow you to execute custom code at specific points during the agent's execution.
 Hook functions can be used to read and modify agent state while running, implement custom logic, change configuration, integrate the Agent with external applications.
 
-
 ## Available Hooks
 
 Currently, Browser-Use provides the following hooks:
 
-| Hook | Description | When it's called |
-| ---- | ----------- | ---------------- |
-| `on_step_start` | Executed at the beginning of each agent step | Before the agent processes the current state and decides on the next action |
-| `on_step_end` | Executed at the end of each agent step | After the agent has executed all the actions for the current step, before it starts the next step |
+| Hook            | Description                                  | When it's called                                                                                  |
+| --------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `on_step_start` | Executed at the beginning of each agent step | Before the agent processes the current state and decides on the next action                       |
+| `on_step_end`   | Executed at the end of each agent step       | After the agent has executed all the actions for the current step, before it starts the next step |
 
 ```python
 await agent.run(on_step_start=..., on_step_end=...)
@@ -24,12 +23,11 @@ await agent.run(on_step_start=..., on_step_end=...)
 
 Each hook should be an `async` callable function that accepts the `agent` instance as its only parameter.
 
-
 ### Basic Example
 
 ```python
 from browser_use import Agent
-from langchain_openai import ChatOpenAI
+from browser_use.llm import ChatOpenAI
 
 
 async def my_step_hook(agent: Agent):
@@ -37,23 +35,23 @@ async def my_step_hook(agent: Agent):
     #   agent.settings, agent.state, agent.task
     #   agent.controller, agent.llm, agent.browser_session
     #   agent.pause(), agent.resume(), agent.add_new_task(...), etc.
-    
+
     # You also have direct access to the playwright Page and Browser Context
     page = await agent.browser_session.get_current_page()
     #   https://playwright.dev/python/docs/api/class-page
-    
+
     current_url = page.url
     visit_log = agent.state.history.urls()
     previous_url = visit_log[-2] if len(visit_log) >= 2 else None
     print(f"Agent was last on URL: {previous_url} and is now on {current_url}")
-    
+
     # Example: listen for events on the page, interact with the DOM, run JS directly, etc.
     await page.on('domcontentloaded', lambda: print('page navigated to a new url...'))
     await page.locator("css=form > input[type=submit]").click()
     await page.evaluate('() => alert(1)')
     await page.browser.new_tab
     await agent.browser_session.session.context.add_init_script('/* some JS to run on every page */')
-    
+
     # Example: monitor or intercept all network requests
     async def handle_request(route):
 		# Print, modify, block, etc. do anything to the requests here
@@ -65,10 +63,10 @@ async def my_step_hook(agent: Agent):
     # Example: pause agent execution and resume it based on some custom code
     if '/completed' in current_url:
         agent.pause()
-        Path('result.txt').write_text(await page.content()) 
+        Path('result.txt').write_text(await page.content())
         input('Saved "completed" page content to result.txt, press [Enter] to resume...')
         agent.resume()
-    
+
 agent = Agent(
     task="Search for the latest news about AI",
     llm=ChatOpenAI(model="gpt-4o"),
@@ -87,24 +85,23 @@ When working with agent hooks, you have access to the entire `Agent` instance. H
 
 - `agent.task` lets you see what the main task is, `agent.add_new_task(...)` lets you queue up a new one
 - `agent.controller` give access to the `Controller()` object and `Registry()` containing the available actions
-    - `agent.controller.registry.execute_action('click_element_by_index', {'index': 123}, browser_session=agent.browser_session)`
+  - `agent.controller.registry.execute_action('click_element_by_index', {'index': 123}, browser_session=agent.browser_session)`
 - `agent.context` lets you access any user-provided context object passed in to `Agent(context=...)`
 - `agent.sensitive_data` contains the sensitive data dict, which can be updated in-place to add/remove/modify items
 - `agent.settings` contains all the configuration options passed to the `Agent(...)` at init time
 - `agent.llm` gives direct access to the main LLM object (e.g. `ChatOpenAI`)
 - `agent.state` gives access to lots of internal state, including agent thoughts, outputs, actions, etc.
-    - `agent.state.history.model_thoughts()`: Reasoning from Browser Use's model.
-    - `agent.state.history.model_outputs()`: Raw outputs from the Browsre Use's model.
-    - `agent.state.history.model_actions()`: Actions taken by the agent
-    - `agent.state.history.extracted_content()`: Content extracted from web pages
-    - `agent.state.history.urls()`: URLs visited by the agent
+  - `agent.state.history.model_thoughts()`: Reasoning from Browser Use's model.
+  - `agent.state.history.model_outputs()`: Raw outputs from the Browsre Use's model.
+  - `agent.state.history.model_actions()`: Actions taken by the agent
+  - `agent.state.history.extracted_content()`: Content extracted from web pages
+  - `agent.state.history.urls()`: URLs visited by the agent
 - `agent.browser_session` gives direct access to the `BrowserSession()` and playwright objects
-    - `agent.browser_session.get_current_page()`: Get the current playwright `Page` object the agent is focused on
-    - `agent.browser_session.browser_context`: Get the current playwright `BrowserContext` object
-    - `agent.browser_session.browser_context.pages`: Get all the tabs currently open in the context
-    - `agent.browser_session.get_page_html()`: Current page HTML
-    - `agent.browser_session.take_screenshot()`: Screenshot of the current page
-
+  - `agent.browser_session.get_current_page()`: Get the current playwright `Page` object the agent is focused on
+  - `agent.browser_session.browser_context`: Get the current playwright `BrowserContext` object
+  - `agent.browser_session.browser_context.pages`: Get all the tabs currently open in the context
+  - `agent.browser_session.get_page_html()`: Current page HTML
+  - `agent.browser_session.take_screenshot()`: Screenshot of the current page
 
 ## Tips for Using Hooks
 
@@ -123,11 +120,13 @@ This comprehensive example demonstrates a complete implementation for recording 
 To use this example, you'll need to:
 
 1. Set up the required dependencies:
+
    ```bash
-   pip install fastapi uvicorn prettyprinter pyobjtojson dotenv browser-use langchain-openai
+   pip install fastapi uvicorn prettyprinter pyobjtojson dotenv browser-use
    ```
 
 2. Create two separate Python files:
+
    - `api.py` - The FastAPI server component
    - `client.py` - The Browser-Use agent with recording hook
 
@@ -145,7 +144,7 @@ The server component handles receiving and storing the agent's activity data:
 #
 # FastAPI API to record and save Browser-Use activity data.
 # Save this code to api.py and run with `python api.py`
-# 
+#
 
 import json
 import base64
@@ -161,7 +160,7 @@ prettyprinter.install_extras()
 def b64_to_png(b64_string: str, output_file):
     """
     Convert a Base64-encoded string to a PNG file.
-    
+
     :param b64_string: A string containing Base64-encoded data
     :param output_file: The path to the output PNG file
     """
@@ -233,7 +232,7 @@ import asyncio
 import requests
 from dotenv import load_dotenv
 from pyobjtojson import obj_to_json
-from langchain_openai import ChatOpenAI
+from browser_use.llm import ChatOpenAI
 from browser_use import Agent
 
 # Load environment variables (for API keys)
@@ -258,7 +257,7 @@ async def record_activity(agent_obj):
     extracted_content_json_last_elem = None
 
     print('--- ON_STEP_START HOOK ---')
-    
+
     # Capture current page state
     website_html = await agent_obj.browser_session.get_page_html()
     website_screenshot = await agent_obj.browser_session.take_screenshot()
@@ -328,7 +327,7 @@ async def record_activity(agent_obj):
 
     print("--- MODEL STEP SUMMARY ---")
     print(f"URL: {urls_json_last_elem}")
-    
+
     # Send data to the API
     result = send_agent_history_step(data=model_step_summary)
     print(f"Recording API response: {result}")
@@ -340,7 +339,7 @@ async def run_agent():
         task="Compare the price of gpt-4o and DeepSeek-V3",
         llm=ChatOpenAI(model="gpt-4o"),
     )
-    
+
     try:
         print("Starting Browser-Use agent with recording hook")
         await agent.run(
@@ -358,7 +357,7 @@ if __name__ == "__main__":
         print("Recording API is available")
     except:
         print("Warning: Recording API may not be running. Start api.py first.")
-    
+
     # Run the agent
     asyncio.run(run_agent())
 ```

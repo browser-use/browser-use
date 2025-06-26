@@ -8,9 +8,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_openai import ChatOpenAI
-
 from browser_use import Agent
+from browser_use.llm import ChatOpenAI
 
 llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
 small_llm = ChatOpenAI(model='gpt-4o-mini', temperature=0.0)

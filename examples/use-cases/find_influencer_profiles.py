@@ -16,11 +16,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import httpx
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 from browser_use import Agent, Controller
 from browser_use.agent.views import ActionResult
+from browser_use.llm import ChatOpenAI
 
 
 class Profile(BaseModel):

@@ -19,6 +19,8 @@ from urllib.parse import urlparse
 from browser_use.config import CONFIG
 from browser_use.utils import _log_pretty_path, _log_pretty_url
 
+from .utils import normalize_url
+
 os.environ['PW_TEST_SCREENSHOT_NO_FONTS_READY'] = '1'  # https://github.com/microsoft/playwright/issues/35972
 
 import anyio
@@ -212,6 +214,7 @@ class BrowserSession(BaseModel):
 	_start_lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
 	_tab_visibility_callback: Any = PrivateAttr(default=None)
 	_logger: logging.Logger | None = PrivateAttr(default=None)
+	_downloaded_files: list[str] = PrivateAttr(default_factory=list)
 
 	@model_validator(mode='after')
 	def apply_session_overrides_to_profile(self) -> Self:
@@ -1542,10 +1545,15 @@ class BrowserSession(BaseModel):
 						download_path = os.path.join(self.browser_profile.downloads_path, unique_filename)
 						await download.save_as(download_path)
 						self.logger.info(f'⬇️ Downloaded file to: {download_path}')
+
+						# Track the downloaded file in the session
+						self._downloaded_files.append(download_path)
+						self.logger.info(f'📁 Added download to session tracking (total: {len(self._downloaded_files)} files)')
+
 						return download_path
 					except Exception:
 						# If no download is triggered, treat as normal click
-						# self.logger.debug('No download triggered within timeout. Checking navigation...')
+						self.logger.debug('No download triggered within timeout. Checking navigation...')
 						try:
 							await page.wait_for_load_state()
 						except Exception as e:
@@ -1655,10 +1663,14 @@ class BrowserSession(BaseModel):
 	# --- Page navigation ---
 	@require_initialization
 	async def navigate(self, url: str) -> None:
+		# Add https:// if there's no protocol
+
+		normalized_url = normalize_url(url)
+
 		if self.agent_current_page:
-			await self.agent_current_page.goto(url, wait_until='domcontentloaded')
+			await self.agent_current_page.goto(normalized_url, wait_until='domcontentloaded')
 		else:
-			await self.create_new_tab(url)
+			await self.create_new_tab(normalized_url)
 
 	@require_initialization
 	async def refresh(self) -> None:
@@ -1869,6 +1881,17 @@ class BrowserSession(BaseModel):
 		Old name for the new load_storage_state() function.
 		"""
 		await self.load_storage_state(*args, **kwargs)
+
+	@property
+	def downloaded_files(self) -> list[str]:
+		"""
+		Get list of all files downloaded during this browser session.
+
+		Returns:
+		    list[str]: List of absolute file paths to downloaded files
+		"""
+		self.logger.debug(f'📁 Retrieved {len(self._downloaded_files)} downloaded files from session tracking')
+		return self._downloaded_files.copy()
 
 	# @property
 	# def browser_extension_pages(self) -> list[Page]:
@@ -2168,11 +2191,16 @@ class BrowserSession(BaseModel):
 
 	async def navigate_to(self, url: str):
 		"""Navigate the agent's current tab to a URL"""
-		if not self._is_url_allowed(url):
-			raise BrowserError(f'Navigation to non-allowed URL: {url}')
+
+		# Add https:// if there's no protocol
+
+		normalized_url = normalize_url(url)
+
+		if not self._is_url_allowed(normalized_url):
+			raise BrowserError(f'Navigation to non-allowed URL: {normalized_url}')
 
 		page = await self.get_current_page()
-		await page.goto(url)
+		await page.goto(normalized_url)
 		try:
 			await page.wait_for_load_state()
 		except Exception as e:
@@ -3017,8 +3045,13 @@ class BrowserSession(BaseModel):
 	async def create_new_tab(self, url: str | None = None) -> Page:
 		"""Create a new tab and optionally navigate to a URL"""
 
-		if url and not self._is_url_allowed(url):
-			raise BrowserError(f'Cannot create new tab with non-allowed URL: {url}')
+		# Add https:// if there's no protocol
+		normalized_url = url
+		if url:
+			normalized_url = normalize_url(url)
+
+			if not self._is_url_allowed(normalized_url):
+				raise BrowserError(f'Cannot create new tab with non-allowed URL: {normalized_url}')
 
 		try:
 			assert self.browser_context is not None, 'Browser context is not set'
@@ -3056,12 +3089,12 @@ class BrowserSession(BaseModel):
 		if self.browser_profile.viewport:
 			await new_page.set_viewport_size(self.browser_profile.viewport)
 
-		if url:
+		if normalized_url:
 			try:
-				await new_page.goto(url, wait_until='domcontentloaded')
+				await new_page.goto(normalized_url, wait_until='domcontentloaded')
 				await self._wait_for_page_and_frames_load(timeout_overwrite=1)
 			except Exception as e:
-				self.logger.error(f'❌ Error navigating to {url}: {type(e).__name__}: {e} (proceeding anyway...)')
+				self.logger.error(f'❌ Error navigating to {normalized_url}: {type(e).__name__}: {e} (proceeding anyway...)')
 
 		assert self.human_current_page is not None
 		assert self.agent_current_page is not None
@@ -3073,7 +3106,7 @@ class BrowserSession(BaseModel):
 		# if there are any unused about:blank tabs after we open a new tab, close them to clean up unused tabs
 		assert self.browser_context is not None, 'Browser context is not set'
 		# hacky way to be sure we only close our own tabs, check the title of the tab for our BrowserSession name
-		title_of_our_setup_tab = f'Setting up #{str(self.id)[-4:]}...'  # set up by self._show_dvd_screensaver_loading_animation()
+		title_of_our_setup_tab = f'Start page {str(self.id)[-4:]}'  # set up by self._show_dvd_screensaver_loading_animation()
 		for page in self.browser_context.pages:
 			page_title = await page.title()
 			if page.url == 'about:blank' and page != self.agent_current_page and page_title == title_of_our_setup_tab:
@@ -3240,7 +3273,7 @@ class BrowserSession(BaseModel):
 		# between opening the tab and showing the animation
 		await page.evaluate(
 			"""(browser_session_label) => {
-			const animated_title = `Setting up #${browser_session_label}...`;
+			const animated_title = `Start page id ${browser_session_label}`;
 			if (document.title === animated_title) {
 				return;      // already run on this tab, dont run again
 			}
