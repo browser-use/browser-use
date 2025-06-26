@@ -393,13 +393,18 @@ Only use this for extracting info from a single product/article page, not for en
 			loop = asyncio.get_event_loop()
 
 			# Try getting page content with retries
-			page_html_result, action_result = await retry_async_function(
-				lambda: page.content(), "Couldn't extract page content due to an error."
-			)
-			if action_result:
-				return action_result
-			page_html = page_html_result
+			# page_html_result, action_result = await retry_async_function(
+			# 	lambda: page.content(), "Couldn't extract page content due to an error."
+			# )
+			# if action_result:
+			# 	return action_result
+			# page_html = page_html_result
 
+			try:
+				page_html = await page.content()
+			except Exception as e:
+				error_message = f"Couldn't extract page content: {str(e)}"
+				logger.error(error_message)
 			markdownify_func = partial(markdownify.markdownify, strip=strip)
 			content = await loop.run_in_executor(None, markdownify_func, page_html)
 
