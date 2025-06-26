@@ -19,34 +19,23 @@ def load_session_data(json_path: str) -> Dict[str, Any]:
 
 def create_scoring_prompt() -> str:
 	"""Create the system prompt for action scoring"""
-	return """You are an expert evaluator for browser automation tasks. Your job is to score actions taken by an AI agent during web browsing.
+	return """You are an expert evaluator for browser automation tasks. Your job is to analyze the complete task execution and score each step based on its contribution to the overall success.
 
-EVALUATION OBJECTIVE:
-Assess how well each action contributes to task completion.
+EVALUATION APPROACH:
+1. First understand the complete task flow from start to finish
+2. Identify key decision points, breakthroughs, and setbacks
+3. Evaluate each step's value within the full context
+4. Consider how each step enables or hinders subsequent steps
+5. Score from -10 to +10 based on overall contribution to task completion
 
-SCORING SCALE: Rate each action from -10 to +10 based on how well it contributes to completing the task.
+SCORING PHILOSOPHY:
+- Steps are interconnected - evaluate their role in the complete strategy
+- Early steps that enable later success deserve credit
+- Steps that waste time or lead to dead ends should be penalized
+- Key breakthrough moments that solve the core problem deserve highest scores
+- Consider both immediate effects and long-term consequences
 
-KEY EVALUATION CRITERIA:
-1. Goal alignment: Does the action move toward the stated objective?
-2. Context appropriateness: Is it suitable for the current page state?
-3. Efficiency: Is this the most direct way to achieve the goal?
-4. Information extraction: Does it gather needed data effectively?
-5. Error avoidance: Does it prevent or cause issues?
-6. Task completion: Does it properly conclude when objectives are met?
-
-CRITICAL EVALUATION POINTS:
-- Verify if "done" claims are actually justified by task completion
-- Assess whether information extraction was thorough and accurate
-- Check for unnecessary repetition or circular behavior
-- Evaluate navigation efficiency and logical page flow
-- Judge the quality of form filling and element interaction
-
-DATA STRUCTURE:
-Each step contains:
-- dom_state: Current webpage (URL, title, interactive elements, scroll position)
-- agent_response: AI decision (thinking, evaluation, memory, next_goal, actions)
-
-Remember: Your evaluation trains future agent behavior. Be precise and critical."""
+IMPORTANT: You must respond with valid JSON format only. Do not include any markdown formatting, explanations, or additional text. Your response must be a single JSON object that can be parsed directly."""
 
 def score_all_steps_batch(
 	llm: BaseChatModel,
@@ -81,43 +70,39 @@ ACTIONS: {json.dumps(agent_response.get('action', []), indent=2)}
 	
 	# Create comprehensive prompt
 	prompt = f"""
-TASK OBJECTIVE: {task_context}
+TASK: {task_context}
 
-ANALYSIS WORKFLOW:
-1. Review the complete task execution sequence
-2. Assess the agent's overall strategy and approach
-3. Evaluate each individual step's contribution to task completion
-4. Identify patterns of efficiency or inefficiency
-5. Score each step using the -10 to +10 scale
+Analyze the complete execution sequence below. Understand the full journey from start to finish, then score each step based on its contribution to the overall task success.
 
-STEPS TO EVALUATE:
+Consider:
+- How did the overall strategy unfold?
+- Which steps were crucial breakthroughs?
+- Which steps wasted time or created problems?
+- How do early decisions impact later success?
+- What was the turning point that led to completion?
+
+COMPLETE EXECUTION SEQUENCE:
 {all_steps_info}
 
-OUTPUT REQUIREMENTS:
-- Provide valid JSON only, no additional text
-- Include comprehensive task analysis
-- Score all {len(steps_data)} steps with detailed reasoning
-- Use integer scores from -10 to +10
-- Ensure JSON format is syntactically correct
+Provide your analysis in JSON format:
 
-JSON FORMAT:
 {{
-  "task_analysis": "Comprehensive analysis of overall task execution strategy, efficiency, and completion status",
+  "task_analysis": "<overall_strategy_analysis>Your comprehensive analysis of execution flow, key decisions, and turning points</overall_strategy_analysis>",
   "step_scores": [
     {{
       "step_number": 1,
-      "score": -10,
-      "reasoning": "Detailed explanation of why this score was assigned based on evaluation criteria"
+      "score": <integer_score_-10_to_10>,
+      "reasoning": "<contribution_analysis>Explain how this specific step contributed to or hindered the overall task success</contribution_analysis>"
     }},
     {{
       "step_number": 2,
-      "score": 10,
-      "reasoning": "Detailed explanation of why this score was assigned based on evaluation criteria"
+      "score": <integer_score_-10_to_10>,
+      "reasoning": "<contribution_analysis>Explain how this specific step contributed to or hindered the overall task success</contribution_analysis>"
     }}
   ]
 }}
 
-CRITICAL: Every step must be scored. Validate JSON syntax before responding.
+Score all {len(steps_data)} steps considering their role in the complete task flow.
 """
 	
 	messages = [
@@ -126,8 +111,11 @@ CRITICAL: Every step must be scored. Validate JSON syntax before responding.
 	]
 	
 	try:
-		print("Making single API call to score all steps...")
+		print(f"Making single API call to score {len(steps_data)} steps...")
 		response = llm.invoke(messages)
+		print(f"✓ Received response from LLM")
+		
+		# Parse JSON response directly
 		score_data = json.loads(response.content)
 		
 		# Convert to the expected format
@@ -140,58 +128,24 @@ CRITICAL: Every step must be scored. Validate JSON syntax before responding.
 				'scores': {
 					'step_score': step_score['score'],
 					'overall_reasoning': step_score['reasoning']
-				},
-				'raw_response': response.content
+				}
 			})
 		
-		# Add task analysis to the first result
+		# Add task analysis to the first result only (not duplicated in each step)
 		if results:
 			results[0]['task_analysis'] = task_analysis
 			
-		print(f"✓ Successfully scored {len(results)} steps in one API call")
+		print(f"✓ Successfully scored {len(results)} steps")
 		return results
 		
-	except json.JSONDecodeError as e:
-		print(f"JSON parsing failed: {e}")
-		print("Full response content:", response.content)
-		
-		# Try to extract JSON from markdown code blocks
-		import re
-		json_match = re.search(r'```json\s*(\{.*?\})\s*```', response.content, re.DOTALL)
-		if json_match:
-			try:
-				json_content = json_match.group(1)
-				print(f"Extracted JSON length: {len(json_content)} characters")
-				score_data = json.loads(json_content)
-				print("✓ Successfully extracted JSON from markdown")
-			except Exception as json_err:
-				print(f"✗ Failed to parse extracted JSON: {json_err}")
-				print("Full extracted content:", json_content)
-				print("✗ Failed to parse extracted JSON")
-				# Fallback: return error for all steps
-				return [{
-					'step_number': step['step_number'],
-					'scores': None,
-					'raw_response': response.content,
-					'error': f'Failed to parse JSON response: {e}'
-				} for step in steps_data]
-		else:
-			# Fallback: return error for all steps
-			return [{
-				'step_number': step['step_number'],
-				'scores': None,
-				'raw_response': response.content,
-				'error': f'Failed to parse JSON response: {e}'
-			} for step in steps_data]
 	except Exception as e:
-		print(f"Error in batch scoring: {e}")
-		import traceback
-		traceback.print_exc()
+		print(f"✗ Error in scoring: {e}")
+		print(f"Response content: {response.content if 'response' in locals() else 'No response received'}")
 		return [{
 			'step_number': step['step_number'],
 			'scores': None,
-			'raw_response': '',
-			'error': f'Unexpected error: {e}'
+			'raw_response': response.content if 'response' in locals() else '',
+			'error': str(e)
 		} for step in steps_data]
 
 def score_all_actions(
@@ -226,9 +180,33 @@ def score_all_actions(
 		system_prompt=system_prompt
 	)
 	
+	# Check if scoring was successful
+	if not all_scores or all_scores is None:
+		print("✗ Warning: No scores were returned from the scoring function!")
+		return []
+	elif all(score.get('scores') is None for score in all_scores):
+		print("✗ Warning: All scores are None - there was likely an error in processing!")
+		return []
+	else:
+		print(f"✓ Successfully received {len(all_scores)} scored steps")
+	
 	# Save results
 	if output_path is None:
-		output_path = json_path.replace('.json', '_scored.json')
+		output_path = json_path.replace('.json', '_scored1.json')
+	elif output_path and not output_path.endswith('.json'):
+		from pathlib import Path
+		output_dir = Path(output_path)
+		output_dir.mkdir(parents=True, exist_ok=True)
+		input_filename = Path(json_path).stem
+		output_filename = f"{input_filename}_scored.json"
+		output_path = output_dir / output_filename
+	
+	# Extract task analysis from first step (if available)
+	task_analysis = ""
+	if all_scores and len(all_scores) > 0 and 'task_analysis' in all_scores[0]:
+		task_analysis = all_scores[0]['task_analysis']
+		# Remove task_analysis from the first step to avoid duplication
+		del all_scores[0]['task_analysis']
 	
 	result = {
 		'session_info': session_data.get('session_info', {'task': task_context}),
@@ -237,6 +215,7 @@ def score_all_actions(
 			'scoring_model': getattr(llm, 'model_name', 'unknown'),
 			'task': task_context
 		},
+		'task_analysis': task_analysis,
 		'scored_steps': all_scores
 	}
 	
@@ -254,25 +233,30 @@ def main():
 	parser = argparse.ArgumentParser(description='Score browser automation actions')
 	parser.add_argument('json_file', nargs='?', help='Path to the session JSON file')
 	parser.add_argument('--output', '-o', help='Output file path')
-	parser.add_argument('--model', default='gpt-4o-mini', help='LLM model to use for scoring')
+	parser.add_argument('--model', default='openai/gpt-4.1-mini', help='LLM model to use for scoring')
 	parser.add_argument('--api-key', help='OpenAI API key')
 	
 	args = parser.parse_args()
 	
-	# If no file provided, look for JSON files in current directory
-	if not args.json_file:
+
+	json_file = r"D:\supie\202506\browser-use-RL\json_logs\google_search_20250625_170919.json"
+	output_file = r"D:\supie\202506\browser-use-RL\score_json"
+	model_name = args.model
+	
+	# 如果没有文件提供，查找当前目录下的JSON文件
+	if not json_file or not os.path.exists(json_file):
 		json_files = [f for f in os.listdir('.') if f.endswith('.json') and 'session' in f]
 		if json_files:
-			args.json_file = json_files[0]
-			print(f"Using found JSON file: {args.json_file}")
+			json_file = json_files[0]
+			print(f"Using found JSON file: {json_file}")
 		else:
 			print("No JSON file specified and none found in current directory")
 			print("Usage: python action_scorer.py <json_file>")
 			return
 	
 	# Check if file exists
-	if not os.path.exists(args.json_file):
-		print(f"Error: File '{args.json_file}' not found!")
+	if not os.path.exists(json_file):
+		print(f"Error: File '{json_file}' not found!")
 		print(f"Current directory: {os.getcwd()}")
 		print("Available files:")
 		for f in os.listdir('.'):
@@ -282,9 +266,9 @@ def main():
 	
 	# Set up API key from api_key.py
 	try:
-		from api_key import OpenAI_API_KEY, OPENAI_BASE_URL
-		api_key = OpenAI_API_KEY
-		base_url = OPENAI_BASE_URL
+		from api_key import Openrouter_API_KEY, Openrouter_BASE_URL
+		api_key = Openrouter_API_KEY
+		base_url = Openrouter_BASE_URL
 		print(f"✓ Loaded API key from api_key.py")
 		print(f"✓ Base URL: {base_url}")
 	except ImportError:
@@ -306,14 +290,14 @@ def main():
 	try:
 		from langchain_openai import ChatOpenAI
 		llm = ChatOpenAI(
-			model=args.model, 
+			model=model_name, 
 			temperature=0,
 			api_key=api_key,
 			base_url=base_url,
 			max_tokens=None,  # 无token限制
 			timeout=300  # 5分钟超时
 		)
-		print(f"✓ Initialized {args.model} with base_url: {base_url}")
+		print(f"✓ Initialized {model_name} with base_url: {base_url}")
 	except ImportError:
 		print("Error: langchain_openai not installed!")
 		print("Install with: pip install langchain-openai")
@@ -324,7 +308,7 @@ def main():
 	
 	# Score actions
 	try:
-		score_all_actions(args.json_file, llm, args.output)
+		score_all_actions(json_file, llm, output_file)
 	except Exception as e:
 		print(f"Error during scoring: {e}")
 		import traceback
