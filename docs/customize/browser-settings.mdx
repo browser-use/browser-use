@@ -30,8 +30,8 @@ agent = Agent('fill out the form on this page', browser_session=browser_session)
 
 ## `BrowserSession`
 
-- 🎭 `BrowserSession(**params)` is Browser Use's object that tracks a playwright connection to a running browser. It sets up:
-  - the `playwright` library, `browser` and/or `browser_context`, and `page` objects and tracks which tabs the agent & human are focused on
+- `BrowserSession(**params)` is Browser Use's object that tracks a connection to a running browser. It sets up:
+  - the `playwright`, `browser`, `browser_context`, and `page` objects and tracks which tabs the agent/human are focused on
   - methods to interact with the browser window, apply config needed by the Agent, and run the `DOMService` for element detection
   - it can take a `browser_profile=BrowserProfile(...)` template containing some config defaults, and `**kwargs` session-specific config overrides
 
@@ -271,12 +271,13 @@ Glob patterns are supported:
 disable_security: bool = False
 ```
 
-Completely disables all basic browser security features. Allows interacting across cross-site iFrames boundaries, but 
-
 <Warning>
-This option is very INSECURE and is only for niche use cases. DO NOT LET YOUR AGENT visit untrusted URLs or give it real cookies when `disable_security=True`.
-Visiting a single malicious site in this mode can trivially compromise *all* the cookies in the browser profile in under 1 second.
+⚠️ Setting this to `True` is NOT RECOMMENDED.  
+It completely disables all basic browser security features.
 </Warning>
+
+This option is for debugging and interacting across cross-origin iFrames when there are no cookies or sensitive data in use.
+It's very INSECURE, under no circumstances should you enable this while using real cookies or sensitive data, visiting a single untrusted URL in this mode can immediately compromise all the profile cookies instantly. Consider a less nuclear option like `bypass_csp=True` instead.
 
 #### `deterministic_rendering`
 
@@ -284,14 +285,23 @@ Visiting a single malicious site in this mode can trivially compromise *all* the
 deterministic_rendering: bool = False
 ```
 
-Attempt to forced more deterministic rendering for consistent screenshots across different host operating systems and hardware.
-
-Disables OS-specific font hints, aliasing, GPU-accelerated rendering, normalizes DPI, and sets a specific JS random seed to try to avoid nondeterministic JS.
-
 <Warning>
-This flag is for niche use cases (e.g. screenshot diffing) where pixel-perfect rendering across different server operating systems is more important than stability.
-It makes the agent more likely to be blocked as a bot and triggers some glitchy behavior in chrome occasionally, it's not recommended unless you know you need it.
+⚠️ Setting this to `True` is NOT RECOMMENDED.  
+It can be glitchy & slow, and it increases chances of getting blocked by anti-bot systems. It's mostly useful for QA applications.
 </Warning>
+
+
+
+It's a shortcut for adding these launch args:
+
+- `--deterministic-mode`
+- `--js-flags=--random-seed=1157259159`
+- `--force-color-profile=srgb`
+- `--font-render-hinting=none`
+- `--force-device-scale-factor=2`
+- `--enable-webgl`
+
+With these options fonts will look slightly worse than macOS and slightly than Windows, but rendering will be more consistent between OSs and runs. The cost is performance and stability. Software rendering is slower, easier to fingerprint as a bot, and sometimes glitchy. You likely *don't need this option* unless you're trying to do screenshot diffing.
 
 #### `highlight_elements`
 
@@ -388,7 +398,23 @@ No need to set this unless you have multiple profiles set up in a single `user_d
 window_position: dict | None = {"width": 0, "height": 0}
 ```
 
-Window position from top-left.
+Window position from top-left corner.
+
+#### `save_recording_path`
+
+```python
+save_recording_path: str | None = None
+```
+
+Directory path for saving video recordings.
+
+#### `trace_path`
+
+```python
+trace_path: str | None = None
+```
+
+Directory path for saving Agent trace files. Files are automatically named as `{trace_path}/{context_id}.zip`.
 
 
 ---
@@ -550,7 +576,7 @@ These control how the browser waits for CDP API calls to complete and pages to l
 default_timeout: float | None = None
 ```
 
-Default timeout for Playwright operations in milliseconds.
+Default timeout for Playwright operations in milliseconds (e.g. `10000` if you want 10s).
 
 #### `default_navigation_timeout`
 
@@ -558,7 +584,7 @@ Default timeout for Playwright operations in milliseconds.
 default_navigation_timeout: float | None = None
 ```
 
-Default timeout for page navigation in milliseconds.
+Default timeout for page navigation in milliseconds (e.g. `30000` if you want 30s).
 
 
 ### Playwright Viewport Options
@@ -571,7 +597,7 @@ Configure browser window size, viewport, and display properties:
 user_agent: str | None = None
 ```
 
-Specific user agent to use in this context.
+Specific user agent to use in this context. See [`playwright.devices`](https://playwright.dev/python/docs/emulation).
 
 #### `is_mobile`
 
@@ -603,7 +629,7 @@ Geolocation coordinates. Example: `{"latitude": 59.95, "longitude": 30.31667}`
 locale: str | None = None
 ```
 
-Specify user locale, for example en-GB, de-DE, etc. Locale will affect the navigator.language value, Accept-Language request header value as well as number and date formatting rules.
+Specify user locale, for example `en-GB`, `de-DE`, etc. Locale will affect the `navigator.language` value, `Accept-Language` request header value as well as number and date formatting rules.
 
 #### `timezone_id`
 
@@ -611,7 +637,7 @@ Specify user locale, for example en-GB, de-DE, etc. Locale will affect the navig
 timezone_id: str | None = None
 ```
 
-Timezone identifier (e.g., 'America/New_York').
+Timezone identifier (e.g. `'America/New_York'` or `'UTC'`).
 
 #### `window_size`
 
@@ -646,7 +672,7 @@ A viewport is *always* used in headless mode regardless of this setting, and is 
 device_scale_factor: float | None = None
 ```
 
-Device scale factor (DPI). Useful for high-resolution screenshots (set it to 2).
+Device scale factor (DPI). Useful for high-resolution screenshots (set it to 2 or 3).
 
 #### `screen`
 
@@ -743,13 +769,21 @@ Whether to ignore HTTPS errors when sending network requests.
 bypass_csp: bool = False
 ```
 
-Toggles bypassing Content-Security-Policy.
+<Warning>
+Enabling this can increase security risk and makes the bot very easy to fingerprint. (Cloudflare, Datadome, etc. will block you)
+</Warning>
+
+Toggles bypassing Content-Security-Policy. Enabling reduces some CSP-related errors that can arise from automation scripts injected into pages with strict policies that forbid inline scripts.
 
 #### `java_script_enabled`
 
 ```python
 java_script_enabled: bool = True
 ```
+
+<Warning>
+Not recommended, untested with Browser Use and likely breaks things.
+</Warning>
 
 Whether or not to enable JavaScript in the context.
 

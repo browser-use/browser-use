@@ -223,7 +223,7 @@ class DOMElementNode(DOMBaseNode):
 			elif isinstance(node, DOMTextNode):
 				# Add text only if it doesn't have a highlighted parent
 				if (
-					node.parent.highlight_index is None and node.parent and node.parent.is_visible and node.parent.is_top_element
+					node.parent and node.parent.highlight_index is None and node.parent.is_visible and node.parent.is_top_element
 				):  # and node.is_parent_top_element()
 					formatted_text.append(f'{depth_str}{node.text}')
 

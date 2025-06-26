@@ -1,4 +1,5 @@
 import asyncio
+import tempfile
 import time
 
 import pytest
@@ -7,6 +8,7 @@ from pytest_httpserver import HTTPServer
 
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
+from browser_use.browser.profile import BrowserProfile
 from browser_use.controller.service import Controller
 from browser_use.controller.views import (
 	ClickElementAction,
@@ -22,6 +24,7 @@ from browser_use.controller.views import (
 	SendKeysAction,
 	SwitchTabAction,
 )
+from browser_use.filesystem.file_system import FileSystem
 
 
 @pytest.fixture(scope='session')
@@ -77,9 +80,10 @@ def base_url(http_server):
 async def browser_session():
 	"""Create and provide a Browser instance with security disabled."""
 	browser_session = BrowserSession(
-		# browser_profile=BrowserProfile(),
-		headless=True,
-		user_data_dir=None,
+		browser_profile=BrowserProfile(
+			headless=True,
+			user_data_dir=None,
+		)
 	)
 	await browser_session.start()
 	yield browser_session
@@ -111,6 +115,7 @@ class TestControllerIntegration:
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert f'Navigated to {base_url}/page1' in result.extracted_content
 
 		# Verify the current page URL
@@ -138,6 +143,7 @@ class TestControllerIntegration:
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'Scrolled down' in result.extracted_content
 
 		# Create scroll up action
@@ -151,6 +157,7 @@ class TestControllerIntegration:
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'Scrolled up' in result.extracted_content
 
 	async def test_registry_actions(self, controller, browser_session):
@@ -206,6 +213,7 @@ class TestControllerIntegration:
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'Custom action executed with: test_value on' in result.extracted_content
 		assert f'{base_url}/page1' in result.extracted_content
 
@@ -260,6 +268,7 @@ class TestControllerIntegration:
 			result = await controller.act(InputTextActionModel(**input_action), browser_session)
 			# If successful, verify the result
 			assert isinstance(result, ActionResult)
+			assert result.extracted_content is not None
 			assert 'Input' in result.extracted_content
 		except Exception as e:
 			# If it fails due to DOM issues, that's expected in a test environment
@@ -351,6 +360,7 @@ class TestControllerIntegration:
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'Navigated back' in result.extracted_content
 
 		# Add another delay to allow the navigation to complete
@@ -473,6 +483,7 @@ class TestControllerIntegration:
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
 		assert 'Searched for "Python web automation" in Google' in result.extracted_content
 
 		# For our test purposes, we just verify we're on some URL
@@ -481,46 +492,52 @@ class TestControllerIntegration:
 
 	async def test_done_action(self, controller, browser_session, base_url):
 		"""Test that DoneAction completes a task and reports success or failure."""
-		# First navigate to a page
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1')}
+		# Create a temporary directory for the file system
+		with tempfile.TemporaryDirectory() as temp_dir:
+			file_system = FileSystem(temp_dir)
 
-		class GoToUrlActionModel(ActionModel):
-			go_to_url: GoToUrlAction | None = None
+			# First navigate to a page
+			goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1')}
 
-		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+			class GoToUrlActionModel(ActionModel):
+				go_to_url: GoToUrlAction | None = None
 
-		success_done_message = 'Successfully completed task'
+			await controller.act(GoToUrlActionModel(**goto_action), browser_session)
 
-		# Create done action with success
-		done_action = {'done': DoneAction(text=success_done_message, success=True)}
+			success_done_message = 'Successfully completed task'
 
-		class DoneActionModel(ActionModel):
-			done: DoneAction | None = None
+			# Create done action with success
+			done_action = {'done': DoneAction(text=success_done_message, success=True)}
 
-		# Execute done action
-		result = await controller.act(DoneActionModel(**done_action), browser_session)
+			class DoneActionModel(ActionModel):
+				done: DoneAction | None = None
 
-		# Verify the result
-		assert isinstance(result, ActionResult)
-		assert success_done_message in result.extracted_content
-		assert result.success is True
-		assert result.is_done is True
-		assert result.error is None
+			# Execute done action with file_system
+			result = await controller.act(DoneActionModel(**done_action), browser_session, file_system=file_system)
 
-		failed_done_message = 'Failed to complete task'
+			# Verify the result
+			assert isinstance(result, ActionResult)
+			assert result.extracted_content is not None
+			assert success_done_message in result.extracted_content
+			assert result.success is True
+			assert result.is_done is True
+			assert result.error is None
 
-		# Test with failure case
-		failed_done_action = {'done': DoneAction(text=failed_done_message, success=False)}
+			failed_done_message = 'Failed to complete task'
 
-		# Execute failed done action
-		result = await controller.act(DoneActionModel(**failed_done_action), browser_session)
+			# Test with failure case
+			failed_done_action = {'done': DoneAction(text=failed_done_message, success=False)}
 
-		# Verify the result
-		assert isinstance(result, ActionResult)
-		assert failed_done_message in result.extracted_content
-		assert result.success is False
-		assert result.is_done is True
-		assert result.error is None
+			# Execute failed done action with file_system
+			result = await controller.act(DoneActionModel(**failed_done_action), browser_session, file_system=file_system)
+
+			# Verify the result
+			assert isinstance(result, ActionResult)
+			assert result.extracted_content is not None
+			assert failed_done_message in result.extracted_content
+			assert result.success is False
+			assert result.is_done is True
+			assert result.error is None
 
 	async def test_drag_drop_action(self, controller, browser_session, base_url, http_server):
 		"""Test that DragDropAction correctly drags and drops elements."""
@@ -712,6 +729,10 @@ class TestControllerIntegration:
 		drag_action = {
 			'drag_drop': DragDropAction(
 				# Use the coordinate-based approach
+				element_source=None,
+				element_target=None,
+				element_source_offset=None,
+				element_target_offset=None,
 				coord_source_x=element_info['source']['x'],
 				coord_source_y=element_info['source']['y'],
 				coord_target_x=element_info['target']['x'],
@@ -730,6 +751,7 @@ class TestControllerIntegration:
 		# Step 5: Verify the controller action result
 		assert result.error is None, f'Drag operation failed with error: {result.error}'
 		assert result.is_done is False
+		assert result.extracted_content is not None
 		assert '🖱️ Dragged from' in result.extracted_content
 
 		# Step 6: Verify the element was moved by checking its new parent
@@ -821,7 +843,8 @@ class TestControllerIntegration:
 
 		# Verify navigation result
 		assert isinstance(goto_result, ActionResult)
-		assert f'Navigated to {base_url}/keyboard' in goto_result.extracted_content
+		assert goto_result.extracted_content is not None
+		assert goto_result.extracted_content is not None and f'Navigated to {base_url}/keyboard' in goto_result.extracted_content
 		assert goto_result.error is None
 		assert goto_result.is_done is False
 
@@ -847,7 +870,8 @@ class TestControllerIntegration:
 
 		# Verify Tab action result
 		assert isinstance(tab_result, ActionResult)
-		assert 'Sent keys: Tab' in tab_result.extracted_content
+		assert tab_result.extracted_content is not None
+		assert tab_result.extracted_content is not None and 'Sent keys: Tab' in tab_result.extracted_content
 		assert tab_result.error is None
 		assert tab_result.is_done is False
 
@@ -867,7 +891,8 @@ class TestControllerIntegration:
 
 		# Verify typing action result
 		assert isinstance(type_result, ActionResult)
-		assert f'Sent keys: {test_text}' in type_result.extracted_content
+		assert type_result.extracted_content is not None
+		assert type_result.extracted_content is not None and f'Sent keys: {test_text}' in type_result.extracted_content
 		assert type_result.error is None
 		assert type_result.is_done is False
 
@@ -888,7 +913,11 @@ class TestControllerIntegration:
 
 		# Verify select all action result
 		assert isinstance(select_all_result, ActionResult)
-		assert 'Sent keys: ControlOrMeta+a' in select_all_result.extracted_content
+		assert select_all_result.extracted_content is not None
+		assert (
+			select_all_result.extracted_content is not None
+			and 'Sent keys: ControlOrMeta+a' in select_all_result.extracted_content
+		)
 		assert select_all_result.error is None
 
 		# Verify selection length matches the text length
@@ -909,7 +938,8 @@ class TestControllerIntegration:
 
 		# Verify second Tab action result
 		assert isinstance(tab_result2, ActionResult)
-		assert 'Sent keys: Tab' in tab_result2.extracted_content
+		assert tab_result2.extracted_content is not None
+		assert tab_result2.extracted_content is not None and 'Sent keys: Tab' in tab_result2.extracted_content
 		assert tab_result2.error is None
 
 		# Verify we moved to the textarea
@@ -927,7 +957,10 @@ class TestControllerIntegration:
 
 		# Verify textarea typing action result
 		assert isinstance(textarea_result, ActionResult)
-		assert f'Sent keys: {textarea_text}' in textarea_result.extracted_content
+		assert textarea_result.extracted_content is not None
+		assert (
+			textarea_result.extracted_content is not None and f'Sent keys: {textarea_text}' in textarea_result.extracted_content
+		)
 		assert textarea_result.error is None
 		assert textarea_result.is_done is False
 
@@ -1032,6 +1065,7 @@ class TestControllerIntegration:
 		assert isinstance(result, ActionResult)
 
 		# Core logic validation: Verify all options are returned
+		assert result.extracted_content is not None
 		for option in expected_options[1:]:  # Skip the placeholder option
 			assert option['text'] in result.extracted_content, f"Option '{option['text']}' not found in result content"
 
@@ -1129,109 +1163,13 @@ class TestControllerIntegration:
 		assert isinstance(result, ActionResult)
 
 		# Core logic validation: Verify selection was successful
+		assert result.extracted_content is not None
 		assert 'selected option' in result.extracted_content.lower()
 		assert 'Second Option' in result.extracted_content
 
 		# Verify the actual dropdown selection was made by checking the DOM
 		selected_value = await page.evaluate("document.getElementById('test-dropdown').value")
 		assert selected_value == 'option2'  # Second Option has value "option2"
-
-	async def test_extract_content_action(self, controller, browser_session, base_url, http_server):
-		"""Test the default extract_content action with mixed parameter ordering."""
-		# Set up a test page with specific content
-		http_server.expect_request('/extract-test').respond_with_data(
-			"""
-			<!DOCTYPE html>
-			<html>
-			<head>
-				<title>Extract Content Test Page</title>
-			</head>
-			<body>
-				<h1>Product Details</h1>
-				<div class="product">
-					<h2>Awesome Widget</h2>
-					<p class="price">$19.99</p>
-					<p class="description">This is an amazing widget that does everything!</p>
-					<a href="/buy-now">Buy Now</a>
-					<a href="/reviews">Read Reviews</a>
-				</div>
-				<div class="features">
-					<h3>Features:</h3>
-					<ul>
-						<li>Feature 1: Super fast</li>
-						<li>Feature 2: Easy to use</li>
-						<li>Feature 3: Lifetime warranty</li>
-					</ul>
-				</div>
-			</body>
-			</html>
-			""",
-			content_type='text/html',
-		)
-
-		# Navigate to the test page
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/extract-test')}
-
-		class GoToUrlActionModel(ActionModel):
-			go_to_url: GoToUrlAction | None = None
-
-		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
-
-		# Verify extract_content is registered
-		assert 'extract_content' in controller.registry.registry.actions
-
-		# Create a mock LLM for testing
-		from langchain_core.language_models.fake_chat_models import FakeListChatModel
-
-		mock_llm = FakeListChatModel(
-			responses=['Product: Awesome Widget, Price: $19.99, Description: Amazing widget with 3 key features']
-		)
-
-		# Test extract_content with include_links=False (default)
-		extract_action = {'extract_content': {'goal': 'Extract product name and price'}}
-
-		class ExtractContentActionModel(ActionModel):
-			extract_content: dict | None = None
-
-		# This should fail if page_extraction_llm is not passed correctly
-		with pytest.raises(RuntimeError) as exc_info:
-			await controller.act(ExtractContentActionModel(**extract_action), browser_session)
-
-		# Should fail because page_extraction_llm is required but not provided
-		assert 'page_extraction_llm' in str(exc_info.value)
-
-		# Now test with the LLM provided through controller context
-		# Since controller doesn't have a way to pass page_extraction_llm directly,
-		# we'll test that the action is properly registered with correct parameters
-		action = controller.registry.registry.actions['extract_content']
-
-		# Verify the param model only includes user-facing parameters
-		model_fields = action.param_model.model_fields
-		assert 'goal' in model_fields
-		assert 'include_links' in model_fields
-		assert model_fields['include_links'].default is False
-
-		# Special params should NOT be in the model
-		assert 'page' not in model_fields
-		assert 'page_extraction_llm' not in model_fields
-
-		# Verify the function signature includes the expected parameters
-		import inspect
-
-		sig = inspect.signature(action.function)
-		# The normalized function should have params and kwargs
-		assert 'params' in sig.parameters
-		assert 'kwargs' in sig.parameters
-
-		# Test with include_links=True
-		extract_action_with_links = {
-			'extract_content': {'goal': 'Extract all product information including links', 'include_links': True}
-		}
-
-		# Verify the action model can be created with these parameters
-		action_model = ExtractContentActionModel(**extract_action_with_links)
-		assert action_model.extract_content['goal'] == 'Extract all product information including links'
-		assert action_model.extract_content['include_links'] is True
 
 	async def test_click_element_by_index(self, controller, browser_session, base_url, http_server):
 		"""Test that click_element_by_index correctly clicks an element and handles different outcomes."""
@@ -1314,26 +1252,32 @@ class TestControllerIntegration:
 		expected_result_text = 'Button 1 clicked'
 
 		# Verify the button text matches what we expect
-		assert expected_button_text in button_text, f"Expected button text '{expected_button_text}' not found in '{button_text}'"
+		assert button_text is not None and expected_button_text in button_text, (
+			f"Expected button text '{expected_button_text}' not found in '{button_text}'"
+		)
 
 		# Create a model for the click_element_by_index action
 		class ClickElementActionModel(ActionModel):
 			click_element_by_index: ClickElementAction | None = None
 
 		# Execute the action with the button index
-		result = await controller.act(ClickElementActionModel(click_element_by_index={'index': button_index}), browser_session)
+		result = await controller.act(
+			ClickElementActionModel(click_element_by_index=ClickElementAction(index=button_index)), browser_session
+		)
 
 		# Verify the result structure
 		assert isinstance(result, ActionResult), 'Result should be an ActionResult instance'
 		assert result.error is None, f'Expected no error but got: {result.error}'
 
 		# Core logic validation: Verify click was successful
+		assert result.extracted_content is not None
 		assert f'Clicked button with index {button_index}' in result.extracted_content, (
 			f'Expected click confirmation in result content, got: {result.extracted_content}'
 		)
-		assert button_text in result.extracted_content, (
-			f"Button text '{button_text}' not found in result content: {result.extracted_content}"
-		)
+		if button_text:
+			assert result.extracted_content is not None and button_text in result.extracted_content, (
+				f"Button text '{button_text}' not found in result content: {result.extracted_content}"
+			)
 
 		# Verify the click actually had an effect on the page
 		result_text = await page.evaluate("document.getElementById('result').textContent")

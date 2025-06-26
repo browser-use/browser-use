@@ -15,15 +15,11 @@ import asyncio
 import logging
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
-from unittest.mock import AsyncMock
-
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage
 
 from browser_use import Agent, setup_logging
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.types import async_playwright
-from tests.ci.mocks import create_mock_llm
+from tests.ci.conftest import create_mock_llm
 
 # Set up test logging
 setup_logging()
@@ -42,41 +38,11 @@ def run_agent_in_subprocess_module(task_description):
 
 	async def run_agent():
 		# Create mock LLM inline to avoid pickling issues
-		mock_llm = AsyncMock(spec=BaseChatModel)
-		mock_llm._verified_api_keys = True
-		mock_llm._verified_tool_calling_method = 'raw'
-		mock_llm.model_name = 'mock-llm'
-
-		response_content = """
-		{
-			"current_state": {
-				"evaluation_previous_goal": "Starting the task",
-				"memory": "Task completed",
-				"next_goal": "Complete the task"
-			},
-			"action": [
-				{
-					"done": {
-						"text": "Task completed successfully",
-						"success": true
-					}
-				}
-			]
-		}
-		"""
-
-		mock_llm.invoke.return_value = AIMessage(content=response_content)
-
-		# Make ainvoke return a coroutine
-		async def async_invoke(*args, **kwargs):
-			return AIMessage(content=response_content)
-
-		mock_llm.ainvoke.side_effect = async_invoke
+		mock_llm = create_mock_llm()
 
 		agent = Agent(
 			task=task_description,
 			llm=mock_llm,
-			tool_calling_method='raw',
 			enable_memory=False,
 			browser_profile=BrowserProfile(headless=True, user_data_dir=None),
 		)
@@ -125,7 +91,6 @@ class TestParallelism:
 		agent = Agent(
 			task='Test task',
 			llm=mock_llm,
-			tool_calling_method='raw',
 			enable_memory=False,
 			browser_profile=BrowserProfile(headless=True, user_data_dir=None),
 		)
@@ -148,9 +113,11 @@ class TestParallelism:
 
 		# Create a shared browser session
 		browser_session = BrowserSession(
-			headless=True,
-			user_data_dir=None,  # Use temp directory
-			keep_alive=True,
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,  # Use temp directory
+				keep_alive=True,
+			)
 		)
 
 		try:
@@ -161,7 +128,6 @@ class TestParallelism:
 				task='First parallel task',
 				llm=mock_llm,
 				browser_session=browser_session,
-				tool_calling_method='raw',
 				enable_memory=False,
 			)
 
@@ -169,7 +135,6 @@ class TestParallelism:
 				task='Second parallel task',
 				llm=mock_llm,
 				browser_session=browser_session,
-				tool_calling_method='raw',
 				enable_memory=False,
 			)
 
@@ -198,9 +163,11 @@ class TestParallelism:
 
 		# Create a shared browser session
 		browser_session = BrowserSession(
-			headless=True,
-			user_data_dir=None,  # Use temp directory
-			keep_alive=True,
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,  # Use temp directory
+				keep_alive=True,
+			)
 		)
 
 		try:
@@ -211,7 +178,6 @@ class TestParallelism:
 				task='First sequential task',
 				llm=mock_llm,
 				browser_session=browser_session,
-				tool_calling_method='raw',
 				enable_memory=False,
 			)
 			result1 = await agent1.run()
@@ -221,7 +187,6 @@ class TestParallelism:
 				task='Second sequential task',
 				llm=mock_llm,
 				browser_session=browser_session,
-				tool_calling_method='raw',
 				enable_memory=False,
 			)
 			result2 = await agent2.run()
@@ -250,7 +215,6 @@ class TestParallelism:
 		agent1 = Agent(
 			task='First loop task',
 			llm=mock_llm,
-			tool_calling_method='raw',
 			enable_memory=False,
 			browser_profile=BrowserProfile(headless=True, user_data_dir=None),
 		)
@@ -259,7 +223,6 @@ class TestParallelism:
 		agent2 = Agent(
 			task='Second loop task',
 			llm=mock_llm,
-			tool_calling_method='raw',
 			enable_memory=False,
 			browser_profile=BrowserProfile(headless=True, user_data_dir=None),
 		)
@@ -293,7 +256,6 @@ class TestParallelism:
 					agent = Agent(
 						task=task_description,
 						llm=mock_llm,
-						tool_calling_method='raw',
 						enable_memory=False,
 						browser_profile=BrowserProfile(headless=True, user_data_dir=None),
 					)
@@ -364,11 +326,10 @@ class TestParallelism:
 		# Create action sequences - each agent creates a new tab
 		tab_action = """
 		{
-			"current_state": {
-				"evaluation_previous_goal": "Starting task",
-				"memory": "Need new tab",
-				"next_goal": "Create new tab"
-			},
+			"thinking": "null",
+			"evaluation_previous_goal": "Starting task",
+			"memory": "Need new tab",
+			"next_goal": "Create new tab",
 			"action": [
 				{
 					"open_tab": {
@@ -381,11 +342,10 @@ class TestParallelism:
 
 		done_action = """
 		{
-			"current_state": {
-				"evaluation_previous_goal": "Tab created",
-				"memory": "Task done",
-				"next_goal": "Complete"
-			},
+			"thinking": "null",
+			"evaluation_previous_goal": "Tab created",
+			"memory": "Task done",
+			"next_goal": "Complete",
 			"action": [
 				{
 					"done": {
@@ -403,9 +363,11 @@ class TestParallelism:
 
 		# Create shared browser session
 		shared_session = BrowserSession(
-			headless=True,
-			user_data_dir=None,
-			keep_alive=True,
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,
+				keep_alive=True,
+			)
 		)
 
 		try:
@@ -416,7 +378,6 @@ class TestParallelism:
 				task='Task in tab 1',
 				llm=mock_llm1,
 				browser_session=shared_session,
-				tool_calling_method='raw',
 				enable_memory=False,
 			)
 
@@ -424,7 +385,6 @@ class TestParallelism:
 				task='Task in tab 2',
 				llm=mock_llm2,
 				browser_session=shared_session,
-				tool_calling_method='raw',
 				enable_memory=False,
 			)
 
@@ -462,9 +422,11 @@ class TestParallelism:
 
 		# Create a session with keep_alive
 		session = BrowserSession(
-			headless=True,
-			user_data_dir=None,
-			keep_alive=True,
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,
+				keep_alive=True,
+			)
 		)
 
 		try:
@@ -476,7 +438,6 @@ class TestParallelism:
 				task='First task',
 				llm=mock_llm,
 				browser_session=session,
-				tool_calling_method='raw',
 				enable_memory=False,
 			)
 			result1 = await agent1.run()
@@ -490,7 +451,6 @@ class TestParallelism:
 				task='Second task',
 				llm=mock_llm,
 				browser_session=session,
-				tool_calling_method='raw',
 				enable_memory=False,
 			)
 			result2 = await agent2.run()
@@ -517,13 +477,15 @@ class TestParallelism:
 
 			# Create session with existing playwright objects
 			browser_session = BrowserSession(
-				page=page,
+				browser_profile=BrowserProfile(
+					headless=True,
+					user_data_dir=None,
+					keep_alive=False,
+				),
+				agent_current_page=page,
 				browser_context=context,
 				browser=browser,
 				playwright=playwright,
-				headless=True,
-				user_data_dir=None,
-				keep_alive=False,
 			)
 
 			# Create mock LLM
@@ -534,7 +496,6 @@ class TestParallelism:
 				task='Test with existing playwright objects',
 				llm=mock_llm,
 				browser_session=browser_session,
-				tool_calling_method='raw',
 				enable_memory=False,
 			)
 

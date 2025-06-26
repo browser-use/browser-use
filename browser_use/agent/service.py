@@ -5,12 +5,11 @@ import json
 import logging
 import os
 import re
-import shutil
 import sys
+import tempfile
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from threading import Thread
 from typing import Any, Generic, TypeVar
 
 from dotenv import load_dotenv
@@ -22,33 +21,28 @@ from browser_use.agent.cloud_events import (
 	CreateAgentTaskEvent,
 	UpdateAgentTaskEvent,
 )
+from browser_use.llm.base import BaseChatModel
+from browser_use.llm.messages import BaseMessage, UserMessage
+from browser_use.tokens.service import TokenCost
 
 load_dotenv()
 
 # from lmnr.sdk.decorators import observe
 from bubus import EventBus
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import (
-	BaseMessage,
-	HumanMessage,
-	SystemMessage,
-)
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 from uuid_extensions import uuid7str
 
 from browser_use.agent.gif import create_history_gif
 from browser_use.agent.memory import Memory, MemoryConfig
-from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
+from browser_use.agent.message_manager.service import (
+	MessageManager,
+)
 from browser_use.agent.message_manager.utils import (
-	convert_input_messages,
-	extract_json_from_model_output,
-	is_model_without_tool_support,
 	save_conversation,
 )
-from browser_use.agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
+from browser_use.agent.prompts import PlannerPrompt, SystemPrompt
 from browser_use.agent.views import (
 	ActionResult,
-	AgentBrain,
 	AgentError,
 	AgentHistory,
 	AgentHistoryList,
@@ -58,23 +52,31 @@ from browser_use.agent.views import (
 	AgentStepInfo,
 	BrowserStateHistory,
 	StepMetadata,
-	ToolCallingMethod,
 )
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
 from browser_use.browser.types import Browser, BrowserContext, Page
 from browser_use.browser.views import BrowserStateSummary
+from browser_use.config import CONFIG
 from browser_use.controller.registry.views import ActionModel
 from browser_use.controller.service import Controller
-from browser_use.dom.history_tree_processor.service import DOMHistoryElement, HistoryTreeProcessor
+from browser_use.dom.history_tree_processor.service import (
+	DOMHistoryElement,
+	HistoryTreeProcessor,
+)
 from browser_use.exceptions import LLMException
+from browser_use.filesystem.file_system import FileSystem
+from browser_use.sync import CloudSync
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import AgentTelemetryEvent
-from browser_use.utils import _log_pretty_path, get_browser_use_version, time_execution_async, time_execution_sync
+from browser_use.utils import (
+	_log_pretty_path,
+	get_browser_use_version,
+	time_execution_async,
+	time_execution_sync,
+)
 
 logger = logging.getLogger(__name__)
-
-SKIP_LLM_API_KEY_VERIFICATION = os.environ.get('SKIP_LLM_API_KEY_VERIFICATION', 'false').lower()[0] in 'ty1'
 
 
 def log_response(response: AgentOutput, registry=None, logger=None) -> None:
@@ -84,13 +86,16 @@ def log_response(response: AgentOutput, registry=None, logger=None) -> None:
 	if logger is None:
 		logger = logging.getLogger(__name__)
 
-	if 'Success' in response.current_state.evaluation_previous_goal:
+	if 'success' in response.current_state.evaluation_previous_goal.lower():
 		emoji = '👍'
-	elif 'Failed' in response.current_state.evaluation_previous_goal:
+	elif 'failure' in response.current_state.evaluation_previous_goal.lower():
 		emoji = '⚠️'
 	else:
-		emoji = '❓'
+		emoji = '❔'
 
+	# Only log thinking if it's present
+	if response.current_state.thinking:
+		logger.info(f'💡 Thinking:\n{response.current_state.thinking}')
 	logger.info(f'{emoji} Eval: {response.current_state.evaluation_previous_goal}')
 	logger.info(f'🧠 Memory: {response.current_state.memory}')
 	logger.info(f'🎯 Next goal: {response.current_state.next_goal}\n')
@@ -141,7 +146,6 @@ class Agent(Generic[Context]):
 		retry_delay: int = 10,
 		override_system_message: str | None = None,
 		extend_system_message: str | None = None,
-		max_input_tokens: int = 128000,
 		validate_output: bool = False,
 		message_context: str | None = None,
 		generate_gif: bool | str = False,
@@ -161,8 +165,8 @@ class Agent(Generic[Context]):
 			'data-state',
 			'aria-checked',
 		],
-		max_actions_per_step: int = 10,
-		tool_calling_method: ToolCallingMethod | None = 'auto',
+		max_actions_per_step: int = 1,
+		use_thinking: bool = True,
 		page_extraction_llm: BaseChatModel | None = None,
 		planner_llm: BaseChatModel | None = None,
 		planner_interval: int = 1,  # Run planner every N steps
@@ -173,10 +177,15 @@ class Agent(Generic[Context]):
 		enable_memory: bool = True,
 		memory_config: MemoryConfig | None = None,
 		source: str | None = None,
+		file_system_path: str | None = None,
 		task_id: str | None = None,
+		cloud_sync: CloudSync | None = None,
+		calculate_cost: bool = False,
 	):
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
+		if available_file_paths is None:
+			available_file_paths = []
 
 		self.id = task_id or uuid7str()
 		self.task_id: str = self.id
@@ -200,20 +209,27 @@ class Agent(Generic[Context]):
 			retry_delay=retry_delay,
 			override_system_message=override_system_message,
 			extend_system_message=extend_system_message,
-			max_input_tokens=max_input_tokens,
 			validate_output=validate_output,
 			message_context=message_context,
 			generate_gif=generate_gif,
 			available_file_paths=available_file_paths,
 			include_attributes=include_attributes,
 			max_actions_per_step=max_actions_per_step,
-			tool_calling_method=tool_calling_method,
 			page_extraction_llm=page_extraction_llm,
 			planner_llm=planner_llm,
 			planner_interval=planner_interval,
 			is_planner_reasoning=is_planner_reasoning,
 			extend_planner_system_message=extend_planner_system_message,
+			use_thinking=use_thinking,
+			calculate_cost=calculate_cost,
 		)
+
+		# Token cost service
+		self.token_cost_service = TokenCost(include_cost=calculate_cost)
+		self.token_cost_service.register_llm(llm)
+		self.token_cost_service.register_llm(page_extraction_llm)
+		if self.settings.planner_llm:
+			self.token_cost_service.register_llm(self.settings.planner_llm)
 
 		# Memory settings
 		self.enable_memory = enable_memory
@@ -222,53 +238,51 @@ class Agent(Generic[Context]):
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
 
+		# Initialize file system
+		self._set_file_system(file_system_path)
+
 		# Action setup
 		self._setup_action_models()
 		self._set_browser_use_version_and_source(source)
 		self.initial_actions = self._convert_initial_actions(initial_actions) if initial_actions else None
 
-		# Model setup
-		self._set_model_names()
-
 		# Verify we can connect to the LLM and setup the tool calling method
 		self._verify_and_setup_llm()
 
+		# TODO: move this logic to the LLMs
 		# Handle users trying to use use_vision=True with DeepSeek models
-		if 'deepseek' in self.model_name.lower():
+		if 'deepseek' in self.llm.model.lower():
 			self.logger.warning('⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
-		if 'deepseek' in (self.planner_model_name or '').lower():
+		if self.settings.planner_llm and 'deepseek' in (self.settings.planner_llm.model or '').lower():
 			self.logger.warning(
 				'⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision_for_planner=False for now...'
 			)
 			self.settings.use_vision_for_planner = False
 		# Handle users trying to use use_vision=True with XAI models
-		if 'grok' in self.model_name.lower():
+		if 'grok' in self.llm.model.lower():
 			self.logger.warning('⚠️ XAI models do not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
-		if 'grok' in (self.planner_model_name or '').lower():
+		if self.settings.planner_llm and 'grok' in (self.settings.planner_llm.model or '').lower():
 			self.logger.warning(
 				'⚠️ XAI models do not support use_vision=True yet. Setting use_vision_for_planner=False for now...'
 			)
 			self.settings.use_vision_for_planner = False
 
 		self.logger.info(
-			f'🧠 Starting a browser-use agent {self.version} with base_model={self.model_name}'
-			f'{" +tools" if self.tool_calling_method == "function_calling" else ""}'
-			f'{" +rawtools" if self.tool_calling_method == "raw" else ""}'
+			f'🧠 Starting a browser-use agent {self.version} with base_model={self.llm.model}'
 			f'{" +vision" if self.settings.use_vision else ""}'
 			f'{" +memory" if self.enable_memory else ""}'
-			f' extraction_model={getattr(self.settings.page_extraction_llm, "model_name", None)}'
-			f'{f" planner_model={self.planner_model_name}" if self.planner_model_name else ""}'
+			f' extraction_model={self.settings.page_extraction_llm.model if self.settings.page_extraction_llm else "Unknown"}'
+			f'{f" planner_model={self.settings.planner_llm.model}" if self.settings.planner_llm else ""}'
 			f'{" +reasoning" if self.settings.is_planner_reasoning else ""}'
 			f'{" +vision" if self.settings.use_vision_for_planner else ""} '
+			f'{" +file_system" if self.file_system else ""}'
 		)
 
 		# Initialize available actions for system prompt (only non-filtered actions)
 		# These will be used for the system prompt to maintain caching
 		self.unfiltered_actions = self.controller.registry.get_prompt_description()
-
-		self.settings.message_context = self._set_message_context()
 
 		# Initialize message manager with state
 		# Initial system prompt with all actions - will be updated during each step
@@ -279,18 +293,20 @@ class Agent(Generic[Context]):
 				max_actions_per_step=self.settings.max_actions_per_step,
 				override_system_message=override_system_message,
 				extend_system_message=extend_system_message,
+				use_thinking=self.settings.use_thinking,
 			).get_system_message(),
-			settings=MessageManagerSettings(
-				max_input_tokens=self.settings.max_input_tokens,
-				include_attributes=self.settings.include_attributes,
-				message_context=self.settings.message_context,
-				sensitive_data=sensitive_data,
-				available_file_paths=self.settings.available_file_paths,
-			),
+			file_system=self.file_system,
+			available_file_paths=self.settings.available_file_paths,
 			state=self.state.message_manager_state,
+			use_thinking=self.settings.use_thinking,
+			# Settings that were previously in MessageManagerSettings
+			include_attributes=self.settings.include_attributes,
+			message_context=self.settings.message_context,
+			sensitive_data=sensitive_data,
 		)
 
-		if self.enable_memory:
+		# TODO: FIX MEMORY
+		if self.enable_memory and False:
 			try:
 				# Initialize memory
 				self.memory = Memory(
@@ -425,13 +441,27 @@ class Agent(Generic[Context]):
 		self.telemetry = ProductTelemetry()
 
 		# Event bus with WAL persistence
-		# Default to ~/.config/browseruse/events/{agent_task_id}.jsonl
-		wal_path = Path.home() / '.config' / 'browseruse' / 'events' / f'{self.task_id}.jsonl'
+		# Default to ~/.config/browseruse/events/{agent_session_id}.jsonl
+		wal_path = CONFIG.BROWSER_USE_CONFIG_DIR / 'events' / f'{self.session_id}.jsonl'
 		self.eventbus = EventBus(name='Agent', wal_path=wal_path)
+
+		# Cloud sync service
+		self.enable_cloud_sync = CONFIG.BROWSER_USE_CLOUD_SYNC
+		if self.enable_cloud_sync or cloud_sync is not None:
+			self.cloud_sync = cloud_sync or CloudSync()
+			# Register cloud sync handler
+			self.eventbus.on('*', self.cloud_sync.handle_event)
 
 		if self.settings.save_conversation_path:
 			self.settings.save_conversation_path = Path(self.settings.save_conversation_path).expanduser().resolve()
 			self.logger.info(f'💬 Saving conversation to {_log_pretty_path(self.settings.save_conversation_path)}')
+
+		# Initialize download tracking
+		self.has_downloads_path = self.browser_session.browser_profile.downloads_path is not None
+		if self.has_downloads_path:
+			self._last_known_downloads: list[str] = []
+			self.logger.info('📁 Initialized download tracking for agent')
+
 		self._external_pause_event = asyncio.Event()
 		self._external_pause_event.set()
 
@@ -460,13 +490,121 @@ class Agent(Generic[Context]):
 		assert self.browser_session is not None, 'BrowserSession is not set up'
 		return self.browser_session.browser_profile
 
-	def _set_message_context(self) -> str | None:
-		if self.tool_calling_method == 'raw':
-			# For raw tool calling, only include actions with no filters initially
-			if self.settings.message_context:
-				self.settings.message_context += f'\n\nAvailable actions: {self.unfiltered_actions}'
+	def _update_available_file_paths(self, downloads: list[str]) -> None:
+		"""Update available_file_paths with downloaded files."""
+		if not self.has_downloads_path:
+			return
+
+		current_files = set(self.settings.available_file_paths or [])
+		new_files = set(downloads) - current_files
+
+		if new_files:
+			self.settings.available_file_paths = list(current_files | new_files)
+			# Update message manager with new file paths
+			self._message_manager.available_file_paths = self.settings.available_file_paths
+
+			self.logger.info(
+				f'📁 Added {len(new_files)} downloaded files to available_file_paths (total: {len(self.settings.available_file_paths)} files)'
+			)
+			for file_path in new_files:
+				self.logger.info(f'📄 New file available: {file_path}')
+		else:
+			self.logger.info(f'📁 No new downloads detected (tracking {len(current_files)} files)')
+
+	def _set_file_system(self, file_system_path: str | None = None) -> None:
+		# Check for conflicting parameters
+		if self.state.file_system_state and file_system_path:
+			raise ValueError(
+				'Cannot provide both file_system_state (from agent state) and file_system_path. '
+				'Either restore from existing state or create new file system at specified path, not both.'
+			)
+
+		# Check if we should restore from existing state first
+		if self.state.file_system_state:
+			try:
+				# Restore file system from state
+				self.file_system = FileSystem.from_state(self.state.file_system_state)
+				self.file_system_path = str(self.file_system.base_dir.parent)
+				logger.info(f'💾 File system restored from state: {self.file_system_path}')
+				return
+			except Exception as e:
+				logger.warning(f'💾 Failed to restore file system from state: {e}. Creating new file system.')
+				# Fall through to create new file system
+
+		# Initialize new file system
+		try:
+			if file_system_path:
+				self.file_system = FileSystem(file_system_path)
+				self.file_system_path = file_system_path
 			else:
-				self.settings.message_context = f'Available actions: {self.unfiltered_actions}'
+				# create a temporary file system using agent ID
+				base_tmp = tempfile.gettempdir()  # e.g., /tmp on Unix
+				self.file_system_path = os.path.join(base_tmp, f'browser_use_agent_{self.id}')
+				self.file_system = FileSystem(self.file_system_path)
+		except Exception as e:
+			logger.error(f'💾 Failed to initialize file system: {e}.')
+			raise e
+
+		# Save file system state to agent state
+		self.state.file_system_state = self.file_system.get_state()
+
+		logger.info(f'💾 File system path: {self.file_system_path}')
+
+		# if file system is set, add actions to the controller
+		extensions_allowed = self.file_system.get_allowed_extensions()
+
+		@self.controller.registry.action(
+			f'Write content to file_name in file system. Only use extensions {"|".join(extensions_allowed)}'
+		)
+		async def write_file(file_name: str, content: str):
+			result = await self.file_system.write_file(file_name, content)
+			# Update agent state with new file system state
+			self.state.file_system_state = self.file_system.get_state()
+			logger.info(f'💾 {result}')
+			return ActionResult(
+				extracted_content=result,
+				include_in_memory=True,
+				long_term_memory=result,
+			)
+
+		@self.controller.registry.action('Append content to file_name in file system')
+		async def append_file(file_name: str, content: str):
+			result = await self.file_system.append_file(file_name, content)
+			# Update agent state with new file system state
+			self.state.file_system_state = self.file_system.get_state()
+			logger.info(f'💾 {result}')
+			return ActionResult(
+				extracted_content=result,
+				include_in_memory=True,
+				long_term_memory=result,
+			)
+
+		@self.controller.registry.action('Read file_name from file system')
+		async def read_file(file_name: str):
+			result = await self.file_system.read_file(file_name)
+			max_len = 50
+			if len(result) > max_len:
+				display_result = result[:max_len] + '\n...'
+			else:
+				display_result = result
+			logger.info(f'💾 {display_result}')
+			memory = result.split('\n')[-1]
+			return ActionResult(
+				extracted_content=result,
+				include_in_memory=True,
+				long_term_memory=memory,
+				include_extracted_content_only_once=True,
+			)
+
+	def save_file_system_state(self) -> None:
+		"""Save current file system state to agent state"""
+		if self.file_system:
+			self.state.file_system_state = self.file_system.get_state()
+		else:
+			logger.error('💾 File system is not set up. Cannot save state.')
+			raise ValueError('File system is not set up. Cannot save state.')
+
+	def _set_message_context(self) -> str | None:
 		return self.settings.message_context
 
 	def _set_browser_use_version_and_source(self, source_override: str | None = None) -> None:
@@ -492,311 +630,36 @@ class Agent(Generic[Context]):
 		self.version = version
 		self.source = source
 
-	def _set_model_names(self) -> None:
-		self.chat_model_library = self.llm.__class__.__name__
-		self.model_name = 'Unknown'
-		if hasattr(self.llm, 'model_name'):
-			model = self.llm.model_name  # type: ignore
-			self.model_name = model if model is not None else 'Unknown'
-		elif hasattr(self.llm, 'model'):
-			model = self.llm.model  # type: ignore
-			self.model_name = model if model is not None else 'Unknown'
+	# def _set_model_names(self) -> None:
+	# 	self.chat_model_library = self.llm.provider
+	# 	self.model_name = self.llm.model
 
-		if self.settings.planner_llm:
-			if hasattr(self.settings.planner_llm, 'model_name'):
-				self.planner_model_name = self.settings.planner_llm.model_name  # type: ignore
-			elif hasattr(self.settings.planner_llm, 'model'):
-				self.planner_model_name = self.settings.planner_llm.model  # type: ignore
-			else:
-				self.planner_model_name = 'Unknown'
-		else:
-			self.planner_model_name = None
+	# 	if self.settings.planner_llm:
+	# 		if hasattr(self.settings.planner_llm, 'model_name'):
+	# 			self.planner_model_name = self.settings.planner_llm.model_name  # type: ignore
+	# 		elif hasattr(self.settings.planner_llm, 'model'):
+	# 			self.planner_model_name = self.settings.planner_llm.model  # type: ignore
+	# 		else:
+	# 			self.planner_model_name = 'Unknown'
+	# 	else:
+	# 		self.planner_model_name = None
 
 	def _setup_action_models(self) -> None:
 		"""Setup dynamic action models from controller's registry"""
 		# Initially only include actions with no filters
 		self.ActionModel = self.controller.registry.create_action_model()
 		# Create output model with the dynamic actions
-		self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
+		if self.settings.use_thinking:
+			self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
+		else:
+			self.AgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.ActionModel)
 
 		# used to force the done action when max_steps is reached
 		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'])
-		self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
-
-	def _test_tool_calling_method(self, method: str | None) -> bool:
-		"""Test if a specific tool calling method works with the current LLM."""
-		try:
-			# Test configuration
-			CAPITAL_QUESTION = 'What is the capital of France? Respond with just the city name in lowercase.'
-			EXPECTED_ANSWER = 'paris'
-
-			class CapitalResponse(BaseModel):
-				"""Response model for capital city question"""
-
-				answer: str  # The name of the capital city in lowercase
-
-			def is_valid_raw_response(response, expected_answer: str) -> bool:
-				"""
-				Cleans and validates a raw JSON response string against an expected answer.
-				"""
-				content = getattr(response, 'content', '').strip()
-				# self.logger.debug(f'Raw response content: {content}')
-
-				# Remove surrounding markdown code blocks if present
-				if content.startswith('```json') and content.endswith('```'):
-					content = content[7:-3].strip()
-				elif content.startswith('```') and content.endswith('```'):
-					content = content[3:-3].strip()
-
-				# Attempt to parse and validate the answer
-				try:
-					result = json.loads(content)
-					answer = str(result.get('answer', '')).strip().lower().strip(' .')
-
-					if expected_answer.lower() not in answer:
-						self.logger.debug(f"🛠️ Tool calling method {method} failed: expected '{expected_answer}', got '{answer}'")
-						return False
-
-					return True
-
-				except (json.JSONDecodeError, AttributeError, TypeError) as e:
-					self.logger.debug(f'🛠️ Tool calling method {method} failed: Failed to parse JSON content: {e}')
-					return False
-
-			if method == 'raw' or method == 'json_mode':
-				# For raw mode, test JSON response format
-				test_prompt = f"""{CAPITAL_QUESTION}
-					Respond with a json object like: {{"answer": "city_name_in_lowercase"}}"""
-
-				response = self.llm.invoke([test_prompt])
-				# Basic validation of response
-				if not response or not hasattr(response, 'content'):
-					return False
-
-				if not is_valid_raw_response(response, EXPECTED_ANSWER):
-					return False
-				return True
-			else:
-				# For other methods, try to use structured output
-				structured_llm = self.llm.with_structured_output(CapitalResponse, include_raw=True, method=method)
-				response = structured_llm.invoke([HumanMessage(content=CAPITAL_QUESTION)])
-
-				if not response:
-					self.logger.debug(f'🛠️ Tool calling method {method} failed: empty response')
-					return False
-
-				def extract_parsed(response: Any) -> CapitalResponse | None:
-					if isinstance(response, dict):
-						return response.get('parsed')
-					return getattr(response, 'parsed', None)
-
-				parsed = extract_parsed(response)
-
-				if not isinstance(parsed, CapitalResponse):
-					self.logger.debug(f'🛠️ Tool calling method {method} failed: LLM responded with invalid JSON')
-					return False
-
-				if EXPECTED_ANSWER not in parsed.answer.lower():
-					self.logger.debug(f'🛠️ Tool calling method {method} failed: LLM failed to answer test question correctly')
-					return False
-				return True
-
-		except Exception as e:
-			self.logger.debug(f"🛠️ Tool calling method '{method}' test failed: {type(e).__name__}: {str(e)}")
-			return False
-
-	async def _test_tool_calling_method_async(self, method: str) -> tuple[str, bool]:
-		"""Test if a specific tool calling method works with the current LLM (async version)."""
-		# Run the synchronous test in a thread pool to avoid blocking
-		loop = asyncio.get_event_loop()
-		result = await loop.run_in_executor(None, self._test_tool_calling_method, method)
-		return (method, result)
-
-	def _detect_best_tool_calling_method(self) -> str | None:
-		"""Detect the best supported tool calling method by testing each one."""
-		start_time = time.time()
-
-		# Order of preference for tool calling methods
-		methods_to_try = [
-			'function_calling',  # Most capable and efficient
-			'tools',  # Works with some models that don't support function_calling
-			'json_mode',  # More basic structured output
-			'raw',  # Fallback - no tool calling support
-		]
-
-		# Try parallel testing for faster detection
-		try:
-			# Run async parallel tests
-			async def test_all_methods():
-				tasks = [self._test_tool_calling_method_async(method) for method in methods_to_try]
-				results = await asyncio.gather(*tasks, return_exceptions=True)
-				return results
-
-			# Execute async tests
-			try:
-				loop = asyncio.get_running_loop()
-				# Running loop: create a new loop in a separate thread
-				result = {}
-
-				def run_in_thread():
-					new_loop = asyncio.new_event_loop()
-					asyncio.set_event_loop(new_loop)
-					try:
-						result['value'] = new_loop.run_until_complete(test_all_methods())
-					except Exception as e:
-						result['error'] = e
-					finally:
-						new_loop.close()
-
-				t = Thread(target=run_in_thread)
-				t.start()
-				t.join()
-				if 'error' in result:
-					raise result['error']
-				results = result['value']
-
-			except RuntimeError as e:
-				if 'no running event loop' in str(e):
-					results = asyncio.run(test_all_methods())
-				else:
-					raise
-
-			# Process results in order of preference
-			for i, method in enumerate(methods_to_try):
-				if not isinstance(results, list):
-					continue
-				ith_result = results[i]
-				if isinstance(ith_result, tuple) and ith_result[1]:  # (method, success)
-					setattr(self.llm, '_verified_api_keys', True)
-					setattr(self.llm, '_verified_tool_calling_method', method)  # Cache on LLM instance
-					elapsed = time.time() - start_time
-					self.logger.debug(f'🛠️ Tested LLM in parallel and chose tool calling method: [{method}] in {elapsed:.2f}s')
-					return method
-
-		except Exception as e:
-			self.logger.debug(f'Parallel testing failed: {e}, falling back to sequential')
-			# Fall back to sequential testing
-			for method in methods_to_try:
-				if self._test_tool_calling_method(method):
-					# if we found the method which means api is verified.
-					setattr(self.llm, '_verified_api_keys', True)
-					setattr(self.llm, '_verified_tool_calling_method', method)  # Cache on LLM instance
-					elapsed = time.time() - start_time
-					self.logger.debug(f'🛠️ Tested LLM and chose tool calling method: [{method}] in {elapsed:.2f}s')
-					return method
-
-		# If we get here, no methods worked
-		raise ConnectionError('Failed to connect to LLM. Please check your API key and network connection.')
-
-	def _get_known_tool_calling_method(self) -> str | None:
-		"""Get known tool calling method for common model/library combinations."""
-		# Fast path for known combinations
-		model_lower = self.model_name.lower()
-
-		# OpenAI models
-		if self.chat_model_library == 'ChatOpenAI':
-			if any(m in model_lower for m in ['gpt-4', 'gpt-3.5']):
-				return 'function_calling'
-			if any(m in model_lower for m in ['llama']):
-				return 'json_mode'
-
-		# Azure OpenAI models
-		elif self.chat_model_library == 'AzureChatOpenAI':
-			if 'gpt-4-' in model_lower:
-				return 'tools'
-			else:
-				return 'function_calling'
-
-		# Google models
-		elif self.chat_model_library == 'ChatGoogleGenerativeAI':
-			return None  # Google uses native tool support
-
-		# Anthropic models
-		elif self.chat_model_library in ['ChatAnthropic', 'AnthropicChat']:
-			if any(m in model_lower for m in ['claude-3', 'claude-2']):
-				return 'tools'
-
-		# Models known to not support tools
-		elif is_model_without_tool_support(self.model_name):
-			return 'raw'
-
-		return None  # Unknown combination, needs testing
-
-	def _set_tool_calling_method(self) -> ToolCallingMethod | None:
-		"""Determine the best tool calling method to use with the current LLM."""
-
-		# old hardcoded logic
-		# 			if is_model_without_tool_support(self.model_name):
-		# 				return 'raw'
-		# 			elif self.chat_model_library == 'ChatGoogleGenerativeAI':
-		# 				return None
-		# 			elif self.chat_model_library == 'ChatOpenAI':
-		# 				return 'function_calling'
-		# 			elif self.chat_model_library == 'AzureChatOpenAI':
-		# 				# Azure OpenAI API requires 'tools' parameter for GPT-4
-		# 				# The error 'content must be either a string or an array' occurs when
-		# 				# the API expects a tools array but gets something else
-		# 				if 'gpt-4-' in self.model_name.lower():
-		# 					return 'tools'
-		# 				else:
-		# 					return 'function_calling'
-
-		# If a specific method is set, use it
-		if self.settings.tool_calling_method != 'auto':
-			# Skip test if already verified
-			if getattr(self.llm, '_verified_api_keys', None) is True or SKIP_LLM_API_KEY_VERIFICATION:
-				setattr(self.llm, '_verified_api_keys', True)
-				setattr(self.llm, '_verified_tool_calling_method', self.settings.tool_calling_method)
-				return self.settings.tool_calling_method
-
-			if not self._test_tool_calling_method(self.settings.tool_calling_method):
-				if self.settings.tool_calling_method == 'raw':
-					# if raw failed means error in API key or network connection
-					raise ConnectionError('Failed to connect to LLM. Please check your API key and network connection.')
-				else:
-					raise RuntimeError(
-						f"Configured tool calling method '{self.settings.tool_calling_method}' "
-						'is not supported by the current LLM.'
-					)
-			setattr(self.llm, '_verified_tool_calling_method', self.settings.tool_calling_method)
-			return self.settings.tool_calling_method
-
-		# Check if we already have a cached method on this LLM instance
-		if hasattr(self.llm, '_verified_tool_calling_method'):
-			self.logger.debug(
-				f'🛠️ Using cached tool calling method for {self.chat_model_library}/{self.model_name}: [{getattr(self.llm, "_verified_tool_calling_method")}]'
-			)
-			return getattr(self.llm, '_verified_tool_calling_method')
-
-		# Try fast path for known model/library combinations
-		known_method = self._get_known_tool_calling_method()
-		if known_method is not None:
-			# Trust known combinations without testing if verification is already done or skipped
-			if getattr(self.llm, '_verified_api_keys', None) is True or SKIP_LLM_API_KEY_VERIFICATION:
-				setattr(self.llm, '_verified_api_keys', True)
-				setattr(self.llm, '_verified_tool_calling_method', known_method)  # Cache on LLM instance
-				self.logger.debug(
-					f'🛠️ Using known tool calling method for {self.chat_model_library}/{self.model_name}: [{known_method}] (skipped test)'
-				)
-				return known_method  # type: ignore
-
-			start_time = time.time()
-			# Verify the known method works
-			if self._test_tool_calling_method(known_method):
-				setattr(self.llm, '_verified_api_keys', True)
-				setattr(self.llm, '_verified_tool_calling_method', known_method)  # Cache on LLM instance
-				elapsed = time.time() - start_time
-				self.logger.debug(
-					f'🛠️ Using known tool calling method for {self.chat_model_library}/{self.model_name}: [{known_method}] in {elapsed:.2f}s'
-				)
-				return known_method  # type: ignore
-			# If known method fails, fall back to detection
-			self.logger.debug(
-				f'Known method {known_method} failed for {self.chat_model_library}/{self.model_name}, falling back to detection'
-			)
-
-		# Auto-detect the best method
-		return self._detect_best_tool_calling_method()  # type: ignore
+		if self.settings.use_thinking:
+			self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
+		else:
+			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.DoneActionModel)
 
 	def add_new_task(self, new_task: str) -> None:
 		"""Add a new task to the agent, keeping the same task_id as tasks are continuous"""
@@ -824,7 +687,6 @@ class Agent(Generic[Context]):
 		model_output = None
 		result: list[ActionResult] = []
 		step_start_time = time.time()
-		tokens = 0
 
 		try:
 			assert self.browser_session is not None, 'BrowserSession is not set up'
@@ -845,36 +707,19 @@ class Agent(Generic[Context]):
 			# Get page-specific filtered actions
 			page_filtered_actions = self.controller.registry.get_prompt_description(current_page)
 
-			if self.sensitive_data:
-				self._message_manager.add_sensitive_data(current_page.url)
-
 			# If there are page-specific actions, add them as a special message for this step only
 			if page_filtered_actions:
 				page_action_message = f'For this page, these additional actions are available:\n{page_filtered_actions}'
-				self._message_manager._add_message_with_tokens(HumanMessage(content=page_action_message))
-
-			# If using raw tool calling method, we need to update the message context with new actions
-			if self.tool_calling_method == 'raw':
-				# For raw tool calling, get all non-filtered actions plus the page-filtered ones
-				all_unfiltered_actions = self.controller.registry.get_prompt_description()
-				all_actions = all_unfiltered_actions
-				if page_filtered_actions:
-					all_actions += '\n' + page_filtered_actions
-
-				context_lines = (self._message_manager.settings.message_context or '').split('\n')
-				non_action_lines = [line for line in context_lines if not line.startswith('Available actions:')]
-				updated_context = '\n'.join(non_action_lines)
-				if updated_context:
-					updated_context += f'\n\nAvailable actions: {all_actions}'
-				else:
-					updated_context = f'Available actions: {all_actions}'
-				self._message_manager.settings.message_context = updated_context
+				self._message_manager._add_message_with_type(UserMessage(content=page_action_message))
 
 			self._message_manager.add_state_message(
 				browser_state_summary=browser_state_summary,
+				model_output=self.state.last_model_output,
 				result=self.state.last_result,
 				step_info=step_info,
 				use_vision=self.settings.use_vision,
+				page_filtered_actions=page_filtered_actions if page_filtered_actions else None,
+				sensitive_data=self.sensitive_data,
 			)
 
 			# Run planner at specified intervals if planner is configured
@@ -890,11 +735,10 @@ class Agent(Generic[Context]):
 				msg += '\nIf the task is fully finished, set success in "done" to true.'
 				msg += '\nInclude everything you found out for the ultimate task in the done text.'
 				self.logger.info('Last step finishing up')
-				self._message_manager._add_message_with_tokens(HumanMessage(content=msg))
+				self._message_manager._add_message_with_type(UserMessage(content=msg))
 				self.AgentOutput = self.DoneAgentOutput
 
 			input_messages = self._message_manager.get_messages()
-			tokens = self._message_manager.state.history.current_tokens
 
 			try:
 				model_output = await self.get_next_action(input_messages)
@@ -905,7 +749,7 @@ class Agent(Generic[Context]):
 				):
 					self.logger.warning('Model returned empty action. Retrying...')
 
-					clarification_message = HumanMessage(
+					clarification_message = UserMessage(
 						content='You forgot to return an action. Please respond only with a valid JSON action according to the expected format.'
 					)
 
@@ -940,14 +784,18 @@ class Agent(Generic[Context]):
 					conversation_dir = Path(self.settings.save_conversation_path)
 					conversation_filename = f'conversation_{self.id}_{self.state.n_steps}.txt'
 					target = conversation_dir / conversation_filename
-					await save_conversation(input_messages, model_output, target, self.settings.save_conversation_path_encoding)
+					await save_conversation(
+						input_messages,
+						model_output,
+						target,
+						self.settings.save_conversation_path_encoding,
+					)
 
 				self._message_manager._remove_last_state_message()  # we dont want the whole state in the chat history
 
 				# check again if Ctrl+C was pressed before we commit the output to history
 				await self._raise_if_stopped_or_paused()
 
-				self._message_manager.add_model_output(model_output)
 			except asyncio.CancelledError:
 				# Task was cancelled due to Ctrl+C
 				self._message_manager._remove_last_state_message()
@@ -964,9 +812,24 @@ class Agent(Generic[Context]):
 			result: list[ActionResult] = await self.multi_act(model_output.action)
 
 			self.state.last_result = result
+			self.state.last_model_output = model_output
+
+			# Check for new downloads after executing actions
+			if self.has_downloads_path:
+				try:
+					current_downloads = self.browser_session.downloaded_files
+					if current_downloads != self._last_known_downloads:
+						self._update_available_file_paths(current_downloads)
+						self._last_known_downloads = current_downloads
+				except Exception as e:
+					self.logger.debug(f'📁 Failed to check for new downloads: {type(e).__name__}: {e}')
 
 			if len(result) > 0 and result[-1].is_done:
 				self.logger.info(f'📄 Result: {result[-1].extracted_content}')
+				if result[-1].attachments:
+					self.logger.info('📎 Click links below to access the attachments:')
+					for file_path in result[-1].attachments:
+						self.logger.info(f'👉 {file_path}')
 
 			self.state.consecutive_failures = 0
 
@@ -974,14 +837,15 @@ class Agent(Generic[Context]):
 			# self.logger.debug('Agent paused')
 			self.state.last_result = [
 				ActionResult(
-					error='The agent was paused mid-step - the last action might need to be repeated', include_in_memory=False
+					error='The agent was paused mid-step - the last action might need to be repeated',
+					include_in_memory=True,
 				)
 			]
 			return
 		except asyncio.CancelledError:
 			# Directly handle the case where the step is cancelled at a higher level
 			# self.logger.debug('Task cancelled - agent was paused with Ctrl+C')
-			self.state.last_result = [ActionResult(error='The agent was paused with Ctrl+C', include_in_memory=False)]
+			self.state.last_result = [ActionResult(error='The agent was paused with Ctrl+C', include_in_memory=True)]
 			raise InterruptedError('Step cancelled by user')
 		except Exception as e:
 			result = await self._handle_step_error(e)
@@ -997,12 +861,14 @@ class Agent(Generic[Context]):
 					step_number=self.state.n_steps,
 					step_start_time=step_start_time,
 					step_end_time=step_end_time,
-					input_tokens=tokens,
 				)
 				self._make_history_item(model_output, browser_state_summary, result, metadata)
 
 			# Log step completion summary
 			self._log_step_completion_summary(step_start_time, result)
+
+			# Save file system state after step completion
+			self.save_file_system_state()
 
 			# Emit both step created and executed events
 			if browser_state_summary and model_output:
@@ -1027,20 +893,31 @@ class Agent(Generic[Context]):
 
 		if 'Browser closed' in error_msg:
 			self.logger.error('❌  Browser is closed or disconnected, unable to proceed')
-			return [ActionResult(error='Browser closed or disconnected, unable to proceed', include_in_memory=False)]
+			return [
+				ActionResult(
+					error='Browser closed or disconnected, unable to proceed',
+					include_in_memory=True,
+				)
+			]
 
 		if isinstance(error, (ValidationError, ValueError)):
 			self.logger.error(f'{prefix}{error_msg}')
 			if 'Max token limit reached' in error_msg:
 				# cut tokens from history
-				self._message_manager.settings.max_input_tokens = self.settings.max_input_tokens - 500
-				self.logger.info(
-					f'Cutting tokens from history - new max input tokens: {self._message_manager.settings.max_input_tokens}'
-				)
-				self._message_manager.cut_messages()
-			elif 'Could not parse response' in error_msg:
-				# give model a hint how output should look like
-				error_msg += '\n\nReturn a valid JSON object with the required fields.'
+				# self._message_manager.settings.max_input_tokens = self.settings.max_input_tokens - 500
+				# self.logger.info(
+				# 	f'Cutting tokens from history - new max input tokens: {self._message_manager.settings.max_input_tokens}'
+				# )
+				# TODO: figure out what to do here
+				pass
+
+				# no longer cutting messages, because we revamped the message manager
+				# self._message_manager.cut_messages()
+		elif 'Could not parse response' in error_msg or 'tool_use_failed' in error_msg:
+			# give model a hint how output should look like
+			logger.debug(f'Model: {self.llm.model} failed')
+			error_msg += '\n\nReturn a valid JSON object with the required fields.'
+			logger.error(f'{prefix}{error_msg}')
 
 		else:
 			from anthropic import RateLimitError as AnthropicRateLimitError
@@ -1054,8 +931,8 @@ class Agent(Generic[Context]):
 				AnthropicRateLimitError,  # Anthropic
 			)
 
-			if isinstance(error, RATE_LIMIT_ERRORS):
-				self.logger.warning(f'{prefix}{error_msg}')
+			if isinstance(error, RATE_LIMIT_ERRORS) or 'on tokens per minute (TPM): Limit' in error_msg:
+				logger.warning(f'{prefix}{error_msg}')
 				await asyncio.sleep(self.settings.retry_delay)
 			else:
 				self.logger.error(f'{prefix}{error_msg}')
@@ -1084,7 +961,12 @@ class Agent(Generic[Context]):
 			screenshot=browser_state_summary.screenshot,
 		)
 
-		history_item = AgentHistory(model_output=model_output, result=result, state=state_history, metadata=metadata)
+		history_item = AgentHistory(
+			model_output=model_output,
+			result=result,
+			state=state_history,
+			metadata=metadata,
+		)
 
 		self.state.history.history.append(history_item)
 
@@ -1099,89 +981,12 @@ class Agent(Generic[Context]):
 		text = re.sub(self.STRAY_CLOSE_TAG, '', text)
 		return text.strip()
 
-	def _convert_input_messages(self, input_messages: list[BaseMessage]) -> list[BaseMessage]:
-		"""Convert input messages to the correct format"""
-		if is_model_without_tool_support(self.model_name):
-			return convert_input_messages(input_messages, self.model_name)
-		else:
-			return input_messages
-
 	@time_execution_async('--get_next_action')
 	async def get_next_action(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get next action from LLM based on current state"""
-		input_messages = self._convert_input_messages(input_messages)
 
-		if self.tool_calling_method == 'raw':
-			self._log_llm_call_info(input_messages, self.tool_calling_method)
-			try:
-				output = await self.llm.ainvoke(input_messages)
-				response = {'raw': output, 'parsed': None}
-			except Exception as e:
-				self.logger.error(f'Failed to invoke model: {str(e)}')
-				# Extract status code if available (e.g., from HTTP exceptions)
-				status_code = getattr(e, 'status_code', None) or getattr(e, 'code', None) or 500
-				error_msg = f'LLM API call failed: {type(e).__name__}: {str(e)}'
-				raise LLMException(status_code, error_msg) from e
-			# TODO: currently invoke does not return reasoning_content, we should override invoke
-			output.content = self._remove_think_tags(str(output.content))
-			try:
-				parsed_json = extract_json_from_model_output(output.content)
-				parsed = self.AgentOutput(**parsed_json)
-				response['parsed'] = parsed
-			except (ValueError, ValidationError) as e:
-				self.logger.warning(f'Failed to parse model output: {output} {str(e)}')
-				raise ValueError('Could not parse response.')
-
-		elif self.tool_calling_method is None:
-			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True)
-			try:
-				response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
-				parsed: AgentOutput | None = response['parsed']
-
-			except Exception as e:
-				self.logger.error(f'Failed to invoke model: {str(e)}')
-				raise LLMException(401, 'LLM API call failed') from e
-
-		else:
-			self._log_llm_call_info(input_messages, self.tool_calling_method)
-			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True, method=self.tool_calling_method)
-			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
-
-		# Handle tool call responses
-		if response.get('parsing_error') and 'raw' in response:
-			raw_msg = response['raw']
-			if hasattr(raw_msg, 'tool_calls') and raw_msg.tool_calls:
-				# Convert tool calls to AgentOutput format
-
-				tool_call = raw_msg.tool_calls[0]  # Take first tool call
-
-				# Create current state
-				tool_call_name = tool_call['name']
-				tool_call_args = tool_call['args']
-
-				current_state = {
-					'page_summary': 'Processing tool call',
-					'evaluation_previous_goal': 'Executing action',
-					'memory': 'Using tool call',
-					'next_goal': f'Execute {tool_call_name}',
-				}
-
-				# Create action from tool call
-				action = {tool_call_name: tool_call_args}
-
-				parsed = self.AgentOutput(current_state=AgentBrain(**current_state), action=[self.ActionModel(**action)])
-			else:
-				parsed = None
-		else:
-			parsed = response['parsed']
-
-		if not parsed:
-			try:
-				parsed_json = extract_json_from_model_output(response['raw'].content)
-				parsed = self.AgentOutput(**parsed_json)
-			except Exception as e:
-				self.logger.warning(f'Failed to parse model output: {response["raw"].content} {str(e)}')
-				raise ValueError('Could not parse response.')
+		response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
+		parsed = response.completion
 
 		# cut the number of actions to max_actions_per_step if needed
 		if len(parsed.action) > self.settings.max_actions_per_step:
@@ -1234,8 +1039,9 @@ class Agent(Generic[Context]):
 						param_summary.append(f'url="{value}"')
 					elif key == 'success':
 						param_summary.append(f'success={value}')
-					elif isinstance(value, (str, int, bool)) and len(str(value)) < 20:
-						param_summary.append(f'{key}={value}')
+					elif isinstance(value, (str, int, bool)):
+						val_str = str(value)[:30] + '...' if len(str(value)) > 30 else str(value)
+						param_summary.append(f'{key}={val_str}')
 
 			param_str = f'({", ".join(param_summary)})' if param_summary else ''
 			action_details.append(f'{action_name}{param_str}')
@@ -1269,40 +1075,10 @@ class Agent(Generic[Context]):
 
 		self.logger.info(f'📍 Step {self.state.n_steps}: Ran {action_count} actions in {step_duration:.2f}s: {status_str}')
 
-	def _log_llm_call_info(self, input_messages: list[BaseMessage], method: str) -> None:
-		"""Log comprehensive information about the LLM call being made"""
-		# Count messages and check for images
-		message_count = len(input_messages)
-		total_chars = sum(len(str(msg.content)) for msg in input_messages)
-		has_images = any(
-			hasattr(msg, 'content')
-			and isinstance(msg.content, list)
-			and any(isinstance(item, dict) and item.get('type') == 'image_url' for item in msg.content)
-			for msg in input_messages
-		)
-		current_tokens = getattr(self._message_manager.state.history, 'current_tokens', 0)
-
-		# Count available tools/actions from the current ActionModel
-		# This gives us the actual number of tools exposed to the LLM for this specific call
-		tool_count = len(self.ActionModel.model_fields) if hasattr(self, 'ActionModel') else 0
-
-		# Format the log message parts
-		image_status = ', 📷 img' if has_images else ''
-		if method == 'raw':
-			output_format = '=> raw text'
-			tool_info = ''
-		else:
-			output_format = '=> JSON out'
-			tool_info = f' + 🔨 {tool_count} tools ({method})'
-
-		term_width = shutil.get_terminal_size((80, 20)).columns
-		print('=' * term_width)
-		self.logger.info(
-			f'🧠 LLM call => {self.chat_model_library} [✉️ {message_count} msg, ~{current_tokens} tk, {total_chars} char{image_status}] {output_format}{tool_info}'
-		)
-
 	def _log_agent_event(self, max_steps: int, agent_run_error: str | None = None) -> None:
 		"""Sent the agent event for this run to telemetry"""
+
+		token_summary = self.token_cost_service.get_usage_tokens_for_model(self.llm.model)
 
 		# Prepare action_history data correctly
 		action_history_data = []
@@ -1325,9 +1101,9 @@ class Agent(Generic[Context]):
 		self.telemetry.capture(
 			AgentTelemetryEvent(
 				task=self.task,
-				model=self.model_name,
-				model_provider=self.chat_model_library,
-				planner_llm=self.planner_model_name,
+				model=self.llm.model,
+				model_provider=self.llm.provider,
+				planner_llm=self.settings.planner_llm.model if self.settings.planner_llm else None,
 				max_steps=max_steps,
 				max_actions_per_step=self.settings.max_actions_per_step,
 				use_vision=self.settings.use_vision,
@@ -1338,7 +1114,7 @@ class Agent(Generic[Context]):
 				action_history=action_history_data,
 				urls_visited=self.state.history.urls(),
 				steps=self.state.n_steps,
-				total_input_tokens=self.state.history.total_input_tokens(),
+				total_input_tokens=token_summary.prompt_tokens,
 				total_duration_seconds=self.state.history.total_duration_seconds(),
 				success=self.state.history.is_successful(),
 				final_result_response=final_result_str,
@@ -1350,15 +1126,11 @@ class Agent(Generic[Context]):
 		"""Take a step
 
 		Returns:
-			Tuple[bool, bool]: (is_done, is_valid)
+		        Tuple[bool, bool]: (is_done, is_valid)
 		"""
 		await self.step()
 
 		if self.state.history.is_done():
-			if self.settings.validate_output:
-				if not await self._validate_output():
-					return True, False
-
 			await self.log_completion()
 			if self.register_done_callback:
 				if inspect.iscoroutinefunction(self.register_done_callback):
@@ -1372,7 +1144,10 @@ class Agent(Generic[Context]):
 	# @observe(name='agent.run', ignore_output=True)
 	@time_execution_async('--run')
 	async def run(
-		self, max_steps: int = 100, on_step_start: AgentHookFunc | None = None, on_step_end: AgentHookFunc | None = None
+		self,
+		max_steps: int = 100,
+		on_step_start: AgentHookFunc | None = None,
+		on_step_end: AgentHookFunc | None = None,
 	) -> AgentHistoryList:
 		"""Execute the task with maximum number of steps"""
 
@@ -1452,10 +1227,6 @@ class Agent(Generic[Context]):
 					await on_step_end(self)
 
 				if self.state.history.is_done():
-					if self.settings.validate_output and step < max_steps - 1:
-						if not await self._validate_output():
-							continue
-
 					await self.log_completion()
 
 					# Task completed
@@ -1494,6 +1265,9 @@ class Agent(Generic[Context]):
 			raise e
 
 		finally:
+			# Log token usage summary
+			await self.token_cost_service.log_usage_summary()
+
 			# Unregister signal handlers before cleanup
 			signal_handler.unregister()
 
@@ -1525,6 +1299,10 @@ class Agent(Generic[Context]):
 				output_event = await CreateAgentOutputFileEvent.from_agent_and_file(self, output_path)
 				self.eventbus.dispatch(output_event)
 
+			# Wait for cloud auth to complete if in progress
+			if self.enable_cloud_sync and hasattr(self, 'cloud_sync'):
+				await self.cloud_sync.wait_for_auth()
+
 			# Stop the event bus gracefully, waiting for all events to be processed
 			await self.eventbus.stop(timeout=5.0)
 
@@ -1547,6 +1325,12 @@ class Agent(Generic[Context]):
 		await self.browser_session.remove_highlights()
 
 		for i, action in enumerate(actions):
+			# DO NOT ALLOW TO CALL `done` AS A SINGLE ACTION
+			if i > 0 and action.model_dump(exclude_unset=True).get('done') is not None:
+				msg = f'Done action is allowed only as a single action - stopped after action {i} / {len(actions)}.'
+				logger.info(msg)
+				break
+
 			if action.get_index() is not None and i != 0:
 				new_browser_state_summary = await self.browser_session.get_state_summary(cache_clickable_elements_hashes=False)
 				new_selector_map = new_browser_state_summary.selector_map
@@ -1558,16 +1342,28 @@ class Agent(Generic[Context]):
 				new_target_hash = new_target.hash.branch_path_hash if new_target else None
 				if orig_target_hash != new_target_hash:
 					msg = f'Element index changed after action {i} / {len(actions)}, because page changed.'
-					self.logger.info(msg)
-					results.append(ActionResult(extracted_content=msg, include_in_memory=True))
+					logger.info(msg)
+					results.append(
+						ActionResult(
+							extracted_content=msg,
+							include_in_memory=True,
+							long_term_memory=msg,
+						)
+					)
 					break
 
 				new_path_hashes = {e.hash.branch_path_hash for e in new_selector_map.values()}
 				if check_for_new_elements and not new_path_hashes.issubset(cached_path_hashes):
 					# next action requires index but there are new elements on the page
-					msg = f'Something new appeared after action {i} / {len(actions)}'
-					self.logger.info(msg)
-					results.append(ActionResult(extracted_content=msg, include_in_memory=True))
+					msg = f'Something new appeared after action {i} / {len(actions)}, following actions are NOT executed and should be retried.'
+					logger.info(msg)
+					results.append(
+						ActionResult(
+							extracted_content=msg,
+							include_in_memory=True,
+							long_term_memory=msg,
+						)
+					)
 					break
 
 			try:
@@ -1576,6 +1372,7 @@ class Agent(Generic[Context]):
 				result = await self.controller.act(
 					action=action,
 					browser_session=self.browser_session,
+					file_system=self.file_system,
 					page_extraction_llm=self.settings.page_extraction_llm,
 					sensitive_data=self.sensitive_data,
 					available_file_paths=self.settings.available_file_paths,
@@ -1600,56 +1397,15 @@ class Agent(Generic[Context]):
 				self.logger.info(f'Action {i + 1} was cancelled due to Ctrl+C')
 				if not results:
 					# Add a result for the cancelled action
-					results.append(ActionResult(error='The action was cancelled due to Ctrl+C', include_in_memory=True))
+					results.append(
+						ActionResult(
+							error='The action was cancelled due to Ctrl+C',
+							include_in_memory=True,
+						)
+					)
 				raise InterruptedError('Action cancelled by user')
 
 		return results
-
-	async def _validate_output(self) -> bool:
-		"""Validate the output of the last action is what the user wanted"""
-		system_msg = (
-			f'You are a validator of an agent who interacts with a browser. '
-			f'Validate if the output of last action is what the user wanted and if the task is completed. '
-			f'If the task is unclear defined, you can let it pass. But if something is missing or the image does not show what was requested dont let it pass. '
-			f'Try to understand the page and help the model with suggestions like scroll, do x, ... to get the solution right. '
-			f'Task to validate: {self.task}. Return a JSON object with 2 keys: is_valid and reason. '
-			f'is_valid is a boolean that indicates if the output is correct. '
-			f'reason is a string that explains why it is valid or not.'
-			f' example: {{"is_valid": false, "reason": "The user wanted to search for "cat photos", but the agent searched for "dog photos" instead."}}'
-		)
-
-		if self.browser_context and self.browser_session:
-			browser_state_summary = await self.browser_session.get_state_summary(cache_clickable_elements_hashes=False)
-			assert browser_state_summary
-			content = AgentMessagePrompt(
-				browser_state_summary=browser_state_summary,
-				result=self.state.last_result,
-				include_attributes=self.settings.include_attributes,
-			)
-			msg = [SystemMessage(content=system_msg), content.get_user_message(self.settings.use_vision)]
-		else:
-			# if no browser session, we can't validate the output
-			return True
-
-		class ValidationResult(BaseModel):
-			"""
-			Validation results.
-			"""
-
-			is_valid: bool
-			reason: str
-
-		validator = self.llm.with_structured_output(ValidationResult, include_raw=True)
-		response: dict[str, Any] = await validator.ainvoke(msg)  # type: ignore
-		parsed: ValidationResult = response['parsed']
-		is_valid = parsed.is_valid
-		if not is_valid:
-			self.logger.info(f'❌ Validator decision: {parsed.reason}')
-			msg = f'The output is not yet correct. {parsed.reason}.'
-			self.state.last_result = [ActionResult(extracted_content=msg, include_in_memory=True)]
-		else:
-			self.logger.info(f'✅ Validator decision: {parsed.reason}')
-		return is_valid
 
 	async def log_completion(self) -> None:
 		"""Log the completion of the task"""
@@ -1657,9 +1413,6 @@ class Agent(Generic[Context]):
 			self.logger.info('✅ Task completed successfully')
 		else:
 			self.logger.info('❌ Task completed without success')
-
-		total_tokens = self.state.history.total_input_tokens()
-		self.logger.debug(f'💲 Total input tokens used (approximate): {total_tokens}')
 
 		if self.register_done_callback:
 			if inspect.iscoroutinefunction(self.register_done_callback):
@@ -1678,13 +1431,13 @@ class Agent(Generic[Context]):
 		Rerun a saved history of actions with error handling and retry logic.
 
 		Args:
-				history: The history to replay
-				max_retries: Maximum number of retries per action
-				skip_failures: Whether to skip failed actions or stop execution
-				delay_between_actions: Delay between actions in seconds
+		                history: The history to replay
+		                max_retries: Maximum number of retries per action
+		                skip_failures: Whether to skip failed actions or stop execution
+		                delay_between_actions: Delay between actions in seconds
 
 		Returns:
-				List of action results
+		                List of action results
 		"""
 		# Execute initial actions if provided
 		if self.initial_actions:
@@ -1782,8 +1535,8 @@ class Agent(Generic[Context]):
 		Load history from file and rerun it.
 
 		Args:
-				history_file: Path to the history file
-				**kwargs: Additional arguments passed to rerun_history
+		                history_file: Path to the history file
+		                **kwargs: Additional arguments passed to rerun_history
 		"""
 		if not history_file:
 			history_file = 'AgentHistory.json'
@@ -1867,10 +1620,9 @@ class Agent(Generic[Context]):
 		Verify that the LLM API keys are setup and the LLM API is responding properly.
 		Also handles tool calling method detection if in auto mode.
 		"""
-		self.tool_calling_method = self._set_tool_calling_method()
 
 		# Skip verification if already done
-		if getattr(self.llm, '_verified_api_keys', None) is True or SKIP_LLM_API_KEY_VERIFICATION:
+		if getattr(self.llm, '_verified_api_keys', None) is True or CONFIG.SKIP_LLM_API_KEY_VERIFICATION:
 			setattr(self.llm, '_verified_api_keys', True)
 			return True
 
@@ -1903,21 +1655,19 @@ class Agent(Generic[Context]):
 		]
 
 		if not self.settings.use_vision_for_planner and self.settings.use_vision:
-			last_state_message: HumanMessage = planner_messages[-1]
+			last_state_message: UserMessage = planner_messages[-1]
 			# remove image from last state message
 			new_msg = ''
 			if isinstance(last_state_message.content, list):
 				for msg in last_state_message.content:
-					if msg['type'] == 'text':  # type: ignore
-						new_msg += msg['text']  # type: ignore
-					elif msg['type'] == 'image_url':  # type: ignore
-						continue  # type: ignore
+					if msg.type == 'text':
+						new_msg += msg.text
+					elif msg.type == 'image_url':
+						continue
 			else:
 				new_msg = last_state_message.content
 
-			planner_messages[-1] = HumanMessage(content=new_msg)
-
-		planner_messages = convert_input_messages(planner_messages, self.planner_model_name)
+			planner_messages[-1] = UserMessage(content=new_msg)
 
 		# Get planner output
 		try:
@@ -1929,10 +1679,10 @@ class Agent(Generic[Context]):
 			error_msg = f'Planner LLM API call failed: {type(e).__name__}: {str(e)}'
 			raise LLMException(status_code, error_msg) from e
 
-		plan = str(response.content)
+		plan = response.completion
 		# if deepseek-reasoner, remove think tags
-		if self.planner_model_name and (
-			'deepseek-r1' in self.planner_model_name or 'deepseek-reasoner' in self.planner_model_name
+		if self.settings.planner_llm and (
+			'deepseek-r1' in self.settings.planner_llm.model or 'deepseek-reasoner' in self.settings.planner_llm.model
 		):
 			plan = self._remove_think_tags(plan)
 		try:
@@ -1968,8 +1718,14 @@ class Agent(Generic[Context]):
 		# Create new action model with current page's filtered actions
 		self.ActionModel = self.controller.registry.create_action_model(page=page)
 		# Update output model with the new actions
-		self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
+		if self.settings.use_thinking:
+			self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
+		else:
+			self.AgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.ActionModel)
 
 		# Update done action model too
 		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'], page=page)
-		self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
+		if self.settings.use_thinking:
+			self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
+		else:
+			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.DoneActionModel)

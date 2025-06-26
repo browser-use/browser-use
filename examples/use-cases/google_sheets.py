@@ -5,10 +5,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import asyncio
 
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
 
 from browser_use import Agent, Controller
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.llm import ChatOpenAI
 
 # Load environment variables
 load_dotenv()
@@ -39,8 +39,8 @@ async def main():
 		browser_profile=BrowserProfile(
 			executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 			user_data_dir='~/.config/browseruse/profiles/default',
+			keep_alive=True,
 		),
-		keep_alive=True,
 	)
 
 	async with browser_session:

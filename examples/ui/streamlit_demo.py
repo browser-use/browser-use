@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import streamlit as st
+import streamlit as st  # type: ignore
 
 from browser_use import Agent
 from browser_use.browser import BrowserSession
@@ -28,16 +28,16 @@ if os.name == 'nt':
 # Function to get the LLM based on provider
 def get_llm(provider: str):
 	if provider == 'anthropic':
-		from langchain_anthropic import ChatAnthropic
+		from browser_use.llm import ChatAnthropic
 
 		api_key = os.getenv('ANTHROPIC_API_KEY')
 		if not api_key:
 			st.error('Error: ANTHROPIC_API_KEY is not set. Please provide a valid API key.')
 			st.stop()
 
-		return ChatAnthropic(model_name='claude-3-5-sonnet-20240620', timeout=25, stop=None, temperature=0.0)
+		return ChatAnthropic(model='claude-3-5-sonnet-20240620', temperature=0.0)
 	elif provider == 'openai':
-		from langchain_openai import ChatOpenAI
+		from browser_use.llm import ChatOpenAI
 
 		api_key = os.getenv('OPENAI_API_KEY')
 		if not api_key:
@@ -48,6 +48,7 @@ def get_llm(provider: str):
 	else:
 		st.error(f'Unsupported provider: {provider}')
 		st.stop()
+		return None  # Never reached, but helps with type checking
 
 
 # Function to initialize the agent
@@ -58,7 +59,7 @@ def initialize_agent(query: str, provider: str):
 
 	return Agent(
 		task=query,
-		llm=llm,
+		llm=llm,  # type: ignore
 		controller=controller,
 		browser_session=browser_session,
 		use_vision=True,

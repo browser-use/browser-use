@@ -7,12 +7,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import discord
-from discord.ext import commands
-from langchain_core.language_models.chat_models import BaseChatModel
+import discord  # type: ignore
+from discord.ext import commands  # type: ignore
 
 from browser_use.agent.service import Agent
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.llm import BaseChatModel
 
 
 class DiscordBot(commands.Bot):
@@ -31,7 +31,7 @@ class DiscordBot(commands.Bot):
 
 	Usage:
 	    ```python
-	    from langchain_openai import ChatOpenAI
+	    from browser_use.llm import ChatOpenAI
 
 	    llm = ChatOpenAI()
 	    bot = DiscordBot(llm=llm, prefix='$bu', ack=True)
@@ -56,7 +56,7 @@ class DiscordBot(commands.Bot):
 		self.browser_profile = browser_profile
 
 		# Define intents.
-		intents = discord.Intents.default()
+		intents = discord.Intents.default()  # type: ignore
 		intents.message_content = True  # Enable message content intent
 		intents.members = True  # Enable members intent for user info
 

@@ -20,7 +20,6 @@ body:
         > - 🆕 [`beta`](https://docs.browser-use.com/development/local-setup):   `uv pip install --upgrade git+https://github.com/browser-use/browser-use.git@main`
         > - 📦 [`stable`](https://pypi.org/project/browser-use/#history): `uv pip install --upgrade browser-use`
 
-
   - type: input
     id: version
     attributes:
@@ -111,7 +110,7 @@ body:
         from dotenv import load_dotenv
         load_dotenv()  # tip: always load_dotenv() before other imports
         from browser_use import Agent, BrowserSession, Controller
-        from langchain_openai import ChatOpenAI
+        from browser_use.llm import ChatOpenAI
 
         agent = Agent(
             task='...',

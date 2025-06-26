@@ -8,16 +8,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_openai import ChatOpenAI
-
 from browser_use.agent.service import Agent
-from browser_use.browser import BrowserSession
+from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.llm import ChatOpenAI
 
 browser_session = BrowserSession(
-	keep_alive=True,
-	headless=False,
-	save_recording_path='./tmp/recordings',
-	user_data_dir='~/.config/browseruse/profiles/default',
+	browser_profile=BrowserProfile(
+		keep_alive=True,
+		headless=False,
+		record_video_dir='./tmp/recordings',
+		user_data_dir='~/.config/browseruse/profiles/default',
+	)
 )
 llm = ChatOpenAI(model='gpt-4o')
 

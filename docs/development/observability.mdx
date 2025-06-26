@@ -10,7 +10,8 @@ Browser Use has a native integration with [Laminar](https://lmnr.ai) - open-sour
 Read more about Laminar in the [Laminar docs](https://docs.lmnr.ai).
 
 <Note>
-  Laminar excels at tracing browser agents by providing unified visibility into both browser session recordings and agent execution steps.
+  Laminar excels at tracing browser agents by providing unified visibility into
+  both browser session recordings and agent execution steps.
 </Note>
 
 ## Setup
@@ -18,6 +19,7 @@ Read more about Laminar in the [Laminar docs](https://docs.lmnr.ai).
 To setup Laminar, you need to install the `lmnr` package and set the `LMNR_PROJECT_API_KEY` environment variable.
 
 To get your project API key, you can either:
+
 - Register on [Laminar Cloud](https://lmnr.ai) and get the key from your project settings
 - Or spin up a local Laminar instance and get the key from the settings page
 
@@ -31,7 +33,7 @@ export LMNR_PROJECT_API_KEY=<your-project-api-key>
 Then, you simply initialize the Laminar at the top of your project and both Browser Use and session recordings will be automatically traced.
 
 ```python {5-8}
-from langchain_openai import ChatOpenAI
+from browser_use.llm import ChatOpenAI
 from browser_use import Agent
 import asyncio
 
@@ -59,7 +61,6 @@ Timeline of the browser session is synced with the agent execution steps, timeli
 In the trace view, you can also see the agent's current step, the tool it's using, and the tool's input and output. Tools are highlighted in the timeline with a yellow color.
 
 <img className="block" src="/images/laminar.png" alt="Laminar" />
-
 
 ## Laminar
 

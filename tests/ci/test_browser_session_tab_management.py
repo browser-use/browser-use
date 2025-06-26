@@ -8,6 +8,7 @@ from pytest_httpserver import HTTPServer
 load_dotenv()
 
 from browser_use.agent.views import ActionModel
+from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
 from browser_use.controller.service import Controller
 
@@ -50,9 +51,11 @@ def base_url(http_server):
 async def browser_session(base_url):
 	"""Create and provide a BrowserSession instance with a properly initialized tab."""
 	browser_session = BrowserSession(
-		user_data_dir=None,
-		headless=True,
-		keep_alive=True,
+		browser_profile=BrowserProfile(
+			user_data_dir=None,
+			headless=True,
+			keep_alive=True,
+		)
 	)
 	await browser_session.start()
 
@@ -110,8 +113,9 @@ class TestTabManagement:
 		browser_session.agent_current_page = None
 
 		# close all existing tabs
-		for page in browser_session.browser_context.pages:
-			await page.close()
+		if browser_session.browser_context:
+			for page in browser_session.browser_context.pages:  # type: ignore
+				await page.close()
 
 		await asyncio.sleep(0.5)
 
@@ -327,22 +331,22 @@ class TestTabManagement:
 		assert browser_session.browser_context is not None
 		assert browser_session.browser_context != original_context
 		assert browser_session.initialized is True
-		assert browser_session.is_connected() is True
+		assert (await browser_session.is_connected()) is True
 
 	async def test_concurrent_context_access_during_closure(self, browser_session):
 		"""Test concurrent access to browser context during closure"""
 		# logger.info('Testing concurrent context access during closure')
 
 		await browser_session.start()
-		assert browser_session.is_connected() is True
+		assert (await browser_session.is_connected()) is True
 
 		# Create a barrier to synchronize operations
 		barrier = asyncio.Barrier(3)
 
 		async def close_context():
 			await barrier.wait()
-			await browser_session.browser_context.browser.close()
-			assert browser_session.is_connected() is False
+			await browser_session.browser_context.close()
+			assert (await browser_session.is_connected()) is False
 			return 'closed'
 
 		async def access_pages():
@@ -356,14 +360,14 @@ class TestTabManagement:
 		async def check_connection():
 			await barrier.wait()
 			await asyncio.sleep(0.01)  # Small delay to let close start
-			connected = browser_session.is_connected()
+			connected = await browser_session.is_connected()
 			return f'connected: {connected}'
 
 		# Run all operations concurrently
-		results = await asyncio.gather(close_context(), access_pages(), check_connection(), return_exceptions=True)
+		results = list(await asyncio.gather(close_context(), access_pages(), check_connection(), return_exceptions=True))
 
 		# All operations should complete without crashes
-		assert all(not isinstance(r, Exception) for r in results)
+		assert results and all(not isinstance(r, Exception) for r in results)
 		assert 'closed' in results
 
 		await browser_session.kill()

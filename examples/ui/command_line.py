@@ -31,15 +31,15 @@ from browser_use.controller.service import Controller
 
 def get_llm(provider: str):
 	if provider == 'anthropic':
-		from langchain_anthropic import ChatAnthropic
+		from browser_use.llm import ChatAnthropic
 
 		api_key = os.getenv('ANTHROPIC_API_KEY')
 		if not api_key:
 			raise ValueError('Error: ANTHROPIC_API_KEY is not set. Please provide a valid API key.')
 
-		return ChatAnthropic(model_name='claude-3-5-sonnet-20240620', timeout=25, stop=None, temperature=0.0)
+		return ChatAnthropic(model='claude-3-5-sonnet-20240620', temperature=0.0)
 	elif provider == 'openai':
-		from langchain_openai import ChatOpenAI
+		from browser_use.llm import ChatOpenAI
 
 		api_key = os.getenv('OPENAI_API_KEY')
 		if not api_key:

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # Action Input Models
@@ -24,6 +24,7 @@ class InputTextAction(BaseModel):
 class DoneAction(BaseModel):
 	text: str
 	success: bool
+	files_to_display: list[str] | None = []
 
 
 class SwitchTabAction(BaseModel):
@@ -56,12 +57,8 @@ class NoParamsAction(BaseModel):
 	and discards it, so the final parsed model is empty.
 	"""
 
-	model_config = ConfigDict(extra='allow')
-
-	@model_validator(mode='before')
-	def ignore_all_inputs(cls, values):
-		# No matter what the user sends, discard it and return empty.
-		return {}
+	model_config = ConfigDict(extra='ignore')
+	# No fields defined - all inputs are ignored automatically
 
 
 class Position(BaseModel):

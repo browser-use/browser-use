@@ -12,7 +12,24 @@ from sys import stderr
 from typing import Any, ParamSpec, TypeVar
 from urllib.parse import urlparse
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
 logger = logging.getLogger(__name__)
+
+# Import error types - these may need to be adjusted based on actual import paths
+try:
+	from openai import BadRequestError as OpenAIBadRequestError
+except ImportError:
+	OpenAIBadRequestError = None
+
+try:
+	from groq import BadRequestError as GroqBadRequestError  # type: ignore[import-not-found]
+except ImportError:
+	GroqBadRequestError = None
+
 
 # Global flag to prevent duplicate exit messages
 _exiting = False
@@ -528,7 +545,7 @@ def get_browser_use_version() -> str:
 				match = re.search(r'version\s*=\s*["\']([^"\']+)["\']', content)
 				if match:
 					version = f'{match.group(1)}'
-					os.environ['LIBRARY_VERSION'] = version
+					os.environ['LIBRARY_VERSION'] = version  # used by bubus event_schema so all Event schemas include versioning
 					return version
 
 		# If pyproject.toml doesn't exist, try getting version from pip

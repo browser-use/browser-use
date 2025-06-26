@@ -8,10 +8,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_openai import ChatOpenAI
-
 from browser_use.agent.service import Agent
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.llm import ChatOpenAI
 
 llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
 
@@ -19,7 +18,7 @@ llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
 async def main():
 	browser_session = BrowserSession(
 		browser_profile=BrowserProfile(
-			trace_path='./tmp/traces/',
+			traces_dir='./tmp/traces/',
 			user_data_dir='~/.config/browseruse/profiles/default',
 		)
 	)

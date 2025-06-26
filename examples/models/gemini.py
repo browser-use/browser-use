@@ -5,20 +5,22 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from dotenv import load_dotenv
+from lmnr import Laminar
 
 load_dotenv()
 
-from langchain_google_genai import ChatGoogleGenerativeAI
-from pydantic import SecretStr
+Laminar.initialize()
+
 
 from browser_use import Agent
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.llm import ChatGoogle
 
 api_key = os.getenv('GOOGLE_API_KEY')
 if not api_key:
 	raise ValueError('GOOGLE_API_KEY is not set')
 
-llm = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp', api_key=SecretStr(api_key))
+llm = ChatGoogle(model='gemini-2.0-flash-exp', api_key=api_key)
 
 browser_session = BrowserSession(
 	browser_profile=BrowserProfile(

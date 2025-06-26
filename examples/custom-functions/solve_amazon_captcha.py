@@ -8,13 +8,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from amazoncaptcha import AmazonCaptcha
-from langchain_openai import ChatOpenAI
+from amazoncaptcha import AmazonCaptcha  # type: ignore
 
 from browser_use import ActionResult
 from browser_use.agent.service import Agent
 from browser_use.browser import BrowserConfig, BrowserSession
 from browser_use.controller.service import Controller
+from browser_use.llm import ChatOpenAI
 
 browser_profile = BrowserConfig(headless=False)
 

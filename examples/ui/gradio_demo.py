@@ -1,3 +1,4 @@
+# pyright: reportMissingImports=false
 import asyncio
 import os
 import sys
@@ -10,14 +11,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Third-party imports
-import gradio as gr
-from langchain_openai import ChatOpenAI
+import gradio as gr  # type: ignore
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
 # Local module imports
 from browser_use import Agent
+from browser_use.llm import ChatOpenAI
 
 
 @dataclass
@@ -52,6 +53,8 @@ def parse_agent_history(history_str: str) -> None:
 			console.print(panel)
 			console.print()
 
+	return None
+
 
 async def run_browser_task(
 	task: str,
@@ -70,8 +73,8 @@ async def run_browser_task(
 			llm=ChatOpenAI(model='gpt-4o'),
 		)
 		result = await agent.run()
-		#  TODO: The result cloud be parsed better
-		return result
+		#  TODO: The result could be parsed better
+		return str(result)
 	except Exception as e:
 		return f'Error: {str(e)}'
 

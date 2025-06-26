@@ -8,9 +8,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_openai import ChatOpenAI
-
 from browser_use import Agent
+from browser_use.browser import BrowserProfile
+from browser_use.llm import ChatOpenAI
 
 # Initialize the model
 llm = ChatOpenAI(
@@ -25,7 +25,8 @@ llm = ChatOpenAI(
 company_credentials = {'company_username': 'user@example.com', 'company_password': 'securePassword123'}
 
 # Map the same credentials to multiple domains for secure access control
-sensitive_data = {
+# Type annotation to satisfy pyright
+sensitive_data: dict[str, str | dict[str, str]] = {
 	'https://example.com': company_credentials,
 	'https://admin.example.com': company_credentials,
 	'https://*.example-staging.com': company_credentials,
@@ -40,8 +41,10 @@ task = 'Go to example.com and login with company_username and company_password'
 from browser_use.browser.session import BrowserSession
 
 browser_session = BrowserSession(
-	allowed_domains=list(sensitive_data.keys())
-	+ ['https://*.trusted-partner.com']  # Domain patterns from sensitive_data + additional allowed domains
+	browser_profile=BrowserProfile(
+		allowed_domains=list(sensitive_data.keys())
+		+ ['https://*.trusted-partner.com']  # Domain patterns from sensitive_data + additional allowed domains
+	)
 )
 
 agent = Agent(task=task, llm=llm, sensitive_data=sensitive_data, browser_session=browser_session)
