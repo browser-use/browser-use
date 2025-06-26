@@ -22,8 +22,8 @@ class AgentJSONLogger:
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(exist_ok=True)
         
-        # Generate session filename with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Generate session filename with timestamp (including microseconds for uniqueness)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         if session_name:
             self.session_name = f"{session_name}_{timestamp}"
         else:
@@ -137,12 +137,11 @@ class AgentJSONLogger:
             })
         
         return {
-            "current_state": {
-                "evaluation_previous_goal": agent_output.current_state.evaluation_previous_goal,
-                "memory": agent_output.current_state.memory,
-                "next_goal": agent_output.current_state.next_goal
-            },
-            "actions": actions,
+            "thinking": agent_output.thinking,
+            "evaluation_previous_goal": agent_output.evaluation_previous_goal,
+            "memory": agent_output.memory,
+            "next_goal": agent_output.next_goal,
+            "action": actions,
         }
     
     def _save_to_file(self) -> None:

@@ -42,6 +42,7 @@ from browser_use.agent.gif import create_history_gif
 from browser_use.agent.json_logger import AgentJSONLogger
 from browser_use.agent.memory import Memory, MemoryConfig
 from browser_use.agent.message_manager.service import MessageManager, MessageManagerSettings
+from browser_use.agent.experience_retriever import ExperienceRetriever
 from browser_use.agent.message_manager.utils import (
 	convert_input_messages,
 	extract_json_from_model_output,
@@ -272,6 +273,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			flash_mode=flash_mode,
 			max_history_items=max_history_items,
 			images_per_step=images_per_step,
+			enable_experience_retrieval=enable_experience_retrieval,
+			embeddings_file=embeddings_file,
+			experience_similarity_threshold=experience_similarity_threshold,
+			experience_top_k=experience_top_k,
+			tool_calling_method=tool_calling_method,
 			page_extraction_llm=page_extraction_llm,
 			planner_llm=None,  # Always None now (deprecated)
 			planner_interval=1,  # Always 1 now (deprecated)
@@ -378,6 +384,25 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			)
 			self.json_logger.set_task(task)
 			self.logger.info(f'📄 JSON logging enabled: {self.json_logger.get_log_file_path()}')
+
+		# Experience retrieval setup
+		if self.settings.enable_experience_retrieval and self.settings.embeddings_file:
+			try:
+				self.experience_retriever = ExperienceRetriever(
+					embeddings_file=self.settings.embeddings_file,
+					similarity_threshold=self.settings.experience_similarity_threshold,
+					top_k=self.settings.experience_top_k
+				)
+				if self.experience_retriever.is_available():
+					self._logger.info(f'🧠 Experience retrieval enabled with embeddings from {self.settings.embeddings_file}')
+				else:
+					self._logger.warning('⚠️ Experience retrieval enabled but embeddings not available')
+					self.experience_retriever = None
+			except Exception as e:
+				self._logger.warning(f'⚠️ Failed to initialize experience retrieval: {e}')
+				self.experience_retriever = None
+		else:
+			self.experience_retriever = None
 
 		if isinstance(browser, BrowserSession):
 			browser_session = browser_session or browser

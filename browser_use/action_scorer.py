@@ -21,39 +21,32 @@ def create_scoring_prompt() -> str:
 	"""Create the system prompt for action scoring"""
 	return """You are an expert evaluator for browser automation tasks. Your job is to score actions taken by an AI agent during web browsing.
 
-TASK BACKGROUND:
-The agent is performing various web automation tasks. Your goal is to evaluate how well each action contributes to the completion of the specific task.
+EVALUATION OBJECTIVE:
+Assess how well each action contributes to task completion.
 
-KEY EVALUATION PRINCIPLES:
-1. Navigate efficiently to target websites
-2. Interact with elements systematically 
-3. Extract information as needed
-4. Complete the task thoroughly
-5. Avoid unnecessary repetitions or mistakes
-6. Handle errors gracefully
+SCORING SCALE: Rate each action from -10 to +10 based on how well it contributes to completing the task.
 
-JSON DATA STRUCTURE:
+KEY EVALUATION CRITERIA:
+1. Goal alignment: Does the action move toward the stated objective?
+2. Context appropriateness: Is it suitable for the current page state?
+3. Efficiency: Is this the most direct way to achieve the goal?
+4. Information extraction: Does it gather needed data effectively?
+5. Error avoidance: Does it prevent or cause issues?
+6. Task completion: Does it properly conclude when objectives are met?
+
+CRITICAL EVALUATION POINTS:
+- Verify if "done" claims are actually justified by task completion
+- Assess whether information extraction was thorough and accurate
+- Check for unnecessary repetition or circular behavior
+- Evaluate navigation efficiency and logical page flow
+- Judge the quality of form filling and element interaction
+
+DATA STRUCTURE:
 Each step contains:
-- dom_state: Current webpage state (URL, interactive elements, scroll position)
-- agent_response: AI's decision (thinking, evaluation, memory, next goal, actions)
+- dom_state: Current webpage (URL, title, interactive elements, scroll position)
+- agent_response: AI decision (thinking, evaluation, memory, next_goal, actions)
 
-SCORING CRITERIA:
-Rate each action from -5 to +5 based on how well it contributes to completing the task:
-- +5: Excellent action that directly advances the task
-- +3 to +4: Good action that makes reasonable progress  
-- +1 to +2: Acceptable action with some value
-- 0: Neutral action (neither helps nor hurts)
-- -1 to -2: Somewhat counterproductive action
-- -3 to -4: Poor action that wastes time/effort
-- -5: Very harmful action that significantly impedes progress
-
-Consider:
-- Is the action appropriate for the current state?
-- Does it move toward the ultimate goal?
-- Is it efficient or wasteful?
-- Does it fit the systematic approach needed?
-- Is the task actually completed or a hallucinated early stop?
-- Don't believe what the agent said. Judge it critically."""
+Remember: Your evaluation trains future agent behavior. Be precise and critical."""
 
 def score_all_steps_batch(
 	llm: BaseChatModel,
@@ -77,49 +70,54 @@ STEP {step_num}:
 - Interactive Elements: {dom_state.get('interactive_elements_text', 'N/A')}
 
 AGENT'S THINKING:
-- Thinking: {agent_response['thinking']}
-- Previous Goal: {agent_response['evaluation_previous_goal']}
-- Memory: {agent_response['memory']}
-- Next Goal: {agent_response['next_goal']}
+- Thinking: {agent_response.get('thinking', 'N/A')}
+- Previous Goal: {agent_response.get('evaluation_previous_goal', 'N/A')}
+- Memory: {agent_response.get('memory', 'N/A')}
+- Next Goal: {agent_response.get('next_goal', 'N/A')}
 
-ACTIONS: {json.dumps(agent_response['action'], indent=2)}
+ACTIONS: {json.dumps(agent_response.get('action', []), indent=2)}
 """
 		all_steps_info += step_info + "\n" + "="*50 + "\n"
 	
 	# Create comprehensive prompt
 	prompt = f"""
-TASK: {task_context}
+TASK OBJECTIVE: {task_context}
 
-Please analyze the complete task execution and score each step from -5 to +5.
+ANALYSIS WORKFLOW:
+1. Review the complete task execution sequence
+2. Assess the agent's overall strategy and approach
+3. Evaluate each individual step's contribution to task completion
+4. Identify patterns of efficiency or inefficiency
+5. Score each step using the -10 to +10 scale
 
-REASONING PROCESS:
-1. First analyze the overall strategy: What approach did the agent take?
-2. Evaluate efficiency: Were there unnecessary repetitions or missed opportunities?
-3. Assess each step's contribution to the ultimate goal
-4. Consider context: Some actions (like pagination) are necessary even if repetitive
-
-ALL STEPS TO EVALUATE:
+STEPS TO EVALUATE:
 {all_steps_info}
 
-IMPORTANT: Respond with valid JSON only. No comments, no explanations outside JSON.
+OUTPUT REQUIREMENTS:
+- Provide valid JSON only, no additional text
+- Include comprehensive task analysis
+- Score all {len(steps_data)} steps with detailed reasoning
+- Use integer scores from -10 to +10
+- Ensure JSON format is syntactically correct
 
+JSON FORMAT:
 {{
-  "task_analysis": "Your overall analysis of the task execution strategy and effectiveness",
+  "task_analysis": "Comprehensive analysis of overall task execution strategy, efficiency, and completion status",
   "step_scores": [
     {{
       "step_number": 1,
-      "score": -5,
-      "reasoning": "explanation here"
+      "score": -10,
+      "reasoning": "Detailed explanation of why this score was assigned based on evaluation criteria"
     }},
     {{
       "step_number": 2,
-      "score": 0,
-      "reasoning": "explanation here"
+      "score": 10,
+      "reasoning": "Detailed explanation of why this score was assigned based on evaluation criteria"
     }}
   ]
 }}
 
-You MUST provide scores for all {len(steps_data)} steps. Make sure the JSON is valid with proper quotes and commas.
+CRITICAL: Every step must be scored. Validate JSON syntax before responding.
 """
 	
 	messages = [
