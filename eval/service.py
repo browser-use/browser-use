@@ -657,7 +657,6 @@ class TaskResult:
 
 
 from browser_use import ActionResult, Agent, BrowserProfile, BrowserSession, Controller
-from browser_use.agent.memory import MemoryConfig
 from browser_use.agent.views import AgentHistoryList
 
 SUPPORTED_MODELS = {
@@ -1323,10 +1322,13 @@ async def run_agent_with_browser(
 	# Create controller, optionally with SERP search
 	controller = create_controller(use_serp=use_serp)
 
-	# Configure memory if enabled
-	memory_config = None
+	# Check for deprecated memory parameters
 	if enable_memory:
-		memory_config = MemoryConfig(agent_id=f'eval_agent_{task.task_id}', memory_interval=memory_interval, llm_instance=llm)
+		raise ValueError(
+			'Memory support has been removed as of version 0.3.2. '
+			'The agent context for memory is significantly improved and no longer requires the old memory system. '
+			"Please remove the 'enable_memory' parameter."
+		)
 
 	agent = Agent(
 		task=task.confirmed_task,
@@ -1334,8 +1336,6 @@ async def run_agent_with_browser(
 		controller=controller,
 		browser_session=browser_session,
 		use_vision=use_vision,
-		enable_memory=enable_memory,
-		memory_config=memory_config,
 		max_actions_per_step=max_actions_per_step,
 		validate_output=validate_output,
 		planner_llm=planner_llm,

@@ -174,6 +174,15 @@ Interactive elements from top layer of the current page inside the viewport{trun
 		return agent_state
 
 	def get_user_message(self, use_vision: bool = True) -> UserMessage:
+		# Don't pass screenshot to model if page is about:blank, step is 0, and there's only one tab
+		if (
+			self.browser_state.url == 'about:blank'
+			and self.step_info is not None
+			and self.step_info.step_number == 0
+			and len(self.browser_state.tabs) == 1
+		):
+			use_vision = False
+
 		state_description = (
 			'<agent_history>\n'
 			+ (self.agent_history_description.strip('\n') if self.agent_history_description else '')

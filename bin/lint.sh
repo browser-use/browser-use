@@ -13,4 +13,4 @@ echo "[*] Running ruff linter, formatter, and other pre-commit lint checks..."
 uv run pre-commit run --all-files
 
 echo "[*] Running pyright type checker..."
-exec pyright
+exec uv run pyright

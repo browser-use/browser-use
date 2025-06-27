@@ -72,8 +72,10 @@ class Controller(Generic[Context]):
 		self,
 		exclude_actions: list[str] = [],
 		output_model: type[BaseModel] | None = None,
+		display_files_in_done_text: bool = True,
 	):
 		self.registry = Registry[Context](exclude_actions)
+		self.display_files_in_done_text = display_files_in_done_text
 
 		"""Register all default browser actions"""
 
@@ -119,12 +121,27 @@ class Controller(Generic[Context]):
 
 				attachments = []
 				if params.files_to_display:
-					for file_name in params.files_to_display:
-						if file_name == 'todo.md':
-							continue
-						file_content = file_system.display_file(file_name)
-						if file_content:
-							attachments.append(file_name)
+					if self.display_files_in_done_text:
+						file_msg = ''
+						for file_name in params.files_to_display:
+							if file_name == 'todo.md':
+								continue
+							file_content = file_system.display_file(file_name)
+							if file_content:
+								file_msg += f'\n\n{file_name}:\n{file_content}'
+								attachments.append(file_name)
+						if file_msg:
+							user_message += '\n\nAttachments:'
+							user_message += file_msg
+						else:
+							logger.warning('Agent wanted to display files but none were found')
+					else:
+						for file_name in params.files_to_display:
+							if file_name == 'todo.md':
+								continue
+							file_content = file_system.display_file(file_name)
+							if file_content:
+								attachments.append(file_name)
 
 				attachments = [str(file_system.get_dir() / file_name) for file_name in attachments]
 

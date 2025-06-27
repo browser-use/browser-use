@@ -1,5 +1,9 @@
+import base64
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 
+import anyio
 from bubus import BaseEvent
 from pydantic import Field, field_validator
 from uuid_extensions import uuid7str
@@ -77,11 +81,6 @@ class CreateAgentOutputFileEvent(BaseEvent):
 	@classmethod
 	async def from_agent_and_file(cls, agent, output_path: str) -> 'CreateAgentOutputFileEvent':
 		"""Create a CreateAgentOutputFileEvent from a file path"""
-		import base64
-		import os
-		from pathlib import Path
-
-		import anyio
 
 		gif_path = Path(output_path)
 		if not gif_path.exists():

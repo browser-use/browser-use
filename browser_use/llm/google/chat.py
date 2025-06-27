@@ -44,13 +44,36 @@ class ChatGoogle(BaseChatModel):
 	"""
 	A wrapper around Google's Gemini chat model using the genai client.
 
-	This class accepts all genai.Client parameters while adding model
-	and temperature parameters for the LLM interface.
+	This class accepts all genai.Client parameters while adding model,
+	temperature, and config parameters for the LLM interface.
+
+	Args:
+		model: The Gemini model to use
+		temperature: Temperature for response generation
+		config: Additional configuration parameters to pass to generate_content
+			(e.g., tools, safety_settings, etc.).
+		api_key: Google API key
+		vertexai: Whether to use Vertex AI
+		credentials: Google credentials object
+		project: Google Cloud project ID
+		location: Google Cloud location
+		http_options: HTTP options for the client
+
+	Example:
+		from google.genai import types
+
+		llm = ChatGoogle(
+			model='gemini-2.0-flash-exp',
+			config={
+				'tools': [types.Tool(code_execution=types.ToolCodeExecution())]
+			}
+		)
 	"""
 
 	# Model configuration
 	model: VerifiedGeminiModels | str
 	temperature: float | None = None
+	config: types.GenerateContentConfigDict | None = None
 
 	# Client initialization parameters
 	api_key: str | None = None
@@ -142,8 +165,12 @@ class ChatGoogle(BaseChatModel):
 		# Serialize messages to Google format
 		contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages)
 
-		# Return string response
+		# Build config dictionary starting with user-provided config
 		config: types.GenerateContentConfigDict = {}
+		if self.config:
+			config = self.config.copy()
+
+		# Apply model-specific configuration (these can override config)
 		if self.temperature is not None:
 			config['temperature'] = self.temperature
 
