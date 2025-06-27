@@ -49,6 +49,7 @@ from browser_use.agent.views import (
 	AgentOutput,
 	AgentSettings,
 	AgentState,
+	AgentStatus,
 	AgentStepInfo,
 	BrowserStateHistory,
 	StepMetadata,
@@ -490,6 +491,21 @@ class Agent(Generic[Context]):
 		assert self.browser_session is not None, 'BrowserSession is not set up'
 		return self.browser_session.browser_profile
 
+	@property
+	def paused(self) -> bool:
+		"""Backward compatibility property"""
+		return self.state.status == AgentStatus.PAUSED
+
+	@property  
+	def stopped(self) -> bool:
+		"""Backward compatibility property"""
+		return self.state.status == AgentStatus.STOPPED
+
+	@property
+	def running(self) -> bool:
+		"""Check if agent is currently running"""
+		return self.state.status == AgentStatus.RUNNING
+
 	def _update_available_file_paths(self, downloads: list[str]) -> None:
 		"""Update available_file_paths with downloaded files."""
 		if not self.has_downloads_path:
@@ -630,7 +646,7 @@ class Agent(Generic[Context]):
 			if await self.register_external_agent_status_raise_error_callback():
 				raise InterruptedError
 
-		if self.state.stopped or self.state.paused:
+		if self.state.status in (AgentStatus.STOPPED, AgentStatus.PAUSED):
 			# self.logger.debug('Agent paused after getting state')
 			raise InterruptedError
 
@@ -947,7 +963,7 @@ class Agent(Generic[Context]):
 		if len(parsed.action) > self.settings.max_actions_per_step:
 			parsed.action = parsed.action[: self.settings.max_actions_per_step]
 
-		if not (hasattr(self.state, 'paused') and (self.state.paused or self.state.stopped)):
+		if not (self.state.status in (AgentStatus.PAUSED, AgentStatus.STOPPED)):
 			log_response(parsed, self.controller.registry.registry, self.logger)
 
 		self._log_next_action_summary(parsed)
@@ -1150,7 +1166,7 @@ class Agent(Generic[Context]):
 
 			for step in range(max_steps):
 				# Replace the polling with clean pause-wait
-				if self.state.paused:
+				if self.state.status == AgentStatus.PAUSED:
 					await self.wait_until_resumed()
 					signal_handler.reset()
 
@@ -1161,14 +1177,14 @@ class Agent(Generic[Context]):
 					break
 
 				# Check control flags before each step
-				if self.state.stopped:
+				if self.state.status == AgentStatus.STOPPED:
 					self.logger.info('🛑 Agent stopped')
 					agent_run_error = 'Agent stopped programmatically'
 					break
 
-				while self.state.paused:
+				while self.state.status == AgentStatus.PAUSED:
 					await asyncio.sleep(0.2)  # Small delay to prevent CPU spinning
-					if self.state.stopped:  # Allow stopping while paused
+					if self.state.status == AgentStatus.STOPPED:  # Allow stopping while paused
 						agent_run_error = 'Agent stopped programmatically while paused'
 						break
 
@@ -1513,7 +1529,7 @@ class Agent(Generic[Context]):
 		print(
 			'\n\n⏸️  Got [Ctrl+C], paused the agent and left the browser open.\n\tPress [Enter] to resume or [Ctrl+C] again to quit.'
 		)
-		self.state.paused = True
+		self.state.status = AgentStatus.PAUSED
 		self._external_pause_event.clear()
 
 		# Task paused
@@ -1525,7 +1541,7 @@ class Agent(Generic[Context]):
 		"""Resume the agent"""
 		print('----------------------------------------------------------------------')
 		print('▶️  Got Enter, resuming agent execution where it left off...\n')
-		self.state.paused = False
+		self.state.status = AgentStatus.RUNNING
 		self._external_pause_event.set()
 
 		# Task resumed
@@ -1545,7 +1561,8 @@ class Agent(Generic[Context]):
 	def stop(self) -> None:
 		"""Stop the agent"""
 		self.logger.info('⏹️ Agent stopping')
-		self.state.stopped = True
+		self.state.status = AgentStatus.STOPPED
+		self._external_pause_event.set()  # Unblock any waiting operations
 
 		# Task stopped
 

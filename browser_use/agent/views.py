@@ -21,7 +21,7 @@ from browser_use.dom.history_tree_processor.service import (
 from browser_use.dom.views import SelectorMap
 from browser_use.filesystem.file_system import FileSystemState
 from browser_use.llm.base import BaseChatModel
-
+from enum import Enum
 
 class AgentSettings(BaseModel):
 	"""Configuration options for the Agent"""
@@ -61,6 +61,11 @@ class AgentSettings(BaseModel):
 	calculate_cost: bool = False
 
 
+class AgentStatus(Enum):
+    RUNNING = "running"
+    PAUSED = "paused" 
+    STOPPED = "stopped"
+
 class AgentState(BaseModel):
 	"""Holds all state information for an Agent"""
 
@@ -71,9 +76,10 @@ class AgentState(BaseModel):
 	history: AgentHistoryList = Field(default_factory=lambda: AgentHistoryList(history=[]))
 	last_plan: str | None = None
 	last_model_output: AgentOutput | None = None
-	paused: bool = False
-	stopped: bool = False
 
+	# Simplified state management
+	status: AgentStatus = AgentStatus.RUNNING
+ 
 	message_manager_state: MessageManagerState = Field(default_factory=MessageManagerState)
 	file_system_state: FileSystemState | None = None
 
