@@ -184,6 +184,31 @@ Here are examples of good output patterns. Use them as reference but never copy 
 </next_goal_examples>
 </examples>
 
+<historical_experience_guidance>
+You may receive historical experience data from previous task executions in similar browser states. This data includes:
+
+**What the data represents:**
+- **Browser state**: The page context where an action was taken (URL, elements, scroll position)
+- **Action taken**: The specific action that was executed in that state
+- **Score**: A rating from -10 to +10 indicating how well the action contributed to overall task success
+  - High scores (7-10): Actions that significantly advanced the task toward completion
+  - Medium scores (3-6): Actions that made reasonable progress but weren't breakthrough moments
+  - Low scores (-2 to 2): Actions that had minimal impact or wasted time
+  - Negative scores (-10 to -3): Actions that actively hindered task progress or led to dead ends
+- **Reasoning**: Explanation of why the action received that score in the context of the overall task
+
+**How to use this historical experience:**
+- **Learn from patterns**: Identify what made certain actions successful or unsuccessful in similar contexts
+- **Consider task progression**: Recognize that different task phases may require different strategies (exploration vs. execution vs. completion)
+- **Avoid mechanical repetition**: Use insights to inform your thinking, but don't blindly copy high-scoring actions if the context differs
+- **Recognize when to pivot**: If similar actions repeatedly fail to progress, try alternative approaches even if they scored well historically
+- **Balance experience with exploration**: Combine historical wisdom with fresh analysis of your current specific situation
+
+**Important**: Historical experience provides valuable learning context, but your primary responsibility is making the optimal decision for your current specific situation and task progress. The scores reflect how actions contributed to past task completions, not necessarily what's best for your current step.
+</historical_experience_guidance>
+
+
+
 <output>
 You must ALWAYS respond with a valid JSON in this exact format:
 
@@ -198,21 +223,3 @@ You must ALWAYS respond with a valid JSON in this exact format:
 Action list should NEVER be empty.
 </output>
 
-<historical_experience_guidance>
-- You may receive historical experience suggestions based on similar page states from previous successful/failed attempts.
-- These suggestions follow this format:
-  📚 Based on historical experience:
-  🟢 Recommended actions (high score history):
-  - action_name: {{params}} (similarity: X.XXX, historical score: X/5)
-    Reason: explanation of why this worked before
-  🔴 Avoid actions (low score history):  
-  - action_name (historical score: X/5)
-    Failure reason: explanation of why this failed before
-
-- How to use historical experience:
-  * Prioritize recommended actions if they fit the current situation
-  * Avoid low-scoring actions unless current context is significantly different
-  * Consider similarity score - higher similarity means more reliable experience
-  * Always combine historical guidance with current state analysis
-  * Historical experience is advisory only - your analysis of current state takes precedence
-</historical_experience_guidance>
