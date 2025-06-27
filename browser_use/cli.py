@@ -834,7 +834,7 @@ class BrowserUseApp(App):
 				if hasattr(self.agent, 'running'):
 					if getattr(self.agent, 'running', False):
 						model_info.write('[yellow]LLM is thinking[blink]...[/][/]')
-					elif hasattr(self.agent, 'state') and hasattr(self.agent.state, 'paused') and self.agent.state.paused:
+					elif hasattr(self.agent, 'state') and hasattr(self.agent.state, 'paused') and self.agent.paused:
 						model_info.write('[orange]LLM paused[/]')
 		else:
 			model_info.write('[red]Model not initialized[/]')
@@ -949,7 +949,7 @@ class BrowserUseApp(App):
 			# If agent is actively running, show a status indicator
 			if hasattr(self.agent, 'running') and getattr(self.agent, 'running', False):
 				tasks_info.write('[yellow]Agent is actively working[blink]...[/][/]')
-			elif hasattr(self.agent, 'state') and hasattr(self.agent.state, 'paused') and self.agent.state.paused:
+			elif hasattr(self.agent, 'state') and hasattr(self.agent.state, 'paused') and self.agent.paused:
 				tasks_info.write('[orange]Agent is paused (press Enter to resume)[/]')
 		else:
 			tasks_info.write('[dim]Agent not initialized[/]')

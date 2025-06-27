@@ -22,7 +22,7 @@ from browser_use.dom.views import SelectorMap
 from browser_use.filesystem.file_system import FileSystemState
 from browser_use.llm.base import BaseChatModel
 from enum import Enum
-
+from typing import Any
 class AgentSettings(BaseModel):
 	"""Configuration options for the Agent"""
 
@@ -62,9 +62,9 @@ class AgentSettings(BaseModel):
 
 
 class AgentStatus(Enum):
-    RUNNING = "running"
-    PAUSED = "paused" 
-    STOPPED = "stopped"
+    RUNNING = 'running'
+    PAUSED = 'paused'
+    STOPPED = 'stopped'
 
 class AgentState(BaseModel):
 	"""Holds all state information for an Agent"""
@@ -79,6 +79,10 @@ class AgentState(BaseModel):
 
 	# Simplified state management
 	status: AgentStatus = AgentStatus.RUNNING
+	
+	# DEPRECATED: Keep for backward compatibility during transition
+	# paused: bool = Field(default=False, description="DEPRECATED: Use status instead")
+	# stopped: bool = Field(default=False, description="DEPRECATED: Use status instead")
  
 	message_manager_state: MessageManagerState = Field(default_factory=MessageManagerState)
 	file_system_state: FileSystemState | None = None
