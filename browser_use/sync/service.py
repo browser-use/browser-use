@@ -32,13 +32,22 @@ class CloudSync:
 		"""Handle an event by sending it to the cloud"""
 		try:
 			# Extract session ID from CreateAgentSessionEvent
-			if event.event_type == 'CreateAgentSession' and hasattr(event, 'id'):
+			if event.event_type == 'CreateAgentSessionEvent' and hasattr(event, 'id'):
 				self.session_id = str(event.id)  # type: ignore
 
-				# Start authentication flow if enabled and not authenticated
-				if self.enable_auth and self.auth_client and not self.auth_client.is_authenticated:
-					# Start auth in background
-					self.auth_task = asyncio.create_task(self._background_auth(agent_session_id=self.session_id))
+			# Start authentication flow on first step (after first LLM response)
+			if event.event_type == 'CreateAgentStepEvent' and 'step' in dict(event):
+				step = dict(event)['step']
+				logger.debug(f'Got CreateAgentStepEvent with step={step}')
+				# Only trigger on the first step (step=2 because n_steps is incremented before actions)
+				if step == 2 and self.enable_auth and self.auth_client and not self.auth_client.is_authenticated:
+					if not hasattr(self, 'auth_task') or self.auth_task is None:
+						# Start auth in background
+						if self.session_id:
+							logger.info('Triggering auth on first step event')
+							self.auth_task = asyncio.create_task(self._background_auth(agent_session_id=self.session_id))
+						else:
+							logger.warning('Cannot start auth - session_id not set yet')
 
 			# Send event to cloud
 			await self._send_event(event)

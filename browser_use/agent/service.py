@@ -165,7 +165,7 @@ class Agent(Generic[Context]):
 			'data-state',
 			'aria-checked',
 		],
-		max_actions_per_step: int = 1,
+		max_actions_per_step: int = 10,
 		use_thinking: bool = True,
 		page_extraction_llm: BaseChatModel | None = None,
 		planner_llm: BaseChatModel | None = None,
@@ -174,7 +174,7 @@ class Agent(Generic[Context]):
 		extend_planner_system_message: str | None = None,
 		injected_agent_state: AgentState | None = None,
 		context: Context | None = None,
-		enable_memory: bool = True,
+		enable_memory: bool = False,
 		memory_config: MemoryConfig | None = None,
 		source: str | None = None,
 		file_system_path: str | None = None,
@@ -522,14 +522,15 @@ class Agent(Generic[Context]):
 		# Check if we should restore from existing state first
 		if self.state.file_system_state:
 			try:
-				# Restore file system from state
+				# Restore file system from state at the exact same location
 				self.file_system = FileSystem.from_state(self.state.file_system_state)
-				self.file_system_path = str(self.file_system.base_dir.parent)
-				logger.info(f'💾 File system restored from state: {self.file_system_path}')
+				# The parent directory of base_dir is the original file_system_path
+				self.file_system_path = str(self.file_system.base_dir)
+				logger.info(f'💾 File system restored from state to: {self.file_system_path}')
 				return
 			except Exception as e:
-				logger.warning(f'💾 Failed to restore file system from state: {e}. Creating new file system.')
-				# Fall through to create new file system
+				logger.error(f'💾 Failed to restore file system from state: {e}')
+				raise e
 
 		# Initialize new file system
 		try:
@@ -549,52 +550,6 @@ class Agent(Generic[Context]):
 		self.state.file_system_state = self.file_system.get_state()
 
 		logger.info(f'💾 File system path: {self.file_system_path}')
-
-		# if file system is set, add actions to the controller
-		extensions_allowed = self.file_system.get_allowed_extensions()
-
-		@self.controller.registry.action(
-			f'Write content to file_name in file system. Only use extensions {"|".join(extensions_allowed)}'
-		)
-		async def write_file(file_name: str, content: str):
-			result = await self.file_system.write_file(file_name, content)
-			# Update agent state with new file system state
-			self.state.file_system_state = self.file_system.get_state()
-			logger.info(f'💾 {result}')
-			return ActionResult(
-				extracted_content=result,
-				include_in_memory=True,
-				long_term_memory=result,
-			)
-
-		@self.controller.registry.action('Append content to file_name in file system')
-		async def append_file(file_name: str, content: str):
-			result = await self.file_system.append_file(file_name, content)
-			# Update agent state with new file system state
-			self.state.file_system_state = self.file_system.get_state()
-			logger.info(f'💾 {result}')
-			return ActionResult(
-				extracted_content=result,
-				include_in_memory=True,
-				long_term_memory=result,
-			)
-
-		@self.controller.registry.action('Read file_name from file system')
-		async def read_file(file_name: str):
-			result = await self.file_system.read_file(file_name)
-			max_len = 50
-			if len(result) > max_len:
-				display_result = result[:max_len] + '\n...'
-			else:
-				display_result = result
-			logger.info(f'💾 {display_result}')
-			memory = result.split('\n')[-1]
-			return ActionResult(
-				extracted_content=result,
-				include_in_memory=True,
-				long_term_memory=memory,
-				include_extracted_content_only_once=True,
-			)
 
 	def save_file_system_state(self) -> None:
 		"""Save current file system state to agent state"""
@@ -1229,6 +1184,12 @@ class Agent(Generic[Context]):
 				if self.state.history.is_done():
 					await self.log_completion()
 
+					if self.register_done_callback:
+						if inspect.iscoroutinefunction(self.register_done_callback):
+							await self.register_done_callback(self.state.history)
+						else:
+							self.register_done_callback(self.state.history)
+
 					# Task completed
 					break
 			else:
@@ -1304,7 +1265,8 @@ class Agent(Generic[Context]):
 				await self.cloud_sync.wait_for_auth()
 
 			# Stop the event bus gracefully, waiting for all events to be processed
-			await self.eventbus.stop(timeout=5.0)
+			# Use longer timeout to avoid deadlocks in tests with multiple agents
+			await self.eventbus.stop(timeout=10.0)
 
 			await self.close()
 
@@ -1413,12 +1375,6 @@ class Agent(Generic[Context]):
 			self.logger.info('✅ Task completed successfully')
 		else:
 			self.logger.info('❌ Task completed without success')
-
-		if self.register_done_callback:
-			if inspect.iscoroutinefunction(self.register_done_callback):
-				await self.register_done_callback(self.state.history)
-			else:
-				self.register_done_callback(self.state.history)
 
 	async def rerun_history(
 		self,

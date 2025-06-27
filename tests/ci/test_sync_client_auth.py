@@ -146,6 +146,7 @@ class TestDeviceAuthClient:
 		body = request.get_data(as_text=True)
 		assert 'client_id=library' in body
 		assert 'agent_session_id=test-session-id' in body
+		assert 'device_id=' in body  # Should include device_id
 
 	async def test_poll_for_token_pending(self, httpserver: HTTPServer, http_client, temp_config_dir):
 		"""Test polling when authorization is pending."""

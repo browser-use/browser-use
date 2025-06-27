@@ -1,61 +1,5 @@
 """
 @file purpose: Comprehensive judge system for evaluating browser-use agent runs with detailed structured feedback.
-
-BROWSER-USE AGENT ARCHITECTURE CONTEXT:
-=============================================
-
-The browser-use agent operates in an iterative loop where each step receives:
-
-1. AGENT HISTORY: Chronological event stream with previous actions and results
-2. AGENT STATE: User request, file system state, todo.md contents, step info
-3. BROWSER STATE: Current URL, tabs, and interactive elements in indexed format
-4. BROWSER VISION: Screenshot with bounding boxes around interactive elements
-5. READ STATE: Temporary data from extract_structured_data or read_file actions
-
-AGENT INTERACTION MODEL:
-- Elements are presented as [index]<type>text</type> where only [index] elements are interactive
-- Hierarchical structure with \t indentation shows parent-child HTML relationships
-- New elements since last step marked with asterisks (*)
-- Agent can only interact with explicitly provided numeric indexes
-- Max N actions per step (configurable), browser actions interrupt sequences
-
-AGENT OUTPUT FORMAT (always JSON):
-- thinking: Structured reasoning following specific patterns
-- evaluation_previous_goal: Assessment of last action success/failure
-- memory: Progress tracking (1-3 sentences)
-- next_goal: Clear statement of immediate objectives
-- action: List of actions to execute sequentially
-
-EXPECTED AGENT BEHAVIORS:
-- Uses todo.md for multi-step task planning and progress tracking
-- Saves findings to results.md for user output
-- Reasons explicitly about browser state, history, and progress
-- Handles page changes, scrolling, form interactions systematically
-- Uses extract_structured_data or scrollwhen needed information isn't in the step view
-- Opens new tabs for research rather than reusing current tab
-- Calls done action only when task complete or impossible to continue
-
-COMMON FAILURE PATTERNS TO DETECT:
-- Using non-existent element indexes or clicking wrong elements
-- Not adapting when page state changes after actions
-- Poor planning evidenced by empty or stale todo.md
-- Repetitive actions without progress (loops/stuck patterns)
-- Not saving important findings to files
-- Missing or ignoring available interactive elements
-- Not handling modals, dropdowns, or dynamic content properly
-- Premature task completion or incorrect success reporting
-
-This system provides multi-dimensional evaluation of agent performance including:
-- Task analysis and categorization
-- Trajectory quality assessment
-- Tool usage effectiveness
-- Agent reasoning quality
-- Browser handling capabilities
-- Structured error categorization
-- Actionable improvement suggestions
-
-The judge uses vision-language models to analyze agent execution history, screenshots,
-and final results to provide detailed structured JSON feedback for developers.
 """
 
 import asyncio
@@ -374,6 +318,7 @@ The browser-use agent operates in iterative loops receiving structured input:
 - Follows task output format requirements precisely (direct output vs file writing)
 - Uses todo.md for long tasks above 20 steps
 - Saves findings to results.md when the task is long multiple things need to be extracted on different pages
+- Dont use file system for short tasks except required by the task
 - Reasons explicitly about browser state, history, and progress
 - Calls done action only when task complete or impossible to continue - not too early
 - If the agent needs to repeat the same sub task multiple times & has a good trajectory, but hits the max step limit its still very good and can pass the evaluation
@@ -384,7 +329,12 @@ The browser-use agent operates in iterative loops receiving structured input:
 2. **Tool Usage**: How well did the tools work? -Do they work as expected?
 3. **Agent Reasoning**: Quality of decision-making and problem-solving - good todo.md usage for tasks above 20 steps?
 4. **Browser Handling**: How well did the navigation and browser interaction work - are there many blocks or 404s?
-5. **Final Output**: How does the output presented is it exactly what the user asked for?
+5. **Final Output**: How does the output presented is it exactly what the user asked for? If there is no output the score must be low.
+6. If we get blocked by a captcha or if the task is impossible, we should not pass the evaluation. The score must be low.
+7. If the trajectory is bad and tools are used in a stupid way, reduce the score.
+8. If the agent is not able to complete the task, the score must be low.
+9. If the trajectory can be optimized deduct points.
+
 
 **ERROR CATEGORIES TO CONSIDER:**
 {error_categories_text}

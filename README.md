@@ -83,7 +83,7 @@ You can test browser-use using its [Web UI](https://github.com/browser-use/web-u
 You can also use our `browser-use` interactive CLI (similar to `claude` code):
 
 ```bash
-pip install browser-use[cli]
+pip install "browser-use[cli]"
 browser-use
 ```
 

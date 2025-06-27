@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from typing import Literal, TypeVar, overload
 
 from groq import (
-	DEFAULT_MAX_RETRIES,
 	APIError,
 	APIResponseValidationError,
 	APIStatusError,
@@ -52,7 +51,7 @@ class ChatGroq(BaseChatModel):
 	api_key: str | None = None
 	base_url: str | URL | None = None
 	timeout: float | Timeout | NotGiven | None = None
-	max_retries: int = DEFAULT_MAX_RETRIES
+	max_retries: int = 10  # Increase default retries for automation reliability
 
 	def get_client(self) -> AsyncGroq:
 		return AsyncGroq(api_key=self.api_key, base_url=self.base_url, timeout=self.timeout, max_retries=self.max_retries)

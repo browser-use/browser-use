@@ -44,7 +44,7 @@ class ChatAnthropic(BaseChatModel):
 	auth_token: str | None = None
 	base_url: str | httpx.URL | None = None
 	timeout: float | Timeout | None | NotGiven = NotGiven()
-	max_retries: int = 2
+	max_retries: int = 10
 	default_headers: Mapping[str, str] | None = None
 	default_query: Mapping[str, object] | None = None
 

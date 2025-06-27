@@ -99,6 +99,11 @@ class TestAgentEventLifecycle:
 	async def test_agent_with_gif_generation(self, mock_llm, browser_session, cloud_sync, event_collector, httpserver):
 		"""Test that GIF generation triggers CreateAgentOutputFileEvent"""
 
+		# Setup cloud sync endpoint
+		httpserver.expect_request('/api/v1/events', method='POST').respond_with_json(
+			{'processed': 1, 'failed': 0, 'results': [{'success': True}]}
+		)
+
 		# Setup a test page
 		httpserver.expect_request('/').respond_with_data('<html><body><h1>GIF Test</h1></body></html>', content_type='text/html')
 		await browser_session.navigate(httpserver.url_for('/'))
@@ -136,7 +141,7 @@ class TestAgentEventLifecycle:
 		assert len(gif_bytes) > 100  # Should be a real GIF file
 
 	@pytest.mark.usefixtures('mock_llm', 'browser_session', 'event_collector', 'httpserver')
-	async def test_step_screenshot_capture(self, mock_llm, browser_session, cloud_sync, event_collector, httpserver):
+	async def test_step_screenshot_capture(self, mock_llm, browser_session, event_collector, httpserver):
 		"""Test that screenshots are captured for each step"""
 
 		# Setup test page
@@ -145,13 +150,12 @@ class TestAgentEventLifecycle:
 		)
 		await browser_session.navigate(httpserver.url_for('/'))
 
-		# Create agent
+		# Create agent without cloud sync (not needed for screenshot test)
 		agent = Agent(
 			task='Test screenshot capture',
 			llm=mock_llm,
 			browser_session=browser_session,
 			generate_gif=False,
-			cloud_sync=cloud_sync,
 		)
 
 		# Subscribe to all events
@@ -313,12 +317,21 @@ class TestAgentCloudIntegration:
 		assert result is not None
 		assert result.is_done()
 
-	@pytest.mark.usefixtures('browser_session', 'cloud_sync', 'event_collector', 'httpserver')
-	async def test_session_id_persistence(self, browser_session, cloud_sync, event_collector, httpserver):
+	@pytest.mark.usefixtures('browser_session', 'event_collector', 'httpserver')
+	async def test_session_id_persistence(self, browser_session, event_collector, httpserver):
 		"""Test that agent session ID persists across runs."""
 		# Set up httpserver endpoint
 		httpserver.expect_request('/api/v1/events', method='POST').respond_with_json(
 			{'processed': 1, 'failed': 0, 'results': [{'success': True}]}
+		)
+
+		# Import CloudSync to create instances
+		from browser_use.sync.service import CloudSync
+
+		# Create first CloudSync instance
+		cloud_sync1 = CloudSync(
+			base_url=httpserver.url_for(''),
+			enable_auth=False,
 		)
 
 		# Create first agent
@@ -326,7 +339,7 @@ class TestAgentCloudIntegration:
 			task='First task',
 			llm=create_mock_llm(),
 			browser_session=browser_session,
-			cloud_sync=cloud_sync,
+			cloud_sync=cloud_sync1,
 		)
 		agent1.eventbus.on('*', event_collector.collect_event)
 
@@ -341,12 +354,18 @@ class TestAgentCloudIntegration:
 		# Clear event collector
 		event_collector.clear()
 
+		# Create second CloudSync instance
+		cloud_sync2 = CloudSync(
+			base_url=httpserver.url_for(''),
+			enable_auth=False,
+		)
+
 		# Create second agent (will have different session ID)
 		agent2 = Agent(
 			task='Second task',
 			llm=create_mock_llm(),
 			browser_session=browser_session,
-			cloud_sync=cloud_sync,
+			cloud_sync=cloud_sync2,
 		)
 		agent2.eventbus.on('*', event_collector.collect_event)
 

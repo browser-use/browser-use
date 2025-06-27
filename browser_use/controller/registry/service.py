@@ -21,10 +21,6 @@ from browser_use.controller.registry.views import (
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.telemetry.service import ProductTelemetry
-from browser_use.telemetry.views import (
-	ControllerRegisteredFunctionsTelemetryEvent,
-	RegisteredFunction,
-)
 from browser_use.utils import match_url_with_domain_pattern, time_execution_async
 
 Context = TypeVar('Context')
@@ -561,15 +557,6 @@ class Registry(Generic[Context]):
 			ActionModelUnion.__qualname__ = 'ActionModel'
 
 			result_model = ActionModelUnion
-
-		self.telemetry.capture(
-			ControllerRegisteredFunctionsTelemetryEvent(
-				registered_functions=[
-					RegisteredFunction(name=name, params=action.param_model.model_json_schema())
-					for name, action in available_actions.items()
-				]
-			)
-		)
 
 		return result_model  # type:ignore
 

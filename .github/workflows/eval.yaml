@@ -168,6 +168,11 @@ jobs:
           RUN_ID="${{ github.event.client_payload.script_args.run_id }}"
           LAMINAR_EVAL_ID="${{ github.event.client_payload.script_args.laminar_eval_id }}"
 
+          # Single task mode parameters
+          TASK_ID="${{ github.event.client_payload.script_args.task_id }}"
+          TASK_TEXT="${{ github.event.client_payload.script_args.task_text }}"
+          TASK_WEBSITE="${{ github.event.client_payload.script_args.task_website }}"
+
           # Build command using array for cleaner construction
           CMD_ARGS=(
             "python" "eval/service.py"
@@ -201,6 +206,11 @@ jobs:
           [[ -n "$PLANNER_MODEL" ]] && CMD_ARGS+=("--planner-model" "$PLANNER_MODEL")
           [[ -n "$RUN_ID" ]] && CMD_ARGS+=("--run-id" "$RUN_ID")
           [[ -n "$LAMINAR_EVAL_ID" ]] && CMD_ARGS+=("--laminar-eval-id" "$LAMINAR_EVAL_ID")
+          
+          # Add single task mode parameters
+          [[ -n "$TASK_ID" ]] && CMD_ARGS+=("--task-id" "$TASK_ID")
+          [[ -n "$TASK_TEXT" ]] && CMD_ARGS+=("--task-text" "$TASK_TEXT")
+          [[ -n "$TASK_WEBSITE" ]] && CMD_ARGS+=("--task-website" "$TASK_WEBSITE")
 
           # Convert array to command string with proper escaping
           printf -v CMD_STRING '%q ' "${CMD_ARGS[@]}"

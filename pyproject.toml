@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.3.2"
+version = "0.3.3"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -13,7 +13,7 @@ classifiers = [
 dependencies = [
     "aiofiles>=24.1.0",
     "anyio>=4.9.0",
-    "bubus>=1.1.2",
+    "bubus>=1.2.2",
     "google-api-core>=2.25.0",
     "httpx>=0.28.1",
     "markdownify==1.1.0",
@@ -129,6 +129,7 @@ include = [
 ]
 
 [tool.pytest.ini_options]
+timeout = 300
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
@@ -142,7 +143,7 @@ testpaths = [
     "tests"
 ]
 python_files = ["test_*.py", "*_test.py"]
-addopts = "-v --strict-markers --tb=short"
+addopts = "-svx --strict-markers --tb=short --dist=loadscope"
 log_cli = true
 log_cli_format = "%(levelname)-8s [%(name)s] %(message)s"
 filterwarnings = [
@@ -184,4 +185,5 @@ dev-dependencies = [
     "pillow>=11.2.1",
     "lmnr[all]>=0.6.13",
     # "pytest-playwright-asyncio>=0.7.0",  # not actually needed I think
+    "pytest-timeout>=2.4.0",
 ]
