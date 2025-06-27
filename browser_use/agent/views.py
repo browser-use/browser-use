@@ -23,6 +23,7 @@ from browser_use.filesystem.file_system import FileSystemState
 from browser_use.llm.base import BaseChatModel
 from enum import Enum
 from typing import Any
+from pydantic import BaseModel, Field
 class AgentSettings(BaseModel):
 	"""Configuration options for the Agent"""
 
@@ -81,14 +82,52 @@ class AgentState(BaseModel):
 	status: AgentStatus = AgentStatus.RUNNING
 	
 	# DEPRECATED: Keep for backward compatibility during transition
-	# paused: bool = Field(default=False, description="DEPRECATED: Use status instead")
-	# stopped: bool = Field(default=False, description="DEPRECATED: Use status instead")
+	paused: bool = Field(default=False, description="DEPRECATED: Use status instead")
+	stopped: bool = Field(default=False, description="DEPRECATED: Use status instead")
  
 	message_manager_state: MessageManagerState = Field(default_factory=MessageManagerState)
 	file_system_state: FileSystemState | None = None
 
 	# class Config:
 	# 	arbitrary_types_allowed = True
+	def model_post_init(self, __context: Any) -> None:
+		"""Sync deprecated fields with status enum after initialization"""
+        # Sync status to deprecated fields
+		if self.status == AgentStatus.PAUSED:
+			object.__setattr__(self, 'paused', True)
+			object.__setattr__(self, 'stopped', False)
+		elif self.status == AgentStatus.STOPPED:
+			object.__setattr__(self, 'paused', False)
+			object.__setattr__(self, 'stopped', True)
+		else:  # RUNNING
+			object.__setattr__(self, 'paused', False)
+			object.__setattr__(self, 'stopped', False)
+
+	def __setattr__(self, name: str, value: Any) -> None:
+		"""Sync deprecated fields with new status enum for backward compatibility"""
+		super().__setattr__(name, value)
+        
+        # Auto-sync when deprecated fields are set (avoid infinite recursion)
+		if name == "paused" and value and hasattr(self, 'status'):
+			super().__setattr__("status", AgentStatus.PAUSED)
+		elif name == "stopped" and value and hasattr(self, 'status'):
+			super().__setattr__("status", AgentStatus.STOPPED)
+		elif name in ("paused", "stopped") and not value and hasattr(self, 'status'):
+            # Only set to RUNNING if both are False
+			if not getattr(self, 'paused', False) and not getattr(self, 'stopped', False):
+				super().__setattr__("status", AgentStatus.RUNNING)
+            
+        # Auto-sync when new status field is set
+		elif name == "status" and hasattr(self, 'paused') and hasattr(self, 'stopped'):
+			if value == AgentStatus.PAUSED:
+				super().__setattr__("paused", True)
+				super().__setattr__("stopped", False)
+			elif value == AgentStatus.STOPPED:
+				super().__setattr__("paused", False)
+				super().__setattr__("stopped", True)
+			elif value == AgentStatus.RUNNING:
+				super().__setattr__("paused", False)
+				super().__setattr__("stopped", False)
 
 
 @dataclass
