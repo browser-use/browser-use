@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.3.3"
+version = "0.4.0"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -20,6 +20,7 @@ dependencies = [
     "mem0ai>=0.1.106",
     "patchright>=1.52.5",
     "playwright>=1.52.0",
+    "portalocker>=2.7.0,<3.0.0",
     "posthog>=3.7.0",
     "psutil>=7.0.0",
     "pydantic>=2.11.5",
@@ -115,7 +116,7 @@ skip-magic-trailing-comma = false
 
 [tool.pyright]
 typeCheckingMode = "basic"
-exclude = ["tests/old/", ".venv/", ".git/", "__pycache__/"]
+exclude = ["tests/old/", ".venv/", ".git/", "__pycache__/", "./test_*.py", "./debug_*.py"]
 
 
 [tool.hatch.build]

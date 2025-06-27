@@ -349,13 +349,15 @@ class Agent(Generic[Context]):
 					'Call: await browser_session.start()'
 				)
 
-			# always copy sessions that are passed in to avoid agents overwriting each other's agent_current_page and human_current_page by accident
-			self.browser_session = browser_session.model_copy(
-				# update={
-				# 	'agent_current_page': None,   # dont reset these, let the next agent start on the same page as the last agent
-				# 	'human_current_page': None,
-				# },
-			)
+			# Always copy sessions that are passed in to avoid agents overwriting each other's agent_current_page and human_current_page by accident
+			# The model_copy() method now handles copying all necessary fields and setting up ownership
+			if browser_session._owns_browser_resources:
+				self.browser_session = browser_session
+			else:
+				self.logger.warning(
+					'⚠️ Attempting to use multiple Agents with the same BrowserSession! This is not supported yet and will likely lead to strange behavior, use separate BrowserSessions for each Agent.'
+				)
+				self.browser_session = browser_session.model_copy()
 		else:
 			if browser is not None:
 				assert isinstance(browser, Browser), 'Browser is not set up'
@@ -458,6 +460,7 @@ class Agent(Generic[Context]):
 			self.logger.info(f'💬 Saving conversation to {_log_pretty_path(self.settings.save_conversation_path)}')
 
 		# Initialize download tracking
+		assert self.browser_session is not None, 'BrowserSession is not set up'
 		self.has_downloads_path = self.browser_session.browser_profile.downloads_path is not None
 		if self.has_downloads_path:
 			self._last_known_downloads: list[str] = []
@@ -1276,9 +1279,16 @@ class Agent(Generic[Context]):
 				output_event = await CreateAgentOutputFileEvent.from_agent_and_file(self, output_path)
 				self.eventbus.dispatch(output_event)
 
-			# Wait for cloud auth to complete if in progress
+			# Wait briefly for cloud auth to start and print the URL, but don't block for completion
 			if self.enable_cloud_sync and hasattr(self, 'cloud_sync'):
-				await self.cloud_sync.wait_for_auth()
+				if self.cloud_sync.auth_task and not self.cloud_sync.auth_task.done():
+					try:
+						# Wait up to 1 second for auth to start and print URL
+						await asyncio.wait_for(self.cloud_sync.auth_task, timeout=1.0)
+					except TimeoutError:
+						logger.info('Cloud authentication started - continuing in background')
+					except Exception as e:
+						logger.debug(f'Cloud authentication error: {e}')
 
 			# Stop the event bus gracefully, waiting for all events to be processed
 			# Use longer timeout to avoid deadlocks in tests with multiple agents

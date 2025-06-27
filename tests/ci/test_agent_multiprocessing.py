@@ -149,8 +149,9 @@ class TestParallelism:
 				if last_history.model_output and last_history.model_output.action:
 					assert any('done' in action.model_dump(include={'done'}) for action in last_history.model_output.action)
 
-			# Verify they used different browser sessions
-			assert agent1.browser_session is not agent2.browser_session
+			# Verify they share the same browser session (new behavior)
+			assert agent1.browser_session is agent2.browser_session
+			assert agent1.browser_session is browser_session
 		finally:
 			await browser_session.kill()
 
@@ -198,8 +199,9 @@ class TestParallelism:
 				if last_history.model_output and last_history.model_output.action:
 					assert any('done' in action.model_dump(include={'done'}) for action in last_history.model_output.action)
 
-			# Verify they used different browser sessions
-			assert agent1.browser_session is not agent2.browser_session
+			# Verify they share the same browser session (new behavior)
+			assert agent1.browser_session is agent2.browser_session
+			assert agent1.browser_session is browser_session
 		finally:
 			await browser_session.kill()
 

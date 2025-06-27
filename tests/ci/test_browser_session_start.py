@@ -744,7 +744,12 @@ class TestBrowserSessionReusePatterns:
 			)
 
 			# Run all agents in parallel
-			_results = await asyncio.gather(agent1.run(), agent2.run(), agent3.run())
+			results = await asyncio.gather(agent1.run(), agent2.run(), agent3.run(), return_exceptions=True)
+
+			# Check if any agents failed
+			for i, result in enumerate(results):
+				if isinstance(result, Exception):
+					raise AssertionError(f'Agent {i + 1} failed with error: {result}')
 
 			# Verify all agents used the same browser session (using __eq__ to check browser_pid, cdp_url, wss_url)
 			# Debug: print the browser sessions to see what's different
@@ -763,10 +768,18 @@ class TestBrowserSessionReusePatterns:
 			assert agent1.browser_session == shared_browser, f'agent1 != shared: {agent1.browser_session} != {shared_browser}'
 			assert shared_browser.initialized
 
+			# Give a small delay to ensure all tabs are fully created
+			await asyncio.sleep(0.5)
+
 			# Verify multiple tabs were created
 			tabs_info = await shared_browser.get_tabs_info()
+			print(f'Number of tabs: {len(tabs_info)}')
+			for i, tab in enumerate(tabs_info):
+				print(f'Tab {i}: {tab}')
+
 			# Should have at least 3 tabs (one per agent)
-			assert len(tabs_info) >= 3
+			# In some cases, there might be more tabs if the initial about:blank tab is still open
+			assert len(tabs_info) >= 3, f'Expected at least 3 tabs, but found {len(tabs_info)}: {tabs_info}'
 
 		finally:
 			await shared_browser.kill()

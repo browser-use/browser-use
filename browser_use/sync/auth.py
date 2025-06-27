@@ -319,18 +319,20 @@ class DeviceAuthClient:
 
 				return True
 
-		except Exception as e:
-			# Log the error details for debugging
-			if hasattr(e, 'response'):
-				response = getattr(e, 'response')
-				if hasattr(response, 'status_code') and hasattr(response, 'text'):
-					logger.debug(
-						f'Failed to get pre-auth token for cloud sync: HTTP {response.request.url} {response.status_code} - {response.text}'
-					)
-				else:
-					logger.debug(f'Failed to get pre-auth token for cloud sync: {type(e).__name__}: {e}')
+		except httpx.HTTPStatusError as e:
+			# HTTP error with response
+			if e.response.status_code == 404:
+				logger.warning(
+					'Cloud sync authentication endpoint not found (404). Check your BROWSER_USE_CLOUD_API_URL setting.'
+				)
 			else:
-				logger.debug(f'Failed to get pre-auth token for cloud sync: {type(e).__name__}: {e}')
+				logger.warning(f'Failed to authenticate with cloud service: HTTP {e.response.status_code} - {e.response.text}')
+		except httpx.RequestError as e:
+			# Connection/network errors
+			logger.warning(f'Failed to connect to cloud service: {type(e).__name__}: {e}')
+		except Exception as e:
+			# Other unexpected errors
+			logger.warning(f'Unexpected error during cloud authentication: {type(e).__name__}: {e}')
 
 		if show_instructions:
 			logger.info('❌ Authentication failed or timed out')
