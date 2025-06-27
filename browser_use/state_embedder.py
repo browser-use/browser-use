@@ -147,18 +147,30 @@ def main():
     
     args = parser.parse_args()
     
+    # Set parameters as variables
+    scored_file = r"D:\supie\202506\browser-use-RL\score_json\obsidian_20250626_144509_350746_scored.json"
+    original_file = r"D:\supie\202506\browser-use-RL\json_logs\obsidian_20250626_144509_350746.json"
+    
     # Check if files exist
-    if not Path(args.scored_file).exists():
-        print(f"Error: Scored file '{args.scored_file}' not found!")
+    if not Path(scored_file).exists():
+        print(f"Error: Scored file '{scored_file}' not found!")
         return
     
-    if not Path(args.original_file).exists():
-        print(f"Error: Original file '{args.original_file}' not found!")
+    if not Path(original_file).exists():
+        print(f"Error: Original file '{original_file}' not found!")
         return
+
+
+    output_dir = Path(r"D:\supie\202506\browser-use-RL\state_embedder")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate output filename based on input file
+    input_filename = Path(scored_file).stem
+    output_file = output_dir / f"{input_filename}_embeddings.json"
     
     # Create embeddings
     try:
-        process_with_original_data(args.scored_file, args.original_file, args.output)
+        process_with_original_data(scored_file, original_file, output_file)
     except Exception as e:
         print(f"Error creating embeddings: {e}")
         import traceback
