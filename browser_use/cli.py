@@ -789,10 +789,9 @@ class BrowserUseApp(App):
 			if self.agent:
 				temp_str = f'{self.llm.temperature}ºC ' if self.llm.temperature else ''
 				vision_str = '+ vision ' if self.agent.settings.use_vision else ''
-				memory_str = '+ memory ' if self.agent.enable_memory else ''
 				planner_str = '+ planner' if self.agent.settings.planner_llm else ''
 				model_info.write(
-					f'[white]LLM:[/] [blue]{self.llm.__class__.__name__} [yellow]{model_name}[/] {temp_str}{vision_str}{memory_str}{planner_str}'
+					f'[white]LLM:[/] [blue]{self.llm.__class__.__name__} [yellow]{model_name}[/] {temp_str}{vision_str}{planner_str}'
 				)
 			else:
 				model_info.write(f'[white]LLM:[/] [blue]{self.llm.__class__.__name__} [yellow]{model_name}[/]')
@@ -898,13 +897,6 @@ class BrowserUseApp(App):
 
 						# Show goal if available
 						if item.model_output and hasattr(item.model_output, 'current_state'):
-							# Show memory (context) for this step
-							memory = item.model_output.current_state.memory
-							if memory:
-								memory_lines = memory.strip().split('\n')
-								memory_summary = memory_lines[0]
-								tasks_info.write(f'   [dim]Memory:[/] {memory_summary}')
-
 							# Show goal for this step
 							goal = item.model_output.current_state.next_goal
 							if goal:

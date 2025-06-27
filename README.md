@@ -28,12 +28,6 @@ With pip (Python>=3.11):
 pip install browser-use
 ```
 
-For memory functionality (requires Python<3.13 due to PyTorch compatibility):
-
-```bash
-pip install "browser-use[memory]"
-```
-
 Install the browser:
 
 ```bash
@@ -83,7 +77,7 @@ You can test browser-use using its [Web UI](https://github.com/browser-use/web-u
 You can also use our `browser-use` interactive CLI (similar to `claude` code):
 
 ```bash
-pip install browser-use[cli]
+pip install "browser-use[cli]"
 browser-use
 ```
 

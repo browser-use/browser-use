@@ -270,6 +270,10 @@ class AgentHistoryList(BaseModel):
 				total += h.metadata.duration_seconds
 		return total
 
+	def __len__(self) -> int:
+		"""Return the number of history items"""
+		return len(self.history)
+
 	def __str__(self) -> str:
 		"""Representation of the AgentHistoryList object"""
 		return f'AgentHistoryList(all_results={self.action_results()}, all_model_outputs={self.model_actions()})'

@@ -10,11 +10,38 @@ from datetime import datetime
 
 import httpx
 from pydantic import BaseModel
+from uuid_extensions import uuid7str
 
 from browser_use.config import CONFIG
 
 # Temporary user ID for pre-auth events (matches cloud backend)
 TEMP_USER_ID = '99999999-9999-9999-9999-999999999999'
+
+
+def get_or_create_device_id() -> str:
+	"""Get or create a persistent device ID for this installation."""
+	device_id_path = CONFIG.BROWSER_USE_CONFIG_DIR / 'device_id'
+
+	# Try to read existing device ID
+	if device_id_path.exists():
+		try:
+			device_id = device_id_path.read_text().strip()
+			if device_id:  # Make sure it's not empty
+				return device_id
+		except Exception:
+			# If we can't read it, we'll create a new one
+			pass
+
+	# Create new device ID
+	device_id = uuid7str()
+
+	# Ensure config directory exists
+	CONFIG.BROWSER_USE_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+	# Write device ID to file
+	device_id_path.write_text(device_id)
+
+	return device_id
 
 
 class CloudAuthConfig(BaseModel):
@@ -71,6 +98,9 @@ class DeviceAuthClient:
 		# Temporary user ID for pre-auth events
 		self.temp_user_id = TEMP_USER_ID
 
+		# Get or create persistent device ID
+		self.device_id = get_or_create_device_id()
+
 		# Load existing auth if available
 		self.auth_config = CloudAuthConfig.load_from_file()
 
@@ -104,6 +134,7 @@ class DeviceAuthClient:
 					'client_id': self.client_id,
 					'scope': self.scope,
 					'agent_session_id': agent_session_id,
+					'device_id': self.device_id,
 				},
 			)
 			response.raise_for_status()
@@ -116,6 +147,7 @@ class DeviceAuthClient:
 						'client_id': self.client_id,
 						'scope': self.scope,
 						'agent_session_id': agent_session_id,
+						'device_id': self.device_id,
 					},
 				)
 				response.raise_for_status()
@@ -287,18 +319,20 @@ class DeviceAuthClient:
 
 				return True
 
-		except Exception as e:
-			# Log the error details for debugging
-			if hasattr(e, 'response'):
-				response = getattr(e, 'response')
-				if hasattr(response, 'status_code') and hasattr(response, 'text'):
-					logger.debug(
-						f'Failed to get pre-auth token for cloud sync: HTTP {response.request.url} {response.status_code} - {response.text}'
-					)
-				else:
-					logger.debug(f'Failed to get pre-auth token for cloud sync: {type(e).__name__}: {e}')
+		except httpx.HTTPStatusError as e:
+			# HTTP error with response
+			if e.response.status_code == 404:
+				logger.warning(
+					'Cloud sync authentication endpoint not found (404). Check your BROWSER_USE_CLOUD_API_URL setting.'
+				)
 			else:
-				logger.debug(f'Failed to get pre-auth token for cloud sync: {type(e).__name__}: {e}')
+				logger.warning(f'Failed to authenticate with cloud service: HTTP {e.response.status_code} - {e.response.text}')
+		except httpx.RequestError as e:
+			# Connection/network errors
+			logger.warning(f'Failed to connect to cloud service: {type(e).__name__}: {e}')
+		except Exception as e:
+			# Other unexpected errors
+			logger.warning(f'Unexpected error during cloud authentication: {type(e).__name__}: {e}')
 
 		if show_instructions:
 			logger.info('❌ Authentication failed or timed out')

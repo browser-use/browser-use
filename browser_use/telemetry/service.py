@@ -83,9 +83,9 @@ class ProductTelemetry:
 
 		try:
 			self._posthog_client.capture(
-				self.user_id,
-				event.name,
-				{**event.properties, **POSTHOG_EVENT_SETTINGS},
+				distinct_id=self.user_id,
+				event=event.name,
+				properties={**event.properties, **POSTHOG_EVENT_SETTINGS},
 			)
 		except Exception as e:
 			logger.error(f'Failed to send telemetry event {event.name}: {e}')

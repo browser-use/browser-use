@@ -22,18 +22,58 @@ VerifiedGeminiModels = Literal[
 ]
 
 
+def _is_retryable_error(exception):
+	"""Check if an error should be retried based on error message patterns."""
+	error_msg = str(exception).lower()
+
+	# Rate limit patterns
+	rate_limit_patterns = ['rate limit', 'resource exhausted', 'quota exceeded', 'too many requests', '429']
+
+	# Server error patterns
+	server_error_patterns = ['service unavailable', 'internal server error', 'bad gateway', '503', '502', '500']
+
+	# Connection error patterns
+	connection_patterns = ['connection', 'timeout', 'network', 'unreachable']
+
+	all_patterns = rate_limit_patterns + server_error_patterns + connection_patterns
+	return any(pattern in error_msg for pattern in all_patterns)
+
+
 @dataclass
 class ChatGoogle(BaseChatModel):
 	"""
 	A wrapper around Google's Gemini chat model using the genai client.
 
-	This class accepts all genai.Client parameters while adding model
-	and temperature parameters for the LLM interface.
+	This class accepts all genai.Client parameters while adding model,
+	temperature, and config parameters for the LLM interface.
+
+	Args:
+		model: The Gemini model to use
+		temperature: Temperature for response generation
+		config: Additional configuration parameters to pass to generate_content
+			(e.g., tools, safety_settings, etc.).
+		api_key: Google API key
+		vertexai: Whether to use Vertex AI
+		credentials: Google credentials object
+		project: Google Cloud project ID
+		location: Google Cloud location
+		http_options: HTTP options for the client
+
+	Example:
+		from google.genai import types
+
+		llm = ChatGoogle(
+			model='gemini-2.0-flash-exp',
+			config={
+				'tools': [types.Tool(code_execution=types.ToolCodeExecution())]
+			}
+		)
 	"""
 
 	# Model configuration
 	model: VerifiedGeminiModels | str
 	temperature: float | None = None
+	config: types.GenerateContentConfigDict | None = None
 
 	# Client initialization parameters
 	api_key: str | None = None
@@ -125,8 +165,12 @@ class ChatGoogle(BaseChatModel):
 		# Serialize messages to Google format
 		contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages)
 
-		# Return string response
+		# Build config dictionary starting with user-provided config
 		config: types.GenerateContentConfigDict = {}
+		if self.config:
+			config = self.config.copy()
+
+		# Apply model-specific configuration (these can override config)
 		if self.temperature is not None:
 			config['temperature'] = self.temperature
 
@@ -134,7 +178,7 @@ class ChatGoogle(BaseChatModel):
 		if system_instruction:
 			config['system_instruction'] = system_instruction
 
-		try:
+		async def _make_api_call():
 			if output_format is None:
 				# Return string response
 				response = await self.get_client().aio.models.generate_content(
@@ -204,10 +248,50 @@ class ChatGoogle(BaseChatModel):
 						usage=usage,
 					)
 
+		try:
+			# Use manual retry loop for Google API calls
+			last_exception = None
+			for attempt in range(10):  # Match our 10 retry attempts from other providers
+				try:
+					return await _make_api_call()
+				except Exception as e:
+					last_exception = e
+					if not _is_retryable_error(e) or attempt == 9:  # Last attempt
+						break
+
+					# Simple exponential backoff
+					import asyncio
+
+					delay = min(60.0, 1.0 * (2.0**attempt))  # Cap at 60s
+					await asyncio.sleep(delay)
+
+			# Re-raise the last exception if all retries failed
+			if last_exception:
+				raise last_exception
+			else:
+				# This should never happen, but ensure we don't return None
+				raise ModelProviderError(
+					message='All retry attempts failed without exception',
+					status_code=500,
+					model=self.name,
+				)
+
 		except Exception as e:
 			# Handle specific Google API errors
 			error_message = str(e)
 			status_code: int | None = None
+
+			# Check if this is a rate limit error
+			if any(
+				indicator in error_message.lower()
+				for indicator in ['rate limit', 'resource exhausted', 'quota exceeded', 'too many requests', '429']
+			):
+				status_code = 429
+			elif any(
+				indicator in error_message.lower()
+				for indicator in ['service unavailable', 'internal server error', 'bad gateway', '503', '502', '500']
+			):
+				status_code = 503
 
 			# Try to extract status code if available
 			if hasattr(e, 'response'):

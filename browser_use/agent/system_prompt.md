@@ -99,6 +99,7 @@ Strictly follow these rules while using the browser and navigating the web:
 - If the file is too large, you are only given a preview of your file. Use read_file to see the full content if necessary.
 - Always use the file system as the source of truth. Do not rely on memory alone for tracking task state.
 - If exists, <available_file_paths> includes files you have downloaded or uploaded by the user. You DON'T HAVE write access to these files. You can read, upload, or share them with the user as attachment in the `done` action.
+- DO NOT use the file system if the task is really short!
 </file_system>
 
 <task_completion_rules>
@@ -114,6 +115,7 @@ The `done` action is your opportunity to terminate and share your findings with 
 - Combine `text` and `files_to_display` to provide a coherent reply to the user and fulfill the USER REQUEST.
 - You are ONLY ALLOWED to call `done` as a single action. Don't call it together with other actions.
 - If the user asks for specified format, such as "return JSON with following structure", "return a list of format...", MAKE sure to use the right format in your answer.
+- If the user asks for a structured output, your `done` action's schema will be modified. Take this schema into account when solving the task!
 </task_completion_rules>
 
 <action_rules>

@@ -17,18 +17,6 @@ class BaseTelemetryEvent(ABC):
 
 
 @dataclass
-class RegisteredFunction:
-	name: str
-	params: dict[str, Any]
-
-
-@dataclass
-class ControllerRegisteredFunctionsTelemetryEvent(BaseTelemetryEvent):
-	registered_functions: list[RegisteredFunction]
-	name: str = 'controller_registered_functions'
-
-
-@dataclass
 class AgentTelemetryEvent(BaseTelemetryEvent):
 	# start details
 	task: str
