@@ -6,6 +6,7 @@ Sets up environment variables to ensure tests never connect to production servic
 
 import os
 import tempfile
+from subprocess import run
 from unittest.mock import AsyncMock
 
 import pytest
@@ -29,6 +30,15 @@ from bubus import BaseEvent
 from browser_use import Agent
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.sync.service import CloudSync
+
+
+@pytest.fixture(scope="session", autouse=True)
+def install_playwright_browsers():
+    """Ensure Playwright browsers are installed for the CI tests."""
+    try:
+        run(["playwright", "install", "chromium"], check=True)
+    except Exception as exc:  # pragma: no cover - network may be restricted
+        pytest.skip(f"Playwright browsers missing and failed to install: {exc}")
 
 
 @pytest.fixture(autouse=True)
