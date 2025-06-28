@@ -366,8 +366,6 @@ extraction, interaction, login, research, shopping, booking, comparison, qa_test
 - 60-69: Poor execution with significant issues
 - 1-59: Failed execution, major problems
 
-**PASS THRESHOLD: 70%**
-
 **IMPORTANT: DO NOT EVALUATE FOR HALLUCINATION**
 The agent has access at every step to browser_state so it has more information than you can see. If the agent states something as fact or provides specific data, assume it is correct. Focus on evaluating trajectory quality, tool usage, and task completion rather than data accuracy.
 
@@ -380,11 +378,11 @@ Respond with EXACTLY this JSON structure (no additional text):
     "reasoning": "Detailed analysis of what went well and what didn't, trajectory quality, planning assessment, output quality, user satisfaction",
     "error_categories": ["error1", "error2"],
     "scores": {{
-        "task_satisfaction": 70
+        "task_satisfaction": 70,
         "tool_calling_effectiveness": 80,
         "agent_reasoning": 85,
         "browser_handling": 65,
-        "trajectory_quality": 75,
+        "trajectory_quality": 75
     }},
     "final_score": 75,
     "critical_issues": [
@@ -492,6 +490,9 @@ def parse_judge_response(result_dict: dict, task: str) -> JudgeResult:
 		)
 
 		final_score = result_dict.get('final_score', 50)
+		
+		# Hard code pass/fail with 70 as threshold - judge doesn't decide this
+		passed = final_score >= 70
 
 		return JudgeResult(
 			task_summary=result_dict.get('task_summary', 'Task analysis unavailable'),
@@ -501,7 +502,7 @@ def parse_judge_response(result_dict: dict, task: str) -> JudgeResult:
 			error_categories=error_categories,
 			scores=scores,
 			final_score=final_score,
-			passed=final_score >= 70,
+			passed=passed,
 			improvement_tips=result_dict.get('improvement_tips', []),
 			critical_issues=result_dict.get('critical_issues', []),
 			evaluation_timestamp=datetime.now().isoformat(),
@@ -514,23 +515,26 @@ def parse_judge_response(result_dict: dict, task: str) -> JudgeResult:
 
 def create_fallback_result(task: str, error_msg: str) -> JudgeResult:
 	"""Create a fallback result when evaluation fails."""
+	# Set scores to be < 40 when there's no response due to error
+	error_score = 15  # Less than 40 as required
+	
 	return JudgeResult(
 		task_summary=f'Failed to analyze task: {task[:100]}...',
-		task_clarity_score=0,
+		task_clarity_score=error_score,
 		task_categories=[TaskCategory.QA_TESTING],
-		reasoning=f'Evaluation failed: {error_msg}',
+		reasoning=f'Evaluation failed due to error - no response available: {error_msg}',
 		error_categories=[ErrorCategory.IMPOSSIBLE_TASK],
 		scores=ScoreBreakdown(
-			trajectory_quality=0,
-			tool_calling_effectiveness=0,
-			agent_reasoning=0,
-			browser_handling=0,
-			task_satisfaction=0,
+			trajectory_quality=error_score,
+			tool_calling_effectiveness=error_score,
+			agent_reasoning=error_score,
+			browser_handling=error_score,
+			task_satisfaction=error_score,
 		),
-		final_score=0,
-		passed=False,
-		improvement_tips=['Fix evaluation system'],
-		critical_issues=[f'Evaluation system failure: {error_msg}'],
+		final_score=error_score,
+		passed=error_score >= 70,  # This will be False since error_score < 70
+		improvement_tips=['Fix evaluation system to handle errors better'],
+		critical_issues=[f'Evaluation system failure - no response due to error: {error_msg}'],
 		evaluation_timestamp=datetime.now().isoformat(),
 	)
 
