@@ -487,7 +487,7 @@ class Agent(Generic[Context]):
 		"""Backward compatibility property"""
 		return self.state.status == AgentStatus.PAUSED
 
-	@property  
+	@property
 	def stopped(self) -> bool:
 		"""Backward compatibility property"""
 		return self.state.status == AgentStatus.STOPPED
@@ -950,7 +950,7 @@ class Agent(Generic[Context]):
 		if len(parsed.action) > self.settings.max_actions_per_step:
 			parsed.action = parsed.action[: self.settings.max_actions_per_step]
 
-		if not (self.state.status in (AgentStatus.PAUSED, AgentStatus.STOPPED)):
+		if self.state.status not in (AgentStatus.PAUSED, AgentStatus.STOPPED):
 			log_response(parsed, self.controller.registry.registry, self.logger)
 
 		self._log_next_action_summary(parsed)

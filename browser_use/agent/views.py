@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import traceback
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -21,9 +22,8 @@ from browser_use.dom.history_tree_processor.service import (
 from browser_use.dom.views import SelectorMap
 from browser_use.filesystem.file_system import FileSystemState
 from browser_use.llm.base import BaseChatModel
-from enum import Enum
-from typing import Any
-from pydantic import BaseModel, Field
+
+
 class AgentSettings(BaseModel):
 	"""Configuration options for the Agent"""
 
@@ -63,9 +63,10 @@ class AgentSettings(BaseModel):
 
 
 class AgentStatus(Enum):
-    RUNNING = 'running'
-    PAUSED = 'paused'
-    STOPPED = 'stopped'
+	RUNNING = 'running'
+	PAUSED = 'paused'
+	STOPPED = 'stopped'
+
 
 class AgentState(BaseModel):
 	"""Holds all state information for an Agent"""
@@ -80,11 +81,11 @@ class AgentState(BaseModel):
 
 	# Simplified state management
 	status: AgentStatus = AgentStatus.RUNNING
-	
+
 	# DEPRECATED: Keep for backward compatibility during transition
-	paused: bool = Field(default=False, description="DEPRECATED: Use status instead")
-	stopped: bool = Field(default=False, description="DEPRECATED: Use status instead")
- 
+	paused: bool = Field(default=False, description='DEPRECATED: Use status instead')
+	stopped: bool = Field(default=False, description='DEPRECATED: Use status instead')
+
 	message_manager_state: MessageManagerState = Field(default_factory=MessageManagerState)
 	file_system_state: FileSystemState | None = None
 
@@ -92,7 +93,7 @@ class AgentState(BaseModel):
 	# 	arbitrary_types_allowed = True
 	def model_post_init(self, __context: Any) -> None:
 		"""Sync deprecated fields with status enum after initialization"""
-        # Sync status to deprecated fields
+		# Sync status to deprecated fields
 		if self.status == AgentStatus.PAUSED:
 			object.__setattr__(self, 'paused', True)
 			object.__setattr__(self, 'stopped', False)
@@ -106,18 +107,18 @@ class AgentState(BaseModel):
 	def __setattr__(self, name: str, value: Any) -> None:
 		"""Sync deprecated fields with new status enum for backward compatibility"""
 		super().__setattr__(name, value)
-        
-        # Auto-sync when deprecated fields are set (avoid infinite recursion)
+
+		# Auto-sync when deprecated fields are set (avoid infinite recursion)
 		if name == 'paused' and value and hasattr(self, 'status'):
 			super().__setattr__('status', AgentStatus.PAUSED)
 		elif name == 'stopped' and value and hasattr(self, 'status'):
-			super().__setattr__("status", AgentStatus.STOPPED)
+			super().__setattr__('status', AgentStatus.STOPPED)
 		elif name in ('paused', 'stopped') and not value and hasattr(self, 'status'):
-            # Only set to RUNNING if both are False
+			# Only set to RUNNING if both are False
 			if not getattr(self, 'paused', False) and not getattr(self, 'stopped', False):
 				super().__setattr__('status', AgentStatus.RUNNING)
-            
-        # Auto-sync when new status field is set
+
+				# Auto-sync when new status field is set
 		elif name == 'status' and hasattr(self, 'paused') and hasattr(self, 'stopped'):
 			if value == AgentStatus.PAUSED:
 				super().__setattr__('paused', True)
