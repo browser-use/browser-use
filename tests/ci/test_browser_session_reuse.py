@@ -133,18 +133,27 @@ class TestBrowserSessionReuse:
 			# Start the close task
 			close_task = asyncio.create_task(close_during_operation())
 
-			# Try to take a screenshot - the retry decorator should handle the failure
-			# Note: This might succeed if the screenshot completes before the close
 			try:
-				screenshot2 = await session.take_screenshot()
-				# If it succeeded, the browser should have been regenerated
-				assert screenshot2 is not None
-			except Exception:
-				# If it failed, that's also OK - the browser state was reset
-				pass
+				# Try to take a screenshot - the retry decorator should handle the failure
+				# Note: This might succeed if the screenshot completes before the close
+				try:
+					screenshot2 = await session.take_screenshot()
+					# If it succeeded, the browser should have been regenerated
+					assert screenshot2 is not None
+				except Exception:
+					# If it failed, that's also OK - the browser state was reset
+					pass
 
-			# Wait for close task to complete
-			await close_task
+				# Wait for close task to complete
+				await close_task
+			finally:
+				# Ensure the task is properly cancelled if it hasn't completed
+				if not close_task.done():
+					close_task.cancel()
+					try:
+						await close_task
+					except asyncio.CancelledError:
+						pass
 
 			# Verify we can still use the browser after regeneration
 			await session.start()  # Ensure browser is started

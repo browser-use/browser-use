@@ -1,108 +1,135 @@
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, TypeVar, overload
+from typing import TYPE_CHECKING, Any, TypeVar, overload
 
-import httpx
 from anthropic import (
 	NOT_GIVEN,
 	APIConnectionError,
 	APIStatusError,
-	AsyncAnthropic,
-	NotGiven,
+	AsyncAnthropicBedrock,
 	RateLimitError,
 )
 from anthropic.types import CacheControlEphemeralParam, Message, ToolParam
-from anthropic.types.model_param import ModelParam
 from anthropic.types.text_block import TextBlock
 from anthropic.types.tool_choice_tool_param import ToolChoiceToolParam
-from httpx import Timeout
 from pydantic import BaseModel
 
 from browser_use.llm.anthropic.serializer import AnthropicMessageSerializer
-from browser_use.llm.base import BaseChatModel
+from browser_use.llm.aws.chat_bedrock import ChatAWSBedrock
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
-from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
+
+if TYPE_CHECKING:
+	from boto3.session import Session  # pyright: ignore
+
 
 T = TypeVar('T', bound=BaseModel)
 
 
 @dataclass
-class ChatAnthropic(BaseChatModel):
+class ChatAnthropicBedrock(ChatAWSBedrock):
 	"""
-	A wrapper around Anthropic's chat model.
+	AWS Bedrock Anthropic Claude chat model.
+
+	This is a convenience class that provides Claude-specific defaults
+	for the AWS Bedrock service. It inherits all functionality from
+	ChatAWSBedrock but sets Anthropic Claude as the default model.
 	"""
 
-	# Model configuration
-	model: str | ModelParam
+	# Anthropic Claude specific defaults
+	model: str = 'anthropic.claude-3-5-sonnet-20240620-v1:0'
 	max_tokens: int = 8192
 	temperature: float | None = None
+	top_p: float | None = None
+	top_k: int | None = None
+	stop_sequences: list[str] | None = None
+
+	# AWS credentials and configuration
+	aws_access_key: str | None = None
+	aws_secret_key: str | None = None
+	aws_session_token: str | None = None
+	aws_region: str | None = None
+	session: 'Session | None' = None
 
 	# Client initialization parameters
-	api_key: str | None = None
-	auth_token: str | None = None
-	base_url: str | httpx.URL | None = None
-	timeout: float | Timeout | None | NotGiven = NotGiven()
 	max_retries: int = 10
 	default_headers: Mapping[str, str] | None = None
 	default_query: Mapping[str, object] | None = None
 
-	# Static
 	@property
 	def provider(self) -> str:
-		return 'anthropic'
+		return 'anthropic_bedrock'
 
 	def _get_client_params(self) -> dict[str, Any]:
-		"""Prepare client parameters dictionary."""
-		# Define base client params
-		base_params = {
-			'api_key': self.api_key,
-			'auth_token': self.auth_token,
-			'base_url': self.base_url,
-			'timeout': self.timeout,
-			'max_retries': self.max_retries,
-			'default_headers': self.default_headers,
-			'default_query': self.default_query,
-		}
+		"""Prepare client parameters dictionary for Bedrock."""
+		client_params: dict[str, Any] = {}
 
-		# Create client_params dict with non-None values and non-NotGiven values
-		client_params = {}
-		for k, v in base_params.items():
-			if v is not None and v is not NotGiven():
-				client_params[k] = v
+		if self.session:
+			credentials = self.session.get_credentials()
+			client_params.update(
+				{
+					'aws_access_key': credentials.access_key,
+					'aws_secret_key': credentials.secret_key,
+					'aws_session_token': credentials.token,
+					'aws_region': self.session.region_name,
+				}
+			)
+		else:
+			# Use individual credentials
+			if self.aws_access_key:
+				client_params['aws_access_key'] = self.aws_access_key
+			if self.aws_secret_key:
+				client_params['aws_secret_key'] = self.aws_secret_key
+			if self.aws_region:
+				client_params['aws_region'] = self.aws_region
+			if self.aws_session_token:
+				client_params['aws_session_token'] = self.aws_session_token
+
+		# Add optional parameters
+		if self.max_retries:
+			client_params['max_retries'] = self.max_retries
+		if self.default_headers:
+			client_params['default_headers'] = self.default_headers
+		if self.default_query:
+			client_params['default_query'] = self.default_query
 
 		return client_params
 
-	def _get_client_params_for_invoke(self):
+	def _get_client_params_for_invoke(self) -> dict[str, Any]:
 		"""Prepare client parameters dictionary for invoke."""
-
 		client_params = {}
 
 		if self.temperature is not None:
 			client_params['temperature'] = self.temperature
-
 		if self.max_tokens is not None:
 			client_params['max_tokens'] = self.max_tokens
+		if self.top_p is not None:
+			client_params['top_p'] = self.top_p
+		if self.top_k is not None:
+			client_params['top_k'] = self.top_k
+		if self.stop_sequences is not None:
+			client_params['stop_sequences'] = self.stop_sequences
 
 		return client_params
 
-	def get_client(self) -> AsyncAnthropic:
+	def get_client(self) -> AsyncAnthropicBedrock:
 		"""
-		Returns an AsyncAnthropic client.
+		Returns an AsyncAnthropicBedrock client.
 
 		Returns:
-			AsyncAnthropic: An instance of the AsyncAnthropic client.
+			AsyncAnthropicBedrock: An instance of the AsyncAnthropicBedrock client.
 		"""
 		client_params = self._get_client_params()
-		return AsyncAnthropic(**client_params)
+		return AsyncAnthropicBedrock(**client_params)
 
 	@property
 	def name(self) -> str:
 		return str(self.model)
 
 	def _get_usage(self, response: Message) -> ChatInvokeUsage | None:
+		"""Extract usage information from the response."""
 		usage = ChatInvokeUsage(
 			prompt_tokens=response.usage.input_tokens
 			+ (
@@ -156,7 +183,7 @@ class ChatAnthropic(BaseChatModel):
 				# Use tool calling for structured output
 				# Create a tool that represents the output format
 				tool_name = output_format.__name__
-				schema = SchemaOptimizer.create_optimized_json_schema(output_format)
+				schema = output_format.model_json_schema()
 
 				# Remove title from schema if present (Anthropic doesn't like it in parameters)
 				if 'title' in schema:

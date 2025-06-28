@@ -36,6 +36,7 @@ dependencies = [
     "openai>=1.81.0",
     "anthropic>=0.54.0",
     "groq>=0.28.0",
+    "ollama>=0.5.1",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -53,12 +54,16 @@ cli = [
     "click>=8.1.8",
     "textual>=3.2.0",
 ]
+aws = [
+    "boto3>=1.38.45"
+]
 examples = [
     # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
     "botocore>=1.37.23",
     "imgcat>=0.6.0",
     "stagehand-py>=0.3.6",
     "browserbase>=0.4.0",
+    "langchain-openai>=0.3.26",
 ]
 eval = [
     "lmnr[all]>=0.6.11",
@@ -67,7 +72,7 @@ eval = [
     "psutil>=7.0.0",
 ]
 all = [
-    "browser-use[cli,examples]",
+    "browser-use[cli,examples,aws]",
 ]
 
 # will prefer to use local source code checked out in ../../browser-use (if present) instead of pypi browser-use package

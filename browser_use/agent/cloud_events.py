@@ -19,6 +19,7 @@ class UpdateAgentTaskEvent(BaseEvent):
 	# Required fields for identification
 	id: str  # The task ID to update
 	user_id: str = Field(max_length=255)  # For authorization
+	device_id: str | None = Field(None, max_length=255)  # Device ID for auth lookup
 
 	# Optional fields that can be updated
 	stopped: bool | None = None
@@ -40,6 +41,9 @@ class UpdateAgentTaskEvent(BaseEvent):
 		return cls(
 			id=str(agent.task_id),
 			user_id='',  # To be filled by cloud handler
+			device_id=agent.cloud_sync.auth_client.device_id
+			if hasattr(agent, 'cloud_sync') and agent.cloud_sync and agent.cloud_sync.auth_client
+			else None,
 			stopped=agent.state.stopped if hasattr(agent.state, 'stopped') else False,
 			paused=agent.state.paused if hasattr(agent.state, 'paused') else False,
 			done_output=done_output,
@@ -57,6 +61,7 @@ class CreateAgentOutputFileEvent(BaseEvent):
 	# Model fields
 	id: str = Field(default_factory=uuid7str)
 	user_id: str = Field(max_length=255)
+	device_id: str | None = Field(None, max_length=255)  # Device ID for auth lookup
 	task_id: str
 	file_name: str = Field(max_length=255)
 	file_content: str | None = None  # Base64 encoded file content
@@ -97,6 +102,9 @@ class CreateAgentOutputFileEvent(BaseEvent):
 
 		return cls(
 			user_id='',  # To be filled by cloud handler
+			device_id=agent.cloud_sync.auth_client.device_id
+			if hasattr(agent, 'cloud_sync') and agent.cloud_sync and agent.cloud_sync.auth_client
+			else None,
 			task_id=str(agent.task_id),
 			file_name=gif_path.name,
 			file_content=gif_content,  # Base64 encoded
@@ -108,6 +116,7 @@ class CreateAgentStepEvent(BaseEvent):
 	# Model fields
 	id: str = Field(default_factory=uuid7str)
 	user_id: str = Field(max_length=255)  # Added for authorization checks
+	device_id: str | None = Field(None, max_length=255)  # Device ID for auth lookup
 	created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 	agent_task_id: str
 	step: int
@@ -150,6 +159,9 @@ class CreateAgentStepEvent(BaseEvent):
 
 		return cls(
 			user_id='',  # To be filled by cloud handler
+			device_id=agent.cloud_sync.auth_client.device_id
+			if hasattr(agent, 'cloud_sync') and agent.cloud_sync and agent.cloud_sync.auth_client
+			else None,
 			agent_task_id=str(agent.task_id),
 			step=agent.state.n_steps,
 			evaluation_previous_goal=current_state.evaluation_previous_goal if current_state else '',
@@ -165,6 +177,7 @@ class CreateAgentTaskEvent(BaseEvent):
 	# Model fields
 	id: str = Field(default_factory=uuid7str)
 	user_id: str = Field(max_length=255)  # Added for authorization checks
+	device_id: str | None = Field(None, max_length=255)  # Device ID for auth lookup
 	agent_session_id: str
 	llm_model: str = Field(max_length=100)  # LLMModel enum value as string
 	stopped: bool = False
@@ -185,6 +198,9 @@ class CreateAgentTaskEvent(BaseEvent):
 		return cls(
 			id=str(agent.task_id),
 			user_id='',  # To be filled by cloud handler
+			device_id=agent.cloud_sync.auth_client.device_id
+			if hasattr(agent, 'cloud_sync') and agent.cloud_sync and agent.cloud_sync.auth_client
+			else None,
 			agent_session_id=str(agent.session_id),
 			task=agent.task,
 			llm_model=agent.llm.model_name,
@@ -204,6 +220,7 @@ class CreateAgentSessionEvent(BaseEvent):
 	# Model fields
 	id: str = Field(default_factory=uuid7str)
 	user_id: str = Field(max_length=255)
+	device_id: str | None = Field(None, max_length=255)  # Device ID for auth lookup
 	browser_session_id: str = Field(max_length=255)
 	browser_session_live_url: str = Field(max_length=MAX_URL_LENGTH)
 	browser_session_cdp_url: str = Field(max_length=MAX_URL_LENGTH)
@@ -219,6 +236,9 @@ class CreateAgentSessionEvent(BaseEvent):
 		return cls(
 			id=str(agent.session_id),
 			user_id='',  # To be filled by cloud handler
+			device_id=agent.cloud_sync.auth_client.device_id
+			if hasattr(agent, 'cloud_sync') and agent.cloud_sync and agent.cloud_sync.auth_client
+			else None,
 			browser_session_id=agent.browser_session.id,
 			browser_session_live_url='',  # To be filled by cloud handler
 			browser_session_cdp_url='',  # To be filled by cloud handler

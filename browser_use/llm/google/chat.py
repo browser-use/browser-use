@@ -12,6 +12,7 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError
 from browser_use.llm.google.serializer import GoogleMessageSerializer
 from browser_use.llm.messages import BaseMessage
+from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
@@ -201,7 +202,10 @@ class ChatGoogle(BaseChatModel):
 				# Return structured response
 				config['response_mime_type'] = 'application/json'
 				# Convert Pydantic model to Gemini-compatible schema
-				config['response_schema'] = self._pydantic_to_gemini_schema(output_format)
+				optimized_schema = SchemaOptimizer.create_optimized_json_schema(output_format)
+
+				gemini_schema = self._fix_gemini_schema(optimized_schema)
+				config['response_schema'] = gemini_schema
 
 				response = await self.get_client().aio.models.generate_content(
 					model=self.model,
@@ -305,14 +309,13 @@ class ChatGoogle(BaseChatModel):
 				model=self.name,
 			) from e
 
-	def _pydantic_to_gemini_schema(self, model_class: type[BaseModel]) -> dict[str, Any]:
+	def _fix_gemini_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
 		"""
 		Convert a Pydantic model to a Gemini-compatible schema.
 
 		This function removes unsupported properties like 'additionalProperties' and resolves
 		$ref references that Gemini doesn't support.
 		"""
-		schema = model_class.model_json_schema()
 
 		# Handle $defs and $ref resolution
 		if '$defs' in schema:

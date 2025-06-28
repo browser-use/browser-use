@@ -1296,7 +1296,7 @@ async def textual_interface(config: dict[str, Any]):
 		# Log browser and model configuration that will be used
 		browser_type = 'Chromium'  # BrowserSession only supports Chromium
 		model_name = config.get('model', {}).get('name', 'auto-detected')
-		headless = config.get('browser', {}).get('headless', True)
+		headless = config.get('browser', {}).get('headless', False)
 		headless_str = 'headless' if headless else 'visible'
 
 		logger.info(f'Preparing {browser_type} browser ({headless_str}) with {model_name} LLM')
@@ -1407,7 +1407,7 @@ def main(ctx: click.Context, debug: bool = False, **kwargs):
 	# Log browser and model configuration that will be used
 	browser_type = 'Chromium'  # BrowserSession only supports Chromium
 	model_name = config.get('model', {}).get('name', 'auto-detected')
-	headless = config.get('browser', {}).get('headless', True)
+	headless = config.get('browser', {}).get('headless', False)
 	headless_str = 'headless' if headless else 'visible'
 
 	logger.info(f'Preparing {browser_type} browser ({headless_str}) with {model_name} LLM')

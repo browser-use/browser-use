@@ -325,18 +325,6 @@ class Agent(Generic[Context]):
 		browser_profile = browser_profile or DEFAULT_BROWSER_PROFILE
 
 		if browser_session:
-			# Check if user is trying to reuse an uninitialized session
-			if browser_session.browser_profile.keep_alive and not browser_session.initialized:
-				self.logger.error(
-					'❌ Passed a BrowserSession with keep_alive=True that is not initialized. '
-					'Call await browser_session.start() before passing it to Agent() to reuse the same browser. '
-					'Otherwise, each agent will launch its own browser instance.'
-				)
-				raise ValueError(
-					'BrowserSession with keep_alive=True must be initialized before passing to Agent. '
-					'Call: await browser_session.start()'
-				)
-
 			# Always copy sessions that are passed in to avoid agents overwriting each other's agent_current_page and human_current_page by accident
 			# The model_copy() method now handles copying all necessary fields and setting up ownership
 			if browser_session._owns_browser_resources:
@@ -434,7 +422,7 @@ class Agent(Generic[Context]):
 		# Event bus with WAL persistence
 		# Default to ~/.config/browseruse/events/{agent_session_id}.jsonl
 		wal_path = CONFIG.BROWSER_USE_CONFIG_DIR / 'events' / f'{self.session_id}.jsonl'
-		self.eventbus = EventBus(name='Agent', wal_path=wal_path)
+		self.eventbus = EventBus(name=f'Agent_{str(self.id)[-4:]}', wal_path=wal_path)
 
 		# Cloud sync service
 		self.enable_cloud_sync = CONFIG.BROWSER_USE_CLOUD_SYNC

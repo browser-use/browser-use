@@ -366,6 +366,7 @@ class TestCloudSync:
 				user_feedback_type=None,
 				user_comment=None,
 				gif_url=None,
+				device_id='test-device-id',
 			)
 		)
 
@@ -420,6 +421,7 @@ class TestCloudSync:
 				user_feedback_type=None,
 				user_comment=None,
 				gif_url=None,
+				device_id='test-device-id',
 			)
 		)
 
@@ -481,6 +483,7 @@ class TestCloudSync:
 				user_feedback_type=None,
 				user_comment=None,
 				gif_url=None,
+				device_id='test-device-id',
 			)
 		)
 
@@ -535,6 +538,7 @@ class TestCloudSync:
 				user_feedback_type=None,
 				user_comment=None,
 				gif_url=None,
+				device_id='test-device-id',
 			)
 		)
 
@@ -679,6 +683,7 @@ class TestIntegration:
 				browser_session_id='test-browser-session',
 				browser_session_live_url='http://example.com/live',
 				browser_session_cdp_url='ws://example.com/cdp',
+				device_id='test-device-id',
 			)
 		)
 
@@ -701,6 +706,7 @@ class TestIntegration:
 				user_feedback_type=None,
 				user_comment=None,
 				gif_url=None,
+				device_id='test-device-id',
 			)
 		)
 
@@ -774,6 +780,7 @@ class TestAuthResilience:
 				user_feedback_type=None,
 				user_comment=None,
 				gif_url=None,
+				device_id='test-device-id',
 			)
 		)
 
@@ -817,6 +824,7 @@ class TestAuthResilience:
 				user_feedback_type=None,
 				user_comment=None,
 				gif_url=None,
+				device_id='test-device-id',
 			)
 		)
 
@@ -847,6 +855,7 @@ class TestAuthResilience:
 				user_feedback_type=None,
 				user_comment=None,
 				gif_url=None,
+				device_id='test-device-id',
 			)
 		)
 
@@ -871,6 +880,7 @@ class TestAuthResilience:
 					user_feedback_type=None,
 					user_comment=None,
 					gif_url=None,
+					device_id='test-device-id',
 				)
 			)
 
@@ -915,5 +925,6 @@ class TestAuthResilience:
 				user_feedback_type=None,
 				user_comment=None,
 				gif_url=None,
+				device_id='test-device-id',
 			)
 		)
