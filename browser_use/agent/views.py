@@ -108,26 +108,26 @@ class AgentState(BaseModel):
 		super().__setattr__(name, value)
         
         # Auto-sync when deprecated fields are set (avoid infinite recursion)
-		if name == "paused" and value and hasattr(self, 'status'):
-			super().__setattr__("status", AgentStatus.PAUSED)
-		elif name == "stopped" and value and hasattr(self, 'status'):
+		if name == 'paused' and value and hasattr(self, 'status'):
+			super().__setattr__('status', AgentStatus.PAUSED)
+		elif name == 'stopped' and value and hasattr(self, 'status'):
 			super().__setattr__("status", AgentStatus.STOPPED)
-		elif name in ("paused", "stopped") and not value and hasattr(self, 'status'):
+		elif name in ('paused', 'stopped') and not value and hasattr(self, 'status'):
             # Only set to RUNNING if both are False
 			if not getattr(self, 'paused', False) and not getattr(self, 'stopped', False):
-				super().__setattr__("status", AgentStatus.RUNNING)
+				super().__setattr__('status', AgentStatus.RUNNING)
             
         # Auto-sync when new status field is set
-		elif name == "status" and hasattr(self, 'paused') and hasattr(self, 'stopped'):
+		elif name == 'status' and hasattr(self, 'paused') and hasattr(self, 'stopped'):
 			if value == AgentStatus.PAUSED:
-				super().__setattr__("paused", True)
-				super().__setattr__("stopped", False)
+				super().__setattr__('paused', True)
+				super().__setattr__('stopped', False)
 			elif value == AgentStatus.STOPPED:
-				super().__setattr__("paused", False)
-				super().__setattr__("stopped", True)
+				super().__setattr__('paused', False)
+				super().__setattr__('stopped', True)
 			elif value == AgentStatus.RUNNING:
-				super().__setattr__("paused", False)
-				super().__setattr__("stopped", False)
+				super().__setattr__('paused', False)
+				super().__setattr__('stopped', False)
 
 
 @dataclass
