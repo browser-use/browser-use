@@ -1,10 +1,13 @@
 /* Simple browser voice assistant demo */
 
 // Speak a message using the Web Speech API
-function speak(text) {
+function whisper(text) {
     const utter = new SpeechSynthesisUtterance(text);
     window.speechSynthesis.speak(utter);
 }
+
+// Alias for backwards compatibility
+const speak = whisper;
 
 // Greet the user based on the current time
 function wishUser() {
@@ -19,18 +22,23 @@ function wishUser() {
 }
 
 // Listen for a voice command and handle the result
-function listenCommand() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-        alert('Speech recognition not supported in this browser.');
-        return;
-    }
-    const recognition = new SpeechRecognition();
+// Set up speech recognition once
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition;
+if (SpeechRecognition) {
+    recognition = new SpeechRecognition();
     recognition.lang = 'pt-BR';
     recognition.onresult = event => {
         const command = event.results[0][0].transcript.toLowerCase();
         handleCommand(command);
     };
+}
+
+function listenCommand() {
+    if (!recognition) {
+        alert('Speech recognition not supported in this browser.');
+        return;
+    }
     recognition.start();
 }
 
