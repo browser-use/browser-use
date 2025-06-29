@@ -83,6 +83,9 @@ class Controller(Generic[Context]):
 				success: bool = True
 				data: output_model  # type: ignore
 
+			# This is for the eval service if we create the basemodel dynamically
+			ExtendedOutputModel.model_rebuild()
+
 			@self.registry.action(
 				'Complete task - with return text and if the task is finished (success=True) or not yet completely finished (success=False), because last step is reached',
 				param_model=ExtendedOutputModel,

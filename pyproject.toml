@@ -70,6 +70,7 @@ eval = [
     "anyio>=4.9.0",
     "Pillow>=11.2.1",
     "psutil>=7.0.0",
+    "datamodel-code-generator>=0.26.0",
 ]
 all = [
     "browser-use[cli,examples,aws]",
@@ -115,7 +116,7 @@ skip-magic-trailing-comma = false
 
 [tool.pyright]
 typeCheckingMode = "basic"
-exclude = ["tests/old/", ".venv/", ".git/", "__pycache__/", "./test_*.py", "./debug_*.py"]
+exclude = ["tests/old/", ".venv/", ".git/", "__pycache__/", "./test_*.py", "./debug_*.py", "private_example/"]
 
 
 [tool.hatch.build]
