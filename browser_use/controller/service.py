@@ -23,6 +23,7 @@ from browser_use.controller.views import (
 	ScrollAction,
 	SearchGoogleAction,
 	SendKeysAction,
+	StructuredOutputAction,
 	SwitchTabAction,
 )
 from browser_use.filesystem.file_system import FileSystem
@@ -64,12 +65,14 @@ async def retry_async_function(
 
 Context = TypeVar('Context')
 
+T = TypeVar('T', bound=BaseModel)
+
 
 class Controller(Generic[Context]):
 	def __init__(
 		self,
 		exclude_actions: list[str] = [],
-		output_model: type[BaseModel] | None = None,
+		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
 	):
 		self.registry = Registry[Context](exclude_actions)
@@ -77,82 +80,7 @@ class Controller(Generic[Context]):
 
 		"""Register all default browser actions"""
 
-		if output_model is not None:
-			# Create a new model that extends the output model with success parameter
-			class ExtendedOutputModel(BaseModel):  # type: ignore
-				success: bool = True
-				data: output_model  # type: ignore
-
-			# This is for the eval service if we create the basemodel dynamically
-			ExtendedOutputModel.model_rebuild()
-
-			@self.registry.action(
-				'Complete task - with return text and if the task is finished (success=True) or not yet completely finished (success=False), because last step is reached',
-				param_model=ExtendedOutputModel,
-			)
-			async def done(params: ExtendedOutputModel):
-				# Exclude success from the output JSON since it's an internal parameter
-				output_dict = params.data.model_dump()
-
-				# Enums are not serializable, convert to string
-				for key, value in output_dict.items():
-					if isinstance(value, enum.Enum):
-						output_dict[key] = value.value
-
-				return ActionResult(
-					is_done=True,
-					success=params.success,
-					extracted_content=json.dumps(output_dict),
-					long_term_memory=f'Task completed. Success Status: {params.success}',
-				)
-		else:
-
-			@self.registry.action(
-				'Complete task - provide a summary of results for the user. Set success=True if task completed successfully, false otherwise. Text should be your response to the user summarizing results. Include files you would like to display to the user in files_to_display.',
-				param_model=DoneAction,
-			)
-			async def done(params: DoneAction, file_system: FileSystem):
-				user_message = params.text
-
-				len_text = len(params.text)
-				len_max_memory = 100
-				memory = f'Task completed: {params.success} - {params.text[:len_max_memory]}'
-				if len_text > len_max_memory:
-					memory += f' - {len_text - len_max_memory} more characters'
-
-				attachments = []
-				if params.files_to_display:
-					if self.display_files_in_done_text:
-						file_msg = ''
-						for file_name in params.files_to_display:
-							if file_name == 'todo.md':
-								continue
-							file_content = file_system.display_file(file_name)
-							if file_content:
-								file_msg += f'\n\n{file_name}:\n{file_content}'
-								attachments.append(file_name)
-						if file_msg:
-							user_message += '\n\nAttachments:'
-							user_message += file_msg
-						else:
-							logger.warning('Agent wanted to display files but none were found')
-					else:
-						for file_name in params.files_to_display:
-							if file_name == 'todo.md':
-								continue
-							file_content = file_system.display_file(file_name)
-							if file_content:
-								attachments.append(file_name)
-
-				attachments = [str(file_system.get_dir() / file_name) for file_name in attachments]
-
-				return ActionResult(
-					is_done=True,
-					success=params.success,
-					extracted_content=user_message,
-					long_term_memory=memory,
-					attachments=attachments,
-				)
+		self._register_done_action(output_model)
 
 		# Basic Navigation Actions
 		@self.registry.action(
@@ -967,6 +895,83 @@ Explain the content of the page and that the requested information is not availa
 				include_in_memory=False,
 				long_term_memory=f"Inputted text '{text}' into cell",
 			)
+
+	# Custom done action for structured output
+	def _register_done_action(self, output_model: type[T] | None, display_files_in_done_text: bool = True):
+		if output_model is not None:
+			self.display_files_in_done_text = display_files_in_done_text
+
+			@self.registry.action(
+				'Complete task - with return text and if the task is finished (success=True) or not yet completely finished (success=False), because last step is reached',
+				param_model=StructuredOutputAction[output_model],
+			)
+			async def done(params: StructuredOutputAction):
+				# Exclude success from the output JSON since it's an internal parameter
+				output_dict = params.data.model_dump()
+
+				# Enums are not serializable, convert to string
+				for key, value in output_dict.items():
+					if isinstance(value, enum.Enum):
+						output_dict[key] = value.value
+
+				return ActionResult(
+					is_done=True,
+					success=params.success,
+					extracted_content=json.dumps(output_dict),
+					long_term_memory=f'Task completed. Success Status: {params.success}',
+				)
+
+		else:
+
+			@self.registry.action(
+				'Complete task - provide a summary of results for the user. Set success=True if task completed successfully, false otherwise. Text should be your response to the user summarizing results. Include files you would like to display to the user in files_to_display.',
+				param_model=DoneAction,
+			)
+			async def done(params: DoneAction, file_system: FileSystem):
+				user_message = params.text
+
+				len_text = len(params.text)
+				len_max_memory = 100
+				memory = f'Task completed: {params.success} - {params.text[:len_max_memory]}'
+				if len_text > len_max_memory:
+					memory += f' - {len_text - len_max_memory} more characters'
+
+				attachments = []
+				if params.files_to_display:
+					if self.display_files_in_done_text:
+						file_msg = ''
+						for file_name in params.files_to_display:
+							if file_name == 'todo.md':
+								continue
+							file_content = file_system.display_file(file_name)
+							if file_content:
+								file_msg += f'\n\n{file_name}:\n{file_content}'
+								attachments.append(file_name)
+						if file_msg:
+							user_message += '\n\nAttachments:'
+							user_message += file_msg
+						else:
+							logger.warning('Agent wanted to display files but none were found')
+					else:
+						for file_name in params.files_to_display:
+							if file_name == 'todo.md':
+								continue
+							file_content = file_system.display_file(file_name)
+							if file_content:
+								attachments.append(file_name)
+
+				attachments = [str(file_system.get_dir() / file_name) for file_name in attachments]
+
+				return ActionResult(
+					is_done=True,
+					success=params.success,
+					extracted_content=user_message,
+					long_term_memory=memory,
+					attachments=attachments,
+				)
+
+	def use_structured_output_action(self, output_model: type[T]):
+		self._register_done_action(output_model)
 
 	# Register ---------------------------------------------------------------
 

@@ -1,3 +1,5 @@
+from typing import Generic, TypeVar
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -25,6 +27,14 @@ class DoneAction(BaseModel):
 	text: str
 	success: bool
 	files_to_display: list[str] | None = []
+
+
+T = TypeVar('T', bound=BaseModel)
+
+
+class StructuredOutputAction(BaseModel, Generic[T]):
+	success: bool = True
+	data: T
 
 
 class SwitchTabAction(BaseModel):

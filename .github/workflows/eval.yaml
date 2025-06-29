@@ -116,6 +116,7 @@ jobs:
           DEFAULT_END_INDEX="100"
           DEFAULT_EVAL_GROUP="PRTests"
           DEFAULT_HEADLESS="true"
+          DEFAULT_THINKING="true"
 
           DEFAULT_MEMORY_INTERVAL="10"
           DEFAULT_MAX_ACTIONS_PER_STEP="10"
@@ -147,7 +148,8 @@ jobs:
           HEADLESS="${{ github.event.client_payload.script_args.headless }}"
           HEADLESS="${HEADLESS:-$DEFAULT_HEADLESS}"
 
-
+          THINKING="${{ github.event.client_payload.script_args.thinking }}"
+          THINKING="${THINKING:-$DEFAULT_THINKING}"
 
           MEMORY_INTERVAL="${{ github.event.client_payload.script_args.memory_interval }}"
           MEMORY_INTERVAL="${MEMORY_INTERVAL:-$DEFAULT_MEMORY_INTERVAL}"
@@ -199,6 +201,7 @@ jobs:
           [[ "${{ github.event.client_payload.script_args.include_result }}" == "true" ]] && CMD_ARGS+=("--include-result")
           [[ "${{ github.event.client_payload.script_args.highlight_elements }}" == "false" ]] && CMD_ARGS+=("--no-highlight-elements")
           [[ "${{ github.event.client_payload.script_args.use_mind2web_judge }}" == "true" ]] && CMD_ARGS+=("--use-mind2web-judge")
+          [[ "$THINKING" == "false" ]] && CMD_ARGS+=("--no-thinking")
 
           # Add optional string parameters
           [[ -n "$USER_MESSAGE" ]] && CMD_ARGS+=("--user-message" "$USER_MESSAGE")

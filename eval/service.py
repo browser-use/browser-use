@@ -61,6 +61,7 @@ from browser_use.llm.anthropic.chat import ChatAnthropic
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.openai.chat import ChatOpenAI
+from eval.utils import create_pydantic_model_from_schema
 
 MAX_IMAGE = 5
 
@@ -580,6 +581,10 @@ class TaskResult:
 		# Add task execution data if available
 		if Stage.FORMAT_HISTORY in self.completed_stages:
 			format_data = self.stage_data.get(Stage.FORMAT_HISTORY, {})
+			logger.info(f'format_data: {format_data}')
+			# log token usage
+			logger.info(f'tokensUsed: {format_data.get("tokensUsed")}')
+			logger.info(f'usage: {format_data.get("usage")}')
 			payload.update(
 				{
 					'actionHistory': format_data.get('action_history', []),
@@ -590,6 +595,7 @@ class TaskResult:
 					'steps': format_data.get('steps'),
 					'maxSteps': self.max_steps,
 					'tokensUsed': format_data.get('tokensUsed'),
+					'usage': format_data.get('usage'),  # Add usage data
 					'completeHistory': format_data.get('complete_history', []),  # Add complete step history
 				}
 			)
@@ -1026,6 +1032,16 @@ async def reformat_agent_history(
 	if include_result and final_result and final_result.strip():
 		action_history = action_history + [final_result]
 
+	# Extract usage data from agent history
+	usage_data = None
+	logger.info(f'Agent history usage object: {agent_history.usage}')
+	logger.info(f'Agent history usage type: {type(agent_history.usage)}')
+	if hasattr(agent_history, 'usage') and agent_history.usage:
+		logger.info(f'Agent history usage model_dump: {agent_history.usage.model_dump()}')
+		usage_data = agent_history.usage.model_dump()
+	else:
+		logger.warning('Agent history has no usage data or usage is empty/None')
+
 	# Create results structure with new fields
 	results = {
 		'task_id': task_id,
@@ -1041,6 +1057,7 @@ async def reformat_agent_history(
 		'task_duration': task_duration,
 		'steps': len(complete_history),
 		'tokensUsed': total_tokens_used,  # Add total tokens used
+		'usage': usage_data,  # Add usage data
 	}
 
 	# Save results file
@@ -1050,224 +1067,6 @@ async def reformat_agent_history(
 		await f.write(json.dumps(results, indent=2, default=str))
 
 	return results
-
-
-def create_pydantic_model_from_schema(schema: dict, model_name: str = 'DynamicModel') -> type[BaseModel]:
-	"""
-	Convert JSON schema to Pydantic model class using datamodel-code-generator.
-
-	Args:
-		schema: JSON schema dictionary
-		model_name: Name for the generated model class
-
-	Returns:
-		Pydantic model class that can be used with Controller(output_model=...)
-
-	Example:
-		schema = {
-			"type": "object",
-			"properties": {
-				"name": {"type": "string"},
-				"age": {"type": "integer"},
-				"email": {"type": "string"}
-			},
-			"required": ["name", "age"]
-		}
-		PersonModel = create_pydantic_model_from_schema(schema, "Person")
-		controller = Controller(output_model=PersonModel)
-	"""
-	try:
-		import importlib.util
-		import tempfile
-		from pathlib import Path
-
-		from datamodel_code_generator import DataModelType, generate
-
-		# Handle case where schema might be a string (JSON)
-		if isinstance(schema, str):
-			schema = json.loads(schema)
-
-		logger.debug(f'Creating Pydantic model from schema: {schema}')
-
-		# Initialize paths for cleanup
-		schema_path = None
-		model_path = None
-
-		try:
-			# Create temporary files for input schema and output model
-			with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as schema_file:
-				json.dump(schema, schema_file, indent=2)
-				schema_path = Path(schema_file.name)
-
-			with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as model_file:
-				model_path = Path(model_file.name)
-
-			# Generate Pydantic model code using datamodel-code-generator
-			generate(
-				input_=schema_path,
-				output=model_path,
-				output_model_type=DataModelType.PydanticV2BaseModel,
-				class_name=model_name,
-			)
-
-			# Read the generated Python code
-			generated_code = model_path.read_text()
-			logger.debug(f'Generated Pydantic model code:\n{generated_code}')
-
-			# Create a module and execute the generated code
-			spec = importlib.util.spec_from_loader(f'dynamic_model_{model_name}', loader=None)
-			if spec is None:
-				raise ValueError('Failed to create module spec')
-
-			module = importlib.util.module_from_spec(spec)
-
-			# Add necessary imports to the module namespace before executing
-			from typing import Any, Optional, Union
-
-			from pydantic import BaseModel, Field
-
-			module.__dict__.update(
-				{
-					'Optional': Optional,
-					'Union': Union,
-					'list': list,
-					'dict': dict,
-					'Any': Any,
-					'BaseModel': BaseModel,
-					'Field': Field,
-					'str': str,
-					'int': int,
-					'float': float,
-					'bool': bool,
-				}
-			)
-
-			# Execute the generated code in the module's namespace
-			exec(generated_code, module.__dict__)
-
-			# Get the generated model class
-			if hasattr(module, model_name):
-				model_class = getattr(module, model_name)
-				# Rebuild the model to resolve forward references and type annotations
-				# Pass the module's namespace so it can resolve imports like Optional
-				model_class.model_rebuild(_types_namespace=module.__dict__)
-				logger.debug(f'Successfully created Pydantic model: {model_class}')
-				return model_class
-			else:
-				# Fallback: look for any BaseModel subclass in the module
-				for attr_name in dir(module):
-					attr = getattr(module, attr_name)
-					if isinstance(attr, type) and issubclass(attr, BaseModel) and attr != BaseModel:
-						# Rebuild the model to resolve forward references and type annotations
-						# Pass the module's namespace so it can resolve imports like Optional
-						attr.model_rebuild(_types_namespace=module.__dict__)
-						logger.debug(f'Using fallback model class: {attr}')
-						return attr
-
-				raise ValueError('No Pydantic model class found in generated code')
-
-		finally:
-			# Clean up temporary files safely
-			if schema_path is not None:
-				try:
-					schema_path.unlink()
-				except Exception as cleanup_error:
-					logger.warning(f'Failed to cleanup schema file: {cleanup_error}')
-			if model_path is not None:
-				try:
-					model_path.unlink()
-				except Exception as cleanup_error:
-					logger.warning(f'Failed to cleanup model file: {cleanup_error}')
-
-	except ImportError as e:
-		logger.error(f'datamodel-code-generator not available: {e}')
-		logger.error('Falling back to basic schema conversion')
-
-		try:
-			# Fallback to basic implementation if datamodel-code-generator is not available
-			from typing import Any, Optional
-
-			from pydantic import create_model
-
-			def json_type_to_python_type(json_type):
-				"""Map JSON schema types to Python types"""
-				# Handle union types (arrays of types)
-				if isinstance(json_type, list):
-					# Handle union types like ["string", "null"]
-					types = []
-					for t in json_type:
-						if t == 'null':
-							continue  # We'll handle null separately
-						types.append(json_type_to_python_type(t))
-
-					if len(types) == 0:
-						return Any
-					elif len(types) == 1:
-						return types[0]
-					else:
-						# len(types) >= 2 - create Union dynamically
-						from typing import Union
-
-						# For 2 types, use Union[type1, type2]
-						if len(types) == 2:
-							return Union[types[0], types[1]]
-						# For more types, we need to use a different approach
-						# Since Union doesn't support unpacking, we'll just use the first type
-						# This is a limitation of the fallback implementation
-						return types[0]
-
-				# Handle single types
-				if json_type == 'string':
-					return str
-				elif json_type == 'integer':
-					return int
-				elif json_type == 'number':
-					return float
-				elif json_type == 'boolean':
-					return bool
-				elif json_type == 'array':
-					return list[Any]
-				elif json_type == 'object':
-					return dict[str, Any]
-				else:
-					return Any
-
-			# Handle case where schema might be a string (JSON)
-			if isinstance(schema, str):
-				schema = json.loads(schema)
-
-			# Extract properties and required fields from schema
-			properties = schema.get('properties', {})
-			required_fields = schema.get('required', [])
-
-			# Build field definitions for create_model
-			field_definitions = {}
-
-			for field_name, field_schema in properties.items():
-				json_type = field_schema.get('type')
-				field_type = json_type_to_python_type(json_type)
-
-				# Check if the field allows null (either not required or explicitly allows null)
-				allows_null = field_name not in required_fields or (isinstance(json_type, list) and 'null' in json_type)
-
-				# Handle required vs optional fields
-				if field_name in required_fields and not allows_null:
-					field_definitions[field_name] = (field_type, ...)  # Required field
-				else:
-					optional_type = Optional[field_type]  # Use Optional instead of Union[T, None]
-					field_definitions[field_name] = (optional_type, None)  # Optional field with default None
-
-			# Create the dynamic model using create_model
-			return create_model(model_name, **field_definitions)
-
-		except Exception as fallback_error:
-			logger.error(f'Fallback schema conversion also failed: {fallback_error}')
-			raise ValueError(f'Both primary and fallback schema conversion failed: {fallback_error}') from fallback_error
-
-	except Exception as e:
-		logger.error(f'Failed to create Pydantic model from schema: {e}')
-		logger.error(f'Schema: {schema}')
-		raise ValueError(f'Invalid JSON schema: {e}') from e
 
 
 class Task:
@@ -1505,12 +1304,12 @@ async def setup_browser_session(task: Task, headless: bool, highlight_elements: 
 	logger.debug(f'Browser setup: Initializing BrowserSession for task {task.task_id}')
 
 	# Use incognito mode (user_data_dir=None) for evaluations to avoid state pollution
-	profile = BrowserProfile(
-		user_data_dir=None,  # Incognito mode - no persistent state
-		headless=headless,
-		chromium_sandbox=False,  # running in docker
-		highlight_elements=highlight_elements,  # Control element highlighting (passed to profile)
-		keep_alive=True,
+	profile_kwargs = {
+		'user_data_dir': None,  # Incognito mode - no persistent state
+		'headless': headless,
+		'chromium_sandbox': False,  # running in docker
+		'highlight_elements': highlight_elements,  # Control element highlighting (passed to profile)
+		'keep_alive': True,
 		# higher timeouts = higher success rates on long tail of slow sites or if on a slow CI server
 		# timeout=60_000,
 		# default_timeout=60_000,
@@ -1519,8 +1318,20 @@ async def setup_browser_session(task: Task, headless: bool, highlight_elements: 
 		# maximum_wait_page_load_time=60.0,
 		# wait_between_actions=0.5,
 		# ignore_https_errors=True,  # some eval tasks have http:// or broken https sites in them
-	)
+	}
 
+	if hasattr(task, 'login_cookie') and task.login_cookie:
+		# For login tasks, configure storage_state to save cookies to JSON file
+		# This works even in incognito mode (user_data_dir=None)
+		task_folder = Path(f'saved_trajectories/{task.task_id}')
+		task_folder.mkdir(parents=True, exist_ok=True)
+
+		storage_state_path = task_folder / 'storage_state.json'
+		profile_kwargs['storage_state'] = str(storage_state_path)
+
+		logger.debug(f'Login task {task.task_id}: Configured to save cookies to {storage_state_path}')
+
+	profile = BrowserProfile(**profile_kwargs)
 	browser_session = BrowserSession(browser_profile=profile)
 
 	# Start browser session
@@ -1551,6 +1362,7 @@ async def run_agent_with_browser(
 	validate_output: bool = False,
 	planner_llm: BaseChatModel | None = None,
 	planner_interval: int = 1,
+	use_thinking: bool = True,
 ) -> tuple[AgentHistoryList, str]:
 	"""Run agent with the browser session"""
 	# Create controller, optionally with SERP search and structured output
@@ -1574,7 +1386,9 @@ async def run_agent_with_browser(
 		validate_output=validate_output,
 		planner_llm=planner_llm,
 		planner_interval=planner_interval,
+		use_thinking=use_thinking,
 		source='eval_platform',
+		calculate_cost=True,
 	)
 	# get last message
 	await agent.run(max_steps=max_steps)
@@ -1584,9 +1398,129 @@ async def run_agent_with_browser(
 
 
 @observe(name='evaluate_task_result', span_type='EVALUATOR')  # type: ignore[arg-type]
-async def evaluate_task_result(eval_model: BaseChatModel, task_folder: Path, use_mind2web: bool = False) -> dict:
+async def evaluate_task_result(
+	eval_model: BaseChatModel, task_folder: Path, task: Task | None = None, use_mind2web: bool = False
+) -> dict:
 	"""Evaluate the task result"""
-	return await judge_task_result(eval_model, task_folder, score_threshold=3, use_mind2web=use_mind2web)
+	# Check if this is a login task that should use cookie-based evaluation
+	if task and hasattr(task, 'login_cookie') and task.login_cookie:
+		logger.info(f'Using cookie-based evaluation for login task {task.task_id}')
+		return await evaluate_task_with_login_cookie(task.login_cookie, task_folder)
+	else:
+		return await judge_task_result(eval_model, task_folder, score_threshold=3, use_mind2web=use_mind2web)
+
+
+async def evaluate_task_with_login_cookie(login_cookie: str, task_folder: Path) -> dict:
+	"""
+	Evaluate a login task by checking if the login_cookie is present in browser cookies.
+
+	Args:
+		login_cookie: String identifier that should appear in cookies if login was successful
+		task_folder: Path to the task result folder containing saved cookies
+
+	Returns:
+		Dictionary containing evaluation results similar to Online_Mind2Web_eval format
+	"""
+	# Look for cookies in saved_trajectories (saved by browser-use during shutdown)
+	cookies_file = task_folder / 'cookies.json'
+	storage_state_file = task_folder / 'storage_state.json'
+
+	cookies_data = None
+	cookies_source = None
+
+	# Try to load cookies from storage_state.json first (newer format)
+	if storage_state_file.exists():
+		try:
+			async with await anyio.open_file(storage_state_file) as f:
+				storage_state = json.loads(await f.read())
+				cookies_data = storage_state.get('cookies', [])
+				cookies_source = 'storage_state.json'
+		except Exception as e:
+			logger.warning(f'Failed to load storage_state.json: {e}')
+
+	# Fallback to cookies.json (older format)
+	if not cookies_data and cookies_file.exists():
+		try:
+			async with await anyio.open_file(cookies_file) as f:
+				cookies_data = json.loads(await f.read())
+				cookies_source = 'cookies.json'
+		except Exception as e:
+			logger.warning(f'Failed to load cookies.json: {e}')
+
+	if not cookies_data:
+		return {
+			'task_id': task_folder.name,
+			'judgement': 'Automatic judgement: No cookies saved for evaluation',
+			'success': False,
+			'error': 'No cookies file found for login task evaluation',
+			'score': 0.0,
+		}
+
+	logger.debug(f'Found {len(cookies_data)} cookies from {cookies_source}')
+
+	# Check if this is an exact match requirement
+	if login_cookie.startswith('EXACTMATCH '):
+		# Extract the actual cookie name after "EXACTMATCH "
+		exact_cookie_name = login_cookie[11:]  # Remove "EXACTMATCH " prefix
+		is_exact_match = True
+		search_target = exact_cookie_name
+		logger.debug(f"Using exact match for cookie name: '{exact_cookie_name}'")
+	else:
+		# Use substring matching (original behavior)
+		is_exact_match = False
+		search_target = login_cookie
+		logger.debug(f"Using substring matching for: '{login_cookie}'")
+
+	# Check if login_cookie is present in cookies
+	login_cookie_found = False
+	matching_cookie_info = None
+
+	for cookie in cookies_data:
+		cookie_name = cookie.get('name', '')
+		cookie_value = cookie.get('value', '')
+
+		if is_exact_match:
+			# Exact match: check if cookie name exactly matches the target
+			if cookie_name == search_target:
+				login_cookie_found = True
+				matching_cookie_info = f"exact name match='{cookie_name}'"
+				logger.debug(f'Login cookie found with exact match: {matching_cookie_info}')
+				break
+		else:
+			# Substring match: check if target appears in cookie name or value
+			if search_target in cookie_name or search_target in cookie_value:
+				login_cookie_found = True
+				matching_cookie_info = f"substring match in name='{cookie_name}'"
+				logger.debug(f'Login cookie found with substring match: {matching_cookie_info}')
+				break
+
+	# Prepare evaluation result
+	if login_cookie_found:
+		if is_exact_match:
+			judgement = f"Automatic judgement: Login cookie '{search_target}' was found as exact match in browser cookies"
+		else:
+			judgement = f"Automatic judgement: Login cookie '{search_target}' was found in browser cookies"
+		success = True
+		score = 1.0
+		error = None
+	else:
+		if is_exact_match:
+			judgement = f"Automatic judgement: Login cookie '{search_target}' was NOT found as exact match in browser cookies"
+		else:
+			judgement = f"Automatic judgement: Login cookie '{search_target}' was NOT found in browser cookies"
+		success = False
+		score = 0.0
+		error = None
+
+	logger.info(f"Cookie evaluation result: success={success} for login_cookie='{login_cookie}'")
+
+	return {
+		'task_id': task_folder.name,
+		'judgement': judgement,
+		'success': success,
+		'error': error,
+		'score': score,
+	}
 
 
 def save_result_to_server(convex_url: str, secret_key: str, payload: dict) -> bool:
@@ -1646,6 +1580,7 @@ async def run_task_with_semaphore(
 	include_result: bool = False,
 	highlight_elements: bool = True,
 	use_mind2web_judge: bool = False,
+	use_thinking: bool = True,
 ) -> dict:
 	"""Clean pipeline approach for running tasks"""
 	task_start_time = time.time()
@@ -1748,6 +1683,7 @@ async def run_task_with_semaphore(
 								validate_output,
 								planner_llm,
 								planner_interval,
+								use_thinking,
 							),
 							timeout=1000,
 						)
@@ -1789,7 +1725,9 @@ async def run_task_with_semaphore(
 					try:
 						logger.info(f'Task {task.task_id}: Evaluation starting.')
 						evaluation = await run_stage(
-							Stage.EVALUATE, lambda: evaluate_task_result(eval_model, task_folder, use_mind2web_judge), timeout=300
+							Stage.EVALUATE,
+							lambda: evaluate_task_result(eval_model, task_folder, task, use_mind2web_judge),
+							timeout=300,
 						)
 						task_result.stage_completed(Stage.EVALUATE, evaluation)
 						logger.info(f'Task {task.task_id}: Evaluation completed.')
@@ -1974,6 +1912,7 @@ async def run_multiple_tasks(
 	include_result: bool = False,
 	highlight_elements: bool = True,
 	use_mind2web_judge: bool = False,
+	use_thinking: bool = True,
 ) -> dict:
 	"""
 	Run multiple tasks in parallel and evaluate results.
@@ -2051,6 +1990,7 @@ async def run_multiple_tasks(
 					include_result=include_result,
 					highlight_elements=highlight_elements,
 					use_mind2web_judge=use_mind2web_judge,
+					use_thinking=use_thinking,
 				)
 				for task in tasks_to_run
 			),
@@ -2190,7 +2130,7 @@ def get_git_info():
 		}
 
 
-# Helper function to start a new run on the server
+# Helper function to start a new run on the convex server
 def start_new_run(convex_url: str, secret_key: str, run_details: dict, existing_run_id: str | None = None):
 	"""Sends a request to start a new evaluation run and returns the run ID."""
 	if not convex_url or not secret_key:
@@ -2319,6 +2259,7 @@ async def run_evaluation_pipeline(
 	laminar_eval_id: str | None = None,
 	highlight_elements: bool = True,
 	use_mind2web_judge: bool = False,
+	use_thinking: bool = True,
 ) -> dict:
 	"""
 	Complete evaluation pipeline that handles Laminar setup and task execution in the same event loop
@@ -2369,6 +2310,7 @@ async def run_evaluation_pipeline(
 		include_result=include_result,
 		highlight_elements=highlight_elements,
 		use_mind2web_judge=use_mind2web_judge,
+		use_thinking=use_thinking,
 	)
 
 
@@ -2432,6 +2374,7 @@ if __name__ == '__main__':
 		help='Existing Laminar evaluation ID to use (if not provided, a new evaluation will be created)',
 	)
 	parser.add_argument('--use-mind2web-judge', action='store_true', help='Use original judge')
+	parser.add_argument('--no-thinking', action='store_true', help='Disable thinking in agent system prompt')
 
 	# Single task mode arguments
 	parser.add_argument('--task-text', type=str, default=None, help='Task description for single task mode')
@@ -2676,6 +2619,7 @@ if __name__ == '__main__':
 				laminar_eval_id=args.laminar_eval_id,
 				highlight_elements=args.highlight_elements,
 				use_mind2web_judge=args.use_mind2web_judge,
+				use_thinking=not args.no_thinking,
 			)
 		)
 

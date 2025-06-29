@@ -19,12 +19,14 @@ llm = ChatOpenAI(
 )
 
 
-task = 'Go to google.com/travel/flights and find the cheapest one-way flight from Zurich to San Francisco in 3 weeks.'
+task = 'Open 3 tabs with random wikipedia pages'
 agent = Agent(task=task, llm=llm)
 
 
 async def main():
-	await agent.run()
+	history = await agent.run()
+	# token usage
+	print(history.usage)
 
 
 if __name__ == '__main__':
