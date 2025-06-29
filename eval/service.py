@@ -1087,6 +1087,8 @@ def create_pydantic_model_from_schema(schema: dict, model_name: str = 'DynamicMo
 		if isinstance(schema, str):
 			schema = json.loads(schema)
 
+		logger.debug(f'Creating Pydantic model from schema: {schema}')
+
 		# Initialize paths for cleanup
 		schema_path = None
 		model_path = None
@@ -1104,12 +1106,13 @@ def create_pydantic_model_from_schema(schema: dict, model_name: str = 'DynamicMo
 			generate(
 				input_=schema_path,
 				output=model_path,
-				output_model_type=DataModelType.PydanticBaseModel,
+				output_model_type=DataModelType.PydanticV2BaseModel,
 				class_name=model_name,
 			)
 
 			# Read the generated Python code
 			generated_code = model_path.read_text()
+			logger.debug(f'Generated Pydantic model code:\n{generated_code}')
 
 			# Create a module and execute the generated code
 			spec = importlib.util.spec_from_loader(f'dynamic_model_{model_name}', loader=None)
@@ -1118,17 +1121,47 @@ def create_pydantic_model_from_schema(schema: dict, model_name: str = 'DynamicMo
 
 			module = importlib.util.module_from_spec(spec)
 
+			# Add necessary imports to the module namespace before executing
+			from typing import Any, Optional, Union
+
+			from pydantic import BaseModel, Field
+
+			module.__dict__.update(
+				{
+					'Optional': Optional,
+					'Union': Union,
+					'list': list,
+					'dict': dict,
+					'Any': Any,
+					'BaseModel': BaseModel,
+					'Field': Field,
+					'str': str,
+					'int': int,
+					'float': float,
+					'bool': bool,
+				}
+			)
+
 			# Execute the generated code in the module's namespace
 			exec(generated_code, module.__dict__)
 
 			# Get the generated model class
 			if hasattr(module, model_name):
-				return getattr(module, model_name)
+				model_class = getattr(module, model_name)
+				# Rebuild the model to resolve forward references and type annotations
+				# Pass the module's namespace so it can resolve imports like Optional
+				model_class.model_rebuild(_types_namespace=module.__dict__)
+				logger.debug(f'Successfully created Pydantic model: {model_class}')
+				return model_class
 			else:
 				# Fallback: look for any BaseModel subclass in the module
 				for attr_name in dir(module):
 					attr = getattr(module, attr_name)
 					if isinstance(attr, type) and issubclass(attr, BaseModel) and attr != BaseModel:
+						# Rebuild the model to resolve forward references and type annotations
+						# Pass the module's namespace so it can resolve imports like Optional
+						attr.model_rebuild(_types_namespace=module.__dict__)
+						logger.debug(f'Using fallback model class: {attr}')
 						return attr
 
 				raise ValueError('No Pydantic model class found in generated code')
@@ -1152,12 +1185,38 @@ def create_pydantic_model_from_schema(schema: dict, model_name: str = 'DynamicMo
 
 		try:
 			# Fallback to basic implementation if datamodel-code-generator is not available
-			from typing import Any
+			from typing import Any, Optional
 
 			from pydantic import create_model
 
-			def json_type_to_python_type(json_type: str):
+			def json_type_to_python_type(json_type):
 				"""Map JSON schema types to Python types"""
+				# Handle union types (arrays of types)
+				if isinstance(json_type, list):
+					# Handle union types like ["string", "null"]
+					types = []
+					for t in json_type:
+						if t == 'null':
+							continue  # We'll handle null separately
+						types.append(json_type_to_python_type(t))
+
+					if len(types) == 0:
+						return Any
+					elif len(types) == 1:
+						return types[0]
+					else:
+						# len(types) >= 2 - create Union dynamically
+						from typing import Union
+
+						# For 2 types, use Union[type1, type2]
+						if len(types) == 2:
+							return Union[types[0], types[1]]
+						# For more types, we need to use a different approach
+						# Since Union doesn't support unpacking, we'll just use the first type
+						# This is a limitation of the fallback implementation
+						return types[0]
+
+				# Handle single types
 				if json_type == 'string':
 					return str
 				elif json_type == 'integer':
@@ -1185,15 +1244,17 @@ def create_pydantic_model_from_schema(schema: dict, model_name: str = 'DynamicMo
 			field_definitions = {}
 
 			for field_name, field_schema in properties.items():
-				field_type = json_type_to_python_type(field_schema.get('type'))
+				json_type = field_schema.get('type')
+				field_type = json_type_to_python_type(json_type)
+
+				# Check if the field allows null (either not required or explicitly allows null)
+				allows_null = field_name not in required_fields or (isinstance(json_type, list) and 'null' in json_type)
 
 				# Handle required vs optional fields
-				if field_name in required_fields:
+				if field_name in required_fields and not allows_null:
 					field_definitions[field_name] = (field_type, ...)  # Required field
 				else:
-					from typing import Union
-
-					optional_type = Union[field_type, None]
+					optional_type = Optional[field_type]  # Use Optional instead of Union[T, None]
 					field_definitions[field_name] = (optional_type, None)  # Optional field with default None
 
 			# Create the dynamic model using create_model
