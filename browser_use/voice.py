@@ -7,8 +7,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import tempfile
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
 try:
 	import sounddevice as sd
@@ -26,17 +27,27 @@ logger = logging.getLogger(__name__)
 
 
 async def record_audio(duration: int = 5, fs: int = 16000) -> Path:
-	"""Record audio from the microphone and return a temporary ``.wav`` file."""
-	if sd is None or sf is None:
-		raise RuntimeError("sounddevice and soundfile are required for voice input")
+       """Record audio from the microphone and return a temporary ``.wav`` file."""
+       if sd is None or sf is None:
+               raise RuntimeError("sounddevice and soundfile are required for voice input")
 
-	audio = sd.rec(int(duration * fs), samplerate=fs, channels=1)
-	sd.wait()
+       audio = sd.rec(int(duration * fs), samplerate=fs, channels=1)
+       sd.wait()
 
-	with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-		path = Path(tmp.name)
-		sf.write(tmp.name, audio, fs)
-	return path
+       with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+               path = Path(tmp.name)
+               sf.write(tmp.name, audio, fs)
+       return path
+
+
+@asynccontextmanager
+async def record_temp_audio(duration: int = 5, fs: int = 16000) -> AsyncIterator[Path]:
+       """Record audio and yield the temporary file path, deleting it afterward."""
+       path = await record_audio(duration, fs)
+       try:
+               yield path
+       finally:
+               path.unlink(missing_ok=True)
 
 
 def _transcribe(path: Path, model_name: str = "base") -> str:
@@ -50,10 +61,7 @@ def _transcribe(path: Path, model_name: str = "base") -> str:
 
 
 async def capture_voice_command(duration: int = 5, model_name: str = "base") -> str:
-	"""Capture audio from the microphone and return the transcribed text."""
-	path = await record_audio(duration)
-	try:
-		text = await asyncio.to_thread(_transcribe, path, model_name)
-	finally:
-		path.unlink(missing_ok=True)
-	return text
+       """Capture audio from the microphone and return the transcribed text."""
+       async with record_temp_audio(duration) as path:
+               text = await asyncio.to_thread(_transcribe, path, model_name)
+       return text

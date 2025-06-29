@@ -18,6 +18,7 @@ from browser_use.voice import capture_voice_command
 async def main() -> None:
 	"""Capture a spoken command and run browser-use with it."""
 	text = await capture_voice_command()
+	print(f"Heard: {text}")
 	await run_prompt_mode(text, click.Context(run_prompt_mode))  # type: ignore[arg-type]
 
 
