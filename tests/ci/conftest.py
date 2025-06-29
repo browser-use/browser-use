@@ -34,13 +34,13 @@ from browser_use.sync.service import CloudSync
 
 @pytest.fixture(scope="session", autouse=True)
 def install_playwright_browsers():
-    """Ensure Playwright browsers are available for the CI tests."""
-    cache_dir = Path.home() / ".cache" / "ms-playwright"
-    os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(cache_dir))
+	"""Ensure Playwright browsers are available for the CI tests."""
+	cache_dir = Path.home() / ".cache" / "ms-playwright"
+	os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(cache_dir))
 
-    # Skip if browsers are not pre-installed, avoiding network downloads
-    if not (cache_dir / "chromium-1179").exists():
-        pytest.skip("Playwright browsers missing and cannot be installed without network access")
+	# Skip if browsers are not pre-installed, avoiding network downloads
+	if not (cache_dir / "chromium-1179").exists():
+		pytest.skip("Playwright browsers missing and cannot be installed without network access")
 
 
 @pytest.fixture(autouse=True)
