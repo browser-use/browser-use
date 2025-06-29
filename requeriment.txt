@@ -1,0 +1,3 @@
+openai-whisper>=20231117
+sounddevice>=0.4.6
+soundfile>=0.13.1
