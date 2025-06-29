@@ -7,7 +7,6 @@ Sets up environment variables to ensure tests never connect to production servic
 import os
 import tempfile
 from pathlib import Path
-from subprocess import run
 from unittest.mock import AsyncMock
 
 import pytest
