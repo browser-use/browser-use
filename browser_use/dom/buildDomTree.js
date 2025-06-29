@@ -632,7 +632,8 @@
       element.offsetWidth > 0 &&
       element.offsetHeight > 0 &&
       style.visibility !== "hidden" &&
-      style.display !== "none"
+      style.display !== "none" &&
+      style.opacity !== "0"
     );
   }
 
@@ -1319,11 +1320,19 @@
     };
 
     // Get attributes for interactive elements or potential text containers
-    if (isInteractiveCandidate(node) || node.tagName.toLowerCase() === 'iframe' || node.tagName.toLowerCase() === 'body') {
-      const attributeNames = node.getAttributeNames?.() || [];
-      for (const name of attributeNames) {
-        nodeData.attributes[name] = node.getAttribute(name);
-      }
+    // Check if the element is interactive via style or attributes
+    const isInteractiveViaStyle = isInteractiveElement(node);
+    const isInteractiveViaAttributes = isInteractiveCandidate(node);
+    const shouldCaptureAttributes = isInteractiveViaStyle || 
+                                    isInteractiveViaAttributes || 
+                                    node.tagName.toLowerCase() === 'iframe' || 
+                                    node.tagName.toLowerCase() === 'body';
+
+    if (shouldCaptureAttributes) {
+        const attributeNames = node.getAttributeNames?.() || [];
+        for (const name of attributeNames) {
+            nodeData.attributes[name] = node.getAttribute(name);
+        }
     }
 
     let nodeWasHighlighted = false;
