@@ -6,6 +6,7 @@ Sets up environment variables to ensure tests never connect to production servic
 
 import os
 import tempfile
+from pathlib import Path
 from subprocess import run
 from unittest.mock import AsyncMock
 
@@ -34,7 +35,14 @@ from browser_use.sync.service import CloudSync
 
 @pytest.fixture(scope="session", autouse=True)
 def install_playwright_browsers():
-    """Ensure Playwright browsers are installed for the CI tests."""
+    """Ensure Playwright browsers are available for the CI tests."""
+    cache_dir = Path.home() / ".cache" / "ms-playwright"
+    os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(cache_dir))
+
+    # Check if Chromium is already installed
+    if (cache_dir / "chromium-1179").exists():
+        return
+
     try:
         run(["playwright", "install", "chromium"], check=True)
     except Exception as exc:  # pragma: no cover - network may be restricted
