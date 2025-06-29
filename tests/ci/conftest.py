@@ -62,7 +62,7 @@ def setup_test_environment():
 	test_env_vars = {
 		'SKIP_LLM_API_KEY_VERIFICATION': 'true',
 		'ANONYMIZED_TELEMETRY': 'false',
-		'BROWSER_USE_CLOUD_SYNC': 'true',
+		'BROWSER_USE_CLOUD_SYNC': 'false',
 		'BROWSER_USE_CLOUD_API_URL': 'http://placeholder-will-be-replaced-by-specific-test-fixtures',
 		'BROWSER_USE_CLOUD_UI_URL': 'http://placeholder-will-be-replaced-by-specific-test-fixtures',
 		'BROWSER_USE_CONFIG_DIR': config_dir,
@@ -192,7 +192,7 @@ def cloud_sync(httpserver: HTTPServer):
 	test_http_server_url = httpserver.url_for('')
 	os.environ['BROWSER_USE_CLOUD_API_URL'] = test_http_server_url
 	os.environ['BROWSER_USE_CLOUD_UI_URL'] = test_http_server_url
-	os.environ['BROWSER_USE_CLOUD_SYNC'] = 'true'
+	os.environ['BROWSER_USE_CLOUD_SYNC'] = 'false'
 
 	# Create CloudSync with test server URL
 	cloud_sync = CloudSync(
