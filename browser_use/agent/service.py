@@ -50,6 +50,7 @@ from browser_use.agent.views import (
 	AgentState,
 	AgentStatus,
 	AgentStepInfo,
+	AgentStructuredOutput,
 	BrowserStateHistory,
 	StepMetadata,
 )
@@ -103,10 +104,11 @@ def log_response(response: AgentOutput, registry=None, logger=None) -> None:
 
 Context = TypeVar('Context')
 
+
 AgentHookFunc = Callable[['Agent'], Awaitable[None]]
 
 
-class Agent(Generic[Context]):
+class Agent(Generic[Context, AgentStructuredOutput]):
 	browser_session: BrowserSession | None = None
 	_logger: logging.Logger | None = None
 
@@ -138,6 +140,7 @@ class Agent(Generic[Context]):
 		) = None,
 		register_external_agent_status_raise_error_callback: Callable[[], Awaitable[bool]] | None = None,
 		# Agent settings
+		output_model_schema: type[AgentStructuredOutput] | None = None,
 		use_vision: bool = True,
 		use_vision_for_planner: bool = False,
 		save_conversation_path: str | Path | None = None,
@@ -210,6 +213,12 @@ class Agent(Generic[Context]):
 		self.controller = (
 			controller if controller is not None else Controller(display_files_in_done_text=display_files_in_done_text)
 		)
+
+		# Structured output
+		self.output_model_schema = output_model_schema
+		if self.output_model_schema is not None:
+			self.controller.use_structured_output_action(self.output_model_schema)
+
 		self.sensitive_data = sensitive_data
 
 		self.settings = AgentSettings(
@@ -1094,7 +1103,7 @@ class Agent(Generic[Context]):
 		max_steps: int = 100,
 		on_step_start: AgentHookFunc | None = None,
 		on_step_end: AgentHookFunc | None = None,
-	) -> AgentHistoryList:
+	) -> AgentHistoryList[AgentStructuredOutput]:
 		"""Execute the task with maximum number of steps"""
 
 		loop = asyncio.get_event_loop()
@@ -1203,12 +1212,21 @@ class Agent(Generic[Context]):
 
 				self.logger.info(f'❌ {agent_run_error}')
 
+			self.state.history.usage = await self.token_cost_service.get_usage_summary()
+
+			# set the model output schema and call it on the fly
+			if self.state.history._output_model_schema is None and self.output_model_schema is not None:
+				self.state.history._output_model_schema = self.output_model_schema
+
 			return self.state.history
 
 		except KeyboardInterrupt:
 			# Already handled by our signal handler, but catch any direct KeyboardInterrupt as well
 			self.logger.info('Got KeyboardInterrupt during execution, returning current history')
 			agent_run_error = 'KeyboardInterrupt'
+
+			self.state.history.usage = await self.token_cost_service.get_usage_summary()
+
 			return self.state.history
 
 		except Exception as e:
