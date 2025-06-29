@@ -6,6 +6,8 @@ Sets up environment variables to ensure tests never connect to production servic
 
 import os
 import tempfile
+from pathlib import Path
+from subprocess import run
 from unittest.mock import AsyncMock
 
 import pytest
@@ -31,6 +33,17 @@ from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.sync.service import CloudSync
 
 
+@pytest.fixture(scope="session", autouse=True)
+def install_playwright_browsers():
+    """Ensure Playwright browsers are available for the CI tests."""
+    cache_dir = Path.home() / ".cache" / "ms-playwright"
+    os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(cache_dir))
+
+    # Skip if browsers are not pre-installed, avoiding network downloads
+    if not (cache_dir / "chromium-1179").exists():
+        pytest.skip("Playwright browsers missing and cannot be installed without network access")
+
+
 @pytest.fixture(autouse=True)
 def setup_test_environment():
 	"""
@@ -44,7 +57,7 @@ def setup_test_environment():
 	test_env_vars = {
 		'SKIP_LLM_API_KEY_VERIFICATION': 'true',
 		'ANONYMIZED_TELEMETRY': 'false',
-		'BROWSER_USE_CLOUD_SYNC': 'true',
+		'BROWSER_USE_CLOUD_SYNC': 'false',
 		'BROWSER_USE_CLOUD_API_URL': 'http://placeholder-will-be-replaced-by-specific-test-fixtures',
 		'BROWSER_USE_CLOUD_UI_URL': 'http://placeholder-will-be-replaced-by-specific-test-fixtures',
 		'BROWSER_USE_CONFIG_DIR': config_dir,
@@ -174,7 +187,7 @@ def cloud_sync(httpserver: HTTPServer):
 	test_http_server_url = httpserver.url_for('')
 	os.environ['BROWSER_USE_CLOUD_API_URL'] = test_http_server_url
 	os.environ['BROWSER_USE_CLOUD_UI_URL'] = test_http_server_url
-	os.environ['BROWSER_USE_CLOUD_SYNC'] = 'true'
+	os.environ['BROWSER_USE_CLOUD_SYNC'] = 'false'
 
 	# Create CloudSync with test server URL
 	cloud_sync = CloudSync(

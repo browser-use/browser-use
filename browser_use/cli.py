@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from browser_use.llm.anthropic.chat import ChatAnthropic
 from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use.voice import capture_voice_command
 
 load_dotenv()
 
@@ -1325,6 +1326,7 @@ async def textual_interface(config: dict[str, Any]):
 @click.option('--profile-directory', type=str, help='Chrome profile directory name (e.g., "Default", "Profile 1")')
 @click.option('--cdp-url', type=str, help='Connect to existing Chrome via CDP URL (e.g., http://localhost:9222)')
 @click.option('-p', '--prompt', type=str, help='Run a single task without the TUI (headless mode)')
+@click.option('--voice', is_flag=True, help='Capture a voice command and run it')
 @click.pass_context
 def main(ctx: click.Context, debug: bool = False, **kwargs):
 	"""Browser-Use Interactive TUI or Command Line Executor
@@ -1351,6 +1353,11 @@ def main(ctx: click.Context, debug: bool = False, **kwargs):
 		os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'result'
 		# Run in non-interactive mode
 		asyncio.run(run_prompt_mode(kwargs['prompt'], ctx, debug))
+		return
+	if kwargs.get("voice"):
+		os.environ["BROWSER_USE_LOGGING_LEVEL"] = "result"
+		text = asyncio.run(capture_voice_command())
+		asyncio.run(run_prompt_mode(text, ctx, debug))
 		return
 
 	# Configure console logging

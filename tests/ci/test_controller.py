@@ -467,6 +467,7 @@ class TestControllerIntegration:
 		assert 'go_to_url' in excluded_controller.registry.registry.actions
 		assert 'click_element_by_index' in excluded_controller.registry.registry.actions
 
+	@pytest.mark.skip(reason="Requires network access to Google")
 	async def test_search_google_action(self, controller, browser_session, base_url):
 		"""Test the search_google action."""
 
