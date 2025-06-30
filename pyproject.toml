@@ -65,6 +65,11 @@ examples = [
     "browserbase>=0.4.0",
     "langchain-openai>=0.3.26",
 ]
+voice = [
+    "openai-whisper>=20231117",
+    "sounddevice>=0.4.6",
+    "soundfile>=0.13.1",
+]
 eval = [
     "lmnr[all]>=0.6.11",
     "anyio>=4.9.0",
