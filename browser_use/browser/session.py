@@ -712,10 +712,11 @@ class BrowserSession(BaseModel):
 		# Use Playwright screenshot directly
 
 		assert self.browser_context
-		try:
-			page = [p for p in self.browser_context.pages if p.url == page.url][0]
-		except Exception:
-			pass
+		# try:
+		# 	# get fresh page handle
+		# 	page = [p for p in self.browser_context.pages if p.url == page.url][0]
+		# except Exception:
+		# 	pass
 		assert await page.evaluate('() => true'), 'Page is not usable before screenshot!'
 		await page.bring_to_front()
 
@@ -2708,86 +2709,35 @@ class BrowserSession(BaseModel):
 		except Exception:
 			pass
 
-		# Take a simple screenshot with Playwright
 		try:
-			screenshot = await page.screenshot(full_page=full_page)
-			screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
-			return screenshot_b64
+			# Always use our clipping approach - never pass full_page=True to Playwright
+			# This prevents timeouts on very long pages
+
+			# 1. Get current viewport and page dimensions including scroll position
+			dimensions = await page.evaluate("""() => {
+				return {
+					width: window.innerWidth,
+					height: window.innerHeight,
+					pageHeight: document.documentElement.scrollHeight,
+					devicePixelRatio: window.devicePixelRatio || 1,
+					scrollX: window.pageXOffset || document.documentElement.scrollLeft || 0,
+					scrollY: window.pageYOffset || document.documentElement.scrollTop || 0
+				};
+			}""")
+
+			# Take screenshot using our retry-decorated method
+			return await self._take_screenshot_hybrid(
+				page,
+				clip={
+					'x': dimensions['scrollX'],
+					'y': dimensions['scrollY'],
+					'width': min(dimensions['width'], MAX_SCREENSHOT_WIDTH),
+					'height': min(dimensions['height'], MAX_SCREENSHOT_HEIGHT),
+				},
+			)
 		except Exception as e:
-			self.logger.error(f'❌ Failed to take screenshot: {type(e).__name__}: {e}')
+			self.logger.error(f'❌ Failed to take screenshot after retries: {type(e).__name__}: {e}')
 			raise
-
-		# # COMMENTED OUT: Complex viewport manipulation logic that was causing dimension drift
-		# # Store original viewport to ensure proper restoration
-		# original_viewport = page.viewport_size
-		# need_viewport_expansion = False
-
-		# try:
-		# 	# Always use our clipping approach - never pass full_page=True to Playwright
-		# 	# This prevents timeouts on very long pages
-
-		# 	# 1. Get current viewport and page dimensions including scroll position
-		# 	dimensions = await page.evaluate("""() => {
-		# 		return {
-		# 			width: window.innerWidth,
-		# 			height: window.innerHeight,
-		# 			pageHeight: document.documentElement.scrollHeight,
-		# 			devicePixelRatio: window.devicePixelRatio || 1,
-		# 			scrollX: window.pageXOffset || document.documentElement.scrollLeft || 0,
-		# 			scrollY: window.pageYOffset || document.documentElement.scrollTop || 0
-		# 		};
-		# 	}""")
-
-		# 	# 2. Calculate dimensions with proper limits
-		# 	viewport_expansion = self.browser_profile.viewport_expansion if self.browser_profile.viewport_expansion else 0
-
-		# 	# Fix: Use proper max width and height constants
-		# 	capped_width = min(dimensions['width'], MAX_SCREENSHOT_WIDTH)
-		# 	if full_page:
-		# 		# For full page, use the actual page height up to our max limit
-		# 		desired_height = dimensions['pageHeight']
-		# 	else:
-		# 		# For viewport screenshot, just use viewport + expansion
-		# 		desired_height = dimensions['height'] + viewport_expansion
-
-		# 	capped_height = min(desired_height, MAX_SCREENSHOT_HEIGHT)
-
-		# 	# 3. Only modify viewport if we actually need to expand it
-		# 	if original_viewport:
-		# 		need_viewport_expansion = capped_width > original_viewport['width'] or capped_height > original_viewport['height']
-		# 	else:
-		# 		# No viewport set, we need to set one for the screenshot
-		# 		need_viewport_expansion = True
-
-		# 	if need_viewport_expansion:
-		# 		try:
-		# 			# Temporarily expand viewport for the screenshot
-		# 			await self._set_viewport_size(page, {'width': capped_width, 'height': capped_height})
-		# 		except Exception as e:
-		# 			self.logger.error(f'❌ Failed to set up viewport for screenshot: {type(e).__name__}: {e}')
-
-		# 	# Take screenshot using our retry-decorated method
-		# 	return await self._take_screenshot_hybrid(
-		# 		page,
-		# 		clip={
-		# 			'x': dimensions.get('scrollX', 0),
-		# 			'y': dimensions.get('scrollY', 0),
-		# 			'width': capped_width,
-		# 			'height': capped_height,
-		# 		},
-		# 	)
-		# except Exception as e:
-		# 	self.logger.error(f'❌ Failed to take screenshot after retries: {type(e).__name__}: {e}')
-		# 	raise
-		# finally:
-		# 	# Restore original viewport only if there was one and we modified it
-		# 	if original_viewport and need_viewport_expansion:
-		# 		try:
-		# 			await self._set_viewport_size(page, original_viewport)
-		# 		except Exception as e:
-		# 			self.logger.warning(
-		# 				f'⚠️ Failed to restore viewport to original size after screenshot: {type(e).__name__}: {e}'
-		# 			)
 
 	# region - User Actions
 

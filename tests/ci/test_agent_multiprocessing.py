@@ -334,8 +334,9 @@ class TestParallelism:
 			"next_goal": "Create new tab",
 			"action": [
 				{
-					"open_tab": {
-						"url": "https://example.com"
+					"go_to_url": {
+						"url": "https://example.com",
+						"new_tab": true
 					}
 				}
 			]

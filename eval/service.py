@@ -582,6 +582,15 @@ class TaskResult:
 		if Stage.FORMAT_HISTORY in self.completed_stages:
 			format_data = self.stage_data.get(Stage.FORMAT_HISTORY, {})
 			logger.info(f'format_data: {format_data}')
+			# log token usage
+			logger.info(f'tokensUsed: {format_data.get("tokensUsed")}')
+			logger.info(f'usage: {format_data.get("usage")}')
+
+			# Handle usage data - convert to JSON string if it's a dict
+			usage_data = format_data.get('usage')
+			if usage_data and isinstance(usage_data, dict):
+				usage_data = json.dumps(usage_data)
+
 			payload.update(
 				{
 					'actionHistory': format_data.get('action_history', []),
@@ -592,7 +601,7 @@ class TaskResult:
 					'steps': format_data.get('steps'),
 					'maxSteps': self.max_steps,
 					'tokensUsed': format_data.get('tokensUsed'),
-					'usage': format_data.get('usage'),  # Add usage data
+					'usage': usage_data,  # Add usage data (JSON string if dict)
 					'completeHistory': format_data.get('complete_history', []),  # Add complete step history
 				}
 			)
@@ -1031,8 +1040,13 @@ async def reformat_agent_history(
 
 	# Extract usage data from agent history
 	usage_data = None
-	if agent_history.usage:
+	logger.info(f'Agent history usage object: {agent_history.usage}')
+	logger.info(f'Agent history usage type: {type(agent_history.usage)}')
+	if hasattr(agent_history, 'usage') and agent_history.usage:
+		logger.info(f'Agent history usage model_dump: {agent_history.usage.model_dump()}')
 		usage_data = agent_history.usage.model_dump()
+	else:
+		logger.warning('Agent history has no usage data or usage is empty/None')
 
 	# Create results structure with new fields
 	results = {
@@ -1321,6 +1335,10 @@ async def setup_browser_session(task: Task, headless: bool, highlight_elements: 
 		storage_state_path = task_folder / 'storage_state.json'
 		profile_kwargs['storage_state'] = str(storage_state_path)
 
+		downloads_dir_path = task_folder / 'downloads'
+		downloads_dir_path.mkdir(parents=True, exist_ok=True)
+		profile_kwargs['downloads_path'] = str(downloads_dir_path)
+
 		logger.debug(f'Login task {task.task_id}: Configured to save cookies to {storage_state_path}')
 
 	profile = BrowserProfile(**profile_kwargs)
@@ -1354,6 +1372,7 @@ async def run_agent_with_browser(
 	validate_output: bool = False,
 	planner_llm: BaseChatModel | None = None,
 	planner_interval: int = 1,
+	use_thinking: bool = True,
 ) -> tuple[AgentHistoryList, str]:
 	"""Run agent with the browser session"""
 	# Create controller, optionally with SERP search and structured output
@@ -1377,6 +1396,7 @@ async def run_agent_with_browser(
 		validate_output=validate_output,
 		planner_llm=planner_llm,
 		planner_interval=planner_interval,
+		use_thinking=use_thinking,
 		source='eval_platform',
 		calculate_cost=True,
 	)
@@ -1570,6 +1590,7 @@ async def run_task_with_semaphore(
 	include_result: bool = False,
 	highlight_elements: bool = True,
 	use_mind2web_judge: bool = False,
+	use_thinking: bool = True,
 ) -> dict:
 	"""Clean pipeline approach for running tasks"""
 	task_start_time = time.time()
@@ -1672,6 +1693,7 @@ async def run_task_with_semaphore(
 								validate_output,
 								planner_llm,
 								planner_interval,
+								use_thinking,
 							),
 							timeout=1000,
 						)
@@ -1900,6 +1922,7 @@ async def run_multiple_tasks(
 	include_result: bool = False,
 	highlight_elements: bool = True,
 	use_mind2web_judge: bool = False,
+	use_thinking: bool = True,
 ) -> dict:
 	"""
 	Run multiple tasks in parallel and evaluate results.
@@ -1977,6 +2000,7 @@ async def run_multiple_tasks(
 					include_result=include_result,
 					highlight_elements=highlight_elements,
 					use_mind2web_judge=use_mind2web_judge,
+					use_thinking=use_thinking,
 				)
 				for task in tasks_to_run
 			),
@@ -2245,6 +2269,7 @@ async def run_evaluation_pipeline(
 	laminar_eval_id: str | None = None,
 	highlight_elements: bool = True,
 	use_mind2web_judge: bool = False,
+	use_thinking: bool = True,
 ) -> dict:
 	"""
 	Complete evaluation pipeline that handles Laminar setup and task execution in the same event loop
@@ -2295,6 +2320,7 @@ async def run_evaluation_pipeline(
 		include_result=include_result,
 		highlight_elements=highlight_elements,
 		use_mind2web_judge=use_mind2web_judge,
+		use_thinking=use_thinking,
 	)
 
 
@@ -2358,6 +2384,7 @@ if __name__ == '__main__':
 		help='Existing Laminar evaluation ID to use (if not provided, a new evaluation will be created)',
 	)
 	parser.add_argument('--use-mind2web-judge', action='store_true', help='Use original judge')
+	parser.add_argument('--no-thinking', action='store_true', help='Disable thinking in agent system prompt')
 
 	# Single task mode arguments
 	parser.add_argument('--task-text', type=str, default=None, help='Task description for single task mode')
@@ -2602,6 +2629,7 @@ if __name__ == '__main__':
 				laminar_eval_id=args.laminar_eval_id,
 				highlight_elements=args.highlight_elements,
 				use_mind2web_judge=args.use_mind2web_judge,
+				use_thinking=not args.no_thinking,
 			)
 		)
 

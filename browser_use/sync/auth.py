@@ -5,6 +5,7 @@ OAuth2 Device Authorization Grant flow client for browser-use.
 import asyncio
 import json
 import os
+import shutil
 import time
 from datetime import datetime
 
@@ -295,11 +296,12 @@ class DeviceAuthClient:
 			verification_uri = device_auth['verification_uri'].replace(self.base_url, frontend_url)
 			verification_uri_complete = device_auth['verification_uri_complete'].replace(self.base_url, frontend_url)
 
+			terminal_width, _terminal_height = shutil.get_terminal_size((80, 20))
 			if show_instructions:
-				logger.info('\n\n' + '─' * 70)
+				logger.info('─' * (terminal_width - 1))
 				logger.info('🌐  View the details of this run in Browser Use Cloud:')
 				logger.info(f'    👉  {verification_uri_complete}')
-				logger.info('─' * 70 + '\n')
+				logger.info('─' * (terminal_width - 1) + '\n')
 
 			# Poll for token
 			token_data = await self.poll_for_token(

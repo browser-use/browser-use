@@ -161,8 +161,8 @@ Specify the action as a dictionary where the key is the action name and the valu
 ```python
 
 initial_actions = [
-	{'open_tab': {'url': 'https://www.google.com'}},
-	{'open_tab': {'url': 'https://en.wikipedia.org/wiki/Randomness'}},
+	{'go_to_url': {'url': 'https://www.google.com', 'new_tab': true}},
+	{'go_to_url': {'url': 'https://en.wikipedia.org/wiki/Randomness', 'new_tab': true}},
 	{'scroll_down': {'amount': 1000}},
 ]
 agent = Agent(

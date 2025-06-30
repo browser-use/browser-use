@@ -10,6 +10,7 @@ class SearchGoogleAction(BaseModel):
 
 class GoToUrlAction(BaseModel):
 	url: str
+	new_tab: bool  # True to open in new tab, False to navigate in current tab
 
 
 class ClickElementAction(BaseModel):
@@ -41,20 +42,21 @@ class SwitchTabAction(BaseModel):
 	page_id: int
 
 
-class OpenTabAction(BaseModel):
-	url: str
-
-
 class CloseTabAction(BaseModel):
 	page_id: int
 
 
 class ScrollAction(BaseModel):
-	amount: int | None = None  # The number of pixels to scroll. If None, scroll down/up one page
+	down: bool  # True to scroll down, False to scroll up
 
 
 class SendKeysAction(BaseModel):
 	keys: str
+
+
+class UploadFileAction(BaseModel):
+	index: int
+	path: str
 
 
 class ExtractPageContentAction(BaseModel):

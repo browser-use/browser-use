@@ -2,7 +2,7 @@ import asyncio
 import enum
 import json
 import logging
-import re
+import os
 from collections.abc import Awaitable, Callable
 from typing import Any, Generic, TypeVar, cast
 
@@ -19,12 +19,12 @@ from browser_use.controller.views import (
 	GoToUrlAction,
 	InputTextAction,
 	NoParamsAction,
-	OpenTabAction,
 	ScrollAction,
 	SearchGoogleAction,
 	SendKeysAction,
 	StructuredOutputAction,
 	SwitchTabAction,
+	UploadFileAction,
 )
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
@@ -105,16 +105,28 @@ class Controller(Generic[Context]):
 				extracted_content=msg, include_in_memory=True, long_term_memory=f"Searched Google for '{params.query}'"
 			)
 
-		@self.registry.action('Navigate to URL in the current tab', param_model=GoToUrlAction)
+		@self.registry.action(
+			'Navigate to URL, set new_tab=True to open in new tab, False to navigate in current tab', param_model=GoToUrlAction
+		)
 		async def go_to_url(params: GoToUrlAction, browser_session: BrowserSession):
 			try:
-				# SECURITY FIX: Use browser_session.navigate_to() instead of direct page.goto()
-				# This ensures URL validation against allowed_domains is performed
-				await browser_session.navigate_to(params.url)
-				memory = f'Navigated to {params.url}'
-				msg = f'🔗 {memory}'
-				logger.info(msg)
-				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=memory)
+				if params.new_tab:
+					# Open in new tab (logic from open_tab function)
+					page = await browser_session.create_new_tab(params.url)
+					tab_idx = browser_session.tabs.index(page)
+					memory = f'Opened new tab with URL {params.url}'
+					msg = f'🔗  Opened new tab #{tab_idx} with url {params.url}'
+					logger.info(msg)
+					return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=memory)
+				else:
+					# Navigate in current tab (original logic)
+					# SECURITY FIX: Use browser_session.navigate_to() instead of direct page.goto()
+					# This ensures URL validation against allowed_domains is performed
+					await browser_session.navigate_to(params.url)
+					memory = f'Navigated to {params.url}'
+					msg = f'🔗 {memory}'
+					logger.info(msg)
+					return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=memory)
 			except Exception as e:
 				error_msg = str(e)
 				# Check for network-related errors
@@ -245,20 +257,43 @@ class Controller(Generic[Context]):
 				long_term_memory=f"Input '{params.text}' into element {params.index}.",
 			)
 
-		# Save PDF
-		@self.registry.action('Save the current page as a PDF file')
-		async def save_pdf(page: Page):
-			short_url = re.sub(r'^https?://(?:www\.)?|/$', '', page.url)
-			slug = re.sub(r'[^a-zA-Z0-9]+', '-', short_url).strip('-').lower()
-			sanitized_filename = f'{slug}.pdf'
+		@self.registry.action('Upload file to interactive element with file path', param_model=UploadFileAction)
+		async def upload_file(params: UploadFileAction, browser_session: BrowserSession, available_file_paths: list[str]):
+			if params.path not in available_file_paths:
+				return ActionResult(error=f'File path {params.path} is not available')
 
-			await page.emulate_media(media='screen')
-			await page.pdf(path=sanitized_filename, format='A4', print_background=False)
-			msg = f'Saving page with URL {page.url} as PDF to ./{sanitized_filename}'
-			logger.info(msg)
-			return ActionResult(
-				extracted_content=msg, include_in_memory=True, long_term_memory=f'Saved PDF to {sanitized_filename}'
+			if not os.path.exists(params.path):
+				return ActionResult(error=f'File {params.path} does not exist')
+
+			file_upload_dom_el = await browser_session.find_file_upload_element_by_index(
+				params.index, max_height=3, max_descendant_depth=3
 			)
+
+			if file_upload_dom_el is None:
+				msg = f'No file upload element found at index {params.index}'
+				logger.info(msg)
+				return ActionResult(error=msg)
+
+			file_upload_el = await browser_session.get_locate_element(file_upload_dom_el)
+
+			if file_upload_el is None:
+				msg = f'No file upload element found at index {params.index}'
+				logger.info(msg)
+				return ActionResult(error=msg)
+
+			try:
+				await file_upload_el.set_input_files(params.path)
+				msg = f'📁 Successfully uploaded file to index {params.index}'
+				logger.info(msg)
+				return ActionResult(
+					extracted_content=msg,
+					include_in_memory=True,
+					long_term_memory=f'Uploaded file {params.path} to element {params.index}',
+				)
+			except Exception as e:
+				msg = f'Failed to upload file to index {params.index}: {str(e)}'
+				logger.info(msg)
+				return ActionResult(error=msg)
 
 		# Tab Management Actions
 		@self.registry.action('Switch tab', param_model=SwitchTabAction)
@@ -274,16 +309,6 @@ class Controller(Generic[Context]):
 			logger.info(msg)
 			return ActionResult(
 				extracted_content=msg, include_in_memory=True, long_term_memory=f'Switched to tab {params.page_id}'
-			)
-
-		@self.registry.action('Open a specific url in new tab', param_model=OpenTabAction)
-		async def open_tab(params: OpenTabAction, browser_session: BrowserSession):
-			page = await browser_session.create_new_tab(params.url)
-			tab_idx = browser_session.tabs.index(page)
-			msg = f'🔗  Opened new tab #{tab_idx} with url {params.url}'
-			logger.info(msg)
-			return ActionResult(
-				extracted_content=msg, include_in_memory=True, long_term_memory=f'Opened new tab with URL {params.url}'
 			)
 
 		@self.registry.action('Close an existing tab', param_model=CloseTabAction)
@@ -412,52 +437,52 @@ Explain the content of the page and that the requested information is not availa
 				logger.info(msg)
 				return ActionResult(error=str(e))
 
+		# @self.registry.action(
+		# 	'Get the accessibility tree of the page in the format "role name" with the number_of_elements to return',
+		# )
+		# async def get_ax_tree(number_of_elements: int, page: Page):
+		# 	node = await page.accessibility.snapshot(interesting_only=True)
+
+		# 	def flatten_ax_tree(node, lines):
+		# 		if not node:
+		# 			return
+		# 		role = node.get('role', '')
+		# 		name = node.get('name', '')
+		# 		lines.append(f'{role} {name}')
+		# 		for child in node.get('children', []):
+		# 			flatten_ax_tree(child, lines)
+
+		# 	lines = []
+		# 	flatten_ax_tree(node, lines)
+		# 	msg = '\n'.join(lines)
+		# 	logger.info(msg)
+		# 	return ActionResult(
+		# 		extracted_content=msg,
+		# 		include_in_memory=False,
+		# 		long_term_memory='Retrieved accessibility tree',
+		# 		include_extracted_content_only_once=True,
+		# 	)
+
 		@self.registry.action(
-			'Get the accessibility tree of the page in the format "role name" with the number_of_elements to return',
-		)
-		async def get_ax_tree(number_of_elements: int, page: Page):
-			node = await page.accessibility.snapshot(interesting_only=True)
-
-			def flatten_ax_tree(node, lines):
-				if not node:
-					return
-				role = node.get('role', '')
-				name = node.get('name', '')
-				lines.append(f'{role} {name}')
-				for child in node.get('children', []):
-					flatten_ax_tree(child, lines)
-
-			lines = []
-			flatten_ax_tree(node, lines)
-			msg = '\n'.join(lines)
-			logger.info(msg)
-			return ActionResult(
-				extracted_content=msg,
-				include_in_memory=False,
-				long_term_memory='Retrieved accessibility tree',
-				include_extracted_content_only_once=True,
-			)
-
-		@self.registry.action(
-			'Scroll down the page by pixel amount - if none is given, scroll one page',
+			'Scroll the page by one page (set down=True to scroll down, down=False to scroll up)',
 			param_model=ScrollAction,
 		)
-		async def scroll_down(params: ScrollAction, browser_session: BrowserSession):
+		async def scroll(params: ScrollAction, browser_session: BrowserSession):
 			"""
 			(a) Use browser._scroll_container for container-aware scrolling.
 			(b) If that JavaScript throws, fall back to window.scrollBy().
 			"""
 			page = await browser_session.get_current_page()
-			if params.amount:
-				dy = params.amount
-			else:
-				# Get window height with retries
-				dy_result, action_result = await retry_async_function(
-					lambda: page.evaluate('() => window.innerHeight'), 'Scroll down failed due to an error.'
-				)
-				if action_result:
-					return action_result
-				dy = dy_result
+
+			# Get window height with retries
+			dy_result, action_result = await retry_async_function(
+				lambda: page.evaluate('() => window.innerHeight'), 'Scroll failed due to an error.'
+			)
+			if action_result:
+				return action_result
+
+			# Set direction based on down parameter
+			dy = dy_result if params.down else -(dy_result or 0)
 
 			try:
 				await browser_session._scroll_container(cast(int, dy))
@@ -466,46 +491,16 @@ Explain the content of the page and that the requested information is not availa
 				await page.evaluate('(y) => window.scrollBy(0, y)', dy)
 				logger.debug('Smart scroll failed; used window.scrollBy fallback', exc_info=e)
 
-			amount_str = f'{params.amount} pixels' if params.amount is not None else 'one page'
-			msg = f'🔍 Scrolled down the page by {amount_str}'
+			direction = 'down' if params.down else 'up'
+			msg = f'🔍 Scrolled {direction} the page by one page'
 			logger.info(msg)
 			return ActionResult(
-				extracted_content=msg, include_in_memory=True, long_term_memory=f'Scrolled down the page by {amount_str}'
-			)
-
-		@self.registry.action(
-			'Scroll up the page by pixel amount - if none is given, scroll one page',
-			param_model=ScrollAction,
-		)
-		async def scroll_up(params: ScrollAction, browser_session: BrowserSession):
-			page = await browser_session.get_current_page()
-			if params.amount:
-				dy = -(params.amount)
-			else:
-				# Get window height with retries
-				dy_result, action_result = await retry_async_function(
-					lambda: page.evaluate('() => window.innerHeight'), 'Scroll up failed due to an error.'
-				)
-				if action_result:
-					return action_result
-				dy = -(dy_result or 0)
-
-			try:
-				await browser_session._scroll_container(dy)
-			except Exception as e:
-				await page.evaluate('(y) => window.scrollBy(0, y)', dy)
-				logger.debug('Smart scroll failed; used window.scrollBy fallback', exc_info=e)
-
-			amount_str = f'{params.amount} pixels' if params.amount is not None else 'one page'
-			msg = f'🔍 Scrolled up the page by {amount_str}'
-			logger.info(msg)
-			return ActionResult(
-				extracted_content=msg, include_in_memory=True, long_term_memory=f'Scrolled up the page by{amount_str}'
+				extracted_content=msg, include_in_memory=True, long_term_memory=f'Scrolled {direction} the page by one page'
 			)
 
 		# send keys
 		@self.registry.action(
-			'Send strings of special keys like Escape,Backspace, Insert, PageDown, Delete, Enter, Shortcuts such as `Control+o`, `Control+Shift+T` are supported as well. This gets used in keyboard.press. ',
+			'Send strings of special keys to use Playwright page.keyboard.press - examples include Escape, Backspace, Insert, PageDown, Delete, Enter, or Shortcuts such as `Control+o`, `Control+Shift+T`',
 			param_model=SendKeysAction,
 		)
 		async def send_keys(params: SendKeysAction, page: Page):
@@ -527,7 +522,7 @@ Explain the content of the page and that the requested information is not availa
 			return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=f'Sent keys: {params.keys}')
 
 		@self.registry.action(
-			description='If you dont find something which you want to interact with, scroll to it',
+			description='Scroll to a text in the current page',
 		)
 		async def scroll_to_text(text: str, page: Page):  # type: ignore
 			try:

@@ -17,7 +17,6 @@ from browser_use.controller.views import (
 	GoToUrlAction,
 	InputTextAction,
 	NoParamsAction,
-	OpenTabAction,
 	ScrollAction,
 	SearchGoogleAction,
 	SendKeysAction,
@@ -101,7 +100,7 @@ class TestControllerIntegration:
 	async def test_go_to_url_action(self, controller, browser_session, base_url):
 		"""Test that GoToUrlAction navigates to the specified URL."""
 		# Create action model for go_to_url
-		action_data = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1')}
+		action_data = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
 
 		# Create the ActionModel instance
 		class GoToUrlActionModel(ActionModel):
@@ -124,7 +123,7 @@ class TestControllerIntegration:
 	async def test_scroll_actions(self, controller, browser_session, base_url):
 		"""Test that scroll actions correctly scroll the page."""
 		# First navigate to a page
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1')}
+		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
 
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
@@ -132,10 +131,10 @@ class TestControllerIntegration:
 		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
 
 		# Create scroll down action
-		scroll_action = {'scroll_down': ScrollAction(amount=200)}
+		scroll_action = {'scroll': ScrollAction(down=True)}
 
 		class ScrollActionModel(ActionModel):
-			scroll_down: ScrollAction | None = None
+			scroll: ScrollAction | None = None
 
 		# Execute scroll down
 		result = await controller.act(ScrollActionModel(**scroll_action), browser_session)
@@ -146,10 +145,10 @@ class TestControllerIntegration:
 		assert 'Scrolled down' in result.extracted_content
 
 		# Create scroll up action
-		scroll_up_action = {'scroll_up': ScrollAction(amount=100)}
+		scroll_up_action = {'scroll': ScrollAction(down=False)}
 
 		class ScrollUpActionModel(ActionModel):
-			scroll_up: ScrollAction | None = None
+			scroll: ScrollAction | None = None
 
 		# Execute scroll up
 		result = await controller.act(ScrollUpActionModel(**scroll_up_action), browser_session)
@@ -167,11 +166,9 @@ class TestControllerIntegration:
 			'search_google',
 			'click_element_by_index',
 			'input_text',
-			'scroll_down',
-			'scroll_up',
+			'scroll',
 			'go_back',
 			'switch_tab',
-			'open_tab',
 			'close_tab',
 			'wait',
 		]
@@ -194,7 +191,7 @@ class TestControllerIntegration:
 			return ActionResult(extracted_content=f'Custom action executed with: {params.text} on {page.url}')
 
 		# Navigate to a page first
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1')}
+		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
 
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
@@ -236,7 +233,7 @@ class TestControllerIntegration:
 		)
 
 		# Navigate to a page with a form
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/searchform')}
+		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/searchform', new_tab=False)}
 
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
@@ -327,7 +324,7 @@ class TestControllerIntegration:
 	async def test_go_back_action(self, controller, browser_session, base_url):
 		"""Test that go_back action navigates to the previous page."""
 		# Navigate to first page
-		goto_action1 = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1')}
+		goto_action1 = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
 
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
@@ -340,7 +337,7 @@ class TestControllerIntegration:
 		print(f'First page URL: {first_url}')
 
 		# Navigate to second page
-		goto_action2 = {'go_to_url': GoToUrlAction(url=f'{base_url}/page2')}
+		goto_action2 = {'go_to_url': GoToUrlAction(url=f'{base_url}/page2', new_tab=False)}
 		await controller.act(GoToUrlActionModel(**goto_action2), browser_session)
 
 		# Verify we're on the second page
@@ -380,7 +377,7 @@ class TestControllerIntegration:
 
 		# Navigate to each page in sequence
 		for url in urls:
-			action_data = {'go_to_url': GoToUrlAction(url=url)}
+			action_data = {'go_to_url': GoToUrlAction(url=url, new_tab=False)}
 
 			class GoToUrlActionModel(ActionModel):
 				go_to_url: GoToUrlAction | None = None
@@ -410,7 +407,7 @@ class TestControllerIntegration:
 		urls = [f'{base_url}/page1', f'{base_url}/page2']
 
 		# First tab
-		goto_action1 = {'go_to_url': GoToUrlAction(url=urls[0])}
+		goto_action1 = {'go_to_url': GoToUrlAction(url=urls[0], new_tab=False)}
 
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
@@ -418,10 +415,10 @@ class TestControllerIntegration:
 		await controller.act(GoToUrlActionModel(**goto_action1), browser_session)
 
 		# Open second tab
-		open_tab_action = {'open_tab': OpenTabAction(url=urls[1])}
+		open_tab_action = {'go_to_url': GoToUrlAction(url=urls[1], new_tab=True)}
 
 		class OpenTabActionModel(ActionModel):
-			open_tab: OpenTabAction | None = None
+			go_to_url: GoToUrlAction | None = None
 
 		await controller.act(OpenTabActionModel(**open_tab_action), browser_session)
 
@@ -457,11 +454,11 @@ class TestControllerIntegration:
 	async def test_excluded_actions(self, browser_session):
 		"""Test that excluded actions are not registered."""
 		# Create controller with excluded actions
-		excluded_controller = Controller(exclude_actions=['search_google', 'open_tab'])
+		excluded_controller = Controller(exclude_actions=['search_google', 'scroll'])
 
 		# Verify excluded actions are not in the registry
 		assert 'search_google' not in excluded_controller.registry.registry.actions
-		assert 'open_tab' not in excluded_controller.registry.registry.actions
+		assert 'scroll' not in excluded_controller.registry.registry.actions
 
 		# But other actions are still there
 		assert 'go_to_url' in excluded_controller.registry.registry.actions
@@ -496,7 +493,7 @@ class TestControllerIntegration:
 			file_system = FileSystem(temp_dir)
 
 			# First navigate to a page
-			goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1')}
+			goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
 
 			class GoToUrlActionModel(ActionModel):
 				go_to_url: GoToUrlAction | None = None
@@ -599,7 +596,7 @@ class TestControllerIntegration:
 		)
 
 		# Navigate to the keyboard test page on the local HTTP server
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/keyboard')}
+		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/keyboard', new_tab=False)}
 
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
@@ -777,7 +774,7 @@ class TestControllerIntegration:
 		)
 
 		# Navigate to the dropdown test page
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/dropdown1')}
+		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/dropdown1', new_tab=False)}
 
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
@@ -888,7 +885,7 @@ class TestControllerIntegration:
 		)
 
 		# Navigate to the dropdown test page
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/dropdown2')}
+		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/dropdown2', new_tab=False)}
 
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
@@ -981,7 +978,7 @@ class TestControllerIntegration:
 		)
 
 		# Navigate to the clickable elements test page
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/clickable')}
+		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/clickable', new_tab=False)}
 
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
@@ -1135,7 +1132,7 @@ class TestControllerIntegration:
 	async def test_go_to_url_network_error(self, controller, browser_session):
 		"""Test that go_to_url handles network errors gracefully instead of throwing hard errors."""
 		# Create action model for go_to_url with an invalid domain
-		action_data = {'go_to_url': GoToUrlAction(url='https://www.nonexistentdndbeyond.com/')}
+		action_data = {'go_to_url': GoToUrlAction(url='https://www.nonexistentdndbeyond.com/', new_tab=False)}
 
 		# Create the ActionModel instance
 		class GoToUrlActionModel(ActionModel):

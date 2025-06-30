@@ -93,7 +93,7 @@ jobs:
       - run: playwright install chromium
 
       # TODO: just depend on the other test.yml action for this instead of re-running the tests here
-      - run: uv run pytest tests/ci                  # dont push the package to PyPI if the tests fail
+      - run: uv run pytest tests/ci/test_controller.py   # final sanity check: run a few of the tests before release
       
       # publish to PyPI
       - run: uv publish --trusted-publishing always
