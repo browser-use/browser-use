@@ -1077,13 +1077,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			)
 		)
 
-	async def take_step(self) -> tuple[bool, bool]:
+	async def take_step(self, step_info: AgentStepInfo | None = None) -> tuple[bool, bool]:
 		"""Take a step
 
 		Returns:
 		        Tuple[bool, bool]: (is_done, is_valid)
 		"""
-		await self.step()
+		await self.step(step_info)
 
 		if self.state.history.is_done():
 			await self.log_completion()
