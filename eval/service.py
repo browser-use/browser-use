@@ -716,8 +716,8 @@ SUPPORTED_MODELS = {
 	'gemini-1.5-flash': {'provider': 'google', 'model_name': 'gemini-1.5-flash-latest', 'api_key_env': 'GEMINI_API_KEY'},
 	'gemini-2.0-flash-lite': {'provider': 'google', 'model_name': 'gemini-2.0-flash-lite', 'api_key_env': 'GEMINI_API_KEY'},
 	'gemini-2.0-flash': {'provider': 'google', 'model_name': 'gemini-2.0-flash', 'api_key_env': 'GEMINI_API_KEY'},
-	'gemini-2.5-pro': {'provider': 'google', 'model_name': 'gemini-2.5-pro-preview-03-25', 'api_key_env': 'GEMINI_API_KEY'},
-	'gemini-2.5-flash': {'provider': 'google', 'model_name': 'gemini-2.5-flash-latest', 'api_key_env': 'GEMINI_API_KEY'},
+	'gemini-2.5-pro': {'provider': 'google', 'model_name': 'gemini-2.5-pro', 'api_key_env': 'GEMINI_API_KEY'},
+	'gemini-2.5-flash': {'provider': 'google', 'model_name': 'gemini-2.5-flash', 'api_key_env': 'GEMINI_API_KEY'},
 	'gemini-2.5-pro-preview-05-06': {
 		'provider': 'google',
 		'model_name': 'gemini-2.5-pro-preview-05-06',
@@ -1246,8 +1246,9 @@ async def judge_task_result(model, task_folder: Path, score_threshold: float = 3
 
 			try:
 				# Run comprehensive judge evaluation
-				comprehensive_result = await evaluate_task_with_comprehensive_judge(
-					task_folder=task_folder, model=model, max_images=10
+				comprehensive_result = await asyncio.wait_for(
+					evaluate_task_with_comprehensive_judge(task_folder=task_folder, model=model, max_images=10),
+					timeout=180,  # 3 minutes max for evaluation
 				)
 
 				if comprehensive_result.get('error'):

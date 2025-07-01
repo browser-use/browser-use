@@ -54,6 +54,7 @@ class AgentSettings(BaseModel):
 	]
 	max_actions_per_step: int = 10
 	use_thinking: bool = True
+	max_history_items: int = 40
 
 	page_extraction_llm: BaseChatModel | None = None
 	planner_llm: BaseChatModel | None = None
