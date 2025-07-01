@@ -331,10 +331,12 @@ class Controller(Generic[Context]):
 		@self.registry.action(
 			"""Extract structured, semantic data (e.g. product description, price, all information about XYZ) from the current webpage based on a textual query.
 Only use this for extracting info from a single product/article page, not for entire listings or search results pages.
+Set extract_links=True ONLY if your query requires extracting links/URLs from the page.
 """,
 		)
 		async def extract_structured_data(
 			query: str,
+			extract_links: bool,
 			page: Page,
 			page_extraction_llm: BaseChatModel,
 			file_system: FileSystem,
@@ -344,13 +346,8 @@ Only use this for extracting info from a single product/article page, not for en
 			import markdownify
 
 			strip = []
-			include_links = False
-			lower_query = query.lower()
-			url_keywords = ['url', 'links']
-			if any(keyword in lower_query for keyword in url_keywords):
-				include_links = True
 
-			if not include_links:
+			if not extract_links:
 				strip = ['a', 'img']
 
 			# Run markdownify in a thread pool to avoid blocking the event loop

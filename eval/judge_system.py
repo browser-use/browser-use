@@ -356,6 +356,7 @@ The browser-use agent operates in iterative loops receiving structured input:
 - Notes for the error categories:
 - Use the main error - e.g. if we cant login and thats why we dont have an output we should use the login_failed error category
 - The error category list is sequential - so check if an error before is matching better and use that instead
+- captcha includes traditional captchas, Cloudflare challenges, and any other anti-bot protection systems that block task completion
 - partial_output means we collected some part of the output but some is missing
 - tool_failed means a tool like scrolling or file interaction failed or can be improved because functionality which would be helpful was missing - mention that in the improvement tips
 - infinite_loop means the agent is stuck in a loop and not making progress
@@ -363,7 +364,7 @@ The browser-use agent operates in iterative loops receiving structured input:
 - element_interaction_error means that our extraction of the DOM is not correct. E.g. we missed to detect a crucial button and the agent does not see it with a [index]. This can be verified if you look how we highlight elements in the screenshot.
 - iframe_issues means we dont parse elements in the iframe correctly. E.g. we missed to detect a crucial button and the agent does not see it with a [index]. 
 - impossible_task means the task is impossible to complete because the said is down or information is missing
-
+- file_system_misuse means using read_file/write_file for short tasks when direct output would be appropriate. NOTE: extract_structured_data automatically saves to files as part of its core functionality - this is NOT file system misuse and expected behavior.
 
 
 **Improvement Tips (Actionable Developer Guidance):**

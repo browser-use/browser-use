@@ -138,14 +138,11 @@ class TestFileSystem:
 		assert fs.data_dir.name == DEFAULT_FILE_SYSTEM_PATH
 
 		# Check default files are created
-		assert 'results.md' in fs.files
 		assert 'todo.md' in fs.files
-		assert len(fs.files) == 2
+		assert len(fs.files) == 1
 
 		# Check files exist on disk
-		results_path = fs.data_dir / 'results.md'
 		todo_path = fs.data_dir / 'todo.md'
-		assert results_path.exists()
 		assert todo_path.exists()
 
 	def test_filesystem_without_default_files(self, empty_filesystem):
@@ -199,12 +196,6 @@ class TestFileSystem:
 		"""Test getting files from the filesystem."""
 		fs = temp_filesystem
 
-		# Get existing file
-		results_file = fs.get_file('results.md')
-		assert results_file is not None
-		assert isinstance(results_file, MarkdownFile)
-		assert results_file.name == 'results'
-
 		# Get non-existent file
 		non_existent = fs.get_file('nonexistent.md')
 		assert non_existent is None
@@ -218,16 +209,15 @@ class TestFileSystem:
 		fs = temp_filesystem
 		files = fs.list_files()
 
-		assert 'results.md' in files
 		assert 'todo.md' in files
-		assert len(files) == 2
+		assert len(files) == 1
 
 	def test_display_file(self, temp_filesystem):
 		"""Test displaying file content."""
 		fs = temp_filesystem
 
 		# Display existing file
-		content = fs.display_file('results.md')
+		content = fs.display_file('todo.md')
 		assert content == ''  # Default files are empty
 
 		# Display non-existent file
@@ -243,8 +233,8 @@ class TestFileSystem:
 		fs = temp_filesystem
 
 		# Read existing empty file
-		result = fs.read_file('results.md')
-		expected = 'Read from file results.md.\n<content>\n\n</content>'
+		result = fs.read_file('todo.md')
+		expected = 'Read from file todo.md.\n<content>\n\n</content>'
 		assert result == expected
 
 		# Read non-existent file
@@ -326,17 +316,6 @@ class TestFileSystem:
 		assert content1 == 'First extracted content'
 		assert content2 == 'Second extracted content'
 
-	async def test_describe_empty_files(self, temp_filesystem):
-		"""Test describing filesystem with empty files."""
-		fs = temp_filesystem
-
-		description = fs.describe()
-
-		# Should contain results.md but not todo.md (excluded from description)
-		assert 'results.md' in description
-		assert 'todo.md' not in description
-		assert '[empty file]' in description
-
 	async def test_describe_with_content(self, temp_filesystem):
 		"""Test describing filesystem with files containing content."""
 		fs = temp_filesystem
@@ -392,14 +371,7 @@ class TestFileSystem:
 		assert isinstance(state, FileSystemState)
 		assert state.base_dir == str(fs.base_dir)
 		assert state.extracted_content_count == 0
-		assert 'results.md' in state.files
 		assert 'todo.md' in state.files
-
-		# Check file data structure
-		results_data = state.files['results.md']
-		assert results_data['type'] == 'MarkdownFile'
-		assert 'data' in results_data
-		assert results_data['data']['name'] == 'results'
 
 	async def test_from_state(self, temp_filesystem):
 		"""Test restoring filesystem from state."""
@@ -503,7 +475,6 @@ class TestFileSystemEdgeCases:
 
 			# Custom file should be gone, default files should exist
 			assert not custom_file.exists()
-			assert (fs2.data_dir / 'results.md').exists()
 			assert (fs2.data_dir / 'todo.md').exists()
 
 			fs2.nuke()

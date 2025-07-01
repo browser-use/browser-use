@@ -4,8 +4,7 @@ import json
 import logging
 
 from browser_use.agent.message_manager.views import (
-	MessageMetadata,
-	SupportedMessageTypes,
+	HistoryItem,
 )
 from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.agent.views import (
@@ -106,6 +105,7 @@ class MessageManager:
 		include_attributes: list[str] | None = None,
 		message_context: str | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
+		max_history_items: int | None = None,
 	):
 		self.task = task
 		self.state = state
@@ -114,6 +114,9 @@ class MessageManager:
 		self.sensitive_data_description = ''
 		self.available_file_paths = available_file_paths
 		self.use_thinking = use_thinking
+		self.max_history_items = max_history_items
+
+		assert max_history_items is None or max_history_items > 5, 'max_history_items must be None or greater than 5'
 
 		# Store settings as direct attributes instead of in a settings object
 		self.include_attributes = include_attributes or []
@@ -124,16 +127,45 @@ class MessageManager:
 		if len(self.state.history.messages) == 0:
 			self._init_messages()
 
+	@property
+	def agent_history_description(self) -> str:
+		"""Build agent history description from list of items, respecting max_history_items limit"""
+		if self.max_history_items is None:
+			# Include all items
+			return '\n'.join(item.to_string() for item in self.state.agent_history_items)
+
+		total_items = len(self.state.agent_history_items)
+
+		# If we have fewer items than the limit, just return all items
+		if total_items <= self.max_history_items:
+			return '\n'.join(item.to_string() for item in self.state.agent_history_items)
+
+		# We have more items than the limit, so we need to omit some
+		omitted_count = total_items - self.max_history_items
+
+		# Show first item + omitted message + most recent (max_history_items - 1) items
+		# The omitted message doesn't count against the limit, only real history items do
+		recent_items_count = self.max_history_items - 1  # -1 for first item
+
+		items_to_include = [
+			self.state.agent_history_items[0].to_string(),  # Keep first item (initialization)
+			f'<sys>[... {omitted_count} previous steps omitted...]</sys>',
+		]
+		# Add most recent items
+		items_to_include.extend([item.to_string() for item in self.state.agent_history_items[-recent_items_count:]])
+
+		return '\n'.join(items_to_include)
+
 	def _init_messages(self) -> None:
 		"""Initialize the message history with system message, context, task, and other initial messages"""
-		self._add_message_with_type(self.system_prompt, message_type='init')
+		self._add_message_with_type(self.system_prompt)
 
 		placeholder_message = UserMessage(
 			content='<example_1>\nHere is an example output of thinking and tool call. You can use it as a reference but do not copy it exactly.',
 			cache=True,
 		)
 		# placeholder_message = HumanMessage(content='Example output:')
-		self._add_message_with_type(placeholder_message, message_type='init')
+		self._add_message_with_type(placeholder_message)
 
 		# Create base example content
 		example_content = {
@@ -173,18 +205,18 @@ After writing todo.md, I can also initialize a github.md file to accumulate the 
 The file system actions do not change the browser state, so I can also click on the bytedance/UI-TARS-desktop (index [4]) to start collecting information."""
 
 		example_tool_call_1 = AssistantMessage(content=json.dumps(example_content), cache=True)
-		self._add_message_with_type(example_tool_call_1, message_type='init')
+		self._add_message_with_type(example_tool_call_1)
 		self._add_message_with_type(
 			UserMessage(
 				content='Data written to todo.md.\nData written to github.md.\nClicked element with index 4.\n</example_1>',
 				cache=True,
 			),
-			message_type='init',
 		)
 
 	def add_new_task(self, new_task: str) -> None:
 		self.task = new_task
-		self.state.agent_history_description += f'\n<s>User updated <user_request> to: {new_task}</s>\n'
+		task_update_item = HistoryItem(system_message=f'User updated <user_request> to: {new_task}')
+		self.state.agent_history_items.append(task_update_item)
 
 	def _update_agent_history_description(
 		self,
@@ -196,7 +228,7 @@ The file system actions do not change the browser state, so I can also click on 
 
 		if result is None:
 			result = []
-		step_number = step_info.step_number if step_info else 'unknown'
+		step_number = step_info.step_number if step_info else None
 
 		self.state.read_state_description = ''
 
@@ -220,23 +252,23 @@ The file system actions do not change the browser state, so I can also click on 
 
 		if action_results:
 			action_results = f'Action Results:\n{action_results}'
-		action_results = action_results.strip('\n')
+		action_results = action_results.strip('\n') if action_results else None
 
-		# Handle case where model_output is None (e.g., parsing failed)
+		# Build the history item
 		if model_output is None:
-			if isinstance(step_number, int) and step_number > 0:
-				self.state.agent_history_description += f"""<step_{step_number}>
-Agent failed to output in the right format.
-</step_{step_number}>
-"""
+			# Only add error history item if we have a valid step number
+			if step_number is not None and step_number > 0:
+				history_item = HistoryItem(step_number=step_number, error='Agent failed to output in the right format.')
+				self.state.agent_history_items.append(history_item)
 		else:
-			self.state.agent_history_description += f"""<step_{step_number}>
-Evaluation of Previous Step: {model_output.current_state.evaluation_previous_goal}
-Memory: {model_output.current_state.memory}
-Next Goal: {model_output.current_state.next_goal}
-{action_results}
-</step_{step_number}>
-"""
+			history_item = HistoryItem(
+				step_number=step_number,
+				evaluation_previous_goal=model_output.current_state.evaluation_previous_goal,
+				memory=model_output.current_state.memory,
+				next_goal=model_output.current_state.next_goal,
+				action_results=action_results,
+			)
+			self.state.agent_history_items.append(history_item)
 
 	def _get_sensitive_data_description(self, current_page_url) -> str:
 		sensitive_data = self.sensitive_data
@@ -284,7 +316,7 @@ Next Goal: {model_output.current_state.next_goal}
 		state_message = AgentMessagePrompt(
 			browser_state_summary=browser_state_summary,
 			file_system=self.file_system,
-			agent_history_description=self.state.agent_history_description,
+			agent_history_description=self.agent_history_description,
 			read_state_description=self.state.read_state_description,
 			task=self.task,
 			include_attributes=self.include_attributes,
@@ -346,16 +378,15 @@ Next Goal: {model_output.current_state.next_goal}
 
 		# Log message history for debugging
 		logger.debug(self._log_history_lines())
-		self.last_input_messages = [m.message for m in self.state.history.messages]
+		self.last_input_messages = list(self.state.history.messages)
 		return self.last_input_messages
 
 	def _add_message_with_type(
 		self,
 		message: BaseMessage,
 		position: int | None = None,
-		message_type: SupportedMessageTypes | None = None,
 	) -> None:
-		"""Add message with token count metadata
+		"""Add message to history
 		position: None for last, -1 for second last, etc.
 		"""
 
@@ -363,8 +394,7 @@ Next Goal: {model_output.current_state.next_goal}
 		if self.sensitive_data:
 			message = self._filter_sensitive_data(message)
 
-		metadata = MessageMetadata(message_type=message_type)
-		self.state.history.add_message(message, metadata, position)
+		self.state.history.add_message(message, position)
 
 	@time_execution_sync('--filter_sensitive_data')
 	def _filter_sensitive_data(self, message: BaseMessage) -> BaseMessage:
