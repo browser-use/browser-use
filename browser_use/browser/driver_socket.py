@@ -71,7 +71,7 @@ class SocketBrowser(GenericBrowser):
 
     async def new_context(self, **kwargs):
         response = await self._req.emit('new_context', kwargs)
-        pages = [SocketPage(self._req, page['id'])
+        pages = [SocketPage(self._req, page['id'], page["url"])
                  for page in response['pages']]
         ctx = SocketContext(self._req, response['contextId'], pages)
         self._contexts.append(ctx)
@@ -94,6 +94,7 @@ class SocketContext(GenericBrowserContext):
         self._req = req
         self._ctx_id = ctx_id
         self._pages = pages
+        self.logger = logging.getLogger(self.__class__.__name__)
 
     async def new_cdp_session(self, **kwargs):
         raise NotImplementedError(
@@ -120,8 +121,8 @@ class SocketContext(GenericBrowserContext):
         raise NotImplementedError('default_timeout unsupported in SocketContext')
 
     async def new_page(self):
-        page_id = await self._req.emit('new_page', {'context_id': self._ctx_id})
-        page = SocketPage(self._req, page_id)
+        result = await self._req.emit('new_page', {'context_id': self._ctx_id})
+        page = SocketPage(self._req, result['pageId'], result['url'])
         self._pages.append(page)
         return page
 
@@ -266,9 +267,10 @@ class SocketDownload(Download):
 
 
 class SocketPage(Page):
-    def __init__(self, req: SocketRequestManager, page_id: str):
+    def __init__(self, req: SocketRequestManager, page_id: str, url: str):
         self._req = req
         self._page_id = page_id
+        self._url = url
         self.logger = logging.getLogger(self.__class__.__name__)
 
     @property
@@ -302,6 +304,9 @@ class SocketPage(Page):
                 return base64.b64decode(match.group(1))
             else:
                 raise ValueError('Unexpected screenshot data URL format')
+        elif isinstance(result, str):
+            import base64
+            return base64.b64decode(result)
         elif isinstance(result, (bytes, bytearray)):
             return result
         else:
@@ -336,7 +341,7 @@ class SocketPage(Page):
 
     @property
     def url(self) -> str:
-        return self._page_id  # Or fetch via req if needed
+        return self._url  # Or fetch via req if needed
 
     def is_closed(self) -> bool:
         return False  # Could fetch via req if needed

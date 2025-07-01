@@ -403,18 +403,13 @@ Only use this for extracting info from a single product/article page, not for en
 			loop = asyncio.get_event_loop()
 
 			# Try getting page content with retries
-			# page_html_result, action_result = await retry_async_function(
-			# 	lambda: page.content(), "Couldn't extract page content due to an error."
-			# )
-			# if action_result:
-			# 	return action_result
-			# page_html = page_html_result
-
-			try:
-				page_html = await page.content()
-			except Exception as e:
-				error_message = f"Couldn't extract page content: {str(e)}"
-				logger.error(error_message)
+			page_html_result, action_result = await retry_async_function(
+				lambda: page.content, "Couldn't extract page content due to an error."
+			)
+			if action_result:
+				return action_result
+			page_html = page_html_result
+			
 			markdownify_func = partial(markdownify.markdownify, strip=strip)
 			content = await loop.run_in_executor(None, markdownify_func, page_html)
 
@@ -1091,6 +1086,7 @@ Explain the content of the page and that the requested information is not availa
 			await page.keyboard.press('ControlOrMeta+A')
 			await page.keyboard.press('ControlOrMeta+C')
 
+			# extracted_tsv = await page.evaluate("""(s) => {console.log(s);const grid = document.querySelector('.grid-container');if (!grid) return '';grid.tabIndex = -1;grid.focus();document.execCommand('selectAll');document.execCommand('copy');const text = window.getSelection().toString();window.getSelection().removeAllRanges();console.log(text);return text;}""", "extracting tsv");
 			extracted_tsv = await page.evaluate('() => navigator.clipboard.readText()')
 			return ActionResult(
 				extracted_content=extracted_tsv,
@@ -1124,6 +1120,20 @@ Explain the content of the page and that the requested information is not availa
 			await select_cell_or_range(cell_or_range=cell_or_range, page=page)
 
 			# simulate paste event from clipboard with TSV content
+			# await page.evaluate(f"""
+			# 	(tsv) => {{
+			# 	const el = document.activeElement;
+
+			# 	const dt = new DataTransfer();
+			# 	dt.setData('text/plain', tsv);
+			# 	const pasteEvt = new ClipboardEvent('paste', {{clipboardData: dt, bubbles: true}});
+			# 	el.dispatchEvent(pasteEvt);
+
+			# 	if (el.value !== undefined) {{
+			# 		el.value = tsv;
+			# 		el.dispatchEvent(new Event('input', {{bubbles: true}}));
+			# 	}}
+			# 	}}""", new_contents_tsv)
 			await page.evaluate(f"""
 				const clipboardData = new DataTransfer();
 				clipboardData.setData('text/plain', `{new_contents_tsv}`);
