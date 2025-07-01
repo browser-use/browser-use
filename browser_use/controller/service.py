@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
-from browser_use.browser.types import ElementHandle, Page
+from browser_use.browser.types import Page
 from browser_use.controller.registry.service import Registry
 from browser_use.controller.views import (
 	ClickElementAction,
@@ -20,7 +20,6 @@ from browser_use.controller.views import (
 	GoToUrlAction,
 	InputTextAction,
 	NoParamsAction,
-	Position,
 	ScrollAction,
 	SearchGoogleAction,
 	SendKeysAction,
@@ -28,7 +27,6 @@ from browser_use.controller.views import (
 	SwitchTabAction,
 	UploadFileAction,
 )
-from browser_use.dom.views import SelectorMap
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import UserMessage
@@ -794,278 +792,94 @@ Explain the content of the page and that the requested information is not availa
 				return ActionResult(error=msg, include_in_memory=True)
 
 		@self.registry.action(
-			'Drag and drop elements or between coordinates on the page - useful for canvas drawing, sortable lists, sliders, file uploads, and UI rearrangement',
+			'Drag and drop elements or between coordinates on the page - useful for canvas drawing, sortable lists, sliders, and UI rearrangement',
 			param_model=DragDropAction,
 		)
 		async def drag_drop(params: DragDropAction, browser_session: BrowserSession) -> ActionResult:
 			"""
 			Performs a precise drag and drop operation between elements or coordinates.
-			Supports three approaches:
+			Supports two approaches:
 			1. Index-based (preferred): Use source_index and target_index
-			2. Element-based (legacy): Use element_source and element_target selectors
-			3. Coordinate-based: Use direct coordinates
+			2. Coordinate-based: Use direct coordinates
 			"""
+			# Normalize parameters
+			steps = max(1, params.steps or 10)
+			delay_ms = max(0, params.delay_ms or 5)
 
-			async def get_drag_elements(
-				page: Page,
-				source_selector: str | None,
-				target_selector: str | None,
-				source_index: int | None,
-				target_index: int | None,
-				selector_map: SelectorMap,
-			) -> tuple[ElementHandle | None, ElementHandle | None]:
-				"""Get source and target elements with appropriate error handling."""
-				source_element = None
-				target_element = None
+			page = await browser_session.get_current_page()
+			selector_map = await browser_session.get_selector_map()
 
-				try:
-					# Case 1: Index-based approach
-					if source_index is not None and target_index is not None:
-						if source_index not in selector_map:
-							logger.warning(f'Source element with index {source_index} not found in selector map')
-							return None, None
-						if target_index not in selector_map:
-							logger.warning(f'Target element with index {target_index} not found in selector map')
-							return None, None
-
-						source_dom = selector_map[source_index]
-						target_dom = selector_map[target_index]
-
-						# Get elements using xpath from dom nodes
-						source_element = await page.locator('//' + source_dom.xpath).first.element_handle()
-						target_element = await page.locator('//' + target_dom.xpath).first.element_handle()
-
-						logger.debug(f'Found source element with index {source_index}')
-						logger.debug(f'Found target element with index {target_index}')
-
-					# Case 2: Element-based approach
-					elif source_selector and target_selector:
-						source_locator = page.locator(source_selector)
-						target_locator = page.locator(target_selector)
-
-						source_count = await source_locator.count()
-						target_count = await target_locator.count()
-
-						if source_count > 0:
-							source_element = await source_locator.first.element_handle()
-							logger.debug(f'Found source element with selector: {source_selector}')
-						else:
-							logger.warning(f'Source element not found: {source_selector}')
-
-						if target_count > 0:
-							target_element = await target_locator.first.element_handle()
-							logger.debug(f'Found target element with selector: {target_selector}')
-						else:
-							logger.warning(f'Target element not found: {target_selector}')
-
-				except Exception as e:
-					logger.error(f'Error finding elements: {str(e)}')
-
-				return source_element, target_element
-
-			async def get_element_coordinates(
-				source_element: ElementHandle,
-				target_element: ElementHandle,
-				source_position: Position | None,
-				target_position: Position | None,
-			) -> tuple[tuple[int, int] | None, tuple[int, int] | None]:
-				"""Get coordinates from elements with appropriate error handling."""
-				source_coords = None
-				target_coords = None
-
-				try:
-					# Get source coordinates
-					if source_position:
-						source_coords = (source_position.x, source_position.y)
-					else:
-						source_box = await source_element.bounding_box()
-						if source_box:
-							source_coords = (
-								int(source_box['x'] + source_box['width'] / 2),
-								int(source_box['y'] + source_box['height'] / 2),
-							)
-
-					# Get target coordinates
-					if target_position:
-						target_coords = (target_position.x, target_position.y)
-					else:
-						target_box = await target_element.bounding_box()
-						if target_box:
-							target_coords = (
-								int(target_box['x'] + target_box['width'] / 2),
-								int(target_box['y'] + target_box['height'] / 2),
-							)
-				except Exception as e:
-					logger.error(f'Error getting element coordinates: {str(e)}')
-
-				return source_coords, target_coords
-
-			async def execute_drag_operation(
-				page: Page,
-				source_x: int,
-				source_y: int,
-				target_x: int,
-				target_y: int,
-				steps: int,
-				delay_ms: int,
-			) -> tuple[bool, str]:
-				"""Execute the drag operation with comprehensive error handling."""
-				try:
-					# Try to move to source position
-					try:
-						await page.mouse.move(source_x, source_y)
-						logger.debug(f'Moved to source position ({source_x}, {source_y})')
-					except Exception as e:
-						logger.error(f'Failed to move to source position: {str(e)}')
-						return False, f'Failed to move to source position: {str(e)}'
-
-					# Press mouse button down
-					await page.mouse.down()
-
-					# Move to target position with intermediate steps
-					for i in range(1, steps + 1):
-						ratio = i / steps
-						intermediate_x = int(source_x + (target_x - source_x) * ratio)
-						intermediate_y = int(source_y + (target_y - source_y) * ratio)
-
-						await page.mouse.move(intermediate_x, intermediate_y)
-
-						if delay_ms > 0:
-							await asyncio.sleep(delay_ms / 1000)
-
-					# Move to final target position
-					await page.mouse.move(target_x, target_y)
-
-					# Move again to ensure dragover events are properly triggered
-					await page.mouse.move(target_x, target_y)
-
-					# Release mouse button
-					await page.mouse.up()
-
-					return True, 'Drag operation completed successfully'
-
-				except Exception as e:
-					return False, f'Error during drag operation: {str(e)}'
-
-			try:
-				# Initialize variables
-				source_x: int | None = None
-				source_y: int | None = None
-				target_x: int | None = None
-				target_y: int | None = None
-
-				# Normalize parameters
-				steps = max(1, params.steps or 10)
-				delay_ms = max(0, params.delay_ms or 5)
-
-				page = await browser_session.get_current_page()
-				selector_map = await browser_session.get_selector_map()
-
-				# Case 1: Index-based approach (preferred)
-				if params.source_index is not None and params.target_index is not None:
-					logger.debug('Using index-based approach')
-
-					source_element, target_element = await get_drag_elements(
-						page,
-						None,  # No selectors for index-based approach
-						None,
-						params.source_index,
-						params.target_index,
-						selector_map,
+			# Case 1: Index-based approach (preferred)
+			if params.source_index is not None and params.target_index is not None:
+				if params.source_index not in selector_map:
+					raise Exception(
+						f'Source element index {params.source_index} does not exist - retry or use alternative actions'
+					)
+				if params.target_index not in selector_map:
+					raise Exception(
+						f'Target element index {params.target_index} does not exist - retry or use alternative actions'
 					)
 
-					if not source_element or not target_element:
-						error_msg = f'Failed to find {"source" if not source_element else "target"} element by index'
-						return ActionResult(error=error_msg, include_in_memory=True)
+				source_dom = selector_map[params.source_index]
+				target_dom = selector_map[params.target_index]
 
-					source_coords, target_coords = await get_element_coordinates(
-						source_element, target_element, params.source_offset, params.target_offset
-					)
+				# Get elements using xpath from dom nodes
+				source_element = await page.locator('//' + source_dom.xpath).first.element_handle()
+				target_element = await page.locator('//' + target_dom.xpath).first.element_handle()
 
-					if not source_coords or not target_coords:
-						error_msg = f'Failed to determine {"source" if not source_coords else "target"} coordinates'
-						return ActionResult(error=error_msg, include_in_memory=True)
+				assert source_element is not None, f'Could not locate source element with index {params.source_index}'
+				assert target_element is not None, f'Could not locate target element with index {params.target_index}'
 
-					source_x, source_y = source_coords
-					target_x, target_y = target_coords
+				# Get source coordinates
+				source_box = await source_element.bounding_box()
+				assert source_box is not None, f'Could not get bounding box for source element {params.source_index}'
+				source_x = int(source_box['x'] + source_box['width'] / 2)
+				source_y = int(source_box['y'] + source_box['height'] / 2)
 
-				# Case 2: Element selectors provided (legacy)
-				elif params.element_source and params.element_target:
-					logger.debug('Using element-based approach with selectors')
+				# Get target coordinates
+				target_box = await target_element.bounding_box()
+				assert target_box is not None, f'Could not get bounding box for target element {params.target_index}'
+				target_x = int(target_box['x'] + target_box['width'] / 2)
+				target_y = int(target_box['y'] + target_box['height'] / 2)
 
-					source_element, target_element = await get_drag_elements(
-						page,
-						params.element_source,
-						params.element_target,
-						None,  # No indices for selector-based approach
-						None,
-						selector_map,
-					)
+				msg = f'🖱️ Drag element with index {params.source_index} to element with index {params.target_index}'
 
-					if not source_element or not target_element:
-						error_msg = f'Failed to find {"source" if not source_element else "target"} element'
-						return ActionResult(error=error_msg, include_in_memory=True)
+			# Case 2: Coordinates provided directly
+			elif all(
+				coord is not None
+				for coord in [params.coord_source_x, params.coord_source_y, params.coord_target_x, params.coord_target_y]
+			):
+				source_x = cast(int, params.coord_source_x)
+				source_y = cast(int, params.coord_source_y)
+				target_x = cast(int, params.coord_target_x)
+				target_y = cast(int, params.coord_target_y)
+				msg = f'🖱️ Drag from ({source_x}, {source_y}) to ({target_x}, {target_y})'
 
-					source_coords, target_coords = await get_element_coordinates(
-						source_element, target_element, params.element_source_offset, params.element_target_offset
-					)
-
-					if not source_coords or not target_coords:
-						error_msg = f'Failed to determine {"source" if not source_coords else "target"} coordinates'
-						return ActionResult(error=error_msg, include_in_memory=True)
-
-					source_x, source_y = source_coords
-					target_x, target_y = target_coords
-
-				# Case 3: Coordinates provided directly
-				elif all(
-					coord is not None
-					for coord in [params.coord_source_x, params.coord_source_y, params.coord_target_x, params.coord_target_y]
-				):
-					logger.debug('Using coordinate-based approach')
-					source_x = params.coord_source_x
-					source_y = params.coord_source_y
-					target_x = params.coord_target_x
-					target_y = params.coord_target_y
-				else:
-					error_msg = 'Must provide either source/target indices, source/target selectors, or source/target coordinates'
-					return ActionResult(error=error_msg, include_in_memory=True)
-
-				# Validate coordinates
-				if any(coord is None for coord in [source_x, source_y, target_x, target_y]):
-					error_msg = 'Failed to determine source or target coordinates'
-					return ActionResult(error=error_msg, include_in_memory=True)
-
-				# Perform the drag operation
-				success, message = await execute_drag_operation(
-					page,
-					cast(int, source_x),
-					cast(int, source_y),
-					cast(int, target_x),
-					cast(int, target_y),
-					steps,
-					delay_ms,
+			# Case 3: Invalid parameters
+			else:
+				return ActionResult(
+					error='Must provide either source/target indices or source/target coordinates',
 				)
 
-				if not success:
-					logger.error(f'Drag operation failed: {message}')
-					return ActionResult(error=message, include_in_memory=True)
+			# Perform the drag operation
+			await page.mouse.move(source_x, source_y)
+			await page.mouse.down()
 
-				# Create descriptive message
-				if params.source_index is not None and params.target_index is not None:
-					msg = f'🖱️ Dragged element with index {params.source_index} to element with index {params.target_index}'
-				elif params.element_source and params.element_target:
-					msg = f"🖱️ Dragged element '{params.element_source}' to '{params.element_target}'"
-				else:
-					msg = f'🖱️ Dragged from ({source_x}, {source_y}) to ({target_x}, {target_y})'
+			# Move to target position with intermediate steps
+			for i in range(1, steps + 1):
+				ratio = i / steps
+				intermediate_x = int(source_x + (target_x - source_x) * ratio)
+				intermediate_y = int(source_y + (target_y - source_y) * ratio)
+				await page.mouse.move(intermediate_x, intermediate_y)
+				if delay_ms > 0:
+					await asyncio.sleep(delay_ms / 1000)
 
-				logger.info(msg)
-				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
+			# Move to final target position and release
+			await page.mouse.move(target_x, target_y)
+			await page.mouse.up()
 
-			except Exception as e:
-				error_msg = f'Failed to perform drag and drop: {str(e)}'
-				logger.error(error_msg)
-				return ActionResult(error=error_msg, include_in_memory=True)
+			logger.info(msg)
+			return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
 
 		@self.registry.action('Google Sheets: Get the contents of the entire sheet', domains=['https://docs.google.com'])
 		async def read_sheet_contents(page: Page):
