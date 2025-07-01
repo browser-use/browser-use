@@ -25,7 +25,7 @@ os.environ['PW_TEST_SCREENSHOT_NO_FONTS_READY'] = '1'  # https://github.com/micr
 
 import anyio
 import psutil
-from playwright._impl._api_structures import FloatRect, ViewportSize
+from playwright._impl._api_structures import ViewportSize
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, InstanceOf, PrivateAttr, model_validator
 from uuid_extensions import uuid7str
 
@@ -248,12 +248,12 @@ class BrowserSession(BaseModel):
 		return self._logger
 
 	def __repr__(self) -> str:
-		is_copy = '©' if self._original_browser_session else '1️⃣ '
-		return f'BrowserSession🆂 {self.id[-4:]}{is_copy}{str(id(self))[-2:]} ({self._connection_str}, profile={self.browser_profile})'
+		is_copy = '©' if self._original_browser_session else '#'
+		return f'BrowserSession🆂 {self.id[-4:]} {is_copy}{str(id(self))[-2:]} ({self._connection_str}, profile={self.browser_profile})'
 
 	def __str__(self) -> str:
-		is_copy = '©' if self._original_browser_session else '1️⃣ '
-		return f'BrowserSession🆂 {self.id[-4:]}{is_copy}{str(id(self))[-2:]} 🅟 {str(id(self.agent_current_page))[-2:]}'
+		is_copy = '©' if self._original_browser_session else '#'
+		return f'BrowserSession🆂 {self.id[-4:]} {is_copy}{str(id(self))[-2:]} 🅟 {str(id(self.agent_current_page))[-2:]}'
 
 	# better to force people to get it from the right object, "only one way to do it" is better python
 	# def __getattr__(self, key: str) -> Any:
@@ -725,7 +725,7 @@ class BrowserSession(BaseModel):
 				full_page=False,
 				# scale='css',
 				timeout=self.browser_profile.default_timeout or 30000,
-				clip=FloatRect(**clip) if clip else None,
+				# clip=FloatRect(**clip) if clip else None,
 				animations='allow',
 				caret='initial',
 			)
@@ -2714,27 +2714,28 @@ class BrowserSession(BaseModel):
 			# This prevents timeouts on very long pages
 
 			# 1. Get current viewport and page dimensions including scroll position
-			dimensions = await page.evaluate("""() => {
-				return {
-					width: window.innerWidth,
-					height: window.innerHeight,
-					pageHeight: document.documentElement.scrollHeight,
-					devicePixelRatio: window.devicePixelRatio || 1,
-					scrollX: window.pageXOffset || document.documentElement.scrollLeft || 0,
-					scrollY: window.pageYOffset || document.documentElement.scrollTop || 0
-				};
-			}""")
+			# dimensions = await page.evaluate("""() => {
+			# 	return {
+			# 		width: window.innerWidth,
+			# 		height: window.innerHeight,
+			# 		pageWidth: document.documentElement.scrollWidth,
+			# 		pageHeight: document.documentElement.scrollHeight,
+			# 		devicePixelRatio: window.devicePixelRatio || 1,
+			# 		scrollX: window.pageXOffset || document.documentElement.scrollLeft || 0,
+			# 		scrollY: window.pageYOffset || document.documentElement.scrollTop || 0
+			# 	};
+			# }""")
+
+			# When full_page=False, screenshot captures the current viewport
+			# The clip parameter uses viewport coordinates (0,0 is top-left of viewport)
+			# We just need to ensure the clip dimensions don't exceed our maximums
+			# clip_width = min(dimensions['width'], MAX_SCREENSHOT_WIDTH)
+			# clip_height = min(dimensions['height'], MAX_SCREENSHOT_HEIGHT)
 
 			# Take screenshot using our retry-decorated method
-			return await self._take_screenshot_hybrid(
-				page,
-				clip={
-					'x': dimensions['scrollX'],
-					'y': dimensions['scrollY'],
-					'width': min(dimensions['width'], MAX_SCREENSHOT_WIDTH),
-					'height': min(dimensions['height'], MAX_SCREENSHOT_HEIGHT),
-				},
-			)
+			# Don't pass clip parameter - let Playwright capture the full viewport
+			# It will automatically handle cases where viewport extends beyond page content
+			return await self._take_screenshot_hybrid(page)
 		except Exception as e:
 			self.logger.error(f'❌ Failed to take screenshot after retries: {type(e).__name__}: {e}')
 			raise

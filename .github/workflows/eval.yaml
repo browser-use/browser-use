@@ -7,7 +7,9 @@ on:
 
 jobs:
   run_evaluation:
-    runs-on: ubuntu-latest
+    runs-on: 
+      group: eval
+      labels: ubuntu-latest-16-core
     timeout-minutes: 360
     env:
       IN_DOCKER: 'true'
