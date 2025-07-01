@@ -161,8 +161,8 @@ Specify the action as a dictionary where the key is the action name and the valu
 ```python
 
 initial_actions = [
-	{'open_tab': {'url': 'https://www.google.com'}},
-	{'open_tab': {'url': 'https://en.wikipedia.org/wiki/Randomness'}},
+	{'go_to_url': {'url': 'https://www.google.com', 'new_tab': True}},
+	{'go_to_url': {'url': 'https://en.wikipedia.org/wiki/Randomness', 'new_tab': True}},
 	{'scroll_down': {'amount': 1000}},
 ]
 agent = Agent(
@@ -232,128 +232,18 @@ Using a separate planner model can help:
 - `retry_delay`: Time to wait between retries in seconds when rate limited. Defaults to `10`.
 - `generate_gif`: Enable/disable GIF generation. Defaults to `False`. Set to `True` or a string path to save the GIF.
 
-## Memory Management
+## Memory
 
-Browser Use includes a procedural memory system using [Mem0](https://mem0.ai) that automatically summarizes the agent's conversation history at regular intervals to optimize context window usage during long tasks.
+Memory management in browser-use has been significantly improved since version 0.3.2. The agent's context handling and state management are now robust enough that the previous memory system (`mem0`) is no longer needed or supported.
 
-```python
-from browser_use.agent.memory import MemoryConfig
+The agent maintains its context and task progress through:
 
-agent = Agent(
-    task="your task",
-    llm=llm,
-    enable_memory=True,
-    memory_config=MemoryConfig( # Ensure llm_instance is passed if not using default LLM config
-        llm_instance=llm,      # Important: Pass the agent's LLM instance here
-        agent_id="my_custom_agent",
-        memory_interval=15
-    )
-)
-```
+- Detailed history tracking of actions and results
+- Structured state management
+- Clear goal setting and evaluation at each step
 
-### Memory Parameters
-
-- `enable_memory`: Enable/disable the procedural memory system. Defaults to `True`.
-- `memory_config`: A `MemoryConfig` Pydantic model instance (required if `enable_memory` is `True`). Dictionary format is not supported.
-
-### Using MemoryConfig
-
-You must configure the memory system using the `MemoryConfig` Pydantic model for a type-safe approach:
-
-```python
-from browser_use.agent.memory import MemoryConfig
-from browser_use.llm import ChatOpenAI # Assuming llm is an instance of ChatOpenAI
-
-llm_for_agent = ChatOpenAI(model="gpt-4o")
-
-agent = Agent(
-    task=task_description,
-    llm=llm_for_agent,
-    enable_memory=True, # This is True by default
-    memory_config=MemoryConfig(
-        llm_instance=llm_for_agent, # Pass the LLM instance for Mem0
-        agent_id="my_agent",
-        memory_interval=15, # Summarize every 15 steps
-        embedder_provider="openai",
-        embedder_model="text-embedding-3-large",
-        embedder_dims=1536,
-        # --- Vector Store Customization ---
-        vector_store_provider="qdrant", # e.g., Qdrant, Pinecone, Chroma, etc.
-        vector_store_collection_name="my_browser_use_memories", # Optional: custom collection name
-        vector_store_config_override={ # Provider-specific config
-            "host": "localhost",
-            "port": 6333
-            # Add other Qdrant specific configs here if needed, e.g., api_key for cloud
-        }
-    )
-)
-```
-
-The `MemoryConfig` model provides these configuration options:
-
-#### Memory Settings
-
-- `agent_id`: Unique identifier for the agent (default: `"browser_use_agent"`). Essential for persistent memory sessions if using a persistent vector store.
-- `memory_interval`: Number of steps between memory summarization (default: `10`)
-
-#### LLM Settings (for Mem0's internal operations)
-
-- `llm_instance`: The `BaseChatModel` instance that Mem0 will use for its internal summarization and processing. You must pass the same LLM instance used by the main agent, or another compatible one, here.
-
-#### Embedder Settings
-
-- `embedder_provider`: Provider for embeddings (`'openai'`, `'gemini'`, `'ollama'`, or `'huggingface'`)
-- `embedder_model`: Model name for the embedder
-- `embedder_dims`: Dimensions for the embeddings
-
-#### Vector Store Settings
-
-- `vector_store_provider`: Choose the vector store backend. Supported options include:
-  `'faiss'` (default), `'qdrant'`, `'pinecone'`, `'supabase'`, `'elasticsearch'`, `'chroma'`, `'weaviate'`, `'milvus'`, `'pgvector'`, `'upstash_vector'`, `'vertex_ai_vector_search'`, `'azure_ai_search'`, `'lancedb'`, `'mongodb'`, `'redis'`, `'memory'` (in-memory, non-persistent).
-- `vector_store_collection_name`: (Optional) Specify a custom name for the collection or index in your vector store. If not provided, a default name is generated (especially for local stores like FAISS/Chroma) or used by Mem0.
-- `vector_store_base_path`: Path for local vector stores like FAISS or Chroma (e.g., `/tmp/mem0`). Default is `/tmp/mem0`.
-- `vector_store_config_override`: (Optional) A dictionary to provide or override specific configuration parameters required by Mem0 for the chosen `vector_store_provider`. This is where you'd put connection details like `host`, `port`, `api_key`, `url`, `environment`, etc., for cloud-based or server-based vector stores.
-
-The model automatically sets appropriate defaults based on the LLM being used:
-
-- For `ChatOpenAI`: Uses OpenAI's `text-embedding-3-small` embeddings
-- For `ChatGoogleGenerativeAI`: Uses Gemini's `models/text-embedding-004` embeddings
-- For `ChatOllama`: Uses Ollama's `nomic-embed-text` embeddings
-- Default: Uses Hugging Face's `all-MiniLM-L6-v2` embeddings
+The `enable_memory` parameter has been removed as the new system provides better context management by default.
 
 <Note>
-  **Important:** - Always pass a properly constructed `MemoryConfig` object to
-  the `memory_config` parameter. - Ensure the `llm_instance` is provided to
-  `MemoryConfig` so Mem0 can perform its operations. - For persistent memory
-  across agent runs or for shared memory, choose a scalable vector store
-  provider (like Qdrant, Pinecone, etc.) and configure it correctly using
-  `vector_store_provider` and `vector_store_config_override`. The default
-  'faiss' provider stores data locally in `vector_store_base_path`.
-</Note>
-
-### How Memory Works
-
-When enabled, the agent periodically compresses its conversation history into concise summaries:
-
-1. Every `memory_interval` steps, the agent reviews its recent interactions.
-2. It uses Mem0 (configured with your chosen LLM and vector store) to create a procedural memory summary.
-3. The original messages in the agent's active context are replaced with this summary, reducing token usage.
-4. This process helps maintain important context while freeing up the context window for new information.
-
-### Disabling Memory
-
-If you want to disable the memory system (for debugging or for shorter tasks), set `enable_memory` to `False`:
-
-```python
-agent = Agent(
-    task="your task",
-    llm=llm,
-    enable_memory=False
-)
-```
-
-<Note>
-  Disabling memory may be useful for debugging or short tasks, but for longer
-  tasks, it can lead to context window overflow as the conversation history
-  grows. The memory system helps maintain performance during extended sessions.
+  If you're upgrading from an older version that used `enable_memory`, simply remove this parameter. The agent will automatically use the improved context management system.
 </Note>

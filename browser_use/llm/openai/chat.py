@@ -6,12 +6,14 @@ import httpx
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI, RateLimitError
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.shared.chat_model import ChatModel
+from openai.types.shared_params.response_format_json_schema import JSONSchema, ResponseFormatJSONSchema
 from pydantic import BaseModel
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.openai.serializer import OpenAIMessageSerializer
+from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
@@ -143,15 +145,21 @@ class ChatOpenAI(BaseChatModel):
 				)
 
 			else:
+				response_format: JSONSchema = {
+					'name': 'agent_output',
+					'strict': True,
+					'schema': SchemaOptimizer.create_optimized_json_schema(output_format),
+				}
+
 				# Return structured response
-				response = await self.get_client().beta.chat.completions.parse(
+				response = await self.get_client().chat.completions.create(
 					model=self.model,
 					messages=openai_messages,
 					temperature=self.temperature,
-					response_format=output_format,
+					response_format=ResponseFormatJSONSchema(json_schema=response_format, type='json_schema'),
 				)
-				# The parsed response is already a Pydantic model instance
-				if response.choices[0].message.parsed is None:
+
+				if response.choices[0].message.content is None:
 					raise ModelProviderError(
 						message='Failed to parse structured output from model response',
 						status_code=500,
@@ -159,8 +167,11 @@ class ChatOpenAI(BaseChatModel):
 					)
 
 				usage = self._get_usage(response)
+
+				parsed = output_format.model_validate_json(response.choices[0].message.content)
+
 				return ChatInvokeCompletion(
-					completion=response.choices[0].message.parsed,
+					completion=parsed,
 					usage=usage,
 				)
 

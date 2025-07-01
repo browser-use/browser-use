@@ -114,7 +114,7 @@ async def test_google_sheets_open(browser_session, controller):
 
 	# First navigate to the Google Sheets URL
 	result = await controller.registry.execute_action(
-		'go_to_url', {'url': TEST_GOOGLE_SHEET_URL}, browser_session=browser_session
+		'go_to_url', {'url': TEST_GOOGLE_SHEET_URL, 'new_tab': False}, browser_session=browser_session
 	)
 
 	# Wait for the page to load

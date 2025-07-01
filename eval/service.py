@@ -55,11 +55,13 @@ import anyio
 import psutil
 from lmnr import AsyncLaminarClient, Laminar, observe
 from PIL import Image
+from pydantic import BaseModel
 
 from browser_use.llm.anthropic.chat import ChatAnthropic
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.openai.chat import ChatOpenAI
+from eval.utils import create_pydantic_model_from_schema
 
 MAX_IMAGE = 5
 
@@ -579,6 +581,16 @@ class TaskResult:
 		# Add task execution data if available
 		if Stage.FORMAT_HISTORY in self.completed_stages:
 			format_data = self.stage_data.get(Stage.FORMAT_HISTORY, {})
+			logger.info(f'format_data: {format_data}')
+			# log token usage
+			logger.info(f'tokensUsed: {format_data.get("tokensUsed")}')
+			logger.info(f'usage: {format_data.get("usage")}')
+
+			# Handle usage data - convert to JSON string if it's a dict
+			usage_data = format_data.get('usage')
+			if usage_data and isinstance(usage_data, dict):
+				usage_data = json.dumps(usage_data)
+
 			payload.update(
 				{
 					'actionHistory': format_data.get('action_history', []),
@@ -589,6 +601,7 @@ class TaskResult:
 					'steps': format_data.get('steps'),
 					'maxSteps': self.max_steps,
 					'tokensUsed': format_data.get('tokensUsed'),
+					'usage': usage_data,  # Add usage data (JSON string if dict)
 					'completeHistory': format_data.get('complete_history', []),  # Add complete step history
 				}
 			)
@@ -657,7 +670,6 @@ class TaskResult:
 
 
 from browser_use import ActionResult, Agent, BrowserProfile, BrowserSession, Controller
-from browser_use.agent.memory import MemoryConfig
 from browser_use.agent.views import AgentHistoryList
 
 SUPPORTED_MODELS = {
@@ -801,9 +813,9 @@ if not SERPER_API_KEY:
 	logger.warning('SERPER_API_KEY is not set. Search functionality will not be available.')
 
 
-def create_controller_with_serp_search():
+def create_controller_with_serp_search(output_model: type[BaseModel] | None = None):
 	"""Create a controller with SERP search instead of Google search"""
-	controller = Controller(exclude_actions=['search_google'])
+	controller = Controller(exclude_actions=['search_google'], output_model=output_model)
 
 	@controller.registry.action('Search the web for a specific query')
 	async def search_web(query: str):
@@ -841,12 +853,12 @@ def create_controller_with_serp_search():
 	return controller
 
 
-def create_controller(use_serp: bool = False):
+def create_controller(use_serp: bool = False, output_model: type[BaseModel] | None = None):
 	"""Create a controller, optionally with SERP search"""
 	if use_serp:
-		return create_controller_with_serp_search()
+		return create_controller_with_serp_search(output_model=output_model)
 	else:
-		return Controller()
+		return Controller(output_model=output_model)
 
 
 def get_llm(model_name: str):
@@ -1026,6 +1038,16 @@ async def reformat_agent_history(
 	if include_result and final_result and final_result.strip():
 		action_history = action_history + [final_result]
 
+	# Extract usage data from agent history
+	usage_data = None
+	logger.info(f'Agent history usage object: {agent_history.usage}')
+	logger.info(f'Agent history usage type: {type(agent_history.usage)}')
+	if hasattr(agent_history, 'usage') and agent_history.usage:
+		logger.info(f'Agent history usage model_dump: {agent_history.usage.model_dump()}')
+		usage_data = agent_history.usage.model_dump()
+	else:
+		logger.warning('Agent history has no usage data or usage is empty/None')
+
 	# Create results structure with new fields
 	results = {
 		'task_id': task_id,
@@ -1041,6 +1063,7 @@ async def reformat_agent_history(
 		'task_duration': task_duration,
 		'steps': len(complete_history),
 		'tokensUsed': total_tokens_used,  # Add total tokens used
+		'usage': usage_data,  # Add usage data
 	}
 
 	# Save results file
@@ -1073,9 +1096,24 @@ class Task:
 		self.login_cookie = kwargs.get('login_cookie', None)
 		self.login_type = kwargs.get('login_type', None)
 		self.category = kwargs.get('category', None)
+		self.output_schema = kwargs.get('output_schema', None)  # Add structured output schema support
+		if self.output_schema:
+			# Convert JSON schema to Pydantic model class
+			self.output_model = create_pydantic_model_from_schema(self.output_schema, f'Task_{self.task_id}_Output')
+		else:
+			self.output_model = None
 
 		# Store any additional optional fields
-		known_fields = {'website', 'reference_length', 'level', 'cluster_id', 'login_cookie', 'login_type', 'category'}
+		known_fields = {
+			'website',
+			'reference_length',
+			'level',
+			'cluster_id',
+			'login_cookie',
+			'login_type',
+			'category',
+			'output_schema',
+		}
 		self.additional_fields = {k: v for k, v in kwargs.items() if k not in known_fields}
 
 		# Make all additional fields accessible as attributes
@@ -1084,7 +1122,7 @@ class Task:
 
 	def __str__(self):
 		# Include main fields and indicate if there are additional fields
-		base_str = f'Task(task_id={self.task_id}, confirmed_task={self.confirmed_task}, website={self.website}, reference_length={self.reference_length}, level={self.level}, cluster_id={self.cluster_id}, login_cookie={self.login_cookie}, login_type={self.login_type}, category={self.category}'
+		base_str = f'Task(task_id={self.task_id}, confirmed_task={self.confirmed_task}, website={self.website}, reference_length={self.reference_length}, level={self.level}, cluster_id={self.cluster_id}, login_cookie={self.login_cookie}, login_type={self.login_type}, category={self.category}, output_schema={self.output_schema}'
 		if self.additional_fields:
 			additional_str = ', '.join(f'{k}={v}' for k, v in self.additional_fields.items())
 			base_str += f', {additional_str}'
@@ -1272,12 +1310,12 @@ async def setup_browser_session(task: Task, headless: bool, highlight_elements: 
 	logger.debug(f'Browser setup: Initializing BrowserSession for task {task.task_id}')
 
 	# Use incognito mode (user_data_dir=None) for evaluations to avoid state pollution
-	profile = BrowserProfile(
-		user_data_dir=None,  # Incognito mode - no persistent state
-		headless=headless,
-		chromium_sandbox=False,  # running in docker
-		highlight_elements=highlight_elements,  # Control element highlighting (passed to profile)
-		keep_alive=True,
+	profile_kwargs = {
+		'user_data_dir': None,  # Incognito mode - no persistent state
+		'headless': headless,
+		'chromium_sandbox': False,  # running in docker
+		'highlight_elements': highlight_elements,  # Control element highlighting (passed to profile)
+		'keep_alive': True,
 		# higher timeouts = higher success rates on long tail of slow sites or if on a slow CI server
 		# timeout=60_000,
 		# default_timeout=60_000,
@@ -1286,8 +1324,24 @@ async def setup_browser_session(task: Task, headless: bool, highlight_elements: 
 		# maximum_wait_page_load_time=60.0,
 		# wait_between_actions=0.5,
 		# ignore_https_errors=True,  # some eval tasks have http:// or broken https sites in them
-	)
+	}
 
+	if hasattr(task, 'login_cookie') and task.login_cookie:
+		# For login tasks, configure storage_state to save cookies to JSON file
+		# This works even in incognito mode (user_data_dir=None)
+		task_folder = Path(f'saved_trajectories/{task.task_id}')
+		task_folder.mkdir(parents=True, exist_ok=True)
+
+		storage_state_path = task_folder / 'storage_state.json'
+		profile_kwargs['storage_state'] = str(storage_state_path)
+
+		downloads_dir_path = task_folder / 'downloads'
+		downloads_dir_path.mkdir(parents=True, exist_ok=True)
+		profile_kwargs['downloads_path'] = str(downloads_dir_path)
+
+		logger.debug(f'Login task {task.task_id}: Configured to save cookies to {storage_state_path}')
+
+	profile = BrowserProfile(**profile_kwargs)
 	browser_session = BrowserSession(browser_profile=profile)
 
 	# Start browser session
@@ -1318,15 +1372,19 @@ async def run_agent_with_browser(
 	validate_output: bool = False,
 	planner_llm: BaseChatModel | None = None,
 	planner_interval: int = 1,
+	use_thinking: bool = True,
 ) -> tuple[AgentHistoryList, str]:
 	"""Run agent with the browser session"""
-	# Create controller, optionally with SERP search
-	controller = create_controller(use_serp=use_serp)
+	# Create controller, optionally with SERP search and structured output
+	controller = create_controller(use_serp=use_serp, output_model=task.output_model)
 
-	# Configure memory if enabled
-	memory_config = None
+	# Check for deprecated memory parameters
 	if enable_memory:
-		memory_config = MemoryConfig(agent_id=f'eval_agent_{task.task_id}', memory_interval=memory_interval, llm_instance=llm)
+		raise ValueError(
+			'Memory support has been removed as of version 0.3.2. '
+			'The agent context for memory is significantly improved and no longer requires the old memory system. '
+			"Please remove the 'enable_memory' parameter."
+		)
 
 	agent = Agent(
 		task=task.confirmed_task,
@@ -1334,13 +1392,13 @@ async def run_agent_with_browser(
 		controller=controller,
 		browser_session=browser_session,
 		use_vision=use_vision,
-		enable_memory=enable_memory,
-		memory_config=memory_config,
 		max_actions_per_step=max_actions_per_step,
 		validate_output=validate_output,
 		planner_llm=planner_llm,
 		planner_interval=planner_interval,
+		use_thinking=use_thinking,
 		source='eval_platform',
+		calculate_cost=True,
 	)
 	# get last message
 	await agent.run(max_steps=max_steps)
@@ -1350,9 +1408,129 @@ async def run_agent_with_browser(
 
 
 @observe(name='evaluate_task_result', span_type='EVALUATOR')  # type: ignore[arg-type]
-async def evaluate_task_result(eval_model: BaseChatModel, task_folder: Path, use_mind2web: bool = False) -> dict:
+async def evaluate_task_result(
+	eval_model: BaseChatModel, task_folder: Path, task: Task | None = None, use_mind2web: bool = False
+) -> dict:
 	"""Evaluate the task result"""
-	return await judge_task_result(eval_model, task_folder, score_threshold=3, use_mind2web=use_mind2web)
+	# Check if this is a login task that should use cookie-based evaluation
+	if task and hasattr(task, 'login_cookie') and task.login_cookie:
+		logger.info(f'Using cookie-based evaluation for login task {task.task_id}')
+		return await evaluate_task_with_login_cookie(task.login_cookie, task_folder)
+	else:
+		return await judge_task_result(eval_model, task_folder, score_threshold=3, use_mind2web=use_mind2web)
+
+
+async def evaluate_task_with_login_cookie(login_cookie: str, task_folder: Path) -> dict:
+	"""
+	Evaluate a login task by checking if the login_cookie is present in browser cookies.
+
+	Args:
+		login_cookie: String identifier that should appear in cookies if login was successful
+		task_folder: Path to the task result folder containing saved cookies
+
+	Returns:
+		Dictionary containing evaluation results similar to Online_Mind2Web_eval format
+	"""
+	# Look for cookies in saved_trajectories (saved by browser-use during shutdown)
+	cookies_file = task_folder / 'cookies.json'
+	storage_state_file = task_folder / 'storage_state.json'
+
+	cookies_data = None
+	cookies_source = None
+
+	# Try to load cookies from storage_state.json first (newer format)
+	if storage_state_file.exists():
+		try:
+			async with await anyio.open_file(storage_state_file) as f:
+				storage_state = json.loads(await f.read())
+				cookies_data = storage_state.get('cookies', [])
+				cookies_source = 'storage_state.json'
+		except Exception as e:
+			logger.warning(f'Failed to load storage_state.json: {e}')
+
+	# Fallback to cookies.json (older format)
+	if not cookies_data and cookies_file.exists():
+		try:
+			async with await anyio.open_file(cookies_file) as f:
+				cookies_data = json.loads(await f.read())
+				cookies_source = 'cookies.json'
+		except Exception as e:
+			logger.warning(f'Failed to load cookies.json: {e}')
+
+	if not cookies_data:
+		return {
+			'task_id': task_folder.name,
+			'judgement': 'Automatic judgement: No cookies saved for evaluation',
+			'success': False,
+			'error': 'No cookies file found for login task evaluation',
+			'score': 0.0,
+		}
+
+	logger.debug(f'Found {len(cookies_data)} cookies from {cookies_source}')
+
+	# Check if this is an exact match requirement
+	if login_cookie.startswith('EXACTMATCH '):
+		# Extract the actual cookie name after "EXACTMATCH "
+		exact_cookie_name = login_cookie[11:]  # Remove "EXACTMATCH " prefix
+		is_exact_match = True
+		search_target = exact_cookie_name
+		logger.debug(f"Using exact match for cookie name: '{exact_cookie_name}'")
+	else:
+		# Use substring matching (original behavior)
+		is_exact_match = False
+		search_target = login_cookie
+		logger.debug(f"Using substring matching for: '{login_cookie}'")
+
+	# Check if login_cookie is present in cookies
+	login_cookie_found = False
+	matching_cookie_info = None
+
+	for cookie in cookies_data:
+		cookie_name = cookie.get('name', '')
+		cookie_value = cookie.get('value', '')
+
+		if is_exact_match:
+			# Exact match: check if cookie name exactly matches the target
+			if cookie_name == search_target:
+				login_cookie_found = True
+				matching_cookie_info = f"exact name match='{cookie_name}'"
+				logger.debug(f'Login cookie found with exact match: {matching_cookie_info}')
+				break
+		else:
+			# Substring match: check if target appears in cookie name or value
+			if search_target in cookie_name or search_target in cookie_value:
+				login_cookie_found = True
+				matching_cookie_info = f"substring match in name='{cookie_name}'"
+				logger.debug(f'Login cookie found with substring match: {matching_cookie_info}')
+				break
+
+	# Prepare evaluation result
+	if login_cookie_found:
+		if is_exact_match:
+			judgement = f"Automatic judgement: Login cookie '{search_target}' was found as exact match in browser cookies"
+		else:
+			judgement = f"Automatic judgement: Login cookie '{search_target}' was found in browser cookies"
+		success = True
+		score = 1.0
+		error = None
+	else:
+		if is_exact_match:
+			judgement = f"Automatic judgement: Login cookie '{search_target}' was NOT found as exact match in browser cookies"
+		else:
+			judgement = f"Automatic judgement: Login cookie '{search_target}' was NOT found in browser cookies"
+		success = False
+		score = 0.0
+		error = None
+
+	logger.info(f"Cookie evaluation result: success={success} for login_cookie='{login_cookie}'")
+
+	return {
+		'task_id': task_folder.name,
+		'judgement': judgement,
+		'success': success,
+		'error': error,
+		'score': score,
+	}
 
 
 def save_result_to_server(convex_url: str, secret_key: str, payload: dict) -> bool:
@@ -1412,6 +1590,7 @@ async def run_task_with_semaphore(
 	include_result: bool = False,
 	highlight_elements: bool = True,
 	use_mind2web_judge: bool = False,
+	use_thinking: bool = True,
 ) -> dict:
 	"""Clean pipeline approach for running tasks"""
 	task_start_time = time.time()
@@ -1514,6 +1693,7 @@ async def run_task_with_semaphore(
 								validate_output,
 								planner_llm,
 								planner_interval,
+								use_thinking,
 							),
 							timeout=1000,
 						)
@@ -1555,7 +1735,9 @@ async def run_task_with_semaphore(
 					try:
 						logger.info(f'Task {task.task_id}: Evaluation starting.')
 						evaluation = await run_stage(
-							Stage.EVALUATE, lambda: evaluate_task_result(eval_model, task_folder, use_mind2web_judge), timeout=300
+							Stage.EVALUATE,
+							lambda: evaluate_task_result(eval_model, task_folder, task, use_mind2web_judge),
+							timeout=300,
 						)
 						task_result.stage_completed(Stage.EVALUATE, evaluation)
 						logger.info(f'Task {task.task_id}: Evaluation completed.')
@@ -1740,6 +1922,7 @@ async def run_multiple_tasks(
 	include_result: bool = False,
 	highlight_elements: bool = True,
 	use_mind2web_judge: bool = False,
+	use_thinking: bool = True,
 ) -> dict:
 	"""
 	Run multiple tasks in parallel and evaluate results.
@@ -1817,6 +2000,7 @@ async def run_multiple_tasks(
 					include_result=include_result,
 					highlight_elements=highlight_elements,
 					use_mind2web_judge=use_mind2web_judge,
+					use_thinking=use_thinking,
 				)
 				for task in tasks_to_run
 			),
@@ -1956,7 +2140,7 @@ def get_git_info():
 		}
 
 
-# Helper function to start a new run on the server
+# Helper function to start a new run on the convex server
 def start_new_run(convex_url: str, secret_key: str, run_details: dict, existing_run_id: str | None = None):
 	"""Sends a request to start a new evaluation run and returns the run ID."""
 	if not convex_url or not secret_key:
@@ -2085,6 +2269,7 @@ async def run_evaluation_pipeline(
 	laminar_eval_id: str | None = None,
 	highlight_elements: bool = True,
 	use_mind2web_judge: bool = False,
+	use_thinking: bool = True,
 ) -> dict:
 	"""
 	Complete evaluation pipeline that handles Laminar setup and task execution in the same event loop
@@ -2135,6 +2320,7 @@ async def run_evaluation_pipeline(
 		include_result=include_result,
 		highlight_elements=highlight_elements,
 		use_mind2web_judge=use_mind2web_judge,
+		use_thinking=use_thinking,
 	)
 
 
@@ -2198,6 +2384,8 @@ if __name__ == '__main__':
 		help='Existing Laminar evaluation ID to use (if not provided, a new evaluation will be created)',
 	)
 	parser.add_argument('--use-mind2web-judge', action='store_true', help='Use original judge')
+	parser.add_argument('--no-thinking', action='store_true', help='Disable thinking in agent system prompt')
+	parser.add_argument('--use-anchor', action='store_true', help='Use anchor to navigate to the page')
 
 	# Single task mode arguments
 	parser.add_argument('--task-text', type=str, default=None, help='Task description for single task mode')
@@ -2306,12 +2494,17 @@ if __name__ == '__main__':
 		'laminarEvalLink': None,  # Will be updated after evaluation creation
 	}
 
-	# For single task mode, skip server run creation unless URLs are provided
+	# For single task mode, use provided run ID if available, otherwise skip server run creation
 	if args.task_text:
-		# Single task mode - generate a local run ID (use the task_id we generated earlier)
-		safe_task_id = task_id or 'unknown'
-		run_id = f'local_single_task_{safe_task_id}_{int(time.time())}'
-		logger.info(f'Single task mode: Using local run ID {run_id}')
+		# Single task mode - use provided run_id (from GitHub Actions) or generate local one
+		if args.run_id:
+			run_id = args.run_id
+			logger.info(f'Single task mode: Using provided run ID {run_id}')
+		else:
+			# Fallback for local single task runs without server
+			safe_task_id = task_id or 'unknown'
+			run_id = f'local_single_task_{safe_task_id}_{int(time.time())}'
+			logger.info(f'Single task mode: Using local run ID {run_id}')
 	else:
 		# Multi-task mode - use server
 		run_id = start_new_run(CONVEX_URL, SECRET_KEY, run_data, existing_run_id=args.run_id)
@@ -2437,6 +2630,7 @@ if __name__ == '__main__':
 				laminar_eval_id=args.laminar_eval_id,
 				highlight_elements=args.highlight_elements,
 				use_mind2web_judge=args.use_mind2web_judge,
+				use_thinking=not args.no_thinking,
 			)
 		)
 

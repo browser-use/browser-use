@@ -59,7 +59,8 @@ GLOBAL_PATCHRIGHT_API_OBJECT = None  # never instantiate the patchright API obje
 GLOBAL_PLAYWRIGHT_EVENT_LOOP = None  # track which event loop the global objects belong to
 GLOBAL_PATCHRIGHT_EVENT_LOOP = None  # track which event loop the global objects belong to
 
-MAX_SCREENSHOT_HEIGHT = 4000
+MAX_SCREENSHOT_HEIGHT = 2000
+MAX_SCREENSHOT_WIDTH = 1920
 
 
 def _log_glob_warning(domain: str, glob: str, logger: logging.Logger):
@@ -217,6 +218,8 @@ class BrowserSession(BaseModel):
 	_tab_visibility_callback: Any = PrivateAttr(default=None)
 	_logger: logging.Logger | None = PrivateAttr(default=None)
 	_downloaded_files: list[str] = PrivateAttr(default_factory=list)
+	_original_browser_session: Any = PrivateAttr(default=None)  # Reference to prevent GC of the original session when copied
+	_owns_browser_resources: bool = PrivateAttr(default=True)  # True if this instance owns and should clean up browser resources
 
 	@model_validator(mode='after')
 	def apply_session_overrides_to_profile(self) -> Self:
@@ -241,18 +244,18 @@ class BrowserSession(BaseModel):
 	def logger(self) -> logging.Logger:
 		"""Get instance-specific logger with session ID in the name"""
 		if self._logger is None:
-			# Create a child logger with the session ID
-			self._logger = logging.getLogger(
-				f'browser_use.BrowserSession🆂 {self.id[-4:]}.{str(id(self.agent_current_page))[-2:]}'
-			)
+			self._logger = logging.getLogger(f'browser_use.{self}')
 		return self._logger
 
 	def __repr__(self) -> str:
-		return f'BrowserSession🆂 {self.id[-4:]}(profile={self.browser_profile}, {self._connection_str}) ref#={str(id(self))[-2:]}'
+		is_copy = '©' if self._original_browser_session else '1️⃣ '
+		return f'BrowserSession🆂 {self.id[-4:]}{is_copy}{str(id(self))[-2:]} ({self._connection_str}, profile={self.browser_profile})'
 
 	def __str__(self) -> str:
-		return f'BrowserSession🆂 {self.id[-4:]}.{str(id(self.agent_current_page))[-2:]}'
+		is_copy = '©' if self._original_browser_session else '1️⃣ '
+		return f'BrowserSession🆂 {self.id[-4:]}{is_copy}{str(id(self))[-2:]} 🅟 {str(id(self.agent_current_page))[-2:]}'
 
+	# better to force people to get it from the right object, "only one way to do it" is better python
 	# def __getattr__(self, key: str) -> Any:
 	# 	"""
 	# 	fall back to getting any attrs from the underlying self.browser_profile when not defined on self.
@@ -334,7 +337,7 @@ class BrowserSession(BaseModel):
 			else f'browser={driver_name}:{binary_name}'
 		)
 
-	async def stop(self) -> None:
+	async def stop(self, _hint: str = '') -> None:
 		"""Shuts down the BrowserSession, killing the browser process (only works if keep_alive=False)"""
 
 		# Save cookies to disk if configured
@@ -350,8 +353,15 @@ class BrowserSession(BaseModel):
 			)
 			return  # nothing to do if keep_alive=True, leave the browser running
 
+		# Only the owner can actually stop the browser
+		if not self._owns_browser_resources:
+			self.logger.debug(f'🔗 BrowserSession.stop() called on a copy, not closing shared browser resources {_hint}')
+			# Still reset our references though
+			self._reset_connection_state()
+			return
+
 		if self.browser_context or self.browser:
-			self.logger.info(f'🛑 Closing {self._connection_str} browser context {self.browser or self.browser_context}')
+			self.logger.info(f'🛑 Closing {self._connection_str} browser context {_hint} {self.browser or self.browser_context}')
 
 			# Save trace recording if configured
 			if self.browser_profile.traces_dir and self.browser_context:
@@ -388,7 +398,7 @@ class BrowserSession(BaseModel):
 		# Kill the chrome subprocess if we started it
 		if self.browser_pid:
 			try:
-				await self._terminate_browser_process()
+				await self._terminate_browser_process(_hint='(stop() called)')
 			except psutil.NoSuchProcess:
 				self.browser_pid = None
 			except (TimeoutError, psutil.TimeoutExpired):
@@ -413,7 +423,7 @@ class BrowserSession(BaseModel):
 
 	async def close(self) -> None:
 		"""Deprecated: Provides backwards-compatibility with old method Browser().close() and playwright BrowserContext.close()"""
-		await self.stop()
+		await self.stop(_hint='(close() called)')
 
 	async def kill(self) -> None:
 		"""Stop the BrowserSession even if keep_alive=True"""
@@ -421,7 +431,7 @@ class BrowserSession(BaseModel):
 		# 	f'⏹️ Browser browser_pid={self.browser_pid} user_data_dir= {_log_pretty_path(self.browser_profile.user_data_dir) or "<incognito>"} keep_alive={self.browser_profile.keep_alive} (close() called)'
 		# )
 		self.browser_profile.keep_alive = False
-		await self.stop()
+		await self.stop(_hint='(kill() called)')
 
 		# do not stop self.playwright here as its likely used by other parallel browser_sessions
 		# let it be cleaned up by the garbage collector when no refs use it anymore
@@ -449,25 +459,55 @@ class BrowserSession(BaseModel):
 		# self.logger.debug(
 		# 	f'⏹️ Stopping gracefully browser_pid={self.browser_pid} user_data_dir= {_log_pretty_path(self.browser_profile.user_data_dir) or "<incognito>"} keep_alive={self.browser_profile.keep_alive} (context manager exit)'
 		# )
-		await self.stop()
+		await self.stop(_hint='(context manager exit)')
+
+	def model_copy(self, **kwargs) -> Self:
+		"""Create a copy of this BrowserSession that shares the browser resources but doesn't own them.
+
+		This method creates a copy that:
+		- Shares the same browser, browser_context, and playwright objects
+		- Doesn't own the browser resources (won't close them when garbage collected)
+		- Keeps a reference to the original to prevent premature garbage collection
+		"""
+		# Create the copy using the parent class method
+		copy = super().model_copy(**kwargs)
+
+		# The copy doesn't own the browser resources
+		copy._owns_browser_resources = False
+
+		# Keep a reference to the original to prevent garbage collection
+		copy._original_browser_session = self
+
+		# Manually copy over the excluded fields that are needed for browser connection
+		# These fields are excluded in the model config but need to be shared
+		copy.playwright = self.playwright
+		copy.browser = self.browser
+		copy.browser_context = self.browser_context
+		copy.agent_current_page = self.agent_current_page
+		copy.human_current_page = self.human_current_page
+		copy.browser_pid = self.browser_pid
+
+		return copy
 
 	def __del__(self):
-		# Avoid keeping references in __del__ that might prevent garbage collection
-		try:
-			profile = getattr(self, 'browser_profile', None)
-			keep_alive = getattr(profile, 'keep_alive', None)
-			user_data_dir = getattr(profile, 'user_data_dir', None)
-			if self.initialized:
-				self.logger.debug(
-					f'🛑 Stopping (garbage collected BrowserSession 🆂{self.id[-4:]}.{str(id(self.agent_current_page))[-2:]} ref #{str(id(self))[-4:]}) keep_alive={keep_alive} user_data_dir= {_log_pretty_path(user_data_dir) or "<incognito>"}'
-				)
+		profile = getattr(self, 'browser_profile', None)
+		keep_alive = getattr(profile, 'keep_alive', None)
+		user_data_dir = getattr(profile, 'user_data_dir', None)
+		owns_browser = getattr(self, '_owns_browser_resources', True)
+		status = f'🪓 killing pid={self.browser_pid}...' if (self.browser_pid and owns_browser) else '☠️'
+		self.logger.debug(
+			f'🗑️ Garbage collected BrowserSession 🆂 {self.id[-4:]}.{str(id(self.agent_current_page))[-2:]} ref #{str(id(self))[-4:]} keep_alive={keep_alive} owns_browser={owns_browser} {status}'
+		)
+		# Only kill browser processes if this instance owns them
+		if owns_browser:
+			# Avoid keeping references in __del__ that might prevent garbage collection
+			try:
+				self._kill_child_processes(_hint='(garbage collected)')
+			except TimeoutError:
+				# Never let __del__ raise Timeout exceptions
+				pass
 
-			self._kill_child_processes()
-		except BaseException:
-			# Never let __del__ raise exceptions
-			pass
-
-	def _kill_child_processes(self) -> None:
+	def _kill_child_processes(self, _hint: str = '') -> None:
 		"""Kill any child processes that might be related to the browser"""
 
 		if not self.browser_profile.keep_alive and self.browser_pid:
@@ -478,6 +518,7 @@ class BrowserSession(BaseModel):
 					browser_proc.wait(
 						timeout=5
 					)  # wait up to 5 seconds for the process to exit cleanly and commit its user_data_dir changes
+					self.logger.debug(f' ↳ Killed browser process browser_pid={self.browser_pid} {_hint}')
 				except (psutil.NoSuchProcess, psutil.AccessDenied, TimeoutError):
 					pass
 
@@ -486,12 +527,14 @@ class BrowserSession(BaseModel):
 					try:
 						# self.logger.debug(f'Force killing child process: {child.pid} ({child.name()})')
 						child.kill()
+						self.logger.debug(f' ↳ Killed browser helper process pid={child.pid} {_hint}')
 					except (psutil.NoSuchProcess, psutil.AccessDenied):
 						pass
 
 				# Kill the main browser process
 				# self.logger.debug(f'Force killing browser process: {self.browser_pid}')
 				browser_proc.kill()
+				self.logger.debug(f' ↳ Killed browser process browser_pid={self.browser_pid} {_hint}')
 			except psutil.NoSuchProcess:
 				pass
 			except Exception as e:
@@ -590,22 +633,22 @@ class BrowserSession(BaseModel):
 		semaphore_lax=True,
 		retry_on=(TimeoutError, psutil.TimeoutExpired),  # Only retry on timeouts, not NoSuchProcess
 	)
-	async def _terminate_browser_process(self) -> None:
+	async def _terminate_browser_process(self, _hint: str = '') -> None:
 		"""Terminate browser process with retry logic."""
-		await self._unsafe_terminate_browser_process()
+		await self._unsafe_terminate_browser_process(_hint='(terminate() called)')
 
-	async def _unsafe_terminate_browser_process(self) -> None:
+	async def _unsafe_terminate_browser_process(self, _hint: str = '') -> None:
 		"""Unsafe browser process termination without retry protection."""
 		if self.browser_pid:
 			try:
 				proc = psutil.Process(pid=self.browser_pid)
 				cmdline = proc.cmdline()
 				executable_path = cmdline[0] if cmdline else 'unknown'
-				self.logger.info(f' ↳ Killing browser_pid={self.browser_pid} {_log_pretty_path(executable_path)}')
+				self.logger.info(f' ↳ Killing browser_pid={self.browser_pid} {_log_pretty_path(executable_path)} {_hint}')
 
 				# Try graceful termination first
 				proc.terminate()
-				self._kill_child_processes()
+				self._kill_child_processes(_hint=_hint)
 				await asyncio.to_thread(proc.wait, timeout=4)
 			except psutil.NoSuchProcess:
 				# Process already gone, that's fine
@@ -665,33 +708,34 @@ class BrowserSession(BaseModel):
 		semaphore_lax=True,  # proceed anyway if we cant get a lock
 	)
 	async def _take_screenshot_hybrid(self, page: Page, clip: dict[str, int] | None = None) -> str:
-		"""Take screenshot using CDP with Playwright fallback, with retry and semaphore protection."""
-		# Try CDP screenshot first with clip (faster)
+		"""Take screenshot using Playwright, with retry and semaphore protection."""
+		# Use Playwright screenshot directly
+
+		assert self.browser_context
+		# try:
+		# 	# get fresh page handle
+		# 	page = [p for p in self.browser_context.pages if p.url == page.url][0]
+		# except Exception:
+		# 	pass
+		assert await page.evaluate('() => true'), 'Page is not usable before screenshot!'
+		await page.bring_to_front()
+
 		try:
-			return await self._take_screenshot_cdp(
-				page,
-				**(clip or {}),
+			screenshot = await page.screenshot(
+				full_page=False,
+				# scale='css',
+				timeout=self.browser_profile.default_timeout or 30000,
+				clip=FloatRect(**clip) if clip else None,
+				animations='allow',
+				caret='initial',
 			)
-		except Exception as e:
-			self.logger.debug(f'⚠️ CDP screenshot with clip failed: {type(e).__name__}: {e}')
-
-		# Try CDP screenshot without clip (full viewport)
-		try:
-			self.logger.debug('⚠️ Retrying CDP screenshot without clip parameter')
-			return await self._take_screenshot_cdp(page)
-		except Exception as e:
-			self.logger.debug(f'⚠️ CDP screenshot without clip failed: {type(e).__name__}: {e}')
-
-		# Fall back to Playwright screenshot
-		self.logger.debug('⚠️ Falling back to Playwright screenshot')
-		screenshot = await page.screenshot(
-			full_page=False,
-			scale='css',
-			timeout=self.browser_profile.default_timeout or 30000,
-			clip=FloatRect(**clip) if clip else None,
-			animations='allow',
-			caret='initial',
-		)
+		except Exception as err:
+			if 'timeout' in str(err).lower():
+				self.logger.warning('🚨 Screenshot timed out, resetting connection state and restarting browser...')
+				self._reset_connection_state()
+				await self.start()
+			raise err
+		assert await page.evaluate('() => true'), 'Page is not usable after screenshot!'
 		screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
 		assert screenshot_b64, 'Playwright page.screenshot() returned empty base64'
 		return screenshot_b64
@@ -756,7 +800,15 @@ class BrowserSession(BaseModel):
 		"""Override to customize the set up of the connection to an existing browser"""
 
 		# 1. check for a passed Page object, if present, it always takes priority, set browser_context = page.context
-		self.browser_context = (self.agent_current_page and self.agent_current_page.context) or self.browser_context or None
+		if self.agent_current_page:
+			try:
+				# Test if the page is still usable by evaluating simple JS
+				await self.agent_current_page.evaluate('() => true')
+				self.browser_context = self.agent_current_page.context
+			except Exception:
+				# Page is closed or unusable, clear it
+				self.agent_current_page = None
+				self.browser_context = None
 
 		# 2. Check if the current browser connection is valid, if not clear the invalid objects
 		if self.browser_context:
@@ -797,15 +849,15 @@ class BrowserSession(BaseModel):
 		try:
 			chrome_process = psutil.Process(pid=self.browser_pid)
 			if not chrome_process.is_running():
-				self.logger.warning(f'Chrome process with pid={self.browser_pid} is not running')
+				self.logger.warning(f'⚠️ Expected Chrome process with pid={self.browser_pid} is not running')
 				return
 			args = chrome_process.cmdline()
 		except psutil.NoSuchProcess:
-			self.logger.warning(f'Chrome process with pid={self.browser_pid} not found')
+			self.logger.warning(f'⚠️ Expected Chrome process with pid={self.browser_pid} not found, unable to (re-)connect')
 			return
 		except Exception as e:
 			self.browser_pid = None
-			self.logger.warning(f'Error accessing chrome process with pid={self.browser_pid}: {type(e).__name__}: {e}')
+			self.logger.warning(f'⚠️ Error accessing chrome process with pid={self.browser_pid}: {type(e).__name__}: {e}')
 			return
 
 		# check that browser_pid process is exposing a debug port we can connect to, otherwise we cannot connect to it
@@ -940,8 +992,22 @@ class BrowserSession(BaseModel):
 							**self.browser_profile.kwargs_for_launch_persistent_context().model_dump(mode='json')
 						)
 					except Exception as e:
+						# Check if it's a SingletonLock error
+						if 'SingletonLock' in str(e) or 'ProcessSingleton' in str(e):
+							self.logger.warning('⚠️ SingletonLock error detected. Cleaning up and retrying...')
+							# Remove the stale lock file
+							singleton_lock = Path(self.browser_profile.user_data_dir) / 'SingletonLock'
+							if singleton_lock.exists():
+								singleton_lock.unlink()
+							# Wait a moment for cleanup
+							await asyncio.sleep(0.1)
+							# Retry the launch
+							assert self.playwright is not None, 'playwright instance is None'
+							self.browser_context = await self.playwright.chromium.launch_persistent_context(
+								**self.browser_profile.kwargs_for_launch_persistent_context().model_dump(mode='json')
+							)
 						# Re-raise if not a timeout
-						if not isinstance(e, asyncio.TimeoutError):
+						elif not isinstance(e, asyncio.TimeoutError):
 							raise
 			except TimeoutError:
 				self.logger.warning(
@@ -1033,9 +1099,13 @@ class BrowserSession(BaseModel):
 		if not new_child_procs:
 			self.logger.debug(f'❌ Failed to find any new child chrome processes after launching new browser: {new_child_pids}')
 			new_chrome_proc = None
+			# Browser PID detection can fail in some environments (e.g. CI, containers)
+			# This is not critical - the browser is still running and usable
+			self.browser_pid = None
 		elif len(new_child_procs) > 1:
 			self.logger.debug(f'❌ Found multiple new child chrome processes after launching new browser: {new_child_procs}')
 			new_chrome_proc = None
+			self.browser_pid = None
 		else:
 			new_chrome_proc = new_child_procs[0]
 
@@ -1177,7 +1247,7 @@ class BrowserSession(BaseModel):
 		if pages:
 			foreground_page = pages[0]
 			self.logger.debug(
-				f'👁️‍🗨️ Found {len(pages)} existing tabs in browser, agent session {self.id[-4:]}.{str(id(self.agent_current_page))[-2:]} will start focused on Tab [{pages.index(foreground_page)}]: {foreground_page.url}'  # type: ignore
+				f'👁️‍🗨️ Found {len(pages)} existing tabs in browser, Agent 🅰 {self.id[-4:]}.{str(id(self.agent_current_page))[-2:]} will start focused on tab 🄿 [{pages.index(foreground_page)}]: {foreground_page.url}'  # type: ignore
 			)
 		else:
 			foreground_page = await self.browser_context.new_page()
@@ -1419,17 +1489,26 @@ class BrowserSession(BaseModel):
 
 		# Check if the browser_context itself is closed/unusable
 		try:
-			# TODO: figure out a better synchronous test for whether browser_context is usable
-			# this is a hacky workaround for the fact that playwright's browser_context has no is_connected() method
-			# and browser_context.browser is None when we launch with a persistent context (basically always)
+			# The only reliable way to check if a browser context is still valid
+			# is to try to use it. We'll try a simple page.evaluate() call.
 			if self.browser_context.pages:
-				return True
+				# Use the first available page to test the connection
+				test_page = self.browser_context.pages[0]
+				# Try a simple evaluate to check if the connection is alive
+				result = await test_page.evaluate('() => true')
+				return result is True
 			elif restart:
 				await self.create_new_tab()
-				return True
+				# Test the new tab
+				if self.browser_context.pages:
+					test_page = self.browser_context.pages[0]
+					result = await test_page.evaluate('() => true')
+					return result is True
+				return False
 			else:
 				return False
 		except Exception:
+			# Any exception means the context is closed or invalid
 			return False
 
 	def _reset_connection_state(self) -> None:
@@ -1581,6 +1660,11 @@ class BrowserSession(BaseModel):
 			raise IndexError('Tab index out of range')
 		page = pages[tab_index]
 		self.agent_current_page = page
+
+		# Invalidate cached state since we've switched to a different tab
+		# The cached state contains DOM elements and selector map from the previous tab
+		self._cached_browser_state_summary = None
+		self._cached_clickable_element_hashes = None
 
 		return page
 
@@ -2610,73 +2694,6 @@ class BrowserSession(BaseModel):
 			raise
 
 	# region - Browser Actions
-	@retry(timeout=30, retries=2, semaphore_limit=1, semaphore_scope='global', semaphore_timeout=15, semaphore_lax=True)
-	async def _take_screenshot_cdp(
-		self, page: Page, width: int = 1920, height: int = 2000, x: int = 0, y: int = 0, scale: int = 1
-	) -> str:
-		"""
-		Take a screenshot using direct CDP (Chrome DevTools Protocol) calls.
-		Returns base64 encoded screenshot or None if CDP fails.
-		"""
-		return await self._unsafe_take_screenshot_cdp(page, width, height, x, y, scale)
-
-	async def _unsafe_take_screenshot_cdp(
-		self, page: Page, width: int = 1920, height: int = 2000, x: int = 0, y: int = 0, scale: int = 1
-	) -> str:
-		"""
-		Unsafe CDP screenshot logic without retry protection.
-		"""
-		assert self.browser_context is not None, 'Browser context is not set'
-
-		cdp_session = None
-		current_tab_url = page.url
-		try:
-			page = [page for page in self.browser_context.pages if page.url == current_tab_url][0]
-		except Exception as e:
-			self.logger.error(
-				f'❌ Page disappeared while trying to take screenshot, did the tab {_log_pretty_url(current_tab_url)} get closed?: {type(e).__name__}: {e}'
-			)
-			raise
-
-		try:
-			# Create CDP session for direct Chrome DevTools Protocol access
-			cdp_session = await page.context.new_cdp_session(page)  # type: ignore
-
-			# Use Page.captureScreenshot for direct screenshot without Playwright overhead
-			cdp_params = {
-				'format': 'png',
-				'clip': {'x': x, 'y': y, 'width': width, 'height': height, 'scale': scale},
-				'optimizeForSpeed': True,
-				'captureBeyondViewport': True,
-				'fromSurface': True,
-			}
-
-			# Take the screenshot using CDP
-			# https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-captureScreenshot
-			result = await cdp_session.send('Page.captureScreenshot', cdp_params)
-
-			# The result already contains base64 encoded data
-			base64_screenshot = result.get('data')
-			if not base64_screenshot:
-				raise ValueError('CDP Page.captureScreenshot() call returned empty base64')
-			return base64_screenshot
-		except Exception as e:
-			if 'browser has been closed' in str(e).lower():
-				# the dreaded browser crash due to screenshot error, we have to re-initialize the entire browser connection because all page handles are invalidated
-				self.logger.error(
-					f'❌ CDP connection crashed during screenshot of {_log_pretty_url(current_tab_url)}: {type(e).__name__}: {e} (restarting...)'
-				)
-				self._reset_connection_state()
-				await self.start()
-			raise
-		finally:
-			# Clean up CDP session
-			if cdp_session:
-				try:
-					await cdp_session.detach()
-				except Exception:
-					pass
-
 	@require_initialization
 	@time_execution_async('--take_screenshot')
 	async def take_screenshot(self, full_page: bool = False) -> str:
@@ -2692,10 +2709,6 @@ class BrowserSession(BaseModel):
 		except Exception:
 			pass
 
-		original_viewport = None
-		capped_width = 1920
-		capped_height = 2000
-		desired_height = 2000
 		try:
 			# Always use our clipping approach - never pass full_page=True to Playwright
 			# This prevents timeouts on very long pages
@@ -2703,8 +2716,8 @@ class BrowserSession(BaseModel):
 			# 1. Get current viewport and page dimensions including scroll position
 			dimensions = await page.evaluate("""() => {
 				return {
-					width: Math.max(window.innerWidth, document.documentElement.clientWidth),
-					height: Math.max(window.innerHeight, document.documentElement.clientHeight),
+					width: window.innerWidth,
+					height: window.innerHeight,
 					pageHeight: document.documentElement.scrollHeight,
 					devicePixelRatio: window.devicePixelRatio || 1,
 					scrollX: window.pageXOffset || document.documentElement.scrollLeft || 0,
@@ -2712,60 +2725,19 @@ class BrowserSession(BaseModel):
 				};
 			}""")
 
-			# 2. Save current viewport state and calculate expanded dimensions
-			viewport_expansion = self.browser_profile.viewport_expansion if self.browser_profile.viewport_expansion else 0
-
-			capped_width = min(dimensions['width'], MAX_SCREENSHOT_HEIGHT)  # dont allow any dimension larger than the limit
-			if full_page:
-				# For full page, use the actual page height up to our max limit
-				desired_height = dimensions['pageHeight']
-			else:
-				# For viewport screenshot, just use viewport + expansion
-				desired_height = dimensions['height'] + viewport_expansion
-
-			capped_height = min(desired_height, MAX_SCREENSHOT_HEIGHT)
-			# if desired_height > capped_height:
-			# 	self.logger.debug(
-			# 		f'📐 Page viewport {desired_height}px exceeds max {capped_height}px limit for screenshots, taking top {capped_height}px only'
-			# 	)
-
-			# 3. Expand the viewport if we are using one
-			original_viewport = page.viewport_size
-			try:
-				if original_viewport:
-					# if we're already using a viewport, temporarily expand it to the desired size for the screenshot
-					await self._set_viewport_size(page, {'width': capped_width, 'height': desired_height})
-				else:
-					# In headless mode without viewport, we always need to set one temporarily before taking a screenshot to limit rendering resource usage
-					await self._set_viewport_size(page, {'width': capped_width, 'height': desired_height})
-			except Exception as e:
-				self.logger.error(f'❌ Failed to set up viewport for screenshot: {type(e).__name__}: {e}')
-		except Exception as e:
-			self.logger.error(f'❌ Failed to set up viewport for screenshot: {type(e).__name__}: {e}')
-
-		# Take screenshot using our retry-decorated method
-		try:
+			# Take screenshot using our retry-decorated method
 			return await self._take_screenshot_hybrid(
 				page,
 				clip={
-					'x': dimensions.get('scrollX', 0),
-					'y': dimensions.get('scrollY', 0),
-					'width': capped_width,
-					'height': capped_height,
+					'x': dimensions['scrollX'],
+					'y': dimensions['scrollY'],
+					'width': min(dimensions['width'], MAX_SCREENSHOT_WIDTH),
+					'height': min(dimensions['height'], MAX_SCREENSHOT_HEIGHT),
 				},
 			)
 		except Exception as e:
 			self.logger.error(f'❌ Failed to take screenshot after retries: {type(e).__name__}: {e}')
 			raise
-		finally:
-			if original_viewport:
-				# Viewport was originally enabled, restore to original dimensions
-				try:
-					await self._set_viewport_size(page, original_viewport)
-				except Exception as e:
-					self.logger.warning(
-						f'⚠️ Failed to restore viewport to original size after screenshot: {type(e).__name__}: {e}'
-					)
 
 	# region - User Actions
 
@@ -3233,6 +3205,7 @@ class BrowserSession(BaseModel):
 
 		# Update both tab references - agent wants this tab, and it's now in the foreground
 		self.agent_current_page = page
+		await self.agent_current_page.bring_to_front()  # crucial for screenshot to work
 
 		# in order for a human watching to be able to follow along with what the agent is doing
 		# update the human's active tab to match the agent's
@@ -3243,6 +3216,11 @@ class BrowserSession(BaseModel):
 			pass
 
 		self.human_current_page = page
+
+		# Invalidate cached state since we've switched to a different tab
+		# The cached state contains DOM elements and selector map from the previous tab
+		self._cached_browser_state_summary = None
+		self._cached_clickable_element_hashes = None
 
 		try:
 			await page.wait_for_load_state()
@@ -3272,6 +3250,7 @@ class BrowserSession(BaseModel):
 			new_page = await self.browser_context.new_page()
 		except Exception:
 			self.initialized = False
+			self.browser_context = None  # Clear the closed context
 
 		if not self.initialized or not self.browser_context:
 			# If we were initialized but lost connection, reset state first to avoid infinite loops

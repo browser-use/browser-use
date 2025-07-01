@@ -12,6 +12,7 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError
 from browser_use.llm.google.serializer import GoogleMessageSerializer
 from browser_use.llm.messages import BaseMessage
+from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
@@ -44,13 +45,36 @@ class ChatGoogle(BaseChatModel):
 	"""
 	A wrapper around Google's Gemini chat model using the genai client.
 
-	This class accepts all genai.Client parameters while adding model
-	and temperature parameters for the LLM interface.
+	This class accepts all genai.Client parameters while adding model,
+	temperature, and config parameters for the LLM interface.
+
+	Args:
+		model: The Gemini model to use
+		temperature: Temperature for response generation
+		config: Additional configuration parameters to pass to generate_content
+			(e.g., tools, safety_settings, etc.).
+		api_key: Google API key
+		vertexai: Whether to use Vertex AI
+		credentials: Google credentials object
+		project: Google Cloud project ID
+		location: Google Cloud location
+		http_options: HTTP options for the client
+
+	Example:
+		from google.genai import types
+
+		llm = ChatGoogle(
+			model='gemini-2.0-flash-exp',
+			config={
+				'tools': [types.Tool(code_execution=types.ToolCodeExecution())]
+			}
+		)
 	"""
 
 	# Model configuration
 	model: VerifiedGeminiModels | str
 	temperature: float | None = None
+	config: types.GenerateContentConfigDict | None = None
 
 	# Client initialization parameters
 	api_key: str | None = None
@@ -142,8 +166,12 @@ class ChatGoogle(BaseChatModel):
 		# Serialize messages to Google format
 		contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages)
 
-		# Return string response
+		# Build config dictionary starting with user-provided config
 		config: types.GenerateContentConfigDict = {}
+		if self.config:
+			config = self.config.copy()
+
+		# Apply model-specific configuration (these can override config)
 		if self.temperature is not None:
 			config['temperature'] = self.temperature
 
@@ -174,7 +202,10 @@ class ChatGoogle(BaseChatModel):
 				# Return structured response
 				config['response_mime_type'] = 'application/json'
 				# Convert Pydantic model to Gemini-compatible schema
-				config['response_schema'] = self._pydantic_to_gemini_schema(output_format)
+				optimized_schema = SchemaOptimizer.create_optimized_json_schema(output_format)
+
+				gemini_schema = self._fix_gemini_schema(optimized_schema)
+				config['response_schema'] = gemini_schema
 
 				response = await self.get_client().aio.models.generate_content(
 					model=self.model,
@@ -278,14 +309,13 @@ class ChatGoogle(BaseChatModel):
 				model=self.name,
 			) from e
 
-	def _pydantic_to_gemini_schema(self, model_class: type[BaseModel]) -> dict[str, Any]:
+	def _fix_gemini_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
 		"""
 		Convert a Pydantic model to a Gemini-compatible schema.
 
 		This function removes unsupported properties like 'additionalProperties' and resolves
 		$ref references that Gemini doesn't support.
 		"""
-		schema = model_class.model_json_schema()
 
 		# Handle $defs and $ref resolution
 		if '$defs' in schema:

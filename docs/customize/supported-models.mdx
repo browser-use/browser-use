@@ -12,9 +12,11 @@ Here's how to configure the models.
 
 We have recently switched from Langchain to our own implementation of the models. To migrate the previous code, just replace `from langchain_openai import ChatOpenAI` with `from browser_use.llm import ChatOpenAI` etc. The methods should be compatible(ish).
 
+We also made and example [here](https://github.com/browser-use/browser-use/blob/main/examples/models/langchain) to help you stay with Langchain in case your workflow requires it.
+
 ## Model Recommendations
 
-We recommend using GPT-4.1 for the best performance (best accuracy ~$0.01 per step). The best price to performance can be achieved using `gemini-2.0-flash-exp` (currently also the most popular model, costs ~$0.001 per step).
+We recommend using GPT-4.1 for the best performance (best accuracy ~\$0.01 per step). The best price to performance can be achieved using `gemini-2.0-flash-exp` (currently also the most popular model, costs ~\$0.001 per step).
 
 ## Supported Models
 
@@ -22,6 +24,7 @@ Our library natively supports the following models:
 
 - OpenAI
 - Anthropic
+- AWS Bedrock (multiple providers)
 - Azure OpenAI
 - Gemini
 - Groq
@@ -64,7 +67,7 @@ from browser_use import Agent
 
 # Initialize the model
 llm = ChatAnthropic(
-    model_name="claude-3-5-sonnet-20240620",
+    model="claude-3-5-sonnet-20240620",
 )
 
 # Create agent with the model
@@ -135,6 +138,66 @@ Required environment variables:
 GOOGLE_API_KEY=
 ```
 
+### AWS Bedrock
+
+AWS Bedrock provides access to multiple model providers through a single API. We support both a general AWS Bedrock client and provider-specific convenience classes.
+
+#### General AWS Bedrock (supports all providers)
+
+```python
+from browser_use.llm import ChatAWSBedrock
+from browser_use import Agent
+
+# Works with any Bedrock model (Anthropic, Meta, AI21, etc.)
+llm = ChatAWSBedrock(
+    model="anthropic.claude-3-5-sonnet-20240620-v1:0",  # or any Bedrock model
+    aws_region="us-east-1",
+)
+
+# Create agent with the model
+agent = Agent(
+    task="Your task here",
+    llm=llm
+)
+```
+
+#### Anthropic Claude via AWS Bedrock (convenience class)
+
+```python
+from browser_use.llm import ChatAnthropicBedrock
+from browser_use import Agent
+
+# Anthropic-specific class with Claude defaults
+llm = ChatAnthropicBedrock(
+    model="anthropic.claude-3-5-sonnet-20240620-v1:0",
+    aws_region="us-east-1",
+)
+
+# Create agent with the model
+agent = Agent(
+    task="Your task here",
+    llm=llm
+)
+```
+
+#### AWS Authentication
+
+Required environment variables:
+
+```bash .env
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+AWS_DEFAULT_REGION=us-east-1
+```
+
+You can also use AWS profiles or IAM roles instead of environment variables. The implementation supports:
+
+- Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`)
+- AWS profiles and credential files
+- IAM roles (when running on EC2)
+- Session tokens for temporary credentials
+- AWS SSO authentication (`aws_sso_auth=True`)
+
 ## Groq
 
 ```python
@@ -153,4 +216,13 @@ Required environment variables:
 
 ```bash .env
 GROQ_API_KEY=
+```
+
+## Ollama
+
+```python
+from browser_use.llm import ChatOllama
+from browser_use import Agent
+
+llm = ChatOllama(model="llama3.1:8b")
 ```

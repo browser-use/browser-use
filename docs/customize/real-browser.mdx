@@ -284,28 +284,24 @@ await reused_session.close()
 ```python
 from browser_use import Agent, BrowserSession
 from browser_use.llm import ChatOpenAI
+from playwright.async_api import async_playwright
 
-shared_browser = BrowserSession(
-    storage_state='/tmp/cookies.json',
-    user_data_dir=None,
-    keep_alive=True,
-    headless=True,
-)
-await shared_browser.start()   # when keep_alive=True, you must start the session yourself
+async with async_playwright() as playwright:
+    browser_context = await playwright.chromium.launch_persistent_context()
+    page1 = await browser_context.new_page()
+    page2 = await browser_context.new_page()
 
-agent1 = Agent(
-    task="The first task...",
-    llm=ChatOpenAI(model="gpt-4o-mini"),
-    browser_session=shared_browser,              # pass the session in
-)
-agent2 = Agent(
-    task="The second task...",
-    llm=ChatOpenAI(model="gpt-4o-mini"),
-    browser_session=shared_browser,              # re-use the same session
-)
-await asyncio.gather(agent1.run(), agent2.run()) # run in parallel
-
-await shared_browser.close()
+    agent1 = Agent(
+        task="The first task...",
+        llm=ChatOpenAI(model="gpt-4o-mini"),
+        page=page1,
+    )
+    agent2 = Agent(
+        task="The second task...",
+        llm=ChatOpenAI(model="gpt-4o-mini"),
+        page=page2,
+    )
+    await asyncio.gather(agent1.run(), agent2.run()) # run in parallel
 ```
 
 ### Parallel Agents, Same Browser, Same Tab

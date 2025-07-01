@@ -397,6 +397,7 @@ class TestEventValidation:
 				browser_session_id='test-browser',
 				browser_session_live_url='https://example.com',
 				browser_session_cdp_url='ws://localhost:9222',
+				device_id='test-device-id',
 			),
 			CreateAgentTaskEvent(
 				id='0683fb03-c5da-79c9-8000-d3a39c47c652',
@@ -408,6 +409,7 @@ class TestEventValidation:
 				user_feedback_type=None,
 				user_comment=None,
 				gif_url=None,
+				device_id='test-device-id',
 			),
 			CreateAgentStepEvent(
 				user_id='0683fb03-c5da-79c9-8000-d3a39c47c650',
@@ -418,6 +420,7 @@ class TestEventValidation:
 				next_goal='next',
 				actions=[],
 				screenshot_url='data:image/png;...',
+				device_id='test-device-id',
 			),
 		]
 
@@ -450,6 +453,7 @@ class TestEventValidation:
 				user_feedback_type=None,
 				user_comment=None,
 				gif_url=None,
+				device_id='test-device-id',
 			)
 
 	def test_event_type_assignment(self):
@@ -463,6 +467,7 @@ class TestEventValidation:
 			user_feedback_type=None,
 			user_comment=None,
 			gif_url=None,
+			device_id='test-device-id',
 		)
 
 		# Event type should be automatically set

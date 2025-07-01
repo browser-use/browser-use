@@ -23,6 +23,7 @@ from browser_use.llm.anthropic.serializer import AnthropicMessageSerializer
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
+from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
@@ -155,7 +156,7 @@ class ChatAnthropic(BaseChatModel):
 				# Use tool calling for structured output
 				# Create a tool that represents the output format
 				tool_name = output_format.__name__
-				schema = output_format.model_json_schema()
+				schema = SchemaOptimizer.create_optimized_json_schema(output_format)
 
 				# Remove title from schema if present (Anthropic doesn't like it in parameters)
 				if 'title' in schema:

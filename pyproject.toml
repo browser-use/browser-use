@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.3.3"
+version = "0.4.2"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -20,6 +20,7 @@ dependencies = [
     "mem0ai>=0.1.106",
     "patchright>=1.52.5",
     "playwright>=1.52.0",
+    "portalocker>=2.7.0,<3.0.0",
     "posthog>=3.7.0",
     "psutil>=7.0.0",
     "pydantic>=2.11.5",
@@ -35,6 +36,7 @@ dependencies = [
     "openai>=1.81.0",
     "anthropic>=0.54.0",
     "groq>=0.28.0",
+    "ollama>=0.5.1",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -47,16 +49,13 @@ dependencies = [
 # textual: used for terminal UI
 
 [project.optional-dependencies]
-memory = [
-    # sentence-transformers: depends on pytorch, which does not support python 3.13 yet
-    # faiss-cpu: >= 1.11.0 breaks on some macOS hosts, make sure to test before upgrading
-    "faiss-cpu>=1.10.0",
-    "sentence-transformers>=4.0.2",
-]
 cli = [
     "rich>=14.0.0",
     "click>=8.1.8",
     "textual>=3.2.0",
+]
+aws = [
+    "boto3>=1.38.45"
 ]
 examples = [
     # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
@@ -64,15 +63,17 @@ examples = [
     "imgcat>=0.6.0",
     "stagehand-py>=0.3.6",
     "browserbase>=0.4.0",
+    "langchain-openai>=0.3.26",
 ]
 eval = [
     "lmnr[all]>=0.6.11",
     "anyio>=4.9.0",
     "Pillow>=11.2.1",
     "psutil>=7.0.0",
+    "datamodel-code-generator>=0.26.0",
 ]
 all = [
-    "browser-use[memory,cli,examples]",
+    "browser-use[cli,examples,aws]",
 ]
 
 # will prefer to use local source code checked out in ../../browser-use (if present) instead of pypi browser-use package
@@ -115,7 +116,7 @@ skip-magic-trailing-comma = false
 
 [tool.pyright]
 typeCheckingMode = "basic"
-exclude = ["tests/old/", ".venv/", ".git/", "__pycache__/"]
+exclude = ["tests/old/", ".venv/", ".git/", "__pycache__/", "./test_*.py", "./debug_*.py", "private_example/"]
 
 
 [tool.hatch.build]
@@ -124,6 +125,7 @@ include = [
     "!browser_use/**/tests/*.py",
     "!browser_use/**/tests.py",
     "browser_use/agent/system_prompt.md",
+    "browser_use/agent/system_prompt_no_thinking.md",
     "browser_use/dom/buildDomTree.js",
     "!tests/**/*.py",
 ]

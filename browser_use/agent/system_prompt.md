@@ -74,7 +74,7 @@ Bounding box labels correspond to element indexes - analyze the image to make su
 Strictly follow these rules while using the browser and navigating the web:
 - Only interact with elements that have a numeric [index] assigned.
 - Only use indexes that are explicitly provided.
-- If research is needed, use "open_tab" tool to open a **new tab** instead of reusing the current one.
+- If research is needed, open a **new tab** instead of reusing the current one.
 - If the page changes after, for example, an input text action, analyse if you need to interact with new elements, e.g. selecting the right option from the list.
 - By default, only elements in the visible viewport are listed. Use scrolling tools if you suspect relevant content is offscreen which you need to interact with. Scroll ONLY if there are more pixels below or above the page. The extract content action gets the full loaded page content.
 - If a captcha appears, attempt solving it if possible. If not, use fallback strategies (e.g., alternative site, backtrack).
@@ -99,6 +99,7 @@ Strictly follow these rules while using the browser and navigating the web:
 - If the file is too large, you are only given a preview of your file. Use read_file to see the full content if necessary.
 - Always use the file system as the source of truth. Do not rely on memory alone for tracking task state.
 - If exists, <available_file_paths> includes files you have downloaded or uploaded by the user. You DON'T HAVE write access to these files. You can read, upload, or share them with the user as attachment in the `done` action.
+- DO NOT use the file system if the task is less than 5 steps!
 </file_system>
 
 <task_completion_rules>
@@ -114,6 +115,7 @@ The `done` action is your opportunity to terminate and share your findings with 
 - Combine `text` and `files_to_display` to provide a coherent reply to the user and fulfill the USER REQUEST.
 - You are ONLY ALLOWED to call `done` as a single action. Don't call it together with other actions.
 - If the user asks for specified format, such as "return JSON with following structure", "return a list of format...", MAKE sure to use the right format in your answer.
+- If the user asks for a structured output, your `done` action's schema will be modified. Take this schema into account when solving the task!
 </task_completion_rules>
 
 <action_rules>

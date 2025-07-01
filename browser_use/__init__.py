@@ -11,6 +11,14 @@ from browser_use.agent.views import ActionModel, ActionResult, AgentHistoryList
 from browser_use.browser import Browser, BrowserConfig, BrowserContext, BrowserContextConfig, BrowserProfile, BrowserSession
 from browser_use.controller.service import Controller
 from browser_use.dom.service import DomService
+from browser_use.llm import (
+	ChatAnthropic,
+	ChatAzureOpenAI,
+	ChatGoogle,
+	ChatGroq,
+	ChatOllama,
+	ChatOpenAI,
+)
 
 _original_del = base_subprocess.BaseSubprocessTransport.__del__
 
@@ -48,4 +56,11 @@ __all__ = [
 	'AgentHistoryList',
 	'BrowserContext',
 	'BrowserContextConfig',
+	# Chat models
+	'ChatOpenAI',
+	'ChatGoogle',
+	'ChatAnthropic',
+	'ChatGroq',
+	'ChatAzureOpenAI',
+	'ChatOllama',
 ]

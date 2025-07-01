@@ -18,9 +18,9 @@ load_dotenv()
 Laminar.initialize()
 
 # All the models are type safe from OpenAI in case you need a list of supported models
-llm = ChatOpenAI(model='gpt-4.1')
+llm = ChatOpenAI(model='gpt-4.1-mini')
 agent = Agent(
-	task='Go to amazon.com, search for laptop, sort by best rating, and give me the price of the first result',
+	task='Go to example.com, click on the first link, and give me the title of the page',
 	llm=llm,
 )
 

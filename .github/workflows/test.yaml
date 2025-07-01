@@ -89,7 +89,7 @@ jobs:
       #- run: playwright install chrome     # tests that need it can install it manually
       - run: playwright install chromium
 
-      - run: pytest --numprocesses auto tests/ci/${{ matrix.test_filename }}.py
+      - run: pytest tests/ci/${{ matrix.test_filename }}.py
 
   evaluate-tasks:
     runs-on: ubuntu-latest

@@ -61,7 +61,8 @@ def interactive_llm(httpserver_url):
 			"action": [
 				{{
 					"go_to_url": {{
-						"url": "{httpserver_url}"
+						"url": "{httpserver_url}",
+						"new_tab": false
 					}}
 				}}
 			]
