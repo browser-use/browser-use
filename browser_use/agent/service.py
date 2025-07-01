@@ -896,7 +896,7 @@ class Agent(Generic[Context]):
 		result: list[ActionResult] = []
 		step_start_time = time.time()
 		tokens = 0
-		self.lucidic_step_history.append(lai.create_step(goal=self.nextgoal))
+		lai.create_step(goal=self.nextgoal)
 		try:
 			assert self.browser_session is not None, 'BrowserSession is not set up'
 			browser_state_summary = await self.browser_session.get_state_summary(cache_clickable_elements_hashes=True)
@@ -998,11 +998,6 @@ class Agent(Generic[Context]):
 
 				# Check again for paused/stopped state after getting model output
 				await self._raise_if_stopped_or_paused()
-				if len(self.lucidic_step_history) > 1:
-					lai.update_step(
-						step_id=self.lucidic_step_history[-2],
-						eval_description=model_output.current_state.evaluation_previous_goal,
-					)
 
 				self.state.n_steps += 1
 
