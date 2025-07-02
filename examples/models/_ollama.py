@@ -19,6 +19,10 @@ from langchain_ollama import ChatOllama
 from browser_use import Agent
 from browser_use.agent.views import AgentHistoryList
 
+import lucidicai as lai
+
+lai.init("Reddit Search for Browseruse")
+
 
 async def run_search() -> AgentHistoryList:
 	agent = Agent(
@@ -28,8 +32,11 @@ async def run_search() -> AgentHistoryList:
 			num_ctx=32000,
 		),
 	)
+	handler = lai.LucidicLangchainHandler()
+	handler.attach_to_llms(agent)
 
 	result = await agent.run()
+	lai.end_session()
 	return result
 
 

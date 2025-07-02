@@ -19,10 +19,13 @@ from pydantic import SecretStr
 
 from browser_use import Agent
 
+import lucidicai as lai
+
 api_key = os.getenv('NOVITA_API_KEY', '')
 if not api_key:
 	raise ValueError('NOVITA_API_KEY is not set')
 
+lai.init("Reddit search")
 
 async def run_search():
 	agent = Agent(
@@ -39,8 +42,12 @@ async def run_search():
 		),
 		use_vision=False,
 	)
+	handler = lai.LucidicLangchainHandler()
+	handler.attach_to_llms(agent)
 
 	await agent.run()
+
+	lai.end_session()
 
 
 if __name__ == '__main__':

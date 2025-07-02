@@ -26,6 +26,8 @@ from browser_use import Agent
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.controller.service import Controller
 
+import lucidicai as lai
+
 
 def get_llm():
 	config = Config(retries={'max_attempts': 10, 'mode': 'adaptive'})
@@ -58,6 +60,8 @@ browser_profile = BrowserProfile(
 )
 browser_session = BrowserSession(browser_profile=browser_profile)
 
+lai.init("VNN Search")
+
 agent = Agent(
 	task=args.query,
 	llm=llm,
@@ -68,8 +72,11 @@ agent = Agent(
 
 
 async def main():
+	handler = lai.LucidicLangchainHandler()
+	handler.attach_to_llms(agent)
 	await agent.run(max_steps=30)
 	await browser_session.close()
+	lai.end_session()
 
 
 asyncio.run(main())

@@ -30,29 +30,20 @@ browser_session = BrowserSession(
 	)
 )
 
-task = "On ESPN, find the nba team with the highest average points scored in the current season"
-
-mass_sim_id = "<FILL THIS IN>"
-
-lai.init(
-	"Browser Use ESPN NBA top scoring team",
-	# lucidic_api_key=os.getenv('LUCIDIC_API_KEY'), -> Set this in .env
-	# agent_id=os.getenv('LUCIDIC_AGENT_ID'), -> Set this in .env
-	task=task,
-	mass_sim_id=mass_sim_id
-)
+lai.init("Amazon search")
 
 async def run_search():
 	agent = Agent(
-		task=task,
+		task='Go to amazon.com, search for laptop, sort by best rating, and give me the price of the first result',
 		llm=llm,
 		max_actions_per_step=4,
 		browser_session=browser_session,
 	)
 	handler = lai.LucidicLangchainHandler()
 	handler.attach_to_llms(agent)
-
 	await agent.run(max_steps=20)
+
+	lai.end_session()
 
 
 if __name__ == '__main__':

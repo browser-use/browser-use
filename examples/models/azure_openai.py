@@ -19,6 +19,8 @@ from pydantic import SecretStr
 
 from browser_use import Agent
 
+import lucidicai as lai
+
 # Retrieve Azure-specific environment variables
 azure_openai_api_key = os.getenv('AZURE_OPENAI_KEY')
 azure_openai_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
@@ -34,6 +36,8 @@ llm = AzureChatOpenAI(
 	api_version='2024-08-01-preview',  # Explicitly set the API version here
 )
 
+lai.init("Amazon Search")
+
 agent = Agent(
 	task='Go to amazon.com, search for laptop, sort by best rating, and give me the price of the first result',
 	llm=llm,
@@ -42,8 +46,11 @@ agent = Agent(
 
 
 async def main():
+	handler = lai.LucidicLangchainHandler()
+	handler.attach_to_llms(agent)
 	await agent.run(max_steps=10)
 	input('Press Enter to continue...')
+	lai.end_session()
 
 
 asyncio.run(main())

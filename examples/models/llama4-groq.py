@@ -13,6 +13,8 @@ from pydantic import SecretStr
 
 from browser_use import Agent
 
+import lucidicai as lai
+
 groq_api_key = os.environ.get('GROQ_API_KEY')
 llm = ChatOpenAI(
 	model='meta-llama/llama-4-maverick-17b-128e-instruct',
@@ -20,6 +22,8 @@ llm = ChatOpenAI(
 	api_key=SecretStr(groq_api_key) if groq_api_key else None,
 	temperature=0.0,
 )
+
+lai.init("Broseruse founders")
 
 # llm = ChatGroq(
 # 	model='meta-llama/llama-4-maverick-17b-128e-instruct',
@@ -35,7 +39,12 @@ async def main():
 		task=task,
 		llm=llm,
 	)
+	handler = lai.LucidicLangchainHandler()
+	handler.attach_to_llms(agent)
 	await agent.run()
+	
+	lai.end_session()
+
 
 
 if __name__ == '__main__':

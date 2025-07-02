@@ -12,6 +12,10 @@ from langchain_ollama import ChatOllama
 
 from browser_use import Agent
 
+import lucidicai as lai
+
+lai.init("Reddit Search")
+
 
 async def run_search():
 	agent = Agent(
@@ -26,8 +30,12 @@ async def run_search():
 		),
 		max_actions_per_step=1,
 	)
+	handler = lai.LucidicLangchainHandler()
+	handler.attach_to_llms(agent)
 
 	await agent.run()
+
+	lai.end_session()
 
 
 if __name__ == '__main__':

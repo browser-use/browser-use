@@ -13,9 +13,13 @@ from pydantic import SecretStr
 
 from browser_use import Agent
 
+import lucidicai as lai
+
 api_key = os.getenv('GROK_API_KEY', '')
 if not api_key:
 	raise ValueError('GROK_API_KEY is not set')
+
+lai.init("Amazon search")
 
 
 async def run_search():
@@ -34,7 +38,12 @@ async def run_search():
 		use_vision=False,
 	)
 
+	handler = lai.LucidicLangchainHandler()
+	handler.attach_to_llms(agent)
+
 	await agent.run()
+
+	lai.end_session()
 
 
 if __name__ == '__main__':
