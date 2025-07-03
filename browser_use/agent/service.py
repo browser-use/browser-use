@@ -21,6 +21,7 @@ from browser_use.agent.cloud_events import (
 	CreateAgentTaskEvent,
 	UpdateAgentTaskEvent,
 )
+from browser_use.dom.views import DEFAULT_INCLUDE_ATTRIBUTES
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import BaseMessage, UserMessage
 from browser_use.tokens.service import TokenCost
@@ -152,21 +153,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		message_context: str | None = None,
 		generate_gif: bool | str = False,
 		available_file_paths: list[str] | None = None,
-		include_attributes: list[str] = [
-			'title',
-			'type',
-			'name',
-			'role',
-			'aria-label',
-			'placeholder',
-			'value',
-			'alt',
-			'aria-expanded',
-			'data-date-format',
-			'checked',
-			'data-state',
-			'aria-checked',
-		],
+		include_attributes: list[str] = DEFAULT_INCLUDE_ATTRIBUTES,
 		max_actions_per_step: int = 10,
 		use_thinking: bool = True,
 		max_history_items: int = 40,
