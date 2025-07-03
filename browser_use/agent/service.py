@@ -451,7 +451,6 @@ class Agent(Generic[Context]):
 		
 		# Lucidic AI
 		self.nextgoal = None
-		self.lucidic_step_history = []
 
 		if self.settings.save_conversation_path:
 			self.settings.save_conversation_path = Path(self.settings.save_conversation_path).expanduser().resolve()

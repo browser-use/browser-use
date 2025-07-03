@@ -60,7 +60,7 @@ browser_profile = BrowserProfile(
 )
 browser_session = BrowserSession(browser_profile=browser_profile)
 
-lai.init("VNN Search")
+lai.init("CNN Search")
 
 agent = Agent(
 	task=args.query,
