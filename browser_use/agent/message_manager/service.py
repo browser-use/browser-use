@@ -425,7 +425,7 @@ The file system actions do not change the browser state, so I can also click on 
 
 			# Replace all valid sensitive data values with their placeholder tags
 			for key, val in sensitive_values.items():
-				value = value.replace(val, f'<secret>{key}</secret>')
+				value = value.replace(f'<secret>{key}</secret>', val)
 
 			return value
 
