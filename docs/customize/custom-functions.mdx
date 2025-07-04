@@ -8,7 +8,7 @@ Custom actions are functions *you* provide, that are added to our [default actio
 Action functions can request [arbitrary parameters](#action-parameters-via-pydantic-model) that the LLM has to come up with + a fixed set of [framework-provided arguments](#framework-provided-parameters) for browser APIs / `Agent(context=...)` / etc.
 
 <Note>
-  Our default set of actions is already quite powerful, the built-in `Controller` provides basics like `open_tab`, `scroll_down`, `extract_content`, [and more](https://github.com/browser-use/browser-use/blob/main/browser_use/controller/service.py).
+  Our default set of actions is already quite powerful, the built-in `Controller` provides basics like `go_to_url`, `scroll_down`, `extract_content`, [and more](https://github.com/browser-use/browser-use/blob/main/browser_use/controller/service.py).
 </Note>
 
 It's easy to add your own actions to implement additional custom behaviors, integrations with other apps, or performance optimizations.
@@ -223,7 +223,7 @@ await agent2.run()
 
 If you want to exclude some registered actions and make them unavailable to the agent, you can do:
 ```python
-controller = Controller(exclude_actions=['open_tab', 'search_google'])
+controller = Controller(exclude_actions=['search_google'])
 agent = Agent(controller=controller, ...)
 ```
 

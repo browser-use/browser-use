@@ -21,6 +21,7 @@ from browser_use.agent.cloud_events import (
 	CreateAgentTaskEvent,
 	UpdateAgentTaskEvent,
 )
+from browser_use.dom.views import DEFAULT_INCLUDE_ATTRIBUTES
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import BaseMessage, UserMessage
 from browser_use.tokens.service import TokenCost
@@ -152,23 +153,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		message_context: str | None = None,
 		generate_gif: bool | str = False,
 		available_file_paths: list[str] | None = None,
-		include_attributes: list[str] = [
-			'title',
-			'type',
-			'name',
-			'role',
-			'aria-label',
-			'placeholder',
-			'value',
-			'alt',
-			'aria-expanded',
-			'data-date-format',
-			'checked',
-			'data-state',
-			'aria-checked',
-		],
+		include_attributes: list[str] = DEFAULT_INCLUDE_ATTRIBUTES,
 		max_actions_per_step: int = 10,
 		use_thinking: bool = True,
+		max_history_items: int = 40,
 		page_extraction_llm: BaseChatModel | None = None,
 		planner_llm: BaseChatModel | None = None,
 		planner_interval: int = 1,  # Run planner every N steps
@@ -235,12 +223,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			available_file_paths=available_file_paths,
 			include_attributes=include_attributes,
 			max_actions_per_step=max_actions_per_step,
+			use_thinking=use_thinking,
+			max_history_items=max_history_items,
 			page_extraction_llm=page_extraction_llm,
 			planner_llm=planner_llm,
 			planner_interval=planner_interval,
 			is_planner_reasoning=is_planner_reasoning,
 			extend_planner_system_message=extend_planner_system_message,
-			use_thinking=use_thinking,
 			calculate_cost=calculate_cost,
 		)
 
@@ -318,6 +307,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			include_attributes=self.settings.include_attributes,
 			message_context=self.settings.message_context,
 			sensitive_data=sensitive_data,
+			max_history_items=self.settings.max_history_items,
 		)
 
 		if isinstance(browser, BrowserSession):
@@ -1061,13 +1051,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			)
 		)
 
-	async def take_step(self) -> tuple[bool, bool]:
+	async def take_step(self, step_info: AgentStepInfo | None = None) -> tuple[bool, bool]:
 		"""Take a step
 
 		Returns:
 		        Tuple[bool, bool]: (is_done, is_valid)
 		"""
-		await self.step()
+		await self.step(step_info)
 
 		if self.state.history.is_done():
 			await self.log_completion()

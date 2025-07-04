@@ -43,7 +43,7 @@ class TestSequentialAgentsSimple:
 				"memory": "Need to navigate to page 1",
 				"next_goal": "Navigate to page 1",
 				"action": [
-					{{"go_to_url": {{"url": "{httpserver.url_for('/page1')}"}}}}
+					{{"go_to_url": {{"url": "{httpserver.url_for('/page1')}", "new_tab": false}}}}
 				]
 			}}"""
 		]
@@ -81,7 +81,7 @@ class TestSequentialAgentsSimple:
 				"memory": "Browser is still open, need to go to page 2",
 				"next_goal": "Navigate to page 2",
 				"action": [
-					{{"go_to_url": {{"url": "{httpserver.url_for('/page2')}"}}}}
+					{{"go_to_url": {{"url": "{httpserver.url_for('/page2')}", "new_tab": false}}}}
 				]
 			}}"""
 		]
@@ -127,8 +127,8 @@ class TestSequentialAgentsSimple:
 				"memory": "Need to open two tabs",
 				"next_goal": "Open tab 1 and tab 2",
 				"action": [
-					{{"go_to_url": {{"url": "{httpserver.url_for('/tab1')}"}}}},
-					{{"open_tab": {{"url": "{httpserver.url_for('/tab2')}"}}}}
+					{{"go_to_url": {{"url": "{httpserver.url_for('/tab1')}", "new_tab": false}}}},
+					{{"go_to_url": {{"url": "{httpserver.url_for('/tab2')}", "new_tab": true}}}}
 				]
 			}}"""
 		]

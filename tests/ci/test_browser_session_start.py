@@ -691,8 +691,9 @@ class TestBrowserSessionReusePatterns:
 				"next_goal": "Create a new tab to work in",
 				"action": [
 					{
-						"open_tab": {
-							"url": "%s"
+						"go_to_url": {
+							"url": "%s",
+							"new_tab": true
 						}
 					}
 				]

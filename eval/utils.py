@@ -35,7 +35,7 @@ def create_pydantic_model_from_schema(original_schema: dict | str, model_name: s
 		import tempfile
 		from pathlib import Path
 
-		from datamodel_code_generator import DataModelType, generate
+		from datamodel_code_generator import DataModelType, generate  # type: ignore[import-untyped]
 
 		# Handle case where schema might be a string (JSON)
 		if isinstance(original_schema, str):

@@ -124,7 +124,7 @@ class FileSystem:
 
 		self.files = {}
 		if create_default_files:
-			self.default_files = ['results.md', 'todo.md']
+			self.default_files = ['todo.md']
 			self._create_default_files()
 
 		self.extracted_content_count = 0

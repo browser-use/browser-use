@@ -9,98 +9,6 @@
   const { doHighlightElements, focusHighlightIndex, viewportExpansion, debugMode } = args;
   let highlightIndex = 0; // Reset highlight index
 
-  // Add timing stack to handle recursion
-  const TIMING_STACK = {
-    nodeProcessing: [],
-    treeTraversal: [],
-    highlighting: [],
-    current: null
-  };
-
-  function pushTiming(type) {
-    TIMING_STACK[type] = TIMING_STACK[type] || [];
-    TIMING_STACK[type].push(performance.now());
-  }
-
-  function popTiming(type) {
-    const start = TIMING_STACK[type].pop();
-    const duration = performance.now() - start;
-    return duration;
-  }
-
-  // Only initialize performance tracking if in debug mode
-  const PERF_METRICS = debugMode ? {
-    buildDomTreeCalls: 0,
-    timings: {
-      buildDomTree: 0,
-      highlightElement: 0,
-      isInteractiveElement: 0,
-      isElementVisible: 0,
-      isTopElement: 0,
-      isInExpandedViewport: 0,
-      isTextNodeVisible: 0,
-      getEffectiveScroll: 0,
-    },
-    cacheMetrics: {
-      boundingRectCacheHits: 0,
-      boundingRectCacheMisses: 0,
-      computedStyleCacheHits: 0,
-      computedStyleCacheMisses: 0,
-      getBoundingClientRectTime: 0,
-      getComputedStyleTime: 0,
-      boundingRectHitRate: 0,
-      computedStyleHitRate: 0,
-      overallHitRate: 0,
-      clientRectsCacheHits: 0,
-      clientRectsCacheMisses: 0,
-    },
-    nodeMetrics: {
-      totalNodes: 0,
-      processedNodes: 0,
-      skippedNodes: 0,
-    },
-    buildDomTreeBreakdown: {
-      totalTime: 0,
-      totalSelfTime: 0,
-      buildDomTreeCalls: 0,
-      domOperations: {
-        getBoundingClientRect: 0,
-        getComputedStyle: 0,
-      },
-      domOperationCounts: {
-        getBoundingClientRect: 0,
-        getComputedStyle: 0,
-      }
-    }
-  } : null;
-
-  // Simple timing helper that only runs in debug mode
-  function measureTime(fn) {
-    if (!debugMode) return fn;
-    return function (...args) {
-      const start = performance.now();
-      const result = fn.apply(this, args);
-      const duration = performance.now() - start;
-      return result;
-    };
-  }
-
-  // Helper to measure DOM operations
-  function measureDomOperation(operation, name) {
-    if (!debugMode) return operation();
-
-    const start = performance.now();
-    const result = operation();
-    const duration = performance.now() - start;
-
-    if (PERF_METRICS && name in PERF_METRICS.buildDomTreeBreakdown.domOperations) {
-      PERF_METRICS.buildDomTreeBreakdown.domOperations[name] += duration;
-      PERF_METRICS.buildDomTreeBreakdown.domOperationCounts[name]++;
-    }
-
-    return result;
-  }
-
   // Add caching mechanisms at the top level
   const DOM_CACHE = {
     boundingRects: new WeakMap(),
@@ -113,33 +21,20 @@
     }
   };
 
-  // Cache helper functions
+  /**
+   * Gets the cached bounding rect for an element.
+   *
+   * @param {HTMLElement} element - The element to get the bounding rect for.
+   * @returns {DOMRect | null} The cached bounding rect, or null if the element is not found.
+   */
   function getCachedBoundingRect(element) {
     if (!element) return null;
 
     if (DOM_CACHE.boundingRects.has(element)) {
-      if (debugMode && PERF_METRICS) {
-        PERF_METRICS.cacheMetrics.boundingRectCacheHits++;
-      }
       return DOM_CACHE.boundingRects.get(element);
     }
 
-    if (debugMode && PERF_METRICS) {
-      PERF_METRICS.cacheMetrics.boundingRectCacheMisses++;
-    }
-
-    let rect;
-    if (debugMode) {
-      const start = performance.now();
-      rect = element.getBoundingClientRect();
-      const duration = performance.now() - start;
-      if (PERF_METRICS) {
-        PERF_METRICS.buildDomTreeBreakdown.domOperations.getBoundingClientRect += duration;
-        PERF_METRICS.buildDomTreeBreakdown.domOperationCounts.getBoundingClientRect++;
-      }
-    } else {
-      rect = element.getBoundingClientRect();
-    }
+    const rect = element.getBoundingClientRect();
 
     if (rect) {
       DOM_CACHE.boundingRects.set(element, rect);
@@ -147,32 +42,20 @@
     return rect;
   }
 
+  /**
+   * Gets the cached computed style for an element.
+   *
+   * @param {HTMLElement} element - The element to get the computed style for.
+   * @returns {CSSStyleDeclaration | null} The cached computed style, or null if the element is not found.
+   */
   function getCachedComputedStyle(element) {
     if (!element) return null;
 
     if (DOM_CACHE.computedStyles.has(element)) {
-      if (debugMode && PERF_METRICS) {
-        PERF_METRICS.cacheMetrics.computedStyleCacheHits++;
-      }
       return DOM_CACHE.computedStyles.get(element);
     }
 
-    if (debugMode && PERF_METRICS) {
-      PERF_METRICS.cacheMetrics.computedStyleCacheMisses++;
-    }
-
-    let style;
-    if (debugMode) {
-      const start = performance.now();
-      style = window.getComputedStyle(element);
-      const duration = performance.now() - start;
-      if (PERF_METRICS) {
-        PERF_METRICS.buildDomTreeBreakdown.domOperations.getComputedStyle += duration;
-        PERF_METRICS.buildDomTreeBreakdown.domOperationCounts.getComputedStyle++;
-      }
-    } else {
-      style = window.getComputedStyle(element);
-    }
+    const style = window.getComputedStyle(element);
 
     if (style) {
       DOM_CACHE.computedStyles.set(element, style);
@@ -180,23 +63,21 @@
     return style;
   }
 
-  // Add a new function to get cached client rects
+  /**
+   * Gets the cached client rects for an element.
+   *
+   * @param {HTMLElement} element - The element to get the client rects for.
+   * @returns {DOMRectList | null} The cached client rects, or null if the element is not found.
+   */
   function getCachedClientRects(element) {
     if (!element) return null;
-    
+
     if (DOM_CACHE.clientRects.has(element)) {
-      if (debugMode && PERF_METRICS) {
-        PERF_METRICS.cacheMetrics.clientRectsCacheHits++;
-      }
       return DOM_CACHE.clientRects.get(element);
     }
-    
-    if (debugMode && PERF_METRICS) {
-      PERF_METRICS.cacheMetrics.clientRectsCacheMisses++;
-    }
-    
+
     const rects = element.getClientRects();
-    
+
     if (rects) {
       DOM_CACHE.clientRects.set(element, rects);
     }
@@ -217,26 +98,31 @@
   // Add a WeakMap cache for XPath strings
   const xpathCache = new WeakMap();
 
-  // Initialize once and reuse
-  const viewportObserver = new IntersectionObserver(
-    (entries) => {
-      entries.forEach(entry => {
-        elementVisibilityMap.set(entry.target, entry.isIntersecting);
-      });
-    },
-    { rootMargin: `${viewportExpansion}px` }
-  );
+  // // Initialize once and reuse
+  // const viewportObserver = new IntersectionObserver(
+  //   (entries) => {
+  //     entries.forEach(entry => {
+  //       elementVisibilityMap.set(entry.target, entry.isIntersecting);
+  //     });
+  //   },
+  //   { rootMargin: `${viewportExpansion}px` }
+  // );
 
   /**
    * Highlights an element in the DOM and returns the index of the next element.
+   *
+   * @param {HTMLElement} element - The element to highlight.
+   * @param {number} index - The index of the element.
+   * @param {HTMLElement | null} parentIframe - The parent iframe node.
+   * @returns {number} The index of the next element.
    */
   function highlightElement(element, index, parentIframe = null) {
-    pushTiming('highlighting');
-    
     if (!element) return index;
 
-    // Store overlays and the single label for updating
     const overlays = [];
+    /**
+     * @type {HTMLElement | null}
+     */
     let label = null;
     let labelWidth = 20;
     let labelHeight = 16;
@@ -327,7 +213,7 @@
       label.style.padding = "1px 4px";
       label.style.borderRadius = "4px";
       label.style.fontSize = `${Math.min(12, Math.max(8, firstRect.height / 2))}px`;
-      label.textContent = index;
+      label.textContent = index.toString();
 
       labelWidth = label.offsetWidth > 0 ? label.offsetWidth : labelWidth; // Update actual width if possible
       labelHeight = label.offsetHeight > 0 ? label.offsetHeight : labelHeight; // Update actual height if possible
@@ -419,6 +305,7 @@
         }
       };
 
+
       const throttleFunction = (func, delay) => {
         let lastCall = 0;
         return (...args) => {
@@ -432,7 +319,7 @@
       const throttledUpdatePositions = throttleFunction(updatePositions, 16); // ~60fps
       window.addEventListener('scroll', throttledUpdatePositions, true);
       window.addEventListener('resize', throttledUpdatePositions);
-      
+
       // Add cleanup function
       cleanupFn = () => {
         window.removeEventListener('scroll', throttledUpdatePositions, true);
@@ -441,13 +328,12 @@
         overlays.forEach(overlay => overlay.element.remove());
         if (label) label.remove();
       };
-      
+
       // Then add fragment to container in one operation
       container.appendChild(fragment);
-      
+
       return index + 1;
     } finally {
-      popTiming('highlighting');
       // Store cleanup function for later use
       if (cleanupFn) {
         // Keep a reference to cleanup functions in a global array
@@ -456,42 +342,46 @@
     }
   }
 
-  // Add this function to perform cleanup when needed
-  function cleanupHighlights() {
-    if (window._highlightCleanupFunctions && window._highlightCleanupFunctions.length) {
-      window._highlightCleanupFunctions.forEach(fn => fn());
-      window._highlightCleanupFunctions = [];
-    }
-    
-    // Also remove the container
-    const container = document.getElementById(HIGHLIGHT_CONTAINER_ID);
-    if (container) container.remove();
-  }
+  // // Add this function to perform cleanup when needed
+  // function cleanupHighlights() {
+  //   if (window._highlightCleanupFunctions && window._highlightCleanupFunctions.length) {
+  //     window._highlightCleanupFunctions.forEach(fn => fn());
+  //     window._highlightCleanupFunctions = [];
+  //   }
 
+  //   // Also remove the container
+  //   const container = document.getElementById(HIGHLIGHT_CONTAINER_ID);
+  //   if (container) container.remove();
+  // }
+
+  /**
+   * Gets the position of an element in its parent.
+   *
+   * @param {HTMLElement} currentElement - The element to get the position for.
+   * @returns {number} The position of the element in its parent.
+   */
   function getElementPosition(currentElement) {
     if (!currentElement.parentElement) {
       return 0; // No parent means no siblings
     }
-  
+
     const tagName = currentElement.nodeName.toLowerCase();
-  
+
     const siblings = Array.from(currentElement.parentElement.children)
       .filter((sib) => sib.nodeName.toLowerCase() === tagName);
-  
+
     if (siblings.length === 1) {
       return 0; // Only element of its type
     }
-  
+
     const index = siblings.indexOf(currentElement) + 1; // 1-based index
     return index;
   }
 
-  /**
-   * Returns an XPath tree string for an element.
-   */
+
   function getXPathTree(element, stopAtBoundary = true) {
     if (xpathCache.has(element)) return xpathCache.get(element);
-    
+
     const segments = [];
     let currentElement = element;
 
@@ -520,6 +410,9 @@
 
   /**
    * Checks if a text node is visible.
+   *
+   * @param {Text} textNode - The text node to check.
+   * @returns {boolean} Whether the text node is visible.
    */
   function isTextNodeVisible(textNode) {
     try {
@@ -542,7 +435,7 @@
             style.opacity !== '0';
         }
       }
-      
+
       const range = document.createRange();
       range.selectNodeContents(textNode);
       const rects = range.getClientRects(); // Use getClientRects for Range
@@ -598,7 +491,12 @@
     }
   }
 
-  // Helper function to check if element is accepted
+  /**
+   * Checks if an element is accepted.
+   *
+   * @param {HTMLElement} element - The element to check.
+   * @returns {boolean} Whether the element is accepted.
+   */
   function isElementAccepted(element) {
     if (!element || !element.tagName) return false;
 
@@ -625,14 +523,17 @@
 
   /**
    * Checks if an element is visible.
+   *
+   * @param {HTMLElement} element - The element to check.
+   * @returns {boolean} Whether the element is visible.
    */
   function isElementVisible(element) {
     const style = getCachedComputedStyle(element);
     return (
       element.offsetWidth > 0 &&
       element.offsetHeight > 0 &&
-      style.visibility !== "hidden" &&
-      style.display !== "none"
+      style?.visibility !== "hidden" &&
+      style?.display !== "none"
     );
   }
 
@@ -642,6 +543,8 @@
    * lots of comments, and uncommented code - to show the logic of what we already tried
    * 
    * One of the things we tried at the beginning was also to use event listeners, and other fancy class, style stuff -> what actually worked best was just combining most things with computed cursor style :)
+   * 
+   * @param {HTMLElement} element - The element to check.
    */
   function isInteractiveElement(element) {
     if (!element || element.nodeType !== Node.ELEMENT_NODE) {
@@ -699,10 +602,16 @@
       // 'auto',        // Browser default
     ]);
 
+    /**
+     * Checks if an element has an interactive pointer.
+     *
+     * @param {HTMLElement} element - The element to check.
+     * @returns {boolean} Whether the element has an interactive pointer.
+     */
     function doesElementHaveInteractivePointer(element) {
       if (element.tagName.toLowerCase() === "html") return false;
 
-      if (interactiveCursors.has(style.cursor)) return true;
+      if (style?.cursor && interactiveCursors.has(style.cursor)) return true;
 
       return false;
     }
@@ -746,7 +655,7 @@
     // handle inputs, select, checkbox, radio, textarea, button and make sure they are not cursor style disabled/not-allowed
     if (interactiveElements.has(tagName)) {
       // Check for non-interactive cursor
-      if (nonInteractiveCursors.has(style.cursor)) {
+      if (style?.cursor && nonInteractiveCursors.has(style.cursor)) {
         return false;
       }
 
@@ -784,7 +693,7 @@
     if (element.getAttribute("contenteditable") === "true" || element.isContentEditable) {
       return true;
     }
-    
+
     // Added enhancement to capture dropdown interactive elements
     if (element.classList && (
       element.classList.contains("button") ||
@@ -795,6 +704,7 @@
     )) {
       return true;
     }
+
 
     const interactiveRoles = new Set([
       'button',           // Directly clickable element
@@ -816,13 +726,15 @@
       'scrollbar'        // Scrollable control
     ]);
 
+
     // Basic role/attribute checks
     const hasInteractiveRole =
       interactiveElements.has(tagName) ||
-      interactiveRoles.has(role) ||
-      interactiveRoles.has(ariaRole);
+      (role && interactiveRoles.has(role)) ||
+      (ariaRole && interactiveRoles.has(ariaRole));
 
     if (hasInteractiveRole) return true;
+
 
     // check whether element has event listeners by window.getEventListeners
     try {
@@ -839,22 +751,22 @@
       const getEventListenersForNode = element?.ownerDocument?.defaultView?.getEventListenersForNode || window.getEventListenersForNode;
       if (typeof getEventListenersForNode === 'function') {
         const listeners = getEventListenersForNode(element);
-          const interactionEvents = ['click', 'mousedown', 'mouseup', 'keydown', 'keyup', 'submit', 'change', 'input', 'focus', 'blur'];
-          for (const eventType of interactionEvents) {
-            for (const listener of listeners) {
-              if (listener.type === eventType) {
-                 return true; // Found a common interaction listener
-              }
+        const interactionEvents = ['click', 'mousedown', 'mouseup', 'keydown', 'keyup', 'submit', 'change', 'input', 'focus', 'blur'];
+        for (const eventType of interactionEvents) {
+          for (const listener of listeners) {
+            if (listener.type === eventType) {
+              return true; // Found a common interaction listener
             }
           }
+        }
       }
       // Fallback: Check common event attributes if getEventListeners is not available (getEventListeners doesn't work in page.evaluate context)
-        const commonMouseAttrs = ['onclick', 'onmousedown', 'onmouseup', 'ondblclick'];
-        for (const attr of commonMouseAttrs) {
-          if (element.hasAttribute(attr) || typeof element[attr] === 'function') {
-            return true;
-          }
+      const commonMouseAttrs = ['onclick', 'onmousedown', 'onmouseup', 'ondblclick'];
+      for (const attr of commonMouseAttrs) {
+        if (element.hasAttribute(attr) || typeof element[attr] === 'function') {
+          return true;
         }
+      }
     } catch (e) {
       // console.warn(`Could not check event listeners for ${element.tagName}:`, e);
       // If checking listeners fails, rely on other checks
@@ -866,13 +778,16 @@
 
   /**
    * Checks if an element is the topmost element at its position.
+   *
+   * @param {HTMLElement} element - The element to check.
+   * @returns {boolean} Whether the element is the topmost element at its position.
    */
   function isTopElement(element) {
     // Special case: when viewportExpansion is -1, consider all elements as "top" elements
     if (viewportExpansion === -1) {
       return true;
     }
-    
+
     const rects = getCachedClientRects(element); // Replace element.getClientRects()
 
     if (!rects || rects.length === 0) {
@@ -913,10 +828,7 @@
       const centerY = rects[Math.floor(rects.length / 2)].top + rects[Math.floor(rects.length / 2)].height / 2;
 
       try {
-        const topEl = measureDomOperation(
-          () => shadowRoot.elementFromPoint(centerX, centerY),
-          'elementFromPoint'
-        );
+        const topEl = shadowRoot.elementFromPoint(centerX, centerY);
         if (!topEl) return false;
 
         let current = topEl;
@@ -951,6 +863,10 @@
 
   /**
    * Checks if an element is within the expanded viewport.
+   *
+   * @param {HTMLElement} element - The element to check.
+   * @param {number} viewportExpansion - The viewport expansion.
+   * @returns {boolean} Whether the element is within the expanded viewport.
    */
   function isInExpandedViewport(element, viewportExpansion) {
     if (viewportExpansion === -1) {
@@ -991,29 +907,37 @@
     return false; // No rects were found in the viewport
   }
 
-  // Add this new helper function
-  function getEffectiveScroll(element) {
-    let currentEl = element;
-    let scrollX = 0;
-    let scrollY = 0;
+  // /**
+  //  * Gets the effective scroll of an element.
+  //  *
+  //  * @param {HTMLElement} element - The element to get the effective scroll for.
+  //  * @returns {Object} The effective scroll of the element.
+  //  */
+  // function getEffectiveScroll(element) {
+  //   let currentEl = element;
+  //   let scrollX = 0;
+  //   let scrollY = 0;
 
-    return measureDomOperation(() => {
-      while (currentEl && currentEl !== document.documentElement) {
-        if (currentEl.scrollLeft || currentEl.scrollTop) {
-          scrollX += currentEl.scrollLeft;
-          scrollY += currentEl.scrollTop;
-        }
-        currentEl = currentEl.parentElement;
-      }
+  //   while (currentEl && currentEl !== document.documentElement) {
+  //     if (currentEl.scrollLeft || currentEl.scrollTop) {
+  //       scrollX += currentEl.scrollLeft;
+  //       scrollY += currentEl.scrollTop;
+  //     }
+  //     currentEl = currentEl.parentElement;
+  //   }
 
-      scrollX += window.scrollX;
-      scrollY += window.scrollY;
+  //   scrollX += window.scrollX;
+  //   scrollY += window.scrollY;
 
-      return { scrollX, scrollY };
-    }, 'scrollOperations');
-  }
+  //   return { scrollX, scrollY };
+  // }
 
-  // Add these helper functions at the top level
+  /**
+   * Checks if an element is an interactive candidate.
+   *
+   * @param {HTMLElement} element - The element to check.
+   * @returns {boolean} Whether the element is an interactive candidate.
+   */
   function isInteractiveCandidate(element) {
     if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
 
@@ -1047,12 +971,16 @@
     'combobox', 'searchbox', 'textbox', 'listbox', 'option', 'scrollbar'
   ]);
 
+
   /**
    * Heuristically determines if an element should be considered as independently interactive,
    * even if it's nested inside another interactive container.
    *
    * This function helps detect deeply nested actionable elements (e.g., menu items within a button)
    * that may not be picked up by strict interactivity checks.
+   *
+   * @param {HTMLElement} element - The element to check.
+   * @returns {boolean} Whether the element is heuristically interactive.
    */
   function isHeuristicallyInteractive(element) {
     if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
@@ -1089,9 +1017,13 @@
     );
   }
 
+
   /**
    * Checks if an element likely represents a distinct interaction
    * separate from its parent (if the parent is also interactive).
+   *
+   * @param {HTMLElement} element - The element to check.
+   * @returns {boolean} Whether the element is a distinct interaction.
    */
   function isElementDistinctInteraction(element) {
     if (!element || element.nodeType !== Node.ELEMENT_NODE) {
@@ -1126,7 +1058,9 @@
     if (element.hasAttribute('onclick') || typeof element.onclick === 'function') {
       return true;
     }
-    
+
+    // return false
+
     // Check for other common interaction event listeners
     try {
       const getEventListenersForNode = element?.ownerDocument?.defaultView?.getEventListenersForNode || window.getEventListenersForNode;
@@ -1136,20 +1070,22 @@
         for (const eventType of interactionEvents) {
           for (const listener of listeners) {
             if (listener.type === eventType) {
-               return true; // Found a common interaction listener
+              return true; // Found a common interaction listener
             }
           }
         }
       }
       // Fallback: Check common event attributes if getEventListeners is not available (getEventListenersForNode doesn't work in page.evaluate context)
-        const commonEventAttrs = ['onmousedown', 'onmouseup', 'onkeydown', 'onkeyup', 'onsubmit', 'onchange', 'oninput', 'onfocus', 'onblur'];
-        if (commonEventAttrs.some(attr => element.hasAttribute(attr))) {
-          return true;
-        }
+      const commonEventAttrs = ['onmousedown', 'onmouseup', 'onkeydown', 'onkeyup', 'onsubmit', 'onchange', 'oninput', 'onfocus', 'onblur'];
+      if (commonEventAttrs.some(attr => element.hasAttribute(attr))) {
+        return true;
+      }
     } catch (e) {
       // console.warn(`Could not check event listeners for ${element.tagName}:`, e);
       // If checking listeners fails, rely on other checks
     }
+
+
 
     // if the element is not strictly interactive but appears clickable based on heuristic signals
     if (isHeuristicallyInteractive(element)) {
@@ -1164,6 +1100,23 @@
 
   /**
    * Handles the logic for deciding whether to highlight an element and performing the highlight.
+   * @param {
+    {
+        tagName: string;
+        attributes: Record<string, string>;
+        xpath: any;
+        children: never[];
+        isVisible?: boolean;
+        isTopElement?: boolean;
+        isInteractive?: boolean;
+        isInViewport?: boolean;
+        highlightIndex?: number;
+        shadowRoot?: boolean;
+   }} nodeData - The node data object.
+   * @param {HTMLElement} node - The node to highlight.
+   * @param {HTMLElement | null} parentIframe - The parent iframe node.
+   * @param {boolean} isParentHighlighted - Whether the parent node is highlighted.
+   * @returns {boolean} Whether the element was highlighted.
    */
   function handleHighlighting(nodeData, node, parentIframe, isParentHighlighted) {
     if (!nodeData.isInteractive) return false; // Not interactive, definitely don't highlight
@@ -1185,7 +1138,7 @@
     if (shouldHighlight) {
       // Check viewport status before assigning index and highlighting
       nodeData.isInViewport = isInExpandedViewport(node, viewportExpansion);
-      
+
       // When viewportExpansion is -1, all interactive elements should get a highlight index
       // regardless of viewport status
       if (nodeData.isInViewport || viewportExpansion === -1) {
@@ -1211,19 +1164,20 @@
 
   /**
    * Creates a node data object for a given node and its descendants.
+   *
+   * @param {HTMLElement} node - The node to process.
+   * @param {HTMLElement | null} parentIframe - The parent iframe node.
+   * @param {boolean} isParentHighlighted - Whether the parent node is highlighted.
+   * @returns {string | null} The ID of the node data object, or null if the node is not processed.
    */
   function buildDomTree(node, parentIframe = null, isParentHighlighted = false) {
     // Fast rejection checks first
-    if (!node || node.id === HIGHLIGHT_CONTAINER_ID || 
-        (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.TEXT_NODE)) {
-      if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
+    if (!node || node.id === HIGHLIGHT_CONTAINER_ID ||
+      (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.TEXT_NODE)) {
       return null;
     }
 
-    if (debugMode) PERF_METRICS.nodeMetrics.totalNodes++;
-
     if (!node || node.id === HIGHLIGHT_CONTAINER_ID) {
-      if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
       return null;
     }
 
@@ -1244,28 +1198,24 @@
 
       const id = `${ID.current++}`;
       DOM_HASH_MAP[id] = nodeData;
-      if (debugMode) PERF_METRICS.nodeMetrics.processedNodes++;
       return id;
     }
 
     // Early bailout for non-element nodes except text
     if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.TEXT_NODE) {
-      if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
       return null;
     }
 
     // Process text nodes
     if (node.nodeType === Node.TEXT_NODE) {
-      const textContent = node.textContent.trim();
+      const textContent = node.textContent?.trim();
       if (!textContent) {
-        if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
         return null;
       }
 
       // Only check visibility for text nodes that might be visible
       const parentElement = node.parentElement;
       if (!parentElement || parentElement.tagName.toLowerCase() === 'script') {
-        if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
         return null;
       }
 
@@ -1275,13 +1225,11 @@
         text: textContent,
         isVisible: isTextNodeVisible(node),
       };
-      if (debugMode) PERF_METRICS.nodeMetrics.processedNodes++;
       return id;
     }
 
     // Quick checks for element nodes
     if (node.nodeType === Node.ELEMENT_NODE && !isElementAccepted(node)) {
-      if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
       return null;
     }
 
@@ -1305,12 +1253,26 @@
         rect.left > window.innerWidth + viewportExpansion
       ))) {
         // console.log("Skipping node outside viewport (quick check):", node.tagName, rect);
-        if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
         return null;
       }
     }
 
-    // Process element node
+    /**
+     * @type {
+      {
+          tagName: string;
+          attributes: Record<string, string | null>;
+          xpath: any;
+          children: never[];
+          isVisible?: boolean;
+          isTopElement?: boolean;
+          isInteractive?: boolean;
+          isInViewport?: boolean;
+          highlightIndex?: number;
+          shadowRoot?: boolean;
+      }
+    } nodeData - The node data object.
+     */
     const nodeData = {
       tagName: node.tagName.toLowerCase(),
       attributes: {},
@@ -1322,7 +1284,8 @@
     if (isInteractiveCandidate(node) || node.tagName.toLowerCase() === 'iframe' || node.tagName.toLowerCase() === 'body') {
       const attributeNames = node.getAttributeNames?.() || [];
       for (const name of attributeNames) {
-        nodeData.attributes[name] = node.getAttribute(name);
+        const value = node.getAttribute(name);
+        nodeData.attributes[name] = value;
       }
     }
 
@@ -1396,85 +1359,21 @@
       // Check if the anchor has actual dimensions
       const rect = getCachedBoundingRect(node);
       const hasSize = (rect && rect.width > 0 && rect.height > 0) || (node.offsetWidth > 0 || node.offsetHeight > 0);
-      
+
       if (!hasSize) {
-        if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
         return null;
       }
     }
 
     const id = `${ID.current++}`;
     DOM_HASH_MAP[id] = nodeData;
-    if (debugMode) PERF_METRICS.nodeMetrics.processedNodes++;
     return id;
   }
-
-  // After all functions are defined, wrap them with performance measurement
-  // Remove buildDomTree from here as we measure it separately
-  highlightElement = measureTime(highlightElement);
-  isInteractiveElement = measureTime(isInteractiveElement);
-  isElementVisible = measureTime(isElementVisible);
-  isTopElement = measureTime(isTopElement);
-  isInExpandedViewport = measureTime(isInExpandedViewport);
-  isTextNodeVisible = measureTime(isTextNodeVisible);
-  getEffectiveScroll = measureTime(getEffectiveScroll);
 
   const rootId = buildDomTree(document.body);
 
   // Clear the cache before starting
   DOM_CACHE.clearCache();
 
-  // Only process metrics in debug mode
-  if (debugMode && PERF_METRICS) {
-    // Convert timings to seconds and add useful derived metrics
-    Object.keys(PERF_METRICS.timings).forEach(key => {
-      PERF_METRICS.timings[key] = PERF_METRICS.timings[key] / 1000;
-    });
-
-    Object.keys(PERF_METRICS.buildDomTreeBreakdown).forEach(key => {
-      if (typeof PERF_METRICS.buildDomTreeBreakdown[key] === 'number') {
-        PERF_METRICS.buildDomTreeBreakdown[key] = PERF_METRICS.buildDomTreeBreakdown[key] / 1000;
-      }
-    });
-
-    // Add some useful derived metrics
-    if (PERF_METRICS.buildDomTreeBreakdown.buildDomTreeCalls > 0) {
-      PERF_METRICS.buildDomTreeBreakdown.averageTimePerNode =
-        PERF_METRICS.buildDomTreeBreakdown.totalTime / PERF_METRICS.buildDomTreeBreakdown.buildDomTreeCalls;
-    }
-
-    PERF_METRICS.buildDomTreeBreakdown.timeInChildCalls =
-      PERF_METRICS.buildDomTreeBreakdown.totalTime - PERF_METRICS.buildDomTreeBreakdown.totalSelfTime;
-
-    // Add average time per operation to the metrics
-    Object.keys(PERF_METRICS.buildDomTreeBreakdown.domOperations).forEach(op => {
-      const time = PERF_METRICS.buildDomTreeBreakdown.domOperations[op];
-      const count = PERF_METRICS.buildDomTreeBreakdown.domOperationCounts[op];
-      if (count > 0) {
-        PERF_METRICS.buildDomTreeBreakdown.domOperations[`${op}Average`] = time / count;
-      }
-    });
-
-    // Calculate cache hit rates
-    const boundingRectTotal = PERF_METRICS.cacheMetrics.boundingRectCacheHits + PERF_METRICS.cacheMetrics.boundingRectCacheMisses;
-    const computedStyleTotal = PERF_METRICS.cacheMetrics.computedStyleCacheHits + PERF_METRICS.cacheMetrics.computedStyleCacheMisses;
-
-    if (boundingRectTotal > 0) {
-      PERF_METRICS.cacheMetrics.boundingRectHitRate = PERF_METRICS.cacheMetrics.boundingRectCacheHits / boundingRectTotal;
-    }
-
-    if (computedStyleTotal > 0) {
-      PERF_METRICS.cacheMetrics.computedStyleHitRate = PERF_METRICS.cacheMetrics.computedStyleCacheHits / computedStyleTotal;
-    }
-
-    if ((boundingRectTotal + computedStyleTotal) > 0) {
-      PERF_METRICS.cacheMetrics.overallHitRate =
-        (PERF_METRICS.cacheMetrics.boundingRectCacheHits + PERF_METRICS.cacheMetrics.computedStyleCacheHits) /
-        (boundingRectTotal + computedStyleTotal);
-    }
-  }
-
-  return debugMode ?
-    { rootId, map: DOM_HASH_MAP, perfMetrics: PERF_METRICS } :
-    { rootId, map: DOM_HASH_MAP };
+  return { rootId, map: DOM_HASH_MAP };
 };

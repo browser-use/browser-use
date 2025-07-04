@@ -29,39 +29,33 @@ logger = logging.getLogger(__name__)
 
 class ErrorCategory(Enum):
 	# Access & Authentication
-	CAPTCHA_CHALLENGE = 'captcha_challenge'
-	LOGIN_REQUIRED = 'login_required'
+	CAPTCHA = 'captcha'
+	LOGIN_FAILED = 'login_failed'
+
+	# LLM
 	RATE_LIMITED = 'rate_limited'
+	LLM_CALL_ERROR = 'llm_call_error'
 
-	# Agent Behavior Issues
+	# Planning / context
 	INFINITE_LOOP = 'infinite_loop'
-	CONTEXT_LOSS = 'missing_user_data'
+	WRONG_OUTPUT_FORMAT = 'wrong_output_format'
 
-	# Browser & Technical
-	ELEMENT_NOT_FOUND = 'element_not_found'
-	CLICK_FAILURE = 'click_failure'
-	LOAD_TIMEOUT = 'load_timeout'
-	JAVASCRIPT_ERROR = 'javascript_error'
-	MAX_STEPS_REACHED = 'max_steps_reached'
-
-	CONTENT_PARSING_ERROR = 'content_parsing_error'
-
-	# Enhanced Detection Categories
-	NAVIGATION_CONFUSION = 'navigation_confusion'
-	FORM_FILLING_ERROR = 'form_filling_error'
-	IFRAME_ISSUES = 'iframe_issues'
+	# Browser
+	WAIT_TOO_SHORT = 'wait_too_short'
 	BROWSER_CRASHES = 'browser_crashes'
+	ELEMENT_INTERACTION_ERROR = 'element_interaction_error'
+	IFRAME_ISSUES = 'iframe_issues'
+
+	# Tools
+	TOOL_FAILED = 'tool_failed'
+
+	# Task
+	PARTIAL_OUTPUT = 'partial_output'
 	IMPOSSIBLE_TASK = 'impossible_task'
 
-	# Browser-Use Specific Categories
-	INVALID_ELEMENT_INDEX = 'invalid_element_index'  # Using non-existent [index] values
+	# File System
 	FILE_SYSTEM_MISUSE = 'file_system_misuse'  # Not saving results or tracking progress
-
 	EXTRACT_DATA_MISUSE = 'extract_data_misuse'  # Wrong usage of extract_structured_data
-
-	# Output & Task Completion Issues
-	PARTIAL_OUTPUT = 'partial_output'
-	WRONG_OUTPUT_FORMAT = 'wrong_output_format'
 
 
 class TaskCategory(Enum):
@@ -298,7 +292,7 @@ The browser-use agent operates in iterative loops receiving structured input:
 **CRITICAL: BROWSER STATE CONTAINS READABLE TEXT**
 - The DOM is converted to text with indexed interactive elements: [index]<type>text content</type>
 - Agent sees the browser_state of the current viewport at every step without needing extract_structured_data
-- extract_structured_data gets the markdown of the entire page and not just the visible part
+- extract_structured_data gets the markdown of the entire page and not just the visible part, it then parses it to structured data based on a query and saves it to a markdown file and shows it into the read state
 - Instead of extract_structured_data the agent can also scroll to get more information in the browser_state 
 - The browser_state is the ground truth, but can be improved if information is missing
 - The agent can also read information directly from the input screenshot  
@@ -358,6 +352,20 @@ The browser-use agent operates in iterative loops receiving structured input:
 
 **ERROR CATEGORIES TO IDENTIFY:**
 {error_categories_text}
+
+- Notes for the error categories:
+- Use the main error - e.g. if we cant login and thats why we dont have an output we should use the login_failed error category
+- The error category list is sequential - so check if an error before is matching better and use that instead
+- captcha includes traditional captchas, Cloudflare challenges, and any other anti-bot protection systems that block task completion
+- partial_output means we collected some part of the output but some is missing
+- tool_failed means a tool like scrolling or file interaction failed or can be improved because functionality which would be helpful was missing - mention that in the improvement tips
+- infinite_loop means the agent is stuck in a loop and not making progress
+- wrong_output_format means the output is not in the requested format
+- element_interaction_error means that our extraction of the DOM is not correct. E.g. we missed to detect a crucial button and the agent does not see it with a [index]. This can be verified if you look how we highlight elements in the screenshot.
+- iframe_issues means we dont parse elements in the iframe correctly. E.g. we missed to detect a crucial button and the agent does not see it with a [index]. 
+- impossible_task means the task is impossible to complete because the said is down or information is missing
+- file_system_misuse means using read_file/write_file for short tasks when direct output would be appropriate. NOTE: extract_structured_data automatically saves to files as part of its core functionality - this is NOT file system misuse and expected behavior.
+
 
 **Improvement Tips (Actionable Developer Guidance):**
 Format: "Error Category: Specific improvement suggestion"

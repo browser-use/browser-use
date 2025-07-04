@@ -60,6 +60,7 @@ from pydantic import BaseModel
 from browser_use.llm.anthropic.chat import ChatAnthropic
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.groq.chat import ChatGroq
 from browser_use.llm.openai.chat import ChatOpenAI
 from eval.utils import create_pydantic_model_from_schema
 
@@ -535,6 +536,7 @@ class TaskResult:
 	task: Any
 	max_steps: int
 	laminar_link: str | None = None
+	github_workflow_url: str | None = None
 	completed_stages: set[Stage] = field(default_factory=set)
 	stage_data: dict[Stage, Any] = field(default_factory=dict)
 	errors: list = field(default_factory=list)
@@ -576,6 +578,7 @@ class TaskResult:
 			'critical_error': self.critical_error,
 			'server_save_failed': self.server_save_failed,
 			'laminarTaskLink': self.laminar_link,
+			'githubWorkflowUrl': self.github_workflow_url,
 		}
 
 		# Add task execution data if available
@@ -585,6 +588,12 @@ class TaskResult:
 			# log token usage
 			logger.info(f'tokensUsed: {format_data.get("tokensUsed")}')
 			logger.info(f'usage: {format_data.get("usage")}')
+
+			# Handle usage data - convert to JSON string if it's a dict
+			usage_data = format_data.get('usage')
+			if usage_data and isinstance(usage_data, dict):
+				usage_data = json.dumps(usage_data)
+
 			payload.update(
 				{
 					'actionHistory': format_data.get('action_history', []),
@@ -595,7 +604,7 @@ class TaskResult:
 					'steps': format_data.get('steps'),
 					'maxSteps': self.max_steps,
 					'tokensUsed': format_data.get('tokensUsed'),
-					'usage': format_data.get('usage'),  # Add usage data
+					'usage': usage_data,  # Add usage data (JSON string if dict)
 					'completeHistory': format_data.get('complete_history', []),  # Add complete step history
 				}
 			)
@@ -678,6 +687,11 @@ SUPPORTED_MODELS = {
 		'model_name': 'claude-3-5-sonnet-20241022',
 		'api_key_env': 'ANTHROPIC_API_KEY',
 	},
+	'claude-3.5-haiku-latest': {
+		'provider': 'anthropic',
+		'model_name': 'claude-3-5-haiku-latest',
+		'api_key_env': 'ANTHROPIC_API_KEY',
+	},
 	'claude-3.7-sonnet-exp': {
 		'provider': 'anthropic',
 		'model_name': 'claude-3-7-sonnet-20250219',
@@ -709,9 +723,25 @@ SUPPORTED_MODELS = {
 	# Google
 	'gemini-1.5-flash': {'provider': 'google', 'model_name': 'gemini-1.5-flash-latest', 'api_key_env': 'GEMINI_API_KEY'},
 	'gemini-2.0-flash-lite': {'provider': 'google', 'model_name': 'gemini-2.0-flash-lite', 'api_key_env': 'GEMINI_API_KEY'},
-	'gemini-2.0-flash': {'provider': 'google', 'model_name': 'gemini-2.0-flash', 'api_key_env': 'GEMINI_API_KEY'},
-	'gemini-2.5-pro': {'provider': 'google', 'model_name': 'gemini-2.5-pro-preview-03-25', 'api_key_env': 'GEMINI_API_KEY'},
-	'gemini-2.5-flash': {'provider': 'google', 'model_name': 'gemini-2.5-flash-latest', 'api_key_env': 'GEMINI_API_KEY'},
+	'gemini-2.0-flash': {
+		'provider': 'google',
+		'model_name': 'gemini-2.0-flash',
+		'api_key_env': 'GEMINI_API_KEY',
+		'thinking_budget': 0,
+	},
+	'gemini-2.5-pro': {'provider': 'google', 'model_name': 'gemini-2.5-pro', 'api_key_env': 'GEMINI_API_KEY'},
+	'gemini-2.5-flash': {
+		'provider': 'google',
+		'model_name': 'gemini-2.5-flash',
+		'api_key_env': 'GEMINI_API_KEY',
+		'thinking_budget': 0,
+	},
+	'gemini-2.5-flash-lite-preview': {
+		'provider': 'google',
+		'model_name': 'gemini-2.5-flash-lite-preview-06-17',
+		'api_key_env': 'GEMINI_API_KEY',
+		'thinking_budget': 0,
+	},
 	'gemini-2.5-pro-preview-05-06': {
 		'provider': 'google',
 		'model_name': 'gemini-2.5-pro-preview-05-06',
@@ -725,6 +755,7 @@ SUPPORTED_MODELS = {
 	# OpenAI
 	'gpt-4.1': {'provider': 'openai', 'model_name': 'gpt-4.1-2025-04-14', 'api_key_env': 'OPENAI_API_KEY'},
 	'gpt-4.1-mini': {'provider': 'openai', 'model_name': 'gpt-4.1-mini-2025-04-14', 'api_key_env': 'OPENAI_API_KEY'},
+	'gpt-o3': {'provider': 'openai', 'model_name': 'o3-2025-04-16', 'api_key_env': 'OPENAI_API_KEY'},
 	'gpt-4.1-nano': {'provider': 'openai', 'model_name': 'gpt-4.1-nano-2025-04-14', 'api_key_env': 'OPENAI_API_KEY'},
 	'gpt-4o': {'provider': 'openai', 'model_name': 'gpt-4o', 'api_key_env': 'OPENAI_API_KEY'},
 	'gpt-4o-mini': {'provider': 'openai', 'model_name': 'gpt-4o-mini', 'api_key_env': 'OPENAI_API_KEY'},
@@ -744,47 +775,47 @@ SUPPORTED_MODELS = {
 	},
 	# Groq
 	'gemma2-9b-it': {
-		'provider': 'openai_compatible',
+		'provider': 'groq',
 		'model_name': 'gemma2-9b-it',
-		'base_url': 'https://api.groq.com/openai/v1',
 		'api_key_env': 'GROQ_API_KEY',
+		'service_tier': 'auto',
 	},
 	'llama-3.3-70b-versatile': {
-		'provider': 'openai_compatible',
+		'provider': 'groq',
 		'model_name': 'llama-3.3-70b-versatile',
-		'base_url': 'https://api.groq.com/openai/v1',
 		'api_key_env': 'GROQ_API_KEY',
+		'service_tier': 'auto',
 	},
 	'llama-3.1-8b-instant': {
-		'provider': 'openai_compatible',
+		'provider': 'groq',
 		'model_name': 'llama-3.1-8b-instant',
-		'base_url': 'https://api.groq.com/openai/v1',
 		'api_key_env': 'GROQ_API_KEY',
+		'service_tier': 'auto',
 	},
 	'llama3-70b-8192': {
-		'provider': 'openai_compatible',
+		'provider': 'groq',
 		'model_name': 'llama3-70b-8192',
-		'base_url': 'https://api.groq.com/openai/v1',
 		'api_key_env': 'GROQ_API_KEY',
+		'service_tier': 'auto',
 	},
 	'llama3-8b-8192': {
-		'provider': 'openai_compatible',
+		'provider': 'groq',
 		'model_name': 'llama3-8b-8192',
-		'base_url': 'https://api.groq.com/openai/v1',
 		'api_key_env': 'GROQ_API_KEY',
+		'service_tier': 'auto',
 	},
 	# Groq Preview
 	'llama-4-maverick': {
-		'provider': 'openai_compatible',
+		'provider': 'groq',
 		'model_name': 'meta-llama/llama-4-maverick-17b-128e-instruct',
-		'base_url': 'https://api.groq.com/openai/v1',
 		'api_key_env': 'GROQ_API_KEY',
+		'service_tier': 'auto',
 	},
 	'llama-4-scout': {
-		'provider': 'openai_compatible',
+		'provider': 'groq',
 		'model_name': 'meta-llama/llama-4-scout-17b-16e-instruct',
-		'base_url': 'https://api.groq.com/openai/v1',
 		'api_key_env': 'GROQ_API_KEY',
+		'service_tier': 'auto',
 	},
 	# SambaNova
 	'deepseek-r1-sambanova': {
@@ -875,7 +906,7 @@ def get_llm(model_name: str):
 		case 'openai':
 			kwargs = {'model': config['model_name'], 'temperature': 0.0}
 			# Must set temperatue=1 if model is gpt-o4-mini
-			if model_name == 'gpt-o4-mini':
+			if model_name in ['gpt-o4-mini', 'gpt-o3']:
 				kwargs['temperature'] = 1
 			if api_key:
 				kwargs['api_key'] = api_key
@@ -890,10 +921,19 @@ def get_llm(model_name: str):
 				kwargs['api_key'] = api_key
 			return ChatAnthropic(**kwargs)
 		case 'google':
-			kwargs = {'model': config['model_name'], 'temperature': 0.0}
+			kwargs = {'model': config['model_name'], 'temperature': 0.0, 'thinking_budget': config.get('thinking_budget', None)}
 			if api_key:
 				kwargs['api_key'] = api_key
 			return ChatGoogle(**kwargs)
+		case 'groq':
+			kwargs = {
+				'model': config['model_name'],
+				'temperature': 0.0,
+				'service_tier': config.get('service_tier', 'auto'),
+			}
+			if api_key:
+				kwargs['api_key'] = api_key
+			return ChatGroq(**kwargs)
 		case 'openai_compatible':
 			kwargs = {'model': config['model_name'], 'base_url': config['base_url'], 'temperature': 0.0}
 			if api_key:
@@ -940,6 +980,7 @@ async def reformat_agent_history(
 	last_message: str,
 	base_path: str = 'saved_trajectories',
 	include_result: bool = False,
+	agent_execution_time: float | None = None,
 ) -> dict:
 	# Update directory name
 	task_dir = Path(base_path) / task_id
@@ -1011,8 +1052,8 @@ async def reformat_agent_history(
 					f"Task {task_id}, Step {step_num}: Could not parse input_tokens '{step_metadata['input_tokens']}' as integer."
 				)
 
-	# Calculate task duration from metadata
-	task_duration = None
+	# Calculate task duration from metadata (step-based timing)
+	step_based_duration = None
 	if complete_history and len(complete_history) > 0:
 		first_step = complete_history[0].get('metadata', {})
 		last_step = complete_history[-1].get('metadata', {})
@@ -1024,9 +1065,12 @@ async def reformat_agent_history(
 				try:
 					start_time_float = float(start_time)
 					end_time_float = float(end_time)
-					task_duration = end_time_float - start_time_float
+					step_based_duration = end_time_float - start_time_float
 				except (ValueError, TypeError) as e:
-					logger.warning(f'Could not calculate task duration due to invalid timestamp format: {e}')
+					logger.warning(f'Could not calculate step-based duration due to invalid timestamp format: {e}')
+
+	# Use agent execution time if provided (wall-clock timing around run_agent), otherwise fall back to step-based
+	task_duration = agent_execution_time if agent_execution_time is not None else step_based_duration
 
 	# Conditionally include the final result in action history
 	if include_result and final_result and final_result.strip():
@@ -1240,8 +1284,9 @@ async def judge_task_result(model, task_folder: Path, score_threshold: float = 3
 
 			try:
 				# Run comprehensive judge evaluation
-				comprehensive_result = await evaluate_task_with_comprehensive_judge(
-					task_folder=task_folder, model=model, max_images=10
+				comprehensive_result = await asyncio.wait_for(
+					evaluate_task_with_comprehensive_judge(task_folder=task_folder, model=model, max_images=10),
+					timeout=180,  # 3 minutes max for evaluation
 				)
 
 				if comprehensive_result.get('error'):
@@ -1329,6 +1374,10 @@ async def setup_browser_session(task: Task, headless: bool, highlight_elements: 
 		storage_state_path = task_folder / 'storage_state.json'
 		profile_kwargs['storage_state'] = str(storage_state_path)
 
+		downloads_dir_path = task_folder / 'downloads'
+		downloads_dir_path.mkdir(parents=True, exist_ok=True)
+		profile_kwargs['downloads_path'] = str(downloads_dir_path)
+
 		logger.debug(f'Login task {task.task_id}: Configured to save cookies to {storage_state_path}')
 
 	profile = BrowserProfile(**profile_kwargs)
@@ -1340,9 +1389,9 @@ async def setup_browser_session(task: Task, headless: bool, highlight_elements: 
 	logger.debug(f'Browser setup: Browser session started for task {task.task_id}')
 
 	# Navigate to task starting url if provided
-	if task.website:
-		logger.debug(f'Browser setup: Navigating to {task.website} for task {task.task_id}')
-		await browser_session.navigate(task.website)
+	# if task.website:
+	# logger.debug(f'Browser setup: Navigating to {task.website} for task {task.task_id}')
+	# await browser_session.navigate(task.website)
 
 	logger.debug(f'Browser setup: Setup completed for task {task.task_id}')
 	return browser_session
@@ -1570,6 +1619,7 @@ async def run_task_with_semaphore(
 	headless: bool,
 	use_vision: bool,
 	semaphore_runs: asyncio.Semaphore,  # Pass semaphore as argument
+	github_workflow_url: str | None = None,
 	use_serp: bool = False,
 	enable_memory: bool = False,
 	memory_interval: int = 10,
@@ -1601,6 +1651,7 @@ async def run_task_with_semaphore(
 		browser_session = None
 		laminar_task_link = None
 		datapoint_id = None
+		agent_execution_time = None  # Track agent execution time separately
 
 		try:
 			if lmnr_run_id:
@@ -1641,32 +1692,59 @@ async def run_task_with_semaphore(
 				logger.debug(f'Task {task.task_id}: No Laminar run ID available, skipping datapoint creation')
 
 				# Initialize task result and basic setup
-			task_result = TaskResult(task.task_id, run_id, task.confirmed_task, task, max_steps_per_task, laminar_task_link)
+			task_result = TaskResult(
+				task.task_id, run_id, task.confirmed_task, task, max_steps_per_task, laminar_task_link, github_workflow_url
+			)
 
 			task_folder = Path(f'saved_trajectories/{task.task_id}')
 
 			logger.info(f'Task {task.task_id}: Starting execution pipeline.')
+
+			# Send initial progress update to show task is starting
+			send_progress_update(convex_url, secret_key, run_id, task.task_id, 'starting', 'active', github_workflow_url)
+
 			try:
 				agent_history = None  # Initialize to track agent execution
 
 				# Stage 1: Setup browser
 				try:
 					logger.info(f'Task {task.task_id}: Browser setup starting.')
+					# Send progress update for starting browser setup
+					send_progress_update(
+						convex_url, secret_key, run_id, task.task_id, 'setup_browser', 'active', github_workflow_url
+					)
+
 					browser_session = await run_stage(
 						Stage.SETUP_BROWSER, lambda: setup_browser_session(task, headless, highlight_elements), timeout=120
 					)
 					task_result.stage_completed(Stage.SETUP_BROWSER)
 					logger.info(f'Task {task.task_id}: Browser session started successfully.')
+
+					# Send progress update for completed browser setup
+					send_progress_update(
+						convex_url, secret_key, run_id, task.task_id, 'browser_ready', 'active', github_workflow_url
+					)
 				except Exception as e:
 					error = StageError(Stage.SETUP_BROWSER, 'exception', str(e))
 					task_result.stage_failed(Stage.SETUP_BROWSER, error)
 					logger.error(f'Task {task.task_id}: Browser setup failed: {str(e)}')
+					# Send error progress update
+					send_progress_update(
+						convex_url, secret_key, run_id, task.task_id, 'setup_browser', 'failed', github_workflow_url, None, str(e)
+					)
 					# Continue to server save instead of early return
 
 				# Stage 2: Run agent
 				if browser_session:  # Only run agent if browser setup succeeded
 					try:
 						logger.info(f'Task {task.task_id}: Agent run starting.')
+						# Send progress update for starting agent run
+						send_progress_update(
+							convex_url, secret_key, run_id, task.task_id, 'run_agent', 'active', github_workflow_url
+						)
+
+						# Start timing for agent execution only
+						agent_start_time = time.time()
 
 						agent_history, last_message = await run_stage(
 							Stage.RUN_AGENT,
@@ -1688,16 +1766,28 @@ async def run_task_with_semaphore(
 							timeout=1000,
 						)
 
+						# End timing for agent execution only
+						agent_end_time = time.time()
+						agent_execution_time = agent_end_time - agent_start_time
+
 						task_result.stage_completed(Stage.RUN_AGENT)
-						logger.info(f'Task {task.task_id}: Agent run completed.')
+						logger.info(f'Task {task.task_id}: Agent run completed in {agent_execution_time:.2f}s.')
+						# Send progress update for completed agent run
+						send_progress_update(
+							convex_url, secret_key, run_id, task.task_id, 'agent_completed', 'active', github_workflow_url
+						)
 					except Exception as e:
 						error = StageError(Stage.RUN_AGENT, 'exception', str(e))
 						task_result.stage_failed(Stage.RUN_AGENT, error)
 						logger.error(f'Task {task.task_id}: Agent run failed: {str(e) + " " + str(e.__traceback__)}')
+						# Send error progress update
+						send_progress_update(
+							convex_url, secret_key, run_id, task.task_id, 'run_agent', 'failed', github_workflow_url, None, str(e)
+						)
 
 						# Continue to server save instead of early return
 
-				# Stage 3: Format history
+				# Stage 3: Format history (MOVED OUTSIDE browser_session block)
 				if agent_history is not None:  # Only format if agent ran successfully
 					try:
 						logger.info(f'Task {task.task_id}: History formatting starting.')
@@ -1710,6 +1800,7 @@ async def run_task_with_semaphore(
 								task.confirmed_task,
 								last_message,
 								include_result=include_result,
+								agent_execution_time=agent_execution_time,  # Pass agent execution time
 							),
 						)
 						task_result.stage_completed(Stage.FORMAT_HISTORY, formatted_data)
@@ -1720,7 +1811,7 @@ async def run_task_with_semaphore(
 						logger.error(f'Task {task.task_id}: History formatting failed: {str(e)}')
 						# Continue to server save instead of early return
 
-				# Stage 4: Evaluate (if we have execution data and no existing evaluation)
+				# Stage 4: Evaluate (MOVED OUTSIDE browser_session block)
 				if task_result.has_execution_data() and Stage.EVALUATE not in task_result.completed_stages:
 					try:
 						logger.info(f'Task {task.task_id}: Evaluation starting.')
@@ -1745,7 +1836,7 @@ async def run_task_with_semaphore(
 						task_result.stage_failed(Stage.EVALUATE, error)
 						logger.error(f'Task {task.task_id}: Evaluation failed: {str(e)}')
 
-				# Stage 5: Save to server (always attempt)
+				# Stage 5: Save to server (MOVED OUTSIDE browser_session block - ALWAYS attempt)
 				try:
 					logger.info(f'Task {task.task_id}: Saving result to server.')
 					# Only save to server if URLs are provided (skip for single task mode)
@@ -1753,7 +1844,10 @@ async def run_task_with_semaphore(
 						await run_stage(
 							Stage.SAVE_SERVER,
 							lambda: asyncio.to_thread(
-								save_result_to_server, convex_url, secret_key, task_result.server_payload if task_result else {}
+								save_result_to_server,
+								convex_url,
+								secret_key,
+								task_result.server_payload if task_result else {},
 							),
 							timeout=60,
 						)
@@ -1835,7 +1929,13 @@ async def run_task_with_semaphore(
 				# Create minimal task result for server reporting
 				try:
 					task_result = TaskResult(
-						task.task_id, run_id, task.confirmed_task, task, max_steps_per_task, laminar_task_link
+						task.task_id,
+						run_id,
+						task.confirmed_task,
+						task,
+						max_steps_per_task,
+						laminar_task_link,
+						github_workflow_url,
 					)
 					task_result.mark_critical_error(f'Initialization failed: {str(init_error)}')
 				except Exception as result_error:
@@ -1869,9 +1969,16 @@ async def run_task_with_semaphore(
 		total_task_time = task_end_time - task_start_time
 		semaphore_hold_time = task_end_time - (semaphore_acquired_time or task_start_time)
 
-		logger.info(
-			f'🏁 Task {task.task_id}: Completed in {total_task_time:.2f}s (semaphore held for {semaphore_hold_time:.2f}s)'
-		)
+		# Log both pipeline time and agent execution time
+		if agent_execution_time is not None:
+			logger.info(
+				f'🏁 Task {task.task_id}: Agent executed in {agent_execution_time:.2f}s (total pipeline: {total_task_time:.2f}s, semaphore held: {semaphore_hold_time:.2f}s)'
+			)
+		else:
+			logger.info(
+				f'🏁 Task {task.task_id}: Pipeline completed in {total_task_time:.2f}s (agent did not run, semaphore held: {semaphore_hold_time:.2f}s)'
+			)
+
 		logger.info(f'📊 Task {task.task_id}: About to release semaphore (remaining slots will be: ~{semaphore_runs._value + 1})')
 		log_system_resources(f'TASK_END_{task.task_id}')
 
@@ -1896,6 +2003,7 @@ async def run_multiple_tasks(
 	convex_url: str,
 	secret_key: str,
 	eval_model: BaseChatModel,
+	github_workflow_url: str | None = None,
 	max_parallel_runs: int = 3,
 	max_steps_per_task: int = 25,
 	start_index: int = 0,
@@ -1980,6 +2088,7 @@ async def run_multiple_tasks(
 					headless=headless,
 					use_vision=use_vision,
 					semaphore_runs=semaphore_runs,  # Pass the semaphore
+					github_workflow_url=github_workflow_url,
 					use_serp=use_serp,
 					enable_memory=enable_memory,
 					memory_interval=memory_interval,
@@ -2233,6 +2342,95 @@ def save_task_result_to_server(convex_url: str, secret_key: str, result_details:
 		return False
 
 
+# Helper function to save runner progress to the server
+def save_runner_progress_to_server(convex_url: str, secret_key: str, progress_details: dict):
+	"""Sends a request to save runner progress to the Convex backend."""
+
+	if not convex_url:
+		logger.debug('No EVALUATION_TOOL_URL environment variable set for saving runner progress.')
+		return False
+
+	if not secret_key:
+		logger.debug('No EVALUATION_TOOL_SECRET_KEY environment variable set for saving runner progress.')
+		return False
+
+	endpoint_url = f'{convex_url}/api/saveRunnerProgress'
+	headers = {
+		'Authorization': f'Bearer {secret_key}',
+		'Content-Type': 'application/json',
+	}
+
+	try:
+		response = requests.post(endpoint_url, headers=headers, json=progress_details, timeout=10)
+
+		if response.status_code == 200:
+			logger.debug(f'Successfully saved runner progress for {progress_details.get("runnerId")}')
+			return True
+		else:
+			logger.warning(f'Failed to save runner progress. Status: {response.status_code}')
+			return False
+
+	except requests.exceptions.RequestException as e:
+		logger.warning(f'Error during saveRunnerProgress request: {type(e).__name__}: {e}')
+		return False
+
+
+def generate_runner_id(task_id: str, github_run_id: str | None = None) -> str:
+	"""Generate a unique runner ID for progress tracking that matches GitHub Actions pattern"""
+	if github_run_id:
+		# Use batch-level runner ID consistent with GitHub Actions
+		# GitHub Actions uses: github_run_{GITHUB_RUN_ID}_batch_{START_INDEX}
+		# Get start index from environment variable set by GitHub Actions
+		start_index = os.getenv('EVAL_START_INDEX', '0')
+		return f'github_run_{github_run_id}_batch_{start_index}'
+	else:
+		# Fallback for local runs
+		return f'local_run_{int(time.time())}'
+
+
+def send_progress_update(
+	convex_url: str,
+	secret_key: str,
+	run_id: str,
+	task_id: str,
+	current_stage: str,
+	status: str = 'active',
+	github_workflow_url: str | None = None,
+	assigned_task_range: str | None = None,
+	error_message: str | None = None,
+) -> bool:
+	"""Send a progress update for the current runner and task"""
+	try:
+		# Generate runner ID
+		github_run_id = os.getenv('GITHUB_RUN_ID')
+		runner_id = generate_runner_id(task_id, github_run_id)
+
+		# Extract workflow run ID from URL if available
+		github_workflow_run_id = None
+		if github_workflow_url and 'actions/runs/' in github_workflow_url:
+			try:
+				github_workflow_run_id = github_workflow_url.split('actions/runs/')[1].split('/')[0]
+			except (IndexError, AttributeError):
+				pass
+
+		progress_details = {
+			'runId': run_id,
+			'runnerId': runner_id,
+			'taskId': task_id,
+			'currentStage': current_stage,
+			'status': status,
+			'githubWorkflowUrl': github_workflow_url,
+			'githubWorkflowRunId': github_workflow_run_id,
+			'assignedTaskRange': assigned_task_range,
+			'errorMessage': error_message,
+		}
+
+		return save_runner_progress_to_server(convex_url, secret_key, progress_details)
+	except Exception as e:
+		logger.warning(f'Failed to send progress update: {type(e).__name__}: {e}')
+		return False
+
+
 async def run_evaluation_pipeline(
 	tasks: list[Task],
 	llm: BaseChatModel,
@@ -2242,6 +2440,7 @@ async def run_evaluation_pipeline(
 	convex_url: str,
 	secret_key: str,
 	eval_model: BaseChatModel,
+	github_workflow_url: str | None = None,
 	max_parallel_runs: int = 3,
 	max_steps_per_task: int = 25,
 	start_index: int = 0,
@@ -2294,6 +2493,7 @@ async def run_evaluation_pipeline(
 		convex_url=convex_url,
 		secret_key=secret_key,
 		eval_model=eval_model,
+		github_workflow_url=github_workflow_url,
 		max_parallel_runs=max_parallel_runs,
 		max_steps_per_task=max_steps_per_task,
 		start_index=start_index,
@@ -2375,6 +2575,8 @@ if __name__ == '__main__':
 	)
 	parser.add_argument('--use-mind2web-judge', action='store_true', help='Use original judge')
 	parser.add_argument('--no-thinking', action='store_true', help='Disable thinking in agent system prompt')
+	parser.add_argument('--use-anchor', action='store_true', help='Use anchor to navigate to the page')
+	parser.add_argument('--github-workflow-url', type=str, default=None, help='GitHub workflow URL for tracking')
 
 	# Single task mode arguments
 	parser.add_argument('--task-text', type=str, default=None, help='Task description for single task mode')
@@ -2602,6 +2804,7 @@ if __name__ == '__main__':
 				convex_url=convex_url,
 				secret_key=secret_key,
 				eval_model=eval_model,
+				github_workflow_url=args.github_workflow_url,
 				max_parallel_runs=parallel_runs,
 				max_steps_per_task=args.max_steps,
 				start_index=start_index,

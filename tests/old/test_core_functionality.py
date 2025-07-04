@@ -170,7 +170,6 @@ class TestCoreFunctionality:
 		history = await agent.run(max_steps=4)
 		action_names = history.action_names()
 		assert 'go_to_url' in action_names
-		assert 'open_tab' in action_names
 		assert 'switch_tab' in action_names
 
 		# Verify we're back on the first tab with page1
@@ -186,7 +185,7 @@ class TestCoreFunctionality:
 		)
 		history = await agent.run(max_steps=2)
 		action_names = history.action_names()
-		assert 'open_tab' in action_names
+		assert 'go_to_url' in action_names
 
 		# Verify we have at least two tabs
 		tabs_info = await browser_session.get_tabs_info()

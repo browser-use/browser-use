@@ -12,9 +12,16 @@ from browser_use import Agent
 from browser_use.browser import BrowserProfile
 from browser_use.llm import ChatOpenAI
 
+try:
+	from lmnr import Laminar
+
+	Laminar.initialize(project_api_key=os.getenv('LMNR_PROJECT_API_KEY'))
+except Exception as e:
+	print(f'Error initializing Laminar: {e}')
+
 # Initialize the model
 llm = ChatOpenAI(
-	model='gpt-4o',
+	model='gpt-4.1',
 	temperature=0.0,
 )
 # Simple case: the model will see x_name and x_password, but never the actual values.
@@ -35,7 +42,7 @@ sensitive_data: dict[str, str | dict[str, str]] = {
 	'https://*.google.com': {'g_email': 'user@gmail.com', 'g_pass': 'google_password'},
 }
 # Update task to use one of the credentials above
-task = 'Go to example.com and login with company_username and company_password'
+task = 'Go to google.com and put the login information in the search bar.'
 
 # Always set allowed_domains when using sensitive_data for security
 from browser_use.browser.session import BrowserSession

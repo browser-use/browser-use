@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.4.1"
+version = "0.4.4"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -17,7 +17,6 @@ dependencies = [
     "google-api-core>=2.25.0",
     "httpx>=0.28.1",
     "markdownify==1.1.0",
-    "mem0ai>=0.1.106",
     "patchright>=1.52.5",
     "playwright>=1.52.0",
     "portalocker>=2.7.0,<3.0.0",
@@ -126,7 +125,7 @@ include = [
     "!browser_use/**/tests.py",
     "browser_use/agent/system_prompt.md",
     "browser_use/agent/system_prompt_no_thinking.md",
-    "browser_use/dom/buildDomTree.js",
+    "browser_use/dom/**/*.js",
     "!tests/**/*.py",
 ]
 

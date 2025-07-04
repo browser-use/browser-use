@@ -85,7 +85,7 @@ class AgentMessagePrompt:
 		self.agent_history_description: str | None = agent_history_description
 		self.read_state_description: str | None = read_state_description
 		self.task: str | None = task
-		self.include_attributes = include_attributes or []
+		self.include_attributes = include_attributes
 		self.step_info = step_info
 		self.page_filtered_actions: str | None = page_filtered_actions
 		self.max_clickable_elements_length: int = max_clickable_elements_length
