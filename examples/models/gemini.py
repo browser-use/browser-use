@@ -16,6 +16,8 @@ from browser_use import Agent
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.llm import ChatGoogle
 
+import lucidicai as lai
+
 api_key = os.getenv('GOOGLE_API_KEY')
 if not api_key:
 	raise ValueError('GOOGLE_API_KEY is not set')
@@ -26,9 +28,11 @@ browser_session = BrowserSession(
 	browser_profile=BrowserProfile(
 		viewport_expansion=0,
 		user_data_dir='~/.config/browseruse/profiles/default',
+		highlight_elements=False,
 	)
 )
 
+lai.init("Amazon search")
 
 async def run_search():
 	agent = Agent(
@@ -37,8 +41,10 @@ async def run_search():
 		max_actions_per_step=4,
 		browser_session=browser_session,
 	)
-
+	handler = lai.LucidicLangchainHandler()
+	handler.attach_to_llms(agent)
 	await agent.run(max_steps=25)
+	lai.end_session()
 
 
 if __name__ == '__main__':

@@ -77,6 +77,9 @@ from browser_use.utils import (
 	time_execution_sync,
 )
 
+# Lucidic AI - import
+import lucidicai as lai
+
 logger = logging.getLogger(__name__)
 
 
@@ -428,6 +431,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.cloud_sync = cloud_sync or CloudSync()
 			# Register cloud sync handler
 			self.eventbus.on('*', self.cloud_sync.handle_event)
+		
+		# Lucidic AI
+		self.nextgoal = None
 
 		if self.settings.save_conversation_path:
 			self.settings.save_conversation_path = Path(self.settings.save_conversation_path).expanduser().resolve()
@@ -622,6 +628,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		step_start_time = time.time()
 
 		try:
+			# Lucidic AI - Create Step with current goal (self.nextgoal from previous iteration)
+			lai.create_step(goal=self.nextgoal)
+
 			assert self.browser_session is not None, 'BrowserSession is not set up'
 			browser_state_summary = await self.browser_session.get_state_summary(cache_clickable_elements_hashes=True)
 			current_page = await self.browser_session.get_current_page()
@@ -811,6 +820,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# Emit CreateAgentStepEvent
 				step_event = CreateAgentStepEvent.from_agent_step(self, model_output, result, actions_data, browser_state_summary)
 				self.eventbus.dispatch(step_event)
+			
+			# Lucidic AI - End Step, grab state information if available
+			if model_output is not None:
+				lai.end_step(
+					state=model_output.current_state.memory,
+					action=str([action.model_dump(exclude_unset=True) for action in model_output.action]),
+					screenshot=browser_state_summary.screenshot if browser_state_summary else None,
+				)
+			else:
+				lai.end_step()
+
+			self.nextgoal = model_output.current_state.next_goal if model_output else None
 
 	@time_execution_async('--handle_step_error (agent)')
 	async def _handle_step_error(self, error: Exception) -> list[ActionResult]:
