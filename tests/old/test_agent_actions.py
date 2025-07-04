@@ -47,7 +47,7 @@ async def test_ecommerce_interaction(llm, browser_session):
 	action_sequence = []
 	for action in history.model_actions():
 		action_name = list(action.keys())[0]
-		if action_name in ['go_to_url', 'open_tab']:
+		if action_name in ['go_to_url']:
 			action_sequence.append('navigate')
 		elif action_name == 'input_text':
 			action_sequence.append('input')
@@ -81,7 +81,7 @@ async def test_error_recovery(llm, browser_session):
 
 	actions_names = history.action_names()
 	actions = history.model_actions()
-	assert 'go_to_url' in actions_names or 'open_tab' in actions_names, f'{actions_names} does not contain go_to_url or open_tab'
+	assert 'go_to_url' in actions_names, f'{actions_names} does not contain go_to_url'
 	for action in actions:
 		if 'go_to_url' in action:
 			assert 'url' in action['go_to_url'], 'url is not in go_to_url'

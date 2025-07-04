@@ -21,6 +21,7 @@ from browser_use.agent.cloud_events import (
 	CreateAgentTaskEvent,
 	UpdateAgentTaskEvent,
 )
+from browser_use.dom.views import DEFAULT_INCLUDE_ATTRIBUTES
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import BaseMessage, UserMessage
 from browser_use.tokens.service import TokenCost
@@ -49,6 +50,7 @@ from browser_use.agent.views import (
 	AgentSettings,
 	AgentState,
 	AgentStepInfo,
+	AgentStructuredOutput,
 	BrowserStateHistory,
 	StepMetadata,
 )
@@ -102,10 +104,11 @@ def log_response(response: AgentOutput, registry=None, logger=None) -> None:
 
 Context = TypeVar('Context')
 
+
 AgentHookFunc = Callable[['Agent'], Awaitable[None]]
 
 
-class Agent(Generic[Context]):
+class Agent(Generic[Context, AgentStructuredOutput]):
 	browser_session: BrowserSession | None = None
 	_logger: logging.Logger | None = None
 
@@ -137,6 +140,7 @@ class Agent(Generic[Context]):
 		) = None,
 		register_external_agent_status_raise_error_callback: Callable[[], Awaitable[bool]] | None = None,
 		# Agent settings
+		output_model_schema: type[AgentStructuredOutput] | None = None,
 		use_vision: bool = True,
 		use_vision_for_planner: bool = False,
 		save_conversation_path: str | Path | None = None,
@@ -149,23 +153,10 @@ class Agent(Generic[Context]):
 		message_context: str | None = None,
 		generate_gif: bool | str = False,
 		available_file_paths: list[str] | None = None,
-		include_attributes: list[str] = [
-			'title',
-			'type',
-			'name',
-			'role',
-			'aria-label',
-			'placeholder',
-			'value',
-			'alt',
-			'aria-expanded',
-			'data-date-format',
-			'checked',
-			'data-state',
-			'aria-checked',
-		],
+		include_attributes: list[str] = DEFAULT_INCLUDE_ATTRIBUTES,
 		max_actions_per_step: int = 10,
 		use_thinking: bool = True,
+		max_history_items: int = 40,
 		page_extraction_llm: BaseChatModel | None = None,
 		planner_llm: BaseChatModel | None = None,
 		planner_interval: int = 1,  # Run planner every N steps
@@ -209,6 +200,12 @@ class Agent(Generic[Context]):
 		self.controller = (
 			controller if controller is not None else Controller(display_files_in_done_text=display_files_in_done_text)
 		)
+
+		# Structured output
+		self.output_model_schema = output_model_schema
+		if self.output_model_schema is not None:
+			self.controller.use_structured_output_action(self.output_model_schema)
+
 		self.sensitive_data = sensitive_data
 
 		self.settings = AgentSettings(
@@ -226,12 +223,13 @@ class Agent(Generic[Context]):
 			available_file_paths=available_file_paths,
 			include_attributes=include_attributes,
 			max_actions_per_step=max_actions_per_step,
+			use_thinking=use_thinking,
+			max_history_items=max_history_items,
 			page_extraction_llm=page_extraction_llm,
 			planner_llm=planner_llm,
 			planner_interval=planner_interval,
 			is_planner_reasoning=is_planner_reasoning,
 			extend_planner_system_message=extend_planner_system_message,
-			use_thinking=use_thinking,
 			calculate_cost=calculate_cost,
 		)
 
@@ -309,6 +307,7 @@ class Agent(Generic[Context]):
 			include_attributes=self.settings.include_attributes,
 			message_context=self.settings.message_context,
 			sensitive_data=sensitive_data,
+			max_history_items=self.settings.max_history_items,
 		)
 
 		if isinstance(browser, BrowserSession):
@@ -1052,13 +1051,13 @@ class Agent(Generic[Context]):
 			)
 		)
 
-	async def take_step(self) -> tuple[bool, bool]:
+	async def take_step(self, step_info: AgentStepInfo | None = None) -> tuple[bool, bool]:
 		"""Take a step
 
 		Returns:
 		        Tuple[bool, bool]: (is_done, is_valid)
 		"""
-		await self.step()
+		await self.step(step_info)
 
 		if self.state.history.is_done():
 			await self.log_completion()
@@ -1078,7 +1077,7 @@ class Agent(Generic[Context]):
 		max_steps: int = 100,
 		on_step_start: AgentHookFunc | None = None,
 		on_step_end: AgentHookFunc | None = None,
-	) -> AgentHistoryList:
+	) -> AgentHistoryList[AgentStructuredOutput]:
 		"""Execute the task with maximum number of steps"""
 
 		loop = asyncio.get_event_loop()
@@ -1187,12 +1186,21 @@ class Agent(Generic[Context]):
 
 				self.logger.info(f'❌ {agent_run_error}')
 
+			self.state.history.usage = await self.token_cost_service.get_usage_summary()
+
+			# set the model output schema and call it on the fly
+			if self.state.history._output_model_schema is None and self.output_model_schema is not None:
+				self.state.history._output_model_schema = self.output_model_schema
+
 			return self.state.history
 
 		except KeyboardInterrupt:
 			# Already handled by our signal handler, but catch any direct KeyboardInterrupt as well
 			self.logger.info('Got KeyboardInterrupt during execution, returning current history')
 			agent_run_error = 'KeyboardInterrupt'
+
+			self.state.history.usage = await self.token_cost_service.get_usage_summary()
+
 			return self.state.history
 
 		except Exception as e:

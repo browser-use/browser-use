@@ -71,7 +71,8 @@ class TestBrowserOwnership:
 						"action": [
 							{{
 								"go_to_url": {{
-									"url": "{httpserver.url_for('/test')}"
+									"url": "{httpserver.url_for('/test')}",
+									"new_tab": false
 								}}
 							}}
 						]

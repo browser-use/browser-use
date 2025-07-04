@@ -426,7 +426,6 @@ class TokenCost:
 			total_tokens=total_tokens,
 			total_cost=total_prompt_cost + total_completion_cost + total_prompt_cached_cost,
 			entry_count=len(filtered_usage),
-			models=models,
 			by_model=model_stats,
 		)
 

@@ -25,7 +25,7 @@ os.environ['PW_TEST_SCREENSHOT_NO_FONTS_READY'] = '1'  # https://github.com/micr
 
 import anyio
 import psutil
-from playwright._impl._api_structures import FloatRect, ViewportSize
+from playwright._impl._api_structures import ViewportSize
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, InstanceOf, PrivateAttr, model_validator
 from uuid_extensions import uuid7str
 
@@ -60,6 +60,7 @@ GLOBAL_PLAYWRIGHT_EVENT_LOOP = None  # track which event loop the global objects
 GLOBAL_PATCHRIGHT_EVENT_LOOP = None  # track which event loop the global objects belong to
 
 MAX_SCREENSHOT_HEIGHT = 2000
+MAX_SCREENSHOT_WIDTH = 1920
 
 
 def _log_glob_warning(domain: str, glob: str, logger: logging.Logger):
@@ -247,12 +248,12 @@ class BrowserSession(BaseModel):
 		return self._logger
 
 	def __repr__(self) -> str:
-		is_copy = '©' if self._original_browser_session else '1️⃣ '
-		return f'BrowserSession🆂 {self.id[-4:]}{is_copy}{str(id(self))[-2:]} ({self._connection_str}, profile={self.browser_profile})'
+		is_copy = '©' if self._original_browser_session else '#'
+		return f'BrowserSession🆂 {self.id[-4:]} {is_copy}{str(id(self))[-2:]} ({self._connection_str}, profile={self.browser_profile})'
 
 	def __str__(self) -> str:
-		is_copy = '©' if self._original_browser_session else '1️⃣ '
-		return f'BrowserSession🆂 {self.id[-4:]}{is_copy}{str(id(self))[-2:]} 🅟 {str(id(self.agent_current_page))[-2:]}'
+		is_copy = '©' if self._original_browser_session else '#'
+		return f'BrowserSession🆂 {self.id[-4:]} {is_copy}{str(id(self))[-2:]} 🅟 {str(id(self.agent_current_page))[-2:]}'
 
 	# better to force people to get it from the right object, "only one way to do it" is better python
 	# def __getattr__(self, key: str) -> Any:
@@ -711,10 +712,11 @@ class BrowserSession(BaseModel):
 		# Use Playwright screenshot directly
 
 		assert self.browser_context
-		try:
-			page = [p for p in self.browser_context.pages if p.url == page.url][0]
-		except Exception:
-			pass
+		# try:
+		# 	# get fresh page handle
+		# 	page = [p for p in self.browser_context.pages if p.url == page.url][0]
+		# except Exception:
+		# 	pass
 		assert await page.evaluate('() => true'), 'Page is not usable before screenshot!'
 		await page.bring_to_front()
 
@@ -723,7 +725,7 @@ class BrowserSession(BaseModel):
 				full_page=False,
 				# scale='css',
 				timeout=self.browser_profile.default_timeout or 30000,
-				clip=FloatRect(**clip) if clip else None,
+				# clip=FloatRect(**clip) if clip else None,
 				animations='allow',
 				caret='initial',
 			)
@@ -2707,80 +2709,36 @@ class BrowserSession(BaseModel):
 		except Exception:
 			pass
 
-		original_viewport = None
-		capped_width = 1920
-		capped_height = 2000
-		desired_height = 2000
 		try:
 			# Always use our clipping approach - never pass full_page=True to Playwright
 			# This prevents timeouts on very long pages
 
 			# 1. Get current viewport and page dimensions including scroll position
-			dimensions = await page.evaluate("""() => {
-				return {
-					width: Math.max(window.innerWidth, document.documentElement.clientWidth),
-					height: Math.max(window.innerHeight, document.documentElement.clientHeight),
-					pageHeight: document.documentElement.scrollHeight,
-					devicePixelRatio: window.devicePixelRatio || 1,
-					scrollX: window.pageXOffset || document.documentElement.scrollLeft || 0,
-					scrollY: window.pageYOffset || document.documentElement.scrollTop || 0
-				};
-			}""")
+			# dimensions = await page.evaluate("""() => {
+			# 	return {
+			# 		width: window.innerWidth,
+			# 		height: window.innerHeight,
+			# 		pageWidth: document.documentElement.scrollWidth,
+			# 		pageHeight: document.documentElement.scrollHeight,
+			# 		devicePixelRatio: window.devicePixelRatio || 1,
+			# 		scrollX: window.pageXOffset || document.documentElement.scrollLeft || 0,
+			# 		scrollY: window.pageYOffset || document.documentElement.scrollTop || 0
+			# 	};
+			# }""")
 
-			# 2. Save current viewport state and calculate expanded dimensions
-			viewport_expansion = self.browser_profile.viewport_expansion if self.browser_profile.viewport_expansion else 0
+			# When full_page=False, screenshot captures the current viewport
+			# The clip parameter uses viewport coordinates (0,0 is top-left of viewport)
+			# We just need to ensure the clip dimensions don't exceed our maximums
+			# clip_width = min(dimensions['width'], MAX_SCREENSHOT_WIDTH)
+			# clip_height = min(dimensions['height'], MAX_SCREENSHOT_HEIGHT)
 
-			capped_width = min(dimensions['width'], MAX_SCREENSHOT_HEIGHT)  # dont allow any dimension larger than the limit
-			if full_page:
-				# For full page, use the actual page height up to our max limit
-				desired_height = dimensions['pageHeight']
-			else:
-				# For viewport screenshot, just use viewport + expansion
-				desired_height = dimensions['height'] + viewport_expansion
-
-			capped_height = min(desired_height, MAX_SCREENSHOT_HEIGHT)
-			# if desired_height > capped_height:
-			# 	self.logger.debug(
-			# 		f'📐 Page viewport {desired_height}px exceeds max {capped_height}px limit for screenshots, taking top {capped_height}px only'
-			# 	)
-
-			# 3. Expand the viewport if we are using one
-			original_viewport = page.viewport_size and self.browser_profile.viewport
-			try:
-				if original_viewport:
-					# if we're already using a viewport, temporarily expand it to the desired size for the screenshot
-					await self._set_viewport_size(page, {'width': capped_width, 'height': desired_height})
-				else:
-					# In headless mode without viewport, we always need to set one temporarily before taking a screenshot to limit rendering resource usage
-					await self._set_viewport_size(page, {'width': capped_width, 'height': desired_height})
-			except Exception as e:
-				self.logger.error(f'❌ Failed to set up viewport for screenshot: {type(e).__name__}: {e}')
-		except Exception as e:
-			self.logger.error(f'❌ Failed to set up viewport for screenshot: {type(e).__name__}: {e}')
-
-		# Take screenshot using our retry-decorated method
-		try:
-			return await self._take_screenshot_hybrid(
-				page,
-				clip={
-					'x': dimensions.get('scrollX', 0),
-					'y': dimensions.get('scrollY', 0),
-					'width': capped_width,
-					'height': capped_height,
-				},
-			)
+			# Take screenshot using our retry-decorated method
+			# Don't pass clip parameter - let Playwright capture the full viewport
+			# It will automatically handle cases where viewport extends beyond page content
+			return await self._take_screenshot_hybrid(page)
 		except Exception as e:
 			self.logger.error(f'❌ Failed to take screenshot after retries: {type(e).__name__}: {e}')
 			raise
-		finally:
-			if original_viewport:
-				# Viewport was originally enabled, restore to original dimensions
-				try:
-					await self._set_viewport_size(page, original_viewport)
-				except Exception as e:
-					self.logger.warning(
-						f'⚠️ Failed to restore viewport to original size after screenshot: {type(e).__name__}: {e}'
-					)
 
 	# region - User Actions
 

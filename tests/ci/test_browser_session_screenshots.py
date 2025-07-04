@@ -2,6 +2,7 @@
 Test that screenshots work correctly in headless browser mode.
 """
 
+import asyncio
 import base64
 
 from browser_use.browser import BrowserProfile, BrowserSession
@@ -193,7 +194,7 @@ class TestHeadlessScreenshots:
 
 			# Take screenshots from all sessions at the same time
 			print('Taking screenshots from all 10 sessions simultaneously...')
-			screenshot_tasks = [session.take_screenshot(full_page=True) for session in browser_sessions]
+			screenshot_tasks = [session.take_screenshot() for session in browser_sessions]
 			screenshots = await asyncio.gather(*screenshot_tasks)
 
 			# Verify all screenshots are valid
@@ -221,9 +222,7 @@ class TestHeadlessScreenshots:
 
 			# Also test taking regular (viewport) screenshots in parallel
 			print('Taking viewport screenshots from all sessions simultaneously...')
-			viewport_screenshots = await asyncio.gather(
-				*[session.take_screenshot(full_page=False) for session in browser_sessions]
-			)
+			viewport_screenshots = await asyncio.gather(*[session.take_screenshot() for session in browser_sessions])
 
 			# Verify viewport screenshots
 			for i, screenshot in enumerate(viewport_screenshots):
@@ -244,3 +243,69 @@ class TestHeadlessScreenshots:
 			for i, result in enumerate(results):
 				if isinstance(result, Exception):
 					print(f'Warning: Session {i} kill raised exception: {type(result).__name__}: {result}')
+
+	async def test_screenshot_at_bottom_of_page(self, httpserver):
+		"""Test screenshot capture when scrolled to bottom of page (regression test for clipping issue)"""
+		browser_session = BrowserSession(
+			browser_profile=BrowserProfile(
+				headless=True,
+				user_data_dir=None,
+				keep_alive=False,
+			)
+		)
+
+		try:
+			await browser_session.start()
+
+			# Create a page with scrollable content
+			httpserver.expect_request('/scrollable').respond_with_data(
+				"""<html>
+				<head><title>Scrollable Page Test</title></head>
+				<body style="margin: 0; padding: 0;">
+					<div style="height: 3000px; background: linear-gradient(to bottom, red, yellow, green, blue);">
+						<div style="position: absolute; top: 0; left: 10px; font-size: 24px;">Top of page</div>
+						<div style="position: absolute; top: 50%; left: 10px; font-size: 24px;">Middle of page</div>
+						<div style="position: absolute; bottom: 10px; left: 10px; font-size: 24px;">Bottom of page</div>
+					</div>
+				</body>
+				</html>""",
+				content_type='text/html',
+			)
+
+			# Navigate to test page
+			await browser_session.navigate(httpserver.url_for('/scrollable'))
+			page = browser_session.agent_current_page
+			assert page is not None
+
+			# Test 1: Screenshot at top of page (should work)
+			screenshot_top = await browser_session.take_screenshot()
+			assert screenshot_top is not None
+			assert len(base64.b64decode(screenshot_top)) > 5000
+
+			# Test 2: Screenshot at middle of page
+			await page.evaluate('window.scrollTo(0, document.body.scrollHeight / 2)')
+			await asyncio.sleep(0.1)  # Wait for scroll
+			screenshot_middle = await browser_session.take_screenshot()
+			assert screenshot_middle is not None
+			assert len(base64.b64decode(screenshot_middle)) > 5000
+
+			# Test 3: Screenshot at bottom of page (this was failing with clipping error)
+			await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+			await asyncio.sleep(0.1)  # Wait for scroll
+
+			# This should not raise "Clipped area is either empty or outside the resulting image" error
+			screenshot_bottom = await browser_session.take_screenshot()
+			assert screenshot_bottom is not None
+			assert len(base64.b64decode(screenshot_bottom)) > 5000
+
+			# Test 4: Screenshot when scrolled beyond page bottom (edge case)
+			await page.evaluate('window.scrollTo(0, document.body.scrollHeight + 1000)')
+			await asyncio.sleep(0.1)
+			screenshot_beyond = await browser_session.take_screenshot()
+			assert screenshot_beyond is not None
+			assert len(base64.b64decode(screenshot_beyond)) > 5000
+
+			print('✅ All screenshot positions tested successfully!')
+
+		finally:
+			await browser_session.stop()

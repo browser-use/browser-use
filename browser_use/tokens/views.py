@@ -104,5 +104,5 @@ class UsageSummary(BaseModel):
 	total_tokens: int
 	total_cost: float
 	entry_count: int
-	models: list[str] = Field(default_factory=list)
+
 	by_model: dict[str, ModelUsageStats] = Field(default_factory=dict)
