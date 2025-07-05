@@ -162,9 +162,7 @@ def create_browserbase_session() -> str:
 		bb = Browserbase(api_key=BROWSERBASE_API_KEY)
 		session = bb.sessions.create(
 			project_id=BROWSERBASE_PROJECT_ID,
-			browser_settings={
-				'advanced_stealth': True,
-			},
+			proxies=True,
 		)
 
 		return session.connect_url
