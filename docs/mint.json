@@ -6,7 +6,7 @@
     "light": "/logo/light.svg",
     "href": "https://browser-use.com"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "/favicon.ico",
   "colors": {
     "primary": "#F97316",
     "light": "#FFF7ED",
