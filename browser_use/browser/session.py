@@ -698,44 +698,106 @@ class BrowserSession(BaseModel):
 		await self.setup_new_browser_context()
 
 	@retry(
-		wait=2,  # wait 2s between each attempt to take a screenshot
-		retries=2,  # try up to 2 times to take the screenshot
-		timeout=35,  # allow up to 35s for each attempt to take a screenshot
+		wait=1,  # wait 1s between attempts
+		retries=2,  # 3 attempts
+		timeout=15,  # 15 second reasonable timeout
 		semaphore_name='screenshot_global',
 		semaphore_limit=3,  # only 3 concurrent screenshots at a time total on the entire machine (ideally)
 		semaphore_scope='global',  # because it's a hardware VRAM bottleneck, chrome crashes if too many concurrent screenshots are rendered via CDP
-		semaphore_timeout=10,  # wait up to 10s for a lock
+		semaphore_timeout=5,  # 5 second semaphore timeout
 		semaphore_lax=True,  # proceed anyway if we cant get a lock
 	)
-	async def _take_screenshot_hybrid(self, page: Page, clip: dict[str, int] | None = None) -> str:
+	async def _take_screenshot_hybrid(self, page: Page) -> str:
 		"""Take screenshot using Playwright, with retry and semaphore protection."""
-		# Use Playwright screenshot directly
 
+		# Critical: Check for crashed target BEFORE any operations
+		try:
+			await page.evaluate('1')
+		except Exception:
+			raise Exception('Cannot screenshot - page is closed/crashed')
+
+		# Check if browser context is still valid
+		try:
+			# Quick validation that the context is still functional
+			if not self.browser_context or not self.browser_context.pages:
+				raise Exception('Browser context is invalid or has no pages')
+
+			# Verify the page is still in the context's active pages
+			if page not in self.browser_context.pages:
+				raise Exception('Page is no longer in browser context - target crashed')
+
+		except Exception as e:
+			self.logger.warning(f'🚨 Browser context validation failed: {type(e).__name__}: {e}')
+			raise Exception(f'Browser context invalid: {e}')
+
+		# Use Playwright screenshot directly
 		assert self.browser_context
-		# try:
-		# 	# get fresh page handle
-		# 	page = [p for p in self.browser_context.pages if p.url == page.url][0]
-		# except Exception:
-		# 	pass
-		assert await page.evaluate('() => true'), 'Page is not usable before screenshot!'
+
+		# Fast crash detection - if this fails quickly, target is crashed
+		try:
+			# This should complete in <100ms on healthy pages, hang/error on crashed ones
+			await asyncio.wait_for(page.evaluate('() => document.readyState'), timeout=2.0)
+		except TimeoutError:
+			raise Exception('Page is unresponsive - likely crashed target')
+		except Exception as e:
+			# Handle specific Playwright target crash errors
+			error_str = str(e).lower()
+			if any(
+				crash_indicator in error_str
+				for crash_indicator in ['target crashed', 'target closed', 'context has been closed', 'page has been closed']
+			):
+				raise Exception(f'Detected crashed target: {type(e).__name__}: {e}')
+			raise Exception(f'Page evaluation failed: {type(e).__name__}: {e}')
+
+		# Final assertion - this should be very fast on healthy pages
+		try:
+			assert await asyncio.wait_for(page.evaluate('() => true'), timeout=1.0), 'Page evaluation failed'
+		except TimeoutError:
+			raise Exception('Page assertion timeout - crashed target')
+		except Exception as e:
+			raise Exception(f'Page assertion failed: {type(e).__name__}: {e}')
+
 		await page.bring_to_front()
 
 		try:
+			# Reasonable timeout for screenshot
 			screenshot = await page.screenshot(
 				full_page=False,
 				# scale='css',
-				timeout=self.browser_profile.default_timeout or 30000,
+				timeout=self.browser_profile.default_timeout or 10000,
 				# clip=FloatRect(**clip) if clip else None,
 				animations='allow',
 				caret='initial',
 			)
+		except TimeoutError:
+			self.logger.warning('🚨 Screenshot deadlock detected (asyncio timeout), restarting browser...')
+			self._reset_connection_state()
+			await self.start()
+			raise Exception('Screenshot deadlock detected, browser restarted')
 		except Exception as err:
-			if 'timeout' in str(err).lower():
-				self.logger.warning('🚨 Screenshot timed out, resetting connection state and restarting browser...')
+			if 'timeout' in str(err).lower() or 'TimeoutError' in str(type(err).__name__):
+				self.logger.warning(
+					'🚨 Screenshot timed out (playwright timeout), resetting connection state and restarting browser...'
+				)
 				self._reset_connection_state()
 				await self.start()
 			raise err
-		assert await page.evaluate('() => true'), 'Page is not usable after screenshot!'
+
+		# Final validation - should be instant on healthy pages
+		try:
+			assert await asyncio.wait_for(page.evaluate('() => true'), timeout=1.0), 'Page is not usable after screenshot!'
+		except TimeoutError:
+			raise Exception('Post-screenshot validation timeout - page may have crashed during screenshot')
+		except Exception as e:
+			raise Exception(f'Post-screenshot validation failed: {type(e).__name__}: {e}')
+
+		# Quick encoding check - if this is slow, we have a problem
+		screenshot_size_mb = len(screenshot) / (1024 * 1024)
+		if screenshot_size_mb > 5.0:  # Warn about unusually large screenshots
+			self.logger.warning(
+				f'Unusually large screenshot: {screenshot_size_mb:.1f}MB - this may indicate page rendering issues'
+			)
+
 		screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
 		assert screenshot_b64, 'Playwright page.screenshot() returned empty base64'
 		return screenshot_b64
@@ -2339,22 +2401,8 @@ class BrowserSession(BaseModel):
 		elapsed = time.time() - start_time
 		remaining = max((timeout_overwrite or self.browser_profile.minimum_wait_page_load_time) - elapsed, 0)
 
-		# just for logging, calculate how much data was downloaded
-		try:
-			bytes_used = await page.evaluate("""
-				() => {
-					let total = 0;
-					for (const entry of performance.getEntriesByType('resource')) {
-						total += entry.transferSize || 0;
-					}
-					for (const nav of performance.getEntriesByType('navigation')) {
-						total += nav.transferSize || 0;
-					}
-					return total;
-				}
-			""")
-		except Exception:
-			bytes_used = None
+		# Skip expensive performance API logging - can cause significant delays on complex pages
+		bytes_used = None
 
 		try:
 			tab_idx = self.tabs.index(page)
@@ -2582,6 +2630,7 @@ class BrowserSession(BaseModel):
 	@time_execution_async('--get_state_summary')
 	@require_initialization
 	async def get_state_summary(self, cache_clickable_elements_hashes: bool) -> BrowserStateSummary:
+		self.logger.debug('🔄 Starting get_state_summary...')
 		"""Get a summary of the current browser state
 
 		This method builds a BrowserStateSummary object that captures the current state
@@ -2629,21 +2678,49 @@ class BrowserSession(BaseModel):
 		# Check if current page is still valid, if not switch to another available page
 		try:
 			# Test if page is still accessible
-			await page.evaluate('1')
+			await asyncio.wait_for(page.evaluate('1'), timeout=1.0)
 		except Exception as e:
-			self.logger.debug(f'👋 Current page is no longer accessible: {type(e).__name__}: {e}')
+			self.logger.debug(f'👋 Current page is not accessible: {type(e).__name__}: {e}')
 			raise BrowserError('Browser closed: no valid pages available')
 
 		try:
+			self.logger.debug('🧹 Removing highlights...')
 			await self.remove_highlights()
+			self.logger.debug('🌳 Starting DOM processing...')
 			dom_service = DomService(page, logger=self.logger)
-			content = await dom_service.get_clickable_elements(
-				focus_element=focus_element,
-				viewport_expansion=self.browser_profile.viewport_expansion,
-				highlight_elements=self.browser_profile.highlight_elements,
-			)
+			try:
+				content = await asyncio.wait_for(
+					dom_service.get_clickable_elements(
+						focus_element=focus_element,
+						viewport_expansion=self.browser_profile.viewport_expansion,
+						highlight_elements=self.browser_profile.highlight_elements,
+					),
+					timeout=45.0,  # 45 second timeout for DOM processing - generous for complex pages
+				)
+				self.logger.debug('✅ DOM processing completed')
+			except TimeoutError:
+				self.logger.warning(f'DOM processing timed out after 45 seconds for {page.url}')
+				self.logger.warning('🔄 Falling back to minimal DOM state to allow basic navigation...')
 
+				# Create minimal DOM state for basic navigation
+				from browser_use.dom.views import DOMElementNode
+
+				minimal_element_tree = DOMElementNode(
+					tag_name='body',
+					xpath='/body',
+					attributes={},
+					children=[],
+					is_visible=True,
+					parent=None,
+				)
+
+				from browser_use.dom.views import DOMState
+
+				content = DOMState(element_tree=minimal_element_tree, selector_map={})
+
+			self.logger.debug('📋 Getting tabs info...')
 			tabs_info = await self.get_tabs_info()
+			self.logger.debug('✅ Tabs info completed')
 
 			# Get all cross-origin iframes within the page and open them in new tabs
 			# mark the titles of the new tabs so the LLM knows to check them for additional content
@@ -2667,24 +2744,47 @@ class BrowserSession(BaseModel):
 			# 	)
 
 			try:
+				self.logger.debug('📸 Starting screenshot...')
+				# Reasonable timeout for screenshot
 				screenshot_b64 = await self.take_screenshot()
+				self.logger.debug('✅ Screenshot completed')
 			except Exception as e:
-				self.logger.warning(f'Failed to capture screenshot: {type(e).__name__}: {e}')
+				self.logger.warning(f'Screenshot failed for {page.url}: {type(e).__name__}')
 				screenshot_b64 = None
 
-			pixels_above, pixels_below = await self.get_scroll_info(page)
+			try:
+				self.logger.debug('📏 Getting scroll info...')
+				pixels_above, pixels_below = await asyncio.wait_for(self.get_scroll_info(page), timeout=5.0)
+				self.logger.debug('✅ Scroll info completed')
+			except Exception as e:
+				self.logger.warning(f'Failed to get scroll info: {type(e).__name__}')
+				pixels_above, pixels_below = 0, 0
+
+			try:
+				title = await asyncio.wait_for(page.title(), timeout=5.0)
+			except Exception:
+				title = 'Title unavailable'
+
+			# Check if this is a minimal fallback state
+			browser_errors = []
+			if not content.selector_map:  # Empty selector map indicates fallback state
+				browser_errors.append(
+					f'DOM processing timed out for {page.url} - using minimal state. Basic navigation still available via go_to_url, scroll, and search actions.'
+				)
 
 			self.browser_state_summary = BrowserStateSummary(
 				element_tree=content.element_tree,
 				selector_map=content.selector_map,
 				url=page.url,
-				title=await page.title(),
+				title=title,
 				tabs=tabs_info,
 				screenshot=screenshot_b64,
 				pixels_above=pixels_above,
 				pixels_below=pixels_below,
+				browser_errors=browser_errors,
 			)
 
+			self.logger.debug('✅ get_state_summary completed successfully')
 			return self.browser_state_summary
 		except Exception as e:
 			self.logger.error(f'❌ Failed to update browser_state_summary: {type(e).__name__}: {e}')
@@ -2704,41 +2804,59 @@ class BrowserSession(BaseModel):
 
 		# page has already loaded by this point, this is just extra for previous action animations/frame loads to settle
 		page = await self.get_current_page()
+
 		try:
-			await page.wait_for_load_state(timeout=5000)
+			await page.wait_for_load_state(timeout=2000)  # 2 second aggressive timeout
 		except Exception:
 			pass
 
 		try:
-			# Always use our clipping approach - never pass full_page=True to Playwright
-			# This prevents timeouts on very long pages
+			# Check if browser process is still responsive
+			if self.browser_pid:
+				try:
+					proc = psutil.Process(self.browser_pid)
+					if not proc.is_running():
+						self.logger.warning('🚨 Browser process died, restarting...')
+						self._reset_connection_state()
+						await self.start()
+						page = await self.get_current_page()
+				except psutil.NoSuchProcess:
+					self.logger.warning('🚨 Browser process not found, restarting...')
+					self._reset_connection_state()
+					await self.start()
+					page = await self.get_current_page()
 
-			# 1. Get current viewport and page dimensions including scroll position
-			# dimensions = await page.evaluate("""() => {
-			# 	return {
-			# 		width: window.innerWidth,
-			# 		height: window.innerHeight,
-			# 		pageWidth: document.documentElement.scrollWidth,
-			# 		pageHeight: document.documentElement.scrollHeight,
-			# 		devicePixelRatio: window.devicePixelRatio || 1,
-			# 		scrollX: window.pageXOffset || document.documentElement.scrollLeft || 0,
-			# 		scrollY: window.pageYOffset || document.documentElement.scrollTop || 0
-			# 	};
-			# }""")
-
-			# When full_page=False, screenshot captures the current viewport
-			# The clip parameter uses viewport coordinates (0,0 is top-left of viewport)
-			# We just need to ensure the clip dimensions don't exceed our maximums
-			# clip_width = min(dimensions['width'], MAX_SCREENSHOT_WIDTH)
-			# clip_height = min(dimensions['height'], MAX_SCREENSHOT_HEIGHT)
-
-			# Take screenshot using our retry-decorated method
-			# Don't pass clip parameter - let Playwright capture the full viewport
-			# It will automatically handle cases where viewport extends beyond page content
+			# Take screenshot with comprehensive crash detection
 			return await self._take_screenshot_hybrid(page)
 		except Exception as e:
-			self.logger.error(f'❌ Failed to take screenshot after retries: {type(e).__name__}: {e}')
-			raise
+			# Check for specific crash-related errors
+			error_str = str(e).lower()
+			if any(
+				crash_indicator in error_str
+				for crash_indicator in [
+					'target crashed',
+					'target closed',
+					'context has been closed',
+					'page has been closed',
+					'crashed target',
+					'page is closed',
+				]
+			):
+				self.logger.warning(f'🚨 Detected crashed target during screenshot: {type(e).__name__}: {e}')
+				self.logger.warning('🔄 Attempting browser restart...')
+				try:
+					self._reset_connection_state()
+					await self.start()
+					page = await self.get_current_page()
+					return await self._take_screenshot_hybrid(page)
+				except Exception as restart_error:
+					self.logger.error(
+						f'❌ Failed to restart browser after crash: {type(restart_error).__name__}: {restart_error}'
+					)
+					raise Exception(f'Browser crashed and restart failed: {restart_error}')
+			else:
+				self.logger.error(f'❌ Failed to take screenshot: {type(e).__name__}: {e}')
+				raise
 
 	# region - User Actions
 

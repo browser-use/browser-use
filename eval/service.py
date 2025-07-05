@@ -41,7 +41,6 @@
 # ==============================================================================================================
 import asyncio
 import base64
-import gc
 import io
 import json
 import logging
@@ -323,11 +322,6 @@ async def start_resource_monitoring(interval: int = 30):
 						logger.warning(f'⚠️ HIGH CPU USAGE: {resources["cpu_percent"]:.1f}%')
 					if resources['chrome_process_count'] > 20:
 						logger.warning(f'⚠️ HIGH CHROME PROCESS COUNT: {resources["chrome_process_count"]}')
-
-					# Force garbage collection periodically
-					if resources['memory_percent'] > 70:
-						logger.info('Running garbage collection due to high memory usage')
-						gc.collect()
 
 				except Exception as e:
 					logger.error(f'Error in resource monitoring: {type(e).__name__}: {e}')

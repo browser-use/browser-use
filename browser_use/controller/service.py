@@ -3,6 +3,7 @@ import enum
 import json
 import logging
 import os
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any, Generic, TypeVar, cast
 
@@ -142,9 +143,7 @@ class Controller(Generic[Context]):
 				):
 					site_unavailable_msg = f'Site unavailable: {params.url} - {error_msg}'
 					logger.warning(site_unavailable_msg)
-					return ActionResult(
-						success=False, error=site_unavailable_msg, include_in_memory=True, long_term_memory=site_unavailable_msg
-					)
+					return ActionResult(error=site_unavailable_msg, include_in_memory=True, long_term_memory=site_unavailable_msg)
 				else:
 					# Re-raise non-network errors (including URLNotAllowedError for unauthorized domains)
 					raise
@@ -353,34 +352,48 @@ Set extract_links=True ONLY if your query requires extracting links/URLs from th
 			# Run markdownify in a thread pool to avoid blocking the event loop
 			loop = asyncio.get_event_loop()
 
-			# Try getting page content with retries
-			page_html_result, action_result = await retry_async_function(
-				lambda: page.content(), "Couldn't extract page content due to an error."
-			)
-			if action_result:
-				return action_result
+			# Aggressive timeout for page content
+			try:
+				page_html_result = await asyncio.wait_for(page.content(), timeout=5.0)  # 5 second aggressive timeout
+			except TimeoutError:
+				return ActionResult(error='Page content extraction timed out after 5 seconds')
+			except Exception as e:
+				return ActionResult(error=f"Couldn't extract page content: {e}")
+
 			page_html = page_html_result
 
 			markdownify_func = partial(markdownify.markdownify, strip=strip)
-			content = await loop.run_in_executor(None, markdownify_func, page_html)
+
+			try:
+				content = await asyncio.wait_for(
+					loop.run_in_executor(None, markdownify_func, page_html), timeout=5.0
+				)  # 5 second aggressive timeout
+			except Exception as e:
+				logger.warning(f'Markdownify failed: {type(e).__name__}')
+				return ActionResult(error=f'Could not convert html to markdown: {type(e).__name__}')
 
 			# manually append iframe text into the content so it's readable by the LLM (includes cross-origin iframes)
 			for iframe in page.frames:
 				try:
-					await iframe.wait_for_load_state(timeout=5000)  # extra on top of already loaded page
-				except Exception as e:
+					await iframe.wait_for_load_state(timeout=1000)  # 1 second aggressive timeout for iframe load
+				except Exception:
 					pass
 
-				if iframe.url != page.url and not iframe.url.startswith('data:'):
+				if iframe.url != page.url and not iframe.url.startswith('data:') and not iframe.url.startswith('about:'):
 					content += f'\n\nIFRAME {iframe.url}:\n'
 					# Run markdownify in a thread pool for iframe content as well
 					try:
-						iframe_html = await iframe.content()
-						iframe_markdown = await loop.run_in_executor(None, markdownify_func, iframe_html)
-					except Exception as e:
-						logger.debug(f'Error extracting iframe content from within page {page.url}: {type(e).__name__}: {e}')
-						iframe_markdown = ''
+						# Aggressive timeouts for iframe content
+						iframe_html = await asyncio.wait_for(iframe.content(), timeout=2.0)  # 2 second aggressive timeout
+						iframe_markdown = await asyncio.wait_for(
+							loop.run_in_executor(None, markdownify_func, iframe_html),
+							timeout=2.0,  # 2 second aggressive timeout for iframe markdownify
+						)
+					except Exception:
+						iframe_markdown = ''  # Skip failed iframes
 					content += iframe_markdown
+			# replace multiple sequential \n with a single \n
+			content = re.sub(r'\n+', '\n', content)
 
 			# limit to 40000 characters - remove text in the middle this is approx 20000 tokens
 			max_chars = 40000
@@ -399,7 +412,11 @@ Set extract_links=True ONLY if your query requires extracting links/URLs from th
 Explain the content of the page and that the requested information is not available in the page. Respond in JSON format.\nQuery: {query}\n Website:\n{page}"""
 			try:
 				formatted_prompt = prompt.format(query=query, page=content)
-				response = await page_extraction_llm.ainvoke([UserMessage(content=formatted_prompt)])
+				# Aggressive timeout for LLM call
+				response = await asyncio.wait_for(
+					page_extraction_llm.ainvoke([UserMessage(content=formatted_prompt)]),
+					timeout=30.0,  # 30 second aggressive timeout for LLM call
+				)
 
 				extracted_content = f'Page Link: {page.url}\nQuery: {query}\nExtracted Content:\n{response.completion}'
 
@@ -428,6 +445,10 @@ Explain the content of the page and that the requested information is not availa
 					include_extracted_content_only_once=include_extracted_content_only_once,
 					long_term_memory=memory,
 				)
+			except TimeoutError:
+				error_msg = f'LLM call timed out after 30 seconds for query: {query}'
+				logger.warning(error_msg)
+				return ActionResult(error=error_msg)
 			except Exception as e:
 				logger.debug(f'Error extracting content: {e}')
 				msg = f'📄  Extracted from page\n: {content}\n'
