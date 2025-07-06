@@ -18,7 +18,7 @@ from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.types import async_patchright
 from browser_use.llm import ChatOpenAI
 
-llm = ChatOpenAI(model='gpt-4o')
+llm = ChatOpenAI(model='gpt-4.1')
 
 terminal_width, terminal_height = shutil.get_terminal_size((80, 20))
 

@@ -34,7 +34,7 @@ async def done(text: str):
 
 async def main():
 	task = 'go to brower-use.com and then done'
-	model = ChatOpenAI(model='gpt-4o')
+	model = ChatOpenAI(model='gpt-4.1')
 	agent = Agent(task=task, llm=model, controller=controller)
 
 	await agent.run()

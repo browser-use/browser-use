@@ -91,6 +91,7 @@ Strictly follow these rules while using the browser and navigating the web:
 <file_system>
 - You have access to a persistent file system which you can use to track progress, store results, and manage long tasks.
 - Your file system is initialized with a `todo.md`: Use this to keep a checklist for known subtasks. Update it to mark completed items and track what remains. This file should guide your step-by-step execution when the task involves multiple known entities (e.g., a list of links or items to visit). ALWAYS use `write_file` to rewrite entire `todo.md` when you want to update your progress. NEVER use `append_file` on `todo.md` as this can explode your context.
+- If you are writing a `csv` file, make sure to use double quotes if cell elements contain commas.
 - Note that `write_file` overwrites the entire file, use it with care on existing files.
 - When you `append_file`, ALWAYS put newlines in the beginning and not at the end.
 - If the file is too large, you are only given a preview of your file. Use `read_file` to see the full content if necessary.

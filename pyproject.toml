@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.4.2"
+version = "0.4.4"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -36,6 +36,10 @@ dependencies = [
     "anthropic>=0.54.0",
     "groq>=0.28.0",
     "ollama>=0.5.1",
+    "google-api-python-client>=2.174.0",
+    "google-auth>=2.40.3",
+    "google-auth-oauthlib>=1.2.2",
+    "pypdf>=5.7.0",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -70,6 +74,8 @@ eval = [
     "Pillow>=11.2.1",
     "psutil>=7.0.0",
     "datamodel-code-generator>=0.26.0",
+    "hyperbrowser==0.47.0",
+    "browserbase==1.4.0",
 ]
 all = [
     "browser-use[cli,examples,aws]",
@@ -125,7 +131,7 @@ include = [
     "!browser_use/**/tests.py",
     "browser_use/agent/system_prompt.md",
     "browser_use/agent/system_prompt_no_thinking.md",
-    "browser_use/dom/buildDomTree.js",
+    "browser_use/dom/**/*.js",
     "!tests/**/*.py",
 ]
 

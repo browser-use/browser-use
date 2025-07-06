@@ -39,7 +39,7 @@ async def done(params: DoneResult):
 
 async def main():
 	task = 'Go to hackernews hn and give me the top 1 post'
-	model = ChatOpenAI(model='gpt-4o')
+	model = ChatOpenAI(model='gpt-4.1')
 	agent = Agent(task=task, llm=model, controller=controller, validate_output=True)
 	# NOTE: this should fail to demonstrate the validator
 	await agent.run(max_steps=5)

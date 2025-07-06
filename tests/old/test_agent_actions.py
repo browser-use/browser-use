@@ -13,9 +13,9 @@ def llm():
 
 	# return ChatAnthropic(model_name='claude-3-5-sonnet-20240620', timeout=25, stop=None)
 	return ChatAzureOpenAI(
-		model='gpt-4o',
+		model='gpt-4.1',
 	)
-	# return ChatOpenAI(model='gpt-4o-mini')
+	# return ChatOpenAI(model='gpt-4.1-mini')
 
 
 @pytest.fixture

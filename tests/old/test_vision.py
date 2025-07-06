@@ -16,7 +16,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from browser_use import Agent, AgentHistoryList, BrowserSession, Controller
 from browser_use.llm import ChatOpenAI
 
-llm = ChatOpenAI(model='gpt-4o')
+llm = ChatOpenAI(model='gpt-4.1')
 controller = Controller()
 
 # use this test to ask the model questions about the page like

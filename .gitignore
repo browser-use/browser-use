@@ -46,3 +46,7 @@ CLAUDE.local.md
 uv.lock
 temp
 tmp
+
+# Google API credentials
+credentials.json
+token.json

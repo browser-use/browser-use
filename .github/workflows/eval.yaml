@@ -10,7 +10,7 @@ jobs:
     runs-on: 
       group: eval
       labels: eval-2-core-500
-    timeout-minutes: 360
+    timeout-minutes: 60 # 
     env:
       IN_DOCKER: 'true'
       ANONYMIZED_TELEMETRY: 'false'
@@ -23,10 +23,16 @@ jobs:
       EVALUATION_TOOL_URL: ${{ secrets.EVALUATION_TOOL_URL }}
       EVALUATION_TOOL_SECRET_KEY: ${{ secrets.EVALUATION_TOOL_SECRET_KEY }}
       ANCHOR_BROWSER_API_KEY: ${{ secrets.ANCHOR_BROWSER_API_KEY }}
+      BRIGHTDATA_CDP_URL: ${{ secrets.BRIGHTDATA_CDP_URL }}
+      HYPERBROWSER_API_KEY: ${{ secrets.HYPERBROWSER_API_KEY }}
+      BROWSERBASE_API_KEY: ${{ secrets.BROWSERBASE_API_KEY }}
+      BROWSERBASE_PROJECT_ID: ${{ secrets.BROWSERBASE_PROJECT_ID }}
       SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
       LMNR_PROJECT_API_KEY: ${{ secrets.LMNR_PROJECT_API_KEY }}
+      BROWSER_USE_LOGGING_LEVEL: ${{ secrets.BROWSER_USE_LOGGING_LEVEL }}
       EVAL_START_INDEX: ${{ github.event.client_payload.script_args.start_index }}
-
+      
+    
     steps:
       - name: System Info and Resource Check
         run: |
@@ -249,8 +255,11 @@ jobs:
           USER_MESSAGE="${{ github.event.client_payload.script_args.user_message }}"
           DEVELOPER_ID="${{ github.event.client_payload.script_args.developer_id }}"
           PLANNER_MODEL="${{ github.event.client_payload.script_args.planner_model }}"
+          BROWSER="${{ github.event.client_payload.script_args.browser }}"
           RUN_ID="${{ github.event.client_payload.script_args.run_id }}"
           LAMINAR_EVAL_ID="${{ github.event.client_payload.script_args.laminar_eval_id }}"
+          # Pass raw GitHub Actions object to Python - no parsing in bash
+          GMAIL_2FA_TOKENS_RAW='${{ github.event.client_payload.script_args.gmail_2fa_tokens }}'
 
           # Single task mode parameters
           TASK_ID="${{ github.event.client_payload.script_args.task_id }}"
@@ -278,7 +287,6 @@ jobs:
           [[ "${{ github.event.client_payload.script_args.no_vision }}" == "true" ]] && CMD_ARGS+=("--no-vision")
           [[ "$HEADLESS" == "true" ]] && CMD_ARGS+=("--headless")
           [[ "${{ github.event.client_payload.script_args.use_serp }}" == "true" ]] && CMD_ARGS+=("--use-serp")
-          [[ "${{ github.event.client_payload.script_args.use_anchor }}" == "true" ]] && CMD_ARGS+=("--use-anchor")
           [[ "${{ github.event.client_payload.script_args.enable_memory }}" == "true" ]] && CMD_ARGS+=("--enable-memory")
           [[ "${{ github.event.client_payload.script_args.validate_output }}" == "true" ]] && CMD_ARGS+=("--validate-output")
           [[ "${{ github.event.client_payload.script_args.include_result }}" == "true" ]] && CMD_ARGS+=("--include-result")
@@ -290,8 +298,16 @@ jobs:
           [[ -n "$USER_MESSAGE" ]] && CMD_ARGS+=("--user-message" "$USER_MESSAGE")
           [[ -n "$DEVELOPER_ID" ]] && CMD_ARGS+=("--developer-id" "$DEVELOPER_ID")
           [[ -n "$PLANNER_MODEL" ]] && CMD_ARGS+=("--planner-model" "$PLANNER_MODEL")
+          [[ -n "$BROWSER" ]] && CMD_ARGS+=("--browser" "$BROWSER")
           [[ -n "$RUN_ID" ]] && CMD_ARGS+=("--run-id" "$RUN_ID")
           [[ -n "$LAMINAR_EVAL_ID" ]] && CMD_ARGS+=("--laminar-eval-id" "$LAMINAR_EVAL_ID")
+          
+          if [[ -n "$GMAIL_2FA_TOKENS_RAW" && "$GMAIL_2FA_TOKENS_RAW" != "null" ]]; then
+            echo "DEBUG: ✅ GMAIL_2FA_TOKENS_RAW conditional passed - adding tokens to command"
+            CMD_ARGS+=("--gmail-2fa-tokens" "$GMAIL_2FA_TOKENS_RAW")
+          else
+            echo "DEBUG: ❌ GMAIL_2FA_TOKENS_RAW conditional failed - tokens are empty, null, or not set, skipping"
+          fi
           
           # Add single task mode parameters
           [[ -n "$TASK_ID" ]] && CMD_ARGS+=("--task-id" "$TASK_ID")
@@ -301,16 +317,20 @@ jobs:
           # Add GitHub workflow URL
           [[ -n "${{ steps.github_url.outputs.GITHUB_WORKFLOW_URL }}" ]] && CMD_ARGS+=("--github-workflow-url" "${{ steps.github_url.outputs.GITHUB_WORKFLOW_URL }}")
 
-          # Convert array to command string with proper escaping
-          printf -v CMD_STRING '%q ' "${CMD_ARGS[@]}"
-
-          # Add xvfb wrapper if needed
+          # Handle xvfb wrapper if needed - construct differently to preserve arguments
           if [[ "$HEADLESS" == "false" ]]; then
-            CMD_STRING="xvfb-run --auto-servernum --server-args='-screen 0 1280x1024x24' $CMD_STRING"
+            # For xvfb, we need to construct the command differently to preserve argument structure
+            XVFB_ARGS=("xvfb-run" "--auto-servernum" "--server-args=-screen 0 1280x1024x24")
+            FULL_CMD_ARGS=("${XVFB_ARGS[@]}" "${CMD_ARGS[@]}")
+            printf -v CMD_STRING '%q ' "${FULL_CMD_ARGS[@]}"
+          else
+            # For headless mode, just escape the python command args
+            printf -v CMD_STRING '%q ' "${CMD_ARGS[@]}"
           fi
 
           echo "FULL_COMMAND=$CMD_STRING" >> $GITHUB_OUTPUT
           echo "::notice title=Eval Command::$CMD_STRING"
+          
 
       - name: Start Resource Monitoring
         run: |
@@ -350,7 +370,7 @@ jobs:
           echo "📊 This may take several minutes depending on the number of tasks..."
           echo "Starting time: $(date)"
           echo "Use Mind2Web Judge: ${{ github.event.client_payload.script_args.use_mind2web_judge }}"
-          echo "============================"
+          
           
           # Set up signal handlers for graceful interruption handling
           set -e

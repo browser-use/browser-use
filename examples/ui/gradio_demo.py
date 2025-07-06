@@ -59,7 +59,7 @@ def parse_agent_history(history_str: str) -> None:
 async def run_browser_task(
 	task: str,
 	api_key: str,
-	model: str = 'gpt-4o',
+	model: str = 'gpt-4.1',
 	headless: bool = True,
 ) -> str:
 	if not api_key.strip():
@@ -70,7 +70,7 @@ async def run_browser_task(
 	try:
 		agent = Agent(
 			task=task,
-			llm=ChatOpenAI(model='gpt-4o'),
+			llm=ChatOpenAI(model='gpt-4.1'),
 		)
 		result = await agent.run()
 		#  TODO: The result could be parsed better

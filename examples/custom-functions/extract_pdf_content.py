@@ -79,7 +79,7 @@ async def main():
 
         URL: https://docs.house.gov/meetings/GO/GO00/20220929/115171/HHRG-117-GO00-20220929-SD010.pdf
         """,
-		llm=ChatOpenAI(model='gpt-4o'),
+		llm=ChatOpenAI(model='gpt-4.1'),
 		controller=controller,
 	)
 	result = await agent.run()

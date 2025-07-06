@@ -15,7 +15,7 @@ from browser_use.llm import ChatOpenAI
 
 class AgentController:
 	def __init__(self):
-		llm = ChatOpenAI(model='gpt-4o')
+		llm = ChatOpenAI(model='gpt-4.1')
 		self.agent = Agent(
 			task='open in one action https://www.google.com, https://www.wikipedia.org, https://www.youtube.com, https://www.github.com, https://amazon.com',
 			llm=llm,

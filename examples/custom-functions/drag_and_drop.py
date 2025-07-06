@@ -268,7 +268,7 @@ async def example_drag_drop_sortable_list():
 	controller = await create_drag_drop_controller()
 
 	# Initialize LLM (replace with your preferred model)
-	llm = ChatOpenAI(model='gpt-4o')
+	llm = ChatOpenAI(model='gpt-4.1')
 
 	# Create the agent
 	agent = Agent(
@@ -288,7 +288,7 @@ async def example_drag_drop_coordinates():
 	"""Example: Direct coordinate-based drag and drop."""
 
 	controller = await create_drag_drop_controller()
-	llm = ChatOpenAI(model='gpt-4o')
+	llm = ChatOpenAI(model='gpt-4.1')
 
 	agent = Agent(
 		task='Go to a canvas drawing website and draw a simple line using drag and drop from coordinates (100, 100) to (300, 200)',

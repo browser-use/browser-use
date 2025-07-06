@@ -56,7 +56,7 @@ async def main():
 	You are completely FORBIDDEN to use any other method to get the 2FA code.
 	"""
 
-	model = ChatOpenAI(model='gpt-4o')
+	model = ChatOpenAI(model='gpt-4.1')
 	agent = Agent(task=task, llm=model, controller=controller)
 
 	result = await agent.run()

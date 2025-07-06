@@ -327,7 +327,7 @@ async def main():
         8. Repeat steps 4-7 until the game ends. If anything seems wrong, use 'Read Chess Board' again.
         9. Announce the final result.
         """,
-		llm=ChatOpenAI(model='gpt-4o'),
+		llm=ChatOpenAI(model='gpt-4.1'),
 		controller=controller,
 	)
 	result = await agent.run()

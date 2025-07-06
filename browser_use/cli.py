@@ -211,11 +211,11 @@ def get_llm(config: dict[str, Any]):
 
 	# Auto-detect based on available API keys
 	if CONFIG.OPENAI_API_KEY:
-		return ChatOpenAI(model='gpt-4o', temperature=temperature)
+		return ChatOpenAI(model='gpt-4.1', temperature=temperature)
 	elif CONFIG.ANTHROPIC_API_KEY:
-		return ChatAnthropic(model='claude-3.5-sonnet-exp', temperature=temperature)
+		return ChatAnthropic(model='claude-3.5-sonnet', temperature=temperature)
 	elif CONFIG.GOOGLE_API_KEY:
-		return ChatGoogle(model='gemini-2.0-flash-lite', temperature=temperature)
+		return ChatGoogle(model='gemini-2.5-flash', temperature=temperature)
 	else:
 		print(
 			'⚠️  No API keys found. Please update your config or set one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY.'

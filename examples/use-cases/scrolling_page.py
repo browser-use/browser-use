@@ -24,7 +24,7 @@ This script demonstrates how the agent can navigate to a webpage and scroll down
 If no amount is specified, the agent will scroll down by one page height.
 """
 
-llm = ChatOpenAI(model='gpt-4o')
+llm = ChatOpenAI(model='gpt-4.1')
 
 browser_profile = BrowserProfile(headless=False)
 browser_session = BrowserSession(browser_profile=browser_profile)

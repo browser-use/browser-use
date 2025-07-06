@@ -43,16 +43,21 @@ import asyncio
 import base64
 import gc
 import io
+import json
 import logging
+import os
 import re
 import signal
 import sys
 import threading
 import time
+from pathlib import Path
 from uuid import UUID
 
 import anyio
 import psutil
+import requests
+from dotenv import load_dotenv
 from lmnr import AsyncLaminarClient, Laminar, observe
 from PIL import Image
 from pydantic import BaseModel
@@ -70,6 +75,134 @@ MAX_IMAGE = 5
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s: %(message)s')
 logger = logging.getLogger(__name__)
 
+# Load dotenv
+load_dotenv()
+
+# Check for Anchor Browser API key
+ANCHOR_BROWSER_API_KEY = os.getenv('ANCHOR_BROWSER_API_KEY')
+if ANCHOR_BROWSER_API_KEY:
+	logger.info('ANCHOR_BROWSER_API_KEY is set. Tasks can use Anchor Browser.')
+else:
+	logger.warning('ANCHOR_BROWSER_API_KEY is not set. Anchor Browser will not be available.')
+
+# Check for Brightdata CDP URL
+BRIGHTDATA_CDP_URL = os.getenv('BRIGHTDATA_CDP_URL')
+if BRIGHTDATA_CDP_URL:
+	logger.info('BRIGHTDATA_CDP_URL is set. Tasks can use Brightdata browser.')
+else:
+	logger.warning('BRIGHTDATA_CDP_URL is not set. Brightdata browser will not be available.')
+
+# Check for Browserbase API key
+BROWSERBASE_API_KEY = os.getenv('BROWSERBASE_API_KEY')
+BROWSERBASE_PROJECT_ID = os.getenv('BROWSERBASE_PROJECT_ID')
+if BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID:
+	logger.info('BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID are set. Tasks can use Browserbase.')
+else:
+	logger.warning('BROWSERBASE_API_KEY or BROWSERBASE_PROJECT_ID are not set. Browserbase will not be available.')
+
+# Check for Hyperbrowser API key
+HYPERBROWSER_API_KEY = os.getenv('HYPERBROWSER_API_KEY')
+if HYPERBROWSER_API_KEY:
+	logger.info('HYPERBROWSER_API_KEY is set. Tasks can use Hyperbrowser.')
+else:
+	logger.warning('HYPERBROWSER_API_KEY is not set. Hyperbrowser will not be available.')
+
+
+def create_anchor_browser_session(headless: bool = False) -> str:
+	"""Create an Anchor Browser session and return CDP URL"""
+	if not ANCHOR_BROWSER_API_KEY:
+		raise ValueError('ANCHOR_BROWSER_API_KEY must be set')
+
+	browser_configuration = {
+		'session': {'proxy': {'type': 'anchor_mobile', 'active': True, 'country_code': 'us'}},
+		'browser': {
+			'adblock': {'active': True},
+			'captcha_solver': {'active': True},
+			'headless': {'active': headless},
+			'extra_stealth': {'active': True},
+		},
+	}
+
+	try:
+		response = requests.post(
+			'https://api.anchorbrowser.io/v1/sessions',
+			headers={
+				'anchor-api-key': ANCHOR_BROWSER_API_KEY,
+				'Content-Type': 'application/json',
+			},
+			json=browser_configuration,
+		)
+		response.raise_for_status()
+		session_data = response.json()['data']
+		session_id = session_data['id']
+
+		return f'wss://connect.anchorbrowser.io?apiKey={ANCHOR_BROWSER_API_KEY}&sessionId={session_id}'
+
+	except requests.RequestException as e:
+		logger.error(f'Failed to create Anchor Browser session: {type(e).__name__}: {e}')
+		raise
+	except KeyError as e:
+		logger.error(f'Unexpected response format from Anchor Browser API: {e}')
+		raise
+
+
+def create_browserbase_session() -> str:
+	"""Create a Browserbase session and return CDP URL"""
+	if not BROWSERBASE_API_KEY or not BROWSERBASE_PROJECT_ID:
+		raise ValueError('BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID must be set')
+
+	try:
+		from browserbase import Browserbase
+	except ImportError:
+		raise ImportError(
+			'browserbase package is required for Browserbase functionality. Install it with: pip install browserbase'
+		)
+
+	try:
+		bb = Browserbase(api_key=BROWSERBASE_API_KEY)
+		session = bb.sessions.create(
+			project_id=BROWSERBASE_PROJECT_ID,
+			proxies=True,
+		)
+
+		return session.connect_url
+
+	except Exception as e:
+		logger.error(f'Failed to create Browserbase session: {type(e).__name__}: {e}')
+		raise
+
+
+async def create_hyperbrowser_session() -> str:
+	"""Create a Hyperbrowser session and return WebSocket endpoint"""
+	if not HYPERBROWSER_API_KEY:
+		raise ValueError('HYPERBROWSER_API_KEY must be set')
+
+	try:
+		from hyperbrowser import AsyncHyperbrowser
+		from hyperbrowser.models import CreateSessionParams
+	except ImportError:
+		raise ImportError(
+			'hyperbrowser package is required for Hyperbrowser functionality. Install it with: pip install hyperbrowser'
+		)
+
+	try:
+		client = AsyncHyperbrowser(api_key=HYPERBROWSER_API_KEY)
+
+		session = await client.sessions.create(
+			params=CreateSessionParams(
+				use_stealth=True,
+			)
+		)
+
+		await client.close()
+
+		return session.ws_endpoint or ''
+
+	except Exception as e:
+		logger.error(f'Failed to create Hyperbrowser session: {type(e).__name__}: {e}')
+		raise
+
+
 Laminar.initialize()
 laminar_client = AsyncLaminarClient()
 
@@ -77,6 +210,9 @@ laminar_client = AsyncLaminarClient()
 _resource_monitor_task = None
 _resource_monitor_stop_event = None
 _graceful_shutdown_initiated = False
+
+# Global tracking for login cookie monitoring
+_login_cookie_tracker = {}
 
 
 def get_system_resources():
@@ -486,17 +622,14 @@ async def Online_Mind2Web_eval_with_retry(task, last_actions, images_path, model
 # ==============================================================================================================
 import argparse
 import http.client
-import json
 import os
 import subprocess
 from dataclasses import dataclass, field
 
 # Define Stage enum and related classes for the pipeline
 from enum import Enum
-from pathlib import Path
 from typing import Any
 
-import requests
 from dotenv import load_dotenv
 
 # Import the new comprehensive judge system (conditional import for backwards compatibility)
@@ -723,9 +856,25 @@ SUPPORTED_MODELS = {
 	# Google
 	'gemini-1.5-flash': {'provider': 'google', 'model_name': 'gemini-1.5-flash-latest', 'api_key_env': 'GEMINI_API_KEY'},
 	'gemini-2.0-flash-lite': {'provider': 'google', 'model_name': 'gemini-2.0-flash-lite', 'api_key_env': 'GEMINI_API_KEY'},
-	'gemini-2.0-flash': {'provider': 'google', 'model_name': 'gemini-2.0-flash', 'api_key_env': 'GEMINI_API_KEY'},
+	'gemini-2.0-flash': {
+		'provider': 'google',
+		'model_name': 'gemini-2.0-flash',
+		'api_key_env': 'GEMINI_API_KEY',
+		'thinking_budget': 0,
+	},
 	'gemini-2.5-pro': {'provider': 'google', 'model_name': 'gemini-2.5-pro', 'api_key_env': 'GEMINI_API_KEY'},
-	'gemini-2.5-flash': {'provider': 'google', 'model_name': 'gemini-2.5-flash', 'api_key_env': 'GEMINI_API_KEY'},
+	'gemini-2.5-flash': {
+		'provider': 'google',
+		'model_name': 'gemini-2.5-flash',
+		'api_key_env': 'GEMINI_API_KEY',
+		'thinking_budget': 0,
+	},
+	'gemini-2.5-flash-lite-preview': {
+		'provider': 'google',
+		'model_name': 'gemini-2.5-flash-lite-preview-06-17',
+		'api_key_env': 'GEMINI_API_KEY',
+		'thinking_budget': 0,
+	},
 	'gemini-2.5-pro-preview-05-06': {
 		'provider': 'google',
 		'model_name': 'gemini-2.5-pro-preview-05-06',
@@ -862,12 +1011,67 @@ def create_controller_with_serp_search(output_model: type[BaseModel] | None = No
 	return controller
 
 
-def create_controller(use_serp: bool = False, output_model: type[BaseModel] | None = None):
-	"""Create a controller, optionally with SERP search"""
+def create_controller(
+	use_serp: bool = False,
+	output_model: type[BaseModel] | None = None,
+	gmail_tokens_dict: dict[str, str] | None = None,
+	task: 'Task | None' = None,
+):
+	"""Create a controller, optionally with SERP search and Gmail 2FA support"""
 	if use_serp:
-		return create_controller_with_serp_search(output_model=output_model)
+		controller = create_controller_with_serp_search(output_model=output_model)
 	else:
-		return Controller(output_model=output_model)
+		controller = Controller(output_model=output_model)
+
+	# Add Gmail 2FA support if tokens dict is available and task has login_type OTP
+	if gmail_tokens_dict and task and hasattr(task, 'login_type') and task.login_type == 'OTP':
+		try:
+			# Extract username from task - check multiple possible sources
+			username = None
+
+			# Check if task has email field directly
+			if hasattr(task, 'username') and getattr(task, 'username', None):
+				username = getattr(task, 'username')
+			# Check if email is in task description or other fields
+			elif hasattr(task, 'confirmed_task') and '@' in task.confirmed_task:
+				# Extract email from task description using regex
+				import re
+
+				email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+				matches = re.findall(email_pattern, task.confirmed_task)
+				if matches:
+					username = matches[0]
+
+			if username:
+				# Extract user ID (part before @)
+				user_id = username.split('@')[0]
+
+				# Look up access token in the dictionary
+				access_token = gmail_tokens_dict.get(user_id)
+
+				if access_token:
+					from browser_use.integrations.gmail import register_gmail_actions
+
+					# Register Gmail actions using the access token
+					controller = register_gmail_actions(controller, access_token=access_token)
+					logger.info(f'Gmail 2FA integration registered successfully for user {user_id} (OTP task)')
+				else:
+					logger.info(f'No Gmail 2FA token found for user {user_id}, running without Gmail integration')
+			else:
+				logger.info('No email found in OTP task, running without Gmail integration')
+
+		except Exception as e:
+			logger.error(f'Failed to setup Gmail integration: {e}')
+	else:
+		if gmail_tokens_dict and task:
+			if not hasattr(task, 'login_type') or task.login_type != 'OTP':
+				logger.info(f'Task login_type is "{getattr(task, "login_type", "None")}", not OTP - skipping Gmail integration')
+			else:
+				logger.info('Gmail 2FA tokens provided but no task or task missing login_type')
+		else:
+			logger.info('No Gmail 2FA tokens provided or no task, running without Gmail integration')
+
+	return controller
 
 
 def get_llm(model_name: str):
@@ -905,7 +1109,7 @@ def get_llm(model_name: str):
 				kwargs['api_key'] = api_key
 			return ChatAnthropic(**kwargs)
 		case 'google':
-			kwargs = {'model': config['model_name'], 'temperature': 0.0}
+			kwargs = {'model': config['model_name'], 'temperature': 0.0, 'thinking_budget': config.get('thinking_budget', None)}
 			if api_key:
 				kwargs['api_key'] = api_key
 			return ChatGoogle(**kwargs)
@@ -1119,6 +1323,7 @@ class Task:
 		self.login_type = kwargs.get('login_type', None)
 		self.category = kwargs.get('category', None)
 		self.output_schema = kwargs.get('output_schema', None)  # Add structured output schema support
+		self.auth_keys = kwargs.get('auth_keys', None)  # List of auth keys to fetch from auth distribution
 		if self.output_schema:
 			# Convert JSON schema to Pydantic model class
 			self.output_model = create_pydantic_model_from_schema(self.output_schema, f'Task_{self.task_id}_Output')
@@ -1135,6 +1340,7 @@ class Task:
 			'login_type',
 			'category',
 			'output_schema',
+			'auth_keys',
 		}
 		self.additional_fields = {k: v for k, v in kwargs.items() if k not in known_fields}
 
@@ -1144,7 +1350,7 @@ class Task:
 
 	def __str__(self):
 		# Include main fields and indicate if there are additional fields
-		base_str = f'Task(task_id={self.task_id}, confirmed_task={self.confirmed_task}, website={self.website}, reference_length={self.reference_length}, level={self.level}, cluster_id={self.cluster_id}, login_cookie={self.login_cookie}, login_type={self.login_type}, category={self.category}, output_schema={self.output_schema}'
+		base_str = f'Task(task_id={self.task_id}, confirmed_task={self.confirmed_task}, website={self.website}, reference_length={self.reference_length}, level={self.level}, cluster_id={self.cluster_id}, login_cookie={self.login_cookie}, login_type={self.login_type}, category={self.category}, output_schema={self.output_schema}, auth_keys={self.auth_keys}'
 		if self.additional_fields:
 			additional_str = ', '.join(f'{k}={v}' for k, v in self.additional_fields.items())
 			base_str += f', {additional_str}'
@@ -1328,11 +1534,75 @@ async def run_stage(stage: Stage, stage_func, timeout: int | None = None):
 	return await stage_func()
 
 
-async def setup_browser_session(task: Task, headless: bool, highlight_elements: bool = True) -> BrowserSession:
+async def setup_browser_session(
+	task: Task, headless: bool, highlight_elements: bool = True, browser: str = 'local'
+) -> BrowserSession:
 	"""Setup browser session for the task"""
-	logger.debug(f'Browser setup: Initializing BrowserSession for task {task.task_id}')
 
-	# Use incognito mode (user_data_dir=None) for evaluations to avoid state pollution
+	# Validate browser option
+	valid_browsers = ['local', 'anchor-browser', 'brightdata', 'browserbase', 'hyperbrowser', 'browser-use']
+	if browser not in valid_browsers:
+		logger.warning(f'Browser setup: Invalid browser option "{browser}". Falling back to local browser.')
+		browser = 'local'
+
+	cdp_url = None
+
+	if browser == 'anchor-browser':
+		if ANCHOR_BROWSER_API_KEY:
+			try:
+				logger.debug(f'Browser setup: Creating Anchor Browser session for task {task.task_id}')
+				cdp_url = await asyncio.to_thread(create_anchor_browser_session, headless)
+			except Exception as e:
+				logger.error(
+					f'Browser setup: Failed to create Anchor Browser session for task {task.task_id}: {type(e).__name__}: {e}'
+				)
+				logger.info(f'Browser setup: Falling back to local browser for task {task.task_id}')
+				cdp_url = None
+		else:
+			logger.warning(
+				f'Browser setup: Anchor Browser requested but ANCHOR_BROWSER_API_KEY not set. Using local browser for task {task.task_id}'
+			)
+	elif browser == 'brightdata':
+		if BRIGHTDATA_CDP_URL:
+			logger.debug(f'Browser setup: Using Brightdata CDP URL for task {task.task_id}')
+			cdp_url = BRIGHTDATA_CDP_URL
+		else:
+			logger.warning(
+				f'Browser setup: Brightdata requested but BRIGHTDATA_CDP_URL not set. Using local browser for task {task.task_id}'
+			)
+	elif browser == 'browserbase':
+		if BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID:
+			try:
+				logger.debug(f'Browser setup: Creating Browserbase session for task {task.task_id}')
+				cdp_url = await asyncio.to_thread(create_browserbase_session)
+			except Exception as e:
+				logger.error(
+					f'Browser setup: Failed to create Browserbase session for task {task.task_id}: {type(e).__name__}: {e}'
+				)
+				logger.info(f'Browser setup: Falling back to local browser for task {task.task_id}')
+				cdp_url = None
+		else:
+			logger.warning(
+				f'Browser setup: Browserbase requested but BROWSERBASE_API_KEY or BROWSERBASE_PROJECT_ID not set. Using local browser for task {task.task_id}'
+			)
+	elif browser == 'hyperbrowser':
+		if HYPERBROWSER_API_KEY:
+			try:
+				logger.debug(f'Browser setup: Creating Hyperbrowser session for task {task.task_id}')
+				cdp_url = await create_hyperbrowser_session()
+			except Exception as e:
+				logger.error(
+					f'Browser setup: Failed to create Hyperbrowser session for task {task.task_id}: {type(e).__name__}: {e}'
+				)
+				logger.info(f'Browser setup: Falling back to local browser for task {task.task_id}')
+				cdp_url = None
+		else:
+			logger.warning(
+				f'Browser setup: Hyperbrowser requested but HYPERBROWSER_API_KEY not set. Using local browser for task {task.task_id}'
+			)
+	elif browser == 'browser-use':
+		logger.warning(f'Browser setup: Browser-use not implemented yet. Falling back to local browser for task {task.task_id}')
+
 	profile_kwargs = {
 		'user_data_dir': None,  # Incognito mode - no persistent state
 		'headless': headless,
@@ -1351,12 +1621,18 @@ async def setup_browser_session(task: Task, headless: bool, highlight_elements: 
 
 	if hasattr(task, 'login_cookie') and task.login_cookie:
 		# For login tasks, configure storage_state to save cookies to JSON file
-		# This works even in incognito mode (user_data_dir=None)
+		# Don't set user_data_dir=None for login tasks to avoid conflict
 		task_folder = Path(f'saved_trajectories/{task.task_id}')
 		task_folder.mkdir(parents=True, exist_ok=True)
 
 		storage_state_path = task_folder / 'storage_state.json'
+		# Create empty storage state file if it doesn't exist to avoid FileNotFoundError
+		if not storage_state_path.exists():
+			storage_state_path.write_text(json.dumps({'cookies': [], 'origins': []}))
+
 		profile_kwargs['storage_state'] = str(storage_state_path)
+		# Remove user_data_dir=None for login tasks to avoid conflict with storage_state
+		profile_kwargs.pop('user_data_dir', None)
 
 		downloads_dir_path = task_folder / 'downloads'
 		downloads_dir_path.mkdir(parents=True, exist_ok=True)
@@ -1365,17 +1641,23 @@ async def setup_browser_session(task: Task, headless: bool, highlight_elements: 
 		logger.debug(f'Login task {task.task_id}: Configured to save cookies to {storage_state_path}')
 
 	profile = BrowserProfile(**profile_kwargs)
-	browser_session = BrowserSession(browser_profile=profile)
+
+	if cdp_url:
+		logger.debug(f'Browser setup: Using CDP Browser for task {task.task_id}')
+		browser_session = BrowserSession(browser_profile=profile, cdp_url=cdp_url)
+	else:
+		# Use local browser
+		logger.debug(f'Browser setup: Initializing BrowserSession for task {task.task_id}')
+		browser_session = BrowserSession(browser_profile=profile)
 
 	# Start browser session
-	logger.debug(f'Browser setup: Starting browser session for task {task.task_id}')
 	await browser_session.start()
 	logger.debug(f'Browser setup: Browser session started for task {task.task_id}')
 
 	# Navigate to task starting url if provided
-	if task.website:
-		logger.debug(f'Browser setup: Navigating to {task.website} for task {task.task_id}')
-		await browser_session.navigate(task.website)
+	# if task.website:
+	# logger.debug(f'Browser setup: Navigating to {task.website} for task {task.task_id}')
+	# await browser_session.navigate(task.website)
 
 	logger.debug(f'Browser setup: Setup completed for task {task.task_id}')
 	return browser_session
@@ -1396,10 +1678,13 @@ async def run_agent_with_browser(
 	planner_llm: BaseChatModel | None = None,
 	planner_interval: int = 1,
 	use_thinking: bool = True,
+	gmail_tokens_dict: dict[str, str] | None = None,
 ) -> tuple[AgentHistoryList, str]:
 	"""Run agent with the browser session"""
-	# Create controller, optionally with SERP search and structured output
-	controller = create_controller(use_serp=use_serp, output_model=task.output_model)
+	# Create controller, optionally with SERP search, structured output, and Gmail 2FA support
+	controller = create_controller(
+		use_serp=use_serp, output_model=task.output_model, gmail_tokens_dict=gmail_tokens_dict, task=task
+	)
 
 	# Check for deprecated memory parameters
 	if enable_memory:
@@ -1408,6 +1693,27 @@ async def run_agent_with_browser(
 			'The agent context for memory is significantly improved and no longer requires the old memory system. '
 			"Please remove the 'enable_memory' parameter."
 		)
+
+	# Set up login cookie monitoring if this is a login task
+	is_login_task = hasattr(task, 'login_cookie') and task.login_cookie
+	new_step_callback = None
+
+	if is_login_task:
+		logger.info(f'🔐 Setting up login cookie monitoring for task {task.task_id}')
+
+		async def login_cookie_step_callback(browser_state_summary, agent_output, step_number):
+			"""Callback to check login cookie after each step"""
+			try:
+				if task.login_cookie is not None:
+					await check_login_cookie_at_step(
+						browser_session=browser_session, task_id=task.task_id, login_cookie=task.login_cookie, step=step_number
+					)
+				else:
+					logger.warning(f'❌ Task {task.task_id} Step {step_number}: login_cookie is None, skipping check')
+			except Exception as e:
+				logger.warning(f'❌ Error checking login cookie at step {step_number}: {type(e).__name__}: {e}')
+
+		new_step_callback = login_cookie_step_callback
 
 	agent = Agent(
 		task=task.confirmed_task,
@@ -1422,11 +1728,20 @@ async def run_agent_with_browser(
 		use_thinking=use_thinking,
 		source='eval_platform',
 		calculate_cost=True,
+		register_new_step_callback=new_step_callback,
 	)
+
 	# get last message
 	await agent.run(max_steps=max_steps)
 	last_input_messages = agent.message_manager.last_input_messages
 	last_message = last_input_messages[-1].text
+
+	# Save login cookie tracking if this was a login task
+	if is_login_task:
+		# Save tracking data to the task folder (will be created later in the pipeline)
+		# For now, we'll save it when the task folder is available
+		pass
+
 	return agent.state.history, last_message
 
 
@@ -1435,10 +1750,28 @@ async def evaluate_task_result(
 	eval_model: BaseChatModel, task_folder: Path, task: Task | None = None, use_mind2web: bool = False
 ) -> dict:
 	"""Evaluate the task result"""
-	# Check if this is a login task that should use cookie-based evaluation
+	# Check if this is a login task that should use both cookie-based and judge evaluation
 	if task and hasattr(task, 'login_cookie') and task.login_cookie:
-		logger.info(f'Using cookie-based evaluation for login task {task.task_id}')
-		return await evaluate_task_with_login_cookie(task.login_cookie, task_folder)
+		logger.info(f'Using combined cookie-based and judge evaluation for login task {task.task_id}')
+
+		# First run the judge evaluation to get comprehensive feedback
+		judge_result = await judge_task_result(eval_model, task_folder, score_threshold=3, use_mind2web=use_mind2web)
+
+		# Then run the cookie-based evaluation to get the actual score
+		cookie_result = await evaluate_task_with_login_cookie(task.login_cookie, task_folder)
+
+		# Use the score from cookie_result to overwrite judge_result
+		judge_result['score'] = cookie_result['score']
+		judge_result['success'] = cookie_result['success']
+		judge_result['error'] = cookie_result['error']
+
+		# Also overwrite comprehensive judge evaluation if it exists
+		if 'comprehensive_evaluation' in judge_result and judge_result['comprehensive_evaluation']:
+			judge_result['comprehensive_evaluation']['passed'] = cookie_result['success']
+			# Convert score from 0-1 scale to 0-100 scale for comprehensive judge
+			judge_result['comprehensive_evaluation']['final_score'] = int(cookie_result['score'] * 100)
+
+		return judge_result
 	else:
 		return await judge_task_result(eval_model, task_folder, score_threshold=3, use_mind2web=use_mind2web)
 
@@ -1447,13 +1780,54 @@ async def evaluate_task_with_login_cookie(login_cookie: str, task_folder: Path) 
 	"""
 	Evaluate a login task by checking if the login_cookie is present in browser cookies.
 
+	First checks step-by-step tracking to see if the cookie was found during execution.
+	If not found in tracking, falls back to checking end-state cookies.
+
 	Args:
-		login_cookie: String identifier that should appear in cookies if login was successful
-		task_folder: Path to the task result folder containing saved cookies
+	    login_cookie: String identifier that should appear in cookies if login was successful
+	    task_folder: Path to the task result folder containing saved cookies
 
 	Returns:
-		Dictionary containing evaluation results similar to Online_Mind2Web_eval format
+	    Dictionary containing evaluation results similar to Online_Mind2Web_eval format
 	"""
+	task_id = task_folder.name
+
+	# First, check if we have step-by-step tracking data
+	tracking_file = task_folder / 'login_cookie_tracking.json'
+	if tracking_file.exists():
+		try:
+			async with await anyio.open_file(tracking_file) as f:
+				tracking_data = json.loads(await f.read())
+
+			if tracking_data.get('found', False):
+				# Cookie was found during execution!
+				step_found = tracking_data.get('step', 'unknown')
+				match_type = tracking_data.get('match_type', 'unknown')
+				cookie_name = tracking_data.get('cookie_name', 'unknown')
+
+				success = True
+				score = 1.0
+				judgement = f"Automatic judgement: Login cookie '{login_cookie}' was found during step {step_found} ({match_type} match on '{cookie_name}')"
+				error = None
+
+				logger.info(
+					f"✅ Cookie evaluation result from step tracking: success={success} for login_cookie='{login_cookie}'"
+				)
+
+				return {
+					'task_id': task_id,
+					'judgement': judgement,
+					'success': success,
+					'error': error,
+					'score': score,
+					'tracking_data': tracking_data,
+				}
+		except Exception as e:
+			logger.warning(f'Failed to load login cookie tracking: {e}')
+
+	# Fallback to end-state cookie checking (original behavior)
+	logger.info(f'🔄 No step-by-step tracking found for task {task_id}, falling back to end-state cookie checking')
+
 	# Look for cookies in saved_trajectories (saved by browser-use during shutdown)
 	cookies_file = task_folder / 'cookies.json'
 	storage_state_file = task_folder / 'storage_state.json'
@@ -1482,10 +1856,10 @@ async def evaluate_task_with_login_cookie(login_cookie: str, task_folder: Path) 
 
 	if not cookies_data:
 		return {
-			'task_id': task_folder.name,
-			'judgement': 'Automatic judgement: No cookies saved for evaluation',
+			'task_id': task_id,
+			'judgement': 'Automatic judgement: No cookies saved for evaluation and no step-by-step tracking',
 			'success': False,
-			'error': 'No cookies file found for login task evaluation',
+			'error': 'No cookies file found for login task evaluation and no step-by-step tracking',
 			'score': 0.0,
 		}
 
@@ -1530,25 +1904,29 @@ async def evaluate_task_with_login_cookie(login_cookie: str, task_folder: Path) 
 	# Prepare evaluation result
 	if login_cookie_found:
 		if is_exact_match:
-			judgement = f"Automatic judgement: Login cookie '{search_target}' was found as exact match in browser cookies"
+			judgement = (
+				f"Automatic judgement: Login cookie '{search_target}' was found as exact match in end-state browser cookies"
+			)
 		else:
-			judgement = f"Automatic judgement: Login cookie '{search_target}' was found in browser cookies"
+			judgement = f"Automatic judgement: Login cookie '{search_target}' was found in end-state browser cookies"
 		success = True
 		score = 1.0
 		error = None
 	else:
 		if is_exact_match:
-			judgement = f"Automatic judgement: Login cookie '{search_target}' was NOT found as exact match in browser cookies"
+			judgement = (
+				f"Automatic judgement: Login cookie '{search_target}' was NOT found as exact match in end-state browser cookies"
+			)
 		else:
-			judgement = f"Automatic judgement: Login cookie '{search_target}' was NOT found in browser cookies"
+			judgement = f"Automatic judgement: Login cookie '{search_target}' was NOT found in end-state browser cookies"
 		success = False
 		score = 0.0
 		error = None
 
-	logger.info(f"Cookie evaluation result: success={success} for login_cookie='{login_cookie}'")
+	logger.info(f"Cookie evaluation result from end-state: success={success} for login_cookie='{login_cookie}'")
 
 	return {
-		'task_id': task_folder.name,
+		'task_id': task_id,
 		'judgement': judgement,
 		'success': success,
 		'error': error,
@@ -1603,8 +1981,10 @@ async def run_task_with_semaphore(
 	headless: bool,
 	use_vision: bool,
 	semaphore_runs: asyncio.Semaphore,  # Pass semaphore as argument
+	auth_distribution: dict | None = None,  # Pre-fetched auth distribution
 	github_workflow_url: str | None = None,
 	use_serp: bool = False,
+	browser: str = 'local',
 	enable_memory: bool = False,
 	memory_interval: int = 10,
 	max_actions_per_step: int = 10,
@@ -1615,6 +1995,7 @@ async def run_task_with_semaphore(
 	highlight_elements: bool = True,
 	use_mind2web_judge: bool = False,
 	use_thinking: bool = True,
+	gmail_tokens_dict: dict[str, str] | None = None,
 ) -> dict:
 	"""Clean pipeline approach for running tasks"""
 	task_start_time = time.time()
@@ -1699,7 +2080,9 @@ async def run_task_with_semaphore(
 					)
 
 					browser_session = await run_stage(
-						Stage.SETUP_BROWSER, lambda: setup_browser_session(task, headless, highlight_elements), timeout=120
+						Stage.SETUP_BROWSER,
+						lambda: setup_browser_session(task, headless, highlight_elements, browser),
+						timeout=120,
 					)
 					task_result.stage_completed(Stage.SETUP_BROWSER)
 					logger.info(f'Task {task.task_id}: Browser session started successfully.')
@@ -1727,6 +2110,38 @@ async def run_task_with_semaphore(
 							convex_url, secret_key, run_id, task.task_id, 'run_agent', 'active', github_workflow_url
 						)
 
+						# Handle auth information if task requires it
+						task_with_auth = task
+						if hasattr(task, 'auth_keys') and task.auth_keys:
+							# Validate auth_keys is a list
+							if isinstance(task.auth_keys, list) and len(task.auth_keys) > 0:
+								if auth_distribution:
+									logger.info(
+										f'Task {task.task_id}: Using pre-fetched auth distribution for auth_keys: {task.auth_keys}'
+									)
+									auth_info_text = format_auth_info_for_agent(auth_distribution, task.auth_keys)
+									if auth_info_text:
+										# Create a modified task with auth info appended
+										class TaskWithAuth(Task):
+											def __init__(self, original_task: Task, auth_text: str):
+												# Copy all attributes from original task
+												for attr_name in dir(original_task):
+													if not attr_name.startswith('__'):
+														setattr(self, attr_name, getattr(original_task, attr_name))
+												# Modify the confirmed_task to include auth info
+												self.confirmed_task = original_task.confirmed_task + auth_text
+
+										task_with_auth = TaskWithAuth(task, auth_info_text)
+										logger.info(f'Task {task.task_id}: Auth info added to task description')
+									else:
+										logger.warning(
+											f'Task {task.task_id}: No matching auth info found for keys: {task.auth_keys}'
+										)
+								else:
+									logger.warning(f'Task {task.task_id}: Auth keys specified but no auth distribution available')
+							else:
+								logger.warning(f'Task {task.task_id}: auth_keys is not a valid list: {task.auth_keys}')
+
 						# Start timing for agent execution only
 						agent_start_time = time.time()
 
@@ -1734,7 +2149,7 @@ async def run_task_with_semaphore(
 							Stage.RUN_AGENT,
 							lambda: run_agent_with_browser(
 								browser_session,
-								task,
+								task_with_auth,
 								llm,
 								max_steps_per_task,
 								use_vision,
@@ -1746,6 +2161,7 @@ async def run_task_with_semaphore(
 								planner_llm,
 								planner_interval,
 								use_thinking,
+								gmail_tokens_dict,
 							),
 							timeout=1000,
 						)
@@ -1756,6 +2172,16 @@ async def run_task_with_semaphore(
 
 						task_result.stage_completed(Stage.RUN_AGENT)
 						logger.info(f'Task {task.task_id}: Agent run completed in {agent_execution_time:.2f}s.')
+
+						# Save login cookie tracking data if this was a login task
+						if hasattr(task, 'login_cookie') and task.login_cookie:
+							try:
+								await save_login_cookie_tracking(task_folder, task.task_id)
+							except Exception as e:
+								logger.warning(
+									f'Failed to save login cookie tracking for task {task.task_id}: {type(e).__name__}: {e}'
+								)
+
 						# Send progress update for completed agent run
 						send_progress_update(
 							convex_url, secret_key, run_id, task.task_id, 'agent_completed', 'active', github_workflow_url
@@ -1987,6 +2413,7 @@ async def run_multiple_tasks(
 	convex_url: str,
 	secret_key: str,
 	eval_model: BaseChatModel,
+	auth_distribution: dict | None = None,
 	github_workflow_url: str | None = None,
 	max_parallel_runs: int = 3,
 	max_steps_per_task: int = 25,
@@ -1995,6 +2422,7 @@ async def run_multiple_tasks(
 	headless: bool = False,
 	use_vision: bool = True,
 	use_serp: bool = False,
+	browser: str = 'local',
 	enable_memory: bool = False,
 	memory_interval: int = 10,
 	max_actions_per_step: int = 10,
@@ -2005,6 +2433,7 @@ async def run_multiple_tasks(
 	highlight_elements: bool = True,
 	use_mind2web_judge: bool = False,
 	use_thinking: bool = True,
+	gmail_tokens_dict: dict[str, str] | None = None,
 ) -> dict:
 	"""
 	Run multiple tasks in parallel and evaluate results.
@@ -2072,8 +2501,10 @@ async def run_multiple_tasks(
 					headless=headless,
 					use_vision=use_vision,
 					semaphore_runs=semaphore_runs,  # Pass the semaphore
+					auth_distribution=auth_distribution,  # Pass the pre-fetched auth distribution
 					github_workflow_url=github_workflow_url,
 					use_serp=use_serp,
+					browser=browser,
 					enable_memory=enable_memory,
 					memory_interval=memory_interval,
 					max_actions_per_step=max_actions_per_step,
@@ -2084,6 +2515,7 @@ async def run_multiple_tasks(
 					highlight_elements=highlight_elements,
 					use_mind2web_judge=use_mind2web_judge,
 					use_thinking=use_thinking,
+					gmail_tokens_dict=gmail_tokens_dict,
 				)
 				for task in tasks_to_run
 			),
@@ -2115,6 +2547,7 @@ async def run_multiple_tasks(
 				heartbeat_task.cancel()
 
 		await stop_resource_monitoring()
+
 		log_system_resources('BATCH_CLEANUP')
 
 	# Process task results and handle any exceptions returned by gather
@@ -2193,6 +2626,109 @@ def fetch_tasks_from_server(convex_url: str, secret_key: str, test_case_name: st
 	except requests.exceptions.RequestException as e:
 		logger.error(f'Error during request to fetch test case: {type(e).__name__}: {e}')
 		return None
+
+
+# Helper function to fetch auth distribution from the server
+def fetch_auth_distribution_from_server(convex_url: str, secret_key: str):
+	"""Fetches an available auth distribution from the Convex HTTP endpoint."""
+
+	if not convex_url:
+		logger.error('Error: EVALUATION_TOOL_URL environment variable not set.')
+		return None
+
+	if not secret_key:
+		logger.error('Error: EVALUATION_TOOL_SECRET_KEY environment variable not set.')
+		return None
+
+	endpoint_url = f'{convex_url}/api/getAuthDistribution'
+	headers = {
+		'Authorization': f'Bearer {secret_key}',
+		'Content-Type': 'application/json',
+	}
+
+	logger.info(f'Fetching auth distribution from {endpoint_url}...')
+
+	try:
+		response = requests.post(endpoint_url, headers=headers, json={})
+
+		logger.info(f'Fetch Auth Distribution Status Code: {response.status_code}')
+
+		if response.status_code == 200:
+			try:
+				data = response.json()
+				logger.info('Successfully fetched auth distribution data.')
+				# Verify the response has the expected structure
+				if isinstance(data, dict) and 'id' in data and 'loginInfo' in data:
+					return data
+				else:
+					logger.error(
+						f'Error: Fetched auth distribution data has unexpected structure. Keys: {list(data.keys()) if isinstance(data, dict) else "Not a dict"}'
+					)
+					logger.error(f'Raw response: {response.text}')
+					return None
+
+			except json.JSONDecodeError:
+				logger.error('Error: Failed to decode JSON response for auth distribution.')
+				logger.error(f'Raw response text: {response.text}')
+				return None
+		elif response.status_code == 404:
+			logger.warning('No available auth distribution found on server.')
+			return None
+		else:
+			logger.error(f'Error: Failed to fetch auth distribution. Status: {response.status_code}')
+			logger.error(f'Response: {response.text}')
+			return None
+
+	except requests.exceptions.RequestException as e:
+		logger.error(f'Error during request to fetch auth distribution: {type(e).__name__}: {e}')
+		return None
+
+
+# Helper function to format auth information for the agent
+def format_auth_info_for_agent(auth_distribution: dict, auth_keys: list[str]) -> str:
+	"""
+	Formats auth information from auth distribution for the agent task description.
+
+	Args:
+		auth_distribution: Dict with 'loginInfo' key containing auth data
+		auth_keys: List of auth keys to extract (e.g., ['google', 'facebook'])
+
+	Returns:
+		Formatted string with login credentials or empty string if no matching keys
+	"""
+	if not auth_distribution or not auth_keys:
+		return ''
+
+	login_info = auth_distribution.get('loginInfo', {})
+	if not login_info:
+		logger.warning('Auth distribution has no loginInfo')
+		return ''
+
+	# Extract relevant auth information based on auth_keys
+	relevant_auths = []
+	for auth_key in auth_keys:
+		if auth_key in login_info:
+			auth_data = login_info[auth_key]
+			if isinstance(auth_data, dict):
+				# Format the auth data for this key
+				auth_details = []
+				for key, value in auth_data.items():
+					auth_details.append(f'{key}: {value}')
+
+				if auth_details:
+					relevant_auths.append(f'{auth_key} with {", ".join(auth_details)}')
+			else:
+				logger.warning(f"Auth data for key '{auth_key}' is not a dictionary: {type(auth_data)}")
+		else:
+			logger.warning(f"Auth key '{auth_key}' not found in available login info. Available keys: {list(login_info.keys())}")
+
+	if relevant_auths:
+		auth_text = f'\n\nThe following login credentials can be used to complete this task: {"; ".join(relevant_auths)}.'
+		logger.info(f'Formatted auth info: {auth_text}')
+		return auth_text
+	else:
+		logger.warning(f'No matching auth keys found. Requested: {auth_keys}, Available: {list(login_info.keys())}')
+		return ''
 
 
 # Helper function to get git information
@@ -2424,6 +2960,7 @@ async def run_evaluation_pipeline(
 	convex_url: str,
 	secret_key: str,
 	eval_model: BaseChatModel,
+	auth_distribution: dict | None = None,
 	github_workflow_url: str | None = None,
 	max_parallel_runs: int = 3,
 	max_steps_per_task: int = 25,
@@ -2432,6 +2969,7 @@ async def run_evaluation_pipeline(
 	headless: bool = False,
 	use_vision: bool = True,
 	use_serp: bool = False,
+	browser: str = 'local',
 	enable_memory: bool = False,
 	memory_interval: int = 10,
 	max_actions_per_step: int = 10,
@@ -2443,6 +2981,7 @@ async def run_evaluation_pipeline(
 	highlight_elements: bool = True,
 	use_mind2web_judge: bool = False,
 	use_thinking: bool = True,
+	gmail_tokens_dict: dict[str, str] | None = None,
 ) -> dict:
 	"""
 	Complete evaluation pipeline that handles Laminar setup and task execution in the same event loop
@@ -2477,6 +3016,7 @@ async def run_evaluation_pipeline(
 		convex_url=convex_url,
 		secret_key=secret_key,
 		eval_model=eval_model,
+		auth_distribution=auth_distribution,
 		github_workflow_url=github_workflow_url,
 		max_parallel_runs=max_parallel_runs,
 		max_steps_per_task=max_steps_per_task,
@@ -2485,6 +3025,7 @@ async def run_evaluation_pipeline(
 		headless=headless,
 		use_vision=use_vision,
 		use_serp=use_serp,
+		browser=browser,
 		enable_memory=enable_memory,
 		memory_interval=memory_interval,
 		max_actions_per_step=max_actions_per_step,
@@ -2495,7 +3036,106 @@ async def run_evaluation_pipeline(
 		highlight_elements=highlight_elements,
 		use_mind2web_judge=use_mind2web_judge,
 		use_thinking=use_thinking,
+		gmail_tokens_dict=gmail_tokens_dict,
 	)
+
+
+async def check_login_cookie_at_step(browser_session, task_id: str, login_cookie: str, step: int) -> bool:
+	"""
+	Check if login cookie is present at the current step.
+
+	Args:
+	    browser_session: The browser session to check cookies from
+	    task_id: The task ID for tracking
+	    login_cookie: The cookie to search for
+	    step: Current step number
+
+	Returns:
+	    bool: True if login cookie was found, False otherwise
+	"""
+	global _login_cookie_tracker
+
+	try:
+		# Get current cookies from browser
+		current_cookies = await browser_session.get_cookies()
+
+		if not current_cookies:
+			logger.debug(f'Task {task_id} Step {step}: No cookies found')
+			return False
+
+		# Check if this is an exact match requirement
+		if login_cookie.startswith('EXACTMATCH '):
+			exact_cookie_name = login_cookie[11:]  # Remove "EXACTMATCH " prefix
+			is_exact_match = True
+			search_target = exact_cookie_name
+		else:
+			is_exact_match = False
+			search_target = login_cookie
+
+		# Check if login_cookie is present
+		for cookie in current_cookies:
+			cookie_name = cookie.get('name', '')
+			cookie_value = cookie.get('value', '')
+
+			if is_exact_match:
+				if cookie_name == search_target:
+					logger.info(f'✅ Task {task_id} Step {step}: Login cookie "{search_target}" found (exact match)')
+					# Track that we found the cookie
+					_login_cookie_tracker[task_id] = {
+						'found': True,
+						'step': step,
+						'cookie_name': cookie_name,
+						'match_type': 'exact',
+					}
+					return True
+			else:
+				if search_target in cookie_name or search_target in cookie_value:
+					logger.info(f'✅ Task {task_id} Step {step}: Login cookie "{search_target}" found (substring match)')
+					# Track that we found the cookie
+					_login_cookie_tracker[task_id] = {
+						'found': True,
+						'step': step,
+						'cookie_name': cookie_name,
+						'match_type': 'substring',
+					}
+					return True
+
+		logger.debug(f'Task {task_id} Step {step}: Login cookie "{search_target}" not found in {len(current_cookies)} cookies')
+		return False
+
+	except Exception as e:
+		logger.warning(f'Task {task_id} Step {step}: Error checking login cookie: {type(e).__name__}: {e}')
+		return False
+
+
+async def save_login_cookie_tracking(task_folder: Path, task_id: str) -> None:
+	"""
+	Save the login cookie tracking information to a file.
+
+	Args:
+		task_folder: Directory to save the tracking file
+		task_id: The task ID
+	"""
+	global _login_cookie_tracker
+
+	try:
+		tracking_file = task_folder / 'login_cookie_tracking.json'
+		tracking_data = _login_cookie_tracker.get(task_id, {'found': False})
+
+		# Add timestamp
+		tracking_data['timestamp'] = time.time()
+
+		# Save to file
+		async with await anyio.open_file(tracking_file, 'w') as f:
+			await f.write(json.dumps(tracking_data, indent=2))
+
+		logger.info(f'📝 Saved login cookie tracking for task {task_id}: {tracking_data}')
+
+		# Clean up tracking data to avoid memory leaks
+		_login_cookie_tracker.pop(task_id, None)
+
+	except Exception as e:
+		logger.warning(f'❌ Failed to save login cookie tracking for task {task_id}: {type(e).__name__}: {e}')
 
 
 if __name__ == '__main__':
@@ -2510,7 +3150,7 @@ if __name__ == '__main__':
 		'--model', type=str, default='gpt-4o', choices=list(SUPPORTED_MODELS.keys()), help='Model to use for the agent'
 	)
 	parser.add_argument(
-		'--eval-model', type=str, default='gpt-4o', choices=list(SUPPORTED_MODELS.keys()), help='Model to use for evaluation'
+		'--eval-model', type=str, default='gpt-4.1', choices=list(SUPPORTED_MODELS.keys()), help='Model to use for evaluation'
 	)
 	parser.add_argument('--no-vision', action='store_true', help='Disable vision capabilities in the agent')
 
@@ -2518,6 +3158,12 @@ if __name__ == '__main__':
 	parser.add_argument('--eval-group', type=str, default='', help='Evaluation group to include in the run')
 	parser.add_argument('--developer-id', type=str, default=None, help='Name of the developer starting the run')
 	parser.add_argument('--use-serp', action='store_true', help='Use SERP search instead of Google search')
+	parser.add_argument(
+		'--browser',
+		type=str,
+		default='local',
+		help='Browser to use: local, anchor-browser, brightdata, browserbase, hyperbrowser, browser-use (default: local)',
+	)
 	parser.add_argument('--enable-memory', action='store_true', help='Enable mem0 memory system for agents')
 	parser.add_argument('--memory-interval', type=int, default=10, help='Memory creation interval (default: 10 steps)')
 	parser.add_argument('--max-actions-per-step', type=int, default=10, help='Maximum number of actions per step (default: 10)')
@@ -2559,8 +3205,15 @@ if __name__ == '__main__':
 	)
 	parser.add_argument('--use-mind2web-judge', action='store_true', help='Use original judge')
 	parser.add_argument('--no-thinking', action='store_true', help='Disable thinking in agent system prompt')
-	parser.add_argument('--use-anchor', action='store_true', help='Use anchor to navigate to the page')
 	parser.add_argument('--github-workflow-url', type=str, default=None, help='GitHub workflow URL for tracking')
+
+	# Gmail 2FA support arguments
+	parser.add_argument(
+		'--gmail-2fa-tokens',
+		type=str,
+		default=None,
+		help='JSON dictionary of user IDs to access tokens for Gmail 2FA (e.g., \'{"user123": "token1", "user456": "token2"}\')',
+	)
 
 	# Single task mode arguments
 	parser.add_argument('--task-text', type=str, default=None, help='Task description for single task mode')
@@ -2575,6 +3228,69 @@ if __name__ == '__main__':
 	logger = logging.getLogger(__name__)  # Define logger for the module
 
 	logger.info('Running tasks...')
+
+	# Parse Gmail 2FA tokens - handle GitHub Actions raw object format
+	gmail_tokens_dict = None
+	if args.gmail_2fa_tokens:
+		raw_tokens = args.gmail_2fa_tokens
+		logger.info(f'🔧 Raw Gmail 2FA tokens received: "{raw_tokens}"')
+
+		# Check if GitHub Actions passed us something like "[object Object]" or similar
+		if raw_tokens in ['[object Object]', 'null', '', '{}']:
+			logger.info('🔧 GitHub Actions passed placeholder value, no Gmail tokens available')
+			gmail_tokens_dict = None
+		else:
+			try:
+				# First try parsing as valid JSON (in case it's already proper JSON)
+				gmail_tokens_dict = json.loads(raw_tokens)
+				logger.info(f'🔧 Successfully parsed as JSON - Gmail 2FA tokens count: {len(gmail_tokens_dict)}')
+				logger.info(f'🔧 Gmail 2FA users: {list(gmail_tokens_dict.keys())}')
+			except json.JSONDecodeError:
+				# If JSON parsing fails, try to parse GitHub Actions malformed toJSON format
+				try:
+					logger.info('🔧 JSON parsing failed, attempting to parse GitHub Actions malformed format...')
+
+					# Handle GitHub Actions toJSON format: { key: value, key2: value2 }
+					if raw_tokens.strip() and raw_tokens.strip() not in ['null', '{}']:
+						# Remove outer braces and parse line by line
+						content = raw_tokens.strip().strip('{}').strip()
+
+						if content:
+							tokens = {}
+							lines = [line.strip() for line in content.split('\n') if line.strip()]
+
+							for line in lines:
+								# Remove trailing comma if present
+								line = line.rstrip(',')
+
+								if ':' in line:
+									# Split on first colon only
+									key, value = line.split(':', 1)
+									key = key.strip()
+									value = value.strip()
+
+									# Store the key-value pair
+									tokens[key] = value
+
+							if tokens:
+								gmail_tokens_dict = tokens
+								logger.info('🔧 Successfully parsed malformed GitHub Actions format')
+								logger.info(f'🔧 Gmail 2FA tokens count: {len(gmail_tokens_dict)}')
+								logger.info(f'🔧 Gmail 2FA users: {list(gmail_tokens_dict.keys())}')
+							else:
+								logger.warning('🔧 No tokens found in malformed format')
+								gmail_tokens_dict = None
+						else:
+							logger.warning('🔧 Empty content in malformed format')
+							gmail_tokens_dict = None
+					else:
+						logger.info('🔧 Raw tokens empty or null')
+						gmail_tokens_dict = None
+				except Exception as e:
+					logger.error(f'🔧 Failed to parse malformed GitHub Actions format: {type(e).__name__}: {e}')
+					gmail_tokens_dict = None
+	else:
+		logger.info('🔧 Gmail 2FA tokens: None or empty')
 	# Run tasks and evaluate
 	load_dotenv()
 
@@ -2585,6 +3301,7 @@ if __name__ == '__main__':
 	# --- Load Tasks (Either Single Task or from Server) ---
 	tasks = []
 	task_id = None  # Initialize for proper scoping
+	auth_distribution = None  # Initialize auth distribution
 
 	# Check if this is single task mode
 	if args.task_text:
@@ -2619,10 +3336,28 @@ if __name__ == '__main__':
 			logger.info(f'Successfully loaded {len(tasks)} tasks from the server.')
 		except (TypeError, ValueError) as e:
 			logger.error(
-				f'Error creating Task objects from fetched data. Ensure the data structure includes required fields (task_id, confirmed_task). Known optional fields: website, reference_length, level, cluster_id, login_cookie, login_type, category. Any additional fields will be accepted dynamically. Error: {type(e).__name__}: {e}'
+				f'Error creating Task objects from fetched data. Ensure the data structure includes required fields (task_id, confirmed_task). Known optional fields: website, reference_length, level, cluster_id, login_cookie, login_type, category, auth_keys. Any additional fields will be accepted dynamically. Error: {type(e).__name__}: {e}'
 			)
 			logger.error(f'First item in fetched data: {fetched_task_data[0] if fetched_task_data else "None"}')
 			exit(1)
+
+	# --- Fetch Auth Distribution Once (if any tasks need auth) ---
+	tasks_with_auth = [
+		task
+		for task in tasks
+		if hasattr(task, 'auth_keys') and task.auth_keys and isinstance(task.auth_keys, list) and len(task.auth_keys) > 0
+	]
+	if tasks_with_auth and CONVEX_URL and SECRET_KEY:
+		logger.info(f'Found {len(tasks_with_auth)} tasks requiring auth. Fetching auth distribution...')
+		auth_distribution = fetch_auth_distribution_from_server(CONVEX_URL, SECRET_KEY)
+		if auth_distribution:
+			logger.info(
+				f'Successfully fetched auth distribution with login info for: {list(auth_distribution.get("loginInfo", {}).keys())}'
+			)
+		else:
+			logger.warning('Failed to fetch auth distribution. Tasks requiring auth may fail.')
+	elif tasks_with_auth:
+		logger.warning(f'Found {len(tasks_with_auth)} tasks requiring auth but no server config available')
 	# -----------------------------
 
 	# --- Start Run on Server (with optional existing Run ID) ---
@@ -2698,6 +3433,34 @@ if __name__ == '__main__':
 			logger.warning('⚠️ --use-serp flag provided but SERPER_API_KEY not set. Search will fail!')
 	else:
 		logger.info('🔍 Using default Google search')
+
+	# Log browser mode being used
+	if args.browser == 'anchor-browser':
+		if ANCHOR_BROWSER_API_KEY:
+			logger.info('🌐 Using Anchor Browser (remote browser service)')
+		else:
+			logger.warning('⚠️ --browser anchor-browser provided but ANCHOR_BROWSER_API_KEY not set. Will use local browser!')
+	elif args.browser == 'brightdata':
+		if BRIGHTDATA_CDP_URL:
+			logger.info('🌐 Using Brightdata browser (remote browser service)')
+		else:
+			logger.warning('⚠️ --browser brightdata provided but BRIGHTDATA_CDP_URL not set. Will use local browser!')
+	elif args.browser == 'browserbase':
+		if BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID:
+			logger.info('🌐 Using Browserbase (remote browser service)')
+		else:
+			logger.warning(
+				'⚠️ --browser browserbase provided but BROWSERBASE_API_KEY or BROWSERBASE_PROJECT_ID not set. Will use local browser!'
+			)
+	elif args.browser == 'hyperbrowser':
+		if HYPERBROWSER_API_KEY:
+			logger.info('🌐 Using Hyperbrowser (remote browser service)')
+		else:
+			logger.warning('⚠️ --browser hyperbrowser provided but HYPERBROWSER_API_KEY not set. Will use local browser!')
+	elif args.browser == 'browser-use':
+		logger.warning('🌐 Browser-use not implemented yet. Will use local browser!')
+	else:
+		logger.info('🌐 Using local browser')
 
 	# Log memory configuration
 	if args.enable_memory:
@@ -2788,6 +3551,7 @@ if __name__ == '__main__':
 				convex_url=convex_url,
 				secret_key=secret_key,
 				eval_model=eval_model,
+				auth_distribution=auth_distribution,
 				github_workflow_url=args.github_workflow_url,
 				max_parallel_runs=parallel_runs,
 				max_steps_per_task=args.max_steps,
@@ -2796,6 +3560,7 @@ if __name__ == '__main__':
 				headless=args.headless,
 				use_vision=not args.no_vision,
 				use_serp=args.use_serp,
+				browser=args.browser,
 				enable_memory=args.enable_memory,
 				memory_interval=args.memory_interval,
 				max_actions_per_step=args.max_actions_per_step,
@@ -2807,6 +3572,7 @@ if __name__ == '__main__':
 				highlight_elements=args.highlight_elements,
 				use_mind2web_judge=args.use_mind2web_judge,
 				use_thinking=not args.no_thinking,
+				gmail_tokens_dict=gmail_tokens_dict,
 			)
 		)
 

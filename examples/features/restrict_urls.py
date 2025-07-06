@@ -12,7 +12,7 @@ from browser_use import Agent
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.llm import ChatOpenAI
 
-llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
+llm = ChatOpenAI(model='gpt-4.1', temperature=0.0)
 task = (
 	"go to google.com and search for openai.com and click on the first link then extract content and scroll down - what's there?"
 )

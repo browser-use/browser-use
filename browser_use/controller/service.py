@@ -566,7 +566,7 @@ Explain the content of the page and that the requested information is not availa
 				return ActionResult(error=msg, include_in_memory=True)
 
 		# File System Actions
-		@self.registry.action('Write content to file_name in file system, use only .md or .txt extensions.')
+		@self.registry.action('Write content to file_name in file system. Allowed extensions are .md, .txt, .json, .csv.')
 		async def write_file(file_name: str, content: str, file_system: FileSystem):
 			result = await file_system.write_file(file_name, content)
 			logger.info(f'💾 {result}')
@@ -581,13 +581,9 @@ Explain the content of the page and that the requested information is not availa
 		@self.registry.action('Read file_name from file system')
 		async def read_file(file_name: str, available_file_paths: list[str], file_system: FileSystem):
 			if available_file_paths and file_name in available_file_paths:
-				import anyio
-
-				async with await anyio.open_file(file_name, 'r') as f:
-					content = await f.read()
-					result = f'Read from file {file_name}.\n<content>\n{content}\n</content>'
+				result = await file_system.read_file(file_name, external_file=True)
 			else:
-				result = file_system.read_file(file_name)
+				result = await file_system.read_file(file_name)
 
 			MAX_MEMORY_SIZE = 1000
 			if len(result) > MAX_MEMORY_SIZE:

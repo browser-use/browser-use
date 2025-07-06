@@ -11,7 +11,7 @@ load_dotenv()
 from browser_use import Agent
 from browser_use.llm import ChatOpenAI
 
-llm = ChatOpenAI(model='gpt-4o')
+llm = ChatOpenAI(model='gpt-4.1')
 
 initial_actions = [
 	{'go_to_url': {'url': 'https://www.google.com', 'new_tab': True}},
