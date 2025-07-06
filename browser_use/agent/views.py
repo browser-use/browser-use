@@ -55,6 +55,7 @@ class AgentSettings(BaseModel):
 	max_actions_per_step: int = 10
 	use_thinking: bool = True
 	max_history_items: int = 40
+	images_per_step: int = 1
 
 	page_extraction_llm: BaseChatModel | None = None
 	planner_llm: BaseChatModel | None = None
@@ -402,9 +403,20 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		"""Get all unique URLs from history"""
 		return [h.state.url if h.state.url is not None else None for h in self.history]
 
-	def screenshots(self) -> list[str | None]:
+	def screenshots(self, n_last: int | None = None, return_none_if_not_screenshot: bool = True) -> list[str | None]:
 		"""Get all screenshots from history"""
-		return [h.state.screenshot if h.state.screenshot is not None else None for h in self.history]
+		if n_last == 0:
+			return []
+		if n_last is None:
+			if return_none_if_not_screenshot:
+				return [h.state.screenshot if h.state.screenshot is not None else None for h in self.history]
+			else:
+				return [h.state.screenshot for h in self.history if h.state.screenshot is not None]
+		else:
+			if return_none_if_not_screenshot:
+				return [h.state.screenshot if h.state.screenshot is not None else None for h in self.history[-n_last:]]
+			else:
+				return [h.state.screenshot for h in self.history[-n_last:] if h.state.screenshot is not None]
 
 	def action_names(self) -> list[str]:
 		"""Get all action names from history"""

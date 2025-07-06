@@ -9,6 +9,7 @@ from browser_use.agent.message_manager.views import (
 from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.agent.views import (
 	ActionResult,
+	AgentHistoryList,
 	AgentOutput,
 	AgentStepInfo,
 	MessageManagerState,
@@ -106,6 +107,7 @@ class MessageManager:
 		message_context: str | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		max_history_items: int | None = None,
+		images_per_step: int = 1,
 	):
 		self.task = task
 		self.state = state
@@ -115,6 +117,7 @@ class MessageManager:
 		self.available_file_paths = available_file_paths
 		self.use_thinking = use_thinking
 		self.max_history_items = max_history_items
+		self.images_per_step = images_per_step
 
 		assert max_history_items is None or max_history_items > 5, 'max_history_items must be None or greater than 5'
 
@@ -305,12 +308,25 @@ The file system actions do not change the browser state, so I can also click on 
 		use_vision=True,
 		page_filtered_actions: str | None = None,
 		sensitive_data=None,
+		agent_history_list: AgentHistoryList | None = None,  # Pass AgentHistoryList from agent
 	) -> None:
 		"""Add browser state as human message"""
 
 		self._update_agent_history_description(model_output, result, step_info)
 		if sensitive_data:
 			self.sensitive_data_description = self._get_sensitive_data_description(browser_state_summary.url)
+
+		# Extract previous screenshots if we need more than 1 image and have agent history
+		screenshots = []
+		if agent_history_list and self.images_per_step > 1:
+			# Get previous screenshots and filter out None values
+			raw_screenshots = agent_history_list.screenshots(n_last=self.images_per_step - 1, return_none_if_not_screenshot=False)
+			screenshots = [s for s in raw_screenshots if s is not None]
+
+		# add current screenshot to the end
+		if browser_state_summary.screenshot:
+			screenshots.append(browser_state_summary.screenshot)
+
 		# otherwise add state message and result to next message (which will not stay in memory)
 		assert browser_state_summary
 		state_message = AgentMessagePrompt(
@@ -324,6 +340,7 @@ The file system actions do not change the browser state, so I can also click on 
 			page_filtered_actions=page_filtered_actions,
 			sensitive_data=self.sensitive_data_description,
 			available_file_paths=self.available_file_paths,
+			screenshots=screenshots,
 		).get_user_message(use_vision)
 
 		self._add_message_with_type(state_message)

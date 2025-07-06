@@ -531,6 +531,7 @@ async def run_agent_with_browser(
 	planner_interval: int = 1,
 	use_thinking: bool = True,
 	gmail_tokens_dict: dict[str, str] | None = None,
+	images_per_step: int = 1,
 ) -> tuple[AgentHistoryList, str]:
 	"""Run agent with the browser session"""
 	# Create controller, optionally with SERP search, structured output, and Gmail 2FA support
@@ -578,6 +579,7 @@ async def run_agent_with_browser(
 		planner_llm=planner_llm,
 		planner_interval=planner_interval,
 		use_thinking=use_thinking,
+		images_per_step=images_per_step,
 		source='eval_platform',
 		calculate_cost=True,
 		register_new_step_callback=new_step_callback,
@@ -711,6 +713,7 @@ async def run_task_with_semaphore(
 	use_thinking: bool = True,
 	gmail_tokens_dict: dict[str, str] | None = None,
 	judge_repeat_count: int = 1,
+	images_per_step: int = 1,
 ) -> dict:
 	"""Clean pipeline approach for running tasks"""
 	task_start_time = time.time()
@@ -877,6 +880,7 @@ async def run_task_with_semaphore(
 								planner_interval,
 								use_thinking,
 								gmail_tokens_dict,
+								images_per_step,
 							),
 							timeout=1000,
 						)
@@ -1150,6 +1154,7 @@ async def run_multiple_tasks(
 	use_thinking: bool = True,
 	gmail_tokens_dict: dict[str, str] | None = None,
 	judge_repeat_count: int = 1,
+	images_per_step: int = 1,
 ) -> dict:
 	"""
 	Run multiple tasks in parallel and evaluate results.
@@ -1233,6 +1238,7 @@ async def run_multiple_tasks(
 					use_thinking=use_thinking,
 					gmail_tokens_dict=gmail_tokens_dict,
 					judge_repeat_count=judge_repeat_count,
+					images_per_step=images_per_step,
 				)
 				for task in tasks_to_run
 			),
@@ -1330,6 +1336,7 @@ async def run_evaluation_pipeline(
 	use_thinking: bool = True,
 	gmail_tokens_dict: dict[str, str] | None = None,
 	judge_repeat_count: int = 1,
+	images_per_step: int = 1,
 ) -> dict:
 	"""
 	Complete evaluation pipeline that handles Laminar setup and task execution in the same event loop
@@ -1386,6 +1393,7 @@ async def run_evaluation_pipeline(
 		use_thinking=use_thinking,
 		gmail_tokens_dict=gmail_tokens_dict,
 		judge_repeat_count=judge_repeat_count,
+		images_per_step=images_per_step,
 	)
 
 
@@ -1437,6 +1445,12 @@ if __name__ == '__main__':
 		type=int,
 		default=1,
 		help='Number of times to repeat the judge evaluation for each task (averages over multiple judgments)',
+	)
+	parser.add_argument(
+		'--images-per-step',
+		type=int,
+		default=1,
+		help='Number of screenshots to include per step (1=current only, 2=current+previous, etc.)',
 	)
 	parser.add_argument(
 		'--test-case', type=str, default='OnlineMind2Web', help='Name of the test case to fetch (default: OnlineMind2Web)'
@@ -1650,6 +1664,7 @@ if __name__ == '__main__':
 		'planner_interval': args.planner_interval,
 		'include_result': args.include_result,
 		'judge_repeat_count': args.judge_repeat_count,
+		'images_per_step': args.images_per_step,
 	}
 
 	run_data = {
@@ -1837,6 +1852,7 @@ if __name__ == '__main__':
 				use_thinking=not args.no_thinking,
 				gmail_tokens_dict=gmail_tokens_dict,
 				judge_repeat_count=args.judge_repeat_count,
+				images_per_step=args.images_per_step,
 			)
 		)
 

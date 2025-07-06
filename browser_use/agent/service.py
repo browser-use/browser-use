@@ -157,6 +157,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_actions_per_step: int = 10,
 		use_thinking: bool = True,
 		max_history_items: int = 40,
+		images_per_step: int = 1,
 		page_extraction_llm: BaseChatModel | None = None,
 		planner_llm: BaseChatModel | None = None,
 		planner_interval: int = 1,  # Run planner every N steps
@@ -225,6 +226,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			max_actions_per_step=max_actions_per_step,
 			use_thinking=use_thinking,
 			max_history_items=max_history_items,
+			images_per_step=images_per_step,
 			page_extraction_llm=page_extraction_llm,
 			planner_llm=planner_llm,
 			planner_interval=planner_interval,
@@ -308,6 +310,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			message_context=self.settings.message_context,
 			sensitive_data=sensitive_data,
 			max_history_items=self.settings.max_history_items,
+			images_per_step=self.settings.images_per_step,
 		)
 
 		if isinstance(browser, BrowserSession):
@@ -649,6 +652,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				use_vision=self.settings.use_vision,
 				page_filtered_actions=page_filtered_actions if page_filtered_actions else None,
 				sensitive_data=self.sensitive_data,
+				agent_history_list=self.state.history,  # Pass AgentHistoryList for screenshots
 			)
 
 			# Run planner at specified intervals if planner is configured

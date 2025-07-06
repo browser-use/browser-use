@@ -79,6 +79,7 @@ class AgentMessagePrompt:
 		max_clickable_elements_length: int = 40000,
 		sensitive_data: str | None = None,
 		available_file_paths: list[str] | None = None,
+		screenshots: list[str] | None = None,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
@@ -91,6 +92,7 @@ class AgentMessagePrompt:
 		self.max_clickable_elements_length: int = max_clickable_elements_length
 		self.sensitive_data: str | None = sensitive_data
 		self.available_file_paths: list[str] | None = available_file_paths
+		self.screenshots = screenshots or []
 		assert self.browser_state
 
 	def _get_browser_state_description(self) -> str:
@@ -199,19 +201,21 @@ Interactive elements from top layer of the current page inside the viewport{trun
 			state_description += 'For this page, these additional actions are available:\n'
 			state_description += self.page_filtered_actions + '\n'
 
-		if self.browser_state.screenshot and use_vision is True:
-			# Format message for vision model
-			return UserMessage(
-				content=[
-					ContentPartTextParam(text=state_description),
+		if use_vision is True and self.screenshots:
+			# Start with text description
+			content_parts: list[ContentPartTextParam | ContentPartImageParam] = [ContentPartTextParam(text=state_description)]
+			for screenshot in self.screenshots:
+				# Add previous screenshots first (chronologically ordered)
+				content_parts.append(
 					ContentPartImageParam(
 						image_url=ImageURL(
-							url=f'data:image/png;base64,{self.browser_state.screenshot}',
+							url=f'data:image/png;base64,{screenshot}',
 							media_type='image/png',
 						),
-					),
-				]
-			)
+					)
+				)
+
+			return UserMessage(content=content_parts)
 
 		return UserMessage(content=state_description)
 
