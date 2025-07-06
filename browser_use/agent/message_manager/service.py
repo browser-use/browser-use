@@ -247,8 +247,12 @@ The file system actions do not change the browser state, so I can also click on 
 				logger.debug(f'Added extracted_content to action_results: {action_result.extracted_content}')
 
 			if action_result.error:
-				action_results += f'Action {idx + 1}/{result_len}: {action_result.error[:200]}\n'
-				logger.debug(f'Added error to action_results: {action_result.error[:200]}')
+				if len(action_result.error) > 200:
+					error_text = action_result.error[:100] + '...' + action_result.error[-100:]
+				else:
+					error_text = action_result.error
+				action_results += f'Action {idx + 1}/{result_len}: {error_text}\n'
+				logger.debug(f'Added error to action_results: {error_text}')
 
 		if action_results:
 			action_results = f'Action Results:\n{action_results}'

@@ -98,7 +98,9 @@ class DomService:
 		}
 
 		try:
+			self.logger.debug(f'🔧 Starting JavaScript DOM analysis for {self.page.url[:50]}...')
 			eval_page: dict = await self.page.evaluate(self.js_code, args)
+			self.logger.debug('✅ JavaScript DOM analysis completed')
 		except Exception as e:
 			self.logger.error('Error evaluating JavaScript: %s', e)
 			raise
@@ -128,7 +130,10 @@ class DomService:
 				# processed_nodes,
 			)
 
-		return await self._construct_dom_tree(eval_page)
+		self.logger.debug('🔄 Starting Python DOM tree construction...')
+		result = await self._construct_dom_tree(eval_page)
+		self.logger.debug('✅ Python DOM tree construction completed')
+		return result
 
 	@time_execution_async('--construct_dom_tree')
 	async def _construct_dom_tree(

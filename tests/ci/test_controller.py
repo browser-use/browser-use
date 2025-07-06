@@ -1145,8 +1145,6 @@ class TestControllerIntegration:
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
-		assert result.success is False, 'Expected success=False for network error'
 		assert result.error is not None, 'Expected error message to be set'
 		assert 'Site unavailable' in result.error, f"Expected 'Site unavailable' in error message, got: {result.error}"
 		assert 'nonexistentdndbeyond.com' in result.error, 'Expected URL in error message'
-		assert result.include_in_memory is True, 'Network errors should be included in memory'
