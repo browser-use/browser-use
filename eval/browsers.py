@@ -141,7 +141,11 @@ async def create_hyperbrowser_session() -> str:
 
 
 async def setup_browser_session(
-	task: Task, headless: bool, highlight_elements: bool = True, browser: str = 'local'
+	task: Task,
+	headless: bool,
+	highlight_elements: bool = True,
+	browser: str = 'local',
+	max_steps: int = 25,
 ) -> BrowserSession:
 	"""Setup browser session for the task"""
 
@@ -215,6 +219,7 @@ async def setup_browser_session(
 		'chromium_sandbox': False,  # running in docker
 		'highlight_elements': highlight_elements,  # Control element highlighting (passed to profile)
 		'keep_alive': True,
+		'timeout': max_steps * 30,
 		# higher timeouts = higher success rates on long tail of slow sites or if on a slow CI server
 		# timeout=60_000,
 		# default_timeout=60_000,

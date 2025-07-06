@@ -796,7 +796,7 @@ async def run_task_with_semaphore(
 
 					browser_session = await run_stage(
 						Stage.SETUP_BROWSER,
-						lambda: setup_browser_session(task, headless, highlight_elements, browser),
+						lambda: setup_browser_session(task, headless, highlight_elements, browser, max_steps_per_task),
 						timeout=120,
 					)
 					task_result.stage_completed(Stage.SETUP_BROWSER)
