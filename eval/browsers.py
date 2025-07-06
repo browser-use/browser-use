@@ -219,7 +219,7 @@ async def setup_browser_session(
 		'chromium_sandbox': False,  # running in docker
 		'highlight_elements': highlight_elements,  # Control element highlighting (passed to profile)
 		'keep_alive': True,
-		'timeout': max_steps * 30,
+		'timeout': max_steps * 30_000,
 		# higher timeouts = higher success rates on long tail of slow sites or if on a slow CI server
 		# timeout=60_000,
 		# default_timeout=60_000,
