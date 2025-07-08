@@ -23,6 +23,7 @@ from browser_use.llm.messages import (
 	SystemMessage,
 	UserMessage,
 )
+from browser_use.observability import observe_debug
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,6 @@ class ErrorCategory(Enum):
 
 	# File System
 	FILE_SYSTEM_MISUSE = 'file_system_misuse'  # Not saving results or tracking progress
-	EXTRACT_DATA_MISUSE = 'extract_data_misuse'  # Wrong usage of extract_structured_data
 
 
 class TaskCategory(Enum):
@@ -114,6 +114,7 @@ def truncate_text(text: str, max_length: int, from_beginning: bool = False) -> s
 		return text[: max_length - 23] + '...[cut for eval]...'
 
 
+@observe_debug()
 def prepare_agent_steps(complete_history: list[dict]) -> list[str]:
 	"""Extract and format agent steps, limiting each to 2000 characters.
 
@@ -180,6 +181,7 @@ def prepare_agent_steps(complete_history: list[dict]) -> list[str]:
 	return last_part[::-1]
 
 
+@observe_debug()
 def are_images_identical(img_path1: str, img_path2: str) -> bool:
 	"""Check if two images are identical by comparing their content."""
 	try:
@@ -200,6 +202,7 @@ def are_images_identical(img_path1: str, img_path2: str) -> bool:
 		return False
 
 
+@observe_debug()
 def filter_images(screenshot_paths: list[str], max_images: int) -> list[str]:
 	"""
 	Filter screenshot paths to:
@@ -231,6 +234,7 @@ def filter_images(screenshot_paths: list[str], max_images: int) -> list[str]:
 	return deduplicated_paths[-max_images:] if len(deduplicated_paths) > max_images else deduplicated_paths
 
 
+@observe_debug()
 async def comprehensive_judge(
 	task: str,
 	complete_history: list[dict],
@@ -342,7 +346,7 @@ The browser-use agent operates in iterative loops receiving structured input:
 
 **FAILURE CONDITIONS (automatically score very low):**
 - Task not completed when it should be completable
-- Blocked by captcha or authentication when avoidable
+- Blocked by captcha or missing authentication 
 - Output format completely wrong or missing
 - Infinite loops or severe technical failures
 - Critical user requirements ignored
@@ -356,7 +360,7 @@ The browser-use agent operates in iterative loops receiving structured input:
 - Notes for the error categories:
 - Use the main error - e.g. if we cant login and thats why we dont have an output we should use the login_failed error category
 - The error category list is sequential - so check if an error before is matching better and use that instead
-- captcha includes traditional captchas, Cloudflare challenges, and any other anti-bot protection systems that block task completion
+- captcha includes traditional captchas, Cloudflare challenges, CloudFront and any other anti-bot protection systems that block task completion like challenges or 403 errors
 - partial_output means we collected some part of the output but some is missing
 - tool_failed means a tool like scrolling or file interaction failed or can be improved because functionality which would be helpful was missing - mention that in the improvement tips
 - infinite_loop means the agent is stuck in a loop and not making progress
@@ -364,7 +368,7 @@ The browser-use agent operates in iterative loops receiving structured input:
 - element_interaction_error means that our extraction of the DOM is not correct. E.g. we missed to detect a crucial button and the agent does not see it with a [index]. This can be verified if you look how we highlight elements in the screenshot.
 - iframe_issues means we dont parse elements in the iframe correctly. E.g. we missed to detect a crucial button and the agent does not see it with a [index]. 
 - impossible_task means the task is impossible to complete because the said is down or information is missing
-- file_system_misuse means using read_file/write_file for short tasks when direct output would be appropriate. NOTE: extract_structured_data automatically saves to files as part of its core functionality - this is NOT file system misuse and expected behavior.
+- file_system_misuse means using read_file/write_file for short tasks when direct output would be appropriate. Important NOTE: extract_structured_data alone is not a file system misuse. This is allowed even for short tasks.
 
 
 **Improvement Tips (Actionable Developer Guidance):**
@@ -384,7 +388,7 @@ Examples:
 Respond with EXACTLY this JSON structure (no additional text before or after):
 
 {{
-    "task_summary": "One sentence summary of what the task was trying to accomplish",
+    "task_summary": "One sentence summary of what the task. This only includes the input task and nothing from the agent.",
     "reasoning": "Detailed analysis covering: what went well, what didn't work, trajectory quality assessment, tool usage evaluation, output quality review, and overall user satisfaction prediction",
     "error_categories": ["error1", "error2"],
     "final_score": 75,
@@ -438,6 +442,7 @@ Evaluate this agent execution given the criteria and respond with the exact JSON
 		return create_fallback_result(task, str(e))
 
 
+@observe_debug()
 def parse_judge_response(result_dict: dict, task: str) -> JudgeResult:
 	"""Parse the LLM response into a structured JudgeResult."""
 	try:
@@ -465,6 +470,7 @@ def parse_judge_response(result_dict: dict, task: str) -> JudgeResult:
 		return create_fallback_result(task, 'Failed to parse structured response')
 
 
+@observe_debug()
 def create_fallback_result(task: str, error_msg: str) -> JudgeResult:
 	"""Create a fallback result when evaluation fails."""
 	return JudgeResult(
@@ -476,6 +482,7 @@ def create_fallback_result(task: str, error_msg: str) -> JudgeResult:
 	)
 
 
+@observe_debug()
 async def judge_with_retry(
 	task: str,
 	complete_history: list[dict],
@@ -521,6 +528,104 @@ async def judge_with_retry(
 	return create_fallback_result(task, 'Max retries exceeded without proper error handling')
 
 
+async def judge_with_repeat_and_average(
+	task: str,
+	complete_history: list[dict],
+	final_result: str,
+	last_message: str,
+	screenshot_paths: list[str],
+	model: BaseChatModel,
+	judge_repeat_count: int = 1,
+	max_retries: int = 3,
+	max_images: int = 10,
+) -> JudgeResult:
+	"""
+	Run the judge multiple times and average the results.
+
+	Args:
+		task: The original task description
+		complete_history: Full execution history with steps and results
+		final_result: The final result returned to the user
+		last_message: The agent's final message/output before completion
+		screenshot_paths: List of screenshot file paths from execution
+		model: The LLM model to use for evaluation
+		judge_repeat_count: Number of times to repeat the judge evaluation (averages over multiple judgments)
+		max_retries: Maximum number of retry attempts per judge run
+		max_images: Maximum number of images to include in evaluation
+
+	Returns:
+		JudgeResult with averaged scores and merged feedback
+	"""
+	if judge_repeat_count <= 1:
+		# Single evaluation - use existing logic
+		return await judge_with_retry(
+			task, complete_history, final_result, last_message, screenshot_paths, model, max_retries, max_images
+		)
+
+	logger.info(f'Running {judge_repeat_count} judge evaluations in parallel for averaging')
+
+	# Create tasks for parallel execution
+	judge_tasks = []
+	for i in range(judge_repeat_count):
+		task_coro = judge_with_retry(
+			task, complete_history, final_result, last_message, screenshot_paths, model, max_retries, max_images
+		)
+		judge_tasks.append(task_coro)
+
+	# Run all judge evaluations in parallel
+	logger.info(f'Starting {len(judge_tasks)} parallel judge evaluations...')
+	results = await asyncio.gather(*judge_tasks, return_exceptions=True)
+
+	# Process results and filter out exceptions
+	evaluations: list[JudgeResult] = []
+	for i, result in enumerate(results):
+		if isinstance(result, Exception):
+			logger.warning(f'Judge evaluation {i + 1} failed: {result}')
+		elif isinstance(result, JudgeResult):
+			evaluations.append(result)
+			logger.info(f'Judge evaluation {i + 1} completed successfully with score: {result.final_score}')
+		else:
+			logger.warning(f'Judge evaluation {i + 1} returned unexpected type: {type(result)}')
+
+	if not evaluations or len(evaluations) == 0:
+		return create_fallback_result(task, 'All judge evaluations failed')
+
+	logger.info(f'Averaging {len(evaluations)} successful evaluations')
+
+	# Calculate averaged score
+	avg_score = sum(eval.final_score for eval in evaluations) / len(evaluations)
+
+	# Merge error categories (keep unique)
+	all_error_categories = []
+	for eval in evaluations:
+		all_error_categories.extend(eval.error_categories)
+	unique_error_categories = list(set(all_error_categories))  # Remove duplicates
+
+	# Merge improvement tips (keep unique)
+	all_improvement_tips = []
+	for eval in evaluations:
+		all_improvement_tips.extend(eval.improvement_tips)
+	unique_improvement_tips = list(set(all_improvement_tips))  # Remove duplicates
+
+	# concat reasoning with 1. and 2....
+	reasoning = ''
+	for j, eval in enumerate(evaluations):
+		reasoning += f'JUDGE {j + 1} SCORE: {eval.final_score}\n{eval.reasoning}\n'
+
+	max_diff = (
+		max(evaluations, key=lambda x: x.final_score).final_score - min(evaluations, key=lambda x: x.final_score).final_score
+	)
+	reasoning += f'MAX DIFF: {max_diff}\n'
+	# Create averaged result
+	return JudgeResult(
+		task_summary=evaluations[0].task_summary,
+		reasoning=reasoning,
+		error_categories=unique_error_categories,
+		final_score=int(avg_score),
+		improvement_tips=unique_improvement_tips,
+	)
+
+
 def _read_result_file(result_file: Path) -> dict[str, Any]:
 	"""Helper function to read result file synchronously."""
 	with open(result_file) as f:
@@ -534,12 +639,21 @@ def _write_result_file(result_file: Path, result_data: dict[str, Any]) -> None:
 
 
 # Integration helper function
-async def evaluate_task_with_comprehensive_judge(task_folder: Path, model: BaseChatModel, max_images: int = 10) -> dict[str, Any]:
+@observe_debug()
+async def evaluate_task_with_comprehensive_judge(
+	task_folder: Path, model: BaseChatModel, max_images: int = 10, judge_repeat_count: int = 1
+) -> dict[str, Any]:
 	"""
 	Evaluate a task result using the comprehensive judge system.
 
-	Returns a dictionary with both the old format for compatibility
-	and the new comprehensive analysis.
+	Args:
+		task_folder: Path to the task result folder
+		model: The LLM model to use for evaluation
+		max_images: Maximum number of images to include in evaluation
+		judge_repeat_count: Number of times to repeat the judge evaluation (averages over multiple judgments)
+
+	Returns:
+		Dictionary with both the old format for compatibility and the new comprehensive analysis.
 	"""
 	result_file = task_folder / 'result.json'
 	if not result_file.exists():
@@ -568,14 +682,15 @@ async def evaluate_task_with_comprehensive_judge(task_folder: Path, model: BaseC
 		last_message = result_data.get('last_message', '')
 		screenshot_paths = result_data.get('screenshot_paths', [])
 
-		# Run comprehensive evaluation
-		judge_result = await judge_with_retry(
+		# Run comprehensive evaluation with repeat and averaging
+		judge_result = await judge_with_repeat_and_average(
 			task=task,
 			complete_history=complete_history,
 			final_result=final_result,
 			last_message=last_message,
 			screenshot_paths=screenshot_paths,
 			model=model,
+			judge_repeat_count=judge_repeat_count,
 			max_images=max_images,
 		)
 

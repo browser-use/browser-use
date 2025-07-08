@@ -12,7 +12,7 @@ from browser_use.agent.service import Agent
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.llm import ChatOpenAI
 
-llm = ChatOpenAI(model='gpt-4o', temperature=0.0)
+llm = ChatOpenAI(model='gpt-4.1', temperature=0.0)
 
 
 async def main():

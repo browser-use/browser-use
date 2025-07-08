@@ -20,6 +20,7 @@ from browser_use.controller.registry.views import (
 )
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
+from browser_use.observability import observe_debug
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.utils import match_url_with_domain_pattern, time_execution_async
 
@@ -308,6 +309,7 @@ class Registry(Generic[Context]):
 
 		return decorator
 
+	@observe_debug(name='execute_action')
 	@time_execution_async('--execute_action')
 	async def execute_action(
 		self,
@@ -369,14 +371,14 @@ class Registry(Generic[Context]):
 				return await action.function(params=validated_params, **special_context)
 			except Exception as e:
 				# Retry once if it's a page error
-				logger.warning(f'⚠️ Action {action_name}() failed: {type(e).__name__}: {e}, trying one more time...')
-				special_context['page'] = browser_session and await browser_session.get_current_page()
-				try:
-					return await action.function(params=validated_params, **special_context)
-				except Exception as retry_error:
-					raise RuntimeError(
-						f'Action {action_name}() failed: {type(e).__name__}: {e} (page may have closed or navigated away mid-action)'
-					) from retry_error
+				# logger.warning(f'⚠️ Action {action_name}() failed: {type(e).__name__}: {e}, trying one more time...')
+				# special_context['page'] = browser_session and await browser_session.get_current_page()
+				# try:
+				# 	return await action.function(params=validated_params, **special_context)
+				# except Exception as retry_error:
+				# 	raise RuntimeError(
+				# 		f'Action {action_name}() failed: {type(e).__name__}: {e} (page may have closed or navigated away mid-action)'
+				# 	) from retry_error
 				raise
 
 		except ValueError as e:

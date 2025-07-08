@@ -55,6 +55,7 @@ class AgentSettings(BaseModel):
 	max_actions_per_step: int = 10
 	use_thinking: bool = True
 	max_history_items: int = 40
+	images_per_step: int = 1
 
 	page_extraction_llm: BaseChatModel | None = None
 	planner_llm: BaseChatModel | None = None
@@ -62,6 +63,7 @@ class AgentSettings(BaseModel):
 	is_planner_reasoning: bool = False  # type: ignore
 	extend_planner_system_message: str | None = None
 	calculate_cost: bool = False
+	include_tool_call_examples: bool = False
 
 
 class AgentState(BaseModel):
@@ -193,24 +195,25 @@ class AgentOutput(BaseModel):
 	def type_with_custom_actions_no_thinking(custom_actions: type[ActionModel]) -> type[AgentOutput]:
 		"""Extend actions with custom actions and exclude thinking field"""
 
-		# Create a base model without thinking, but inheriting from AgentOutput
-		# Override only the fields we need to change
-		model_ = create_model(
+		class AgentOutputNoThinking(AgentOutput):
+			@classmethod
+			def model_json_schema(cls, **kwargs):
+				schema = super().model_json_schema(**kwargs)
+				del schema['properties']['thinking']
+				return schema
+
+		model = create_model(
 			'AgentOutput',
-			__base__=AgentOutput,
-			thinking=(
-				type(None),  # type: ignore
-				Field(default=None, exclude=True),
-			),  # Exclude thinking from schema
+			__base__=AgentOutputNoThinking,
 			action=(
 				list[custom_actions],  # type: ignore
 				Field(..., description='List of actions to execute', json_schema_extra={'min_items': 1}),
 			),
-			__module__=AgentOutput.__module__,
+			__module__=AgentOutputNoThinking.__module__,
 		)
 
-		model_.__doc__ = 'AgentOutput model with custom actions'
-		return model_
+		model.__doc__ = 'AgentOutput model with custom actions'
+		return model
 
 
 class AgentHistory(BaseModel):
@@ -401,9 +404,20 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		"""Get all unique URLs from history"""
 		return [h.state.url if h.state.url is not None else None for h in self.history]
 
-	def screenshots(self) -> list[str | None]:
+	def screenshots(self, n_last: int | None = None, return_none_if_not_screenshot: bool = True) -> list[str | None]:
 		"""Get all screenshots from history"""
-		return [h.state.screenshot if h.state.screenshot is not None else None for h in self.history]
+		if n_last == 0:
+			return []
+		if n_last is None:
+			if return_none_if_not_screenshot:
+				return [h.state.screenshot if h.state.screenshot is not None else None for h in self.history]
+			else:
+				return [h.state.screenshot for h in self.history if h.state.screenshot is not None]
+		else:
+			if return_none_if_not_screenshot:
+				return [h.state.screenshot if h.state.screenshot is not None else None for h in self.history[-n_last:]]
+			else:
+				return [h.state.screenshot for h in self.history[-n_last:] if h.state.screenshot is not None]
 
 	def action_names(self) -> list[str]:
 		"""Get all action names from history"""

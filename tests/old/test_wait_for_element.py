@@ -21,7 +21,7 @@ from browser_use.browser import BrowserProfile, BrowserSession
 load_dotenv()
 
 # Initialize language model and controller.
-llm = ChatOpenAI(model='gpt-4o')
+llm = ChatOpenAI(model='gpt-4.1')
 controller = Controller()
 
 

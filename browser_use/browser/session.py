@@ -17,6 +17,7 @@ from typing import Any, Self
 from urllib.parse import urlparse
 
 from browser_use.config import CONFIG
+from browser_use.observability import observe_debug
 from browser_use.utils import _log_pretty_path, _log_pretty_url
 
 from .utils import normalize_url
@@ -44,6 +45,7 @@ from browser_use.browser.types import (
 from browser_use.browser.views import (
 	BrowserError,
 	BrowserStateSummary,
+	PageInfo,
 	TabInfo,
 	URLNotAllowedError,
 )
@@ -264,6 +266,7 @@ class BrowserSession(BaseModel):
 	# 	"""
 	# 	return getattr(self.browser_profile, key)
 
+	@observe_debug(name='browser.session.start')
 	async def start(self) -> Self:
 		"""
 		Starts the browser session by either connecting to an existing browser or launching a new one.
@@ -672,6 +675,7 @@ class BrowserSession(BaseModel):
 			self.logger.info(f'🎥 Saving browser context trace to {final_trace_path}...')
 			await self.browser_context.tracing.stop(path=str(final_trace_path))
 
+	@observe_debug(name='connect_or_launch_browser')
 	async def _connect_or_launch_browser(self) -> None:
 		"""Try all connection methods in order of precedence."""
 		# Try connecting via passed objects first
@@ -697,6 +701,7 @@ class BrowserSession(BaseModel):
 		# Launch new browser as last resort
 		await self.setup_new_browser_context()
 
+	@observe_debug(ignore_output=True)
 	@retry(
 		wait=2,  # wait 2s between each attempt to take a screenshot
 		retries=2,  # try up to 2 times to take the screenshot
@@ -740,6 +745,7 @@ class BrowserSession(BaseModel):
 		assert screenshot_b64, 'Playwright page.screenshot() returned empty base64'
 		return screenshot_b64
 
+	@observe_debug(name='setup_playwright')
 	@retry(
 		wait=1,
 		retries=3,
@@ -1020,7 +1026,7 @@ class BrowserSession(BaseModel):
 				async with asyncio.timeout(self.browser_profile.timeout / 1000):
 					assert self.playwright is not None, 'playwright instance is None'
 					self.browser_context = await self.playwright.chromium.launch_persistent_context(
-						**self.browser_profile.kwargs_for_launch_persistent_context().model_dump()
+						**self.browser_profile.kwargs_for_launch_persistent_context().model_dump(mode='json')
 					)
 			except Exception as e:
 				# show a nice logger hint explaining what went wrong with the user_data_dir
@@ -1224,6 +1230,7 @@ class BrowserSession(BaseModel):
 	# 	self.browser_profile.user_data_dir = fork_path
 	# 	self.browser_profile.prepare_user_data_dir()
 
+	@observe_debug(name='setup_current_page_change_listeners')
 	async def _setup_current_page_change_listeners(self) -> None:
 		# Uses a combination of:
 		# - visibilitychange events
@@ -1348,6 +1355,7 @@ class BrowserSession(BaseModel):
 					f'⚠️ Failed to add visibility listener to existing tab, is it crashed or ignoring CDP commands?: [{page_idx}]{page.url}: {type(e).__name__}: {e}'
 				)
 
+	@observe_debug(name='setup_viewports', metadata={'browser_profile': '{{browser_profile}}'})
 	async def _setup_viewports(self) -> None:
 		"""Resize any existing page viewports to match the configured size, set up storage_state, permissions, geolocation, etc."""
 
@@ -1468,6 +1476,7 @@ class BrowserSession(BaseModel):
 		if self.browser_profile.keep_alive is None:
 			self.browser_profile.keep_alive = keep_alive
 
+	@observe_debug(name='is_connected')
 	async def is_connected(self, restart: bool = True) -> bool:
 		"""
 		Check if the browser session has valid, connected browser and context objects.
@@ -1552,6 +1561,7 @@ class BrowserSession(BaseModel):
 		if not already_disconnected:
 			self.logger.debug(f'⚰️ Browser {self._connection_str} disconnected')
 
+	@observe_debug(name='prepare_user_data_dir')
 	def prepare_user_data_dir(self) -> None:
 		"""Create and unlock the user data dir and ensure all recording paths exist."""
 
@@ -1604,6 +1614,7 @@ class BrowserSession(BaseModel):
 					self.logger.error(f'❌ Failed to create parent directory for {path_name} {path_value}: {e}')
 
 	# --- Tab management ---
+	@observe_debug(name='get_current_page', ignore_input=True)
 	async def get_current_page(self) -> Page:
 		"""Get the current page + ensure it's not None / closed"""
 
@@ -1673,8 +1684,10 @@ class BrowserSession(BaseModel):
 		page = await self.get_current_page()
 		await page.wait_for_selector(selector, state='visible', timeout=timeout)
 
+	@observe_debug(name='remove_highlights', ignore_output=True, ignore_input=True)
 	@require_initialization
 	@time_execution_async('--remove_highlights')
+	@retry(timeout=5, retries=0)
 	async def remove_highlights(self):
 		"""
 		Removes all highlight overlays and labels created by the highlightElement function.
@@ -1737,7 +1750,7 @@ class BrowserSession(BaseModel):
 				if self.browser_profile.downloads_path:
 					try:
 						# Try short-timeout expect_download to detect a file download has been been triggered
-						async with page.expect_download(timeout=5000) as download_info:
+						async with page.expect_download(timeout=5_000) as download_info:
 							await click_func()
 						download = await download_info.value
 						# Determine file path
@@ -1774,7 +1787,7 @@ class BrowserSession(BaseModel):
 					await self._check_and_handle_navigation(page)
 
 			try:
-				return await perform_click(lambda: element_handle and element_handle.click(timeout=1500))
+				return await perform_click(lambda: element_handle and element_handle.click(timeout=1_500))
 			except URLNotAllowedError as e:
 				raise e
 			except Exception as e:
@@ -1787,7 +1800,7 @@ class BrowserSession(BaseModel):
 						raise Exception(f'Element no longer exists in DOM after context loss: {repr(element_node)}')
 					# Try click again with fresh element
 					try:
-						return await perform_click(lambda: element_handle.click(timeout=1500))
+						return await perform_click(lambda: element_handle.click(timeout=1_500))
 					except Exception:
 						# Fall back to JavaScript click
 						return await perform_click(lambda: page.evaluate('(el) => el.click()', element_handle))
@@ -1890,7 +1903,7 @@ class BrowserSession(BaseModel):
 		except Exception as e:
 			if 'timeout' in str(e).lower():
 				self.logger.warning(
-					f"⚠️ Loading {_log_pretty_url(normalized_url)} didn't finish after {(self.browser_profile.default_navigation_timeout or 30000) / 1000}s, continuing anyway..."
+					f"⚠️ Loading {_log_pretty_url(normalized_url)} didn't finish after {(self.browser_profile.default_navigation_timeout or 30_000) / 1000}s, continuing anyway..."
 				)
 				# Don't re-raise timeout errors - the page is likely still usable and will continue to load in the background
 			else:
@@ -2312,6 +2325,7 @@ class BrowserSession(BaseModel):
 		if elapsed > 1:
 			self.logger.debug(f'💤 Page network traffic calmed down after {now - start_time:.2f} seconds')
 
+	@observe_debug(name='wait_for_page_and_frames_load')
 	async def _wait_for_page_and_frames_load(self, timeout_overwrite: float | None = None):
 		"""
 		Ensures page is fully loaded before continuing.
@@ -2339,22 +2353,8 @@ class BrowserSession(BaseModel):
 		elapsed = time.time() - start_time
 		remaining = max((timeout_overwrite or self.browser_profile.minimum_wait_page_load_time) - elapsed, 0)
 
-		# just for logging, calculate how much data was downloaded
-		try:
-			bytes_used = await page.evaluate("""
-				() => {
-					let total = 0;
-					for (const entry of performance.getEntriesByType('resource')) {
-						total += entry.transferSize || 0;
-					}
-					for (const nav of performance.getEntriesByType('navigation')) {
-						total += nav.transferSize || 0;
-					}
-					return total;
-				}
-			""")
-		except Exception:
-			bytes_used = None
+		# Skip expensive performance API logging - can cause significant delays on complex pages
+		bytes_used = None
 
 		try:
 			tab_idx = self.tabs.index(page)
@@ -2420,6 +2420,7 @@ class BrowserSession(BaseModel):
 				self.logger.error(f'⛔️ Failed to go back after detecting non-allowed URL: {type(e).__name__}: {e}')
 			raise URLNotAllowedError(f'Navigation to non-allowed URL: {page.url}')
 
+	@observe_debug()
 	async def navigate_to(self, url: str):
 		"""Navigate the agent's current tab to a URL"""
 
@@ -2431,14 +2432,21 @@ class BrowserSession(BaseModel):
 			raise BrowserError(f'Navigation to non-allowed URL: {normalized_url}')
 
 		page = await self.get_current_page()
-		await page.goto(normalized_url)
 		try:
-			await page.wait_for_load_state()
+			await asyncio.wait_for(page.evaluate('1'), timeout=1)
 		except Exception as e:
-			self.logger.warning(
-				f'⚠️ Page {_log_pretty_url(page.url)} failed to fully load after navigation: {type(e).__name__}: {e}'
-			)
+			# new tab to recover
+			self.logger.warning(f'🚨 Page {_log_pretty_url(normalized_url)} is unresponsive, creating new tab...')
+			page = await self.create_new_tab(normalized_url)
+			return
 
+		try:
+			await asyncio.wait_for(page.goto(normalized_url), timeout=0.1)
+		except Exception as e:
+			# NOTE we dont have to wait since we will wait later when we get the new page state
+			pass
+
+	@observe_debug()
 	async def refresh_page(self):
 		"""Refresh the agent's current page"""
 
@@ -2454,7 +2462,7 @@ class BrowserSession(BaseModel):
 		try:
 			# 10 ms timeout
 			page = await self.get_current_page()
-			await page.go_back(timeout=10, wait_until='domcontentloaded')
+			await page.go_back(timeout=10_000, wait_until='domcontentloaded')
 
 			# await self._wait_for_page_and_frames_load(timeout_overwrite=1.0)
 		except Exception as e:
@@ -2465,7 +2473,7 @@ class BrowserSession(BaseModel):
 		"""Navigate the agent's tab forward in browser history"""
 		try:
 			page = await self.get_current_page()
-			await page.go_forward(timeout=10, wait_until='domcontentloaded')
+			await page.go_forward(timeout=10_000, wait_until='domcontentloaded')
 		except Exception as e:
 			# Continue even if its not fully loaded, because we wait later for the page to load
 			self.logger.debug(f'⏭️ Error during go_forward: {type(e).__name__}: {e}')
@@ -2579,9 +2587,11 @@ class BrowserSession(BaseModel):
 		structure = await page.evaluate(debug_script)
 		return structure
 
+	@observe_debug(ignore_output=True)
 	@time_execution_async('--get_state_summary')
 	@require_initialization
 	async def get_state_summary(self, cache_clickable_elements_hashes: bool) -> BrowserStateSummary:
+		self.logger.debug('🔄 Starting get_state_summary...')
 		"""Get a summary of the current browser state
 
 		This method builds a BrowserStateSummary object that captures the current state
@@ -2621,6 +2631,55 @@ class BrowserSession(BaseModel):
 
 		return self._cached_browser_state_summary
 
+	@observe_debug(name='get_minimal_state_summary')
+	@require_initialization
+	@time_execution_async('--get_minimal_state_summary')
+	async def get_minimal_state_summary(self) -> BrowserStateSummary:
+		"""Get basic page info without DOM processing, but try to capture screenshot"""
+		from browser_use.browser.views import BrowserStateSummary
+		from browser_use.dom.views import DOMElementNode
+
+		page = await self.get_current_page()
+
+		# Get basic info - no DOM parsing to avoid errors
+		url = getattr(page, 'url', 'unknown')
+
+		# Try to get title safely
+		try:
+			# timeout after 2 seconds
+			title = await asyncio.wait_for(page.title(), timeout=2.0)
+		except Exception:
+			title = 'Page Load Error'
+
+		# Try to get tabs info safely
+		try:
+			# timeout after 2 seconds
+			tabs_info = await asyncio.wait_for(self.get_tabs_info(), timeout=2.0)
+		except Exception:
+			tabs_info = []
+
+		# Create minimal DOM element for error state
+		minimal_element_tree = DOMElementNode(
+			tag_name='body',
+			xpath='/body',
+			attributes={},
+			children=[],
+			is_visible=True,
+			parent=None,
+		)
+
+		return BrowserStateSummary(
+			element_tree=minimal_element_tree,  # Minimal DOM tree
+			selector_map={},  # Empty selector map
+			url=url,
+			title=title,
+			tabs=tabs_info,
+			pixels_above=0,
+			pixels_below=0,
+			browser_errors=[f'Page state retrieval failed, minimal recovery applied for {url}'],
+		)
+
+	@observe_debug(name='get_updated_state')
 	async def _get_updated_state(self, focus_element: int = -1) -> BrowserStateSummary:
 		"""Update and return state."""
 
@@ -2629,21 +2688,50 @@ class BrowserSession(BaseModel):
 		# Check if current page is still valid, if not switch to another available page
 		try:
 			# Test if page is still accessible
-			await page.evaluate('1')
+			# NOTE: This also happens on invalid urls like www.sadfdsafdssdafd.com
+			await asyncio.wait_for(page.evaluate('1'), timeout=1.0)
 		except Exception as e:
-			self.logger.debug(f'👋 Current page is no longer accessible: {type(e).__name__}: {e}')
-			raise BrowserError('Browser closed: no valid pages available')
+			self.logger.debug(f'👋 Current page is not accessible: {type(e).__name__}: {e}')
+			raise BrowserError('Page is not accessible')
 
 		try:
+			self.logger.debug('🧹 Removing highlights...')
 			await self.remove_highlights()
+			self.logger.debug('🌳 Starting DOM processing...')
 			dom_service = DomService(page, logger=self.logger)
-			content = await dom_service.get_clickable_elements(
-				focus_element=focus_element,
-				viewport_expansion=self.browser_profile.viewport_expansion,
-				highlight_elements=self.browser_profile.highlight_elements,
-			)
+			try:
+				content = await asyncio.wait_for(
+					dom_service.get_clickable_elements(
+						focus_element=focus_element,
+						viewport_expansion=self.browser_profile.viewport_expansion,
+						highlight_elements=self.browser_profile.highlight_elements,
+					),
+					timeout=45.0,  # 45 second timeout for DOM processing - generous for complex pages
+				)
+				self.logger.debug('✅ DOM processing completed')
+			except TimeoutError:
+				self.logger.warning(f'DOM processing timed out after 45 seconds for {page.url}')
+				self.logger.warning('🔄 Falling back to minimal DOM state to allow basic navigation...')
 
+				# Create minimal DOM state for basic navigation
+				from browser_use.dom.views import DOMElementNode
+
+				minimal_element_tree = DOMElementNode(
+					tag_name='body',
+					xpath='/body',
+					attributes={},
+					children=[],
+					is_visible=True,
+					parent=None,
+				)
+
+				from browser_use.dom.views import DOMState
+
+				content = DOMState(element_tree=minimal_element_tree, selector_map={})
+
+			self.logger.debug('📋 Getting tabs info...')
 			tabs_info = await self.get_tabs_info()
+			self.logger.debug('✅ Tabs info completed')
 
 			# Get all cross-origin iframes within the page and open them in new tabs
 			# mark the titles of the new tabs so the LLM knows to check them for additional content
@@ -2667,24 +2755,50 @@ class BrowserSession(BaseModel):
 			# 	)
 
 			try:
+				self.logger.debug('📸 Starting screenshot...')
+				# Reasonable timeout for screenshot
 				screenshot_b64 = await self.take_screenshot()
+				self.logger.debug('✅ Screenshot completed')
 			except Exception as e:
-				self.logger.warning(f'Failed to capture screenshot: {type(e).__name__}: {e}')
+				self.logger.warning(f'Screenshot failed for {page.url}: {type(e).__name__}')
 				screenshot_b64 = None
 
-			pixels_above, pixels_below = await self.get_scroll_info(page)
+			# Get comprehensive page information
+			page_info = await self.get_page_info(page)
+			try:
+				self.logger.debug('📏 Getting scroll info...')
+				pixels_above, pixels_below = await asyncio.wait_for(self.get_scroll_info(page), timeout=5.0)
+				self.logger.debug('✅ Scroll info completed')
+			except Exception as e:
+				self.logger.warning(f'Failed to get scroll info: {type(e).__name__}')
+				pixels_above, pixels_below = 0, 0
+
+			try:
+				title = await self._get_page_title(page)
+			except Exception:
+				title = 'Title unavailable'
+
+			# Check if this is a minimal fallback state
+			browser_errors = []
+			if not content.selector_map:  # Empty selector map indicates fallback state
+				browser_errors.append(
+					f'DOM processing timed out for {page.url} - using minimal state. Basic navigation still available via go_to_url, scroll, and search actions.'
+				)
 
 			self.browser_state_summary = BrowserStateSummary(
 				element_tree=content.element_tree,
 				selector_map=content.selector_map,
 				url=page.url,
-				title=await page.title(),
+				title=title,
 				tabs=tabs_info,
 				screenshot=screenshot_b64,
+				page_info=page_info,
 				pixels_above=pixels_above,
 				pixels_below=pixels_below,
+				browser_errors=browser_errors,
 			)
 
+			self.logger.debug('✅ get_state_summary completed successfully')
 			return self.browser_state_summary
 		except Exception as e:
 			self.logger.error(f'❌ Failed to update browser_state_summary: {type(e).__name__}: {e}')
@@ -2694,6 +2808,7 @@ class BrowserSession(BaseModel):
 			raise
 
 	# region - Browser Actions
+	@observe_debug(name='take_screenshot')
 	@require_initialization
 	@time_execution_async('--take_screenshot')
 	async def take_screenshot(self, full_page: bool = False) -> str:
@@ -2704,41 +2819,59 @@ class BrowserSession(BaseModel):
 
 		# page has already loaded by this point, this is just extra for previous action animations/frame loads to settle
 		page = await self.get_current_page()
+
 		try:
-			await page.wait_for_load_state(timeout=5000)
+			await page.wait_for_load_state(timeout=5_000)
 		except Exception:
 			pass
 
 		try:
-			# Always use our clipping approach - never pass full_page=True to Playwright
-			# This prevents timeouts on very long pages
+			# Check if browser process is still responsive
+			if self.browser_pid:
+				try:
+					proc = psutil.Process(self.browser_pid)
+					if not proc.is_running():
+						self.logger.warning('🚨 Browser process died, restarting...')
+						self._reset_connection_state()
+						await self.start()
+						page = await self.get_current_page()
+				except psutil.NoSuchProcess:
+					self.logger.warning('🚨 Browser process not found, restarting...')
+					self._reset_connection_state()
+					await self.start()
+					page = await self.get_current_page()
 
-			# 1. Get current viewport and page dimensions including scroll position
-			# dimensions = await page.evaluate("""() => {
-			# 	return {
-			# 		width: window.innerWidth,
-			# 		height: window.innerHeight,
-			# 		pageWidth: document.documentElement.scrollWidth,
-			# 		pageHeight: document.documentElement.scrollHeight,
-			# 		devicePixelRatio: window.devicePixelRatio || 1,
-			# 		scrollX: window.pageXOffset || document.documentElement.scrollLeft || 0,
-			# 		scrollY: window.pageYOffset || document.documentElement.scrollTop || 0
-			# 	};
-			# }""")
-
-			# When full_page=False, screenshot captures the current viewport
-			# The clip parameter uses viewport coordinates (0,0 is top-left of viewport)
-			# We just need to ensure the clip dimensions don't exceed our maximums
-			# clip_width = min(dimensions['width'], MAX_SCREENSHOT_WIDTH)
-			# clip_height = min(dimensions['height'], MAX_SCREENSHOT_HEIGHT)
-
-			# Take screenshot using our retry-decorated method
-			# Don't pass clip parameter - let Playwright capture the full viewport
-			# It will automatically handle cases where viewport extends beyond page content
+			# Take screenshot with comprehensive crash detection
 			return await self._take_screenshot_hybrid(page)
 		except Exception as e:
-			self.logger.error(f'❌ Failed to take screenshot after retries: {type(e).__name__}: {e}')
-			raise
+			# Check for specific crash-related errors
+			error_str = str(e).lower()
+			if any(
+				crash_indicator in error_str
+				for crash_indicator in [
+					'target crashed',
+					'target closed',
+					'context has been closed',
+					'page has been closed',
+					'crashed target',
+					'page is closed',
+				]
+			):
+				self.logger.warning(f'🚨 Detected crashed target during screenshot: {type(e).__name__}: {e}')
+				self.logger.warning('🔄 Attempting browser restart...')
+				try:
+					self._reset_connection_state()
+					await self.start()
+					page = await self.get_current_page()
+					return await self._take_screenshot_hybrid(page)
+				except Exception as restart_error:
+					self.logger.error(
+						f'❌ Failed to restart browser after crash: {type(restart_error).__name__}: {restart_error}'
+					)
+					raise Exception(f'Browser crashed and restart failed: {restart_error}')
+			else:
+				self.logger.error(f'❌ Failed to take screenshot: {type(e).__name__}: {e}')
+				raise
 
 	# region - User Actions
 
@@ -3136,10 +3269,10 @@ class BrowserSession(BaseModel):
 
 			# Ensure element is ready for input
 			try:
-				await element_handle.wait_for_element_state('stable', timeout=1000)
+				await element_handle.wait_for_element_state('stable', timeout=1_000)
 				is_visible = await self._is_visible(element_handle)
 				if is_visible:
-					await element_handle.scroll_into_view_if_needed(timeout=1000)
+					await element_handle.scroll_into_view_if_needed(timeout=1_000)
 			except Exception:
 				pass
 
@@ -3234,6 +3367,7 @@ class BrowserSession(BaseModel):
 
 		return page
 
+	@observe_debug(name='create_new_tab')
 	@time_execution_async('--create_new_tab')
 	async def create_new_tab(self, url: str | None = None) -> Page:
 		"""Create a new tab and optionally navigate to a URL"""
@@ -3304,7 +3438,12 @@ class BrowserSession(BaseModel):
 			f'Starting agent {str(self.id)[-4:]}...'  # set up by self._show_dvd_screensaver_loading_animation()
 		)
 		for page in self.browser_context.pages:
-			page_title = await page.title()
+			try:
+				# sometimes this fails, because the page is not accessible
+				page_title = await self._get_page_title(page)
+			except Exception:
+				page_title = 'Title unavailable'
+
 			if page.url == 'about:blank' and page != self.agent_current_page and page_title == title_of_our_setup_tab:
 				await page.close()
 				self.human_current_page = (  # in case we just closed the human's tab, fix the refs
@@ -3318,19 +3457,21 @@ class BrowserSession(BaseModel):
 		return new_page
 
 	# region - Helper methods for easier access to the DOM
-
+	@observe_debug(name='get_selector_map')
 	@require_initialization
 	async def get_selector_map(self) -> SelectorMap:
 		if self._cached_browser_state_summary is None:
 			return {}
 		return self._cached_browser_state_summary.selector_map
 
+	@observe_debug(name='get_element_by_index')
 	@require_initialization
 	async def get_element_by_index(self, index: int) -> ElementHandle | None:
 		selector_map = await self.get_selector_map()
 		element_handle = await self.get_locate_element(selector_map[index])
 		return element_handle
 
+	@observe_debug(name='is_file_input_by_index')
 	async def is_file_input_by_index(self, index: int) -> bool:
 		try:
 			selector_map = await self.get_selector_map()
@@ -3418,6 +3559,62 @@ class BrowserSession(BaseModel):
 		pixels_above = scroll_y
 		pixels_below = total_height - (scroll_y + viewport_height)
 		return pixels_above, pixels_below
+
+	@require_initialization
+	async def get_page_info(self, page: Page) -> PageInfo:
+		"""Get comprehensive page size and scroll information."""
+		# Get all page dimensions and scroll info in one JavaScript call for efficiency
+		page_data = await page.evaluate("""() => {
+			return {
+				// Current viewport dimensions
+				viewport_width: window.innerWidth,
+				viewport_height: window.innerHeight,
+				
+				// Total page dimensions
+				page_width: Math.max(
+					document.documentElement.scrollWidth,
+					document.body.scrollWidth || 0
+				),
+				page_height: Math.max(
+					document.documentElement.scrollHeight,
+					document.body.scrollHeight || 0
+				),
+				
+				// Current scroll position
+				scroll_x: window.scrollX || window.pageXOffset || document.documentElement.scrollLeft || 0,
+				scroll_y: window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0
+			};
+		}""")
+
+		# Calculate derived values
+		viewport_width = page_data['viewport_width']
+		viewport_height = page_data['viewport_height']
+		page_width = page_data['page_width']
+		page_height = page_data['page_height']
+		scroll_x = page_data['scroll_x']
+		scroll_y = page_data['scroll_y']
+
+		# Calculate scroll information
+		pixels_above = scroll_y
+		pixels_below = max(0, page_height - (scroll_y + viewport_height))
+		pixels_left = scroll_x
+		pixels_right = max(0, page_width - (scroll_x + viewport_width))
+
+		# Create PageInfo object with comprehensive information
+		page_info = PageInfo(
+			viewport_width=viewport_width,
+			viewport_height=viewport_height,
+			page_width=page_width,
+			page_height=page_height,
+			scroll_x=scroll_x,
+			scroll_y=scroll_y,
+			pixels_above=pixels_above,
+			pixels_below=pixels_below,
+			pixels_left=pixels_left,
+			pixels_right=pixels_right,
+		)
+
+		return page_info
 
 	@require_initialization
 	async def _scroll_container(self, pixels: int) -> None:

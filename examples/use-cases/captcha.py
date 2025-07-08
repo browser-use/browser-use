@@ -26,7 +26,7 @@ if not os.getenv('OPENAI_API_KEY'):
 
 
 async def main():
-	llm = ChatOpenAI(model='gpt-4o')
+	llm = ChatOpenAI(model='gpt-4.1')
 	agent = Agent(
 		task='go to https://captcha.com/demos/features/captcha-demo.aspx and solve the captcha',
 		llm=llm,

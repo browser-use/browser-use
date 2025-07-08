@@ -15,7 +15,7 @@ import asyncio
 from browser_use import Agent, AgentHistoryList
 from browser_use.llm import ChatOpenAI
 
-llm = ChatOpenAI(model='gpt-4o')
+llm = ChatOpenAI(model='gpt-4.1')
 
 browser_session = BrowserSession(browser_profile=BrowserProfile(headless=True, disable_security=True))
 

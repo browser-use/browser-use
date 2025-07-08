@@ -10,7 +10,7 @@ jobs:
     runs-on: 
       group: eval
       labels: eval-2-core-500
-    timeout-minutes: 360
+    timeout-minutes: 60 # 
     env:
       IN_DOCKER: 'true'
       ANONYMIZED_TELEMETRY: 'false'
@@ -23,10 +23,16 @@ jobs:
       EVALUATION_TOOL_URL: ${{ secrets.EVALUATION_TOOL_URL }}
       EVALUATION_TOOL_SECRET_KEY: ${{ secrets.EVALUATION_TOOL_SECRET_KEY }}
       ANCHOR_BROWSER_API_KEY: ${{ secrets.ANCHOR_BROWSER_API_KEY }}
+      BRIGHTDATA_CDP_URL: ${{ secrets.BRIGHTDATA_CDP_URL }}
+      HYPERBROWSER_API_KEY: ${{ secrets.HYPERBROWSER_API_KEY }}
+      BROWSERBASE_API_KEY: ${{ secrets.BROWSERBASE_API_KEY }}
+      BROWSERBASE_PROJECT_ID: ${{ secrets.BROWSERBASE_PROJECT_ID }}
       SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
       LMNR_PROJECT_API_KEY: ${{ secrets.LMNR_PROJECT_API_KEY }}
+      BROWSER_USE_LOGGING_LEVEL: ${{ github.event.client_payload.script_args.browser_logging_level || secrets.BROWSER_USE_LOGGING_LEVEL || 'info' }}
       EVAL_START_INDEX: ${{ github.event.client_payload.script_args.start_index }}
-
+      TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+    
     steps:
       - name: System Info and Resource Check
         run: |
@@ -203,6 +209,7 @@ jobs:
           DEFAULT_MEMORY_INTERVAL="10"
           DEFAULT_MAX_ACTIONS_PER_STEP="10"
           DEFAULT_PLANNER_INTERVAL="1"
+          DEFAULT_JUDGE_REPEAT_COUNT="1"
           DEFAULT_TEST_CASE="OnlineMind2Web"
 
           # Extract and apply defaults using parameter expansion
@@ -242,6 +249,9 @@ jobs:
           PLANNER_INTERVAL="${{ github.event.client_payload.script_args.planner_interval }}"
           PLANNER_INTERVAL="${PLANNER_INTERVAL:-$DEFAULT_PLANNER_INTERVAL}"
 
+          JUDGE_REPEAT_COUNT="${{ github.event.client_payload.script_args.judge_repeat_count }}"
+          JUDGE_REPEAT_COUNT="${JUDGE_REPEAT_COUNT:-$DEFAULT_JUDGE_REPEAT_COUNT}"
+
           TEST_CASE="${{ github.event.client_payload.script_args.test_case }}"
           TEST_CASE="${TEST_CASE:-$DEFAULT_TEST_CASE}"
 
@@ -249,14 +259,23 @@ jobs:
           USER_MESSAGE="${{ github.event.client_payload.script_args.user_message }}"
           DEVELOPER_ID="${{ github.event.client_payload.script_args.developer_id }}"
           PLANNER_MODEL="${{ github.event.client_payload.script_args.planner_model }}"
+          BROWSER="${{ github.event.client_payload.script_args.browser }}"
+          IMAGES_PER_STEP="${{ github.event.client_payload.script_args.images_per_step }}"
           RUN_ID="${{ github.event.client_payload.script_args.run_id }}"
           LAMINAR_EVAL_ID="${{ github.event.client_payload.script_args.laminar_eval_id }}"
-          GMAIL_2FA_TOKEN="${{ github.event.client_payload.script_args.gmail_2fa_token }}"
+          # Pass raw GitHub Actions object to Python - no parsing in bash
+          GMAIL_2FA_TOKENS_RAW='${{ github.event.client_payload.script_args.gmail_2fa_tokens }}'
 
-          # Debug Gmail 2FA token
-          echo "DEBUG: gmail_2fa_token from payload: '${{ github.event.client_payload.script_args.gmail_2fa_token }}'"
-          echo "DEBUG: GMAIL_2FA_TOKEN variable: '$GMAIL_2FA_TOKEN'"
-          echo "DEBUG: GMAIL_2FA_TOKEN length: ${#GMAIL_2FA_TOKEN}"
+          # Browser timeout and stealth parameters
+          DEFAULT_NAVIGATION_TIMEOUT="${{ github.event.client_payload.script_args.default_navigation_timeout }}"
+          DEFAULT_TIMEOUT="${{ github.event.client_payload.script_args.default_timeout }}"
+          MINIMUM_WAIT_PAGE_LOAD_TIME="${{ github.event.client_payload.script_args.minimum_wait_page_load_time }}"
+          WAIT_FOR_NETWORK_IDLE_PAGE_LOAD_TIME="${{ github.event.client_payload.script_args.wait_for_network_idle_page_load_time }}"
+          MAXIMUM_WAIT_PAGE_LOAD_TIME="${{ github.event.client_payload.script_args.maximum_wait_page_load_time }}"
+          WAIT_BETWEEN_ACTIONS="${{ github.event.client_payload.script_args.wait_between_actions }}"
+          STEALTH="${{ github.event.client_payload.script_args.stealth }}"
+          BLOCK_IMAGES="${{ github.event.client_payload.script_args.block_images }}"
+          BLOCK_CSS="${{ github.event.client_payload.script_args.block_css }}" 
 
           # Single task mode parameters
           TASK_ID="${{ github.event.client_payload.script_args.task_id }}"
@@ -277,6 +296,7 @@ jobs:
             "--memory-interval" "$MEMORY_INTERVAL"
             "--max-actions-per-step" "$MAX_ACTIONS_PER_STEP"
             "--planner-interval" "$PLANNER_INTERVAL"
+            "--judge-repeat-count" "$JUDGE_REPEAT_COUNT"
             "--test-case" "$TEST_CASE"
           )
 
@@ -284,28 +304,39 @@ jobs:
           [[ "${{ github.event.client_payload.script_args.no_vision }}" == "true" ]] && CMD_ARGS+=("--no-vision")
           [[ "$HEADLESS" == "true" ]] && CMD_ARGS+=("--headless")
           [[ "${{ github.event.client_payload.script_args.use_serp }}" == "true" ]] && CMD_ARGS+=("--use-serp")
-          [[ "${{ github.event.client_payload.script_args.use_anchor }}" == "true" ]] && CMD_ARGS+=("--use-anchor")
           [[ "${{ github.event.client_payload.script_args.enable_memory }}" == "true" ]] && CMD_ARGS+=("--enable-memory")
           [[ "${{ github.event.client_payload.script_args.validate_output }}" == "true" ]] && CMD_ARGS+=("--validate-output")
           [[ "${{ github.event.client_payload.script_args.include_result }}" == "true" ]] && CMD_ARGS+=("--include-result")
           [[ "${{ github.event.client_payload.script_args.highlight_elements }}" == "false" ]] && CMD_ARGS+=("--no-highlight-elements")
           [[ "${{ github.event.client_payload.script_args.use_mind2web_judge }}" == "true" ]] && CMD_ARGS+=("--use-mind2web-judge")
           [[ "$THINKING" == "false" ]] && CMD_ARGS+=("--no-thinking")
+          [[ "$STEALTH" == "true" ]] && CMD_ARGS+=("--stealth")
+          [[ "$BLOCK_IMAGES" == "true" ]] && CMD_ARGS+=("--block-images")
+          [[ "$BLOCK_CSS" == "true" ]] && CMD_ARGS+=("--block-css")
 
           # Add optional string parameters
           [[ -n "$USER_MESSAGE" ]] && CMD_ARGS+=("--user-message" "$USER_MESSAGE")
           [[ -n "$DEVELOPER_ID" ]] && CMD_ARGS+=("--developer-id" "$DEVELOPER_ID")
           [[ -n "$PLANNER_MODEL" ]] && CMD_ARGS+=("--planner-model" "$PLANNER_MODEL")
+          [[ -n "$BROWSER" ]] && CMD_ARGS+=("--browser" "$BROWSER")
+          [[ -n "$IMAGES_PER_STEP" ]] && CMD_ARGS+=("--images-per-step" "$IMAGES_PER_STEP")
           [[ -n "$RUN_ID" ]] && CMD_ARGS+=("--run-id" "$RUN_ID")
           [[ -n "$LAMINAR_EVAL_ID" ]] && CMD_ARGS+=("--laminar-eval-id" "$LAMINAR_EVAL_ID")
+          [[ -n "$BROWSER_LOGGING_LEVEL" ]] && CMD_ARGS+=("--browser-logging-level" "$BROWSER_LOGGING_LEVEL")
           
-          # Add Gmail 2FA parameters
-          if [[ -n "$GMAIL_2FA_TOKEN" ]]; then
-            echo "DEBUG: Adding Gmail 2FA token to command (length: ${#GMAIL_2FA_TOKEN})"
-            echo "DEBUG: Gmail 2FA token first 20 chars: ${GMAIL_2FA_TOKEN:0:20}..."
-            CMD_ARGS+=("--gmail-2fa-access-token" "$GMAIL_2FA_TOKEN")
+          # Add browser timeout parameters
+          [[ -n "$DEFAULT_NAVIGATION_TIMEOUT" ]] && CMD_ARGS+=("--default-navigation-timeout" "$DEFAULT_NAVIGATION_TIMEOUT")
+          [[ -n "$DEFAULT_TIMEOUT" ]] && CMD_ARGS+=("--default-timeout" "$DEFAULT_TIMEOUT")
+          [[ -n "$MINIMUM_WAIT_PAGE_LOAD_TIME" ]] && CMD_ARGS+=("--minimum-wait-page-load-time" "$MINIMUM_WAIT_PAGE_LOAD_TIME")
+          [[ -n "$WAIT_FOR_NETWORK_IDLE_PAGE_LOAD_TIME" ]] && CMD_ARGS+=("--wait-for-network-idle-page-load-time" "$WAIT_FOR_NETWORK_IDLE_PAGE_LOAD_TIME")
+          [[ -n "$MAXIMUM_WAIT_PAGE_LOAD_TIME" ]] && CMD_ARGS+=("--maximum-wait-page-load-time" "$MAXIMUM_WAIT_PAGE_LOAD_TIME")
+          [[ -n "$WAIT_BETWEEN_ACTIONS" ]] && CMD_ARGS+=("--wait-between-actions" "$WAIT_BETWEEN_ACTIONS")
+          
+          if [[ -n "$GMAIL_2FA_TOKENS_RAW" && "$GMAIL_2FA_TOKENS_RAW" != "null" ]]; then
+            echo "DEBUG: ✅ GMAIL_2FA_TOKENS_RAW conditional passed - adding tokens to command"
+            CMD_ARGS+=("--gmail-2fa-tokens" "$GMAIL_2FA_TOKENS_RAW")
           else
-            echo "DEBUG: Gmail 2FA token is empty or not set, skipping"
+            echo "DEBUG: ❌ GMAIL_2FA_TOKENS_RAW conditional failed - tokens are empty, null, or not set, skipping"
           fi
           
           # Add single task mode parameters
@@ -319,7 +350,7 @@ jobs:
           # Handle xvfb wrapper if needed - construct differently to preserve arguments
           if [[ "$HEADLESS" == "false" ]]; then
             # For xvfb, we need to construct the command differently to preserve argument structure
-            XVFB_ARGS=("xvfb-run" "--auto-servernum" "--server-args=-screen 0 1280x1024x24")
+            XVFB_ARGS=("xvfb-run" "--auto-servernum" "--server-args=-screen 0 1920x1080x24")
             FULL_CMD_ARGS=("${XVFB_ARGS[@]}" "${CMD_ARGS[@]}")
             printf -v CMD_STRING '%q ' "${FULL_CMD_ARGS[@]}"
           else
@@ -329,6 +360,7 @@ jobs:
 
           echo "FULL_COMMAND=$CMD_STRING" >> $GITHUB_OUTPUT
           echo "::notice title=Eval Command::$CMD_STRING"
+          
 
       - name: Start Resource Monitoring
         run: |
@@ -369,14 +401,6 @@ jobs:
           echo "Starting time: $(date)"
           echo "Use Mind2Web Judge: ${{ github.event.client_payload.script_args.use_mind2web_judge }}"
           
-          # Debug: Show what we're about to execute
-          echo "=== COMMAND DEBUGGING ==="
-          FULL_CMD="${{ steps.eval_command.outputs.FULL_COMMAND }}"
-          echo "Full command string length: ${#FULL_CMD}"
-          echo "Command contains gmail-2fa-access-token: $(echo "$FULL_CMD" | grep -c 'gmail-2fa-access-token' || echo '0')"
-          echo "Command preview (first 500 chars): ${FULL_CMD:0:500}..."
-          echo "=========================="
-          echo "============================"
           
           # Set up signal handlers for graceful interruption handling
           set -e

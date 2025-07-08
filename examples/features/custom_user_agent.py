@@ -19,7 +19,7 @@ def get_llm(provider: str):
 	if provider == 'anthropic':
 		return ChatAnthropic(model='claude-3-5-sonnet-20240620', temperature=0.0)
 	elif provider == 'openai':
-		return ChatOpenAI(model='gpt-4o', temperature=0.0)
+		return ChatOpenAI(model='gpt-4.1', temperature=0.0)
 
 	else:
 		raise ValueError(f'Unsupported provider: {provider}')

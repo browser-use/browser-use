@@ -1,825 +1,92 @@
-# pyright: reportMissingImports=false
-# ==============================================================================================================
-# Documentation for this evaluation file.
+# ================================================
+# Imports
+# ================================================
 
-# Here is the command to run the evaluation:
-# python eval/service.py --parallel-runs 2 --max-steps 25 --start 0 --end 100 --model llama-4-maverick --eval-model gpt-4.1 --no-vision --eval-group "PRTests" --user-message "message here"
-
-# ==============================================================================================================
-
-
-# ==============================================================================================================
-# This is the LLM as a judge evaluation system from the OSU-NLP Group paper
-# Any adaptiations made should be explicitly stated here:
-# Adaptations:
-# We are using our own wrapper for the OpenAI API
-# This means we changed model.generate to model.invoke. The behavior of the model should be identical.
-# Added a Online_Mind2Web_eval_with_retry wrapper with retry logic in case of API rate limiting or other issues.
-
-
-# @article{xue2025illusionprogressassessingcurrent,
-#       title={An Illusion of Progress? Assessing the Current State of Web Agents},
-#       author={Tianci Xue and Weijian Qi and Tianneng Shi and Chan Hee Song and Boyu Gou and Dawn Song and Huan Sun and Yu Su},
-#       year={2025},
-#       eprint={2504.01382},
-#       archivePrefix={arXiv},
-#       primaryClass={cs.AI},
-#       url={https://arxiv.org/abs/2504.01382},
-# }
-
-# @inproceedings{deng2023mind2web,
-#  author = {Deng, Xiang and Gu, Yu and Zheng, Boyuan and Chen, Shijie and Stevens, Sam and Wang, Boshi and Sun, Huan and Su, Yu},
-#  booktitle = {Advances in Neural Information Processing Systems},
-#  editor = {A. Oh and T. Naumann and A. Globerson and K. Saenko and M. Hardt and S. Levine},
-#  pages = {28091--28114},
-#  publisher = {Curran Associates, Inc.},
-#  title = {Mind2Web: Towards a Generalist Agent for the Web},
-#  url = {https://proceedings.neurips.cc/paper_files/paper/2023/file/5950bf290a1570ea401bf98882128160-Paper-Datasets_and_Benchmarks.pdf},
-#  volume = {36},
-#  year = {2023}
-# }
-# ==============================================================================================================
+import argparse
 import asyncio
 import base64
-import gc
-import io
+import http.client
+import json
 import logging
-import re
-import signal
-import sys
-import threading
+import os
 import time
+from pathlib import Path
 from uuid import UUID
 
 import anyio
-import psutil
-from lmnr import AsyncLaminarClient, Laminar, observe
-from PIL import Image
+from dotenv import load_dotenv
+from lmnr import AsyncLaminarClient, Instruments, Laminar
 from pydantic import BaseModel
 
-from browser_use.llm.anthropic.chat import ChatAnthropic
+from browser_use import ActionResult, Agent, BrowserSession, Controller
+from browser_use.agent.views import AgentHistoryList
 from browser_use.llm.base import BaseChatModel
-from browser_use.llm.google.chat import ChatGoogle
-from browser_use.llm.groq.chat import ChatGroq
-from browser_use.llm.openai.chat import ChatOpenAI
-from eval.utils import create_pydantic_model_from_schema
+from browser_use.observability import observe, observe_debug
 
 MAX_IMAGE = 5
+from eval.browsers import (
+	ANCHOR_BROWSER_API_KEY,
+	BRIGHTDATA_CDP_URL,
+	BROWSERBASE_API_KEY,
+	BROWSERBASE_PROJECT_ID,
+	HYPERBROWSER_API_KEY,
+	setup_browser_session,
+)
+from eval.comprehensive_judge import evaluate_task_with_comprehensive_judge
+from eval.cookie_judge import check_login_cookie_at_step, evaluate_task_with_login_cookie, save_login_cookie_tracking
+from eval.models import SUPPORTED_MODELS, get_llm
+from eval.resource_monitoring import (
+	get_system_resources,
+	log_system_resources,
+	setup_signal_handlers,
+	start_resource_monitoring,
+	stop_resource_monitoring,
+)
+from eval.server import (
+	fetch_auth_distribution_from_server,
+	fetch_tasks_from_server,
+	format_auth_info_for_agent,
+	save_task_result_to_server,
+	send_progress_update,
+	start_new_run,
+)
+from eval.task_types import Stage, StageError, Task, TaskResult
+from eval.utils import get_git_info
+from eval.web_judge import Online_Mind2Web_eval_with_retry
 
+# ================================================
+# Setup Logging
+# ================================================
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s: %(message)s')
 logger = logging.getLogger(__name__)
 
-Laminar.initialize()
-laminar_client = AsyncLaminarClient()
-
-# Global variables for resource monitoring
-_resource_monitor_task = None
-_resource_monitor_stop_event = None
-_graceful_shutdown_initiated = False
-
-
-def get_system_resources():
-	"""Get current system resource usage"""
-	try:
-		# Memory usage
-		memory = psutil.virtual_memory()
-		memory_percent = memory.percent
-		memory_available_gb = memory.available / (1024**3)
-
-		# CPU usage
-		cpu_percent = psutil.cpu_percent(interval=1)
-
-		# Load average (Unix only)
-		try:
-			load_avg = psutil.getloadavg()
-			load_1min = load_avg[0]
-		except (AttributeError, OSError):
-			load_1min = 0.0
-
-		# Process count
-		process_count = len(psutil.pids())
-
-		# Chrome/Browser processes
-		chrome_processes = []
-		python_processes = []
-		for proc in psutil.process_iter(['pid', 'name', 'memory_percent', 'cpu_percent']):
-			try:
-				name = proc.info['name'].lower()
-				if 'chrome' in name or 'chromium' in name:
-					chrome_processes.append(proc.info)
-				elif 'python' in name:
-					python_processes.append(proc.info)
-			except (psutil.NoSuchProcess, psutil.AccessDenied):
-				continue
-
-		return {
-			'memory_percent': memory_percent,
-			'memory_available_gb': memory_available_gb,
-			'cpu_percent': cpu_percent,
-			'load_1min': load_1min,
-			'process_count': process_count,
-			'chrome_process_count': len(chrome_processes),
-			'python_process_count': len(python_processes),
-			'chrome_processes': chrome_processes[:5],  # Top 5 chrome processes
-			'python_processes': python_processes[:5],  # Top 5 python processes
-		}
-	except Exception as e:
-		logger.warning(f'Failed to get system resources: {type(e).__name__}: {e}')
-		return {
-			'memory_percent': 0,
-			'memory_available_gb': 0,
-			'cpu_percent': 0,
-			'load_1min': 0,
-			'process_count': 0,
-			'chrome_process_count': 0,
-			'python_process_count': 0,
-			'chrome_processes': [],
-			'python_processes': [],
-		}
-
-
-def log_system_resources(context: str = ''):
-	"""Log current system resource usage"""
-	resources = get_system_resources()
-	logger.info(f'=== SYSTEM RESOURCES {context} ===')
-	logger.info(f'Memory: {resources["memory_percent"]:.1f}% used, {resources["memory_available_gb"]:.2f}GB available')
-	logger.info(f'CPU: {resources["cpu_percent"]:.1f}%, Load: {resources["load_1min"]:.2f}')
-	logger.info(
-		f'Processes: {resources["process_count"]} total, {resources["chrome_process_count"]} Chrome, {resources["python_process_count"]} Python'
-	)
-
-	if resources['chrome_processes']:
-		logger.info('Top Chrome processes:')
-		for proc in resources['chrome_processes']:
-			logger.info(
-				f'  PID {proc["pid"]}: {proc["name"]} - CPU: {proc["cpu_percent"]:.1f}%, Memory: {proc["memory_percent"]:.1f}%'
-			)
-
-	logger.info('=' * (20 + len(context)))
-
-
-async def start_resource_monitoring(interval: int = 30):
-	"""Start background resource monitoring"""
-	global _resource_monitor_task, _resource_monitor_stop_event
-
-	if _resource_monitor_task is not None:
-		logger.warning('Resource monitoring is already running')
-		return
-
-	_resource_monitor_stop_event = asyncio.Event()
-
-	async def monitor_loop():
-		"""Background monitoring loop"""
-		logger.info(f'Starting resource monitoring (interval: {interval}s)')
-		try:
-			while _resource_monitor_stop_event is not None and not _resource_monitor_stop_event.is_set():
-				try:
-					log_system_resources('MONITOR')
-
-					# Check for concerning resource levels
-					resources = get_system_resources()
-					if resources['memory_percent'] > 85:
-						logger.warning(f'⚠️ HIGH MEMORY USAGE: {resources["memory_percent"]:.1f}%')
-					if resources['cpu_percent'] > 90:
-						logger.warning(f'⚠️ HIGH CPU USAGE: {resources["cpu_percent"]:.1f}%')
-					if resources['chrome_process_count'] > 20:
-						logger.warning(f'⚠️ HIGH CHROME PROCESS COUNT: {resources["chrome_process_count"]}')
-
-					# Force garbage collection periodically
-					if resources['memory_percent'] > 70:
-						logger.info('Running garbage collection due to high memory usage')
-						gc.collect()
-
-				except Exception as e:
-					logger.error(f'Error in resource monitoring: {type(e).__name__}: {e}')
-
-				try:
-					if _resource_monitor_stop_event is not None:
-						await asyncio.wait_for(_resource_monitor_stop_event.wait(), timeout=interval)
-					else:
-						await asyncio.sleep(interval)
-					break  # Event was set, exit loop
-				except TimeoutError:
-					continue  # Timeout reached, continue monitoring
-		except Exception as e:
-			logger.error(f'Resource monitoring loop crashed: {type(e).__name__}: {e}')
-		finally:
-			logger.info('Resource monitoring stopped')
-
-	_resource_monitor_task = asyncio.create_task(monitor_loop())
-
-
-async def stop_resource_monitoring():
-	"""Stop background resource monitoring"""
-	global _resource_monitor_task, _resource_monitor_stop_event
-
-	if _resource_monitor_stop_event is not None:
-		_resource_monitor_stop_event.set()
-
-	if _resource_monitor_task is not None:
-		try:
-			await asyncio.wait_for(_resource_monitor_task, timeout=5.0)
-		except TimeoutError:
-			logger.warning('Resource monitoring task did not stop gracefully')
-			_resource_monitor_task.cancel()
-			try:
-				await _resource_monitor_task
-			except asyncio.CancelledError:
-				pass
-
-		_resource_monitor_task = None
-		_resource_monitor_stop_event = None
-
-
-def setup_signal_handlers():
-	"""Setup signal handlers for graceful shutdown"""
-	global _graceful_shutdown_initiated
-
-	def signal_handler(signum, frame):
-		global _graceful_shutdown_initiated
-		if _graceful_shutdown_initiated:
-			logger.critical('🔥 FORCE EXIT: Second signal received, terminating immediately')
-			sys.exit(1)
-
-		_graceful_shutdown_initiated = True
-		logger.warning(f'⚠️ GRACEFUL SHUTDOWN: Received signal {signum}, initiating graceful shutdown...')
-		log_system_resources('SHUTDOWN')
-
-		# Try to stop resource monitoring
-		try:
-			loop = asyncio.get_event_loop()
-			if loop.is_running():
-				loop.create_task(stop_resource_monitoring())
-		except Exception as e:
-			logger.error(f'Failed to stop resource monitoring during shutdown: {e}')
-
-		# Give some time for cleanup, then force exit
-		def force_exit():
-			time.sleep(10)
-			if _graceful_shutdown_initiated:
-				logger.critical('🔥 FORCE EXIT: Graceful shutdown timeout, terminating')
-				sys.exit(1)
-
-		threading.Thread(target=force_exit, daemon=True).start()
-
-	# Register signal handlers
-	signal.signal(signal.SIGINT, signal_handler)
-	signal.signal(signal.SIGTERM, signal_handler)
-
-
-def encode_image(image):
-	"""Convert a PIL image to base64 string."""
-	if image.mode == 'RGBA':
-		image = image.convert('RGB')
-	buffered = io.BytesIO()
-	image.save(buffered, format='JPEG')
-	return base64.b64encode(buffered.getvalue()).decode('utf-8')
-
-
-async def identify_key_points(task, model):
-	system_msg = """You are an expert tasked with analyzing a given task to identify the key points explicitly stated in the task description.
-
-**Objective**: Carefully analyze the task description and extract the critical elements explicitly mentioned in the task for achieving its goal.
-
-**Instructions**:
-1. Read the task description carefully.
-2. Identify and extract **key points** directly stated in the task description.
-   - A **key point** is a critical element, condition, or step explicitly mentioned in the task description.
-   - Do not infer or add any unstated elements.
-   - Words such as "best," "highest," "cheapest," "latest," "most recent," "lowest," "closest," "highest-rated," "largest," and "newest" must go through the sort function(e.g., the key point should be "Filter by highest").
-
-**Respond with**:
-- **Key Points**: A numbered list of the explicit key points for completing this task, one per line, without explanations or additional details."""
-	prompt = """Task: {task}"""
-	text = prompt.format(task=task)
-	messages = [
-		{'role': 'system', 'content': system_msg},
-		{
-			'role': 'user',
-			'content': [{'type': 'text', 'text': text}],
-		},
-	]
-	response = await model.ainvoke(messages)
-	return response.completion
-
-
-async def judge_image(task, image_path, key_points, model):
-	system_msg = """You are an expert evaluator tasked with determining whether an image contains information about the necessary steps to complete a task.
-
-**Objective**: Analyze the provided image and decide if it shows essential steps or evidence required for completing the task. Use your reasoning to explain your decision before assigning a score.
-
-**Instructions**:
-1. Provide a detailed description of the image, including its contents, visible elements, text (if any), and any notable features.
-
-2. Carefully examine the image and evaluate whether it contains necessary steps or evidence crucial to task completion:  
-- Identify key points that could be relevant to task completion, such as actions, progress indicators, tool usage, applied filters, or step-by-step instructions.  
-- Does the image show actions, progress indicators, or critical information directly related to completing the task?  
-- Is this information indispensable for understanding or ensuring task success?
-- If the image contains partial but relevant information, consider its usefulness rather than dismissing it outright.
-
-3. Provide your response in the following format:  
-- **Reasoning**: Explain your thought process and observations. Mention specific elements in the image that indicate necessary steps, evidence, or lack thereof.  
-- **Score**: Assign a score based on the reasoning, using the following scale:  
-    - **1**: The image does not contain any necessary steps or relevant information.  
-    - **2**: The image contains minimal or ambiguous information, unlikely to be essential.  
-    - **3**: The image includes some relevant steps or hints but lacks clarity or completeness.  
-    - **4**: The image contains important steps or evidence that are highly relevant but not fully comprehensive.  
-    - **5**: The image clearly displays necessary steps or evidence crucial for completing the task.
-
-Respond with:  
-1. **Reasoning**: [Your explanation]  
-2. **Score**: [1-5]"""
-
-	jpg_base64_str = encode_image(Image.open(image_path))
-
-	prompt = """**Task**: {task}
-
-**Key Points for Task Completion**: {key_points}
-
-The snapshot of the web page is shown in the image."""
-	text = prompt.format(task=task, key_points=key_points)
-
-	messages = [
-		{'role': 'system', 'content': system_msg},
-		{
-			'role': 'user',
-			'content': [
-				{'type': 'text', 'text': text},
-				{
-					'type': 'image_url',
-					'image_url': {'url': f'data:image/jpeg;base64,{jpg_base64_str}', 'detail': 'high'},
-				},
-			],
-		},
-	]
-	response = await model.ainvoke(messages)
-	return response.completion
-
-
-async def Online_Mind2Web_eval(task, last_actions, images_path, model, score_threshold):
-	system_msg = """You are an expert in evaluating the performance of a web navigation agent. The agent is designed to help a human user navigate a website to complete a task. Given the user's task, the agent's action history, key points for task completion, some potentially important web pages in the agent's trajectory and their reasons, your goal is to determine whether the agent has completed the task and achieved all requirements.
-
-Your response must strictly follow the following evaluation criteria!
-*Important Evaluation Criteria*:
-1: The filtered results must be displayed correctly. If filters were not properly applied (i.e., missing selection, missing confirmation, or no visible effect in results), the task is not considered successful.
-2: You must carefully check whether these snapshots and action history meet these key points. Ensure that specific filter conditions, such as "best," "highest," "cheapest," "latest," "most recent," "lowest," "closest," "highest-rated," "largest," and "newest" are correctly applied using the filter function(e.g., sort function).
-3: Certain key points or requirements should be applied by the filter. Otherwise, a search with all requirements as input will be deemed a failure since it cannot guarantee that all results meet the requirements!
-4: If the task requires filtering by a specific range of money, years, or the number of beds and bathrooms, the applied filter must exactly match the given requirement. Any deviation results in failure. To ensure the task is successful, the applied filter must precisely match the specified range without being too broad or too narrow.
-Examples of Failure Cases:
-- If the requirement is less than $50, but the applied filter is less than $25, it is a failure.
-- If the requirement is $1500-$2500, but the applied filter is $2000-$2500, it is a failure.
-- If the requirement is $25-$200, but the applied filter is $0-$200, it is a failure.
-- If the required years are 2004-2012, but the filter applied is 2001-2012, it is a failure.
-- If the required years are before 2015, but the applied filter is 2000-2014, it is a failure.
-- If the task requires exactly 2 beds, but the filter applied is 2+ beds, it is a failure.
-5: Some tasks require a submission action or a display of results to be considered successful.
-6: If the retrieved information is invalid or empty(e.g., No match was found), but the agent has correctly performed the required action, it should still be considered successful.
-7: If the current page already displays all available items, then applying a filter is not necessary. As long as the agent selects items that meet the requirements (e.g., the cheapest or lowest price), the task is still considered successful.
-
-*IMPORTANT*
-Format your response into two lines as shown below:
-
-Thoughts: <your thoughts and reasoning process based on double-checking each key points and the evaluation criteria>
-Status: "success" or "failure"
-"""
-	prompt = """User Task: {task}
-
-Key Points: {key_points}
-
-Action History:
-{last_actions}
-
-The potentially important snapshots of the webpage in the agent's trajectory and their reasons:
-{thoughts}"""
-
-	key_points = await identify_key_points(task, model)
-	key_points = key_points.replace('\n\n', '\n')
-
-	try:
-		key_points = key_points.split('**Key Points**:')[1]
-		key_points = '\n'.join(line.lstrip() for line in key_points.splitlines())
-	except IndexError:
-		key_points = key_points.split('Key Points:')[-1]
-		key_points = '\n'.join(line.lstrip() for line in key_points.splitlines())
-
-	tasks = [judge_image(task, image_path, key_points, model) for image_path in images_path]
-	image_responses = await asyncio.gather(*tasks)
-
-	whole_content_img = []
-	whole_thoughts = []
-	record = []
-	pattern = r'[1-5]'
-	for response, image_path in zip(image_responses, images_path):
-		try:
-			score_text = response.split('Score')[1]
-			thought = response.split('**Reasoning**:')[-1].strip().lstrip('\n').split('\n\n')[0].replace('\n', ' ')
-			score = re.findall(pattern, score_text)[0]
-			record.append({'Response': response, 'Score': int(score)})
-		except Exception as e:
-			logger.error(f'Error processing response: {type(e).__name__}: {e}')
-			score = 0
-			record.append({'Response': response, 'Score': 0})
-
-		if int(score) >= score_threshold:
-			jpg_base64_str = encode_image(Image.open(image_path))
-			whole_content_img.append(
-				{'type': 'image_url', 'image_url': {'url': f'data:image/png;base64,{jpg_base64_str}', 'detail': 'high'}}
-			)
-			if thought != '':
-				whole_thoughts.append(thought)
-
-	whole_content_img = whole_content_img[:MAX_IMAGE]
-	whole_thoughts = whole_thoughts[:MAX_IMAGE]
-	if len(whole_content_img) == 0:
-		prompt = """User Task: {task}
-
-Key Points: {key_points}
-
-Action History:
-{last_actions}"""
-	text = prompt.format(
-		task=task,
-		last_actions='\n'.join(f'{i + 1}. {action}' for i, action in enumerate(last_actions)),
-		key_points=key_points,
-		thoughts='\n'.join(f'{i + 1}. {thought}' for i, thought in enumerate(whole_thoughts)),
-	)
-
-	messages = [
-		{'role': 'system', 'content': system_msg},
-		{'role': 'user', 'content': [{'type': 'text', 'text': text}] + whole_content_img},
-	]
-	return messages, text, system_msg, record, key_points
-
-
-async def Online_Mind2Web_eval_with_retry(task, last_actions, images_path, model, score_threshold, max_retries=3):
-	"""
-	Wrapper for Online_Mind2Web_eval with retry logic.
-
-	Args:
-	    task: The task description
-	    last_actions: list of actions taken
-	    images_path: list of image paths
-	    model: The model to use for evaluation
-	    score_threshold: Score threshold for image filtering
-	    max_retries: Maximum number of retry attempts
-
-	Returns:
-	    Tuple of (messages, text, system_msg, record, key_points) or None if all retries fail
-	"""
-	for attempt in range(max_retries):
-		try:
-			return await Online_Mind2Web_eval(task, last_actions, images_path, model, score_threshold)
-		except Exception as e:
-			if attempt == max_retries - 1:  # Last attempt
-				logger.error(f'Failed to evaluate after {max_retries} attempts. Error: {type(e).__name__}: {str(e)}')
-				raise
-			logger.warning(f'Attempt {attempt + 1} failed. Retrying... Error: {type(e).__name__}: {str(e)}')
-			await asyncio.sleep(2**attempt)  # Exponential backoff
-
-
-# ==============================================================================================================
-
-
-# ==============================================================================================================
-# A service for evaluating the performance of the agent
-# ==============================================================================================================
-import argparse
-import http.client
-import json
-import os
-import subprocess
-from dataclasses import dataclass, field
-
-# Define Stage enum and related classes for the pipeline
-from enum import Enum
-from pathlib import Path
-from typing import Any
-
-import requests
-from dotenv import load_dotenv
-
-# Import the new comprehensive judge system (conditional import for backwards compatibility)
-try:
-	from judge_system import evaluate_task_with_comprehensive_judge
-
-	COMPREHENSIVE_JUDGE_AVAILABLE = True
-except ImportError:
-	logger.warning('Comprehensive judge system not available. Only Mind2Web judge will be available.')
-	COMPREHENSIVE_JUDGE_AVAILABLE = False
-
-	async def evaluate_task_with_comprehensive_judge(*args, **kwargs) -> dict[str, Any]:
-		"""Fallback function when comprehensive judge system is not available"""
-		raise ImportError('Comprehensive judge system not available')
-
-
-class Stage(Enum):
-	SETUP_BROWSER = 'setup_browser'
-	RUN_AGENT = 'run_agent'
-	FORMAT_HISTORY = 'format_history'
-	EVALUATE = 'evaluate'
-	SAVE_SERVER = 'save_server'
-
-
-@dataclass
-class StageError:
-	stage: Stage
-	error_type: str
-	message: str
-
-
-@dataclass
-class TaskResult:
-	task_id: str
-	run_id: str
-	confirmed_task: str
-	task: Any
-	max_steps: int
-	laminar_link: str | None = None
-	github_workflow_url: str | None = None
-	completed_stages: set[Stage] = field(default_factory=set)
-	stage_data: dict[Stage, Any] = field(default_factory=dict)
-	errors: list = field(default_factory=list)
-	cancelled: bool = False
-	critical_error: str | None = None
-	server_save_failed: bool = False
-
-	def stage_completed(self, stage: Stage, data: Any = None):
-		self.completed_stages.add(stage)
-		if data is not None:
-			self.stage_data[stage] = data
-
-	def stage_failed(self, stage: Stage, error: StageError):
-		self.errors.append(error)
-
-	def mark_cancelled(self):
-		self.cancelled = True
-
-	def mark_critical_error(self, error: str):
-		self.critical_error = error
-
-	def mark_server_save_failed(self, error: str):
-		self.server_save_failed = True
-		self.errors.append(StageError(Stage.SAVE_SERVER, 'server_save', error))
-
-	def has_execution_data(self) -> bool:
-		return Stage.RUN_AGENT in self.completed_stages or Stage.FORMAT_HISTORY in self.completed_stages
-
-	@property
-	def server_payload(self) -> dict[str, Any]:
-		"""Generate payload for server submission"""
-		payload = {
-			'taskId': self.task_id,
-			'runId': self.run_id,
-			'task': self.confirmed_task,
-			'completed_stages': [stage.value for stage in self.completed_stages],
-			'has_errors': len(self.errors) > 0,
-			'cancelled': self.cancelled,
-			'critical_error': self.critical_error,
-			'server_save_failed': self.server_save_failed,
-			'laminarTaskLink': self.laminar_link,
-			'githubWorkflowUrl': self.github_workflow_url,
-		}
-
-		# Add task execution data if available
-		if Stage.FORMAT_HISTORY in self.completed_stages:
-			format_data = self.stage_data.get(Stage.FORMAT_HISTORY, {})
-			logger.info(f'format_data: {format_data}')
-			# log token usage
-			logger.info(f'tokensUsed: {format_data.get("tokensUsed")}')
-			logger.info(f'usage: {format_data.get("usage")}')
-
-			# Handle usage data - convert to JSON string if it's a dict
-			usage_data = format_data.get('usage')
-			if usage_data and isinstance(usage_data, dict):
-				usage_data = json.dumps(usage_data)
-
-			payload.update(
-				{
-					'actionHistory': format_data.get('action_history', []),
-					'finalResultResponse': format_data.get('final_result_response', ''),
-					'selfReportCompleted': format_data.get('self_report_completed', False),
-					'selfReportSuccess': format_data.get('self_report_success', False),
-					'taskDuration': format_data.get('task_duration'),
-					'steps': format_data.get('steps'),
-					'maxSteps': self.max_steps,
-					'tokensUsed': format_data.get('tokensUsed'),
-					'usage': usage_data,  # Add usage data (JSON string if dict)
-					'completeHistory': format_data.get('complete_history', []),  # Add complete step history
-				}
-			)
-
-		# Add evaluation data if available
-		if Stage.EVALUATE in self.completed_stages:
-			eval_data = self.stage_data.get(Stage.EVALUATE, {})
-
-			# Handle comprehensive judge evaluation
-			comp_eval = eval_data.get('comprehensive_evaluation') or eval_data.get('comprehensive_judge')
-			if comp_eval:
-				# Convert enum lists to string lists for database storage
-				task_categories = comp_eval.get('task_categories', [])
-				if task_categories and hasattr(task_categories[0], 'value'):
-					task_categories = [cat.value for cat in task_categories]
-
-				error_categories = comp_eval.get('error_categories', [])
-				if error_categories and hasattr(error_categories[0], 'value'):
-					error_categories = [err.value for err in error_categories]
-
-				payload.update(
-					{
-						'comprehensiveJudgeEvaluationSummary': comp_eval.get('task_summary'),
-						'comprehensiveJudgeEvaluationReasoning': comp_eval.get('reasoning'),
-						'comprehensiveJudgeEvaluationPassed': comp_eval.get('passed'),
-						'comprehensiveJudgeEvaluationScore': comp_eval.get('final_score'),
-						'comprehensiveJudgeEvaluationCategories': task_categories,
-						'comprehensiveJudgeEvaluationErrors': error_categories,
-						'comprehensiveJudgeEvaluationTips': comp_eval.get('improvement_tips', []),
-						'comprehensiveJudgeEvaluationCriticalIssues': comp_eval.get('critical_issues', []),
-						'comprehensiveJudgeEvaluationScores': comp_eval.get('scores'),
-						'comprehensiveJudgeEvaluationFull': comp_eval,  # Include full comprehensive eval data
-					}
-				)
-
-			# Handle legacy Mind2Web evaluation (for compatibility)
-			payload.update(
-				{
-					'onlineMind2WebEvaluationJudgement': eval_data.get('judgement') or 'No evaluation available',
-					'onlineMind2WebEvaluationError': eval_data.get('error'),
-					'onlineMind2WebEvaluationSuccess': eval_data.get('success', False),
-					'onlineMind2WebEvaluationScore': eval_data.get('score', 0.0),
-				}
-			)
-
-		# Ensure all data in payload is JSON serializable
-		serialized_payload = make_json_serializable(payload)
-		# Type assertion since we know payload is a dict and make_json_serializable preserves dict structure
-		assert isinstance(serialized_payload, dict), 'Payload serialization should preserve dict structure'
-		return serialized_payload
-
-	def get_local_status(self) -> dict[str, Any]:
-		"""Get local status summary"""
-		success = (
-			Stage.EVALUATE in self.completed_stages
-			and not self.cancelled
-			and self.critical_error is None
-			and len([e for e in self.errors if e.error_type == 'exception']) == 0
-		)
-		return {
-			'task_id': self.task_id,
-			'success': success,
-			'error': self.critical_error or (self.errors[0].message if self.errors else None),
-			'completed_stages': [stage.value for stage in self.completed_stages],
-		}
-
-
-from browser_use import ActionResult, Agent, BrowserProfile, BrowserSession, Controller
-from browser_use.agent.views import AgentHistoryList
-
-SUPPORTED_MODELS = {
-	# Anthropic
-	'claude-3.5-sonnet': {
-		'provider': 'anthropic',
-		'model_name': 'claude-3-5-sonnet-20240620',
-		'api_key_env': 'ANTHROPIC_API_KEY',
-	},
-	'claude-3.5-sonnet-exp': {
-		'provider': 'anthropic',
-		'model_name': 'claude-3-5-sonnet-20241022',
-		'api_key_env': 'ANTHROPIC_API_KEY',
-	},
-	'claude-3.5-haiku-latest': {
-		'provider': 'anthropic',
-		'model_name': 'claude-3-5-haiku-latest',
-		'api_key_env': 'ANTHROPIC_API_KEY',
-	},
-	'claude-3.7-sonnet-exp': {
-		'provider': 'anthropic',
-		'model_name': 'claude-3-7-sonnet-20250219',
-		'api_key_env': 'ANTHROPIC_API_KEY',
-	},
-	'claude-sonnet-4': {
-		'provider': 'anthropic',
-		'model_name': 'claude-sonnet-4-20250514',
-		'api_key_env': 'ANTHROPIC_API_KEY',
-	},
-	'claude-opus-4': {
-		'provider': 'anthropic',
-		'model_name': 'claude-opus-4-20250514',
-		'api_key_env': 'ANTHROPIC_API_KEY',
-	},
-	# Deepseek (via OpenAI Compatible API)
-	'deepseek-reasoner': {
-		'provider': 'openai_compatible',
-		'model_name': 'deepseek-reasoner',
-		'base_url': 'https://api.deepseek.com/v1',
-		'api_key_env': 'DEEPSEEK_API_KEY',
-	},
-	'deepseek-chat': {
-		'provider': 'openai_compatible',
-		'model_name': 'deepseek-chat',
-		'base_url': 'https://api.deepseek.com/v1',
-		'api_key_env': 'DEEPSEEK_API_KEY',
-	},
-	# Google
-	'gemini-1.5-flash': {'provider': 'google', 'model_name': 'gemini-1.5-flash-latest', 'api_key_env': 'GEMINI_API_KEY'},
-	'gemini-2.0-flash-lite': {'provider': 'google', 'model_name': 'gemini-2.0-flash-lite', 'api_key_env': 'GEMINI_API_KEY'},
-	'gemini-2.0-flash': {'provider': 'google', 'model_name': 'gemini-2.0-flash', 'api_key_env': 'GEMINI_API_KEY'},
-	'gemini-2.5-pro': {'provider': 'google', 'model_name': 'gemini-2.5-pro', 'api_key_env': 'GEMINI_API_KEY'},
-	'gemini-2.5-flash': {'provider': 'google', 'model_name': 'gemini-2.5-flash', 'api_key_env': 'GEMINI_API_KEY'},
-	'gemini-2.5-pro-preview-05-06': {
-		'provider': 'google',
-		'model_name': 'gemini-2.5-pro-preview-05-06',
-		'api_key_env': 'GEMINI_API_KEY',
-	},
-	'gemini-2.5-flash-preview': {
-		'provider': 'google',
-		'model_name': 'gemini-2.5-flash-preview-04-17',
-		'api_key_env': 'GEMINI_API_KEY',
-	},
-	# OpenAI
-	'gpt-4.1': {'provider': 'openai', 'model_name': 'gpt-4.1-2025-04-14', 'api_key_env': 'OPENAI_API_KEY'},
-	'gpt-4.1-mini': {'provider': 'openai', 'model_name': 'gpt-4.1-mini-2025-04-14', 'api_key_env': 'OPENAI_API_KEY'},
-	'gpt-o3': {'provider': 'openai', 'model_name': 'o3-2025-04-16', 'api_key_env': 'OPENAI_API_KEY'},
-	'gpt-4.1-nano': {'provider': 'openai', 'model_name': 'gpt-4.1-nano-2025-04-14', 'api_key_env': 'OPENAI_API_KEY'},
-	'gpt-4o': {'provider': 'openai', 'model_name': 'gpt-4o', 'api_key_env': 'OPENAI_API_KEY'},
-	'gpt-4o-mini': {'provider': 'openai', 'model_name': 'gpt-4o-mini', 'api_key_env': 'OPENAI_API_KEY'},
-	'gpt-o4-mini': {'provider': 'openai', 'model_name': 'o4-mini', 'api_key_env': 'OPENAI_API_KEY'},
-	# X.ai (via OpenAI Compatible API)
-	'grok-2': {
-		'provider': 'openai_compatible',
-		'model_name': 'grok-2-1212',
-		'base_url': 'https://api.x.ai/v1',
-		'api_key_env': 'XAI_API_KEY',
-	},
-	'grok-3': {
-		'provider': 'openai_compatible',
-		'model_name': 'grok-3-beta',
-		'base_url': 'https://api.x.ai/v1',
-		'api_key_env': 'XAI_API_KEY',
-	},
-	# Groq
-	'gemma2-9b-it': {
-		'provider': 'groq',
-		'model_name': 'gemma2-9b-it',
-		'api_key_env': 'GROQ_API_KEY',
-		'service_tier': 'auto',
-	},
-	'llama-3.3-70b-versatile': {
-		'provider': 'groq',
-		'model_name': 'llama-3.3-70b-versatile',
-		'api_key_env': 'GROQ_API_KEY',
-		'service_tier': 'auto',
-	},
-	'llama-3.1-8b-instant': {
-		'provider': 'groq',
-		'model_name': 'llama-3.1-8b-instant',
-		'api_key_env': 'GROQ_API_KEY',
-		'service_tier': 'auto',
-	},
-	'llama3-70b-8192': {
-		'provider': 'groq',
-		'model_name': 'llama3-70b-8192',
-		'api_key_env': 'GROQ_API_KEY',
-		'service_tier': 'auto',
-	},
-	'llama3-8b-8192': {
-		'provider': 'groq',
-		'model_name': 'llama3-8b-8192',
-		'api_key_env': 'GROQ_API_KEY',
-		'service_tier': 'auto',
-	},
-	# Groq Preview
-	'llama-4-maverick': {
-		'provider': 'groq',
-		'model_name': 'meta-llama/llama-4-maverick-17b-128e-instruct',
-		'api_key_env': 'GROQ_API_KEY',
-		'service_tier': 'auto',
-	},
-	'llama-4-scout': {
-		'provider': 'groq',
-		'model_name': 'meta-llama/llama-4-scout-17b-16e-instruct',
-		'api_key_env': 'GROQ_API_KEY',
-		'service_tier': 'auto',
-	},
-	# SambaNova
-	'deepseek-r1-sambanova': {
-		'provider': 'openai_compatible',
-		'model_name': 'DeepSeek-R1',
-		'base_url': 'https://api.sambanova.ai/v1',
-		'api_key_env': 'SAMBANOVA_API_KEY',
-	},
-	'llama-4-maverick-sambanova': {
-		'provider': 'openai_compatible',
-		'model_name': 'Llama-4-Maverick-17B-128E-Instruct',
-		'base_url': 'https://api.sambanova.ai/v1',
-		'api_key_env': 'SAMBANOVA_API_KEY',
-	},
-}
+# ================================================
+# Environment variables
+# ================================================
+
+# Load dotenv
+load_dotenv()
 
 # Check for SERPER API key
 SERPER_API_KEY = os.getenv('SERPER_API_KEY')
 if not SERPER_API_KEY:
 	logger.warning('SERPER_API_KEY is not set. Search functionality will not be available.')
+
+
+# ================================================
+# Tracking and Observations
+# ================================================
+
+Laminar.initialize(disabled_instruments={Instruments.BROWSER_USE}, disable_batch=True)
+laminar_client = AsyncLaminarClient()
+
+# Resource monitoring functions moved to resource_monitoring.py module
+
+
+# ================================================
+# Custom Controllers
+# ================================================
 
 
 def create_controller_with_serp_search(output_model: type[BaseModel] | None = None):
@@ -862,98 +129,76 @@ def create_controller_with_serp_search(output_model: type[BaseModel] | None = No
 	return controller
 
 
-def create_controller(use_serp: bool = False, output_model: type[BaseModel] | None = None):
-	"""Create a controller, optionally with SERP search"""
+def create_controller(
+	use_serp: bool = False,
+	output_model: type[BaseModel] | None = None,
+	gmail_tokens_dict: dict[str, str] | None = None,
+	task: 'Task | None' = None,
+):
+	"""Create a controller, optionally with SERP search and Gmail 2FA support"""
 	if use_serp:
-		return create_controller_with_serp_search(output_model=output_model)
+		controller = create_controller_with_serp_search(output_model=output_model)
 	else:
-		return Controller(output_model=output_model)
+		controller = Controller(output_model=output_model)
+
+	# Add Gmail 2FA support if tokens dict is available and task has login_type OTP
+	if gmail_tokens_dict and task and hasattr(task, 'login_type') and task.login_type == 'OTP':
+		try:
+			# Extract username from task - check multiple possible sources
+			username = None
+
+			# Check if task has email field directly
+			if hasattr(task, 'username') and getattr(task, 'username', None):
+				username = getattr(task, 'username')
+			# Check if email is in task description or other fields
+			elif hasattr(task, 'confirmed_task') and '@' in task.confirmed_task:
+				# Extract email from task description using regex
+				import re
+
+				email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+				matches = re.findall(email_pattern, task.confirmed_task)
+				if matches:
+					username = matches[0]
+
+			if username:
+				# Extract user ID (part before @)
+				user_id = username.split('@')[0]
+
+				# Look up access token in the dictionary
+				access_token = gmail_tokens_dict.get(user_id)
+
+				if access_token:
+					from browser_use.integrations.gmail import register_gmail_actions
+
+					# Register Gmail actions using the access token
+					controller = register_gmail_actions(controller, access_token=access_token)
+					logger.info(f'Gmail 2FA integration registered successfully for user {user_id} (OTP task)')
+				else:
+					logger.info(f'No Gmail 2FA token found for user {user_id}, running without Gmail integration')
+			else:
+				logger.info('No email found in OTP task, running without Gmail integration')
+
+		except Exception as e:
+			logger.error(f'Failed to setup Gmail integration: {e}')
+	else:
+		if gmail_tokens_dict and task:
+			if not hasattr(task, 'login_type') or task.login_type != 'OTP':
+				logger.info(f'Task login_type is "{getattr(task, "login_type", "None")}", not OTP - skipping Gmail integration')
+			else:
+				logger.info('Gmail 2FA tokens provided but no task or task missing login_type')
+		else:
+			logger.info('No Gmail 2FA tokens provided or no task, running without Gmail integration')
+
+	return controller
 
 
-def get_llm(model_name: str):
-	"""Instantiates the correct ChatModel based on the model name."""
-	if model_name not in SUPPORTED_MODELS:
-		raise ValueError(f'Unsupported model: {model_name}. Supported models are: {list(SUPPORTED_MODELS.keys())}')
-
-	config = SUPPORTED_MODELS[model_name]
-	provider = config['provider']
-	api_key_env = config.get('api_key_env')
-	api_key = os.getenv(api_key_env) if api_key_env else None
-
-	if not api_key and api_key_env:
-		logger.warning(
-			f'API key environment variable {api_key_env} not found or empty for model {model_name}. Trying without API key if possible.'
-		)
-		api_key = None
-
-	match provider:
-		case 'openai':
-			kwargs = {'model': config['model_name'], 'temperature': 0.0}
-			# Must set temperatue=1 if model is gpt-o4-mini
-			if model_name in ['gpt-o4-mini', 'gpt-o3']:
-				kwargs['temperature'] = 1
-			if api_key:
-				kwargs['api_key'] = api_key
-			return ChatOpenAI(**kwargs)
-		case 'anthropic':
-			kwargs = {
-				'model': config['model_name'],
-				'temperature': 0.0,
-				'timeout': 100,
-			}
-			if api_key:
-				kwargs['api_key'] = api_key
-			return ChatAnthropic(**kwargs)
-		case 'google':
-			kwargs = {'model': config['model_name'], 'temperature': 0.0}
-			if api_key:
-				kwargs['api_key'] = api_key
-			return ChatGoogle(**kwargs)
-		case 'groq':
-			kwargs = {
-				'model': config['model_name'],
-				'temperature': 0.0,
-				'service_tier': config.get('service_tier', 'auto'),
-			}
-			if api_key:
-				kwargs['api_key'] = api_key
-			return ChatGroq(**kwargs)
-		case 'openai_compatible':
-			kwargs = {'model': config['model_name'], 'base_url': config['base_url'], 'temperature': 0.0}
-			if api_key:
-				kwargs['api_key'] = api_key
-			elif config.get('base_url'):
-				logger.warning(
-					f'API key for {model_name} at {config["base_url"]} is missing, but base_url is specified. Authentication may fail.'
-				)
-			return ChatOpenAI(**kwargs)
-		case _:
-			raise ValueError(f'Unknown provider: {provider}')
+# ================================================
+# Formatting results
+# ================================================
 
 
 def clean_action_dict(action_dict: dict) -> dict:
 	return {k: clean_action_dict(v) if isinstance(v, dict) else v for k, v in action_dict.items() if v is not None}
-
-
-def make_json_serializable(obj: Any) -> Any:
-	"""
-	Convert objects to JSON-serializable types.
-	Handles common non-serializable types like enums, custom objects, etc.
-	"""
-	if obj is None:
-		return None
-	elif isinstance(obj, (str, int, float, bool)):
-		return obj
-	elif isinstance(obj, dict):
-		return {k: make_json_serializable(v) for k, v in obj.items()}
-	elif isinstance(obj, (list, tuple)):
-		return [make_json_serializable(item) for item in obj]
-	elif hasattr(obj, 'value'):  # Handle enums
-		return obj.value
-	elif hasattr(obj, '__dict__'):  # Handle custom objects
-		return str(obj)
-	else:
-		return str(obj)
 
 
 async def reformat_agent_history(
@@ -1097,65 +342,15 @@ async def reformat_agent_history(
 	return results
 
 
-class Task:
-	def __init__(self, task_id, confirmed_task, **kwargs):
-		# Validate required fields
-		if not task_id:
-			raise ValueError('task_id is required and cannot be empty')
-		if not confirmed_task:
-			raise ValueError('confirmed_task is required and cannot be empty')
-
-		# Set required fields
-		self.task_id = task_id
-		self.confirmed_task = confirmed_task
-
-		# Set optional fields dynamically
-		# Known optional fields with defaults
-		self.website = kwargs.get('website', None)
-		self.reference_length = kwargs.get('reference_length', None)
-		self.level = kwargs.get('level', None)
-		self.cluster_id = kwargs.get('cluster_id', None)
-		self.login_cookie = kwargs.get('login_cookie', None)
-		self.login_type = kwargs.get('login_type', None)
-		self.category = kwargs.get('category', None)
-		self.output_schema = kwargs.get('output_schema', None)  # Add structured output schema support
-		if self.output_schema:
-			# Convert JSON schema to Pydantic model class
-			self.output_model = create_pydantic_model_from_schema(self.output_schema, f'Task_{self.task_id}_Output')
-		else:
-			self.output_model = None
-
-		# Store any additional optional fields
-		known_fields = {
-			'website',
-			'reference_length',
-			'level',
-			'cluster_id',
-			'login_cookie',
-			'login_type',
-			'category',
-			'output_schema',
-		}
-		self.additional_fields = {k: v for k, v in kwargs.items() if k not in known_fields}
-
-		# Make all additional fields accessible as attributes
-		for key, value in self.additional_fields.items():
-			setattr(self, key, value)
-
-	def __str__(self):
-		# Include main fields and indicate if there are additional fields
-		base_str = f'Task(task_id={self.task_id}, confirmed_task={self.confirmed_task}, website={self.website}, reference_length={self.reference_length}, level={self.level}, cluster_id={self.cluster_id}, login_cookie={self.login_cookie}, login_type={self.login_type}, category={self.category}, output_schema={self.output_schema}'
-		if self.additional_fields:
-			additional_str = ', '.join(f'{k}={v}' for k, v in self.additional_fields.items())
-			base_str += f', {additional_str}'
-		base_str += ')'
-		return base_str
-
-	def __repr__(self):
-		return self.__str__()
+# ================================================
+# Judge task result
+# ================================================
 
 
-async def judge_task_result(model, task_folder: Path, score_threshold: float = 3, use_mind2web: bool = False) -> dict:
+@observe_debug()
+async def judge_task_result(
+	model, task_folder: Path, score_threshold: float = 3, use_mind2web: bool = False, judge_repeat_count: int = 1
+) -> dict:
 	"""
 	Judge a single task result using the comprehensive judge system by default,
 	with optional fallback to the original Online_Mind2Web evaluation.
@@ -1165,6 +360,7 @@ async def judge_task_result(model, task_folder: Path, score_threshold: float = 3
 	    task_folder: Path to the task result folder
 	    score_threshold: Score threshold for image filtering (used only for Mind2Web)
 	    use_mind2web: If True, use the original Online_Mind2Web evaluation instead
+	    judge_repeat_count: Number of times to repeat the judge evaluation (averages over multiple judgments)
 
 	Returns:
 	    Dictionary containing judgment results
@@ -1247,12 +443,7 @@ async def judge_task_result(model, task_folder: Path, score_threshold: float = 3
 
 		else:
 			# Use the new comprehensive judge system (default)
-			logger.info(f'Task {task_folder.name}: Using comprehensive judge evaluation')
-
-			# Check if comprehensive judge is available
-			if not COMPREHENSIVE_JUDGE_AVAILABLE:
-				logger.warning(f'Task {task_folder.name}: Comprehensive judge not available, falling back to Mind2Web')
-				return await judge_task_result(model, task_folder, score_threshold, use_mind2web=True)
+			logger.info(f'Task {task_folder.name}: Using comprehensive judge evaluation with {judge_repeat_count} repetition(s)')
 
 			# Check if comprehensive judge result already exists
 			if result.get('comprehensive_judge_evaluation'):
@@ -1267,10 +458,12 @@ async def judge_task_result(model, task_folder: Path, score_threshold: float = 3
 				}
 
 			try:
-				# Run comprehensive judge evaluation
+				# Run comprehensive judge evaluation (with repeat and averaging handled in comprehensive_judge.py)
 				comprehensive_result = await asyncio.wait_for(
-					evaluate_task_with_comprehensive_judge(task_folder=task_folder, model=model, max_images=10),
-					timeout=180,  # 3 minutes max for evaluation
+					evaluate_task_with_comprehensive_judge(
+						task_folder=task_folder, model=model, max_images=10, judge_repeat_count=judge_repeat_count
+					),
+					timeout=180 * judge_repeat_count,  # Increase timeout based on repeat count
 				)
 
 				if comprehensive_result.get('error'):
@@ -1321,64 +514,9 @@ async def judge_task_result(model, task_folder: Path, score_threshold: float = 3
 		}
 
 
-async def run_stage(stage: Stage, stage_func, timeout: int | None = None):
-	"""Generic stage runner with timeout"""
-	if timeout:
-		return await asyncio.wait_for(stage_func(), timeout)
-	return await stage_func()
-
-
-async def setup_browser_session(task: Task, headless: bool, highlight_elements: bool = True) -> BrowserSession:
-	"""Setup browser session for the task"""
-	logger.debug(f'Browser setup: Initializing BrowserSession for task {task.task_id}')
-
-	# Use incognito mode (user_data_dir=None) for evaluations to avoid state pollution
-	profile_kwargs = {
-		'user_data_dir': None,  # Incognito mode - no persistent state
-		'headless': headless,
-		'chromium_sandbox': False,  # running in docker
-		'highlight_elements': highlight_elements,  # Control element highlighting (passed to profile)
-		'keep_alive': True,
-		# higher timeouts = higher success rates on long tail of slow sites or if on a slow CI server
-		# timeout=60_000,
-		# default_timeout=60_000,
-		# default_navigation_timeout=60_000,
-		# wait_for_network_idle_page_load_time=60.0,
-		# maximum_wait_page_load_time=60.0,
-		# wait_between_actions=0.5,
-		# ignore_https_errors=True,  # some eval tasks have http:// or broken https sites in them
-	}
-
-	if hasattr(task, 'login_cookie') and task.login_cookie:
-		# For login tasks, configure storage_state to save cookies to JSON file
-		# This works even in incognito mode (user_data_dir=None)
-		task_folder = Path(f'saved_trajectories/{task.task_id}')
-		task_folder.mkdir(parents=True, exist_ok=True)
-
-		storage_state_path = task_folder / 'storage_state.json'
-		profile_kwargs['storage_state'] = str(storage_state_path)
-
-		downloads_dir_path = task_folder / 'downloads'
-		downloads_dir_path.mkdir(parents=True, exist_ok=True)
-		profile_kwargs['downloads_path'] = str(downloads_dir_path)
-
-		logger.debug(f'Login task {task.task_id}: Configured to save cookies to {storage_state_path}')
-
-	profile = BrowserProfile(**profile_kwargs)
-	browser_session = BrowserSession(browser_profile=profile)
-
-	# Start browser session
-	logger.debug(f'Browser setup: Starting browser session for task {task.task_id}')
-	await browser_session.start()
-	logger.debug(f'Browser setup: Browser session started for task {task.task_id}')
-
-	# Navigate to task starting url if provided
-	if task.website:
-		logger.debug(f'Browser setup: Navigating to {task.website} for task {task.task_id}')
-		await browser_session.navigate(task.website)
-
-	logger.debug(f'Browser setup: Setup completed for task {task.task_id}')
-	return browser_session
+# ================================================
+# Main Evaluation Functions
+# ================================================
 
 
 @observe(name='executor', span_type='EXECUTOR')  # type: ignore[arg-type]
@@ -1396,10 +534,14 @@ async def run_agent_with_browser(
 	planner_llm: BaseChatModel | None = None,
 	planner_interval: int = 1,
 	use_thinking: bool = True,
+	gmail_tokens_dict: dict[str, str] | None = None,
+	images_per_step: int = 1,
 ) -> tuple[AgentHistoryList, str]:
 	"""Run agent with the browser session"""
-	# Create controller, optionally with SERP search and structured output
-	controller = create_controller(use_serp=use_serp, output_model=task.output_model)
+	# Create controller, optionally with SERP search, structured output, and Gmail 2FA support
+	controller = create_controller(
+		use_serp=use_serp, output_model=task.output_model, gmail_tokens_dict=gmail_tokens_dict, task=task
+	)
 
 	# Check for deprecated memory parameters
 	if enable_memory:
@@ -1408,6 +550,27 @@ async def run_agent_with_browser(
 			'The agent context for memory is significantly improved and no longer requires the old memory system. '
 			"Please remove the 'enable_memory' parameter."
 		)
+
+	# Set up login cookie monitoring if this is a login task
+	is_login_task = hasattr(task, 'login_cookie') and task.login_cookie
+	new_step_callback = None
+
+	if is_login_task:
+		logger.info(f'🔐 Setting up login cookie monitoring for task {task.task_id}')
+
+		async def login_cookie_step_callback(browser_state_summary, agent_output, step_number):
+			"""Callback to check login cookie after each step"""
+			try:
+				if task.login_cookie is not None:
+					await check_login_cookie_at_step(
+						browser_session=browser_session, task_id=task.task_id, login_cookie=task.login_cookie, step=step_number
+					)
+				else:
+					logger.warning(f'❌ Task {task.task_id} Step {step_number}: login_cookie is None, skipping check')
+			except Exception as e:
+				logger.warning(f'❌ Error checking login cookie at step {step_number}: {type(e).__name__}: {e}')
+
+		new_step_callback = login_cookie_step_callback
 
 	agent = Agent(
 		task=task.confirmed_task,
@@ -1420,147 +583,66 @@ async def run_agent_with_browser(
 		planner_llm=planner_llm,
 		planner_interval=planner_interval,
 		use_thinking=use_thinking,
+		images_per_step=images_per_step,
 		source='eval_platform',
 		calculate_cost=True,
+		register_new_step_callback=new_step_callback,
 	)
+
 	# get last message
 	await agent.run(max_steps=max_steps)
 	last_input_messages = agent.message_manager.last_input_messages
 	last_message = last_input_messages[-1].text
+
+	# Save login cookie tracking if this was a login task
+	if is_login_task:
+		# Save tracking data to the task folder (will be created later in the pipeline)
+		# For now, we'll save it when the task folder is available
+		pass
+
 	return agent.state.history, last_message
 
 
 @observe(name='evaluate_task_result', span_type='EVALUATOR')  # type: ignore[arg-type]
 async def evaluate_task_result(
-	eval_model: BaseChatModel, task_folder: Path, task: Task | None = None, use_mind2web: bool = False
+	eval_model: BaseChatModel,
+	task_folder: Path,
+	task: Task | None = None,
+	use_mind2web: bool = False,
+	judge_repeat_count: int = 1,
 ) -> dict:
 	"""Evaluate the task result"""
-	# Check if this is a login task that should use cookie-based evaluation
+	# Check if this is a login task that should use both cookie-based and judge evaluation
 	if task and hasattr(task, 'login_cookie') and task.login_cookie:
-		logger.info(f'Using cookie-based evaluation for login task {task.task_id}')
-		return await evaluate_task_with_login_cookie(task.login_cookie, task_folder)
+		logger.info(f'Using combined cookie-based and judge evaluation for login task {task.task_id}')
+
+		# First run the judge evaluation to get comprehensive feedback
+		judge_result = await judge_task_result(
+			eval_model, task_folder, score_threshold=3, use_mind2web=use_mind2web, judge_repeat_count=judge_repeat_count
+		)
+
+		# Then run the cookie-based evaluation to get the actual score
+		cookie_result = await evaluate_task_with_login_cookie(task.login_cookie, task_folder)
+
+		# Use the score from cookie_result to overwrite judge_result
+		judge_result['score'] = cookie_result['score']
+		judge_result['success'] = cookie_result['success']
+		judge_result['error'] = cookie_result['error']
+
+		# Also overwrite comprehensive judge evaluation if it exists
+		if 'comprehensive_evaluation' in judge_result and judge_result['comprehensive_evaluation']:
+			judge_result['comprehensive_evaluation']['passed'] = cookie_result['success']
+			# Convert score from 0-1 scale to 0-100 scale for comprehensive judge
+			judge_result['comprehensive_evaluation']['final_score'] = int(cookie_result['score'] * 100)
+
+		return judge_result
 	else:
-		return await judge_task_result(eval_model, task_folder, score_threshold=3, use_mind2web=use_mind2web)
+		return await judge_task_result(
+			eval_model, task_folder, score_threshold=3, use_mind2web=use_mind2web, judge_repeat_count=judge_repeat_count
+		)
 
 
-async def evaluate_task_with_login_cookie(login_cookie: str, task_folder: Path) -> dict:
-	"""
-	Evaluate a login task by checking if the login_cookie is present in browser cookies.
-
-	Args:
-		login_cookie: String identifier that should appear in cookies if login was successful
-		task_folder: Path to the task result folder containing saved cookies
-
-	Returns:
-		Dictionary containing evaluation results similar to Online_Mind2Web_eval format
-	"""
-	# Look for cookies in saved_trajectories (saved by browser-use during shutdown)
-	cookies_file = task_folder / 'cookies.json'
-	storage_state_file = task_folder / 'storage_state.json'
-
-	cookies_data = None
-	cookies_source = None
-
-	# Try to load cookies from storage_state.json first (newer format)
-	if storage_state_file.exists():
-		try:
-			async with await anyio.open_file(storage_state_file) as f:
-				storage_state = json.loads(await f.read())
-				cookies_data = storage_state.get('cookies', [])
-				cookies_source = 'storage_state.json'
-		except Exception as e:
-			logger.warning(f'Failed to load storage_state.json: {e}')
-
-	# Fallback to cookies.json (older format)
-	if not cookies_data and cookies_file.exists():
-		try:
-			async with await anyio.open_file(cookies_file) as f:
-				cookies_data = json.loads(await f.read())
-				cookies_source = 'cookies.json'
-		except Exception as e:
-			logger.warning(f'Failed to load cookies.json: {e}')
-
-	if not cookies_data:
-		return {
-			'task_id': task_folder.name,
-			'judgement': 'Automatic judgement: No cookies saved for evaluation',
-			'success': False,
-			'error': 'No cookies file found for login task evaluation',
-			'score': 0.0,
-		}
-
-	logger.debug(f'Found {len(cookies_data)} cookies from {cookies_source}')
-
-	# Check if this is an exact match requirement
-	if login_cookie.startswith('EXACTMATCH '):
-		# Extract the actual cookie name after "EXACTMATCH "
-		exact_cookie_name = login_cookie[11:]  # Remove "EXACTMATCH " prefix
-		is_exact_match = True
-		search_target = exact_cookie_name
-		logger.debug(f"Using exact match for cookie name: '{exact_cookie_name}'")
-	else:
-		# Use substring matching (original behavior)
-		is_exact_match = False
-		search_target = login_cookie
-		logger.debug(f"Using substring matching for: '{login_cookie}'")
-
-	# Check if login_cookie is present in cookies
-	login_cookie_found = False
-	matching_cookie_info = None
-
-	for cookie in cookies_data:
-		cookie_name = cookie.get('name', '')
-		cookie_value = cookie.get('value', '')
-
-		if is_exact_match:
-			# Exact match: check if cookie name exactly matches the target
-			if cookie_name == search_target:
-				login_cookie_found = True
-				matching_cookie_info = f"exact name match='{cookie_name}'"
-				logger.debug(f'Login cookie found with exact match: {matching_cookie_info}')
-				break
-		else:
-			# Substring match: check if target appears in cookie name or value
-			if search_target in cookie_name or search_target in cookie_value:
-				login_cookie_found = True
-				matching_cookie_info = f"substring match in name='{cookie_name}'"
-				logger.debug(f'Login cookie found with substring match: {matching_cookie_info}')
-				break
-
-	# Prepare evaluation result
-	if login_cookie_found:
-		if is_exact_match:
-			judgement = f"Automatic judgement: Login cookie '{search_target}' was found as exact match in browser cookies"
-		else:
-			judgement = f"Automatic judgement: Login cookie '{search_target}' was found in browser cookies"
-		success = True
-		score = 1.0
-		error = None
-	else:
-		if is_exact_match:
-			judgement = f"Automatic judgement: Login cookie '{search_target}' was NOT found as exact match in browser cookies"
-		else:
-			judgement = f"Automatic judgement: Login cookie '{search_target}' was NOT found in browser cookies"
-		success = False
-		score = 0.0
-		error = None
-
-	logger.info(f"Cookie evaluation result: success={success} for login_cookie='{login_cookie}'")
-
-	return {
-		'task_id': task_folder.name,
-		'judgement': judgement,
-		'success': success,
-		'error': error,
-		'score': score,
-	}
-
-
-def save_result_to_server(convex_url: str, secret_key: str, payload: dict) -> bool:
-	"""Save result to server (sync function for use with asyncio.to_thread)"""
-	return save_task_result_to_server(convex_url, secret_key, payload)
-
-
+@observe_debug()
 async def cleanup_browser_safe(browser_session: BrowserSession):
 	"""Safe browser cleanup with timeout"""
 	try:
@@ -1571,6 +653,23 @@ async def cleanup_browser_safe(browser_session: BrowserSession):
 		logger.warning('Browser cleanup: Timed out after 30 seconds')
 	except Exception as e:
 		logger.warning(f'Browser cleanup: Failed with error: {type(e).__name__}: {e}')
+
+
+# ================================================
+# Stage runner and related functions
+# ================================================
+
+
+def save_result_to_server(convex_url: str, secret_key: str, payload: dict) -> bool:
+	"""Save result to server (sync function for use with asyncio.to_thread)"""
+	return save_task_result_to_server(convex_url, secret_key, payload)
+
+
+async def run_stage(stage: Stage, stage_func, timeout: int | None = None):
+	"""Generic stage runner with timeout"""
+	if timeout:
+		return await asyncio.wait_for(stage_func(), timeout)
+	return await stage_func()
 
 
 def determine_current_stage(completed_stages: set) -> Stage:
@@ -1603,8 +702,10 @@ async def run_task_with_semaphore(
 	headless: bool,
 	use_vision: bool,
 	semaphore_runs: asyncio.Semaphore,  # Pass semaphore as argument
+	auth_distribution: dict | None = None,  # Pre-fetched auth distribution
 	github_workflow_url: str | None = None,
 	use_serp: bool = False,
+	browser: str = 'local',
 	enable_memory: bool = False,
 	memory_interval: int = 10,
 	max_actions_per_step: int = 10,
@@ -1615,6 +716,16 @@ async def run_task_with_semaphore(
 	highlight_elements: bool = True,
 	use_mind2web_judge: bool = False,
 	use_thinking: bool = True,
+	gmail_tokens_dict: dict[str, str] | None = None,
+	judge_repeat_count: int = 1,
+	images_per_step: int = 1,
+	default_navigation_timeout: int | None = None,
+	default_timeout: int | None = None,
+	minimum_wait_page_load_time: float | None = None,
+	wait_for_network_idle_page_load_time: float | None = None,
+	maximum_wait_page_load_time: float | None = None,
+	wait_between_actions: float | None = None,
+	stealth: bool = False,
 ) -> dict:
 	"""Clean pipeline approach for running tasks"""
 	task_start_time = time.time()
@@ -1699,7 +810,21 @@ async def run_task_with_semaphore(
 					)
 
 					browser_session = await run_stage(
-						Stage.SETUP_BROWSER, lambda: setup_browser_session(task, headless, highlight_elements), timeout=120
+						Stage.SETUP_BROWSER,
+						lambda: setup_browser_session(
+							task,
+							headless,
+							highlight_elements,
+							browser,
+							default_navigation_timeout,
+							default_timeout,
+							minimum_wait_page_load_time,
+							wait_for_network_idle_page_load_time,
+							maximum_wait_page_load_time,
+							wait_between_actions,
+							stealth,
+						),
+						timeout=120,
 					)
 					task_result.stage_completed(Stage.SETUP_BROWSER)
 					logger.info(f'Task {task.task_id}: Browser session started successfully.')
@@ -1727,6 +852,38 @@ async def run_task_with_semaphore(
 							convex_url, secret_key, run_id, task.task_id, 'run_agent', 'active', github_workflow_url
 						)
 
+						# Handle auth information if task requires it
+						task_with_auth = task
+						if hasattr(task, 'auth_keys') and task.auth_keys:
+							# Validate auth_keys is a list
+							if isinstance(task.auth_keys, list) and len(task.auth_keys) > 0:
+								if auth_distribution:
+									logger.info(
+										f'Task {task.task_id}: Using pre-fetched auth distribution for auth_keys: {task.auth_keys}'
+									)
+									auth_info_text = format_auth_info_for_agent(auth_distribution, task.auth_keys)
+									if auth_info_text:
+										# Create a modified task with auth info appended
+										class TaskWithAuth(Task):
+											def __init__(self, original_task: Task, auth_text: str):
+												# Copy all attributes from original task
+												for attr_name in dir(original_task):
+													if not attr_name.startswith('__'):
+														setattr(self, attr_name, getattr(original_task, attr_name))
+												# Modify the confirmed_task to include auth info
+												self.confirmed_task = original_task.confirmed_task + auth_text
+
+										task_with_auth = TaskWithAuth(task, auth_info_text)
+										logger.info(f'Task {task.task_id}: Auth info added to task description')
+									else:
+										logger.warning(
+											f'Task {task.task_id}: No matching auth info found for keys: {task.auth_keys}'
+										)
+								else:
+									logger.warning(f'Task {task.task_id}: Auth keys specified but no auth distribution available')
+							else:
+								logger.warning(f'Task {task.task_id}: auth_keys is not a valid list: {task.auth_keys}')
+
 						# Start timing for agent execution only
 						agent_start_time = time.time()
 
@@ -1734,7 +891,7 @@ async def run_task_with_semaphore(
 							Stage.RUN_AGENT,
 							lambda: run_agent_with_browser(
 								browser_session,
-								task,
+								task_with_auth,
 								llm,
 								max_steps_per_task,
 								use_vision,
@@ -1746,6 +903,8 @@ async def run_task_with_semaphore(
 								planner_llm,
 								planner_interval,
 								use_thinking,
+								gmail_tokens_dict,
+								images_per_step,
 							),
 							timeout=1000,
 						)
@@ -1756,6 +915,16 @@ async def run_task_with_semaphore(
 
 						task_result.stage_completed(Stage.RUN_AGENT)
 						logger.info(f'Task {task.task_id}: Agent run completed in {agent_execution_time:.2f}s.')
+
+						# Save login cookie tracking data if this was a login task
+						if hasattr(task, 'login_cookie') and task.login_cookie:
+							try:
+								await save_login_cookie_tracking(task_folder, task.task_id)
+							except Exception as e:
+								logger.warning(
+									f'Failed to save login cookie tracking for task {task.task_id}: {type(e).__name__}: {e}'
+								)
+
 						# Send progress update for completed agent run
 						send_progress_update(
 							convex_url, secret_key, run_id, task.task_id, 'agent_completed', 'active', github_workflow_url
@@ -1801,8 +970,8 @@ async def run_task_with_semaphore(
 						logger.info(f'Task {task.task_id}: Evaluation starting.')
 						evaluation = await run_stage(
 							Stage.EVALUATE,
-							lambda: evaluate_task_result(eval_model, task_folder, task, use_mind2web_judge),
-							timeout=300,
+							lambda: evaluate_task_result(eval_model, task_folder, task, use_mind2web_judge, judge_repeat_count),
+							timeout=300 * judge_repeat_count,  # Increase timeout based on repeat count
 						)
 						task_result.stage_completed(Stage.EVALUATE, evaluation)
 						logger.info(f'Task {task.task_id}: Evaluation completed.')
@@ -1978,6 +1147,7 @@ async def run_task_with_semaphore(
 		return final_result
 
 
+@observe_debug()
 async def run_multiple_tasks(
 	tasks: list[Task],
 	llm: BaseChatModel,
@@ -1987,6 +1157,7 @@ async def run_multiple_tasks(
 	convex_url: str,
 	secret_key: str,
 	eval_model: BaseChatModel,
+	auth_distribution: dict | None = None,
 	github_workflow_url: str | None = None,
 	max_parallel_runs: int = 3,
 	max_steps_per_task: int = 25,
@@ -1995,6 +1166,7 @@ async def run_multiple_tasks(
 	headless: bool = False,
 	use_vision: bool = True,
 	use_serp: bool = False,
+	browser: str = 'local',
 	enable_memory: bool = False,
 	memory_interval: int = 10,
 	max_actions_per_step: int = 10,
@@ -2005,6 +1177,16 @@ async def run_multiple_tasks(
 	highlight_elements: bool = True,
 	use_mind2web_judge: bool = False,
 	use_thinking: bool = True,
+	gmail_tokens_dict: dict[str, str] | None = None,
+	judge_repeat_count: int = 1,
+	images_per_step: int = 1,
+	default_navigation_timeout: int | None = None,
+	default_timeout: int | None = None,
+	minimum_wait_page_load_time: float | None = None,
+	wait_for_network_idle_page_load_time: float | None = None,
+	maximum_wait_page_load_time: float | None = None,
+	wait_between_actions: float | None = None,
+	stealth: bool = False,
 ) -> dict:
 	"""
 	Run multiple tasks in parallel and evaluate results.
@@ -2029,6 +1211,7 @@ async def run_multiple_tasks(
 	heartbeat_task = None
 	heartbeat_stop_event = asyncio.Event()
 
+	@observe_debug()
 	async def heartbeat_logger():
 		"""Log periodic heartbeat to show the process is alive"""
 		heartbeat_count = 0
@@ -2072,8 +1255,10 @@ async def run_multiple_tasks(
 					headless=headless,
 					use_vision=use_vision,
 					semaphore_runs=semaphore_runs,  # Pass the semaphore
+					auth_distribution=auth_distribution,  # Pass the pre-fetched auth distribution
 					github_workflow_url=github_workflow_url,
 					use_serp=use_serp,
+					browser=browser,
 					enable_memory=enable_memory,
 					memory_interval=memory_interval,
 					max_actions_per_step=max_actions_per_step,
@@ -2084,6 +1269,16 @@ async def run_multiple_tasks(
 					highlight_elements=highlight_elements,
 					use_mind2web_judge=use_mind2web_judge,
 					use_thinking=use_thinking,
+					gmail_tokens_dict=gmail_tokens_dict,
+					judge_repeat_count=judge_repeat_count,
+					images_per_step=images_per_step,
+					default_navigation_timeout=default_navigation_timeout,
+					default_timeout=default_timeout,
+					minimum_wait_page_load_time=minimum_wait_page_load_time,
+					wait_for_network_idle_page_load_time=wait_for_network_idle_page_load_time,
+					maximum_wait_page_load_time=maximum_wait_page_load_time,
+					wait_between_actions=wait_between_actions,
+					stealth=stealth,
 				)
 				for task in tasks_to_run
 			),
@@ -2115,6 +1310,7 @@ async def run_multiple_tasks(
 				heartbeat_task.cancel()
 
 		await stop_resource_monitoring()
+
 		log_system_resources('BATCH_CLEANUP')
 
 	# Process task results and handle any exceptions returned by gather
@@ -2143,278 +1339,12 @@ async def run_multiple_tasks(
 	return {'task_results': processed_results}
 
 
-# Helper function to fetch tasks from the server
-def fetch_tasks_from_server(convex_url: str, secret_key: str, test_case_name: str):
-	"""Fetches the specified test case file from the Convex HTTP endpoint."""
-
-	if not convex_url:
-		logger.error('Error: EVALUATION_TOOL_URL environment variable not set.')
-		return None
-
-	if not secret_key:
-		logger.error('Error: EVALUATION_TOOL_SECRET_KEY environment variable not set.')
-		return None
-
-	endpoint_url = f'{convex_url}/api/getTestCase'
-	headers = {
-		'Authorization': f'Bearer {secret_key}',
-		'Content-Type': 'application/json',
-	}
-	payload = {'name': test_case_name}
-
-	logger.info(f"Fetching test case '{test_case_name}' from {endpoint_url}...")
-
-	try:
-		response = requests.post(endpoint_url, headers=headers, json=payload)
-
-		logger.info(f'Fetch Status Code: {response.status_code}')
-
-		if response.status_code == 200:
-			try:
-				data = response.json()
-				logger.info(f"Successfully fetched test case data for '{test_case_name}'.")
-				# Assuming the data is the list of tasks
-				if isinstance(data, list):
-					return data
-				else:
-					logger.error(f'Error: Fetched data is not a list. Type: {type(data)}')
-					logger.error(f'Raw response: {response.text}')
-					return None
-
-			except json.JSONDecodeError:
-				logger.error('Error: Failed to decode JSON response.')
-				logger.error(f'Raw response text: {response.text}')
-				return None
-		else:
-			logger.error(f"Error: Failed to fetch test case '{test_case_name}'. Status: {response.status_code}")
-			logger.error(f'Response: {response.text}')
-			return None
-
-	except requests.exceptions.RequestException as e:
-		logger.error(f'Error during request to fetch test case: {type(e).__name__}: {e}')
-		return None
+# ================================================
+# Main Evaluation Pipeline
+# ================================================
 
 
-# Helper function to get git information
-def get_git_info():
-	"""Retrieves git branch, commit hash, commit timestamp, and repository URL using subprocess."""
-	try:
-		branch = subprocess.run(
-			['git', 'rev-parse', '--abbrev-ref', 'HEAD'], capture_output=True, text=True, check=True
-		).stdout.strip()
-		commit_hash = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True, check=True).stdout.strip()
-		# Get commit timestamp as Unix epoch integer
-		commit_timestamp_str = subprocess.run(
-			['git', 'log', '-1', '--format=%ct'], capture_output=True, text=True, check=True
-		).stdout.strip()
-		commit_timestamp = int(commit_timestamp_str)
-		# Get repository URL
-		repo_url = subprocess.run(
-			['git', 'config', '--get', 'remote.origin.url'], capture_output=True, text=True, check=True
-		).stdout.strip()
-		return {'branch': branch, 'hash': commit_hash, 'timestamp': commit_timestamp, 'repo': repo_url}
-	except (subprocess.CalledProcessError, FileNotFoundError, ValueError) as e:
-		logger.warning(f'Could not retrieve git info: {type(e).__name__}: {e}. Using defaults.')
-		return {
-			'branch': 'unknown',
-			'hash': 'unknown',
-			'timestamp': int(time.time()),  # Fallback to current time
-			'repo': 'unknown',
-		}
-
-
-# Helper function to start a new run on the convex server
-def start_new_run(convex_url: str, secret_key: str, run_details: dict, existing_run_id: str | None = None):
-	"""Sends a request to start a new evaluation run and returns the run ID."""
-	if not convex_url or not secret_key:
-		logger.error('Error: Convex URL or Secret Key not provided for starting run.')
-		return None
-
-	endpoint_url = f'{convex_url}/api/startRun'
-	headers = {
-		'Authorization': f'Bearer {secret_key}',
-		'Content-Type': 'application/json',
-	}
-
-	# Add existing_run_id to the payload if provided
-	payload = run_details.copy()
-	if existing_run_id:
-		payload['runId'] = existing_run_id
-
-	logger.info(f'Sending request to start run at {endpoint_url}...')
-	# Avoid logging secret key in run_details if it were ever passed
-	loggable_details = {k: v for k, v in payload.items() if k != 'secret_key'}
-	logger.info(f'Run details: {json.dumps(loggable_details, indent=2)}')
-
-	try:
-		response = requests.post(endpoint_url, headers=headers, json=payload)
-		logger.info(f'Start Run Status Code: {response.status_code}')
-
-		if response.status_code == 200:
-			try:
-				data = response.json()
-				run_id = data.get('runId')
-				if run_id:
-					logger.info(f'Successfully started run. Run ID: {run_id}')
-					return run_id
-				else:
-					logger.error("Error: 'runId' not found in successful startRun response.")
-					logger.error(f'Raw response: {response.text}')
-					return None
-			except json.JSONDecodeError:
-				logger.error('Error: Failed to decode startRun JSON response.')
-				logger.error(f'Raw response text: {response.text}')
-				return None
-		else:
-			logger.error('Error: Failed to start run.')
-			logger.error(f'Response: {response.text}')
-			return None
-
-	except requests.exceptions.RequestException as e:
-		logger.error(f'Error during startRun request: {type(e).__name__}: {e}')
-		return None
-
-
-# Helper function to save a task result to the server
-def save_task_result_to_server(convex_url: str, secret_key: str, result_details: dict):
-	"""Sends a request to save a single task result to the Convex backend."""
-
-	if not convex_url:
-		logger.error('Error: EVALUATION_TOOL_URL environment variable not set for saving task result.')
-		return False
-
-	if not secret_key:
-		logger.error('Error: EVALUATION_TOOL_SECRET_KEY environment variable not set for saving task result.')
-		return False
-
-	# Ensure runId is present in the details being sent
-	if 'runId' not in result_details or not result_details['runId']:
-		logger.error("Error: 'runId' is missing or empty in result_details for saveTaskResult.")
-		return False
-
-	endpoint_url = f'{convex_url}/api/saveTaskResult'
-	headers = {
-		'Authorization': f'Bearer {secret_key}',
-		'Content-Type': 'application/json',
-	}
-
-	logger.info(f'Sending request to save task result at {endpoint_url}...')
-	logger.debug(f'Result details payload: {json.dumps(result_details, indent=2)}')  # Log details at debug level
-
-	try:
-		response = requests.post(endpoint_url, headers=headers, json=result_details)
-
-		logger.info(f'Save Task Result Status Code: {response.status_code}')
-
-		if response.status_code == 200:
-			try:
-				data = response.json()
-				logger.info(f'Successfully saved task result: {data.get("message")}')
-				logger.info(f'Result ID: {data.get("resultId")}')
-				return True
-			except json.JSONDecodeError:
-				logger.error('Error: Failed to decode saveTaskResult JSON response.')
-				logger.error(f'Raw response text: {response.text}')
-				return False
-		else:
-			logger.error('Error: Failed to save task result.')
-			logger.error(f'Response: {response.text}')
-			return False
-
-	except requests.exceptions.RequestException as e:
-		logger.error(f'Error during saveTaskResult request: {type(e).__name__}: {e}')
-		return False
-
-
-# Helper function to save runner progress to the server
-def save_runner_progress_to_server(convex_url: str, secret_key: str, progress_details: dict):
-	"""Sends a request to save runner progress to the Convex backend."""
-
-	if not convex_url:
-		logger.debug('No EVALUATION_TOOL_URL environment variable set for saving runner progress.')
-		return False
-
-	if not secret_key:
-		logger.debug('No EVALUATION_TOOL_SECRET_KEY environment variable set for saving runner progress.')
-		return False
-
-	endpoint_url = f'{convex_url}/api/saveRunnerProgress'
-	headers = {
-		'Authorization': f'Bearer {secret_key}',
-		'Content-Type': 'application/json',
-	}
-
-	try:
-		response = requests.post(endpoint_url, headers=headers, json=progress_details, timeout=10)
-
-		if response.status_code == 200:
-			logger.debug(f'Successfully saved runner progress for {progress_details.get("runnerId")}')
-			return True
-		else:
-			logger.warning(f'Failed to save runner progress. Status: {response.status_code}')
-			return False
-
-	except requests.exceptions.RequestException as e:
-		logger.warning(f'Error during saveRunnerProgress request: {type(e).__name__}: {e}')
-		return False
-
-
-def generate_runner_id(task_id: str, github_run_id: str | None = None) -> str:
-	"""Generate a unique runner ID for progress tracking that matches GitHub Actions pattern"""
-	if github_run_id:
-		# Use batch-level runner ID consistent with GitHub Actions
-		# GitHub Actions uses: github_run_{GITHUB_RUN_ID}_batch_{START_INDEX}
-		# Get start index from environment variable set by GitHub Actions
-		start_index = os.getenv('EVAL_START_INDEX', '0')
-		return f'github_run_{github_run_id}_batch_{start_index}'
-	else:
-		# Fallback for local runs
-		return f'local_run_{int(time.time())}'
-
-
-def send_progress_update(
-	convex_url: str,
-	secret_key: str,
-	run_id: str,
-	task_id: str,
-	current_stage: str,
-	status: str = 'active',
-	github_workflow_url: str | None = None,
-	assigned_task_range: str | None = None,
-	error_message: str | None = None,
-) -> bool:
-	"""Send a progress update for the current runner and task"""
-	try:
-		# Generate runner ID
-		github_run_id = os.getenv('GITHUB_RUN_ID')
-		runner_id = generate_runner_id(task_id, github_run_id)
-
-		# Extract workflow run ID from URL if available
-		github_workflow_run_id = None
-		if github_workflow_url and 'actions/runs/' in github_workflow_url:
-			try:
-				github_workflow_run_id = github_workflow_url.split('actions/runs/')[1].split('/')[0]
-			except (IndexError, AttributeError):
-				pass
-
-		progress_details = {
-			'runId': run_id,
-			'runnerId': runner_id,
-			'taskId': task_id,
-			'currentStage': current_stage,
-			'status': status,
-			'githubWorkflowUrl': github_workflow_url,
-			'githubWorkflowRunId': github_workflow_run_id,
-			'assignedTaskRange': assigned_task_range,
-			'errorMessage': error_message,
-		}
-
-		return save_runner_progress_to_server(convex_url, secret_key, progress_details)
-	except Exception as e:
-		logger.warning(f'Failed to send progress update: {type(e).__name__}: {e}')
-		return False
-
-
+@observe_debug()
 async def run_evaluation_pipeline(
 	tasks: list[Task],
 	llm: BaseChatModel,
@@ -2424,6 +1354,7 @@ async def run_evaluation_pipeline(
 	convex_url: str,
 	secret_key: str,
 	eval_model: BaseChatModel,
+	auth_distribution: dict | None = None,
 	github_workflow_url: str | None = None,
 	max_parallel_runs: int = 3,
 	max_steps_per_task: int = 25,
@@ -2432,6 +1363,7 @@ async def run_evaluation_pipeline(
 	headless: bool = False,
 	use_vision: bool = True,
 	use_serp: bool = False,
+	browser: str = 'local',
 	enable_memory: bool = False,
 	memory_interval: int = 10,
 	max_actions_per_step: int = 10,
@@ -2443,6 +1375,16 @@ async def run_evaluation_pipeline(
 	highlight_elements: bool = True,
 	use_mind2web_judge: bool = False,
 	use_thinking: bool = True,
+	gmail_tokens_dict: dict[str, str] | None = None,
+	judge_repeat_count: int = 1,
+	images_per_step: int = 1,
+	default_navigation_timeout: int | None = None,
+	default_timeout: int | None = None,
+	minimum_wait_page_load_time: float | None = None,
+	wait_for_network_idle_page_load_time: float | None = None,
+	maximum_wait_page_load_time: float | None = None,
+	wait_between_actions: float | None = None,
+	stealth: bool = False,
 ) -> dict:
 	"""
 	Complete evaluation pipeline that handles Laminar setup and task execution in the same event loop
@@ -2477,6 +1419,7 @@ async def run_evaluation_pipeline(
 		convex_url=convex_url,
 		secret_key=secret_key,
 		eval_model=eval_model,
+		auth_distribution=auth_distribution,
 		github_workflow_url=github_workflow_url,
 		max_parallel_runs=max_parallel_runs,
 		max_steps_per_task=max_steps_per_task,
@@ -2485,6 +1428,7 @@ async def run_evaluation_pipeline(
 		headless=headless,
 		use_vision=use_vision,
 		use_serp=use_serp,
+		browser=browser,
 		enable_memory=enable_memory,
 		memory_interval=memory_interval,
 		max_actions_per_step=max_actions_per_step,
@@ -2495,7 +1439,22 @@ async def run_evaluation_pipeline(
 		highlight_elements=highlight_elements,
 		use_mind2web_judge=use_mind2web_judge,
 		use_thinking=use_thinking,
+		gmail_tokens_dict=gmail_tokens_dict,
+		judge_repeat_count=judge_repeat_count,
+		images_per_step=images_per_step,
+		default_navigation_timeout=default_navigation_timeout,
+		default_timeout=default_timeout,
+		minimum_wait_page_load_time=minimum_wait_page_load_time,
+		wait_for_network_idle_page_load_time=wait_for_network_idle_page_load_time,
+		maximum_wait_page_load_time=maximum_wait_page_load_time,
+		wait_between_actions=wait_between_actions,
+		stealth=stealth,
 	)
+
+
+# ================================================
+# Main Evaluation Pipeline Execution
+# ================================================
 
 
 if __name__ == '__main__':
@@ -2510,7 +1469,7 @@ if __name__ == '__main__':
 		'--model', type=str, default='gpt-4o', choices=list(SUPPORTED_MODELS.keys()), help='Model to use for the agent'
 	)
 	parser.add_argument(
-		'--eval-model', type=str, default='gpt-4o', choices=list(SUPPORTED_MODELS.keys()), help='Model to use for evaluation'
+		'--eval-model', type=str, default='gpt-4.1', choices=list(SUPPORTED_MODELS.keys()), help='Model to use for evaluation'
 	)
 	parser.add_argument('--no-vision', action='store_true', help='Disable vision capabilities in the agent')
 
@@ -2518,6 +1477,12 @@ if __name__ == '__main__':
 	parser.add_argument('--eval-group', type=str, default='', help='Evaluation group to include in the run')
 	parser.add_argument('--developer-id', type=str, default=None, help='Name of the developer starting the run')
 	parser.add_argument('--use-serp', action='store_true', help='Use SERP search instead of Google search')
+	parser.add_argument(
+		'--browser',
+		type=str,
+		default='local',
+		help='Browser to use: local, anchor-browser, brightdata, browserbase, hyperbrowser, browser-use (default: local)',
+	)
 	parser.add_argument('--enable-memory', action='store_true', help='Enable mem0 memory system for agents')
 	parser.add_argument('--memory-interval', type=int, default=10, help='Memory creation interval (default: 10 steps)')
 	parser.add_argument('--max-actions-per-step', type=int, default=10, help='Maximum number of actions per step (default: 10)')
@@ -2530,6 +1495,18 @@ if __name__ == '__main__':
 		help='Model to use for planning (separate from main agent model)',
 	)
 	parser.add_argument('--planner-interval', type=int, default=1, help='Run planner every N steps (default: 1)')
+	parser.add_argument(
+		'--judge-repeat-count',
+		type=int,
+		default=1,
+		help='Number of times to repeat the judge evaluation for each task (averages over multiple judgments)',
+	)
+	parser.add_argument(
+		'--images-per-step',
+		type=int,
+		default=1,
+		help='Number of screenshots to include per step (1=current only, 2=current+previous, etc.)',
+	)
 	parser.add_argument(
 		'--test-case', type=str, default='OnlineMind2Web', help='Name of the test case to fetch (default: OnlineMind2Web)'
 	)
@@ -2559,8 +1536,30 @@ if __name__ == '__main__':
 	)
 	parser.add_argument('--use-mind2web-judge', action='store_true', help='Use original judge')
 	parser.add_argument('--no-thinking', action='store_true', help='Disable thinking in agent system prompt')
-	parser.add_argument('--use-anchor', action='store_true', help='Use anchor to navigate to the page')
 	parser.add_argument('--github-workflow-url', type=str, default=None, help='GitHub workflow URL for tracking')
+
+	# Browser timeout and stealth configuration arguments
+	parser.add_argument('--default-navigation-timeout', type=int, default=None, help='Default navigation timeout in milliseconds')
+	parser.add_argument('--default-timeout', type=int, default=None, help='Default timeout in milliseconds')
+	parser.add_argument(
+		'--minimum-wait-page-load-time', type=float, default=None, help='Minimum wait time for page load in seconds'
+	)
+	parser.add_argument(
+		'--wait-for-network-idle-page-load-time', type=float, default=None, help='Wait time for network idle page load in seconds'
+	)
+	parser.add_argument(
+		'--maximum-wait-page-load-time', type=float, default=None, help='Maximum wait time for page load in seconds'
+	)
+	parser.add_argument('--wait-between-actions', type=float, default=None, help='Wait time between actions in seconds')
+	parser.add_argument('--stealth', action='store_true', help='Enable stealth mode for browser')
+
+	# Gmail 2FA support arguments
+	parser.add_argument(
+		'--gmail-2fa-tokens',
+		type=str,
+		default=None,
+		help='JSON dictionary of user IDs to access tokens for Gmail 2FA (e.g., \'{"user123": "token1", "user456": "token2"}\')',
+	)
 
 	# Single task mode arguments
 	parser.add_argument('--task-text', type=str, default=None, help='Task description for single task mode')
@@ -2575,6 +1574,69 @@ if __name__ == '__main__':
 	logger = logging.getLogger(__name__)  # Define logger for the module
 
 	logger.info('Running tasks...')
+
+	# Parse Gmail 2FA tokens - handle GitHub Actions raw object format
+	gmail_tokens_dict = None
+	if args.gmail_2fa_tokens:
+		raw_tokens = args.gmail_2fa_tokens
+		logger.info(f'🔧 Raw Gmail 2FA tokens received: "{raw_tokens}"')
+
+		# Check if GitHub Actions passed us something like "[object Object]" or similar
+		if raw_tokens in ['[object Object]', 'null', '', '{}']:
+			logger.info('🔧 GitHub Actions passed placeholder value, no Gmail tokens available')
+			gmail_tokens_dict = None
+		else:
+			try:
+				# First try parsing as valid JSON (in case it's already proper JSON)
+				gmail_tokens_dict = json.loads(raw_tokens)
+				logger.info(f'🔧 Successfully parsed as JSON - Gmail 2FA tokens count: {len(gmail_tokens_dict)}')
+				logger.info(f'🔧 Gmail 2FA users: {list(gmail_tokens_dict.keys())}')
+			except json.JSONDecodeError:
+				# If JSON parsing fails, try to parse GitHub Actions malformed toJSON format
+				try:
+					logger.info('🔧 JSON parsing failed, attempting to parse GitHub Actions malformed format...')
+
+					# Handle GitHub Actions toJSON format: { key: value, key2: value2 }
+					if raw_tokens.strip() and raw_tokens.strip() not in ['null', '{}']:
+						# Remove outer braces and parse line by line
+						content = raw_tokens.strip().strip('{}').strip()
+
+						if content:
+							tokens = {}
+							lines = [line.strip() for line in content.split('\n') if line.strip()]
+
+							for line in lines:
+								# Remove trailing comma if present
+								line = line.rstrip(',')
+
+								if ':' in line:
+									# Split on first colon only
+									key, value = line.split(':', 1)
+									key = key.strip()
+									value = value.strip()
+
+									# Store the key-value pair
+									tokens[key] = value
+
+							if tokens:
+								gmail_tokens_dict = tokens
+								logger.info('🔧 Successfully parsed malformed GitHub Actions format')
+								logger.info(f'🔧 Gmail 2FA tokens count: {len(gmail_tokens_dict)}')
+								logger.info(f'🔧 Gmail 2FA users: {list(gmail_tokens_dict.keys())}')
+							else:
+								logger.warning('🔧 No tokens found in malformed format')
+								gmail_tokens_dict = None
+						else:
+							logger.warning('🔧 Empty content in malformed format')
+							gmail_tokens_dict = None
+					else:
+						logger.info('🔧 Raw tokens empty or null')
+						gmail_tokens_dict = None
+				except Exception as e:
+					logger.error(f'🔧 Failed to parse malformed GitHub Actions format: {type(e).__name__}: {e}')
+					gmail_tokens_dict = None
+	else:
+		logger.info('🔧 Gmail 2FA tokens: None or empty')
 	# Run tasks and evaluate
 	load_dotenv()
 
@@ -2585,6 +1647,7 @@ if __name__ == '__main__':
 	# --- Load Tasks (Either Single Task or from Server) ---
 	tasks = []
 	task_id = None  # Initialize for proper scoping
+	auth_distribution = None  # Initialize auth distribution
 
 	# Check if this is single task mode
 	if args.task_text:
@@ -2619,10 +1682,28 @@ if __name__ == '__main__':
 			logger.info(f'Successfully loaded {len(tasks)} tasks from the server.')
 		except (TypeError, ValueError) as e:
 			logger.error(
-				f'Error creating Task objects from fetched data. Ensure the data structure includes required fields (task_id, confirmed_task). Known optional fields: website, reference_length, level, cluster_id, login_cookie, login_type, category. Any additional fields will be accepted dynamically. Error: {type(e).__name__}: {e}'
+				f'Error creating Task objects from fetched data. Ensure the data structure includes required fields (task_id, confirmed_task). Known optional fields: website, reference_length, level, cluster_id, login_cookie, login_type, category, auth_keys. Any additional fields will be accepted dynamically. Error: {type(e).__name__}: {e}'
 			)
 			logger.error(f'First item in fetched data: {fetched_task_data[0] if fetched_task_data else "None"}')
 			exit(1)
+
+	# --- Fetch Auth Distribution Once (if any tasks need auth) ---
+	tasks_with_auth = [
+		task
+		for task in tasks
+		if hasattr(task, 'auth_keys') and task.auth_keys and isinstance(task.auth_keys, list) and len(task.auth_keys) > 0
+	]
+	if tasks_with_auth and CONVEX_URL and SECRET_KEY:
+		logger.info(f'Found {len(tasks_with_auth)} tasks requiring auth. Fetching auth distribution...')
+		auth_distribution = fetch_auth_distribution_from_server(CONVEX_URL, SECRET_KEY)
+		if auth_distribution:
+			logger.info(
+				f'Successfully fetched auth distribution with login info for: {list(auth_distribution.get("loginInfo", {}).keys())}'
+			)
+		else:
+			logger.warning('Failed to fetch auth distribution. Tasks requiring auth may fail.')
+	elif tasks_with_auth:
+		logger.warning(f'Found {len(tasks_with_auth)} tasks requiring auth but no server config available')
 	# -----------------------------
 
 	# --- Start Run on Server (with optional existing Run ID) ---
@@ -2652,6 +1733,15 @@ if __name__ == '__main__':
 		'planner_model': args.planner_model,
 		'planner_interval': args.planner_interval,
 		'include_result': args.include_result,
+		'judge_repeat_count': args.judge_repeat_count,
+		'images_per_step': args.images_per_step,
+		'default_navigation_timeout': args.default_navigation_timeout,
+		'default_timeout': args.default_timeout,
+		'minimum_wait_page_load_time': args.minimum_wait_page_load_time,
+		'wait_for_network_idle_page_load_time': args.wait_for_network_idle_page_load_time,
+		'maximum_wait_page_load_time': args.maximum_wait_page_load_time,
+		'wait_between_actions': args.wait_between_actions,
+		'stealth': args.stealth,
 	}
 
 	run_data = {
@@ -2698,6 +1788,34 @@ if __name__ == '__main__':
 			logger.warning('⚠️ --use-serp flag provided but SERPER_API_KEY not set. Search will fail!')
 	else:
 		logger.info('🔍 Using default Google search')
+
+	# Log browser mode being used
+	if args.browser == 'anchor-browser':
+		if ANCHOR_BROWSER_API_KEY:
+			logger.info('🌐 Using Anchor Browser (remote browser service)')
+		else:
+			logger.warning('⚠️ --browser anchor-browser provided but ANCHOR_BROWSER_API_KEY not set. Will use local browser!')
+	elif args.browser == 'brightdata':
+		if BRIGHTDATA_CDP_URL:
+			logger.info('🌐 Using Brightdata browser (remote browser service)')
+		else:
+			logger.warning('⚠️ --browser brightdata provided but BRIGHTDATA_CDP_URL not set. Will use local browser!')
+	elif args.browser == 'browserbase':
+		if BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID:
+			logger.info('🌐 Using Browserbase (remote browser service)')
+		else:
+			logger.warning(
+				'⚠️ --browser browserbase provided but BROWSERBASE_API_KEY or BROWSERBASE_PROJECT_ID not set. Will use local browser!'
+			)
+	elif args.browser == 'hyperbrowser':
+		if HYPERBROWSER_API_KEY:
+			logger.info('🌐 Using Hyperbrowser (remote browser service)')
+		else:
+			logger.warning('⚠️ --browser hyperbrowser provided but HYPERBROWSER_API_KEY not set. Will use local browser!')
+	elif args.browser == 'browser-use':
+		logger.warning('🌐 Browser-use not implemented yet. Will use local browser!')
+	else:
+		logger.info('🌐 Using local browser')
 
 	# Log memory configuration
 	if args.enable_memory:
@@ -2788,6 +1906,7 @@ if __name__ == '__main__':
 				convex_url=convex_url,
 				secret_key=secret_key,
 				eval_model=eval_model,
+				auth_distribution=auth_distribution,
 				github_workflow_url=args.github_workflow_url,
 				max_parallel_runs=parallel_runs,
 				max_steps_per_task=args.max_steps,
@@ -2796,6 +1915,7 @@ if __name__ == '__main__':
 				headless=args.headless,
 				use_vision=not args.no_vision,
 				use_serp=args.use_serp,
+				browser=args.browser,
 				enable_memory=args.enable_memory,
 				memory_interval=args.memory_interval,
 				max_actions_per_step=args.max_actions_per_step,
@@ -2807,6 +1927,16 @@ if __name__ == '__main__':
 				highlight_elements=args.highlight_elements,
 				use_mind2web_judge=args.use_mind2web_judge,
 				use_thinking=not args.no_thinking,
+				gmail_tokens_dict=gmail_tokens_dict,
+				judge_repeat_count=args.judge_repeat_count,
+				images_per_step=args.images_per_step,
+				default_navigation_timeout=args.default_navigation_timeout,
+				default_timeout=args.default_timeout,
+				minimum_wait_page_load_time=args.minimum_wait_page_load_time,
+				wait_for_network_idle_page_load_time=args.wait_for_network_idle_page_load_time,
+				maximum_wait_page_load_time=args.maximum_wait_page_load_time,
+				wait_between_actions=args.wait_between_actions,
+				stealth=args.stealth,
 			)
 		)
 

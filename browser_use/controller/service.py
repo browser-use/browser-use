@@ -3,14 +3,20 @@ import enum
 import json
 import logging
 import os
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any, Generic, TypeVar, cast
 
+try:
+	from lmnr import Laminar  # type: ignore
+except ImportError:
+	Laminar = None  # type: ignore
 from pydantic import BaseModel
 
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.types import Page
+from browser_use.browser.views import BrowserError
 from browser_use.controller.registry.service import Registry
 from browser_use.controller.views import (
 	ClickElementAction,
@@ -30,6 +36,7 @@ from browser_use.controller.views import (
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import UserMessage
+from browser_use.observability import observe_debug
 from browser_use.utils import time_execution_sync
 
 logger = logging.getLogger(__name__)
@@ -37,31 +44,34 @@ logger = logging.getLogger(__name__)
 
 async def retry_async_function(
 	func: Callable[[], Awaitable[Any]], error_message: str, n_retries: int = 3, sleep_seconds: float = 1
-) -> tuple[Any | None, ActionResult | None]:
+) -> Any:
 	"""
-	Retry an async function n times before giving up and returning an ActionResult with an error.
+	Retry an async function n times before giving up and raising an exception.
 
 	Args:
 		func: Async function to retry
-		error_message: Error message to use in ActionResult if all retries fail
+		error_message: Error message to use in exception if all retries fail
 		n_retries: Number of retries (default 3)
 		sleep_seconds: Seconds to sleep between retries (default 1)
 
 	Returns:
-		Tuple of (result, None) on success or (None, ActionResult) on failure
+		The result of the function on success
+
+	Raises:
+		RuntimeError: If all retries fail
 	"""
 	for attempt in range(n_retries):
 		try:
 			result = await func()
-			return result, None
+			return result
 		except Exception as e:
 			await asyncio.sleep(sleep_seconds)
 			logger.debug(f'Error (attempt {attempt + 1}/{n_retries}): {e}')
 			if attempt == n_retries - 1:  # Last attempt failed
-				return None, ActionResult(error=error_message + str(e))
+				raise RuntimeError(error_message + str(e))
 
 	# Should never reach here but make type checker happy
-	return None, ActionResult(error=error_message)
+	raise RuntimeError(error_message)
 
 
 Context = TypeVar('Context')
@@ -143,9 +153,7 @@ class Controller(Generic[Context]):
 				):
 					site_unavailable_msg = f'Site unavailable: {params.url} - {error_msg}'
 					logger.warning(site_unavailable_msg)
-					return ActionResult(
-						success=False, error=site_unavailable_msg, include_in_memory=True, long_term_memory=site_unavailable_msg
-					)
+					raise BrowserError(site_unavailable_msg)
 				else:
 					# Re-raise non-network errors (including URLNotAllowedError for unauthorized domains)
 					raise
@@ -158,6 +166,7 @@ class Controller(Generic[Context]):
 			return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory='Navigated back')
 
 		# wait for x seconds
+
 		@self.registry.action('Wait for x seconds default 3')
 		async def wait(seconds: int = 3):
 			msg = f'🕒  Waiting for {seconds} seconds'
@@ -166,6 +175,7 @@ class Controller(Generic[Context]):
 			return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=f'Waited for {seconds} seconds')
 
 		# Element Interaction Actions
+
 		@self.registry.action('Click element by index', param_model=ClickElementAction)
 		async def click_element_by_index(params: ClickElementAction, browser_session: BrowserSession):
 			# Browser is now a BrowserSession itself
@@ -223,12 +233,10 @@ class Controller(Generic[Context]):
 					# Page navigated during click - refresh state and return it
 					logger.info('Page context changed during click, refreshing state...')
 					await browser_session.get_state_summary(cache_clickable_elements_hashes=True)
-					return ActionResult(
-						error='Page navigated during click. Refreshed state provided.', include_in_memory=True, success=False
-					)
+					raise BrowserError('Page navigated during click. Refreshed state provided.')
 				else:
 					logger.warning(f'Element not clickable with index {params.index} - most likely the page changed')
-					return ActionResult(error=error_msg, success=False)
+					raise BrowserError(error_msg)
 
 		@self.registry.action(
 			'Click and input text into a input interactive element',
@@ -244,7 +252,7 @@ class Controller(Generic[Context]):
 				await browser_session._input_text_element_node(element_node, params.text)
 			except Exception:
 				msg = f'Failed to input text into element {params.index}.'
-				return ActionResult(error=msg)
+				raise BrowserError(msg)
 
 			if not has_sensitive_data:
 				msg = f'⌨️  Input {params.text} into index {params.index}'
@@ -261,10 +269,10 @@ class Controller(Generic[Context]):
 		@self.registry.action('Upload file to interactive element with file path', param_model=UploadFileAction)
 		async def upload_file(params: UploadFileAction, browser_session: BrowserSession, available_file_paths: list[str]):
 			if params.path not in available_file_paths:
-				return ActionResult(error=f'File path {params.path} is not available')
+				raise BrowserError(f'File path {params.path} is not available')
 
 			if not os.path.exists(params.path):
-				return ActionResult(error=f'File {params.path} does not exist')
+				raise BrowserError(f'File {params.path} does not exist')
 
 			file_upload_dom_el = await browser_session.find_file_upload_element_by_index(
 				params.index, max_height=3, max_descendant_depth=3
@@ -273,14 +281,14 @@ class Controller(Generic[Context]):
 			if file_upload_dom_el is None:
 				msg = f'No file upload element found at index {params.index}'
 				logger.info(msg)
-				return ActionResult(error=msg)
+				raise BrowserError(msg)
 
 			file_upload_el = await browser_session.get_locate_element(file_upload_dom_el)
 
 			if file_upload_el is None:
 				msg = f'No file upload element found at index {params.index}'
 				logger.info(msg)
-				return ActionResult(error=msg)
+				raise BrowserError(msg)
 
 			try:
 				await file_upload_el.set_input_files(params.path)
@@ -294,9 +302,10 @@ class Controller(Generic[Context]):
 			except Exception as e:
 				msg = f'Failed to upload file to index {params.index}: {str(e)}'
 				logger.info(msg)
-				return ActionResult(error=msg)
+				raise BrowserError(msg)
 
 		# Tab Management Actions
+
 		@self.registry.action('Switch tab', param_model=SwitchTabAction)
 		async def switch_tab(params: SwitchTabAction, browser_session: BrowserSession):
 			await browser_session.switch_to_tab(params.page_id)
@@ -329,10 +338,12 @@ class Controller(Generic[Context]):
 			)
 
 		# Content Actions
+
 		@self.registry.action(
 			"""Extract structured, semantic data (e.g. product description, price, all information about XYZ) from the current webpage based on a textual query.
-Only use this for extracting info from a single product/article page, not for entire listings or search results pages.
-Set extract_links=True ONLY if your query requires extracting links/URLs from the page.
+This tool takes the entire markdown of the page and extracts the query from it. 
+Set extract_links=True ONLY if your query requires extracting links/URLs from the page. 
+Only use this for specific queries for information retrieval from the page. Don't use this to get interactive elements - the tool does not see HTML elements, only the markdown.
 """,
 		)
 		async def extract_structured_data(
@@ -354,34 +365,48 @@ Set extract_links=True ONLY if your query requires extracting links/URLs from th
 			# Run markdownify in a thread pool to avoid blocking the event loop
 			loop = asyncio.get_event_loop()
 
-			# Try getting page content with retries
-			page_html_result, action_result = await retry_async_function(
-				lambda: page.content(), "Couldn't extract page content due to an error."
-			)
-			if action_result:
-				return action_result
+			# Aggressive timeout for page content
+			try:
+				page_html_result = await asyncio.wait_for(page.content(), timeout=10.0)  # 5 second aggressive timeout
+			except TimeoutError:
+				raise RuntimeError('Page content extraction timed out after 5 seconds')
+			except Exception as e:
+				raise RuntimeError(f"Couldn't extract page content: {e}")
+
 			page_html = page_html_result
 
 			markdownify_func = partial(markdownify.markdownify, strip=strip)
-			content = await loop.run_in_executor(None, markdownify_func, page_html)
+
+			try:
+				content = await asyncio.wait_for(
+					loop.run_in_executor(None, markdownify_func, page_html), timeout=5.0
+				)  # 5 second aggressive timeout
+			except Exception as e:
+				logger.warning(f'Markdownify failed: {type(e).__name__}')
+				raise RuntimeError(f'Could not convert html to markdown: {type(e).__name__}')
 
 			# manually append iframe text into the content so it's readable by the LLM (includes cross-origin iframes)
 			for iframe in page.frames:
 				try:
-					await iframe.wait_for_load_state(timeout=5000)  # extra on top of already loaded page
-				except Exception as e:
+					await iframe.wait_for_load_state(timeout=1000)  # 1 second aggressive timeout for iframe load
+				except Exception:
 					pass
 
-				if iframe.url != page.url and not iframe.url.startswith('data:'):
+				if iframe.url != page.url and not iframe.url.startswith('data:') and not iframe.url.startswith('about:'):
 					content += f'\n\nIFRAME {iframe.url}:\n'
 					# Run markdownify in a thread pool for iframe content as well
 					try:
-						iframe_html = await iframe.content()
-						iframe_markdown = await loop.run_in_executor(None, markdownify_func, iframe_html)
-					except Exception as e:
-						logger.debug(f'Error extracting iframe content from within page {page.url}: {type(e).__name__}: {e}')
-						iframe_markdown = ''
+						# Aggressive timeouts for iframe content
+						iframe_html = await asyncio.wait_for(iframe.content(), timeout=2.0)  # 2 second aggressive timeout
+						iframe_markdown = await asyncio.wait_for(
+							loop.run_in_executor(None, markdownify_func, iframe_html),
+							timeout=2.0,  # 2 second aggressive timeout for iframe markdownify
+						)
+					except Exception:
+						iframe_markdown = ''  # Skip failed iframes
 					content += iframe_markdown
+			# replace multiple sequential \n with a single \n
+			content = re.sub(r'\n+', '\n', content)
 
 			# limit to 40000 characters - remove text in the middle this is approx 20000 tokens
 			max_chars = 40000
@@ -400,7 +425,11 @@ Set extract_links=True ONLY if your query requires extracting links/URLs from th
 Explain the content of the page and that the requested information is not available in the page. Respond in JSON format.\nQuery: {query}\n Website:\n{page}"""
 			try:
 				formatted_prompt = prompt.format(query=query, page=content)
-				response = await page_extraction_llm.ainvoke([UserMessage(content=formatted_prompt)])
+				# Aggressive timeout for LLM call
+				response = await asyncio.wait_for(
+					page_extraction_llm.ainvoke([UserMessage(content=formatted_prompt)]),
+					timeout=60.0,  # 30 second aggressive timeout for LLM call
+				)
 
 				extracted_content = f'Page Link: {page.url}\nQuery: {query}\nExtracted Content:\n{response.completion}'
 
@@ -429,11 +458,15 @@ Explain the content of the page and that the requested information is not availa
 					include_extracted_content_only_once=include_extracted_content_only_once,
 					long_term_memory=memory,
 				)
+			except TimeoutError:
+				error_msg = f'LLM call timed out for query: {query}'
+				logger.warning(error_msg)
+				raise RuntimeError(error_msg)
 			except Exception as e:
 				logger.debug(f'Error extracting content: {e}')
 				msg = f'📄  Extracted from page\n: {content}\n'
 				logger.info(msg)
-				return ActionResult(error=str(e))
+				raise RuntimeError(str(e))
 
 		# @self.registry.action(
 		# 	'Get the accessibility tree of the page in the format "role name" with the number_of_elements to return',
@@ -462,7 +495,7 @@ Explain the content of the page and that the requested information is not availa
 		# 	)
 
 		@self.registry.action(
-			'Scroll the page by one page (set down=True to scroll down, down=False to scroll up)',
+			'Scroll the page by specified number of pages (set down=True to scroll down, down=False to scroll up, num_pages=number of pages to scroll like 0.5 for half page, 1.0 for one page, etc.)',
 			param_model=ScrollAction,
 		)
 		async def scroll(params: ScrollAction, browser_session: BrowserSession):
@@ -473,14 +506,17 @@ Explain the content of the page and that the requested information is not availa
 			page = await browser_session.get_current_page()
 
 			# Get window height with retries
-			dy_result, action_result = await retry_async_function(
+			dy_result = await retry_async_function(
 				lambda: page.evaluate('() => window.innerHeight'), 'Scroll failed due to an error.'
 			)
-			if action_result:
-				return action_result
+			window_height = dy_result or 0
+
+			# Determine scroll amount based on num_pages
+			scroll_amount = int(window_height * params.num_pages)
+			pages_scrolled = params.num_pages
 
 			# Set direction based on down parameter
-			dy = dy_result if params.down else -(dy_result or 0)
+			dy = scroll_amount if params.down else -scroll_amount
 
 			try:
 				await browser_session._scroll_container(cast(int, dy))
@@ -490,13 +526,17 @@ Explain the content of the page and that the requested information is not availa
 				logger.debug('Smart scroll failed; used window.scrollBy fallback', exc_info=e)
 
 			direction = 'down' if params.down else 'up'
-			msg = f'🔍 Scrolled {direction} the page by one page'
+			if pages_scrolled == 1.0:
+				long_term_memory = f'Scrolled {direction} the page by one page'
+			else:
+				long_term_memory = f'Scrolled {direction} the page by {pages_scrolled} pages'
+			msg = f'🔍 {long_term_memory}'
+
 			logger.info(msg)
-			return ActionResult(
-				extracted_content=msg, include_in_memory=True, long_term_memory=f'Scrolled {direction} the page by one page'
-			)
+			return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=long_term_memory)
 
 		# send keys
+
 		@self.registry.action(
 			'Send strings of special keys to use Playwright page.keyboard.press - examples include Escape, Backspace, Insert, PageDown, Delete, Enter, or Shortcuts such as `Control+o`, `Control+Shift+T`',
 			param_model=SendKeysAction,
@@ -564,10 +604,10 @@ Explain the content of the page and that the requested information is not availa
 			except Exception as e:
 				msg = f"Failed to scroll to text '{text}': {str(e)}"
 				logger.error(msg)
-				return ActionResult(error=msg, include_in_memory=True)
+				raise BrowserError(msg)
 
 		# File System Actions
-		@self.registry.action('Write content to file_name in file system, use only .md or .txt extensions.')
+		@self.registry.action('Write content to file_name in file system. Allowed extensions are .md, .txt, .json, .csv.')
 		async def write_file(file_name: str, content: str, file_system: FileSystem):
 			result = await file_system.write_file(file_name, content)
 			logger.info(f'💾 {result}')
@@ -582,13 +622,9 @@ Explain the content of the page and that the requested information is not availa
 		@self.registry.action('Read file_name from file system')
 		async def read_file(file_name: str, available_file_paths: list[str], file_system: FileSystem):
 			if available_file_paths and file_name in available_file_paths:
-				import anyio
-
-				async with await anyio.open_file(file_name, 'r') as f:
-					content = await f.read()
-					result = f'Read from file {file_name}.\n<content>\n{content}\n</content>'
+				result = await file_system.read_file(file_name, external_file=True)
 			else:
-				result = file_system.read_file(file_name)
+				result = await file_system.read_file(file_name)
 
 			MAX_MEMORY_SIZE = 1000
 			if len(result) > MAX_MEMORY_SIZE:
@@ -786,7 +822,7 @@ Explain the content of the page and that the requested information is not availa
 			except Exception as e:
 				msg = f'Selection failed: {str(e)}'
 				logger.error(msg)
-				return ActionResult(error=msg, include_in_memory=True)
+				raise BrowserError(msg)
 
 		@self.registry.action(
 			'Drag and drop elements or between coordinates on the page - useful for canvas drawing, sortable lists, sliders, and UI rearrangement',
@@ -1066,7 +1102,7 @@ Explain the content of the page and that the requested information is not availa
 		return self.registry.action(description, **kwargs)
 
 	# Act --------------------------------------------------------------------
-
+	@observe_debug(name='act')
 	@time_execution_sync('--act')
 	async def act(
 		self,
@@ -1084,26 +1120,39 @@ Explain the content of the page and that the requested information is not availa
 
 		for action_name, params in action.model_dump(exclude_unset=True).items():
 			if params is not None:
-				# with Laminar.start_as_current_span(
-				# 	name=action_name,
-				# 	input={
-				# 		'action': action_name,
-				# 		'params': params,
-				# 	},
-				# 	span_type='TOOL',
-				# ):
-				result = await self.registry.execute_action(
-					action_name=action_name,
-					params=params,
-					browser_session=browser_session,
-					page_extraction_llm=page_extraction_llm,
-					file_system=file_system,
-					sensitive_data=sensitive_data,
-					available_file_paths=available_file_paths,
-					context=context,
-				)
+				# Use Laminar span if available, otherwise use no-op context manager
+				if Laminar is not None:
+					span_context = Laminar.start_as_current_span(
+						name=action_name,
+						input={
+							'action': action_name,
+							'params': params,
+						},
+						span_type='TOOL',
+					)
+				else:
+					# No-op context manager when lmnr is not available
+					from contextlib import nullcontext
 
-				# Laminar.set_span_output(result)
+					span_context = nullcontext()
+
+				with span_context:
+					try:
+						result = await self.registry.execute_action(
+							action_name=action_name,
+							params=params,
+							browser_session=browser_session,
+							page_extraction_llm=page_extraction_llm,
+							file_system=file_system,
+							sensitive_data=sensitive_data,
+							available_file_paths=available_file_paths,
+							context=context,
+						)
+					except Exception as e:
+						result = ActionResult(error=str(e))
+
+					if Laminar is not None:
+						Laminar.set_span_output(result)
 
 				if isinstance(result, str):
 					return ActionResult(extracted_content=result)

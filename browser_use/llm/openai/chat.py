@@ -96,8 +96,15 @@ class ChatOpenAI(BaseChatModel):
 		return str(self.model)
 
 	def _get_usage(self, response: ChatCompletion) -> ChatInvokeUsage | None:
-		usage = (
-			ChatInvokeUsage(
+		if response.usage is not None:
+			completion_tokens = response.usage.completion_tokens
+			completion_token_details = response.usage.completion_tokens_details
+			if completion_token_details is not None:
+				reasoning_tokens = completion_token_details.reasoning_tokens
+				if reasoning_tokens is not None:
+					completion_tokens += reasoning_tokens
+
+			usage = ChatInvokeUsage(
 				prompt_tokens=response.usage.prompt_tokens,
 				prompt_cached_tokens=response.usage.prompt_tokens_details.cached_tokens
 				if response.usage.prompt_tokens_details is not None
@@ -105,12 +112,12 @@ class ChatOpenAI(BaseChatModel):
 				prompt_cache_creation_tokens=None,
 				prompt_image_tokens=None,
 				# Completion
-				completion_tokens=response.usage.completion_tokens,
+				completion_tokens=completion_tokens,
 				total_tokens=response.usage.total_tokens,
 			)
-			if response.usage is not None
-			else None
-		)
+		else:
+			usage = None
+
 		return usage
 
 	@overload

@@ -36,7 +36,7 @@ controller = Controller(output_model=Posts)
 
 async def main():
 	task = 'Go to hackernews show hn and give me the first  5 posts'
-	model = ChatOpenAI(model='gpt-4o')
+	model = ChatOpenAI(model='gpt-4.1')
 	agent = Agent(task=task, llm=model, controller=controller)
 
 	history = await agent.run()

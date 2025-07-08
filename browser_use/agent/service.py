@@ -28,7 +28,6 @@ from browser_use.tokens.service import TokenCost
 
 load_dotenv()
 
-# from lmnr.sdk.decorators import observe
 from bubus import EventBus
 from pydantic import ValidationError
 from uuid_extensions import uuid7str
@@ -67,6 +66,7 @@ from browser_use.dom.history_tree_processor.service import (
 )
 from browser_use.exceptions import LLMException
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.observability import observe, observe_debug
 from browser_use.sync import CloudSync
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import AgentTelemetryEvent
@@ -157,6 +157,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_actions_per_step: int = 10,
 		use_thinking: bool = True,
 		max_history_items: int = 40,
+		images_per_step: int = 1,
 		page_extraction_llm: BaseChatModel | None = None,
 		planner_llm: BaseChatModel | None = None,
 		planner_interval: int = 1,  # Run planner every N steps
@@ -170,6 +171,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		cloud_sync: CloudSync | None = None,
 		calculate_cost: bool = False,
 		display_files_in_done_text: bool = True,
+		include_tool_call_examples: bool = False,
 		**kwargs,
 	):
 		# Check for deprecated memory parameters
@@ -225,12 +227,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			max_actions_per_step=max_actions_per_step,
 			use_thinking=use_thinking,
 			max_history_items=max_history_items,
+			images_per_step=images_per_step,
 			page_extraction_llm=page_extraction_llm,
 			planner_llm=planner_llm,
 			planner_interval=planner_interval,
 			is_planner_reasoning=is_planner_reasoning,
 			extend_planner_system_message=extend_planner_system_message,
 			calculate_cost=calculate_cost,
+			include_tool_call_examples=include_tool_call_examples,
 		)
 
 		# Token cost service
@@ -308,6 +312,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			message_context=self.settings.message_context,
 			sensitive_data=sensitive_data,
 			max_history_items=self.settings.max_history_items,
+			images_per_step=self.settings.images_per_step,
+			include_tool_call_examples=self.settings.include_tool_call_examples,
 		)
 
 		if isinstance(browser, BrowserSession):
@@ -612,7 +618,25 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# self.logger.debug('Agent paused after getting state')
 			raise InterruptedError
 
-	# @observe(name='agent.step', ignore_output=True, ignore_input=True)
+	@observe_debug(name='get_browser_state_with_recovery')
+	async def _get_browser_state_with_recovery(self, cache_clickable_elements_hashes: bool = True) -> BrowserStateSummary:
+		"""Get browser state with multiple fallback strategies for error recovery"""
+
+		assert self.browser_session is not None, 'BrowserSession is not set up'
+
+		# Try 1: Full state summary (current implementation)
+		try:
+			return await self.browser_session.get_state_summary(cache_clickable_elements_hashes)
+		except Exception as e:
+			if self.state.last_result is None:
+				self.state.last_result = []
+			self.state.last_result.append(ActionResult(error=str(e)))
+			self.logger.warning(f'Full state retrieval failed: {type(e).__name__}: {e}')
+
+		self.logger.warning('🔄 Falling back to minimal state summary')
+		return await self.browser_session.get_minimal_state_summary()
+
+	@observe(name='agent.step', ignore_output=True, ignore_input=True)
 	@time_execution_async('--step')
 	async def step(self, step_info: AgentStepInfo | None = None) -> None:
 		"""Execute one step of the task"""
@@ -623,7 +647,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		try:
 			assert self.browser_session is not None, 'BrowserSession is not set up'
-			browser_state_summary = await self.browser_session.get_state_summary(cache_clickable_elements_hashes=True)
+
+			self.logger.debug(f'🌐 Step {self.state.n_steps + 1}: Getting browser state...')
+			browser_state_summary = await self._get_browser_state_with_recovery(cache_clickable_elements_hashes=True)
 			current_page = await self.browser_session.get_current_page()
 
 			self._log_step_context(current_page, browser_state_summary)
@@ -631,6 +657,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			await self._raise_if_stopped_or_paused()
 
 			# Update action models with page-specific actions
+			self.logger.debug(f'📝 Step {self.state.n_steps + 1}: Updating action models...')
 			await self._update_action_models_for_page(current_page)
 
 			# Get page-specific filtered actions
@@ -641,6 +668,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				page_action_message = f'For this page, these additional actions are available:\n{page_filtered_actions}'
 				self._message_manager._add_message_with_type(UserMessage(content=page_action_message))
 
+			self.logger.debug(f'💬 Step {self.state.n_steps + 1}: Adding state message to context...')
 			self._message_manager.add_state_message(
 				browser_state_summary=browser_state_summary,
 				model_output=self.state.last_model_output,
@@ -649,10 +677,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				use_vision=self.settings.use_vision,
 				page_filtered_actions=page_filtered_actions if page_filtered_actions else None,
 				sensitive_data=self.sensitive_data,
+				agent_history_list=self.state.history,  # Pass AgentHistoryList for screenshots
 			)
 
 			# Run planner at specified intervals if planner is configured
 			if self.settings.planner_llm and self.state.n_steps % self.settings.planner_interval == 0:
+				self.logger.debug(f'🧠 Step {self.state.n_steps + 1}: Running planner...')
 				plan = await self._run_planner()
 				# add plan before last state message
 				self._message_manager.add_plan(plan, position=-1)
@@ -668,9 +698,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.AgentOutput = self.DoneAgentOutput
 
 			input_messages = self._message_manager.get_messages()
+			self.logger.debug(
+				f'🤖 Step {self.state.n_steps + 1}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
+			)
 
 			try:
 				model_output = await self.get_next_action(input_messages)
+				self.logger.debug(
+					f'✅ Step {self.state.n_steps + 1}: Got LLM response with {len(model_output.action) if model_output.action else 0} actions'
+				)
+
 				if (
 					not model_output.action
 					or not isinstance(model_output.action, list)
@@ -697,7 +734,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 							},
 						)
 						model_output.action = [action_instance]
-
+				self.state.last_model_output = model_output
 				# Check again for paused/stopped state after getting model output
 				await self._raise_if_stopped_or_paused()
 
@@ -725,10 +762,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# check again if Ctrl+C was pressed before we commit the output to history
 				await self._raise_if_stopped_or_paused()
 
-			except asyncio.CancelledError:
-				# Task was cancelled due to Ctrl+C
-				self._message_manager._remove_last_state_message()
-				raise InterruptedError('Model query cancelled by user')
 			except InterruptedError:
 				# Agent was paused during get_next_action
 				self._message_manager._remove_last_state_message()
@@ -736,12 +769,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			except Exception as e:
 				# model call failed, remove last state message from history
 				self._message_manager._remove_last_state_message()
+				self.logger.error(f'❌ Step {self.state.n_steps + 1}: LLM call failed: {type(e).__name__}: {e}')
 				raise e
 
+			self.logger.debug(f'⚡ Step {self.state.n_steps}: Executing {len(model_output.action)} actions...')
 			result: list[ActionResult] = await self.multi_act(model_output.action)
+			self.logger.debug(f'✅ Step {self.state.n_steps}: Actions completed')
 
 			self.state.last_result = result
-			self.state.last_model_output = model_output
 
 			# Check for new downloads after executing actions
 			if self.has_downloads_path:
@@ -753,6 +788,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				except Exception as e:
 					self.logger.debug(f'📁 Failed to check for new downloads: {type(e).__name__}: {e}')
 
+			self.state.consecutive_failures = 0
+			self.logger.debug(f'🔄 Step {self.state.n_steps}: Consecutive failures reset to: {self.state.consecutive_failures}')
+
 			if len(result) > 0 and result[-1].is_done:
 				self.logger.info(f'📄 Result: {result[-1].extracted_content}')
 				if result[-1].attachments:
@@ -760,22 +798,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					for file_path in result[-1].attachments:
 						self.logger.info(f'👉 {file_path}')
 
-			self.state.consecutive_failures = 0
+		except InterruptedError as e:
+			self.logger.debug(f'InterruptedError: {type(e).__name__}: {e}')
 
-		except InterruptedError:
-			# self.logger.debug('Agent paused')
 			self.state.last_result = [
 				ActionResult(
-					error='The agent was paused mid-step - the last action might need to be repeated',
-					include_in_memory=True,
+					error='The agent was interrupted mid-step' + (f' - {e}' if e else ''),
 				)
 			]
+			self.state.consecutive_failures += 1
 			return
-		except asyncio.CancelledError:
-			# Directly handle the case where the step is cancelled at a higher level
-			# self.logger.debug('Task cancelled - agent was paused with Ctrl+C')
-			self.state.last_result = [ActionResult(error='The agent was paused with Ctrl+C', include_in_memory=True)]
-			raise InterruptedError('Step cancelled by user')
 		except Exception as e:
 			result = await self._handle_step_error(e)
 			self.state.last_result = result
@@ -819,15 +851,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		error_msg = AgentError.format_error(error, include_trace=include_trace)
 		prefix = f'❌ Result failed {self.state.consecutive_failures + 1}/{self.settings.max_failures} times:\n '
 		self.state.consecutive_failures += 1
-
-		if 'Browser closed' in error_msg:
-			self.logger.error('❌  Browser is closed or disconnected, unable to proceed')
-			return [
-				ActionResult(
-					error='Browser closed or disconnected, unable to proceed',
-					include_in_memory=True,
-				)
-			]
 
 		if isinstance(error, (ValidationError, ValueError)):
 			self.logger.error(f'{prefix}{error_msg}')
@@ -914,18 +937,22 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def get_next_action(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get next action from LLM based on current state"""
 
-		response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
-		parsed = response.completion
+		try:
+			response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
+			parsed = response.completion
 
-		# cut the number of actions to max_actions_per_step if needed
-		if len(parsed.action) > self.settings.max_actions_per_step:
-			parsed.action = parsed.action[: self.settings.max_actions_per_step]
+			# cut the number of actions to max_actions_per_step if needed
+			if len(parsed.action) > self.settings.max_actions_per_step:
+				parsed.action = parsed.action[: self.settings.max_actions_per_step]
 
-		if not (hasattr(self.state, 'paused') and (self.state.paused or self.state.stopped)):
-			log_response(parsed, self.controller.registry.registry, self.logger)
+			if not (hasattr(self.state, 'paused') and (self.state.paused or self.state.stopped)):
+				log_response(parsed, self.controller.registry.registry, self.logger)
 
-		self._log_next_action_summary(parsed)
-		return parsed
+			self._log_next_action_summary(parsed)
+			return parsed
+		except ValidationError as e:
+			# Just re-raise - Pydantic's validation errors are already descriptive
+			raise
 
 	def _log_agent_run(self) -> None:
 		"""Log the agent run"""
@@ -1070,7 +1097,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		return False, False
 
-	# @observe(name='agent.run', ignore_output=True)
+	@observe(name='agent.run', metadata={'task': '{{task}}', 'debug': '{{debug}}'})
 	@time_execution_async('--run')
 	async def run(
 		self,
@@ -1107,24 +1134,34 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		try:
 			self._log_agent_run()
 
+			self.logger.debug(
+				f'🔧 Agent setup: Task ID {self.task_id[-4:]}, Session ID {self.session_id[-4:]}, Browser Session ID {self.browser_session.id[-4:] if self.browser_session else "None"}'
+			)
+
 			# Initialize timing for session and task
 			self._session_start_time = time.time()
 			self._task_start_time = self._session_start_time  # Initialize task start time
 
+			self.logger.debug('📡 Dispatching CreateAgentSessionEvent...')
 			# Emit CreateAgentSessionEvent at the START of run()
 			self.eventbus.dispatch(CreateAgentSessionEvent.from_agent(self))
 
+			self.logger.debug('📡 Dispatching CreateAgentTaskEvent...')
 			# Emit CreateAgentTaskEvent at the START of run()
 			self.eventbus.dispatch(CreateAgentTaskEvent.from_agent(self))
 
 			# Execute initial actions if provided
 			if self.initial_actions:
+				self.logger.debug(f'⚡ Executing {len(self.initial_actions)} initial actions...')
 				result = await self.multi_act(self.initial_actions, check_for_new_elements=False)
 				self.state.last_result = result
+				self.logger.debug('✅ Initial actions completed')
 
+			self.logger.debug(f'🔄 Starting main execution loop with max {max_steps} steps...')
 			for step in range(max_steps):
 				# Replace the polling with clean pause-wait
 				if self.state.paused:
+					self.logger.debug(f'⏸️ Step {step}: Agent paused, waiting to resume...')
 					await self.wait_until_resumed()
 					signal_handler.reset()
 
@@ -1149,13 +1186,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				if on_step_start is not None:
 					await on_step_start(self)
 
+				self.logger.debug(f'🚶 Starting step {step + 1}/{max_steps}...')
 				step_info = AgentStepInfo(step_number=step, max_steps=max_steps)
-				await self.step(step_info)
+				await asyncio.wait_for(
+					self.step(step_info),
+					timeout=180,  # 3 minute step timeout - less aggressive
+				)
+				self.logger.debug(f'✅ Completed step {step + 1}/{max_steps}')
 
 				if on_step_end is not None:
 					await on_step_end(self)
 
 				if self.state.history.is_done():
+					self.logger.debug(f'🎯 Task completed after {step + 1} steps!')
 					await self.log_completion()
 
 					if self.register_done_callback:
@@ -1186,12 +1229,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 				self.logger.info(f'❌ {agent_run_error}')
 
+			self.logger.debug('📊 Collecting usage summary...')
 			self.state.history.usage = await self.token_cost_service.get_usage_summary()
 
 			# set the model output schema and call it on the fly
 			if self.state.history._output_model_schema is None and self.output_model_schema is not None:
 				self.state.history._output_model_schema = self.output_model_schema
 
+			self.logger.debug('🏁 Agent.run() completed successfully')
 			return self.state.history
 
 		except KeyboardInterrupt:
@@ -1260,7 +1305,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			await self.close()
 
-	# @observe(name='controller.multi_act')
+	@observe_debug()
 	@time_execution_async('--multi_act')
 	async def multi_act(
 		self,
@@ -1268,7 +1313,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		check_for_new_elements: bool = True,
 	) -> list[ActionResult]:
 		"""Execute multiple actions"""
-		results = []
+		results: list[ActionResult] = []
 
 		assert self.browser_session is not None, 'BrowserSession is not set up'
 		cached_selector_map = await self.browser_session.get_selector_map()
@@ -1344,18 +1389,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				await asyncio.sleep(self.browser_profile.wait_between_actions)
 				# hash all elements. if it is a subset of cached_state its fine - else break (new elements on page)
 
-			except asyncio.CancelledError:
-				# Gracefully handle task cancellation
-				self.logger.info(f'Action {i + 1} was cancelled due to Ctrl+C')
-				if not results:
-					# Add a result for the cancelled action
-					results.append(
-						ActionResult(
-							error='The action was cancelled due to Ctrl+C',
-							include_in_memory=True,
-						)
-					)
-				raise InterruptedError('Action cancelled by user')
+			except Exception as e:
+				# Handle any exceptions during action execution
+				self.logger.error(f'Action {i + 1} failed: {type(e).__name__}: {e}')
+				raise e
 
 		return results
 

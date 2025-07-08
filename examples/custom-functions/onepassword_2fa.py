@@ -46,7 +46,7 @@ async def main():
 	# Example task using the 1Password 2FA action
 	task = 'Go to account.google.com, enter username and password, then if prompted for 2FA code, get 2FA code from 1Password for and enter it'
 
-	model = ChatOpenAI(model='gpt-4o')
+	model = ChatOpenAI(model='gpt-4.1')
 	agent = Agent(task=task, llm=model, controller=controller)
 
 	result = await agent.run()

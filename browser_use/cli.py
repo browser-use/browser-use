@@ -83,61 +83,73 @@ TEXTUAL_BORDER_STYLES = {'logo': 'blue', 'info': 'blue', 'input': 'orange3', 'wo
 
 
 def get_default_config() -> dict[str, Any]:
-	"""Return default configuration dictionary."""
+	"""Return default configuration dictionary using the new config system."""
+	# Load config from the new config system
+	config_data = CONFIG.load_config()
+
+	# Extract browser profile, llm, and agent configs
+	browser_profile = config_data.get('browser_profile', {})
+	llm_config = config_data.get('llm', {})
+	agent_config = config_data.get('agent', {})
+
 	return {
 		'model': {
-			'name': None,
-			'temperature': 0.0,
+			'name': llm_config.get('model'),
+			'temperature': llm_config.get('temperature', 0.0),
 			'api_keys': {
-				'OPENAI_API_KEY': CONFIG.OPENAI_API_KEY,
+				'OPENAI_API_KEY': llm_config.get('api_key', CONFIG.OPENAI_API_KEY),
 				'ANTHROPIC_API_KEY': CONFIG.ANTHROPIC_API_KEY,
 				'GOOGLE_API_KEY': CONFIG.GOOGLE_API_KEY,
 				'DEEPSEEK_API_KEY': CONFIG.DEEPSEEK_API_KEY,
 				'GROK_API_KEY': CONFIG.GROK_API_KEY,
 			},
 		},
-		'agent': {},  # AgentSettings will use defaults
+		'agent': agent_config,
 		'browser': {
-			'headless': True,
-			'keep_alive': True,
-			'ignore_https_errors': False,
+			'headless': browser_profile.get('headless', True),
+			'keep_alive': browser_profile.get('keep_alive', True),
+			'ignore_https_errors': browser_profile.get('ignore_https_errors', False),
+			'user_data_dir': browser_profile.get('user_data_dir'),
+			'allowed_domains': browser_profile.get('allowed_domains'),
+			'wait_between_actions': browser_profile.get('wait_between_actions'),
+			'is_mobile': browser_profile.get('is_mobile'),
+			'device_scale_factor': browser_profile.get('device_scale_factor'),
+			'disable_security': browser_profile.get('disable_security'),
 		},
 		'command_history': [],
 	}
 
 
 def load_user_config() -> dict[str, Any]:
-	"""Load user configuration from file."""
-	if not CONFIG.BROWSER_USE_CONFIG_FILE.exists():
-		# Create default config
-		config = get_default_config()
-		save_user_config(config)
-		return config
+	"""Load user configuration using the new config system."""
+	# Just get the default config which already loads from the new system
+	config = get_default_config()
 
-	try:
-		with open(CONFIG.BROWSER_USE_CONFIG_FILE) as f:
-			data = json.load(f)
-			# Ensure data is a dictionary, not a list
-			if isinstance(data, list):
-				# If it's a list, it's probably just command history from previous version
-				config = get_default_config()
-				config['command_history'] = data  # Use the list as command history
-				return config
-			return data
-	except (json.JSONDecodeError, FileNotFoundError):
-		# If file is corrupted, start with empty config
-		return get_default_config()
+	# Load command history from a separate file if it exists
+	history_file = CONFIG.BROWSER_USE_CONFIG_DIR / 'command_history.json'
+	if history_file.exists():
+		try:
+			with open(history_file) as f:
+				config['command_history'] = json.load(f)
+		except (FileNotFoundError, json.JSONDecodeError):
+			config['command_history'] = []
+
+	return config
 
 
 def save_user_config(config: dict[str, Any]) -> None:
-	"""Save user configuration to file."""
-	# Ensure command history doesn't exceed maximum length
+	"""Save command history only (config is saved via the new system)."""
+	# Only save command history to a separate file
 	if 'command_history' in config and isinstance(config['command_history'], list):
-		if len(config['command_history']) > MAX_HISTORY_LENGTH:
-			config['command_history'] = config['command_history'][-MAX_HISTORY_LENGTH:]
+		# Ensure command history doesn't exceed maximum length
+		history = config['command_history']
+		if len(history) > MAX_HISTORY_LENGTH:
+			history = history[-MAX_HISTORY_LENGTH:]
 
-	with open(CONFIG.BROWSER_USE_CONFIG_FILE, 'w') as f:
-		json.dump(config, f, indent=2)
+		# Save to separate history file
+		history_file = CONFIG.BROWSER_USE_CONFIG_DIR / 'command_history.json'
+		with open(history_file, 'w') as f:
+			json.dump(history, f, indent=2)
 
 
 def update_config_with_click_args(config: dict[str, Any], ctx: click.Context) -> dict[str, Any]:
@@ -179,25 +191,19 @@ def setup_readline_history(history: list[str]) -> None:
 
 def get_llm(config: dict[str, Any]):
 	"""Get the language model based on config and available API keys."""
-	# Set API keys from config if available
-	api_keys = config.get('model', {}).get('api_keys', {})
-	model_name = config.get('model', {}).get('name')
-	temperature = config.get('model', {}).get('temperature', 0.0)
+	model_config = config.get('model', {})
+	model_name = model_config.get('name')
+	temperature = model_config.get('temperature', 0.0)
 
-	# Set environment variables if they're in the config but not in the environment
-	if api_keys.get('openai') and not CONFIG.OPENAI_API_KEY:
-		os.environ['OPENAI_API_KEY'] = api_keys['openai']
-	if api_keys.get('anthropic') and not CONFIG.ANTHROPIC_API_KEY:
-		os.environ['ANTHROPIC_API_KEY'] = api_keys['anthropic']
-	if api_keys.get('google') and not CONFIG.GOOGLE_API_KEY:
-		os.environ['GOOGLE_API_KEY'] = api_keys['google']
+	# Get API key from config or environment
+	api_key = model_config.get('api_keys', {}).get('OPENAI_API_KEY') or CONFIG.OPENAI_API_KEY
 
 	if model_name:
 		if model_name.startswith('gpt'):
-			if not CONFIG.OPENAI_API_KEY:
+			if not api_key and not CONFIG.OPENAI_API_KEY:
 				print('⚠️  OpenAI API key not found. Please update your config or set OPENAI_API_KEY environment variable.')
 				sys.exit(1)
-			return ChatOpenAI(model=model_name, temperature=temperature)
+			return ChatOpenAI(model=model_name, temperature=temperature, api_key=api_key or CONFIG.OPENAI_API_KEY)
 		elif model_name.startswith('claude'):
 			if not CONFIG.ANTHROPIC_API_KEY:
 				print('⚠️  Anthropic API key not found. Please update your config or set ANTHROPIC_API_KEY environment variable.')
@@ -210,12 +216,12 @@ def get_llm(config: dict[str, Any]):
 			return ChatGoogle(model=model_name, temperature=temperature)
 
 	# Auto-detect based on available API keys
-	if CONFIG.OPENAI_API_KEY:
-		return ChatOpenAI(model='gpt-4o', temperature=temperature)
+	if api_key or CONFIG.OPENAI_API_KEY:
+		return ChatOpenAI(model='gpt-4o', temperature=temperature, api_key=api_key or CONFIG.OPENAI_API_KEY)
 	elif CONFIG.ANTHROPIC_API_KEY:
-		return ChatAnthropic(model='claude-3.5-sonnet-exp', temperature=temperature)
+		return ChatAnthropic(model='claude-3-5-sonnet-20241022', temperature=temperature)
 	elif CONFIG.GOOGLE_API_KEY:
-		return ChatGoogle(model='gemini-2.0-flash-lite', temperature=temperature)
+		return ChatGoogle(model='gemini-2.0-flash-exp', temperature=temperature)
 	else:
 		print(
 			'⚠️  No API keys found. Please update your config or set one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY.'
@@ -1133,7 +1139,7 @@ class BrowserUseApp(App):
 
 			# Paths panel
 			yield Static(
-				f' ⚙️  Settings & history saved to:    {str(CONFIG.BROWSER_USE_CONFIG_FILE.resolve()).replace(str(Path.home()), "~")}\n'
+				f' ⚙️  Settings saved to:              {str(CONFIG.BROWSER_USE_CONFIG_FILE.resolve()).replace(str(Path.home()), "~")}\n'
 				f' 📁 Outputs & recordings saved to:  {str(Path(".").resolve()).replace(str(Path.home()), "~")}',
 				id='paths-panel',
 				markup=True,
@@ -1178,6 +1184,8 @@ async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
 
 		# Create browser session with config parameters
 		browser_config = config.get('browser', {})
+		# Remove None values from browser_config
+		browser_config = {k: v for k, v in browser_config.items() if v is not None}
 		# Create BrowserProfile with user_data_dir
 		profile = BrowserProfile(user_data_dir=str(USER_DATA_DIR), **browser_config)
 		browser_session = BrowserSession(
@@ -1241,6 +1249,8 @@ async def textual_interface(config: dict[str, Any]):
 			logger.info('Browser mode: visible')
 
 		# Create BrowserSession directly with config parameters
+		# Remove None values from browser_config
+		browser_config = {k: v for k, v in browser_config.items() if v is not None}
 		# Create BrowserProfile with user_data_dir
 		profile = BrowserProfile(user_data_dir=str(USER_DATA_DIR), **browser_config)
 		browser_session = BrowserSession(
@@ -1325,6 +1335,7 @@ async def textual_interface(config: dict[str, Any]):
 @click.option('--profile-directory', type=str, help='Chrome profile directory name (e.g., "Default", "Profile 1")')
 @click.option('--cdp-url', type=str, help='Connect to existing Chrome via CDP URL (e.g., http://localhost:9222)')
 @click.option('-p', '--prompt', type=str, help='Run a single task without the TUI (headless mode)')
+@click.option('--mcp', is_flag=True, help='Run as MCP server')
 @click.pass_context
 def main(ctx: click.Context, debug: bool = False, **kwargs):
 	"""Browser-Use Interactive TUI or Command Line Executor
@@ -1344,6 +1355,14 @@ def main(ctx: click.Context, debug: bool = False, **kwargs):
 
 		print(version('browser-use'))
 		sys.exit(0)
+
+	# Check if MCP server mode is activated
+	if kwargs.get('mcp'):
+		# Run as MCP server
+		from browser_use.mcp.server import main as mcp_main
+
+		asyncio.run(mcp_main())
+		return
 
 	# Check if prompt mode is activated
 	if kwargs.get('prompt'):

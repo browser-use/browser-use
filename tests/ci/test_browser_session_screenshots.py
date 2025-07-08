@@ -184,9 +184,12 @@ class TestHeadlessScreenshots:
 			browser_sessions.append(session)
 
 		try:
-			# Start all sessions in parallel
-			print('Starting 10 browser sessions in parallel...')
-			await asyncio.gather(*[session.start() for session in browser_sessions])
+			# Start all sessions sequentially to avoid playwright_global_object semaphore contention
+			# The playwright global object semaphore only allows 1 concurrent initialization
+			print('Starting 10 browser sessions sequentially...')
+			for i, session in enumerate(browser_sessions):
+				print(f'Starting session {i + 1}/10...')
+				await session.start()
 
 			# Navigate all sessions to the long page in parallel
 			print('Navigating all sessions to the long test page...')

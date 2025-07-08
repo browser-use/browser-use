@@ -9,8 +9,10 @@ import pytest
 from browser_use.filesystem.file_system import (
 	DEFAULT_FILE_SYSTEM_PATH,
 	INVALID_FILENAME_ERROR_MESSAGE,
+	CsvFile,
 	FileSystem,
 	FileSystemState,
+	JsonFile,
 	MarkdownFile,
 	TxtFile,
 )
@@ -40,6 +42,30 @@ class TestBaseFile:
 		assert txt_file.full_name == 'notes.txt'
 		assert txt_file.get_size == 11
 		assert txt_file.get_line_count == 2
+
+	def test_json_file_creation(self):
+		"""Test JsonFile creation and basic properties."""
+		json_content = '{"name": "John", "age": 30, "city": "New York"}'
+		json_file = JsonFile(name='data', content=json_content)
+
+		assert json_file.name == 'data'
+		assert json_file.content == json_content
+		assert json_file.extension == 'json'
+		assert json_file.full_name == 'data.json'
+		assert json_file.get_size == len(json_content)
+		assert json_file.get_line_count == 1
+
+	def test_csv_file_creation(self):
+		"""Test CsvFile creation and basic properties."""
+		csv_content = 'name,age,city\nJohn,30,New York\nJane,25,London'
+		csv_file = CsvFile(name='users', content=csv_content)
+
+		assert csv_file.name == 'users'
+		assert csv_file.content == csv_content
+		assert csv_file.extension == 'csv'
+		assert csv_file.full_name == 'users.csv'
+		assert csv_file.get_size == len(csv_content)
+		assert csv_file.get_line_count == 3
 
 	def test_file_content_operations(self):
 		"""Test content update and append operations."""
@@ -87,6 +113,60 @@ class TestBaseFile:
 			expected_content = '# New Content\n## Section 2'
 			assert file_path.read_text() == expected_content
 			assert file_obj.content == expected_content
+
+	async def test_json_file_disk_operations(self):
+		"""Test JSON file sync to disk operations."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			tmp_path = Path(tmp_dir)
+			json_content = '{"users": [{"name": "John", "age": 30}]}'
+			json_file = JsonFile(name='data', content=json_content)
+
+			# Test sync to disk
+			await json_file.sync_to_disk(tmp_path)
+
+			# Verify file was created on disk
+			file_path = tmp_path / 'data.json'
+			assert file_path.exists()
+			assert file_path.read_text() == json_content
+
+			# Test write operation
+			new_content = '{"users": [{"name": "Jane", "age": 25}]}'
+			await json_file.write(new_content, tmp_path)
+			assert file_path.read_text() == new_content
+			assert json_file.content == new_content
+
+			# Test append operation
+			await json_file.append(', {"name": "Bob", "age": 35}', tmp_path)
+			expected_content = new_content + ', {"name": "Bob", "age": 35}'
+			assert file_path.read_text() == expected_content
+			assert json_file.content == expected_content
+
+	async def test_csv_file_disk_operations(self):
+		"""Test CSV file sync to disk operations."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			tmp_path = Path(tmp_dir)
+			csv_content = 'name,age,city\nJohn,30,New York'
+			csv_file = CsvFile(name='users', content=csv_content)
+
+			# Test sync to disk
+			await csv_file.sync_to_disk(tmp_path)
+
+			# Verify file was created on disk
+			file_path = tmp_path / 'users.csv'
+			assert file_path.exists()
+			assert file_path.read_text() == csv_content
+
+			# Test write operation
+			new_content = 'name,age,city\nJane,25,London'
+			await csv_file.write(new_content, tmp_path)
+			assert file_path.read_text() == new_content
+			assert csv_file.content == new_content
+
+			# Test append operation
+			await csv_file.append('\nBob,35,Paris', tmp_path)
+			expected_content = new_content + '\nBob,35,Paris'
+			assert file_path.read_text() == expected_content
+			assert csv_file.content == expected_content
 
 	def test_file_sync_to_disk_sync(self):
 		"""Test synchronous disk sync operation."""
@@ -160,7 +240,8 @@ class TestFileSystem:
 
 		assert 'md' in extensions
 		assert 'txt' in extensions
-		assert len(extensions) == 2
+		assert 'json' in extensions
+		assert 'csv' in extensions
 
 	def test_filename_validation(self, temp_filesystem):
 		"""Test filename validation."""
@@ -171,6 +252,8 @@ class TestFileSystem:
 		assert fs._is_valid_filename('my_file.txt') is True
 		assert fs._is_valid_filename('file-name.md') is True
 		assert fs._is_valid_filename('file123.txt') is True
+		assert fs._is_valid_filename('data.json') is True
+		assert fs._is_valid_filename('users.csv') is True
 
 		# Invalid filenames
 		assert fs._is_valid_filename('test.doc') is False  # wrong extension
@@ -179,6 +262,8 @@ class TestFileSystem:
 		assert fs._is_valid_filename('test with spaces.md') is False  # spaces
 		assert fs._is_valid_filename('test@file.md') is False  # special chars
 		assert fs._is_valid_filename('.md') is False  # no name
+		assert fs._is_valid_filename('.json') is False  # no name
+		assert fs._is_valid_filename('.csv') is False  # no name
 
 	def test_filename_parsing(self, temp_filesystem):
 		"""Test filename parsing into name and extension."""
@@ -191,6 +276,14 @@ class TestFileSystem:
 		name, ext = fs._parse_filename('my_file.TXT')
 		assert name == 'my_file'
 		assert ext == 'txt'  # Should be lowercased
+
+		name, ext = fs._parse_filename('data.json')
+		assert name == 'data'
+		assert ext == 'json'
+
+		name, ext = fs._parse_filename('users.CSV')
+		assert name == 'users'
+		assert ext == 'csv'  # Should be lowercased
 
 	def test_get_file(self, temp_filesystem):
 		"""Test getting files from the filesystem."""
@@ -228,21 +321,21 @@ class TestFileSystem:
 		content = fs.display_file('invalid@name.md')
 		assert content is None
 
-	def test_read_file(self, temp_filesystem):
+	async def test_read_file(self, temp_filesystem: FileSystem):
 		"""Test reading file content with proper formatting."""
-		fs = temp_filesystem
+		fs: FileSystem = temp_filesystem
 
 		# Read existing empty file
-		result = fs.read_file('todo.md')
+		result = await fs.read_file('todo.md')
 		expected = 'Read from file todo.md.\n<content>\n\n</content>'
 		assert result == expected
 
 		# Read non-existent file
-		result = fs.read_file('nonexistent.md')
+		result = await fs.read_file('nonexistent.md')
 		assert result == "File 'nonexistent.md' not found."
 
 		# Read file with invalid name
-		result = fs.read_file('invalid@name.md')
+		result = await fs.read_file('invalid@name.md')
 		assert result == INVALID_FILENAME_ERROR_MESSAGE
 
 	async def test_write_file(self, temp_filesystem):
@@ -254,7 +347,7 @@ class TestFileSystem:
 		assert result == 'Data written to file results.md successfully.'
 
 		# Verify content was written
-		content = fs.read_file('results.md')
+		content = await fs.read_file('results.md')
 		assert '# Test Results\nThis is a test.' in content
 
 		# Write to new file
@@ -270,6 +363,56 @@ class TestFileSystem:
 		# Write with invalid extension
 		result = await fs.write_file('test.doc', 'content')
 		assert result == INVALID_FILENAME_ERROR_MESSAGE
+
+	async def test_write_json_file(self, temp_filesystem):
+		"""Test writing JSON files."""
+		fs = temp_filesystem
+
+		# Write valid JSON content
+		json_content = '{"users": [{"name": "John", "age": 30}, {"name": "Jane", "age": 25}]}'
+		result = await fs.write_file('data.json', json_content)
+		assert result == 'Data written to file data.json successfully.'
+
+		# Verify content was written
+		content = await fs.read_file('data.json')
+		assert json_content in content
+
+		# Verify file object was created
+		assert 'data.json' in fs.files
+		file_obj = fs.get_file('data.json')
+		assert file_obj is not None
+		assert isinstance(file_obj, JsonFile)
+		assert file_obj.content == json_content
+
+		# Write to new JSON file
+		result = await fs.write_file('config.json', '{"debug": true, "port": 8080}')
+		assert result == 'Data written to file config.json successfully.'
+		assert 'config.json' in fs.files
+
+	async def test_write_csv_file(self, temp_filesystem):
+		"""Test writing CSV files."""
+		fs = temp_filesystem
+
+		# Write valid CSV content
+		csv_content = 'name,age,city\nJohn,30,New York\nJane,25,London\nBob,35,Paris'
+		result = await fs.write_file('users.csv', csv_content)
+		assert result == 'Data written to file users.csv successfully.'
+
+		# Verify content was written
+		content = await fs.read_file('users.csv')
+		assert csv_content in content
+
+		# Verify file object was created
+		assert 'users.csv' in fs.files
+		file_obj = fs.get_file('users.csv')
+		assert file_obj is not None
+		assert isinstance(file_obj, CsvFile)
+		assert file_obj.content == csv_content
+
+		# Write to new CSV file
+		result = await fs.write_file('products.csv', 'id,name,price\n1,Laptop,999.99\n2,Mouse,29.99')
+		assert result == 'Data written to file products.csv successfully.'
+		assert 'products.csv' in fs.files
 
 	async def test_append_file(self, temp_filesystem):
 		"""Test appending content to files."""
@@ -293,6 +436,45 @@ class TestFileSystem:
 		# Append with invalid filename
 		result = await fs.append_file('invalid@name.md', 'content')
 		assert result == INVALID_FILENAME_ERROR_MESSAGE
+
+	async def test_append_json_file(self, temp_filesystem):
+		"""Test appending content to JSON files."""
+		fs = temp_filesystem
+
+		# First write some JSON content
+		await fs.write_file('data.json', '{"users": [{"name": "John", "age": 30}]}')
+
+		# Append additional JSON content (note: this creates invalid JSON, but tests the append functionality)
+		result = await fs.append_file('data.json', ', {"name": "Jane", "age": 25}')
+		assert result == 'Data appended to file data.json successfully.'
+
+		# Verify content was appended
+		file_obj = fs.get_file('data.json')
+		assert file_obj is not None
+		expected_content = '{"users": [{"name": "John", "age": 30}]}, {"name": "Jane", "age": 25}'
+		assert file_obj.content == expected_content
+
+	async def test_append_csv_file(self, temp_filesystem):
+		"""Test appending content to CSV files."""
+		fs = temp_filesystem
+
+		# First write some CSV content
+		await fs.write_file('users.csv', 'name,age,city\nJohn,30,New York')
+
+		# Append additional CSV row
+		result = await fs.append_file('users.csv', '\nJane,25,London')
+		assert result == 'Data appended to file users.csv successfully.'
+
+		# Verify content was appended
+		file_obj = fs.get_file('users.csv')
+		assert file_obj is not None
+		expected_content = 'name,age,city\nJohn,30,New York\nJane,25,London'
+		assert file_obj.content == expected_content
+
+		# Append another row
+		await fs.append_file('users.csv', '\nBob,35,Paris')
+		expected_content = 'name,age,city\nJohn,30,New York\nJane,25,London\nBob,35,Paris'
+		assert file_obj.content == expected_content
 
 	async def test_save_extracted_content(self, temp_filesystem):
 		"""Test saving extracted content with auto-numbering."""
@@ -408,6 +590,161 @@ class TestFileSystem:
 		assert (fs2.data_dir / 'results.md').exists()
 		assert (fs2.data_dir / 'custom.txt').exists()
 		assert (fs2.data_dir / 'extracted_content_0.md').exists()
+
+		# Clean up second filesystem
+		fs2.nuke()
+
+	async def test_complete_workflow_with_json_csv(self):
+		"""Test a complete filesystem workflow with JSON and CSV files."""
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			# Create filesystem
+			fs = FileSystem(base_dir=tmp_dir, create_default_files=True)
+
+			# Write JSON configuration file
+			config_json = '{"app": {"name": "TestApp", "version": "1.0"}, "database": {"host": "localhost", "port": 5432}}'
+			await fs.write_file('config.json', config_json)
+
+			# Write CSV data file
+			users_csv = 'id,name,email,age\n1,John Doe,john@example.com,30\n2,Jane Smith,jane@example.com,25'
+			await fs.write_file('users.csv', users_csv)
+
+			# Append more data to CSV
+			await fs.append_file('users.csv', '\n3,Bob Johnson,bob@example.com,35')
+
+			# Update JSON configuration
+			updated_config = '{"app": {"name": "TestApp", "version": "1.1"}, "database": {"host": "localhost", "port": 5432}, "features": {"logging": true}}'
+			await fs.write_file('config.json', updated_config)
+
+			# Create another JSON file for API responses
+			api_response = '{"status": "success", "data": [{"id": 1, "name": "Item 1"}, {"id": 2, "name": "Item 2"}]}'
+			await fs.write_file('api_response.json', api_response)
+
+			# Create a products CSV file
+			products_csv = (
+				'sku,name,price,category\nLAP001,Gaming Laptop,1299.99,Electronics\nMOU001,Wireless Mouse,29.99,Accessories'
+			)
+			await fs.write_file('products.csv', products_csv)
+
+			# Verify file listing
+			files = fs.list_files()
+			expected_files = ['todo.md', 'config.json', 'users.csv', 'api_response.json', 'products.csv']
+			assert len(files) == len(expected_files)
+			for expected_file in expected_files:
+				assert expected_file in files
+
+			# Verify JSON file contents
+			config_file = fs.get_file('config.json')
+			assert config_file is not None
+			assert isinstance(config_file, JsonFile)
+			assert config_file.content == updated_config
+
+			api_file = fs.get_file('api_response.json')
+			assert api_file is not None
+			assert isinstance(api_file, JsonFile)
+			assert api_file.content == api_response
+
+			# Verify CSV file contents
+			users_file = fs.get_file('users.csv')
+			assert users_file is not None
+			assert isinstance(users_file, CsvFile)
+			expected_users_content = 'id,name,email,age\n1,John Doe,john@example.com,30\n2,Jane Smith,jane@example.com,25\n3,Bob Johnson,bob@example.com,35'
+			assert users_file.content == expected_users_content
+
+			products_file = fs.get_file('products.csv')
+			assert products_file is not None
+			assert isinstance(products_file, CsvFile)
+			assert products_file.content == products_csv
+
+			# Test state persistence with JSON and CSV files
+			state = fs.get_state()
+			fs.nuke()
+
+			# Restore from state
+			fs2 = FileSystem.from_state(state)
+
+			# Verify restoration
+			assert len(fs2.files) == len(expected_files)
+
+			# Verify JSON files were restored correctly
+			restored_config = fs2.get_file('config.json')
+			assert restored_config is not None
+			assert isinstance(restored_config, JsonFile)
+			assert restored_config.content == updated_config
+
+			restored_api = fs2.get_file('api_response.json')
+			assert restored_api is not None
+			assert isinstance(restored_api, JsonFile)
+			assert restored_api.content == api_response
+
+			# Verify CSV files were restored correctly
+			restored_users = fs2.get_file('users.csv')
+			assert restored_users is not None
+			assert isinstance(restored_users, CsvFile)
+			assert restored_users.content == expected_users_content
+
+			restored_products = fs2.get_file('products.csv')
+			assert restored_products is not None
+			assert isinstance(restored_products, CsvFile)
+			assert restored_products.content == products_csv
+
+			# Verify files exist on disk
+			for filename in expected_files:
+				if filename != 'todo.md':  # Skip todo.md as it's already tested
+					assert (fs2.data_dir / filename).exists()
+
+			fs2.nuke()
+
+	async def test_from_state_with_json_csv_files(self, temp_filesystem):
+		"""Test restoring filesystem from state with JSON and CSV files."""
+		fs = temp_filesystem
+
+		# Add JSON and CSV content
+		await fs.write_file('data.json', '{"version": "1.0", "users": [{"name": "John", "age": 30}]}')
+		await fs.write_file('users.csv', 'name,age,city\nJohn,30,New York\nJane,25,London')
+		await fs.write_file('config.json', '{"debug": true, "port": 8080}')
+		await fs.write_file('products.csv', 'id,name,price\n1,Laptop,999.99\n2,Mouse,29.99')
+
+		# Get state
+		state = fs.get_state()
+
+		# Create new filesystem from state
+		fs2 = FileSystem.from_state(state)
+
+		# Verify restoration
+		assert fs2.base_dir == fs.base_dir
+		assert len(fs2.files) == len(fs.files)
+
+		# Verify JSON file contents
+		json_file = fs2.get_file('data.json')
+		assert json_file is not None
+		assert isinstance(json_file, JsonFile)
+		assert json_file.content == '{"version": "1.0", "users": [{"name": "John", "age": 30}]}'
+
+		config_file = fs2.get_file('config.json')
+		assert config_file is not None
+		assert isinstance(config_file, JsonFile)
+		assert config_file.content == '{"debug": true, "port": 8080}'
+
+		# Verify CSV file contents
+		csv_file = fs2.get_file('users.csv')
+		assert csv_file is not None
+		assert isinstance(csv_file, CsvFile)
+		assert csv_file.content == 'name,age,city\nJohn,30,New York\nJane,25,London'
+
+		products_file = fs2.get_file('products.csv')
+		assert products_file is not None
+		assert isinstance(products_file, CsvFile)
+		assert products_file.content == 'id,name,price\n1,Laptop,999.99\n2,Mouse,29.99'
+
+		# Verify files exist on disk
+		assert (fs2.data_dir / 'data.json').exists()
+		assert (fs2.data_dir / 'users.csv').exists()
+		assert (fs2.data_dir / 'config.json').exists()
+		assert (fs2.data_dir / 'products.csv').exists()
+
+		# Verify disk contents match
+		assert (fs2.data_dir / 'data.json').read_text() == '{"version": "1.0", "users": [{"name": "John", "age": 30}]}'
+		assert (fs2.data_dir / 'users.csv').read_text() == 'name,age,city\nJohn,30,New York\nJane,25,London'
 
 		# Clean up second filesystem
 		fs2.nuke()

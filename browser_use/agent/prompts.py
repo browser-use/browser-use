@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam, ImageURL, SystemMessage, UserMessage
+from browser_use.observability import observe_debug
 
 if TYPE_CHECKING:
 	from browser_use.agent.views import AgentStepInfo
@@ -79,6 +80,7 @@ class AgentMessagePrompt:
 		max_clickable_elements_length: int = 40000,
 		sensitive_data: str | None = None,
 		available_file_paths: list[str] | None = None,
+		screenshots: list[str] | None = None,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
@@ -91,8 +93,40 @@ class AgentMessagePrompt:
 		self.max_clickable_elements_length: int = max_clickable_elements_length
 		self.sensitive_data: str | None = sensitive_data
 		self.available_file_paths: list[str] | None = available_file_paths
+		self.screenshots = screenshots or []
 		assert self.browser_state
 
+	@observe_debug(name='_deduplicate_screenshots')
+	def _deduplicate_screenshots(self, screenshots: list[str]) -> list[str]:
+		"""
+		Remove consecutive duplicate screenshots, keeping only the most recent of each.
+
+		Args:
+			screenshots: List of base64-encoded screenshot strings in chronological order (oldest first)
+
+		Returns:
+			List of screenshots with consecutive duplicates removed, maintaining chronological order
+		"""
+		if not screenshots:
+			return []
+
+		if len(screenshots) == 1:
+			return screenshots
+
+		# Keep track of unique screenshots by comparing each with the next one
+		unique_screenshots = []
+
+		for i in range(len(screenshots)):
+			# Always keep the last screenshot
+			if i == len(screenshots) - 1:
+				unique_screenshots.append(screenshots[i])
+			# Only keep screenshot if it's different from the next one
+			elif screenshots[i] != screenshots[i + 1]:
+				unique_screenshots.append(screenshots[i])
+
+		return unique_screenshots
+
+	@observe_debug(name='_get_browser_state_description')
 	def _get_browser_state_description(self) -> str:
 		elements_text = self.browser_state.element_tree.clickable_elements_to_string(include_attributes=self.include_attributes)
 
@@ -105,13 +139,34 @@ class AgentMessagePrompt:
 		has_content_above = (self.browser_state.pixels_above or 0) > 0
 		has_content_below = (self.browser_state.pixels_below or 0) > 0
 
+		# Enhanced page information for the model
+		page_info_text = ''
+		if self.browser_state.page_info:
+			pi = self.browser_state.page_info
+			# Compute page statistics dynamically
+			pages_above = pi.pixels_above / pi.viewport_height if pi.viewport_height > 0 else 0
+			pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
+			total_pages = pi.page_height / pi.viewport_height if pi.viewport_height > 0 else 0
+			current_page_position = pi.scroll_y / max(pi.page_height - pi.viewport_height, 1)
+			page_info_text = f'Page info: {pi.viewport_width}x{pi.viewport_height}px viewport, {pi.page_width}x{pi.page_height}px total page size, {pages_above:.1f} pages above, {pages_below:.1f} pages below, {total_pages:.1f} total pages, at {current_page_position:.0%} of page'
+
 		if elements_text != '':
 			if has_content_above:
-				elements_text = f'... {self.browser_state.pixels_above} pixels above - scroll to see more or extract structured data if you are looking for specific information ...\n{elements_text}'
+				if self.browser_state.page_info:
+					pi = self.browser_state.page_info
+					pages_above = pi.pixels_above / pi.viewport_height if pi.viewport_height > 0 else 0
+					elements_text = f'... {self.browser_state.pixels_above} pixels above ({pages_above:.1f} pages) - scroll to see more or extract structured data if you are looking for specific information ...\n{elements_text}'
+				else:
+					elements_text = f'... {self.browser_state.pixels_above} pixels above - scroll to see more or extract structured data if you are looking for specific information ...\n{elements_text}'
 			else:
 				elements_text = f'[Start of page]\n{elements_text}'
 			if has_content_below:
-				elements_text = f'{elements_text}\n... {self.browser_state.pixels_below} pixels below - scroll to see more or extract structured data if you are looking for specific information ...'
+				if self.browser_state.page_info:
+					pi = self.browser_state.page_info
+					pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
+					elements_text = f'{elements_text}\n... {self.browser_state.pixels_below} pixels below ({pages_below:.1f} pages) - scroll to see more or extract structured data if you are looking for specific information ...'
+				else:
+					elements_text = f'{elements_text}\n... {self.browser_state.pixels_below} pixels below - scroll to see more or extract structured data if you are looking for specific information ...'
 			else:
 				elements_text = f'{elements_text}\n[End of page]'
 		else:
@@ -137,6 +192,7 @@ class AgentMessagePrompt:
 		browser_state = f"""{current_tab_text}
 Available tabs:
 {tabs_text}
+{page_info_text}
 Interactive elements from top layer of the current page inside the viewport{truncated_text}:
 {elements_text}
 """
@@ -173,6 +229,7 @@ Interactive elements from top layer of the current page inside the viewport{trun
 			agent_state += '<available_file_paths>\n' + '\n'.join(self.available_file_paths) + '\n</available_file_paths>\n'
 		return agent_state
 
+	@observe_debug(name='get_user_message')
 	def get_user_message(self, use_vision: bool = True) -> UserMessage:
 		# Don't pass screenshot to model if page is about:blank, step is 0, and there's only one tab
 		if (
@@ -199,19 +256,35 @@ Interactive elements from top layer of the current page inside the viewport{trun
 			state_description += 'For this page, these additional actions are available:\n'
 			state_description += self.page_filtered_actions + '\n'
 
-		if self.browser_state.screenshot and use_vision is True:
-			# Format message for vision model
-			return UserMessage(
-				content=[
-					ContentPartTextParam(text=state_description),
+		if use_vision is True and self.screenshots:
+			# Start with text description
+			content_parts: list[ContentPartTextParam | ContentPartImageParam] = [ContentPartTextParam(text=state_description)]
+
+			# Deduplicate screenshots, keeping only the most recent of each unique image
+			unique_screenshots = self._deduplicate_screenshots(self.screenshots)
+
+			# Add screenshots with labels
+			for i, screenshot in enumerate(unique_screenshots):
+				if i == len(unique_screenshots) - 1:
+					label = 'Current screenshot:'
+				else:
+					# Use simple, accurate labeling since we don't have actual step timing info
+					label = 'Previous screenshot:'
+
+				# Add label as text content
+				content_parts.append(ContentPartTextParam(text=label))
+
+				# Add the screenshot
+				content_parts.append(
 					ContentPartImageParam(
 						image_url=ImageURL(
-							url=f'data:image/png;base64,{self.browser_state.screenshot}',
+							url=f'data:image/png;base64,{screenshot}',
 							media_type='image/png',
 						),
-					),
-				]
-			)
+					)
+				)
+
+			return UserMessage(content=content_parts)
 
 		return UserMessage(content=state_description)
 

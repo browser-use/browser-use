@@ -20,7 +20,7 @@ browser_session = BrowserSession(
 		user_data_dir='~/.config/browseruse/profiles/default',
 	)
 )
-llm = ChatOpenAI(model='gpt-4o')
+llm = ChatOpenAI(model='gpt-4.1')
 
 
 async def main():

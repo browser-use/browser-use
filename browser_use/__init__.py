@@ -1,6 +1,14 @@
+import os
+
 from browser_use.logging_config import setup_logging
 
-logger = setup_logging()
+# Only set up logging if not in MCP mode or if explicitly requested
+if os.environ.get('BROWSER_USE_SETUP_LOGGING', 'true').lower() != 'false':
+	logger = setup_logging()
+else:
+	import logging
+
+	logger = logging.getLogger('browser_use')
 
 # Monkeypatch BaseSubprocessTransport.__del__ to handle closed event loops gracefully
 from asyncio import base_subprocess

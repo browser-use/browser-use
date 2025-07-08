@@ -1,5 +1,8 @@
 import json
 import logging
+import subprocess
+import time
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -41,7 +44,7 @@ def create_pydantic_model_from_schema(original_schema: dict | str, model_name: s
 		if isinstance(original_schema, str):
 			schema: dict = json.loads(original_schema)
 		else:
-			schema: dict = original_schema
+			schema = original_schema
 
 		logger.debug(f'Creating Pydantic model from schema: {schema}')
 
@@ -224,3 +227,51 @@ def create_pydantic_model_from_schema(original_schema: dict | str, model_name: s
 		logger.error(f'Failed to create Pydantic model from schema: {e}')
 		logger.error(f'Schema: {schema}')
 		raise ValueError(f'Invalid JSON schema: {e}') from e
+
+
+def make_json_serializable(obj: Any) -> Any:
+	"""
+	Convert objects to JSON-serializable types.
+	Handles common non-serializable types like enums, custom objects, etc.
+	"""
+	if obj is None:
+		return None
+	elif isinstance(obj, (str, int, float, bool)):
+		return obj
+	elif isinstance(obj, dict):
+		return {str(k): make_json_serializable(v) for k, v in obj.items()}
+	elif isinstance(obj, (list, tuple)):
+		return [make_json_serializable(item) for item in obj]
+	elif hasattr(obj, 'value'):  # Handle enums
+		return obj.value
+	elif hasattr(obj, '__dict__'):  # Handle custom objects
+		return str(obj)
+	else:
+		return str(obj)
+
+
+def get_git_info():
+	"""Retrieves git branch, commit hash, commit timestamp, and repository URL using subprocess."""
+	try:
+		branch = subprocess.run(
+			['git', 'rev-parse', '--abbrev-ref', 'HEAD'], capture_output=True, text=True, check=True
+		).stdout.strip()
+		commit_hash = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True, check=True).stdout.strip()
+		# Get commit timestamp as Unix epoch integer
+		commit_timestamp_str = subprocess.run(
+			['git', 'log', '-1', '--format=%ct'], capture_output=True, text=True, check=True
+		).stdout.strip()
+		commit_timestamp = int(commit_timestamp_str)
+		# Get repository URL
+		repo_url = subprocess.run(
+			['git', 'config', '--get', 'remote.origin.url'], capture_output=True, text=True, check=True
+		).stdout.strip()
+		return {'branch': branch, 'hash': commit_hash, 'timestamp': commit_timestamp, 'repo': repo_url}
+	except (subprocess.CalledProcessError, FileNotFoundError, ValueError) as e:
+		logger.warning(f'Could not retrieve git info: {type(e).__name__}: {e}. Using defaults.')
+		return {
+			'branch': 'unknown',
+			'hash': 'unknown',
+			'timestamp': int(time.time()),  # Fallback to current time
+			'repo': 'unknown',
+		}

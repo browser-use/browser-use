@@ -1029,24 +1029,6 @@ class TestParameterOrdering:
 		assert action.name == 'extract_content'
 		assert action.description == 'Extract content from page'
 
-	async def test_page_error_retry(self, registry, browser_session):
-		"""Test that page errors trigger retry with fresh page"""
-		call_count = 0
-
-		@registry.action('Flaky page action', param_model=SimpleParams)
-		async def flaky_action(params: SimpleParams, page: Page):
-			nonlocal call_count
-			call_count += 1
-			if call_count == 1:
-				raise RuntimeError('page closed')
-			return ActionResult(extracted_content=f'Success on attempt {call_count}')
-
-		# Should retry once and succeed
-		result = await registry.execute_action('flaky_action', {'value': 'test'}, browser_session=browser_session)
-		assert result.extracted_content is not None
-		assert 'Success on attempt 2' in result.extracted_content
-		assert call_count == 2
-
 
 class TestParamsModelArgsAndKwargs:
 	async def test_browser_session_double_kwarg(self):

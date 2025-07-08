@@ -404,7 +404,7 @@ class TestEventValidation:
 				user_id='0683fb03-c5da-79c9-8000-d3a39c47c650',
 				agent_session_id='0683fb03-c5da-79c9-8000-d3a39c47c651',
 				task='test',
-				llm_model='gpt-4o',
+				llm_model='gpt-4.1',
 				done_output=None,
 				user_feedback_type=None,
 				user_comment=None,

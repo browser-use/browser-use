@@ -6,7 +6,7 @@
     "light": "/logo/light.svg",
     "href": "https://browser-use.com"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "/favicon.ico",
   "colors": {
     "primary": "#F97316",
     "light": "#FFF7ED",
@@ -48,7 +48,7 @@
   "navigation": [
     {
       "group": "Get Started",
-      "pages": ["introduction", "quickstart"]
+      "pages": ["introduction", "quickstart", "cli"]
     },
     {
       "group": "Customize",
@@ -61,6 +61,8 @@
         "customize/system-prompt",
         "customize/sensitive-data",
         "customize/custom-functions",
+        "customize/mcp-client",
+        "customize/mcp-server",
         "customize/hooks"
       ]
     },

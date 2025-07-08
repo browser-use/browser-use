@@ -76,7 +76,7 @@ from browser_use import Agent
 from browser_use.llm import ChatOpenAI
 
 task = "Find the CEO of OpenAI and return their name"
-model = ChatOpenAI(model="gpt-4o")
+model = ChatOpenAI(model="gpt-4.1-mini")
 
 agent = Agent(task=task, llm=model, controller=controller)
 

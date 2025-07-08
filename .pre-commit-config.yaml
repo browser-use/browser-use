@@ -29,6 +29,11 @@ repos:
       - id: ruff-format
       # see pyproject.toml for more details on ruff config
 
+  - repo: https://github.com/RobertCraigie/pyright-python
+    rev: v1.1.402
+    hooks:
+    - id: pyright
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
