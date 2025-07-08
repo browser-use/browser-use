@@ -106,39 +106,38 @@ CHROME_DETERMINISTIC_RENDERING_ARGS = [
 
 CHROME_DEFAULT_ARGS = [
 	# # provided by playwright by default: https://github.com/microsoft/playwright/blob/41008eeddd020e2dee1c540f7c0cdfa337e99637/packages/playwright-core/src/server/chromium/chromiumSwitches.ts#L76
-	# # we don't need to include them twice in our own config, but it's harmless
-	# '--disable-field-trial-config',  # https://source.chromium.org/chromium/chromium/src/+/main:testing/variations/README.md
-	# '--disable-background-networking',
-	# '--disable-background-timer-throttling',  # agents might be working on background pages if the human switches to another tab
-	# '--disable-backgrounding-occluded-windows',  # same deal, agents are often working on backgrounded browser windows
-	# '--disable-back-forward-cache',  # Avoids surprises like main request not being intercepted during page.goBack().
-	# '--disable-breakpad',
-	# '--disable-client-side-phishing-detection',
-	# '--disable-component-extensions-with-background-pages',
-	# '--disable-component-update',  # Avoids unneeded network activity after startup.
-	# '--no-default-browser-check',
-	# # '--disable-default-apps',
-	# '--disable-dev-shm-usage',  # crucial for docker support, harmless in non-docker environments
-	# # '--disable-extensions',
-	# # '--disable-features=' + disabledFeatures(assistantMode).join(','),
-	# '--allow-pre-commit-input',  # let page JS run a little early before GPU rendering finishes
-	# '--disable-hang-monitor',
-	# '--disable-ipc-flooding-protection',  # important to be able to make lots of CDP calls in a tight loop
-	# '--disable-popup-blocking',
-	# '--disable-prompt-on-repost',
-	# '--disable-renderer-backgrounding',
-	# # '--force-color-profile=srgb',  # moved to CHROME_DETERMINISTIC_RENDERING_ARGS
-	# '--metrics-recording-only',
-	# '--no-first-run',
-	# '--password-store=basic',
-	# '--use-mock-keychain',
-	# # // See https://chromium-review.googlesource.com/c/chromium/src/+/2436773
-	# '--no-service-autorun',
-	# '--export-tagged-pdf',
-	# # // https://chromium-review.googlesource.com/c/chromium/src/+/4853540
-	# '--disable-search-engine-choice-screen',
-	# # // https://issues.chromium.org/41491762
-	# '--unsafely-disable-devtools-self-xss-warnings',
+	'--disable-field-trial-config',  # https://source.chromium.org/chromium/chromium/src/+/main:testing/variations/README.md
+	'--disable-background-networking',
+	'--disable-background-timer-throttling',  # agents might be working on background pages if the human switches to another tab
+	'--disable-backgrounding-occluded-windows',  # same deal, agents are often working on backgrounded browser windows
+	'--disable-back-forward-cache',  # Avoids surprises like main request not being intercepted during page.goBack().
+	'--disable-breakpad',
+	'--disable-client-side-phishing-detection',
+	'--disable-component-extensions-with-background-pages',
+	'--disable-component-update',  # Avoids unneeded network activity after startup.
+	'--no-default-browser-check',
+	# '--disable-default-apps',
+	'--disable-dev-shm-usage',  # crucial for docker support, harmless in non-docker environments
+	# '--disable-extensions',
+	# '--disable-features=' + disabledFeatures(assistantMode).join(','),
+	# '--allow-pre-commit-input',  # duplicate removed
+	'--disable-hang-monitor',
+	'--disable-ipc-flooding-protection',  # important to be able to make lots of CDP calls in a tight loop
+	'--disable-popup-blocking',
+	'--disable-prompt-on-repost',
+	'--disable-renderer-backgrounding',
+	# '--force-color-profile=srgb',  # moved to CHROME_DETERMINISTIC_RENDERING_ARGS
+	'--metrics-recording-only',
+	'--no-first-run',
+	'--password-store=basic',
+	'--use-mock-keychain',
+	# // See https://chromium-review.googlesource.com/c/chromium/src/+/2436773
+	'--no-service-autorun',
+	'--export-tagged-pdf',
+	# // https://chromium-review.googlesource.com/c/chromium/src/+/4853540
+	'--disable-search-engine-choice-screen',
+	# // https://issues.chromium.org/41491762
+	'--unsafely-disable-devtools-self-xss-warnings',
 	# added by us:
 	'--enable-features=NetworkService,NetworkServiceInProcess',
 	'--enable-network-information-downlink-max',

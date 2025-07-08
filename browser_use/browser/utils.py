@@ -3,8 +3,8 @@ def normalize_url(url: str) -> str:
 	Normalize a URL by adding https:// protocol if needed, while preserving special URLs.
 
 	This function safely adds https:// to URLs that lack a protocol, but preserves
-	special URLs like "about:blank", "mailto:...", "tel:...", etc. that should not
-	be prefixed with https://.
+	special URLs like "about:blank", "chrome://new-tab-page", "mailto:...", "tel:...", etc.
+	that should not be prefixed with https://.
 
 	Args:
 	    url: The URL string to normalize

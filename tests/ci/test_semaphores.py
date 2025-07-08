@@ -14,7 +14,7 @@ import pytest
 # Add the browser-use directory to the path so we can import from it
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from browser_use.utils import retry
+from bubus.helpers import retry
 
 
 def worker_acquire_semaphore(

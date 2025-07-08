@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Optional
 
 from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam, ImageURL, SystemMessage, UserMessage
 from browser_use.observability import observe_debug
+from browser_use.utils import is_new_tab_page
 
 if TYPE_CHECKING:
 	from browser_use.agent.views import AgentStepInfo
@@ -231,9 +232,9 @@ Interactive elements from top layer of the current page inside the viewport{trun
 
 	@observe_debug(name='get_user_message')
 	def get_user_message(self, use_vision: bool = True) -> UserMessage:
-		# Don't pass screenshot to model if page is about:blank, step is 0, and there's only one tab
+		# Don't pass screenshot to model if page is a new tab page, step is 0, and there's only one tab
 		if (
-			self.browser_state.url == 'about:blank'
+			is_new_tab_page(self.browser_state.url)
 			and self.step_info is not None
 			and self.step_info.step_number == 0
 			and len(self.browser_state.tabs) == 1

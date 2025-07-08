@@ -12,6 +12,7 @@ from pydantic import Field, create_model
 
 from browser_use.agent.views import ActionResult
 from browser_use.controller.registry.service import Registry
+from browser_use.utils import is_new_tab_page
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +134,7 @@ class MCPToolWrapper:
 
 		if is_browser_tool:
 			# Browser tools should only be available when on a web page
-			page_filter = lambda page: page.url != 'about:blank'
+			page_filter = lambda page: not is_new_tab_page(page.url)
 
 		# Create wrapper function for the MCP tool
 		async def mcp_action_wrapper(**kwargs):

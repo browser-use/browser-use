@@ -164,9 +164,11 @@ class TestBrowserSessionCookies:
 		# Should start without errors
 		await session.start()
 
-		# Should have no cookies
+		# Should have no cookies from localhost (our test domain)
+		# Note: Browser may have cookies from default pages like Google's new tab page
 		cookies = await session.get_cookies()
-		assert len(cookies) == 0
+		localhost_cookies = [c for c in cookies if c['domain'] in ['localhost', '.localhost']]
+		assert len(localhost_cookies) == 0, f'Expected no localhost cookies, but found: {localhost_cookies}'
 
 		await session.stop()
 
@@ -182,9 +184,11 @@ class TestBrowserSessionCookies:
 		# Should start without errors (warning logged)
 		await session.start()
 
-		# Should have no cookies
+		# Should have no cookies from localhost (our test domain)
+		# Note: Browser may have cookies from default pages like Google's new tab page
 		cookies = await session.get_cookies()
-		assert len(cookies) == 0
+		localhost_cookies = [c for c in cookies if c['domain'] in ['localhost', '.localhost']]
+		assert len(localhost_cookies) == 0, f'Expected no localhost cookies, but found: {localhost_cookies}'
 
 		await session.stop()
 

@@ -136,6 +136,8 @@ def setup_logging(stream=None, log_level=None, force_setup=False):
 		'trafilatura.htmlprocessing',
 		'trafilatura',
 		'groq',
+		'portalocker',
+		'portalocker.utils',
 	]
 	for logger_name in third_party_loggers:
 		third_party = logging.getLogger(logger_name)

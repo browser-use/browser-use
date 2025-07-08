@@ -17,7 +17,7 @@ from browser_use import Agent, BrowserProfile, BrowserSession, Controller
 from browser_use.mcp.client import MCPClient
 
 
-class TestMCPServer:
+class MockMCPServer:
 	"""A minimal MCP server for testing."""
 
 	def __init__(self):
@@ -110,10 +110,10 @@ import asyncio
 import sys
 sys.path.insert(0, "{project_root}")
 
-from tests.ci.test_mcp_client import TestMCPServer
+from tests.ci.test_mcp_client import MockMCPServer
 
 async def main():
-	server = TestMCPServer()
+	server = MockMCPServer()
 	await server.run()
 
 if __name__ == "__main__":

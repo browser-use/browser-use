@@ -5,6 +5,7 @@ Cloud sync service for sending events to the Browser Use cloud.
 import asyncio
 import json
 import logging
+import shutil
 
 import anyio
 import httpx
@@ -96,7 +97,8 @@ class CloudSync:
 		except httpx.TimeoutException:
 			logger.warning(f'⚠️ Event send timed out after 10 seconds: {event}')
 		except httpx.ConnectError as e:
-			logger.warning(f'⚠️ Failed to connect to cloud service at {self.base_url}: {e}')
+			# logger.warning(f'⚠️ Failed to connect to cloud service at {self.base_url}: {e}')
+			pass
 		except httpx.HTTPError as e:
 			logger.warning(f'⚠️ HTTP error sending event {event}: {type(e).__name__}: {e}')
 		except Exception as e:
@@ -112,11 +114,11 @@ class CloudSync:
 				# Use frontend URL for user-facing links
 				frontend_url = CONFIG.BROWSER_USE_CLOUD_UI_URL or self.base_url.replace('//api.', '//cloud.')
 				session_url = f'{frontend_url.rstrip("/")}/agent/{agent_session_id}'
-
-				logger.info('\n\n' + '─' * 70)
+				terminal_width, _terminal_height = shutil.get_terminal_size((80, 20))
+				logger.info('─' * (terminal_width - 1) + '\n')
 				logger.info('🌐  View the details of this run in Browser Use Cloud:')
 				logger.info(f'    👉  {session_url}')
-				logger.info('─' * 70 + '\n')
+				logger.info('─' * (terminal_width - 1) + '\n\n')
 				return
 
 			# Otherwise run full authentication

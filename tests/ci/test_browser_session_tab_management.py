@@ -317,16 +317,21 @@ class TestTabManagement:
 
 		await browser_session.start()
 
-		# Force an error by closing context and trying to use it
-		# Set browser_context to None to simulate partial cleanup
-		await browser_session.browser_context.close()
+		# Force an error by killing the session (stop() with keep_alive=True doesn't close context)
+		# This properly cleans up connections
 		original_context = browser_session.browser_context
-		browser_session.browser_context = None
+
+		# Use kill() to force close even with keep_alive=True
+		await browser_session.kill()
+
+		# Verify session is properly killed
+		assert browser_session.browser_context is None
+		assert browser_session.initialized is False
 
 		# This should trigger reinitialization
 		page = await browser_session.get_current_page()
 
-		# Verify state is consistent
+		# Verify state is consistent with a new context
 		assert page is not None
 		assert browser_session.browser_context is not None
 		assert browser_session.browser_context != original_context
@@ -345,12 +350,12 @@ class TestTabManagement:
 
 		async def close_context():
 			await barrier.wait()
-			await browser_session.browser_context.close()
-			# After closing, the browser_session still has a reference to the closed context
-			# We need to check if the context is truly disconnected
+			# Use browser_session.stop() instead of directly closing the context
+			# This ensures proper cleanup of connections
+			await browser_session.stop()
+			# After stopping, check if the context is truly disconnected
 			connected = await browser_session.is_connected(restart=False)
-			# The test expects False, but let's see what we actually get
-			return f'closed (connected={connected})'
+			return f'stopped (connected={connected})'
 
 		async def access_pages():
 			await barrier.wait()
@@ -371,8 +376,8 @@ class TestTabManagement:
 
 		# All operations should complete without crashes
 		assert results and all(not isinstance(r, Exception) for r in results)
-		# Check that close operation completed
-		assert any('closed' in str(r) for r in results)
+		# Check that stop operation completed
+		assert any('stopped' in str(r) for r in results)
 
-		await browser_session.kill()
-		await asyncio.sleep(0.5)
+		# No need to kill again since we already stopped properly
+		await asyncio.sleep(0.1)  # Give time for cleanup

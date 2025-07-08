@@ -28,8 +28,16 @@ import json
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any, Literal
+
+try:
+	import psutil
+
+	PSUTIL_AVAILABLE = True
+except ImportError:
+	PSUTIL_AVAILABLE = False
 
 # Set environment to suppress browser-use logging during import
 os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'error'
@@ -120,6 +128,40 @@ except ImportError:
 	logger.error('MCP SDK not installed. Install with: pip install mcp')
 	sys.exit(1)
 
+from browser_use.telemetry import MCPServerTelemetryEvent, ProductTelemetry
+from browser_use.utils import get_browser_use_version
+
+
+def get_parent_process_cmdline() -> str | None:
+	"""Get the command line of all parent processes up the chain."""
+	if not PSUTIL_AVAILABLE:
+		return None
+
+	try:
+		cmdlines = []
+		current_process = psutil.Process()
+		parent = current_process.parent()
+
+		while parent:
+			try:
+				cmdline = parent.cmdline()
+				if cmdline:
+					cmdlines.append(' '.join(cmdline))
+			except (psutil.AccessDenied, psutil.NoSuchProcess):
+				# Skip processes we can't access (like system processes)
+				pass
+
+			try:
+				parent = parent.parent()
+			except (psutil.AccessDenied, psutil.NoSuchProcess):
+				# Can't go further up the chain
+				break
+
+		return ';'.join(cmdlines) if cmdlines else None
+	except Exception:
+		# If we can't get parent process info, just return None
+		return None
+
 
 class BrowserUseServer:
 	"""MCP Server for browser-use capabilities."""
@@ -135,6 +177,8 @@ class BrowserUseServer:
 		self.controller: Controller | None = None
 		self.llm: ChatOpenAI | None = None
 		self.file_system: FileSystem | None = None
+		self._telemetry = ProductTelemetry()
+		self._start_time = time.time()
 
 		# Setup handlers
 		self._setup_handlers()
@@ -314,12 +358,27 @@ class BrowserUseServer:
 		@self.server.call_tool()
 		async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
 			"""Handle tool execution."""
+			start_time = time.time()
+			error_msg = None
 			try:
 				result = await self._execute_tool(name, arguments or {})
 				return [types.TextContent(type='text', text=result)]
 			except Exception as e:
+				error_msg = str(e)
 				logger.error(f'Tool execution failed: {e}', exc_info=True)
 				return [types.TextContent(type='text', text=f'Error: {str(e)}')]
+			finally:
+				# Capture telemetry for tool calls
+				duration = time.time() - start_time
+				self._telemetry.capture(
+					MCPServerTelemetryEvent(
+						version=get_browser_use_version(),
+						action='tool_call',
+						tool_name=name,
+						duration_seconds=duration,
+						error_message=error_msg,
+					)
+				)
 
 	async def _execute_tool(self, tool_name: str, arguments: dict[str, Any]) -> str:
 		"""Execute a browser-use tool."""
@@ -744,7 +803,28 @@ async def main():
 		sys.exit(1)
 
 	server = BrowserUseServer()
-	await server.run()
+	# Capture telemetry for server start
+	server._telemetry.capture(
+		MCPServerTelemetryEvent(
+			version=get_browser_use_version(),
+			action='start',
+			parent_process_cmdline=get_parent_process_cmdline(),
+		)
+	)
+	try:
+		await server.run()
+	finally:
+		# Capture telemetry for server stop
+		duration = time.time() - server._start_time
+		server._telemetry.capture(
+			MCPServerTelemetryEvent(
+				version=get_browser_use_version(),
+				action='stop',
+				duration_seconds=duration,
+				parent_process_cmdline=get_parent_process_cmdline(),
+			)
+		)
+		server._telemetry.flush()
 
 
 if __name__ == '__main__':

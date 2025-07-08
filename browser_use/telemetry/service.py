@@ -1,6 +1,5 @@
 import logging
 import os
-from pathlib import Path
 
 from dotenv import load_dotenv
 from posthog import Posthog
@@ -21,13 +20,6 @@ POSTHOG_EVENT_SETTINGS = {
 }
 
 
-def xdg_cache_home() -> Path:
-	default = Path.home() / '.cache'
-	if CONFIG.XDG_CACHE_HOME and (path := Path(CONFIG.XDG_CACHE_HOME)).is_absolute():
-		return path
-	return default
-
-
 @singleton
 class ProductTelemetry:
 	"""
@@ -36,7 +28,7 @@ class ProductTelemetry:
 	If the environment variable `ANONYMIZED_TELEMETRY=False`, anonymized telemetry will be disabled.
 	"""
 
-	USER_ID_PATH = str(xdg_cache_home() / 'browser_use' / 'telemetry_user_id')
+	USER_ID_PATH = str(CONFIG.BROWSER_USE_CONFIG_DIR / 'device_id')
 	PROJECT_API_KEY = 'phc_F8JMNjW1i2KbGUTaW1unnDdLSPCoyc52SGRU0JecaUh'
 	HOST = 'https://eu.i.posthog.com'
 	UNKNOWN_USER_ID = 'UNKNOWN'

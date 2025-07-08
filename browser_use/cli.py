@@ -44,6 +44,8 @@ from browser_use.agent.views import AgentSettings
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.config import CONFIG
 from browser_use.logging_config import addLoggingLevel
+from browser_use.telemetry import CLITelemetryEvent, ProductTelemetry
+from browser_use.utils import get_browser_use_version
 
 USER_DATA_DIR = CONFIG.BROWSER_USE_PROFILES_DIR / 'cli'
 
@@ -432,6 +434,8 @@ class BrowserUseApp(App):
 		self.task_history = config.get('command_history', [])
 		# Track current position in history for up/down navigation
 		self.history_index = len(self.task_history)
+		# Initialize telemetry
+		self._telemetry = ProductTelemetry()
 
 	def setup_richlog_logging(self) -> None:
 		"""Set up logging to redirect to RichLog widget instead of stdout."""
@@ -549,6 +553,17 @@ class BrowserUseApp(App):
 		except Exception as e:
 			logger.error(f'Error starting info panel updates: {str(e)}', exc_info=True)
 			# Non-critical, continue
+
+		# Capture telemetry for CLI start
+		self._telemetry.capture(
+			CLITelemetryEvent(
+				version=get_browser_use_version(),
+				action='start',
+				mode='interactive',
+				model=self.llm.model if self.llm and hasattr(self.llm, 'model') else None,
+				model_provider=self.llm.provider if self.llm and hasattr(self.llm, 'provider') else None,
+			)
+		)
 
 		logger.debug('on_mount() completed successfully')
 
@@ -1007,11 +1022,26 @@ class BrowserUseApp(App):
 
 			# Panel updates are already happening via the timer in update_info_panels
 
+			task_start_time = time.time()
+			error_msg = None
+
 			try:
+				# Capture telemetry for message sent
+				self._telemetry.capture(
+					CLITelemetryEvent(
+						version=get_browser_use_version(),
+						action='message_sent',
+						mode='interactive',
+						model=self.llm.model if self.llm and hasattr(self.llm, 'model') else None,
+						model_provider=self.llm.provider if self.llm and hasattr(self.llm, 'provider') else None,
+					)
+				)
+
 				# Run the agent task, redirecting output to RichLog through our handler
 				if self.agent:
 					await self.agent.run()
 			except Exception as e:
+				error_msg = str(e)
 				logger.error('\nError running agent: %s', str(e))
 			finally:
 				# Clear the running flag
@@ -1019,6 +1049,20 @@ class BrowserUseApp(App):
 					self.agent.running = False  # type: ignore
 
 				# No need to call update_info_panels() here as it's already updating via timer
+
+				# Capture telemetry for task completion
+				duration = time.time() - task_start_time
+				self._telemetry.capture(
+					CLITelemetryEvent(
+						version=get_browser_use_version(),
+						action='task_completed' if error_msg is None else 'error',
+						mode='interactive',
+						model=self.llm.model if self.llm and hasattr(self.llm, 'model') else None,
+						model_provider=self.llm.provider if self.llm and hasattr(self.llm, 'provider') else None,
+						duration_seconds=duration,
+						error_message=error_msg,
+					)
+				)
 
 				logger.debug('\n✅ Task completed!')
 
@@ -1070,13 +1114,13 @@ class BrowserUseApp(App):
 
 	async def action_quit(self) -> None:
 		"""Quit the application and clean up resources."""
-		# Close the browser session if it exists
-		if self.browser_session:
-			try:
-				await self.browser_session.close()
-				logging.debug('Browser session closed successfully')
-			except Exception as e:
-				logging.error(f'Error closing browser session: {str(e)}')
+		# Note: We don't need to close the browser session here because:
+		# 1. If an agent exists, it already called browser_session.stop() in its run() method
+		# 2. If keep_alive=True (default), we want to leave the browser running anyway
+		# This prevents the duplicate "stop() called" messages in the logs
+
+		# Flush telemetry before exiting
+		self._telemetry.flush()
 
 		# Exit the application
 		self.exit()
@@ -1171,6 +1215,11 @@ async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
 	# The logging is now properly configured by setup_logging()
 	# No need to manually configure handlers since setup_logging() handles it
 
+	# Initialize telemetry
+	telemetry = ProductTelemetry()
+	start_time = time.time()
+	error_msg = None
+
 	try:
 		# Load config
 		config = load_user_config()
@@ -1178,6 +1227,17 @@ async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
 
 		# Get LLM
 		llm = get_llm(config)
+
+		# Capture telemetry for CLI start in oneshot mode
+		telemetry.capture(
+			CLITelemetryEvent(
+				version=get_browser_use_version(),
+				action='start',
+				mode='oneshot',
+				model=llm.model if hasattr(llm, 'model') else None,
+				model_provider=llm.__class__.__name__ if llm else None,
+			)
+		)
 
 		# Get agent settings from config
 		agent_settings = AgentSettings.model_validate(config.get('agent', {}))
@@ -1203,10 +1263,36 @@ async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
 
 		await agent.run()
 
-		# Close browser session
-		await browser_session.close()
+		# Note: We don't close the browser session here because:
+		# 1. The agent already called browser_session.stop() in its run() method
+		# 2. This prevents duplicate "stop() called" messages in the logs
+
+		# Capture telemetry for successful completion
+		telemetry.capture(
+			CLITelemetryEvent(
+				version=get_browser_use_version(),
+				action='task_completed',
+				mode='oneshot',
+				model=llm.model if hasattr(llm, 'model') else None,
+				model_provider=llm.__class__.__name__ if llm else None,
+				duration_seconds=time.time() - start_time,
+			)
+		)
 
 	except Exception as e:
+		error_msg = str(e)
+		# Capture telemetry for error
+		telemetry.capture(
+			CLITelemetryEvent(
+				version=get_browser_use_version(),
+				action='error',
+				mode='oneshot',
+				model=llm.model if hasattr(llm, 'model') else None,
+				model_provider=llm.__class__.__name__ if llm and 'llm' in locals() else None,
+				duration_seconds=time.time() - start_time,
+				error_message=error_msg,
+			)
+		)
 		if debug:
 			import traceback
 
@@ -1214,6 +1300,9 @@ async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
 		else:
 			print(f'Error: {str(e)}', file=sys.stderr)
 		sys.exit(1)
+	finally:
+		# Ensure telemetry is flushed
+		telemetry.flush()
 
 
 async def textual_interface(config: dict[str, Any]):
@@ -1316,9 +1405,8 @@ async def textual_interface(config: dict[str, Any]):
 		await app.run_async()
 	except Exception as e:
 		logger.error(f'Error in textual_interface: {str(e)}', exc_info=True)
-		# Make sure to close browser session if app initialization fails
-		if 'browser_session' in locals():
-			await browser_session.close()
+		# Note: We don't close the browser session here to avoid duplicate stop() calls
+		# The browser session will be cleaned up by its __del__ method if needed
 		raise
 
 
@@ -1330,12 +1418,12 @@ async def textual_interface(config: dict[str, Any]):
 @click.option('--window-width', type=int, help='Browser window width')
 @click.option('--window-height', type=int, help='Browser window height')
 @click.option(
-	'--user-data-dir', type=str, help='Path to Chrome user data directory (e.g., ~/Library/Application Support/Google/Chrome)'
+	'--user-data-dir', type=str, help='Path to Chrome user data directory (e.g. ~/Library/Application Support/Google/Chrome)'
 )
-@click.option('--profile-directory', type=str, help='Chrome profile directory name (e.g., "Default", "Profile 1")')
-@click.option('--cdp-url', type=str, help='Connect to existing Chrome via CDP URL (e.g., http://localhost:9222)')
+@click.option('--profile-directory', type=str, help='Chrome profile directory name (e.g. "Default", "Profile 1")')
+@click.option('--cdp-url', type=str, help='Connect to existing Chrome via CDP URL (e.g. http://localhost:9222)')
 @click.option('-p', '--prompt', type=str, help='Run a single task without the TUI (headless mode)')
-@click.option('--mcp', is_flag=True, help='Run as MCP server')
+@click.option('--mcp', is_flag=True, help='Run as MCP server (exposes JSON RPC via stdin/stdout)')
 @click.pass_context
 def main(ctx: click.Context, debug: bool = False, **kwargs):
 	"""Browser-Use Interactive TUI or Command Line Executor
@@ -1358,6 +1446,15 @@ def main(ctx: click.Context, debug: bool = False, **kwargs):
 
 	# Check if MCP server mode is activated
 	if kwargs.get('mcp'):
+		# Capture telemetry for MCP server mode via CLI
+		telemetry = ProductTelemetry()
+		telemetry.capture(
+			CLITelemetryEvent(
+				version=get_browser_use_version(),
+				action='start',
+				mode='mcp_server',
+			)
+		)
 		# Run as MCP server
 		from browser_use.mcp.server import main as mcp_main
 

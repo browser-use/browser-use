@@ -24,6 +24,7 @@ Example usage:
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from pydantic import BaseModel, Field, create_model
@@ -31,18 +32,16 @@ from pydantic import BaseModel, Field, create_model
 from browser_use.agent.views import ActionResult
 from browser_use.controller.registry.service import Registry
 from browser_use.controller.service import Controller
+from browser_use.telemetry import MCPClientTelemetryEvent, ProductTelemetry
+from browser_use.utils import get_browser_use_version, is_new_tab_page
 
 logger = logging.getLogger(__name__)
 
-# Try to import MCP SDK
-try:
-	from mcp import ClientSession, StdioServerParameters, types
-	from mcp.client.stdio import stdio_client
+# Import MCP SDK
+from mcp import ClientSession, StdioServerParameters, types
+from mcp.client.stdio import stdio_client
 
-	MCP_AVAILABLE = True
-except ImportError:
-	MCP_AVAILABLE = False
-	logger.warning('MCP SDK not installed. Install with: pip install mcp')
+MCP_AVAILABLE = True
 
 
 class MCPClient:
@@ -63,9 +62,6 @@ class MCPClient:
 			args: Arguments for the command (e.g., ["@playwright/mcp@latest"])
 			env: Environment variables for the server process
 		"""
-		if not MCP_AVAILABLE:
-			raise ImportError('MCP SDK not installed. Install with: pip install mcp')
-
 		self.server_name = server_name
 		self.command = command
 		self.args = args or []
@@ -79,6 +75,7 @@ class MCPClient:
 		self._registered_actions: set[str] = set()
 		self._connected = False
 		self._disconnect_event = asyncio.Event()
+		self._telemetry = ProductTelemetry()
 
 	async def connect(self) -> None:
 		"""Connect to the MCP server and discover available tools."""
@@ -86,24 +83,48 @@ class MCPClient:
 			logger.debug(f'Already connected to {self.server_name}')
 			return
 
-		logger.info(f"🔌 Connecting to MCP server '{self.server_name}': {self.command} {' '.join(self.args)}")
+		start_time = time.time()
+		error_msg = None
 
-		# Create server parameters
-		server_params = StdioServerParameters(command=self.command, args=self.args, env=self.env)
+		try:
+			logger.info(f"🔌 Connecting to MCP server '{self.server_name}': {self.command} {' '.join(self.args)}")
 
-		# Start stdio client in background task
-		self._stdio_task = asyncio.create_task(self._run_stdio_client(server_params))
+			# Create server parameters
+			server_params = StdioServerParameters(command=self.command, args=self.args, env=self.env)
 
-		# Wait for connection to be established
-		retries = 0
-		while not self._connected and retries < 30:  # 3 second timeout
-			await asyncio.sleep(0.1)
-			retries += 1
+			# Start stdio client in background task
+			self._stdio_task = asyncio.create_task(self._run_stdio_client(server_params))
 
-		if not self._connected:
-			raise RuntimeError(f"Failed to connect to MCP server '{self.server_name}' after 3 seconds")
+			# Wait for connection to be established
+			retries = 0
+			max_retries = 100  # 10 second timeout (increased for parallel test execution)
+			while not self._connected and retries < max_retries:
+				await asyncio.sleep(0.1)
+				retries += 1
 
-		logger.info(f"📦 Discovered {len(self._tools)} tools from '{self.server_name}': {list(self._tools.keys())}")
+			if not self._connected:
+				error_msg = f"Failed to connect to MCP server '{self.server_name}' after {max_retries * 0.1} seconds"
+				raise RuntimeError(error_msg)
+
+			logger.info(f"📦 Discovered {len(self._tools)} tools from '{self.server_name}': {list(self._tools.keys())}")
+
+		except Exception as e:
+			error_msg = str(e)
+			raise
+		finally:
+			# Capture telemetry for connect action
+			duration = time.time() - start_time
+			self._telemetry.capture(
+				MCPClientTelemetryEvent(
+					server_name=self.server_name,
+					command=self.command,
+					tools_discovered=len(self._tools),
+					version=get_browser_use_version(),
+					action='connect',
+					duration_seconds=duration,
+					error_message=error_msg,
+				)
+			)
 
 	async def _run_stdio_client(self, server_params: StdioServerParameters):
 		"""Run the stdio client connection in a background task."""
@@ -142,26 +163,49 @@ class MCPClient:
 		if not self._connected:
 			return
 
-		logger.info(f"🔌 Disconnecting from MCP server '{self.server_name}'")
+		start_time = time.time()
+		error_msg = None
 
-		# Signal disconnect
-		self._connected = False
-		self._disconnect_event.set()
+		try:
+			logger.info(f"🔌 Disconnecting from MCP server '{self.server_name}'")
 
-		# Wait for stdio task to finish
-		if self._stdio_task:
-			try:
-				await asyncio.wait_for(self._stdio_task, timeout=2.0)
-			except TimeoutError:
-				logger.warning(f"Timeout waiting for MCP server '{self.server_name}' to disconnect")
-				self._stdio_task.cancel()
+			# Signal disconnect
+			self._connected = False
+			self._disconnect_event.set()
+
+			# Wait for stdio task to finish
+			if self._stdio_task:
 				try:
-					await self._stdio_task
-				except asyncio.CancelledError:
-					pass
+					await asyncio.wait_for(self._stdio_task, timeout=2.0)
+				except TimeoutError:
+					logger.warning(f"Timeout waiting for MCP server '{self.server_name}' to disconnect")
+					self._stdio_task.cancel()
+					try:
+						await self._stdio_task
+					except asyncio.CancelledError:
+						pass
 
-		self._tools.clear()
-		self._registered_actions.clear()
+			self._tools.clear()
+			self._registered_actions.clear()
+
+		except Exception as e:
+			error_msg = str(e)
+			logger.error(f'Error disconnecting from MCP server: {e}')
+		finally:
+			# Capture telemetry for disconnect action
+			duration = time.time() - start_time
+			self._telemetry.capture(
+				MCPClientTelemetryEvent(
+					server_name=self.server_name,
+					command=self.command,
+					tools_discovered=0,  # Tools cleared on disconnect
+					version=get_browser_use_version(),
+					action='disconnect',
+					duration_seconds=duration,
+					error_message=error_msg,
+				)
+			)
+			self._telemetry.flush()
 
 	async def register_to_controller(
 		self,
@@ -248,7 +292,7 @@ class MCPClient:
 
 		if is_browser_tool:
 			# Browser tools should only be available when on a web page
-			page_filter = lambda page: page and page.url != 'about:blank'
+			page_filter = lambda page: page and not is_new_tab_page(page.url)
 
 		# Create async wrapper function for the MCP tool
 		# Need to define function with explicit parameters to satisfy registry validation
@@ -263,6 +307,9 @@ class MCPClient:
 				tool_params = params.model_dump()
 
 				logger.debug(f"🔧 Calling MCP tool '{tool.name}' with params: {tool_params}")
+
+				start_time = time.time()
+				error_msg = None
 
 				try:
 					# Call the MCP tool
@@ -280,6 +327,21 @@ class MCPClient:
 					error_msg = f"MCP tool '{tool.name}' failed: {str(e)}"
 					logger.error(error_msg)
 					return ActionResult(error=error_msg, success=False)
+				finally:
+					# Capture telemetry for tool call
+					duration = time.time() - start_time
+					self._telemetry.capture(
+						MCPClientTelemetryEvent(
+							server_name=self.server_name,
+							command=self.command,
+							tools_discovered=len(self._tools),
+							version=get_browser_use_version(),
+							action='tool_call',
+							tool_name=tool.name,
+							duration_seconds=duration,
+							error_message=error_msg,
+						)
+					)
 		else:
 			# No parameters - empty function signature
 			async def mcp_action_wrapper() -> ActionResult:  # type: ignore[no-redef]
@@ -288,6 +350,9 @@ class MCPClient:
 					return ActionResult(error=f"MCP server '{self.server_name}' not connected", success=False)
 
 				logger.debug(f"🔧 Calling MCP tool '{tool.name}' with no params")
+
+				start_time = time.time()
+				error_msg = None
 
 				try:
 					# Call the MCP tool with empty params
@@ -305,6 +370,21 @@ class MCPClient:
 					error_msg = f"MCP tool '{tool.name}' failed: {str(e)}"
 					logger.error(error_msg)
 					return ActionResult(error=error_msg, success=False)
+				finally:
+					# Capture telemetry for tool call
+					duration = time.time() - start_time
+					self._telemetry.capture(
+						MCPClientTelemetryEvent(
+							server_name=self.server_name,
+							command=self.command,
+							tools_discovered=len(self._tools),
+							version=get_browser_use_version(),
+							action='tool_call',
+							tool_name=tool.name,
+							duration_seconds=duration,
+							error_message=error_msg,
+						)
+					)
 
 		# Set function metadata for better debugging
 		mcp_action_wrapper.__name__ = action_name

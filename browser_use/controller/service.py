@@ -4,13 +4,13 @@ import json
 import logging
 import os
 import re
-from collections.abc import Awaitable, Callable
-from typing import Any, Generic, TypeVar, cast
+from typing import Generic, TypeVar, cast
 
 try:
 	from lmnr import Laminar  # type: ignore
 except ImportError:
 	Laminar = None  # type: ignore
+from bubus.helpers import retry
 from pydantic import BaseModel
 
 from browser_use.agent.views import ActionModel, ActionResult
@@ -39,38 +39,6 @@ from browser_use.observability import observe_debug
 from browser_use.utils import time_execution_sync
 
 logger = logging.getLogger(__name__)
-
-
-async def retry_async_function(
-	func: Callable[[], Awaitable[Any]], error_message: str, n_retries: int = 3, sleep_seconds: float = 1
-) -> Any:
-	"""
-	Retry an async function n times before giving up and raising an exception.
-
-	Args:
-		func: Async function to retry
-		error_message: Error message to use in exception if all retries fail
-		n_retries: Number of retries (default 3)
-		sleep_seconds: Seconds to sleep between retries (default 1)
-
-	Returns:
-		The result of the function on success
-
-	Raises:
-		RuntimeError: If all retries fail
-	"""
-	for attempt in range(n_retries):
-		try:
-			result = await func()
-			return result
-		except Exception as e:
-			await asyncio.sleep(sleep_seconds)
-			logger.debug(f'Error (attempt {attempt + 1}/{n_retries}): {e}')
-			if attempt == n_retries - 1:  # Last attempt failed
-				raise RuntimeError(error_message + str(e))
-
-	# Should never reach here but make type checker happy
-	raise RuntimeError(error_message)
 
 
 Context = TypeVar('Context')
@@ -494,21 +462,28 @@ Explain the content of the page and that the requested information is not availa
 		# 	)
 
 		@self.registry.action(
-			'Scroll the page by specified number of pages (set down=True to scroll down, down=False to scroll up, num_pages=number of pages to scroll like 0.5 for half page, 1.0 for one page, etc.)',
+			'Scroll the page by specified number of pages (set down=True to scroll down, down=False to scroll up, num_pages=number of pages to scroll like 0.5 for half page, 1.0 for one page, etc.). Optional index parameter to scroll within a specific element or its scroll container (works well for dropdowns and custom UI components).',
 			param_model=ScrollAction,
 		)
 		async def scroll(params: ScrollAction, browser_session: BrowserSession):
 			"""
-			(a) Use browser._scroll_container for container-aware scrolling.
-			(b) If that JavaScript throws, fall back to window.scrollBy().
+			(a) If index is provided, find scrollable containers in the element hierarchy and scroll directly.
+			(b) If no index or no container found, use browser._scroll_container for container-aware scrolling.
+			(c) If that JavaScript throws, fall back to window.scrollBy().
 			"""
 			page = await browser_session.get_current_page()
 
+			# Helper function to get window height with retry decorator
+			@retry(wait=1, retries=3, timeout=5)
+			async def get_window_height():
+				return await page.evaluate('() => window.innerHeight')
+
 			# Get window height with retries
-			dy_result = await retry_async_function(
-				lambda: page.evaluate('() => window.innerHeight'), 'Scroll failed due to an error.'
-			)
-			window_height = dy_result or 0
+			try:
+				window_height = await get_window_height()
+			except Exception as e:
+				raise RuntimeError(f'Scroll failed due to an error: {e}')
+			window_height = window_height or 0
 
 			# Determine scroll amount based on num_pages
 			scroll_amount = int(window_height * params.num_pages)
@@ -517,18 +492,179 @@ Explain the content of the page and that the requested information is not availa
 			# Set direction based on down parameter
 			dy = scroll_amount if params.down else -scroll_amount
 
-			try:
-				await browser_session._scroll_container(cast(int, dy))
-			except Exception as e:
-				# Hard fallback: always works on root scroller
-				await page.evaluate('(y) => window.scrollBy(0, y)', dy)
-				logger.debug('Smart scroll failed; used window.scrollBy fallback', exc_info=e)
-
+			# Initialize result message components
 			direction = 'down' if params.down else 'up'
+			scroll_target = 'the page'
+			pages_text = f'{pages_scrolled} pages' if pages_scrolled != 1.0 else 'one page'
+
+			# Element-specific scrolling if index is provided
+			if params.index is not None:
+				try:
+					# Check if element exists in current selector map
+					selector_map = await browser_session.get_selector_map()
+					element_node = None  # Initialize to avoid undefined variable
+
+					if params.index not in selector_map:
+						# Force a state refresh in case the cache is stale
+						logger.info(f'Element with index {params.index} not found in selector map, refreshing state...')
+						await browser_session.get_state_summary(cache_clickable_elements_hashes=True)
+						selector_map = await browser_session.get_selector_map()
+
+						if params.index not in selector_map:
+							# Return informative message about invalid index
+							max_index = max(selector_map.keys()) if selector_map else -1
+							msg = f'❌ Element with index {params.index} does not exist. Page has {len(selector_map)} interactive elements (indices 0-{max_index}). Using page-level scroll instead.'
+							logger.warning(msg)
+							scroll_target = 'the page'
+							# Skip element-specific scrolling
+						else:
+							element_node = await browser_session.get_dom_element_by_index(params.index)
+					else:
+						element_node = await browser_session.get_dom_element_by_index(params.index)
+
+					if element_node is not None and params.index in selector_map:
+						# Try direct container scrolling (no events that might close dropdowns)
+						container_scroll_js = """
+						(params) => {
+							const { dy, elementXPath } = params;
+							
+							// Get the target element by XPath
+							const targetElement = document.evaluate(elementXPath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+							if (!targetElement) {
+								return { success: false, reason: 'Element not found by XPath' };
+							}
+
+							console.log('[SCROLL DEBUG] Starting direct container scroll for element:', targetElement.tagName);
+							
+							// Try to find scrollable containers in the hierarchy (starting from element itself)
+							let currentElement = targetElement;
+							let scrollSuccess = false;
+							let scrolledElement = null;
+							let scrollDelta = 0;
+							let attempts = 0;
+							
+							// Check up to 10 elements in hierarchy (including the target element itself)
+							while (currentElement && attempts < 10) {
+								const computedStyle = window.getComputedStyle(currentElement);
+								const hasScrollableY = /(auto|scroll|overlay)/.test(computedStyle.overflowY);
+								const canScrollVertically = currentElement.scrollHeight > currentElement.clientHeight;
+								
+								console.log('[SCROLL DEBUG] Checking element:', currentElement.tagName, 
+									'hasScrollableY:', hasScrollableY, 
+									'canScrollVertically:', canScrollVertically,
+									'scrollHeight:', currentElement.scrollHeight,
+									'clientHeight:', currentElement.clientHeight);
+								
+								if (hasScrollableY && canScrollVertically) {
+									const beforeScroll = currentElement.scrollTop;
+									const maxScroll = currentElement.scrollHeight - currentElement.clientHeight;
+									
+									// Calculate scroll amount (1/3 of provided dy for gentler scrolling)
+									let scrollAmount = dy / 3;
+									
+									// Ensure we don't scroll beyond bounds
+									if (scrollAmount > 0) {
+										scrollAmount = Math.min(scrollAmount, maxScroll - beforeScroll);
+									} else {
+										scrollAmount = Math.max(scrollAmount, -beforeScroll);
+									}
+									
+									// Try direct scrollTop manipulation (most reliable)
+									currentElement.scrollTop = beforeScroll + scrollAmount;
+									
+									const afterScroll = currentElement.scrollTop;
+									const actualScrollDelta = afterScroll - beforeScroll;
+									
+									console.log('[SCROLL DEBUG] Scroll attempt:', currentElement.tagName, 
+										'before:', beforeScroll, 'after:', afterScroll, 'delta:', actualScrollDelta);
+									
+									if (Math.abs(actualScrollDelta) > 0.5) {
+										scrollSuccess = true;
+										scrolledElement = currentElement;
+										scrollDelta = actualScrollDelta;
+										console.log('[SCROLL DEBUG] Successfully scrolled container:', currentElement.tagName, 'delta:', actualScrollDelta);
+										break;
+									}
+								}
+								
+								// Move to parent (but don't go beyond body for dropdown case)
+								if (currentElement === document.body || currentElement === document.documentElement) {
+									break;
+								}
+								currentElement = currentElement.parentElement;
+								attempts++;
+							}
+							
+							if (scrollSuccess) {
+								// Successfully scrolled a container
+								return { 
+									success: true, 
+									method: 'direct_container_scroll',
+									containerType: 'element', 
+									containerTag: scrolledElement.tagName.toLowerCase(),
+									containerClass: scrolledElement.className || '',
+									containerId: scrolledElement.id || '',
+									scrollDelta: scrollDelta
+								};
+							} else {
+								// No container found or could scroll
+								console.log('[SCROLL DEBUG] No scrollable container found for element');
+								return { 
+									success: false, 
+									reason: 'No scrollable container found',
+									needsPageScroll: true
+								};
+							}
+						}
+						"""
+
+						# Pass parameters as a single object
+						scroll_params = {'dy': dy, 'elementXPath': element_node.xpath}
+						result = await page.evaluate(container_scroll_js, scroll_params)
+
+						if result['success']:
+							if result['containerType'] == 'element':
+								container_info = f'{result["containerTag"]}'
+								if result['containerId']:
+									container_info += f'#{result["containerId"]}'
+								elif result['containerClass']:
+									container_info += f'.{result["containerClass"].split()[0]}'
+								scroll_target = f"element {params.index}'s scroll container ({container_info})"
+								# Don't do additional page scrolling since we successfully scrolled the container
+							else:
+								scroll_target = f'the page (fallback from element {params.index})'
+						else:
+							# Container scroll failed, need page-level scrolling
+							logger.debug(f'Container scroll failed for element {params.index}: {result.get("reason", "Unknown")}')
+							scroll_target = f'the page (no container found for element {params.index})'
+							# This will trigger page-level scrolling below
+
+				except Exception as e:
+					logger.debug(f'Element-specific scrolling failed for index {params.index}: {e}')
+					scroll_target = f'the page (fallback from element {params.index})'
+					# Fall through to page-level scrolling
+
+			# Page-level scrolling (default or fallback)
+			if (
+				scroll_target == 'the page'
+				or 'fallback' in scroll_target
+				or 'no container found' in scroll_target
+				or 'mouse wheel failed' in scroll_target
+			):
+				logger.debug(f'🔄 Performing page-level scrolling. Reason: {scroll_target}')
+				try:
+					await browser_session._scroll_container(cast(int, dy))
+				except Exception as e:
+					# Hard fallback: always works on root scroller
+					await page.evaluate('(y) => window.scrollBy(0, y)', dy)
+					logger.debug('Smart scroll failed; used window.scrollBy fallback', exc_info=e)
+
+			# Create descriptive message
 			if pages_scrolled == 1.0:
-				long_term_memory = f'Scrolled {direction} the page by one page'
+				long_term_memory = f'Scrolled {direction} {scroll_target} by one page'
 			else:
-				long_term_memory = f'Scrolled {direction} the page by {pages_scrolled} pages'
+				long_term_memory = f'Scrolled {direction} {scroll_target} by {pages_scrolled} pages'
+
 			msg = f'🔍 {long_term_memory}'
 
 			logger.info(msg)
