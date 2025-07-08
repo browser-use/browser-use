@@ -22,7 +22,6 @@ from browser_use.controller.views import (
 	ClickElementAction,
 	CloseTabAction,
 	DoneAction,
-	DragDropAction,
 	GoToUrlAction,
 	InputTextAction,
 	NoParamsAction,
@@ -823,96 +822,6 @@ Explain the content of the page and that the requested information is not availa
 				msg = f'Selection failed: {str(e)}'
 				logger.error(msg)
 				raise BrowserError(msg)
-
-		@self.registry.action(
-			'Drag and drop elements or between coordinates on the page - useful for canvas drawing, sortable lists, sliders, and UI rearrangement',
-			param_model=DragDropAction,
-		)
-		async def drag_drop(params: DragDropAction, browser_session: BrowserSession) -> ActionResult:
-			"""
-			Performs a precise drag and drop operation between elements or coordinates.
-			Supports two approaches:
-			1. Index-based (preferred): Use source_index and target_index
-			2. Coordinate-based: Use direct coordinates
-			"""
-			# Normalize parameters
-			steps = max(1, params.steps or 10)
-			delay_ms = max(0, params.delay_ms or 5)
-
-			page = await browser_session.get_current_page()
-			selector_map = await browser_session.get_selector_map()
-
-			# Case 1: Index-based approach (preferred)
-			if params.source_index is not None and params.target_index is not None:
-				if params.source_index not in selector_map:
-					raise Exception(
-						f'Source element index {params.source_index} does not exist - retry or use alternative actions'
-					)
-				if params.target_index not in selector_map:
-					raise Exception(
-						f'Target element index {params.target_index} does not exist - retry or use alternative actions'
-					)
-
-				source_dom = selector_map[params.source_index]
-				target_dom = selector_map[params.target_index]
-
-				# Get elements using xpath from dom nodes
-				source_element = await page.locator('//' + source_dom.xpath).first.element_handle()
-				target_element = await page.locator('//' + target_dom.xpath).first.element_handle()
-
-				assert source_element is not None, f'Could not locate source element with index {params.source_index}'
-				assert target_element is not None, f'Could not locate target element with index {params.target_index}'
-
-				# Get source coordinates
-				source_box = await source_element.bounding_box()
-				assert source_box is not None, f'Could not get bounding box for source element {params.source_index}'
-				source_x = int(source_box['x'] + source_box['width'] / 2)
-				source_y = int(source_box['y'] + source_box['height'] / 2)
-
-				# Get target coordinates
-				target_box = await target_element.bounding_box()
-				assert target_box is not None, f'Could not get bounding box for target element {params.target_index}'
-				target_x = int(target_box['x'] + target_box['width'] / 2)
-				target_y = int(target_box['y'] + target_box['height'] / 2)
-
-				msg = f'🖱️ Drag element with index {params.source_index} to element with index {params.target_index}'
-
-			# Case 2: Coordinates provided directly
-			elif all(
-				coord is not None
-				for coord in [params.coord_source_x, params.coord_source_y, params.coord_target_x, params.coord_target_y]
-			):
-				source_x = cast(int, params.coord_source_x)
-				source_y = cast(int, params.coord_source_y)
-				target_x = cast(int, params.coord_target_x)
-				target_y = cast(int, params.coord_target_y)
-				msg = f'🖱️ Drag from ({source_x}, {source_y}) to ({target_x}, {target_y})'
-
-			# Case 3: Invalid parameters
-			else:
-				return ActionResult(
-					error='Must provide either source/target indices or source/target coordinates',
-				)
-
-			# Perform the drag operation
-			await page.mouse.move(source_x, source_y)
-			await page.mouse.down()
-
-			# Move to target position with intermediate steps
-			for i in range(1, steps + 1):
-				ratio = i / steps
-				intermediate_x = int(source_x + (target_x - source_x) * ratio)
-				intermediate_y = int(source_y + (target_y - source_y) * ratio)
-				await page.mouse.move(intermediate_x, intermediate_y)
-				if delay_ms > 0:
-					await asyncio.sleep(delay_ms / 1000)
-
-			# Move to final target position and release
-			await page.mouse.move(target_x, target_y)
-			await page.mouse.up()
-
-			logger.info(msg)
-			return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
 
 		@self.registry.action('Google Sheets: Get the contents of the entire sheet', domains=['https://docs.google.com'])
 		async def read_sheet_contents(page: Page):

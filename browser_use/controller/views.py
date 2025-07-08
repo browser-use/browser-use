@@ -1,6 +1,6 @@
 from typing import Generic, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 
 # Action Input Models
@@ -70,26 +70,3 @@ class NoParamsAction(BaseModel):
 
 	model_config = ConfigDict(extra='ignore')
 	# No fields defined - all inputs are ignored automatically
-
-
-class Position(BaseModel):
-	x: int
-	y: int
-
-
-class DragDropAction(BaseModel):
-	# Index-based approach (preferred)
-	source_index: int | None = Field(default=None, description='Index of the element to drag from')
-	target_index: int | None = Field(default=None, description='Index of the element to drop onto')
-
-	# Coordinate-based approach (used if indices not provided)
-	coord_source_x: int | None = Field(default=None, description='Absolute X coordinate on page to start drag from (in pixels)')
-	coord_source_y: int | None = Field(default=None, description='Absolute Y coordinate on page to start drag from (in pixels)')
-	coord_target_x: int | None = Field(default=None, description='Absolute X coordinate on page to drop at (in pixels)')
-	coord_target_y: int | None = Field(default=None, description='Absolute Y coordinate on page to drop at (in pixels)')
-
-	# Common options
-	steps: int | None = Field(default=10, description='Number of intermediate points for smoother movement (5-20 recommended)')
-	delay_ms: int | None = Field(
-		default=5, description='Delay in milliseconds between steps (0 for fastest, 10-20 for more natural)'
-	)
