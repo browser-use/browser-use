@@ -39,7 +39,7 @@ from browser_use.agent.message_manager.service import (
 from browser_use.agent.message_manager.utils import (
 	save_conversation,
 )
-from browser_use.agent.prompts import PlannerPrompt, SystemPrompt
+from browser_use.agent.prompts import SystemPrompt
 from browser_use.agent.views import (
 	ActionResult,
 	AgentError,
@@ -64,7 +64,6 @@ from browser_use.dom.history_tree_processor.service import (
 	DOMHistoryElement,
 	HistoryTreeProcessor,
 )
-from browser_use.exceptions import LLMException
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.observability import observe, observe_debug
 from browser_use.sync import CloudSync
@@ -142,7 +141,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Agent settings
 		output_model_schema: type[AgentStructuredOutput] | None = None,
 		use_vision: bool = True,
-		use_vision_for_planner: bool = False,
+		use_vision_for_planner: bool = False,  # Deprecated
 		save_conversation_path: str | Path | None = None,
 		save_conversation_path_encoding: str | None = 'utf-8',
 		max_failures: int = 3,
@@ -159,10 +158,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_history_items: int = 40,
 		images_per_step: int = 1,
 		page_extraction_llm: BaseChatModel | None = None,
-		planner_llm: BaseChatModel | None = None,
-		planner_interval: int = 1,  # Run planner every N steps
-		is_planner_reasoning: bool = False,
-		extend_planner_system_message: str | None = None,
+		planner_llm: BaseChatModel | None = None,  # Deprecated
+		planner_interval: int = 1,  # Deprecated
+		is_planner_reasoning: bool = False,  # Deprecated
+		extend_planner_system_message: str | None = None,  # Deprecated
 		injected_agent_state: AgentState | None = None,
 		context: Context | None = None,
 		source: str | None = None,
@@ -174,6 +173,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		include_tool_call_examples: bool = False,
 		**kwargs,
 	):
+		# Check for deprecated planner parameters
+		planner_params = [planner_llm, use_vision_for_planner, is_planner_reasoning, extend_planner_system_message]
+		if any(param is not None and param is not False for param in planner_params) or planner_interval != 1:
+			logger.warning(
+				'⚠️ Planner functionality has been removed in browser-use v0.3.3+. '
+				'The planner_llm, use_vision_for_planner, planner_interval, is_planner_reasoning, '
+				'and extend_planner_system_message parameters are deprecated and will be ignored. '
+				'Please remove these parameters from your Agent() initialization.'
+			)
+
 		# Check for deprecated memory parameters
 		if kwargs.get('enable_memory', False) or kwargs.get('memory_config') is not None:
 			logger.warning(
@@ -212,7 +221,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self.settings = AgentSettings(
 			use_vision=use_vision,
-			use_vision_for_planner=use_vision_for_planner,
+			use_vision_for_planner=False,  # Always False now (deprecated)
 			save_conversation_path=save_conversation_path,
 			save_conversation_path_encoding=save_conversation_path_encoding,
 			max_failures=max_failures,
@@ -229,10 +238,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			max_history_items=max_history_items,
 			images_per_step=images_per_step,
 			page_extraction_llm=page_extraction_llm,
-			planner_llm=planner_llm,
-			planner_interval=planner_interval,
-			is_planner_reasoning=is_planner_reasoning,
-			extend_planner_system_message=extend_planner_system_message,
+			planner_llm=None,  # Always None now (deprecated)
+			planner_interval=1,  # Always 1 now (deprecated)
+			is_planner_reasoning=False,  # Always False now (deprecated)
+			extend_planner_system_message=None,  # Always None now (deprecated)
 			calculate_cost=calculate_cost,
 			include_tool_call_examples=include_tool_call_examples,
 		)
@@ -241,8 +250,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.token_cost_service = TokenCost(include_cost=calculate_cost)
 		self.token_cost_service.register_llm(llm)
 		self.token_cost_service.register_llm(page_extraction_llm)
-		if self.settings.planner_llm:
-			self.token_cost_service.register_llm(self.settings.planner_llm)
+		# Note: No longer registering planner_llm (deprecated)
 
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
@@ -263,28 +271,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if 'deepseek' in self.llm.model.lower():
 			self.logger.warning('⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
-		if self.settings.planner_llm and 'deepseek' in (self.settings.planner_llm.model or '').lower():
-			self.logger.warning(
-				'⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision_for_planner=False for now...'
-			)
-			self.settings.use_vision_for_planner = False
+		# Note: No longer checking planner_llm for DeepSeek (deprecated)
+
 		# Handle users trying to use use_vision=True with XAI models
 		if 'grok' in self.llm.model.lower():
 			self.logger.warning('⚠️ XAI models do not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
-		if self.settings.planner_llm and 'grok' in (self.settings.planner_llm.model or '').lower():
-			self.logger.warning(
-				'⚠️ XAI models do not support use_vision=True yet. Setting use_vision_for_planner=False for now...'
-			)
-			self.settings.use_vision_for_planner = False
+		# Note: No longer checking planner_llm for XAI models (deprecated)
 
 		self.logger.info(
 			f'🧠 Starting a browser-use agent {self.version} with base_model={self.llm.model}'
 			f'{" +vision" if self.settings.use_vision else ""}'
 			f' extraction_model={self.settings.page_extraction_llm.model if self.settings.page_extraction_llm else "Unknown"}'
-			f'{f" planner_model={self.settings.planner_llm.model}" if self.settings.planner_llm else ""}'
-			f'{" +reasoning" if self.settings.is_planner_reasoning else ""}'
-			f'{" +vision" if self.settings.use_vision_for_planner else ""} '
+			# Note: No longer logging planner_model (deprecated)
 			f'{" +file_system" if self.file_system else ""}'
 		)
 
@@ -624,229 +623,286 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		assert self.browser_session is not None, 'BrowserSession is not set up'
 
-		# Try 1: Full state summary (current implementation)
+		# Try to get state summary with fallback, handling agent-specific error state
 		try:
-			return await self.browser_session.get_state_summary(cache_clickable_elements_hashes)
+			return await self.browser_session.get_state_summary_with_fallback(cache_clickable_elements_hashes)
 		except Exception as e:
+			# Update agent state with error information
 			if self.state.last_result is None:
 				self.state.last_result = []
 			self.state.last_result.append(ActionResult(error=str(e)))
-			self.logger.warning(f'Full state retrieval failed: {type(e).__name__}: {e}')
-
-		self.logger.warning('🔄 Falling back to minimal state summary')
-		return await self.browser_session.get_minimal_state_summary()
+			self.logger.error(f'Both full and minimal state retrieval failed: {type(e).__name__}: {e}')
+			raise  # Re-raise since we couldn't recover
 
 	@observe(name='agent.step', ignore_output=True, ignore_input=True)
 	@time_execution_async('--step')
 	async def step(self, step_info: AgentStepInfo | None = None) -> None:
 		"""Execute one step of the task"""
 		browser_state_summary = None
-		model_output = None
-		result: list[ActionResult] = []
-		step_start_time = time.time()
 
 		try:
-			assert self.browser_session is not None, 'BrowserSession is not set up'
+			browser_state_summary = await self._prepare_step_context(step_info)
 
-			self.logger.debug(f'🌐 Step {self.state.n_steps + 1}: Getting browser state...')
-			browser_state_summary = await self._get_browser_state_with_recovery(cache_clickable_elements_hashes=True)
-			current_page = await self.browser_session.get_current_page()
+			await self._get_next_action(browser_state_summary, step_info)
 
-			self._log_step_context(current_page, browser_state_summary)
+			await self._take_actions()
 
-			await self._raise_if_stopped_or_paused()
-
-			# Update action models with page-specific actions
-			self.logger.debug(f'📝 Step {self.state.n_steps + 1}: Updating action models...')
-			await self._update_action_models_for_page(current_page)
-
-			# Get page-specific filtered actions
-			page_filtered_actions = self.controller.registry.get_prompt_description(current_page)
-
-			# If there are page-specific actions, add them as a special message for this step only
-			if page_filtered_actions:
-				page_action_message = f'For this page, these additional actions are available:\n{page_filtered_actions}'
-				self._message_manager._add_message_with_type(UserMessage(content=page_action_message))
-
-			self.logger.debug(f'💬 Step {self.state.n_steps + 1}: Adding state message to context...')
-			self._message_manager.add_state_message(
-				browser_state_summary=browser_state_summary,
-				model_output=self.state.last_model_output,
-				result=self.state.last_result,
-				step_info=step_info,
-				use_vision=self.settings.use_vision,
-				page_filtered_actions=page_filtered_actions if page_filtered_actions else None,
-				sensitive_data=self.sensitive_data,
-				agent_history_list=self.state.history,  # Pass AgentHistoryList for screenshots
-			)
-
-			# Run planner at specified intervals if planner is configured
-			if self.settings.planner_llm and self.state.n_steps % self.settings.planner_interval == 0:
-				self.logger.debug(f'🧠 Step {self.state.n_steps + 1}: Running planner...')
-				plan = await self._run_planner()
-				# add plan before last state message
-				self._message_manager.add_plan(plan, position=-1)
-
-			if step_info and step_info.is_last_step():
-				# Add last step warning if needed
-				msg = 'Now comes your last step. Use only the "done" action now. No other actions - so here your action sequence must have length 1.'
-				msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false! E.g. if not all steps are fully completed.'
-				msg += '\nIf the task is fully finished, set success in "done" to true.'
-				msg += '\nInclude everything you found out for the ultimate task in the done text.'
-				self.logger.info('Last step finishing up')
-				self._message_manager._add_message_with_type(UserMessage(content=msg))
-				self.AgentOutput = self.DoneAgentOutput
-
-			input_messages = self._message_manager.get_messages()
-			self.logger.debug(
-				f'🤖 Step {self.state.n_steps + 1}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
-			)
-
-			try:
-				model_output = await self.get_next_action(input_messages)
-				self.logger.debug(
-					f'✅ Step {self.state.n_steps + 1}: Got LLM response with {len(model_output.action) if model_output.action else 0} actions'
-				)
-
-				if (
-					not model_output.action
-					or not isinstance(model_output.action, list)
-					or all(action.model_dump() == {} for action in model_output.action)
-				):
-					self.logger.warning('Model returned empty action. Retrying...')
-
-					clarification_message = UserMessage(
-						content='You forgot to return an action. Please respond only with a valid JSON action according to the expected format.'
-					)
-
-					retry_messages = input_messages + [clarification_message]
-					model_output = await self.get_next_action(retry_messages)
-
-					if not model_output.action or all(action.model_dump() == {} for action in model_output.action):
-						self.logger.warning('Model still returned empty after retry. Inserting safe noop action.')
-						action_instance = self.ActionModel()
-						setattr(
-							action_instance,
-							'done',
-							{
-								'success': False,
-								'text': 'No next action returned by LLM!',
-							},
-						)
-						model_output.action = [action_instance]
-				self.state.last_model_output = model_output
-				# Check again for paused/stopped state after getting model output
-				await self._raise_if_stopped_or_paused()
-
-				self.state.n_steps += 1
-
-				if self.register_new_step_callback:
-					if inspect.iscoroutinefunction(self.register_new_step_callback):
-						await self.register_new_step_callback(browser_state_summary, model_output, self.state.n_steps)
-					else:
-						self.register_new_step_callback(browser_state_summary, model_output, self.state.n_steps)
-				if self.settings.save_conversation_path:
-					# Treat save_conversation_path as a directory (consistent with other recording paths)
-					conversation_dir = Path(self.settings.save_conversation_path)
-					conversation_filename = f'conversation_{self.id}_{self.state.n_steps}.txt'
-					target = conversation_dir / conversation_filename
-					await save_conversation(
-						input_messages,
-						model_output,
-						target,
-						self.settings.save_conversation_path_encoding,
-					)
-
-				self._message_manager._remove_last_state_message()  # we dont want the whole state in the chat history
-
-				# check again if Ctrl+C was pressed before we commit the output to history
-				await self._raise_if_stopped_or_paused()
-
-			except InterruptedError:
-				# Agent was paused during get_next_action
-				self._message_manager._remove_last_state_message()
-				raise  # Re-raise to be caught by the outer try/except
-			except Exception as e:
-				# model call failed, remove last state message from history
-				self._message_manager._remove_last_state_message()
-				self.logger.error(f'❌ Step {self.state.n_steps + 1}: LLM call failed: {type(e).__name__}: {e}')
-				raise e
-
-			self.logger.debug(f'⚡ Step {self.state.n_steps}: Executing {len(model_output.action)} actions...')
-			result: list[ActionResult] = await self.multi_act(model_output.action)
-			self.logger.debug(f'✅ Step {self.state.n_steps}: Actions completed')
-
-			self.state.last_result = result
-
-			# Check for new downloads after executing actions
-			if self.has_downloads_path:
-				try:
-					current_downloads = self.browser_session.downloaded_files
-					if current_downloads != self._last_known_downloads:
-						self._update_available_file_paths(current_downloads)
-						self._last_known_downloads = current_downloads
-				except Exception as e:
-					self.logger.debug(f'📁 Failed to check for new downloads: {type(e).__name__}: {e}')
-
-			self.state.consecutive_failures = 0
-			self.logger.debug(f'🔄 Step {self.state.n_steps}: Consecutive failures reset to: {self.state.consecutive_failures}')
-
-			if len(result) > 0 and result[-1].is_done:
-				self.logger.info(f'📄 Result: {result[-1].extracted_content}')
-				if result[-1].attachments:
-					self.logger.info('📎 Click links below to access the attachments:')
-					for file_path in result[-1].attachments:
-						self.logger.info(f'👉 {file_path}')
-
-		except InterruptedError as e:
-			self.logger.debug(f'InterruptedError: {type(e).__name__}: {e}')
-
-			self.state.last_result = [
-				ActionResult(
-					error='The agent was interrupted mid-step' + (f' - {e}' if e else ''),
-				)
-			]
-			self.state.consecutive_failures += 1
-			return
 		except Exception as e:
-			result = await self._handle_step_error(e)
-			self.state.last_result = result
+			await self._handle_step_error(e)
 
 		finally:
-			step_end_time = time.time()
-			if not result:
-				return
+			await self._finalize_step(browser_state_summary)
 
-			if browser_state_summary:
-				metadata = StepMetadata(
-					step_number=self.state.n_steps,
-					step_start_time=step_start_time,
-					step_end_time=step_end_time,
+	async def _prepare_step_context(self, step_info: AgentStepInfo | None = None) -> BrowserStateSummary:
+		"""Prepare the context for the step: browser state, action models, page actions"""
+
+		self.step_start_time = time.time()
+		assert self.browser_session is not None, 'BrowserSession is not set up'
+
+		self.logger.debug(f'🌐 Step {self.state.n_steps + 1}: Getting browser state...')
+		browser_state_summary = await self._get_browser_state_with_recovery(cache_clickable_elements_hashes=True)
+		current_page = await self.browser_session.get_current_page()
+
+		self._log_step_context(current_page, browser_state_summary)
+		await self._raise_if_stopped_or_paused()
+
+		# Update action models with page-specific actions
+		self.logger.debug(f'📝 Step {self.state.n_steps + 1}: Updating action models...')
+		await self._update_action_models_for_page(current_page)
+
+		# Get page-specific filtered actions
+		page_filtered_actions = self.controller.registry.get_prompt_description(current_page)
+
+		# If there are page-specific actions, add them as a special message for this step only
+		if page_filtered_actions:
+			page_action_message = f'For this page, these additional actions are available:\n{page_filtered_actions}'
+			self._message_manager._add_message_with_type(UserMessage(content=page_action_message))
+
+		self.logger.debug(f'💬 Step {self.state.n_steps + 1}: Adding state message to context...')
+		self._message_manager.add_state_message(
+			browser_state_summary=browser_state_summary,
+			model_output=self.state.last_model_output,
+			result=self.state.last_result,
+			step_info=step_info,
+			use_vision=self.settings.use_vision,
+			page_filtered_actions=page_filtered_actions if page_filtered_actions else None,
+			sensitive_data=self.sensitive_data,
+			agent_history_list=self.state.history,  # Pass AgentHistoryList for screenshots
+		)
+		await self._handle_final_step(step_info)
+		return browser_state_summary
+
+	async def _handle_final_step(self, step_info: AgentStepInfo | None = None) -> None:
+		"""Handle special processing for the last step"""
+		if step_info and step_info.is_last_step():
+			# Add last step warning if needed
+			msg = 'Now comes your last step. Use only the "done" action now. No other actions - so here your action sequence must have length 1.'
+			msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false! E.g. if not all steps are fully completed.'
+			msg += '\nIf the task is fully finished, set success in "done" to true.'
+			msg += '\nInclude everything you found out for the ultimate task in the done text.'
+			self.logger.info('Last step finishing up')
+			self._message_manager._add_message_with_type(UserMessage(content=msg))
+			self.AgentOutput = self.DoneAgentOutput
+
+	async def _get_next_action(self, browser_state_summary: BrowserStateSummary, step_info: AgentStepInfo | None = None) -> None:
+		"""Execute LLM interaction with retry logic and handle callbacks"""
+		input_messages = self._message_manager.get_messages()
+		self.logger.debug(
+			f'🤖 Step {self.state.n_steps + 1}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
+		)
+
+		try:
+			model_output = await self._get_model_output_with_retry(input_messages)
+			self.state.last_model_output = model_output
+
+			# Check again for paused/stopped state after getting model output
+			await self._raise_if_stopped_or_paused()
+
+			self.state.n_steps += 1
+
+			# Handle callbacks and conversation saving
+			await self._handle_post_llm_processing(browser_state_summary, input_messages)
+
+			self._message_manager._remove_last_state_message()  # we dont want the whole state in the chat history
+
+			# check again if Ctrl+C was pressed before we commit the output to history
+			await self._raise_if_stopped_or_paused()
+
+		except Exception as e:
+			# model call failed, remove last state message from history
+			self._message_manager._remove_last_state_message()
+			self.logger.error(f'❌ Step {self.state.n_steps + 1}: LLM call failed: {type(e).__name__}: {e}')
+			raise e
+
+	async def _get_model_output_with_retry(self, input_messages: list[BaseMessage]) -> AgentOutput:
+		"""Get model output with retry logic for empty actions"""
+		model_output = await self.get_model_output(input_messages)
+		self.logger.debug(
+			f'✅ Step {self.state.n_steps + 1}: Got LLM response with {len(model_output.action) if model_output.action else 0} actions'
+		)
+
+		if (
+			not model_output.action
+			or not isinstance(model_output.action, list)
+			or all(action.model_dump() == {} for action in model_output.action)
+		):
+			self.logger.warning('Model returned empty action. Retrying...')
+
+			clarification_message = UserMessage(
+				content='You forgot to return an action. Please respond only with a valid JSON action according to the expected format.'
+			)
+
+			retry_messages = input_messages + [clarification_message]
+			model_output = await self.get_model_output(retry_messages)
+
+			if not model_output.action or all(action.model_dump() == {} for action in model_output.action):
+				self.logger.warning('Model still returned empty after retry. Inserting safe noop action.')
+				action_instance = self.ActionModel()
+				setattr(
+					action_instance,
+					'done',
+					{
+						'success': False,
+						'text': 'No next action returned by LLM!',
+					},
 				)
-				self._make_history_item(model_output, browser_state_summary, result, metadata)
+				model_output.action = [action_instance]
 
-			# Log step completion summary
-			self._log_step_completion_summary(step_start_time, result)
+		return model_output
 
-			# Save file system state after step completion
-			self.save_file_system_state()
+	async def _handle_post_llm_processing(
+		self, browser_state_summary: BrowserStateSummary, input_messages: list[BaseMessage]
+	) -> None:
+		"""Handle callbacks and conversation saving after LLM interaction"""
+		if self.register_new_step_callback and self.state.last_model_output:
+			if inspect.iscoroutinefunction(self.register_new_step_callback):
+				await self.register_new_step_callback(browser_state_summary, self.state.last_model_output, self.state.n_steps)
+			else:
+				self.register_new_step_callback(browser_state_summary, self.state.last_model_output, self.state.n_steps)
 
-			# Emit both step created and executed events
-			if browser_state_summary and model_output:
-				# Extract key step data for the event
-				actions_data = []
-				if model_output.action:
-					for action in model_output.action:
-						action_dict = action.model_dump() if hasattr(action, 'model_dump') else {}
-						actions_data.append(action_dict)
+		if self.settings.save_conversation_path and self.state.last_model_output:
+			# Treat save_conversation_path as a directory (consistent with other recording paths)
+			conversation_dir = Path(self.settings.save_conversation_path)
+			conversation_filename = f'conversation_{self.id}_{self.state.n_steps}.txt'
+			target = conversation_dir / conversation_filename
+			await save_conversation(
+				input_messages,
+				self.state.last_model_output,
+				target,
+				self.settings.save_conversation_path_encoding,
+			)
 
-				# Emit CreateAgentStepEvent
-				step_event = CreateAgentStepEvent.from_agent_step(self, model_output, result, actions_data, browser_state_summary)
-				self.eventbus.dispatch(step_event)
+	async def _take_actions(self) -> None:
+		"""Execute the actions from model output"""
+		assert self.state.last_model_output is not None, 'Model output is not available'
 
-	@time_execution_async('--handle_step_error (agent)')
-	async def _handle_step_error(self, error: Exception) -> list[ActionResult]:
+		self.logger.debug(f'⚡ Step {self.state.n_steps}: Executing {len(self.state.last_model_output.action)} actions...')
+		result = await self.multi_act(self.state.last_model_output.action)
+		self.logger.debug(f'✅ Step {self.state.n_steps}: Actions completed')
+
+		self.state.last_result = result
+		await self._handle_post_action_processing()
+
+	async def _finalize_step(self, browser_state_summary: BrowserStateSummary | None) -> None:
+		"""Finalize the step with history, logging, and events"""
+		step_end_time = time.time()
+		step_start_time = self.step_start_time
+		if not self.state.last_result:
+			return
+
+		if browser_state_summary:
+			metadata = StepMetadata(
+				step_number=self.state.n_steps,
+				step_start_time=step_start_time,
+				step_end_time=step_end_time,
+			)
+
+			# Create and store history item directly
+			if self.state.last_model_output:
+				interacted_elements = AgentHistory.get_interacted_element(
+					self.state.last_model_output, browser_state_summary.selector_map
+				)
+			else:
+				interacted_elements = [None]
+
+			state_history = BrowserStateHistory(
+				url=browser_state_summary.url,
+				title=browser_state_summary.title,
+				tabs=browser_state_summary.tabs,
+				interacted_element=interacted_elements,
+				screenshot=browser_state_summary.screenshot,
+			)
+
+			history_item = AgentHistory(
+				model_output=self.state.last_model_output,
+				result=self.state.last_result,
+				state=state_history,
+				metadata=metadata,
+			)
+
+			self.state.history.history.append(history_item)
+
+		# Log step completion summary
+		self._log_step_completion_summary(step_start_time, self.state.last_result)
+
+		# Save file system state after step completion
+		self.save_file_system_state()
+
+		# Emit both step created and executed events
+		if browser_state_summary and self.state.last_model_output:
+			# Extract key step data for the event
+			actions_data = []
+			if self.state.last_model_output.action:
+				for action in self.state.last_model_output.action:
+					action_dict = action.model_dump() if hasattr(action, 'model_dump') else {}
+					actions_data.append(action_dict)
+
+			# Emit CreateAgentStepEvent
+			step_event = CreateAgentStepEvent.from_agent_step(
+				self, self.state.last_model_output, self.state.last_result, actions_data, browser_state_summary
+			)
+			self.eventbus.dispatch(step_event)
+
+	async def _handle_post_action_processing(self) -> None:
+		"""Handle post-action processing like download tracking and result logging"""
+		assert self.browser_session is not None, 'BrowserSession is not set up'
+
+		# Check for new downloads after executing actions
+		if self.has_downloads_path:
+			try:
+				current_downloads = self.browser_session.downloaded_files
+				if current_downloads != self._last_known_downloads:
+					self._update_available_file_paths(current_downloads)
+					self._last_known_downloads = current_downloads
+			except Exception as e:
+				self.logger.debug(f'📁 Failed to check for new downloads: {type(e).__name__}: {e}')
+
+		self.state.consecutive_failures = 0
+		self.logger.debug(f'🔄 Step {self.state.n_steps}: Consecutive failures reset to: {self.state.consecutive_failures}')
+
+		# Log completion results
+		if self.state.last_result and len(self.state.last_result) > 0 and self.state.last_result[-1].is_done:
+			self.logger.info(f'📄 Result: {self.state.last_result[-1].extracted_content}')
+			if self.state.last_result[-1].attachments:
+				self.logger.info('📎 Click links below to access the attachments:')
+				for file_path in self.state.last_result[-1].attachments:
+					self.logger.info(f'👉 {file_path}')
+
+	async def _handle_step_error(self, error: Exception) -> None:
 		"""Handle all types of errors that can occur during a step"""
+
+		# Handle InterruptedError specifically (agent pause/stop)
+		if isinstance(error, InterruptedError):
+			self.logger.debug(f'InterruptedError: {type(error).__name__}: {error}')
+			self.state.consecutive_failures += 1
+			self.state.last_result = [
+				ActionResult(
+					error='The agent was interrupted mid-step' + (f' - {error}' if error else ''),
+				)
+			]
+			return
+
+		# Handle all other exceptions
 		include_trace = self.logger.isEnabledFor(logging.DEBUG)
 		error_msg = AgentError.format_error(error, include_trace=include_trace)
 		prefix = f'❌ Result failed {self.state.consecutive_failures + 1}/{self.settings.max_failures} times:\n '
@@ -889,52 +945,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			else:
 				self.logger.error(f'{prefix}{error_msg}')
 
-		return [ActionResult(error=error_msg, include_in_memory=True)]
-
-	def _make_history_item(
-		self,
-		model_output: AgentOutput | None,
-		browser_state_summary: BrowserStateSummary,
-		result: list[ActionResult],
-		metadata: StepMetadata | None = None,
-	) -> None:
-		"""Create and store history item"""
-
-		if model_output:
-			interacted_elements = AgentHistory.get_interacted_element(model_output, browser_state_summary.selector_map)
-		else:
-			interacted_elements = [None]
-
-		state_history = BrowserStateHistory(
-			url=browser_state_summary.url,
-			title=browser_state_summary.title,
-			tabs=browser_state_summary.tabs,
-			interacted_element=interacted_elements,
-			screenshot=browser_state_summary.screenshot,
-		)
-
-		history_item = AgentHistory(
-			model_output=model_output,
-			result=result,
-			state=state_history,
-			metadata=metadata,
-		)
-
-		self.state.history.history.append(history_item)
-
-	THINK_TAGS = re.compile(r'<think>.*?</think>', re.DOTALL)
-	STRAY_CLOSE_TAG = re.compile(r'.*?</think>', re.DOTALL)
+		self.state.last_result = [ActionResult(error=error_msg, include_in_memory=True)]
 
 	def _remove_think_tags(self, text: str) -> str:
+		THINK_TAGS = re.compile(r'<think>.*?</think>', re.DOTALL)
+		STRAY_CLOSE_TAG = re.compile(r'.*?</think>', re.DOTALL)
 		# Step 1: Remove well-formed <think>...</think>
-		text = re.sub(self.THINK_TAGS, '', text)
+		text = re.sub(THINK_TAGS, '', text)
 		# Step 2: If there's an unmatched closing tag </think>,
 		#         remove everything up to and including that.
-		text = re.sub(self.STRAY_CLOSE_TAG, '', text)
+		text = re.sub(STRAY_CLOSE_TAG, '', text)
 		return text.strip()
 
 	@time_execution_async('--get_next_action')
-	async def get_next_action(self, input_messages: list[BaseMessage]) -> AgentOutput:
+	async def get_model_output(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get next action from LLM based on current state"""
 
 		try:
@@ -1608,76 +1632,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if getattr(self.llm, '_verified_api_keys', None) is True or CONFIG.SKIP_LLM_API_KEY_VERIFICATION:
 			setattr(self.llm, '_verified_api_keys', True)
 			return True
-
-	async def _run_planner(self) -> str | None:
-		"""Run the planner to analyze state and suggest next steps"""
-		# Skip planning if no planner_llm is set
-		if not self.settings.planner_llm:
-			return None
-
-		# Get current state to filter actions by page
-		assert self.browser_session is not None, 'BrowserSession is not set up'
-		page = await self.browser_session.get_current_page()
-
-		# Get all standard actions (no filter) and page-specific actions
-		standard_actions = self.controller.registry.get_prompt_description()  # No page = system prompt actions
-		page_actions = self.controller.registry.get_prompt_description(page)  # Page-specific actions
-
-		# Combine both for the planner
-		all_actions = standard_actions
-		if page_actions:
-			all_actions += '\n' + page_actions
-
-		# Create planner message history using full message history with all available actions
-		planner_messages = [
-			PlannerPrompt(all_actions).get_system_message(
-				is_planner_reasoning=self.settings.is_planner_reasoning,
-				extended_planner_system_prompt=self.settings.extend_planner_system_message,
-			),
-			*self._message_manager.get_messages()[1:],  # Use full message history except the first
-		]
-
-		if not self.settings.use_vision_for_planner and self.settings.use_vision:
-			last_state_message: UserMessage = planner_messages[-1]
-			# remove image from last state message
-			new_msg = ''
-			if isinstance(last_state_message.content, list):
-				for msg in last_state_message.content:
-					if msg.type == 'text':
-						new_msg += msg.text
-					elif msg.type == 'image_url':
-						continue
-			else:
-				new_msg = last_state_message.content
-
-			planner_messages[-1] = UserMessage(content=new_msg)
-
-		# Get planner output
-		try:
-			response = await self.settings.planner_llm.ainvoke(planner_messages)
-		except Exception as e:
-			self.logger.error(f'Failed to invoke planner: {str(e)}')
-			# Extract status code if available (e.g., from HTTP exceptions)
-			status_code = getattr(e, 'status_code', None) or getattr(e, 'code', None) or 500
-			error_msg = f'Planner LLM API call failed: {type(e).__name__}: {str(e)}'
-			raise LLMException(status_code, error_msg) from e
-
-		plan = response.completion
-		# if deepseek-reasoner, remove think tags
-		if self.settings.planner_llm and (
-			'deepseek-r1' in self.settings.planner_llm.model or 'deepseek-reasoner' in self.settings.planner_llm.model
-		):
-			plan = self._remove_think_tags(plan)
-		try:
-			plan_json = json.loads(plan)
-			self.logger.info(f'Planning Analysis:\n{json.dumps(plan_json, indent=4)}')
-		except json.JSONDecodeError:
-			self.logger.info(f'Planning Analysis:\n{plan}')
-		except Exception as e:
-			self.logger.debug(f'Error parsing planning analysis: {e}')
-			self.logger.info(f'Plan: {plan}')
-
-		return plan
 
 	@property
 	def message_manager(self) -> MessageManager:

@@ -3757,3 +3757,31 @@ class BrowserSession(BaseModel):
 		}""",
 			str(self.id)[-4:],
 		)
+
+	@observe_debug(name='get_state_summary_with_fallback')
+	@require_initialization
+	@time_execution_async('--get_state_summary_with_fallback')
+	async def get_state_summary_with_fallback(self, cache_clickable_elements_hashes: bool = True) -> BrowserStateSummary:
+		"""Get browser state with fallback to minimal state on errors
+
+		This method first tries to get a full state summary. If that fails,
+		it falls back to a minimal state summary to allow basic navigation.
+
+		Parameters:
+		-----------
+		cache_clickable_elements_hashes: bool
+			If True, cache the clickable elements hashes for the current state.
+
+		Returns:
+		--------
+		BrowserStateSummary: Either full state or minimal fallback state
+		"""
+		# Try 1: Full state summary (current implementation)
+		try:
+			return await self.get_state_summary(cache_clickable_elements_hashes)
+		except Exception as e:
+			self.logger.warning(f'Full state retrieval failed: {type(e).__name__}: {e}')
+			self.logger.warning('🔄 Falling back to minimal state summary')
+
+		# Try 2: Minimal state summary as fallback
+		return await self.get_minimal_state_summary()
