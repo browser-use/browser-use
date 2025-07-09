@@ -3415,24 +3415,25 @@ class BrowserSession(BaseModel):
 			if isinstance(current_frame, FrameLocator):
 				if css_selector:
 					element_handle = await current_frame.locator(css_selector).element_handle()
-				else:
+				if not css_selector or element_handle is None:
 					# Fall back to XPath when CSS selector is empty
-					self.logger.debug(f'CSS selector empty, falling back to XPath: {element.xpath}')
+					self.logger.debug(f'CSS selector empty or failed to locate element, falling back to XPath: {element.xpath}')
 					element_handle = await current_frame.locator(f'xpath={element.xpath}').element_handle()
 				return element_handle
 			else:
 				# Try CSS selector first if available
 				if css_selector:
 					element_handle = await current_frame.query_selector(css_selector)
-				else:
+				if not css_selector or element_handle is None:
 					# Fall back to XPath
-					self.logger.debug(f'CSS selector empty, falling back to XPath: {element.xpath}')
+					self.logger.debug(f'CSS selector empty or failed to locate element, falling back to XPath: {element.xpath}')
 					element_handle = await current_frame.locator(f'xpath={element.xpath}').element_handle()
 				if element_handle:
 					is_visible = await self._is_visible(element_handle)
 					if is_visible:
 						await element_handle.scroll_into_view_if_needed()
 					return element_handle
+				self.logger.error(f'❌ Failed to locate element with both CSS ({css_selector}) and XPath ({element.xpath})')
 				return None
 		except Exception as e:
 			# If CSS selector failed, try XPath as fallback
