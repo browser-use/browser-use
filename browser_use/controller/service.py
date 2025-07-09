@@ -34,10 +34,13 @@ class Controller:
 		self,
 		exclude_actions: list[str] = [],
 		output_model: Optional[Type[BaseModel]] = None,
+		enable_recursive_frame_search: bool = True,  # Feature flag for recursive frame traversal
 	):
+		self.registry = Registry(exclude_actions)
 		self.exclude_actions = exclude_actions
 		self.output_model = output_model
-		self.registry = Registry(exclude_actions)
+		self.enable_recursive_frame_search = enable_recursive_frame_search
+		
 		self._register_default_actions()
 
 	def _register_default_actions(self):
@@ -191,25 +194,66 @@ class Controller:
 			page = await browser.get_current_page()
 			
 			# More robust script with proper error handling, waiting, and fallbacks
-			script = """
-			async (args) => {
+			script = f"""
+			async (args) => {{
 				// Helper to safely get computed heights
-				function safeGetHeight(win) {
-					try {
+				function safeGetHeight(win) {{
+					try {{
 						return win.document.body.scrollHeight || 
 							   win.document.documentElement.scrollHeight || 
 							   win.innerHeight;
-					} catch (e) {
+					}} catch (e) {{
 						return win.innerHeight || 600; // Fallback height
-					}
+					}}
+				}}
+				
+				{"" if not self.enable_recursive_frame_search else '''
+				// Recursive function to find frame in all documents
+				function findFrameRecursive(doc, frameId) {
+					// Try direct ID lookup
+					try {
+						const frame = doc.getElementById(frameId);
+						if (frame) return frame;
+					} catch (e) {}
+					
+					// Try name lookup
+					try {
+						const frame = Array.from(doc.querySelectorAll('iframe, frame'))
+							.find(f => f.name === frameId);
+						if (frame) return frame;
+					} catch (e) {}
+					
+					// Try CSS selector
+					try {
+						const frame = doc.querySelector(frameId);
+						if (frame) return frame;
+					} catch (e) {}
+					
+					// Recursively search in all frames
+					try {
+						const frames = doc.querySelectorAll('iframe, frame');
+						for (const frame of frames) {
+							try {
+								if (frame.contentDocument) {
+									const found = findFrameRecursive(frame.contentDocument, frameId);
+									if (found) return found;
+								}
+							} catch (e) {
+								// Cross-origin frame, skip
+							}
+						}
+					} catch (e) {}
+					
+					return null;
 				}
+				'''}
 				
 				// Wait for frames to be accessible
 				await new Promise(r => setTimeout(r, 300));
 				
-				if (args.frameId) {
-					// Find the frame (with multiple strategies)
-					let frame = null;
+				if (args.frameId) {{
+					{"// Find the frame using recursive search" if self.enable_recursive_frame_search else "// Find the frame (with multiple strategies)"}
+					{"let frame = findFrameRecursive(document, args.frameId);" if self.enable_recursive_frame_search else '''let frame = null;
 					
 					// Method 1: Direct ID
 					try { frame = document.getElementById(args.frameId); } catch (e) {}
@@ -227,24 +271,24 @@ class Controller:
 						try {
 							frame = document.querySelector(args.frameId);
 						} catch (e) {}
-					}
+					}'''}
 					
 					// If frame found, scroll it with retries
-					if (frame) {
+					if (frame) {{
 						let scrolled = false;
 						let retries = 0;
 						
-						while (!scrolled && retries < 3) {
-							try {
+						while (!scrolled && retries < 3) {{
+							try {{
 								// Wait for frame to be fully loaded
 								await new Promise(r => setTimeout(r, 100 * (retries + 1)));
 								
-								if (!frame.contentWindow) {
-									return { 
+								if (!frame.contentWindow) {{
+									return {{ 
 										success: false, 
 										error: 'Frame has no content window - might be cross-origin restricted' 
-									};
-								}
+									}};
+								}}
 								
 								// Get scroll amount (default: 80% of frame height for more reliable scrolling)
 								const frameWin = frame.contentWindow;
@@ -252,63 +296,154 @@ class Controller:
 									args.amount : 
 									Math.floor(frameWin.innerHeight * 0.8);
 								
-								// Get current position to verify scroll worked
+								// Get current position and frame dimensions
 								const beforeScroll = frameWin.scrollY || 0;
+								const frameHeight = frameWin.innerHeight;
+								const contentHeight = safeGetHeight(frameWin);
+								const maxScroll = Math.max(0, contentHeight - frameHeight);
+								
+								// Check if frame window is scrollable
+								if (maxScroll <= 0) {{
+									// Frame window isn't scrollable, try to find scrollable elements inside
+									const scrollableElements = [];
+									const allElements = frameWin.document.querySelectorAll('*');
+									
+									for (const elem of allElements) {{
+										try {{
+											const computedStyle = frameWin.getComputedStyle(elem);
+											const overflowY = computedStyle.overflowY;
+											
+											// Check if element has scrollable content
+											const hasScrollableContent = elem.scrollHeight > elem.clientHeight;
+											const hasScrollableStyle = overflowY === 'auto' || overflowY === 'scroll';
+											
+											if (hasScrollableContent && (hasScrollableStyle || elem.scrollHeight > elem.clientHeight + 10)) {{
+												// Test if element can actually be scrolled
+												const beforeTest = elem.scrollTop;
+												elem.scrollTop += 1;
+												const afterTest = elem.scrollTop;
+												elem.scrollTop = beforeTest; // Restore
+												
+												if (afterTest > beforeTest) {{
+													scrollableElements.push({{
+														element: elem,
+														scrollHeight: elem.scrollHeight,
+														clientHeight: elem.clientHeight,
+														maxScroll: elem.scrollHeight - elem.clientHeight,
+														tagName: elem.tagName,
+														id: elem.id,
+														className: elem.className
+													}});
+												}}
+											}}
+										}} catch (e) {{
+											// Skip elements that can't be accessed
+										}}
+									}}
+									
+									// Try to scroll the best scrollable element
+									if (scrollableElements.length > 0) {{
+										// Sort by scroll potential (largest scrollable area first)
+										scrollableElements.sort((a, b) => b.maxScroll - a.maxScroll);
+										const bestElement = scrollableElements[0];
+										
+										const beforeScroll = bestElement.element.scrollTop;
+										
+										// Use more aggressive scrolling to ensure content is visible to humans
+										// Account for viewport differences and ensure content is clearly in view
+										const scrollAmount = Math.min(amount, bestElement.maxScroll * 0.9);
+										const minScrollAmount = Math.min(bestElement.clientHeight * 0.7, scrollAmount); // Ensure we scroll at least 70% of viewport
+										
+										bestElement.element.scrollTop += Math.max(scrollAmount, minScrollAmount);
+										
+										await new Promise(r => setTimeout(r, 100));
+										
+										const afterScroll = bestElement.element.scrollTop;
+										const actualScrolled = afterScroll - beforeScroll;
+										const isAtBottom = afterScroll >= bestElement.maxScroll - 20; // Larger tolerance for "at bottom"
+										
+										if (actualScrolled > 0 || beforeScroll >= bestElement.maxScroll - 5) {{
+											return {{
+												success: true,
+												context: 'frame',
+												id: frame.id || frame.name || 'unnamed frame',
+												scrollAmount: actualScrolled,
+												scrollMax: isAtBottom,
+												scrollTarget: `element ${{bestElement.tagName}}${{bestElement.id ? '#' + bestElement.id : ''}}${{bestElement.className ? '.' + bestElement.className.split(' ')[0] : ''}}`,
+												debug: `scrolled element - before: ${{beforeScroll}}, after: ${{afterScroll}}, maxScroll: ${{bestElement.maxScroll}}, found ${{scrollableElements.length}} scrollable elements`
+											}};
+										}}
+									}}
+									
+									return {{
+										success: false,
+										error: `Frame '${{frame.id || frame.name}}' window not scrollable (content: ${{contentHeight}}px, frame: ${{frameHeight}}px) and no scrollable elements found inside`
+									}};
+								}}
 								
 								// Execute scroll
-								frameWin.scrollBy({
+								frameWin.scrollBy({{
 									top: amount,
 									behavior: 'auto'  // Use 'auto' instead of 'smooth' for reliability
-								});
+								}});
 								
 								// Small delay to allow scroll to complete
 								await new Promise(r => setTimeout(r, 100));
 								
 								// Verify scroll occurred
 								const afterScroll = frameWin.scrollY || 0;
-								scrolled = (afterScroll > beforeScroll) || 
-										  (beforeScroll >= safeGetHeight(frameWin) - frameWin.innerHeight);
-									  
-								if (scrolled) {
-									return { 
+								const actualScrolled = afterScroll - beforeScroll;
+								const isAtBottom = afterScroll >= maxScroll - 5; // 5px tolerance
+								
+								// Only consider successful if we actually scrolled OR were already at bottom
+								scrolled = (actualScrolled > 0) || (beforeScroll >= maxScroll - 5);
+								
+								if (scrolled) {{
+									return {{ 
 										success: true, 
 										context: 'frame', 
 										id: frame.id || frame.name || 'unnamed frame',
-										scrollAmount: afterScroll - beforeScroll,
-										scrollMax: afterScroll >= safeGetHeight(frameWin) - frameWin.innerHeight
-									};
-								}
-							} catch (e) {
+										scrollAmount: actualScrolled,
+										scrollMax: isAtBottom,
+										debug: `before: ${{beforeScroll}}, after: ${{afterScroll}}, content: ${{contentHeight}}, frame: ${{frameHeight}}, maxScroll: ${{maxScroll}}`
+									}};
+								}} else {{
+									return {{
+										success: false,
+										error: `Scroll failed - before: ${{beforeScroll}}, after: ${{afterScroll}}, tried to scroll: ${{amount}}px, content: ${{contentHeight}}, frame: ${{frameHeight}}`
+									}};
+								}}
+							}} catch (e) {{
 								retries++;
-								if (retries >= 3) {
-									return { 
+								if (retries >= 3) {{
+									return {{ 
 										success: false, 
-										error: `Frame access error: ${e.toString()}. This may be due to cross-origin restrictions.` 
-									};
-								}
-							}
-						}
+										error: `Frame access error: ${{e.toString()}}. This may be due to cross-origin restrictions.` 
+									}};
+								}}
+							}}
+						}}
 						
-						return { 
+						return {{ 
 							success: false, 
 							error: 'Failed to scroll frame after multiple attempts' 
-						};
-					} else {
-						return { 
+						}};
+					}} else {{
+						return {{ 
 							success: false, 
-							error: `Frame not found: ${args.frameId}` 
-						};
-					}
-				} else {
+							error: `Frame not found: ${{args.frameId}}` 
+						}};
+					}}
+				}} else {{
 					// Scroll main window with verification
-					try {
+					try {{
 						const beforeScroll = window.scrollY;
 						const amount = args.amount !== null ? args.amount : window.innerHeight;
 						
-						window.scrollBy({
+						window.scrollBy({{
 							top: amount,
 							behavior: 'auto'
-						});
+						}});
 						
 						// Small delay to allow scroll to complete
 						await new Promise(r => setTimeout(r, 100));
@@ -318,17 +453,17 @@ class Controller:
 						const scrolled = (afterScroll > beforeScroll) || 
 									   (beforeScroll >= document.documentElement.scrollHeight - window.innerHeight);
 									   
-						return { 
+						return {{ 
 							success: scrolled, 
 							context: 'main',
 							scrollAmount: afterScroll - beforeScroll,
 							scrollMax: afterScroll >= document.documentElement.scrollHeight - window.innerHeight
-						};
-					} catch (e) {
-						return { success: false, error: e.toString() };
-					}
-				}
-			}
+						}};
+					}} catch (e) {{
+						return {{ success: false, error: e.toString() }};
+					}}
+				}}
+			}}
 			"""
 			
 			try:
@@ -349,8 +484,18 @@ class Controller:
 						position_text = " (reached bottom)"
 					elif result.get('scrollAmount') is not None:
 						position_text = f" ({result.get('scrollAmount')}px)"
+					
+					# Add scroll target info
+					scroll_target = ""
+					if result.get('scrollTarget'):
+						scroll_target = f" -> {result.get('scrollTarget')}"
+					
+					# Add debug info for frames
+					debug_info = ""
+					if result.get('debug') and context == 'frame':
+						debug_info = f" [DEBUG: {result.get('debug')}]"
 						
-					msg = f'⬇️  Scrolled down{amt_text}{target}{frame_id}{position_text}'
+					msg = f'⬇️  Scrolled down{amt_text}{target}{frame_id}{scroll_target}{position_text}{debug_info}'
 				else:
 					error = result.get('error', 'unknown error')
 					msg = f'❌ Failed to scroll: {error}'
@@ -372,40 +517,199 @@ class Controller:
 		async def scroll_up(params: ScrollAction, browser: BrowserContext):
 			page = await browser.get_current_page()
 			
-			# Simple script that only handles direct frame lookup
-			script = """
-			(args) => {
-				if (args.frameId) {
-					// Find the frame (try ID first, then name)
-					let frame = document.getElementById(args.frameId);
+			# Script with optional recursive frame traversal
+			script = f"""
+			async (args) => {{
+				// Helper to safely get computed heights
+				function safeGetHeight(win) {{
+					try {{
+						return win.document.body.scrollHeight || 
+							   win.document.documentElement.scrollHeight || 
+							   win.innerHeight;
+					}} catch (e) {{
+						return win.innerHeight || 600; // Fallback height
+					}}
+				}}
+				
+				{"" if not self.enable_recursive_frame_search else '''
+				// Recursive function to find frame in all documents
+				function findFrameRecursive(doc, frameId) {
+					// Try direct ID lookup
+					try {
+						const frame = doc.getElementById(frameId);
+						if (frame) return frame;
+					} catch (e) {}
+					
+					// Try name lookup
+					try {
+						const frame = Array.from(doc.querySelectorAll('iframe, frame'))
+							.find(f => f.name === frameId);
+						if (frame) return frame;
+					} catch (e) {}
+					
+					// Try CSS selector
+					try {
+						const frame = doc.querySelector(frameId);
+						if (frame) return frame;
+					} catch (e) {}
+					
+					// Recursively search in all frames
+					try {
+						const frames = doc.querySelectorAll('iframe, frame');
+						for (const frame of frames) {
+							try {
+								if (frame.contentDocument) {
+									const found = findFrameRecursive(frame.contentDocument, frameId);
+									if (found) return found;
+								}
+							} catch (e) {
+								// Cross-origin frame, skip
+							}
+						}
+					} catch (e) {}
+					
+					return null;
+				}
+				'''}
+				
+				// Wait for frames to be accessible
+				await new Promise(r => setTimeout(r, 300));
+				
+				if (args.frameId) {{
+					{"// Find the frame using recursive search" if self.enable_recursive_frame_search else "// Find the frame (try ID first, then name)"}
+					{"let frame = findFrameRecursive(document, args.frameId);" if self.enable_recursive_frame_search else '''let frame = document.getElementById(args.frameId);
 					if (!frame) {
 						frame = Array.from(document.querySelectorAll('iframe, frame'))
 							.find(f => f.name === args.frameId);
-					}
+					}'''}
 					
 					// If frame found, scroll it
-					if (frame && frame.contentWindow) {
-						try {
-							const amount = args.amount !== null ? args.amount : frame.contentWindow.innerHeight;
-							frame.contentWindow.scrollBy(0, -amount);  // Negative for upward scroll
-							return { 
-								success: true, 
-								context: 'frame', 
-								id: frame.id || frame.name || 'unnamed frame'
-							};
-						} catch (e) {
-							return { success: false, error: e.toString() };
-						}
-					} else {
-						return { success: false, error: 'Frame not found' };
-					}
-				} else {
+					if (frame && frame.contentWindow) {{
+						try {{
+							const frameWin = frame.contentWindow;
+							const amount = args.amount !== null ? args.amount : frameWin.innerHeight;
+							
+							// Get current position and frame dimensions
+							const beforeScroll = frameWin.scrollY || 0;
+							const frameHeight = frameWin.innerHeight;
+							const contentHeight = safeGetHeight(frameWin);
+							const maxScroll = Math.max(0, contentHeight - frameHeight);
+							
+							// Check if frame window is scrollable
+							if (maxScroll <= 0) {{
+								// Frame window isn't scrollable, try to find scrollable elements inside
+								const scrollableElements = [];
+								const allElements = frameWin.document.querySelectorAll('*');
+								
+								for (const elem of allElements) {{
+									try {{
+										const computedStyle = frameWin.getComputedStyle(elem);
+										const overflowY = computedStyle.overflowY;
+										
+										// Check if element has scrollable content
+										const hasScrollableContent = elem.scrollHeight > elem.clientHeight;
+										const hasScrollableStyle = overflowY === 'auto' || overflowY === 'scroll';
+										
+										if (hasScrollableContent && (hasScrollableStyle || elem.scrollHeight > elem.clientHeight + 10)) {{
+											// Test if element can actually be scrolled
+											const beforeTest = elem.scrollTop;
+											elem.scrollTop += 1;
+											const afterTest = elem.scrollTop;
+											elem.scrollTop = beforeTest; // Restore
+											
+											if (afterTest > beforeTest) {{
+												scrollableElements.push({{
+													element: elem,
+													scrollHeight: elem.scrollHeight,
+													clientHeight: elem.clientHeight,
+													maxScroll: elem.scrollHeight - elem.clientHeight,
+													tagName: elem.tagName,
+													id: elem.id,
+													className: elem.className
+												}});
+											}}
+										}}
+									}} catch (e) {{
+										// Skip elements that can't be accessed
+									}}
+								}}
+								
+								// Try to scroll the best scrollable element
+								if (scrollableElements.length > 0) {{
+									// Sort by scroll potential (largest scrollable area first)
+									scrollableElements.sort((a, b) => b.maxScroll - a.maxScroll);
+									const bestElement = scrollableElements[0];
+									
+									const beforeScroll = bestElement.element.scrollTop;
+									bestElement.element.scrollTop -= Math.min(amount, bestElement.maxScroll * 0.8);
+									
+									await new Promise(r => setTimeout(r, 100));
+									
+									const afterScroll = bestElement.element.scrollTop;
+									const actualScrolled = beforeScroll - afterScroll;  // Positive when scrolling up
+									const isAtTop = afterScroll <= 5;
+									
+									if (actualScrolled > 0 || beforeScroll <= 5) {{
+										return {{
+											success: true,
+											context: 'frame',
+											id: frame.id || frame.name || 'unnamed frame',
+											scrollAmount: actualScrolled,
+											scrollMax: isAtTop,
+											scrollTarget: `element ${{bestElement.tagName}}${{bestElement.id ? '#' + bestElement.id : ''}}${{bestElement.className ? '.' + bestElement.className.split(' ')[0] : ''}}`,
+											debug: `scrolled element - before: ${{beforeScroll}}, after: ${{afterScroll}}, maxScroll: ${{bestElement.maxScroll}}, found ${{scrollableElements.length}} scrollable elements`
+										}};
+									}}
+								}}
+								
+								return {{
+									success: false,
+									error: `Frame '${{frame.id || frame.name}}' window not scrollable (content: ${{contentHeight}}px, frame: ${{frameHeight}}px) and no scrollable elements found inside`
+								}};
+							}}
+							
+							// Execute scroll
+							frameWin.scrollBy(0, -amount);  // Negative for upward scroll
+							
+							// Small delay to allow scroll to complete
+							await new Promise(r => setTimeout(r, 100));
+							
+							// Verify scroll occurred
+							const afterScroll = frameWin.scrollY || 0;
+							const actualScrolled = beforeScroll - afterScroll;  // Positive when scrolling up
+							const isAtTop = afterScroll <= 5; // 5px tolerance
+							
+							// Only consider successful if we actually scrolled OR were already at top
+							const scrolled = (actualScrolled > 0) || (beforeScroll <= 5);
+							
+							if (scrolled) {{
+								return {{ 
+									success: true, 
+									context: 'frame', 
+									id: frame.id || frame.name || 'unnamed frame',
+									scrollAmount: actualScrolled,
+									scrollMax: isAtTop,
+									debug: `before: ${{beforeScroll}}, after: ${{afterScroll}}, content: ${{contentHeight}}, frame: ${{frameHeight}}, maxScroll: ${{maxScroll}}`
+								}};
+							}} else {{
+								return {{
+									success: false,
+									error: `Scroll failed - before: ${{beforeScroll}}, after: ${{afterScroll}}, tried to scroll: ${{amount}}px up, content: ${{contentHeight}}, frame: ${{frameHeight}}`
+								}};
+							}}
+						}} catch (e) {{
+							return {{ success: false, error: e.toString() }};
+						}}
+					}} else {{
+						return {{ success: false, error: 'Frame not found' }};
+					}}
+				}} else {{
 					// Scroll main window
 					const amount = args.amount !== null ? args.amount : window.innerHeight;
 					window.scrollBy(0, -amount);  // Negative for upward scroll
-					return { success: true, context: 'main' };
-				}
-			}
+					return {{ success: true, context: 'main' }};
+				}}
+			}}
 			"""
 			
 			result = await page.evaluate(script, {
@@ -418,7 +722,25 @@ class Controller:
 				target = f" in {context}" if context == 'frame' else ""
 				frame_id = f" '{result.get('id')}'" if context == 'frame' else ""
 				amt_text = "" if params.amount is None else f" {params.amount}px"
-				msg = f'⬆️  Scrolled up{amt_text}{target}{frame_id}'
+				
+				# Add scroll position details
+				position_text = ""
+				if result.get('scrollMax'):
+					position_text = " (reached top)"
+				elif result.get('scrollAmount') is not None:
+					position_text = f" ({result.get('scrollAmount')}px)"
+				
+				# Add scroll target info
+				scroll_target = ""
+				if result.get('scrollTarget'):
+					scroll_target = f" -> {result.get('scrollTarget')}"
+				
+				# Add debug info for frames
+				debug_info = ""
+				if result.get('debug') and context == 'frame':
+					debug_info = f" [DEBUG: {result.get('debug')}]"
+					
+				msg = f'⬆️  Scrolled up{amt_text}{target}{frame_id}{scroll_target}{position_text}{debug_info}'
 			else:
 				error = result.get('error', 'unknown error')
 				msg = f'❌ Failed to scroll: {error}'
