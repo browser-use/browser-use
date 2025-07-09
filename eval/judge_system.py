@@ -362,7 +362,7 @@ The browser-use agent operates in iterative loops receiving structured input:
 - captcha includes traditional captchas and any other anti-bot protection systems that block task completion
 - cloudflare_blocked means the agent was blocked by Cloudflare challenge or notice
 - need_2fa means the agent needs to complete a 2FA step to login and was unable to do so
-- invalid_credentials means the agent the provided credentials to login but they were invalid
+- invalid_credentials means the agent used the provided credentials to login but they were invalid
 - partial_output means we collected some part of the output but some is missing
 - tool_failed means a tool like scrolling or file interaction failed or can be improved because functionality which would be helpful was missing - mention that in the improvement tips
 - infinite_loop means the agent is stuck in a loop and not making progress
