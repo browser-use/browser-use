@@ -1,0 +1,37 @@
+# 🚀 Browser-Use Web Backend - Dependencies (Version Réelle)
+
+# FastAPI et serveur
+fastapi==0.115.4
+uvicorn==0.34.0
+
+# WebSocket et CORS
+websockets==13.1
+python-multipart==0.0.17
+
+# Pydantic pour validation des données
+pydantic==2.11.5
+
+# Variables d'environnement
+python-dotenv==1.0.1
+
+# Browser-Use - Installation locale
+# Sera installé via: pip install -e ../..
+
+# Dépendances pour Browser-Use
+aiofiles>=24.1.0
+anyio>=4.9.0
+httpx>=0.28.1
+playwright>=1.52.0
+psutil>=7.0.0
+pyperclip>=1.9.0
+requests>=2.32.3
+typing-extensions>=4.12.2
+uuid7>=0.1.0
+
+# LLM Support
+openai>=1.81.0
+anthropic>=0.54.0
+
+# Logging et utilitaires
+structlog==24.5.0
+rich>=14.0.0 
