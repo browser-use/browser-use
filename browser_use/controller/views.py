@@ -98,3 +98,9 @@ class DragDropAction(BaseModel):
 	# Common options
 	steps: int | None = Field(10, description='Number of intermediate points for smoother movement (5-20 recommended)')
 	delay_ms: int | None = Field(5, description='Delay in milliseconds between steps (0 for fastest, 10-20 for more natural)')
+
+
+class OpenAICUAAction(BaseModel):
+	"""Parameters for OpenAI Computer Use Assistant action."""
+
+	description: str = Field(..., description='Description of your next goal')

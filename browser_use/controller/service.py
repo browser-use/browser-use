@@ -1,15 +1,28 @@
 import asyncio
+import base64
 import enum
 import json
 import logging
 import os
 import re
+from io import BytesIO
 from typing import Generic, TypeVar, cast
 
 try:
 	from lmnr import Laminar  # type: ignore
 except ImportError:
 	Laminar = None  # type: ignore
+
+try:
+	from openai import AsyncOpenAI  # type: ignore
+except ImportError:
+	AsyncOpenAI = None  # type: ignore
+
+try:
+	from PIL import Image  # type: ignore
+except ImportError:
+	Image = None  # type: ignore
+
 from bubus.helpers import retry
 from pydantic import BaseModel
 
@@ -25,6 +38,7 @@ from browser_use.controller.views import (
 	GoToUrlAction,
 	InputTextAction,
 	NoParamsAction,
+	OpenAICUAAction,
 	ScrollAction,
 	SearchGoogleAction,
 	SendKeysAction,
@@ -44,6 +58,83 @@ logger = logging.getLogger(__name__)
 Context = TypeVar('Context')
 
 T = TypeVar('T', bound=BaseModel)
+
+
+async def handle_model_action(page, action) -> ActionResult:
+	"""
+	Given a computer action (e.g., click, double_click, scroll, etc.),
+	execute the corresponding operation on the Playwright page.
+	"""
+	action_type = action.type
+	ERROR_MSG: str = 'Could not execute the CUA action.'
+
+	try:
+		match action_type:
+			case 'click':
+				x, y = action.x, action.y
+				button = action.button
+				logger.debug(f"CUA Action: click at ({x}, {y}) with button '{button}'")
+				# Not handling things like middle click, etc.
+				if button != 'left' and button != 'right':
+					button = 'left'
+				await page.mouse.click(x, y, button=button)
+				msg = f'🖱️ CUA clicked at ({x}, {y}) with button {button}'
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
+
+			case 'scroll':
+				x, y = action.x, action.y
+				scroll_x, scroll_y = action.scroll_x, action.scroll_y
+				logger.debug(f'CUA Action: scroll at ({x}, {y}) with offsets (scroll_x={scroll_x}, scroll_y={scroll_y})')
+				await page.mouse.move(x, y)
+				await page.evaluate(f'window.scrollBy({scroll_x}, {scroll_y})')
+				msg = f'🔍 CUA scrolled at ({x}, {y}) with offsets (scroll_x={scroll_x}, scroll_y={scroll_y})'
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
+
+			case 'keypress':
+				keys = action.keys
+				for k in keys:
+					logger.debug(f"CUA Action: keypress '{k}'")
+					# A simple mapping for common keys; expand as needed.
+					if k.lower() == 'enter':
+						await page.keyboard.press('Enter')
+					elif k.lower() == 'space':
+						await page.keyboard.press(' ')
+					else:
+						await page.keyboard.press(k)
+				msg = f'⌨️ CUA pressed keys: {keys}'
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
+
+			case 'type':
+				text = action.text
+				logger.debug(f'CUA Action: type text: {text}')
+				await page.keyboard.type(text)
+				msg = f'⌨️ CUA typed text: {text}'
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
+
+			case 'wait':
+				logger.debug('CUA Action: wait')
+				await asyncio.sleep(2)
+				msg = '🕒 CUA waited for 2 seconds'
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
+
+			case 'screenshot':
+				# Nothing to do as screenshot is taken at each turn
+				logger.debug('CUA Action: screenshot')
+				return ActionResult(error=ERROR_MSG)
+			# Handle other actions here
+
+			case _:
+				logger.warning(f'Unrecognized CUA action: {action}')
+				return ActionResult(error=ERROR_MSG)
+
+	except Exception as e:
+		logger.error(f'Error handling CUA action {action}: {e}')
+		return ActionResult(error=ERROR_MSG)
 
 
 class Controller(Generic[Context]):
@@ -1062,6 +1153,118 @@ Explain the content of the page and that the requested information is not availa
 				include_in_memory=False,
 				long_term_memory=f"Inputted text '{text}' into cell",
 			)
+
+		# OpenAI Computer Use Assistant (CUA) Action
+		@self.registry.action(
+			'Use a Computer Use Assistant (CUA) to execute action that you cannot achieve with standard browser actions. This action sends a screenshot and description to OpenAI CUA and executes the returned actions such as clicking or scrolling on a coordinate. Use this only as a fallback.',
+			param_model=OpenAICUAAction,
+		)
+		async def openai_cua_fallback(params: OpenAICUAAction, browser_session: BrowserSession):
+			"""
+			Fallback action that uses OpenAI's Computer Use Assistant to perform complex
+			computer interactions when standard browser actions are insufficient.
+			"""
+			logger.info(f'🎯 CUA Action Starting - Goal: {params.description}')
+
+			# Check if required dependencies are available
+			if AsyncOpenAI is None:
+				error_msg = 'OpenAI library not available. Install with: pip install openai'
+				logger.error(error_msg)
+				return ActionResult(error=error_msg)
+
+			if Image is None:
+				error_msg = 'PIL library not available. Install with: pip install Pillow'
+				logger.error(error_msg)
+				return ActionResult(error=error_msg)
+
+			# Check if OpenAI API key is available
+			if not os.getenv('OPENAI_API_KEY'):
+				error_msg = 'OPENAI_API_KEY environment variable not set'
+				logger.error(error_msg)
+				return ActionResult(error=error_msg)
+
+			try:
+				page = await browser_session.get_current_page()
+				page_info = browser_session.browser_state_summary.page_info
+				if not page_info:
+					raise Exception('Page info not found - cannot execute CUA action')
+
+				logger.debug(f'📐 Viewport size: {page_info.viewport_width}x{page_info.viewport_height}')
+
+				screenshot_b64 = browser_session.browser_state_summary.screenshot
+				if not screenshot_b64:
+					raise Exception('Screenshot not found - cannot execute CUA action')
+
+				logger.debug(f'📸 Screenshot captured (base64 length: {len(screenshot_b64)} chars)')
+
+				# Debug: Check screenshot dimensions
+				image = Image.open(BytesIO(base64.b64decode(screenshot_b64)))
+				logger.debug(f'📏 Screenshot actual dimensions: {image.size[0]}x{image.size[1]}')
+
+				# rescale the screenshot to the viewport size
+				image = image.resize((page_info.viewport_width, page_info.viewport_height))
+				# Save as PNG to bytes buffer
+				buffer = BytesIO()
+				image.save(buffer, format='PNG')
+				buffer.seek(0)
+				# Convert to base64
+				screenshot_b64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+				logger.debug(f'📸 Rescaled screenshot to viewport size: {page_info.viewport_width}x{page_info.viewport_height}')
+
+				client = AsyncOpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+				logger.debug('🔄 Sending request to OpenAI CUA...')
+
+				prompt = f"""
+				You will be given an action to execute and screenshot of the current screen. 
+				Output one computer_call object that will achieve this goal.
+				Goal: {params.description}
+				"""
+				response = await client.responses.create(
+					model='computer-use-preview',
+					tools=[
+						{
+							'type': 'computer_use_preview',
+							'display_width': page_info.viewport_width,
+							'display_height': page_info.viewport_height,
+							'environment': 'browser',
+						}
+					],
+					input=[
+						{
+							'role': 'user',
+							'content': [
+								{'type': 'input_text', 'text': prompt},
+								{
+									'type': 'input_image',
+									'detail': 'auto',
+									'image_url': f'data:image/png;base64,{screenshot_b64}',
+								},
+							],
+						}
+					],
+					truncation='auto',
+					temperature=0.1,
+				)
+
+				logger.debug(f'📥 CUA response received: {response}')
+				computer_calls = [item for item in response.output if item.type == 'computer_call']
+				computer_call = computer_calls[0] if computer_calls else None
+				if not computer_call:
+					raise Exception('No computer calls found in CUA response')
+
+				action = computer_call.action
+				logger.debug(f'🎬 Executing CUA action: {action.type} - {action}')
+
+				action_result = await handle_model_action(page, action)
+				await asyncio.sleep(0.1)
+
+				logger.info('✅ CUA action completed successfully')
+				return action_result
+
+			except Exception as e:
+				msg = f'Error executing CUA action: {e}'
+				logger.error(msg)
+				return ActionResult(error=msg)
 
 	# Custom done action for structured output
 	def _register_done_action(self, output_model: type[T] | None, display_files_in_done_text: bool = True):
