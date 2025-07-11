@@ -243,7 +243,7 @@ class CreateAgentSessionEvent(BaseEvent):
 			browser_session_live_url='',  # To be filled by cloud handler
 			browser_session_cdp_url='',  # To be filled by cloud handler
 			browser_state={
-				'viewport': agent.browser_profile.viewport if agent.browser_profile else {'width': 1280, 'height': 720},
+				'viewport': agent.browser_profile.viewport if agent.browser_profile else {'width': 1920, 'height': 1080},
 				'user_agent': agent.browser_profile.user_agent if agent.browser_profile else None,
 				'headless': agent.browser_profile.headless if agent.browser_profile else True,
 				'initial_url': None,  # Will be updated during execution

@@ -34,7 +34,7 @@ browser_session = BrowserSession(
 		headless=False,  # This is True in production
 		minimum_wait_page_load_time=1,  # 3 on prod
 		maximum_wait_page_load_time=10,  # 20 on prod
-		viewport={'width': 1280, 'height': 1100},
+		viewport={'width': 1920, 'height': 1080},
 		user_data_dir='~/.config/browseruse/profiles/default',
 		# trace_path='./tmp/web_voyager_agent',
 	)

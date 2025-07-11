@@ -653,7 +653,7 @@ Browser window size for headful mode. Example: `{"width": 1920, "height": 1080}`
 viewport: dict | None = None
 ```
 
-Viewport size with `width` and `height`. Example: `{"width": 1280, "height": 720}`
+Viewport size with `width` and `height`. Example: `{"width": 1920, "height": 1080}`
 
 #### `no_viewport`
 
@@ -846,7 +846,7 @@ record_video_size: dict | None = None. [Playwright Docs: `record_video_size`](ht
 
 ```
 
-Video size. Example: `{"width": 1280, "height": 720}`
+Video size. Example: `{"width": 1920, "height": 1080}`
 
 #### `record_har_path`
 
@@ -955,7 +955,7 @@ browser_profile = BrowserProfile(
     headless=False,
     storage_state="path/to/storage_state.json",
     wait_for_network_idle_page_load_time=3.0,
-    viewport={"width": 1280, "height": 1100},
+    viewport={"width": 1920, "height": 1080},
     locale='en-US',
     user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36',
     highlight_elements=True,
