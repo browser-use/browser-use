@@ -7,7 +7,7 @@ Interface web moderne pour contrôler Browser-Use avec chat vocal en temps réel
 ### 1. Backend (Terminal 1)
 ```bash
 cd browser-use/web-version/backend
-python main_no_dotenv.py
+python main.py
 ```
 **✅ Backend prêt sur http://localhost:8000**
 
