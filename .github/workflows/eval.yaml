@@ -291,7 +291,7 @@ jobs:
           WAIT_BETWEEN_ACTIONS="${{ github.event.client_payload.script_args.wait_between_actions }}"
           STEALTH="${{ github.event.client_payload.script_args.stealth }}"
           BLOCK_IMAGES="${{ github.event.client_payload.script_args.block_images }}"
-          BLOCK_CSS="${{ github.event.client_payload.script_args.block_css }}" 
+          BLOCK_CSS="${{ github.event.client_payload.script_args.block_css }}"
 
           # Single task mode parameters
           TASK_ID="${{ github.event.client_payload.script_args.task_id }}"

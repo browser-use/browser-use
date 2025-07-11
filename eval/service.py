@@ -729,6 +729,8 @@ async def run_task_with_semaphore(
 	maximum_wait_page_load_time: float | None = None,
 	wait_between_actions: float | None = None,
 	stealth: bool = False,
+	block_images: bool = False,
+	block_css: bool = False,
 ) -> dict:
 	"""Clean pipeline approach for running tasks"""
 	task_start_time = time.time()
@@ -826,6 +828,8 @@ async def run_task_with_semaphore(
 							maximum_wait_page_load_time,
 							wait_between_actions,
 							stealth,
+							block_images,
+							block_css,
 						),
 						timeout=120,
 					)
@@ -1190,6 +1194,8 @@ async def run_multiple_tasks(
 	maximum_wait_page_load_time: float | None = None,
 	wait_between_actions: float | None = None,
 	stealth: bool = False,
+	block_images: bool = False,
+	block_css: bool = False,
 ) -> dict:
 	"""
 	Run multiple tasks in parallel and evaluate results.
@@ -1282,6 +1288,8 @@ async def run_multiple_tasks(
 					maximum_wait_page_load_time=maximum_wait_page_load_time,
 					wait_between_actions=wait_between_actions,
 					stealth=stealth,
+					block_images=block_images,
+					block_css=block_css,
 				)
 				for task in tasks_to_run
 			),
@@ -1388,6 +1396,8 @@ async def run_evaluation_pipeline(
 	maximum_wait_page_load_time: float | None = None,
 	wait_between_actions: float | None = None,
 	stealth: bool = False,
+	block_images: bool = False,
+	block_css: bool = False,
 ) -> dict:
 	"""
 	Complete evaluation pipeline that handles Laminar setup and task execution in the same event loop
@@ -1452,6 +1462,8 @@ async def run_evaluation_pipeline(
 		maximum_wait_page_load_time=maximum_wait_page_load_time,
 		wait_between_actions=wait_between_actions,
 		stealth=stealth,
+		block_images=block_images,
+		block_css=block_css,
 	)
 
 
@@ -1555,6 +1567,8 @@ if __name__ == '__main__':
 	)
 	parser.add_argument('--wait-between-actions', type=float, default=None, help='Wait time between actions in seconds')
 	parser.add_argument('--stealth', action='store_true', help='Enable stealth mode for browser')
+	parser.add_argument('--block-images', action='store_true', help='Block image resources from loading to speed up page loads')
+	parser.add_argument('--block-css', action='store_true', help='Block CSS stylesheets from loading to speed up page loads')
 
 	# Gmail 2FA support arguments
 	parser.add_argument(
@@ -1940,6 +1954,8 @@ if __name__ == '__main__':
 				maximum_wait_page_load_time=args.maximum_wait_page_load_time,
 				wait_between_actions=args.wait_between_actions,
 				stealth=args.stealth,
+				block_images=args.block_images,
+				block_css=args.block_css,
 			)
 		)
 
