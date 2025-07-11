@@ -68,7 +68,7 @@ async def test_focus_vs_all_elements():
 				print('\nGetting page state...')
 
 				start_time = time.time()
-				all_elements_state = await browser_session.get_state_summary(True)
+				all_elements_state = await browser_session.get_state_summary_with_fallback(True)
 				end_time = time.time()
 				print(f'get_state_summary took {end_time - start_time:.2f} seconds')
 

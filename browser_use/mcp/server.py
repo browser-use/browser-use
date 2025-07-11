@@ -653,7 +653,7 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
-		state = await self.browser_session.get_state_summary(cache_clickable_elements_hashes=False)
+		state = await self.browser_session.get_state_summary_with_fallback(cache_clickable_elements_hashes=False)
 
 		result = {
 			'url': state.url,

@@ -3094,7 +3094,7 @@ class BrowserSession(BaseModel):
 	@observe_debug(name='get_minimal_state_summary', ignore_output=True)
 	@require_healthy_browser(usable_page=True, reopen_page=True)
 	@time_execution_async('--get_minimal_state_summary')
-	async def get_minimal_state_summary(self) -> BrowserStateSummary:
+	async def get_minimal_state_summary(self, error_message: str | None = None) -> BrowserStateSummary:
 		"""Get basic page info without DOM processing, but try to capture screenshot"""
 		from browser_use.browser.views import BrowserStateSummary
 		from browser_use.dom.views import DOMElementNode
@@ -3109,7 +3109,10 @@ class BrowserSession(BaseModel):
 			# timeout after 2 seconds
 			title = await asyncio.wait_for(page.title(), timeout=2.0)
 		except Exception:
-			title = 'Page Load Error'
+			title = ''
+
+		if error_message:
+			title = f'{title} - {error_message[:100]}'
 
 		# Try to get tabs info safely
 		try:
@@ -4487,15 +4490,15 @@ class BrowserSession(BaseModel):
 		--------
 		BrowserStateSummary: Either full state or minimal fallback state
 		"""
-		# Try 1: Full state summary (current implementation)
 		try:
+			# Try 1: Full state summary (current implementation)
 			return await self.get_state_summary(cache_clickable_elements_hashes)
 		except Exception as e:
 			self.logger.warning(f'Full state retrieval failed: {type(e).__name__}: {e}')
 			self.logger.warning('🔄 Falling back to minimal state summary')
 
-		# Try 2: Minimal state summary as fallback
-		return await self.get_minimal_state_summary()
+			# Try 2: Minimal state summary as fallback
+			return await self.get_minimal_state_summary(str(e))
 
 	async def _is_pdf_viewer(self, page: Page) -> bool:
 		"""

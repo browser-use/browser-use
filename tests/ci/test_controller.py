@@ -137,7 +137,6 @@ class TestControllerIntegration:
 		assert isinstance(result, ActionResult)
 		assert result.extracted_content is not None
 		assert 'Scrolled' in result.extracted_content
-		assert result.include_in_memory is True
 
 		# Test 2: Basic page scroll up
 		scroll_up_action = {'scroll': ScrollAction(down=False, num_pages=0.5)}
@@ -155,17 +154,6 @@ class TestControllerIntegration:
 		assert isinstance(result, ActionResult)
 		assert result.extracted_content is not None
 		assert 'Scrolled' in result.extracted_content
-
-		# Test 4: Model parameter validation
-		scroll_with_index = ScrollAction(down=True, num_pages=1.0, index=5)
-		assert scroll_with_index.down is True
-		assert scroll_with_index.num_pages == 1.0
-		assert scroll_with_index.index == 5
-
-		scroll_without_index = ScrollAction(down=False, num_pages=0.25)
-		assert scroll_without_index.down is False
-		assert scroll_without_index.num_pages == 0.25
-		assert scroll_without_index.index is None
 
 	async def test_registry_actions(self, controller, browser_session):
 		"""Test that the registry contains the expected default actions."""

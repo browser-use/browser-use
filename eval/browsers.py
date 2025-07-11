@@ -5,6 +5,8 @@ import asyncio
 import json
 import logging
 import os
+import random
+import string
 from pathlib import Path
 
 import requests
@@ -42,6 +44,14 @@ if HYPERBROWSER_API_KEY:
 	logger.info('HYPERBROWSER_API_KEY is set. Tasks can use Hyperbrowser.')
 else:
 	logger.warning('HYPERBROWSER_API_KEY is not set. Hyperbrowser will not be available.')
+
+# Check for Unikraft Cloud API key
+UKC_TOKEN = os.getenv('UKC_TOKEN')
+UKC_METRO = os.getenv('UKC_METRO')
+if UKC_TOKEN and UKC_METRO:
+	logger.info('UKC_TOKEN and UKC_METRO are set. Tasks can use Unikraft browser.')
+else:
+	logger.warning('UKC_TOKEN or UKC_METRO are not set. Unikraft browser will not be available.')
 
 
 def create_anchor_browser_session(headless: bool = False) -> str:
@@ -140,6 +150,168 @@ async def create_hyperbrowser_session() -> str:
 		raise
 
 
+async def create_unikraft_session(headless: bool = False) -> str:
+	"""Create a Unikraft Cloud instance and return CDP URL"""
+	if not UKC_TOKEN:
+		raise ValueError('UKC_TOKEN must be set')
+
+	if not UKC_METRO:
+		raise ValueError('UKC_METRO must be set')
+
+	# Load configuration from environment or defaults
+	registry_user = os.getenv('REGISTRY_USER', 'browseruse')
+	instance_name = os.getenv('APP_NAME', 'cdp') + '-' + ''.join(random.choices(string.ascii_letters + string.digits, k=5))
+	img_name = os.getenv('IMG_NAME', 'cdp')
+	img_tag = os.getenv('IMG_TAG', 'latest')
+	memory = os.getenv('MEMORY', '4Gi')
+
+	# Convert memory to MB
+	memory_mb = 8192  # Default 8GB
+	if memory.endswith('Gi'):
+		memory_mb = int(memory[:-2]) * 1024
+	elif memory.endswith('Mi'):
+		memory_mb = int(memory[:-2])
+
+	# Prepare API request
+	api_url = f'{UKC_METRO}/instances'
+	headers = {'Authorization': f'Bearer {UKC_TOKEN}', 'Content-Type': 'application/json'}
+
+	env_vars = {
+		'UKC_METRO': UKC_METRO,
+		'UKC_TOKEN': UKC_TOKEN,
+		'UKC_INSTANCE_NAME': instance_name,
+	}
+
+	body = {
+		'name': instance_name,
+		'image': f'{registry_user}/{img_name}:{img_tag}',
+		'memory_mb': memory_mb,
+		'env': env_vars,
+		'service_group': {
+			'services': [{'port': 443, 'destination_port': 8080, 'handlers': ['tls', 'http']}],
+			'domains': [{'name': instance_name}],
+		},
+		'autostart': True,
+		'wait_timeout_ms': 10000,
+		'scale_to_zero': {'policy': 'idle', 'cooldown_time_ms': 5000, 'stateful': True},
+	}
+
+	import aiohttp
+
+	try:
+		# Create instance
+		timeout = aiohttp.ClientTimeout(total=30)
+		async with aiohttp.ClientSession(timeout=timeout) as session:
+			async with session.post(api_url, headers=headers, json=body) as response:
+				response.raise_for_status()
+				result = await response.json()
+
+		if result.get('status') != 'success':
+			raise ValueError(f'API returned error: {result}')
+
+		instance_data = result['data']['instances'][0]
+		instance_uuid = instance_data.get('uuid')
+		service_group = instance_data.get('service_group', {})
+		domains = service_group.get('domains', [])
+
+		if not domains:
+			raise ValueError('No domain returned for instance')
+
+		fqdn = domains[0].get('fqdn')
+		if not fqdn:
+			raise ValueError('No FQDN returned for instance')
+
+		# Wait for instance to be ready
+		await _wait_for_unikraft_instance_ready(instance_uuid)
+
+		# Wait for application to be ready
+		instance_url = f'https://{fqdn}'
+		await _wait_for_unikraft_app_ready(instance_url)
+
+		# Return CDP WebSocket URL
+		cdp_url = f'{instance_url}/ws/?headless={str(headless).lower()}&ephemeral=true'
+		return cdp_url
+
+	except Exception as e:
+		logger.error(f'Failed to create Unikraft instance: {type(e).__name__}: {e}')
+		raise
+
+
+async def _wait_for_unikraft_instance_ready(instance_uuid: str, max_wait: int = 60) -> bool:
+	"""Wait for Unikraft instance to be in running state"""
+	import aiohttp
+
+	api_url = f'{UKC_METRO}/instances/{instance_uuid}'
+	headers = {'Authorization': f'Bearer {UKC_TOKEN}'}
+	timeout = aiohttp.ClientTimeout(total=10)
+
+	start_time = asyncio.get_event_loop().time()
+	async with aiohttp.ClientSession(timeout=timeout) as session:
+		while (asyncio.get_event_loop().time() - start_time) < max_wait:
+			try:
+				async with session.get(api_url, headers=headers) as response:
+					if response.status == 200:
+						result = await response.json()
+						if result.get('status') == 'success':
+							instance_data = result['data']['instances'][0]
+							state = instance_data.get('state')
+
+							if state == 'running':
+								return True
+							elif state in ['error', 'stopped']:
+								raise ValueError(f'Instance entered {state} state')
+
+				await asyncio.sleep(1)
+			except Exception as e:
+				if (asyncio.get_event_loop().time() - start_time) >= max_wait:
+					raise ValueError(f'Instance failed to become ready: {e}')
+				await asyncio.sleep(2)
+
+	raise ValueError('Instance failed to become ready within timeout')
+
+
+async def _wait_for_unikraft_app_ready(instance_url: str, max_wait: int = 60) -> bool:
+	"""Wait for the Unikraft application to be ready by checking health endpoint"""
+	import aiohttp
+
+	start_time = asyncio.get_event_loop().time()
+	timeout = aiohttp.ClientTimeout(total=5)
+
+	async with aiohttp.ClientSession(timeout=timeout) as session:
+		while (asyncio.get_event_loop().time() - start_time) < max_wait:
+			try:
+				async with session.get(f'{instance_url}/health') as resp:
+					if resp.status == 200:
+						data = await resp.json()
+						if data.get('status') == 'healthy':
+							return True
+			except Exception:
+				pass
+
+			await asyncio.sleep(2)
+
+	raise ValueError('Application failed to become ready within timeout')
+
+
+async def _retry_browser_creation(browser_func, max_retries: int = 3, *args, **kwargs) -> str:
+	"""Retry browser creation function with exponential backoff"""
+	for attempt in range(max_retries):
+		try:
+			if asyncio.iscoroutinefunction(browser_func):
+				return await browser_func(*args, **kwargs)
+			else:
+				return await asyncio.to_thread(browser_func, *args, **kwargs)
+		except Exception as e:
+			if attempt == max_retries - 1:  # Last attempt
+				raise RuntimeError(f'Failed to create browser session after {max_retries} attempts: {type(e).__name__}: {e}')
+
+			wait_time = 2**attempt  # Exponential backoff: 1s, 2s, 4s
+			logger.warning(f'Browser creation attempt {attempt + 1} failed: {type(e).__name__}: {e}. Retrying in {wait_time}s...')
+			await asyncio.sleep(wait_time)
+
+	raise RuntimeError(f'Failed to create browser session after {max_retries} attempts')
+
+
 async def setup_browser_session(
 	task: Task,
 	headless: bool,
@@ -156,68 +328,48 @@ async def setup_browser_session(
 	"""Setup browser session for the task"""
 
 	# Validate browser option
-	valid_browsers = ['local', 'anchor-browser', 'brightdata', 'browserbase', 'hyperbrowser', 'browser-use']
+	valid_browsers = ['local', 'anchor-browser', 'brightdata', 'browserbase', 'hyperbrowser', 'unikraft', 'browser-use']
 	if browser not in valid_browsers:
-		logger.warning(f'Browser setup: Invalid browser option "{browser}". Falling back to local browser.')
-		browser = 'local'
+		raise ValueError(f'Browser setup: Invalid browser option "{browser}". Valid options are: {valid_browsers}')
 
 	cdp_url = None
 
 	if browser == 'anchor-browser':
-		if ANCHOR_BROWSER_API_KEY:
-			try:
-				logger.debug(f'Browser setup: Creating Anchor Browser session for task {task.task_id}')
-				cdp_url = await asyncio.to_thread(create_anchor_browser_session, headless)
-			except Exception as e:
-				logger.error(
-					f'Browser setup: Failed to create Anchor Browser session for task {task.task_id}: {type(e).__name__}: {e}'
-				)
-				logger.info(f'Browser setup: Falling back to local browser for task {task.task_id}')
-				cdp_url = None
-		else:
-			logger.warning(
-				f'Browser setup: Anchor Browser requested but ANCHOR_BROWSER_API_KEY not set. Using local browser for task {task.task_id}'
+		if not ANCHOR_BROWSER_API_KEY:
+			raise ValueError(
+				f'Browser setup: Anchor Browser requested but ANCHOR_BROWSER_API_KEY not set for task {task.task_id}'
 			)
+
+		logger.debug(f'Browser setup: Creating Anchor Browser session for task {task.task_id}')
+		cdp_url = await _retry_browser_creation(create_anchor_browser_session, 3, headless)
 	elif browser == 'brightdata':
-		if BRIGHTDATA_CDP_URL:
-			logger.debug(f'Browser setup: Using Brightdata CDP URL for task {task.task_id}')
-			cdp_url = BRIGHTDATA_CDP_URL
-		else:
-			logger.warning(
-				f'Browser setup: Brightdata requested but BRIGHTDATA_CDP_URL not set. Using local browser for task {task.task_id}'
-			)
+		if not BRIGHTDATA_CDP_URL:
+			raise ValueError(f'Browser setup: Brightdata requested but BRIGHTDATA_CDP_URL not set for task {task.task_id}')
+
+		logger.debug(f'Browser setup: Using Brightdata CDP URL for task {task.task_id}')
+		cdp_url = BRIGHTDATA_CDP_URL
 	elif browser == 'browserbase':
-		if BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID:
-			try:
-				logger.debug(f'Browser setup: Creating Browserbase session for task {task.task_id}')
-				cdp_url = await asyncio.to_thread(create_browserbase_session)
-			except Exception as e:
-				logger.error(
-					f'Browser setup: Failed to create Browserbase session for task {task.task_id}: {type(e).__name__}: {e}'
-				)
-				logger.info(f'Browser setup: Falling back to local browser for task {task.task_id}')
-				cdp_url = None
-		else:
-			logger.warning(
-				f'Browser setup: Browserbase requested but BROWSERBASE_API_KEY or BROWSERBASE_PROJECT_ID not set. Using local browser for task {task.task_id}'
+		if not BROWSERBASE_API_KEY or not BROWSERBASE_PROJECT_ID:
+			raise ValueError(
+				f'Browser setup: Browserbase requested but BROWSERBASE_API_KEY or BROWSERBASE_PROJECT_ID not set for task {task.task_id}'
 			)
+
+		logger.debug(f'Browser setup: Creating Browserbase session for task {task.task_id}')
+		cdp_url = await _retry_browser_creation(create_browserbase_session, 3)
 	elif browser == 'hyperbrowser':
-		if HYPERBROWSER_API_KEY:
-			try:
-				logger.debug(f'Browser setup: Creating Hyperbrowser session for task {task.task_id}')
-				cdp_url = await create_hyperbrowser_session()
-			except Exception as e:
-				logger.error(
-					f'Browser setup: Failed to create Hyperbrowser session for task {task.task_id}: {type(e).__name__}: {e}'
-				)
-				logger.info(f'Browser setup: Falling back to local browser for task {task.task_id}')
-				cdp_url = None
-		else:
-			logger.warning(
-				f'Browser setup: Hyperbrowser requested but HYPERBROWSER_API_KEY not set. Using local browser for task {task.task_id}'
-			)
+		if not HYPERBROWSER_API_KEY:
+			raise ValueError(f'Browser setup: Hyperbrowser requested but HYPERBROWSER_API_KEY not set for task {task.task_id}')
+
+		logger.debug(f'Browser setup: Creating Hyperbrowser session for task {task.task_id}')
+		cdp_url = await _retry_browser_creation(create_hyperbrowser_session, 3)
+	elif browser == 'unikraft':
+		if not UKC_TOKEN or not UKC_METRO:
+			raise ValueError(f'Browser setup: Unikraft requested but UKC_TOKEN or UKC_METRO not set for task {task.task_id}')
+
+		logger.debug(f'Browser setup: Creating Unikraft session for task {task.task_id}')
+		cdp_url = await _retry_browser_creation(create_unikraft_session, 3, headless)
 	elif browser == 'browser-use':
-		logger.warning(f'Browser setup: Browser-use not implemented yet. Falling back to local browser for task {task.task_id}')
+		raise NotImplementedError(f'Browser setup: Browser-use not implemented yet for task {task.task_id}')
 
 	profile_kwargs = {
 		'user_data_dir': None,  # Incognito mode - no persistent state
@@ -267,13 +419,17 @@ async def setup_browser_session(
 
 	profile = BrowserProfile(**profile_kwargs)
 
-	if cdp_url:
-		logger.debug(f'Browser setup: Using CDP Browser for task {task.task_id}')
-		browser_session = BrowserSession(browser_profile=profile, cdp_url=cdp_url)
-	else:
+	if browser == 'local':
 		# Use local browser
-		logger.debug(f'Browser setup: Initializing BrowserSession for task {task.task_id}')
+		logger.debug(f'Browser setup: Initializing local BrowserSession for task {task.task_id}')
 		browser_session = BrowserSession(browser_profile=profile)
+	else:
+		# All remote browsers should have provided a CDP URL or raised an exception
+		if not cdp_url:
+			raise RuntimeError(f'Browser setup: No CDP URL obtained for {browser} browser for task {task.task_id}')
+
+		logger.debug(f'Browser setup: Using {browser} CDP Browser for task {task.task_id}')
+		browser_session = BrowserSession(browser_profile=profile, cdp_url=cdp_url)
 
 	# Start browser session
 	await browser_session.start()

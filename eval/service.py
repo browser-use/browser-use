@@ -30,6 +30,8 @@ from eval.browsers import (
 	BROWSERBASE_API_KEY,
 	BROWSERBASE_PROJECT_ID,
 	HYPERBROWSER_API_KEY,
+	UKC_METRO,
+	UKC_TOKEN,
 	setup_browser_session,
 )
 from eval.comprehensive_judge import evaluate_task_with_comprehensive_judge
@@ -1484,7 +1486,7 @@ if __name__ == '__main__':
 		'--browser',
 		type=str,
 		default='local',
-		help='Browser to use: local, anchor-browser, brightdata, browserbase, hyperbrowser, browser-use (default: local)',
+		help='Browser to use: local, anchor-browser, brightdata, browserbase, hyperbrowser, unikraft, browser-use (default: local)',
 	)
 	parser.add_argument('--enable-memory', action='store_true', help='Enable mem0 memory system for agents')
 	parser.add_argument('--memory-interval', type=int, default=10, help='Memory creation interval (default: 10 steps)')
@@ -1815,6 +1817,11 @@ if __name__ == '__main__':
 			logger.info('🌐 Using Hyperbrowser (remote browser service)')
 		else:
 			logger.warning('⚠️ --browser hyperbrowser provided but HYPERBROWSER_API_KEY not set. Will use local browser!')
+	elif args.browser == 'unikraft':
+		if UKC_TOKEN and UKC_METRO:
+			logger.info('🌐 Using Unikraft Cloud (remote browser service)')
+		else:
+			logger.warning('⚠️ --browser unikraft provided but UKC_TOKEN or UKC_METRO not set. Will use local browser!')
 	elif args.browser == 'browser-use':
 		logger.warning('🌐 Browser-use not implemented yet. Will use local browser!')
 	else:

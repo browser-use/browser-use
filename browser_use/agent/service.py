@@ -632,24 +632,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# self.logger.debug('Agent paused after getting state')
 			raise InterruptedError
 
-	@observe_debug(name='get_browser_state_with_recovery', ignore_output=True)
-	async def _get_browser_state_with_recovery(self, cache_clickable_elements_hashes: bool = True) -> BrowserStateSummary:
-		"""Get browser state with multiple fallback strategies for error recovery"""
-
-		assert self.browser_session is not None, 'BrowserSession is not set up'
-
-		# Try 1: Full state summary (current implementation) - like main branch
-		try:
-			return await self.browser_session.get_state_summary(cache_clickable_elements_hashes)
-		except Exception as e:
-			if self.state.last_result is None:
-				self.state.last_result = []
-			self.state.last_result.append(ActionResult(error=str(e)))
-			self.logger.warning(f'Full state retrieval failed: {type(e).__name__}: {e}')
-
-		self.logger.warning('🔄 Falling back to minimal state summary')
-		return await self.browser_session.get_minimal_state_summary()
-
 	@observe(name='agent.step', ignore_output=True, ignore_input=True)
 	@time_execution_async('--step')
 	async def step(self, step_info: AgentStepInfo | None = None) -> None:
@@ -684,7 +666,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		assert self.browser_session is not None, 'BrowserSession is not set up'
 
 		self.logger.debug(f'🌐 Step {self.state.n_steps + 1}: Getting browser state...')
-		browser_state_summary = await self._get_browser_state_with_recovery(cache_clickable_elements_hashes=True)
+		browser_state_summary = await self.browser_session.get_state_summary_with_fallback(cache_clickable_elements_hashes=True)
 		current_page = await self.browser_session.get_current_page()
 
 		# Check for new downloads after getting browser state (catches PDF auto-downloads and previous step downloads)
@@ -1372,7 +1354,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				break
 
 			if action.get_index() is not None and i != 0:
-				new_browser_state_summary = await self.browser_session.get_state_summary(cache_clickable_elements_hashes=False)
+				new_browser_state_summary = await self.browser_session.get_state_summary_with_fallback(
+					cache_clickable_elements_hashes=False
+				)
 				new_selector_map = new_browser_state_summary.selector_map
 
 				# Detect index change after previous action
@@ -1509,7 +1493,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def _execute_history_step(self, history_item: AgentHistory, delay: float) -> list[ActionResult]:
 		"""Execute a single step from history with element validation"""
 		assert self.browser_session is not None, 'BrowserSession is not set up'
-		state = await self.browser_session.get_state_summary(cache_clickable_elements_hashes=False)
+		state = await self.browser_session.get_state_summary_with_fallback(cache_clickable_elements_hashes=False)
 		if not state or not history_item.model_output:
 			raise ValueError('Invalid state or model output')
 		updated_actions = []
