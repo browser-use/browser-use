@@ -26,12 +26,7 @@ if not api_key:
 async def run_search():
 	agent = Agent(
 		task='Go to example.com, click on the first link, and give me the title of the page',
-		llm=ChatDeepSeek(
-			base_url='https://api.deepseek.com/v1',
-			model='deepseek-chat',
-			api_key=api_key
-		),
-		
+		llm=ChatDeepSeek(base_url='https://api.deepseek.com/v1', model='deepseek-chat', api_key=api_key),
 		use_vision=False,
 	)
 

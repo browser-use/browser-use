@@ -1,34 +1,26 @@
-from browser_use.llm.openai.chat import ChatOpenAI
 import json
-
 from dataclasses import dataclass
 from typing import TypeVar, overload
-from openai.types.shared_params.response_format_json_object import ResponseFormatJSONObject
 
 from openai import APIConnectionError, APIStatusError, RateLimitError
-
 from openai.types.shared.chat_model import ChatModel
+from openai.types.shared_params.response_format_json_object import ResponseFormatJSONObject
 from openai.types.shared_params.response_format_json_schema import JSONSchema
-
 from pydantic import BaseModel
 
 from browser_use.llm.exceptions import ModelProviderError
-from browser_use.llm.messages import BaseMessage
-from browser_use.llm.openai.serializer import OpenAIMessageSerializer
-from browser_use.llm.schema import SchemaOptimizer
-from browser_use.llm.views import ChatInvokeCompletion
-
-
 from browser_use.llm.messages import (
-	# AssistantMessage,
 	BaseMessage,
-	# ContentPartImageParam,
-	# ContentPartRefusalParam,
+	# AssistantMessage,
 	ContentPartTextParam,
 	SystemMessage,
 	# ToolCall,
 	# UserMessage,
 )
+from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use.llm.openai.serializer import OpenAIMessageSerializer
+from browser_use.llm.schema import SchemaOptimizer
+from browser_use.llm.views import ChatInvokeCompletion
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -40,13 +32,12 @@ class ChatDeepSeek(ChatOpenAI):
 	"""
 	A class for to interact with DeepSeek using the OpenAI API schema.
 	"""
-    
 
-	def append_json_schema(self, messages: list[BaseMessage], output_format: type[T] ) -> list[BaseMessage]:
+	def append_json_schema(self, messages: list[BaseMessage], output_format: type[T]) -> list[BaseMessage]:
 		"""
 		Append a JSON schema to the system messages since the model completion API does not support JSON schema.
 		If this is not done, the model's returned result will not be parsed successfully according to the output_format.
-		
+
 		Args:
 			messages: List of chat messages
 			output_format: JSON schema to append
@@ -55,10 +46,10 @@ class ChatDeepSeek(ChatOpenAI):
 			List of chat messages with JSON schema appended
 		"""
 		response_format: JSONSchema = {
-					'name': 'agent_output',
-					'strict': True,
-					'schema': SchemaOptimizer.create_optimized_json_schema(output_format),
-				}
+			'name': 'agent_output',
+			'strict': True,
+			'schema': SchemaOptimizer.create_optimized_json_schema(output_format),
+		}
 
 		hasSystemMessage = False
 		for message in messages:
@@ -66,16 +57,20 @@ class ChatDeepSeek(ChatOpenAI):
 				continue
 			if isinstance(message.content, str):
 				hasSystemMessage = True
-				content = str(message.content).replace("</output>","Please strictly abide by the following json schema:<output_json_schema> </output>")
-				message.content = content + "\n\n <output_json_schema>"  + json.dumps(response_format) +"</output_json_schema>"
+				content = str(message.content).replace(
+					'</output>', 'Please strictly abide by the following json schema:<output_json_schema> </output>'
+				)
+				message.content = content + '\n\n <output_json_schema>' + json.dumps(response_format) + '</output_json_schema>'
 
 			elif isinstance(message.content, list):
-				content = str(message.content[-1].text).replace("</output>","Please strictly abide by the following json schema:<output_json_schema> </output>")
-				message.content[-1].text = content + "\n\n <output_json_schema>"  + json.dumps(response_format) +"</output_json_schema>"
+				content = str(message.content[-1].text).replace(
+					'</output>', 'Please strictly abide by the following json schema:<output_json_schema> </output>'
+				)
+				message.content[-1].text = (
+					content + '\n\n <output_json_schema>' + json.dumps(response_format) + '</output_json_schema>'
+				)
 				message.content.append(
-					ContentPartTextParam(
-						text="\n\n <output_json_schema>"  + json.dumps(response_format) +"</output_json_schema>"
-					)
+					ContentPartTextParam(text='\n\n <output_json_schema>' + json.dumps(response_format) + '</output_json_schema>')
 				)
 		if not hasSystemMessage:
 			messages.insert(
@@ -83,13 +78,13 @@ class ChatDeepSeek(ChatOpenAI):
 				SystemMessage(
 					content=[
 						ContentPartTextParam(
-							text="Please output in JSON format and use the following JSON schema: "
-							+ json.dumps(response_format)
+							text='Please output in JSON format and use the following JSON schema: ' + json.dumps(response_format)
 						)
 					]
 				),
 			)
 		return messages
+
 	@overload
 	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> ChatInvokeCompletion[str]: ...
 
@@ -134,18 +129,16 @@ class ChatDeepSeek(ChatOpenAI):
 				)
 
 			else:
-				
 				messages = self.append_json_schema(messages, output_format)
 				openai_messages = OpenAIMessageSerializer.serialize_messages(messages)
-
 
 				# Return structured response
 				response = await self.get_client().chat.completions.create(
 					model=self.model,
 					messages=openai_messages,
 					temperature=self.temperature,
-					response_format= ResponseFormatJSONObject(
-						type="json_object",
+					response_format=ResponseFormatJSONObject(
+						type='json_object',
 					),
 					**reasoning_effort_dict,
 				)
@@ -198,4 +191,3 @@ class ChatDeepSeek(ChatOpenAI):
 
 		except Exception as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e
-
