@@ -16,7 +16,7 @@ Or as an MCP server in Claude Desktop or other MCP clients:
                 "command": "uvx",
                 "args": ["browser-use", "--mcp"],
                 "env": {
-                    "OPENAI_API_KEY": "sk-proj-1234567890",
+                    "OPENAI_API_KEY": "sk-proj-YOUR_KEY_HERE",
                 }
             }
         }
