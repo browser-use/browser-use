@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 from contextlib import asynccontextmanager
 
 # Configuration de l'environnement AVANT tout import
-os.environ['OPENAI_API_KEY'] = 'YOUR_OPENAI_API_KEY_HERE'
+os.environ['OPENAI_API_KEY'] = 'sk-proj.....'
 os.environ['BROWSER_USE_SETUP_LOGGING'] = 'false'
 
 # Ajouter le chemin vers browser_use
@@ -333,7 +333,7 @@ if __name__ == "__main__":
     logger.info("🚀 Démarrage du serveur Browser-Use Web Backend (Sans .env)...")
     
     uvicorn.run(
-        "main_no_dotenv:app",
+        "main:app",
         host="0.0.0.0",
         port=8000,
         reload=False,
