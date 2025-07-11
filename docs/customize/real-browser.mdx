@@ -321,7 +321,7 @@ playwright = await async_playwright().start()
 browser = await playwright.chromium.launch(headless=True)
 context = await browser.new_context()
 shared_page = await context.new_page()
-await shared_page.goto('https://example.com', wait_until='domcontentloaded')
+await shared_page.goto('https://example.com', wait_until='load')
 
 shared_session = BrowserSession(page=shared_page, keep_alive=True)
 await shared_session.start()

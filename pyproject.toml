@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.5.3"
+version = "0.5.4"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -190,7 +190,7 @@ dev-dependencies = [
     "ipdb>=0.13.13",
     "pre-commit>=4.2.0",
     "codespell>=2.4.1",
-    "pyright>=1.1.399",
+    "pyright>=1.1.403",
     "ty>=0.0.1a1",
     "pytest-xdist>=3.7.0",
     "pillow>=11.2.1",

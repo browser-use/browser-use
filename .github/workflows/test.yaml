@@ -45,6 +45,7 @@ jobs:
     env:
       IN_DOCKER: 'True'
       ANONYMIZED_TELEMETRY: 'false'
+      BROWSER_USE_LOGGING_LEVEL: 'DEBUG'
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -112,6 +113,7 @@ jobs:
       IN_DOCKER: 'true'
       BROWSER_USE_CLOUD_SYNC: 'false'
       ANONYMIZED_TELEMETRY: 'false'
+      BROWSER_USE_LOGGING_LEVEL: 'DEBUG'
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -142,7 +144,7 @@ jobs:
           && sudo curl -o "/tmp/google-chrome-stable_current_amd64.deb" --no-clobber "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb" \
           && sudo apt-get install -y "/tmp/google-chrome-stable_current_amd64.deb" -f
       - run: patchright install chrome --with-deps
-      # - run: playwright install chrome --with-deps
+      - run: playwright install chrome --with-deps
 
       - name: Cache chromium binaries
         uses: actions/cache@v4
@@ -152,7 +154,7 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ env.PLAYWRIGHT_VERSION }}-chromium
 
       - run: playwright install chromium --with-deps
-      # - run: patchright install chromium --with-deps
+      - run: patchright install chromium --with-deps
 
       - name: Run agent tasks evaluation and capture score
         id: eval

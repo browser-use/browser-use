@@ -63,9 +63,14 @@ class TestBrowserSessionReuse:
 	# 	finally:
 	# 		await session.stop()
 
-	async def test_multiple_browser_regenerations(self):
+	async def test_multiple_browser_regenerations(self, httpserver):
 		"""Test multiple browser regeneration cycles"""
 		session = BrowserSession(browser_profile=BrowserProfile(headless=True, user_data_dir=None))
+
+		httpserver.expect_request('/normal').respond_with_data(
+			'<html><body><h1>Normal Page</h1></body></html>',
+			content_type='text/html',
+		)
 
 		try:
 			await session.start()
@@ -73,12 +78,12 @@ class TestBrowserSessionReuse:
 			for i in range(3):
 				# Navigate to a test page
 				assert session.agent_current_page is not None
-				await session.agent_current_page.goto(f'data:text/html,<h1>Cycle {i + 1}</h1>')
+				await session.agent_current_page.goto(httpserver.url_for('/normal'), wait_until='load', timeout=3000)
 
 				# Take screenshot before disconnect
 				screenshot_before = await session.take_screenshot()
 				assert screenshot_before is not None
-				assert len(screenshot_before) > 0
+				assert len(screenshot_before) > 100
 
 				# Force disconnect
 				if session.browser_context:
@@ -96,7 +101,9 @@ class TestBrowserSessionReuse:
 				# Take screenshot after regeneration
 				screenshot_after = await session.take_screenshot()
 				assert screenshot_after is not None
-				assert len(screenshot_after) > 0
+				assert len(screenshot_after) > 0 and len(screenshot_after) < 100, (
+					'expected white 1px screenshot of about:blank when browser is reset after disconnection'
+				)
 
 		finally:
 			await session.stop()

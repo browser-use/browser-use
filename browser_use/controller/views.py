@@ -10,7 +10,7 @@ class SearchGoogleAction(BaseModel):
 
 class GoToUrlAction(BaseModel):
 	url: str
-	new_tab: bool  # True to open in new tab, False to navigate in current tab
+	new_tab: bool = False  # True to open in new tab, False to navigate in current tab
 
 
 class ClickElementAction(BaseModel):

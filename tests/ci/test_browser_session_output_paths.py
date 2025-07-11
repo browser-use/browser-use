@@ -154,7 +154,7 @@ class TestAgentRecordings:
 			conversation_files = list(conversation_path.glob('conversation_*.txt'))
 			assert len(conversation_files) > 0, f'{path_type}: conversation file was not created in {conversation_path}'
 		finally:
-			await browser_session.stop()
+			await browser_session.kill()
 
 	@pytest.mark.parametrize('generate_gif', [False, True, 'custom_path'])
 	async def test_generate_gif(self, test_dir, httpserver_url, llm, generate_gif):
@@ -198,7 +198,7 @@ class TestAgentRecordings:
 				assert expected_gif_path is not None, 'expected_gif_path should be set for custom_path'
 				assert expected_gif_path.exists(), f'GIF was not created at {expected_gif_path}'
 		finally:
-			await browser_session.stop()
+			await browser_session.kill()
 
 
 class TestBrowserProfileRecordings:
@@ -228,7 +228,7 @@ class TestBrowserProfileRecordings:
 			await browser_session.navigate(httpserver_url)
 			await asyncio.sleep(0.5)
 		finally:
-			await browser_session.stop()
+			await browser_session.kill()
 
 		# Add delay for video processing
 		await asyncio.sleep(1)
@@ -271,7 +271,7 @@ class TestBrowserProfileRecordings:
 			await browser_session.navigate(httpserver_url)
 			await asyncio.sleep(0.5)
 		finally:
-			await browser_session.stop()
+			await browser_session.kill()
 
 		# HAR files should be created
 		assert har_path.exists(), f'HAR file was not created at {har_path}'
@@ -324,7 +324,7 @@ class TestBrowserProfileRecordings:
 			)
 			await agent.run(max_steps=5)
 		finally:
-			await browser_session.stop()
+			await browser_session.kill()
 
 		# Check trace file - should be created automatically in the directory
 		assert trace_dir.exists(), f'Trace directory was not created at {trace_dir}'
@@ -387,7 +387,7 @@ class TestCombinedRecordings:
 			# Check video directory
 			assert video_dir.exists(), 'Video directory was not created'
 		finally:
-			await browser_session.stop()
+			await browser_session.kill()
 
 		# Check files created after browser close
 		video_files = list(video_dir.glob('*.webm'))

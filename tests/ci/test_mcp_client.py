@@ -188,7 +188,7 @@ async def test_mcp_tools_with_agent(test_mcp_server_script, httpserver: HTTPServ
 		content_type='text/html',
 	)
 
-	browser_session = BrowserSession(browser_profile=BrowserProfile(headless=True, user_data_dir=None))
+	browser_session = BrowserSession(browser_profile=BrowserProfile(headless=True, user_data_dir=None, keep_alive=True))
 	await browser_session.start()
 	controller = Controller()
 
@@ -204,7 +204,7 @@ async def test_mcp_tools_with_agent(test_mcp_server_script, httpserver: HTTPServ
 
 		# Create mock LLM with specific actions
 		actions = [
-			f'{{"thinking": null, "evaluation_previous_goal": "Starting", "memory": "Starting task", "next_goal": "Navigate to test page", "action": [{{"go_to_url": {{"url": "{httpserver.url_for("/")}"}}}}]}}',
+			f'{{"thinking": null, "evaluation_previous_goal": "Starting", "memory": "Starting task", "next_goal": "Navigate to test page", "action": [{{"go_to_url": {{"url": "{httpserver.url_for("/")}", "new_tab": false}}}}]}}',
 			'{"thinking": null, "evaluation_previous_goal": "Navigated", "memory": "On test page", "next_goal": "Count to 3", "action": [{"count_to_n": {"n": 3}}]}',
 			'{"thinking": null, "evaluation_previous_goal": "Counted", "memory": "Counted to 3", "next_goal": "Echo message", "action": [{"echo_message": {"message": "MCP works!"}}]}',
 			'{"thinking": null, "evaluation_previous_goal": "Echoed", "memory": "Message echoed", "next_goal": "Complete", "action": [{"done": {"text": "Completed MCP test", "success": true}}]}',
@@ -247,7 +247,7 @@ async def test_mcp_tools_with_agent(test_mcp_server_script, httpserver: HTTPServ
 
 	finally:
 		await mcp_client.disconnect()
-		await browser_session.stop()
+		await browser_session.kill()
 
 
 async def test_mcp_tool_parameter_validation(test_mcp_server_script):
@@ -535,4 +535,4 @@ Use tools from both servers to complete the task.""",
 	finally:
 		await mcp_server1.disconnect()
 		await mcp_server2.disconnect()
-		await browser_session.stop()
+		await browser_session.kill()
