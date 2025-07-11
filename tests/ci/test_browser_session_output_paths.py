@@ -244,6 +244,75 @@ class TestBrowserProfileRecordings:
 			# Video recording might not work in headless CI environments - skip gracefully
 			pytest.skip('Video recording not supported in this environment')
 
+	async def test_video_recording_creates_new_context_on_existing_browser(self, test_dir, httpserver_url):
+		"""Test that video recording creates a new browser context when connecting to existing browser.
+
+		This test verifies the fix for a bug where:
+		1. A browser is started with existing contexts (no video recording)
+		2. Another session connects to the same browser WITH video recording enabled
+		3. The system correctly creates a new context instead of reusing the existing one
+		"""
+		video_dir = test_dir / 'videos_reuse_bug'
+		user_data_dir = test_dir / 'user_data_reuse'
+
+		# Step 1: Create first browser session WITHOUT video recording
+		browser_session1 = BrowserSession(
+			browser_profile=BrowserProfile(
+				headless=True,
+				disable_security=True,
+				user_data_dir=str(user_data_dir),
+				# IMPORTANT: No video recording here - this establishes existing context
+			)
+		)
+
+		await browser_session1.start()
+		try:
+			# Create some activity to establish browser context
+			await browser_session1.navigate(httpserver_url)
+			await asyncio.sleep(0.5)
+
+			# Step 2: Connect to the SAME browser but WITH video recording
+			browser_session2 = BrowserSession(
+				browser_profile=BrowserProfile(
+					headless=True,
+					disable_security=True,
+					user_data_dir=str(user_data_dir),
+					record_video_dir=str(video_dir),  # Enable video recording
+				),
+				browser_pid=browser_session1.browser_pid,  # Connect to existing browser
+			)
+
+			await browser_session2.start()
+			try:
+				# Verify contexts are different (with the fix)
+				assert browser_session1.browser_context != browser_session2.browser_context, (
+					'Bug still exists: Same context was reused instead of creating new one for video recording'
+				)
+
+				# Test video recording functionality
+				await browser_session2.navigate(httpserver_url)
+				await asyncio.sleep(1)  # Record some content
+
+			finally:
+				await browser_session2.kill()
+		finally:
+			await browser_session1.kill()
+
+		# Add delay for video processing
+		await asyncio.sleep(1)
+
+		# Verify video files were created
+		if video_dir.exists():
+			video_files = list(video_dir.glob('*.webm'))
+			assert len(video_files) > 0, 'Video recording failed: No video files created despite new context'
+
+			for video_file in video_files:
+				file_size = video_file.stat().st_size
+				assert file_size > 1000, f'Video file {video_file.name} is too small ({file_size} bytes)'
+		else:
+			# Video recording might not work in headless CI environments - skip gracefully
+			pytest.skip('Video recording not supported in this environment')
+
 	@pytest.mark.parametrize(
 		'context_type,alias',
 		[
