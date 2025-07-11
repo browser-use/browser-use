@@ -632,7 +632,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# self.logger.debug('Agent paused after getting state')
 			raise InterruptedError
 
-	@observe_debug(name='get_browser_state_with_recovery', ignore_output=True)
+	@observe_debug(ignore_input=True, ignore_output=True, name='get_browser_state_with_recovery')
 	async def _get_browser_state_with_recovery(self, cache_clickable_elements_hashes: bool = True) -> BrowserStateSummary:
 		"""Get browser state with multiple fallback strategies for error recovery"""
 
@@ -1344,7 +1344,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			await self.close()
 
-	@observe_debug()
+	@observe_debug(ignore_input=True, ignore_output=True)
 	@time_execution_async('--multi_act')
 	async def multi_act(
 		self,

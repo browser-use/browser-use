@@ -347,7 +347,10 @@ async def reformat_agent_history(
 # ================================================
 
 
-@observe_debug()
+@observe_debug(
+	ignore_input=True,
+	ignore_output=True,
+)
 async def judge_task_result(
 	model, task_folder: Path, score_threshold: float = 3, use_mind2web: bool = False, judge_repeat_count: int = 1
 ) -> dict:
@@ -645,7 +648,10 @@ async def evaluate_task_result(
 		)
 
 
-@observe_debug()
+@observe_debug(
+	ignore_input=True,
+	ignore_output=True,
+)
 async def cleanup_browser_safe(browser_session: BrowserSession):
 	"""Safe browser cleanup with timeout"""
 	try:
@@ -1150,7 +1156,10 @@ async def run_task_with_semaphore(
 		return final_result
 
 
-@observe_debug()
+@observe_debug(
+	ignore_input=True,
+	ignore_output=True,
+)
 async def run_multiple_tasks(
 	tasks: list[Task],
 	llm: BaseChatModel,
@@ -1214,7 +1223,10 @@ async def run_multiple_tasks(
 	heartbeat_task = None
 	heartbeat_stop_event = asyncio.Event()
 
-	@observe_debug()
+	@observe_debug(
+		ignore_input=True,
+		ignore_output=True,
+	)
 	async def heartbeat_logger():
 		"""Log periodic heartbeat to show the process is alive"""
 		heartbeat_count = 0
@@ -1347,7 +1359,10 @@ async def run_multiple_tasks(
 # ================================================
 
 
-@observe_debug()
+@observe_debug(
+	ignore_input=True,
+	ignore_output=True,
+)
 async def run_evaluation_pipeline(
 	tasks: list[Task],
 	llm: BaseChatModel,

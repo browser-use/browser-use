@@ -163,7 +163,7 @@ class MessageManager:
 		task_update_item = HistoryItem(system_message=f'User updated <user_request> to: {new_task}')
 		self.state.agent_history_items.append(task_update_item)
 
-	@observe_debug(name='update_agent_history_description')
+	@observe_debug(ignore_input=True, ignore_output=True, name='update_agent_history_description')
 	def _update_agent_history_description(
 		self,
 		model_output: AgentOutput | None = None,
@@ -245,7 +245,7 @@ class MessageManager:
 
 		return ''
 
-	@observe_debug(name='add_state_message', ignore_input=True)
+	@observe_debug(ignore_input=True, ignore_output=True, name='add_state_message')
 	@time_execution_sync('--add_state_message')
 	def add_state_message(
 		self,

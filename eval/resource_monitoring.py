@@ -20,7 +20,10 @@ _resource_monitor_stop_event = None
 _graceful_shutdown_initiated = False
 
 
-@observe_debug()
+@observe_debug(
+	ignore_input=True,
+	ignore_output=True,
+)
 def get_system_resources() -> dict[str, Any]:
 	"""Get current system resource usage"""
 	try:
@@ -81,7 +84,10 @@ def get_system_resources() -> dict[str, Any]:
 		}
 
 
-@observe_debug()
+@observe_debug(
+	ignore_input=True,
+	ignore_output=True,
+)
 def log_system_resources(context: str = ''):
 	"""Log current system resource usage"""
 	resources = get_system_resources()

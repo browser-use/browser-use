@@ -117,7 +117,10 @@ def truncate_text(text: str, max_length: int, from_beginning: bool = False) -> s
 		return text[: max_length - 23] + '...[cut for eval]...'
 
 
-@observe_debug()
+@observe_debug(
+	ignore_input=True,
+	ignore_output=True,
+)
 def prepare_agent_steps(complete_history: list[dict]) -> list[str]:
 	"""Extract and format agent steps, limiting each to 2000 characters.
 
@@ -184,7 +187,10 @@ def prepare_agent_steps(complete_history: list[dict]) -> list[str]:
 	return last_part[::-1]
 
 
-@observe_debug()
+@observe_debug(
+	ignore_input=True,
+	ignore_output=True,
+)
 def are_images_identical(img_path1: str, img_path2: str) -> bool:
 	"""Check if two images are identical by comparing their content."""
 	try:
@@ -205,7 +211,10 @@ def are_images_identical(img_path1: str, img_path2: str) -> bool:
 		return False
 
 
-@observe_debug()
+@observe_debug(
+	ignore_input=True,
+	ignore_output=True,
+)
 def filter_images(screenshot_paths: list[str], max_images: int) -> list[str]:
 	"""
 	Filter screenshot paths to:
@@ -237,7 +246,10 @@ def filter_images(screenshot_paths: list[str], max_images: int) -> list[str]:
 	return deduplicated_paths[-max_images:] if len(deduplicated_paths) > max_images else deduplicated_paths
 
 
-@observe_debug()
+@observe_debug(
+	ignore_input=True,
+	ignore_output=True,
+)
 async def comprehensive_judge(
 	task: str,
 	complete_history: list[dict],
@@ -448,7 +460,10 @@ Evaluate this agent execution given the criteria and respond with the exact JSON
 		return create_fallback_result(task, str(e))
 
 
-@observe_debug()
+@observe_debug(
+	ignore_input=True,
+	ignore_output=True,
+)
 def parse_judge_response(result_dict: dict, task: str) -> JudgeResult:
 	"""Parse the LLM response into a structured JudgeResult."""
 	try:
@@ -476,7 +491,10 @@ def parse_judge_response(result_dict: dict, task: str) -> JudgeResult:
 		return create_fallback_result(task, 'Failed to parse structured response')
 
 
-@observe_debug()
+@observe_debug(
+	ignore_input=True,
+	ignore_output=True,
+)
 def create_fallback_result(task: str, error_msg: str) -> JudgeResult:
 	"""Create a fallback result when evaluation fails."""
 	return JudgeResult(
@@ -488,7 +506,10 @@ def create_fallback_result(task: str, error_msg: str) -> JudgeResult:
 	)
 
 
-@observe_debug()
+@observe_debug(
+	ignore_input=True,
+	ignore_output=True,
+)
 async def judge_with_retry(
 	task: str,
 	complete_history: list[dict],
@@ -645,7 +666,10 @@ def _write_result_file(result_file: Path, result_data: dict[str, Any]) -> None:
 
 
 # Integration helper function
-@observe_debug()
+@observe_debug(
+	ignore_input=True,
+	ignore_output=True,
+)
 async def evaluate_task_with_comprehensive_judge(
 	task_folder: Path, model: BaseChatModel, max_images: int = 10, judge_repeat_count: int = 1
 ) -> dict[str, Any]:

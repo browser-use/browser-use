@@ -737,7 +737,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	# 			logger.info(f'🔍 Preinstalling extension {extension_id}...')
 	# 			# TODO: copy this from ArchiveBox implementation
 
-	@observe_debug(name='detect_display_configuration')
+	@observe_debug(ignore_input=True, ignore_output=True, name='detect_display_configuration')
 	def detect_display_configuration(self) -> None:
 		"""
 		Detect the system display size and initialize the display-related config defaults:

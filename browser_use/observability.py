@@ -150,7 +150,7 @@ def observe_debug(
 	    Decorated function that may be traced only in debug mode
 
 	Example:
-	    @observe_debug(name="debug_function", metadata={"debug": True})
+	    @observe_debug(ignore_input=True, ignore_output=True,name="debug_function", metadata={"debug": True})
 	    def debug_function(param1, param2):
 	        return param1 + param2
 	"""

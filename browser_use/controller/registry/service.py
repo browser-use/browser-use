@@ -309,7 +309,7 @@ class Registry(Generic[Context]):
 
 		return decorator
 
-	@observe_debug(name='execute_action')
+	@observe_debug(ignore_input=True, ignore_output=True, name='execute_action')
 	@time_execution_async('--execute_action')
 	async def execute_action(
 		self,

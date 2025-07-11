@@ -1150,7 +1150,7 @@ Explain the content of the page and that the requested information is not availa
 		return self.registry.action(description, **kwargs)
 
 	# Act --------------------------------------------------------------------
-	@observe_debug(name='act')
+	@observe_debug(ignore_input=True, ignore_output=True, name='act')
 	@time_execution_sync('--act')
 	async def act(
 		self,
