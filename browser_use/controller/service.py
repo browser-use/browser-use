@@ -30,6 +30,7 @@ from browser_use.controller.views import (
 	SendKeysAction,
 	StructuredOutputAction,
 	SwitchTabAction,
+	TapAndHoldAction,
 	UploadFileAction,
 )
 from browser_use.filesystem.file_system import FileSystem
@@ -232,6 +233,83 @@ class Controller(Generic[Context]):
 				include_in_memory=True,
 				long_term_memory=f"Input '{params.text}' into element {params.index}.",
 			)
+
+		@self.registry.action(
+			'Tap and hold element for specified duration - press and hold mouse button on element',
+			param_model=TapAndHoldAction,
+		)
+		async def tap_and_hold(params: TapAndHoldAction, browser_session: BrowserSession):
+			"""
+			Performs a tap and hold operation on an element.
+			Useful for press and hold interactions, captchas, long press menus, etc.
+			"""
+			# Check if element exists in current selector map
+			selector_map = await browser_session.get_selector_map()
+			if params.index not in selector_map:
+				# Force a state refresh in case the cache is stale
+				logger.info(f'Element with index {params.index} not found in selector map, refreshing state...')
+				await browser_session.get_state_summary(cache_clickable_elements_hashes=True)
+				selector_map = await browser_session.get_selector_map()
+
+				if params.index not in selector_map:
+					max_index = max(selector_map.keys()) if selector_map else -1
+					msg = f'Element with index {params.index} does not exist. Page has {len(selector_map)} interactive elements (indices 0-{max_index}). State has been refreshed - please use the updated element indices or scroll to see more elements'
+					return ActionResult(extracted_content=msg, include_in_memory=True, success=False, long_term_memory=msg)
+
+			# Get the DOM element node
+			element_node = await browser_session.get_dom_element_by_index(params.index)
+			if not element_node:
+				msg = f'Could not get element node for index {params.index}'
+				logger.warning(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True, success=False, long_term_memory=msg)
+
+			# Get element coordinates
+			if not element_node.viewport_coordinates or not element_node.viewport_coordinates.center:
+				msg = f'Element at index {params.index} does not have valid coordinates'
+				logger.warning(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True, success=False, long_term_memory=msg)
+
+			try:
+				page = await browser_session.get_current_page()
+				x = element_node.viewport_coordinates.center.x
+				y = element_node.viewport_coordinates.center.y
+
+				# Perform tap and hold operation
+				logger.info(
+					f'🎯 Starting tap and hold on element {params.index} at ({x}, {y}) for {params.hold_duration_seconds}s'
+				)
+
+				await page.mouse.move(x, y)
+				await asyncio.sleep(0.1)  # Small delay to ensure proper positioning
+
+				await page.mouse.down()
+				logger.info(f'⬇️ Mouse down - holding for {params.hold_duration_seconds} seconds')
+
+				await asyncio.sleep(params.hold_duration_seconds)
+
+				await page.mouse.up()
+				logger.info('⬆️ Mouse up - hold completed')
+
+				# Wait a moment for any captcha verification to process
+				await asyncio.sleep(1.0)
+
+				element_text = element_node.get_all_text_till_next_clickable_element(max_depth=2)
+				msg = f'🤖 Successfully performed tap and hold on element {params.index} ({element_text}) for {params.hold_duration_seconds} seconds'
+				logger.info(msg)
+
+				return ActionResult(
+					extracted_content=msg,
+					include_in_memory=True,
+					success=True,
+					long_term_memory=f'Completed tap and hold on element {params.index} for {params.hold_duration_seconds}s',
+				)
+
+			except Exception as e:
+				error_msg = f'Failed to perform tap and hold on element {params.index}: {str(e)}'
+				logger.error(error_msg)
+				return ActionResult(
+					extracted_content=error_msg, include_in_memory=True, success=False, long_term_memory=error_msg
+				)
 
 		@self.registry.action('Upload file to interactive element with file path', param_model=UploadFileAction)
 		async def upload_file(params: UploadFileAction, browser_session: BrowserSession, available_file_paths: list[str]):

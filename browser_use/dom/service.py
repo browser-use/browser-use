@@ -196,14 +196,49 @@ class DomService:
 			return text_node, []
 
 		# Process coordinates if they exist for element nodes
+		from browser_use.dom.history_tree_processor.view import CoordinateSet
 
 		viewport_info = None
+		viewport_coordinates = None
+		page_coordinates = None
 
 		if 'viewport' in node_data:
 			viewport_info = ViewportInfo(
 				width=node_data['viewport']['width'],
 				height=node_data['viewport']['height'],
 			)
+
+		# Parse viewport coordinates from JavaScript
+		if 'viewportCoordinates' in node_data:
+			coord_data = node_data['viewportCoordinates']
+			if coord_data and 'center' in coord_data:
+				from browser_use.dom.history_tree_processor.view import Coordinates
+
+				viewport_coordinates = CoordinateSet(
+					top_left=Coordinates(x=coord_data['left'], y=coord_data['top']),
+					top_right=Coordinates(x=coord_data['right'], y=coord_data['top']),
+					bottom_left=Coordinates(x=coord_data['left'], y=coord_data['bottom']),
+					bottom_right=Coordinates(x=coord_data['right'], y=coord_data['bottom']),
+					center=Coordinates(x=coord_data['center']['x'], y=coord_data['center']['y']),
+					width=coord_data['width'],
+					height=coord_data['height'],
+				)
+
+		# Parse page coordinates from JavaScript
+		if 'pageCoordinates' in node_data:
+			coord_data = node_data['pageCoordinates']
+			if coord_data and 'center' in coord_data:
+				from browser_use.dom.history_tree_processor.view import Coordinates
+
+				page_coordinates = CoordinateSet(
+					top_left=Coordinates(x=coord_data['left'], y=coord_data['top']),
+					top_right=Coordinates(x=coord_data['right'], y=coord_data['top']),
+					bottom_left=Coordinates(x=coord_data['left'], y=coord_data['bottom']),
+					bottom_right=Coordinates(x=coord_data['right'], y=coord_data['bottom']),
+					center=Coordinates(x=coord_data['center']['x'], y=coord_data['center']['y']),
+					width=coord_data['width'],
+					height=coord_data['height'],
+				)
 
 		element_node = DOMElementNode(
 			tag_name=node_data['tagName'],
@@ -218,6 +253,8 @@ class DomService:
 			shadow_root=node_data.get('shadowRoot', False),
 			parent=None,
 			viewport_info=viewport_info,
+			viewport_coordinates=viewport_coordinates,
+			page_coordinates=page_coordinates,
 		)
 
 		children_ids = node_data.get('children', [])

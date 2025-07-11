@@ -16,8 +16,8 @@ class HashedDomElement:
 
 
 class Coordinates(BaseModel):
-	x: int
-	y: int
+	x: float
+	y: float
 
 
 class CoordinateSet(BaseModel):
@@ -26,8 +26,8 @@ class CoordinateSet(BaseModel):
 	bottom_left: Coordinates
 	bottom_right: Coordinates
 	center: Coordinates
-	width: int
-	height: int
+	width: float
+	height: float
 
 
 class ViewportInfo(BaseModel):

@@ -1145,6 +1145,46 @@
       if (nodeData.isInViewport || viewportExpansion === -1) {
         nodeData.highlightIndex = highlightIndex++;
 
+        // Calculate and store coordinates for interactive elements
+        const rect = getCachedBoundingRect(node);
+        if (rect && rect.width > 0 && rect.height > 0) {
+          // Calculate iframe offset if necessary
+          let iframeOffset = { x: 0, y: 0 };
+          if (parentIframe) {
+            const iframeRect = parentIframe.getBoundingClientRect();
+            iframeOffset.x = iframeRect.left;
+            iframeOffset.y = iframeRect.top;
+          }
+
+          // Store viewport coordinates (relative to current viewport)
+          nodeData.viewportCoordinates = {
+            top: rect.top + iframeOffset.y,
+            left: rect.left + iframeOffset.x,
+            bottom: rect.bottom + iframeOffset.y,
+            right: rect.right + iframeOffset.x,
+            width: rect.width,
+            height: rect.height,
+            center: {
+              x: rect.left + rect.width / 2 + iframeOffset.x,
+              y: rect.top + rect.height / 2 + iframeOffset.y
+            }
+          };
+
+          // Store page coordinates (absolute position on page including scroll)
+          nodeData.pageCoordinates = {
+            top: rect.top + window.scrollY + iframeOffset.y,
+            left: rect.left + window.scrollX + iframeOffset.x,
+            bottom: rect.bottom + window.scrollY + iframeOffset.y,
+            right: rect.right + window.scrollX + iframeOffset.x,
+            width: rect.width,
+            height: rect.height,
+            center: {
+              x: rect.left + rect.width / 2 + window.scrollX + iframeOffset.x,
+              y: rect.top + rect.height / 2 + window.scrollY + iframeOffset.y
+            }
+          };
+        }
+
         if (doHighlightElements) {
           if (focusHighlightIndex >= 0) {
             if (focusHighlightIndex === nodeData.highlightIndex) {

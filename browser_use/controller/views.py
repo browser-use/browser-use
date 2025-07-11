@@ -78,6 +78,11 @@ class Position(BaseModel):
 	y: int
 
 
+class TapAndHoldAction(BaseModel):
+	index: int = Field(..., description='Index of the element to tap and hold')
+	hold_duration_seconds: float = Field(3.0, description='Duration to hold the element in seconds (default: 3.0)')
+
+
 class DragDropAction(BaseModel):
 	# Element-based approach
 	element_source: str | None = Field(None, description='CSS selector or XPath of the element to drag from')
