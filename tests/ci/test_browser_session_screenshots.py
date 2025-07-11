@@ -68,7 +68,7 @@ class TestHeadlessScreenshots:
 			assert len(full_page_bytes) > 5000
 
 		finally:
-			await browser_session.stop()
+			await browser_session.kill()
 
 	async def test_screenshot_with_state_summary_in_headless(self, httpserver):
 		"""Test that get_state_summary includes screenshots in headless mode"""
@@ -104,7 +104,7 @@ class TestHeadlessScreenshots:
 			assert len(screenshot_bytes) > 1000
 
 		finally:
-			await browser_session.stop()
+			await browser_session.kill()
 
 	async def test_screenshot_graceful_handling_in_headless(self):
 		"""Test that screenshot handling works correctly in headless mode even with closed pages"""
@@ -139,7 +139,7 @@ class TestHeadlessScreenshots:
 			assert isinstance(state.screenshot, str)
 
 		finally:
-			await browser_session.stop()
+			await browser_session.kill()
 
 	async def test_parallel_screenshots_long_page(self, httpserver):
 		"""Test screenshots in a highly parallel environment with a very long page"""
@@ -372,4 +372,4 @@ class TestHeadlessScreenshots:
 			print('✅ All screenshot positions tested successfully!')
 
 		finally:
-			await browser_session.stop()
+			await browser_session.kill()

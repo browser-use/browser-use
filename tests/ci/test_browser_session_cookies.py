@@ -72,7 +72,7 @@ class TestBrowserSessionCookies:
 		yield session
 		# Cleanup
 		try:
-			await session.stop()
+			await session.kill()
 		except Exception:
 			pass
 
@@ -153,7 +153,7 @@ class TestBrowserSessionCookies:
 
 		# Cleanup
 		save_path.unlink(missing_ok=True)
-		await session.stop()
+		await session.kill()
 
 	async def test_nonexistent_cookies_file(self):
 		"""Test that browser starts normally when cookies_file doesn't exist."""
@@ -170,7 +170,7 @@ class TestBrowserSessionCookies:
 		localhost_cookies = [c for c in cookies if c['domain'] in ['localhost', '.localhost']]
 		assert len(localhost_cookies) == 0, f'Expected no localhost cookies, but found: {localhost_cookies}'
 
-		await session.stop()
+		await session.kill()
 
 	async def test_invalid_cookies_file(self, tmp_path):
 		"""Test that browser handles invalid cookie file gracefully."""
@@ -182,7 +182,7 @@ class TestBrowserSessionCookies:
 
 		session = BrowserSession(browser_profile=profile)
 		# Should start without errors (warning logged)
-		await session.start()
+		await session.kill()
 
 		# Should have no cookies from localhost (our test domain)
 		# Note: Browser may have cookies from default pages like Google's new tab page
@@ -190,7 +190,7 @@ class TestBrowserSessionCookies:
 		localhost_cookies = [c for c in cookies if c['domain'] in ['localhost', '.localhost']]
 		assert len(localhost_cookies) == 0, f'Expected no localhost cookies, but found: {localhost_cookies}'
 
-		await session.stop()
+		await session.kill()
 
 	async def test_relative_cookies_file_path(self, browser_profile_with_cookies):
 		"""Test that relative cookies_file paths work correctly."""
@@ -218,4 +218,4 @@ class TestBrowserSessionCookies:
 
 		# Cleanup
 		expected_path.unlink(missing_ok=True)
-		await session.stop()
+		await session.kill()

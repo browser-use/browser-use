@@ -321,6 +321,28 @@ class FileSystem:
 		except Exception as e:
 			return f"Error: Could not append to file '{full_filename}'. {str(e)}"
 
+	async def replace_file_str(self, full_filename: str, old_str: str, new_str: str) -> str:
+		"""Replace old_str with new_str in file_name"""
+		if not self._is_valid_filename(full_filename):
+			return INVALID_FILENAME_ERROR_MESSAGE
+
+		if not old_str:
+			return 'Error: Cannot replace empty string. Please provide a non-empty string to replace.'
+
+		file_obj = self.get_file(full_filename)
+		if not file_obj:
+			return f"File '{full_filename}' not found."
+
+		try:
+			content = file_obj.read()
+			content = content.replace(old_str, new_str)
+			await file_obj.write(content, self.data_dir)
+			return f'Successfully replaced all occurrences of "{old_str}" with "{new_str}" in file {full_filename}'
+		except FileSystemError as e:
+			return str(e)
+		except Exception as e:
+			return f"Error: Could not replace string in file '{full_filename}'. {str(e)}"
+
 	async def save_extracted_content(self, content: str) -> str:
 		"""Save extracted content to a numbered file"""
 		initial_filename = f'extracted_content_{self.extracted_content_count}'

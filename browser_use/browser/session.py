@@ -1064,10 +1064,17 @@ class BrowserSession(BaseModel):
 
 		# if we have a browser object but no browser_context, use the first context discovered or make a new one
 		if self.browser and not self.browser_context:
-			# If HAR recording is requested, we need to create a new context with recording enabled
-			# Cannot reuse existing context as HAR recording must be configured at context creation
-			if self.browser_profile.record_har_path and self.browser.contexts:
-				self.logger.info('🎥 Creating new browser_context with HAR recording enabled (cannot reuse existing context)')
+			# If HAR recording or video recording is requested, we need to create a new context with recording enabled
+			# Cannot reuse existing context as recording must be configured at context creation
+			if (self.browser_profile.record_har_path or self.browser_profile.record_video_dir) and self.browser.contexts:
+				recording_types = []
+				if self.browser_profile.record_har_path:
+					recording_types.append('HAR')
+				if self.browser_profile.record_video_dir:
+					recording_types.append('video')
+				self.logger.info(
+					f'🎥 Creating new browser_context with {" and ".join(recording_types)} recording enabled (cannot reuse existing context)'
+				)
 				self.browser_context = await self.browser.new_context(
 					**self.browser_profile.kwargs_for_new_context().model_dump(mode='json')
 				)
@@ -1139,8 +1146,8 @@ class BrowserSession(BaseModel):
 							s.listen(1)
 							debug_port = s.getsockname()[1]
 
-						# Get chromium executable path from playwright
-						chromium_path = self.playwright.chromium.executable_path
+						# Get chromium executable path from browser profile or fall back to to playwright default
+						chromium_path = self.browser_profile.executable_path or self.playwright.chromium.executable_path
 
 						# Build chrome launch command with all args
 						chrome_args = self.browser_profile.get_args()

@@ -12,13 +12,11 @@ def llm():
 	"""Initialize language model for testing"""
 
 	# return ChatAnthropic(model_name='claude-3-5-sonnet-20240620', timeout=25, stop=None)
-	return ChatAzureOpenAI(
-		model='gpt-4.1',
-	)
+	return ChatAzureOpenAI(model='gpt-4.1')
 	# return ChatOpenAI(model='gpt-4.1-mini')
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 async def browser_session():
 	from browser_use.browser.profile import BrowserProfile
 
@@ -26,7 +24,7 @@ async def browser_session():
 	browser_session = BrowserSession(browser_profile=profile)
 	await browser_session.start()
 	yield browser_session
-	await browser_session.stop()
+	await browser_session.kill()
 
 
 # pytest tests/test_agent_actions.py -v -k "test_ecommerce_interaction" --capture=no

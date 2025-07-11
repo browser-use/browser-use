@@ -154,7 +154,7 @@ class TestAgentRecordings:
 			conversation_files = list(conversation_path.glob('conversation_*.txt'))
 			assert len(conversation_files) > 0, f'{path_type}: conversation file was not created in {conversation_path}'
 		finally:
-			await browser_session.stop()
+			await browser_session.kill()
 
 	@pytest.mark.parametrize('generate_gif', [False, True, 'custom_path'])
 	async def test_generate_gif(self, test_dir, httpserver_url, llm, generate_gif):
@@ -198,7 +198,7 @@ class TestAgentRecordings:
 				assert expected_gif_path is not None, 'expected_gif_path should be set for custom_path'
 				assert expected_gif_path.exists(), f'GIF was not created at {expected_gif_path}'
 		finally:
-			await browser_session.stop()
+			await browser_session.kill()
 
 
 class TestBrowserProfileRecordings:
@@ -228,7 +228,7 @@ class TestBrowserProfileRecordings:
 			await browser_session.navigate(httpserver_url)
 			await asyncio.sleep(0.5)
 		finally:
-			await browser_session.stop()
+			await browser_session.kill()
 
 		# Add delay for video processing
 		await asyncio.sleep(1)
@@ -240,6 +240,75 @@ class TestBrowserProfileRecordings:
 				for video_file in video_files:
 					file_size = video_file.stat().st_size
 					assert file_size > 1000, f'Video file {video_file.name} is too small'
+		else:
+			# Video recording might not work in headless CI environments - skip gracefully
+			pytest.skip('Video recording not supported in this environment')
+
+	async def test_video_recording_creates_new_context_on_existing_browser(self, test_dir, httpserver_url):
+		"""Test that video recording creates a new browser context when connecting to existing browser.
+
+		This test verifies the fix for a bug where:
+		1. A browser is started with existing contexts (no video recording)
+		2. Another session connects to the same browser WITH video recording enabled
+		3. The system correctly creates a new context instead of reusing the existing one
+		"""
+		video_dir = test_dir / 'videos_reuse_bug'
+		user_data_dir = test_dir / 'user_data_reuse'
+
+		# Step 1: Create first browser session WITHOUT video recording
+		browser_session1 = BrowserSession(
+			browser_profile=BrowserProfile(
+				headless=True,
+				disable_security=True,
+				user_data_dir=str(user_data_dir),
+				# IMPORTANT: No video recording here - this establishes existing context
+			)
+		)
+
+		await browser_session1.start()
+		try:
+			# Create some activity to establish browser context
+			await browser_session1.navigate(httpserver_url)
+			await asyncio.sleep(0.5)
+
+			# Step 2: Connect to the SAME browser but WITH video recording
+			browser_session2 = BrowserSession(
+				browser_profile=BrowserProfile(
+					headless=True,
+					disable_security=True,
+					user_data_dir=str(user_data_dir),
+					record_video_dir=str(video_dir),  # Enable video recording
+				),
+				browser_pid=browser_session1.browser_pid,  # Connect to existing browser
+			)
+
+			await browser_session2.start()
+			try:
+				# Verify contexts are different (with the fix)
+				assert browser_session1.browser_context != browser_session2.browser_context, (
+					'Bug still exists: Same context was reused instead of creating new one for video recording'
+				)
+
+				# Test video recording functionality
+				await browser_session2.navigate(httpserver_url)
+				await asyncio.sleep(1)  # Record some content
+
+			finally:
+				await browser_session2.kill()
+		finally:
+			await browser_session1.kill()
+
+		# Add delay for video processing
+		await asyncio.sleep(1)
+
+		# Verify video files were created
+		if video_dir.exists():
+			video_files = list(video_dir.glob('*.webm'))
+			assert len(video_files) > 0, 'Video recording failed: No video files created despite new context'
+
+			for video_file in video_files:
+				file_size = video_file.stat().st_size
+				assert file_size > 1000, f'Video file {video_file.name} is too small ({file_size} bytes)'
 		else:
 			# Video recording might not work in headless CI environments - skip gracefully
 			pytest.skip('Video recording not supported in this environment')
@@ -271,7 +340,7 @@ class TestBrowserProfileRecordings:
 			await browser_session.navigate(httpserver_url)
 			await asyncio.sleep(0.5)
 		finally:
-			await browser_session.stop()
+			await browser_session.kill()
 
 		# HAR files should be created
 		assert har_path.exists(), f'HAR file was not created at {har_path}'
@@ -324,7 +393,7 @@ class TestBrowserProfileRecordings:
 			)
 			await agent.run(max_steps=5)
 		finally:
-			await browser_session.stop()
+			await browser_session.kill()
 
 		# Check trace file - should be created automatically in the directory
 		assert trace_dir.exists(), f'Trace directory was not created at {trace_dir}'
@@ -387,7 +456,7 @@ class TestCombinedRecordings:
 			# Check video directory
 			assert video_dir.exists(), 'Video directory was not created'
 		finally:
-			await browser_session.stop()
+			await browser_session.kill()
 
 		# Check files created after browser close
 		video_files = list(video_dir.glob('*.webm'))

@@ -25,7 +25,7 @@ from browser_use.browser.session import BrowserSession
 warnings.filterwarnings('ignore', category=RuntimeWarning, message='.*TargetClosedError.*')
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture(scope='session')
 async def playwright():
 	async with async_playwright() as p:
 		yield p

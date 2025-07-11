@@ -165,7 +165,7 @@ async def browser_session():
 	)
 	await session.start()
 	yield session
-	await session.stop()
+	await session.kill()
 
 
 @pytest.fixture(scope='function')

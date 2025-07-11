@@ -73,6 +73,7 @@ def http_server():
 	)
 
 	yield server
+
 	server.stop()
 
 
@@ -94,17 +95,18 @@ def registry():
 	return Registry[TestContext]()
 
 
-@pytest.fixture(scope='session')
+@pytest.fixture(scope='function')
 async def browser_session(base_url):
 	"""Create a real BrowserSession for testing"""
 	browser_session = BrowserSession(
 		browser_profile=BrowserProfile(
 			headless=True,
 			user_data_dir=None,
+			keep_alive=True,
 		)
 	)
 	await browser_session.start()
-	await browser_session.create_new_tab(f'{base_url}/test')
+	await browser_session.navigate(f'{base_url}/test', new_tab=True)
 	yield browser_session
 	await browser_session.kill()
 

@@ -81,11 +81,12 @@ async def browser_session():
 		browser_profile=BrowserProfile(
 			headless=True,
 			user_data_dir=None,
+			keep_alive=True,
 		)
 	)
 	await browser_session.start()
 	yield browser_session
-	await browser_session.stop()
+	await browser_session.kill()
 
 
 @pytest.fixture(scope='function')

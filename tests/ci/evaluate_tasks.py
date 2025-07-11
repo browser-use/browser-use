@@ -163,14 +163,14 @@ If the agent provided no output, explain what might have gone wrong.
 		}
 
 		# Clean up session before returning
-		await session.stop()
+		await session.kill()
 
 		return result
 
 	except Exception as e:
 		# Ensure session cleanup even on error
 		try:
-			await session.stop()
+			await session.kill()
 		except Exception:
 			pass
 
