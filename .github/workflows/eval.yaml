@@ -224,7 +224,6 @@ jobs:
 
           DEFAULT_MEMORY_INTERVAL="10"
           DEFAULT_MAX_ACTIONS_PER_STEP="10"
-          DEFAULT_PLANNER_INTERVAL="1"
           DEFAULT_JUDGE_REPEAT_COUNT="1"
           DEFAULT_TEST_CASE="OnlineMind2Web"
 
@@ -262,9 +261,6 @@ jobs:
           MAX_ACTIONS_PER_STEP="${{ github.event.client_payload.script_args.max_actions_per_step }}"
           MAX_ACTIONS_PER_STEP="${MAX_ACTIONS_PER_STEP:-$DEFAULT_MAX_ACTIONS_PER_STEP}"
 
-          PLANNER_INTERVAL="${{ github.event.client_payload.script_args.planner_interval }}"
-          PLANNER_INTERVAL="${PLANNER_INTERVAL:-$DEFAULT_PLANNER_INTERVAL}"
-
           JUDGE_REPEAT_COUNT="${{ github.event.client_payload.script_args.judge_repeat_count }}"
           JUDGE_REPEAT_COUNT="${JUDGE_REPEAT_COUNT:-$DEFAULT_JUDGE_REPEAT_COUNT}"
 
@@ -274,7 +270,6 @@ jobs:
           # Optional parameters (no defaults)
           USER_MESSAGE="${{ github.event.client_payload.script_args.user_message }}"
           DEVELOPER_ID="${{ github.event.client_payload.script_args.developer_id }}"
-          PLANNER_MODEL="${{ github.event.client_payload.script_args.planner_model }}"
           BROWSER="${{ github.event.client_payload.script_args.browser }}"
           IMAGES_PER_STEP="${{ github.event.client_payload.script_args.images_per_step }}"
           RUN_ID="${{ github.event.client_payload.script_args.run_id }}"
@@ -311,7 +306,6 @@ jobs:
             "--eval-group" "$EVAL_GROUP"
             "--memory-interval" "$MEMORY_INTERVAL"
             "--max-actions-per-step" "$MAX_ACTIONS_PER_STEP"
-            "--planner-interval" "$PLANNER_INTERVAL"
             "--judge-repeat-count" "$JUDGE_REPEAT_COUNT"
             "--test-case" "$TEST_CASE"
           )
@@ -333,7 +327,6 @@ jobs:
           # Add optional string parameters
           [[ -n "$USER_MESSAGE" ]] && CMD_ARGS+=("--user-message" "$USER_MESSAGE")
           [[ -n "$DEVELOPER_ID" ]] && CMD_ARGS+=("--developer-id" "$DEVELOPER_ID")
-          [[ -n "$PLANNER_MODEL" ]] && CMD_ARGS+=("--planner-model" "$PLANNER_MODEL")
           [[ -n "$BROWSER" ]] && CMD_ARGS+=("--browser" "$BROWSER")
           [[ -n "$IMAGES_PER_STEP" ]] && CMD_ARGS+=("--images-per-step" "$IMAGES_PER_STEP")
           [[ -n "$RUN_ID" ]] && CMD_ARGS+=("--run-id" "$RUN_ID")

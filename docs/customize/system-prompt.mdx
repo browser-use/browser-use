@@ -50,28 +50,15 @@ You are an AI agent that helps users with web browsing tasks.
 agent = Agent(
     task="Your task here",
     llm=ChatOpenAI(model='gpt-4'),
-    override_system_message=override_system_message
+    extend_system_message=extend_system_message
 )
 ```
 
-### Extend Planner System Prompt
+## Best Practices
 
-You can customize the behavior of the planning agent by extending its system prompt:
+- **Be specific**: Add clear, actionable instructions to guide the agent's behavior
+- **Test thoroughly**: Custom prompts can significantly impact performance
+- **Start small**: Begin with small extensions rather than complete overrides
+- **Monitor results**: Check that your customizations improve rather than hinder performance
 
-```python
-extend_planner_system_message = """
-PRIORITIZE gathering information before taking any action.
-Always suggest exploring multiple options before making a decision.
-"""
-
-# Create agent with extended planner system prompt
-llm = ChatOpenAI(model='gpt-4o')
-planner_llm = ChatOpenAI(model='gpt-4o-mini')
-
-agent = Agent(
-	task="Your task here",
-	llm=llm,
-	planner_llm=planner_llm,
-	extend_planner_system_message=extend_planner_system_message
-)
-```
+For examples of effective system prompt customizations, check our [community examples](https://github.com/browser-use/awesome-prompts).

@@ -139,7 +139,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Agent settings
 		output_model_schema: type[AgentStructuredOutput] | None = None,
 		use_vision: bool = True,
-		use_vision_for_planner: bool = False,  # Deprecated
 		save_conversation_path: str | Path | None = None,
 		save_conversation_path_encoding: str | None = 'utf-8',
 		max_failures: int = 3,
@@ -156,10 +155,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_history_items: int = 40,
 		images_per_step: int = 1,
 		page_extraction_llm: BaseChatModel | None = None,
-		planner_llm: BaseChatModel | None = None,  # Deprecated
-		planner_interval: int = 1,  # Deprecated
-		is_planner_reasoning: bool = False,  # Deprecated
-		extend_planner_system_message: str | None = None,  # Deprecated
 		injected_agent_state: AgentState | None = None,
 		context: Context | None = None,
 		source: str | None = None,
@@ -171,16 +166,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		include_tool_call_examples: bool = False,
 		**kwargs,
 	):
-		# Check for deprecated planner parameters
-		planner_params = [planner_llm, use_vision_for_planner, is_planner_reasoning, extend_planner_system_message]
-		if any(param is not None and param is not False for param in planner_params) or planner_interval != 1:
-			logger.warning(
-				'⚠️ Planner functionality has been removed in browser-use v0.3.3+. '
-				'The planner_llm, use_vision_for_planner, planner_interval, is_planner_reasoning, '
-				'and extend_planner_system_message parameters are deprecated and will be ignored. '
-				'Please remove these parameters from your Agent() initialization.'
-			)
-
 		# Check for deprecated memory parameters
 		if kwargs.get('enable_memory', False) or kwargs.get('memory_config') is not None:
 			logger.warning(
@@ -222,7 +207,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self.settings = AgentSettings(
 			use_vision=use_vision,
-			use_vision_for_planner=False,  # Always False now (deprecated)
 			save_conversation_path=save_conversation_path,
 			save_conversation_path_encoding=save_conversation_path_encoding,
 			max_failures=max_failures,
@@ -238,10 +222,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			max_history_items=max_history_items,
 			images_per_step=images_per_step,
 			page_extraction_llm=page_extraction_llm,
-			planner_llm=None,  # Always None now (deprecated)
-			planner_interval=1,  # Always 1 now (deprecated)
-			is_planner_reasoning=False,  # Always False now (deprecated)
-			extend_planner_system_message=None,  # Always None now (deprecated)
 			calculate_cost=calculate_cost,
 			include_tool_call_examples=include_tool_call_examples,
 		)
@@ -250,7 +230,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.token_cost_service = TokenCost(include_cost=calculate_cost)
 		self.token_cost_service.register_llm(llm)
 		self.token_cost_service.register_llm(page_extraction_llm)
-		# Note: No longer registering planner_llm (deprecated)
 
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
@@ -271,19 +250,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if 'deepseek' in self.llm.model.lower():
 			self.logger.warning('⚠️ DeepSeek models do not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
-		# Note: No longer checking planner_llm for DeepSeek (deprecated)
 
 		# Handle users trying to use use_vision=True with XAI models
 		if 'grok' in self.llm.model.lower():
 			self.logger.warning('⚠️ XAI models do not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
-		# Note: No longer checking planner_llm for XAI models (deprecated)
 
 		self.logger.info(
 			f'🧠 Starting a browser-use agent {self.version} with base_model={self.llm.model}'
 			f'{" +vision" if self.settings.use_vision else ""}'
 			f' extraction_model={self.settings.page_extraction_llm.model if self.settings.page_extraction_llm else "Unknown"}'
-			# Note: No longer logging planner_model (deprecated)
 			f'{" +file_system" if self.file_system else ""}'
 		)
 
@@ -583,19 +559,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.version = version
 		self.source = source
 
-	# def _set_model_names(self) -> None:
-	# 	self.chat_model_library = self.llm.provider
-	# 	self.model_name = self.llm.model
 
-	# 	if self.settings.planner_llm:
-	# 		if hasattr(self.settings.planner_llm, 'model_name'):
-	# 			self.planner_model_name = self.settings.planner_llm.model_name  # type: ignore
-	# 		elif hasattr(self.settings.planner_llm, 'model'):
-	# 			self.planner_model_name = self.settings.planner_llm.model  # type: ignore
-	# 		else:
-	# 			self.planner_model_name = 'Unknown'
-	# 	else:
-	# 		self.planner_model_name = None
 
 	def _setup_action_models(self) -> None:
 		"""Setup dynamic action models from controller's registry"""
@@ -1090,7 +1054,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				task=self.task,
 				model=self.llm.model,
 				model_provider=self.llm.provider,
-				planner_llm=self.settings.planner_llm.model if self.settings.planner_llm else None,
 				max_steps=max_steps,
 				max_actions_per_step=self.settings.max_actions_per_step,
 				use_vision=self.settings.use_vision,
