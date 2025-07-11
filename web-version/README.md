@@ -1,15 +1,15 @@
 # 🤖 Browser-Use Web Interface
 
-Interface web moderne pour contrôler Browser-Use avec chat vocal en temps réel.
+Modern web interface to control Browser-Use with real-time voice chat.
 
-## 🚀 Démarrage Rapide
+## 🚀 Quick Start
 
 ### 1. Backend (Terminal 1)
 ```bash
 cd browser-use/web-version/backend
-python main_no_dotenv.py
+python main.py
 ```
-**✅ Backend prêt sur http://localhost:8000**
+**✅ Backend ready on http://localhost:8000**
 
 ### 2. Frontend (Terminal 2) 
 ```bash
@@ -17,35 +17,35 @@ cd browser-use/web-version/frontend
 npm install
 npm run dev
 ```
-**✅ Interface prête sur http://localhost:3000**
+**✅ Interface ready on http://localhost:3000**
 
-## 📱 Utilisation
+## 📱 Usage
 
-1. **Ouvrir** http://localhost:3000 dans votre navigateur
-2. **Parler** 🎤 Cliquer sur le micro et parler en français
-3. **Ou taper** ⌨️ Écrire votre demande dans le chat
-4. **Regarder** 👀 Browser-Use exécute automatiquement votre tâche
+1. **Open** http://localhost:3000 in your browser
+2. **Speak** 🎤 Click on the microphone and speak in French
+3. **Or type** ⌨️ Write your request in the chat
+4. **Watch** 👀 Browser-Use automatically executes your task
 
-## ✨ Fonctionnalités
+## ✨ Features
 
-- 💬 **Chat temps réel** avec Browser-Use
-- 🎤 **Reconnaissance vocale** française
-- 🌐 **Navigation automatique** sur le web
-- 📊 **Résultats en direct** 
-- 📱 **Interface responsive**
+- 💬 **Real-time chat** with Browser-Use
+- 🎤 **French voice recognition**
+- 🌐 **Automatic web navigation**
+- 📊 **Live results** 
+- 📱 **Responsive interface**
 
-## 🔧 Prérequis
+## 🔧 Prerequisites
 
 - Python 3.11+
 - Node.js 18+
-- Browser-Use installé : `pip install -e .` (depuis le dossier racine browser-use)
+- Browser-Use installed: `pip install -e .` (from browser-use root folder)
 
-## 🎯 Exemples de commandes
+## 🎯 Example Commands
 
-- "Recherche les cours d'informatique au Collège Boréal"
-- "Trouve les dernières nouvelles sur l'IA" 
-- "Vérifie la météo à Sudbury"
+- "Search for computer science courses at Collège Boréal"
+- "Find the latest AI news" 
+- "Check the weather in Sudbury"
 
 ---
 
-**🎉 C'est tout ! Browser-Use Web est prêt à automatiser vos tâches web !** 
+**🎉 That's it! Browser-Use Web is ready to automate your web tasks!** 

@@ -1,16 +1,16 @@
-# 🔐 Configuration API
+# 🔐 API Configuration
 
-## Avant de démarrer
+## Before starting
 
-1. **Ouvrir** `backend/main.py`
-2. **Remplacer** `YOUR_OPENAI_API_KEY_HERE` par votre vraie clé OpenAI
-3. **Sauvegarder** le fichier
+1. **Open** `backend/main.py`
+2. **Replace** `YOUR_OPENAI_API_KEY_HERE` with your real OpenAI key
+3. **Save** the file
 
-## Puis démarrer normalement
+## Then start normally
 
 ```bash
 cd backend
 python main.py
 ```
 
-**C'est tout ! 🚀** 
+**That's it! 🚀** 
