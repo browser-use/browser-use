@@ -54,4 +54,5 @@ __all__ = [
 	'ChatAzureOpenAI',
 	'ChatOllama',
 	'ChatOpenRouter',
+    'ChatDeepSeek',
 ]

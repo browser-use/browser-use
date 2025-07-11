@@ -65,6 +65,7 @@ class ChatDeepSeek(ChatOpenAI):
 			if not isinstance(message, SystemMessage):
 				continue
 			if isinstance(message.content, str):
+				hasSystemMessage = True
 				content = str(message.content).replace("</output>","Please strictly abide by the following json schema:<output_json_schema> </output>")
 				message.content = content + "\n\n <output_json_schema>"  + json.dumps(response_format) +"</output_json_schema>"
 
@@ -149,7 +150,7 @@ class ChatDeepSeek(ChatOpenAI):
 					**reasoning_effort_dict,
 				)
 
-				print("\n\nRESPONSE.message:", response.choices[0].message.content)
+				# print("\n\nRESPONSE.message:", response.choices[0].message.content)
 
 				if response.choices[0].message.content is None:
 					raise ModelProviderError(
