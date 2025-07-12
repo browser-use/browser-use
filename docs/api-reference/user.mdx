@@ -1,0 +1,61 @@
+---
+title: "Me"
+api: "GET /api/v1/me"
+description: "Returns a boolean value indicating if the API key is valid and the user is authenticated"
+---
+
+Returns a boolean value indicating if the API key is valid and the user is authenticated.
+
+## Response
+
+The endpoint returns a boolean value directly (not wrapped in an object):
+- `true` if the API key is valid and the user is authenticated
+- `false` if the API key is invalid or the user is not authenticated
+
+<RequestExample>
+
+```python python
+import requests
+
+API_KEY = 'your_api_key_here'
+BASE_URL = 'https://api.browser-use.com/api/v1'
+HEADERS = {'Authorization': f'Bearer {API_KEY}'}
+
+response = requests.get(f'{BASE_URL}/me', headers=HEADERS)
+is_authenticated = response.json()
+if is_authenticated:
+    print("API key is valid")
+else:
+    print("API key is invalid")
+```
+
+```bash curl
+curl --request GET \
+  --url https://api.browser-use.com/api/v1/me \
+  --header 'Authorization: Bearer <token>'
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json 200
+true
+```
+
+```json 401
+false
+```
+
+</ResponseExample>
+
+## Usage Notes
+
+- This endpoint is useful for validating API keys before making other API calls
+- Unlike other endpoints, this returns a simple boolean value rather than an object
+- A `true` response confirms both authentication and authorization
+- This endpoint can be used for health checks of your API integration
+
+<Tip>
+Use this endpoint to verify your API key is working correctly before making other API calls, especially in automated systems.
+</Tip>

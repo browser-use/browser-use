@@ -1,0 +1,115 @@
+---
+title: "Upload File Presigned URL"
+api: "POST /api/v1/uploads/presigned-url"
+description: "Returns a presigned URL for uploading a file to the user's files bucket"
+---
+
+Returns a presigned URL for uploading a file to the user's files bucket. After uploading a file, you can include it in tasks using the `included_file_names` field in the `RunTaskRequest`.
+
+## Request Body
+
+<ParamField body="file_name" type="string" required>
+  Name of the file to upload (e.g., 'data.csv', 'image.png')
+</ParamField>
+<ParamField body="content_type" type="string" required>
+  Content type of the file (e.g., 'text/csv', 'image/png', 'application/pdf'). Only images and documents are supported.
+</ParamField>
+
+## Response
+
+<ResponseField name="upload_url" type="string">
+  A presigned URL to upload the file to.
+</ResponseField>
+
+<RequestExample>
+
+```python python
+import requests
+
+API_KEY = 'your_api_key_here'
+BASE_URL = 'https://api.browser-use.com/api/v1'
+HEADERS = {'Authorization': f'Bearer {API_KEY}'}
+
+# Step 1: Get a presigned URL
+file_data = {
+  "file_name": "data.csv",
+  "content_type": "text/csv"
+}
+
+response = requests.post(f'{BASE_URL}/uploads/presigned-url', headers=HEADERS, json=file_data)
+upload_url = response.json()['upload_url']
+
+# Step 2: Upload the file to the presigned URL
+with open('local_data.csv', 'rb') as file:
+    file_content = file.read()
+    
+upload_response = requests.put(upload_url, data=file_content, headers={
+    'Content-Type': 'text/csv'
+})
+
+if upload_response.status_code == 200:
+    print("File uploaded successfully")
+
+# Step 3: Use the file in a task
+task_data = {
+  "task": "Process the data in the CSV file and extract the top 5 rows",
+  "included_file_names": ["data.csv"]
+}
+
+task_response = requests.post(f'{BASE_URL}/run-task', headers=HEADERS, json=task_data)
+task_id = task_response.json()['id']
+print(f"Task created with ID: {task_id}")
+```
+
+```bash curl
+curl --request POST \
+  --url https://api.browser-use.com/api/v1/uploads/presigned-url \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "file_name": "data.csv",
+    "content_type": "text/csv"
+  }'
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json 200
+{
+  "upload_url": "https://storage.browser-use.com/uploads/user_123/data.csv?signature=..."
+}
+```
+
+</ResponseExample>
+
+## File Usage in Tasks
+
+To use uploaded files in your tasks, include their names in the `included_file_names` array when creating a task:
+
+```json
+{
+  "task": "Process the data in the CSV file and extract the top 5 rows",
+  "included_file_names": ["data.csv", "config.json"]
+}
+```
+
+The agent will have access to these files during task execution and can read their contents.
+
+## Supported File Types
+
+The following file types are supported for upload:
+
+- Text files: `.txt`, `.csv`, `.json`, `.xml`, `.html`, `.md`
+- Images: `.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`
+- Documents: `.pdf`, `.doc`, `.docx`, `.xls`, `.xlsx`, `.ppt`, `.pptx`
+
+## File Size Limits
+
+- Maximum file size: 10 MB per file
+- Maximum total size of all files for a task: 50 MB
+
+<Note>
+Files are automatically deleted after 30 days unless they are used in a scheduled task.
+</Note> 

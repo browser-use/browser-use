@@ -1,0 +1,81 @@
+---
+title: "Delete Scheduled Task"
+api: "DELETE /api/v1/scheduled-task/{task_id}"
+description: "Deletes a scheduled task"
+---
+
+Deletes a scheduled task. This will prevent any future runs of this task. Any currently running instances of this task will be allowed to complete.
+
+## Path Parameters
+
+<ParamField path="task_id" type="string" required>
+  ID of the scheduled task to delete
+</ParamField>
+
+## Response
+
+The endpoint returns an empty response body with a 200 status code on success.
+
+<RequestExample>
+
+```python python
+import requests
+
+API_KEY = 'your_api_key_here'
+BASE_URL = 'https://api.browser-use.com/api/v1'
+HEADERS = {'Authorization': f'Bearer {API_KEY}'}
+
+task_id = 'scheduled_task_1234567890abcdef'
+
+response = requests.delete(f'{BASE_URL}/scheduled-task/{task_id}', headers=HEADERS)
+
+if response.status_code == 200:
+    print("Scheduled task deleted successfully")
+else:
+    print(f"Error deleting scheduled task: {response.status_code}")
+```
+
+```bash curl
+curl --request DELETE \
+  --url https://api.browser-use.com/api/v1/scheduled-task/{task_id} \
+  --header 'Authorization: Bearer <token>'
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json 200
+{}
+```
+
+```json 404
+{
+  "detail": "Scheduled task not found"
+}
+```
+
+```json 422
+{
+  "detail": [
+    {
+      "loc": ["path", "task_id"],
+      "msg": "field required",
+      "type": "value_error.missing"
+    }
+  ]
+}
+```
+
+</ResponseExample>
+
+## Usage Notes
+
+- Deletion is permanent and cannot be undone
+- Any currently running instances of this task will be allowed to complete
+- Future scheduled runs will be prevented
+- The task will be removed from the scheduled tasks list immediately
+
+<Warning>
+Deleting a scheduled task is irreversible. Make sure you want to permanently remove the task before proceeding.
+</Warning> 

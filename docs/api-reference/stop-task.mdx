@@ -1,0 +1,79 @@
+---
+title: "Stop Task"
+api: "PUT /api/v1/stop-task"
+description: "Stops a running browser automation task immediately."
+---
+
+Stops a running browser automation task immediately. The task cannot be resumed after being stopped. Use `/pause-task` endpoint instead if you want to temporarily halt execution.
+
+## Parameters
+
+<ParamField query="task_id" type="string" required>
+  ID of the task to stop
+</ParamField>
+
+## Response
+
+The endpoint returns an empty response body with a 200 status code on success.
+
+<RequestExample>
+
+```python python
+import requests
+
+url = "https://api.browser-use.com/api/v1/stop-task"
+params = {"task_id": "task_1234567890abcdef"}
+headers = {"Authorization": "Bearer <token>"}
+
+response = requests.request("PUT", url, headers=headers, params=params)
+
+print(response.text)
+```
+
+```bash cURL
+curl --request PUT \
+  --url 'https://api.browser-use.com/api/v1/stop-task?task_id=task_1234567890abcdef' \
+  --header 'Authorization: Bearer <token>'
+```
+
+```javascript javascript 
+const options = {method: 'PUT', headers: {Authorization: 'Bearer <token>'}};
+
+fetch('https://api.browser-use.com/api/v1/stop-task?task_id=task_1234567890abcdef', options)
+  .then(response => response.json())
+  .then(response => console.log(response))
+  .catch(err => console.error(err));
+```
+</RequestExample>
+
+<ResponseExample>
+    ```json 200
+    {}
+    ```
+
+    ```json 422
+    {
+    "detail": [
+        {
+        "loc": [
+            "query",
+            "task_id"
+        ],
+        "msg": "field required",
+        "type": "value_error.missing"
+        }
+    ]
+    }
+    ```
+</ResponseExample>
+
+## Usage Notes
+
+- Once a task is stopped, it cannot be resumed
+- The task status will change to "stopped"
+- Any ongoing browser automation will be immediately terminated
+- Use the pause endpoint if you need to temporarily halt execution with the ability to resume later
+
+<Warning>
+Stopping a task is irreversible. If you need to pause execution temporarily, use the `/pause-task` endpoint instead.
+</Warning>

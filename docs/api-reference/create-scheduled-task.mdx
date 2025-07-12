@@ -1,0 +1,134 @@
+---
+title: "Create Scheduled Task"
+api: "POST /api/v1/scheduled-task"
+description: "Create a new scheduled task to run at regular intervals or based on a cron expression"
+---
+
+Creates a new scheduled task to run at regular intervals or based on a cron expression. This allows you to automate recurring browser automation tasks.
+
+<Note>
+This endpoint requires an active subscription.
+</Note>
+
+## Request Body
+
+<ParamField body="task" type="string" required>
+  Instructions for what the agent should do
+</ParamField>
+<ParamField body="schedule_type" type="string" required>
+  Type of schedule: "interval" or "cron"
+</ParamField>
+<ParamField body="interval_minutes" type="integer">
+  Minutes between runs (required for interval schedule)
+</ParamField>
+<ParamField body="cron_expression" type="string">
+  Cron expression for scheduling (required for cron schedule)
+</ParamField>
+<ParamField body="start_at" type="string">
+  When to start the schedule (ISO 8601 format, defaults to now)
+</ParamField>
+<ParamField body="end_at" type="string">
+  When to end the schedule (ISO 8601 format, defaults to 1 year from now)
+</ParamField>
+<ParamField body="secrets" type="object">
+  Dictionary of secrets to be used by the agent (safely encrypted before storing)
+</ParamField>
+<ParamField body="allowed_domains" type="array">
+  List of domains the agent is allowed to visit
+</ParamField>
+<ParamField body="save_browser_data" type="boolean" default="false">
+  Whether to save browser cookies and data between runs
+</ParamField>
+<ParamField body="structured_output_json" type="string">
+  JSON schema for structured output
+</ParamField>
+<ParamField body="llm_model" type="string" default="gpt-4o">
+  LLM model to use. Available options: gpt-4o, gpt-4o-mini, gpt-4.1, gpt-4.1-mini, o4-mini, o3, gemini-2.0-flash, gemini-2.0-flash-lite, gemini-2.5-flash-preview-04-17, gemini-2.5-flash, gemini-2.5-pro, claude-3-7-sonnet-20250219, claude-sonnet-4-20250514, llama-4-maverick-17b-128e-instruct
+</ParamField>
+<ParamField body="use_adblock" type="boolean" default="true">
+  Whether to use an adblocker
+</ParamField>
+<ParamField body="use_proxy" type="boolean" default="true">
+  Whether to use a proxy
+</ParamField>
+<ParamField body="proxy_country_code" type="string" default="us">
+  Country code for residential proxy. Must be one of: us, uk, fr, it, jp, au, de, fi, ca, in
+</ParamField>
+<ParamField body="highlight_elements" type="boolean" default="true">
+  Whether to highlight elements on the page
+</ParamField>
+<ParamField body="included_file_names" type="array">
+  File names to include in the task
+</ParamField>
+<ParamField body="browser_viewport_width" type="integer" default="1280">
+  Width of browser viewport in pixels
+</ParamField>
+<ParamField body="browser_viewport_height" type="integer" default="960">
+  Height of browser viewport in pixels
+</ParamField>
+<ParamField body="max_agent_steps" type="integer" default="75">
+  Maximum number of agent steps (max: 200)
+</ParamField>
+<ParamField body="enable_public_share" type="boolean" default="false">
+  Whether to enable public sharing of task executions
+</ParamField>
+
+*Either `interval_minutes` or `cron_expression` is required depending on the `schedule_type`.
+
+## Response
+
+<ResponseField name="id" type="string">
+  The unique identifier for the created scheduled task.
+</ResponseField>
+
+<RequestExample>
+
+```python python
+import requests
+from datetime import datetime, timedelta
+
+API_KEY = 'your_api_key_here'
+BASE_URL = 'https://api.browser-use.com/api/v1'
+HEADERS = {'Authorization': f'Bearer {API_KEY}'}
+
+start_time = datetime.utcnow().isoformat() + 'Z'
+end_time = (datetime.utcnow() + timedelta(days=30)).isoformat() + 'Z'
+
+task_data = {
+  "task": "Visit example.com and check if the site is up",
+  "schedule_type": "interval",
+  "interval_minutes": 60,
+  "start_at": start_time,
+  "end_at": end_time,
+  "use_adblock": True
+}
+
+response = requests.post(f'{BASE_URL}/scheduled-task', headers=HEADERS, json=task_data)
+task_id = response.json()['id']
+print(f"Scheduled task created with ID: {task_id}")
+```
+
+```bash curl
+curl --request POST \
+  --url https://api.browser-use.com/api/v1/scheduled-task \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "task": "Visit example.com and check if the site is up",
+    "schedule_type": "interval",
+    "interval_minutes": 60,
+    "use_adblock": true
+  }'
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json 200
+{
+  "id": "scheduled_task_1234567890abcdef"
+}
+```
+
+</ResponseExample> 
