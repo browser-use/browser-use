@@ -152,10 +152,19 @@ class Controller(Generic[Context]):
 			if params.index not in selector_map:
 				# Force a state refresh in case the cache is stale
 				logger.info(f'Element with index {params.index} not found in selector map, refreshing state...')
-				await browser_session.get_state_summary(
-					cache_clickable_elements_hashes=True
-				)  # This will refresh the cached state
-				selector_map = await browser_session.get_selector_map()
+				try:
+					await browser_session.get_state_summary(
+						cache_clickable_elements_hashes=True
+					)  # This will refresh the cached state
+					selector_map = await browser_session.get_selector_map()
+				except BrowserError as e:
+					if 'Page is not accessible' in str(e):
+						logger.warning(f'Page became inaccessible during state refresh: {e}')
+						# Return error indicating page is no longer accessible
+						msg = f'Element with index {params.index} cannot be found - page is no longer accessible. Browser or page may have been closed.'
+						return ActionResult(error=msg, include_in_memory=True, success=False)
+					else:
+						raise
 
 				if params.index not in selector_map:
 					# Return informative message with the new state instead of error
@@ -199,8 +208,21 @@ class Controller(Generic[Context]):
 				if 'Execution context was destroyed' in error_msg or 'Cannot find context with specified id' in error_msg:
 					# Page navigated during click - refresh state and return it
 					logger.info('Page context changed during click, refreshing state...')
-					await browser_session.get_state_summary(cache_clickable_elements_hashes=True)
-					raise BrowserError('Page navigated during click. Refreshed state provided.')
+					try:
+						await browser_session.get_state_summary(cache_clickable_elements_hashes=True)
+						return ActionResult(
+							error='Page navigated during click. Refreshed state provided.', include_in_memory=True, success=False
+						)
+					except BrowserError as e:
+						if 'Page is not accessible' in str(e):
+							logger.warning(f'Page is not accessible after context change: {e}')
+							return ActionResult(
+								error='Page context changed and page is no longer accessible. Browser or page may have been closed.',
+								include_in_memory=True,
+								success=False,
+							)
+						else:
+							raise
 				else:
 					logger.warning(f'Element not clickable with index {params.index} - most likely the page changed')
 					raise BrowserError(error_msg)
