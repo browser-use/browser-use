@@ -1,0 +1,133 @@
+---
+title: "List Tasks"
+api: "GET /api/v1/tasks"
+description: "Get a paginated list of all tasks"
+---
+
+Returns a paginated list of all tasks belonging to the user, ordered by creation date. Each task includes basic information like status and creation time. For detailed task info, use the get task endpoint.
+
+<ParamField query="page" type="integer" default="1">
+  Page number (minimum: 1)
+</ParamField>
+
+<ParamField query="limit" type="integer" default="10">
+  Number of items per page (minimum: 1)
+</ParamField>
+
+<ResponseField name="tasks" type="array">
+  List of simplified task objects
+  <ResponseField name="id" type="string">
+    Unique identifier for the task
+  </ResponseField>
+  <ResponseField name="task" type="string">
+    Original task instructions
+  </ResponseField>
+  <ResponseField name="output" type="string">
+    Final output or result from the task
+  </ResponseField>
+  <ResponseField name="status" type="string">
+    Current status of the task
+  </ResponseField>
+  <ResponseField name="created_at" type="string">
+    ISO 8601 timestamp of task creation
+  </ResponseField>
+  <ResponseField name="finished_at" type="string">
+    ISO 8601 timestamp of task completion
+  </ResponseField>
+  <ResponseField name="live_url" type="string">
+    URL to view live task execution
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="total_pages" type="integer">
+  Total number of pages available
+</ResponseField>
+
+<ResponseField name="page" type="integer">
+  Current page number
+</ResponseField>
+
+<ResponseField name="limit" type="integer">
+  Number of items per page
+</ResponseField>
+
+<ResponseField name="total_count" type="integer">
+  Total number of tasks across all pages
+</ResponseField>
+
+<RequestExample>
+```python
+import requests
+
+API_KEY = 'your_api_key_here'
+BASE_URL = 'https://api.browser-use.com/api/v1'
+HEADERS = {'Authorization': f'Bearer {API_KEY}'}
+
+# Get first page with 20 tasks
+params = {'page': 1, 'limit': 20}
+response = requests.get(f'{BASE_URL}/tasks', headers=HEADERS, params=params)
+tasks_data = response.json()
+
+print(f"Found {tasks_data['total_count']} total tasks")
+print(f"Showing page {tasks_data['page']} of {tasks_data['total_pages']}")
+
+for task in tasks_data['tasks']:
+    print(f"Task {task['id']}: {task['status']}")
+```
+</RequestExample>
+
+<ResponseExample>
+```json
+{
+  "tasks": [
+    {
+      "id": "task_1234567890abcdef",
+      "task": "Visit example.com and take a screenshot",
+      "output": "Screenshot taken successfully",
+      "status": "finished",
+      "created_at": "2023-01-01T12:00:00Z",
+      "finished_at": "2023-01-01T12:01:30Z",
+      "live_url": "https://live.browser-use.com/task/1234567890abcdef"
+    },
+    {
+      "id": "task_0987654321fedcba",
+      "task": "Check product availability on shopping site",
+      "output": null,
+      "status": "running",
+      "created_at": "2023-01-01T11:30:00Z",
+      "finished_at": null,
+      "live_url": "https://live.browser-use.com/task/0987654321fedcba"
+    }
+  ],
+  "total_pages": 5,
+  "page": 1,
+  "limit": 10,
+  "total_count": 42
+}
+```
+</ResponseExample>
+
+## Pagination
+
+The API uses offset-based pagination:
+
+- **page**: Start from page 1
+- **limit**: Maximum 100 items per page
+- **total_pages**: Use this to implement pagination UI
+- **total_count**: Total number of tasks across all pages
+
+## Ordering
+
+Tasks are ordered by creation date (newest first). This ensures that recently created tasks appear at the top of the list.
+
+## Use Cases
+
+This endpoint is useful for:
+- Building task management dashboards
+- Monitoring task execution status
+- Filtering tasks by status
+- Implementing task history views
+
+<Note>
+This endpoint returns simplified task objects for performance. Use the individual task endpoint to get complete task details including steps and browser data.
+</Note> 

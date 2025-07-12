@@ -1,0 +1,60 @@
+---
+title: "Get Task Media"
+api: "GET /api/v1/task/{task_id}/media"
+description: "Get media files generated during task execution"
+---
+
+Returns links to any recordings or media generated during task execution, such as browser session recordings. Only available for completed tasks.
+
+<ParamField path="task_id" type="string" required>
+  ID of the task to retrieve media for
+</ParamField>
+
+<ResponseField name="recordings" type="array">
+  List of recording URLs generated during task execution
+</ResponseField>
+
+<RequestExample>
+```python
+import requests
+
+API_KEY = 'your_api_key_here'
+BASE_URL = 'https://api.browser-use.com/api/v1'
+HEADERS = {'Authorization': f'Bearer {API_KEY}'}
+
+task_id = 'task_1234567890abcdef'
+response = requests.get(f'{BASE_URL}/task/{task_id}/media', headers=HEADERS)
+media = response.json()
+print(f"Found {len(media['recordings'])} recordings")
+```
+</RequestExample>
+
+<ResponseExample>
+```json
+{
+  "recordings": [
+    "https://media.browser-use.com/recordings/task_1234567890abcdef/session.mp4",
+    "https://media.browser-use.com/recordings/task_1234567890abcdef/screen.webm"
+  ]
+}
+```
+</ResponseExample>
+
+## Media Types
+
+The following types of media files may be generated:
+
+- **Session recordings**: Full browser session recordings in MP4 format
+- **Screen recordings**: Screen capture videos in WebM format
+- **Audio recordings**: Audio tracks if microphone access was used
+
+## Availability
+
+- Media files are only available for completed tasks
+- Recordings are generated automatically during task execution
+- Files are available for download for 30 days after task completion
+- Media generation can be disabled in task settings to save storage
+
+<Note>
+Media files are only generated for tasks that have been configured to record sessions. This feature may not be available for all task types.
+</Note> 

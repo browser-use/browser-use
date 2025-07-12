@@ -1,0 +1,134 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Browser Use",
+  "colors": {
+    "primary": "#F97316",
+    "light": "#FFF7ED",
+    "dark": "#C2410C"
+  },
+  "favicon": "/favicon.ico",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "cli"
+            ]
+          },
+          {
+            "group": "Customize",
+            "pages": [
+              "customize/supported-models",
+              "customize/agent-settings",
+              "customize/browser-settings",
+              "customize/real-browser",
+              "customize/output-format",
+              "customize/system-prompt",
+              "customize/sensitive-data",
+              "customize/custom-functions",
+              "customize/mcp-client",
+              "customize/mcp-server",
+              "customize/hooks"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/contribution-guide",
+              "development/local-setup",
+              "development/telemetry",
+              "development/observability",
+              "development/evaluations",
+              "development/roadmap"
+            ]
+          }
+         
+        ]
+      },
+      {
+        "tab": "Cloud API",
+        "groups": [
+          {
+            "group": "Cloud API",
+            "pages": [
+              "cloud/quickstart",
+              "cloud/implementation",
+              "cloud/webhooks",
+              "cloud/authentication"
+            ]
+          },
+          {
+            "group": "API v1.0",
+            "pages": [
+              "api-reference/run-task",
+              "api-reference/stop-task",
+              "api-reference/pause-task",
+              "api-reference/resume-task",
+              "api-reference/get-task",
+              "api-reference/get-task-status",
+              "api-reference/get-task-media",
+              "api-reference/get-task-screenshots",
+              "api-reference/get-task-gif",
+              "api-reference/get-task-output-file",
+              "api-reference/list-tasks",
+              "api-reference/upload-file-presigned-url",
+              "api-reference/create-scheduled-task",
+              "api-reference/list-scheduled-tasks",
+              "api-reference/get-scheduled-task",
+              "api-reference/update-scheduled-task",
+              "api-reference/delete-scheduled-task",
+              "api-reference/delete-browser-profile",
+              "api-reference/check-balance",
+              "api-reference/user",
+              "api-reference/ping"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg",
+    "href": "https://browser-use.com"
+  },
+  "api": {
+    "playground": {
+      "display": "interactive"
+    },
+    "examples": {
+      "languages": ["javascript", "curl", "python"],
+      "required": true
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Github",
+        "href": "https://github.com/browser-use/browser-use"
+      },
+      {
+        "label": "Twitter",
+        "href": "https://x.com/gregpr07"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Join Discord",
+      "href": "https://link.browser-use.com/discord"
+    }
+  },
+  "footer": {
+    "socials": {
+      "x": "https://x.com/browser_use",
+      "github": "https://github.com/browser-use/browser-use",
+      "linkedin": "https://linkedin.com/company/browser-use"
+    }
+  }
+}
