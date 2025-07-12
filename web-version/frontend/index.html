@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    
+    <!-- Meta tags pour SEO et PWA -->
+    <meta name="description" content="Interface web moderne pour Browser-Use avec chat vocal et reconnaissance vocale" />
+    <meta name="keywords" content="browser-use, ai, automation, chat, vocal, web" />
+    <meta name="author" content="Browser-Use Team" />
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="/" />
+    <meta property="og:title" content="Browser-Use Web Agent" />
+    <meta property="og:description" content="Interface web moderne pour Browser-Use avec chat vocal" />
+    <meta property="og:image" content="/og-image.png" />
+    
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:url" content="https://yourdomain.com/" />
+    <meta property="twitter:title" content="Browser-Use Web Agent" />
+    <meta property="twitter:description" content="Interface web moderne pour Browser-Use avec chat vocal" />
+    <meta property="twitter:image" content="/og-image.png" />
+    
+    <!-- PWA Meta tags -->
+    <meta name="theme-color" content="#4a9eff" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Browser-Use" />
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    
+    <title>🤖 Browser-Use Web Agent</title>
+    
+    <style>
+      /* Styles de chargement initial */
+      body {
+        margin: 0;
+        font-family: 'Inter', system-ui, sans-serif;
+        background: linear-gradient(135deg, #0f0f0f 0%, #1a1a1a 100%);
+        color: white;
+        overflow: hidden;
+      }
+      
+      .loading-screen {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, #0f0f0f 0%, #1a1a1a 100%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        transition: opacity 0.5s ease-out;
+      }
+      
+      .loading-logo {
+        font-size: 4rem;
+        margin-bottom: 1rem;
+        animation: pulse 2s infinite;
+      }
+      
+      .loading-text {
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-bottom: 2rem;
+        background: linear-gradient(45deg, #4a9eff, #00d4aa);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      
+      .loading-spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid rgba(74, 158, 255, 0.3);
+        border-top: 3px solid #4a9eff;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      
+      @keyframes pulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+      }
+      
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      
+      .fade-out {
+        opacity: 0;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Écran de chargement -->
+    <div id="loading-screen" class="loading-screen">
+      <div class="loading-logo">🤖</div>
+      <div class="loading-text">Browser-Use Web Agent</div>
+      <div class="loading-spinner"></div>
+      <p style="margin-top: 1rem; opacity: 0.7;">Chargement de l'interface moderne...</p>
+    </div>
+    
+    <!-- App React -->
+    <div id="root"></div>
+    
+    <script>
+      // Masquer l'écran de chargement quand l'app est prête
+      window.addEventListener('load', () => {
+        setTimeout(() => {
+          const loadingScreen = document.getElementById('loading-screen');
+          if (loadingScreen) {
+            loadingScreen.classList.add('fade-out');
+            setTimeout(() => {
+              loadingScreen.remove();
+            }, 500);
+          }
+        }, 1000);
+      });
+      
+      // Support vocal moderne
+      if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+        console.warn('La reconnaissance vocale n\'est pas supportée dans ce navigateur');
+      }
+      
+      // Support notification - Only request on user action
+      // Notification permission will be requested when user interacts with the app
+    </script>
+    
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html> 

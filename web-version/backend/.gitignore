@@ -1,0 +1,33 @@
+# Fichiers de configuration sensibles
+config.env
+.env
+*.env
+
+# Cache Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Logs
+*.log
+logs/
+
+# Environnements virtuels
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporaires
+*.tmp
+*.temp 
