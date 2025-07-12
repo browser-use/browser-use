@@ -1,0 +1,60 @@
+---
+title: "Check Balance"
+api: "GET /api/v1/balance"
+description: "Returns the user's current API credit balance"
+---
+
+Returns the user's current API credit balance, which includes both monthly subscription credits and any additional purchased credits.
+
+## Response
+
+<ResponseField name="balance" type="string">
+  The current number of API credits available, with the value in cents (0.01 USD = 1 credit).
+</ResponseField>
+
+<RequestExample>
+
+```python python
+import requests
+
+API_KEY = 'your_api_key_here'
+BASE_URL = 'https://api.browser-use.com/api/v1'
+HEADERS = {'Authorization': f'Bearer {API_KEY}'}
+
+response = requests.get(f'{BASE_URL}/balance', headers=HEADERS)
+balance = response.json()['balance']
+print(f"Current API credit balance: {balance}")
+```
+
+```bash curl
+curl --request GET \
+  --url https://api.browser-use.com/api/v1/balance \
+  --header 'Authorization: Bearer <token>'
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json 200
+{
+  "balance": "5000"
+}
+```
+
+</ResponseExample>
+
+## API Credit Usage
+
+Each task execution consumes API credits based on the following factors:
+
+1. **Task Duration**: Longer running tasks consume more credits
+2. **LLM Model**: More powerful models consume more credits
+3. **Browser Features**: Features like proxy usage and adblock may affect credit consumption
+4. **Task Complexity**: More complex tasks with many steps consume more credits
+
+You can monitor your credit usage through the [Browser Use Cloud dashboard](https://cloud.browser-use.com/dashboard) or by using the Check Balance endpoint.
+
+<Note>
+If your balance reaches zero, new task executions will be rejected until you add more credits or your subscription renews.
+</Note> 
