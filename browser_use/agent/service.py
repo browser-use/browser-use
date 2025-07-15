@@ -252,6 +252,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self.sensitive_data = sensitive_data
 
+		# Store last LLM interaction details for logging
+		self._last_raw_response = None
+		self._last_tools_description = None
+
 		self.settings = AgentSettings(
 			use_vision=use_vision,
 			use_vision_for_planner=False,  # Always False now (deprecated)
@@ -837,7 +841,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					conversation_dir = Path(self.settings.save_conversation_path)
 					conversation_filename = f'conversation_{self.id}_{self.state.n_steps}.txt'
 					target = conversation_dir / conversation_filename
-					await save_conversation(input_messages, model_output, target, self.settings.save_conversation_path_encoding)
+					await save_conversation(
+						input_messages,
+						model_output,
+						target,
+						self.settings.save_conversation_path_encoding,
+						raw_response=self._last_raw_response,
+						tool_calling_method=self.tool_calling_method,
+						available_tools=self._last_tools_description
+					)
 
 				# Log to JSON if enabled
 				if self.json_logger:
@@ -1090,6 +1102,42 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		except ValidationError as e:
 			# Just re-raise - Pydantic's validation errors are already descriptive
 			raise
+		self._log_next_action_summary(parsed)
+
+		# Store current step's data for logging
+		raw_response = response.get('raw')
+
+		# Handle different formats of raw response based on tool calling method
+		if raw_response:
+			if hasattr(raw_response, 'tool_calls') and raw_response.tool_calls:
+				# Function calling mode: extract the complete tool call information
+				self._last_raw_response = {
+					'content': raw_response.content,
+					'tool_calls': raw_response.tool_calls,
+					'additional_kwargs': getattr(raw_response, 'additional_kwargs', {}),
+					'response_metadata': getattr(raw_response, 'response_metadata', {})
+				}
+			elif hasattr(raw_response, 'content'):
+				# Regular text mode
+				self._last_raw_response = raw_response.content
+			else:
+				# Fallback
+				self._last_raw_response = str(raw_response)
+		else:
+			self._last_raw_response = None
+
+		# Get tools description from current ActionModel used in this step
+		# This is the exact same ActionModel that was passed to with_structured_output
+		if hasattr(self, 'ActionModel') and hasattr(self.ActionModel, 'model_fields'):
+			tools_desc = []
+			for tool_name, tool_field in self.ActionModel.model_fields.items():
+				if tool_field.description:
+					tools_desc.append(f"{tool_name}: {tool_field.description}")
+			self._last_tools_description = '\n'.join(tools_desc) if tools_desc else None
+		else:
+			self._last_tools_description = None
+
+		return parsed
 
 	def _log_agent_run(self) -> None:
 		"""Log the agent run"""
