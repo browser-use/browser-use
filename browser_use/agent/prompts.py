@@ -9,6 +9,9 @@ from browser_use.browser.views import BrowserState
 
 logger = logging.getLogger(__name__)
 
+# Flag to control Anthropic prompt caching
+USE_ANTHROPIC_CACHING = True  # Set to False to disable caching
+
 class SystemPrompt:
 	def __init__(self, action_description: str, max_actions_per_step: int = 10):
 		self.default_action_description = action_description
@@ -124,13 +127,13 @@ Notes:
 
 	def get_system_message(self) -> SystemMessage:
 		"""
-		Get the system prompt for the agent.
+		Get the system prompt for the agent with optional caching.
 
 		Returns:
-		    str: Formatted system prompt
+		    SystemMessage: Formatted system prompt with optional cache control
 		"""
 
-		AGENT_PROMPT = f"""You are a precise browser automation agent that interacts with websites through structured commands. Your role is to:
+		content = f"""You are a precise browser automation agent that interacts with websites through structured commands. Your role is to:
 1. Analyze the provided webpage elements and structure
 2. Use the given information to accomplish the ultimate task
 3. Respond with valid JSON containing your next action sequence and state assessment
@@ -149,7 +152,16 @@ You can:
 - Scroll the page or a specific frame
 
 """
-		return SystemMessage(content=AGENT_PROMPT)
+
+		# Apply caching if enabled - use single cache block for entire system prompt
+		if USE_ANTHROPIC_CACHING:
+			content = [{
+				"type": "text",
+				"text": content,
+				"cache_control": {"type": "ephemeral"}
+			}]
+
+		return SystemMessage(content=content)
 
 
 # Example:
