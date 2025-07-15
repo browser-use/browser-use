@@ -87,8 +87,13 @@ class Controller:
 			return ActionResult(extracted_content=msg, include_in_memory=True)
 
 		# Element Interaction Actions
+		# Track recent clicks to detect double-clicking behavior
+		if not hasattr(self, '_recent_clicks'):
+			self._recent_clicks = {}
+		
 		@self.registry.action('Click element', param_model=ClickElementAction)
 		async def click_element(params: ClickElementAction, browser: BrowserContext):
+			import time
 			session = await browser.get_session()
 			state = session.cached_state
 
@@ -97,6 +102,29 @@ class Controller:
 
 			element_node = state.selector_map[params.index]
 			initial_pages = len(session.context.pages)
+
+			# Track click attempts for debugging double-clicking behavior
+			click_attempt_id = f"click_{params.index}_{hash(element_node.xpath)}"
+			current_time = time.time()
+			
+			# Check if this element was clicked recently (within 5 seconds)
+			element_key = f"{params.index}_{element_node.xpath}"
+			if element_key in self._recent_clicks:
+				time_since_last = current_time - self._recent_clicks[element_key]
+				if time_since_last < 5.0:  # 5 seconds threshold
+					logger.warning(f"🚨 [CLICK_TRACKING] POTENTIAL DOUBLE-CLICK DETECTED!")
+					logger.warning(f"🚨 [CLICK_TRACKING] Element {params.index} was clicked {time_since_last:.2f} seconds ago")
+					logger.warning(f"🚨 [CLICK_TRACKING] Element: {element_node.tag_name} xpath='{element_node.xpath}'")
+			
+			# Record this click
+			self._recent_clicks[element_key] = current_time
+			
+			# Clean up old entries (older than 10 seconds)
+			cutoff_time = current_time - 10.0
+			self._recent_clicks = {k: v for k, v in self._recent_clicks.items() if v > cutoff_time}
+			
+			logger.info(f"🎯 [CLICK_TRACKING] Starting click attempt {click_attempt_id} for element index {params.index}")
+			logger.info(f"🎯 [CLICK_TRACKING] Target element: {element_node.tag_name} xpath='{element_node.xpath}'")
 
 			# if element has file uploader then dont click
 			if await browser.is_file_uploader(element_node):
@@ -107,7 +135,8 @@ class Controller:
 			msg = None
 
 			try:
-				download_path = await browser._click_element_node(element_node)
+				# Pass the click_attempt_id to track attempts
+				download_path = await browser._click_element_node(element_node, click_attempt_id=click_attempt_id)
 				if download_path:
 					msg = f'💾  Downloaded file to {download_path}'
 				else:
@@ -120,8 +149,11 @@ class Controller:
 					msg += f' - {new_tab_msg}'
 					logger.info(new_tab_msg)
 					await browser.switch_to_tab(-1)
+				
+				logger.info(f"🎯 [CLICK_TRACKING] {click_attempt_id} - Click completed successfully")
 				return ActionResult(extracted_content=msg, include_in_memory=True)
 			except Exception as e:
+				logger.error(f"🎯 [CLICK_TRACKING] {click_attempt_id} - Click failed with error: {str(e)}")
 				logger.warning(f'Element not clickable with index {params.index} - most likely the page changed')
 				return ActionResult(error=str(e))
 
