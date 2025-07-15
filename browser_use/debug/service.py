@@ -805,35 +805,70 @@ class DebugService:
     async def connect_to_url(self, request: UrlRequest):
         """Connect to a URL using existing tab or creating new one"""
         try:
+            from urllib.parse import urlparse
+            
             # Get the browser instance first
             playwright_browser = await self.browser.get_playwright_browser()
+            
+            # Parse the requested URL
+            requested_parsed = urlparse(request.url)
+            requested_base = f"{requested_parsed.scheme}://{requested_parsed.netloc}"
             
             # Look for existing context/page with our URL
             target_page = None
             target_context = None
+            base_url_matches = []
             
             # Search through existing contexts for our URL
             for context in playwright_browser.contexts:
                 for page in context.pages:
+                    # First check for exact URL match
                     if page.url == request.url:
                         target_page = page
                         target_context = context
                         break
+                    
+                    # Check for base URL match (same domain)
+                    try:
+                        page_parsed = urlparse(page.url)
+                        page_base = f"{page_parsed.scheme}://{page_parsed.netloc}"
+                        
+                        if page_base == requested_base:
+                            base_url_matches.append((page, context))
+                    except:
+                        continue
+                        
                 if target_page:
                     break
+            
+            # If no exact match, use the first base URL match
+            if not target_page and base_url_matches:
+                target_page, target_context = base_url_matches[0]
+                logger.info(f"Using existing tab with similar base URL: {target_page.url} for requested URL: {request.url}")
 
             if target_page:
-                # Use existing page/context
-                context = BrowserContext(
+                # Bring the existing page to front
+                await target_page.bring_to_front()
+                
+                # Create BrowserContext wrapper for the existing context
+                browser_context = BrowserContext(
                     config=BrowserContextConfig(),
                     browser=self.browser,
                 )
-                # Initialize session with existing context/page
-                context.session = BrowserSession(
+                
+                # Set up session to use the existing context/page
+                browser_context.session = BrowserSession(
                     context=target_context,
                     current_page=target_page,
-                    cached_state=context._get_initial_state(target_page)
+                    cached_state=browser_context._get_initial_state(target_page)
                 )
+                
+                # Navigate to the requested URL if it's different from current
+                if target_page.url != request.url:
+                    await target_page.goto(request.url)
+                    await target_page.wait_for_load_state('networkidle')
+                    
+                context = browser_context
             else:
                 # If no existing page found, create new context
                 context = await self.browser.new_context()
