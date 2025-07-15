@@ -23,6 +23,9 @@ from browser_use.browser.views import BrowserState
 
 logger = logging.getLogger(__name__)
 
+# Flag to control Anthropic prompt caching
+USE_ANTHROPIC_CACHING = True  # Set to False to disable caching
+
 
 class MessageManager:
 	def __init__(
@@ -182,9 +185,10 @@ class MessageManager:
 		self.tool_id += 1
 
 	def get_messages(self) -> List[BaseMessage]:
-		"""Get current message list, potentially trimmed to max tokens"""
+		"""Get current message list with optional caching for Anthropic models"""
 
 		msg = [m.message for m in self.history.messages]
+		
 		# debug which messages are in history with token count # log
 		total_input_tokens = 0
 		logger.debug(f'Messages in history: {len(self.history.messages)}:')
