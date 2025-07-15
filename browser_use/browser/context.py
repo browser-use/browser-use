@@ -698,20 +698,25 @@ class BrowserContext:
 		Returns a base64 encoded screenshot of the current page.
 		"""
 		page = await self.get_current_page()
+		# ambar - this where screenshot management happens.
 		# Return a minimal blank screenshot for testing/development
-		blank_pixel = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')
-		return base64.b64encode(blank_pixel).decode('utf-8')
+		# blank_pixel = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=')
+		# return base64.b64encode(blank_pixel).decode('utf-8')
 
-		# screenshot = await page.screenshot(
-		# 	full_page=full_page,
-		# 	animations='disabled',
-		# )
+		start_time = time.time()
+		screenshot = await page.screenshot(
+			full_page=full_page,
+			animations='disabled',
+		)
+		end_time = time.time()
+		logger.debug(f"Screenshot took {end_time - start_time:.2f} seconds")
 
-		# screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
+		screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
 
+		# this seems to cause a cache miss on choosing a higlighted element.
 		# # await self.remove_highlights()
 
-		# return screenshot_b64
+		return screenshot_b64
 
 	async def remove_highlights(self):
 		"""
@@ -1133,16 +1138,17 @@ class BrowserContext:
 				raise e
 			except Exception as e:
 				logger.info(f"🎯 [CLICK_TRACKING] {click_attempt_id} - Primary click method failed: {str(e)}")
-				logger.info(f"🎯 [CLICK_TRACKING] {click_attempt_id} - Trying fallback click method (JavaScript click)")
-				try:
-					result = await perform_click(lambda: page.evaluate('(el) => el.click()', element_handle))
-					logger.info(f"🎯 [CLICK_TRACKING] {click_attempt_id} - Fallback click method succeeded")
-					return result
-				except URLNotAllowedError as e:
-					raise e
-				except Exception as e2:
-					logger.error(f"🎯 [CLICK_TRACKING] {click_attempt_id} - Both click methods failed. Primary: {str(e)}, Fallback: {str(e2)}")
-					raise Exception(f'Failed to click element: {str(e2)}')
+				# bitboard - this is creating false-negative double clicks, screwing up UI state.
+				# logger.info(f"🎯 [CLICK_TRACKING] {click_attempt_id} - Trying fallback click method (JavaScript click)")
+				# try:
+				# 	result = await perform_click(lambda: page.evaluate('(el) => el.click()', element_handle))
+				# 	logger.info(f"🎯 [CLICK_TRACKING] {click_attempt_id} - Fallback click method succeeded")
+				# 	return result
+				# except URLNotAllowedError as e:
+				# 	raise e
+				# except Exception as e2:
+				# 	logger.error(f"🎯 [CLICK_TRACKING] {click_attempt_id} - Both click methods failed. Primary: {str(e)}, Fallback: {str(e2)}")
+				# 	raise Exception(f'Failed to click element: {str(e2)}')
 
 		except URLNotAllowedError as e:
 			raise e

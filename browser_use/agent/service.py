@@ -734,18 +734,29 @@ class Agent:
 				)
 			)
 
-			if not self.injected_browser_context:
-				await self.browser_context.close()
+			# ambar - this is where context closing happens.
+			# if not self.injected_browser_context:
+			# 	await self.browser_context.close()
 
-			if not self.injected_browser and self.browser:
-				await self.browser.close()
+			# if not self.injected_browser and self.browser:
+			# 	await self.browser.close()
 
-			# if self.generate_gif:
-			# 	output_path: str = 'agent_history.gif'
-			# 	if isinstance(self.generate_gif, str):
-			# 		output_path = self.generate_gif
+			if self.generate_gif:
+				output_path: str = 'agent_history.gif'
+				if isinstance(self.generate_gif, str):
+					output_path = self.generate_gif
+				else:
+					# Get the base conversation path without the step number
+					# e.g. if save_conversation_path is "logs/conversations/<session-id>/session_1.txt"
+					# we want "logs/conversations/<session-id>/agent_history.gif"
+					if not self.save_conversation_path:
+						output_path = 'agent_history.gif'
+					else:
+						# Get the directory containing the conversation files
+						output_dir = os.path.dirname(self.save_conversation_path)
+						output_path = os.path.join(output_dir, 'agent_history.gif')
 
-			# 	self.create_history_gif(output_path=output_path)
+				self.create_history_gif(output_path=output_path)
 
 	def _too_many_failures(self) -> bool:
 		"""Check if we should stop due to too many failures"""
