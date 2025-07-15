@@ -1049,8 +1049,14 @@ class BrowserContext:
 		except Exception as e:
 			raise Exception(f'Failed to input text into element: {repr(element_node)}. Error: {str(e)}')
 
-	async def _click_element_node(self, element_node: DOMElementNode) -> Optional[str]:
+	async def _click_element_node(self, element_node: DOMElementNode, click_attempt_id: str = None) -> Optional[str]:
 		page = await self.get_current_page()
+
+		# Initialize click attempt tracking
+		if click_attempt_id is None:
+			click_attempt_id = f"click_{hash(element_node.xpath)}"
+		
+		logger.info(f"🎯 [CLICK_TRACKING] {click_attempt_id} - Starting _click_element_node for xpath: {element_node.xpath}")
 
 		try:
 			# Highlight before clicking
@@ -1064,8 +1070,13 @@ class BrowserContext:
 			if element_handle is None:
 				raise Exception(f'Element: {repr(element_node)} not found')
 
+			click_method_attempts = 0  # Track how many different click methods we try
+
 			async def perform_click(click_func):
 				"""Performs the actual click, handling both download and navigation scenarios."""
+				nonlocal click_method_attempts
+				click_method_attempts += 1
+				logger.info(f"🎯 [CLICK_TRACKING] {click_attempt_id} - Attempting click method #{click_method_attempts}")
 				if self.config.save_downloads_path:
 					logger.debug("Attempting download-aware click...")
 					try:
@@ -1114,16 +1125,24 @@ class BrowserContext:
 					await self._check_and_handle_navigation(page)
 
 			try:
-				return await perform_click(lambda: element_handle.click(timeout=1500))
+				logger.info(f"🎯 [CLICK_TRACKING] {click_attempt_id} - Trying primary click method (element_handle.click)")
+				result = await perform_click(lambda: element_handle.click(timeout=1500))
+				logger.info(f"🎯 [CLICK_TRACKING] {click_attempt_id} - Primary click method succeeded")
+				return result
 			except URLNotAllowedError as e:
 				raise e
-			except Exception:
+			except Exception as e:
+				logger.info(f"🎯 [CLICK_TRACKING] {click_attempt_id} - Primary click method failed: {str(e)}")
+				logger.info(f"🎯 [CLICK_TRACKING] {click_attempt_id} - Trying fallback click method (JavaScript click)")
 				try:
-					return await perform_click(lambda: page.evaluate('(el) => el.click()', element_handle))
+					result = await perform_click(lambda: page.evaluate('(el) => el.click()', element_handle))
+					logger.info(f"🎯 [CLICK_TRACKING] {click_attempt_id} - Fallback click method succeeded")
+					return result
 				except URLNotAllowedError as e:
 					raise e
-				except Exception as e:
-					raise Exception(f'Failed to click element: {str(e)}')
+				except Exception as e2:
+					logger.error(f"🎯 [CLICK_TRACKING] {click_attempt_id} - Both click methods failed. Primary: {str(e)}, Fallback: {str(e2)}")
+					raise Exception(f'Failed to click element: {str(e2)}')
 
 		except URLNotAllowedError as e:
 			raise e
