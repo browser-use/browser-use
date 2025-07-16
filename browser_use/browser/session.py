@@ -52,6 +52,7 @@ from pydantic import (
 )
 from uuid_extensions import uuid7str
 
+from browser_use.browser.extension_bridge import ExtensionBridge
 from browser_use.browser.profile import (
 	BROWSERUSE_DEFAULT_CHANNEL,
 	BrowserChannel,
@@ -294,6 +295,11 @@ class BrowserSession(BaseModel):
 		default=None,
 		description='Pure CDP client object to use (initialized by start())',
 	)
+	# Extension bridge for Chrome API access
+	extension_bridge: Any | None = Field(
+		default=None,
+		description='Extension bridge for accessing chrome.* APIs via CDP',
+	)
 	# 1 DOM service per session
 	dom_service: DomService | None = Field(
 		default=None,
@@ -427,6 +433,16 @@ class BrowserSession(BaseModel):
 			await self._setup_viewports()
 			await self._setup_current_page_change_listeners()
 			await self._start_context_tracing()
+
+			# Initialize extension bridge if CDP is available
+			try:
+				cdp_client = await self.get_cdp_client()
+				self.extension_bridge = ExtensionBridge(cdp_client)
+				await self.extension_bridge.initialize()
+				self.logger.info('✅ Extension bridge initialized')
+			except Exception as e:
+				self.logger.warning(f'⚠️ Failed to initialize extension bridge: {e}')
+				# Extension bridge is optional, so we don't fail the whole start process
 
 			self.initialized = True
 			return self
@@ -4268,6 +4284,36 @@ class BrowserSession(BaseModel):
 			await page.set_viewport_size(self.browser_profile.viewport)
 
 		return page
+
+	async def _sync_current_tab_from_extension(self, tab_id: int) -> None:
+		"""Sync the browser session's current page reference based on the extension's active tab."""
+		assert self.browser_context is not None, 'Browser context is not set'
+
+		# Find the page that matches the tab_id from the extension
+		# We need to match based on the CDP target ID since that's what the extension uses
+		cdp_client = await self.get_cdp_client()
+		targets = await cdp_client.send.Target.getTargets()
+
+		# Find the matching page in our pages list
+		pages = self.browser_context.pages
+		for page in pages:
+			# Get the CDP target ID for this page
+			page_url = page.url
+			for target in targets['targetInfos']:
+				if target['type'] == 'page' and target['url'] == page_url:
+					# Check if this target matches our tab_id
+					# Note: Chrome extension tab IDs are different from CDP target IDs
+					# We'll need to match by URL or other properties
+					# For now, we'll just update to the page that matches the URL
+					self.agent_current_page = page
+					self.human_current_page = page
+					# Invalidate cached state
+					self._cached_browser_state_summary = None
+					self._cached_clickable_element_hashes = None
+					return
+
+		# If we couldn't find a matching page, log a warning
+		self.logger.warning(f'Could not find page matching extension tab ID {tab_id}')
 
 	# region - Helper methods for easier access to the DOM
 

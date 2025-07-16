@@ -126,11 +126,78 @@ class Controller(Generic[Context]):
 					raise
 
 		@self.registry.action('Go back', param_model=NoParamsAction)
-		async def go_back(_: NoParamsAction, browser_session: BrowserSession):
-			await browser_session.go_back()
-			msg = '🔙  Navigated back'
-			logger.info(msg)
-			return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory='Navigated back')
+		async def go_back(params: NoParamsAction, browser_session: BrowserSession):
+			"""Navigate back in browser history using CDP directly."""
+			try:
+				# Get CDP client and session ID
+				cdp_client = await browser_session.get_cdp_client()
+				session_id = await browser_session.get_current_page_cdp_session_id()
+
+				# Get navigation history
+				history = await cdp_client.send.Page.getNavigationHistory(session_id=session_id)
+				current_index = history['currentIndex']
+				entries = history['entries']
+
+				# Check if we can go back
+				if current_index <= 0:
+					msg = '⚠️  Cannot go back - no previous page in history'
+					logger.warning(msg)
+					return ActionResult(
+						extracted_content=msg,
+						include_in_memory=True,
+						long_term_memory='Attempted to go back but no history available',
+					)
+
+				# Get the previous entry
+				previous_entry = entries[current_index - 1]
+				previous_entry_id = previous_entry['id']
+				previous_url = previous_entry['url']
+
+				# Navigate to the previous history entry
+				await cdp_client.send.Page.navigateToHistoryEntry(params={'entryId': previous_entry_id}, session_id=session_id)
+
+				# For SPAs using history.pushState, the URL changes immediately but no load event fires
+				# For real navigations, we need to wait for the page to load
+				# We'll use a hybrid approach: wait a bit, then check if URL changed
+
+				await asyncio.sleep(0.3)  # Give browser time to start navigation
+
+				# Check if we're on the expected URL now
+				page = await browser_session.get_current_page()
+				current_url = page.url
+
+				if current_url != previous_url:
+					# URL changed but might still be loading
+					# For real navigations, wait a bit more for content to load
+					# For SPAs, this gives time for the app to update
+					await asyncio.sleep(1.0)
+				else:
+					# URL hasn't changed yet, likely a real navigation
+					# Wait longer for the page to load
+					try:
+						# We'll just wait up to 10 seconds for the navigation to complete
+						# checking periodically if the URL has changed
+						for _ in range(20):  # 20 * 0.5 = 10 seconds max
+							await asyncio.sleep(0.5)
+							page = await browser_session.get_current_page()
+							if page.url == previous_url:
+								break
+					except Exception as e:
+						logger.debug(f'Error while waiting for navigation: {e}')
+
+				msg = f'🔙  Navigated back to {previous_url}'
+				logger.info(msg)
+				return ActionResult(
+					extracted_content=msg, include_in_memory=True, long_term_memory=f'Navigated back to {previous_url}'
+				)
+
+			except Exception as e:
+				# Fallback to browser_session method if CDP fails
+				logger.debug(f'⚠️  CDP navigation failed: {type(e).__name__}: {e}, falling back to browser method')
+				await browser_session.go_back()
+				msg = '🔙  Navigated back'
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory='Navigated back')
 
 		# wait for x seconds
 
@@ -184,7 +251,166 @@ class Controller(Generic[Context]):
 
 			try:
 				assert element_node is not None, f'Element with index {params.index} does not exist'
-				download_path = await browser_session._click_element_node(element_node)
+
+				# Try CDP-based click first
+				cdp_client = await browser_session.get_cdp_client()
+				session_id = await browser_session.get_current_page_cdp_session_id()
+				backend_node_id = element_node.backend_node_id
+
+				# Check if element has bounds from snapshot
+				if element_node.snapshot_node and element_node.snapshot_node.bounds:
+					# We have cached bounds, use them
+					center_x, center_y = element_node.snapshot_node.bounds.center
+				else:
+					# Get fresh bounds using CDP
+					try:
+						# Get the bounding box of the element
+						box_model = await cdp_client.send.DOM.getBoxModel(
+							params={'backendNodeId': backend_node_id}, session_id=session_id
+						)
+
+						if 'model' not in box_model or 'content' not in box_model['model']:
+							raise Exception('Could not get element bounds')
+
+						# Extract content quad (the actual visible area)
+						content_quad = box_model['model']['content']
+						if len(content_quad) < 8:
+							raise Exception('Invalid content quad')
+
+						# Calculate center point from quad (x1,y1, x2,y2, x3,y3, x4,y4)
+						center_x = (content_quad[0] + content_quad[2] + content_quad[4] + content_quad[6]) / 4
+						center_y = (content_quad[1] + content_quad[3] + content_quad[5] + content_quad[7]) / 4
+					except Exception as e:
+						logger.debug(f'Failed to get element bounds via CDP: {e}')
+						# Fallback to browser_session method
+						download_path = await browser_session._click_element_node(element_node)
+						if download_path:
+							emoji = '💾'
+							msg = f'Downloaded file to {download_path}'
+						else:
+							emoji = '🖱️'
+							msg = f'Clicked button with index {params.index}: {element_node.llm_representation()}'
+
+						logger.info(f'{emoji} {msg}')
+						logger.debug(f'Element xpath: {element_node.xpath}')
+						if len(browser_session.tabs) > initial_pages:
+							new_tab_msg = 'New tab opened - switching to it'
+							msg += f' - {new_tab_msg}'
+							emoji = '🔗'
+							logger.info(f'{emoji} {new_tab_msg}')
+							await browser_session.switch_to_tab(-1)
+						return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
+
+				# Scroll element into view first
+				try:
+					await cdp_client.send.DOM.scrollIntoViewIfNeeded(
+						params={'backendNodeId': backend_node_id}, session_id=session_id
+					)
+					await asyncio.sleep(0.1)  # Wait for scroll to complete
+				except Exception as e:
+					logger.debug(f'Failed to scroll element into view: {e}')
+
+				# Set up download detection if downloads are enabled
+				download_path = None
+				download_event = asyncio.Event()
+				download_guid = None
+
+				if browser_session.browser_profile.downloads_path:
+					# Enable download events
+					await cdp_client.send.Page.setDownloadBehavior(
+						params={'behavior': 'allow', 'downloadPath': str(browser_session.browser_profile.downloads_path)},
+						session_id=session_id,
+					)
+
+					# Set up download listener
+					async def on_download_will_begin(event):
+						nonlocal download_guid
+						download_guid = event['guid']
+						download_event.set()
+
+					cdp_client.on('Page.downloadWillBegin', on_download_will_begin, session_id=session_id)  # type: ignore[attr-defined]
+
+				# Perform the click using CDP
+				try:
+					# Move mouse to element
+					await cdp_client.send.Input.dispatchMouseEvent(
+						params={
+							'type': 'mouseMoved',
+							'x': center_x,
+							'y': center_y,
+						},
+						session_id=session_id,
+					)
+
+					# Mouse down
+					await cdp_client.send.Input.dispatchMouseEvent(
+						params={
+							'type': 'mousePressed',
+							'x': center_x,
+							'y': center_y,
+							'button': 'left',
+							'clickCount': 1,
+						},
+						session_id=session_id,
+					)
+
+					# Mouse up
+					await cdp_client.send.Input.dispatchMouseEvent(
+						params={
+							'type': 'mouseReleased',
+							'x': center_x,
+							'y': center_y,
+							'button': 'left',
+							'clickCount': 1,
+						},
+						session_id=session_id,
+					)
+
+					# Check for download (wait up to 5 seconds)
+					if browser_session.browser_profile.downloads_path:
+						try:
+							await asyncio.wait_for(download_event.wait(), timeout=5.0)
+							if download_guid:
+								# Get download progress
+								async def on_download_progress(event):
+									if event['guid'] == download_guid and event['state'] == 'completed':
+										nonlocal download_path
+										# Extract filename from receivedBytes/totalBytes event data
+										suggested_filename = event.get('suggestedFilename', 'download')
+										unique_filename = await browser_session._get_unique_filename(
+											str(browser_session.browser_profile.downloads_path), suggested_filename
+										)
+										download_path = os.path.join(
+											str(browser_session.browser_profile.downloads_path), unique_filename
+										)
+										# Track the downloaded file
+										browser_session._downloaded_files.append(download_path)
+										logger.info(f'⬇️ Downloaded file to: {download_path}')
+										logger.info(
+											f'📁 Added download to session tracking (total: {len(browser_session._downloaded_files)} files)'
+										)
+
+								cdp_client.on('Page.downloadProgress', on_download_progress, session_id=session_id)  # type: ignore[attr-defined]
+								# Wait a bit for download to complete
+								await asyncio.sleep(2.0)
+						except TimeoutError:
+							# No download triggered
+							pass
+
+					# If no download, wait for potential navigation
+					if not download_path:
+						await asyncio.sleep(0.5)  # Give time for navigation to start
+						page = await browser_session.get_current_page()
+						try:
+							await page.wait_for_load_state(state='domcontentloaded', timeout=5000)
+						except Exception:
+							pass  # Page might not navigate
+
+				except Exception as e:
+					# CDP click failed, fallback to browser_session method
+					logger.debug(f'CDP click failed: {e}, falling back to browser method')
+					download_path = await browser_session._click_element_node(element_node)
+
 				if download_path:
 					emoji = '💾'
 					msg = f'Downloaded file to {download_path}'
@@ -223,10 +449,162 @@ class Controller(Generic[Context]):
 			element_node = await browser_session.get_dom_element_by_index(params.index)
 			assert element_node is not None, f'Element with index {params.index} does not exist'
 			try:
-				await browser_session._input_text_element_node(element_node, params.text)
-			except Exception:
-				msg = f'Failed to input text into element {params.index}.'
-				raise BrowserError(msg)
+				# Try CDP-based input first
+				cdp_client = await browser_session.get_cdp_client()
+				session_id = await browser_session.get_current_page_cdp_session_id()
+
+				# Get the backend node ID for the element
+				backend_node_id = element_node.backend_node_id
+
+				# First focus the element using CDP
+				await cdp_client.send.DOM.focus(params={'backendNodeId': backend_node_id}, session_id=session_id)
+
+				# Wait a bit for focus to take effect
+				await asyncio.sleep(0.1)
+
+				# Clear existing text by selecting all and deleting
+				# First, resolve the node to get its object ID for direct manipulation
+				object_id = None
+				try:
+					resolved_node = await cdp_client.send.DOM.resolveNode(
+						params={'backendNodeId': backend_node_id}, session_id=session_id
+					)
+					object_id = resolved_node['object'].get('objectId')
+					if not object_id:
+						raise Exception('No objectId in resolved node')
+
+					# Select all text in the input field directly via JavaScript
+					await cdp_client.send.Runtime.callFunctionOn(
+						params={
+							'functionDeclaration': """
+								function() {
+									// Select all text for different element types
+									if (this.select) {
+										// For input and textarea elements
+										this.select();
+									} else if (this.setSelectionRange) {
+										// Alternative for input elements
+										this.setSelectionRange(0, this.value.length);
+									} else if (window.getSelection && this.contentEditable === 'true') {
+										// For contenteditable elements
+										const selection = window.getSelection();
+										const range = document.createRange();
+										range.selectNodeContents(this);
+										selection.removeAllRanges();
+										selection.addRange(range);
+									}
+								}
+							""",
+							'objectId': object_id,
+						},
+						session_id=session_id,
+					)
+
+					# Small delay to ensure selection is processed
+					await asyncio.sleep(0.05)
+
+				except Exception as e:
+					logger.debug(f'Failed to select text via JavaScript: {e}, trying keyboard shortcut')
+					# Fallback to keyboard shortcut
+					import platform
+
+					modifiers = 4 if platform.system() == 'Darwin' else 2  # Meta/Cmd on Mac, Ctrl on others
+					await cdp_client.send.Input.dispatchKeyEvent(
+						params={
+							'type': 'keyDown',
+							'key': 'a',
+							'code': 'KeyA',
+							'modifiers': modifiers,
+						},
+						session_id=session_id,
+					)
+					await cdp_client.send.Input.dispatchKeyEvent(
+						params={
+							'type': 'keyUp',
+							'key': 'a',
+							'code': 'KeyA',
+							'modifiers': modifiers,
+						},
+						session_id=session_id,
+					)
+
+				# Delete selected text
+				await cdp_client.send.Input.dispatchKeyEvent(
+					params={
+						'type': 'keyDown',
+						'key': 'Backspace',
+						'code': 'Backspace',
+					},
+					session_id=session_id,
+				)
+				await cdp_client.send.Input.dispatchKeyEvent(
+					params={
+						'type': 'keyUp',
+						'key': 'Backspace',
+						'code': 'Backspace',
+					},
+					session_id=session_id,
+				)
+
+				# Small delay after clearing
+				await asyncio.sleep(0.05)
+
+				# Insert the new text using CDP
+				await cdp_client.send.Input.insertText(params={'text': params.text}, session_id=session_id)
+
+				# Dispatch input and change events
+				try:
+					if object_id is None:
+						# Need to resolve the node if we didn't already
+						resolved_node = await cdp_client.send.DOM.resolveNode(
+							params={'backendNodeId': backend_node_id}, session_id=session_id
+						)
+						object_id = resolved_node['object'].get('objectId')
+						if not object_id:
+							raise Exception('No objectId in resolved node')
+
+					# Dispatch input and change events using the resolved node
+					await cdp_client.send.Runtime.callFunctionOn(
+						params={
+							'functionDeclaration': """
+								function() {
+									this.dispatchEvent(new Event('input', { bubbles: true }));
+									this.dispatchEvent(new Event('change', { bubbles: true }));
+								}
+							""",
+							'objectId': object_id,
+						},
+						session_id=session_id,
+					)
+				except Exception as e:
+					# If resolveNode fails (e.g., element in iframe), try a more generic approach
+					logger.debug(f'Failed to resolve node for events: {e}, using generic approach')
+					# Use Runtime.evaluate to find and trigger events on the focused element
+					await cdp_client.send.Runtime.evaluate(
+						params={
+							'expression': """
+								(() => {
+									const activeElement = document.activeElement;
+									if (activeElement && (activeElement.tagName === 'INPUT' || 
+										activeElement.tagName === 'TEXTAREA' || 
+										activeElement.contentEditable === 'true')) {
+										activeElement.dispatchEvent(new Event('input', { bubbles: true }));
+										activeElement.dispatchEvent(new Event('change', { bubbles: true }));
+									}
+								})()
+							"""
+						},
+						session_id=session_id,
+					)
+
+			except Exception as e:
+				# Fallback to browser_session method if CDP fails
+				logger.debug(f'CDP input failed: {type(e).__name__}: {e}, falling back to browser method')
+				try:
+					await browser_session._input_text_element_node(element_node, params.text)
+				except Exception:
+					msg = f'Failed to input text into element {params.index}.'
+					raise BrowserError(msg)
 
 			if not has_sensitive_data:
 				msg = f'⌨️  Input {params.text} into index {params.index}'
@@ -282,33 +660,109 @@ class Controller(Generic[Context]):
 
 		@self.registry.action('Switch tab', param_model=SwitchTabAction)
 		async def switch_tab(params: SwitchTabAction, browser_session: BrowserSession):
-			await browser_session.switch_to_tab(params.page_id)
-			page = await browser_session.get_current_page()
+			# Get the extension bridge from browser session
+			extension_bridge = browser_session.extension_bridge
+			if not extension_bridge:
+				# Fallback to Playwright method if extension bridge is not available
+				logger.warning('Extension bridge not available, falling back to Playwright method')
+				await browser_session.switch_to_tab(params.page_id)
+				page = await browser_session.get_current_page()
+				try:
+					await page.wait_for_load_state(state='domcontentloaded', timeout=5_000)
+				except Exception as e:
+					pass
+				msg = f'🔄  Switched to tab #{params.page_id} with url {page.url}'
+				logger.info(msg)
+				return ActionResult(
+					extracted_content=msg, include_in_memory=True, long_term_memory=f'Switched to tab {params.page_id}'
+				)
+
 			try:
-				await page.wait_for_load_state(state='domcontentloaded', timeout=5_000)
-				# page was already loaded when we first navigated, this is additional to wait for onfocus/onblur animations/ajax to settle
+				# Get all tabs to find the target tab by index
+				all_tabs = await extension_bridge.call('chrome.tabs.query', [{}])
+				logger.debug(f'Found {len(all_tabs)} tabs via extension bridge')
+
+				if params.page_id >= len(all_tabs):
+					raise BrowserError(f'Tab index {params.page_id} out of range (only {len(all_tabs)} tabs)')
+
+				target_tab = all_tabs[params.page_id]
+
+				# Switch to the target tab
+				await extension_bridge.call('chrome.tabs.update', [target_tab['id'], {'active': True}])
+
+				# Also focus the window containing the tab
+				await extension_bridge.call('chrome.windows.update', [target_tab['windowId'], {'focused': True}])
+
+				# Update browser session's current page reference
+				await browser_session._sync_current_tab_from_extension(target_tab['id'])
+				page = await browser_session.get_current_page()
+
+				try:
+					await page.wait_for_load_state(state='domcontentloaded', timeout=5_000)
+					# page was already loaded when we first navigated, this is additional to wait for onfocus/onblur animations/ajax to settle
+				except Exception as e:
+					pass
+
+				msg = f'🔄  Switched to tab #{params.page_id} with url {target_tab["url"]}'
+				logger.info(msg)
+				return ActionResult(
+					extracted_content=msg, include_in_memory=True, long_term_memory=f'Switched to tab {params.page_id}'
+				)
 			except Exception as e:
-				pass
-			msg = f'🔄  Switched to tab #{params.page_id} with url {page.url}'
-			logger.info(msg)
-			return ActionResult(
-				extracted_content=msg, include_in_memory=True, long_term_memory=f'Switched to tab {params.page_id}'
-			)
+				logger.error(f'Extension bridge error in switch_tab: {e}')
+				# Fallback to Playwright method
+				await browser_session.switch_to_tab(params.page_id)
+				page = await browser_session.get_current_page()
+				try:
+					await page.wait_for_load_state(state='domcontentloaded', timeout=5_000)
+				except Exception as e:
+					pass
+				msg = f'🔄  Switched to tab #{params.page_id} with url {page.url} (fallback)'
+				logger.info(msg)
+				return ActionResult(
+					extracted_content=msg, include_in_memory=True, long_term_memory=f'Switched to tab {params.page_id}'
+				)
 
 		@self.registry.action('Close an existing tab', param_model=CloseTabAction)
 		async def close_tab(params: CloseTabAction, browser_session: BrowserSession):
-			await browser_session.switch_to_tab(params.page_id)
-			page = await browser_session.get_current_page()
-			url = page.url
-			await page.close()
-			new_page = await browser_session.get_current_page()
-			new_page_idx = browser_session.tabs.index(new_page)
-			msg = f'❌  Closed tab #{params.page_id} with {url}, now focused on tab #{new_page_idx} with url {new_page.url}'
+			# Get the extension bridge from browser session
+			extension_bridge = browser_session.extension_bridge
+			if not extension_bridge:
+				raise BrowserError('Extension bridge not initialized')
+
+			# Get all tabs to find the target tab by index
+			all_tabs = await extension_bridge.call('chrome.tabs.query', [{}])
+			if params.page_id >= len(all_tabs):
+				raise BrowserError(f'Tab index {params.page_id} out of range (only {len(all_tabs)} tabs)')
+
+			target_tab = all_tabs[params.page_id]
+			tab_url = target_tab['url']
+			tab_id = target_tab['id']
+
+			# Close the tab
+			await extension_bridge.call('chrome.tabs.remove', [tab_id])
+
+			# Get the newly active tab
+			query_options = {'active': True, 'lastFocusedWindow': True}
+			active_tabs = await extension_bridge.call('chrome.tabs.query', [query_options])
+			if not active_tabs:
+				raise BrowserError('No active tab after closing')
+
+			new_active_tab = active_tabs[0]
+
+			# Find the index of the new active tab
+			updated_tabs = await extension_bridge.call('chrome.tabs.query', [{}])
+			new_page_idx = next((i for i, tab in enumerate(updated_tabs) if tab['id'] == new_active_tab['id']), 0)
+
+			# Update browser session's current page reference
+			await browser_session._sync_current_tab_from_extension(new_active_tab['id'])
+
+			msg = f'❌  Closed tab #{params.page_id} with {tab_url}, now focused on tab #{new_page_idx} with url {new_active_tab["url"]}'
 			logger.info(msg)
 			return ActionResult(
 				extracted_content=msg,
 				include_in_memory=True,
-				long_term_memory=f'Closed tab {params.page_id} with url {url}, now focused on tab {new_page_idx} with url {new_page.url}.',
+				long_term_memory=f'Closed tab {params.page_id} with url {tab_url}, now focused on tab {new_page_idx} with url {new_active_tab["url"]}.',
 			)
 
 		# Content Actions
@@ -684,20 +1138,205 @@ Explain the content of the page and that the requested information is not availa
 			'Send strings of special keys to use Playwright page.keyboard.press - examples include Escape, Backspace, Insert, PageDown, Delete, Enter, or Shortcuts such as `Control+o`, `Control+Shift+T`',
 			param_model=SendKeysAction,
 		)
-		async def send_keys(params: SendKeysAction, page: Page):
+		async def send_keys(params: SendKeysAction, browser_session: BrowserSession):
+			"""Send keyboard keys/shortcuts using CDP directly."""
 			try:
-				await page.keyboard.press(params.keys)
-			except Exception as e:
-				if 'Unknown key' in str(e):
-					# loop over the keys and try to send each one
-					for key in params.keys:
-						try:
-							await page.keyboard.press(key)
-						except Exception as e:
-							logger.debug(f'Error sending key {key}: {str(e)}')
-							raise e
+				# Get CDP client and session ID
+				cdp_client = await browser_session.get_cdp_client()
+				session_id = await browser_session.get_current_page_cdp_session_id()
+
+				# Parse the key string to handle modifiers and special keys
+				keys_to_send = params.keys
+
+				# Check if it's a keyboard shortcut with modifiers
+				modifiers = 0
+				parts = keys_to_send.split('+')
+
+				# Check if it's a special key or shortcut
+				is_special_key = False
+				if len(parts) > 1:
+					# Handle shortcuts like Control+o, Control+Shift+T
+					is_special_key = True
+					for part in parts[:-1]:  # All but the last part are modifiers
+						part_lower = part.lower()
+						if part_lower in ['ctrl', 'control']:
+							modifiers |= 2  # Ctrl
+						elif part_lower == 'shift':
+							modifiers |= 8  # Shift
+						elif part_lower == 'alt':
+							modifiers |= 1  # Alt
+						elif part_lower in ['meta', 'command', 'cmd']:
+							modifiers |= 4  # Meta/Command
+						elif part_lower == 'controlormeta':
+							# Use Control on non-Mac, Meta on Mac
+							import platform
+
+							if platform.system() == 'Darwin':
+								modifiers |= 4  # Meta/Command on Mac
+							else:
+								modifiers |= 2  # Control on Windows/Linux
+
+					# The last part is the actual key
+					main_key = parts[-1]
 				else:
-					raise e
+					# Check if it's a single special key (Tab, Enter, etc.) or regular text
+					special_keys = [
+						'Tab',
+						'Enter',
+						'Escape',
+						'Backspace',
+						'Delete',
+						'PageDown',
+						'PageUp',
+						'Home',
+						'End',
+						'ArrowUp',
+						'ArrowDown',
+						'ArrowLeft',
+						'ArrowRight',
+						'F1',
+						'F2',
+						'F3',
+						'F4',
+						'F5',
+						'F6',
+						'F7',
+						'F8',
+						'F9',
+						'F10',
+						'F11',
+						'F12',
+					]
+					if keys_to_send in special_keys:
+						is_special_key = True
+						main_key = keys_to_send
+					else:
+						# It's regular text to type - handle each character
+						for char in keys_to_send:
+							# Determine key and code for each character
+							if char == ' ':
+								key = ' '
+								code = 'Space'
+							elif char == '\n':
+								key = 'Enter'
+								code = 'Enter'
+							elif char.isalpha():
+								key = char
+								code = f'Key{char.upper()}'
+							elif char.isdigit():
+								key = char
+								code = f'Digit{char}'
+							else:
+								key = char
+								code = char
+
+							# Send keyDown
+							keydown_params = {'type': 'keyDown', 'key': key, 'code': code, 'modifiers': 0}
+							# Include text for regular characters, and '\r' for Enter
+							if char == '\n':
+								keydown_params['text'] = '\r'
+							else:
+								keydown_params['text'] = char
+							await cdp_client.send.Input.dispatchKeyEvent(params=keydown_params, session_id=session_id)  # type: ignore[arg-type]
+
+							# Send keyUp
+							await cdp_client.send.Input.dispatchKeyEvent(
+								params={
+									'type': 'keyUp',
+									'key': key,
+									'code': code,
+									'modifiers': 0,
+								},
+								session_id=session_id,
+							)
+						# We've handled all characters, return early
+						msg = f'⌨️  Sent keys: {params.keys}'
+						logger.info(msg)
+						return ActionResult(
+							extracted_content=msg, include_in_memory=True, long_term_memory=f'Sent keys: {params.keys}'
+						)
+
+				# If we get here, it's a special key or shortcut
+				if is_special_key:
+					# Determine key and code values
+					if main_key == ' ':
+						key = ' '
+						code = 'Space'
+					elif len(main_key) == 1:
+						# Single character with modifier
+						key = main_key
+						code = (
+							f'Key{main_key.upper()}'
+							if main_key.isalpha()
+							else f'Digit{main_key}'
+							if main_key.isdigit()
+							else main_key
+						)
+					else:
+						# Multi-character keys like Enter, Escape, F1, etc.
+						key = main_key
+						code = main_key
+
+					# Send keyDown event
+					keydown_params = {
+						'type': 'keyDown',
+						'key': key,
+						'code': code,
+						'modifiers': modifiers,
+					}
+					# Only include text for single character keys without modifiers
+					if len(key) == 1 and modifiers == 0:
+						keydown_params['text'] = key
+
+					# Add commands for common keyboard shortcuts
+					if modifiers > 0 and len(key) == 1:
+						# Check for common shortcuts that need commands
+						if key.lower() == 'a' and (modifiers & 2 or modifiers & 4):  # Ctrl+A or Cmd+A
+							keydown_params['commands'] = ['selectAll']
+						elif key.lower() == 'c' and (modifiers & 2 or modifiers & 4):  # Ctrl+C or Cmd+C
+							keydown_params['commands'] = ['copy']
+						elif key.lower() == 'v' and (modifiers & 2 or modifiers & 4):  # Ctrl+V or Cmd+V
+							keydown_params['commands'] = ['paste']
+						elif key.lower() == 'x' and (modifiers & 2 or modifiers & 4):  # Ctrl+X or Cmd+X
+							keydown_params['commands'] = ['cut']
+						elif key.lower() == 'z' and (modifiers & 2 or modifiers & 4):  # Ctrl+Z or Cmd+Z
+							keydown_params['commands'] = ['undo']
+
+					await cdp_client.send.Input.dispatchKeyEvent(params=keydown_params, session_id=session_id)  # type: ignore[arg-type]
+
+					# Small delay for modifier key combinations
+					if modifiers > 0:
+						await asyncio.sleep(0.05)
+
+					# Send keyUp event
+					await cdp_client.send.Input.dispatchKeyEvent(
+						params={
+							'type': 'keyUp',
+							'key': key,
+							'code': code,
+							'modifiers': modifiers,
+						},
+						session_id=session_id,
+					)
+
+			except Exception as e:
+				# Fallback to playwright method if CDP fails
+				logger.debug(f'CDP send_keys failed: {type(e).__name__}: {e}, falling back to browser method')
+				page = await browser_session.get_current_page()
+				try:
+					await page.keyboard.press(params.keys)
+				except Exception as e2:
+					if 'Unknown key' in str(e2):
+						# loop over the keys and try to send each one
+						for key in params.keys:
+							try:
+								await page.keyboard.press(key)
+							except Exception as e3:
+								logger.debug(f'Error sending key {key}: {str(e3)}')
+								raise e3
+					else:
+						raise e2
+
 			msg = f'⌨️  Sent keys: {params.keys}'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=f'Sent keys: {params.keys}')
@@ -705,8 +1344,141 @@ Explain the content of the page and that the requested information is not availa
 		@self.registry.action(
 			description='Scroll to a text in the current page',
 		)
-		async def scroll_to_text(text: str, page: Page):  # type: ignore
+		async def scroll_to_text(text: str, browser_session: BrowserSession):  # type: ignore
 			try:
+				# Get CDP client and session
+				cdp_client = await browser_session.get_cdp_client()
+				session_id = await browser_session.get_current_page_cdp_session_id()
+
+				# Enable DOM domain
+				await cdp_client.send.DOM.enable(params={}, session_id=session_id)
+
+				# Get the document and populate DOM tree
+				doc = await cdp_client.send.DOM.getDocument(params={'depth': -1}, session_id=session_id)
+				root_node_id = doc['root']['nodeId']
+
+				# Request child nodes to ensure DOM is populated
+				await cdp_client.send.DOM.requestChildNodes(params={'nodeId': root_node_id, 'depth': -1}, session_id=session_id)
+
+				# Small delay to ensure DOM is fully populated
+				await asyncio.sleep(0.1)
+
+				# Try different search queries
+				search_queries = [
+					f'//*[contains(text(), "{text}")]',  # XPath search for direct text content
+					f'//*[contains(., "{text}")]',  # XPath with . for all text content
+					text,  # Plain text search as fallback
+				]
+
+				for query in search_queries:
+					try:
+						# Perform search
+						search_result = await cdp_client.send.DOM.performSearch(
+							params={'query': query, 'includeUserAgentShadowDOM': False}, session_id=session_id
+						)
+
+						logger.debug(f'CDP search for query "{query}" found {search_result["resultCount"]} results')
+
+						if search_result['resultCount'] == 0:
+							continue
+
+						# Get search results
+						results = await cdp_client.send.DOM.getSearchResults(
+							params={
+								'searchId': search_result['searchId'],
+								'fromIndex': 0,
+								'toIndex': min(search_result['resultCount'], 10),  # Check first 10 results
+							},
+							session_id=session_id,
+						)
+
+						# Get current scroll position to convert viewport coordinates to absolute
+						scroll_result = await cdp_client.send.Runtime.evaluate(
+							params={'expression': 'window.pageYOffset', 'returnByValue': True}, session_id=session_id
+						)
+						current_scroll_y = scroll_result.get('result', {}).get('value', 0)
+
+						# Find the best matching node among all results
+						best_node_id = None
+						best_y_position = None
+
+						for node_id in results['nodeIds']:
+							if node_id == 0:  # Skip invalid node IDs
+								logger.debug(f'Skipping invalid node ID: {node_id}')
+								continue
+
+							try:
+								# Get node info to check if it's visible
+								box_model = await cdp_client.send.DOM.getBoxModel(
+									params={'nodeId': node_id}, session_id=session_id
+								)
+
+								# Check if element has dimensions
+								if box_model.get('model') and box_model['model'].get('content'):
+									# Get the element's position
+									content_quad = box_model['model']['content']
+									# Content quad is [x1,y1, x2,y1, x2,y2, x1,y2]
+									viewport_y = content_quad[1]  # y1 coordinate (viewport relative)
+									# Convert to absolute page coordinates
+									element_y = viewport_y + current_scroll_y
+
+									# For XPath queries, use the first valid match
+									# For plain text queries, prefer elements lower on the page
+									if query.startswith('//') or best_y_position is None:
+										best_node_id = node_id
+										best_y_position = element_y
+										if query.startswith('//'):
+											break  # Use first match for XPath
+									elif element_y > best_y_position:
+										# For plain text search, prefer elements further down
+										best_node_id = node_id
+										best_y_position = element_y
+
+							except Exception as e:
+								logger.debug(f'Failed to get box model for node {node_id}: {str(e)}')
+								continue
+
+						# Scroll to the best match if found
+						if best_node_id and best_y_position is not None:
+							# Scroll to the element using JavaScript
+							scroll_target = max(0, best_y_position - 100)  # Ensure we don't scroll to negative
+							logger.debug(f'Scrolling to Y position {scroll_target} (element at {best_y_position})')
+
+							await cdp_client.send.Runtime.evaluate(
+								params={
+									'expression': f'window.scrollTo(0, {scroll_target})',  # Scroll with 100px offset from top
+									'userGesture': True,
+								},
+								session_id=session_id,
+							)
+							await asyncio.sleep(0.5)  # Wait for scroll to complete
+
+							# Discard search results to free memory
+							await cdp_client.send.DOM.discardSearchResults(
+								params={'searchId': search_result['searchId']}, session_id=session_id
+							)
+
+							msg = f'🔍  Scrolled to text: {text}'
+							logger.info(msg)
+							return ActionResult(
+								extracted_content=msg,
+								include_in_memory=True,
+								long_term_memory=f'Scrolled to text: {text}',
+							)
+
+						# Discard search results if we didn't find a visible element
+						await cdp_client.send.DOM.discardSearchResults(
+							params={'searchId': search_result['searchId']}, session_id=session_id
+						)
+
+					except Exception as e:
+						logger.debug(f'CDP search with query "{query}" failed: {str(e)}')
+						continue
+
+				# If CDP fails, fallback to playwright
+				logger.debug('CDP scroll_to_text failed, falling back to playwright')
+				page = await browser_session.get_current_page()
+
 				# Try different locator strategies
 				locators = [
 					page.get_by_text(text, exact=False),

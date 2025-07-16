@@ -680,6 +680,12 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		elif not self.ignore_default_args:
 			default_args = CHROME_DEFAULT_ARGS
 
+		# Get the Browser Use extension path
+		extension_path = Path(__file__).parent.parent.parent / 'extension'
+		extension_args = []
+		if extension_path.exists():
+			extension_args = [f'--load-extension={extension_path}']
+
 		# Capture args before conversion for logging
 		pre_conversion_args = [
 			*default_args,
@@ -699,6 +705,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				if self.window_position
 				else []
 			),
+			*extension_args,
 		]
 
 		# convert to dict and back to dedupe and merge duplicate args
