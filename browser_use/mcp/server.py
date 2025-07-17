@@ -669,11 +669,11 @@ class BrowserUseServer:
 		}
 
 		# Add interactive elements with their indices
-		for index, element in state.selector_map.items():
+		for index, element in state.dom_state.selector_map.items():
 			elem_info = {
 				'index': index,
 				'tag': element.tag_name,
-				'text': element.get_all_text_till_next_clickable_element(max_depth=2)[:100],
+				'text': element.get_all_children_text(max_depth=2)[:100],
 			}
 			if element.attributes.get('placeholder'):
 				elem_info['placeholder'] = element.attributes['placeholder']

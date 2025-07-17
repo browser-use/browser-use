@@ -1,58 +1,14 @@
-from dataclasses import dataclass
-from functools import cached_property
-from typing import TYPE_CHECKING, Optional
+import hashlib
+from dataclasses import asdict, dataclass, field
+from enum import Enum
+from typing import Any
 
-from browser_use.dom.history_tree_processor.view import CoordinateSet, HashedDomElement, ViewportInfo
+from cdp_use.cdp.accessibility.types import AXPropertyName
+from cdp_use.cdp.dom.types import ShadowRootType
+
 from browser_use.dom.utils import cap_text_length
-from browser_use.utils import time_execution_sync
 
-# Avoid circular import issues
-if TYPE_CHECKING:
-	from .views import DOMElementNode
-
-
-@dataclass(frozen=False)
-class DOMBaseNode:
-	is_visible: bool
-	# Use None as default and set parent later to avoid circular reference issues
-	parent: Optional['DOMElementNode']
-
-	def __json__(self) -> dict:
-		raise NotImplementedError('DOMBaseNode is an abstract class')
-
-
-@dataclass(frozen=False)
-class DOMTextNode(DOMBaseNode):
-	text: str
-	type: str = 'TEXT_NODE'
-
-	def has_parent_with_highlight_index(self) -> bool:
-		current = self.parent
-		while current is not None:
-			# stop if the element has a highlight index (will be handled separately)
-			if current.highlight_index is not None:
-				return True
-
-			current = current.parent
-		return False
-
-	def is_parent_in_viewport(self) -> bool:
-		if self.parent is None:
-			return False
-		return self.parent.is_in_viewport
-
-	def is_parent_top_element(self) -> bool:
-		if self.parent is None:
-			return False
-		return self.parent.is_top_element
-
-	def __json__(self) -> dict:
-		return {
-			'text': self.text,
-			'type': self.type,
-		}
-
-
+# Serializer types
 DEFAULT_INCLUDE_ATTRIBUTES = [
 	'title',
 	'type',
@@ -67,223 +23,405 @@ DEFAULT_INCLUDE_ATTRIBUTES = [
 	'aria-expanded',
 	'data-state',
 	'aria-checked',
+	'aria-current',
 ]
 
 
-@dataclass(frozen=False)
-class DOMElementNode(DOMBaseNode):
-	"""
-	xpath: the xpath of the element from the last root node (shadow root or iframe OR document if no shadow root or iframe).
-	To properly reference the element we need to recursively switch the root node until we find the element (work you way up the tree with `.parent`)
-	"""
+@dataclass(slots=True)
+class SimplifiedNode:
+	"""Simplified tree node for optimization."""
 
-	tag_name: str
-	xpath: str
-	attributes: dict[str, str]
-	children: list[DOMBaseNode]
-	is_interactive: bool = False
-	is_top_element: bool = False
-	is_in_viewport: bool = False
-	shadow_root: bool = False
-	highlight_index: int | None = None
-	viewport_coordinates: CoordinateSet | None = None
-	page_coordinates: CoordinateSet | None = None
-	viewport_info: ViewportInfo | None = None
+	original_node: 'EnhancedDOMTreeNode'
+	children: list['SimplifiedNode'] = field(default_factory=list)
+	should_display: bool = True
+	interactive_index: int | None = None
 
-	"""
-	### State injected by the browser context.
+	is_new: bool = False
 
-	The idea is that the clickable elements are sometimes persistent from the previous page -> tells the model which objects are new/_how_ the state has changed
-	"""
-	is_new: bool | None = None
+	ignored_by_paint_order: bool = False
+	is_iframe_boundary: bool = False
+	is_iframe_content: bool = False
 
 	def __json__(self) -> dict:
 		return {
-			'tag_name': self.tag_name,
-			'xpath': self.xpath,
-			'attributes': self.attributes,
-			'is_visible': self.is_visible,
-			'is_interactive': self.is_interactive,
-			'is_top_element': self.is_top_element,
-			'is_in_viewport': self.is_in_viewport,
-			'shadow_root': self.shadow_root,
-			'highlight_index': self.highlight_index,
-			'viewport_coordinates': self.viewport_coordinates,
-			'page_coordinates': self.page_coordinates,
-			'children': [child.__json__() for child in self.children],
+			'should_display': self.should_display,
+			'interactive_index': self.interactive_index,
+			'is_iframe_boundary': self.is_iframe_boundary,
+			'is_iframe_content': self.is_iframe_content,
+			'original_node': self.original_node.__json__(),
+			'children': [c.__json__() for c in self.children],
 		}
 
-	def __repr__(self) -> str:
-		tag_str = f'<{self.tag_name}'
 
-		# Add attributes
-		for key, value in self.attributes.items():
-			tag_str += f' {key}="{value}"'
-		tag_str += '>'
+class NodeType(int, Enum):
+	"""DOM node types based on the DOM specification."""
 
-		# Add extra info
-		extras = []
-		if self.is_interactive:
-			extras.append('interactive')
-		if self.is_top_element:
-			extras.append('top')
-		if self.shadow_root:
-			extras.append('shadow-root')
-		if self.highlight_index is not None:
-			extras.append(f'highlight:{self.highlight_index}')
-		if self.is_in_viewport:
-			extras.append('in-viewport')
+	ELEMENT_NODE = 1
+	ATTRIBUTE_NODE = 2
+	TEXT_NODE = 3
+	CDATA_SECTION_NODE = 4
+	ENTITY_REFERENCE_NODE = 5
+	ENTITY_NODE = 6
+	PROCESSING_INSTRUCTION_NODE = 7
+	COMMENT_NODE = 8
+	DOCUMENT_NODE = 9
+	DOCUMENT_TYPE_NODE = 10
+	DOCUMENT_FRAGMENT_NODE = 11
+	NOTATION_NODE = 12
 
-		if extras:
-			tag_str += f' [{", ".join(extras)}]'
 
-		return tag_str
+@dataclass(slots=True)
+class DOMRect:
+	x: float
+	y: float
+	width: float
+	height: float
 
-	@cached_property
-	def hash(self) -> HashedDomElement:
-		from browser_use.dom.history_tree_processor.service import (
-			HistoryTreeProcessor,
-		)
+	@property
+	def center(self) -> tuple[float, float]:
+		return self.x + self.width / 2, self.y + self.height / 2
 
-		return HistoryTreeProcessor._hash_dom_element(self)
 
-	def get_all_text_till_next_clickable_element(self, max_depth: int = -1) -> str:
+@dataclass(slots=True)
+class EnhancedAXProperty:
+	"""we don't need `sources` and `related_nodes` for now (not sure how to use them)
+
+	TODO: there is probably some way to determine whether it has a value or related nodes or not, but for now it's kinda fine idk
+	"""
+
+	name: AXPropertyName
+	value: str | bool | None
+	# related_nodes: list[EnhancedAXRelatedNode] | None
+
+
+@dataclass(slots=True)
+class EnhancedAXNode:
+	ax_node_id: str
+	"""Not to be confused the DOM node_id. Only useful for AX node tree"""
+	ignored: bool
+	# we don't need ignored_reasons as we anyway ignore the node otherwise
+	role: str | None
+	name: str | None
+	description: str | None
+
+	properties: list[EnhancedAXProperty] | None
+
+
+@dataclass(slots=True)
+class EnhancedSnapshotNode:
+	"""Snapshot data extracted from DOMSnapshot for enhanced functionality."""
+
+	is_clickable: bool | None
+	is_visible: bool | None
+	cursor_style: str | None
+	bounds: DOMRect | None
+	"""
+	Document coordinates (origin = top-left of the page, ignores current scroll).
+	Equivalent JS API: layoutNode.boundingBox in the older API.
+	Typical use: Quick hit-test that doesn't care about scroll position.
+	"""
+
+	# clientRects: DOMRect | None
+	"""
+	Viewport coordinates (origin = top-left of the visible scrollport).
+	Equivalent JS API: element.getClientRects() / getBoundingClientRect().
+	Typical use: Pixel-perfect hit-testing on screen, taking current scroll into account.
+	"""
+
+	computed_styles: dict[str, str] | None
+	"""Computed styles from the layout tree"""
+	paint_order: int | None
+	"""Paint order from the layout tree"""
+	stacking_contexts: int | None
+	"""Stacking contexts from the layout tree"""
+
+
+@dataclass(slots=True)
+class EnhancedDOMTreeNode:
+	"""
+	Enhanced DOM tree node that contains information from AX, DOM, and Snapshot trees. It's mostly based on the types on DOM node type with enhanced data from AX and Snapshot trees.
+
+	@dev when serializing check if the value is a valid value first!
+
+	Learn more about the fields:
+	- (DOM node) https://chromedevtools.github.io/devtools-protocol/tot/DOM/#type-BackendNode
+	- (AX node) https://chromedevtools.github.io/devtools-protocol/tot/Accessibility/#type-AXNode
+	- (Snapshot node) https://chromedevtools.github.io/devtools-protocol/tot/DOMSnapshot/#type-DOMNode
+	"""
+
+	# region - DOM Node data
+	node_id: int
+	backend_node_id: int
+
+	node_type: NodeType
+	"""Node types, defined in `NodeType` enum."""
+	node_name: str
+	"""Only applicable for `NodeType.ELEMENT_NODE`"""
+	node_value: str
+	"""this is where the value from `NodeType.TEXT_NODE` is stored usually"""
+	attributes: dict[str, str]
+	"""slightly changed from the original attributes to be more readable"""
+	is_scrollable: bool | None
+	"""
+	Whether the node is scrollable.
+	"""
+
+	# frames
+	frame_id: str | None
+	content_document: 'EnhancedDOMTreeNode | None'
+	"""
+	Content document is the document inside a new iframe.
+	"""
+	# Shadow DOM
+	shadow_root_type: ShadowRootType | None
+	shadow_roots: list['EnhancedDOMTreeNode'] | None
+	"""
+	Shadow roots are the shadow DOMs of the element.
+	"""
+
+	# Navigation
+	parent_node: 'EnhancedDOMTreeNode | None'
+	children_nodes: list['EnhancedDOMTreeNode'] | None
+
+	# endregion - DOM Node data
+
+	# region - AX Node data
+	ax_node: EnhancedAXNode | None
+
+	# endregion - AX Node data
+
+	# region - Snapshot Node data
+	snapshot_node: EnhancedSnapshotNode | None
+
+	# endregion - Snapshot Node data
+
+	@property
+	def parent(self) -> 'EnhancedDOMTreeNode | None':
+		return self.parent_node
+
+	@property
+	def children(self) -> list['EnhancedDOMTreeNode']:
+		return self.children_nodes or []
+
+	@property
+	def tag_name(self) -> str:
+		return self.node_name.lower()
+
+	@property
+	def xpath(self) -> str:
+		"""Generate XPath for this DOM node, stopping at shadow boundaries or iframes."""
+		segments = []
+		current_element = self
+
+		while current_element and current_element.node_type == NodeType.ELEMENT_NODE:
+			# Stop if we hit a shadow root or iframe
+			if current_element.parent_node and (
+				current_element.parent_node.shadow_root_type is not None
+				or current_element.parent_node.node_name.lower() == 'iframe'
+			):
+				break
+
+			position = self._get_element_position(current_element)
+			tag_name = current_element.node_name.lower()
+			xpath_index = f'[{position}]' if position > 0 else ''
+			segments.insert(0, f'{tag_name}{xpath_index}')
+
+			current_element = current_element.parent_node
+
+		return '/'.join(segments)
+
+	def _get_element_position(self, element: 'EnhancedDOMTreeNode') -> int:
+		"""Get the position of an element among its siblings with the same tag name.
+		Returns 0 if it's the only element of its type, otherwise returns 1-based index."""
+		if not element.parent_node or not element.parent_node.children_nodes:
+			return 0
+
+		same_tag_siblings = [
+			child
+			for child in element.parent_node.children_nodes
+			if child.node_type == NodeType.ELEMENT_NODE and child.node_name.lower() == element.node_name.lower()
+		]
+
+		if len(same_tag_siblings) <= 1:
+			return 0  # No index needed if it's the only one
+
+		try:
+			# XPath is 1-indexed
+			position = same_tag_siblings.index(element) + 1
+			return position
+		except ValueError:
+			return 0
+
+	def __json__(self) -> dict:
+		"""Serializes the node and its descendants to a dictionary, omitting parent references."""
+		return {
+			'node_id': self.node_id,
+			'backend_node_id': self.backend_node_id,
+			'node_type': self.node_type.name,
+			'node_name': self.node_name,
+			'node_value': self.node_value,
+			'attributes': self.attributes,
+			'is_scrollable': self.is_scrollable,
+			'frame_id': self.frame_id,
+			'content_document': self.content_document.__json__() if self.content_document else None,
+			'shadow_root_type': self.shadow_root_type,
+			'ax_node': asdict(self.ax_node) if self.ax_node else None,
+			'snapshot_node': asdict(self.snapshot_node) if self.snapshot_node else None,
+			# these two in the end, so it's easier to read json
+			'shadow_roots': [r.__json__() for r in self.shadow_roots] if self.shadow_roots else [],
+			'children_nodes': [c.__json__() for c in self.children_nodes] if self.children_nodes else [],
+		}
+
+	def get_all_children_text(self, max_depth: int = -1) -> str:
 		text_parts = []
 
-		def collect_text(node: DOMBaseNode, current_depth: int) -> None:
+		def collect_text(node: EnhancedDOMTreeNode, current_depth: int) -> None:
 			if max_depth != -1 and current_depth > max_depth:
 				return
 
 			# Skip this branch if we hit a highlighted element (except for the current node)
-			if isinstance(node, DOMElementNode) and node != self and node.highlight_index is not None:
-				return
+			# TODO: think whether if makese sense to add text until the next clickable element or everything from children
+			# if node.node_type == NodeType.ELEMENT_NODE
+			# if isinstance(node, DOMElementNode) and node != self and node.highlight_index is not None:
+			# 	return
 
-			if isinstance(node, DOMTextNode):
-				text_parts.append(node.text)
-			elif isinstance(node, DOMElementNode):
+			if node.node_type == NodeType.TEXT_NODE:
+				text_parts.append(node.node_value)
+			elif node.node_type == NodeType.ELEMENT_NODE:
 				for child in node.children:
 					collect_text(child, current_depth + 1)
 
 		collect_text(self, 0)
 		return '\n'.join(text_parts).strip()
 
-	@time_execution_sync('--clickable_elements_to_string')
-	def clickable_elements_to_string(self, include_attributes: list[str] | None = None) -> str:
-		"""Convert the processed DOM content to HTML."""
-		formatted_text = []
+	def __repr__(self) -> str:
+		"""
+		@DEV ! don't display this to the LLM, it's SUPER long
+		"""
+		attributes = ', '.join([f'{k}={v}' for k, v in self.attributes.items()])
+		is_scrollable = getattr(self, 'is_scrollable', False)
+		num_children = len(self.children_nodes or [])
+		return (
+			f'<{self.tag_name} {attributes} is_scrollable={is_scrollable} '
+			f'num_children={num_children} >{self.node_value}</{self.tag_name}>'
+		)
 
-		if not include_attributes:
-			include_attributes = DEFAULT_INCLUDE_ATTRIBUTES
+	def llm_representation(self, max_text_length: int = 25) -> str:
+		"""
+		Token friendly representation of the node, used in the LLM
+		"""
 
-		def process_node(node: DOMBaseNode, depth: int) -> None:
-			next_depth = int(depth)
-			depth_str = depth * '\t'
+		return f'<{self.tag_name}>{cap_text_length(self.get_all_children_text(), max_text_length) or ""}'
 
-			if isinstance(node, DOMElementNode):
-				# Add element with highlight_index
-				if node.highlight_index is not None:
-					next_depth += 1
+	@property
+	def element_hash(self) -> int:
+		return hash(self)
 
-					text = node.get_all_text_till_next_clickable_element()
-					attributes_html_str = None
-					if include_attributes:
-						attributes_to_include = {
-							key: str(value).strip()
-							for key, value in node.attributes.items()
-							if key in include_attributes and str(value).strip() != ''
-						}
+	def __hash__(self) -> int:
+		"""
+		Hash the element based on its parent branch path and attributes.
 
-						# If value of any of the attributes is the same as ANY other value attribute only include the one that appears first in include_attributes
-						# WARNING: heavy vibes, but it seems good enough for saving tokens (it kicks in hard when it's long text)
+		TODO: migrate this to use only backendNodeId + current SessionId
+		"""
 
-						# Pre-compute ordered keys that exist in both lists (faster than repeated lookups)
-						ordered_keys = [key for key in include_attributes if key in attributes_to_include]
+		# Get parent branch path
+		parent_branch_path = self._get_parent_branch_path()
+		parent_branch_path_string = '/'.join(parent_branch_path)
 
-						if len(ordered_keys) > 1:  # Only process if we have multiple attributes
-							keys_to_remove = set()  # Use set for O(1) lookups
-							seen_values = {}  # value -> first_key_with_this_value
+		# Get attributes hash
+		attributes_string = ''.join(f'{key}={value}' for key, value in self.attributes.items())
 
-							for key in ordered_keys:
-								value = attributes_to_include[key]
-								if len(value) > 5:  # to not remove false, true, etc
-									if value in seen_values:
-										# This value was already seen with an earlier key, so remove this key
-										keys_to_remove.add(key)
-									else:
-										# First time seeing this value, record it
-										seen_values[value] = key
+		# Combine both for final hash
+		combined_string = f'{parent_branch_path_string}|{attributes_string}'
+		element_hash = hashlib.sha256(combined_string.encode()).hexdigest()
 
-							# Remove duplicate keys (no need to check existence since we know they exist)
-							for key in keys_to_remove:
-								del attributes_to_include[key]
+		# Convert to int for __hash__ return type - use first 16 chars and convert from hex to int
+		return int(element_hash[:16], 16)
 
-						# Easy LLM optimizations
-						# if tag == role attribute, don't include it
-						if node.tag_name == attributes_to_include.get('role'):
-							del attributes_to_include['role']
+	def _get_parent_branch_path(self) -> list[str]:
+		"""Get the parent branch path as a list of tag names from root to current element."""
+		parents: list['EnhancedDOMTreeNode'] = []
+		current_element: 'EnhancedDOMTreeNode | None' = self
 
-						# Remove attributes that duplicate the node's text content
-						attrs_to_remove_if_text_matches = ['aria-label', 'placeholder', 'title']
-						for attr in attrs_to_remove_if_text_matches:
-							if (
-								attributes_to_include.get(attr)
-								and attributes_to_include.get(attr, '').strip().lower() == text.strip().lower()
-							):
-								del attributes_to_include[attr]
+		while current_element is not None:
+			if current_element.node_type == NodeType.ELEMENT_NODE:
+				parents.append(current_element)
+			current_element = current_element.parent_node
 
-						if attributes_to_include.items():
-							# Format as key1='value1' key2='value2'
-							attributes_html_str = ' '.join(
-								f'{key}={cap_text_length(value, 15)}' for key, value in attributes_to_include.items()
-							)
-
-					# Build the line
-					if node.is_new:
-						highlight_indicator = f'*[{node.highlight_index}]'
-
-					else:
-						highlight_indicator = f'[{node.highlight_index}]'
-
-					line = f'{depth_str}{highlight_indicator}<{node.tag_name}'
-
-					if attributes_html_str:
-						line += f' {attributes_html_str}'
-
-					if text:
-						# Add space before >text only if there were NO attributes added before
-						text = text.strip()
-						if not attributes_html_str:
-							line += ' '
-						line += f'>{text}'
-
-					# Add space before /> only if neither attributes NOR text were added
-					elif not attributes_html_str:
-						line += ' '
-
-					# makes sense to have if the website has lots of text -> so the LLM knows which things are part of the same clickable element and which are not
-					line += ' />'  # 1 token
-					formatted_text.append(line)
-
-				# Process children regardless
-				for child in node.children:
-					process_node(child, next_depth)
-
-			elif isinstance(node, DOMTextNode):
-				# Add text only if it doesn't have a highlighted parent
-				if node.has_parent_with_highlight_index():
-					return
-
-				if node.parent and node.parent.is_visible and node.parent.is_top_element:
-					formatted_text.append(f'{depth_str}{node.text}')
-
-		process_node(self, 0)
-		return '\n'.join(formatted_text)
+		parents.reverse()
+		return [parent.tag_name for parent in parents]
 
 
-SelectorMap = dict[int, DOMElementNode]
+DOMSelectorMap = dict[int, EnhancedDOMTreeNode]
 
 
 @dataclass
-class DOMState:
-	element_tree: DOMElementNode
-	selector_map: SelectorMap
+class SerializedDOMState:
+	_root: SimplifiedNode | None
+	"""Not meant to be used directly, use `llm_representation` instead"""
+
+	selector_map: DOMSelectorMap
+	timing_info: dict[str, Any] | None = None
+
+	def llm_representation(
+		self,
+		include_attributes: list[str] | None = None,
+	) -> str:
+		"""Kinda ugly, but leaving this as an internal method because include_attributes are a parameter on the agent, so we need to leave it as a 2 step process"""
+		from browser_use.dom.serializer.serializer import DOMTreeSerializer
+
+		if not self._root:
+			return 'Empty DOM tree'
+
+		include_attributes = include_attributes or DEFAULT_INCLUDE_ATTRIBUTES
+
+		return DOMTreeSerializer.serialize_tree(self._root, include_attributes)
+
+
+@dataclass
+class DOMInteractedElement:
+	"""
+	DOMInteractedElement is a class that represents a DOM element that has been interacted with.
+	It is used to store the DOM element that has been interacted with and to store the DOM element that has been interacted with.
+
+	TODO: this is a bit of a hack, we should probably have a better way to do this
+	"""
+
+	node_id: int
+	backend_node_id: int
+	frame_id: str | None
+
+	node_type: NodeType
+	node_value: str
+	node_name: str
+	attributes: dict[str, str] | None
+
+	bounds: DOMRect | None
+
+	x_path: str
+
+	element_hash: int
+
+	def to_dict(self) -> dict[str, Any]:
+		return {
+			'node_type': self.node_type.value,
+			'node_value': self.node_value,
+			'node_name': self.node_name,
+			'attributes': self.attributes,
+			'x_path': self.x_path,
+		}
+
+	@classmethod
+	def load_from_enhanced_dom_tree(cls, enhanced_dom_tree: EnhancedDOMTreeNode) -> 'DOMInteractedElement':
+		return cls(
+			node_id=enhanced_dom_tree.node_id,
+			backend_node_id=enhanced_dom_tree.backend_node_id,
+			frame_id=enhanced_dom_tree.frame_id,
+			node_type=enhanced_dom_tree.node_type,
+			node_value=enhanced_dom_tree.node_value,
+			node_name=enhanced_dom_tree.node_name,
+			attributes=enhanced_dom_tree.attributes,
+			bounds=enhanced_dom_tree.snapshot_node.bounds if enhanced_dom_tree.snapshot_node else None,
+			x_path=enhanced_dom_tree.xpath,
+			element_hash=hash(enhanced_dom_tree),
+		)

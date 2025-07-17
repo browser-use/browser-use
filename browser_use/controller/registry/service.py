@@ -48,7 +48,7 @@ class Registry(Generic[Context]):
 			'browser_session': BrowserSession,
 			'browser': BrowserSession,  # legacy name
 			'browser_context': BrowserSession,  # legacy name
-			'page': Page,
+			'page': Page,  # type: ignore
 			'page_extraction_llm': BaseChatModel,
 			'available_file_paths': list,
 			'has_sensitive_data': bool,

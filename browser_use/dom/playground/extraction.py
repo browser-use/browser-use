@@ -1,15 +1,13 @@
 import asyncio
-import json
 import os
 import time
 
 import anyio
-import pyperclip
-import tiktoken
 
 from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.types import ViewportSize
+from browser_use.dom.debug.highlights import inject_highlighting_script
 from browser_use.dom.service import DomService
 from browser_use.dom.views import DEFAULT_INCLUDE_ATTRIBUTES
 from browser_use.filesystem.file_system import FileSystem
@@ -27,52 +25,119 @@ async def test_focus_vs_all_elements():
 			wait_for_network_idle_page_load_time=1,
 			headless=False,
 		),
-		# playwright=patchright,
 	)
+	current_time = time.time()
 
+	# Unified website list with descriptions
 	websites = [
-		# 'https://demos.telerik.com/kendo-react-ui/treeview/overview/basic/func?theme=default-ocean-blue-a11y',
-		'https://google.com',
-		'https://www.ycombinator.com/companies',
-		'https://kayak.com/flights',
-		# 'https://en.wikipedia.org/wiki/Humanist_Party_of_Ontario',
-		# 'https://www.google.com/travel/flights?tfs=CBwQARoJagcIARIDTEpVGglyBwgBEgNMSlVAAUgBcAGCAQsI____________AZgBAQ&tfu=KgIIAw&hl=en-US&gl=US',
-		# # 'https://www.concur.com/?&cookie_preferences=cpra',
-		# 'https://immobilienscout24.de',
-		'https://docs.google.com/spreadsheets/d/1INaIcfpYXlMRWO__de61SHFCaqt1lfHlcvtXZPItlpI/edit',
-		'https://www.zeiss.com/career/en/job-search.html?page=1',
-		'https://www.mlb.com/yankees/stats/',
-		'https://www.amazon.com/s?k=laptop&s=review-rank&crid=1RZCEJ289EUSI&qid=1740202453&sprefix=laptop%2Caps%2C166&ref=sr_st_review-rank&ds=v1%3A4EnYKXVQA7DIE41qCvRZoNB4qN92Jlztd3BPsTFXmxU',
-		'https://reddit.com',
-		'https://codepen.io/geheimschriftstift/pen/mPLvQz',
-		'https://www.google.com/search?q=google+hi&oq=google+hi&gs_lcrp=EgZjaHJvbWUyBggAEEUYOTIGCAEQRRhA0gEIMjI2NmowajSoAgCwAgE&sourceid=chrome&ie=UTF-8',
-		'https://amazon.com',
-		'https://github.com',
+		# Standard websites with various interactive elements
+		('https://csreis.github.io/tests/cross-site-iframe.html', '🔸 IFRAME: Cross-site iframe'),
+		# ('https://www.linkedin.com/robots.txt', 'Professional network'),
+		# ('https://www.rent.com/', 'Rental listings'),
+		# ('https://www.espn.com', 'Sports news site'),
+		# ('https://www.eatsure.com/', 'Food delivery platform'),
+		# ('https://www.kayak.com/', 'Travel booking site'),
+		# ('https://web.archive.org/web/20200228210807/https://www.base-search.net/Search/Advanced', 'Archive search'),
+		# ('https://www.va.gov/find-locations', 'VA locations finder'),
+		('https://www.bbcgoodfood.com', 'Recipe website'),
+		# ('https://www.napaonline.com/', 'Auto parts store'),
+		# ('https://v0-simple-landing-page-seven-xi.vercel.app/', 'Simple landing page'),
+		# ('https://www.google.com/travel/flights', 'Flight search'),
+		# ('https://www.amazon.com/s?k=laptop', 'E-commerce search'),
+		# ('https://github.com/trending', 'Code repository'),
+		('https://www.reddit.com', 'Social platform'),
+		# ('https://www.ycombinator.com/companies', 'Startup directory'),
+		# ('https://www.kayak.com/flights', 'Flight booking'),
+		('https://www.booking.com', 'Hotel booking'),
+		('https://www.airbnb.com', 'Accommodation platform'),
+		('https://www.linkedin.com/jobs', 'Job listings'),
+		('https://stackoverflow.com/questions', 'Developer Q&A'),
+		# Complex/difficult websites with iframes
+		('https://www.w3schools.com/html/tryit.asp?filename=tryhtml_iframe', '🔸 IFRAME: W3Schools tryit editor'),
+		('https://semantic-ui.com/modules/dropdown.html', '🔸 COMPLEX DROPDOWNS'),
+		('https://www.dezlearn.com/nested-iframes-example/', '🔸 NESTED IFRAMES'),
+		('https://jqueryui.com/accordion/', '🔸 ACCORDION WIDGETS'),
+		('https://codepen.io/towc/pen/mJzOWJ', '🔸 CANVAS ELEMENTS'),
+		('https://www.unesco.org/en', '🔸 COMPLEX LAYOUT'),
+		# Additional iframe test cases
+		('https://www.w3schools.com/html/html_iframe.asp', '🔸 IFRAME: Basic iframe examples'),
+		('https://developer.mozilla.org/en-US/docs/Web/HTML/Element/iframe', '🔸 IFRAME: MDN iframe documentation'),
 	]
+
+	current_website_index = 0
+
+	def get_website_list_for_prompt() -> str:
+		"""Get a compact website list for the input prompt."""
+		lines = []
+		lines.append('📋 Websites:')
+
+		for i, (url, description) in enumerate(websites):
+			current_marker = ' ←' if i == current_website_index else ''
+			domain = url.replace('https://', '').split('/')[0]
+			# Truncate domain and description for clean display
+			domain_short = domain[:20]
+			desc_short = description[:25] if len(description) > 25 else description
+			lines.append(f'  {i + 1:2d}. {domain_short:<20} ({desc_short}){current_marker}')
+
+		return '\n'.join(lines)
 
 	await browser_session.start()
 	page = await browser_session.get_current_page()
-	dom_service = DomService(page)
 
-	for website in websites:
-		# sleep 2
-		await page.goto(website)
-		await asyncio.sleep(1)
+	# Show startup info
+	print('\n🌐 BROWSER-USE DOM EXTRACTION TESTER')
+	print(f'📊 {len(websites)} websites total')
+	print(f'🔧 Controls: Type 1-{len(websites)} to jump | Enter to re-run | "n" next | "p" previous | "q" quit')
+	print('💾 Outputs: tmp/user_message.txt & tmp/element_tree.json\n')
+
+	while True:
+		# Cycle through websites
+		if current_website_index >= len(websites):
+			current_website_index = 0
+			print('🔄 Cycled back to first website!')
+		elif current_website_index < 0:
+			current_website_index = len(websites) - 1
+			print('🔄 Cycled to last website!')
+
+		website_url, website_description = websites[current_website_index]
+		await page.goto(website_url)
 
 		last_clicked_index = None  # Track the index for text input
 		while True:
 			try:
-				print(f'\n{"=" * 50}\nTesting {website}\n{"=" * 50}')
+				page = await browser_session.get_current_page()
+				# async with DomService(browser_session, page) as dom_service:
+				# 	await remove_highlighting_script(dom_service)
 
-				# Get/refresh the state (includes removing old highlights)
+				print(f'\n{"=" * 60}')
+				print(f'[{current_website_index + 1}/{len(websites)}] Testing: {website_url}')
+				print(f'📝 {website_description}')
+				print(f'{"=" * 60}')
+
+				# Get/refresh the state (DOM extraction only, no highlights yet)
 				print('\nGetting page state...')
 
 				start_time = time.time()
-				all_elements_state = await browser_session.get_state_summary(True)
+				all_elements_state = await browser_session.get_state_summary(True, inject_highlights=False)
 				end_time = time.time()
-				print(f'get_state_summary took {end_time - start_time:.2f} seconds')
+				get_state_time = end_time - start_time
+				print(f'get_state_summary took {get_state_time:.2f} seconds')
 
-				selector_map = all_elements_state.selector_map
+				# Use timing info from the state summary
+				timing_info = getattr(all_elements_state.dom_state, 'timing_info', {})
+				all_timing = {'get_state_summary_total': get_state_time, **timing_info}
+
+				# Now inject highlights with the simple script
+				time_start_highlighting = time.time()
+
+				dom_service = DomService(browser_session)
+				await inject_highlighting_script(dom_service, all_elements_state.dom_state.selector_map)
+
+				time_end_highlighting = time.time()
+				highlighting_time = time_end_highlighting - time_start_highlighting
+				print(f'inject_highlighting_script took {highlighting_time:.2f} seconds')
+
+				selector_map = all_elements_state.dom_state.selector_map
 				total_elements = len(selector_map.keys())
 				print(f'Total number of elements: {total_elements}')
 
@@ -88,37 +153,123 @@ async def test_focus_vs_all_elements():
 
 				# clickable_elements_str = all_elements_state.element_tree.clickable_elements_to_string()
 
-				text_to_save = user_message
+				text_to_save = user_message  # all_elements_state.element_tree.clickable_elements_to_string() # user_message
 
 				os.makedirs('./tmp', exist_ok=True)
 				async with await anyio.open_file('./tmp/user_message.txt', 'w', encoding='utf-8') as f:
 					await f.write(text_to_save)
 
+				time_for_prompt = time.time() - time_end_highlighting
+				print(f'time_for_prompt took {time_for_prompt:.2f} seconds')
+
+				# Get cache statistics after processing
+				# cache_stats_after = ClickableElementDetector.get_cache_stats()
+
 				# save pure clickable elements to a file
-				async with await anyio.open_file('./tmp/element_tree.json', 'w', encoding='utf-8') as f:
-					await f.write(json.dumps(all_elements_state.element_tree.__json__(), indent=0))
+				# if all_elements_state.dom_state._root:
+				# 	async with await anyio.open_file('./tmp/element_tree.json', 'w', encoding='utf-8') as f:
+				# 		await f.write(json.dumps(all_elements_state.dom_state._root.__json__(), indent=2))
 
 				# copy the user message to the clipboard
 				# pyperclip.copy(text_to_save)
 
-				encoding = tiktoken.encoding_for_model('gpt-4o')
-				token_count = len(encoding.encode(text_to_save))
-				print(f'Token count: {token_count}')
+				# encoding = tiktoken.encoding_for_model('gpt-4o')
+				# token_count = len(encoding.encode(text_to_save))
+				# print(f'Token count: {token_count}')
 
-				print('User message written to ./tmp/user_message.txt')
-				print('Element tree written to ./tmp/element_tree.json')
+				# print('User message written to ./tmp/user_message.txt')
+				# print('Element tree written to ./tmp/element_tree.json')
 
-				# also save all_elements_state.element_tree.clickable_elements_to_string() to a file
-				# with open('./tmp/clickable_elements.json', 'w', encoding='utf-8') as f:
-				# 	f.write(json.dumps(all_elements_state.element_tree.__json__(), indent=2))
-				# print('Clickable elements written to ./tmp/clickable_elements.json')
+				# Save timing information
+				timing_text = '🔍 DOM EXTRACTION PERFORMANCE ANALYSIS\n'
+				timing_text += f'{"=" * 50}\n\n'
+				timing_text += f'📄 Website: {website_url}\n'
+				timing_text += f'📊 Total Elements: {total_elements}\n'
+				# timing_text += f'🎯 Token Count: {token_count}\n\n'
 
+				timing_text += '⏱️  TIMING BREAKDOWN:\n'
+				timing_text += f'{"─" * 30}\n'
+				# Show only actual timing data (exclude cache statistics)
+				major_components = [
+					'get_state_summary_total',
+					'cdp_calls_total',
+					'build_enhanced_dom_tree',
+					'create_simplified_tree',
+					'optimize_tree',
+					'calculate_paint_order',
+					'assign_interactive_indices',
+					'serialize_accessible_elements_total',
+					'serialize_dom_tree_total',
+				]
+
+				# Filter to major components only
+				for key in major_components:
+					if key in all_timing:
+						value = all_timing[key]
+						timing_text += f'{key:<35}: {value * 1000:>8.2f} ms\n'
+
+				# Calculate percentages only for actual timing data
+				total_time = all_timing.get('get_state_summary_total', 0)
+				if total_time > 0:
+					timing_text += '\n📈 PERCENTAGE BREAKDOWN:\n'
+					timing_text += f'{"─" * 30}\n'
+					for key in major_components:
+						if key in all_timing and key != 'get_state_summary_total':
+							value = all_timing[key]
+							percentage = (value / total_time) * 100
+							timing_text += f'{key:<35}: {percentage:>7.1f}%\n'
+
+				timing_text += '\n🎯 PERFORMANCE SUMMARY:\n'
+				timing_text += f'{"─" * 25}\n'
+				timing_text += f'Total elements found: {total_elements}\n'
+				timing_text += f'DOM processing time: {all_timing.get("build_enhanced_dom_tree", 0) * 1000:.1f} ms\n'
+				timing_text += f'Tree creation time: {all_timing.get("create_simplified_tree", 0) * 1000:.1f} ms\n'
+
+				# Add cache statistics
+				timing_text += '\n🗄️ CACHE PERFORMANCE:\n'
+				timing_text += f'{"─" * 25}\n'
+				# timing_text += f'Cache size: {cache_stats_after["cache_size"]}\n'
+				# timing_text += f'Interactive cached: {cache_stats_after["cached_interactive"]}\n'
+				# timing_text += f'Non-interactive cached: {cache_stats_after["cached_non_interactive"]}\n'
+				# timing_text += f'Current page hash: {cache_stats_after["current_page_hash"]}\n'
+
+				print(timing_text)
+
+				website_list = get_website_list_for_prompt()
+				print(f'Total time: {time.time() - current_time:.2f} seconds')
 				answer = input(
-					"Enter element index to click, 'index,text' to input, 'c,index' to copy element JSON, or 'q' to quit: "
+					f"\n{website_list}\n\n🎮 Enter: element index | 'index,text' input | 'c,index' copy | 1-{len(websites)} jump | Enter re-run | 'n' next | 'p' previous | 'q' quit: "
 				)
+				current_time = time.time()
 
 				if answer.lower() == 'q':
-					break
+					return  # Exit completely
+				elif answer.lower() == 'n':
+					print('➡️ Moving to next website...')
+					current_website_index += 1
+					break  # Break inner loop to go to next website
+				elif answer.lower() == 'p':
+					print('⬅️ Moving to previous website...')
+					current_website_index -= 1
+					break  # Break inner loop to go to previous website
+				elif answer.strip() == '':
+					print('🔄 Re-running extraction on current page state...')
+					continue  # Continue inner loop to re-extract DOM without reloading page
+				elif answer.strip().isdigit():
+					# Jump to specific website (1-N)
+					try:
+						target_website = int(answer.strip())
+						if 1 <= target_website <= len(websites):
+							current_website_index = target_website - 1  # Convert to 0-based index
+							target_url, target_desc = websites[current_website_index]
+							print(f'🎯 Jumping to website {target_website}: {target_url}')
+							print(f'📝 {target_desc}')
+							break  # Break inner loop to go to new website
+						else:
+							print(f'❌ Invalid website number. Enter 1-{len(websites)}.')
+					except ValueError:
+						print(f'❌ Invalid input: {answer}')
+					continue
 
 				try:
 					if answer.lower().startswith('c,'):
@@ -129,15 +280,15 @@ async def test_focus_vs_all_elements():
 								target_index = int(parts[1].strip())
 								if target_index in selector_map:
 									element_node = selector_map[target_index]
-									element_json = json.dumps(element_node.__json__(), indent=2, default=str)
-									pyperclip.copy(element_json)
-									print(f'Copied element {target_index} JSON to clipboard: {element_node.tag_name}')
+									# element_json = json.dumps(element_node.__json__(), indent=2, default=str)
+									# pyperclip.copy(element_json)
+									print(f'📋 Copied element {target_index} JSON to clipboard: {element_node.tag_name}')
 								else:
-									print(f'Invalid index: {target_index}')
+									print(f'❌ Invalid index: {target_index}')
 							except ValueError:
-								print(f'Invalid index format: {parts[1]}')
+								print(f'❌ Invalid index format: {parts[1]}')
 						else:
-							print("Invalid input format. Use 'c,index'.")
+							print("❌ Invalid input format. Use 'c,index'.")
 					elif ',' in answer:
 						# Input text format: index,text
 						parts = answer.split(',', 1)
@@ -148,37 +299,37 @@ async def test_focus_vs_all_elements():
 								if target_index in selector_map:
 									element_node = selector_map[target_index]
 									print(
-										f"Inputting text '{text_to_input}' into element {target_index}: {element_node.tag_name}"
+										f"⌨️ Inputting text '{text_to_input}' into element {target_index}: {element_node.tag_name}"
 									)
 									await browser_session._input_text_element_node(element_node, text_to_input)
-									print('Input successful.')
+									print('✅ Input successful.')
 								else:
-									print(f'Invalid index: {target_index}')
+									print(f'❌ Invalid index: {target_index}')
 							except ValueError:
-								print(f'Invalid index format: {parts[0]}')
+								print(f'❌ Invalid index format: {parts[0]}')
 						else:
-							print("Invalid input format. Use 'index,text'.")
+							print("❌ Invalid input format. Use 'index,text'.")
 					else:
 						# Click element format: index
 						try:
 							clicked_index = int(answer)
 							if clicked_index in selector_map:
 								element_node = selector_map[clicked_index]
-								print(f'Clicking element {clicked_index}: {element_node.tag_name}')
+								print(f'👆 Clicking element {clicked_index}: {element_node.tag_name}')
 								await browser_session._click_element_node(element_node)
-								print('Click successful.')
+								print('✅ Click successful.')
 							else:
-								print(f'Invalid index: {clicked_index}')
+								print(f'❌ Invalid index: {clicked_index}')
 						except ValueError:
-							print(f"Invalid input: '{answer}'. Enter an index, 'index,text', 'c,index', or 'q'.")
+							print(f"❌ Invalid input: '{answer}'. Enter an index, 'index,text', 'c,index', or 'q'.")
 
 				except Exception as action_e:
-					print(f'Action failed: {action_e}')
+					print(f'❌ Action failed: {action_e}')
 
 			# No explicit highlight removal here, get_state handles it at the start of the loop
 
 			except Exception as e:
-				print(f'Error in loop: {e}')
+				print(f'❌ Error in loop: {e}')
 				# Optionally add a small delay before retrying
 				await asyncio.sleep(1)
 

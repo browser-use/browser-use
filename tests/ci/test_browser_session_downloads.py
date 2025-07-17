@@ -54,8 +54,8 @@ async def test_download_detection_timing(test_server, tmp_path):
 
 	# Find the button element
 	button_node = None
-	for elem in state.selector_map.values():
-		if elem.tag_name == 'button' and elem.attributes.get('id') == 'test-button':
+	for elem in state.dom_state.selector_map.values():
+		if elem.node_name == 'button' and elem.attributes.get('id') == 'test-button':
 			button_node = elem
 			break
 
@@ -94,8 +94,8 @@ async def test_download_detection_timing(test_server, tmp_path):
 
 	# Find the button element again
 	button_node = None
-	for elem in state.selector_map.values():
-		if elem.tag_name == 'button' and elem.attributes.get('id') == 'test-button':
+	for elem in state.dom_state.selector_map.values():
+		if elem.node_name == 'button' and elem.attributes.get('id') == 'test-button':
 			button_node = elem
 			break
 
@@ -145,8 +145,8 @@ async def test_actual_download_detection(test_server, tmp_path):
 
 	# Find the download link element
 	download_node = None
-	for elem in state.selector_map.values():
-		if elem.tag_name == 'a' and 'download' in elem.attributes:
+	for elem in state.dom_state.selector_map.values():
+		if elem.node_name == 'a' and 'download' in elem.attributes:
 			download_node = elem
 			break
 
