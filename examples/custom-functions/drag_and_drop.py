@@ -9,38 +9,28 @@ making it useful for canvas drawing, sortable lists, sliders, file uploads, and 
 import asyncio
 from typing import cast
 
-from playwright.async_api import ElementHandle, Page
 from pydantic import BaseModel, Field
 
 from browser_use import ActionResult, Agent, Controller
+from browser_use.browser.session import BrowserSession
+from browser_use.browser.types import Page
 from browser_use.llm import ChatOpenAI
 
 
-class Position(BaseModel):
-	"""Represents a position with x and y coordinates."""
-
-	x: int = Field(..., description='X coordinate')
-	y: int = Field(..., description='Y coordinate')
-
-
 class DragDropAction(BaseModel):
-	"""Parameters for drag and drop operations."""
+	# Index-based approach (preferred)
+	source_index: int | None = Field(default=None, description='Index of the element to drag from')
+	target_index: int | None = Field(default=None, description='Index of the element to drop onto')
 
-	# Element-based approach
-	element_source: str | None = Field(None, description='CSS selector or XPath for the source element to drag')
-	element_target: str | None = Field(None, description='CSS selector or XPath for the target element to drop on')
-	element_source_offset: Position | None = Field(None, description='Optional offset from source element center (x, y)')
-	element_target_offset: Position | None = Field(None, description='Optional offset from target element center (x, y)')
+	# Coordinate-based approach (used if indices not provided)
+	coord_source_x: int | None = Field(default=None, description='Source X coordinate for drag start')
+	coord_source_y: int | None = Field(default=None, description='Source Y coordinate for drag start')
+	coord_target_x: int | None = Field(default=None, description='Target X coordinate for drag end')
+	coord_target_y: int | None = Field(default=None, description='Target Y coordinate for drag end')
 
-	# Coordinate-based approach
-	coord_source_x: int | None = Field(None, description='Source X coordinate for drag start')
-	coord_source_y: int | None = Field(None, description='Source Y coordinate for drag start')
-	coord_target_x: int | None = Field(None, description='Target X coordinate for drag end')
-	coord_target_y: int | None = Field(None, description='Target Y coordinate for drag end')
-
-	# Operation parameters
-	steps: int | None = Field(10, description='Number of intermediate steps during drag (default: 10)')
-	delay_ms: int | None = Field(5, description='Delay in milliseconds between steps (default: 5)')
+	# Common options
+	steps: int | None = Field(default=10, description='Number of intermediate steps during drag (default: 10)')
+	delay_ms: int | None = Field(default=5, description='Delay in milliseconds between steps (default: 5)')
 
 
 async def create_drag_drop_controller() -> Controller:
@@ -48,85 +38,13 @@ async def create_drag_drop_controller() -> Controller:
 	controller = Controller()
 
 	@controller.registry.action(
-		'Drag and drop elements or between coordinates on the page - useful for canvas drawing, sortable lists, sliders, file uploads, and UI rearrangement',
+		'Drag and drop elements or between coordinates on the page - useful for canvas drawing, sortable lists, sliders, and UI rearrangement',
 		param_model=DragDropAction,
 	)
-	async def drag_drop(params: DragDropAction, page: Page) -> ActionResult:
+	async def drag_drop(params: DragDropAction, browser_session: BrowserSession) -> ActionResult:
 		"""
 		Performs a precise drag and drop operation between elements or coordinates.
 		"""
-
-		async def get_drag_elements(
-			page: Page,
-			source_selector: str,
-			target_selector: str,
-		) -> tuple[ElementHandle | None, ElementHandle | None]:
-			"""Get source and target elements with appropriate error handling."""
-			source_element = None
-			target_element = None
-
-			try:
-				# page.locator() auto-detects CSS and XPath
-				source_locator = page.locator(source_selector)
-				target_locator = page.locator(target_selector)
-
-				# Check if elements exist
-				source_count = await source_locator.count()
-				target_count = await target_locator.count()
-
-				if source_count > 0:
-					source_element = await source_locator.first.element_handle()
-					print(f'Found source element with selector: {source_selector}')
-				else:
-					print(f'Source element not found: {source_selector}')
-
-				if target_count > 0:
-					target_element = await target_locator.first.element_handle()
-					print(f'Found target element with selector: {target_selector}')
-				else:
-					print(f'Target element not found: {target_selector}')
-
-			except Exception as e:
-				print(f'Error finding elements: {str(e)}')
-
-			return source_element, target_element
-
-		async def get_element_coordinates(
-			source_element: ElementHandle,
-			target_element: ElementHandle,
-			source_position: Position | None,
-			target_position: Position | None,
-		) -> tuple[tuple[int, int] | None, tuple[int, int] | None]:
-			"""Get coordinates from elements with appropriate error handling."""
-			source_coords = None
-			target_coords = None
-
-			try:
-				# Get source coordinates
-				if source_position:
-					source_coords = (source_position.x, source_position.y)
-				else:
-					source_box = await source_element.bounding_box()
-					if source_box:
-						source_coords = (
-							int(source_box['x'] + source_box['width'] / 2),
-							int(source_box['y'] + source_box['height'] / 2),
-						)
-
-				# Get target coordinates
-				if target_position:
-					target_coords = (target_position.x, target_position.y)
-				else:
-					target_box = await target_element.bounding_box()
-					if target_box:
-						target_coords = (
-							int(target_box['x'] + target_box['width'] / 2),
-							int(target_box['y'] + target_box['height'] / 2),
-						)
-			except Exception as e:
-				print(f'Error getting element coordinates: {str(e)}')
-
-			return source_coords, target_coords
 
 		async def execute_drag_operation(
 			page: Page,
@@ -186,30 +104,37 @@ async def create_drag_drop_controller() -> Controller:
 			steps = max(1, params.steps or 10)
 			delay_ms = max(0, params.delay_ms or 5)
 
-			# Case 1: Element selectors provided
-			if params.element_source and params.element_target:
-				print('Using element-based approach with selectors')
+			page = await browser_session.get_current_page()
+			selector_map = await browser_session.get_selector_map()
 
-				source_element, target_element = await get_drag_elements(
-					page,
-					params.element_source,
-					params.element_target,
-				)
+			# Case 1: Index-based approach (preferred)
+			if params.source_index is not None and params.target_index is not None:
+				if params.source_index not in selector_map:
+					raise Exception(f'Source element index {params.source_index} does not exist.')
+				if params.target_index not in selector_map:
+					raise Exception(f'Target element index {params.target_index} does not exist.')
 
-				if not source_element or not target_element:
-					error_msg = f'Failed to find {"source" if not source_element else "target"} element'
-					return ActionResult(error=error_msg, include_in_memory=True)
+				source_dom = selector_map[params.source_index]
+				target_dom = selector_map[params.target_index]
 
-				source_coords, target_coords = await get_element_coordinates(
-					source_element, target_element, params.element_source_offset, params.element_target_offset
-				)
+				# Get elements using xpath from dom nodes
+				source_element = await browser_session.get_locate_element_by_xpath(source_dom.xpath)
+				target_element = await browser_session.get_locate_element_by_xpath(target_dom.xpath)
 
-				if not source_coords or not target_coords:
-					error_msg = f'Failed to determine {"source" if not source_coords else "target"} coordinates'
-					return ActionResult(error=error_msg, include_in_memory=True)
+				assert source_element is not None, f'Could not locate source element with index {params.source_index}'
+				assert target_element is not None, f'Could not locate target element with index {params.target_index}'
 
-				source_x, source_y = source_coords
-				target_x, target_y = target_coords
+				# Get source coordinates
+				source_box = await source_element.bounding_box()
+				assert source_box is not None, f'Could not get bounding box for source element {params.source_index}'
+				source_x = int(source_box['x'] + source_box['width'] / 2)
+				source_y = int(source_box['y'] + source_box['height'] / 2)
+
+				# Get target coordinates
+				target_box = await target_element.bounding_box()
+				assert target_box is not None, f'Could not get bounding box for target element {params.target_index}'
+				target_x = int(target_box['x'] + target_box['width'] / 2)
+				target_y = int(target_box['y'] + target_box['height'] / 2)
 
 			# Case 2: Coordinates provided directly
 			elif all(
@@ -221,14 +146,10 @@ async def create_drag_drop_controller() -> Controller:
 				source_y = params.coord_source_y
 				target_x = params.coord_target_x
 				target_y = params.coord_target_y
-			else:
-				error_msg = 'Must provide either source/target selectors or source/target coordinates'
-				return ActionResult(error=error_msg, include_in_memory=True)
 
-			# Validate coordinates
-			if any(coord is None for coord in [source_x, source_y, target_x, target_y]):
-				error_msg = 'Failed to determine source or target coordinates'
-				return ActionResult(error=error_msg, include_in_memory=True)
+			# Case 3: Invalid parameters
+			else:
+				raise Exception('Must provide either source/target indices or source/target coordinates')
 
 			# Perform the drag operation
 			success, message = await execute_drag_operation(
@@ -246,8 +167,8 @@ async def create_drag_drop_controller() -> Controller:
 				return ActionResult(error=message, include_in_memory=True)
 
 			# Create descriptive message
-			if params.element_source and params.element_target:
-				msg = f"🖱️ Dragged element '{params.element_source}' to '{params.element_target}'"
+			if params.source_index is not None and params.target_index is not None:
+				msg = f"🖱️ Dragged element '{params.source_index}' to '{params.target_index}'"
 			else:
 				msg = f'🖱️ Dragged from ({source_x}, {source_y}) to ({target_x}, {target_y})'
 
@@ -308,7 +229,7 @@ if __name__ == '__main__':
 	print('1. Sortable list drag and drop')
 	print('2. Coordinate-based drawing')
 
-	choice = input('Enter choice (1-3): ').strip()
+	choice = input('Enter choice (1-2): ').strip()
 
 	if choice == '1':
 		asyncio.run(example_drag_drop_sortable_list())
