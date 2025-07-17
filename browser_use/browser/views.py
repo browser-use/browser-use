@@ -3,8 +3,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from browser_use.dom.history_tree_processor.service import DOMHistoryElement
-from browser_use.dom.views import DOMState
+from browser_use.dom.views import DOMInteractedElement, SerializedDOMState
 
 
 # Pydantic
@@ -42,12 +41,11 @@ class PageInfo(BaseModel):
 
 
 @dataclass
-class BrowserStateSummary(DOMState):
+class BrowserStateSummary:
 	"""The summary of the browser's current state designed for an LLM to process"""
 
-	# provided by DOMState:
-	# element_tree: DOMElementNode
-	# selector_map: SelectorMap
+	# provided by SerializedDOMState:
+	dom_state: SerializedDOMState
 
 	url: str
 	title: str
@@ -68,7 +66,7 @@ class BrowserStateHistory:
 	url: str
 	title: str
 	tabs: list[TabInfo]
-	interacted_element: list[DOMHistoryElement | None] | list[None]
+	interacted_element: list[DOMInteractedElement | None] | list[None]
 	screenshot: str | None = None
 
 	def to_dict(self) -> dict[str, Any]:
