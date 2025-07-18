@@ -98,10 +98,11 @@ class ExperienceRetriever:
 				if similarity >= self.similarity_threshold:
 					similarities.append({
 						"similarity": similarity,
-						"step_number": historical["step_number"],
 						"action": historical["action"],
 						"score": historical["score"],
-						"reasoning": historical["reasoning"]
+						"reasoning": historical["reasoning"],
+						"situation": historical.get("situation", ""),
+						"thinking": historical.get("thinking", "")
 					})
 			
 			# Sort by similarity and return top-k
@@ -110,7 +111,7 @@ class ExperienceRetriever:
 			
 			if result:
 				logger.info(f"🔍 Experience search: Found {len(result)} similar states (threshold: {self.similarity_threshold})")
-				logger.info(f"   Best match: similarity={result[0]['similarity']:.3f}, score={result[0]['score']}/5")
+				logger.info(f"   Best match: similarity={result[0]['similarity']:.3f}, score={result[0]['score']}/10")
 			else:
 				logger.debug(f"No similar states found above threshold {self.similarity_threshold}")
 			
@@ -157,52 +158,36 @@ Scroll Position: {pixels_above} pixels above, {pixels_below} pixels below
 		return float(dot_product / (norm1 * norm2))
 	
 	def format_experience_message(self, similar_states: List[dict]) -> str:
-		"""Format experience suggestions as a message for LLM"""
+		"""Format historical experience data for the agent"""
 		if not similar_states:
 			return ""
 		
-		message = "📚 Based on historical experience:\n\n"
+		message = "### Historical Experience from Similar States:\n\n"
 		
-		# Recommended high-score actions
-		high_score_actions = [s for s in similar_states if s['score'] >= 4]
-		if high_score_actions:
-			message += "🟢 Recommended actions (high score history):\n"
-			for state in high_score_actions[:3]:  # Top 3 recommendations
-				action = state['action'][0] if state['action'] else {}
-				if action:
-					# Check if it's old format with 'action_type'
-					if 'action_type' in action:
-						continue  # Skip old format entries
-					
-					action_name = list(action.keys())[0]
-					action_params = action.get(action_name, {})
-					
-					# Format action parameters nicely
-					if action_params:
-						params_str = json.dumps(action_params, ensure_ascii=False)
-					else:
-						params_str = "no parameters"
-					
-					message += f"- {action_name}: {params_str} "
-					message += f"(similarity: {state['similarity']:.3f}, historical score: {state['score']}/5)\n"
-					reason = state['reasoning'][:100].replace('\n', ' ')
-					message += f"  Reason: {reason}\n"
+		for i, state in enumerate(similar_states, 1):
+			action = state['action'][0] if state['action'] else {}
+			if not action:
+				continue
+			
+			action_name = list(action.keys())[0]
+			action_params = action.get(action_name, {})
+			
+			# Get the fields
+			situation = state.get('situation', '')
+			thinking = state.get('thinking', '')
+			score = state.get('score', 0)
+			reasoning = state.get('reasoning', '')
+			
+			message += f"**{i}. Similarity: {state['similarity']:.2f}**\n"
+			message += f"- **Situation**: {situation}\n"
+			message += f"- **Action and intention**: {action_name}"
+			if action_params:
+				message += f" with {json.dumps(action_params, ensure_ascii=False)}"
+			if thinking:
+				message += f" - {thinking}"
+			message += f"\n- **Comment**: Score {score}/5, {reasoning}\n\n"
 		
-		# Actions to avoid (low scores)
-		low_score_actions = [s for s in similar_states if s['score'] <= 0]
-		if low_score_actions:
-			message += "\n🔴 Avoid actions (low score history):\n"
-			for state in low_score_actions[:2]:  # Top 2 to avoid
-				action = state['action'][0] if state['action'] else {}
-				if action:
-					action_name = list(action.keys())[0]
-					message += f"- {action_name} "
-					message += f"(historical score: {state['score']}/5)\n"
-					reason = state['reasoning'][:100].replace('\n', ' ')
-					message += f"  Failure reason: {reason}\n"
-		
-		message += "\nConsider this experience while analyzing the current state.\n"
-		return message
+		return message.strip()
 	
 	def is_available(self) -> bool:
 		"""Check if experience retrieval is available"""
