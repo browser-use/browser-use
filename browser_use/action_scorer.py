@@ -21,19 +21,39 @@ def create_scoring_prompt() -> str:
 	"""Create the system prompt for action scoring"""
 	return """You are an expert evaluator for browser automation tasks. Your job is to analyze the complete task execution and score each step based on its contribution to the overall success.
 
-EVALUATION APPROACH:
-1. First understand the complete task flow from start to finish
-2. Identify key decision points, breakthroughs, and setbacks
-3. Evaluate each step's value within the full context
-4. Consider how each step enables or hinders subsequent steps
-5. Score from -10 to +10 based on overall contribution to task completion
+SCORING SCALE (-5 to +5):
 
-SCORING PHILOSOPHY:
-- Steps are interconnected - evaluate their role in the complete strategy
-- Early steps that enable later success deserve credit
-- Steps that waste time or lead to dead ends should be penalized
-- Key breakthrough moments that solve the core problem deserve highest scores
-- Consider both immediate effects and long-term consequences
+HIGH SCORES (+4 to +5):
++5: Perfect action - Directly solves core problem or achieves main objective
++4: Excellent action - Major breakthrough or critical progress toward goal
+
+MEDIUM SCORES (+1 to +3):
++3: Good action - Clear positive progress with meaningful advancement
++2: Useful action - Reasonable and correct step, standard navigation
++1: Minor help - Small progress, setup actions, or gathering needed information
+
+NEUTRAL SCORE (0):
+0: No impact - Action neither helps nor hinders (exploration, neutral attempts)
+
+NEGATIVE SCORES (-1 to -5):
+-1: Minor waste - Unnecessary but harmless action, slight inefficiency
+-2: Inefficient action - Wastes time/resources, better option was available
+-3: Wrong action - Clear mistake, moves away from goal
+-4: Harmful action - Creates new problems or significant setback
+-5: Critical failure - Severely hinders progress or causes major issues
+
+EVALUATION CRITERIA:
+1. **Direct contribution to task completion**: Does this action move closer to the goal?
+2. **Efficiency and necessity**: Was this the right action at the right time?
+3. **Impact on subsequent steps**: Did this enable or hinder future actions?
+4. **Appropriateness for browser state**: Was this action suitable for the current page/situation?
+5. **Alignment with task objective**: Does this action serve the overall purpose?
+
+CONSISTENCY REQUIREMENTS:
+- Apply the same scoring standards throughout the entire session
+- Consider the full context when evaluating each step
+- Be objective and focus on measurable progress toward the goal
+- Justify each score with specific reasoning
 
 IMPORTANT: You must respond with valid JSON format only. Do not include any markdown formatting, explanations, or additional text. Your response must be a single JSON object that can be parsed directly."""
 
@@ -72,14 +92,25 @@ ACTIONS: {json.dumps(agent_response.get('action', []), indent=2)}
 	prompt = f"""
 TASK: {task_context}
 
-Analyze the complete execution sequence below. Understand the full journey from start to finish, then score each step based on its contribution to the overall task success.
+Analyze the complete execution sequence below. Follow this evaluation process:
 
-Consider:
-- How did the overall strategy unfold?
-- Which steps were crucial breakthroughs?
-- Which steps wasted time or created problems?
-- How do early decisions impact later success?
-- What was the turning point that led to completion?
+1. **UNDERSTAND THE FULL JOURNEY**: Read through all steps to understand the complete task flow
+2. **IDENTIFY KEY MOMENTS**: Find breakthrough moments, setbacks, and turning points
+3. **APPLY SCORING STANDARDS**: Use the exact scoring scale provided in the system prompt
+4. **JUSTIFY EACH SCORE**: Explain how each step contributed to or hindered task success
+
+EVALUATION QUESTIONS FOR EACH STEP:
+- Does this action directly advance the task goal?
+- Is this the most efficient action for the current situation?
+- Does this action enable or hinder subsequent steps?
+- Is this action appropriate for the current browser state?
+- How well does this action align with the overall task objective?
+
+FOR THE SITUATION FIELD:
+- Describe the page/form the agent was on
+- Mention key elements visible (buttons, forms, links)
+- Keep it concise and self-contained (1-2 sentences)
+- Focus on what's relevant to understanding the action context
 
 COMPLETE EXECUTION SEQUENCE:
 {all_steps_info}
@@ -87,22 +118,31 @@ COMPLETE EXECUTION SEQUENCE:
 Provide your analysis in JSON format:
 
 {{
-  "task_analysis": "<overall_strategy_analysis>Your comprehensive analysis of execution flow, key decisions, and turning points</overall_strategy_analysis>",
+  "task_analysis": "Your comprehensive analysis of the execution flow, key decisions, and turning points. Identify the overall strategy and critical moments.",
   "step_scores": [
     {{
       "step_number": 1,
-      "score": <integer_score_-10_to_10>,
-      "reasoning": "<contribution_analysis>Explain how this specific step contributed to or hindered the overall task success</contribution_analysis>"
+      "score": <integer_score_-5_to_5>,
+      "reasoning": "Explain specifically how this step contributed to or hindered overall task success. Reference the scoring criteria.",
+      "situation": "A concise description of the DOM state at this step (what page/form/content was visible, key elements available)"
     }},
     {{
       "step_number": 2,
-      "score": <integer_score_-10_to_10>,
-      "reasoning": "<contribution_analysis>Explain how this specific step contributed to or hindered the overall task success</contribution_analysis>"
+      "score": <integer_score_-5_to_5>,
+      "reasoning": "Explain specifically how this step contributed to or hindered overall task success. Reference the scoring criteria.",
+      "situation": "A concise description of the DOM state at this step (what page/form/content was visible, key elements available)"
     }}
   ]
 }}
 
-Score all {len(steps_data)} steps considering their role in the complete task flow.
+SCORING REMINDER:
+- +4 to +5: Major breakthroughs/direct goal achievement
+- +1 to +3: Positive progress/useful actions
+- 0: Neutral/no impact
+- -1 to -3: Waste/mistakes/wrong direction
+- -4 to -5: Harmful/severe setbacks
+
+Score all {len(steps_data)} steps with consistent standards.
 """
 	
 	messages = [
@@ -115,21 +155,58 @@ Score all {len(steps_data)} steps considering their role in the complete task fl
 		response = llm.invoke(messages)
 		print(f"✓ Received response from LLM")
 		
-		# Parse JSON response directly
-		score_data = json.loads(response.content)
+		# Parse JSON response, handling possible markdown formatting
+		content = response.content.strip()
 		
-		# Convert to the expected format
+		# Check if the response is wrapped in markdown code blocks
+		if content.startswith('```json'):
+			# Extract JSON from markdown code block
+			content = content[7:]  # Remove ```json
+			if content.endswith('```'):
+				content = content[:-3]  # Remove closing ```
+		elif content.startswith('```'):
+			# Handle case where it's just ```
+			content = content[3:]
+			if content.endswith('```'):
+				content = content[:-3]
+		
+		# Parse the cleaned content
+		score_data = json.loads(content.strip())
+		
+		# Validate the response structure
+		if 'step_scores' not in score_data:
+			raise ValueError("Missing 'step_scores' in LLM response")
+		
+		# Convert to the expected format and validate scores
 		results = []
 		task_analysis = score_data.get('task_analysis', '')
 		
 		for step_score in score_data.get('step_scores', []):
+			step_num = step_score.get('step_number')
+			score = step_score.get('score')
+			reasoning = step_score.get('reasoning', '')
+			situation = step_score.get('situation', '')
+			
+			# Validate score is within expected range
+			if score is None or not isinstance(score, (int, float)):
+				print(f"⚠️ Warning: Invalid score for step {step_num}: {score}")
+				score = 0  # Default to neutral score
+			elif score < -5 or score > 5:
+				print(f"⚠️ Warning: Score {score} for step {step_num} is outside -5 to +5 range")
+				score = max(-5, min(5, score))  # Clamp to valid range
+			
 			results.append({
-				'step_number': step_score['step_number'],
+				'step_number': step_num,
 				'scores': {
-					'step_score': step_score['score'],
-					'overall_reasoning': step_score['reasoning']
+					'step_score': int(score),  # Ensure integer
+					'overall_reasoning': reasoning,
+					'situation': situation
 				}
 			})
+		
+		# Validate we got scores for all steps
+		if len(results) != len(steps_data):
+			print(f"⚠️ Warning: Got {len(results)} scores but expected {len(steps_data)}")
 		
 		# Add task analysis to the first result only (not duplicated in each step)
 		if results:
@@ -192,7 +269,7 @@ def score_all_actions(
 	
 	# Save results
 	if output_path is None:
-		output_path = json_path.replace('.json', '_scored1.json')
+		output_path = json_path.replace('.json', '_scored.json')
 	elif output_path and not output_path.endswith('.json'):
 		from pathlib import Path
 		output_dir = Path(output_path)
@@ -233,13 +310,13 @@ def main():
 	parser = argparse.ArgumentParser(description='Score browser automation actions')
 	parser.add_argument('json_file', nargs='?', help='Path to the session JSON file')
 	parser.add_argument('--output', '-o', help='Output file path')
-	parser.add_argument('--model', default='openai/gpt-4.1-mini', help='LLM model to use for scoring')
+	parser.add_argument('--model', default='google/gemini-2.5-pro', help='LLM model to use for scoring')
 	parser.add_argument('--api-key', help='OpenAI API key')
 	
 	args = parser.parse_args()
 	
 
-	json_file = r"D:\supie\202506\browser-use-RL\json_logs\google_search_20250625_170919.json"
+	json_file = r"D:\supie\202506\browser-use-RL\json_logs\obsidian_20250626_144509_350746.json"
 	output_file = r"D:\supie\202506\browser-use-RL\score_json"
 	model_name = args.model
 	
@@ -276,15 +353,7 @@ def main():
 		# Fallback to command line or environment
 		api_key = args.api_key or os.getenv('OPENAI_API_KEY')
 		base_url = os.getenv('OPENAI_BASE_URL', 'https://api.openai.com/v1')
-		if not api_key:
-			print("Please either:")
-			print("1. Create api_key.py with OpenAI_API_KEY and OPENAI_BASE_URL")
-			print("2. Set OPENAI_API_KEY environment variable") 
-			print("3. Use --api-key parameter")
-			return
-	except Exception as e:
-		print(f"Error loading from api_key.py: {e}")
-		return
+
 	
 	# Initialize LLM
 	try:
@@ -294,8 +363,8 @@ def main():
 			temperature=0,
 			api_key=api_key,
 			base_url=base_url,
-			max_tokens=None,  # 无token限制
-			timeout=300  # 5分钟超时
+			max_tokens=None,
+			timeout=300
 		)
 		print(f"✓ Initialized {model_name} with base_url: {base_url}")
 	except ImportError:
@@ -305,8 +374,7 @@ def main():
 	except Exception as e:
 		print(f"Error initializing LLM: {e}")
 		return
-	
-	# Score actions
+
 	try:
 		score_all_actions(json_file, llm, output_file)
 	except Exception as e:
