@@ -98,6 +98,8 @@ def process_with_original_data(scored_path: str, original_sessions_path: str, ou
             "action": original_step['agent_response']['action'],
             "score": step.get('scores', {}).get('step_score', 0),
             "reasoning": step.get('scores', {}).get('overall_reasoning', ''),
+            "situation": step.get('scores', {}).get('situation', ''),
+            "thinking": original_step['agent_response'].get('thinking', ''),
             "state_text": state_text
         })
     
@@ -118,7 +120,9 @@ def process_with_original_data(scored_path: str, original_sessions_path: str, ou
             "state_embedding": embedding_obj.embedding,
             "action": step_data["action"],
             "score": step_data["score"],
-            "reasoning": step_data["reasoning"]
+            "reasoning": step_data["reasoning"],
+            "situation": step_data["situation"],  # 添加situation字段到输出
+            "thinking": step_data["thinking"]  # 添加thinking字段到输出
         })
     
     # Save output
@@ -167,7 +171,7 @@ def main():
     # Generate output filename based on input file
     input_filename = Path(scored_file).stem
     output_file = output_dir / f"{input_filename}_embeddings.json"
-    
+
     # Create embeddings
     try:
         process_with_original_data(scored_file, original_file, output_file)
