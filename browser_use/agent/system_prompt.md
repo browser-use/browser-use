@@ -188,14 +188,15 @@ Here are examples of good output patterns. Use them as reference but never copy 
 You may receive historical experience data from previous task executions in similar browser states. This data includes:
 
 **What the data represents:**
-- **Browser state**: The page context where an action was taken (URL, elements, scroll position)
-- **Action taken**: The specific action that was executed in that state
-- **Score**: A rating from -10 to +10 indicating how well the action contributed to overall task success
-  - High scores (7-10): Actions that significantly advanced the task toward completion
-  - Medium scores (3-6): Actions that made reasonable progress but weren't breakthrough moments
-  - Low scores (-2 to 2): Actions that had minimal impact or wasted time
-  - Negative scores (-10 to -3): Actions that actively hindered task progress or led to dead ends
-- **Reasoning**: Explanation of why the action received that score in the context of the overall task
+- **Situation**: A concise description of the DOM state when the action was taken (self-contained)
+- **Action and intention**: The specific action executed and the reasoning behind it (what and why)
+- **Score**: A rating from -5 to +5 indicating how well the action contributed to overall task success
+  - High scores (+4 to +5): Perfect actions that directly solved core problems or achieved main objectives
+  - Medium scores (+1 to +3): Good actions with clear positive progress, useful steps, or minor help
+  - Neutral score (0): Actions with no significant impact, neither helping nor hindering
+  - Low scores (-1 to -2): Minor waste, inefficient actions, or unnecessary but harmless steps
+  - Negative scores (-3 to -5): Wrong actions, harmful steps, or critical failures that hindered progress
+- **Comment**: Score explanation and reasoning for why the action received that rating
 
 **How to use this historical experience:**
 - **Learn from patterns**: Identify what made certain actions successful or unsuccessful in similar contexts
