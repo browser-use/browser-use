@@ -27,7 +27,7 @@ import logging
 import time
 from typing import Any
 
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from browser_use.agent.views import ActionResult
 from browser_use.controller.registry.service import Registry
@@ -261,13 +261,18 @@ class MCPClient:
 
 			for param_name, param_schema in properties.items():
 				# Convert JSON Schema type to Python type
-				param_type = self._json_schema_to_python_type(param_schema)
+				param_type = self._json_schema_to_python_type(param_schema, f'{action_name}_{param_name}')
 
-				# Determine if field is required
+				# Determine if field is required and handle defaults
 				if param_name in required:
 					default = ...  # Required field
 				else:
-					default = param_schema.get('default', None)
+					# Optional field - make type optional and handle default
+					param_type = param_type | None
+					if 'default' in param_schema:
+						default = param_schema['default']
+					else:
+						default = None
 
 				# Add field with description if available
 				field_kwargs = {}
@@ -278,7 +283,11 @@ class MCPClient:
 
 		# Create Pydantic model for the tool parameters
 		if param_fields:
-			param_model = create_model(f'{action_name}_Params', __base__=BaseModel, **param_fields)
+			# Create a BaseModel class with proper configuration
+			class ConfiguredBaseModel(BaseModel):
+				model_config = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
+
+			param_model = create_model(f'{action_name}_Params', __base__=ConfiguredBaseModel, **param_fields)
 		else:
 			# No parameters - create empty model
 			param_model = None
@@ -304,7 +313,7 @@ class MCPClient:
 					return ActionResult(error=f"MCP server '{self.server_name}' not connected", success=False)
 
 				# Convert pydantic model to dict for MCP call
-				tool_params = params.model_dump()
+				tool_params = params.model_dump(exclude_none=True)
 
 				logger.debug(f"🔧 Calling MCP tool '{tool.name}' with params: {tool_params}")
 
@@ -438,11 +447,12 @@ class MCPClient:
 			# Direct result or unknown format
 			return str(result)
 
-	def _json_schema_to_python_type(self, schema: dict) -> Any:
+	def _json_schema_to_python_type(self, schema: dict, model_name: str = 'NestedModel') -> Any:
 		"""Convert JSON Schema type to Python type.
 
 		Args:
 			schema: JSON Schema definition
+			model_name: Name for nested models
 
 		Returns:
 			Python type corresponding to the schema
@@ -456,7 +466,6 @@ class MCPClient:
 			'integer': int,
 			'boolean': bool,
 			'array': list,
-			'object': dict,
 			'null': type(None),
 		}
 
@@ -464,7 +473,53 @@ class MCPClient:
 		if 'enum' in schema:
 			return str
 
-		# Get base type
+		# Handle objects with nested properties
+		if json_type == 'object':
+			properties = schema.get('properties', {})
+			if properties:
+				# Create nested pydantic model for objects with properties
+				nested_fields = {}
+				required_fields = set(schema.get('required', []))
+
+				for prop_name, prop_schema in properties.items():
+					# Recursively process nested properties
+					prop_type = self._json_schema_to_python_type(prop_schema, f'{model_name}_{prop_name}')
+
+					# Determine if field is required and handle defaults
+					if prop_name in required_fields:
+						default = ...  # Required field
+					else:
+						# Optional field - make type optional and handle default
+						prop_type = prop_type | None
+						if 'default' in prop_schema:
+							default = prop_schema['default']
+						else:
+							default = None
+
+					# Add field with description if available
+					field_kwargs = {}
+					if 'description' in prop_schema:
+						field_kwargs['description'] = prop_schema['description']
+
+					nested_fields[prop_name] = (prop_type, Field(default, **field_kwargs))
+
+				# Create a BaseModel class with proper configuration
+				class ConfiguredBaseModel(BaseModel):
+					model_config = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True)
+
+				try:
+					# Create and return nested pydantic model
+					return create_model(model_name, __base__=ConfiguredBaseModel, **nested_fields)
+				except Exception as e:
+					logger.error(f'Failed to create nested model {model_name}: {e}')
+					logger.debug(f'Fields: {nested_fields}')
+					# Fallback to basic dict if model creation fails
+					return dict
+			else:
+				# Object without properties - just return dict
+				return dict
+
+		# Get base type for non-object types
 		base_type = type_mapping.get(json_type, str)
 
 		# Handle arrays with specific item types

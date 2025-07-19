@@ -58,6 +58,42 @@ class MockMCPServer:
 					description='Get some test data as JSON',
 					inputSchema={'type': 'object', 'properties': {}},
 				),
+				types.Tool(
+					name='process_trace_update',
+					description='Process a cognitive trace update with nested object parameter',
+					inputSchema={
+						'type': 'object',
+						'properties': {
+							'trace': {
+								'type': 'object',
+								'properties': {
+									'recent_actions': {
+										'type': 'array',
+										'items': {'type': 'string'},
+										'description': 'List of recent action names',
+									},
+									'current_context': {
+										'type': 'string',
+										'description': 'Current environment context or state',
+									},
+									'goal': {
+										'type': 'string',
+										'description': 'Current goal being pursued',
+									},
+								},
+								'required': ['recent_actions', 'goal'],
+								'additionalProperties': False,
+							},
+							'window_size': {
+								'type': 'number',
+								'description': 'Size of the monitoring window',
+								'default': 10,
+							},
+						},
+						'required': ['trace'],
+						'additionalProperties': False,
+					},
+				),
 			]
 
 		@self.server.call_tool()
@@ -81,6 +117,17 @@ class MockMCPServer:
 			elif name == 'get_test_data':
 				data = {'status': 'success', 'items': ['apple', 'banana', 'cherry'], 'count': 3}
 				result = json.dumps(data, indent=2)
+
+			elif name == 'process_trace_update':
+				assert arguments is not None
+				trace = arguments.get('trace', {})
+				window_size = arguments.get('window_size', 10)
+
+				recent_actions = trace.get('recent_actions', [])
+				current_context = trace.get('current_context', 'unknown')
+				goal = trace.get('goal', 'no goal')
+
+				result = f'Processed trace update: {len(recent_actions)} actions, goal: {goal}, context: {current_context}, window: {window_size}'
 
 			else:
 				result = f'Unknown tool: {name}'
@@ -145,10 +192,11 @@ async def test_mcp_client_basic_connection(test_mcp_server_script):
 		await mcp_client.connect()
 
 		# Verify tools were discovered
-		assert len(mcp_client._tools) == 3
+		assert len(mcp_client._tools) == 4
 		assert 'count_to_n' in mcp_client._tools
 		assert 'echo_message' in mcp_client._tools
 		assert 'get_test_data' in mcp_client._tools
+		assert 'process_trace_update' in mcp_client._tools
 
 		# Register tools to controller
 		await mcp_client.register_to_controller(controller)
@@ -535,3 +583,95 @@ Use tools from both servers to complete the task.""",
 		await mcp_server1.disconnect()
 		await mcp_server2.disconnect()
 		await browser_session.kill()
+
+
+async def test_mcp_nested_object_parameters(test_mcp_server_script):
+	"""Test that MCP tools with nested object parameters are properly handled."""
+	controller = Controller()
+
+	mcp_client = MCPClient(server_name='test-server', command=sys.executable, args=[test_mcp_server_script])
+
+	try:
+		await mcp_client.connect()
+		await mcp_client.register_to_controller(controller)
+
+		# Get the process_trace_update action
+		trace_action = controller.registry.registry.actions['process_trace_update']
+
+		# Verify the parameter model has nested structure
+		param_model = trace_action.param_model
+		assert param_model is not None
+
+		# Verify the main parameters exist
+		assert 'trace' in param_model.model_fields
+		assert 'window_size' in param_model.model_fields
+
+		# Verify trace is required and window_size is optional
+		assert param_model.model_fields['trace'].is_required()
+		assert not param_model.model_fields['window_size'].is_required()
+
+		# Verify window_size has a default value of 10
+		assert param_model.model_fields['window_size'].default == 10
+
+		# Verify the trace parameter has nested structure
+		trace_field = param_model.model_fields['trace']
+		trace_annotation = trace_field.annotation
+
+		# Should be a nested pydantic model, not just dict
+		assert trace_annotation is not dict
+		assert trace_annotation is not None
+
+		# Verify nested model has the expected fields
+		nested_model = trace_annotation
+		assert hasattr(nested_model, 'model_fields')
+		nested_fields = nested_model.model_fields
+		assert 'recent_actions' in nested_fields
+		assert 'current_context' in nested_fields
+		assert 'goal' in nested_fields
+
+		# Verify field requirements in nested model
+		assert nested_fields['recent_actions'].is_required()
+		assert nested_fields['goal'].is_required()
+		assert not nested_fields['current_context'].is_required()
+
+		# Test creating an instance with nested parameters
+		assert callable(nested_model)
+		trace_data = nested_model(recent_actions=['click', 'type', 'navigate'], current_context='web page', goal='complete form')
+
+		# Test the full parameter model
+		assert callable(param_model)
+		params = param_model(trace=trace_data, window_size=5)
+
+		# Verify the parameter structure
+		assert hasattr(params, 'trace') and hasattr(params, 'window_size')
+		trace_obj = getattr(params, 'trace')
+		assert trace_obj.recent_actions == ['click', 'type', 'navigate']
+		assert trace_obj.current_context == 'web page'
+		assert trace_obj.goal == 'complete form'
+		assert getattr(params, 'window_size') == 5
+
+		# Test calling the tool with nested parameters
+		result = await trace_action.function(params=params)
+
+		# Verify the result contains the nested data
+		assert result.success is not False
+		assert 'Processed trace update' in result.extracted_content
+		assert '3 actions' in result.extracted_content
+		assert 'goal: complete form' in result.extracted_content
+		assert 'context: web page' in result.extracted_content
+		assert 'window: 5' in result.extracted_content
+
+		# Test with default window_size
+		params_default = param_model(trace=trace_data)
+		result_default = await trace_action.function(params=params_default)
+		assert 'window: 10' in result_default.extracted_content
+
+		# Test with minimal required parameters
+		minimal_trace = nested_model(recent_actions=['action1', 'action2'], goal='test goal')
+		params_minimal = param_model(trace=minimal_trace)
+		result_minimal = await trace_action.function(params=params_minimal)
+		assert 'goal: test goal' in result_minimal.extracted_content
+		assert 'context: unknown' in result_minimal.extracted_content  # Default from handler
+
+	finally:
+		await mcp_client.disconnect()
