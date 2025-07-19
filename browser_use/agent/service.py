@@ -185,6 +185,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		include_tool_call_examples: bool = False,
 		**kwargs,
 	):
+		if not isinstance(llm, BaseChatModel):
+			raise ValueError('invalid llm, must be from browser_use.llm')
 		# Check for deprecated planner parameters
 		planner_params = [planner_llm, use_vision_for_planner, is_planner_reasoning, extend_planner_system_message]
 		if any(param is not None and param is not False for param in planner_params) or planner_interval != 1:

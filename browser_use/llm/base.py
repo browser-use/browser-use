@@ -4,7 +4,7 @@ We have switched all of our code from langchain to openai.types.chat.chat_comple
 For easier transition we have
 """
 
-from typing import Any, Protocol, TypeVar, overload
+from typing import Any, Protocol, TypeVar, overload, runtime_checkable
 
 from pydantic import BaseModel
 
@@ -14,6 +14,7 @@ from browser_use.llm.views import ChatInvokeCompletion
 T = TypeVar('T', bound=BaseModel)
 
 
+@runtime_checkable
 class BaseChatModel(Protocol):
 	_verified_api_keys: bool = False
 
