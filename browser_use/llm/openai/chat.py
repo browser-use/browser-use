@@ -50,6 +50,8 @@ class ChatOpenAI(BaseChatModel):
 	default_query: Mapping[str, object] | None = None
 	http_client: httpx.AsyncClient | None = None
 	_strict_response_validation: bool = False
+	max_completion_tokens: int | None = None
+	top_p: float | None = None
 
 	# Static
 	@property
@@ -149,6 +151,12 @@ class ChatOpenAI(BaseChatModel):
 
 			if self.temperature is not None:
 				model_params['temperature'] = self.temperature
+
+			if self.max_completion_tokens is not None:
+				model_params['max_completion_tokens'] = self.max_completion_tokens
+
+			if self.top_p is not None:
+				model_params['top_p'] = self.top_p
 
 			if output_format is None:
 				# Return string response

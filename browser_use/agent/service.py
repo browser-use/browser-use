@@ -183,6 +183,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		calculate_cost: bool = False,
 		display_files_in_done_text: bool = True,
 		include_tool_call_examples: bool = False,
+		llm_timeout: int = 60,
+		step_timeout: int = 180,
 		**kwargs,
 	):
 		# Check for deprecated planner parameters
@@ -259,6 +261,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			extend_planner_system_message=None,  # Always None now (deprecated)
 			calculate_cost=calculate_cost,
 			include_tool_call_examples=include_tool_call_examples,
+			llm_timeout=llm_timeout,
+			step_timeout=step_timeout,
 		)
 
 		# Token cost service
@@ -731,7 +735,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			f'🤖 Step {self.state.n_steps + 1}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
 		)
 
-		model_output = await self._get_model_output_with_retry(input_messages)
+		try:
+			model_output = await asyncio.wait_for(
+				self._get_model_output_with_retry(input_messages), timeout=self.settings.llm_timeout
+			)
+		except asyncio.TimeoutError:
+			raise TimeoutError(
+				f'LLM call timed out after {self.settings.llm_timeout} seconds. Generate less tokens and try again.'
+			)
+
 		self.state.last_model_output = model_output
 
 		# Check again for paused/stopped state after getting model output
@@ -1229,7 +1241,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				try:
 					await asyncio.wait_for(
 						self.step(step_info),
-						timeout=300,  # 5 minute step timeout - more generous for slow LLM calls
+						timeout=self.settings.step_timeout,
 					)
 					self.logger.debug(f'✅ Completed step {step + 1}/{max_steps}')
 				except TimeoutError:
@@ -1237,7 +1249,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					error_msg = f'Step {step + 1} timed out after 300 seconds'
 					self.logger.error(f'⏰ {error_msg}')
 					self.state.consecutive_failures += 1
-					self.state.last_result = [ActionResult(error=error_msg, include_in_memory=True)]
+					self.state.last_result = [ActionResult(error=error_msg)]
 
 				if on_step_end is not None:
 					await on_step_end(self)
