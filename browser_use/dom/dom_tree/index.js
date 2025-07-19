@@ -710,7 +710,9 @@
     const interactiveRoles = new Set([
       'button',           // Directly clickable element
       // 'link',            // Clickable link
-      // 'menuitem',        // Clickable menu item
+      'menu',            // Menu container (ARIA menus)
+      'menubar',         // Menu bar container
+      'menuitem',        // Clickable menu item
       'menuitemradio',   // Radio-style menu item (selectable)
       'menuitemcheckbox', // Checkbox-style menu item (toggleable)
       'radio',           // Radio button (selectable)
@@ -722,7 +724,7 @@
       'combobox',        // Dropdown with text input
       'searchbox',       // Search input field
       'textbox',         // Text input field
-      // 'listbox',         // Selectable list
+      'listbox',         // Selectable list
       'option',          // Selectable option in a list
       'scrollbar'        // Scrollable control
     ]);
@@ -1297,7 +1299,12 @@
       nodeData.isVisible = isElementVisible(node); // isElementVisible uses offsetWidth/Height, which is fine
       if (nodeData.isVisible) {
         nodeData.isTopElement = isTopElement(node);
-        if (nodeData.isTopElement) {
+        
+        // Special handling for ARIA menu containers - check interactivity even if not top element
+        const role = node.getAttribute('role');
+        const isMenuContainer = role === 'menu' || role === 'menubar' || role === 'listbox';
+        
+        if (nodeData.isTopElement || isMenuContainer) {
           nodeData.isInteractive = isInteractiveElement(node);
           // Call the dedicated highlighting function
           nodeWasHighlighted = handleHighlighting(nodeData, node, parentIframe, isParentHighlighted);
