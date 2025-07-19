@@ -1105,6 +1105,7 @@
     {
         tagName: string;
         attributes: Record<string, string>;
+        extraAttributes?: Record<string, any>;
         xpath: any;
         children: never[];
         isVisible?: boolean;
@@ -1264,6 +1265,7 @@
       {
           tagName: string;
           attributes: Record<string, string | null>;
+          extraAttributes?: Record<string, any>;
           xpath: any;
           children: never[];
           isVisible?: boolean;
@@ -1278,12 +1280,27 @@
     const nodeData = {
       tagName: node.tagName.toLowerCase(),
       attributes: {},
+      extraAttributes: {},
       xpath: getXPathTree(node, true),
       children: [],
     };
 
+    const extraAttributesTagMap = {
+      'input': ['type', 'placeholder', 'name', 'checked', 'readonly', 'disabled'],
+    }
+
     // Get attributes for interactive elements or potential text containers
     if (isInteractiveCandidate(node) || node.tagName.toLowerCase() === 'iframe' || node.tagName.toLowerCase() === 'body') {
+      if (node.tagName.toLowerCase() in extraAttributesTagMap) {
+        // Get extra attributes for specific tags directly from the HTML node, which might not be present as
+        // pure node attributes via `getAttributeNames()`
+        for (const attr of extraAttributesTagMap[node.tagName.toLowerCase()]) {
+          const value = node[attr];
+          if (value !== undefined && value !== null) {
+            nodeData.extraAttributes[attr] = value;
+          }
+        }
+      }
       const attributeNames = node.getAttributeNames?.() || [];
       for (const name of attributeNames) {
         const value = node.getAttribute(name);

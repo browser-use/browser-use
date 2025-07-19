@@ -51,6 +51,7 @@ class AgentSettings(BaseModel):
 		'alt',
 		'aria-expanded',
 	]
+	include_extra_attributes: bool = False  # If True, agent will see additional HTML attributes of some elements
 	max_actions_per_step: int = 10
 	use_thinking: bool = True
 	flash_mode: bool = False  # If enabled, disables evaluation_previous_goal and next_goal, and sets use_thinking = False
