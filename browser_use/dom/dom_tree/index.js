@@ -843,23 +843,35 @@
       }
     }
 
-    // For elements in viewport, check if they're topmost
-    const centerX = rects[Math.floor(rects.length / 2)].left + rects[Math.floor(rects.length / 2)].width / 2;
-    const centerY = rects[Math.floor(rects.length / 2)].top + rects[Math.floor(rects.length / 2)].height / 2;
+    const margin = 5;
+    const rect = rects[Math.floor(rects.length / 2)];
 
-    try {
-      const topEl = document.elementFromPoint(centerX, centerY);
-      if (!topEl) return false;
+    // For elements in viewport, check if they're topmost. Do the check in the
+    // center of the element and at the corners to ensure we catch more cases.
+    const checkPoints = [
+      // Initially only this was used, but it was not enough
+      { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+      { x: rect.left + margin, y: rect.top + margin },
+      { x: rect.right - margin, y: rect.top + margin },
+      { x: rect.left + margin, y: rect.bottom - margin },
+      { x: rect.right - margin, y: rect.bottom - margin }
+    ];
 
-      let current = topEl;
-      while (current && current !== document.documentElement) {
-        if (current === element) return true;
-        current = current.parentElement;
+    return checkPoints.some(({ x, y }) => {
+      try {
+        const topEl = document.elementFromPoint(x, y);
+        if (!topEl) return false;
+
+        let current = topEl;
+        while (current && current !== document.documentElement) {
+          if (current === element) return true;
+          current = current.parentElement;
+        }
+        return false;
+      } catch (e) {
+        return true;
       }
-      return false;
-    } catch (e) {
-      return true;
-    }
+    });
   }
 
   /**
