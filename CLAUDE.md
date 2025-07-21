@@ -1,28 +1,102 @@
-Browser-Use is an async python >= 3.11 library that implements AI browser driver abilities using LLMs + playwright.
-We want our library APIs to be ergonomic, intuitive, and hard to get wrong.
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+Browser-Use is an async Python >= 3.11 library that enables AI agents to control web browsers using LLMs + Playwright. The project now includes reinforcement learning capabilities to improve agent performance over time.
+
+## Architecture
+
+### Core Components
+- `browser_use/agent/` - AI agent orchestration, including memory management and message handling
+- `browser_use/browser/` - Playwright-based browser management (contexts, sessions, profiles)
+- `browser_use/controller/` - Action registry and execution system
+- `browser_use/dom/` - DOM processing, element detection, and JavaScript injection
+- `browser_use/sync/` - Cloud synchronization for distributed agent operations
+- `browser_use/telemetry/` - Usage tracking and analytics
+
+### Reinforcement Learning Components
+- `action_scorer.py` - Scores browser actions on a -10 to +10 scale for learning
+- `state_embedder.py` - Converts DOM states to embeddings for similarity retrieval
+- `experience_retriever.py` - Retrieves similar historical experiences to guide actions
+- `milvus_embeddings.py` - Vector database integration for efficient embedding storage/retrieval
+
+## Development Commands
+
+```bash
+# Setup
+uv venv --python 3.11
+source .venv/bin/activate
+uv sync
+
+# Run tests
+uv run pytest -vxs tests/ci
+# or
+./bin/test.sh
+
+# Lint and format
+uv run pre-commit run --all-files
+uv run pyright
+# or
+./bin/lint.sh
+
+# Install browser
+playwright install chromium --with-deps --no-shell
+```
 
 ## Code Style
 
-- Use async python
-- Use tabs for indentation in all python code, not spaces
-- Use the modern python >3.12 typing style, e.g. use `str | None` instead of `Optional[str]`, and `list[str]` instead of `List[str]`, `dict[str, Any]` instead of `Dict[str, Any]`
-- Try to keep all console logging logic in separate methods all prefixed with `_log_...`, e.g. `def _log_pretty_path(path: Path) -> str` so as not to clutter up the main logic.
-- Use pydantic v2 models to represent internal data, and any user-facing API parameter that might otherwise be a dict
-- In pydantic models Use `model_config = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True, ...)` etc. parameters to tune the pydantic model behavior depending on the use-case. Use `Annotated[..., AfterValidator(...)]` to encode as much validation logic as possible instead of helper methods on the model.
-- We keep the main code for each sub-component in a `service.py` file usually, and we keep most pydantic models in `views.py` files unless they are long enough deserve their own file
-- Use runtime assertions at the start and end of functions to enforce constraints and assumptions
-- Prefer `from uuid_extensions import uuid7str` +  `id: str = Field(default_factory=uuid7str)` for all new id fields
-- Run tests using `uv run pytest -vxs tests/ci`
-- Run the type checker using `uv run pyright`
+- Use async Python with modern typing (Python 3.12+)
+- **Use tabs for indentation in all Python code, not spaces**
+- Use `str | None` instead of `Optional[str]`, `list[str]` instead of `List[str]`
+- Keep logging logic in separate `_log_*` methods to avoid cluttering main logic
+- Use Pydantic v2 models with strict validation (`ConfigDict(extra='forbid')`)
+- Service/views pattern: business logic in `service.py`, models in `views.py`
+- Use runtime assertions to enforce constraints
+- Prefer `uuid7str` for ID generation
+- Never use mocks in tests except for LLMs
+- Never use real remote URLs in tests - use pytest-httpserver
 
-## Keep Examples & Tests Up-To-Date
+## Working with the RL System
 
-- Make sure to read relevant examples in the `examples/` directory for context and keep them up-to-date when making changes.
-- Make sure to read the relevant tests in the `tests/` directory (especially `tests/ci/*.py`) and keep them up-to-date as well. 
-- Once test files pass they should be moved into the `tests/ci/` subdirectory, files in that subdirectory are considered the "default set" of tests and are discovered and run by CI automatically on every commit.
-- Never use mocks in tests other than for the llm, instead use pytest fixtures to set up real objects and pytest-httpserver
-- Never use real remote URLs in tests (e.g. `https://google.com` or `https://example.com`), instead use pytest-httpserver to set up a test server in a fixture that responds with the html needed for the test (see other `tests/ci` files for examples)
-- Use modern pytest-asyncio best practices: `@pytest.mark.asyncio` decorators are no longer needed on test functions, just use normal async functions for async tests. Use `loop = asyncio.get_event_loop()` inside tests that need it instead of passing `event_loop` as a function argument. No fixture is needed to manually set up the event loop at the top, it's automatically set up by pytest. Fixture functions (even async ones) only need a simple `@pytest.fixture` decorator with no arguments.
+### Processing Sessions
+1. Agent sessions are logged to `json_logs/` directory
+2. Sessions are scored using `action_scorer.py`
+3. Scored sessions are saved to `score_json/` directory
+4. Embeddings are generated and stored in Milvus vector database
+
+### Key APIs
+```python
+# Score a session
+scorer = ActionScorer(model_name="gpt-4o-mini")
+scored_data = await scorer.score_session(session_data)
+
+# Generate embeddings
+embeddings_data = process_with_original_data(scored_path, original_path)
+
+# Store in Milvus
+store = MilvusStateStore(uri="http://localhost:8001")
+store.process_with_original_data(scored_file, original_file)
+```
+
+## Testing Strategy
+
+When making changes:
+1. Write tests that verify assumptions about existing design
+2. Write failing tests for new design
+3. Implement changes
+4. Run full test suite: `uv run pytest -vxs tests/ci`
+5. Consolidate test logic to avoid redundancy
+6. Update examples and documentation
+
+## Important Notes
+
+- Always use `uv` instead of `pip` for dependency management
+- The model `gpt-4o` is distinct from `gpt-4` - use exact model names
+- When creating new files, include clear docstrings explaining purpose and integration
+- For Milvus operations, ensure Docker container is running on port 8001
+- API keys should be in `api_key.py` (never commit these)
 
 ## Personality
 
@@ -57,3 +131,9 @@ When doing any truly massive refactors, trend towards using simple event buses a
 
 If you struggle to update or edit files in-place, try shortening your match string to 1 or 2 lines instead of 3.
 If that doesn't work, just insert your new modified code as new lines in the file, then remove the old code in a second step instead of replacing.
+
+# important-instruction-reminders
+Do what has been asked; nothing more, nothing less.
+NEVER create files unless they're absolutely necessary for achieving your goal.
+ALWAYS prefer editing an existing file to creating a new one.
+NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.
