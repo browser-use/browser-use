@@ -57,7 +57,8 @@ class TaskQueue:
     
     async def get_task_status(self, task_id: str) -> Optional[str]:
         """Get the status of a specific task."""
-        return self._tasks.get(task_id, None).status if task_id in self._tasks else None
+        task = self._tasks.get(task_id)
+        return task.status if task is not None else None
     
     async def get_all_results(self) -> Dict[str, Any]:
         """Get all completed task results."""

@@ -70,7 +70,7 @@ class WorkerAgent:
             )
             
             # Create browser session with the profile
-            self.browser = BrowserSession(browser_profile=browser_profile)
+            self.browser = BrowserSession(profile=browser_profile)
             await self.browser.start()
             self.controller = Controller()
             logger.info(f"Worker {self.worker_id}: Browser session initialized successfully")
