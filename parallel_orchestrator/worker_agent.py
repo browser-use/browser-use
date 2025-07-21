@@ -43,24 +43,10 @@ class WorkerAgent:
 				no_viewport=True,
 				keep_alive=True,
 				chromium_sandbox=False,
-				launch_options={
-					'args': [
-						'--start-maximized',
-						'--disable-blink-features=AutomationControlled',
-						'--no-sandbox',
-						'--disable-setuid-sandbox',
-						'--disable-dev-shm-usage',
-						'--disable-accelerated-2d-canvas',
-						'--disable-gpu',
-						'--window-size=1920,1080',
-						'--disable-web-security',
-						'--disable-features=VizDisplayCompositor',
-					]
-				},
 			)
 
 			# Create browser session with the profile
-			self.browser = BrowserSession(profile=browser_profile)
+			self.browser = BrowserSession(browser_profile=browser_profile)
 			await self.browser.start()
 			self.controller = Controller()
 			logger.info(f'Worker {self.worker_id}: Browser session initialized successfully')

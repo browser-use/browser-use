@@ -2,8 +2,11 @@ import asyncio
 import logging
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from shared_memory import SharedMemory
+import aiofiles
+import json
+import re
 from worker_agent import WorkerAgent
+from shared_memory import SharedMemory
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -81,7 +84,7 @@ Return the subtasks as a JSON array:
 		try:
 			# Use the LLM to analyze and split the task
 			response = await self.llm.ainvoke(analysis_prompt)
-			response_text = response.content
+			response_text = str(response.content) if response.content else ""
 
 			# Extract JSON array from response
 			import json
@@ -116,7 +119,7 @@ Return the subtasks as a JSON array:
 			try:
 				logger.info('Retrying AI task analysis...')
 				response = await self.llm.ainvoke(analysis_prompt)
-				response_text = response.content
+				response_text = str(response.content) if response.content else ""
 
 				json_match = re.search(r'\[.*\]', response_text, re.DOTALL)
 				if json_match:
@@ -210,11 +213,11 @@ CLEAN FINAL ANSWER:
 
 			# Save to final_answers.txt
 			filename = 'parallel_orchestrator/final_answers.txt'
-			with open(filename, 'w') as f:
-				f.write('AI-CLEANED FINAL ANSWER\n')
-				f.write('=' * 30 + '\n\n')
-				f.write(clean_answer)
-				f.write('\n\n')
+			async with aiofiles.open(filename, 'w') as f:
+				await f.write('AI-CLEANED FINAL ANSWER\n')
+				await f.write('=' * 30 + '\n\n')
+				await f.write(clean_answer)
+				await f.write('\n\n')
 
 			logger.info(f'AI-cleaned final answer saved to {filename}')
 
@@ -222,11 +225,11 @@ CLEAN FINAL ANSWER:
 			logger.error(f'Error creating AI-cleaned final answer: {str(e)}')
 			# Fallback to original clean results
 			filename = 'parallel_orchestrator/final_answers.txt'
-			with open(filename, 'w') as f:
-				f.write('FINAL ANSWERS (Fallback)\n')
-				f.write('=' * 25 + '\n\n')
+			async with aiofiles.open(filename, 'w') as f:
+				await f.write('FINAL ANSWERS (Fallback)\n')
+				await f.write('=' * 25 + '\n\n')
 				for key, result in clean_results.items():
-					f.write(f'{key}: {result}\n\n')
+					await f.write(f'{key}: {result}\n\n')
 
 	async def process_task(self, main_task: str) -> dict:
 		"""Process any natural language task with dynamic worker allocation."""
