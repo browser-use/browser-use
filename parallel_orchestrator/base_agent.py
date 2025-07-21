@@ -10,13 +10,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class BaseAgent:
-    """Base agent that orchestrates parallel execution of worker agents."""
+    """Dynamic base agent that can handle any natural language prompt and automatically determine optimal worker count."""
     
     def __init__(
         self,
         api_key: str,
-        model: str = "gemini-2.0-flash",
-        max_workers: int = 5,
+        model: str = "gemini-1.5-flash",
+        max_workers: int = 10,
         headless: bool = False
     ):
         self.api_key = api_key
@@ -28,43 +28,68 @@ class BaseAgent:
         self.llm = ChatGoogleGenerativeAI(
             model=model,
             api_key=api_key,
-            temperature=0.7
+            temperature=0.3
         )
     
     async def initialize(self):
-        """Initialize the base agent and prepare for dynamic worker creation."""
-        logger.info("Initializing base agent...")
-        # Workers will be created dynamically based on task requirements
+        """Initialize the base agent."""
+        logger.info("Initializing dynamic base agent...")
         self.workers = []
         logger.info("Base agent initialized successfully")
     
-    async def split_task(self, main_task: str) -> list:
-        """Use AI to intelligently split the main task into independent subtasks."""
-        logger.info(f"Using AI to split main task: {main_task}")
+    async def analyze_and_split_task(self, main_task: str) -> List[str]:
+        """Use AI to analyze any natural language task and break it into optimal subtasks."""
+        logger.info(f"Analyzing and splitting task: {main_task}")
         
-        # Create a prompt for the AI to split the task
-        split_prompt = f"""
-You are a task decomposition expert. Given a main task, break it down into independent subtasks that can be executed in parallel.
+        analysis_prompt = f"""
+You are an expert task decomposition system. Your job is to analyze any natural language goal and break it into independent, parallelizable subtasks.
 
-Main task: "{main_task}"
+MAIN TASK: "{main_task}"
 
-Rules:
-1. Each subtask should be completely independent and can run in parallel
-2. Each subtask should be specific and actionable
-3. Return ONLY a JSON array of strings, no other text
-4. Each subtask should be a complete, self-contained task description
-5. If the task involves multiple people/companies/items, create one subtask per item
+ANALYSIS INSTRUCTIONS:
+1. First, understand what the user wants to accomplish
+2. Identify if this task can be broken into independent parts
+3. Determine the optimal number of subtasks (1 to {self.max_workers})
+4. Create specific, actionable subtasks that can run in parallel
 
-Examples:
-- "Find ages of Elon Musk and Donald Trump" → ["Find the age of Elon Musk by searching online for their birth date and calculating their current age", "Find the age of Donald Trump by searching online for their birth date and calculating their current age"]
-- "Find contact emails for Perplexity AI and Anthropic" → ["Find the contact email for Perplexity AI by visiting their website and looking for contact information", "Find the contact email for Anthropic by visiting their website and looking for contact information"]
+EXAMPLES OF GOOD DECOMPOSITION:
+
+"Find the top 5 most recent Hacker News posts and summarize each"
+→ 5 subtasks (one per post)
+
+"Compare the pricing of AWS, Google Cloud, and Azure for compute instances"
+→ 3 subtasks (one per cloud provider)
+
+"Find contact information for 10 tech companies"
+→ 10 subtasks (one per company)
+
+"Research the latest AI developments from OpenAI, Anthropic, and Google"
+→ 3 subtasks (one per company)
+
+"Create a summary of the current weather in New York, London, and Tokyo"
+→ 3 subtasks (one per city)
+
+"Find the age of Elon Musk and Sam Altman"
+→ 2 subtasks (one per person)
+
+SINGLE TASK EXAMPLES (when decomposition doesn't make sense):
+"Write a blog post about AI trends" → 1 subtask
+"Analyze this specific website's performance" → 1 subtask
+"Create a comprehensive report on climate change" → 1 subtask
+
+RULES:
+- Each subtask must be completely independent
+- Each subtask should be specific and actionable
+- Return ONLY a JSON array of strings
+- Maximum {self.max_workers} subtasks
+- If the task cannot be logically split, return a single subtask
 
 Return the subtasks as a JSON array:
 """
         
         try:
-            # Use the LLM to split the task
-            response = await self.llm.ainvoke(split_prompt)
+            # Use the LLM to analyze and split the task
+            response = await self.llm.ainvoke(analysis_prompt)
             response_text = response.content
             
             # Extract JSON array from response
@@ -79,44 +104,55 @@ Return the subtasks as a JSON array:
                 # Fallback: try to parse the entire response as JSON
                 subtasks = json.loads(response_text)
             
-            logger.info(f"AI split into {len(subtasks)} subtasks: {subtasks}")
+            # Validate subtasks
+            if not isinstance(subtasks, list):
+                subtasks = [main_task]
+            
+            # Ensure we don't exceed max workers
+            if len(subtasks) > self.max_workers:
+                logger.warning(f"AI suggested {len(subtasks)} subtasks, limiting to {self.max_workers}")
+                subtasks = subtasks[:self.max_workers]
+            
+            logger.info(f"AI analysis complete - created {len(subtasks)} subtasks")
+            for i, task in enumerate(subtasks):
+                logger.info(f"  Subtask {i+1}: {task}")
+            
             return subtasks
             
         except Exception as e:
-            logger.error(f"AI task splitting failed: {str(e)}")
-            # Retry the Base Agent splitting once more
-            logger.info("Retrying Base Agent task splitting...")
+            logger.error(f"AI task analysis failed: {str(e)}")
+            # Retry once
             try:
-                response = await self.llm.ainvoke(split_prompt)
+                logger.info("Retrying AI task analysis...")
+                response = await self.llm.ainvoke(analysis_prompt)
                 response_text = response.content
                 
-                # Extract JSON array from response
-                import json
-                import re
-                
-                # Find JSON array in the response
                 json_match = re.search(r'\[.*\]', response_text, re.DOTALL)
                 if json_match:
                     subtasks = json.loads(json_match.group())
                 else:
-                    # Fallback: try to parse the entire response as JSON
                     subtasks = json.loads(response_text)
                 
-                logger.info(f"Base Agent retry successful - split into {len(subtasks)} subtasks: {subtasks}")
+                if not isinstance(subtasks, list):
+                    subtasks = [main_task]
+                
+                if len(subtasks) > self.max_workers:
+                    subtasks = subtasks[:self.max_workers]
+                
+                logger.info(f"AI retry successful - created {len(subtasks)} subtasks")
                 return subtasks
                 
             except Exception as retry_e:
-                logger.error(f"Base Agent retry also failed: {str(retry_e)}")
-                # Only as last resort, return the main task as a single task
-                logger.info("Base Agent completely failed - returning main task as single task")
+                logger.error(f"AI analysis retry also failed: {str(retry_e)}")
+                logger.info("Falling back to single task execution")
                 return [main_task]
     
     async def aggregate_results(self, raw_results: dict) -> dict:
-        """Aggregate and clean the results from shared memory."""
+        """Aggregate and clean results from shared memory for any type of task."""
         logger.info("Aggregating and cleaning results...")
         clean_results = {}
         
-        for person, result in raw_results.items():
+        for task_key, result in raw_results.items():
             try:
                 # Extract the final answer from the agent history
                 if hasattr(result, 'all_results') and result.all_results:
@@ -124,43 +160,95 @@ Return the subtasks as a JSON array:
                     final_result = None
                     for action_result in reversed(result.all_results):
                         if hasattr(action_result, 'extracted_content') and action_result.extracted_content:
-                            # Look for the final "done" result that contains the age calculation
-                            if "was born on" in action_result.extracted_content and "years old" in action_result.extracted_content:
-                                final_result = action_result.extracted_content
+                            # Look for any meaningful final result
+                            content = action_result.extracted_content
+                            if content and len(content.strip()) > 10:  # Meaningful content
+                                final_result = content
                                 break
                     
                     if final_result:
-                        clean_results[person] = final_result
+                        clean_results[task_key] = final_result
                     else:
                         # Fallback: use the last result with content
                         for action_result in reversed(result.all_results):
                             if hasattr(action_result, 'extracted_content') and action_result.extracted_content:
-                                clean_results[person] = action_result.extracted_content
+                                clean_results[task_key] = action_result.extracted_content
                                 break
                         else:
-                            clean_results[person] = f"No final result found for {person}"
+                            clean_results[task_key] = f"No final result found for {task_key}"
                 else:
-                    clean_results[person] = str(result)
+                    clean_results[task_key] = str(result)
                     
-                logger.info(f"Extracted clean result for {person}")
+                logger.info(f"Extracted clean result for {task_key}")
             except Exception as e:
-                logger.error(f"Error extracting result for {person}: {str(e)}")
-                clean_results[person] = f"Error: {str(e)}"
+                logger.error(f"Error extracting result for {task_key}: {str(e)}")
+                clean_results[task_key] = f"Error: {str(e)}"
+        
+        # Use AI to create a clean final answer
+        await self.create_ai_cleaned_final_answer(clean_results)
         
         return clean_results
     
+    async def create_ai_cleaned_final_answer(self, clean_results: dict):
+        """Use AI to create a clean, final answer from the aggregated results."""
+        try:
+            # Create a prompt for the AI to extract only the essential information
+            clean_prompt = f"""
+You are an expert at extracting clean, final answers from raw data.
+
+RAW RESULTS FROM WORKERS:
+{clean_results}
+
+TASK: Extract ONLY the essential information and present it in a clean, readable format.
+
+RULES:
+- Remove all technical details, browser actions, DOM elements, etc.
+- Keep only the actual answers/findings
+- Present information clearly and concisely
+- If it's about ages, just say "The age of [person] is [age]"
+- If it's about net worth, just say "The net worth of [person] is [amount]"
+- If it's about weather, just say "Weather in [city] is [description]"
+- Format as a simple, clean response
+
+CLEAN FINAL ANSWER:
+"""
+            
+            # Use the LLM to create clean final answer
+            response = await self.llm.ainvoke(clean_prompt)
+            clean_answer = response.content.strip()
+            
+            # Save to final_answers.txt
+            filename = "parallel_orchestrator/final_answers.txt"
+            with open(filename, 'w') as f:
+                f.write("AI-CLEANED FINAL ANSWER\n")
+                f.write("=" * 30 + "\n\n")
+                f.write(clean_answer)
+                f.write("\n\n")
+            
+            logger.info(f"AI-cleaned final answer saved to {filename}")
+            
+        except Exception as e:
+            logger.error(f"Error creating AI-cleaned final answer: {str(e)}")
+            # Fallback to original clean results
+            filename = "parallel_orchestrator/final_answers.txt"
+            with open(filename, 'w') as f:
+                f.write("FINAL ANSWERS (Fallback)\n")
+                f.write("=" * 25 + "\n\n")
+                for key, result in clean_results.items():
+                    f.write(f"{key}: {result}\n\n")
+    
     async def process_task(self, main_task: str) -> dict:
-        """Process the main task with true parallelism."""
-        logger.info(f"Starting to process main task: {main_task}")
+        """Process any natural language task with dynamic worker allocation."""
+        logger.info(f"Starting to process task: {main_task}")
         
-        # Use AI to split the task into subtasks
-        subtasks = await self.split_task(main_task)
+        # Use AI to analyze and split the task
+        subtasks = await self.analyze_and_split_task(main_task)
         
-        # Initialize workers based on the number of subtasks
+        # Determine optimal number of workers
         workers_needed = len(subtasks)
-        logger.info(f"Initializing {workers_needed} worker agents for {len(subtasks)} subtasks...")
+        logger.info(f"Creating {workers_needed} worker agents for {len(subtasks)} subtasks...")
         
-        # Create workers if we don't have enough
+        # Create workers dynamically
         while len(self.workers) < workers_needed:
             worker = WorkerAgent(
                 worker_id=len(self.workers),
@@ -181,11 +269,12 @@ Return the subtasks as a JSON array:
         
         # Execute all tasks simultaneously
         try:
-            await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=300)
+            await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=600)  # 10 minute timeout
         except asyncio.TimeoutError:
-            logger.error("Task execution timed out after 5 minutes")
+            logger.error("Task execution timed out after 10 minutes")
         
         logger.info("All tasks completed")
+        
         # Get raw results from shared memory
         raw_results = await self.shared_memory.get_all()
         
@@ -193,14 +282,6 @@ Return the subtasks as a JSON array:
         clean_results = await self.aggregate_results(raw_results)
         
         return clean_results
-    
-    def _extract_person_name(self, task: str) -> str:
-        """Extract person name from task description."""
-        people = ["Mark Zuckerberg", "Elon Musk", "Donald Trump", "Sam Altman", "Geoffrey Hinton"]
-        for person in people:
-            if person in task:
-                return person
-        return "Unknown Person"
     
     async def cleanup(self):
         """Clean up all worker agents."""

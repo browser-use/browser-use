@@ -6,19 +6,20 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.pydantic_v1 import SecretStr
 import os
 import time
+import hashlib
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class WorkerAgent:
-    """Worker agent that executes tasks using browser automation."""
+    """Dynamic worker agent that can execute any type of task using browser automation."""
     
     def __init__(
         self,
         worker_id: int,
         api_key: str,
-        model: str = "gemini-2.0-flash",
+        model: str = "gemini-1.5-flash",
         headless: bool = False,
         shared_memory=None
     ):
@@ -31,10 +32,10 @@ class WorkerAgent:
         self.llm = ChatGoogleGenerativeAI(
             model=self.model,
             api_key=self.api_key,
-            temperature=0.7
+            temperature=0.3
         )
         self.last_api_call = 0
-        self.min_delay_between_calls = 2  # Minimum delay between API calls in seconds
+        self.min_delay_between_calls = 1  # Reduced delay for better parallelism
         self.shared_memory = shared_memory
     
     async def initialize(self):
@@ -44,14 +45,14 @@ class WorkerAgent:
             # Assign a unique user_data_dir for each worker
             user_data_dir = os.path.expanduser(f"~/.config/browseruse/profiles/worker_{self.worker_id}")
             
-            # Create a browser profile with visible mode
+            # Create a browser profile optimized for automation
             browser_profile = BrowserProfile(
-                headless=False,  # Force headless to False
+                headless=self.headless,  # Use the headless setting from constructor
                 user_data_dir=user_data_dir,
                 window_size={'width': 1280, 'height': 800},
-                no_viewport=True,  # Disable viewport to use actual window size
-                keep_alive=True,  # Keep browser open between tasks
-                chromium_sandbox=False,  # Disable sandbox for better compatibility
+                no_viewport=True,
+                keep_alive=True,
+                chromium_sandbox=False,
                 launch_options={
                     "args": [
                         "--start-maximized",
@@ -61,7 +62,9 @@ class WorkerAgent:
                         "--disable-dev-shm-usage",
                         "--disable-accelerated-2d-canvas",
                         "--disable-gpu",
-                        "--window-size=1920,1080"
+                        "--window-size=1920,1080",
+                        "--disable-web-security",
+                        "--disable-features=VizDisplayCompositor"
                     ]
                 }
             )
@@ -70,7 +73,7 @@ class WorkerAgent:
             self.browser = BrowserSession(browser_profile=browser_profile)
             await self.browser.start()
             self.controller = Controller()
-            logger.info(f"Worker {self.worker_id}: Browser session initialized")
+            logger.info(f"Worker {self.worker_id}: Browser session initialized successfully")
         except Exception as e:
             logger.error(f"Worker {self.worker_id}: Failed to initialize browser session: {str(e)}")
             raise
@@ -85,12 +88,9 @@ class WorkerAgent:
         self.last_api_call = asyncio.get_event_loop().time()
     
     async def execute_task(self, task: str) -> Any:
-        """Execute a task using browser automation with true parallelism."""
+        """Execute any type of task using browser automation with true parallelism."""
         logger.info(f"Worker {self.worker_id}: Starting task: {task}")
         try:
-            # Remove rate limiting for true parallelism
-            # await self._wait_for_rate_limit()
-            
             if not self.browser or not self.controller:
                 raise RuntimeError("Browser session or controller not initialized")
             
@@ -107,24 +107,23 @@ class WorkerAgent:
             
             # Write result to shared memory if available
             if self.shared_memory:
-                person = self._extract_person_name(task)
-                await self.shared_memory.write(person, result)
+                task_key = self._generate_task_key(task)
+                await self.shared_memory.write(task_key, result)
             
             return result
             
         except Exception as e:
             logger.error(f"Worker {self.worker_id}: Task failed: {str(e)}")
             if self.shared_memory:
-                person = self._extract_person_name(task)
-                await self.shared_memory.write(person, f"Error: {str(e)}")
+                task_key = self._generate_task_key(task)
+                await self.shared_memory.write(task_key, f"Error: {str(e)}")
             raise
     
-    def _extract_person_name(self, task: str) -> str:
-        people = ["Mark Zuckerberg", "Elon Musk", "Donald Trump", "Sam Altman"]
-        for person in people:
-            if person in task:
-                return person
-        return f"Worker_{self.worker_id}_task"
+    def _generate_task_key(self, task: str) -> str:
+        """Generate a unique key for any task using hash-based approach."""
+        # Simple hash-based key generation - no hardcoded logic
+        task_hash = hashlib.md5(task.encode()).hexdigest()[:8]
+        return f"Task_{task_hash}"
     
     async def cleanup(self):
         """Clean up the browser session."""

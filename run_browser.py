@@ -6,7 +6,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import SecretStr
 
 # Set the API key
-os.environ["GOOGLE_API_KEY"] = "AIzaSyBOq5ih4A1MfVI3HMdpfMtSoePl1OAHX4E"
+os.environ["GOOGLE_API_KEY"] = ""
 
 async def main():
     agent = Agent(
