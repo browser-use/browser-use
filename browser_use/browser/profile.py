@@ -573,7 +573,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	window_height: int | None = Field(default=None, description='DEPRECATED, use window_size["height"] instead', exclude=True)
 	window_width: int | None = Field(default=None, description='DEPRECATED, use window_size["width"] instead', exclude=True)
 	window_position: ViewportSize | None = Field(
-		default_factory=lambda: {'width': 0, 'height': 0},
+		default_factory=lambda: ViewportSize(width=0, height=0),
 		description='Window position to use for the browser x,y from the top left when headless=False.',
 	)
 
@@ -624,10 +624,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			logger.warning(
 				f'⚠️ BrowserProfile(window_width=..., window_height=...) are deprecated, use BrowserProfile(window_size={"width": 1280, "height": 1100}) instead.'
 			)
-			window_size = self.window_size or ViewportSize(width=0, height=0)
-			window_size['width'] = window_size['width'] or self.window_width or 1280
-			window_size['height'] = window_size['height'] or self.window_height or 1100
-			self.window_size = window_size
+			current_width = (self.window_size['width'] if self.window_size is not None else 0) or self.window_width or 1280
+			current_height = (self.window_size['height'] if self.window_size is not None else 0) or self.window_height or 1100
+			self.window_size = ViewportSize(width=current_width, height=current_height)
 
 		return self
 
@@ -700,12 +699,12 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.deterministic_rendering else []),
 			*(
 				[f'--window-size={self.window_size["width"]},{self.window_size["height"]}']
-				if self.window_size
+				if self.window_size is not None
 				else (['--start-maximized'] if not self.headless else [])
 			),
 			*(
 				[f'--window-position={self.window_position["width"]},{self.window_position["height"]}']
-				if self.window_position
+				if self.window_position is not None
 				else []
 			),
 			*(self._get_extension_args() if self.enable_default_extensions else []),

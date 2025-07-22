@@ -36,10 +36,11 @@ class WorkerAgent:
 			user_data_dir = os.path.expanduser(f'~/.config/browseruse/profiles/worker_{self.worker_id}')
 
 			# Create a browser profile optimized for automation
+			from browser_use.browser.types import ViewportSize
 			browser_profile = BrowserProfile(
 				headless=self.headless,  # Use the headless setting from constructor
 				user_data_dir=user_data_dir,
-				window_size={'width': 1280, 'height': 800},
+				window_size=ViewportSize(width=1280, height=800),
 				no_viewport=True,
 				keep_alive=True,
 				chromium_sandbox=False,

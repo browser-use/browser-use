@@ -1,6 +1,7 @@
 # centralize imports for browser typing
 
 import sys
+from typing import TypedDict
 
 from patchright._impl._errors import TargetClosedError as PatchrightTargetClosedError
 from patchright.async_api import Browser as PatchrightBrowser
@@ -33,13 +34,18 @@ TargetClosedError = PatchrightTargetClosedError | PlaywrightTargetClosedError
 async_patchright = _async_patchright
 async_playwright = _async_playwright
 
+# Explicitly define ViewportSize TypedDict to avoid type errors
+class ViewportSize(TypedDict):
+    width: int
+    height: int
+
+# Import other types from playwright
 from playwright._impl._api_structures import (
 	ClientCertificate,
 	Geolocation,
 	HttpCredentials,
 	ProxySettings,
 	StorageState,
-	ViewportSize,
 )
 
 # fix pydantic error on python 3.11
@@ -52,6 +58,5 @@ if sys.version_info < (3, 12):
 	ClientCertificate = TypedDict('ClientCertificate', ClientCertificate.__annotations__, total=ClientCertificate.__total__)
 	Geolocation = TypedDict('Geolocation', Geolocation.__annotations__, total=Geolocation.__total__)
 	ProxySettings = TypedDict('ProxySettings', ProxySettings.__annotations__, total=ProxySettings.__total__)
-	ViewportSize = TypedDict('ViewportSize', ViewportSize.__annotations__, total=ViewportSize.__total__)
 	HttpCredentials = TypedDict('HttpCredentials', HttpCredentials.__annotations__, total=HttpCredentials.__total__)
 	StorageState = TypedDict('StorageState', StorageState.__annotations__, total=StorageState.__total__)
