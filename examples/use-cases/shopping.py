@@ -97,8 +97,8 @@ At this stage, check the basket on the top right (indicates the price) and check
 - Select **TWINT** as the payment method.
 - Check out.
 - 
-- if it's needed the username is: nikoskalio.dev@gmail.com 
-- and the password is : TheCircuit.Migros.dev!
+- if it's needed the username is: <your-email@example.com>
+- and the password is : <your-password>
 ---
 
 ### Step 7: Confirm Order & Output Summary
