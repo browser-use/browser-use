@@ -130,52 +130,34 @@ class Controller(Generic[Context]):
 			await browser_session.go_back()
 			msg = '🔙  Navigated back'
 			logger.info(msg)
-			return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory='Navigated back')
+			return ActionResult(extracted_content=msg)
 
-		# wait for x seconds
-
-		@self.registry.action('Wait for x seconds default 3 (max 10 seconds)')
+		@self.registry.action(
+			'Wait for x seconds default 3 (max 10 seconds). This can be used to wait until the page is fully loaded.'
+		)
 		async def wait(seconds: int = 3):
 			# Cap wait time at maximum 10 seconds
-			actual_seconds = min(max(seconds, 0), 10)
-			if actual_seconds != seconds:
-				msg = f'🕒  Waiting for {actual_seconds} seconds (capped from {seconds} seconds, max 10 seconds)'
-			else:
-				msg = f'🕒  Waiting for {actual_seconds} seconds'
+			# Reduce the wait time by 3 seconds to account for the llm call which takes at least 3 seconds
+			# So if the model decides to wait for 5 seconds, the llm call took at least 3 seconds, so we only need to wait for 2 seconds
+			actual_seconds = min(max(seconds - 3, 0), 10)
+			msg = f'🕒  Waiting for {actual_seconds + 3} seconds'
 			logger.info(msg)
 			await asyncio.sleep(actual_seconds)
-			return ActionResult(
-				extracted_content=msg, include_in_memory=True, long_term_memory=f'Waited for {actual_seconds} seconds'
-			)
+			return ActionResult(extracted_content=msg)
 
 		# Element Interaction Actions
 
 		@self.registry.action('Click element by index', param_model=ClickElementAction)
 		async def click_element_by_index(params: ClickElementAction, browser_session: BrowserSession):
-			# Browser is now a BrowserSession itself
-
-			# Check if element exists in current selector map
-			selector_map = await browser_session.get_selector_map()
-			if params.index not in selector_map:
-				# Force a state refresh in case the cache is stale
-				logger.info(f'Element with index {params.index} not found in selector map, refreshing state...')
-				await browser_session.get_state_summary(
-					cache_clickable_elements_hashes=True
-				)  # This will refresh the cached state
-				selector_map = await browser_session.get_selector_map()
-
-				if params.index not in selector_map:
-					# Return informative message with the new state instead of error
-					max_index = max(selector_map.keys()) if selector_map else -1
-					msg = f'Element with index {params.index} does not exist. Page has {len(selector_map)} interactive elements (indices 0-{max_index}). State has been refreshed - please use the updated element indices or scroll to see more elements'
-					return ActionResult(extracted_content=msg, include_in_memory=True, success=False, long_term_memory=msg)
-
 			element_node = await browser_session.get_dom_element_by_index(params.index)
+			if element_node is None:
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
 			initial_pages = len(browser_session.tabs)
 
 			# if element has file uploader then dont click
 			# Check if element is actually a file input (not just contains file-related keywords)
-			if element_node is not None and browser_session.is_file_input(element_node):
+			if browser_session.is_file_input(element_node):
 				msg = f'Index {params.index} - has an element which opens file upload dialog. To upload files please use a specific function to upload files '
 				logger.info(msg)
 				return ActionResult(extracted_content=msg, include_in_memory=True, success=False, long_term_memory=msg)
@@ -183,7 +165,6 @@ class Controller(Generic[Context]):
 			msg = None
 
 			try:
-				assert element_node is not None, f'Element with index {params.index} does not exist'
 				download_path = await browser_session._click_element_node(element_node)
 				if download_path:
 					emoji = '💾'
@@ -203,25 +184,17 @@ class Controller(Generic[Context]):
 				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
 			except Exception as e:
 				error_msg = str(e)
-				if 'Execution context was destroyed' in error_msg or 'Cannot find context with specified id' in error_msg:
-					# Page navigated during click - refresh state and return it
-					logger.info('Page context changed during click, refreshing state...')
-					await browser_session.get_state_summary(cache_clickable_elements_hashes=True)
-					raise BrowserError('Page navigated during click. Refreshed state provided.')
-				else:
-					logger.warning(f'Element not clickable with index {params.index} - most likely the page changed')
-					raise BrowserError(error_msg)
+				raise BrowserError(error_msg)
 
 		@self.registry.action(
 			'Click and input text into a input interactive element',
 			param_model=InputTextAction,
 		)
 		async def input_text(params: InputTextAction, browser_session: BrowserSession, has_sensitive_data: bool = False):
-			if params.index not in await browser_session.get_selector_map():
+			element_node = await browser_session.get_dom_element_by_index(params.index)
+			if element_node is None:
 				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
 
-			element_node = await browser_session.get_dom_element_by_index(params.index)
-			assert element_node is not None, f'Element with index {params.index} does not exist'
 			try:
 				await browser_session._input_text_element_node(element_node, params.text)
 			except Exception:
@@ -443,32 +416,6 @@ Explain the content of the page and that the requested information is not availa
 				logger.info(msg)
 				raise RuntimeError(str(e))
 
-		# @self.registry.action(
-		# 	'Get the accessibility tree of the page in the format "role name" with the number_of_elements to return',
-		# )
-		# async def get_ax_tree(number_of_elements: int, page: Page):
-		# 	node = await page.accessibility.snapshot(interesting_only=True)
-
-		# 	def flatten_ax_tree(node, lines):
-		# 		if not node:
-		# 			return
-		# 		role = node.get('role', '')
-		# 		name = node.get('name', '')
-		# 		lines.append(f'{role} {name}')
-		# 		for child in node.get('children', []):
-		# 			flatten_ax_tree(child, lines)
-
-		# 	lines = []
-		# 	flatten_ax_tree(node, lines)
-		# 	msg = '\n'.join(lines)
-		# 	logger.info(msg)
-		# 	return ActionResult(
-		# 		extracted_content=msg,
-		# 		include_in_memory=False,
-		# 		long_term_memory='Retrieved accessibility tree',
-		# 		include_extracted_content_only_once=True,
-		# 	)
-
 		@self.registry.action(
 			'Scroll the page by specified number of pages (set down=True to scroll down, down=False to scroll up, num_pages=number of pages to scroll like 0.5 for half page, 1.0 for one page, etc.). Optional index parameter to scroll within a specific element or its scroll container (works well for dropdowns and custom UI components).',
 			param_model=ScrollAction,
@@ -503,149 +450,129 @@ Explain the content of the page and that the requested information is not availa
 			# Initialize result message components
 			direction = 'down' if params.down else 'up'
 			scroll_target = 'the page'
-			pages_text = f'{pages_scrolled} pages' if pages_scrolled != 1.0 else 'one page'
 
 			# Element-specific scrolling if index is provided
 			if params.index is not None:
 				try:
-					# Check if element exists in current selector map
-					selector_map = await browser_session.get_selector_map()
-					element_node = None  # Initialize to avoid undefined variable
+					element_node = await browser_session.get_dom_element_by_index(params.index)
+					if element_node is None:
+						raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
 
-					if params.index not in selector_map:
-						# Force a state refresh in case the cache is stale
-						logger.info(f'Element with index {params.index} not found in selector map, refreshing state...')
-						await browser_session.get_state_summary(cache_clickable_elements_hashes=True)
-						selector_map = await browser_session.get_selector_map()
+					# Try direct container scrolling (no events that might close dropdowns)
+					container_scroll_js = """
+					(params) => {
+						const { dy, elementXPath } = params;
+						
+						// Get the target element by XPath
+						const targetElement = document.evaluate(elementXPath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+						if (!targetElement) {
+							return { success: false, reason: 'Element not found by XPath' };
+						}
 
-						if params.index not in selector_map:
-							# Return informative message about invalid index
-							max_index = max(selector_map.keys()) if selector_map else -1
-							msg = f'❌ Element with index {params.index} does not exist. Page has {len(selector_map)} interactive elements (indices 0-{max_index}). Using page-level scroll instead.'
-							logger.warning(msg)
-							scroll_target = 'the page'
-							# Skip element-specific scrolling
-						else:
-							element_node = await browser_session.get_dom_element_by_index(params.index)
-					else:
-						element_node = await browser_session.get_dom_element_by_index(params.index)
-
-					if element_node is not None and params.index in selector_map:
-						# Try direct container scrolling (no events that might close dropdowns)
-						container_scroll_js = """
-						(params) => {
-							const { dy, elementXPath } = params;
+						console.log('[SCROLL DEBUG] Starting direct container scroll for element:', targetElement.tagName);
+						
+						// Try to find scrollable containers in the hierarchy (starting from element itself)
+						let currentElement = targetElement;
+						let scrollSuccess = false;
+						let scrolledElement = null;
+						let scrollDelta = 0;
+						let attempts = 0;
+						
+						// Check up to 10 elements in hierarchy (including the target element itself)
+						while (currentElement && attempts < 10) {
+							const computedStyle = window.getComputedStyle(currentElement);
+							const hasScrollableY = /(auto|scroll|overlay)/.test(computedStyle.overflowY);
+							const canScrollVertically = currentElement.scrollHeight > currentElement.clientHeight;
 							
-							// Get the target element by XPath
-							const targetElement = document.evaluate(elementXPath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-							if (!targetElement) {
-								return { success: false, reason: 'Element not found by XPath' };
-							}
-
-							console.log('[SCROLL DEBUG] Starting direct container scroll for element:', targetElement.tagName);
+							console.log('[SCROLL DEBUG] Checking element:', currentElement.tagName, 
+								'hasScrollableY:', hasScrollableY, 
+								'canScrollVertically:', canScrollVertically,
+								'scrollHeight:', currentElement.scrollHeight,
+								'clientHeight:', currentElement.clientHeight);
 							
-							// Try to find scrollable containers in the hierarchy (starting from element itself)
-							let currentElement = targetElement;
-							let scrollSuccess = false;
-							let scrolledElement = null;
-							let scrollDelta = 0;
-							let attempts = 0;
-							
-							// Check up to 10 elements in hierarchy (including the target element itself)
-							while (currentElement && attempts < 10) {
-								const computedStyle = window.getComputedStyle(currentElement);
-								const hasScrollableY = /(auto|scroll|overlay)/.test(computedStyle.overflowY);
-								const canScrollVertically = currentElement.scrollHeight > currentElement.clientHeight;
+							if (hasScrollableY && canScrollVertically) {
+								const beforeScroll = currentElement.scrollTop;
+								const maxScroll = currentElement.scrollHeight - currentElement.clientHeight;
 								
-								console.log('[SCROLL DEBUG] Checking element:', currentElement.tagName, 
-									'hasScrollableY:', hasScrollableY, 
-									'canScrollVertically:', canScrollVertically,
-									'scrollHeight:', currentElement.scrollHeight,
-									'clientHeight:', currentElement.clientHeight);
+								// Calculate scroll amount (1/3 of provided dy for gentler scrolling)
+								let scrollAmount = dy / 3;
 								
-								if (hasScrollableY && canScrollVertically) {
-									const beforeScroll = currentElement.scrollTop;
-									const maxScroll = currentElement.scrollHeight - currentElement.clientHeight;
-									
-									// Calculate scroll amount (1/3 of provided dy for gentler scrolling)
-									let scrollAmount = dy / 3;
-									
-									// Ensure we don't scroll beyond bounds
-									if (scrollAmount > 0) {
-										scrollAmount = Math.min(scrollAmount, maxScroll - beforeScroll);
-									} else {
-										scrollAmount = Math.max(scrollAmount, -beforeScroll);
-									}
-									
-									// Try direct scrollTop manipulation (most reliable)
-									currentElement.scrollTop = beforeScroll + scrollAmount;
-									
-									const afterScroll = currentElement.scrollTop;
-									const actualScrollDelta = afterScroll - beforeScroll;
-									
-									console.log('[SCROLL DEBUG] Scroll attempt:', currentElement.tagName, 
-										'before:', beforeScroll, 'after:', afterScroll, 'delta:', actualScrollDelta);
-									
-									if (Math.abs(actualScrollDelta) > 0.5) {
-										scrollSuccess = true;
-										scrolledElement = currentElement;
-										scrollDelta = actualScrollDelta;
-										console.log('[SCROLL DEBUG] Successfully scrolled container:', currentElement.tagName, 'delta:', actualScrollDelta);
-										break;
-									}
+								// Ensure we don't scroll beyond bounds
+								if (scrollAmount > 0) {
+									scrollAmount = Math.min(scrollAmount, maxScroll - beforeScroll);
+								} else {
+									scrollAmount = Math.max(scrollAmount, -beforeScroll);
 								}
 								
-								// Move to parent (but don't go beyond body for dropdown case)
-								if (currentElement === document.body || currentElement === document.documentElement) {
+								// Try direct scrollTop manipulation (most reliable)
+								currentElement.scrollTop = beforeScroll + scrollAmount;
+								
+								const afterScroll = currentElement.scrollTop;
+								const actualScrollDelta = afterScroll - beforeScroll;
+								
+								console.log('[SCROLL DEBUG] Scroll attempt:', currentElement.tagName, 
+									'before:', beforeScroll, 'after:', afterScroll, 'delta:', actualScrollDelta);
+								
+								if (Math.abs(actualScrollDelta) > 0.5) {
+									scrollSuccess = true;
+									scrolledElement = currentElement;
+									scrollDelta = actualScrollDelta;
+									console.log('[SCROLL DEBUG] Successfully scrolled container:', currentElement.tagName, 'delta:', actualScrollDelta);
 									break;
 								}
-								currentElement = currentElement.parentElement;
-								attempts++;
 							}
 							
-							if (scrollSuccess) {
-								// Successfully scrolled a container
-								return { 
-									success: true, 
-									method: 'direct_container_scroll',
-									containerType: 'element', 
-									containerTag: scrolledElement.tagName.toLowerCase(),
-									containerClass: scrolledElement.className || '',
-									containerId: scrolledElement.id || '',
-									scrollDelta: scrollDelta
-								};
-							} else {
-								// No container found or could scroll
-								console.log('[SCROLL DEBUG] No scrollable container found for element');
-								return { 
-									success: false, 
-									reason: 'No scrollable container found',
-									needsPageScroll: true
-								};
+							// Move to parent (but don't go beyond body for dropdown case)
+							if (currentElement === document.body || currentElement === document.documentElement) {
+								break;
 							}
+							currentElement = currentElement.parentElement;
+							attempts++;
 						}
-						"""
+						
+						if (scrollSuccess) {
+							// Successfully scrolled a container
+							return { 
+								success: true, 
+								method: 'direct_container_scroll',
+								containerType: 'element', 
+								containerTag: scrolledElement.tagName.toLowerCase(),
+								containerClass: scrolledElement.className || '',
+								containerId: scrolledElement.id || '',
+								scrollDelta: scrollDelta
+							};
+						} else {
+							// No container found or could scroll
+							console.log('[SCROLL DEBUG] No scrollable container found for element');
+							return { 
+								success: false, 
+								reason: 'No scrollable container found',
+								needsPageScroll: true
+							};
+						}
+					}
+					"""
 
-						# Pass parameters as a single object
-						scroll_params = {'dy': dy, 'elementXPath': element_node.xpath}
-						result = await page.evaluate(container_scroll_js, scroll_params)
+					# Pass parameters as a single object
+					scroll_params = {'dy': dy, 'elementXPath': element_node.xpath}
+					result = await page.evaluate(container_scroll_js, scroll_params)
 
-						if result['success']:
-							if result['containerType'] == 'element':
-								container_info = f'{result["containerTag"]}'
-								if result['containerId']:
-									container_info += f'#{result["containerId"]}'
-								elif result['containerClass']:
-									container_info += f'.{result["containerClass"].split()[0]}'
-								scroll_target = f"element {params.index}'s scroll container ({container_info})"
-								# Don't do additional page scrolling since we successfully scrolled the container
-							else:
-								scroll_target = f'the page (fallback from element {params.index})'
+					if result['success']:
+						if result['containerType'] == 'element':
+							container_info = f'{result["containerTag"]}'
+							if result['containerId']:
+								container_info += f'#{result["containerId"]}'
+							elif result['containerClass']:
+								container_info += f'.{result["containerClass"].split()[0]}'
+							scroll_target = f"element {params.index}'s scroll container ({container_info})"
+							# Don't do additional page scrolling since we successfully scrolled the container
 						else:
-							# Container scroll failed, need page-level scrolling
-							logger.debug(f'Container scroll failed for element {params.index}: {result.get("reason", "Unknown")}')
-							scroll_target = f'the page (no container found for element {params.index})'
-							# This will trigger page-level scrolling below
+							scroll_target = f'the page (fallback from element {params.index})'
+					else:
+						# Container scroll failed, need page-level scrolling
+						logger.debug(f'Container scroll failed for element {params.index}: {result.get("reason", "Unknown")}')
+						scroll_target = f'the page (no container found for element {params.index})'
+						# This will trigger page-level scrolling below
 
 				except Exception as e:
 					logger.debug(f'Element-specific scrolling failed for index {params.index}: {e}')
@@ -677,8 +604,6 @@ Explain the content of the page and that the requested information is not availa
 
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=long_term_memory)
-
-		# send keys
 
 		@self.registry.action(
 			'Send strings of special keys to use Playwright page.keyboard.press - examples include Escape, Backspace, Insert, PageDown, Delete, Enter, or Shortcuts such as `Control+o`, `Control+Shift+T`',
@@ -816,8 +741,9 @@ Explain the content of the page and that the requested information is not availa
 		async def get_dropdown_options(index: int, browser_session: BrowserSession) -> ActionResult:
 			"""Get all options from a native dropdown"""
 			page = await browser_session.get_current_page()
-			selector_map = await browser_session.get_selector_map()
-			dom_element = selector_map[index]
+			dom_element = await browser_session.get_dom_element_by_index(index)
+			if dom_element is None:
+				raise Exception(f'Element index {index} does not exist - retry or use alternative actions')
 
 			try:
 				# Frame-aware approach since we know it works
@@ -897,8 +823,9 @@ Explain the content of the page and that the requested information is not availa
 		) -> ActionResult:
 			"""Select dropdown option by the text of the option you want to select"""
 			page = await browser_session.get_current_page()
-			selector_map = await browser_session.get_selector_map()
-			dom_element = selector_map[index]
+			dom_element = await browser_session.get_dom_element_by_index(index)
+			if dom_element is None:
+				raise Exception(f'Element index {index} does not exist - retry or use alternative actions')
 
 			# Validate that we're working with a select element
 			if dom_element.tag_name != 'select':

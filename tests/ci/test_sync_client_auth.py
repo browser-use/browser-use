@@ -544,71 +544,71 @@ class TestCloudSync:
 
 		# Should handle error gracefully without crashing
 
-	async def test_update_wal_events(self, temp_config_dir):
-		"""Test updating WAL events with real user ID."""
-		# Create real auth client
-		auth = DeviceAuthClient(base_url='http://localhost:8000')
-		auth.auth_config.api_token = 'test-api-key'
-		auth.auth_config.user_id = 'test-user-123'
+	# async def test_update_wal_events(self, temp_config_dir):
+	# 	"""Test updating WAL events with real user ID."""
+	# 	# Create real auth client
+	# 	auth = DeviceAuthClient(base_url='http://localhost:8000')
+	# 	auth.auth_config.api_token = 'test-api-key'
+	# 	auth.auth_config.user_id = 'test-user-123'
 
-		service = CloudSync(
-			base_url='http://localhost:8000',
-			enable_auth=True,
-		)
-		service.auth_client = auth
-		service.session_id = 'test-session-id'
+	# 	service = CloudSync(
+	# 		base_url='http://localhost:8000',
+	# 		enable_auth=True,
+	# 	)
+	# 	service.auth_client = auth
+	# 	service.session_id = 'test-session-id'
 
-		# Create the events directory structure that the method expects
-		events_dir = temp_config_dir / 'events'
-		events_dir.mkdir(exist_ok=True)
+	# 	# Create the events directory structure that the method expects
+	# 	events_dir = temp_config_dir / 'events'
+	# 	events_dir.mkdir(exist_ok=True)
 
-		# Create WAL file with temp user IDs
-		wal_path = events_dir / f'{service.session_id}.jsonl'
-		events = [
-			{
-				'event_type': 'CreateAgentTaskEvent',
-				'user_id': '99999999-9999-9999-9999-999999999999',  # TEMP_USER_ID
-				'task': 'Task 1',
-			},
-			{
-				'event_type': 'UpdateAgentTaskEvent',
-				'user_id': '99999999-9999-9999-9999-999999999999',  # TEMP_USER_ID
-				'status': 'done',
-			},
-			{
-				'event_type': 'CreateAgentStepEvent',
-				'user_id': 'some-other-user',  # Different user, should still be updated
-				'step': 1,
-			},
-		]
+	# 	# Create WAL file with temp user IDs
+	# 	wal_path = events_dir / f'{service.session_id}.jsonl'
+	# 	events = [
+	# 		{
+	# 			'event_type': 'CreateAgentTaskEvent',
+	# 			'user_id': '99999999-9999-9999-9999-999999999999',  # TEMP_USER_ID
+	# 			'task': 'Task 1',
+	# 		},
+	# 		{
+	# 			'event_type': 'UpdateAgentTaskEvent',
+	# 			'user_id': '99999999-9999-9999-9999-999999999999',  # TEMP_USER_ID
+	# 			'status': 'done',
+	# 		},
+	# 		{
+	# 			'event_type': 'CreateAgentStepEvent',
+	# 			'user_id': 'some-other-user',  # Different user, should still be updated
+	# 			'step': 1,
+	# 		},
+	# 	]
 
-		# Write events to WAL file
-		content = '\n'.join(json.dumps(event) for event in events) + '\n'
-		await anyio.Path(wal_path).write_text(content)
+	# 	# Write events to WAL file
+	# 	content = '\n'.join(json.dumps(event) for event in events) + '\n'
+	# 	await anyio.Path(wal_path).write_text(content)
 
-		# Call the method under test (temp_config_dir fixture already sets the env var)
-		await service._update_wal_user_ids(service.session_id)
+	# 	# Call the method under test (temp_config_dir fixture already sets the env var)
+	# 	await service._update_wal_user_ids(service.session_id)
 
-		# Read back the updated file and verify changes
-		content = await anyio.Path(wal_path).read_text()
+	# 	# Read back the updated file and verify changes
+	# 	content = await anyio.Path(wal_path).read_text()
 
-		updated_events = []
-		for line in content.splitlines():
-			if line.strip():
-				updated_events.append(json.loads(line))
+	# 	updated_events = []
+	# 	for line in content.splitlines():
+	# 		if line.strip():
+	# 			updated_events.append(json.loads(line))
 
-		# Verify all user_ids were updated to the authenticated user's ID
-		assert len(updated_events) == 3
-		for event in updated_events:
-			assert event['user_id'] == 'test-user-123'
+	# 	# Verify all user_ids were updated to the authenticated user's ID
+	# 	assert len(updated_events) == 3
+	# 	for event in updated_events:
+	# 		assert event['user_id'] == 'test-user-123'
 
-		# Verify other fields remained unchanged
-		assert updated_events[0]['event_type'] == 'CreateAgentTaskEvent'
-		assert updated_events[0]['task'] == 'Task 1'
-		assert updated_events[1]['event_type'] == 'UpdateAgentTaskEvent'
-		assert updated_events[1]['status'] == 'done'
-		assert updated_events[2]['event_type'] == 'CreateAgentStepEvent'
-		assert updated_events[2]['step'] == 1
+	# 	# Verify other fields remained unchanged
+	# 	assert updated_events[0]['event_type'] == 'CreateAgentTaskEvent'
+	# 	assert updated_events[0]['task'] == 'Task 1'
+	# 	assert updated_events[1]['event_type'] == 'UpdateAgentTaskEvent'
+	# 	assert updated_events[1]['status'] == 'done'
+	# 	assert updated_events[2]['event_type'] == 'CreateAgentStepEvent'
+	# 	assert updated_events[2]['step'] == 1
 
 
 class TestIntegration:

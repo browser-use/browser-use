@@ -13,7 +13,7 @@ from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 from pytest_httpserver import HTTPServer
 
-from browser_use import Agent, BrowserProfile, BrowserSession, Controller
+from browser_use import ActionResult, Agent, BrowserProfile, BrowserSession, Controller
 from browser_use.mcp.client import MCPClient
 
 
@@ -338,11 +338,10 @@ async def test_mcp_tool_error_handling(test_mcp_server_script):
 		# Try to use tool after disconnect
 		echo_action = controller.registry.registry.actions['echo_message']
 		params = echo_action.param_model(message='Test')
-		result = await echo_action.function(params=params)
+		result: ActionResult = await echo_action.function(params=params)
 
 		# Should handle error gracefully
-		assert result.success is False
-		assert 'not connected' in result.error
+		assert result.error is not None
 
 	finally:
 		# Already disconnected

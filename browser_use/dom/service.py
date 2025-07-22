@@ -15,6 +15,7 @@ from browser_use.dom.views import (
 	SelectorMap,
 	ViewportInfo,
 )
+from browser_use.observability import observe_debug
 from browser_use.utils import is_new_tab_page, time_execution_async
 
 # @dataclass
@@ -34,6 +35,7 @@ class DomService:
 		self.js_code = resources.files('browser_use.dom.dom_tree').joinpath('index.js').read_text()
 
 	# region - Clickable elements
+	@observe_debug(ignore_input=True, ignore_output=True, name='get_clickable_elements')
 	@time_execution_async('--get_clickable_elements')
 	async def get_clickable_elements(
 		self,

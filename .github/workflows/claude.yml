@@ -89,7 +89,41 @@ jobs:
             ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
             GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
             GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          settings: |
+            {
+              "permissions": {
+                "allow": [
+                  "Bash(git:*)",
+                  "Bash(uv:*)",
+                  "Bash(uv run pytest:*)",
+                  "Bash(uv run ruff:*)",
+                  "Bash(uv run pyright:*)",
+                  "Bash(uv run pre-commit:*)",
+                  "Bash(uv pip:*)",
+                  "Bash(uv add:*)",
+                  "Bash(uv sync --all-extras --dev)",
+                  "Bash(.venv/bin/*:*)",
+                  "Bash(.venv/bin/python:*)",
+                  "Bash(sed:*)",
+                  "Bash(rg:*)",
+                  "Bash(jq:*)",
+                  "Bash(find:*)",
+                  "Bash(grep:*)",
+                  "Bash(python:*)",
+                  "Bash(chmod:*)",
+                  "Bash(rm:*)",
+                  "Bash(playwright:*)",
+                  "Bash(uv run playwright:*)",
+                  "Bash(./bin/lint.sh)",
+                  "Bash(./bin/test.sh)",
+                  "WebFetch(*)",
+                  "WebSearch(*)"
+                ],
+                "additionalDirectories": ["/home/runner/work"]
+              }
+            }
           allowed_tools: |
+            Bash(git:*)
             Bash(uv:*)
             Bash(uv run pytest:*)
             Bash(uv run ruff:*)

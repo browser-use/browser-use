@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.5.4"
+version = "0.5.5"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -31,17 +31,17 @@ dependencies = [
     "typing-extensions>=4.12.2",
     "uuid7>=0.1.0",
     "authlib>=1.6.0",
-    "google-genai>=1.21.1",
-    "openai>=1.81.0",
-    "anthropic>=0.54.0",
-    "groq>=0.28.0",
+    "google-genai>=1.26.0",
+    "openai>=1.97.0",
+    "anthropic>=0.58.2",
+    "groq>=0.30.0",
     "ollama>=0.5.1",
     "google-api-python-client>=2.174.0",
     "google-auth>=2.40.3",
     "google-auth-oauthlib>=1.2.2",
     "mcp>=1.10.1",
     "pypdf>=5.7.0",
-    "markdown-pdf>=1.7",
+    "markdown-pdf==1.5",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste

@@ -288,8 +288,9 @@ class TestControllerIntegration:
 			click_element_by_index: ClickElementAction | None = None
 
 		# This should fail since the element doesn't exist
-		result = await controller.act(ClickActionModel(**invalid_action), browser_session)
-		assert result.success is False
+		result: ActionResult = await controller.act(ClickActionModel(**invalid_action), browser_session)
+
+		assert result.error is not None
 
 	async def test_wait_action(self, controller, browser_session):
 		"""Test that the wait action correctly waits for the specified duration."""
@@ -327,8 +328,30 @@ class TestControllerIntegration:
 		assert result.extracted_content is not None
 		assert 'Waiting for' in result.extracted_content
 
-		# Verify that at least 1 second has passed
-		assert end_time - start_time >= 0.9  # Allow some timing margin
+		# Verify that less than 0.1 second has passed (because we deducted 3 seconds to account for the llm call)
+		assert end_time - start_time <= 0.1  # Allow some timing margin
+
+		# longer wait
+		# Create wait action for 1 second - fix to use a dictionary
+		wait_action = {'wait': {'seconds': 5}}  # Corrected format
+
+		# Record start time
+		start_time = time.time()
+
+		# Execute wait action
+		result = await controller.act(WaitActionModel(**wait_action), browser_session)
+
+		# Record end time
+		end_time = time.time()
+
+		# Verify the result
+		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
+		assert 'Waiting for' in result.extracted_content
+
+		# Verify that we took 2 sec (5s-3s (llm call)= 2s)
+		assert end_time - start_time <= 2.1  # Allow some timing margin
+		assert end_time - start_time >= 1.9  # Allow some timing margin
 
 	async def test_go_back_action(self, controller, browser_session, base_url):
 		"""Test that go_back action navigates to the previous page."""

@@ -9,10 +9,10 @@ making it useful for canvas drawing, sortable lists, sliders, file uploads, and 
 import asyncio
 from typing import cast
 
-from playwright.async_api import ElementHandle, Page
 from pydantic import BaseModel, Field
 
 from browser_use import ActionResult, Agent, Controller
+from browser_use.browser.types import ElementHandle, Page
 from browser_use.llm import ChatOpenAI
 
 
