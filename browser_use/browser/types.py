@@ -1,7 +1,7 @@
 # centralize imports for browser typing
 
 import sys
-from typing import TypedDict
+from typing_extensions import TypedDict
 
 from patchright._impl._errors import TargetClosedError as PatchrightTargetClosedError
 from patchright.async_api import Browser as PatchrightBrowser

@@ -53,10 +53,9 @@ async def main():
 			print(f'\n{key}:')
 			print(f'  {result}')
 
-		# Save shared answers for Base Agent processing
-		save_shared_answers_to_file(results, user_prompt)
-		print('📄 Shared answers saved to: parallel_orchestrator/shared_answers.txt')
-		print('📄 AI-cleaned final answer saved to: parallel_orchestrator/final_answers.txt')
+		# Save clean results to a simple file
+		save_clean_results_to_file(results, user_prompt)
+		print('📄 Clean results saved to: final_answers.txt')
 
 	except Exception as e:
 		print(f'❌ Error: {e}')
@@ -69,33 +68,14 @@ async def main():
 	print('=' * 60)
 
 
-def save_shared_answers_to_file(results, original_prompt):
-	"""Save raw shared answers for Base Agent AI processing."""
-	filename = 'parallel_orchestrator/shared_answers.txt'
-
-	with open(filename, 'w') as f:
-		f.write('SHARED ANSWERS FOR BASE AGENT PROCESSING\n')
-		f.write('=' * 50 + '\n\n')
-		f.write(f'Original Task: {original_prompt}\n\n')
-		f.write('Raw Results from Workers:\n')
-		f.write('-' * 30 + '\n\n')
-
-		for key, result in results.items():
-			f.write(f'WORKER: {key}\n')
-			f.write(f'RESULT: {result}\n')
-			f.write('-' * 50 + '\n\n')
-
-
 def save_clean_results_to_file(results, original_prompt):
 	"""Save clean results to a simple file."""
-	filename = 'parallel_orchestrator/final_answers.txt'
+	filename = 'final_answers.txt'
 
 	with open(filename, 'w') as f:
-		f.write('DYNAMIC PARALLEL ORCHESTRATOR RESULTS\n')
-		f.write('=' * 40 + '\n\n')
+		f.write('FINAL ANSWERS\n')
+		f.write('=' * 30 + '\n\n')
 		f.write(f'Original Task: {original_prompt}\n\n')
-		f.write('Final Clean Answers:\n')
-		f.write('-' * 20 + '\n\n')
 
 		for key, result in results.items():
 			# Extract the final clean answer
