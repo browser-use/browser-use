@@ -123,7 +123,7 @@ class BrowserContextConfig:
 	)
 
 	highlight_elements: bool = True
-	viewport_expansion: int = 0
+	viewport_expansion: int = 500
 	allowed_domains: list[str] | None = None
 	include_dynamic_attributes: bool = True
 
