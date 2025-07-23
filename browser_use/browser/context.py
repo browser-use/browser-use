@@ -261,8 +261,8 @@ class BrowserContext:
 				java_script_enabled=True,
 				bypass_csp=self.config.disable_security,
 				ignore_https_errors=self.config.disable_security,
-				record_video_dir=self.config.save_recording_path,
-				record_video_size=self.config.browser_window_size,
+				# record_video_dir=self.config.save_recording_path, # ambar
+				# record_video_size=self.config.browser_window_size,
 				locale=self.config.locale,
 			)
 
