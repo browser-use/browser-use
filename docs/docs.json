@@ -52,10 +52,10 @@
         ]
       },
       {
-        "tab": "Cloud API",
+        "tab": "Cloud API v1",
         "groups": [
           {
-            "group": "Cloud API",
+            "group": "Cloud API v1",
             "pages": [
               "cloud/quickstart",
               "cloud/implementation",
@@ -64,7 +64,7 @@
             ]
           },
           {
-            "group": "API v1.0",
+            "group": "Tasks API",
             "pages": [
               "api-reference/run-task",
               "api-reference/stop-task",
@@ -72,20 +72,48 @@
               "api-reference/resume-task",
               "api-reference/get-task",
               "api-reference/get-task-status",
+              "api-reference/list-tasks",
               "api-reference/get-task-media",
               "api-reference/get-task-screenshots",
-              "api-reference/get-task-gif",
-              "api-reference/get-task-output-file",
-              "api-reference/list-tasks",
-              "api-reference/upload-file-presigned-url",
-              "api-reference/create-scheduled-task",
+              "api-reference/get-task-output-file"
+            ]
+          },
+          {
+            "group": "Scheduled Tasks API",
+            "pages": [
               "api-reference/list-scheduled-tasks",
+              "api-reference/create-scheduled-task",
               "api-reference/get-scheduled-task",
               "api-reference/update-scheduled-task",
-              "api-reference/delete-scheduled-task",
-              "api-reference/delete-browser-profile",
+              "api-reference/delete-scheduled-task"
+            ]
+          },
+          {
+            "group": "Browser Profiles API",
+            "pages": [
+              "api-reference/list-browser-profiles",
+              "api-reference/create-browser-profile",
+              "api-reference/get-browser-profile",
+              "api-reference/update-browser-profile",
+              "api-reference/delete-browser-profile"
+            ]
+          },
+          {
+            "group": "Files API",
+            "pages": [
+              "api-reference/upload-file-presigned-url"
+            ]
+          },
+          {
+            "group": "User API",
+            "pages": [
               "api-reference/check-balance",
-              "api-reference/user",
+              "api-reference/user"
+            ]
+          },
+          {
+            "group": "Health Check API",
+            "pages": [
               "api-reference/ping"
             ]
           }

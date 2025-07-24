@@ -70,13 +70,28 @@ Endpoints for uploading and managing files for task execution:
 
 - [**Upload File Presigned URL**](/api-reference/files#upload-file-presigned-url) - `POST /api/v1/uploads/presigned-url` - Get presigned URL for file upload
 
+### Browser Profile Management
+
+Endpoints for managing your browser profiles:
+
+- [**Create Browser Profile**](/api-reference/create-browser-profile) - `POST /api/v1/browser-profiles` - Create a new browser profile
+- [**Get Browser Profile**](/api-reference/get-browser-profile) - `GET /api/v1/browser-profiles/{profile_id}` - Get a browser profile by ID
+- [**List Browser Profiles**](/api-reference/list-browser-profiles) - `GET /api/v1/browser-profiles` - List all browser profiles
+- [**Update Browser Profile**](/api-reference/update-browser-profile) - `PUT /api/v1/browser-profiles/{profile_id}` - Update a browser profile
+- [**Delete Browser Profile**](/api-reference/delete-browser-profile) - `DELETE /api/v1/browser-profiles/{profile_id}` - Delete a browser profile
+
 ### User Management
 
-Endpoints for managing your account, browser profiles, and checking credits:
+Endpoints for managing your account and checking credits:
 
 - [**Check Balance**](/api-reference/user#check-balance) - `GET /api/v1/balance` - Check API credit balance
 - [**Verify Authentication**](/api-reference/user#verify-authentication) - `GET /api/v1/me` - Verify API key validity
 - [**Delete Browser Profile**](/api-reference/user#delete-browser-profile) - `POST /api/v1/delete-browser-profile-for-user` - Delete browser profile
+
+### Health Check
+
+Endpoints to verify if our Cloud API service is operational:
+
 - [**Ping**](/api-reference/user#ping) - `GET /api/v1/ping` - Health check endpoint
 
 ## Response Format
