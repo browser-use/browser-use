@@ -3,6 +3,7 @@ import logging
 
 import aiofiles
 from browser_use.llm import ChatGoogle
+from browser_use.llm.messages import UserMessage
 from shared_memory import SharedMemory
 from worker_agent import WorkerAgent
 
@@ -81,7 +82,6 @@ Return the subtasks as a JSON array:
 
 		try:
 			# Use the LLM to analyze and split the task
-			from browser_use.llm.messages import UserMessage
 			response = await self.llm.ainvoke([UserMessage(content=analysis_prompt)])
 			response_text = response.completion
 
