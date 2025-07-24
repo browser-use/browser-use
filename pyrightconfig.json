@@ -1,0 +1,26 @@
+{
+  "include": ["parallel_orchestrator"],
+  "exclude": [
+    "examples",
+    "tests",
+    "**/examples",
+    "**/tests",
+    "scripts",
+    "docs",
+    "browser_use"  // heavy upstream code we aren't editing
+  ],
+  "typeCheckingMode": "basic",
+  "diagnosticSeverityOverrides": {
+    "reportMissingImports": "none",
+    "reportArgumentType": "none",
+    "reportPossiblyUnboundVariable": "none",
+    "reportIncompatibleMethodOverride": "none",
+    "reportUnsupportedDunderAll": "none",
+    "reportGeneralTypeIssues": "none",
+    "reportInvalidTypeForm": "none",
+    "reportAttributeAccessIssue": "none",
+    "reportCallIssue": "none",
+    "reportImportCycles": "none",
+    "reportMissingModuleSource": "none"
+  }
+}
