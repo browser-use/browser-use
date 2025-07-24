@@ -2,7 +2,7 @@ import asyncio
 import logging
 
 import aiofiles
-from langchain_google_genai import ChatGoogleGenerativeAI
+from browser_use.llm import ChatGoogle
 from shared_memory import SharedMemory
 from worker_agent import WorkerAgent
 
@@ -21,7 +21,7 @@ class BaseAgent:
 		self.headless = headless
 		self.workers = []
 		self.shared_memory = SharedMemory()
-		self.llm = ChatGoogleGenerativeAI(model=model, api_key=api_key, temperature=0.3)
+		self.llm = ChatGoogle(model=model, api_key=api_key, temperature=0.3)
 
 	async def initialize(self):
 		"""Initialize the base agent."""
@@ -81,8 +81,9 @@ Return the subtasks as a JSON array:
 
 		try:
 			# Use the LLM to analyze and split the task
-			response = await self.llm.ainvoke(analysis_prompt)
-			response_text = str(response.content) if response.content is not None else ''
+			from browser_use.llm.messages import UserMessage
+			response = await self.llm.ainvoke([UserMessage(content=analysis_prompt)])
+			response_text = response.completion
 
 			# Extract JSON array from response
 			import json
@@ -116,8 +117,8 @@ Return the subtasks as a JSON array:
 			# Retry once
 			try:
 				logger.info('Retrying AI task analysis...')
-				response = await self.llm.ainvoke(analysis_prompt)
-				response_text = str(response.content) if response.content is not None else ''
+				response = await self.llm.ainvoke([UserMessage(content=analysis_prompt)])
+				response_text = response.completion
 
 				json_match = re.search(r'\[.*\]', response_text, re.DOTALL)
 				if json_match:
@@ -206,8 +207,8 @@ CLEAN FINAL ANSWER:
 """
 
 			# Use the LLM to create clean final answer
-			response = await self.llm.ainvoke(clean_prompt)
-			clean_answer = str(response.content).strip() if response.content is not None else ''
+			response = await self.llm.ainvoke([UserMessage(content=clean_prompt)])
+			clean_answer = response.completion.strip()
 
 			# Save to final_answers.txt
 			filename = 'parallel_orchestrator/final_answers.txt'

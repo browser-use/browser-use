@@ -4,9 +4,8 @@ import logging
 import os
 from typing import Any
 
-from langchain_google_genai import ChatGoogleGenerativeAI
-
 from browser_use import Agent, BrowserProfile, BrowserSession, Controller
+from browser_use.llm import ChatGoogle
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -23,7 +22,7 @@ class WorkerAgent:
 		self.headless = headless
 		self.browser: BrowserSession | None = None
 		self.controller: Controller | None = None
-		self.llm = ChatGoogleGenerativeAI(model=self.model, api_key=self.api_key, temperature=0.3)
+		self.llm = ChatGoogle(model=self.model, api_key=self.api_key, temperature=0.3)
 		self.last_api_call = 0
 		self.min_delay_between_calls = 1  # Reduced delay for better parallelism
 		self.shared_memory = shared_memory

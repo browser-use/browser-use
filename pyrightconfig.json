@@ -7,7 +7,7 @@
     "**/tests",
     "scripts",
     "docs",
-    "browser_use"  // heavy upstream code we aren't editing
+    "browser_use"
   ],
   "typeCheckingMode": "basic",
   "diagnosticSeverityOverrides": {
