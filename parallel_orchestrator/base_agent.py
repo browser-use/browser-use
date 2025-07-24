@@ -1,12 +1,10 @@
 import asyncio
 import logging
 
-from langchain_google_genai import ChatGoogleGenerativeAI
 import aiofiles
-import json
-import re
-from worker_agent import WorkerAgent
+from langchain_google_genai import ChatGoogleGenerativeAI
 from shared_memory import SharedMemory
+from worker_agent import WorkerAgent
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -84,7 +82,7 @@ Return the subtasks as a JSON array:
 		try:
 			# Use the LLM to analyze and split the task
 			response = await self.llm.ainvoke(analysis_prompt)
-			response_text = str(response.content) if response.content is not None else ""
+			response_text = str(response.content) if response.content is not None else ''
 
 			# Extract JSON array from response
 			import json
@@ -119,7 +117,7 @@ Return the subtasks as a JSON array:
 			try:
 				logger.info('Retrying AI task analysis...')
 				response = await self.llm.ainvoke(analysis_prompt)
-				response_text = str(response.content) if response.content is not None else ""
+				response_text = str(response.content) if response.content is not None else ''
 
 				json_match = re.search(r'\[.*\]', response_text, re.DOTALL)
 				if json_match:
@@ -209,7 +207,7 @@ CLEAN FINAL ANSWER:
 
 			# Use the LLM to create clean final answer
 			response = await self.llm.ainvoke(clean_prompt)
-			clean_answer = str(response.content).strip() if response.content is not None else ""
+			clean_answer = str(response.content).strip() if response.content is not None else ''
 
 			# Save to final_answers.txt
 			filename = 'parallel_orchestrator/final_answers.txt'

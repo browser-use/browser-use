@@ -1,7 +1,6 @@
 # centralize imports for browser typing
 
 import sys
-from typing_extensions import TypedDict
 
 from patchright._impl._errors import TargetClosedError as PatchrightTargetClosedError
 from patchright.async_api import Browser as PatchrightBrowser
@@ -19,6 +18,7 @@ from playwright.async_api import FrameLocator as PlaywrightFrameLocator
 from playwright.async_api import Page as PlaywrightPage
 from playwright.async_api import Playwright as Playwright
 from playwright.async_api import async_playwright as _async_playwright
+from typing_extensions import TypedDict
 
 # Define types to be Union[Patchright, Playwright]
 Browser = PatchrightBrowser | PlaywrightBrowser
@@ -34,10 +34,12 @@ TargetClosedError = PatchrightTargetClosedError | PlaywrightTargetClosedError
 async_patchright = _async_patchright
 async_playwright = _async_playwright
 
+
 # Explicitly define ViewportSize TypedDict to avoid type errors
 class ViewportSize(TypedDict):
-    width: int
-    height: int
+	width: int
+	height: int
+
 
 # Import other types from playwright
 from playwright._impl._api_structures import (

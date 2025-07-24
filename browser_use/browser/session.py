@@ -28,7 +28,6 @@ os.environ['PW_TEST_SCREENSHOT_NO_FONTS_READY'] = '1'  # https://github.com/micr
 
 import psutil
 from bubus.helpers import retry
-from browser_use.browser.types import ViewportSize
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, InstanceOf, PrivateAttr, model_validator
 from uuid_extensions import uuid7str
 
@@ -41,6 +40,7 @@ from browser_use.browser.types import (
 	Page,
 	Patchright,
 	PlaywrightOrPatchright,
+	ViewportSize,
 	async_patchright,
 	async_playwright,
 )
@@ -1578,7 +1578,9 @@ class BrowserSession(BaseModel):
 			'📐 Setting up viewport: '
 			+ f'headless={self.browser_profile.headless} '
 			+ (
-				f'window={self.browser_profile.window_size["width"]}x{self.browser_profile.window_size["height"]}px ' if self.browser_profile.window_size is not None else ''
+				f'window={self.browser_profile.window_size["width"]}x{self.browser_profile.window_size["height"]}px '
+				if self.browser_profile.window_size is not None
+				else ''
 				if self.browser_profile.window_size
 				else '(no window) '
 			)
@@ -1682,7 +1684,9 @@ class BrowserSession(BaseModel):
 					# fallback to javascript resize if cdp setWindowBounds fails
 					await page.evaluate(
 						"""(width, height) => {window.resizeTo(width, height)}""",
-						[self.browser_profile.window_size['width'], self.browser_profile.window_size['height']] if self.browser_profile.window_size is not None else [1280, 720],
+						[self.browser_profile.window_size['width'], self.browser_profile.window_size['height']]
+						if self.browser_profile.window_size is not None
+						else [1280, 720],
 					)
 					return
 				except Exception:

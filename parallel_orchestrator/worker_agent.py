@@ -37,6 +37,7 @@ class WorkerAgent:
 
 			# Create a browser profile optimized for automation
 			from browser_use.browser.types import ViewportSize
+
 			browser_profile = BrowserProfile(
 				headless=self.headless,  # Use the headless setting from constructor
 				user_data_dir=user_data_dir,
