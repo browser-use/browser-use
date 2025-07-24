@@ -2,10 +2,11 @@ import asyncio
 import logging
 
 import aiofiles
-from browser_use.llm import ChatGoogle
-from browser_use.llm.messages import UserMessage
 from shared_memory import SharedMemory
 from worker_agent import WorkerAgent
+
+from browser_use.llm import ChatGoogle
+from browser_use.llm.messages import UserMessage
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
