@@ -70,7 +70,6 @@ def create_mock_state_message(temp_dir: str):
 	agent_prompt = AgentMessagePrompt(
 		browser_state_summary=mock_browser_state,
 		file_system=mock_file_system,  # Now using actual FileSystem instance
-		agent_history_description='',  # Empty history
 		read_state_description='',  # Empty read state
 		task='Click the button on the page',
 		include_attributes=['id'],
@@ -111,7 +110,7 @@ async def test_single_step_parametrized(llm_class, model_name):
 		# Create mock state message
 		mock_message = create_mock_state_message(temp_dir)
 
-		agent.message_manager._add_message_with_type(mock_message, 'state')
+		agent.message_manager._set_state_message(mock_message, 'agent_state')
 
 		messages = agent.message_manager.get_messages()
 
@@ -152,7 +151,7 @@ async def test_single_step():
 			print(mock_message.content)
 			print('\n' + '=' * 50 + '\n')
 
-			agent.message_manager._add_message_with_type(mock_message, 'state')
+			agent.message_manager._set_state_message(mock_message, 'agent_state')
 
 			messages = agent.message_manager.get_messages()
 

@@ -79,7 +79,6 @@ class AgentMessagePrompt:
 		self,
 		browser_state_summary: 'BrowserStateSummary',
 		file_system: 'FileSystem',
-		agent_history_description: str | None = None,
 		read_state_description: str | None = None,
 		task: str | None = None,
 		include_attributes: list[str] | None = None,
@@ -92,7 +91,6 @@ class AgentMessagePrompt:
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
-		self.agent_history_description: str | None = agent_history_description
 		self.read_state_description: str | None = read_state_description
 		self.task: str | None = task
 		self.include_attributes = include_attributes
@@ -104,7 +102,6 @@ class AgentMessagePrompt:
 		self.screenshots = screenshots or []
 		assert self.browser_state
 
-	@observe_debug(ignore_input=True, ignore_output=True, name='_deduplicate_screenshots')
 	def _deduplicate_screenshots(self, screenshots: list[str]) -> list[str]:
 		"""
 		Remove consecutive duplicate screenshots, keeping only the most recent of each.
@@ -134,7 +131,6 @@ class AgentMessagePrompt:
 
 		return unique_screenshots
 
-	@observe_debug(ignore_input=True, ignore_output=True, name='_get_browser_state_description')
 	def _get_browser_state_description(self) -> str:
 		elements_text = self.browser_state.element_tree.clickable_elements_to_string(include_attributes=self.include_attributes)
 
@@ -242,8 +238,13 @@ Available tabs:
 			agent_state += '<available_file_paths>\n' + '\n'.join(self.available_file_paths) + '\n</available_file_paths>\n'
 		return agent_state
 
-	@observe_debug(ignore_input=True, ignore_output=True, name='get_user_message')
-	def get_user_message(self, use_vision: bool = True) -> UserMessage:
+	def get_agent_state_message(self) -> UserMessage:
+		"""Get agent state as a separate message (not cached - changes every step)"""
+		agent_state_content = '<agent_state>\n' + self._get_agent_state_description().strip('\n') + '\n</agent_state>'
+		return UserMessage(content=agent_state_content, cache=False)
+
+	def get_browser_state_message(self, use_vision: bool = True) -> UserMessage:
+		"""Get browser state as a separate message, optionally with screenshots"""
 		# Don't pass screenshot to model if page is a new tab page, step is 0, and there's only one tab
 		if (
 			is_new_tab_page(self.browser_state.url)
@@ -253,25 +254,16 @@ Available tabs:
 		):
 			use_vision = False
 
-		state_description = (
-			'<agent_history>\n'
-			+ (self.agent_history_description.strip('\n') if self.agent_history_description else '')
-			+ '\n</agent_history>\n'
-		)
-		state_description += '<agent_state>\n' + self._get_agent_state_description().strip('\n') + '\n</agent_state>\n'
-		state_description += '<browser_state>\n' + self._get_browser_state_description().strip('\n') + '\n</browser_state>\n'
-		state_description += (
-			'<read_state>\n'
-			+ (self.read_state_description.strip('\n') if self.read_state_description else '')
-			+ '\n</read_state>\n'
-		)
+		browser_state_content = '<browser_state>\n' + self._get_browser_state_description().strip('\n') + '\n</browser_state>'
+
 		if self.page_filtered_actions:
-			state_description += 'For this page, these additional actions are available:\n'
-			state_description += self.page_filtered_actions + '\n'
+			browser_state_content += '\n<page_specific_actions>\n'
+			browser_state_content += self.page_filtered_actions + '\n'
+			browser_state_content += '</page_specific_actions>\n'
 
 		if use_vision is True and self.screenshots:
 			# Start with text description
-			content_parts: list[ContentPartTextParam | ContentPartImageParam] = [ContentPartTextParam(text=state_description)]
+			content_parts: list[ContentPartTextParam | ContentPartImageParam] = [ContentPartTextParam(text=browser_state_content)]
 
 			# Deduplicate screenshots, keeping only the most recent of each unique image
 			unique_screenshots = self._deduplicate_screenshots(self.screenshots)
@@ -297,6 +289,44 @@ Available tabs:
 					)
 				)
 
-			return UserMessage(content=content_parts)
+			return UserMessage(content=content_parts, cache=False)
 
-		return UserMessage(content=state_description)
+		return UserMessage(content=browser_state_content, cache=False)
+
+	def get_read_state_message(self) -> UserMessage | None:
+		"""Get read state as a separate message"""
+		if not self.read_state_description:
+			return None
+		if not self.read_state_description.strip('\n').strip():
+			return None
+
+		read_state_content = '<read_state>\n' + self.read_state_description.strip('\n') + '\n</read_state>'
+		return UserMessage(content=read_state_content, cache=False)
+
+	@observe_debug(ignore_input=True, ignore_output=True, name='get_user_message')
+	def get_user_message(self, use_vision: bool = True) -> UserMessage:
+		"""
+		DEPRECATED: This method is kept for backward compatibility but should not be used.
+		Use get_agent_state_message(), get_browser_state_message(), and get_read_state_message() instead.
+		"""
+		# For backward compatibility, return all messages concatenated in a single message
+		agent_state_message = self.get_agent_state_message()
+		browser_state_message = self.get_browser_state_message(use_vision)
+		read_state_message = self.get_read_state_message()
+
+		# Flatten the three message objects into a single list of content parts,
+		# handling both raw-text (`str`) and already-structured (`list[...]`) cases.
+		content_parts: list[ContentPartTextParam | ContentPartImageParam] = []
+
+		for msg in (agent_state_message, browser_state_message, read_state_message):
+			if msg is None:
+				continue
+
+			if isinstance(msg.content, list):
+				# Message is already a list of content parts – reuse as-is.
+				content_parts.extend(msg.content)
+			else:
+				# Wrap plain text in a ContentPartTextParam.
+				content_parts.append(ContentPartTextParam(text=str(msg.content)))
+
+		return UserMessage(content=content_parts, cache=True)
