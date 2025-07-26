@@ -10,7 +10,7 @@ import tempfile
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
@@ -184,6 +184,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		calculate_cost: bool = False,
 		display_files_in_done_text: bool = True,
 		include_tool_call_examples: bool = False,
+		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		llm_timeout: int = 60,
 		step_timeout: int = 180,
 		**kwargs,
@@ -241,6 +242,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self.settings = AgentSettings(
 			use_vision=use_vision,
+			vision_detail_level=vision_detail_level,
 			use_vision_for_planner=False,  # Always False now (deprecated)
 			save_conversation_path=save_conversation_path,
 			save_conversation_path_encoding=save_conversation_path_encoding,
@@ -334,6 +336,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			sensitive_data=sensitive_data,
 			max_history_items=self.settings.max_history_items,
 			images_per_step=self.settings.images_per_step,
+			vision_detail_level=self.settings.vision_detail_level,
 			include_tool_call_examples=self.settings.include_tool_call_examples,
 		)
 

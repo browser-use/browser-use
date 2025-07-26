@@ -46,6 +46,7 @@ agent = Agent(
   - When enabled, the model processes visual information from web pages
   - Disable to reduce costs or use models without vision support
   - For GPT-4o, image processing costs approximately 800-1000 tokens (~$0.002 USD) per image (but this depends on the defined screen size)
+- `vision_detail_level`: Controls the detail level of screenshots sent to the vision model. Can be `'low'`, `'high'`, or `'auto'` (default). Using `'low'` can significantly reduce token consumption and cost for simpler visual tasks, while `'high'` provides more detail for complex visual analysis.
 - `save_conversation_path`: Path to save the complete conversation history. Useful for debugging.
 - `override_system_message`: Completely replace the default system prompt with a custom one.
 - `extend_system_message`: Add additional instructions to the default system prompt.

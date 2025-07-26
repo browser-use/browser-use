@@ -94,6 +94,8 @@ def _log_format_message_line(message: BaseMessage, content: str, is_last_message
 
 
 class MessageManager:
+	vision_detail_level: Literal['auto', 'low', 'high']
+
 	def __init__(
 		self,
 		task: str,
@@ -106,6 +108,7 @@ class MessageManager:
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		max_history_items: int | None = None,
 		images_per_step: int = 1,
+		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		include_tool_call_examples: bool = False,
 	):
 		self.task = task
@@ -116,6 +119,7 @@ class MessageManager:
 		self.use_thinking = use_thinking
 		self.max_history_items = max_history_items
 		self.images_per_step = images_per_step
+		self.vision_detail_level = vision_detail_level
 		self.include_tool_call_examples = include_tool_call_examples
 
 		assert max_history_items is None or max_history_items > 5, 'max_history_items must be None or greater than 5'
@@ -290,6 +294,7 @@ class MessageManager:
 			sensitive_data=self.sensitive_data_description,
 			available_file_paths=available_file_paths,
 			screenshots=screenshots,
+			vision_detail_level=self.vision_detail_level,
 		).get_user_message(use_vision)
 
 		self._add_message_with_type(state_message, 'state')
