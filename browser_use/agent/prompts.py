@@ -83,6 +83,7 @@ class AgentMessagePrompt:
 		read_state_description: str | None = None,
 		task: str | None = None,
 		include_attributes: list[str] | None = None,
+		include_extra_attributes: bool = False,
 		step_info: Optional['AgentStepInfo'] = None,
 		page_filtered_actions: str | None = None,
 		max_clickable_elements_length: int = 40000,
@@ -96,6 +97,7 @@ class AgentMessagePrompt:
 		self.read_state_description: str | None = read_state_description
 		self.task: str | None = task
 		self.include_attributes = include_attributes
+		self.include_extra_attributes = include_extra_attributes
 		self.step_info = step_info
 		self.page_filtered_actions: str | None = page_filtered_actions
 		self.max_clickable_elements_length: int = max_clickable_elements_length
@@ -136,7 +138,9 @@ class AgentMessagePrompt:
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='_get_browser_state_description')
 	def _get_browser_state_description(self) -> str:
-		elements_text = self.browser_state.element_tree.clickable_elements_to_string(include_attributes=self.include_attributes)
+		elements_text = self.browser_state.element_tree.clickable_elements_to_string(
+			include_attributes=self.include_attributes, include_extra_attributes=self.include_extra_attributes
+		)
 
 		if len(elements_text) > self.max_clickable_elements_length:
 			elements_text = elements_text[: self.max_clickable_elements_length]

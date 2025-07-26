@@ -220,6 +220,7 @@ class DomService:
 			shadow_root=node_data.get('shadowRoot', False),
 			parent=None,
 			viewport_info=viewport_info,
+			extra_attributes=node_data.get('extraAttributes', None),
 		)
 
 		children_ids = node_data.get('children', [])

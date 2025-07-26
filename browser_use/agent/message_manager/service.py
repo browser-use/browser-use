@@ -102,6 +102,7 @@ class MessageManager:
 		state: MessageManagerState = MessageManagerState(),
 		use_thinking: bool = True,
 		include_attributes: list[str] | None = None,
+		include_extra_attributes: bool = False,
 		message_context: str | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		max_history_items: int | None = None,
@@ -122,6 +123,7 @@ class MessageManager:
 
 		# Store settings as direct attributes instead of in a settings object
 		self.include_attributes = include_attributes or []
+		self.include_extra_attributes = include_extra_attributes
 		self.message_context = message_context
 		self.sensitive_data = sensitive_data
 		self.last_input_messages = []
@@ -285,6 +287,7 @@ class MessageManager:
 			read_state_description=self.state.read_state_description,
 			task=self.task,
 			include_attributes=self.include_attributes,
+			include_extra_attributes=self.include_extra_attributes,
 			step_info=step_info,
 			page_filtered_actions=page_filtered_actions,
 			sensitive_data=self.sensitive_data_description,

@@ -165,6 +165,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		generate_gif: bool | str = False,
 		available_file_paths: list[str] | None = None,
 		include_attributes: list[str] = DEFAULT_INCLUDE_ATTRIBUTES,
+		include_extra_attributes: bool = False,
 		max_actions_per_step: int = 10,
 		use_thinking: bool = True,
 		flash_mode: bool = False,
@@ -252,6 +253,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			message_context=message_context,
 			generate_gif=generate_gif,
 			include_attributes=include_attributes,
+			include_extra_attributes=include_extra_attributes,
 			max_actions_per_step=max_actions_per_step,
 			use_thinking=use_thinking,
 			flash_mode=flash_mode,
@@ -330,6 +332,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			use_thinking=self.settings.use_thinking,
 			# Settings that were previously in MessageManagerSettings
 			include_attributes=self.settings.include_attributes,
+			include_extra_attributes=self.settings.include_extra_attributes,
 			message_context=self.settings.message_context,
 			sensitive_data=sensitive_data,
 			max_history_items=self.settings.max_history_items,
