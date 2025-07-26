@@ -45,6 +45,7 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 	top_p: float | None = None
 	top_k: int | None = None
 	stop_sequences: list[str] | None = None
+	seed: int | None = None
 
 	# AWS credentials and configuration
 	aws_access_key: str | None = None
@@ -109,6 +110,8 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 			client_params['top_p'] = self.top_p
 		if self.top_k is not None:
 			client_params['top_k'] = self.top_k
+		if self.seed is not None:
+			client_params['seed'] = self.seed
 		if self.stop_sequences is not None:
 			client_params['stop_sequences'] = self.stop_sequences
 

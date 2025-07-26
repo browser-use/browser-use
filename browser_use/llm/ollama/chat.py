@@ -23,6 +23,7 @@ class ChatOllama(BaseChatModel):
 	model: str
 
 	# # Model params
+	# TODO (matic): Why is this commented out?
 	# temperature: float | None = None
 
 	# Client initialization parameters

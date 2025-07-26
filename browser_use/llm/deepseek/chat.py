@@ -34,6 +34,8 @@ class ChatDeepSeek(BaseChatModel):
 	# 生成参数
 	max_tokens: int | None = None
 	temperature: float | None = None
+	top_p: float | None = None
+	seed: int | None = None
 
 	# 连接参数
 	api_key: str | None = None
@@ -92,10 +94,15 @@ class ChatDeepSeek(BaseChatModel):
 		client = self._client()
 		ds_messages = DeepSeekMessageSerializer.serialize_messages(messages)
 		common: dict[str, Any] = {}
+
 		if self.temperature is not None:
 			common['temperature'] = self.temperature
 		if self.max_tokens is not None:
 			common['max_tokens'] = self.max_tokens
+		if self.top_p is not None:
+			common['top_p'] = self.top_p
+		if self.seed is not None:
+			common['seed'] = self.seed
 
 		# Beta 对话前缀续写（见官方文档）
 		if self.base_url and str(self.base_url).endswith('/beta'):

@@ -38,6 +38,8 @@ class ChatOpenAI(BaseChatModel):
 	temperature: float | None = 0.2
 	frequency_penalty: float | None = 0.05
 	reasoning_effort: ReasoningEffort = 'low'
+	seed: int | None = None
+	top_p: float | None = None
 
 	# Client initialization parameters
 	api_key: str | None = None
@@ -52,7 +54,6 @@ class ChatOpenAI(BaseChatModel):
 	http_client: httpx.AsyncClient | None = None
 	_strict_response_validation: bool = False
 	max_completion_tokens: int | None = 8000
-	top_p: float | None = None
 
 	# Static
 	@property
@@ -159,6 +160,9 @@ class ChatOpenAI(BaseChatModel):
 
 			if self.top_p is not None:
 				model_params['top_p'] = self.top_p
+
+			if self.seed is not None:
+				model_params['seed'] = self.seed
 
 			if self.model in ReasoningModels:
 				model_params['reasoning_effort'] = self.reasoning_effort

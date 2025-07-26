@@ -60,6 +60,8 @@ class ChatGroq(BaseChatModel):
 	# Model params
 	temperature: float | None = None
 	service_tier: Literal['auto', 'on_demand', 'flex'] | None = None
+	top_p: float | None = None
+	seed: int | None = None
 
 	# Client initialization parameters
 	api_key: str | None = None
@@ -145,8 +147,10 @@ class ChatGroq(BaseChatModel):
 		chat_completion = await self.get_client().chat.completions.create(
 			messages=groq_messages,
 			model=self.model,
-			temperature=self.temperature,
 			service_tier=self.service_tier,
+			temperature=self.temperature,
+			top_p=self.top_p,
+			seed=self.seed,
 		)
 		usage = self._get_usage(chat_completion)
 		return ChatInvokeCompletion(
@@ -194,6 +198,8 @@ class ChatGroq(BaseChatModel):
 			model=self.model,
 			messages=groq_messages,
 			temperature=self.temperature,
+			top_p=self.top_p,
+			seed=self.seed,
 			tools=[tool],
 			tool_choice=tool_choice,
 			service_tier=self.service_tier,
@@ -205,6 +211,8 @@ class ChatGroq(BaseChatModel):
 			model=self.model,
 			messages=groq_messages,
 			temperature=self.temperature,
+			top_p=self.top_p,
+			seed=self.seed,
 			response_format=ResponseFormatResponseFormatJsonSchema(
 				json_schema=ResponseFormatResponseFormatJsonSchemaJsonSchema(
 					name=output_format.__name__,

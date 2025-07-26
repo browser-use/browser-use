@@ -58,9 +58,10 @@
             "group": "Cloud API v1",
             "pages": [
               "cloud/quickstart",
+              "cloud/authentication",
+              "cloud/openapi",
               "cloud/implementation",
-              "cloud/webhooks",
-              "cloud/authentication"
+              "cloud/webhooks"
             ]
           },
           {

@@ -87,43 +87,6 @@ Control running tasks with these operations:
 
 For detailed API documentation, see the tabs on the left, which include the full coverage of the API.
 
-## Building your own client (OpenAPI)
-
-<Note>
-  We recommend this only if you don't need control and only need to run simple
-  tasks.
-</Note>
-
-The best way to build your own client is to use our [OpenAPI specification](http://api.browser-use.com/openapi.json) to generate a type-safe client library.
-
-### Python
-
-Use [openapi-python-client](https://github.com/openapi-generators/openapi-python-client) to generate a modern Python client:
-
-```bash
-# Install the generator
-pipx install openapi-python-client --include-deps
-
-# Generate the client
-openapi-python-client generate --url http://api.browser-use.com/openapi.json
-```
-
-This will create a Python package with full type hints, modern dataclasses, and async support.
-
-### TypeScript/JavaScript
-
-For TypeScript projects, use [openapi-typescript](https://www.npmjs.com/package/openapi-typescript) to generate type definitions:
-
-```bash
-# Install the generator
-npm install -D openapi-typescript
-
-# Generate the types
-npx openapi-typescript http://api.browser-use.com/openapi.json -o browser-use-api.ts
-```
-
-This will create TypeScript definitions you can use with your preferred HTTP client.
-
 <Note>
   Need help? Contact our support team at support@browser-use.com or join our
   [Discord community](https://link.browser-use.com/discord)
