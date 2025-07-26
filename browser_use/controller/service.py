@@ -304,10 +304,15 @@ Only use this for specific queries for information retrieval from the page. Don'
 
 			import markdownify
 
+			MAX_IFRAME_COUNT = 3
+
 			strip = []
 
 			if not extract_links:
 				strip = ['a', 'img']
+
+			# Add more elements to strip for faster processing
+			strip.extend(['script', 'style', 'nav', 'header', 'footer', 'aside', 'meta', 'link'])
 
 			# Run markdownify in a thread pool to avoid blocking the event loop
 			loop = asyncio.get_event_loop()
@@ -332,51 +337,73 @@ Only use this for specific queries for information retrieval from the page. Don'
 				logger.warning(f'Markdownify failed: {type(e).__name__}')
 				raise RuntimeError(f'Could not convert html to markdown: {type(e).__name__}')
 
-			# manually append iframe text into the content so it's readable by the LLM (includes cross-origin iframes)
-			for iframe in page.frames:
-				try:
-					await iframe.wait_for_load_state(timeout=1000)  # 1 second aggressive timeout for iframe load
-				except Exception:
-					pass
+			# Only process iframes if query specifically mentions "iframe" or "frame".
+			# Skip iframe processing for speed (most iframes are ads/trackers)
+			query_lower = query.lower()
+			if 'iframe' in query_lower or 'frame' in query_lower:
+				# manually append iframe text into the content so it's readable by the LLM (includes cross-origin iframes)
+				# Filter for valid iframes first, then take only the first 3 valid ones
+				valid_iframes = [
+					iframe
+					for iframe in page.frames
+					if iframe.url != page.url and not iframe.url.startswith('data:') and not iframe.url.startswith('about:')
+				]
 
-				if iframe.url != page.url and not iframe.url.startswith('data:') and not iframe.url.startswith('about:'):
+				iframe_count = 0
+				for iframe in valid_iframes[:MAX_IFRAME_COUNT]:  # Limit to first 3 valid iframes only
+					try:
+						await iframe.wait_for_load_state(timeout=1000)
+					except Exception:
+						pass
+
+					iframe_count += 1
 					content += f'\n\nIFRAME {iframe.url}:\n'
 					# Run markdownify in a thread pool for iframe content as well
 					try:
 						# Aggressive timeouts for iframe content
-						iframe_html = await asyncio.wait_for(iframe.content(), timeout=2.0)  # 2 second aggressive timeout
+						iframe_html = await asyncio.wait_for(iframe.content(), timeout=1.0)  # Very short timeout
 						iframe_markdown = await asyncio.wait_for(
 							loop.run_in_executor(None, markdownify_func, iframe_html),
-							timeout=2.0,  # 2 second aggressive timeout for iframe markdownify
+							timeout=1.0,  # Very short timeout
 						)
 					except Exception:
 						iframe_markdown = ''  # Skip failed iframes
 					content += iframe_markdown
+
 			# replace multiple sequential \n with a single \n
 			content = re.sub(r'\n+', '\n', content)
 
-			# limit to 30000 characters - remove text in the middle (≈15000 tokens)
-			max_chars = 30000
+			max_chars = 20000  # Reduced from 30000 for faster LLM processing
 			if len(content) > max_chars:
 				logger.info(f'Content is too long, removing middle {len(content) - max_chars} characters')
-				content = (
-					content[: max_chars // 2]
-					+ '\n... left out the middle because it was too long ...\n'
-					+ content[-max_chars // 2 :]
-				)
 
-			prompt = """You convert websites into structured information. Extract information from this webpage based on the query. Focus only on content relevant to the query. If 
-1. The query is vague
-2. Does not make sense for the page
-3. Some/all of the information is not available
+				# Smart content truncation - keep beginning and end, skip middle. Try to keep complete sentences
+				first_part = content[: max_chars // 2]
+				last_part = content[-max_chars // 2 :]
 
-Explain the content of the page and that the requested information is not available in the page. Respond in JSON format.\nQuery: {query}\n Website:\n{page}"""
+				# Find sentence boundaries to avoid cutting mid-sentence
+				last_sentence_end = first_part.rfind('.')
+				if last_sentence_end > max_chars // 2 - 200:  # If sentence end is close enough
+					first_part = first_part[: last_sentence_end + 1]
+
+				first_sentence_start = last_part.find('. ')
+				if first_sentence_start != -1 and first_sentence_start < 200:
+					last_part = last_part[first_sentence_start + 2 :]
+
+				content = first_part + '\n... [content truncated for speed] ...\n' + last_part
+
+			prompt = f"""Extract the requested information from this webpage. Be concise and focus only on the query.
+
+Query: {query}
+Website content:
+{content}
+
+Respond with the extracted information in a clear, structured format."""
+
 			try:
-				formatted_prompt = prompt.format(query=query, page=content)
-				# Aggressive timeout for LLM call
 				response = await asyncio.wait_for(
-					page_extraction_llm.ainvoke([UserMessage(content=formatted_prompt)]),
-					timeout=120.0,  # 120 second aggressive timeout for LLM call
+					page_extraction_llm.ainvoke([UserMessage(content=prompt)]),
+					timeout=60.0,  # Reduced from 120 seconds, Shorter timeout for faster failure
 				)
 
 				extracted_content = f'Page Link: {page.url}\nQuery: {query}\nExtracted Content:\n{response.completion}'
