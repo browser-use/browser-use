@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.browser.types import ViewportSize
 
 
 async def example_custom_window_size():
@@ -23,7 +24,7 @@ async def example_custom_window_size():
 
 	# Create a browser profile with a specific window size
 	profile = BrowserProfile(
-		window_size={'width': 800, 'height': 600},  # Small size for demonstration
+		window_size=ViewportSize(width=800, height=600),  # Small size for demonstration
 		# **playwright.devices['iPhone 13']         # or you can use a playwright device profile
 		# device_scale_factor=1.0,                  # change to 2~3 to emulate a high-DPI display for high-res screenshots
 		# viewport={'width': 800, 'height': 600},   # set the viewport (aka content size)
@@ -54,7 +55,7 @@ async def example_custom_window_size():
 
 		if profile.viewport:
 			expected_page_size = dict(profile.viewport)
-		elif profile.window_size:
+		elif profile.window_size is not None:
 			expected_page_size = {
 				'width': profile.window_size['width'],
 				'height': profile.window_size['height'] - 87,
@@ -84,7 +85,7 @@ async def example_no_viewport_option():
 	"""Example 2: Testing browser window sizing with no_viewport option"""
 	print('\n=== Example 2: Window Sizing with no_viewport=False ===')
 
-	profile = BrowserProfile(window_size={'width': 1440, 'height': 900}, no_viewport=False, headless=False)
+	profile = BrowserProfile(window_size=ViewportSize(width=1440, height=900), no_viewport=False, headless=False)
 
 	browser_session = None
 
@@ -98,7 +99,7 @@ async def example_no_viewport_option():
 
 		# Get viewport size (inner dimensions)
 		viewport = await page.evaluate('() => ({width: window.innerWidth, height: window.innerHeight})')
-		if profile.window_size:
+		if profile.window_size is not None:
 			print(f'Configured size: width={profile.window_size["width"]}, height={profile.window_size["height"]}')
 		else:
 			print('No window size configured')

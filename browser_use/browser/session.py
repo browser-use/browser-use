@@ -29,7 +29,6 @@ os.environ['PW_TEST_SCREENSHOT_NO_FONTS_READY'] = '1'  # https://github.com/micr
 
 import psutil
 from bubus.helpers import retry
-from playwright._impl._api_structures import ViewportSize
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, InstanceOf, PrivateAttr, model_validator
 from uuid_extensions import uuid7str
 
@@ -42,6 +41,7 @@ from browser_use.browser.types import (
 	Page,
 	Patchright,
 	PlaywrightOrPatchright,
+	ViewportSize,
 	async_patchright,
 	async_playwright,
 )
@@ -1572,6 +1572,8 @@ class BrowserSession(BaseModel):
 			+ f'headless={self.browser_profile.headless} '
 			+ (
 				f'window={self.browser_profile.window_size["width"]}x{self.browser_profile.window_size["height"]}px '
+				if self.browser_profile.window_size is not None
+				else ''
 				if self.browser_profile.window_size
 				else '(no window) '
 			)
@@ -1675,7 +1677,9 @@ class BrowserSession(BaseModel):
 					# fallback to javascript resize if cdp setWindowBounds fails
 					await page.evaluate(
 						"""(width, height) => {window.resizeTo(width, height)}""",
-						[self.browser_profile.window_size['width'], self.browser_profile.window_size['height']],
+						[self.browser_profile.window_size['width'], self.browser_profile.window_size['height']]
+						if self.browser_profile.window_size is not None
+						else [1280, 720],
 					)
 					return
 				except Exception:
@@ -2218,12 +2222,9 @@ class BrowserSession(BaseModel):
 		return tabs_info
 
 	@retry(timeout=20, retries=1, semaphore_limit=1, semaphore_scope='self')
-	async def _set_viewport_size(self, page: Page, viewport: dict[str, int] | ViewportSize) -> None:
+	async def _set_viewport_size(self, page: Page, viewport: ViewportSize) -> None:
 		"""Set viewport size with timeout protection."""
-		if isinstance(viewport, dict):
-			await page.set_viewport_size(ViewportSize(width=viewport['width'], height=viewport['height']))
-		else:
-			await page.set_viewport_size(viewport)
+		await page.set_viewport_size(viewport)
 
 	@require_healthy_browser(usable_page=False, reopen_page=False)
 	async def close_tab(self, tab_index: int | None = None) -> None:
