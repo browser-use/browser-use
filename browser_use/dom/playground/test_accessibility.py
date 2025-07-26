@@ -72,7 +72,7 @@ async def get_ax_tree(TARGET_URL):
 		browser = await p.chromium.launch(headless=True)
 		page = await browser.new_page()
 		print(f'Navigating to {TARGET_URL}')
-		await page.goto(TARGET_URL, wait_until='domcontentloaded')
+		await page.goto(TARGET_URL, wait_until='load')
 
 		ax_tree_interesting = await page.accessibility.snapshot(interesting_only=True)
 		lines = []

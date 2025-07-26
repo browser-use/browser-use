@@ -1,0 +1,131 @@
+---
+title: "Get Scheduled Task"
+api: "GET /api/v1/scheduled-task/{task_id}"
+description: "Returns detailed information about a specific scheduled task"
+---
+
+Returns detailed information about a specific scheduled task, including its schedule configuration and current status.
+
+## Path Parameters
+
+<ParamField path="task_id" type="string" required>
+  ID of the scheduled task to retrieve
+</ParamField>
+
+## Response
+
+<ResponseField name="id" type="string">
+  The unique identifier for the scheduled task
+</ResponseField>
+
+<ResponseField name="task" type="string">
+  Instructions for what the agent should do
+</ResponseField>
+
+<ResponseField name="save_browser_data" type="boolean">
+  Whether to save browser cookies and data
+</ResponseField>
+
+<ResponseField name="structured_output_json" type="string">
+  JSON schema for structured output
+</ResponseField>
+
+<ResponseField name="llm_model" type="string">
+  LLM model to use
+</ResponseField>
+
+<ResponseField name="use_adblock" type="boolean">
+  Whether to use an adblocker
+</ResponseField>
+
+<ResponseField name="use_proxy" type="boolean">
+  Whether to use a proxy
+</ResponseField>
+
+<ResponseField name="highlight_elements" type="boolean">
+  Whether to highlight elements on the page
+</ResponseField>
+
+<ResponseField name="schedule_type" type="string">
+  Type of schedule: "interval" or "cron"
+</ResponseField>
+
+<ResponseField name="interval_minutes" type="integer">
+  Minutes between runs
+</ResponseField>
+
+<ResponseField name="cron_expression" type="string">
+  Cron expression for scheduling
+</ResponseField>
+
+<ResponseField name="start_at" type="string">
+  When to start the schedule
+</ResponseField>
+
+<ResponseField name="next_run_at" type="string">
+  When the next run is scheduled
+</ResponseField>
+
+<ResponseField name="end_at" type="string">
+  When to end the schedule
+</ResponseField>
+
+<ResponseField name="is_active" type="boolean">
+  Whether the scheduled task is active
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  When the scheduled task was created
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  When the scheduled task was last updated
+</ResponseField>
+
+<RequestExample>
+
+```python python
+import requests
+
+url = "https://api.browser-use.com/api/v1/scheduled-task/{task_id}"
+
+headers = {"Authorization": "Bearer <token>"}
+
+response = requests.request("GET", url, headers=headers)
+
+print(response.text)
+```
+
+```bash curl
+curl --request GET \
+  --url https://api.browser-use.com/api/v1/scheduled-task/{task_id} \
+  --header 'Authorization: Bearer <token>'
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json 200
+{
+  "id": "scheduled_task_1234567890abcdef",
+  "task": "Visit example.com and check if the site is up",
+  "save_browser_data": false,
+  "structured_output_json": null,
+  "llm_model": "gpt-4o",
+  "use_adblock": true,
+  "use_proxy": true,
+  "highlight_elements": true,
+  "schedule_type": "interval",
+  "interval_minutes": 60,
+  "cron_expression": null,
+  "start_at": "2023-01-01T00:00:00Z",
+  "next_run_at": "2023-01-01T01:00:00Z",
+  "end_at": "2023-12-31T23:59:59Z",
+  "is_active": true,
+  "created_at": "2023-01-01T00:00:00Z",
+  "updated_at": "2023-01-01T00:00:00Z"
+}
+```
+
+</ResponseExample> 

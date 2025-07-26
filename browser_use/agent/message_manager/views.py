@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from browser_use.llm.messages import (
 	BaseMessage,
-	UserMessage,
 )
 
 if TYPE_CHECKING:
@@ -44,11 +43,19 @@ class HistoryItem(BaseModel):
 {self.system_message}
 </sys>"""
 		else:
-			content_parts = [
-				f'Evaluation of Previous Step: {self.evaluation_previous_goal}',
-				f'Memory: {self.memory}',
-				f'Next Goal: {self.next_goal}',
-			]
+			content_parts = []
+
+			# Only include evaluation_previous_goal if it's not None/empty
+			if self.evaluation_previous_goal:
+				content_parts.append(f'Evaluation of Previous Step: {self.evaluation_previous_goal}')
+
+			# Always include memory
+			if self.memory:
+				content_parts.append(f'Memory: {self.memory}')
+
+			# Only include next_goal if it's not None/empty
+			if self.next_goal:
+				content_parts.append(f'Next Goal: {self.next_goal}')
 
 			if self.action_results:
 				content_parts.append(self.action_results)
@@ -63,25 +70,21 @@ class HistoryItem(BaseModel):
 class MessageHistory(BaseModel):
 	"""History of messages"""
 
-	messages: list[BaseMessage] = Field(default_factory=list)
-
+	system_message: BaseMessage | None = None
+	state_message: BaseMessage | None = None
+	consistent_messages: list[BaseMessage] = Field(default_factory=list)
 	model_config = ConfigDict(arbitrary_types_allowed=True)
-
-	def add_message(self, message: BaseMessage, position: int | None = None) -> None:
-		"""Add message to history"""
-		if position is None:
-			self.messages.append(message)
-		else:
-			self.messages.insert(position, message)
 
 	def get_messages(self) -> list[BaseMessage]:
 		"""Get all messages"""
-		return self.messages
+		messages = []
+		if self.system_message:
+			messages.append(self.system_message)
+		if self.state_message:
+			messages.append(self.state_message)
+		messages.extend(self.consistent_messages)
 
-	def remove_last_state_message(self) -> None:
-		"""Remove last state message from history"""
-		if len(self.messages) > 2 and isinstance(self.messages[-1], UserMessage):
-			self.messages.pop()
+		return messages
 
 
 class MessageManagerState(BaseModel):

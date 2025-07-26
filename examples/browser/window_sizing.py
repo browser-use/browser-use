@@ -44,7 +44,7 @@ async def example_custom_window_size():
 		page = await browser_session.get_current_page()
 
 		# Navigate to a test page
-		await page.goto('https://example.com', wait_until='domcontentloaded')
+		await page.goto('https://example.com', wait_until='load')
 
 		# Wait a bit to see the window
 		await asyncio.sleep(1)

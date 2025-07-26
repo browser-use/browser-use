@@ -5,12 +5,19 @@ Sets up environment variables to ensure tests never connect to production servic
 """
 
 import os
+import socketserver
 import tempfile
 from unittest.mock import AsyncMock
 
 import pytest
 from dotenv import load_dotenv
 from pytest_httpserver import HTTPServer
+
+# Fix for httpserver hanging on shutdown - prevent blocking on socket close
+# This prevents tests from hanging when shutting down HTTP servers
+socketserver.ThreadingMixIn.block_on_close = False
+# Also set daemon threads to prevent hanging
+socketserver.ThreadingMixIn.daemon_threads = True
 
 from browser_use.agent.views import AgentOutput
 from browser_use.controller.service import Controller
@@ -158,7 +165,7 @@ async def browser_session():
 	)
 	await session.start()
 	yield session
-	await session.stop()
+	await session.kill()
 
 
 @pytest.fixture(scope='function')

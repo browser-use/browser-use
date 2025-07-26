@@ -15,7 +15,8 @@ from browser_use.dom.views import (
 	SelectorMap,
 	ViewportInfo,
 )
-from browser_use.utils import time_execution_async
+from browser_use.observability import observe_debug
+from browser_use.utils import is_new_tab_page, time_execution_async
 
 # @dataclass
 # class ViewportInfo:
@@ -34,6 +35,7 @@ class DomService:
 		self.js_code = resources.files('browser_use.dom.dom_tree').joinpath('index.js').read_text()
 
 	# region - Clickable elements
+	@observe_debug(ignore_input=True, ignore_output=True, name='get_clickable_elements')
 	@time_execution_async('--get_clickable_elements')
 	async def get_clickable_elements(
 		self,
@@ -56,7 +58,7 @@ class DomService:
 		return [
 			frame.url
 			for frame in self.page.frames
-			if urlparse(frame.url).netloc  # exclude data:urls and about:blank
+			if urlparse(frame.url).netloc  # exclude data:urls and new tab pages
 			and urlparse(frame.url).netloc != urlparse(self.page.url).netloc  # exclude same-origin iframes
 			and frame.url not in hidden_frame_urls  # exclude hidden frames
 			and not is_ad_url(frame.url)  # exclude most common ad network tracker frame URLs
@@ -72,7 +74,7 @@ class DomService:
 		if await self.page.evaluate('1+1') != 2:
 			raise ValueError('The page cannot evaluate javascript code properly')
 
-		if self.page.url == 'about:blank':
+		if is_new_tab_page(self.page.url):
 			# short-circuit if the page is a new empty tab for speed, no need to inject buildDomTree.js
 			return (
 				DOMElementNode(
@@ -98,7 +100,9 @@ class DomService:
 		}
 
 		try:
+			self.logger.debug(f'🔧 Starting JavaScript DOM analysis for {self.page.url[:50]}...')
 			eval_page: dict = await self.page.evaluate(self.js_code, args)
+			self.logger.debug('✅ JavaScript DOM analysis completed')
 		except Exception as e:
 			self.logger.error('Error evaluating JavaScript: %s', e)
 			raise
@@ -128,7 +132,10 @@ class DomService:
 				# processed_nodes,
 			)
 
-		return await self._construct_dom_tree(eval_page)
+		self.logger.debug('🔄 Starting Python DOM tree construction...')
+		result = await self._construct_dom_tree(eval_page)
+		self.logger.debug('✅ Python DOM tree construction completed')
+		return result
 
 	@time_execution_async('--construct_dom_tree')
 	async def _construct_dom_tree(

@@ -1,0 +1,84 @@
+---
+title: "Pause Task"
+api: "PUT /api/v1/pause-task"
+description: "Pauses execution of a running task"
+---
+
+Pauses execution of a running task. The task can be resumed later using the `/resume-task` endpoint. Useful for manual intervention or inspection.
+
+## Parameters
+
+<ParamField query="task_id" type="string" required>
+  ID of the task to pause
+</ParamField>
+
+## Response
+
+The endpoint returns an empty response body with a 200 status code on success.
+
+<RequestExample>
+
+```python python
+import requests
+
+url = "https://api.browser-use.com/api/v1/pause-task"
+params = {"task_id": "task_1234567890abcdef"}
+headers = {"Authorization": "Bearer <token>"}
+
+response = requests.request("PUT", url, headers=headers, params=params)
+
+print(response.text)
+```
+
+```bash cURL
+curl --request PUT \
+  --url 'https://api.browser-use.com/api/v1/pause-task?task_id=task_1234567890abcdef' \
+  --header 'Authorization: Bearer <token>'
+```
+
+```javascript javascript 
+const options = {method: 'PUT', headers: {Authorization: 'Bearer <token>'}};
+
+fetch('https://api.browser-use.com/api/v1/pause-task?task_id=task_1234567890abcdef', options)
+  .then(response => {
+    if (response.ok) {
+      console.log('Task paused successfully');
+    } else {
+      return response.json().then(err => { throw err; });
+    }
+  })
+  .catch(err => console.error(err));
+```
+</RequestExample>
+
+<ResponseExample>
+    ```json 200
+    {}
+    ```
+
+    ```json 422
+    {
+    "detail": [
+        {
+        "loc": [
+            "query",
+            "task_id"
+        ],
+        "msg": "field required",
+        "type": "value_error.missing"
+        }
+    ]
+    }
+    ```
+</ResponseExample>
+
+## Usage Notes
+
+- Paused tasks can be resumed using the `/resume-task` endpoint
+- The task status will change to "paused"
+- Browser automation will be temporarily halted
+- Useful for manual intervention or inspection during task execution
+
+<Info>
+Pausing is useful when you need to temporarily halt execution to inspect the current state or make manual adjustments before resuming.
+</Info>

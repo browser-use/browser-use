@@ -20,7 +20,7 @@ if not os.getenv('OPENAI_API_KEY'):
 
 async def main():
 	browser_session = BrowserSession()
-	model = ChatOpenAI(model='gpt-4o')
+	model = ChatOpenAI(model='gpt-4.1')
 
 	# Initialize browser agent
 	agent1 = Agent(

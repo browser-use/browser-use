@@ -1,0 +1,185 @@
+---
+title: "Update Scheduled Task"
+api: "PUT /api/v1/scheduled-task/{task_id}"
+description: "Updates a scheduled task with partial updates"
+---
+
+Updates a scheduled task with partial updates. You can update any combination of the task configuration fields without affecting the others.
+
+## Path Parameters
+
+<ParamField path="task_id" type="string" required>
+  ID of the scheduled task to update
+</ParamField>
+
+## Request Body
+
+<ParamField body="task" type="string">
+  Instructions for what the agent should do
+</ParamField>
+<ParamField body="schedule_type" type="string">
+  Type of schedule: "interval" or "cron"
+</ParamField>
+<ParamField body="interval_minutes" type="integer">
+  Minutes between runs (required if schedule_type is "interval")
+</ParamField>
+<ParamField body="cron_expression" type="string">
+  Cron expression for scheduling (required if schedule_type is "cron")
+</ParamField>
+<ParamField body="start_at" type="string">
+  When to start the schedule (ISO 8601 format)
+</ParamField>
+<ParamField body="end_at" type="string">
+  When to end the schedule (ISO 8601 format)
+</ParamField>
+<ParamField body="is_active" type="boolean">
+  Whether the scheduled task is active
+</ParamField>
+<ParamField body="use_adblock" type="boolean">
+  Whether to use an adblocker
+</ParamField>
+<ParamField body="use_proxy" type="boolean">
+  Whether to use a proxy
+</ParamField>
+<ParamField body="highlight_elements" type="boolean">
+  Whether to highlight elements on the page
+</ParamField>
+<ParamField body="llm_model" type="string">
+  LLM model to use. Available options: gpt-4o, gpt-4o-mini, gpt-4.1, gpt-4.1-mini, o4-mini, o3, gemini-2.0-flash, gemini-2.0-flash-lite, gemini-2.5-flash-preview-04-17, gemini-2.5-flash, gemini-2.5-pro, claude-3-7-sonnet-20250219, claude-sonnet-4-20250514, llama-4-maverick-17b-128e-instruct
+</ParamField>
+<ParamField body="save_browser_data" type="boolean">
+  Whether to save browser cookies and data between runs
+</ParamField>
+<ParamField body="structured_output_json" type="string">
+  JSON schema for structured output
+</ParamField>
+
+## Response
+
+Returns the updated scheduled task object with the same format as the Get Scheduled Task response.
+
+<ResponseField name="id" type="string">
+  The unique identifier for the scheduled task
+</ResponseField>
+
+<ResponseField name="task" type="string">
+  Instructions for what the agent should do
+</ResponseField>
+
+<ResponseField name="save_browser_data" type="boolean">
+  Whether to save browser cookies and data
+</ResponseField>
+
+<ResponseField name="structured_output_json" type="string">
+  JSON schema for structured output
+</ResponseField>
+
+<ResponseField name="llm_model" type="string">
+  LLM model to use
+</ResponseField>
+
+<ResponseField name="use_adblock" type="boolean">
+  Whether to use an adblocker
+</ResponseField>
+
+<ResponseField name="use_proxy" type="boolean">
+  Whether to use a proxy
+</ResponseField>
+
+<ResponseField name="highlight_elements" type="boolean">
+  Whether to highlight elements on the page
+</ResponseField>
+
+<ResponseField name="schedule_type" type="string">
+  Type of schedule: "interval" or "cron"
+</ResponseField>
+
+<ResponseField name="interval_minutes" type="integer">
+  Minutes between runs
+</ResponseField>
+
+<ResponseField name="cron_expression" type="string">
+  Cron expression for scheduling
+</ResponseField>
+
+<ResponseField name="start_at" type="string">
+  When to start the schedule
+</ResponseField>
+
+<ResponseField name="next_run_at" type="string">
+  When the next run is scheduled
+</ResponseField>
+
+<ResponseField name="end_at" type="string">
+  When to end the schedule
+</ResponseField>
+
+<ResponseField name="is_active" type="boolean">
+  Whether the scheduled task is active
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  When the scheduled task was created
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  When the scheduled task was last updated
+</ResponseField>
+
+<RequestExample>
+
+```python python
+import requests
+
+url = "https://api.browser-use.com/api/v1/scheduled-task/{task_id}"
+
+headers = {"Authorization": "Bearer <token>"}
+
+payload = {
+    "task": "Updated task description",
+    "is_active": False
+}
+
+response = requests.request("PUT", url, headers=headers, json=payload)
+
+print(response.text)
+```
+
+```bash curl
+curl --request PUT \
+  --url https://api.browser-use.com/api/v1/scheduled-task/{task_id} \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "task": "Updated task description",
+    "is_active": false
+  }'
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json 200
+{
+  "id": "scheduled_task_1234567890abcdef",
+  "task": "Updated task description",
+  "save_browser_data": false,
+  "structured_output_json": null,
+  "llm_model": "gpt-4o",
+  "use_adblock": true,
+  "use_proxy": true,
+  "highlight_elements": true,
+  "schedule_type": "interval",
+  "interval_minutes": 60,
+  "cron_expression": null,
+  "start_at": "2023-01-01T00:00:00Z",
+  "next_run_at": "2023-01-01T01:00:00Z",
+  "end_at": "2023-12-31T23:59:59Z",
+  "is_active": false,
+  "created_at": "2023-01-01T00:00:00Z",
+  "updated_at": "2023-01-01T00:30:00Z"
+}
+```
+
+</ResponseExample> 

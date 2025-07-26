@@ -44,7 +44,7 @@ def get_llm(provider: str):
 			st.error('Error: OPENAI_API_KEY is not set. Please provide a valid API key.')
 			st.stop()
 
-		return ChatOpenAI(model='gpt-4o', temperature=0.0)
+		return ChatOpenAI(model='gpt-4.1', temperature=0.0)
 	else:
 		st.error(f'Unsupported provider: {provider}')
 		st.stop()

@@ -1,12 +1,12 @@
 import asyncio
 import re
 import shutil
-import tempfile
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+from markdown_pdf import MarkdownPdf, Section
 from pydantic import BaseModel, Field
 
 INVALID_FILENAME_ERROR_MESSAGE = 'Error: Invalid filename format. Must be alphanumeric with supported extension.'
@@ -94,6 +94,43 @@ class TxtFile(BaseFile):
 		return 'txt'
 
 
+class JsonFile(BaseFile):
+	"""JSON file implementation"""
+
+	@property
+	def extension(self) -> str:
+		return 'json'
+
+
+class CsvFile(BaseFile):
+	"""CSV file implementation"""
+
+	@property
+	def extension(self) -> str:
+		return 'csv'
+
+
+class PdfFile(BaseFile):
+	"""PDF file implementation"""
+
+	@property
+	def extension(self) -> str:
+		return 'pdf'
+
+	def sync_to_disk_sync(self, path: Path) -> None:
+		file_path = path / self.full_name
+		try:
+			md_pdf = MarkdownPdf()
+			md_pdf.add_section(Section(self.content))
+			md_pdf.save(file_path)
+		except Exception as e:
+			raise FileSystemError(f"Error: Could not write to file '{self.full_name}'. {str(e)}")
+
+	async def sync_to_disk(self, path: Path) -> None:
+		with ThreadPoolExecutor() as executor:
+			await asyncio.get_event_loop().run_in_executor(executor, lambda: self.sync_to_disk_sync(path))
+
+
 class FileSystemState(BaseModel):
 	"""Serializable state of the file system"""
 
@@ -120,6 +157,9 @@ class FileSystem:
 		self._file_types: dict[str, type[BaseFile]] = {
 			'md': MarkdownFile,
 			'txt': TxtFile,
+			'json': JsonFile,
+			'csv': CsvFile,
+			'pdf': PdfFile,
 		}
 
 		self.files = {}
@@ -188,8 +228,41 @@ class FileSystem:
 
 		return file_obj.read()
 
-	def read_file(self, full_filename: str) -> str:
+	async def read_file(self, full_filename: str, external_file: bool = False) -> str:
 		"""Read file content using file-specific read method and return appropriate message to LLM"""
+		if external_file:
+			try:
+				try:
+					_, extension = self._parse_filename(full_filename)
+				except Exception:
+					return f'Error: Invalid filename format {full_filename}. Must be alphanumeric with a supported extension.'
+				if extension in ['md', 'txt', 'json', 'csv']:
+					import anyio
+
+					async with await anyio.open_file(full_filename, 'r') as f:
+						content = await f.read()
+						return f'Read from file {full_filename}.\n<content>\n{content}\n</content>'
+				elif extension == 'pdf':
+					import pypdf
+
+					reader = pypdf.PdfReader(full_filename)
+					num_pages = len(reader.pages)
+					MAX_PDF_PAGES = 10
+					extra_pages = num_pages - MAX_PDF_PAGES
+					extracted_text = ''
+					for page in reader.pages[:MAX_PDF_PAGES]:
+						extracted_text += page.extract_text()
+					extra_pages_text = f'{extra_pages} more pages...' if extra_pages > 0 else ''
+					return f'Read from file {full_filename}.\n<content>\n{extracted_text}\n{extra_pages_text}</content>'
+				else:
+					return f'Error: Cannot read file {full_filename} as {extension} extension is not supported.'
+			except FileNotFoundError:
+				return f"Error: File '{full_filename}' not found."
+			except PermissionError:
+				return f"Error: Permission denied to read file '{full_filename}'."
+			except Exception as e:
+				return f"Error: Could not read file '{full_filename}'."
+
 		if not self._is_valid_filename(full_filename):
 			return INVALID_FILENAME_ERROR_MESSAGE
 
@@ -247,6 +320,28 @@ class FileSystem:
 			return str(e)
 		except Exception as e:
 			return f"Error: Could not append to file '{full_filename}'. {str(e)}"
+
+	async def replace_file_str(self, full_filename: str, old_str: str, new_str: str) -> str:
+		"""Replace old_str with new_str in file_name"""
+		if not self._is_valid_filename(full_filename):
+			return INVALID_FILENAME_ERROR_MESSAGE
+
+		if not old_str:
+			return 'Error: Cannot replace empty string. Please provide a non-empty string to replace.'
+
+		file_obj = self.get_file(full_filename)
+		if not file_obj:
+			return f"File '{full_filename}' not found."
+
+		try:
+			content = file_obj.read()
+			content = content.replace(old_str, new_str)
+			await file_obj.write(content, self.data_dir)
+			return f'Successfully replaced all occurrences of "{old_str}" with "{new_str}" in file {full_filename}'
+		except FileSystemError as e:
+			return str(e)
+		except Exception as e:
+			return f"Error: Could not replace string in file '{full_filename}'. {str(e)}"
 
 	async def save_extracted_content(self, content: str) -> str:
 		"""Save extracted content to a numbered file"""
@@ -367,6 +462,12 @@ class FileSystem:
 				file_obj = MarkdownFile(**file_info)
 			elif file_type == 'TxtFile':
 				file_obj = TxtFile(**file_info)
+			elif file_type == 'JsonFile':
+				file_obj = JsonFile(**file_info)
+			elif file_type == 'CsvFile':
+				file_obj = CsvFile(**file_info)
+			elif file_type == 'PdfFile':
+				file_obj = PdfFile(**file_info)
 			else:
 				# Skip unknown file types
 				continue
@@ -376,24 +477,3 @@ class FileSystem:
 			file_obj.sync_to_disk_sync(fs.data_dir)
 
 		return fs
-
-
-if __name__ == '__main__':
-	# test to understand what model_dump() does
-	md_file = MarkdownFile(name='test.md')
-	md_file.update_content('Hello, world!')
-	print(md_file.model_dump())
-
-	# test to understand how state looks like
-	tempdir = tempfile.gettempdir()
-	fs = FileSystem(base_dir=Path(tempdir) / 'browseruse_test_data')
-	print(fs.get_state())
-	fs.nuke()
-
-	# test to understand creating a filesystem, getting its state, and restoring it
-	fs = FileSystem(base_dir=Path(tempdir) / 'browseruse_test_data')
-	state = fs.get_state()
-	print(state)
-	fs2 = FileSystem.from_state(state)
-	print(fs2.get_state())
-	fs2.nuke()

@@ -44,6 +44,8 @@ body:
         - gpt-4.1
         - gpt-4.1-mini
         - gpt-4.1-nano
+        - o4-mini
+        - o3
         - claude-3.7-sonnet
         - claude-3.5-sonnet
         - gemini-2.6-flash-preview
@@ -114,7 +116,7 @@ body:
 
         agent = Agent(
             task='...',
-            llm=ChatOpenAI(model="gpt-4o"),
+            llm=ChatOpenAI(model="gpt-4.1"),
             browser_session=BrowserSession(headless=False),
         )
         ...

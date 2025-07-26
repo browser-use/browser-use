@@ -19,11 +19,11 @@ from browser_use.llm import ChatAzureOpenAI, ChatOpenAI
 # Set LLM based on defined environment variables
 if os.getenv('OPENAI_API_KEY'):
 	llm = ChatOpenAI(
-		model='gpt-4o',
+		model='gpt-4.1',
 	)
 elif os.getenv('AZURE_OPENAI_KEY') and os.getenv('AZURE_OPENAI_ENDPOINT'):
 	llm = ChatAzureOpenAI(
-		model='gpt-4o',
+		model='gpt-4.1',
 	)
 else:
 	raise ValueError('No LLM found. Please set OPENAI_API_KEY or AZURE_OPENAI_KEY and AZURE_OPENAI_ENDPOINT.')

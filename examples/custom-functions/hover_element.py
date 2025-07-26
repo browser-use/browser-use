@@ -74,7 +74,7 @@ async def hover_element(params: HoverAction, browser_session: BrowserSession):
 async def main():
 	task = 'Open https://testpages.eviltester.com/styled/csspseudo/css-hover.html and hover the element with the css selector #hoverdivpara, then click on "Can you click me?"'
 	# task = 'Open https://testpages.eviltester.com/styled/csspseudo/css-hover.html and hover the element with the xpath //*[@id="hoverdivpara"], then click on "Can you click me?"'
-	model = ChatOpenAI(model='gpt-4o')
+	model = ChatOpenAI(model='gpt-4.1')
 	browser_session = BrowserSession(browser_profile=browser_profile)
 	await browser_session.start()
 	agent = Agent(
@@ -85,7 +85,7 @@ async def main():
 	)
 
 	await agent.run()
-	await browser_session.stop()
+	await browser_session.kill()
 
 	input('Press Enter to close...')
 

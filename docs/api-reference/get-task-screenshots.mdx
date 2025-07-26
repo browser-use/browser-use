@@ -1,0 +1,74 @@
+---
+title: "Get Task Screenshots"
+api: "GET /api/v1/task/{task_id}/screenshots"
+description: "Get screenshots generated during task execution"
+---
+
+Returns any screenshot URLs generated during task execution. Screenshots are automatically captured at key moments during the automation process.
+
+<ParamField path="task_id" type="string" required>
+  ID of the task to retrieve screenshots for
+</ParamField>
+
+<ResponseField name="screenshots" type="array">
+  List of screenshot URLs generated during task execution
+</ResponseField>
+
+<RequestExample>
+```python
+import requests
+
+API_KEY = 'your_api_key_here'
+BASE_URL = 'https://api.browser-use.com/api/v1'
+HEADERS = {'Authorization': f'Bearer {API_KEY}'}
+
+task_id = 'task_1234567890abcdef'
+response = requests.get(f'{BASE_URL}/task/{task_id}/screenshots', headers=HEADERS)
+screenshots = response.json()
+print(f"Found {len(screenshots['screenshots'])} screenshots")
+
+# Download the first screenshot
+if screenshots['screenshots']:
+    screenshot_url = screenshots['screenshots'][0]
+    img_response = requests.get(screenshot_url)
+    with open('screenshot.png', 'wb') as f:
+        f.write(img_response.content)
+```
+</RequestExample>
+
+<ResponseExample>
+```json
+{
+  "screenshots": [
+    "https://media.browser-use.com/screenshots/task_1234567890abcdef/step_1.png",
+    "https://media.browser-use.com/screenshots/task_1234567890abcdef/step_2.png",
+    "https://media.browser-use.com/screenshots/task_1234567890abcdef/step_3.png"
+  ]
+}
+```
+</ResponseExample>
+
+## Screenshot Details
+
+Screenshots are captured automatically during task execution:
+
+- **Step-by-step captures**: Screenshots taken at each major step
+- **Error captures**: Screenshots captured when errors occur
+- **Final result**: Screenshot of the final state when task completes
+- **High resolution**: Screenshots are captured at full browser resolution
+
+## File Format
+
+- All screenshots are saved in PNG format
+- Screenshots maintain the original browser viewport dimensions
+- File names include the task ID and step number for easy identification
+
+## Availability
+
+- Screenshots are available immediately after capture
+- Files are stored for 30 days after task completion
+- Screenshots can be disabled in task settings to reduce storage usage
+
+<Note>
+Screenshots are automatically generated for most tasks unless specifically disabled. The number of screenshots depends on the task complexity and duration.
+</Note> 

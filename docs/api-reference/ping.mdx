@@ -1,0 +1,38 @@
+---
+title: "Ping"
+api: "GET /api/v1/ping"
+description: "Check if the server is running and responding"
+---
+
+Use this endpoint to check if the server is running and responding. This is the only endpoint that doesn't require authentication.
+
+## Response
+
+A successful response has a 200 status code with an empty JSON object.
+
+<RequestExample>
+
+```python python
+import requests
+
+BASE_URL = 'https://api.browser-use.com/api/v1'
+
+response = requests.get(f'{BASE_URL}/ping')
+if response.status_code == 200:
+    print("Server is up and running")
+```
+
+```bash curl
+curl --request GET \
+  --url https://api.browser-use.com/api/v1/ping
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json 200
+{}
+```
+
+</ResponseExample> 

@@ -66,6 +66,8 @@ class TestUrlAllowlistSecurity:
 		assert browser_session._is_url_allowed('chrome-extension://version/') is False
 		assert browser_session._is_url_allowed('brave://anything/') is True
 		assert browser_session._is_url_allowed('about:blank') is True
+		assert browser_session._is_url_allowed('chrome://new-tab-page/') is True
+		assert browser_session._is_url_allowed('chrome://new-tab-page') is True
 
 		# Test security for glob patterns (authentication credentials bypass attempts)
 		# These should all be detected as malicious despite containing allowed domain patterns

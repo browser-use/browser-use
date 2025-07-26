@@ -61,11 +61,12 @@ class TestBrowserContext:
 			browser_profile=BrowserProfile(
 				headless=True,
 				user_data_dir=None,
+				keep_alive=True,
 			)
 		)
 		await browser_session.start()
 		yield browser_session
-		await browser_session.stop()
+		await browser_session.kill()
 
 	def test_is_url_allowed(self):
 		"""

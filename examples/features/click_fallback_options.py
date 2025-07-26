@@ -181,7 +181,7 @@ async def main():
 	select_task = 'Open http://localhost:8000/, choose the car BMW'
 	button_task = 'Open http://localhost:8000/, click on the button'
 
-	llm = ChatOpenAI(model='gpt-4o')
+	llm = ChatOpenAI(model='gpt-4.1')
 	# llm = ChatGoogleGenerativeAI(
 	#     model="gemini-2.0-flash-lite",
 	# )

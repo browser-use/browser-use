@@ -26,7 +26,7 @@ async def main():
 	await browser_session.start()
 
 	current_agent = None
-	llm = ChatOpenAI(model='gpt-4o')
+	llm = ChatOpenAI(model='gpt-4.1')
 
 	task1 = 'find todays weather on San Francisco and extract it as json'
 	task2 = 'find todays weather in Zurich and extract it as json'

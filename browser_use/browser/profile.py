@@ -12,6 +12,7 @@ from uuid_extensions import uuid7str
 
 from browser_use.browser.types import ClientCertificate, Geolocation, HttpCredentials, ProxySettings, ViewportSize
 from browser_use.config import CONFIG
+from browser_use.observability import observe_debug
 from browser_use.utils import _log_pretty_path, logger
 
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
@@ -47,7 +48,7 @@ CHROME_DISABLED_COMPONENTS = [
 	'ThirdPartyStoragePartitioning',
 	# See https://github.com/microsoft/playwright/issues/16126
 	'Translate',
-	###########################3
+	# 3
 	# Added by us:
 	'AutomationControlled',
 	'BackForwardCache',
@@ -105,39 +106,38 @@ CHROME_DETERMINISTIC_RENDERING_ARGS = [
 
 CHROME_DEFAULT_ARGS = [
 	# # provided by playwright by default: https://github.com/microsoft/playwright/blob/41008eeddd020e2dee1c540f7c0cdfa337e99637/packages/playwright-core/src/server/chromium/chromiumSwitches.ts#L76
-	# # we don't need to include them twice in our own config, but it's harmless
-	# '--disable-field-trial-config',  # https://source.chromium.org/chromium/chromium/src/+/main:testing/variations/README.md
-	# '--disable-background-networking',
-	# '--disable-background-timer-throttling',  # agents might be working on background pages if the human switches to another tab
-	# '--disable-backgrounding-occluded-windows',  # same deal, agents are often working on backgrounded browser windows
-	# '--disable-back-forward-cache',  # Avoids surprises like main request not being intercepted during page.goBack().
-	# '--disable-breakpad',
-	# '--disable-client-side-phishing-detection',
-	# '--disable-component-extensions-with-background-pages',
-	# '--disable-component-update',  # Avoids unneeded network activity after startup.
-	# '--no-default-browser-check',
-	# # '--disable-default-apps',
-	# '--disable-dev-shm-usage',  # crucial for docker support, harmless in non-docker environments
-	# # '--disable-extensions',
-	# # '--disable-features=' + disabledFeatures(assistantMode).join(','),
-	# '--allow-pre-commit-input',  # let page JS run a little early before GPU rendering finishes
-	# '--disable-hang-monitor',
-	# '--disable-ipc-flooding-protection',  # important to be able to make lots of CDP calls in a tight loop
-	# '--disable-popup-blocking',
-	# '--disable-prompt-on-repost',
-	# '--disable-renderer-backgrounding',
-	# # '--force-color-profile=srgb',  # moved to CHROME_DETERMINISTIC_RENDERING_ARGS
-	# '--metrics-recording-only',
-	# '--no-first-run',
-	# '--password-store=basic',
-	# '--use-mock-keychain',
-	# # // See https://chromium-review.googlesource.com/c/chromium/src/+/2436773
-	# '--no-service-autorun',
-	# '--export-tagged-pdf',
-	# # // https://chromium-review.googlesource.com/c/chromium/src/+/4853540
-	# '--disable-search-engine-choice-screen',
-	# # // https://issues.chromium.org/41491762
-	# '--unsafely-disable-devtools-self-xss-warnings',
+	'--disable-field-trial-config',  # https://source.chromium.org/chromium/chromium/src/+/main:testing/variations/README.md
+	'--disable-background-networking',
+	'--disable-background-timer-throttling',  # agents might be working on background pages if the human switches to another tab
+	'--disable-backgrounding-occluded-windows',  # same deal, agents are often working on backgrounded browser windows
+	'--disable-back-forward-cache',  # Avoids surprises like main request not being intercepted during page.goBack().
+	'--disable-breakpad',
+	'--disable-client-side-phishing-detection',
+	'--disable-component-extensions-with-background-pages',
+	'--disable-component-update',  # Avoids unneeded network activity after startup.
+	'--no-default-browser-check',
+	# '--disable-default-apps',
+	'--disable-dev-shm-usage',  # crucial for docker support, harmless in non-docker environments
+	# '--disable-extensions',
+	# '--disable-features=' + disabledFeatures(assistantMode).join(','),
+	# '--allow-pre-commit-input',  # duplicate removed
+	'--disable-hang-monitor',
+	'--disable-ipc-flooding-protection',  # important to be able to make lots of CDP calls in a tight loop
+	'--disable-popup-blocking',
+	'--disable-prompt-on-repost',
+	'--disable-renderer-backgrounding',
+	# '--force-color-profile=srgb',  # moved to CHROME_DETERMINISTIC_RENDERING_ARGS
+	'--metrics-recording-only',
+	'--no-first-run',
+	'--password-store=basic',
+	'--use-mock-keychain',
+	# // See https://chromium-review.googlesource.com/c/chromium/src/+/2436773
+	'--no-service-autorun',
+	'--export-tagged-pdf',
+	# // https://chromium-review.googlesource.com/c/chromium/src/+/4853540
+	'--disable-search-engine-choice-screen',
+	# // https://issues.chromium.org/41491762
+	'--unsafely-disable-devtools-self-xss-warnings',
 	# added by us:
 	'--enable-features=NetworkService,NetworkServiceInProcess',
 	'--enable-network-information-downlink-max',
@@ -169,6 +169,10 @@ CHROME_DEFAULT_ARGS = [
 	'--disable-desktop-notifications',
 	'--noerrdialogs',
 	'--silent-debugger-extension-api',
+	# Extension welcome tab suppression for automation
+	'--disable-extensions-http-throttling',
+	'--extensions-on-chrome-urls',
+	'--disable-default-apps',
 	f'--disable-features={",".join(CHROME_DISABLED_COMPONENTS)}',
 ]
 
@@ -558,6 +562,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		description='List of allowed domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]',
 	)
 	keep_alive: bool | None = Field(default=None, description='Keep browser alive after agent run.')
+	enable_default_extensions: bool = Field(
+		default=True,
+		description="Enable automation-optimized extensions: ad blocking (uBlock Origin), cookie handling (I still don't care about cookies), and URL cleaning (ClearURLs). All extensions work automatically without manual intervention. Extensions are automatically downloaded and loaded when enabled.",
+	)
 	window_size: ViewportSize | None = Field(
 		default=None,
 		description='Browser window size to use when headless=False.',
@@ -620,13 +628,14 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			window_size['width'] = window_size['width'] or self.window_width or 1280
 			window_size['height'] = window_size['height'] or self.window_height or 1100
 			self.window_size = window_size
+
 		return self
 
 	@model_validator(mode='after')
 	def warn_storage_state_user_data_dir_conflict(self) -> Self:
 		"""Warn when both storage_state and user_data_dir are set, as this can cause conflicts."""
 		has_storage_state = self.storage_state is not None
-		has_user_data_dir = self.user_data_dir is not None
+		has_user_data_dir = (self.user_data_dir is not None) and ('tmp' not in str(self.user_data_dir).lower())
 		has_cookies_file = self.cookies_file is not None
 		static_source = 'cookies_file' if has_cookies_file else 'storage_state' if has_storage_state else None
 
@@ -685,7 +694,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			*default_args,
 			*self.args,
 			f'--profile-directory={self.profile_directory}',
-			*(CHROME_DOCKER_ARGS if CONFIG.IN_DOCKER else []),
+			*(CHROME_DOCKER_ARGS if (CONFIG.IN_DOCKER or not self.chromium_sandbox) else []),
 			*(CHROME_HEADLESS_ARGS if self.headless else []),
 			*(CHROME_DISABLE_SECURITY_ARGS if self.disable_security else []),
 			*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.deterministic_rendering else []),
@@ -699,11 +708,161 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				if self.window_position
 				else []
 			),
+			*(self._get_extension_args() if self.enable_default_extensions else []),
 		]
 
 		# convert to dict and back to dedupe and merge duplicate args
 		final_args_list = BrowserLaunchArgs.args_as_list(BrowserLaunchArgs.args_as_dict(pre_conversion_args))
 		return final_args_list
+
+	def _get_extension_args(self) -> list[str]:
+		"""Get Chrome args for enabling default extensions (ad blocker and cookie handler)."""
+		extension_paths = self._ensure_default_extensions_downloaded()
+
+		args = [
+			'--enable-extensions',
+			'--disable-extensions-file-access-check',
+			'--disable-extensions-http-throttling',
+			'--enable-extension-activity-logging',
+		]
+
+		if extension_paths:
+			args.append(f'--load-extension={",".join(extension_paths)}')
+
+		return args
+
+	def _ensure_default_extensions_downloaded(self) -> list[str]:
+		"""
+		Ensure default extensions are downloaded and cached locally.
+		Returns list of paths to extension directories.
+		"""
+		from pathlib import Path
+
+		# Extension definitions - optimized for automation and content extraction
+		extensions = [
+			{
+				'name': 'uBlock Origin',
+				'id': 'cjpalhdlnbpafiamejdnhcphjbkeiagm',
+				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dcjpalhdlnbpafiamejdnhcphjbkeiagm%26uc',
+			},
+			{
+				'name': "I still don't care about cookies",
+				'id': 'edibdbjcniadpccecjdfdjjppcpchdlm',
+				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dedibdbjcniadpccecjdfdjjppcpchdlm%26uc',
+			},
+			{
+				'name': 'ClearURLs',
+				'id': 'lckanjgmijmafbedllaakclkaicjfmnk',
+				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dlckanjgmijmafbedllaakclkaicjfmnk%26uc',
+			},
+		]
+
+		# Create extensions cache directory
+		cache_dir = Path.home() / '.browser-use' / 'extensions'
+		cache_dir.mkdir(parents=True, exist_ok=True)
+
+		extension_paths = []
+		loaded_extension_names = []
+
+		for ext in extensions:
+			ext_dir = cache_dir / ext['id']
+			crx_file = cache_dir / f'{ext["id"]}.crx'
+
+			# Check if extension is already extracted
+			if ext_dir.exists() and (ext_dir / 'manifest.json').exists():
+				extension_paths.append(str(ext_dir))
+				loaded_extension_names.append(ext['name'])
+				continue
+
+			try:
+				# Download extension if not cached
+				if not crx_file.exists():
+					logger.info(f'📦 Downloading {ext["name"]} extension...')
+					self._download_extension(ext['url'], crx_file)
+
+				# Extract extension
+				if crx_file.exists():
+					logger.info(f'📂 Extracting {ext["name"]} extension...')
+					self._extract_extension(crx_file, ext_dir)
+					extension_paths.append(str(ext_dir))
+					loaded_extension_names.append(ext['name'])
+
+			except Exception as e:
+				logger.warning(f'⚠️ Failed to setup {ext["name"]} extension: {e}')
+				continue
+
+		if extension_paths:
+			logger.info(f'✅ Extensions ready: {len(extension_paths)} extensions loaded ({", ".join(loaded_extension_names)})')
+		else:
+			logger.warning('⚠️ No default extensions could be loaded')
+
+		return extension_paths
+
+	def _download_extension(self, url: str, output_path: Path) -> None:
+		"""Download extension .crx file."""
+		import urllib.request
+
+		try:
+			with urllib.request.urlopen(url) as response:
+				with open(output_path, 'wb') as f:
+					f.write(response.read())
+		except Exception as e:
+			raise Exception(f'Failed to download extension: {e}')
+
+	def _extract_extension(self, crx_path: Path, extract_dir: Path) -> None:
+		"""Extract .crx file to directory."""
+		import os
+		import zipfile
+
+		# Remove existing directory
+		if extract_dir.exists():
+			import shutil
+
+			shutil.rmtree(extract_dir)
+
+		extract_dir.mkdir(parents=True, exist_ok=True)
+
+		try:
+			# CRX files are ZIP files with a header, try to extract as ZIP
+			with zipfile.ZipFile(crx_path, 'r') as zip_ref:
+				zip_ref.extractall(extract_dir)
+
+			# Verify manifest exists
+			if not (extract_dir / 'manifest.json').exists():
+				raise Exception('No manifest.json found in extension')
+
+		except zipfile.BadZipFile:
+			# CRX files have a header before the ZIP data
+			# Skip the CRX header and extract the ZIP part
+			with open(crx_path, 'rb') as f:
+				# Read CRX header to find ZIP start
+				magic = f.read(4)
+				if magic != b'Cr24':
+					raise Exception('Invalid CRX file format')
+
+				version = int.from_bytes(f.read(4), 'little')
+				if version == 2:
+					pubkey_len = int.from_bytes(f.read(4), 'little')
+					sig_len = int.from_bytes(f.read(4), 'little')
+					f.seek(16 + pubkey_len + sig_len)  # Skip to ZIP data
+				elif version == 3:
+					header_len = int.from_bytes(f.read(4), 'little')
+					f.seek(12 + header_len)  # Skip to ZIP data
+
+				# Extract ZIP data
+				zip_data = f.read()
+
+			# Write ZIP data to temp file and extract
+			import tempfile
+
+			with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
+				temp_zip.write(zip_data)
+				temp_zip.flush()
+
+				with zipfile.ZipFile(temp_zip.name, 'r') as zip_ref:
+					zip_ref.extractall(extract_dir)
+
+				os.unlink(temp_zip.name)
 
 	def kwargs_for_launch_persistent_context(self) -> BrowserLaunchPersistentContextArgs:
 		"""Return the kwargs for BrowserType.launch()."""
@@ -721,22 +880,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		"""Return the kwargs for BrowserType.connect_over_cdp()."""
 		return BrowserLaunchArgs(**self.model_dump(exclude={'args'}), args=self.get_args())
 
-	# def preinstall_extensions(self) -> None:
-	# 	"""Preinstall the extensions."""
-
-	#     # create the local unpacked extensions dir
-	# 	extensions_dir = self.user_data_dir / 'Extensions'
-	# 	extensions_dir.mkdir(parents=True, exist_ok=True)
-
-	#     # download from the chrome web store using the chrome web store api
-	# 	for extension_id in self.extension_ids_to_preinstall:
-	# 		extension_path = extensions_dir / f'{extension_id}.crx'
-	# 		if extension_path.exists():
-	# 			logger.warning(f'⚠️ Extension {extension_id} is already installed, skipping preinstall.')
-	# 		else:
-	# 			logger.info(f'🔍 Preinstalling extension {extension_id}...')
-	# 			# TODO: copy this from ArchiveBox implementation
-
+	@observe_debug(ignore_input=True, ignore_output=True, name='detect_display_configuration')
 	def detect_display_configuration(self) -> None:
 		"""
 		Detect the system display size and initialize the display-related config defaults:

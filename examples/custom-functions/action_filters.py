@@ -68,7 +68,7 @@ async def main():
 	"""Main function to run the example"""
 	browser_session = BrowserSession()
 	await browser_session.start()
-	llm = ChatOpenAI(model='gpt-4o')
+	llm = ChatOpenAI(model='gpt-4.1')
 
 	# Create the agent
 	agent = Agent(  # disco mode will not be triggered on apple.com because the LLM won't be able to see that action available, it should work on Google.com though.

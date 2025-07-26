@@ -26,7 +26,12 @@ class SchemaOptimizer:
 		# Extract $defs for reference resolution, then flatten everything
 		defs_lookup = original_schema.get('$defs', {})
 
-		def optimize_schema(obj: Any, defs_lookup: dict[str, Any] | None = None) -> Any:
+		def optimize_schema(
+			obj: Any,
+			defs_lookup: dict[str, Any] | None = None,
+			*,
+			in_properties: bool = False,  # NEW: track context
+		) -> Any:
 			"""Apply all optimization techniques including flattening all $ref/$defs"""
 			if isinstance(obj, dict):
 				optimized: dict[str, Any] = {}
@@ -39,8 +44,8 @@ class SchemaOptimizer:
 					if key in skip_fields:
 						continue
 
-					# Skip titles completely
-					if key == 'title':
+					# Skip metadata "title" unless we're iterating inside an actual `properties` map
+					if key == 'title' and not in_properties:
 						continue
 
 					# Preserve FULL descriptions without truncation
@@ -59,15 +64,17 @@ class SchemaOptimizer:
 							referenced_def = defs_lookup[ref_path]
 							flattened_ref = optimize_schema(referenced_def, defs_lookup)
 
-							# Don't return immediately - store the flattened ref to merge with siblings
-
 					# Keep all anyOf structures (action unions) and resolve any $refs within
 					elif key == 'anyOf' and isinstance(value, list):
 						optimized[key] = [optimize_schema(item, defs_lookup) for item in value]
 
 					# Recursively optimize nested structures
 					elif key in ['properties', 'items']:
-						optimized[key] = optimize_schema(value, defs_lookup)
+						optimized[key] = optimize_schema(
+							value,
+							defs_lookup,
+							in_properties=(key == 'properties'),
+						)
 
 					# Keep essential validation fields
 					elif key in ['type', 'required', 'minimum', 'maximum', 'minItems', 'maxItems', 'pattern', 'default']:
@@ -100,7 +107,7 @@ class SchemaOptimizer:
 					return optimized
 
 			elif isinstance(obj, list):
-				return [optimize_schema(item, defs_lookup) for item in obj]
+				return [optimize_schema(item, defs_lookup, in_properties=in_properties) for item in obj]
 			return obj
 
 		# Create optimized schema with flattening

@@ -102,7 +102,7 @@ class TestSequentialAgentsSimple:
 		assert browser_session.browser_context is not None
 
 		# Clean up
-		await browser_session.stop()
+		await browser_session.kill()
 
 	async def test_multiple_tabs_sequential_agents(self, httpserver):
 		"""Test that sequential agents can work with multiple tabs"""
@@ -181,4 +181,4 @@ class TestSequentialAgentsSimple:
 		assert browser_session.initialized
 		assert len(browser_session.tabs) == 2
 
-		await browser_session.stop()
+		await browser_session.kill()

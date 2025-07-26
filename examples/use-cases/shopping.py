@@ -113,7 +113,7 @@ browser_session = BrowserSession()
 
 agent = Agent(
 	task=task,
-	llm=ChatOpenAI(model='gpt-4o'),
+	llm=ChatOpenAI(model='gpt-4.1'),
 	browser_session=browser_session,
 )
 

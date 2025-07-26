@@ -59,18 +59,25 @@ def addLoggingLevel(levelName, levelNum, methodName=None):
 	setattr(logging, methodName, logToRoot)
 
 
-def setup_logging():
+def setup_logging(stream=None, log_level=None, force_setup=False):
+	"""Setup logging configuration for browser-use.
+
+	Args:
+		stream: Output stream for logs (default: sys.stdout). Can be sys.stderr for MCP mode.
+		log_level: Override log level (default: uses CONFIG.BROWSER_USE_LOGGING_LEVEL)
+		force_setup: Force reconfiguration even if handlers already exist
+	"""
 	# Try to add RESULT level, but ignore if it already exists
 	try:
 		addLoggingLevel('RESULT', 35)  # This allows ERROR, FATAL and CRITICAL
 	except AttributeError:
 		pass  # Level already exists, which is fine
 
-	log_type = CONFIG.BROWSER_USE_LOGGING_LEVEL
+	log_type = log_level or CONFIG.BROWSER_USE_LOGGING_LEVEL
 
 	# Check if handlers are already set up
-	if logging.getLogger().hasHandlers():
-		return
+	if logging.getLogger().hasHandlers() and not force_setup:
+		return logging.getLogger('browser_use')
 
 	# Clear existing handlers
 	root = logging.getLogger()
@@ -83,7 +90,7 @@ def setup_logging():
 			return super().format(record)
 
 	# Setup single handler for all loggers
-	console = logging.StreamHandler(sys.stdout)
+	console = logging.StreamHandler(stream or sys.stdout)
 
 	# adittional setLevel here to filter logs
 	if log_type == 'result':
@@ -129,6 +136,8 @@ def setup_logging():
 		'trafilatura.htmlprocessing',
 		'trafilatura',
 		'groq',
+		'portalocker',
+		'portalocker.utils',
 	]
 	for logger_name in third_party_loggers:
 		third_party = logging.getLogger(logger_name)

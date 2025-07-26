@@ -298,10 +298,10 @@ class DeviceAuthClient:
 
 			terminal_width, _terminal_height = shutil.get_terminal_size((80, 20))
 			if show_instructions:
-				logger.info('─' * (terminal_width - 1))
+				logger.info('─' * max(terminal_width - 40, 20))
 				logger.info('🌐  View the details of this run in Browser Use Cloud:')
 				logger.info(f'    👉  {verification_uri_complete}')
-				logger.info('─' * (terminal_width - 1) + '\n')
+				logger.info('─' * max(terminal_width - 40, 20) + '\n')
 
 			# Poll for token
 			token_data = await self.poll_for_token(
@@ -317,7 +317,7 @@ class DeviceAuthClient:
 				self.auth_config.save_to_file()
 
 				if show_instructions:
-					logger.info('✅  Authentication successful! Cloud sync is now enabled.')
+					logger.debug('✅  Authentication successful! Cloud sync is now enabled with your browser-use account.')
 
 				return True
 
@@ -331,13 +331,14 @@ class DeviceAuthClient:
 				logger.warning(f'Failed to authenticate with cloud service: HTTP {e.response.status_code} - {e.response.text}')
 		except httpx.RequestError as e:
 			# Connection/network errors
-			logger.warning(f'Failed to connect to cloud service: {type(e).__name__}: {e}')
+			# logger.warning(f'Failed to connect to cloud service: {type(e).__name__}: {e}')
+			pass
 		except Exception as e:
 			# Other unexpected errors
-			logger.warning(f'Unexpected error during cloud authentication: {type(e).__name__}: {e}')
+			logger.warning(f'❌ Unexpected error during cloud sync authentication: {type(e).__name__}: {e}')
 
 		if show_instructions:
-			logger.info('❌ Authentication failed or timed out')
+			logger.debug(f'❌ Sync authentication failed or timed out with {CONFIG.BROWSER_USE_CLOUD_API_URL}')
 
 		return False
 

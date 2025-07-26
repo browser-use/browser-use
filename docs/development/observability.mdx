@@ -37,14 +37,14 @@ from browser_use.llm import ChatOpenAI
 from browser_use import Agent
 import asyncio
 
-from lmnr import Laminar
+from lmnr import Laminar, Instruments
 # this line auto-instruments Browser Use and any browser you use (local or remote)
-Laminar.initialize(project_api_key="...") # you can also pass project api key here
+Laminar.initialize(project_api_key="...", disable_batch=True, disabled_instruments={Instruments.BROWSER_USE}) # you can also pass project api key here
 
 async def main():
     agent = Agent(
         task="open google, search Laminar AI",
-        llm=ChatOpenAI(model="gpt-4o-mini"),
+        llm=ChatOpenAI(model="gpt-4.1-mini"),
     )
     result = await agent.run()
     print(result)

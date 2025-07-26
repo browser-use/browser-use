@@ -73,6 +73,7 @@ def http_server():
 	)
 
 	yield server
+
 	server.stop()
 
 
@@ -94,17 +95,18 @@ def registry():
 	return Registry[TestContext]()
 
 
-@pytest.fixture(scope='session')
+@pytest.fixture(scope='function')
 async def browser_session(base_url):
 	"""Create a real BrowserSession for testing"""
 	browser_session = BrowserSession(
 		browser_profile=BrowserProfile(
 			headless=True,
 			user_data_dir=None,
+			keep_alive=True,
 		)
 	)
 	await browser_session.start()
-	await browser_session.create_new_tab(f'{base_url}/test')
+	await browser_session.navigate(f'{base_url}/test', new_tab=True)
 	yield browser_session
 	await browser_session.kill()
 
@@ -1028,24 +1030,6 @@ class TestParameterOrdering:
 		# Verify the action was properly registered
 		assert action.name == 'extract_content'
 		assert action.description == 'Extract content from page'
-
-	async def test_page_error_retry(self, registry, browser_session):
-		"""Test that page errors trigger retry with fresh page"""
-		call_count = 0
-
-		@registry.action('Flaky page action', param_model=SimpleParams)
-		async def flaky_action(params: SimpleParams, page: Page):
-			nonlocal call_count
-			call_count += 1
-			if call_count == 1:
-				raise RuntimeError('page closed')
-			return ActionResult(extracted_content=f'Success on attempt {call_count}')
-
-		# Should retry once and succeed
-		result = await registry.execute_action('flaky_action', {'value': 'test'}, browser_session=browser_session)
-		assert result.extracted_content is not None
-		assert 'Success on attempt 2' in result.extracted_content
-		assert call_count == 2
 
 
 class TestParamsModelArgsAndKwargs:

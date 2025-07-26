@@ -137,7 +137,7 @@ async def main():
 		# ground_task + '\n' + 'Meta',
 	]
 	model = ChatAzureOpenAI(
-		model='gpt-4o',
+		model='gpt-4.1',
 	)
 
 	agents = []

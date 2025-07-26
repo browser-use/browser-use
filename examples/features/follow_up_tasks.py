@@ -14,7 +14,7 @@ from browser_use.llm import ChatOpenAI
 
 # Initialize the model
 llm = ChatOpenAI(
-	model='gpt-4o',
+	model='gpt-4.1',
 	temperature=0.0,
 )
 # Get your chrome path

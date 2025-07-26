@@ -95,9 +95,9 @@ def create_mock_state_message(temp_dir: str):
 	[
 		(ChatGroq, 'meta-llama/llama-4-maverick-17b-128e-instruct'),
 		(ChatGoogle, 'gemini-2.0-flash-exp'),
-		(ChatOpenAI, 'gpt-4o-mini'),
+		(ChatOpenAI, 'gpt-4.1-mini'),
 		(ChatAnthropic, 'claude-3-5-sonnet-latest'),
-		(ChatAzureOpenAI, 'gpt-4o-mini'),
+		(ChatAzureOpenAI, 'gpt-4.1-mini'),
 	],
 )
 async def test_single_step_parametrized(llm_class, model_name):
@@ -111,7 +111,7 @@ async def test_single_step_parametrized(llm_class, model_name):
 		# Create mock state message
 		mock_message = create_mock_state_message(temp_dir)
 
-		agent.message_manager._add_message_with_type(mock_message)
+		agent.message_manager._add_message_with_type(mock_message, 'state')
 
 		messages = agent.message_manager.get_messages()
 
@@ -152,7 +152,7 @@ async def test_single_step():
 			print(mock_message.content)
 			print('\n' + '=' * 50 + '\n')
 
-			agent.message_manager._add_message_with_type(mock_message)
+			agent.message_manager._add_message_with_type(mock_message, 'state')
 
 			messages = agent.message_manager.get_messages()
 

@@ -49,7 +49,7 @@ class TwitterConfig:
 	message: str
 	reply_url: str
 	headless: bool = False
-	model: str = 'gpt-4o-mini'
+	model: str = 'gpt-4.1-mini'
 	base_url: str = 'https://x.com/home'
 
 

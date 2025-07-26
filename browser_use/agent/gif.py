@@ -8,6 +8,7 @@ import platform
 from typing import TYPE_CHECKING
 
 from browser_use.agent.views import AgentHistoryList
+from browser_use.browser.views import PLACEHOLDER_4PX_SCREENSHOT
 from browser_use.config import CONFIG
 
 if TYPE_CHECKING:
@@ -58,6 +59,17 @@ def create_history_gif(
 	# if history is empty or first screenshot is None, we can't create a gif
 	if not history.history or not history.history[0].state.screenshot:
 		logger.warning('No history or first screenshot to create GIF from')
+		return
+
+	# Find the first non-placeholder screenshot
+	first_real_screenshot = None
+	for item in history.history:
+		if item.state.screenshot and item.state.screenshot != PLACEHOLDER_4PX_SCREENSHOT:
+			first_real_screenshot = item.state.screenshot
+			break
+
+	if not first_real_screenshot:
+		logger.warning('No valid screenshots found (all are placeholders)')
 		return
 
 	# Try to load nicer fonts
@@ -114,19 +126,35 @@ def create_history_gif(
 
 	# Create task frame if requested
 	if show_task and task:
-		task_frame = _create_task_frame(
-			task,
-			history.history[0].state.screenshot,
-			title_font,  # type: ignore
-			regular_font,  # type: ignore
-			logo,
-			line_spacing,
-		)
-		images.append(task_frame)
+		# Find the first non-placeholder screenshot for the task frame
+		first_real_screenshot = None
+		for item in history.history:
+			if item.state.screenshot and item.state.screenshot != PLACEHOLDER_4PX_SCREENSHOT:
+				first_real_screenshot = item.state.screenshot
+				break
+
+		if first_real_screenshot:
+			task_frame = _create_task_frame(
+				task,
+				first_real_screenshot,
+				title_font,  # type: ignore
+				regular_font,  # type: ignore
+				logo,
+				line_spacing,
+			)
+			images.append(task_frame)
+		else:
+			logger.warning('No real screenshots found for task frame, skipping task frame')
 
 	# Process each history item
 	for i, item in enumerate(history.history, 1):
 		if not item.state.screenshot:
+			continue
+
+		# Skip placeholder screenshots from about:blank pages
+		# These are 4x4 white PNGs encoded as a specific base64 string
+		if item.state.screenshot == PLACEHOLDER_4PX_SCREENSHOT:
+			logger.debug(f'Skipping placeholder screenshot from about:blank page at step {i}')
 			continue
 
 		# Convert base64 screenshot to PIL Image

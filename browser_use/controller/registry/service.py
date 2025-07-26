@@ -20,8 +20,9 @@ from browser_use.controller.registry.views import (
 )
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
+from browser_use.observability import observe_debug
 from browser_use.telemetry.service import ProductTelemetry
-from browser_use.utils import match_url_with_domain_pattern, time_execution_async
+from browser_use.utils import is_new_tab_page, match_url_with_domain_pattern, time_execution_async
 
 Context = TypeVar('Context')
 
@@ -308,6 +309,7 @@ class Registry(Generic[Context]):
 
 		return decorator
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='execute_action')
 	@time_execution_async('--execute_action')
 	async def execute_action(
 		self,
@@ -369,14 +371,14 @@ class Registry(Generic[Context]):
 				return await action.function(params=validated_params, **special_context)
 			except Exception as e:
 				# Retry once if it's a page error
-				logger.warning(f'⚠️ Action {action_name}() failed: {type(e).__name__}: {e}, trying one more time...')
-				special_context['page'] = browser_session and await browser_session.get_current_page()
-				try:
-					return await action.function(params=validated_params, **special_context)
-				except Exception as retry_error:
-					raise RuntimeError(
-						f'Action {action_name}() failed: {type(e).__name__}: {e} (page may have closed or navigated away mid-action)'
-					) from retry_error
+				# logger.warning(f'⚠️ Action {action_name}() failed: {type(e).__name__}: {e}, trying one more time...')
+				# special_context['page'] = browser_session and await browser_session.get_current_page()
+				# try:
+				# 	return await action.function(params=validated_params, **special_context)
+				# except Exception as retry_error:
+				# 	raise RuntimeError(
+				# 		f'Action {action_name}() failed: {type(e).__name__}: {e} (page may have closed or navigated away mid-action)'
+				# 	) from retry_error
 				raise
 
 		except ValueError as e:
@@ -393,7 +395,7 @@ class Registry(Generic[Context]):
 	def _log_sensitive_data_usage(self, placeholders_used: set[str], current_url: str | None) -> None:
 		"""Log when sensitive data is being used on a page"""
 		if placeholders_used:
-			url_info = f' on {current_url}' if current_url and current_url != 'about:blank' else ''
+			url_info = f' on {current_url}' if current_url and not is_new_tab_page(current_url) else ''
 			logger.info(f'🔒 Using sensitive data placeholders: {", ".join(sorted(placeholders_used))}{url_info}')
 
 	def _replace_sensitive_data(
@@ -425,7 +427,7 @@ class Registry(Generic[Context]):
 			if isinstance(content, dict):
 				# New format: {domain_pattern: {key: value}}
 				# Only include secrets for domains that match the current URL
-				if current_url and current_url != 'about:blank':
+				if current_url and not is_new_tab_page(current_url):
 					# it's a real url, check it using our custom allowed_domains scheme://*.example.com glob matching
 					if match_url_with_domain_pattern(current_url, domain_or_key):
 						applicable_secrets.update(content)

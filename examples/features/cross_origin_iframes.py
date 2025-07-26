@@ -32,7 +32,7 @@ controller = Controller()
 async def main():
 	agent = Agent(
 		task='Click "Go cross-site (simple page)" button on https://csreis.github.io/tests/cross-site-iframe.html then tell me the text within',
-		llm=ChatOpenAI(model='gpt-4o', temperature=0.0),
+		llm=ChatOpenAI(model='gpt-4.1', temperature=0.0),
 		controller=controller,
 		browser_session=browser_session,
 	)

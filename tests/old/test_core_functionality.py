@@ -79,7 +79,7 @@ class TestCoreFunctionality:
 	def llm(self):
 		"""Initialize language model for testing with minimal settings."""
 		return ChatOpenAI(
-			model='gpt-4o',
+			model='gpt-4.1',
 			temperature=0.0,
 		)
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 import logging
+from typing import Literal
 
 from browser_use.agent.message_manager.views import (
 	HistoryItem,
@@ -9,6 +9,7 @@ from browser_use.agent.message_manager.views import (
 from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.agent.views import (
 	ActionResult,
+	AgentHistoryList,
 	AgentOutput,
 	AgentStepInfo,
 	MessageManagerState,
@@ -16,12 +17,11 @@ from browser_use.agent.views import (
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.messages import (
-	AssistantMessage,
 	BaseMessage,
 	ContentPartTextParam,
 	SystemMessage,
-	UserMessage,
 )
+from browser_use.observability import observe_debug
 from browser_use.utils import match_url_with_domain_pattern, time_execution_sync
 
 logger = logging.getLogger(__name__)
@@ -99,22 +99,24 @@ class MessageManager:
 		task: str,
 		system_message: SystemMessage,
 		file_system: FileSystem,
-		available_file_paths: list[str] | None = None,
 		state: MessageManagerState = MessageManagerState(),
 		use_thinking: bool = True,
 		include_attributes: list[str] | None = None,
 		message_context: str | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		max_history_items: int | None = None,
+		images_per_step: int = 1,
+		include_tool_call_examples: bool = False,
 	):
 		self.task = task
 		self.state = state
 		self.system_prompt = system_message
 		self.file_system = file_system
 		self.sensitive_data_description = ''
-		self.available_file_paths = available_file_paths
 		self.use_thinking = use_thinking
 		self.max_history_items = max_history_items
+		self.images_per_step = images_per_step
+		self.include_tool_call_examples = include_tool_call_examples
 
 		assert max_history_items is None or max_history_items > 5, 'max_history_items must be None or greater than 5'
 
@@ -124,8 +126,8 @@ class MessageManager:
 		self.sensitive_data = sensitive_data
 		self.last_input_messages = []
 		# Only initialize messages if state is empty
-		if len(self.state.history.messages) == 0:
-			self._init_messages()
+		if len(self.state.history.get_messages()) == 0:
+			self._add_message_with_type(self.system_prompt, 'system')
 
 	@property
 	def agent_history_description(self) -> str:
@@ -156,68 +158,12 @@ class MessageManager:
 
 		return '\n'.join(items_to_include)
 
-	def _init_messages(self) -> None:
-		"""Initialize the message history with system message, context, task, and other initial messages"""
-		self._add_message_with_type(self.system_prompt)
-
-		placeholder_message = UserMessage(
-			content='<example_1>\nHere is an example output of thinking and tool call. You can use it as a reference but do not copy it exactly.',
-			cache=True,
-		)
-		# placeholder_message = HumanMessage(content='Example output:')
-		self._add_message_with_type(placeholder_message)
-
-		# Create base example content
-		example_content = {
-			'evaluation_previous_goal': 'Navigated to GitHub explore page. Verdict: Success',
-			'memory': 'Found initial repositories such as bytedance/UI-TARS-desktop and ray-project/kuberay.',
-			'next_goal': 'Create todo.md checklist to track progress, initialize github.md for collecting information, and click on bytedance/UI-TARS-desktop.',
-			'action': [
-				{
-					'write_file': {
-						'path': 'todo.md',
-						'content': '# Interesting Github Repositories in Explore Section\n\n## Tasks\n- [ ] Initialize a tracking file for GitHub repositories called github.md\n- [ ] Visit each Github repository and find their description\n- [ ] Visit bytedance/UI-TARS-desktop\n- [ ] Visit ray-project/kuberay\n- [ ] Check for additional Github repositories by scrolling down\n- [ ] Compile all results in the requested format\n- [ ] Validate that I have not missed anything in the page\n- [ ] Report final results to user',
-					}
-				},
-				{
-					'write_file': {
-						'path': 'github.md',
-						'content': '# Github Repositories:\n',
-					}
-				},
-				{
-					'click_element_by_index': {
-						'index': 4,
-					}
-				},
-			],
-		}
-
-		# Add thinking field only if use_thinking is True
-		if self.use_thinking:
-			example_content[
-				'thinking'
-			] = """I have successfully navigated to https://github.com/explore and can see the page has loaded with a list of featured repositories. The page contains interactive elements and I can identify specific repositories like bytedance/UI-TARS-desktop (index [4]) and ray-project/kuberay (index [5]). The user's request is to explore GitHub repositories and collect information about them such as descriptions, stars, or other metadata. So far, I haven't collected any information.
-My navigation to the GitHub explore page was successful. The page loaded correctly and I can see the expected content.
-I need to capture the key repositories I've identified so far into my memory and into a file.
-Since this appears to be a multi-step task involving visiting multiple repositories and collecting their information, I need to create a structured plan in todo.md.
-After writing todo.md, I can also initialize a github.md file to accumulate the information I've collected.
-The file system actions do not change the browser state, so I can also click on the bytedance/UI-TARS-desktop (index [4]) to start collecting information."""
-
-		example_tool_call_1 = AssistantMessage(content=json.dumps(example_content), cache=True)
-		self._add_message_with_type(example_tool_call_1)
-		self._add_message_with_type(
-			UserMessage(
-				content='Data written to todo.md.\nData written to github.md.\nClicked element with index 4.\n</example_1>',
-				cache=True,
-			),
-		)
-
 	def add_new_task(self, new_task: str) -> None:
 		self.task = new_task
 		task_update_item = HistoryItem(system_message=f'User updated <user_request> to: {new_task}')
 		self.state.agent_history_items.append(task_update_item)
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='update_agent_history_description')
 	def _update_agent_history_description(
 		self,
 		model_output: AgentOutput | None = None,
@@ -247,8 +193,12 @@ The file system actions do not change the browser state, so I can also click on 
 				logger.debug(f'Added extracted_content to action_results: {action_result.extracted_content}')
 
 			if action_result.error:
-				action_results += f'Action {idx + 1}/{result_len}: {action_result.error[:200]}\n'
-				logger.debug(f'Added error to action_results: {action_result.error[:200]}')
+				if len(action_result.error) > 200:
+					error_text = action_result.error[:100] + '......' + action_result.error[-100:]
+				else:
+					error_text = action_result.error
+				action_results += f'Action {idx + 1}/{result_len}: {error_text}\n'
+				logger.debug(f'Added error to action_results: {error_text}')
 
 		if action_results:
 			action_results = f'Action Results:\n{action_results}'
@@ -295,6 +245,7 @@ The file system actions do not change the browser state, so I can also click on 
 
 		return ''
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='add_state_message')
 	@time_execution_sync('--add_state_message')
 	def add_state_message(
 		self,
@@ -305,12 +256,26 @@ The file system actions do not change the browser state, so I can also click on 
 		use_vision=True,
 		page_filtered_actions: str | None = None,
 		sensitive_data=None,
+		agent_history_list: AgentHistoryList | None = None,  # Pass AgentHistoryList from agent
+		available_file_paths: list[str] | None = None,  # Always pass current available_file_paths
 	) -> None:
 		"""Add browser state as human message"""
 
 		self._update_agent_history_description(model_output, result, step_info)
 		if sensitive_data:
 			self.sensitive_data_description = self._get_sensitive_data_description(browser_state_summary.url)
+
+		# Extract previous screenshots if we need more than 1 image and have agent history
+		screenshots = []
+		if agent_history_list and self.images_per_step > 1:
+			# Get previous screenshots and filter out None values
+			raw_screenshots = agent_history_list.screenshots(n_last=self.images_per_step - 1, return_none_if_not_screenshot=False)
+			screenshots = [s for s in raw_screenshots if s is not None]
+
+		# add current screenshot to the end
+		if browser_state_summary.screenshot:
+			screenshots.append(browser_state_summary.screenshot)
+
 		# otherwise add state message and result to next message (which will not stay in memory)
 		assert browser_state_summary
 		state_message = AgentMessagePrompt(
@@ -323,17 +288,11 @@ The file system actions do not change the browser state, so I can also click on 
 			step_info=step_info,
 			page_filtered_actions=page_filtered_actions,
 			sensitive_data=self.sensitive_data_description,
-			available_file_paths=self.available_file_paths,
+			available_file_paths=available_file_paths,
+			screenshots=screenshots,
 		).get_user_message(use_vision)
 
-		self._add_message_with_type(state_message)
-
-	def add_plan(self, plan: str | None, position: int | None = None) -> None:
-		if not plan:
-			return
-
-		msg = AssistantMessage(content=plan)
-		self._add_message_with_type(msg, position)
+		self._add_message_with_type(state_message, 'state')
 
 	def _log_history_lines(self) -> str:
 		"""Generate a formatted log string of message history for debugging / printing to terminal"""
@@ -378,23 +337,24 @@ The file system actions do not change the browser state, so I can also click on 
 
 		# Log message history for debugging
 		logger.debug(self._log_history_lines())
-		self.last_input_messages = list(self.state.history.messages)
+		self.last_input_messages = self.state.history.get_messages()
 		return self.last_input_messages
 
-	def _add_message_with_type(
-		self,
-		message: BaseMessage,
-		position: int | None = None,
-	) -> None:
-		"""Add message to history
-		position: None for last, -1 for second last, etc.
-		"""
+	def _add_message_with_type(self, message: BaseMessage, message_type: Literal['system', 'state', 'consistent']) -> None:
+		"""Add message to history"""
 
 		# filter out sensitive data from the message
 		if self.sensitive_data:
 			message = self._filter_sensitive_data(message)
 
-		self.state.history.add_message(message, position)
+		if message_type == 'system':
+			self.state.history.system_message = message
+		elif message_type == 'state':
+			self.state.history.state_message = message
+		elif message_type == 'consistent':
+			self.state.history.consistent_messages.append(message)
+		else:
+			raise ValueError(f'Invalid message type: {message_type}')
 
 	@time_execution_sync('--filter_sensitive_data')
 	def _filter_sensitive_data(self, message: BaseMessage) -> BaseMessage:
@@ -437,7 +397,3 @@ The file system actions do not change the browser state, so I can also click on 
 					item.text = replace_sensitive(item.text)
 					message.content[i] = item
 		return message
-
-	def _remove_last_state_message(self) -> None:
-		"""Remove last state message from history"""
-		self.state.history.remove_last_state_message()

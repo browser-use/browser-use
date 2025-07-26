@@ -1,0 +1,180 @@
+# DXT ignore file for browser-use
+
+# Development and testing
+tests/
+examples/
+docs/
+*.test.py
+*_test.py
+test_*.py
+debug_*.py
+private_example/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Development tools
+.git/
+.github/
+.venv/
+.env
+.env.*
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# CI/CD
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+Jenkinsfile
+azure-pipelines.yml
+
+# Documentation
+README.md
+CONTRIBUTING.md
+CHANGELOG.md
+LICENSE
+*.md
+mkdocs.yml
+docs/
+
+# Configuration files
+.gitignore
+.gitattributes
+.editorconfig
+.pre-commit-config.yaml
+.flake8
+.pylintrc
+.mypy_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+*.cover
+.hypothesis/
+.ruff_cache/
+
+# Package files we don't need
+requirements*.txt
+poetry.lock
+Pipfile
+Pipfile.lock
+setup.py
+setup.cfg
+tox.ini
+noxfile.py
+Makefile
+
+# IMPORTANT: We need to include .venv for the bundled DXT
+# Only exclude Python itself and unnecessary parts
+
+# Exclude Python executable and core libraries (user must have Python installed)
+.venv/bin/python
+.venv/bin/python3
+.venv/bin/python3.*
+.venv/lib/python3.*/config-*
+.venv/lib/python3.*/lib-dynload/
+.venv/include/
+
+# Keep browser-use executable
+# .venv/bin/browser-use  # KEEP THIS
+
+# Exclude activation scripts and package managers  
+.venv/bin/activate*
+.venv/bin/pip*
+.venv/bin/wheel*
+.venv/bin/easy_install*
+.venv/pyvenv.cfg
+
+# Exclude standard library modules we don't need
+.venv/lib/python*/tkinter/
+.venv/lib/python*/test/
+.venv/lib/python*/tests/
+.venv/lib/python*/idlelib/
+.venv/lib/python*/turtle*
+.venv/lib/python*/ensurepip/
+.venv/lib/python*/unittest/
+.venv/lib/python*/distutils/
+.venv/lib/python*/lib2to3/
+
+# Exclude package management tools
+.venv/lib/python*/site-packages/pip/
+.venv/lib/python*/site-packages/pip-*/
+.venv/lib/python*/site-packages/setuptools/
+.venv/lib/python*/site-packages/setuptools-*/
+.venv/lib/python*/site-packages/wheel/
+.venv/lib/python*/site-packages/wheel-*/
+.venv/lib/python*/site-packages/_distutils_hack/
+.venv/lib/python*/site-packages/distutils-precedence.pth
+.venv/lib/python*/site-packages/easy_install.py
+.venv/lib/python*/site-packages/pkg_resources/
+
+# Exclude share directory
+.venv/share/
+
+# Exclude large binaries we don't need
+.venv/bin/ruff
+.venv/bin/ty
+.venv/bin/ipython*
+.venv/bin/pytest*
+.venv/bin/black*
+.venv/bin/isort*
+.venv/bin/pyright*
+
+# Test and development dependencies
+.venv/lib/python*/site-packages/pytest*/
+.venv/lib/python*/site-packages/ruff*/
+.venv/lib/python*/site-packages/codespell*/
+.venv/lib/python*/site-packages/pyright*/
+.venv/lib/python*/site-packages/pre_commit*/
+.venv/lib/python*/site-packages/ipdb*/
+.venv/lib/python*/site-packages/build*/
+.venv/lib/python*/site-packages/hatch*/
+.venv/lib/python*/site-packages/tokencost*/
+
+# Optional dependencies not needed for MCP
+.venv/lib/python*/site-packages/textual*/
+.venv/lib/python*/site-packages/boto*/
+.venv/lib/python*/site-packages/imgcat*/
+.venv/lib/python*/site-packages/stagehand*/
+.venv/lib/python*/site-packages/browserbase*/
+.venv/lib/python*/site-packages/langchain*/
+.venv/lib/python*/site-packages/lmnr*/
+.venv/lib/python*/site-packages/pillow*/
+.venv/lib/python*/site-packages/PIL/
+.venv/lib/python*/site-packages/datamodel_code_generator*/
+.venv/lib/python*/site-packages/hyperbrowser*/
+.venv/lib/python*/site-packages/fastapi*/
+.venv/lib/python*/site-packages/inngest*/
+.venv/lib/python*/site-packages/uvicorn*/
+
+# Large/unnecessary parts of included packages
+.venv/lib/python*/site-packages/*/tests/
+.venv/lib/python*/site-packages/*/test/
+.venv/lib/python*/site-packages/*/_test/
+.venv/lib/python*/site-packages/*/testing/
+.venv/lib/python*/site-packages/*/examples/
+.venv/lib/python*/site-packages/*/docs/
+.venv/lib/python*/site-packages/*/benchmarks/
+.venv/lib/python*/site-packages/*/.git/
+
+# Specific large dependencies to exclude
+.venv/lib/python*/site-packages/numpy*/
+.venv/lib/python*/site-packages/pandas*/
+.venv/lib/python*/site-packages/scipy*/
+.venv/lib/python*/site-packages/matplotlib*/
+.venv/lib/python*/site-packages/torch*/
+.venv/lib/python*/site-packages/tensorflow*/
+
+# Build script (not needed)
+build_dxt.py

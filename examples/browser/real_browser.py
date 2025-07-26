@@ -24,7 +24,7 @@ browser_session = BrowserSession(browser_profile=browser_profile)
 async def main():
 	agent = Agent(
 		task='Find todays DOW stock price',
-		llm=ChatOpenAI(model='gpt-4o'),
+		llm=ChatOpenAI(model='gpt-4.1'),
 		browser_session=browser_session,
 	)
 

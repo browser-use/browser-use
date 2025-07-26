@@ -3,26 +3,16 @@ import logging
 import os
 import platform
 import signal
-import tempfile
-import threading
 import time
 from collections.abc import Callable, Coroutine
 from fnmatch import fnmatch
 from functools import cache, wraps
 from pathlib import Path
 from sys import stderr
-from typing import Any, Literal, ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar
 from urllib.parse import urlparse
 
-import portalocker
 from dotenv import load_dotenv
-
-try:
-	import psutil
-
-	PSUTIL_AVAILABLE = True
-except ImportError:
-	PSUTIL_AVAILABLE = False
 
 load_dotenv()
 
@@ -424,6 +414,19 @@ def is_unsafe_pattern(pattern: str) -> bool:
 	return '*' in bare_domain
 
 
+def is_new_tab_page(url: str) -> bool:
+	"""
+	Check if a URL is a new tab page (about:blank or chrome://new-tab-page).
+
+	Args:
+		url: The URL to check
+
+	Returns:
+		bool: True if the URL is a new tab page, False otherwise
+	"""
+	return url in ('about:blank', 'chrome://new-tab-page/', 'chrome://new-tab-page')
+
+
 def match_url_with_domain_pattern(url: str, domain_pattern: str, log_warnings: bool = False) -> bool:
 	"""
 	Check if a URL matches a domain pattern. SECURITY CRITICAL.
@@ -437,7 +440,7 @@ def match_url_with_domain_pattern(url: str, domain_pattern: str, log_warnings: b
 	When no scheme is specified, https is used by default for security.
 	For example, 'example.com' will match 'https://example.com' but not 'http://example.com'.
 
-	Note: about:blank must be handled at the callsite, not inside this function.
+	Note: New tab pages (about:blank, chrome://new-tab-page) must be handled at the callsite, not inside this function.
 
 	Args:
 		url: The URL to check
@@ -448,8 +451,8 @@ def match_url_with_domain_pattern(url: str, domain_pattern: str, log_warnings: b
 		bool: True if the URL matches the pattern, False otherwise
 	"""
 	try:
-		# Note: about:blank should be handled at the callsite, not here
-		if url == 'about:blank':
+		# Note: new tab pages should be handled at the callsite, not here
+		if is_new_tab_page(url):
 			return False
 
 		parsed_url = urlparse(url)
@@ -599,270 +602,3 @@ def _log_pretty_url(s: str, max_len: int | None = 22) -> str:
 	if max_len is not None and len(s) > max_len:
 		return s[:max_len] + '…'
 	return s
-
-
-# Global semaphore registry for retry decorator
-GLOBAL_RETRY_SEMAPHORES: dict[str, asyncio.Semaphore] = {}
-GLOBAL_RETRY_SEMAPHORE_LOCK = threading.Lock()
-
-# Multiprocess semaphore support
-MULTIPROCESS_SEMAPHORE_DIR = Path(tempfile.gettempdir()) / 'browser_use_semaphores'
-MULTIPROCESS_SEMAPHORE_DIR.mkdir(exist_ok=True)
-
-# Global multiprocess semaphore registry
-MULTIPROCESS_SEMAPHORES: dict[str, portalocker.utils.NamedBoundedSemaphore] = {}
-MULTIPROCESS_SEMAPHORE_LOCK = threading.Lock()
-
-# Global overload detection state
-_last_overload_check = 0.0
-_overload_check_interval = 5.0  # Check every 5 seconds
-_active_retry_operations = 0
-_active_operations_lock = threading.Lock()
-
-
-def _check_system_overload() -> tuple[bool, str]:
-	"""Check if system is overloaded and return (is_overloaded, reason)"""
-	if not PSUTIL_AVAILABLE:
-		return False, ''
-
-	try:
-		# Get system stats
-		cpu_percent = psutil.cpu_percent(interval=0.1)
-		memory = psutil.virtual_memory()
-
-		# Check thresholds
-		reasons = []
-		is_overloaded = False
-
-		if cpu_percent > 85:
-			is_overloaded = True
-			reasons.append(f'CPU: {cpu_percent:.1f}%')
-
-		if memory.percent > 85:
-			is_overloaded = True
-			reasons.append(f'Memory: {memory.percent:.1f}%')
-
-		# Check number of concurrent operations
-		with _active_operations_lock:
-			if _active_retry_operations > 30:
-				is_overloaded = True
-				reasons.append(f'Active operations: {_active_retry_operations}')
-
-		return is_overloaded, ', '.join(reasons)
-	except Exception:
-		return False, ''
-
-
-def retry(
-	wait: float = 3,
-	retries: int = 3,
-	timeout: float = 5,
-	retry_on: tuple[type[Exception], ...] | None = None,
-	backoff_factor: float = 1.0,
-	semaphore_limit: int | None = None,
-	semaphore_name: str | None = None,
-	semaphore_lax: bool = True,
-	semaphore_scope: Literal['global', 'class', 'self', 'multiprocess'] = 'global',
-	semaphore_timeout: float | None = None,
-):
-	"""
-	    Retry decorator with semaphore support for async functions.
-
-	    Args:
-	            wait: Seconds to wait between retries
-	            retries: Number of retry attempts after initial failure
-	            timeout: Per-attempt timeout in seconds
-	            retry_on: Tuple of exception types to retry on (None = retry all exceptions)
-	            backoff_factor: Multiplier for wait time after each retry (1.0 = no backoff)
-	            semaphore_limit: Max concurrent executions (creates semaphore if needed)
-	            semaphore_name: Name for semaphore (defaults to function name)
-	            semaphore_lax: If True, continue without semaphore on acquisition failure
-	            semaphore_scope: Scope for semaphore sharing:
-	                    - 'global': All calls share one semaphore (default)
-	                    - 'class': All instances of a class share one semaphore
-	                    - 'self': Each instance gets its own semaphore
-	                    - 'multiprocess': All processes on the machine share one semaphore
-	            semaphore_timeout: Max time to wait for semaphore acquisition (None = timeout * (limit - 1))
-
-	    Example:
-	            @retry(wait=3, retries=3, timeout=5, semaphore_limit=3, semaphore_scope='self')
-	            async def some_function(self, ...):
-	                    # Limited to 5s per attempt, retries up to 3 times on failure
-	                    # Max 3 concurrent executions per instance
-
-	Notes:
-	            - semaphore aquision happens once at start time, it's not retried
-	            - semaphore_timeout is only used if semaphore_limit is set.
-	            - if semaphore_timeout is set to 0, it will wait forever for a semaphore slot to become available.
-	            - if semaphore_timeout is set to None, it will wait for the default (timeout * (semaphore_limit - 1)) +0.01s
-	            - retries are 0-indexed, so retries=1 means the function will be called 2 times total (1 initial + 1 retry)
-	"""
-
-	def decorator(func: Callable[P, Coroutine[Any, Any, T]]) -> Callable[P, Coroutine[Any, Any, T]]:
-		@wraps(func)
-		async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:  # type: ignore[return]
-			# Get or create semaphore if needed
-			semaphore: Any = None
-			semaphore_acquired = False
-			multiprocess_lock: Any = None
-
-			if semaphore_limit is not None:
-				# Determine semaphore key based on scope
-				base_name = semaphore_name or func.__name__
-
-				if semaphore_scope == 'multiprocess':
-					# Use multiprocess semaphore
-					sem_key = base_name
-					with MULTIPROCESS_SEMAPHORE_LOCK:
-						if sem_key not in MULTIPROCESS_SEMAPHORES:
-							# Create a NamedBoundedSemaphore with the given limit
-							MULTIPROCESS_SEMAPHORES[sem_key] = portalocker.utils.NamedBoundedSemaphore(
-								maximum=semaphore_limit,
-								name=sem_key,
-								directory=str(MULTIPROCESS_SEMAPHORE_DIR),
-							)
-						semaphore = MULTIPROCESS_SEMAPHORES[sem_key]
-				else:
-					# Use in-process semaphore
-					if semaphore_scope == 'global':
-						sem_key = base_name
-					elif semaphore_scope == 'class' and args and hasattr(args[0], '__class__'):
-						# Use class name for class-level semaphore
-						class_name = args[0].__class__.__name__
-						sem_key = f'{class_name}.{base_name}'
-					elif semaphore_scope == 'self' and args:
-						# Use instance id for instance-level semaphore
-						instance_id = id(args[0])
-						sem_key = f'{instance_id}.{base_name}'
-					else:
-						# Fallback to global if we can't determine scope
-						sem_key = base_name
-
-					with GLOBAL_RETRY_SEMAPHORE_LOCK:
-						if sem_key not in GLOBAL_RETRY_SEMAPHORES:
-							GLOBAL_RETRY_SEMAPHORES[sem_key] = asyncio.Semaphore(semaphore_limit)
-						semaphore = GLOBAL_RETRY_SEMAPHORES[sem_key]
-
-				# Try to acquire semaphore
-				sem_start = time.time()
-				# Calculate semaphore timeout
-				if semaphore_timeout is None:
-					# Default: wait time is if all other slots are occupied with max timeout operations
-					# Ensure minimum of timeout value when limit=1
-					sem_timeout = max(timeout, timeout * (semaphore_limit - 1))
-				else:
-					# Use provided timeout, but ensure minimum of 0.01 if 0 was passed
-					sem_timeout = max(0.01, semaphore_timeout) if semaphore_timeout == 0 else semaphore_timeout
-
-				if semaphore_scope == 'multiprocess':
-					# Multiprocess semaphore uses context manager with timeout
-					try:
-						# Use a temporary thread to run the blocking operation
-						# portalocker returns a Lock object or None
-						multiprocess_lock = await asyncio.to_thread(
-							lambda: semaphore.acquire(timeout=sem_timeout, check_interval=0.05, fail_when_locked=False)
-						)
-						if multiprocess_lock:
-							semaphore_acquired = True
-						else:
-							raise TimeoutError(f'Could not acquire semaphore within {sem_timeout}s')
-					except Exception as e:
-						sem_wait_time = time.time() - sem_start
-						if 'Could not acquire' in str(e) or isinstance(e, TimeoutError):
-							if not semaphore_lax:
-								raise TimeoutError(
-									f'Failed to acquire multiprocess semaphore "{sem_key}" within {sem_timeout}s '
-									f'(limit={semaphore_limit}, timeout={timeout}s per operation)'
-								)
-							logger.warning(
-								f'Failed to acquire multiprocess semaphore "{sem_key}" after {sem_wait_time:.1f}s, '
-								f'proceeding without concurrency limit'
-							)
-						else:
-							raise
-				else:
-					# Regular asyncio semaphore
-					try:
-						async with asyncio.timeout(sem_timeout):
-							await semaphore.acquire()
-							semaphore_acquired = True
-					except TimeoutError:
-						sem_wait_time = time.time() - sem_start
-						if not semaphore_lax:
-							raise TimeoutError(
-								f'Failed to acquire semaphore "{sem_key}" within {sem_timeout}s '
-								f'(limit={semaphore_limit}, timeout={timeout}s per operation)'
-							)
-						logger.warning(
-							f'Failed to acquire semaphore "{sem_key}" after {sem_wait_time:.1f}s, '
-							f'proceeding without concurrency limit'
-						)
-
-			# Track active operations
-			global _last_overload_check, _active_retry_operations
-			with _active_operations_lock:
-				_active_retry_operations += 1
-
-			# Check for system overload (rate limited)
-			current_time = time.time()
-			if current_time - _last_overload_check > _overload_check_interval:
-				_last_overload_check = current_time
-				is_overloaded, reason = _check_system_overload()
-				if is_overloaded:
-					logger.warning(
-						f'⚠️  System overload detected: {reason}. Consider reducing concurrent operations to prevent hanging.'
-					)
-
-			# Execute function with retries
-			start_time = time.time()
-			last_exception = None
-
-			try:
-				for attempt in range(retries + 1):
-					try:
-						# Execute with per-attempt timeout
-						async with asyncio.timeout(timeout):
-							return await func(*args, **kwargs)
-
-					except Exception as e:
-						# Check if we should retry this exception
-						if retry_on is not None and not isinstance(e, retry_on):
-							raise
-
-						last_exception = e
-
-						if attempt < retries:
-							# Calculate wait time with backoff
-							current_wait = wait * (backoff_factor**attempt)
-
-							logger.warning(
-								f'{func.__name__} failed (attempt {attempt + 1}/{retries + 1}): '
-								f'{type(e).__name__}: {e}. Waiting {current_wait:.1f}s before retry...'
-							)
-							await asyncio.sleep(current_wait)
-						else:
-							# Final failure
-							total_time = time.time() - start_time
-							sem_wait = time.time() - sem_start - total_time if semaphore_limit else 0
-
-							logger.error(
-								f'{func.__name__} failed after {retries + 1} attempts over {total_time:.1f}s. '
-								f'Semaphore wait: {sem_wait:.1f}s. Final error: {type(e).__name__}: {e}'
-							)
-							raise
-
-			finally:
-				# Decrement active operations counter
-				with _active_operations_lock:
-					_active_retry_operations = max(0, _active_retry_operations - 1)
-
-				if semaphore_acquired and semaphore:
-					if semaphore_scope == 'multiprocess' and multiprocess_lock:
-						# Release the lock object for portalocker
-						await asyncio.to_thread(lambda: multiprocess_lock.release())
-					elif semaphore:
-						semaphore.release()
-
-		return wrapper
-
-	return decorator
