@@ -562,6 +562,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		description='List of allowed domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]',
 	)
 	keep_alive: bool | None = Field(default=None, description='Keep browser alive after agent run.')
+	allow_local_fallback: bool = Field(
+		default=True,
+		description='If True, allows launching a new local browser if connecting to a specified remote browser (via cdp_url, wss_url, etc.) fails. Set to False to ensure tasks fail immediately if the remote connection is unsuccessful.'
+	)
 	enable_default_extensions: bool = Field(
 		default=True,
 		description="Enable automation-optimized extensions: ad blocking (uBlock Origin), cookie handling (I still don't care about cookies), and URL cleaning (ClearURLs). All extensions work automatically without manual intervention. Extensions are automatically downloaded and loaded when enabled.",

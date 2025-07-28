@@ -772,6 +772,9 @@ class BrowserSession(BaseModel):
 	@observe_debug(ignore_input=True, ignore_output=True, name='connect_or_launch_browser')
 	async def _connect_or_launch_browser(self) -> None:
 		"""Try all connection methods in order of precedence."""
+		# Determine if the user intended to connect to a specific, non-local browser instance.
+		remote_connection_intended = bool(self.cdp_url or self.wss_url or self.browser_pid)
+		
 		# Try connecting via passed objects first
 		await self.setup_browser_via_passed_objects()
 		if self.browser_context:
@@ -791,6 +794,19 @@ class BrowserSession(BaseModel):
 		await self.setup_browser_via_cdp_url()
 		if self.browser_context:
 			return
+
+		# If a remote connection was intended but failed, do not fall back.
+		if remote_connection_intended:
+			raise BrowserError(
+				f"Failed to connect to remote browser at {self.cdp_url or self.wss_url or f'pid {self.browser_pid}'}. "
+				"Local fallback is disabled for remote sessions to prevent unintended behavior."
+			)
+
+		# If fallback is explicitly disabled in the profile, do not proceed.
+		if not self.browser_profile.allow_local_fallback:
+			raise BrowserError(
+				"Failed to connect to the specified browser. Local fallback is disabled by configuration (allow_local_fallback=False)."
+			)
 
 		# Launch new browser as last resort
 		await self.setup_new_browser_context()
