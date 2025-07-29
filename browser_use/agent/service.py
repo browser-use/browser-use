@@ -712,13 +712,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Get page-specific filtered actions
 		page_filtered_actions = self.controller.registry.get_prompt_description(current_page)
 
-		# If there are page-specific actions, add them as a special message for this step only
-		if page_filtered_actions:
-			page_action_message = f'For this page, these additional actions are available:\n{page_filtered_actions}'
-			self._message_manager._add_message_with_type(UserMessage(content=page_action_message), 'consistent')
-
-		self.logger.debug(f'💬 Step {self.state.n_steps + 1}: Adding state message to context...')
-		self._message_manager.add_state_message(
+		# Page-specific actions will be included directly in the browser_state message
+		self.logger.debug(f'💬 Step {self.state.n_steps + 1}: Creating state messages for context...')
+		self._message_manager.create_state_messages(
 			browser_state_summary=browser_state_summary,
 			model_output=self.state.last_model_output,
 			result=self.state.last_result,
@@ -883,7 +879,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			msg += '\nIf the task is fully finished, set success in "done" to true.'
 			msg += '\nInclude everything you found out for the ultimate task in the done text.'
 			self.logger.info('Last step finishing up')
-			self._message_manager._add_message_with_type(UserMessage(content=msg), 'consistent')
+			self._message_manager._add_context_message(UserMessage(content=msg))
 			self.AgentOutput = self.DoneAgentOutput
 
 	async def _get_model_output_with_retry(self, input_messages: list[BaseMessage]) -> AgentOutput:
