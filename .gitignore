@@ -29,6 +29,7 @@ dist/
 *.jsonl
 *.log
 *.bak
+*.txt
 
 # Secrets and sensitive files
 secrets.env

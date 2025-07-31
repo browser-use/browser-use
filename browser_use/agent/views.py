@@ -40,6 +40,10 @@ class AgentSettings(BaseModel):
 	generate_gif: bool | str = False
 	override_system_message: str | None = None
 	extend_system_message: str | None = None
+	
+	# JSON结构化日志配置
+	save_json_log_path: str | Path | None = None
+	json_session_name: str | None = None
 	include_attributes: list[str] = [
 		'title',
 		'type',
@@ -57,6 +61,13 @@ class AgentSettings(BaseModel):
 	flash_mode: bool = False  # If enabled, disables evaluation_previous_goal and next_goal, and sets use_thinking = False
 	max_history_items: int = 40
 	images_per_step: int = 1
+
+	# Historical experience retrieval settings
+	enable_experience_retrieval: bool = False  # Enable historical experience guidance
+	embeddings_file: str | None = None  # Path to embeddings file for experience retrieval
+	experience_similarity_threshold: float = 0.7  # Minimum similarity for experience suggestions
+	experience_top_k: int = 5  # Number of top similar states to retrieve
+
 
 	page_extraction_llm: BaseChatModel | None = None
 	planner_llm: BaseChatModel | None = None

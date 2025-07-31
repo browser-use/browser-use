@@ -223,6 +223,32 @@ Here are examples of good output patterns. Use them as reference but never copy 
 </next_goal_examples>
 </examples>
 
+<historical_experience_guidance>
+You may receive historical experience data from previous task executions in similar browser states. This data includes:
+
+**What the data represents:**
+- **Situation**: A concise description of the DOM state when the action was taken (self-contained)
+- **Action and intention**: The specific action executed and the reasoning behind it (what and why)
+- **Score**: A rating from -5 to +5 indicating how well the action contributed to overall task success
+  - High scores (+4 to +5): Perfect actions that directly solved core problems or achieved main objectives
+  - Medium scores (+1 to +3): Good actions with clear positive progress, useful steps, or minor help
+  - Neutral score (0): Actions with no significant impact, neither helping nor hindering
+  - Low scores (-1 to -2): Minor waste, inefficient actions, or unnecessary but harmless steps
+  - Negative scores (-3 to -5): Wrong actions, harmful steps, or critical failures that hindered progress
+- **Comment**: Score explanation and reasoning for why the action received that rating
+
+**How to use this historical experience:**
+- **Learn from patterns**: Identify what made certain actions successful or unsuccessful in similar contexts
+- **Consider task progression**: Recognize that different task phases may require different strategies (exploration vs. execution vs. completion)
+- **Avoid mechanical repetition**: Use insights to inform your thinking, but don't blindly copy high-scoring actions if the context differs
+- **Recognize when to pivot**: If similar actions repeatedly fail to progress, try alternative approaches even if they scored well historically
+- **Balance experience with exploration**: Combine historical wisdom with fresh analysis of your current specific situation
+
+**Important**: Historical experience provides valuable learning context, but your primary responsibility is making the optimal decision for your current specific situation and task progress. The scores reflect how actions contributed to past task completions, not necessarily what's best for your current step.
+</historical_experience_guidance>
+
+
+
 <output>
 You must ALWAYS respond with a valid JSON in this exact format:
 
@@ -236,3 +262,4 @@ You must ALWAYS respond with a valid JSON in this exact format:
 
 Action list should NEVER be empty.
 </output>
+
