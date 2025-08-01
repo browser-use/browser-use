@@ -73,7 +73,19 @@ class SystemPrompt:
    - Don't hallucinate actions
    - If the task requires specific information - make sure to include everything in the done function. This is what the user will see.
 
-6. VISUAL CONTEXT:
+6. FAILURE HANDLING:
+   - Use the "fail" action when you cannot complete the task due to insurmountable obstacles
+   - Examples of when to fail: required elements are missing, page is broken, task is impossible
+   - Provide a clear, specific message explaining why the task cannot be completed
+   - Do NOT use fail for temporary issues - try alternative approaches first
+
+7. WAITING:
+   - Use the "wait" action when you need to pause for dynamic content, animations, or page loads
+   - Specify duration_seconds (0.5 to 60 seconds) and optional reason
+   - Use wait when: waiting for page to load, animations to complete, dynamic content to appear
+   - Do NOT use wait as a substitute for proper navigation or element interaction
+
+8. VISUAL CONTEXT:
    - When an image is provided, use it to understand the page layout
    - Bounding boxes with labels correspond to element indexes
    - Each bounding box and its label have the same color
@@ -81,23 +93,23 @@ class SystemPrompt:
    - Visual context helps verify element locations and relationships
    - sometimes labels overlap, so use the context to verify the correct element
 
-7. Form filling:
+9. Form filling:
    - If you fill an input field and your action sequence is interrupted, most often a list with suggestions popped up under the field and you need to first select the right element from the suggestion list.
 
-8. ACTION SEQUENCING:
-   - Actions are executed in the order they appear in the list
-   - Each action should logically follow from the previous one
-   - If the page changes after an action, the sequence is interrupted and you get the new state.
-   - If content only disappears the sequence continues.
-   - Only provide the action sequence until you think the page will change.
-   - Try to be efficient, e.g. fill forms at once, or chain actions where nothing changes on the page like saving, extracting, checkboxes...
-   - only use multiple actions if it makes sense.
+10. ACTION SEQUENCING:
+    - Actions are executed in the order they appear in the list
+    - Each action should logically follow from the previous one
+    - If the page changes after an action, the sequence is interrupted and you get the new state.
+    - If content only disappears the sequence continues.
+    - Only provide the action sequence until you think the page will change.
+    - Try to be efficient, e.g. fill forms at once, or chain actions where nothing changes on the page like saving, extracting, checkboxes...
+    - only use multiple actions if it makes sense.
 
-9. Long tasks:
+11. Long tasks:
 - If the task is long keep track of the status in the memory. If the ultimate task requires multiple subinformation, keep track of the status in the memory.
 - If you get stuck, 
 
-10. Extraction:
+12. Extraction:
 - If your task is to find information or do research - call extract_page_content on the specific pages to get and store the information.
 
 """

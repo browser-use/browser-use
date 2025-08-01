@@ -12,6 +12,7 @@ from browser_use.controller.registry.service import Registry
 from browser_use.controller.views import (
 	ClickElementAction,
 	DoneAction,
+	FailAction,
 	GoToUrlAction,
 	InputTextAction,
 	NoParamsAction,
@@ -20,6 +21,7 @@ from browser_use.controller.views import (
 	SearchGoogleAction,
 	SendKeysAction,
 	SwitchTabAction,
+	WaitAction,
 )
 from browser_use.utils import time_execution_async, time_execution_sync
 
@@ -56,6 +58,28 @@ class Controller:
 			@self.registry.action('Complete task', param_model=DoneAction)
 			async def done(params: DoneAction):
 				return ActionResult(is_done=True, extracted_content=params.text)
+
+		@self.registry.action('Fail task with custom message', param_model=FailAction)
+		async def fail(params: FailAction):
+			return ActionResult(is_done=True, error=params.message)
+
+		@self.registry.action('Wait for specified duration', param_model=WaitAction)
+		async def wait(params: WaitAction, browser: BrowserContext):
+			import asyncio
+			
+			# Set default duration if not specified
+			duration = params.duration_seconds if params.duration_seconds is not None else 5
+			
+			# Enforce minimum and maximum limits
+			duration = max(0.5, min(duration, 60))  # Between 0.5 and 60 seconds
+			
+			reason = params.reason if params.reason else f"waiting for {duration} seconds"
+			
+			await asyncio.sleep(duration)
+			
+			msg = f'⏰ Waited for {duration} seconds: {reason}'
+			logger.info(msg)
+			return ActionResult(extracted_content=msg, include_in_memory=True)
 
 		# Basic Navigation Actions
 		@self.registry.action(

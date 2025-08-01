@@ -27,6 +27,15 @@ class DoneAction(BaseModel):
 	text: str
 
 
+class FailAction(BaseModel):
+	message: str
+
+
+class WaitAction(BaseModel):
+	duration_seconds: Optional[int] = None  # If None, use default (5 seconds)
+	reason: Optional[str] = None  # Optional reason for the wait
+
+
 class SwitchTabAction(BaseModel):
 	page_id: int
 
