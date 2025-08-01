@@ -91,9 +91,9 @@ class Controller(Generic[Context]):
 				if params.new_tab:
 					# Open in new tab (logic from open_tab function)
 					page = await browser_session.create_new_tab(params.url)
-					tab_idx = browser_session.tabs.index(page)
+					tab_index = browser_session.tabs.index(page)
 					memory = f'Opened new tab with URL {params.url}'
-					msg = f'🔗  Opened new tab #{tab_idx} with url {params.url}'
+					msg = f'🔗  Opened new tab #{tab_index} with url {params.url}'
 					logger.info(msg)
 					return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=memory)
 				else:
@@ -147,7 +147,10 @@ class Controller(Generic[Context]):
 
 		# Element Interaction Actions
 
-		@self.registry.action('Click element by index', param_model=ClickElementAction)
+		@self.registry.action(
+			'Click element by index, set new_tab=True to open any resulting navigation in a new tab',
+			param_model=ClickElementAction,
+		)
 		async def click_element_by_index(params: ClickElementAction, browser_session: BrowserSession):
 			element_node = await browser_session.get_dom_element_by_index(params.index)
 			if element_node is None:
@@ -165,22 +168,34 @@ class Controller(Generic[Context]):
 			msg = None
 
 			try:
-				download_path = await browser_session._click_element_node(element_node)
+				download_path = await browser_session._click_element_node(
+					element_node, expect_download=params.expect_download, new_tab=params.new_tab
+				)
 				if download_path:
 					emoji = '💾'
-					msg = f'Downloaded file to {download_path}'
+					msg = f'Downloaded file to {download_path}' + (' (new tab)' if params.new_tab else '')
 				else:
 					emoji = '🖱️'
-					msg = f'Clicked button with index {params.index}: {element_node.get_all_text_till_next_clickable_element(max_depth=2)}'
+					if params.new_tab:
+						msg = f'Clicked element {params.index} with new tab modifier: {element_node.get_all_text_till_next_clickable_element(max_depth=2)}'
+					else:
+						msg = f'Clicked button with index {params.index}: {element_node.get_all_text_till_next_clickable_element(max_depth=2)}'
+
+				# Check for new tab opening (existing behavior for normal clicks, expected for new tab clicks)
+				if len(browser_session.tabs) > initial_pages:
+					new_tab_msg = 'New tab opened - switching to it'
+					if params.new_tab:
+						msg = f'Clicked element {params.index} and opened in new tab'
+					else:
+						msg += f' - {new_tab_msg}'
+					emoji = '🔗'
+					logger.info(f'{emoji} {new_tab_msg}')
+					# Switch to the last tab (newly created tab)
+					last_tab_index = len(browser_session.tabs) - 1
+					await browser_session.switch_to_tab(last_tab_index)
 
 				logger.info(f'{emoji} {msg}')
 				logger.debug(f'Element xpath: {element_node.xpath}')
-				if len(browser_session.tabs) > initial_pages:
-					new_tab_msg = 'New tab opened - switching to it'
-					msg += f' - {new_tab_msg}'
-					emoji = '🔗'
-					logger.info(f'{emoji} {new_tab_msg}')
-					await browser_session.switch_to_tab(-1)
 				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
 			except Exception as e:
 				error_msg = str(e)
@@ -221,9 +236,7 @@ class Controller(Generic[Context]):
 			if not os.path.exists(params.path):
 				raise BrowserError(f'File {params.path} does not exist')
 
-			file_upload_dom_el = await browser_session.find_file_upload_element_by_index(
-				params.index, max_height=3, max_descendant_depth=3
-			)
+			file_upload_dom_el = await browser_session.find_file_upload_element_by_index(params.index)
 
 			if file_upload_dom_el is None:
 				msg = f'No file upload element found at index {params.index}'

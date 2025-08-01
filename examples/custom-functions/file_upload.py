@@ -35,7 +35,7 @@ async def upload_file(index: int, path: str, browser_session: BrowserSession, av
 	if not os.path.exists(path):
 		return ActionResult(error=f'File {path} does not exist')
 
-	file_upload_dom_el = await browser_session.find_file_upload_element_by_index(index, max_height=3, max_descendant_depth=3)
+	file_upload_dom_el = await browser_session.find_file_upload_element_by_index(index)
 
 	if file_upload_dom_el is None:
 		msg = f'No file upload element found at index {index}'

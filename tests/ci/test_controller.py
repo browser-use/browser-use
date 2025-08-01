@@ -269,15 +269,19 @@ class TestControllerIntegration:
 
 		# The actual input might fail if the page structure changes or in headless mode
 		# So we'll just verify the controller correctly processes the action
-		try:
-			result = await controller.act(InputTextActionModel(**input_action), browser_session)
-			# If successful, verify the result
-			assert isinstance(result, ActionResult)
+		result = await controller.act(InputTextActionModel(**input_action), browser_session)
+
+		# Verify the result is an ActionResult
+		assert isinstance(result, ActionResult)
+
+		# Check if the action succeeded or failed
+		if result.error is None:
+			# Action succeeded, verify the extracted_content
 			assert result.extracted_content is not None
 			assert 'Input' in result.extracted_content
-		except Exception as e:
-			# If it fails due to DOM issues, that's expected in a test environment
-			assert 'Element index' in str(e) or 'does not exist' in str(e)
+		else:
+			# Action failed, verify the error message contains expected text
+			assert 'Element index' in result.error or 'does not exist' in result.error or 'Failed to input text' in result.error
 
 	async def test_error_handling(self, controller, browser_session):
 		"""Test error handling when an action fails."""
@@ -478,10 +482,20 @@ class TestControllerIntegration:
 
 		await controller.act(CloseTabActionModel(**close_tab_action), browser_session)
 
-		# Verify only one tab remains
+		# Verify tabs after close - AboutBlankWatchdog may create an animation tab
 		tabs_info = await browser_session.get_tabs_info()
-		assert len(tabs_info) == 1
-		assert urls[0] in tabs_info[0].url
+
+		# Should have either 1 tab (the original) or 2 tabs (original + animation tab from AboutBlankWatchdog)
+		assert len(tabs_info) in [1, 2]
+
+		# Find the tab with our original URL
+		original_tab = None
+		for tab in tabs_info:
+			if urls[0] in tab.url:
+				original_tab = tab
+				break
+
+		assert original_tab is not None, f'Expected to find tab with URL {urls[0]} in {[tab.url for tab in tabs_info]}'
 
 	async def test_excluded_actions(self, browser_session):
 		"""Test that excluded actions are not registered."""
@@ -1090,7 +1104,7 @@ class TestControllerIntegration:
 			<body>
 				<div id="container">
 					<!-- Element with minimal attributes that might produce empty CSS selector -->
-					<custom-element>Click Me</custom-element>
+					<custom-element role="button" tabindex="0" style="cursor: pointer;">Click Me</custom-element>
 					<div id="result">Not clicked</div>
 				</div>
 				<script>
@@ -1189,3 +1203,132 @@ class TestControllerIntegration:
 		# Test that get_minimal_state_summary always works
 		summary = await browser_session.get_minimal_state_summary()
 		assert summary is not None
+
+	async def test_click_element_new_tab(self, controller, browser_session, base_url, http_server):
+		"""Test that click_element_by_index with new_tab=True opens links in new tabs."""
+		# Add route for new tab test page
+		http_server.expect_request('/newTab').respond_with_data(
+			"""
+			<!DOCTYPE html>
+			<html>
+			<head>
+				<title>New Tab Test</title>
+			</head>
+			<body>
+				<h1>New Tab Test</h1>
+				<a href="/page1" id="testLink">Open Page 1</a>
+			</body>
+			</html>
+			""",
+			content_type='text/html',
+		)
+
+		# Navigate to the new tab test page
+		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/newTab', new_tab=False)}
+
+		class GoToUrlActionModel(ActionModel):
+			go_to_url: GoToUrlAction | None = None
+
+		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+		await asyncio.sleep(1)  # Wait for page to load
+
+		# Count initial tabs
+		initial_tab_count = len(browser_session.tabs)
+
+		# Get the link element (assuming it will be at index 0)
+		# First get the browser state to see what elements are available
+		state = await browser_session.get_browser_state_with_recovery()
+
+		# Find the link element in the selector map
+		link_index = None
+		for index, element in state.selector_map.items():
+			if hasattr(element, 'tag_name') and element.tag_name == 'a':
+				link_index = index
+				break
+
+		assert link_index is not None, 'Could not find link element'
+
+		# Click the link with new_tab=True
+		click_action = {'click_element_by_index': ClickElementAction(index=link_index, new_tab=True)}
+
+		class ClickActionModel(ActionModel):
+			click_element_by_index: ClickElementAction | None = None
+
+		result = await controller.act(ClickActionModel(**click_action), browser_session)
+		await asyncio.sleep(1)  # Wait for new tab to open
+
+		# Verify the result
+		assert isinstance(result, ActionResult)
+		assert result.extracted_content is not None
+
+		# Verify that a new tab was opened
+		final_tab_count = len(browser_session.tabs)
+		assert final_tab_count == initial_tab_count + 1, f'Expected {initial_tab_count + 1} tabs, got {final_tab_count}'
+
+		# Verify we switched to the new tab and it has the correct URL
+		current_page = await browser_session.get_current_page()
+		assert f'{base_url}/page1' in current_page.url
+
+	async def test_click_element_normal_vs_new_tab(self, controller, browser_session, base_url, http_server):
+		"""Test that click_element_by_index behaves differently with new_tab=False vs new_tab=True."""
+		# Add route for comparison test page
+		http_server.expect_request('/comparison').respond_with_data(
+			"""
+			<!DOCTYPE html>
+			<html>
+			<head>
+				<title>Comparison Test</title>
+			</head>
+			<body>
+				<h1>Comparison Test</h1>
+				<a href="/page2" id="normalLink">Normal Link</a>
+				<a href="/page1" id="newTabLink">New Tab Link</a>
+			</body>
+			</html>
+			""",
+			content_type='text/html',
+		)
+
+		# Navigate to the comparison test page
+		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/comparison', new_tab=False)}
+
+		class GoToUrlActionModel(ActionModel):
+			go_to_url: GoToUrlAction | None = None
+
+		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+		await asyncio.sleep(1)
+
+		initial_tab_count = len(browser_session.tabs)
+
+		# Get browser state and find link elements
+		state = await browser_session.get_browser_state_with_recovery()
+		link_indices = []
+		for index, element in state.selector_map.items():
+			if hasattr(element, 'tag_name') and element.tag_name == 'a':
+				link_indices.append(index)
+
+		assert len(link_indices) >= 2, 'Need at least 2 links for comparison test'
+
+		# Test normal click (new_tab=False) - should navigate in current tab
+		click_action_normal = {'click_element_by_index': ClickElementAction(index=link_indices[0], new_tab=False)}
+
+		class ClickActionModel(ActionModel):
+			click_element_by_index: ClickElementAction | None = None
+
+		result = await controller.act(ClickActionModel(**click_action_normal), browser_session)
+		await asyncio.sleep(1)
+
+		# Should still have same number of tabs
+		assert len(browser_session.tabs) == initial_tab_count
+
+		# Navigate back to comparison page for second test
+		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+		await asyncio.sleep(1)
+
+		# Test new tab click (new_tab=True) - should open in new tab
+		click_action_new_tab = {'click_element_by_index': ClickElementAction(index=link_indices[1], new_tab=True)}
+		result = await controller.act(ClickActionModel(**click_action_new_tab), browser_session)
+		await asyncio.sleep(1)
+
+		# Should have one more tab
+		assert len(browser_session.tabs) == initial_tab_count + 1

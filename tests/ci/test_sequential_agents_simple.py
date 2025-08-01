@@ -144,8 +144,8 @@ class TestSequentialAgentsSimple:
 		assert len(browser_session.tabs) == 2
 		# Agent1 should be on the second tab (tab2)
 		assert agent1.browser_session is not None
-		assert agent1.browser_session.agent_current_page is not None
-		assert '/tab2' in agent1.browser_session.agent_current_page.url
+		assert agent1.browser_session.page is not None
+		assert '/tab2' in agent1.browser_session.page.url
 
 		# Clean up agent1
 		del agent1
@@ -174,8 +174,8 @@ class TestSequentialAgentsSimple:
 
 		# Verify agent2 is on the first tab
 		assert agent2.browser_session is not None
-		assert agent2.browser_session.agent_current_page is not None
-		assert '/tab1' in agent2.browser_session.agent_current_page.url
+		assert agent2.browser_session.page is not None
+		assert '/tab1' in agent2.browser_session.page.url
 
 		# Verify browser is still functional
 		assert browser_session.initialized

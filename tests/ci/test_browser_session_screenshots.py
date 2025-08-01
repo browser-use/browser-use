@@ -130,10 +130,10 @@ class TestHeadlessScreenshots:
 			for page in pages:
 				await page.close()
 
-			# Browser should auto-create a new page on about:blank
-			# Verify screenshot is None for empty pages
+			# Browser should auto-create a new page on about:blank with animation
+			# With AboutBlankWatchdog, about:blank pages now have animated content, so they should have screenshots
 			state = await browser_session.get_state_summary(cache_clickable_elements_hashes=False)
-			assert state.screenshot is None, 'Screenshot should be None for about:blank pages'
+			assert state.screenshot is not None, 'Screenshot should not be None for animated about:blank pages'
 			assert state.url == 'about:blank' or state.url.startswith('chrome://'), f'Expected empty page but got {state.url}'
 
 			# Now navigate to a real page and verify screenshot works
@@ -347,7 +347,7 @@ class TestHeadlessScreenshots:
 
 			# Navigate to test page
 			await browser_session.navigate(httpserver.url_for('/scrollable'))
-			page = browser_session.agent_current_page
+			page = browser_session.page
 			assert page is not None
 
 			# Test 1: Screenshot at top of page (should work)
@@ -379,6 +379,43 @@ class TestHeadlessScreenshots:
 			assert len(base64.b64decode(screenshot_beyond)) > 5000
 
 			print('✅ All screenshot positions tested successfully!')
+
+		finally:
+			await browser_session.kill()
+
+
+class TestScreenshotEventSystem:
+	"""Tests for NEW event-driven screenshot infrastructure only."""
+
+	async def test_screenshot_response_event_dispatching(self, httpserver):
+		"""Test that ScreenshotResponseEvent is properly dispatched by event handlers."""
+		from browser_use.browser.events import ScreenshotRequestEvent, ScreenshotResponseEvent
+
+		browser_session = BrowserSession(browser_profile=BrowserProfile(headless=True, user_data_dir=None, keep_alive=False))
+
+		try:
+			await browser_session.start()
+
+			# Set up test page
+			httpserver.expect_request('/event-test').respond_with_data(
+				'<html><body><h1>Screenshot Event Test</h1></body></html>',
+				content_type='text/html',
+			)
+			await browser_session.navigate(httpserver.url_for('/event-test'))
+
+			# Test the NEW event-driven path: direct event dispatching
+			request_event = browser_session.event_bus.dispatch(ScreenshotRequestEvent(full_page=False))
+			await request_event
+
+			# Verify ScreenshotResponseEvent was dispatched
+			event_history = list(browser_session.event_bus.event_history.values())
+			response_events = [e for e in event_history if isinstance(e, ScreenshotResponseEvent)]
+			assert len(response_events) >= 1, 'ScreenshotResponseEvent should be dispatched by event handler'
+
+			# Verify the response event contains screenshot data
+			latest_response = response_events[-1]
+			assert latest_response.screenshot is not None
+			assert isinstance(latest_response.screenshot, str)
 
 		finally:
 			await browser_session.kill()

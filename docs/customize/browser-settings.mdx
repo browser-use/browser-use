@@ -105,7 +105,7 @@ browser_context: BrowserContext | None = None
 
 Playwright BrowserContext object to use (optional). See here for [more detailed usage instructions](https://docs.browser-use.com/customize/real-browser#method-b%3A-connect-using-existing-playwright-objects).
 
-#### `page` *aka* `agent_current_page`
+#### `page` *aka* `page`
 
 <a name="page"></a><a name="agent-current-page"></a>
 
@@ -115,10 +115,10 @@ page: Page | None = None
 
 Foreground Page that the agent is focused on, can also be passed as `page=...` as a shortcut. See here for [more detailed usage instructions](https://docs.browser-use.com/customize/real-browser#method-b%3A-connect-using-existing-playwright-objects).
 
-#### `human_current_page`
+#### `page`
 
 ```python
-human_current_page: Page | None = None
+page: Page | None = None
 ```
 
 Foreground Page that the human is focused on to start, not necessary to set manually.

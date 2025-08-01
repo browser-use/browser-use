@@ -1,6 +1,6 @@
 from typing import Generic, TypeVar
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # Action Input Models
@@ -15,6 +15,8 @@ class GoToUrlAction(BaseModel):
 
 class ClickElementAction(BaseModel):
 	index: int
+	new_tab: bool = Field(default=False, description='set True to open any resulting navigation in a new tab, False otherwise')
+	expect_download: bool = Field(default=False, description='set True if expecting a download, False otherwise')
 
 
 class InputTextAction(BaseModel):

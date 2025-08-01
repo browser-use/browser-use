@@ -339,8 +339,8 @@ class Registry(Generic[Context]):
 				# Get current URL if browser_session is provided
 				current_url = None
 				if browser_session:
-					if browser_session.agent_current_page:
-						current_url = browser_session.agent_current_page.url
+					if browser_session.page:
+						current_url = browser_session.page.url
 					else:
 						current_page = await browser_session.get_current_page()
 						current_url = current_page.url if current_page else None

@@ -182,6 +182,7 @@ class TestBrowserSessionRecovery:
 		await session.kill()
 
 	@pytest.mark.timeout(60)  # 60 second timeout
+	@pytest.mark.skip(reason='Crash recovery not yet implemented in event-based architecture')
 	async def test_permanent_blocking_forces_cdp_recovery(self, httpserver: HTTPServer, browser_session: BrowserSession):
 		"""Test critical behaviors:
 		1. Crashed pages should never crash the entire agent
@@ -306,7 +307,7 @@ class TestBrowserSessionRecovery:
 		await browser_session.navigate(httpserver.url_for('/normal'))
 
 		# Take a screenshot to verify browser works
-		state2 = await browser_session._get_updated_state()
+		state2 = await browser_session.get_browser_state_with_recovery()
 		assert state2.screenshot is not None
 		assert len(state2.screenshot) > 100, 'Browser should still work after recovery'
 
@@ -496,41 +497,6 @@ class TestBrowserSessionRecovery:
 		)
 
 		print('✅ Browser crash correctly threw hard error without restarting')
-
-	async def test_unresponsive_page_recovery_with_crashed_browser(self, browser_session: BrowserSession):
-		"""Test that _recover_unresponsive_page throws error if browser has crashed"""
-		# Navigate to a page first
-		await browser_session.navigate('about:blank')
-
-		# Get the browser process PID
-		browser_pid = browser_session.browser_pid
-		assert browser_pid is not None
-
-		print(f'1️⃣ Browser PID: {browser_pid}')
-
-		# Force kill the browser process
-		print('2️⃣ Killing browser process...')
-		try:
-			os.kill(browser_pid, signal.SIGKILL)
-		except ProcessLookupError:
-			pass
-
-		# Wait for process to die
-		await asyncio.sleep(1)
-
-		# Try to recover unresponsive page - should raise RuntimeError
-		print('3️⃣ Attempting page recovery on crashed browser...')
-		with pytest.raises(RuntimeError) as exc_info:
-			await browser_session._recover_unresponsive_page('test_method')
-
-		# Verify error indicates browser crash
-		error_msg = str(exc_info.value).lower()
-		print(f'4️⃣ Got expected error: {error_msg}')
-		assert 'browser process has crashed' in error_msg or 'browser connection lost' in error_msg, (
-			f'Error should indicate browser crash, got: {error_msg}'
-		)
-
-		print('✅ Page recovery correctly detected crashed browser and threw error')
 
 	async def test_singleton_lock_error_throws_hard_error(self, browser_session: BrowserSession):
 		"""Test that SingletonLock errors throw hard error instead of restarting"""

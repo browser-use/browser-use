@@ -589,8 +589,8 @@ class BrowserUseServer:
 
 		if new_tab:
 			page = await self.browser_session.create_new_tab(url)
-			tab_idx = self.browser_session.tabs.index(page)
-			return f'Opened new tab #{tab_idx} with URL: {url}'
+			tab_index = self.browser_session.tabs.index(page)
+			return f'Opened new tab #{tab_index} with URL: {url}'
 		else:
 			await self.browser_session.navigate_to(url)
 			return f'Navigated to: {url}'
@@ -622,8 +622,8 @@ class BrowserUseServer:
 
 				# Open link in new tab
 				page = await self.browser_session.create_new_tab(full_url)
-				tab_idx = self.browser_session.tabs.index(page)
-				return f'Clicked element {index} and opened in new tab #{tab_idx}'
+				tab_index = self.browser_session.tabs.index(page)
+				return f'Clicked element {index} and opened in new tab #{tab_index}'
 			else:
 				# For non-link elements, try Cmd/Ctrl+Click
 				page = await self.browser_session.get_current_page()

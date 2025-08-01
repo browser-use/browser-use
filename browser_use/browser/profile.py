@@ -459,6 +459,15 @@ class BrowserLaunchArgs(BaseModel):
 		assert not (self.headless and self.devtools), 'headless=True and devtools=True cannot both be set at the same time'
 		return self
 
+	@model_validator(mode='after')
+	def set_default_downloads_path(self) -> Self:
+		"""Set a default downloads path if none is provided."""
+		if self.downloads_path is None:
+			import tempfile
+
+			self.downloads_path = Path(tempfile.gettempdir()) / 'browser-use-downloads'
+		return self
+
 	@staticmethod
 	def args_as_dict(args: list[str]) -> dict[str, str]:
 		"""Return the extra launch CLI args as a dictionary."""
@@ -523,7 +532,7 @@ class BrowserLaunchPersistentContextArgs(BrowserLaunchArgs, BrowserContextArgs):
 	model_config = ConfigDict(extra='ignore', validate_assignment=False, revalidate_instances='always')
 
 	# Required parameter specific to launch_persistent_context, but can be None to use incognito temp dir
-	user_data_dir: str | Path | None = CONFIG.BROWSER_USE_DEFAULT_USER_DATA_DIR
+	user_data_dir: str | Path | None = None
 
 
 class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, BrowserLaunchArgs, BrowserNewContextArgs):
@@ -754,11 +763,27 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				'id': 'lckanjgmijmafbedllaakclkaicjfmnk',
 				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dlckanjgmijmafbedllaakclkaicjfmnk%26uc',
 			},
+			# {
+			# 	'name': 'Captcha Solver: Auto captcha solving service',
+			# 	'id': 'pgojnojmmhpofjgdmaebadhbocahppod',
+			# 	'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dpgojnojmmhpofjgdmaebadhbocahppod%26uc',
+			# },
+			# {
+			# 	'name': 'Consent-O-Matic',
+			# 	'id': 'mdjildafknihdffpkfmmpnpoiajfjnjd',
+			# 	'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dmdjildafknihdffpkfmmpnpoiajfjnjd%26uc',
+			# },
+			# {
+			# 	'name': 'Privacy | Protect Your Payments',
+			# 	'id': 'hmgpakheknboplhmlicfkkgjipfabmhp',
+			# 	'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dhmgpakheknboplhmlicfkkgjipfabmhp%26uc',
+			# },
 		]
 
 		# Create extensions cache directory
 		cache_dir = CONFIG.BROWSER_USE_EXTENSIONS_DIR
 		cache_dir.mkdir(parents=True, exist_ok=True)
+		# logger.debug(f'📁 Extensions cache directory: {_log_pretty_path(cache_dir)}')
 
 		extension_paths = []
 		loaded_extension_names = []
@@ -769,6 +794,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 			# Check if extension is already extracted
 			if ext_dir.exists() and (ext_dir / 'manifest.json').exists():
+				# logger.debug(f'✅ Using cached {ext["name"]} extension from {_log_pretty_path(ext_dir)}')
 				extension_paths.append(str(ext_dir))
 				loaded_extension_names.append(ext['name'])
 				continue
@@ -778,20 +804,21 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				if not crx_file.exists():
 					logger.info(f'📦 Downloading {ext["name"]} extension...')
 					self._download_extension(ext['url'], crx_file)
+				else:
+					logger.debug(f'📦 Found cached {ext["name"]} .crx file')
 
 				# Extract extension
-				if crx_file.exists():
-					logger.info(f'📂 Extracting {ext["name"]} extension...')
-					self._extract_extension(crx_file, ext_dir)
-					extension_paths.append(str(ext_dir))
-					loaded_extension_names.append(ext['name'])
+				logger.info(f'📂 Extracting {ext["name"]} extension...')
+				self._extract_extension(crx_file, ext_dir)
+				extension_paths.append(str(ext_dir))
+				loaded_extension_names.append(ext['name'])
 
 			except Exception as e:
 				logger.warning(f'⚠️ Failed to setup {ext["name"]} extension: {e}')
 				continue
 
 		if extension_paths:
-			logger.info(f'✅ Extensions ready: {len(extension_paths)} extensions loaded ({", ".join(loaded_extension_names)})')
+			logger.debug(f'🧩 Extensions loaded ({len(extension_paths)}): [{", ".join(loaded_extension_names)}]')
 		else:
 			logger.warning('⚠️ No default extensions could be loaded')
 
@@ -878,6 +905,16 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	def kwargs_for_launch(self) -> BrowserLaunchArgs:
 		"""Return the kwargs for BrowserType.connect_over_cdp()."""
 		return BrowserLaunchArgs(**self.model_dump(exclude={'args'}), args=self.get_args())
+
+	def kwargs_for_cdp_connection(self) -> dict[str, Any]:
+		"""Return the kwargs for BrowserType.connect_over_cdp()."""
+		# Extract only the fields relevant for CDP connection
+		connect_args = BrowserConnectArgs(**self.model_dump())
+		return connect_args.model_dump(exclude_none=True)
+
+	def args_for_browser_launch(self) -> list[str]:
+		"""Return the command line args for launching a browser subprocess."""
+		return self.get_args()
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='detect_display_configuration')
 	def detect_display_configuration(self) -> None:

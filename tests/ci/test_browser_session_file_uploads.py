@@ -290,9 +290,7 @@ class TestBrowserSessionFileUploads:
 			assert file_input is not None
 
 			# With very limited traversal, might not find it
-			file_input_limited = await browser_session.find_file_upload_element_by_index(
-				test_button_idx, max_height=0, max_descendant_depth=1
-			)
+			file_input_limited = await browser_session.find_file_upload_element_by_index(test_button_idx)
 			# Could be None if file is too deep
 
 		# Test 2: Direct sibling should be found easily
@@ -303,7 +301,7 @@ class TestBrowserSessionFileUploads:
 				break
 
 		if direct_button_idx is not None:
-			file_input = await browser_session.find_file_upload_element_by_index(direct_button_idx, max_height=1)
+			file_input = await browser_session.find_file_upload_element_by_index(direct_button_idx)
 			assert file_input is not None
 			assert file_input.attributes.get('id') == 'direct-file'
 

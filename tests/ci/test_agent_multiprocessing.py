@@ -485,7 +485,7 @@ class TestParallelism:
 					user_data_dir=None,
 					keep_alive=False,
 				),
-				agent_current_page=page,
+				page=page,
 				browser_context=context,
 				browser=browser,
 				playwright=playwright,

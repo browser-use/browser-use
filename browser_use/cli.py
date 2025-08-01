@@ -727,8 +727,6 @@ class BrowserUseApp(App):
 				connection_type = 'playwright'  # Default
 				if browser_session.cdp_url:
 					connection_type = 'CDP'
-				elif browser_session.wss_url:
-					connection_type = 'WSS'
 				elif browser_session.browser_profile.executable_path:
 					connection_type = 'user-provided'
 
@@ -780,12 +778,9 @@ class BrowserUseApp(App):
 						pass
 
 					# Show the agent's current page URL if available
-					if browser_session.agent_current_page:
+					if browser_session.page:
 						current_url = (
-							browser_session.agent_current_page.url.replace('https://', '')
-							.replace('http://', '')
-							.replace('www.', '')[:36]
-							+ '…'
+							browser_session.page.url.replace('https://', '').replace('http://', '').replace('www.', '')[:36] + '…'
 						)
 						browser_info.write(f'👁️  [green]{current_url}[/]')
 			except Exception as e:
