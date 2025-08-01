@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from functools import cached_property
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from browser_use.dom.history_tree_processor.view import CoordinateSet, HashedDomElement, ViewportInfo
 from browser_use.dom.utils import cap_text_length
@@ -89,6 +89,7 @@ class DOMElementNode(DOMBaseNode):
 	viewport_coordinates: CoordinateSet | None = None
 	page_coordinates: CoordinateSet | None = None
 	viewport_info: ViewportInfo | None = None
+	extra_attributes: dict[str, Any] | None = None
 
 	"""
 	### State injected by the browser context.
@@ -168,7 +169,9 @@ class DOMElementNode(DOMBaseNode):
 		return '\n'.join(text_parts).strip()
 
 	@time_execution_sync('--clickable_elements_to_string')
-	def clickable_elements_to_string(self, include_attributes: list[str] | None = None) -> str:
+	def clickable_elements_to_string(
+		self, include_attributes: list[str] | None = None, include_extra_attributes: bool | None = False
+	) -> str:
 		"""Convert the processed DOM content to HTML."""
 		formatted_text = []
 
@@ -192,6 +195,11 @@ class DOMElementNode(DOMBaseNode):
 							for key, value in node.attributes.items()
 							if key in include_attributes and str(value).strip() != ''
 						}
+
+						if include_extra_attributes and node.extra_attributes:
+							for key, value in node.extra_attributes.items():
+								if key in include_attributes and str(value).strip() != '':
+									attributes_to_include[key] = str(value).strip()
 
 						# If value of any of the attributes is the same as ANY other value attribute only include the one that appears first in include_attributes
 						# WARNING: heavy vibes, but it seems good enough for saving tokens (it kicks in hard when it's long text)

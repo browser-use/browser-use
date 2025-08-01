@@ -28,6 +28,8 @@ def create_mock_state_message(temp_dir: str):
 		tag_name='button',
 		xpath="//button[@id='test-button']",
 		attributes={'id': 'test-button'},
+		# Force this to ensure it's not shown by default
+		extra_attributes={'aria-label': 'Click Me'},
 		children=[],
 		is_visible=True,
 		is_interactive=True,
@@ -81,7 +83,9 @@ def create_mock_state_message(temp_dir: str):
 	)
 
 	# Override the clickable_elements_to_string method to return our simple element
-	mock_button.clickable_elements_to_string = lambda include_attributes=None: '[1]<button id="test-button">Click Me</button>'
+	mock_button.clickable_elements_to_string = (
+		lambda include_attributes=None, include_extra_attributes=None: '[1]<button id="test-button">Click Me</button>'
+	)
 
 	# Get the formatted message
 	message = agent_prompt.get_user_message(use_vision=False)
