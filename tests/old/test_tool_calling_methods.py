@@ -2,7 +2,6 @@
 Test script for tool calling methods to ensure proper handling of different LLM method arguments.
 """
 
-
 from unittest.mock import Mock
 
 import pytest
