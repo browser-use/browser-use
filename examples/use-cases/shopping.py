@@ -106,8 +106,9 @@ At this stage, check the basket on the top right (indicates the price) and check
   - **Final list of items purchased** (including any substitutions).
   - **Total cost**.
   - **Chosen delivery time**.
+"""
 
-**Important:** Ensure efficiency and accuracy throughout the process."""
+# IMPORTANT: Ensure efficiency and accuracy throughout the process.
 
 browser_session = BrowserSession()
 
