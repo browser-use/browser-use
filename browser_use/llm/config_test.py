@@ -15,11 +15,13 @@ try:
 except ImportError:  # pragma: no cover
 	# Fallback for pip install tests where langchain_core is not available
 	LangChainBaseChatModel = object  # type: ignore
-	
+
 	class HumanMessage:  # type: ignore
 		"""Fallback stub for HumanMessage when langchain_core is not available."""
+
 		def __init__(self, content: str = '') -> None:
 			self.content = content
+
 
 __all__ = ['test_llm_config']
 

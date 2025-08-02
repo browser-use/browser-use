@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 		from pytest_httpserver import HTTPServer  # pragma: no cover
 	except ImportError:
 		from typing import Any
+
 		HTTPServer = Any  # type: ignore
 else:
 	HTTPServer = object  # type: ignore

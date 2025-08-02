@@ -23,7 +23,6 @@ from browser_use.llm.messages import (
 )
 from browser_use.observability import observe_debug
 from browser_use.utils import match_url_with_domain_pattern, time_execution_sync
-from browser_use.llm.config_test import test_llm_config
 
 logger = logging.getLogger(__name__)
 

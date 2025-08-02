@@ -16,8 +16,10 @@ except ImportError:  # pragma: no cover
 	if TYPE_CHECKING:
 		from bubus import BaseEvent as _BubusBaseEvent  # pragma: no cover
 	else:
+
 		class _BubusBaseEvent(BaseModel):
 			"""Stub BaseEvent for runtime when 'bubus' is missing."""
+
 			pass
 
 	class BaseEvent(_BubusBaseEvent, BaseModel):
