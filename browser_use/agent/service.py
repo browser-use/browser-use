@@ -66,6 +66,7 @@ from browser_use.dom.history_tree_processor.service import (
 	HistoryTreeProcessor,
 )
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.llm.config_test import test_llm_config
 from browser_use.observability import observe, observe_debug
 from browser_use.sync import CloudSync
 from browser_use.telemetry.service import ProductTelemetry
@@ -76,8 +77,7 @@ from browser_use.utils import (
 	get_git_info,
 	time_execution_async,
 	time_execution_sync,
- )
-from browser_use.llm.config_test import test_llm_config
+)
 
 logger = logging.getLogger(__name__)
 
@@ -245,8 +245,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.chat_model_library: str = self.llm.__class__.__name__
 		self.chat_model_name: str | None = getattr(self.llm, 'model', None)
 		# Determine and test effective method.
-		_status = test_llm_config(self.llm, self._requested_tool_calling_method)
-		self.tool_calling_method: str = _status["selected_tool_calling_method"]
+		_status = test_llm_config(self.llm, self._requested_tool_calling_method)  # type: ignore[arg-type]
+		self.tool_calling_method: str = _status.get('selected_tool_calling_method', 'function_calling')
 
 		# Structured output
 		self.output_model_schema = output_model_schema
@@ -1817,7 +1817,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			},
 		}
 
-	def _get_tool_calling_method_for_model(self) -> str:  # noqa: D401, N802
+	def _get_tool_calling_method_for_model(self) -> str:
 		"""Return effective tool-calling method.
 
 		If the user explicitly supplied a value (anything other than ``'auto'``)
@@ -1838,15 +1838,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		return 'function_calling'
 
-	def _test_tool_calling_method(self, method: str, _llm: BaseChatModel | None = None) -> None:  # noqa: D401, N802
+	def _test_tool_calling_method(self, method: str, _llm: BaseChatModel | None = None) -> None:
 		"""Lightweight validation / recording of tool-calling support.
 
-		The historical implementation used ``llm.with_structured_output`` to
-		probe for support.  Our goal here is *not* to fully validate the model –
-		that will be handled by a richer helper later – but simply to replicate
-	
-the observable side-effects relied upon by the unit tests (a call to
-		``with_structured_output`` with the chosen method).
+				The historical implementation used ``llm.with_structured_output`` to
+				probe for support.  Our goal here is *not* to fully validate the model –
+				that will be handled by a richer helper later – but simply to replicate
+
+		the observable side-effects relied upon by the unit tests (a call to
+				``with_structured_output`` with the chosen method).
 		"""
 		if method in ('json_mode', 'raw'):
 			# These modes intentionally bypass structured output during testing.
@@ -1855,8 +1855,8 @@ the observable side-effects relied upon by the unit tests (a call to
 		llm = _llm or self.llm
 		try:
 			# A simple placeholder schema – sufficient for mocks and cheap for real models.
-			llm.with_structured_output(dict, include_raw=True, method=method)
-		except Exception as exc:  # noqa: BLE001
+			llm.with_structured_output(dict, include_raw=True, method=method)  # type: ignore[attr-defined]
+		except Exception as exc:
 			# For now, swallow the exception – the mere attempt satisfies tests and
 			# we don't want to block Agent initialisation in environments where the
 			# LLM rejects the dummy call.  Future extended validation will handle

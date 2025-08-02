@@ -12,7 +12,6 @@ except ImportError:  # pragma: no cover
 
 	class BaseEvent(BaseModel):
 		"""Fallback stub so that browser_use can run without the optional 'bubus' pkg during local tests."""
-
 		pass
 
 
