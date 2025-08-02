@@ -4,9 +4,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import anyio
-from bubus import BaseEvent
+try:
+	from bubus import BaseEvent  # type: ignore
+except ImportError:  # pragma: no cover
+	class BaseEvent(object):
+		"""Fallback stub so that browser_use can run without the optional 'bubus' pkg during local tests."""
+		pass
 from pydantic import Field, field_validator
-from uuid_extensions import uuid7str
+try:
+	from uuid_extensions import uuid7str  # type: ignore
+except ImportError:  # pragma: no cover
+	import uuid, random
+	def uuid7str():
+		"""Minimal stub for uuid7 while the real dependency is absent."""
+		return uuid.uuid4().hex
 
 MAX_STRING_LENGTH = 100000  # 100K chars ~ 25k tokens should be enough
 MAX_URL_LENGTH = 100000

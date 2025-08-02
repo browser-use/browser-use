@@ -159,6 +159,18 @@ asyncio.run(main())
 
 See the [MCP documentation](https://docs.browser-use.com/customize/mcp-server) for more details.
 
+## LLM auto-detection
+
+Every agent now calls `browser_use.llm.config_test.test_llm_config()` once per model to auto-detect:
+
+* tool-calling schema support (`tools`, `function_calling`, `json_mode`, `raw`)
+* vision support flag
+* round-trip latency
+* a basic IQ sanity check (expects “Paris” for capital of France)
+* ability to handle multiple consecutive human messages
+
+The result is cached on the model (`llm._llm_status_info`) so subsequent agent runs incur no extra latency.
+
 # Demos
 
 <br/><br/>
@@ -258,7 +270,7 @@ If you use Browser Use in your research or project, please cite:
 
 ```bibtex
 @software{browser_use2024,
-  author = {Müller, Magnus and Žunič, Gregor},
+  author = {Müller, Magnus and Žunić, Gregor},
   title = {Browser Use: Enable AI to control your browser},
   year = {2024},
   publisher = {GitHub},
@@ -266,13 +278,13 @@ If you use Browser Use in your research or project, please cite:
 }
 ```
 
- <div align="center"> <img src="https://github.com/user-attachments/assets/06fa3078-8461-4560-b434-445510c1766f" width="400"/> 
+<div align="center"> <img src="https://github.com/user-attachments/assets/06fa3078-8461-4560-b434-445510c1766f" width="400"/> 
  
 [![Twitter Follow](https://img.shields.io/twitter/follow/Gregor?style=social)](https://x.com/intent/user?screen_name=gregpr07)
 [![Twitter Follow](https://img.shields.io/twitter/follow/Magnus?style=social)](https://x.com/intent/user?screen_name=mamagnus00)
  
- </div>
+</div>
 
 <div align="center">
 Made with ❤️ in Zurich and San Francisco
- </div>
+</div>

@@ -8,6 +8,7 @@ import pytest
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from browser_use.agent.service import Agent
+from browser_use.llm.base import BaseChatModel as BrowserUseLLM
 
 
 class TestToolCallingMethods:
@@ -16,7 +17,7 @@ class TestToolCallingMethods:
 	@pytest.fixture
 	def mock_llm_with_structured_output(self):
 		"""Create a mock LLM that tracks with_structured_output calls."""
-		mock_llm = Mock(spec=BaseChatModel)
+		mock_llm = Mock(spec=BrowserUseLLM)
 
 		# Track calls to with_structured_output
 		structured_output_calls = []
@@ -33,6 +34,7 @@ class TestToolCallingMethods:
 		mock_llm.with_structured_output = mock_with_structured_output
 		mock_llm.structured_output_calls = structured_output_calls
 		mock_llm.invoke = Mock(return_value=Mock(content='{"answer": "paris"}'))
+		mock_llm.model = "test-model"
 
 		return mock_llm
 
