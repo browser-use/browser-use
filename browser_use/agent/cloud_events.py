@@ -22,7 +22,7 @@ except ImportError:  # pragma: no cover
 
 			pass
 
-	class BaseEvent(_BubusBaseEvent, BaseModel):
+	class BaseEvent(_BubusBaseEvent):
 		"""Fallback stub so that browser_use can run without the optional 'bubus' pkg during local tests."""
 
 		# Required fields that the real bubus.BaseEvent has
