@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import traceback
 from dataclasses import dataclass
@@ -71,20 +72,46 @@ class AgentSettings(BaseModel):
 class AgentState(BaseModel):
 	"""Holds all state information for an Agent"""
 
+	model_config = ConfigDict(arbitrary_types_allowed=True)
+
 	agent_id: str = Field(default_factory=uuid7str)
 	n_steps: int = 1
 	consecutive_failures: int = 0
 	last_result: list[ActionResult] | None = None
 	last_plan: str | None = None
 	last_model_output: AgentOutput | None = None
-	paused: bool = False
+
+	# Consolidated pause/resume state management
+	# The pause_event serves as the single source of truth for pause state
+	# When set: agent is running, when cleared: agent is paused
+	pause_event: asyncio.Event = Field(default_factory=lambda: asyncio.Event(), exclude=True, repr=False)
 	stopped: bool = False
 
 	message_manager_state: MessageManagerState = Field(default_factory=MessageManagerState)
 	file_system_state: FileSystemState | None = None
 
-	# class Config:
-	# 	arbitrary_types_allowed = True
+	def __init__(self, **data):
+		super().__init__(**data)
+		# Ensure pause_event is initially set (not paused)
+		if not self.pause_event.is_set():
+			self.pause_event.set()
+
+	@property
+	def paused(self) -> bool:
+		"""Check if agent is paused by examining the pause event"""
+		return not self.pause_event.is_set()
+
+	def pause(self) -> None:
+		"""Pause the agent by clearing the pause event"""
+		self.pause_event.clear()
+
+	def resume(self) -> None:
+		"""Resume the agent by setting the pause event"""
+		self.pause_event.set()
+
+	async def wait_until_resumed(self) -> None:
+		"""Wait until the agent is resumed"""
+		await self.pause_event.wait()
 
 
 @dataclass
