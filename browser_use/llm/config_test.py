@@ -9,8 +9,17 @@ from __future__ import annotations
 import time
 from typing import Any, Literal, TypedDict
 
-from langchain_core.language_models.chat_models import BaseChatModel as LangChainBaseChatModel
-from langchain_core.messages import HumanMessage
+try:
+	from langchain_core.language_models.chat_models import BaseChatModel as LangChainBaseChatModel
+	from langchain_core.messages import HumanMessage  # type: ignore
+except ImportError:  # pragma: no cover
+	# Fallback for pip install tests where langchain_core is not available
+	LangChainBaseChatModel = object  # type: ignore
+	
+	class HumanMessage:  # type: ignore
+		"""Fallback stub for HumanMessage when langchain_core is not available."""
+		def __init__(self, content: str = '') -> None:
+			self.content = content
 
 __all__ = ['test_llm_config']
 
@@ -25,7 +34,7 @@ class LLMStatusDict(TypedDict, total=False):
 	supports_multiple_human_msgs: bool
 
 
-def _heuristic_select_method(llm: LangChainBaseChatModel) -> str:
+def _heuristic_select_method(llm) -> str:
 	library = llm.__class__.__name__
 	model_name = getattr(llm, 'model', '') or ''
 	if library == 'AzureChatOpenAI' and 'gpt-4' in model_name.lower():
@@ -33,7 +42,7 @@ def _heuristic_select_method(llm: LangChainBaseChatModel) -> str:
 	return 'function_calling'
 
 
-def _run_iq_check(llm: LangChainBaseChatModel) -> bool:
+def _run_iq_check(llm) -> bool:
 	"""Return True if model answers with *paris* for capital-of-France prompt."""
 	try:
 		raw = llm.invoke('What is the capital of France?')  # type: ignore[attr-defined]
@@ -49,10 +58,12 @@ def _run_iq_check(llm: LangChainBaseChatModel) -> bool:
 		return False
 
 
-def _probe_multiple_msgs(llm: LangChainBaseChatModel) -> bool:
+def _probe_multiple_msgs(llm) -> bool:
 	"""Send two HumanMessages; if no exception ⇒ supported."""
 	try:
-		messages = [HumanMessage(content='hi'), HumanMessage(content='there')]
+		if HumanMessage == object:  # Fallback case
+			return True  # Assume supported when langchain_core not available
+		messages = [HumanMessage('hi'), HumanMessage('there')]
 		llm.invoke(messages)  # type: ignore[arg-type, attr-defined]
 		return True
 	except Exception:
@@ -65,7 +76,7 @@ def _probe_multiple_msgs(llm: LangChainBaseChatModel) -> bool:
 
 
 def test_llm_config(
-	llm: LangChainBaseChatModel,
+	llm,  # Accept any type to handle fallback case
 	tool_calling_method: str | Literal['auto', 'raw', 'json_mode', 'function_calling', 'tools'] = 'auto',
 ) -> LLMStatusDict:
 	cached: dict[str, Any] | None = getattr(llm, '_llm_status_info', None)

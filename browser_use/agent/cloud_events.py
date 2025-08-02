@@ -8,11 +8,32 @@ import anyio
 try:
 	from bubus import BaseEvent  # type: ignore
 except ImportError:  # pragma: no cover
-	from pydantic import BaseModel
+	from pydantic import BaseModel, Field
+	from datetime import datetime, timezone
+	from typing import Any
 
 	class BaseEvent(BaseModel):
 		"""Fallback stub so that browser_use can run without the optional 'bubus' pkg during local tests."""
-		pass
+
+		# Required fields that the real bubus.BaseEvent has
+		event_type: str = ''
+		event_id: str = ''
+		event_created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+		event_path: list[str] = Field(default_factory=list)
+
+		def __init__(self, **data: Any) -> None:
+			# Auto-populate event_type from class name if not provided
+			if 'event_type' not in data or not data['event_type']:
+				data['event_type'] = self.__class__.__name__
+			# Auto-populate event_id if not provided
+			if 'event_id' not in data or not data['event_id']:
+				from uuid import uuid4
+
+				data['event_id'] = str(uuid4())
+			super().__init__(**data)
+
+		class Config:
+			extra = 'allow'  # Allow extra fields for forward compatibility
 
 
 from pydantic import Field, field_validator
