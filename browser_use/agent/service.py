@@ -711,20 +711,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		assert self.browser_session is not None, 'BrowserSession is not set up'
 
-		self.logger.debug(f'🌐 Step {self.state.n_steps + 1}: Getting browser state...')
+		self.logger.debug(f'🌐 Step {self.state.n_steps}: Getting browser state...')
 		browser_state_summary = await self.browser_session.get_browser_state_with_recovery(
 			cache_clickable_elements_hashes=True, include_screenshot=self.settings.use_vision
 		)
 		current_page = await self.browser_session.get_current_page()
 
 		# Check for new downloads after getting browser state (catches PDF auto-downloads and previous step downloads)
-		await self._check_and_update_downloads(f'Step {self.state.n_steps + 1}: after getting browser state')
+		await self._check_and_update_downloads(f'Step {self.state.n_steps}: after getting browser state')
 
 		self._log_step_context(current_page, browser_state_summary)
 		await self._raise_if_stopped_or_paused()
 
 		# Update action models with page-specific actions
-		self.logger.debug(f'📝 Step {self.state.n_steps + 1}: Updating action models...')
+		self.logger.debug(f'📝 Step {self.state.n_steps}: Updating action models...')
 		await self._update_action_models_for_page(current_page)
 
 		# Get page-specific filtered actions
@@ -735,7 +735,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			page_action_message = f'For this page, these additional actions are available:\n{page_filtered_actions}'
 			self._message_manager._add_message_with_type(UserMessage(content=page_action_message), 'consistent')
 
-		self.logger.debug(f'💬 Step {self.state.n_steps + 1}: Adding state message to context...')
+		self.logger.debug(f'💬 Step {self.state.n_steps}: Adding state message to context...')
 		self._message_manager.add_state_message(
 			browser_state_summary=browser_state_summary,
 			model_output=self.state.last_model_output,
@@ -756,7 +756,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Execute LLM interaction with retry logic and handle callbacks"""
 		input_messages = self._message_manager.get_messages()
 		self.logger.debug(
-			f'🤖 Step {self.state.n_steps + 1}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
+			f'🤖 Step {self.state.n_steps}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
 		)
 
 		try:
@@ -772,9 +772,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Check again for paused/stopped state after getting model output
 		await self._raise_if_stopped_or_paused()
-
-		# Increment step counter at the start of each step
-		self.state.n_steps += 1
 
 		# Handle callbacks and conversation saving
 		await self._handle_post_llm_processing(browser_state_summary, input_messages)
@@ -892,6 +889,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			)
 			self.eventbus.dispatch(step_event)
 
+		# Increment step counter after step is fully completed
+		self.state.n_steps += 1
+
 	async def _handle_final_step(self, step_info: AgentStepInfo | None = None) -> None:
 		"""Handle special processing for the last step"""
 		if step_info and step_info.is_last_step():
@@ -908,7 +908,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Get model output with retry logic for empty actions"""
 		model_output = await self.get_model_output(input_messages)
 		self.logger.debug(
-			f'✅ Step {self.state.n_steps + 1}: Got LLM response with {len(model_output.action) if model_output.action else 0} actions'
+			f'✅ Step {self.state.n_steps}: Got LLM response with {len(model_output.action) if model_output.action else 0} actions'
 		)
 
 		if (
@@ -1036,7 +1036,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		url_short = current_page.url[:50] + '...' if len(current_page.url) > 50 else current_page.url
 		interactive_count = len(browser_state_summary.selector_map) if browser_state_summary else 0
 		self.logger.info(
-			f'📍 Step {self.state.n_steps + 1}: Evaluating page with {interactive_count} interactive elements on: {url_short}'
+			f'📍 Step {self.state.n_steps}: Evaluating page with {interactive_count} interactive elements on: {url_short}'
 		)
 
 	def _log_next_action_summary(self, parsed: 'AgentOutput') -> None:
