@@ -61,7 +61,7 @@ def _run_iq_check(llm) -> bool:
 def _probe_multiple_msgs(llm) -> bool:
 	"""Send two HumanMessages; if no exception ⇒ supported."""
 	try:
-		if HumanMessage == object:  # Fallback case
+		if HumanMessage is object:  # Fallback case
 			return True  # Assume supported when langchain_core not available
 		messages = [HumanMessage('hi'), HumanMessage('there')]
 		llm.invoke(messages)  # type: ignore[arg-type, attr-defined]

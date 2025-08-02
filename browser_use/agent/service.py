@@ -887,7 +887,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			step_event = CreateAgentStepEvent.from_agent_step(
 				self, self.state.last_model_output, self.state.last_result, actions_data, browser_state_summary
 			)
-			self.eventbus.dispatch(step_event)
+			self.eventbus.dispatch(step_event)  # type: ignore[arg-type]
 
 		# Increment step counter after step is fully completed
 		self.state.n_steps += 1
@@ -1218,11 +1218,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			self.logger.debug('📡 Dispatching CreateAgentSessionEvent...')
 			# Emit CreateAgentSessionEvent at the START of run()
-			self.eventbus.dispatch(CreateAgentSessionEvent.from_agent(self))
+			self.eventbus.dispatch(CreateAgentSessionEvent.from_agent(self))  # type: ignore[arg-type]
 
 			self.logger.debug('📡 Dispatching CreateAgentTaskEvent...')
 			# Emit CreateAgentTaskEvent at the START of run()
-			self.eventbus.dispatch(CreateAgentTaskEvent.from_agent(self))
+			self.eventbus.dispatch(CreateAgentTaskEvent.from_agent(self))  # type: ignore[arg-type]
 
 			# Execute initial actions if provided
 			if self.initial_actions:
@@ -1356,7 +1356,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# not when they are completed
 
 			# Emit UpdateAgentTaskEvent at the END of run() with final task state
-			self.eventbus.dispatch(UpdateAgentTaskEvent.from_agent(self))
+			self.eventbus.dispatch(UpdateAgentTaskEvent.from_agent(self))  # type: ignore[arg-type]
 
 			# Generate GIF if needed before stopping event bus
 			if self.settings.generate_gif:
@@ -1372,7 +1372,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# Only emit output file event if GIF was actually created
 				if Path(output_path).exists():
 					output_event = await CreateAgentOutputFileEvent.from_agent_and_file(self, output_path)
-					self.eventbus.dispatch(output_event)
+					self.eventbus.dispatch(output_event)  # type: ignore[arg-type]
 
 			# Wait briefly for cloud auth to start and print the URL, but don't block for completion
 			if self.enable_cloud_sync and hasattr(self, 'cloud_sync'):

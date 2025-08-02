@@ -1,13 +1,23 @@
+# pyright: reportMissingImports=false, reportInvalidTypeForm=false
 """Tests for CloudSync client machinery - retry logic, event handling, backend communication."""
 
 import os
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
 from bubus import BaseEvent
-from pytest_httpserver import HTTPServer
+
+if TYPE_CHECKING:
+	try:
+		from pytest_httpserver import HTTPServer  # pragma: no cover
+	except ImportError:
+		from typing import Any
+		HTTPServer = Any  # type: ignore
+else:
+	HTTPServer = object  # type: ignore
 
 from browser_use.agent.cloud_events import CreateAgentTaskEvent
 from browser_use.sync.auth import TEMP_USER_ID, DeviceAuthClient

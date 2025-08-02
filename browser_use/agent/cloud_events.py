@@ -8,11 +8,19 @@ import anyio
 try:
 	from bubus import BaseEvent  # type: ignore
 except ImportError:  # pragma: no cover
-	from pydantic import BaseModel, Field
 	from datetime import datetime, timezone
-	from typing import Any
+	from typing import TYPE_CHECKING, Any
 
-	class BaseEvent(BaseModel):
+	from pydantic import BaseModel, Field
+
+	if TYPE_CHECKING:
+		from bubus import BaseEvent as _BubusBaseEvent  # pragma: no cover
+	else:
+		class _BubusBaseEvent(BaseModel):
+			"""Stub BaseEvent for runtime when 'bubus' is missing."""
+			pass
+
+	class BaseEvent(_BubusBaseEvent, BaseModel):
 		"""Fallback stub so that browser_use can run without the optional 'bubus' pkg during local tests."""
 
 		# Required fields that the real bubus.BaseEvent has

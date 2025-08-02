@@ -1,3 +1,4 @@
+# pyright: reportMissingImports=false, reportInvalidTypeForm=false
 """
 Tests for OAuth2 device flow and cloud sync functionality.
 """
@@ -6,12 +7,21 @@ import json
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import anyio
 import httpx
 import pytest
 from dotenv import load_dotenv
-from pytest_httpserver import HTTPServer
+
+if TYPE_CHECKING:
+	try:
+		from pytest_httpserver import HTTPServer  # pragma: no cover
+	except ImportError:
+		from typing import Any
+		HTTPServer = Any  # type: ignore
+else:
+	HTTPServer = object  # type: ignore
 
 # Load environment variables before any imports
 load_dotenv()
