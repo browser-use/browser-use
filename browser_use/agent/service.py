@@ -11,12 +11,13 @@ import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar, cast
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
 from browser_use.agent.cloud_events import (
+	BaseEvent,
 	CreateAgentOutputFileEvent,
 	CreateAgentSessionEvent,
 	CreateAgentStepEvent,
@@ -188,9 +189,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		display_files_in_done_text: bool = True,
 		include_tool_call_examples: bool = False,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
-		tool_calling_method: str = 'auto',
 		llm_timeout: int = 60,
 		step_timeout: int = 180,
+		tool_calling_method: str = 'auto',
 		**kwargs,
 	):
 		if not isinstance(llm, BaseChatModel):
@@ -887,7 +888,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			step_event = CreateAgentStepEvent.from_agent_step(
 				self, self.state.last_model_output, self.state.last_result, actions_data, browser_state_summary
 			)
-			self.eventbus.dispatch(step_event)  # type: ignore[arg-type]
+			self.eventbus.dispatch(cast(BaseEvent, step_event))
 
 		# Increment step counter after step is fully completed
 		self.state.n_steps += 1
@@ -1218,11 +1219,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			self.logger.debug('📡 Dispatching CreateAgentSessionEvent...')
 			# Emit CreateAgentSessionEvent at the START of run()
-			self.eventbus.dispatch(CreateAgentSessionEvent.from_agent(self))  # type: ignore[arg-type]
+			self.eventbus.dispatch(cast(BaseEvent, CreateAgentSessionEvent.from_agent(self)))
 
 			self.logger.debug('📡 Dispatching CreateAgentTaskEvent...')
 			# Emit CreateAgentTaskEvent at the START of run()
-			self.eventbus.dispatch(CreateAgentTaskEvent.from_agent(self))  # type: ignore[arg-type]
+			self.eventbus.dispatch(cast(BaseEvent, CreateAgentTaskEvent.from_agent(self)))
 
 			# Execute initial actions if provided
 			if self.initial_actions:
@@ -1356,7 +1357,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# not when they are completed
 
 			# Emit UpdateAgentTaskEvent at the END of run() with final task state
-			self.eventbus.dispatch(UpdateAgentTaskEvent.from_agent(self))  # type: ignore[arg-type]
+			self.eventbus.dispatch(cast(BaseEvent, UpdateAgentTaskEvent.from_agent(self)))
 
 			# Generate GIF if needed before stopping event bus
 			if self.settings.generate_gif:
@@ -1372,7 +1373,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# Only emit output file event if GIF was actually created
 				if Path(output_path).exists():
 					output_event = await CreateAgentOutputFileEvent.from_agent_and_file(self, output_path)
-					self.eventbus.dispatch(output_event)  # type: ignore[arg-type]
+					self.eventbus.dispatch(cast(BaseEvent, output_event))
 
 			# Wait briefly for cloud auth to start and print the URL, but don't block for completion
 			if self.enable_cloud_sync and hasattr(self, 'cloud_sync'):
@@ -1838,27 +1839,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		return 'function_calling'
 
-	def _test_tool_calling_method(self, method: str, _llm: BaseChatModel | None = None) -> None:
-		"""Lightweight validation / recording of tool-calling support.
-
-				The historical implementation used ``llm.with_structured_output`` to
-				probe for support.  Our goal here is *not* to fully validate the model –
-				that will be handled by a richer helper later – but simply to replicate
-
-		the observable side-effects relied upon by the unit tests (a call to
-				``with_structured_output`` with the chosen method).
-		"""
-		if method in ('json_mode', 'raw'):
-			# These modes intentionally bypass structured output during testing.
-			return
-
-		llm = _llm or self.llm
-		try:
-			# A simple placeholder schema – sufficient for mocks and cheap for real models.
-			llm.with_structured_output(dict, include_raw=True, method=method)  # type: ignore[attr-defined]
-		except Exception as exc:
-			# For now, swallow the exception – the mere attempt satisfies tests and
-			# we don't want to block Agent initialisation in environments where the
-			# LLM rejects the dummy call.  Future extended validation will handle
-			# fallbacks more gracefully.
-			self.logger.debug(f'Tool-calling test for method "{method}" raised: {exc}')
+	def _test_tool_calling_method(self, *args: Any, **kwargs: Any) -> None:
+		"""Deprecated no-op retained for legacy tests."""
+		pass
