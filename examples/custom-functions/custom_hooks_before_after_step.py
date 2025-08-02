@@ -154,7 +154,7 @@ async def record_activity(agent_obj):
 	print('--> History:')
 	# Assert agent has state to satisfy type checker
 	assert hasattr(agent_obj, 'state'), 'Agent must have state attribute'
-	history = agent_obj.state.history
+	history = agent_obj.history
 
 	model_thoughts = obj_to_json(obj=history.model_thoughts(), check_circular=False)
 
@@ -164,7 +164,7 @@ async def record_activity(agent_obj):
 		# prettyprinter.cpprint(model_thoughts_last_elem)
 
 	# print("--- MODEL OUTPUT ACTION ---")
-	model_outputs = agent_obj.state.history.model_outputs()
+	model_outputs = agent_obj.history.model_outputs()
 	model_outputs_json = obj_to_json(obj=model_outputs, check_circular=False)
 
 	if len(model_outputs_json) > 0:
@@ -172,7 +172,7 @@ async def record_activity(agent_obj):
 		# prettyprinter.cpprint(model_outputs_json_last_elem)
 
 	# print("--- MODEL INTERACTED ELEM ---")
-	model_actions = agent_obj.state.history.model_actions()
+	model_actions = agent_obj.history.model_actions()
 	model_actions_json = obj_to_json(obj=model_actions, check_circular=False)
 
 	if len(model_actions_json) > 0:
@@ -180,14 +180,14 @@ async def record_activity(agent_obj):
 		# prettyprinter.cpprint(model_actions_json_last_elem)
 
 	# print("--- EXTRACTED CONTENT ---")
-	extracted_content = agent_obj.state.history.extracted_content()
+	extracted_content = agent_obj.history.extracted_content()
 	extracted_content_json = obj_to_json(obj=extracted_content, check_circular=False)
 	if len(extracted_content_json) > 0:
 		extracted_content_json_last_elem = extracted_content_json[-1]
 		# prettyprinter.cpprint(extracted_content_json_last_elem)
 
 	# print("--- URLS ---")
-	urls = agent_obj.state.history.urls()
+	urls = agent_obj.history.urls()
 	# prettyprinter.cpprint(urls)
 	urls_json = obj_to_json(obj=urls, check_circular=False)
 

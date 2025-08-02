@@ -47,8 +47,6 @@ async def main():
 		if done and valid:
 			break
 
-		agent_state.history.history = []
-
 		# Save state to file
 		async with await anyio.open_file('agent_state.json', 'w') as f:
 			serialized = agent_state.model_dump_json(exclude={'history'})
