@@ -1226,3 +1226,164 @@ class TestParamsModelArgsAndKwargs:
 			# logger.info(f'Success with our fix! Result: {result3}')
 		except Exception as e:
 			logger.error(f'Error with our manual test: {str(e)}')
+
+
+class TestToolExclusion:
+	"""Test the tool exclusion functionality for token optimization"""
+
+	@pytest.fixture
+	def mock_browser_state(self):
+		"""Create a mock browser state for testing exclusions"""
+		from unittest.mock import Mock
+
+		from browser_use.browser.views import BrowserStateSummary
+
+		# Create a mock DOM element tree
+		mock_element = Mock()
+		mock_element.tag_name = 'div'
+		mock_element.attributes = {}
+		mock_element.element_id = 'test-element'
+		mock_element.text = 'Test content'
+		mock_element.children = []
+
+		return BrowserStateSummary(
+			url='https://example.com', title='Test Page', tabs=[], element_tree=mock_element, selector_map={}, is_pdf_viewer=False
+		)
+
+	@pytest.fixture
+	def mock_file_system(self):
+		"""Create a mock file system for testing"""
+		import tempfile
+
+		from browser_use.filesystem.file_system import FileSystem
+
+		with tempfile.TemporaryDirectory() as temp_dir:
+			fs = FileSystem(base_dir=temp_dir)
+			yield fs
+
+	def test_file_system_exclusions(self, mock_browser_state, mock_file_system):
+		"""Test that file system tools are excluded when no files exist"""
+		from browser_use.controller.exclusion import ExclusionContext, ToolExclusionService
+
+		# Create exclusion context with empty file system
+		context = ExclusionContext(
+			browser_state=mock_browser_state,
+			file_system=mock_file_system,
+			available_file_paths=[],
+			task='Test task with no file operations needed',
+		)
+
+		service = ToolExclusionService()
+		excluded_tools = service.get_excluded_tools(context)
+
+		# Should exclude file-related tools when no files exist
+		assert 'read_file' in excluded_tools
+		assert 'replace_file_str' in excluded_tools
+		assert 'upload_file' in excluded_tools
+
+	def test_google_sheets_domain_exclusions(self, mock_browser_state):
+		"""Test that Google Sheets tools are excluded outside of Google Sheets domains"""
+		from browser_use.controller.exclusion import ExclusionContext, ToolExclusionService
+
+		# Test with non-Google Sheets domain
+		mock_browser_state.url = 'https://example.com'
+		context = ExclusionContext(browser_state=mock_browser_state, task='Regular web browsing task')
+
+		service = ToolExclusionService()
+		excluded_tools = service.get_excluded_tools(context)
+
+		# Should exclude Google Sheets tools on non-Google domains
+		google_sheets_tools = [
+			'read_sheet_contents',
+			'read_cell_contents',
+			'update_cell_contents',
+			'clear_cell_contents',
+			'select_cell_or_range',
+		]
+
+		for tool in google_sheets_tools:
+			assert tool in excluded_tools
+
+	def test_google_sheets_domain_inclusions(self, mock_browser_state):
+		"""Test that Google Sheets tools are NOT excluded on Google Sheets domains"""
+		from browser_use.controller.exclusion import ExclusionContext, ToolExclusionService
+
+		# Test with Google Sheets domain
+		mock_browser_state.url = 'https://docs.google.com/spreadsheets/d/abc123/edit'
+		context = ExclusionContext(browser_state=mock_browser_state, task='Working with Google Sheets')
+
+		service = ToolExclusionService()
+		excluded_tools = service.get_excluded_tools(context)
+
+		# Should NOT exclude Google Sheets tools on Google domains
+		google_sheets_tools = [
+			'read_sheet_contents',
+			'read_cell_contents',
+			'update_cell_contents',
+			'clear_cell_contents',
+			'select_cell_or_range',
+		]
+
+		for tool in google_sheets_tools:
+			assert tool not in excluded_tools
+
+	def test_tab_management_exclusions(self, mock_browser_state):
+		"""Test that tab management tools are excluded when only one tab exists"""
+		from browser_use.controller.exclusion import ExclusionContext, ToolExclusionService
+
+		# Single tab scenario
+		mock_browser_state.tabs = [{'id': 'tab1', 'url': 'https://example.com'}]
+		context = ExclusionContext(browser_state=mock_browser_state, task='Single tab task')
+
+		service = ToolExclusionService()
+		excluded_tools = service.get_excluded_tools(context)
+
+		# Should exclude tab management tools with only one tab
+		assert 'switch_tab' in excluded_tools
+		assert 'close_tab' in excluded_tools
+
+	def test_never_exclude_critical_tools(self, mock_browser_state):
+		"""Test that critical tools are never excluded"""
+		from browser_use.controller.exclusion import ExclusionContext, ToolExclusionService
+
+		context = ExclusionContext(browser_state=mock_browser_state, task='Any task')
+
+		service = ToolExclusionService()
+		excluded_tools = service.get_excluded_tools(context)
+
+		# Critical tools should never be excluded
+		never_exclude = ['done', 'send_keys', 'go_to_url']
+		for tool in never_exclude:
+			assert tool not in excluded_tools
+
+	def test_registry_integration_with_exclusions(self, mock_browser_state):
+		"""Test that the registry properly integrates exclusion rules"""
+		from browser_use.controller.registry.service import Registry
+
+		registry = Registry[TestContext]()
+
+		# Create action model with exclusions enabled
+		action_model = registry.create_action_model(browser_state=mock_browser_state, enable_exclusions=True)
+
+		# Should return a valid action model type
+		assert action_model is not None
+		assert hasattr(action_model, '__annotations__')
+
+	def test_exclusion_stats(self, mock_browser_state, mock_file_system):
+		"""Test exclusion statistics for monitoring"""
+		from browser_use.controller.exclusion import ExclusionContext, ToolExclusionService
+
+		context = ExclusionContext(
+			browser_state=mock_browser_state, file_system=mock_file_system, available_file_paths=[], task='Test task'
+		)
+
+		service = ToolExclusionService()
+		stats = service.get_exclusion_stats(context)
+
+		# Should provide comprehensive stats
+		assert 'total_excluded' in stats
+		assert 'excluded_tools' in stats
+		assert 'current_url' in stats
+		assert 'has_file_system' in stats
+		assert isinstance(stats['total_excluded'], int)
+		assert isinstance(stats['excluded_tools'], list)

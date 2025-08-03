@@ -5,7 +5,6 @@ import logging
 import re
 from collections.abc import Callable
 from inspect import Parameter, iscoroutinefunction, signature
-from types import UnionType
 from typing import Any, Generic, Optional, TypeVar, Union, get_args, get_origin
 
 from pydantic import BaseModel, Field, RootModel, create_model
@@ -37,7 +36,7 @@ class Registry(Generic[Context]):
 		self.telemetry = ProductTelemetry()
 		self.exclude_actions = exclude_actions if exclude_actions is not None else []
 
-	def _get_special_param_types(self) -> dict[str, type | UnionType | None]:
+	def _get_special_param_types(self) -> dict[str, Any]:
 		"""Get the expected types for special parameters from SpecialActionParameters"""
 		# Manually define the expected types to avoid issues with Optional handling.
 		# we should try to reduce this list to 0 if possible, give as few standardized objects to all the actions
@@ -471,7 +470,17 @@ class Registry(Generic[Context]):
 		return type(params).model_validate(processed_params)
 
 	# @time_execution_sync('--create_action_model')
-	def create_action_model(self, include_actions: list[str] | None = None, page=None) -> type[ActionModel]:
+	def create_action_model(
+		self,
+		include_actions: list[str] | None = None,
+		page=None,
+		browser_state=None,
+		file_system=None,
+		available_file_paths=None,
+		step_info=None,
+		task=None,
+		enable_exclusions=True,
+	) -> type[ActionModel]:
 		"""Creates a Union of individual action models from registered actions,
 		used by LLM APIs that support tool calling & enforce a schema.
 
@@ -502,6 +511,25 @@ class Registry(Generic[Context]):
 			# Include action if both filters match (or if either is not present)
 			if domain_is_allowed and page_is_allowed:
 				available_actions[name] = action
+
+		# Apply advanced exclusion rules if enabled and we have enough context
+		if enable_exclusions and browser_state:
+			from browser_use.controller.exclusion import ExclusionContext, ToolExclusionService
+
+			exclusion_service = ToolExclusionService()
+			exclusion_context = ExclusionContext(
+				browser_state=browser_state,
+				file_system=file_system,
+				available_file_paths=available_file_paths,
+				step_info=step_info,
+				task=task,
+			)
+			excluded_tools = exclusion_service.get_excluded_tools(exclusion_context)
+
+			# Remove excluded tools from available actions
+			for excluded_tool in excluded_tools:
+				if excluded_tool in available_actions:
+					del available_actions[excluded_tool]
 
 		# Create individual action models for each action
 		individual_action_models: list[type[BaseModel]] = []
@@ -562,10 +590,27 @@ class Registry(Generic[Context]):
 
 		return result_model  # type:ignore
 
-	def get_prompt_description(self, page=None) -> str:
+	def get_prompt_description(
+		self,
+		page=None,
+		browser_state=None,
+		file_system=None,
+		available_file_paths=None,
+		step_info=None,
+		task=None,
+		enable_exclusions=True,
+	) -> str:
 		"""Get a description of all actions for the prompt
 
 		If page is provided, only include actions that are available for that page
-		based on their filter_func
+		based on their filter_func and exclusion rules
 		"""
-		return self.registry.get_prompt_description(page=page)
+		return self.registry.get_prompt_description(
+			page=page,
+			browser_state=browser_state,
+			file_system=file_system,
+			available_file_paths=available_file_paths,
+			step_info=step_info,
+			task=task,
+			enable_exclusions=enable_exclusions,
+		)

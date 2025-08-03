@@ -216,6 +216,86 @@ Available tabs:
 			agent_state += '<available_file_paths>\n' + '\n'.join(self.available_file_paths) + '\n</available_file_paths>\n'
 		return agent_state
 
+	def _build_chronological_state_description(self) -> str:
+		"""Build chronological state description by interleaving steps and file changes"""
+		# Start with user request
+		state_description = f'<user_request>\n{self.task}\n</user_request>\n'
+
+		# Add todo contents right after user request
+		if self.file_system:
+			_todo_contents = self.file_system.get_todo_contents()
+			if not len(_todo_contents):
+				_todo_contents = '[Current todo.md is empty, fill it with your plan when applicable]'
+			state_description += f'<todo_contents>\n{_todo_contents}\n</todo_contents>\n'
+
+		# Parse agent history to extract individual steps
+		if self.agent_history_description:
+			history_content = self.agent_history_description.strip()
+
+			# Split by step tags, keeping the tags
+			import re
+
+			step_pattern = r'(<step_\d+>.*?</step_\d+>|<sys>.*?</sys>)'
+			parts = re.split(step_pattern, history_content, flags=re.DOTALL)
+
+			current_step_num = 0
+			for part in parts:
+				part = part.strip()
+				if not part:
+					continue
+
+				# Check if this is a step
+				step_match = re.match(r'<step_(\d+)>', part)
+				if step_match:
+					step_num = int(step_match.group(1))
+					current_step_num = step_num
+
+					# Add the step
+					state_description += f'{part}\n'
+
+					# Add any file changes that occurred in this step
+					if self.file_system:
+						file_changes = self.file_system.get_file_changes_for_step(step_num)
+						if file_changes:
+							file_description = self.file_system.describe_file_changes(file_changes)
+							if file_description:
+								state_description += f'{file_description}\n'
+
+				# Check if this is a system message
+				elif part.startswith('<sys>'):
+					state_description += f'{part}\n'
+
+		# Add remaining sections in order
+		state_description += '<browser_state>\n' + self._get_browser_state_description().strip('\n') + '\n</browser_state>\n'
+
+		state_description += (
+			'<read_state>\n'
+			+ (self.read_state_description.strip('\n') if self.read_state_description else '')
+			+ '\n</read_state>\n'
+		)
+
+		# Add step info at the end
+		if self.step_info:
+			step_info_description = f'Step {self.step_info.step_number + 1} of {self.step_info.max_steps} max possible steps\n'
+		else:
+			step_info_description = ''
+		from datetime import datetime
+
+		time_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+		step_info_description += f'Current date and time: {time_str}'
+
+		if self.sensitive_data:
+			step_info_description += f'\n<sensitive_data>\n{self.sensitive_data}\n</sensitive_data>'
+
+		if self.available_file_paths:
+			step_info_description += (
+				'\n<available_file_paths>\n' + '\n'.join(self.available_file_paths) + '\n</available_file_paths>'
+			)
+
+		state_description += f'<step_info>\n{step_info_description}\n</step_info>\n'
+
+		return state_description
+
 	@observe_debug(ignore_input=True, ignore_output=True, name='get_user_message')
 	def get_user_message(self, use_vision: bool = True) -> UserMessage:
 		# Don't pass screenshot to model if page is a new tab page, step is 0, and there's only one tab
@@ -227,18 +307,9 @@ Available tabs:
 		):
 			use_vision = False
 
-		state_description = (
-			'<agent_history>\n'
-			+ (self.agent_history_description.strip('\n') if self.agent_history_description else '')
-			+ '\n</agent_history>\n'
-		)
-		state_description += '<agent_state>\n' + self._get_agent_state_description().strip('\n') + '\n</agent_state>\n'
-		state_description += '<browser_state>\n' + self._get_browser_state_description().strip('\n') + '\n</browser_state>\n'
-		state_description += (
-			'<read_state>\n'
-			+ (self.read_state_description.strip('\n') if self.read_state_description else '')
-			+ '\n</read_state>\n'
-		)
+		# Use chronological structure instead of topic-based structure
+		state_description = self._build_chronological_state_description()
+
 		if self.page_filtered_actions:
 			state_description += 'For this page, these additional actions are available:\n'
 			state_description += self.page_filtered_actions + '\n'

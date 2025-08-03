@@ -1,6 +1,7 @@
 import asyncio
 import re
 import shutil
+import time
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -131,12 +132,22 @@ class PdfFile(BaseFile):
 			await asyncio.get_event_loop().run_in_executor(executor, lambda: self.sync_to_disk_sync(path))
 
 
+class FileChange(BaseModel):
+	"""Represents a file change event"""
+
+	step_number: int
+	file_name: str
+	change_type: str  # 'write', 'append', 'replace'
+	timestamp: float
+
+
 class FileSystemState(BaseModel):
 	"""Serializable state of the file system"""
 
 	files: dict[str, dict[str, Any]] = Field(default_factory=dict)  # full filename -> file data
 	base_dir: str
 	extracted_content_count: int = 0
+	file_changes: list[FileChange] = Field(default_factory=list)  # chronological file changes
 
 
 class FileSystem:
@@ -168,10 +179,24 @@ class FileSystem:
 			self._create_default_files()
 
 		self.extracted_content_count = 0
+		self.file_changes: list[FileChange] = []
+		self.current_step_number: int | None = None  # Set by agent before file operations
 
 	def get_allowed_extensions(self) -> list[str]:
 		"""Get allowed extensions"""
 		return list(self._file_types.keys())
+
+	def set_current_step(self, step_number: int) -> None:
+		"""Set the current step number for tracking file changes"""
+		self.current_step_number = step_number
+
+	def _record_file_change(self, file_name: str, change_type: str) -> None:
+		"""Record a file change event"""
+		if self.current_step_number is not None:
+			change = FileChange(
+				step_number=self.current_step_number, file_name=file_name, change_type=change_type, timestamp=time.time()
+			)
+			self.file_changes.append(change)
 
 	def _get_file_type_class(self, extension: str) -> type[BaseFile] | None:
 		"""Get the appropriate file class for an extension."""
@@ -298,6 +323,10 @@ class FileSystem:
 
 			# Use file-specific write method
 			await file_obj.write(content, self.data_dir)
+
+			# Record the file change
+			self._record_file_change(full_filename, 'write')
+
 			return f'Data written to file {full_filename} successfully.'
 		except FileSystemError as e:
 			return str(e)
@@ -315,6 +344,10 @@ class FileSystem:
 
 		try:
 			await file_obj.append(content, self.data_dir)
+
+			# Record the file change
+			self._record_file_change(full_filename, 'append')
+
 			return f'Data appended to file {full_filename} successfully.'
 		except FileSystemError as e:
 			return str(e)
@@ -337,6 +370,10 @@ class FileSystem:
 			content = file_obj.read()
 			content = content.replace(old_str, new_str)
 			await file_obj.write(content, self.data_dir)
+
+			# Record the file change
+			self._record_file_change(full_filename, 'replace')
+
 			return f'Successfully replaced all occurrences of "{old_str}" with "{new_str}" in file {full_filename}'
 		except FileSystemError as e:
 			return str(e)
@@ -353,9 +390,69 @@ class FileSystem:
 		self.extracted_content_count += 1
 		return f'Extracted content saved to file {extracted_filename} successfully.'
 
+	def _describe_single_file(self, file_obj) -> str:
+		"""Describe a single file with content preview logic"""
+		DISPLAY_CHARS = 400
+
+		content = file_obj.read()
+
+		# Handle empty files
+		if not content:
+			return f'<file>\n{file_obj.full_name} - [empty file]\n</file>\n'
+
+		lines = content.splitlines()
+		line_count = len(lines)
+
+		# For small files, display the entire content
+		whole_file_description = f'<file>\n{file_obj.full_name} - {line_count} lines\n<content>\n{content}\n</content>\n</file>\n'
+		if len(content) < int(1.5 * DISPLAY_CHARS):
+			return whole_file_description
+
+		# For larger files, display start and end previews
+		half_display_chars = DISPLAY_CHARS // 2
+
+		# Get start preview
+		start_preview = ''
+		start_line_count = 0
+		chars_count = 0
+		for line in lines:
+			if chars_count + len(line) + 1 > half_display_chars:
+				break
+			start_preview += line + '\n'
+			chars_count += len(line) + 1
+			start_line_count += 1
+
+		# Get end preview
+		end_preview = ''
+		end_line_count = 0
+		chars_count = 0
+		for line in reversed(lines):
+			if chars_count + len(line) + 1 > half_display_chars:
+				break
+			end_preview = line + '\n' + end_preview
+			chars_count += len(line) + 1
+			end_line_count += 1
+
+		# Calculate lines in between
+		middle_line_count = line_count - start_line_count - end_line_count
+		if middle_line_count <= 0:
+			return whole_file_description
+
+		start_preview = start_preview.strip('\n').rstrip()
+		end_preview = end_preview.strip('\n').rstrip()
+
+		# Format output
+		if not (start_preview or end_preview):
+			return f'<file>\n{file_obj.full_name} - {line_count} lines\n<content>\n{middle_line_count} lines...\n</content>\n</file>\n'
+		else:
+			description = f'<file>\n{file_obj.full_name} - {line_count} lines\n<content>\n{start_preview}\n'
+			description += f'... {middle_line_count} more lines ...\n'
+			description += f'{end_preview}\n'
+			description += '</content>\n</file>\n'
+			return description
+
 	def describe(self) -> str:
 		"""List all files with their content information using file-specific display methods"""
-		DISPLAY_CHARS = 400
 		description = ''
 
 		for file_obj in self.files.values():
@@ -363,66 +460,7 @@ class FileSystem:
 			if file_obj.full_name == 'todo.md':
 				continue
 
-			content = file_obj.read()
-
-			# Handle empty files
-			if not content:
-				description += f'<file>\n{file_obj.full_name} - [empty file]\n</file>\n'
-				continue
-
-			lines = content.splitlines()
-			line_count = len(lines)
-
-			# For small files, display the entire content
-			whole_file_description = (
-				f'<file>\n{file_obj.full_name} - {line_count} lines\n<content>\n{content}\n</content>\n</file>\n'
-			)
-			if len(content) < int(1.5 * DISPLAY_CHARS):
-				description += whole_file_description
-				continue
-
-			# For larger files, display start and end previews
-			half_display_chars = DISPLAY_CHARS // 2
-
-			# Get start preview
-			start_preview = ''
-			start_line_count = 0
-			chars_count = 0
-			for line in lines:
-				if chars_count + len(line) + 1 > half_display_chars:
-					break
-				start_preview += line + '\n'
-				chars_count += len(line) + 1
-				start_line_count += 1
-
-			# Get end preview
-			end_preview = ''
-			end_line_count = 0
-			chars_count = 0
-			for line in reversed(lines):
-				if chars_count + len(line) + 1 > half_display_chars:
-					break
-				end_preview = line + '\n' + end_preview
-				chars_count += len(line) + 1
-				end_line_count += 1
-
-			# Calculate lines in between
-			middle_line_count = line_count - start_line_count - end_line_count
-			if middle_line_count <= 0:
-				description += whole_file_description
-				continue
-
-			start_preview = start_preview.strip('\n').rstrip()
-			end_preview = end_preview.strip('\n').rstrip()
-
-			# Format output
-			if not (start_preview or end_preview):
-				description += f'<file>\n{file_obj.full_name} - {line_count} lines\n<content>\n{middle_line_count} lines...\n</content>\n</file>\n'
-			else:
-				description += f'<file>\n{file_obj.full_name} - {line_count} lines\n<content>\n{start_preview}\n'
-				description += f'... {middle_line_count} more lines ...\n'
-				description += f'{end_preview}\n'
-				description += '</content>\n</file>\n'
+			description += self._describe_single_file(file_obj)
 
 		return description.strip('\n')
 
@@ -431,6 +469,29 @@ class FileSystem:
 		todo_file = self.get_file('todo.md')
 		return todo_file.read() if todo_file else ''
 
+	def get_file_changes_for_step(self, step_number: int) -> list[FileChange]:
+		"""Get all file changes that occurred in a specific step"""
+		return [change for change in self.file_changes if change.step_number == step_number]
+
+	def describe_file_changes(self, file_changes: list[FileChange]) -> str:
+		"""Get file descriptions for specific file changes"""
+		if not file_changes:
+			return ''
+
+		description = ''
+		for change in file_changes:
+			file_obj = self.get_file(change.file_name)
+			if not file_obj:
+				continue
+
+			# Skip todo.md from description
+			if file_obj.full_name == 'todo.md':
+				continue
+
+			description += self._describe_single_file(file_obj)
+
+		return description.strip('\n')
+
 	def get_state(self) -> FileSystemState:
 		"""Get serializable state of the file system"""
 		files_data = {}
@@ -438,12 +499,16 @@ class FileSystem:
 			files_data[full_filename] = {'type': file_obj.__class__.__name__, 'data': file_obj.model_dump()}
 
 		return FileSystemState(
-			files=files_data, base_dir=str(self.base_dir), extracted_content_count=self.extracted_content_count
+			files=files_data,
+			base_dir=str(self.base_dir),
+			extracted_content_count=self.extracted_content_count,
+			file_changes=self.file_changes,
 		)
 
 	def nuke(self) -> None:
 		"""Delete the file system directory"""
-		shutil.rmtree(self.data_dir)
+		if self.data_dir.exists():
+			shutil.rmtree(self.data_dir)
 
 	@classmethod
 	def from_state(cls, state: FileSystemState) -> 'FileSystem':
@@ -475,5 +540,8 @@ class FileSystem:
 			# Add to files dict and sync to disk
 			fs.files[full_filename] = file_obj
 			file_obj.sync_to_disk_sync(fs.data_dir)
+
+		# Restore file changes
+		fs.file_changes = state.file_changes
 
 		return fs

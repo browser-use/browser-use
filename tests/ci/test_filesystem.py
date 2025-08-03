@@ -935,3 +935,117 @@ class TestFileSystemIntegration:
 				assert file_obj.content == f'Content for file {i}'
 
 			fs.nuke()
+
+
+class TestFileSystemChangeTracking:
+	"""Test the file system change tracking functionality for chronological message ordering"""
+
+	@pytest.fixture
+	def fs_with_tracking(self):
+		"""Create a file system with change tracking enabled"""
+		with tempfile.TemporaryDirectory() as temp_dir:
+			fs = FileSystem(base_dir=temp_dir)
+			yield fs
+
+	async def test_file_change_tracking_basic(self, fs_with_tracking):
+		"""Test basic file change tracking functionality"""
+		fs = fs_with_tracking
+
+		# Set current step for tracking
+		fs.set_current_step(1)
+
+		# Perform file operations
+		await fs.write_file('test.md', 'Initial content')
+		await fs.append_file('test.md', '\nAppended content')
+
+		# Check that changes were recorded
+		step_1_changes = fs.get_file_changes_for_step(1)
+		assert len(step_1_changes) == 2
+
+		# Verify change details
+		write_change = next(c for c in step_1_changes if c.change_type == 'write')
+		append_change = next(c for c in step_1_changes if c.change_type == 'append')
+
+		assert write_change.file_name == 'test.md'
+		assert write_change.step_number == 1
+		assert append_change.file_name == 'test.md'
+		assert append_change.step_number == 1
+
+	async def test_file_change_tracking_multiple_steps(self, fs_with_tracking):
+		"""Test file change tracking across multiple steps"""
+		fs = fs_with_tracking
+
+		# Step 1 operations
+		fs.set_current_step(1)
+		await fs.write_file('step1.md', 'Step 1 content')
+
+		# Step 2 operations
+		fs.set_current_step(2)
+		await fs.write_file('step2.md', 'Step 2 content')
+		await fs.append_file('step1.md', '\nUpdated in step 2')
+
+		# Step 3 operations
+		fs.set_current_step(3)
+		await fs.replace_file_str('step1.md', 'Step 1', 'Modified Step 1')
+
+		# Verify changes are tracked per step
+		step_1_changes = fs.get_file_changes_for_step(1)
+		step_2_changes = fs.get_file_changes_for_step(2)
+		step_3_changes = fs.get_file_changes_for_step(3)
+
+		assert len(step_1_changes) == 1
+		assert len(step_2_changes) == 2
+		assert len(step_3_changes) == 1
+
+		# Verify step 1 changes
+		assert step_1_changes[0].file_name == 'step1.md'
+		assert step_1_changes[0].change_type == 'write'
+
+		# Verify step 2 changes
+		step_2_files = [c.file_name for c in step_2_changes]
+		assert 'step2.md' in step_2_files
+		assert 'step1.md' in step_2_files
+
+		# Verify step 3 changes
+		assert step_3_changes[0].file_name == 'step1.md'
+		assert step_3_changes[0].change_type == 'replace'
+
+	async def test_file_change_description_generation(self, fs_with_tracking):
+		"""Test generation of file change descriptions for chronological prompts"""
+		fs = fs_with_tracking
+
+		# Create files with content
+		fs.set_current_step(1)
+		await fs.write_file('small.md', 'Small file content')
+		await fs.write_file('large.md', 'Large file content\n' + 'Line 2\n' * 50)
+
+		# Get changes and generate descriptions
+		step_changes = fs.get_file_changes_for_step(1)
+		description = fs.describe_file_changes(step_changes)
+
+		# Should contain file descriptions
+		assert '<file>' in description
+		assert 'small.md' in description
+		assert 'large.md' in description
+		assert '<content>' in description
+
+		# Should show line counts
+		assert 'lines' in description
+
+	async def test_file_change_state_persistence(self, fs_with_tracking):
+		"""Test that file changes are preserved in state serialization"""
+		fs = fs_with_tracking
+
+		# Create some changes
+		fs.set_current_step(1)
+		await fs.write_file('test.md', 'Test content')
+
+		# Get state and restore
+		state = fs.get_state()
+		restored_fs = FileSystem.from_state(state)
+
+		# Should preserve file changes
+		assert len(restored_fs.file_changes) == 1
+		assert restored_fs.file_changes[0].file_name == 'test.md'
+		assert restored_fs.file_changes[0].step_number == 1
+		assert restored_fs.file_changes[0].change_type == 'write'

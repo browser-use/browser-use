@@ -399,6 +399,7 @@ class TokenCost:
 
 			stats = model_stats[entry.model]
 			stats.prompt_tokens += entry.usage.prompt_tokens
+			stats.prompt_cached_tokens += entry.usage.prompt_cached_tokens or 0
 			stats.completion_tokens += entry.usage.completion_tokens
 			stats.total_tokens += entry.usage.prompt_tokens + entry.usage.completion_tokens
 			stats.invocations += 1
@@ -462,6 +463,7 @@ class TokenCost:
 		# Log overall summary
 		total_tokens_fmt = self._format_tokens(summary.total_tokens)
 		prompt_tokens_fmt = self._format_tokens(summary.total_prompt_tokens)
+		prompt_cached_tokens_fmt = self._format_tokens(summary.total_prompt_cached_tokens)
 		completion_tokens_fmt = self._format_tokens(summary.total_completion_tokens)
 
 		# Format cost breakdowns for input and output (only if cost tracking is enabled)
@@ -474,10 +476,13 @@ class TokenCost:
 			prompt_cost_part = ''
 			completion_cost_part = ''
 
+		# Build cached tokens display part
+		cached_part = f' | 🗄️ {C_BLUE}{prompt_cached_tokens_fmt} cached{C_RESET}' if summary.total_prompt_cached_tokens > 0 else ''
+
 		if len(summary.by_model) > 1:
 			cost_logger.info(
 				f'💲 {C_BOLD}Total Usage Summary{C_RESET}: {C_BLUE}{total_tokens_fmt} tokens{C_RESET}{total_cost_part} | '
-				f'⬅️ {C_YELLOW}{prompt_tokens_fmt}{prompt_cost_part}{C_RESET} | ➡️ {C_GREEN}{completion_tokens_fmt}{completion_cost_part}{C_RESET}'
+				f'⬅️ {C_YELLOW}{prompt_tokens_fmt}{prompt_cost_part}{C_RESET} | ➡️ {C_GREEN}{completion_tokens_fmt}{completion_cost_part}{C_RESET}{cached_part}'
 			)
 
 		# Log per-model breakdown
@@ -487,6 +492,7 @@ class TokenCost:
 			# Format tokens
 			model_total_fmt = self._format_tokens(stats.total_tokens)
 			model_prompt_fmt = self._format_tokens(stats.prompt_tokens)
+			model_prompt_cached_fmt = self._format_tokens(stats.prompt_cached_tokens)
 			model_completion_fmt = self._format_tokens(stats.completion_tokens)
 			avg_tokens_fmt = self._format_tokens(int(stats.average_tokens_per_invocation))
 
@@ -520,9 +526,14 @@ class TokenCost:
 				prompt_part = f'{C_YELLOW}{model_prompt_fmt}{C_RESET}'
 				completion_part = f'{C_GREEN}{model_completion_fmt}{C_RESET}'
 
+			# Build cached tokens display part for this model
+			model_cached_part = (
+				f' | 🗄️ {C_BLUE}{model_prompt_cached_fmt} cached{C_RESET}' if stats.prompt_cached_tokens > 0 else ''
+			)
+
 			cost_logger.info(
 				f'  🤖 {C_CYAN}{model}{C_RESET}: {C_BLUE}{model_total_fmt} tokens{C_RESET}{cost_part} | '
-				f'⬅️ {prompt_part} | ➡️ {completion_part} | '
+				f'⬅️ {prompt_part} | ➡️ {completion_part}{model_cached_part} | '
 				f'📞 {stats.invocations} calls | 📈 {avg_tokens_fmt}/call'
 			)
 

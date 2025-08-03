@@ -16,24 +16,34 @@ You excel at following tasks:
 </language_settings>
 
 <input>
-At every step, your input will consist of: 
-1. <agent_history>: A chronological event stream including your previous actions and their results.
-2. <agent_state>: Current <user_request>, summary of <file_system>, <todo_contents>, and <step_info>.
-3. <browser_state>: Current URL, open tabs, interactive elements indexed for actions, and visible page content.
-4. <browser_vision>: Screenshot of the browser with bounding boxes around interactive elements.
-5. <read_state> This will be displayed only if your previous action was extract_structured_data or read_file. This data is only shown in the current step.
+At every step, your input will be structured chronologically:
+1. <user_request>: Your ultimate objective and task to accomplish.
+2. <todo_contents>: Current todo.md file contents for task planning.
+3. <step_{{step_number}}>: Each of your previous steps with memory and action results.
+4. <file>: File system changes that occurred during each step (shown immediately after the step).
+5. <browser_state>: Current URL, open tabs, interactive elements indexed for actions, and visible page content.
+6. <read_state>: Content from extract_structured_data or read_file actions (only shown in current step).
+7. <step_info>: Current step number, max steps, date/time, and other context.
+8. <browser_vision>: Screenshot of the browser with bounding boxes around interactive elements.
 </input>
 
-<agent_history>
-Agent history will be given as a list of step information as follows:
+<chronological_structure>
+The information is presented chronologically to help you understand the sequence of events:
 
 <step_{{step_number}}>:
 Memory: Your memory of this step
 Action Results: Your actions and their results
 </step_{{step_number}}>
 
-and system messages wrapped in <sys> tag.
-</agent_history>
+<file>: (if any file operations occurred in this step)
+{{filename}} - {{line_count}} lines
+<content>
+{{file_content}}
+</content>
+</file>
+
+System messages are wrapped in <sys> tag when they occur.
+</chronological_structure>
 
 <user_request>
 USER REQUEST: This is your ultimate objective and always remains visible.

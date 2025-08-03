@@ -1,15 +1,16 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import BaseModel, ConfigDict
 
 from browser_use.browser import BrowserSession
 from browser_use.browser.types import Page
+from browser_use.browser.views import BrowserStateSummary
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 
 if TYPE_CHECKING:
-	pass
+	from browser_use.agent.views import AgentStepInfo
 
 
 class RegisteredAction(BaseModel):
@@ -109,28 +110,63 @@ class ActionRegistry(BaseModel):
 			return True
 		return page_filter(page)
 
-	def get_prompt_description(self, page: Page | None = None) -> str:
+	def get_prompt_description(
+		self,
+		page: Page | None = None,
+		browser_state: BrowserStateSummary | None = None,
+		file_system: FileSystem | None = None,
+		available_file_paths: list[str] | None = None,
+		step_info: Optional['AgentStepInfo'] = None,
+		task: str | None = None,
+		enable_exclusions: bool = True,
+	) -> str:
 		"""Get a description of all actions for the prompt
 
 		Args:
 			page: If provided, filter actions by page using page_filter and domains.
+			browser_state: Current browser state for advanced exclusion rules
+			file_system: File system instance for file-related exclusions
+			available_file_paths: Available file paths for upload exclusions
+			step_info: Current step information
+			task: Current task description
+			enable_exclusions: Whether to apply advanced exclusion rules
 
 		Returns:
 			A string description of available actions.
 			- If page is None: return only actions with no page_filter and no domains (for system prompt)
 			- If page is provided: return only filtered actions that match the current page (excluding unfiltered actions)
 		"""
+		# Get excluded tools if we have enough context and exclusions are enabled
+		excluded_tools = []
+		if enable_exclusions and browser_state:
+			from browser_use.controller.exclusion import ExclusionContext, ToolExclusionService
+
+			exclusion_service = ToolExclusionService()
+			exclusion_context = ExclusionContext(
+				browser_state=browser_state,
+				file_system=file_system,
+				available_file_paths=available_file_paths,
+				step_info=step_info,
+				task=task,
+			)
+			excluded_tools = exclusion_service.get_excluded_tools(exclusion_context)
+
 		if page is None:
 			# For system prompt (no page provided), include only actions with no filters
-			return '\n'.join(
-				action.prompt_description()
+			available_actions = [
+				action
 				for action in self.actions.values()
-				if action.page_filter is None and action.domains is None
-			)
+				if (action.page_filter is None and action.domains is None and action.name not in excluded_tools)
+			]
+			return '\n'.join(action.prompt_description() for action in available_actions)
 
 		# only include filtered actions for the current page
 		filtered_actions = []
 		for action in self.actions.values():
+			# Skip if tool is excluded by deterministic rules
+			if action.name in excluded_tools:
+				continue
+
 			if not (action.domains or action.page_filter):
 				# skip actions with no filters, they are already included in the system prompt
 				continue

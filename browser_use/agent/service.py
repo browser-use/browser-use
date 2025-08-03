@@ -709,6 +709,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		assert self.browser_session is not None, 'BrowserSession is not set up'
 
+		# Set current step number on file system for tracking file changes
+		if self.file_system:
+			self.file_system.set_current_step(self.state.n_steps)
+
 		self.logger.debug(f'🌐 Step {self.state.n_steps}: Getting browser state...')
 		browser_state_summary = await self.browser_session.get_browser_state_with_recovery(
 			cache_clickable_elements_hashes=True, include_screenshot=self.settings.use_vision
@@ -721,12 +725,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._log_step_context(current_page, browser_state_summary)
 		await self._raise_if_stopped_or_paused()
 
-		# Update action models with page-specific actions
-		self.logger.debug(f'📝 Step {self.state.n_steps}: Updating action models...')
-		await self._update_action_models_for_page(current_page)
+		# Update action models with page-specific actions and exclusion rules
+		self.logger.debug(f'📝 Step {self.state.n_steps}: Updating action models with exclusions...')
+		await self._update_action_models_for_page(current_page, browser_state_summary, step_info)
 
-		# Get page-specific filtered actions
-		page_filtered_actions = self.controller.registry.get_prompt_description(current_page)
+		# Get page-specific filtered actions with advanced exclusion rules
+		page_filtered_actions = self.controller.registry.get_prompt_description(
+			page=current_page,
+			browser_state=browser_state_summary,
+			file_system=self.file_system,
+			available_file_paths=self.available_file_paths,
+			step_info=step_info,
+			task=self.task,
+			enable_exclusions=True,
+		)
 
 		# If there are page-specific actions, add them as a special message for this step only
 		if page_filtered_actions:
@@ -1724,10 +1736,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		except Exception as e:
 			self.logger.error(f'Error during cleanup: {e}')
 
-	async def _update_action_models_for_page(self, page) -> None:
-		"""Update action models with page-specific actions"""
-		# Create new action model with current page's filtered actions
-		self.ActionModel = self.controller.registry.create_action_model(page=page)
+	async def _update_action_models_for_page(self, page, browser_state=None, step_info=None) -> None:
+		"""Update action models with page-specific actions and exclusion rules"""
+		# Create new action model with current page's filtered actions and exclusions
+		self.ActionModel = self.controller.registry.create_action_model(
+			page=page,
+			browser_state=browser_state,
+			file_system=self.file_system,
+			available_file_paths=self.available_file_paths,
+			step_info=step_info,
+			task=self.task,
+			enable_exclusions=True,
+		)
 		# Update output model with the new actions
 		if self.settings.flash_mode:
 			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
@@ -1736,8 +1756,17 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		else:
 			self.AgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.ActionModel)
 
-		# Update done action model too
-		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'], page=page)
+		# Update done action model too (always include done action)
+		self.DoneActionModel = self.controller.registry.create_action_model(
+			include_actions=['done'],
+			page=page,
+			browser_state=browser_state,
+			file_system=self.file_system,
+			available_file_paths=self.available_file_paths,
+			step_info=step_info,
+			task=self.task,
+			enable_exclusions=True,
+		)
 		if self.settings.flash_mode:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.DoneActionModel)
 		elif self.settings.use_thinking:
