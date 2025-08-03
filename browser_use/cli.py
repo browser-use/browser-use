@@ -14,6 +14,16 @@ from browser_use.llm.anthropic.chat import ChatAnthropic
 from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.openai.chat import ChatOpenAI
 
+try:
+	from browser_use.llm.deepseek.chat import ChatDeepSeek
+except ImportError:
+	ChatDeepSeek = None
+
+try:
+	from browser_use.llm.groq.chat import ChatGroq
+except ImportError:
+	ChatGroq = None
+
 load_dotenv()
 
 try:
@@ -245,15 +255,9 @@ def get_llm(config: dict[str, Any]):
 		return ChatAnthropic(model='claude-3-5-sonnet-20241022', temperature=temperature)
 	elif google_key:
 		return ChatGoogle(model='gemini-2.0-flash-exp', temperature=temperature)
-	elif deepseek_key:
-		# Need to import deepseek chat
-		from browser_use.llm.deepseek.chat import ChatDeepSeek
-
+	elif deepseek_key and ChatDeepSeek:
 		return ChatDeepSeek(model='deepseek-chat', temperature=temperature)
-	elif groq_key:
-		# Need to import groq chat
-		from browser_use.llm.groq.chat import ChatGroq
-
+	elif groq_key and ChatGroq:
 		return ChatGroq(model='llama-3.3-70b-versatile', temperature=temperature)
 	else:
 		print(
