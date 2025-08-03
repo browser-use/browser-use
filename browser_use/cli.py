@@ -248,7 +248,7 @@ def get_llm(config: dict[str, Any]):
 	google_key = os.environ.get('GOOGLE_API_KEY') or CONFIG.GOOGLE_API_KEY
 	deepseek_key = os.environ.get('DEEPSEEK_API_KEY') or CONFIG.DEEPSEEK_API_KEY
 	groq_key = os.environ.get('GROQ_API_KEY') or CONFIG.GROK_API_KEY
-	
+
 	if openai_key:
 		return ChatOpenAI(model='gpt-4o', temperature=temperature, api_key=openai_key)
 	elif anthropic_key:
