@@ -279,6 +279,6 @@ class TestCoreFunctionality:
 		assert final_scroll_position > initial_scroll_position, 'Page did not scroll down'
 
 		# Verify the action was executed
-		history = agent.state.history
+		history = agent.history
 		action_names = history.action_names()
 		assert 'scroll_down' in action_names

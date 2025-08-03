@@ -9,7 +9,6 @@ from browser_use.agent.message_manager.views import (
 from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.agent.views import (
 	ActionResult,
-	AgentHistoryList,
 	AgentOutput,
 	AgentStepInfo,
 	MessageManagerState,
@@ -107,7 +106,6 @@ class MessageManager:
 		message_context: str | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		max_history_items: int | None = None,
-		images_per_step: int = 1,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		include_tool_call_examples: bool = False,
 	):
@@ -118,7 +116,6 @@ class MessageManager:
 		self.sensitive_data_description = ''
 		self.use_thinking = use_thinking
 		self.max_history_items = max_history_items
-		self.images_per_step = images_per_step
 		self.vision_detail_level = vision_detail_level
 		self.include_tool_call_examples = include_tool_call_examples
 
@@ -260,7 +257,6 @@ class MessageManager:
 		use_vision=True,
 		page_filtered_actions: str | None = None,
 		sensitive_data=None,
-		agent_history_list: AgentHistoryList | None = None,  # Pass AgentHistoryList from agent
 		available_file_paths: list[str] | None = None,  # Always pass current available_file_paths
 	) -> None:
 		"""Add browser state as human message"""
@@ -269,14 +265,8 @@ class MessageManager:
 		if sensitive_data:
 			self.sensitive_data_description = self._get_sensitive_data_description(browser_state_summary.url)
 
-		# Extract previous screenshots if we need more than 1 image and have agent history
+		# Use only the current screenshot
 		screenshots = []
-		if agent_history_list and self.images_per_step > 1:
-			# Get previous screenshots and filter out None values
-			raw_screenshots = agent_history_list.screenshots(n_last=self.images_per_step - 1, return_none_if_not_screenshot=False)
-			screenshots = [s for s in raw_screenshots if s is not None]
-
-		# add current screenshot to the end
 		if browser_state_summary.screenshot:
 			screenshots.append(browser_state_summary.screenshot)
 

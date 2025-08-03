@@ -85,9 +85,10 @@ async def test_gif_generation_with_real_navigation(httpserver, tmp_path):
 		# Verify history contains real screenshots (not placeholders)
 		has_real_screenshot = False
 		for item in history.history:
+			screenshot_b64 = item.state.get_screenshot()
 			if (
-				item.state.screenshot
-				and item.state.screenshot
+				screenshot_b64
+				and screenshot_b64
 				!= 'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAFElEQVR4nGP8//8/AwwwMSAB3BwAlm4DBfIlvvkAAAAASUVORK5CYII='
 			):
 				has_real_screenshot = True

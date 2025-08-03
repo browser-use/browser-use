@@ -41,7 +41,7 @@ async def my_step_hook(agent: Agent):
     #   https://playwright.dev/python/docs/api/class-page
 
     current_url = page.url
-    visit_log = agent.state.history.urls()
+    visit_log = agent.history.urls()
     previous_url = visit_log[-2] if len(visit_log) >= 2 else None
     print(f"Agent was last on URL: {previous_url} and is now on {current_url}")
 
@@ -91,11 +91,12 @@ When working with agent hooks, you have access to the entire `Agent` instance. H
 - `agent.settings` contains all the configuration options passed to the `Agent(...)` at init time
 - `agent.llm` gives direct access to the main LLM object (e.g. `ChatOpenAI`)
 - `agent.state` gives access to lots of internal state, including agent thoughts, outputs, actions, etc.
-  - `agent.state.history.model_thoughts()`: Reasoning from Browser Use's model.
-  - `agent.state.history.model_outputs()`: Raw outputs from the Browsre Use's model.
-  - `agent.state.history.model_actions()`: Actions taken by the agent
-  - `agent.state.history.extracted_content()`: Content extracted from web pages
-  - `agent.state.history.urls()`: URLs visited by the agent
+- `agent.history` gives access to historical data from the agent's execution:
+  - `agent.history.model_thoughts()`: Reasoning from Browser Use's model.
+  - `agent.history.model_outputs()`: Raw outputs from the Browser Use's model.
+  - `agent.history.model_actions()`: Actions taken by the agent
+  - `agent.history.extracted_content()`: Content extracted from web pages
+  - `agent.history.urls()`: URLs visited by the agent
 - `agent.browser_session` gives direct access to the `BrowserSession()` and playwright objects
   - `agent.browser_session.get_current_page()`: Get the current playwright `Page` object the agent is focused on
   - `agent.browser_session.browser_context`: Get the current playwright `BrowserContext` object

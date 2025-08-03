@@ -37,7 +37,7 @@ class UpdateAgentTaskEvent(BaseEvent):
 		if not hasattr(agent, '_task_start_time'):
 			raise ValueError('Agent must have _task_start_time attribute')
 
-		done_output = agent.state.history.final_result() if agent.state.history else None
+		done_output = agent.history.final_result() if agent.history else None
 		return cls(
 			id=str(agent.task_id),
 			user_id='',  # To be filled by cloud handler
@@ -47,7 +47,7 @@ class UpdateAgentTaskEvent(BaseEvent):
 			stopped=agent.state.stopped if hasattr(agent.state, 'stopped') else False,
 			paused=agent.state.paused if hasattr(agent.state, 'paused') else False,
 			done_output=done_output,
-			finished_at=datetime.now(timezone.utc) if agent.state.history and agent.state.history.is_done() else None,
+			finished_at=datetime.now(timezone.utc) if agent.history and agent.history.is_done() else None,
 			agent_state=agent.state.model_dump() if hasattr(agent.state, 'model_dump') else {},
 			user_feedback_type=None,
 			user_comment=None,

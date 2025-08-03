@@ -108,36 +108,6 @@ class AgentMessagePrompt:
 		self.vision_detail_level = vision_detail_level
 		assert self.browser_state
 
-	@observe_debug(ignore_input=True, ignore_output=True, name='_deduplicate_screenshots')
-	def _deduplicate_screenshots(self, screenshots: list[str]) -> list[str]:
-		"""
-		Remove consecutive duplicate screenshots, keeping only the most recent of each.
-
-		Args:
-			screenshots: List of base64-encoded screenshot strings in chronological order (oldest first)
-
-		Returns:
-			List of screenshots with consecutive duplicates removed, maintaining chronological order
-		"""
-		if not screenshots:
-			return []
-
-		if len(screenshots) == 1:
-			return screenshots
-
-		# Keep track of unique screenshots by comparing each with the next one
-		unique_screenshots = []
-
-		for i in range(len(screenshots)):
-			# Always keep the last screenshot
-			if i == len(screenshots) - 1:
-				unique_screenshots.append(screenshots[i])
-			# Only keep screenshot if it's different from the next one
-			elif screenshots[i] != screenshots[i + 1]:
-				unique_screenshots.append(screenshots[i])
-
-		return unique_screenshots
-
 	@observe_debug(ignore_input=True, ignore_output=True, name='_get_browser_state_description')
 	def _get_browser_state_description(self) -> str:
 		elements_text = self.browser_state.element_tree.clickable_elements_to_string(include_attributes=self.include_attributes)
@@ -277,12 +247,9 @@ Available tabs:
 			# Start with text description
 			content_parts: list[ContentPartTextParam | ContentPartImageParam] = [ContentPartTextParam(text=state_description)]
 
-			# Deduplicate screenshots, keeping only the most recent of each unique image
-			unique_screenshots = self._deduplicate_screenshots(self.screenshots)
-
 			# Add screenshots with labels
-			for i, screenshot in enumerate(unique_screenshots):
-				if i == len(unique_screenshots) - 1:
+			for i, screenshot in enumerate(self.screenshots):
+				if i == len(self.screenshots) - 1:
 					label = 'Current screenshot:'
 				else:
 					# Use simple, accurate labeling since we don't have actual step timing info

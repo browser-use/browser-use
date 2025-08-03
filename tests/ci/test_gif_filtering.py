@@ -9,7 +9,7 @@ from PIL import Image
 from browser_use import AgentHistoryList
 from browser_use.agent.gif import create_history_gif
 from browser_use.agent.views import ActionResult, AgentHistory, AgentOutput
-from browser_use.browser.views import PLACEHOLDER_4PX_SCREENSHOT, BrowserStateHistory, TabInfo
+from browser_use.browser.views import BrowserStateHistory, TabInfo
 
 
 @pytest.fixture
@@ -49,8 +49,21 @@ def create_test_screenshot(width: int = 800, height: int = 600, color: tuple = (
 
 async def test_gif_filters_out_placeholder_screenshots(test_dir):
 	"""Test that 4px placeholder screenshots from about:blank pages are filtered out of GIFs."""
+	# Set up screenshot service for testing (still needed to create test files)
+	from browser_use.screenshots.service import ScreenshotService
+
+	screenshot_service = ScreenshotService(test_dir)
+
+	# Helper function to store test screenshots
+	async def store_test_screenshot(screenshot_b64: str, step: int) -> str:
+		return await screenshot_service.store_screenshot(screenshot_b64, step)
+
 	# Create a history with mixed screenshots: real and placeholder
 	history_items = []
+
+	# Store test screenshots
+	real_screenshot_1_path = await store_test_screenshot(create_test_screenshot(800, 600, (100, 150, 200)), 2)
+	real_screenshot_2_path = await store_test_screenshot(create_test_screenshot(800, 600, (200, 100, 50)), 4)
 
 	# First item: about:blank placeholder (should be filtered)
 	history_items.append(
@@ -63,7 +76,7 @@ async def test_gif_filters_out_placeholder_screenshots(test_dir):
 			),
 			result=[ActionResult()],
 			state=BrowserStateHistory(
-				screenshot=PLACEHOLDER_4PX_SCREENSHOT,
+				screenshot_path=None,  # Placeholder doesn't have a file path
 				url='about:blank',
 				title='New Tab',
 				tabs=[TabInfo(page_id=1, url='about:blank', title='New Tab')],
@@ -83,7 +96,7 @@ async def test_gif_filters_out_placeholder_screenshots(test_dir):
 			),
 			result=[ActionResult()],
 			state=BrowserStateHistory(
-				screenshot=create_test_screenshot(800, 600, (100, 150, 200)),
+				screenshot_path=real_screenshot_1_path,
 				url='https://example.com',
 				title='Example',
 				tabs=[TabInfo(page_id=1, url='https://example.com', title='Example')],
@@ -103,7 +116,7 @@ async def test_gif_filters_out_placeholder_screenshots(test_dir):
 			),
 			result=[ActionResult()],
 			state=BrowserStateHistory(
-				screenshot=PLACEHOLDER_4PX_SCREENSHOT,
+				screenshot_path=None,  # Placeholder doesn't have a file path
 				url='about:blank',
 				title='New Tab',
 				tabs=[TabInfo(page_id=2, url='about:blank', title='New Tab')],
@@ -123,7 +136,7 @@ async def test_gif_filters_out_placeholder_screenshots(test_dir):
 			),
 			result=[ActionResult()],
 			state=BrowserStateHistory(
-				screenshot=create_test_screenshot(800, 600, (200, 100, 50)),
+				screenshot_path=real_screenshot_2_path,
 				url='https://example.com/page2',
 				title='Page 2',
 				tabs=[TabInfo(page_id=1, url='https://example.com/page2', title='Page 2')],
@@ -190,7 +203,7 @@ async def test_gif_handles_all_placeholders(test_dir):
 				),
 				result=[ActionResult()],
 				state=BrowserStateHistory(
-					screenshot=PLACEHOLDER_4PX_SCREENSHOT,
+					screenshot_path=None,  # Placeholder doesn't have a file path
 					url='about:blank',
 					title='New Tab',
 					tabs=[TabInfo(page_id=1, url='about:blank', title='New Tab')],
