@@ -36,7 +36,6 @@ class AgentSettings(BaseModel):
 	max_failures: int = 3
 	retry_delay: int = 10
 	validate_output: bool = False
-	message_context: str | None = None
 	generate_gif: bool | str = False
 	override_system_message: str | None = None
 	extend_system_message: str | None = None
