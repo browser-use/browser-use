@@ -269,6 +269,6 @@ Available tabs:
 					)
 				)
 
-			return UserMessage(content=content_parts)
+			return UserMessage(content=content_parts, cache=True)
 
-		return UserMessage(content=state_description)
+		return UserMessage(content=state_description, cache=True)

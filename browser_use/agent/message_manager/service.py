@@ -103,7 +103,6 @@ class MessageManager:
 		state: MessageManagerState = MessageManagerState(),
 		use_thinking: bool = True,
 		include_attributes: list[str] | None = None,
-		message_context: str | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		max_history_items: int | None = None,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
@@ -123,7 +122,6 @@ class MessageManager:
 
 		# Store settings as direct attributes instead of in a settings object
 		self.include_attributes = include_attributes or []
-		self.message_context = message_context
 		self.sensitive_data = sensitive_data
 		self.last_input_messages = []
 		# Only initialize messages if state is empty

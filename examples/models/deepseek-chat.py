@@ -28,7 +28,7 @@ async def main():
 		task='What should we pay attention to in the recent new rules on tariffs in China-US trade?',
 		llm=llm,
 		use_vision=False,
-		message_context=extend_system_message,
+		extend_system_message=extend_system_message,
 	)
 	await agent.run()
 

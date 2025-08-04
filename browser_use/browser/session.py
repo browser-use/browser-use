@@ -1022,8 +1022,12 @@ class BrowserSession(BaseModel):
 				try:
 					response = await client.get(f'{self.cdp_url}json/version', timeout=1.0)
 					if response.status_code == 200:
-						# self.logger.debug(f'✅ Chrome CDP port {debug_port} is ready')
 						break
+					else:
+						# FIX: Always sleep if status != 200
+						if i == 0:
+							self.logger.debug(f'⏳ Waiting for Chrome CDP port {debug_port} to become available...')
+						await asyncio.sleep(0.5)
 				except (httpx.ConnectError, httpx.TimeoutException):
 					if i == 0:
 						self.logger.debug(f'⏳ Waiting for Chrome CDP port {debug_port} to become available...')

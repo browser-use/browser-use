@@ -162,7 +162,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		override_system_message: str | None = None,
 		extend_system_message: str | None = None,
 		validate_output: bool = False,
-		message_context: str | None = None,
 		generate_gif: bool | str = False,
 		available_file_paths: list[str] | None = None,
 		include_attributes: list[str] = DEFAULT_INCLUDE_ATTRIBUTES,
@@ -251,7 +250,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			override_system_message=override_system_message,
 			extend_system_message=extend_system_message,
 			validate_output=validate_output,
-			message_context=message_context,
 			generate_gif=generate_gif,
 			include_attributes=include_attributes,
 			max_actions_per_step=max_actions_per_step,
@@ -342,7 +340,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			use_thinking=self.settings.use_thinking,
 			# Settings that were previously in MessageManagerSettings
 			include_attributes=self.settings.include_attributes,
-			message_context=self.settings.message_context,
 			sensitive_data=sensitive_data,
 			max_history_items=self.settings.max_history_items,
 			vision_detail_level=self.settings.vision_detail_level,
@@ -601,9 +598,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		else:
 			logger.error('💾 File system is not set up. Cannot save state.')
 			raise ValueError('File system is not set up. Cannot save state.')
-
-	def _set_message_context(self) -> str | None:
-		return self.settings.message_context
 
 	def _set_browser_use_version_and_source(self, source_override: str | None = None) -> None:
 		"""Get the version from pyproject.toml and determine the source of the browser-use package"""
