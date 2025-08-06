@@ -168,7 +168,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_actions_per_step: int = 10,
 		use_thinking: bool = True,
 		flash_mode: bool = False,
-		max_history_items: int = 40,
+		max_history_items: int | None = None,
 		page_extraction_llm: BaseChatModel | None = None,
 		planner_llm: BaseChatModel | None = None,  # Deprecated
 		planner_interval: int = 1,  # Deprecated
@@ -728,13 +728,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Get page-specific filtered actions
 		page_filtered_actions = self.controller.registry.get_prompt_description(current_page)
 
-		# If there are page-specific actions, add them as a special message for this step only
-		if page_filtered_actions:
-			page_action_message = f'For this page, these additional actions are available:\n{page_filtered_actions}'
-			self._message_manager._add_message_with_type(UserMessage(content=page_action_message), 'consistent')
-
-		self.logger.debug(f'💬 Step {self.state.n_steps}: Adding state message to context...')
-		self._message_manager.add_state_message(
+		# Page-specific actions will be included directly in the browser_state message
+		self.logger.debug(f'💬 Step {self.state.n_steps}: Creating state messages for context...')
+		self._message_manager.create_state_messages(
 			browser_state_summary=browser_state_summary,
 			model_output=self.state.last_model_output,
 			result=self.state.last_result,
@@ -814,11 +810,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		prefix = f'❌ Result failed {self.state.consecutive_failures + 1}/{self.settings.max_failures} times:\n '
 		self.state.consecutive_failures += 1
 
+		# TODO: figure out what to do here
 		if isinstance(error, (ValidationError, ValueError)):
 			self.logger.error(f'{prefix}{error_msg}')
+			# Add context message to help model fix validation errors
+			validation_hint = 'Your output format was invalid. Please follow the exact schema structure required for actions.'
+			# self._message_manager._add_context_message(UserMessage(content=validation_hint))
+
 			if 'Max token limit reached' in error_msg:
-				# TODO: figure out what to do here
-				pass
+				token_hint = 'Your response was too long. Keep your thinking and output concise.'
+				# self._message_manager._add_context_message(UserMessage(content=token_hint))
 		# Handle InterruptedError specially
 		elif isinstance(error, InterruptedError):
 			error_msg = 'The agent was interrupted mid-step' + (f' - {error}' if error else '')
@@ -828,6 +829,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			logger.debug(f'Model: {self.llm.model} failed')
 			error_msg += '\n\nReturn a valid JSON object with the required fields.'
 			logger.error(f'{prefix}{error_msg}')
+			# Add context message to help model fix parsing errors
+			parse_hint = 'Your response could not be parsed. Return a valid JSON object with the required fields.'
+			# self._message_manager._add_context_message(UserMessage(content=parse_hint))
 		else:
 			from anthropic import RateLimitError as AnthropicRateLimitError
 			from google.api_core.exceptions import ResourceExhausted
@@ -898,7 +902,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			msg += '\nIf the task is fully finished, set success in "done" to true.'
 			msg += '\nInclude everything you found out for the ultimate task in the done text.'
 			self.logger.info('Last step finishing up')
-			self._message_manager._add_message_with_type(UserMessage(content=msg), 'consistent')
+			self._message_manager._add_context_message(UserMessage(content=msg))
 			self.AgentOutput = self.DoneAgentOutput
 
 	async def _get_model_output_with_retry(self, input_messages: list[BaseMessage]) -> AgentOutput:

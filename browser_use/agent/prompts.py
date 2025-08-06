@@ -218,6 +218,7 @@ Available tabs:
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='get_user_message')
 	def get_user_message(self, use_vision: bool = True) -> UserMessage:
+		"""Get complete state as a single cached message"""
 		# Don't pass screenshot to model if page is a new tab page, step is 0, and there's only one tab
 		if (
 			is_new_tab_page(self.browser_state.url)
@@ -227,6 +228,7 @@ Available tabs:
 		):
 			use_vision = False
 
+		# Build complete state description
 		state_description = (
 			'<agent_history>\n'
 			+ (self.agent_history_description.strip('\n') if self.agent_history_description else '')
@@ -234,14 +236,15 @@ Available tabs:
 		)
 		state_description += '<agent_state>\n' + self._get_agent_state_description().strip('\n') + '\n</agent_state>\n'
 		state_description += '<browser_state>\n' + self._get_browser_state_description().strip('\n') + '\n</browser_state>\n'
-		state_description += (
-			'<read_state>\n'
-			+ (self.read_state_description.strip('\n') if self.read_state_description else '')
-			+ '\n</read_state>\n'
-		)
+		# Only add read_state if it has content
+		read_state_description = self.read_state_description.strip('\n').strip() if self.read_state_description else ''
+		if read_state_description:
+			state_description += '<read_state>\n' + read_state_description + '\n</read_state>\n'
+
 		if self.page_filtered_actions:
-			state_description += 'For this page, these additional actions are available:\n'
+			state_description += '<page_specific_actions>\n'
 			state_description += self.page_filtered_actions + '\n'
+			state_description += '</page_specific_actions>\n'
 
 		if use_vision is True and self.screenshots:
 			# Start with text description

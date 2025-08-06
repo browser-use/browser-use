@@ -58,11 +58,12 @@
             "group": "Cloud API v1",
             "pages": [
               "cloud/quickstart",
-              "cloud/search",
+              "cloud/search", 
               "cloud/implementation",
               "cloud/custom-sdk",
               "cloud/webhooks",
-              "cloud/authentication"
+              "cloud/authentication",
+              "cloud/n8n-browser-use-integration"
             ]
           },
           {
