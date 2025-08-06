@@ -111,7 +111,7 @@ async def test_single_step_parametrized(llm_class, model_name):
 		# Create mock state message
 		mock_message = create_mock_state_message(temp_dir)
 
-		agent.message_manager._add_message_with_type(mock_message, 'state')
+		agent.message_manager._set_message_with_type(mock_message, 'state')
 
 		messages = agent.message_manager.get_messages()
 
@@ -152,7 +152,7 @@ async def test_single_step():
 			print(mock_message.content)
 			print('\n' + '=' * 50 + '\n')
 
-			agent.message_manager._add_message_with_type(mock_message, 'state')
+			agent.message_manager._set_message_with_type(mock_message, 'state')
 
 			messages = agent.message_manager.get_messages()
 

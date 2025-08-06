@@ -32,6 +32,8 @@ GroqVerifiedModels = Literal[
 	'meta-llama/llama-4-scout-17b-16e-instruct',
 	'qwen/qwen3-32b',
 	'moonshotai/kimi-k2-instruct',
+	'openai/gpt-oss-20b',
+	'openai/gpt-oss-120b',
 ]
 
 JsonSchemaModels = [
@@ -41,6 +43,8 @@ JsonSchemaModels = [
 
 ToolCallingModels = [
 	'moonshotai/kimi-k2-instruct',
+	'openai/gpt-oss-20b',
+	'openai/gpt-oss-120b',
 ]
 
 T = TypeVar('T', bound=BaseModel)
