@@ -1,3 +1,79 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Essential Development Commands
+
+### Testing
+
+- Run main test suite: `uv run pytest -vxs tests/ci`
+- Run single test: `uv run pytest -vxs tests/ci/test_specific_file.py`
+- Run tests with parallel execution: `uv run pytest -vxs tests/ci --dist=loadscope`
+
+### Code Quality
+
+- Type checking: `uv run pyright`
+- Linting and formatting: `uv run ruff check` and `uv run ruff format`
+- Spell checking: `uv run codespell`
+
+### Development Setup
+
+- Install with CLI support: `pip install "browser-use[cli]"`
+- Install browser dependencies: `playwright install chromium --with-deps --no-shell`
+- Run interactive CLI: `browser-use`
+
+### MCP Integration
+
+- Run as MCP server: `browser-use --mcp`
+- Test MCP functionality: see `examples/mcp/` directory
+
+## Architecture Overview
+
+The codebase follows a service-oriented architecture with clear separation of concerns:
+
+### Core Components
+
+**Agent (`browser_use.agent.service.Agent`)**
+
+- Main orchestrator that executes browser automation tasks
+- Uses LLM to interpret tasks and generate browser actions
+- Manages conversation history and action execution
+- Entry point: `browser_use.agent.service.Agent`
+
+**Controller (`browser_use.controller.service.Controller`)**
+
+- Handles action execution and registry management
+- Bridges between agent decisions and browser operations
+- Manages custom function registration
+- Key file: `browser_use.controller.service.Controller`
+
+**Browser Session (`browser_use.browser.session.BrowserSession`)**
+
+- Manages Playwright browser instances and contexts
+- Handles browser profile configuration and session management
+- Provides browser automation primitives
+- Main interface: `browser_use.browser.BrowserSession`
+
+**DOM Service (`browser_use.dom.service.DomService`)**
+
+- Extracts and processes DOM information for LLM consumption
+- Handles element selection and interaction
+- Provides viewport and accessibility tree information
+- Core service: `browser_use.dom.service.DomService`
+
+**LLM Integrations (`browser_use.llm.*`)**
+
+- Abstracted chat model interfaces for various providers
+- Supports OpenAI, Anthropic, Google, Groq, Azure, and Ollama
+- Each provider in separate modules: `browser_use.llm.{provider}.chat`
+
+### Key Patterns
+
+**Lazy Loading**: The `__init__.py` uses lazy imports to avoid loading heavy dependencies until needed
+**Service/Views Pattern**: Main logic in `service.py`, Pydantic models in `views.py`
+**Event Bus**: Uses `bubus` for event-driven communication between components
+**Registry System**: Controller uses a registry pattern for action registration and custom functions
+
 Browser-Use is an async python >= 3.11 library that implements AI browser driver abilities using LLMs + playwright.
 We want our library APIs to be ergonomic, intuitive, and hard to get wrong.
 
@@ -11,14 +87,14 @@ We want our library APIs to be ergonomic, intuitive, and hard to get wrong.
 - In pydantic models Use `model_config = ConfigDict(extra='forbid', validate_by_name=True, validate_by_alias=True, ...)` etc. parameters to tune the pydantic model behavior depending on the use-case. Use `Annotated[..., AfterValidator(...)]` to encode as much validation logic as possible instead of helper methods on the model.
 - We keep the main code for each sub-component in a `service.py` file usually, and we keep most pydantic models in `views.py` files unless they are long enough deserve their own file
 - Use runtime assertions at the start and end of functions to enforce constraints and assumptions
-- Prefer `from uuid_extensions import uuid7str` +  `id: str = Field(default_factory=uuid7str)` for all new id fields
+- Prefer `from uuid_extensions import uuid7str` + `id: str = Field(default_factory=uuid7str)` for all new id fields
 - Run tests using `uv run pytest -vxs tests/ci`
 - Run the type checker using `uv run pyright`
 
 ## Keep Examples & Tests Up-To-Date
 
 - Make sure to read relevant examples in the `examples/` directory for context and keep them up-to-date when making changes.
-- Make sure to read the relevant tests in the `tests/` directory (especially `tests/ci/*.py`) and keep them up-to-date as well. 
+- Make sure to read the relevant tests in the `tests/` directory (especially `tests/ci/*.py`) and keep them up-to-date as well.
 - Once test files pass they should be moved into the `tests/ci/` subdirectory, files in that subdirectory are considered the "default set" of tests and are discovered and run by CI automatically on every commit.
 - Never use mocks in tests other than for the llm, instead use pytest fixtures to set up real objects and pytest-httpserver
 - Never use real remote URLs in tests (e.g. `https://google.com` or `https://example.com`), instead use pytest-httpserver to set up a test server in a fixture that responds with the html needed for the test (see other `tests/ci` files for examples)
@@ -57,3 +133,7 @@ When doing any truly massive refactors, trend towards using simple event buses a
 
 If you struggle to update or edit files in-place, try shortening your match string to 1 or 2 lines instead of 3.
 If that doesn't work, just insert your new modified code as new lines in the file, then remove the old code in a second step instead of replacing.
+
+## IMPROTANT
+
+I AM NEW TO THIS PROJECT AND NOW I AM IN PROCESS OF UNDERSTANDING THE PROJECT. SO HELP ME OUT WITH ANY QUESTION OR ISSUES. I HAVE A FILE NAMED project_understanding.md IN THE ROOT FOLDER OF THE PROJECT, WHERE MY UNDERSTANDING OF THE PROJECT IS STORED SO WHEN EXPLAINING TO ME ABOUT THE CODEBASE ALWAYS START FROM THERE AND UPDATE THE FILE(ONLY WHEN I ASKED FOR IT). WHEN UPDATING project_understanding.md WITH INFO ADD PATHS FOR CLASS, FUNCTION, COMPOENT OR CODE IF NEEDED SO I CAN STRAIGHT JUMPT TO THE CODE(ONLY USE THIS FORMAT - file:///D:/browser-use/browser_use/agent/service.py#L133 ) SO MY EDITOR CAN OPEN THE FILE.
