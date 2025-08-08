@@ -19,7 +19,17 @@ from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
 
-ReasoningModels: list[ChatModel | str] = ['o4-mini', 'o3', 'o3-mini', 'o1', 'o1-pro', 'o3-pro']
+ReasoningModels: list[ChatModel | str] = [
+	'o4-mini',
+	'o3',
+	'o3-mini',
+	'o1',
+	'o1-pro',
+	'o3-pro',
+	'gpt-5',
+	'gpt-5-mini',
+	'gpt-5-nano',
+]
 
 
 @dataclass
@@ -35,8 +45,9 @@ class ChatOpenAI(BaseChatModel):
 	model: ChatModel | str
 
 	# Model params
-	temperature: float | None = 0.2
-	frequency_penalty: float | None = 0.05
+	# set to 0.1 because browser-use aims to be more reliable and deterministic
+	temperature: float | None = 0.1
+	frequency_penalty: float | None = None
 	reasoning_effort: ReasoningEffort = 'low'
 	seed: int | None = None
 	service_tier: Literal['auto', 'default', 'flex', 'priority', 'scale'] | None = None
