@@ -27,6 +27,9 @@ class ChatLangchain(BaseChatModel):
 	# The LangChain model to wrap
 	chat: 'LangChainBaseChatModel'
 
+	# Option to disable structured output when using incompatible APIs
+	disable_structured_output: bool = False
+
 	@property
 	def model(self) -> str:
 		return self.name
@@ -105,7 +108,7 @@ class ChatLangchain(BaseChatModel):
 
 		Args:
 			messages: List of browser-use chat messages
-			output_format: Optional Pydantic model class for structured output (not supported in basic LangChain integration)
+			output_format: Optional Pydantic model class for structured output
 
 		Returns:
 			Either a string response or an instance of output_format
@@ -139,24 +142,56 @@ class ChatLangchain(BaseChatModel):
 
 			else:
 				# Use LangChain's structured output capability
-				try:
-					structured_chat = self.chat.with_structured_output(output_format)
-					parsed_object = await structured_chat.ainvoke(langchain_messages)
+				structured_output_success = False
+				response = None
 
-					# For structured output, usage metadata is typically not available
-					# in the parsed object since it's a Pydantic model, not an AIMessage
-					usage = None
+				# First, try to use structured output if not disabled
+				if not self.disable_structured_output:
+					try:
+						# For LangChain OpenAI models, disable json_schema mode if it's causing issues
+						if hasattr(self.chat, 'model_kwargs'):
+							# Temporarily modify model kwargs to use json_mode instead of json_schema
+							original_kwargs = getattr(self.chat, 'model_kwargs', {})
+							setattr(self.chat, 'model_kwargs', {**original_kwargs})
 
-					# Type cast since LangChain's with_structured_output returns the correct type
-					return ChatInvokeCompletion(
-						completion=parsed_object,  # type: ignore
-						usage=usage,
-					)
-				except AttributeError:
-					# Fall back to manual parsing if with_structured_output is not available
+							# Check if this is a ChatOpenAI model with structured output issues
+							if self.chat.__class__.__name__ == 'ChatOpenAI':
+								# Use method="function_calling" instead of default "json_mode"
+								structured_chat = self.chat.with_structured_output(output_format, method='function_calling')
+							else:
+								structured_chat = self.chat.with_structured_output(output_format)
+						else:
+							structured_chat = self.chat.with_structured_output(output_format)
+
+						parsed_object = await structured_chat.ainvoke(langchain_messages)
+						structured_output_success = True
+
+						# For structured output, usage metadata is typically not available
+						# in the parsed object since it's a Pydantic model, not an AIMessage
+						usage = None
+
+						# Type cast since LangChain's with_structured_output returns the correct type
+						return ChatInvokeCompletion(
+							completion=parsed_object,  # type: ignore
+							usage=usage,
+						)
+					except Exception as e:
+						# If structured output fails, fall back to manual parsing
+						# This handles cases where the API doesn't support json_schema
+						if 'json_schema' in str(e) or 'response_format' in str(e):
+							# Fall through to manual parsing
+							pass
+						else:
+							# Re-raise other errors
+							raise
+
+				# Fall back to manual parsing if structured output failed or was disabled
+				if not structured_output_success:
 					response = await self.chat.ainvoke(langchain_messages)  # type: ignore
 
-					if not isinstance(response, 'LangChainAIMessage'):
+					from langchain_core.messages import AIMessage as LangChainAIMessage  # type: ignore
+
+					if not isinstance(response, LangChainAIMessage):
 						raise ModelProviderError(
 							message=f'Response is not an AIMessage: {type(response)}',
 							model=self.name,
@@ -168,7 +203,15 @@ class ChatLangchain(BaseChatModel):
 						if isinstance(content, str):
 							import json
 
-							parsed_data = json.loads(content)
+							# Try to extract JSON from the content
+							# Handle cases where the model returns markdown code blocks
+							content_str = str(content).strip()
+							if content_str.startswith('```json') and content_str.endswith('```'):
+								content_str = content_str[7:-3].strip()
+							elif content_str.startswith('```') and content_str.endswith('```'):
+								content_str = content_str[3:-3].strip()
+
+							parsed_data = json.loads(content_str)
 							if isinstance(parsed_data, dict):
 								parsed_object = output_format(**parsed_data)
 							else:
@@ -177,7 +220,7 @@ class ChatLangchain(BaseChatModel):
 							raise ValueError('Content is not a string and structured output not supported')
 					except Exception as e:
 						raise ModelProviderError(
-							message=f'Failed to parse response as {output_format.__name__}: {e}',
+							message=f'Failed to parse response as {output_format.__name__}: {e}. Consider using disable_structured_output=True for APIs that do not support structured output.',
 							model=self.name,
 						) from e
 
@@ -187,9 +230,18 @@ class ChatLangchain(BaseChatModel):
 						usage=usage,
 					)
 
+		except ModelProviderError:
+			# Re-raise our own errors
+			raise
 		except Exception as e:
 			# Convert any LangChain errors to browser-use ModelProviderError
 			raise ModelProviderError(
 				message=f'LangChain model error: {str(e)}',
 				model=self.name,
 			) from e
+
+		# This should never be reached, but add fallback for type checker
+		raise ModelProviderError(
+			message='Unexpected code path reached in ainvoke',
+			model=self.name,
+		)

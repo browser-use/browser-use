@@ -70,20 +70,21 @@ class AgentSettings(BaseModel):
 class AgentState(BaseModel):
 	"""Holds all state information for an Agent"""
 
+	model_config = ConfigDict(arbitrary_types_allowed=True)
+
 	agent_id: str = Field(default_factory=uuid7str)
 	n_steps: int = 1
 	consecutive_failures: int = 0
 	last_result: list[ActionResult] | None = None
 	last_plan: str | None = None
 	last_model_output: AgentOutput | None = None
+
+	# Pause/resume state (kept serialisable for checkpointing)
 	paused: bool = False
 	stopped: bool = False
 
 	message_manager_state: MessageManagerState = Field(default_factory=MessageManagerState)
 	file_system_state: FileSystemState | None = None
-
-	# class Config:
-	# 	arbitrary_types_allowed = True
 
 
 @dataclass
