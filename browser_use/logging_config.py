@@ -102,23 +102,42 @@ def setup_logging(stream=None, log_level=None, force_setup=False):
 	# Configure root logger only
 	root.addHandler(console)
 
-	# switch cases for log_type
+	# Determine the log level to use
 	if log_type == 'result':
-		root.setLevel('RESULT')  # string usage to avoid syntax error
+		log_level = 'RESULT'  # string usage to avoid syntax error
 	elif log_type == 'debug':
-		root.setLevel(logging.DEBUG)
+		log_level = logging.DEBUG
 	else:
-		root.setLevel(logging.INFO)
+		log_level = logging.INFO
+
+	# Configure root logger
+	root.setLevel(log_level)
 
 	# Configure browser_use logger
 	browser_use_logger = logging.getLogger('browser_use')
 	browser_use_logger.propagate = False  # Don't propagate to root logger
 	browser_use_logger.addHandler(console)
-	browser_use_logger.setLevel(root.level)  # Set same level as root logger
+	browser_use_logger.setLevel(log_level)
+
+	# Configure CDP logging to match browser_use level
+	# websockets.client emits the logs that cdp_use transforms to appear as cdp_use.client
+	cdp_loggers = [
+		'websockets.client',  # Controls emission of transformed cdp_use.client logs
+		'cdp_use',
+		'cdp_use.client',
+		'cdp_use.cdp',
+		'cdp_use.cdp.registry',
+	]
+	for logger_name in cdp_loggers:
+		cdp_logger = logging.getLogger(logger_name)
+		cdp_logger.setLevel(log_level)  # Same level as browser_use
+		cdp_logger.addHandler(console)  # Same handler as browser_use
+		cdp_logger.propagate = False
 
 	logger = logging.getLogger('browser_use')
 	# logger.info('BrowserUse logging setup complete with level %s', log_type)
-	# Silence or adjust third-party loggers
+
+	# Silence third-party loggers (but not CDP ones which we configured above)
 	third_party_loggers = [
 		'WDM',
 		'httpx',
@@ -138,6 +157,7 @@ def setup_logging(stream=None, log_level=None, force_setup=False):
 		'groq',
 		'portalocker',
 		'portalocker.utils',
+		'websockets',  # General websockets (but not websockets.client which we need)
 	]
 	for logger_name in third_party_loggers:
 		third_party = logging.getLogger(logger_name)

@@ -33,7 +33,7 @@ from browser_use.agent.views import ActionResult
 from browser_use.controller.registry.service import Registry
 from browser_use.controller.service import Controller
 from browser_use.telemetry import MCPClientTelemetryEvent, ProductTelemetry
-from browser_use.utils import get_browser_use_version, is_new_tab_page
+from browser_use.utils import get_browser_use_version
 
 logger = logging.getLogger(__name__)
 
@@ -297,11 +297,8 @@ class MCPClient:
 
 		# Set up action filters
 		domains = None
-		page_filter = None
-
-		if is_browser_tool:
-			# Browser tools should only be available when on a web page
-			page_filter = lambda page: page and not is_new_tab_page(page.url)
+		# Note: page_filter has been removed since we no longer use Page objects
+		# Browser tools filtering would need to be done via domain filters instead
 
 		# Create async wrapper function for the MCP tool
 		# Need to define function with explicit parameters to satisfy registry validation
@@ -403,9 +400,7 @@ class MCPClient:
 		description = tool.description or f'MCP tool from {self.server_name}: {tool.name}'
 
 		# Use the registry's action decorator
-		registry.action(description=description, param_model=param_model, domains=domains, page_filter=page_filter)(
-			mcp_action_wrapper
-		)
+		registry.action(description=description, param_model=param_model, domains=domains)(mcp_action_wrapper)
 
 		logger.debug(f"✅ Registered MCP tool '{tool.name}' as action '{action_name}'")
 

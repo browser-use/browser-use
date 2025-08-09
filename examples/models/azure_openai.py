@@ -18,22 +18,17 @@ load_dotenv()
 from browser_use import Agent
 from browser_use.llm import ChatAzureOpenAI
 
-# Retrieve Azure-specific environment variables
-azure_openai_api_key = os.getenv('AZURE_OPENAI_KEY')
-azure_openai_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
-
-if not azure_openai_api_key or not azure_openai_endpoint:
-	raise ValueError('AZURE_OPENAI_KEY or AZURE_OPENAI_ENDPOINT is not set')
-
 # Initialize the Azure OpenAI client
 llm = ChatAzureOpenAI(
-	model='gpt-4.1',
-	api_key=azure_openai_api_key,
-	azure_endpoint=azure_openai_endpoint,  # Corrected to use azure_endpoint instead of openai_api_base
+	model='o4-mini',
 )
 
+TASK = """
+Go to google.com/travel/flights and find the cheapest flight from New York to Paris on 2025-10-15
+"""
+
 agent = Agent(
-	task='Go to amazon.com, search for laptop, sort by best rating, and give me the price of the first result',
+	task=TASK,
 	llm=llm,
 )
 

@@ -26,8 +26,8 @@ class TestBrowserSessionReuse:
 	# 		await session.start()
 
 	# 		# Navigate to a test page
-	# 		assert session.agent_current_page is not None
-	# 		await session.agent_current_page.goto('data:text/html,<h1>Test Page - Before Disconnect</h1>')
+	# 		assert session.page is not None
+	# 		await session.page.goto('data:text/html,<h1>Test Page - Before Disconnect</h1>')
 
 	# 		# Take a screenshot before disconnection
 	# 		screenshot1 = await session.take_screenshot()
@@ -54,8 +54,8 @@ class TestBrowserSessionReuse:
 	# 		assert session.browser_context.pages is not None
 
 	# 		# Verify we can still interact with the browser
-	# 		assert session.agent_current_page is not None
-	# 		await session.agent_current_page.goto('data:text/html,<h1>Test Page - After Regeneration</h1>')
+	# 		assert session.page is not None
+	# 		await session.page.goto('data:text/html,<h1>Test Page - After Regeneration</h1>')
 	# 		screenshot3 = await session.take_screenshot()
 	# 		assert screenshot3 is not None
 	# 		assert len(screenshot3) > 0
@@ -77,8 +77,8 @@ class TestBrowserSessionReuse:
 
 			for i in range(3):
 				# Navigate to a test page
-				assert session.agent_current_page is not None
-				await session.agent_current_page.goto(httpserver.url_for('/normal'), wait_until='load', timeout=3000)
+				assert session.page is not None
+				await session.page.goto(httpserver.url_for('/normal'), wait_until='load', timeout=3000)
 
 				# Take screenshot before disconnect
 				screenshot_before = await session.take_screenshot()
@@ -112,8 +112,8 @@ class TestBrowserSessionReuse:
 			await session.start()
 
 			# Navigate to a test page
-			assert session.agent_current_page is not None
-			await session.agent_current_page.goto('data:text/html,<h1>Test Retry Decorator</h1>')
+			assert session.page is not None
+			await session.page.goto('data:text/html,<h1>Test Retry Decorator</h1>')
 
 			# Take a screenshot to verify it works
 			screenshot1 = await session.take_screenshot()

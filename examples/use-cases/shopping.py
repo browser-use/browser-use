@@ -121,7 +121,7 @@ agent = Agent(
 async def main():
 	await agent.run()
 	input('Press Enter to close the browser...')
-	await browser_session.close()
+	await browser_session.kill()
 
 
 if __name__ == '__main__':

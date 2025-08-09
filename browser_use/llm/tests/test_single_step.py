@@ -6,7 +6,7 @@ import pytest
 from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.agent.service import Agent
 from browser_use.browser.views import BrowserStateSummary, TabInfo
-from browser_use.dom.views import DOMElementNode, SelectorMap
+from browser_use.dom.views import DOMSelectorMap, EnhancedDOMTreeNode, NodeType, SerializedDOMState, SimplifiedNode
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.anthropic.chat import ChatAnthropic
 from browser_use.llm.azure.chat import ChatAzureOpenAI
@@ -24,25 +24,30 @@ def create_mock_state_message(temp_dir: str):
 	"""Create a mock state message with a single clickable element."""
 
 	# Create a mock DOM element with a single clickable button
-	mock_button = DOMElementNode(
-		tag_name='button',
-		xpath="//button[@id='test-button']",
+	mock_button = EnhancedDOMTreeNode(
+		node_id=1,
+		backend_node_id=1,
+		node_type=NodeType.ELEMENT_NODE,
+		node_name='button',
+		node_value='Click Me',
 		attributes={'id': 'test-button'},
-		children=[],
+		is_scrollable=False,
 		is_visible=True,
-		is_interactive=True,
-		is_top_element=True,
-		is_in_viewport=True,
-		shadow_root=False,
-		highlight_index=1,  # This makes it clickable with index 1
-		viewport_coordinates=None,
-		page_coordinates=None,
-		viewport_info=None,
-		parent=None,
+		absolute_position=None,
+		session_id=None,
+		target_id='test-target',
+		frame_id=None,
+		content_document=None,
+		shadow_root_type=None,
+		shadow_roots=None,
+		parent_node=None,
+		children_nodes=None,
+		ax_node=None,
+		snapshot_node=None,
 	)
 
 	# Create selector map
-	selector_map: SelectorMap = {1: mock_button}
+	selector_map: DOMSelectorMap = {1: mock_button}
 
 	# Create mock tab info with proper integer page_id
 	mock_tab = TabInfo(
@@ -51,10 +56,19 @@ def create_mock_state_message(temp_dir: str):
 		title='Test Page',
 	)
 
+	dom_state = SerializedDOMState(
+		_root=SimplifiedNode(
+			original_node=mock_button,
+			children=[],
+			should_display=True,
+			interactive_index=1,
+		),
+		selector_map=selector_map,
+	)
+
 	# Create mock browser state with required selector_map
 	mock_browser_state = BrowserStateSummary(
-		element_tree=mock_button,  # Using the actual DOM element
-		selector_map=selector_map,  # Added missing parameter
+		dom_state=dom_state,  # Using the actual DOM element
 		url='https://example.com',
 		title='Test Page',
 		tabs=[mock_tab],
@@ -81,7 +95,7 @@ def create_mock_state_message(temp_dir: str):
 	)
 
 	# Override the clickable_elements_to_string method to return our simple element
-	mock_button.clickable_elements_to_string = lambda include_attributes=None: '[1]<button id="test-button">Click Me</button>'
+	dom_state.llm_representation = lambda include_attributes=None: '[1]<button id="test-button">Click Me</button>'
 
 	# Get the formatted message
 	message = agent_prompt.get_user_message(use_vision=False)

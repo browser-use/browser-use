@@ -14,8 +14,8 @@ load_dotenv()
 from imgcat import imgcat
 
 from browser_use.browser import BrowserSession
+from browser_use.browser.events import NavigateToUrlEvent
 from browser_use.browser.profile import BrowserProfile
-from browser_use.browser.types import async_patchright
 from browser_use.llm import ChatOpenAI
 
 llm = ChatOpenAI(model='gpt-4.1')
@@ -23,8 +23,23 @@ llm = ChatOpenAI(model='gpt-4.1')
 terminal_width, terminal_height = shutil.get_terminal_size((80, 20))
 
 
+async def take_screenshot_cdp(browser_session: BrowserSession, filename: str):
+	"""Take a screenshot using CDP."""
+	# Get current CDP session
+	cdp_session = await browser_session.get_or_create_cdp_session()
+
+	# Take screenshot using CDP
+	result = await cdp_session.cdp_client.send.Page.captureScreenshot(params={'format': 'png'}, session_id=cdp_session.session_id)
+
+	# Save the screenshot
+	import base64
+
+	screenshot_data = base64.b64decode(result['data'])
+	Path(filename).write_bytes(screenshot_data)
+
+
 async def main():
-	patchright = await async_patchright().start()
+	# Note: Patchright is deprecated, using standard stealth mode
 
 	print('\n\nNORMAL BROWSER:')
 	# Default Playwright Chromium Browser
@@ -39,14 +54,21 @@ async def main():
 		)
 	)
 	await normal_browser_session.start()
-	await normal_browser_session.create_new_tab('https://abrahamjuliot.github.io/creepjs/')
-	await asyncio.sleep(5)
-	await (await normal_browser_session.get_current_page()).screenshot(path='normal_browser.png')
-	imgcat(Path('normal_browser.png').read_bytes(), height=max(terminal_height - 15, 40))
-	await normal_browser_session.close()
 
-	print('\n\nPATCHRIGHT STEALTH BROWSER:')
-	patchright_browser_session = BrowserSession(
+	# Navigate using events
+	nav_event = normal_browser_session.event_bus.dispatch(
+		NavigateToUrlEvent(url='https://abrahamjuliot.github.io/creepjs/', new_tab=True)
+	)
+	await nav_event
+	await asyncio.sleep(5)
+
+	# Take screenshot using CDP
+	await take_screenshot_cdp(normal_browser_session, 'normal_browser.png')
+	imgcat(Path('normal_browser.png').read_bytes(), height=max(terminal_height - 15, 40))
+	await normal_browser_session.kill()
+
+	print('\n\nSTEALTH BROWSER:')
+	stealth_browser_session = BrowserSession(
 		# cdp_url='wss://browser.zenrows.com?apikey=your-api-key-here&proxy_region=na',
 		#                or try anchor browser, browserless, steel.dev, browserbase, oxylabs, brightdata, etc.
 		browser_profile=BrowserProfile(
@@ -57,12 +79,19 @@ async def main():
 			deterministic_rendering=False,
 		)
 	)
-	await patchright_browser_session.start()
-	await patchright_browser_session.create_new_tab('https://abrahamjuliot.github.io/creepjs/')
+	await stealth_browser_session.start()
+
+	# Navigate using events
+	nav_event = stealth_browser_session.event_bus.dispatch(
+		NavigateToUrlEvent(url='https://abrahamjuliot.github.io/creepjs/', new_tab=True)
+	)
+	await nav_event
 	await asyncio.sleep(5)
-	await (await patchright_browser_session.get_current_page()).screenshot(path='patchright_browser.png')
-	imgcat(Path('patchright_browser.png').read_bytes(), height=max(terminal_height - 15, 40))
-	await patchright_browser_session.close()
+
+	# Take screenshot using CDP
+	await take_screenshot_cdp(stealth_browser_session, 'stealth_browser.png')
+	imgcat(Path('stealth_browser.png').read_bytes(), height=max(terminal_height - 15, 40))
+	await stealth_browser_session.kill()
 
 	# Brave Browser
 	if Path('/Applications/Brave Browser.app/Contents/MacOS/Brave Browser').is_file():
@@ -77,33 +106,47 @@ async def main():
 			)
 		)
 		await brave_browser_session.start()
-		await brave_browser_session.create_new_tab('https://abrahamjuliot.github.io/creepjs/')
+
+		# Navigate using events
+		nav_event = brave_browser_session.event_bus.dispatch(
+			NavigateToUrlEvent(url='https://abrahamjuliot.github.io/creepjs/', new_tab=True)
+		)
+		await nav_event
 		await asyncio.sleep(5)
-		await (await brave_browser_session.get_current_page()).screenshot(path='brave_browser.png')
+
+		# Take screenshot using CDP
+		await take_screenshot_cdp(brave_browser_session, 'brave_browser.png')
 		imgcat(Path('brave_browser.png').read_bytes(), height=max(terminal_height - 15, 40))
-		await brave_browser_session.close()
+		await brave_browser_session.kill()
 
 	if Path('/Applications/Brave Browser.app/Contents/MacOS/Brave Browser').is_file():
-		print('\n\nBRAVE + PATCHRIGHT STEALTH BROWSER:')
-		brave_patchright_browser_session = BrowserSession(
-			playwright=patchright,
+		print('\n\nBRAVE + STEALTH BROWSER:')
+		brave_stealth_browser_session = BrowserSession(
 			browser_profile=BrowserProfile(
 				executable_path='/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
 				headless=False,
+				stealth=True,  # Enable stealth mode
 				disable_security=False,
 				user_data_dir=None,
 				deterministic_rendering=False,
 			),
-			# **patchright.devices['iPhone 13'],  # emulate other devices: https://playwright.dev/python/docs/emulation
+			# Device emulation can be done via viewport/user_agent settings
 		)
-		await brave_patchright_browser_session.start()
-		await brave_patchright_browser_session.create_new_tab('https://abrahamjuliot.github.io/creepjs/')
+		await brave_stealth_browser_session.start()
+
+		# Navigate using events
+		nav_event = brave_stealth_browser_session.event_bus.dispatch(
+			NavigateToUrlEvent(url='https://abrahamjuliot.github.io/creepjs/', new_tab=True)
+		)
+		await nav_event
 		await asyncio.sleep(5)
-		await (await brave_patchright_browser_session.get_current_page()).screenshot(path='brave_patchright_browser.png')
-		imgcat(Path('brave_patchright_browser.png').read_bytes(), height=max(terminal_height - 15, 40))
+
+		# Take screenshot using CDP
+		await take_screenshot_cdp(brave_stealth_browser_session, 'brave_stealth_browser.png')
+		imgcat(Path('brave_stealth_browser.png').read_bytes(), height=max(terminal_height - 15, 40))
 
 		input('Press [Enter] to close the browser...')
-		await brave_patchright_browser_session.close()
+		await brave_stealth_browser_session.kill()
 
 	# print()
 	# agent = Agent(

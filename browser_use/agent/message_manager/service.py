@@ -107,6 +107,7 @@ class MessageManager:
 		max_history_items: int | None = None,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		include_tool_call_examples: bool = False,
+		include_recent_events: bool = False,
 	):
 		self.task = task
 		self.state = state
@@ -117,6 +118,7 @@ class MessageManager:
 		self.max_history_items = max_history_items
 		self.vision_detail_level = vision_detail_level
 		self.include_tool_call_examples = include_tool_call_examples
+		self.include_recent_events = include_recent_events
 
 		assert max_history_items is None or max_history_items > 5, 'max_history_items must be None or greater than 5'
 
@@ -286,6 +288,7 @@ class MessageManager:
 			available_file_paths=available_file_paths,
 			screenshots=screenshots,
 			vision_detail_level=self.vision_detail_level,
+			include_recent_events=self.include_recent_events,
 		).get_user_message(use_vision)
 
 		# Set the state message with caching enabled

@@ -79,57 +79,7 @@ browser_profile: BrowserProfile = BrowserProfile()
 
 Optional `BrowserProfile` template containing default config to use for the `BrowserSession`. (see below for more info)
 
-#### `playwright`
 
-```python
-playwright: Playwright | None = None
-```
-
-Optional playwright or patchright API client handle to use, the result of `(await async_playwright().start())` or `(await async_patchright().start())`, which spawns a node.js child subprocess that relays commands to the browser over CDP.
-
-See here for [more detailed usage instructions](https://docs.browser-use.com/customize/real-browser#method-b%3A-connect-using-existing-playwright-objects).
-
-#### `browser`
-
-```python
-browser: Browser | None = None
-```
-
-Playwright Browser object to use (optional). See here for [more detailed usage instructions](https://docs.browser-use.com/customize/real-browser#method-b%3A-connect-using-existing-playwright-objects).
-
-#### `browser_context`
-
-```python
-browser_context: BrowserContext | None = None
-```
-
-Playwright BrowserContext object to use (optional). See here for [more detailed usage instructions](https://docs.browser-use.com/customize/real-browser#method-b%3A-connect-using-existing-playwright-objects).
-
-#### `page` *aka* `agent_current_page`
-
-<a name="page"></a><a name="agent-current-page"></a>
-
-```python
-page: Page | None = None
-```
-
-Foreground Page that the agent is focused on, can also be passed as `page=...` as a shortcut. See here for [more detailed usage instructions](https://docs.browser-use.com/customize/real-browser#method-b%3A-connect-using-existing-playwright-objects).
-
-#### `human_current_page`
-
-```python
-human_current_page: Page | None = None
-```
-
-Foreground Page that the human is focused on to start, not necessary to set manually.
-
-#### `initialized`
-
-```python
-initialized: bool = False
-```
-
-Mark BrowserSession as already initialized, skips launch/connection (not recommended)
 
 
 #### `**kwargs`

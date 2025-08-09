@@ -24,7 +24,7 @@ class ChatAzureOpenAI(ChatOpenAILike):
 
 	# Client initialization parameters
 	api_key: str | None = None
-	api_version: str | None = '2024-10-21'
+	api_version: str | None = '2024-12-01-preview'
 	azure_endpoint: str | None = None
 	azure_deployment: str | None = None
 	base_url: str | None = None

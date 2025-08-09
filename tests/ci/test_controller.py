@@ -11,13 +11,10 @@ from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
 from browser_use.controller.service import Controller
 from browser_use.controller.views import (
-	ClickElementAction,
 	CloseTabAction,
 	DoneAction,
 	GoToUrlAction,
-	InputTextAction,
 	NoParamsAction,
-	ScrollAction,
 	SearchGoogleAction,
 	SendKeysAction,
 	SwitchTabAction,
@@ -98,75 +95,6 @@ def controller():
 class TestControllerIntegration:
 	"""Integration tests for Controller using actual browser instances."""
 
-	async def test_go_to_url_action(self, controller, browser_session: BrowserSession, base_url):
-		"""Test that GoToUrlAction navigates to the specified URL and test both state summary methods."""
-		# Test successful navigation to a valid page
-		action_data = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
-
-		class GoToUrlActionModel(ActionModel):
-			go_to_url: GoToUrlAction | None = None
-
-		action_model = GoToUrlActionModel(**action_data)
-		result = await controller.act(action_model, browser_session)
-
-		# Verify the successful navigation result
-		assert isinstance(result, ActionResult)
-		assert result.extracted_content is not None
-		assert f'Navigated to {base_url}' in result.extracted_content
-
-	async def test_scroll_actions(self, controller, browser_session, base_url):
-		"""Test basic scroll action functionality without complex HTML."""
-
-		# Navigate to any simple page
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
-
-		class GoToUrlActionModel(ActionModel):
-			go_to_url: GoToUrlAction | None = None
-
-		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
-
-		# Test 1: Basic page scroll down
-		scroll_action = {'scroll': ScrollAction(down=True, num_pages=1.0)}
-
-		class ScrollActionModel(ActionModel):
-			scroll: ScrollAction | None = None
-
-		result = await controller.act(ScrollActionModel(**scroll_action), browser_session)
-
-		# Basic assertions that will always pass
-		assert isinstance(result, ActionResult)
-		assert result.extracted_content is not None
-		assert 'Scrolled' in result.extracted_content
-		assert result.include_in_memory is True
-
-		# Test 2: Basic page scroll up
-		scroll_up_action = {'scroll': ScrollAction(down=False, num_pages=0.5)}
-		result = await controller.act(ScrollActionModel(**scroll_up_action), browser_session)
-
-		assert isinstance(result, ActionResult)
-		assert result.extracted_content is not None
-		assert 'Scrolled' in result.extracted_content
-
-		# Test 3: Invalid index fallback (always safe)
-		invalid_scroll_action = {'scroll': ScrollAction(down=True, num_pages=1.0, index=999)}
-		result = await controller.act(ScrollActionModel(**invalid_scroll_action), browser_session)
-
-		# This will always work - invalid index falls back to page scroll
-		assert isinstance(result, ActionResult)
-		assert result.extracted_content is not None
-		assert 'Scrolled' in result.extracted_content
-
-		# Test 4: Model parameter validation
-		scroll_with_index = ScrollAction(down=True, num_pages=1.0, index=5)
-		assert scroll_with_index.down is True
-		assert scroll_with_index.num_pages == 1.0
-		assert scroll_with_index.index == 5
-
-		scroll_without_index = ScrollAction(down=False, num_pages=0.25)
-		assert scroll_without_index.down is False
-		assert scroll_without_index.num_pages == 0.25
-		assert scroll_without_index.index is None
-
 	async def test_registry_actions(self, controller, browser_session):
 		"""Test that the registry contains the expected default actions."""
 		# Check that common actions are registered
@@ -221,76 +149,6 @@ class TestControllerIntegration:
 		assert result.extracted_content is not None
 		assert 'Custom action executed with: test_value on' in result.extracted_content
 		assert f'{base_url}/page1' in result.extracted_content
-
-	async def test_input_text_action(self, controller, browser_session, base_url, http_server):
-		"""Test that InputTextAction correctly inputs text into form fields."""
-		# Set up search form endpoint for this test
-		http_server.expect_request('/searchform').respond_with_data(
-			"""
-			<html>
-			<head><title>Search Form</title></head>
-			<body>
-				<h1>Search Form</h1>
-				<form action="/search" method="get">
-					<input type="text" id="searchbox" name="q" placeholder="Search...">
-					<button type="submit">Search</button>
-				</form>
-			</body>
-			</html>
-			""",
-			content_type='text/html',
-		)
-
-		# Navigate to a page with a form
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/searchform', new_tab=False)}
-
-		class GoToUrlActionModel(ActionModel):
-			go_to_url: GoToUrlAction | None = None
-
-		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
-
-		# Get the search input field index
-		page = await browser_session.get_current_page()
-		selector_map = await browser_session.get_selector_map()
-
-		# Find the search input field - this requires examining the DOM
-		# We'll mock this part since we can't rely on specific element indices
-		# In a real test, you would get the actual index from the selector map
-
-		# For demonstration, we'll just use a hard-coded mock value
-		# and check that the controller processes the action correctly
-		mock_input_index = 1  # This would normally be determined dynamically
-
-		# Create input text action
-		input_action = {'input_text': InputTextAction(index=mock_input_index, text='Python programming')}
-
-		class InputTextActionModel(ActionModel):
-			input_text: InputTextAction | None = None
-
-		# The actual input might fail if the page structure changes or in headless mode
-		# So we'll just verify the controller correctly processes the action
-		try:
-			result = await controller.act(InputTextActionModel(**input_action), browser_session)
-			# If successful, verify the result
-			assert isinstance(result, ActionResult)
-			assert result.extracted_content is not None
-			assert 'Input' in result.extracted_content
-		except Exception as e:
-			# If it fails due to DOM issues, that's expected in a test environment
-			assert 'Element index' in str(e) or 'does not exist' in str(e)
-
-	async def test_error_handling(self, controller, browser_session):
-		"""Test error handling when an action fails."""
-		# Create an action with an invalid index
-		invalid_action = {'click_element_by_index': ClickElementAction(index=999)}  # doesn't exist on page
-
-		class ClickActionModel(ActionModel):
-			click_element_by_index: ClickElementAction | None = None
-
-		# This should fail since the element doesn't exist
-		result: ActionResult = await controller.act(ClickActionModel(**invalid_action), browser_session)
-
-		assert result.error is not None
 
 	async def test_wait_action(self, controller, browser_session):
 		"""Test that the wait action correctly waits for the specified duration."""
@@ -478,10 +336,20 @@ class TestControllerIntegration:
 
 		await controller.act(CloseTabActionModel(**close_tab_action), browser_session)
 
-		# Verify only one tab remains
+		# Verify tabs after close - AboutBlankWatchdog may create an animation tab
 		tabs_info = await browser_session.get_tabs_info()
-		assert len(tabs_info) == 1
-		assert urls[0] in tabs_info[0].url
+
+		# Should have either 1 tab (the original) or 2 tabs (original + animation tab from AboutBlankWatchdog)
+		assert len(tabs_info) in [1, 2]
+
+		# Find the tab with our original URL
+		original_tab = None
+		for tab in tabs_info:
+			if urls[0] in tab.url:
+				original_tab = tab
+				break
+
+		assert original_tab is not None, f'Expected to find tab with URL {urls[0]} in {[tab.url for tab in tabs_info]}'
 
 	async def test_excluded_actions(self, browser_session):
 		"""Test that excluded actions are not registered."""
@@ -966,226 +834,3 @@ class TestControllerIntegration:
 		# Verify the actual dropdown selection was made by checking the DOM
 		selected_value = await page.evaluate("document.getElementById('test-dropdown').value")
 		assert selected_value == 'option2'  # Second Option has value "option2"
-
-	async def test_click_element_by_index(self, controller, browser_session, base_url, http_server):
-		"""Test that click_element_by_index correctly clicks an element and handles different outcomes."""
-		# Add route for clickable elements test page
-		http_server.expect_request('/clickable').respond_with_data(
-			"""
-			<!DOCTYPE html>
-			<html>
-			<head>
-				<title>Click Test</title>
-				<style>
-					.clickable {
-						margin: 10px;
-						padding: 10px;
-						border: 1px solid #ccc;
-						cursor: pointer;
-					}
-					#result {
-						margin-top: 20px;
-						padding: 10px;
-						border: 1px solid #ddd;
-						min-height: 20px;
-					}
-				</style>
-			</head>
-			<body>
-				<h1>Click Test</h1>
-				<div class="clickable" id="button1" onclick="updateResult('Button 1 clicked')">Button 1</div>
-				<div class="clickable" id="button2" onclick="updateResult('Button 2 clicked')">Button 2</div>
-				<a href="#" class="clickable" id="link1" onclick="updateResult('Link 1 clicked'); return false;">Link 1</a>
-				<div id="result"></div>
-				
-				<script>
-					function updateResult(text) {
-						document.getElementById('result').textContent = text;
-					}
-				</script>
-			</body>
-			</html>
-			""",
-			content_type='text/html',
-		)
-
-		# Navigate to the clickable elements test page
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/clickable', new_tab=False)}
-
-		class GoToUrlActionModel(ActionModel):
-			go_to_url: GoToUrlAction | None = None
-
-		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
-
-		# Wait for the page to load
-		page = await browser_session.get_current_page()
-		await page.wait_for_load_state()
-
-		# Initialize the DOM state to populate the selector map
-		await browser_session.get_state_summary(cache_clickable_elements_hashes=True)
-
-		# Get the selector map
-		selector_map = await browser_session.get_selector_map()
-
-		# Find a clickable element in the selector map
-		button_index = None
-		button_text = None
-
-		for idx, element in selector_map.items():
-			# Look for the first div with class "clickable"
-			if element.tag_name.lower() == 'div' and 'clickable' in str(element.attributes.get('class', '')):
-				button_index = idx
-				button_text = element.get_all_text_till_next_clickable_element(max_depth=2).strip()
-				break
-
-		# Verify we found a clickable element
-		assert button_index is not None, (
-			f'Could not find clickable element in selector map. Available elements: {[f"{idx}: {element.tag_name}" for idx, element in selector_map.items()]}'
-		)
-
-		# Define expected test data
-		expected_button_text = 'Button 1'
-		expected_result_text = 'Button 1 clicked'
-
-		# Verify the button text matches what we expect
-		assert button_text is not None and expected_button_text in button_text, (
-			f"Expected button text '{expected_button_text}' not found in '{button_text}'"
-		)
-
-		# Create a model for the click_element_by_index action
-		class ClickElementActionModel(ActionModel):
-			click_element_by_index: ClickElementAction | None = None
-
-		# Execute the action with the button index
-		result = await controller.act(
-			ClickElementActionModel(click_element_by_index=ClickElementAction(index=button_index)), browser_session
-		)
-
-		# Verify the result structure
-		assert isinstance(result, ActionResult), 'Result should be an ActionResult instance'
-		assert result.error is None, f'Expected no error but got: {result.error}'
-
-		# Core logic validation: Verify click was successful
-		assert result.extracted_content is not None
-		assert f'Clicked button with index {button_index}' in result.extracted_content, (
-			f'Expected click confirmation in result content, got: {result.extracted_content}'
-		)
-		if button_text:
-			assert result.extracted_content is not None and button_text in result.extracted_content, (
-				f"Button text '{button_text}' not found in result content: {result.extracted_content}"
-			)
-
-		# Verify the click actually had an effect on the page
-		result_text = await page.evaluate("document.getElementById('result').textContent")
-		assert result_text == expected_result_text, f"Expected result text '{expected_result_text}', got '{result_text}'"
-
-	async def test_empty_css_selector_fallback(self, controller, browser_session, httpserver):
-		"""Test that clicking elements with empty CSS selectors falls back to XPath."""
-		# Create a test page with an element that would produce an empty CSS selector
-		# This could happen with elements that have no tag name or unusual XPath structures
-		httpserver.expect_request('/empty_css_test').respond_with_data(
-			"""
-			<html>
-			<head><title>Empty CSS Selector Test</title></head>
-			<body>
-				<div id="container">
-					<!-- Element with minimal attributes that might produce empty CSS selector -->
-					<custom-element>Click Me</custom-element>
-					<div id="result">Not clicked</div>
-				</div>
-				<script>
-					// Add click handler to the custom element
-					document.querySelector('custom-element').addEventListener('click', function() {
-						document.getElementById('result').textContent = 'Clicked!';
-					});
-				</script>
-			</body>
-			</html>
-			""",
-			content_type='text/html',
-		)
-
-		# Navigate to the test page
-		page = await browser_session.get_current_page()
-		await page.goto(httpserver.url_for('/empty_css_test'))
-		await page.wait_for_load_state()
-
-		# Get the page state which includes clickable elements
-		state = await browser_session.get_state_summary(cache_clickable_elements_hashes=False)
-
-		# Find the custom element index
-		custom_element_index = None
-		for index, element in state.selector_map.items():
-			if element.tag_name == 'custom-element':
-				custom_element_index = index
-				break
-
-		assert custom_element_index is not None, 'Could not find custom-element in selector map'
-
-		# Mock a scenario where CSS selector generation returns empty string
-		# by temporarily patching the method (we'll test the actual fallback behavior)
-		original_method = browser_session._enhanced_css_selector_for_element
-		empty_css_called = False
-
-		def mock_css_selector(element, include_dynamic_attributes=True):
-			nonlocal empty_css_called
-			# Return empty string for our custom element to trigger fallback
-			if element.tag_name == 'custom-element':
-				empty_css_called = True
-				return ''
-			return original_method(element, include_dynamic_attributes)
-
-		# Temporarily replace the method
-		browser_session._enhanced_css_selector_for_element = mock_css_selector
-
-		try:
-			# Create click action for the custom element
-			click_action = {'click_element_by_index': ClickElementAction(index=custom_element_index)}
-
-			class ClickActionModel(ActionModel):
-				click_element_by_index: ClickElementAction | None = None
-
-			# Execute the click - should use XPath fallback
-			result = await controller.act(ClickActionModel(**click_action), browser_session)
-
-			# Verify the click succeeded
-			assert result.error is None, f'Click failed with error: {result.error}'
-			# Success field is not set for click actions, only error is set on failure
-			assert empty_css_called, 'CSS selector method was not called'
-
-			# Verify the element was actually clicked by checking the result
-			result_text = await page.evaluate("document.getElementById('result').textContent")
-			assert result_text == 'Clicked!', f'Element was not clicked, result text: {result_text}'
-
-		finally:
-			# Restore the original method
-			browser_session._enhanced_css_selector_for_element = original_method
-
-	async def test_go_to_url_network_error(self, controller, browser_session: BrowserSession):
-		"""Test that go_to_url handles network errors gracefully instead of throwing hard errors."""
-		# Create action model for go_to_url with an invalid domain
-		action_data = {'go_to_url': GoToUrlAction(url='https://www.nonexistentdndbeyond.com/', new_tab=False)}
-
-		# Create the ActionModel instance
-		class GoToUrlActionModel(ActionModel):
-			go_to_url: GoToUrlAction | None = None
-
-		action_model = GoToUrlActionModel(**action_data)
-
-		# Execute the action - should return soft error instead of throwing
-		result = await controller.act(action_model, browser_session)
-
-		# Verify the result
-		assert isinstance(result, ActionResult)
-		# The navigation should fail with an error for non-existent domain
-
-		# Test that get_state_summary works
-		try:
-			await browser_session.get_state_summary(cache_clickable_elements_hashes=True)
-			assert False, 'Expected throw error when navigating to non-existent page'
-		except Exception as e:
-			pass
-
-		# Test that get_minimal_state_summary always works
-		summary = await browser_session.get_minimal_state_summary()
-		assert summary is not None

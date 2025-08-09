@@ -92,6 +92,7 @@ class AgentMessagePrompt:
 		available_file_paths: list[str] | None = None,
 		screenshots: list[str] | None = None,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
+		include_recent_events: bool = False,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
@@ -106,11 +107,12 @@ class AgentMessagePrompt:
 		self.available_file_paths: list[str] | None = available_file_paths
 		self.screenshots = screenshots or []
 		self.vision_detail_level = vision_detail_level
+		self.include_recent_events = include_recent_events
 		assert self.browser_state
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='_get_browser_state_description')
 	def _get_browser_state_description(self) -> str:
-		elements_text = self.browser_state.element_tree.clickable_elements_to_string(include_attributes=self.include_attributes)
+		elements_text = self.browser_state.dom_state.llm_representation(include_attributes=self.include_attributes)
 
 		if len(elements_text) > self.max_clickable_elements_length:
 			elements_text = elements_text[: self.max_clickable_elements_length]
@@ -164,23 +166,28 @@ class AgentMessagePrompt:
 
 		# If we have exactly one match, mark it as current
 		# Otherwise, don't mark any tab as current to avoid confusion
-		current_tab_id = current_tab_candidates[0] if len(current_tab_candidates) == 1 else None
+		current_tab_index = current_tab_candidates[0] if len(current_tab_candidates) == 1 else None
 
 		for tab in self.browser_state.tabs:
 			tabs_text += f'Tab {tab.page_id}: {tab.url} - {tab.title[:30]}\n'
 
-		current_tab_text = f'Current tab: {current_tab_id}' if current_tab_id is not None else ''
+		current_tab_text = f'Current tab: {current_tab_index}' if current_tab_index is not None else ''
 
 		# Check if current page is a PDF viewer and add appropriate message
 		pdf_message = ''
 		if self.browser_state.is_pdf_viewer:
 			pdf_message = 'PDF viewer cannot be rendered. In this page, DO NOT use the extract_structured_data action as PDF content cannot be rendered. Use the read_file action on the downloaded PDF in available_file_paths to read the full content.\n\n'
 
+		# Add recent events if available and requested
+		recent_events_text = ''
+		if self.include_recent_events and self.browser_state.recent_events:
+			recent_events_text = f'Recent browser events: {self.browser_state.recent_events}\n'
+		
 		browser_state = f"""{current_tab_text}
 Available tabs:
 {tabs_text}
 {page_info_text}
-{pdf_message}Interactive elements from top layer of the current page inside the viewport{truncated_text}:
+{recent_events_text}{pdf_message}Interactive elements from top layer of the current page inside the viewport{truncated_text}:
 {elements_text}
 """
 		return browser_state
