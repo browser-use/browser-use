@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from markdown_pdf import MarkdownPdf, Section
+from md2pdf.core import md2pdf
 from pydantic import BaseModel, Field
 
 INVALID_FILENAME_ERROR_MESSAGE = 'Error: Invalid filename format. Must be alphanumeric with supported extension.'
@@ -120,9 +120,7 @@ class PdfFile(BaseFile):
 	def sync_to_disk_sync(self, path: Path) -> None:
 		file_path = path / self.full_name
 		try:
-			md_pdf = MarkdownPdf()
-			md_pdf.add_section(Section(self.content))
-			md_pdf.save(file_path)
+			md2pdf(pdf_file_path=file_path, md_content=self.content)
 		except Exception as e:
 			raise FileSystemError(f"Error: Could not write to file '{self.full_name}'. {str(e)}")
 
