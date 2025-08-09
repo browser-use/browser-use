@@ -676,10 +676,22 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# self.logger.debug('Agent paused after getting state')
 			raise InterruptedError
 
+	async def _wait_for_browser_ready_if_needed(self) -> None:
+		"""Wait if browser is busy."""
+		try:
+			if self.browser_session and hasattr(self.browser_session, 'wait_for_browser_ready'):
+				self.logger.debug(f'🔍 Checking browser status before step {self.state.n_steps + 1}...')
+				await self.browser_session.wait_for_browser_ready()
+		except Exception as e:
+			self.logger.debug(f'⚠️ Browser status check failed: {e}')
+
 	@observe(name='agent.step', ignore_output=True, ignore_input=True)
 	@time_execution_async('--step')
 	async def step(self, step_info: AgentStepInfo | None = None) -> None:
 		"""Execute one step of the task"""
+		# Wait for browser to be ready before starting step
+		await self._wait_for_browser_ready_if_needed()
+		
 		# Initialize timing first, before any exceptions can occur
 		self.step_start_time = time.time()
 
