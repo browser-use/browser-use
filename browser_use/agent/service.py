@@ -710,8 +710,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		assert self.browser_session is not None, 'BrowserSession is not set up'
 
 		self.logger.debug(f'🌐 Step {self.state.n_steps}: Getting browser state...')
+		# Capture screenshots if needed for either vision (LLM input) or GIF generation
+		should_capture_screenshot = self.settings.use_vision or bool(self.settings.generate_gif)
 		browser_state_summary = await self.browser_session.get_browser_state_with_recovery(
-			cache_clickable_elements_hashes=True, include_screenshot=self.settings.use_vision
+			cache_clickable_elements_hashes=True, include_screenshot=should_capture_screenshot
 		)
 		current_page = await self.browser_session.get_current_page()
 

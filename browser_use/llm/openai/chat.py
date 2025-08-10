@@ -1,9 +1,10 @@
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, TypeVar, overload
 
 import httpx
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI, RateLimitError
+from openai.types.chat import ChatCompletionContentPartTextParam
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.shared.chat_model import ChatModel
 from openai.types.shared_params.reasoning_effort import ReasoningEffort
@@ -19,7 +20,17 @@ from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
 
-ReasoningModels: list[ChatModel | str] = ['o4-mini', 'o3', 'o3-mini', 'o1', 'o1-pro', 'o3-pro']
+ReasoningModels: list[ChatModel | str] = [
+	'o4-mini',
+	'o3',
+	'o3-mini',
+	'o1',
+	'o1-pro',
+	'o3-pro',
+	'gpt-5',
+	'gpt-5-mini',
+	'gpt-5-nano',
+]
 
 
 @dataclass
@@ -35,12 +46,14 @@ class ChatOpenAI(BaseChatModel):
 	model: ChatModel | str
 
 	# Model params
+	# set to 0.1 because browser-use aims to be more reliable and deterministic
 	temperature: float | None = 0.2
-	frequency_penalty: float | None = 0.05
+	frequency_penalty: float | None = 0.1
 	reasoning_effort: ReasoningEffort = 'low'
 	seed: int | None = None
 	service_tier: Literal['auto', 'default', 'flex', 'priority', 'scale'] | None = None
 	top_p: float | None = None
+	add_schema_to_system_prompt: bool = False  # Add JSON schema to system prompt instead of using response_format
 
 	# Client initialization parameters
 	api_key: str | None = None
@@ -168,10 +181,10 @@ class ChatOpenAI(BaseChatModel):
 			if self.service_tier is not None:
 				model_params['service_tier'] = self.service_tier
 
-			if self.model in ReasoningModels:
+			if any(str(m).lower() in str(self.model).lower() for m in ReasoningModels):
 				model_params['reasoning_effort'] = self.reasoning_effort
-				model_params['temperature'] = 1
-				model_params['frequency_penalty'] = 0
+				del model_params['temperature']
+				del model_params['frequency_penalty']
 
 			if output_format is None:
 				# Return string response
@@ -193,6 +206,16 @@ class ChatOpenAI(BaseChatModel):
 					'strict': True,
 					'schema': SchemaOptimizer.create_optimized_json_schema(output_format),
 				}
+
+				# Add JSON schema to system prompt if requested
+				if self.add_schema_to_system_prompt and openai_messages and openai_messages[0]['role'] == 'system':
+					schema_text = f'\n<json_schema>\n{response_format}\n</json_schema>'
+					if isinstance(openai_messages[0]['content'], str):
+						openai_messages[0]['content'] += schema_text
+					elif isinstance(openai_messages[0]['content'], Iterable):
+						openai_messages[0]['content'] = list(openai_messages[0]['content']) + [
+							ChatCompletionContentPartTextParam(text=schema_text, type='text')
+						]
 
 				# Return structured response
 				response = await self.get_client().chat.completions.create(

@@ -15,7 +15,7 @@ from browser_use import Agent
 
 # Initialize the model
 llm = ChatOpenAI(
-	model='gpt-4.1-mini',
+	model='gpt-5-mini',
 )
 
 

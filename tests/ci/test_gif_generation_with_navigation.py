@@ -100,6 +100,96 @@ async def test_gif_generation_with_real_navigation(httpserver, tmp_path):
 		await browser_session.kill()
 
 
+async def test_gif_generation_without_vision(httpserver, tmp_path):
+	"""Test that GIF is generated even when use_vision=False (issue #2615)."""
+	# Set up a test page with visible content
+	httpserver.expect_request('/').respond_with_data(
+		"""
+		<!DOCTYPE html>
+		<html>
+		<head>
+			<title>Test Page - No Vision Mode</title>
+			<style>
+				body {
+					background-color: #e0f0ff;
+					font-family: Arial, sans-serif;
+					padding: 50px;
+				}
+				h1 {
+					color: #0066cc;
+					font-size: 48px;
+				}
+				.content {
+					background: white;
+					padding: 30px;
+					border-radius: 10px;
+					box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+				}
+			</style>
+		</head>
+		<body>
+			<div class="content">
+				<h1>No Vision Mode Test</h1>
+				<p>This page should generate a GIF even when use_vision=False.</p>
+				<button id="test-button">Test Button</button>
+			</div>
+		</body>
+		</html>
+		""",
+		content_type='text/html',
+	)
+
+	# Create a mock LLM that navigates then completes
+	navigate_action = f'{{"action": [{{"go_to_url": {{"url": "{httpserver.url_for("/")}"}}}}]}}'
+	done_action = '{"action": [{"done": {"text": "Successfully tested without vision", "success": true}}]}'
+	llm_no_vision = create_mock_llm(actions=[navigate_action, done_action])
+
+	# Set up output path
+	gif_path = tmp_path / 'no_vision_test.gif'
+
+	browser_session = BrowserSession(browser_profile=BrowserProfile(headless=True, disable_security=True, user_data_dir=None))
+	await browser_session.start()
+
+	try:
+		agent = Agent(
+			task=f'Navigate to {httpserver.url_for("/")} without using vision',
+			llm=llm_no_vision,
+			browser_session=browser_session,
+			use_vision=False,  # Key: disable vision
+			generate_gif=str(gif_path),  # Key: enable GIF generation
+		)
+
+		history: AgentHistoryList = await agent.run(max_steps=3)
+
+		# Verify the task completed
+		result = history.final_result()
+		assert result is not None
+
+		# Give a moment for GIF to be written
+		await asyncio.sleep(0.1)
+
+		# Verify GIF was created even without vision
+		assert gif_path.exists(), f'GIF was not created at {gif_path} when use_vision=False'
+
+		# Verify GIF has content (non-zero size)
+		assert gif_path.stat().st_size > 0, f'GIF file is empty at {gif_path}'
+
+		# Verify we have screenshots in history for GIF generation
+		screenshots = history.screenshots(return_none_if_not_screenshot=True)
+		assert screenshots, 'No screenshots found in history for GIF generation'
+
+		# Verify at least one valid screenshot exists (not all placeholders)
+		valid_screenshots = [
+			s
+			for s in screenshots
+			if s and s != 'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAE0lEQVR42mP8/5+BgYGBgYGBgQEAAP//AwMC/wE='
+		]
+		assert valid_screenshots, 'No valid screenshots found for GIF generation'
+
+	finally:
+		await browser_session.kill()
+
+
 async def test_gif_not_created_when_only_placeholders(tmp_path):
 	"""Test that no GIF is created when all screenshots are placeholders."""
 	# Use default mock LLM that just returns done without navigation

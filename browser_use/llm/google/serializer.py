@@ -93,6 +93,7 @@ class GoogleMessageSerializer:
 			# Create the Content object
 			if message_parts:
 				final_message = Content(role=role, parts=message_parts)
-				formatted_messages.append(final_message)
+				# for some reason, the type checker is not able to infer the type of formatted_messages
+				formatted_messages.append(final_message)  # type: ignore
 
 		return formatted_messages, system_message
