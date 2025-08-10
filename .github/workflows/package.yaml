@@ -46,6 +46,7 @@ jobs:
       - name: Install WeasyPrint dependencies (macOS)
         if: matrix.os == 'macos-latest'
         run: |
+          brew install pango gdk-pixbuf libffi cairo gobject-introspection
           brew install weasyprint
 
       - name: Set up venv and test for OS/Python versions
