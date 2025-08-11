@@ -6,8 +6,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from markdown_pdf import MarkdownPdf, Section
 from pydantic import BaseModel, Field
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
 INVALID_FILENAME_ERROR_MESSAGE = 'Error: Invalid filename format. Must be alphanumeric with supported extension.'
 DEFAULT_FILE_SYSTEM_PATH = 'browseruse_agent_data'
@@ -120,9 +122,32 @@ class PdfFile(BaseFile):
 	def sync_to_disk_sync(self, path: Path) -> None:
 		file_path = path / self.full_name
 		try:
-			md_pdf = MarkdownPdf()
-			md_pdf.add_section(Section(self.content))
-			md_pdf.save(file_path)
+			# Create PDF document
+			doc = SimpleDocTemplate(str(file_path), pagesize=letter)
+			styles = getSampleStyleSheet()
+			story = []
+
+			# Convert markdown content to simple text and add to PDF
+			# For basic implementation, we'll treat content as plain text
+			# This avoids the AGPL license issue while maintaining functionality
+			content_lines = self.content.split('\n')
+
+			for line in content_lines:
+				if line.strip():
+					# Handle basic markdown headers
+					if line.startswith('# '):
+						para = Paragraph(line[2:], styles['Title'])
+					elif line.startswith('## '):
+						para = Paragraph(line[3:], styles['Heading1'])
+					elif line.startswith('### '):
+						para = Paragraph(line[4:], styles['Heading2'])
+					else:
+						para = Paragraph(line, styles['Normal'])
+					story.append(para)
+				else:
+					story.append(Spacer(1, 6))
+
+			doc.build(story)
 		except Exception as e:
 			raise FileSystemError(f"Error: Could not write to file '{self.full_name}'. {str(e)}")
 

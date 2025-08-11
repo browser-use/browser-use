@@ -41,7 +41,7 @@ dependencies = [
     "google-auth-oauthlib>=1.2.2",
     "mcp>=1.10.1",
     "pypdf>=5.7.0",
-    "markdown-pdf==1.5",
+    "reportlab>=4.0.0",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
