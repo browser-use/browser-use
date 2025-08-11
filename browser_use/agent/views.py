@@ -78,6 +78,7 @@ class AgentState(BaseModel):
 	last_model_output: AgentOutput | None = None
 	paused: bool = False
 	stopped: bool = False
+	session_initialized: bool = False  # Track if session events have been dispatched
 
 	message_manager_state: MessageManagerState = Field(default_factory=MessageManagerState)
 	file_system_state: FileSystemState | None = None

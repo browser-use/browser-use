@@ -1224,9 +1224,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self._session_start_time = time.time()
 			self._task_start_time = self._session_start_time  # Initialize task start time
 
-			self.logger.debug('📡 Dispatching CreateAgentSessionEvent...')
-			# Emit CreateAgentSessionEvent at the START of run()
-			self.eventbus.dispatch(CreateAgentSessionEvent.from_agent(self))
+			# Only dispatch session events if this is the first run
+			if not self.state.session_initialized:
+				self.logger.debug('📡 Dispatching CreateAgentSessionEvent...')
+				# Emit CreateAgentSessionEvent at the START of run()
+				self.eventbus.dispatch(CreateAgentSessionEvent.from_agent(self))
+				
+				self.state.session_initialized = True
 
 			self.logger.debug('📡 Dispatching CreateAgentTaskEvent...')
 			# Emit CreateAgentTaskEvent at the START of run()
