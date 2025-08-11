@@ -118,6 +118,7 @@ class MessageManager:
 		self.vision_detail_level = vision_detail_level
 		self.include_tool_call_examples = include_tool_call_examples
 
+		# Ensure a sensible lower bound to avoid truncation errors
 		assert max_history_items is None or max_history_items > 5, 'max_history_items must be None or greater than 5'
 
 		# Store settings as direct attributes instead of in a settings object
