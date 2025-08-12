@@ -22,12 +22,14 @@ class ChatOllama(BaseChatModel):
 	"""
 	A wrapper around Ollama's chat model.
 	"""
+
+	model: str
 	# # Model params
 	# TODO (matic): Why is this commented out?
 	# temperature: float | None = None
 
 	# Client initialization parameters
-	model: str
+	
 	host: str | None = None
 	timeout: float | httpx.Timeout | None = None
 	client_params: dict[str, Any] | None = None
