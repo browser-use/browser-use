@@ -4249,7 +4249,7 @@ class BrowserSession(BaseModel):
 			try:
 				if (await is_contenteditable.json_value() or tag_name == 'input') and not (readonly or disabled):
 					await element_handle.evaluate('el => {el.textContent = ""; el.value = "";}')
-					await element_handle.type(text, delay=5, timeout=5_000)  # Add 5 second timeout
+					await element_handle.type(text, delay=5, timeout=15_000)  # Add 5 second timeout
 				else:
 					# Try fill() first for supported elements
 					try:
@@ -4259,7 +4259,7 @@ class BrowserSession(BaseModel):
 						if 'not an <input>, <textarea>, <select>' in str(fill_error):
 							self.logger.debug(f'Element does not support fill(), using type() instead: {fill_error}')
 							await element_handle.evaluate('el => {el.textContent = ""; el.value = "";}')
-							await element_handle.type(text, delay=5, timeout=5_000)
+							await element_handle.type(text, delay=5, timeout=15_000)
 						else:
 							raise
 			except Exception as e:
