@@ -11,6 +11,7 @@ from browser_use.llm.exceptions import ModelProviderError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.ollama.serializer import OllamaMessageSerializer
 from browser_use.llm.views import ChatInvokeCompletion
+import json, re
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -67,7 +68,7 @@ class ChatOllama(BaseChatModel):
 			content = response.message.content or ''
 			# gpt-oss needs manual structured output handling
 			if output_format is not None and self.model.startswith("gpt-oss"):
-				import json, re
+				
 				processed = content.strip()
 				if not processed.startswith('{'):
 					json_match = re.search(r'\{.*\}', processed, re.DOTALL)
