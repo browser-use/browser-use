@@ -53,7 +53,7 @@ async def main():
 	)
 
 	await agent.run()
-	await browser_session.close()
+	await browser_session.kill()
 
 	input('Press Enter to close...')
 

@@ -1,3 +1,5 @@
+# pyright: reportGeneralTypeIssues=false
+
 import os
 import sys
 

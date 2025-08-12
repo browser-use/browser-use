@@ -159,11 +159,12 @@ class TestARIAMenuDropdown:
 		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
 
 		# Wait for the page to load
-		page = await browser_session.get_current_page()
-		await page.wait_for_load_state()
+		from browser_use.browser.events import NavigationCompleteEvent
+
+		await browser_session.event_bus.expect(NavigationCompleteEvent, timeout=10.0)
 
 		# Initialize the DOM state to populate the selector map
-		await browser_session.get_state_summary(cache_clickable_elements_hashes=True)
+		await browser_session.get_browser_state_summary(cache_clickable_elements_hashes=True)
 
 		# Get the selector map
 		selector_map = await browser_session.get_selector_map()
@@ -224,11 +225,12 @@ class TestARIAMenuDropdown:
 		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
 
 		# Wait for the page to load
-		page = await browser_session.get_current_page()
-		await page.wait_for_load_state()
+		from browser_use.browser.events import NavigationCompleteEvent
+
+		await browser_session.event_bus.expect(NavigationCompleteEvent, timeout=10.0)
 
 		# Initialize the DOM state to populate the selector map
-		await browser_session.get_state_summary(cache_clickable_elements_hashes=True)
+		await browser_session.get_browser_state_summary(cache_clickable_elements_hashes=True)
 
 		# Get the selector map
 		selector_map = await browser_session.get_selector_map()
@@ -272,8 +274,13 @@ class TestARIAMenuDropdown:
 		assert 'selected option' in result.extracted_content.lower() or 'clicked' in result.extracted_content.lower()
 		assert 'Filter' in result.extracted_content
 
-		# Verify the click actually had an effect on the page
-		result_text = await page.evaluate("document.getElementById('result').textContent")
+		# Verify the click actually had an effect on the page using CDP
+		cdp_session = await browser_session.get_or_create_cdp_session()
+		result = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': "document.getElementById('result').textContent", 'returnByValue': True},
+			session_id=cdp_session.session_id,
+		)
+		result_text = result.get('result', {}).get('value', '')
 		assert 'Filter' in result_text, f"Expected 'Filter' in result text, got '{result_text}'"
 
 	async def test_get_dropdown_options_with_nested_aria_menu(self, controller, browser_session: BrowserSession, base_url):
@@ -287,11 +294,12 @@ class TestARIAMenuDropdown:
 		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
 
 		# Wait for the page to load
-		page = await browser_session.get_current_page()
-		await page.wait_for_load_state()
+		from browser_use.browser.events import NavigationCompleteEvent
+
+		await browser_session.event_bus.expect(NavigationCompleteEvent, timeout=10.0)
 
 		# Initialize the DOM state to populate the selector map
-		await browser_session.get_state_summary(cache_clickable_elements_hashes=True)
+		await browser_session.get_browser_state_summary(cache_clickable_elements_hashes=True)
 
 		# Get the selector map
 		selector_map = await browser_session.get_selector_map()

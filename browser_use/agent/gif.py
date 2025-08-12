@@ -69,6 +69,9 @@ def create_history_gif(
 		return
 
 	# Find the first non-placeholder screenshot
+	# A screenshot is considered a placeholder if:
+	# 1. It's the exact 4px placeholder for about:blank pages, OR
+	# 2. It comes from a new tab page (chrome://newtab/, about:blank, etc.)
 	first_real_screenshot = None
 	for screenshot in screenshots:
 		if screenshot and screenshot != PLACEHOLDER_4PX_SCREENSHOT:
@@ -76,7 +79,7 @@ def create_history_gif(
 			break
 
 	if not first_real_screenshot:
-		logger.warning('No valid screenshots found (all are placeholders)')
+		logger.warning('No valid screenshots found (all are placeholders or from new tab pages)')
 		return
 
 	# Try to load nicer fonts
@@ -163,6 +166,13 @@ def create_history_gif(
 		# These are 4x4 white PNGs encoded as a specific base64 string
 		if screenshot == PLACEHOLDER_4PX_SCREENSHOT:
 			logger.debug(f'Skipping placeholder screenshot from about:blank page at step {i}')
+			continue
+
+		# Skip screenshots from new tab pages
+		from browser_use.utils import is_new_tab_page
+
+		if is_new_tab_page(item.state.url):
+			logger.debug(f'Skipping screenshot from new tab page ({item.state.url}) at step {i}')
 			continue
 
 		# Convert base64 screenshot to PIL Image

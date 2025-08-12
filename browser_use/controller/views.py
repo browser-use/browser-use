@@ -1,6 +1,6 @@
 from typing import Generic, TypeVar
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # Action Input Models
@@ -15,6 +15,9 @@ class GoToUrlAction(BaseModel):
 
 class ClickElementAction(BaseModel):
 	index: int
+	new_tab: bool = Field(default=False, description='set True to open any resulting navigation in a new tab, False otherwise')
+	# expect_download: bool = Field(default=False, description='set True if expecting a download, False otherwise')  # moved to downloads_watchdog.py
+	# click_count: int = 1  # TODO
 
 
 class InputTextAction(BaseModel):
@@ -71,3 +74,12 @@ class NoParamsAction(BaseModel):
 
 	model_config = ConfigDict(extra='ignore')
 	# No fields defined - all inputs are ignored automatically
+
+
+class GetDropdownOptionsAction(BaseModel):
+	index: int
+
+
+class SelectDropdownOptionAction(BaseModel):
+	index: int
+	text: str

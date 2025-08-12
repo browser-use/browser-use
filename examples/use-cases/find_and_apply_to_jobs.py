@@ -5,6 +5,8 @@ Goal: Searches for job listings, evaluates relevance based on a CV, and applies
 Also you have to install PyPDF2 to read pdf files: pip install PyPDF2
 """
 
+# pyright: reportAttributeAccessIssue=false
+
 import asyncio
 import csv
 import logging

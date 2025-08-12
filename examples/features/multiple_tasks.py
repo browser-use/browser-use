@@ -35,7 +35,7 @@ async def main():
 
 		agent = Agent(
 			browser_session=BrowserSession(
-				browser_context=context,
+				browser_context=context,  # type: ignore
 			),
 			task='Go to https://browser-use.com/',
 			llm=llm,

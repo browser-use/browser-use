@@ -1,12 +1,12 @@
 """
-Action filters (domains and page_filter) let you limit actions available to the Agent on a step-by-step/page-by-page basis.
+Action filters (domains) let you limit actions available to the Agent on a step-by-step/page-by-page basis.
 
-@registry.action(..., domains=['*'], page_filter=lambda page: return True)
+@registry.action(..., domains=['*'])
 async def some_action(browser_session: BrowserSession):
     ...
 
 This helps prevent the LLM from deciding to use an action that is not compatible with the current page.
-It helps limit decision fatique by scoping actions only to pages where they make sense.
+It helps limit decision fatigue by scoping actions only to pages where they make sense.
 It also helps prevent mis-triggering stateful actions or actions that could break other programs or leak secrets.
 
 For example:
@@ -29,7 +29,6 @@ load_dotenv()
 
 from browser_use.agent.service import Agent, Controller
 from browser_use.browser import BrowserSession
-from browser_use.browser.types import Page
 from browser_use.llm import ChatOpenAI
 
 # Initialize controller and registry
@@ -39,29 +38,57 @@ registry = controller.registry
 
 # Action will only be available to Agent on Google domains because of the domain filter
 @registry.action(description='Trigger disco mode', domains=['google.com', '*.google.com'])
-async def disco_mode(page: Page):
-	await page.evaluate("""() => { 
-        // define the wiggle animation
-        document.styleSheets[0].insertRule('@keyframes wiggle { 0% { transform: rotate(0deg); } 50% { transform: rotate(10deg); } 100% { transform: rotate(0deg); } }');
-        
-        document.querySelectorAll("*").forEach(element => {
-            element.style.animation = "wiggle 0.5s infinite";
-        });
-    }""")
+async def disco_mode(browser_session: BrowserSession):
+	# Execute JavaScript using CDP
+	cdp_session = await browser_session.get_or_create_cdp_session()
+	await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={
+			'expression': """(() => { 
+				// define the wiggle animation
+				document.styleSheets[0].insertRule('@keyframes wiggle { 0% { transform: rotate(0deg); } 50% { transform: rotate(10deg); } 100% { transform: rotate(0deg); } }');
+				
+				document.querySelectorAll("*").forEach(element => {
+					element.style.animation = "wiggle 0.5s infinite";
+				});
+			})()"""
+		},
+		session_id=cdp_session.session_id,
+	)
 
 
-# you can create a custom page filter function that determines if the action should be available for a given page
-def is_login_page(page: Page) -> bool:
-	return 'login' in page.url.lower() or 'signin' in page.url.lower()
+# Custom filter function that checks URL
+async def is_login_page(browser_session: BrowserSession) -> bool:
+	"""Check if current page is a login page."""
+	try:
+		# Get current URL using CDP
+		cdp_session = await browser_session.get_or_create_cdp_session()
+		result = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': 'window.location.href', 'returnByValue': True}, session_id=cdp_session.session_id
+		)
+		url = result.get('result', {}).get('value', '')
+		return 'login' in url.lower() or 'signin' in url.lower()
+	except Exception:
+		return False
 
 
-# then use it in the action decorator to limit the action to only be available on pages where the filter returns True
-@registry.action(description='Use the force, luke', page_filter=is_login_page)
-async def use_the_force(page: Page):
-	# this will only ever run on pages that matched the filter
-	assert is_login_page(page)
+# Note: page_filter is not directly supported anymore, so we'll just use domains
+# and check the condition inside the function
+@registry.action(description='Use the force, luke', domains=['*'])
+async def use_the_force(browser_session: BrowserSession):
+	# Check if it's a login page
+	if not await is_login_page(browser_session):
+		return  # Skip if not a login page
 
-	await page.evaluate("""() => { document.querySelector('body').innerHTML = 'These are not the droids you are looking for';}""")
+	# Execute JavaScript using CDP
+	cdp_session = await browser_session.get_or_create_cdp_session()
+	await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={
+			'expression': """(() => { 
+				document.querySelector('body').innerHTML = 'These are not the droids you are looking for';
+			})()"""
+		},
+		session_id=cdp_session.session_id,
+	)
 
 
 async def main():
@@ -86,7 +113,7 @@ async def main():
 	await agent.run(max_steps=10)
 
 	# Cleanup
-	await browser_session.stop()
+	await browser_session.kill()
 
 
 if __name__ == '__main__':

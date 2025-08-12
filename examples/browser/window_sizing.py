@@ -15,6 +15,27 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.browser.events import NavigateToUrlEvent
+
+
+async def get_viewport_size_cdp(browser_session: BrowserSession) -> dict[str, int]:
+	"""Get viewport size using CDP."""
+	cdp_session = await browser_session.get_or_create_cdp_session()
+	result = await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={'expression': '({width: window.innerWidth, height: window.innerHeight})', 'returnByValue': True},
+		session_id=cdp_session.session_id,
+	)
+	return result.get('result', {}).get('value', {})
+
+
+async def get_window_size_cdp(browser_session: BrowserSession) -> dict[str, int]:
+	"""Get window outer size using CDP."""
+	cdp_session = await browser_session.get_or_create_cdp_session()
+	result = await cdp_session.cdp_client.send.Runtime.evaluate(
+		params={'expression': '({width: window.outerWidth, height: window.outerHeight})', 'returnByValue': True},
+		session_id=cdp_session.session_id,
+	)
+	return result.get('result', {}).get('value', {})
 
 
 async def example_custom_window_size():
@@ -40,17 +61,15 @@ async def example_custom_window_size():
 		)
 		await browser_session.start()
 
-		# Get the current page
-		page = await browser_session.get_current_page()
-
-		# Navigate to a test page
-		await page.goto('https://example.com', wait_until='load')
+		# Navigate to a test page using events
+		nav_event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url='https://example.com'))
+		await nav_event
 
 		# Wait a bit to see the window
 		await asyncio.sleep(1)
 
-		# Get the actual viewport size using JavaScript
-		actual_content_size = await page.evaluate("""() => ({width: window.innerWidth, height: window.innerHeight})""")
+		# Get the actual viewport size using CDP
+		actual_content_size = await get_viewport_size_cdp(browser_session)
 
 		if profile.viewport:
 			expected_page_size = dict(profile.viewport)
@@ -77,7 +96,7 @@ async def example_custom_window_size():
 	finally:
 		# Close resources
 		if browser_session:
-			await browser_session.stop()
+			await browser_session.kill()
 
 
 async def example_no_viewport_option():
@@ -92,25 +111,21 @@ async def example_no_viewport_option():
 		browser_session = BrowserSession(browser_profile=profile)
 		await browser_session.start()
 
-		page = await browser_session.get_current_page()
-		await page.goto('https://example.com')
+		# Navigate using events
+		nav_event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url='https://example.com'))
+		await nav_event
 		await asyncio.sleep(1)
 
-		# Get viewport size (inner dimensions)
-		viewport = await page.evaluate('() => ({width: window.innerWidth, height: window.innerHeight})')
+		# Get viewport size (inner dimensions) using CDP
+		viewport = await get_viewport_size_cdp(browser_session)
 		if profile.window_size:
 			print(f'Configured size: width={profile.window_size["width"]}, height={profile.window_size["height"]}')
 		else:
 			print('No window size configured')
 		print(f'Actual viewport size: {viewport}')
 
-		# Get the actual window size (outer dimensions)
-		window_size = await page.evaluate("""
-			() => ({
-				width: window.outerWidth,
-				height: window.outerHeight
-			})
-		""")
+		# Get the actual window size (outer dimensions) using CDP
+		window_size = await get_window_size_cdp(browser_session)
 		print(f'Actual window size (outer): {window_size}')
 
 		await asyncio.sleep(2)
@@ -120,7 +135,7 @@ async def example_no_viewport_option():
 
 	finally:
 		if browser_session:
-			await browser_session.stop()
+			await browser_session.kill()
 
 
 def validate_window_size(configured: dict[str, Any], actual: dict[str, Any]) -> None:

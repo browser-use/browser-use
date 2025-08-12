@@ -97,14 +97,16 @@ class TestBrowserSessionFileUploads:
 
 		test_server.expect_request('/upload').respond_with_data(html, content_type='text/html')
 		await browser_session.start()
-		page = await browser_session.get_current_page()
-		await page.goto(test_server.url_for('/upload'))
+		# Navigate to upload page using event
+		from browser_use.browser.events import NavigateToUrlEvent, NavigationCompleteEvent
 
+		event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=test_server.url_for('/upload')))
+		await event
 		# Wait for page to load
-		await page.wait_for_load_state('networkidle')
+		await browser_session.event_bus.expect(NavigationCompleteEvent, timeout=10.0)
 
 		# Get browser state to populate selector map
-		await browser_session.get_state_summary(cache_clickable_elements_hashes=False)
+		await browser_session.get_browser_state_summary(cache_clickable_elements_hashes=False)
 
 		# Get the selector map after page load
 		selector_map = await browser_session.get_selector_map()
@@ -204,12 +206,16 @@ class TestBrowserSessionFileUploads:
 
 		test_server.expect_request('/traversal').respond_with_data(html, content_type='text/html')
 		await browser_session.start()
-		page = await browser_session.get_current_page()
-		await page.goto(test_server.url_for('/traversal'))
-		await page.wait_for_load_state('networkidle')
+		# Navigate to traversal page using event
+		from browser_use.browser.events import NavigateToUrlEvent, NavigationCompleteEvent
+
+		event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=test_server.url_for('/traversal')))
+		await event
+		# Wait for page to load
+		await browser_session.event_bus.expect(NavigationCompleteEvent, timeout=10.0)
 
 		# Get browser state to populate selector map
-		await browser_session.get_state_summary(cache_clickable_elements_hashes=False)
+		await browser_session.get_browser_state_summary(cache_clickable_elements_hashes=False)
 
 		selector_map = await browser_session.get_selector_map()
 
@@ -268,12 +274,16 @@ class TestBrowserSessionFileUploads:
 
 		test_server.expect_request('/limits').respond_with_data(html, content_type='text/html')
 		await browser_session.start()
-		page = await browser_session.get_current_page()
-		await page.goto(test_server.url_for('/limits'))
-		await page.wait_for_load_state('networkidle')
+		# Navigate to limits page using event
+		from browser_use.browser.events import NavigateToUrlEvent, NavigationCompleteEvent
+
+		event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=test_server.url_for('/limits')))
+		await event
+		# Wait for page to load
+		await browser_session.event_bus.expect(NavigationCompleteEvent, timeout=10.0)
 
 		# Get browser state to populate selector map
-		await browser_session.get_state_summary(cache_clickable_elements_hashes=False)
+		await browser_session.get_browser_state_summary(cache_clickable_elements_hashes=False)
 
 		selector_map = await browser_session.get_selector_map()
 
@@ -290,9 +300,7 @@ class TestBrowserSessionFileUploads:
 			assert file_input is not None
 
 			# With very limited traversal, might not find it
-			file_input_limited = await browser_session.find_file_upload_element_by_index(
-				test_button_idx, max_height=0, max_descendant_depth=1
-			)
+			file_input_limited = await browser_session.find_file_upload_element_by_index(test_button_idx)
 			# Could be None if file is too deep
 
 		# Test 2: Direct sibling should be found easily
@@ -303,7 +311,7 @@ class TestBrowserSessionFileUploads:
 				break
 
 		if direct_button_idx is not None:
-			file_input = await browser_session.find_file_upload_element_by_index(direct_button_idx, max_height=1)
+			file_input = await browser_session.find_file_upload_element_by_index(direct_button_idx)
 			assert file_input is not None
 			assert file_input.attributes.get('id') == 'direct-file'
 

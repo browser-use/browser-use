@@ -3,35 +3,47 @@ import enum
 import json
 import logging
 import os
-import re
-from typing import Generic, TypeVar, cast
+from typing import Generic, TypeVar
 
 try:
 	from lmnr import Laminar  # type: ignore
 except ImportError:
 	Laminar = None  # type: ignore
-from bubus.helpers import retry
 from pydantic import BaseModel
 
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
-from browser_use.browser.types import Page
+from browser_use.browser.events import (
+	ClickElementEvent,
+	CloseTabEvent,
+	GoBackEvent,
+	NavigateToUrlEvent,
+	ScrollEvent,
+	ScrollToTextEvent,
+	SendKeysEvent,
+	SwitchTabEvent,
+	TypeTextEvent,
+	UploadFileEvent,
+)
 from browser_use.browser.views import BrowserError
 from browser_use.controller.registry.service import Registry
 from browser_use.controller.views import (
 	ClickElementAction,
 	CloseTabAction,
 	DoneAction,
+	GetDropdownOptionsAction,
 	GoToUrlAction,
 	InputTextAction,
 	NoParamsAction,
 	ScrollAction,
 	SearchGoogleAction,
+	SelectDropdownOptionAction,
 	SendKeysAction,
 	StructuredOutputAction,
 	SwitchTabAction,
 	UploadFileAction,
 )
+from browser_use.dom.service import EnhancedDOMTreeNode
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import UserMessage
@@ -40,6 +52,12 @@ from browser_use.utils import time_execution_sync
 
 logger = logging.getLogger(__name__)
 
+# Import EnhancedDOMTreeNode and rebuild event models that have forward references to it
+# This must be done after all imports are complete
+ClickElementEvent.model_rebuild()
+TypeTextEvent.model_rebuild()
+ScrollEvent.model_rebuild()
+UploadFileEvent.model_rebuild()
 
 Context = TypeVar('Context')
 
@@ -68,14 +86,60 @@ class Controller(Generic[Context]):
 		async def search_google(params: SearchGoogleAction, browser_session: BrowserSession):
 			search_url = f'https://www.google.com/search?q={params.query}&udm=14'
 
-			page = await browser_session.get_current_page()
-			if page.url.strip('/') == 'https://www.google.com':
-				# SECURITY FIX: Use browser_session.navigate_to() instead of direct page.goto()
-				# This ensures URL validation against allowed_domains is performed
-				await browser_session.navigate_to(search_url)
-			else:
-				# create_new_tab already includes proper URL validation
-				page = await browser_session.create_new_tab(search_url)
+			# Check if there's already a tab open on Google or agent's about:blank
+			use_new_tab = True
+			try:
+				tabs = await browser_session.get_tabs()
+				# Get last 4 chars of browser session ID to identify agent's tabs
+				browser_session_label = str(browser_session.id)[-4:]
+				logger.debug(f'Checking {len(tabs)} tabs for reusable tab (browser_session_label: {browser_session_label})')
+
+				for i, tab in enumerate(tabs):
+					logger.debug(f'Tab {i}: url="{tab.url}", title="{tab.title}"')
+					# Check if tab is on Google domain
+					if tab.url and tab.url.strip('/').lower() in ('https://www.google.com', 'https://google.com'):
+						# Found existing Google tab, navigate in it
+						logger.debug(f'Found existing Google tab at index {i}: {tab.url}, reusing it')
+
+						# Switch to this tab first if it's not the current one
+						from browser_use.browser.events import SwitchTabEvent
+
+						if browser_session.agent_focus and tab.id != browser_session.agent_focus.target_id:
+							switch_event = browser_session.event_bus.dispatch(SwitchTabEvent(tab_index=i))
+							await switch_event
+
+						use_new_tab = False
+						break
+					# Check if it's an agent-owned about:blank page (has "Starting agent XXXX..." title)
+					# IMPORTANT: about:blank is also used briefly for new tabs the agent is trying to open, dont take over those!
+					elif tab.url == 'about:blank' and tab.title:
+						# Check if this is our agent's about:blank page with DVD animation
+						# The title should be "Starting agent XXXX..." where XXXX is the browser_session_label
+						expected_title = f'Starting agent {browser_session_label}...'
+						if tab.title == expected_title or browser_session_label in tab.title:
+							# This is our agent's about:blank page
+							logger.debug(f'Found agent-owned about:blank tab at index {i} with title: "{tab.title}", reusing it')
+
+							# Switch to this tab first
+							from browser_use.browser.events import SwitchTabEvent
+
+							if browser_session.agent_focus and tab.id != browser_session.agent_focus.target_id:
+								switch_event = browser_session.event_bus.dispatch(SwitchTabEvent(tab_index=i))
+								await switch_event
+
+							use_new_tab = False
+							break
+			except Exception as e:
+				logger.debug(f'Could not check for existing tabs: {e}, using new tab')
+
+			# Dispatch navigation event
+			event = browser_session.event_bus.dispatch(
+				NavigateToUrlEvent(
+					url=search_url,
+					new_tab=use_new_tab,
+				)
+			)
+			await event
 
 			msg = f'🔍  Searched for "{params.query}" in Google'
 			logger.info(msg)
@@ -88,27 +152,30 @@ class Controller(Generic[Context]):
 		)
 		async def go_to_url(params: GoToUrlAction, browser_session: BrowserSession):
 			try:
+				# Dispatch navigation event
+				event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=params.url, new_tab=params.new_tab))
+				await event
+
 				if params.new_tab:
-					# Open in new tab (logic from open_tab function)
-					page = await browser_session.create_new_tab(params.url)
-					tab_idx = browser_session.tabs.index(page)
 					memory = f'Opened new tab with URL {params.url}'
-					msg = f'🔗  Opened new tab #{tab_idx} with url {params.url}'
-					logger.info(msg)
-					return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=memory)
+					msg = f'🔗  Opened new tab with url {params.url}'
 				else:
-					# Navigate in current tab (original logic)
-					# SECURITY FIX: Use browser_session.navigate_to() instead of direct page.goto()
-					# This ensures URL validation against allowed_domains is performed
-					await browser_session.navigate_to(params.url)
 					memory = f'Navigated to {params.url}'
 					msg = f'🔗 {memory}'
-					logger.info(msg)
-					return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=memory)
+
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=memory)
 			except Exception as e:
 				error_msg = str(e)
+				# Always log the actual error first for debugging
+				browser_session.logger.error(f'❌ Navigation failed: {error_msg}')
+
+				# Check if it's specifically a RuntimeError about CDP client
+				if isinstance(e, RuntimeError) and 'CDP client not initialized' in error_msg:
+					browser_session.logger.error('❌ Browser connection failed - CDP client not properly initialized')
+					raise BrowserError(f'Browser connection error: {error_msg}')
 				# Check for network-related errors
-				if any(
+				elif any(
 					err in error_msg
 					for err in [
 						'ERR_NAME_NOT_RESOLVED',
@@ -119,15 +186,20 @@ class Controller(Generic[Context]):
 					]
 				):
 					site_unavailable_msg = f'Site unavailable: {params.url} - {error_msg}'
-					logger.warning(site_unavailable_msg)
+					browser_session.logger.warning(f'⚠️ {site_unavailable_msg}')
 					raise BrowserError(site_unavailable_msg)
 				else:
-					# Re-raise non-network errors (including URLNotAllowedError for unauthorized domains)
+					# Re-raise the original error
 					raise
 
 		@self.registry.action('Go back', param_model=NoParamsAction)
 		async def go_back(_: NoParamsAction, browser_session: BrowserSession):
-			await browser_session.go_back()
+			try:
+				event = browser_session.event_bus.dispatch(GoBackEvent())
+				await event
+			except Exception as e:
+				logger.error(f'Failed to dispatch GoBackEvent: {type(e).__name__}: {e}')
+				raise ValueError(f'Failed to go back: {e}') from e
 			msg = '🔙  Navigated back'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg)
@@ -147,66 +219,49 @@ class Controller(Generic[Context]):
 
 		# Element Interaction Actions
 
-		@self.registry.action('Click element by index', param_model=ClickElementAction)
+		@self.registry.action(
+			'Click element by index, set new_tab=True to open any resulting navigation in a new tab',
+			param_model=ClickElementAction,
+		)
 		async def click_element_by_index(params: ClickElementAction, browser_session: BrowserSession):
-			element_node = await browser_session.get_dom_element_by_index(params.index)
-			if element_node is None:
-				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+			# Look up the node from the selector map
+			node = await browser_session.get_element_by_index(params.index)
+			if node is None:
+				raise ValueError(f'Element index {params.index} not found in DOM')
 
-			initial_pages = len(browser_session.tabs)
-
-			# if element has file uploader then dont click
-			# Check if element is actually a file input (not just contains file-related keywords)
-			if browser_session.is_file_input(element_node):
-				msg = f'Index {params.index} - has an element which opens file upload dialog. To upload files please use a specific function to upload files '
-				logger.info(msg)
-				return ActionResult(extracted_content=msg, include_in_memory=True, success=False, long_term_memory=msg)
-
-			msg = None
-
+			# Dispatch click event with node
 			try:
-				download_path = await browser_session._click_element_node(element_node)
-				if download_path:
-					emoji = '💾'
-					msg = f'Downloaded file to {download_path}'
-				else:
-					emoji = '🖱️'
-					msg = f'Clicked button with index {params.index}: {element_node.get_all_text_till_next_clickable_element(max_depth=2)}'
-
-				logger.info(f'{emoji} {msg}')
-				logger.debug(f'Element xpath: {element_node.xpath}')
-				if len(browser_session.tabs) > initial_pages:
-					new_tab_msg = 'New tab opened - switching to it'
-					msg += f' - {new_tab_msg}'
-					emoji = '🔗'
-					logger.info(f'{emoji} {new_tab_msg}')
-					await browser_session.switch_to_tab(-1)
-				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
+				await browser_session.event_bus.dispatch(ClickElementEvent(node=node, new_tab=params.new_tab))
 			except Exception as e:
-				error_msg = str(e)
-				raise BrowserError(error_msg)
+				logger.error(f'Failed to dispatch ClickElementEvent: {type(e).__name__}: {e}')
+				raise ValueError(f'Failed to click element {params.index}: {e}') from e
+
+			msg = f'🖱️ Clicked element with index {params.index}'
+			logger.info(msg)
+			return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
 
 		@self.registry.action(
 			'Click and input text into a input interactive element',
 			param_model=InputTextAction,
 		)
 		async def input_text(params: InputTextAction, browser_session: BrowserSession, has_sensitive_data: bool = False):
-			element_node = await browser_session.get_dom_element_by_index(params.index)
-			if element_node is None:
-				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+			# Look up the node from the selector map
+			node = await browser_session.get_element_by_index(params.index)
+			if node is None:
+				raise ValueError(f'Element index {params.index} not found in DOM')
 
+			# Dispatch type text event with node
 			try:
-				await browser_session._input_text_element_node(element_node, params.text)
-			except Exception:
-				msg = f'Failed to input text into element {params.index}.'
-				raise BrowserError(msg)
+				event = browser_session.event_bus.dispatch(TypeTextEvent(node=node, text=params.text))
+				await event
+			except Exception as e:
+				# Log the full error for debugging
+				logger.error(f'Failed to dispatch TypeTextEvent: {type(e).__name__}: {e}')
+				# Re-raise with more context
+				raise ValueError(f'Failed to input text into element {params.index}: {e}') from e
 
-			if not has_sensitive_data:
-				msg = f'⌨️  Input {params.text} into index {params.index}'
-			else:
-				msg = f'⌨️  Input sensitive data into index {params.index}'
+			msg = f"Input '{params.text}' into element {params.index}."
 			logger.info(msg)
-			logger.debug(f'Element xpath: {element_node.xpath}')
 			return ActionResult(
 				extracted_content=msg,
 				include_in_memory=True,
@@ -221,48 +276,116 @@ class Controller(Generic[Context]):
 			if not os.path.exists(params.path):
 				raise BrowserError(f'File {params.path} does not exist')
 
-			file_upload_dom_el = await browser_session.find_file_upload_element_by_index(
-				params.index, max_height=3, max_descendant_depth=3
-			)
+			# Get the selector map to find the node
+			selector_map = await browser_session.get_selector_map()
+			if params.index not in selector_map:
+				raise BrowserError(f'Element with index {params.index} not found in selector map')
 
-			if file_upload_dom_el is None:
-				msg = f'No file upload element found at index {params.index}'
-				logger.info(msg)
-				raise BrowserError(msg)
+			node = selector_map[params.index]
 
-			file_upload_el = await browser_session.get_locate_element(file_upload_dom_el)
+			# Helper function to find file input near the selected element
+			def find_file_input_near_element(
+				node: EnhancedDOMTreeNode, max_height: int = 3, max_descendant_depth: int = 3
+			) -> EnhancedDOMTreeNode | None:
+				"""Find the closest file input to the selected element."""
 
-			if file_upload_el is None:
-				msg = f'No file upload element found at index {params.index}'
-				logger.info(msg)
-				raise BrowserError(msg)
+				def find_file_input_in_descendants(n: EnhancedDOMTreeNode, depth: int) -> EnhancedDOMTreeNode | None:
+					if depth < 0:
+						return None
+					if browser_session.is_file_input(n):
+						return n
+					for child in n.children_nodes or []:
+						result = find_file_input_in_descendants(child, depth - 1)
+						if result:
+							return result
+					return None
 
-			try:
-				await file_upload_el.set_input_files(params.path)
-				msg = f'📁 Successfully uploaded file to index {params.index}'
-				logger.info(msg)
-				return ActionResult(
-					extracted_content=msg,
-					include_in_memory=True,
-					long_term_memory=f'Uploaded file {params.path} to element {params.index}',
+				current = node
+				for _ in range(max_height + 1):
+					# Check the current node itself
+					if browser_session.is_file_input(current):
+						return current
+					# Check all descendants of the current node
+					result = find_file_input_in_descendants(current, max_descendant_depth)
+					if result:
+						return result
+					# Check all siblings and their descendants
+					if current.parent_node:
+						for sibling in current.parent_node.children_nodes or []:
+							if sibling is current:
+								continue
+							if browser_session.is_file_input(sibling):
+								return sibling
+							result = find_file_input_in_descendants(sibling, max_descendant_depth)
+							if result:
+								return result
+					current = current.parent_node
+					if not current:
+						break
+				return None
+
+			# Try to find a file input element near the selected element
+			file_input_node = find_file_input_near_element(node)
+
+			# If not found near the selected element, fallback to finding the closest file input to current scroll position
+			if file_input_node is None:
+				logger.info(
+					f'No file upload element found near index {params.index}, searching for closest file input to scroll position'
 				)
-			except Exception as e:
-				msg = f'Failed to upload file to index {params.index}: {str(e)}'
-				logger.info(msg)
-				raise BrowserError(msg)
+
+				# Get current scroll position
+				cdp_session = await browser_session.get_or_create_cdp_session()
+				try:
+					scroll_info = await cdp_session.cdp_client.send.Runtime.evaluate(
+						params={'expression': 'window.scrollY || window.pageYOffset || 0'}, session_id=cdp_session.session_id
+					)
+					current_scroll_y = scroll_info.get('result', {}).get('value', 0)
+				except Exception:
+					current_scroll_y = 0
+
+				# Find all file inputs in the selector map and pick the closest one to scroll position
+				closest_file_input = None
+				min_distance = float('inf')
+
+				for idx, element in selector_map.items():
+					if browser_session.is_file_input(element):
+						# Get element's Y position
+						if element.absolute_position:
+							element_y = element.absolute_position.y
+							distance = abs(element_y - current_scroll_y)
+							if distance < min_distance:
+								min_distance = distance
+								closest_file_input = element
+
+				if closest_file_input:
+					file_input_node = closest_file_input
+					logger.info(f'Found file input closest to scroll position (distance: {min_distance}px)')
+				else:
+					msg = 'No file upload element found on the page'
+					logger.info(msg)
+					raise BrowserError(msg)
+
+			# Dispatch upload file event with the file input node
+			event = browser_session.event_bus.dispatch(UploadFileEvent(node=file_input_node, file_path=params.path))
+			await event
+
+			msg = f'📁 Successfully uploaded file to index {params.index}'
+			logger.info(msg)
+			return ActionResult(
+				extracted_content=msg,
+				include_in_memory=True,
+				long_term_memory=f'Uploaded file {params.path} to element {params.index}',
+			)
 
 		# Tab Management Actions
 
 		@self.registry.action('Switch tab', param_model=SwitchTabAction)
 		async def switch_tab(params: SwitchTabAction, browser_session: BrowserSession):
-			await browser_session.switch_to_tab(params.page_id)
-			page = await browser_session.get_current_page()
-			try:
-				await page.wait_for_load_state(state='domcontentloaded', timeout=5_000)
-				# page was already loaded when we first navigated, this is additional to wait for onfocus/onblur animations/ajax to settle
-			except Exception as e:
-				pass
-			msg = f'🔄  Switched to tab #{params.page_id} with url {page.url}'
+			# Dispatch switch tab event
+			event = browser_session.event_bus.dispatch(SwitchTabEvent(tab_index=params.page_id))
+			await event
+
+			msg = f'🔄  Switched to tab #{params.page_id}'
 			logger.info(msg)
 			return ActionResult(
 				extracted_content=msg, include_in_memory=True, long_term_memory=f'Switched to tab {params.page_id}'
@@ -270,338 +393,166 @@ class Controller(Generic[Context]):
 
 		@self.registry.action('Close an existing tab', param_model=CloseTabAction)
 		async def close_tab(params: CloseTabAction, browser_session: BrowserSession):
-			await browser_session.switch_to_tab(params.page_id)
-			page = await browser_session.get_current_page()
-			url = page.url
-			await page.close()
-			new_page = await browser_session.get_current_page()
-			new_page_idx = browser_session.tabs.index(new_page)
-			msg = f'❌  Closed tab #{params.page_id} with {url}, now focused on tab #{new_page_idx} with url {new_page.url}'
+			# Dispatch close tab event
+			event = browser_session.event_bus.dispatch(CloseTabEvent(tab_index=params.page_id))
+			await event
+
+			msg = f'❌  Closed tab #{params.page_id}'
 			logger.info(msg)
 			return ActionResult(
 				extracted_content=msg,
 				include_in_memory=True,
-				long_term_memory=f'Closed tab {params.page_id} with url {url}, now focused on tab {new_page_idx} with url {new_page.url}.',
+				long_term_memory=f'Closed tab {params.page_id}',
 			)
 
 		# Content Actions
 
+		# TODO: Refactor to use events instead of direct page access
+		# This action is temporarily disabled as it needs refactoring to use events
+
 		@self.registry.action(
 			"""Extract structured, semantic data (e.g. product description, price, all information about XYZ) from the current webpage based on a textual query.
-This tool takes the entire markdown of the page and extracts the query from it. 
-Set extract_links=True ONLY if your query requires extracting links/URLs from the page. 
-Only use this for specific queries for information retrieval from the page. Don't use this to get interactive elements - the tool does not see HTML elements, only the markdown.
-""",
+		This tool takes the entire markdown of the page and extracts the query from it.
+		Set extract_links=True ONLY if your query requires extracting links/URLs from the page.
+		Only use this for specific queries for information retrieval from the page. Don't use this to get interactive elements - the tool does not see HTML elements, only the markdown.
+		Note: Extracting from the same page will yield the same results unless more content is loaded (e.g., through scrolling for dynamic content, or new page is loaded) - so one extraction per page state is sufficient. If you want to scrape a listing of many elements always first scroll a lot until the page end to load everything and then call this tool in the end.
+		If you called extract_structured_data in the last step and the result was not good (e.g. because of antispam protection), use the current browser state and scrolling to get the information, dont call extract_structured_data again.
+		""",
 		)
 		async def extract_structured_data(
 			query: str,
 			extract_links: bool,
-			page: Page,
+			browser_session: BrowserSession,
 			page_extraction_llm: BaseChatModel,
 			file_system: FileSystem,
 		):
-			from functools import partial
+			cdp_session = await browser_session.get_or_create_cdp_session()
 
-			import markdownify
-
-			strip = []
-
-			if not extract_links:
-				strip = ['a', 'img']
-
-			# Run markdownify in a thread pool to avoid blocking the event loop
-			loop = asyncio.get_event_loop()
-
-			# Aggressive timeout for page content
+			# Wait for the page to be ready (same pattern used in DOM service)
 			try:
-				page_html_result = await asyncio.wait_for(page.content(), timeout=10.0)  # 5 second aggressive timeout
-			except TimeoutError:
-				raise RuntimeError('Page content extraction timed out after 5 seconds')
+				ready_state = await cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': 'document.readyState'}, session_id=cdp_session.session_id
+				)
+			except Exception:
+				pass  # Page might not be ready yet
+
+			try:
+				# Get the HTML content
+				body_id = await cdp_session.cdp_client.send.DOM.getDocument(session_id=cdp_session.session_id)
+				page_html_result = await cdp_session.cdp_client.send.DOM.getOuterHTML(
+					params={'backendNodeId': body_id['root']['backendNodeId']}, session_id=cdp_session.session_id
+				)
 			except Exception as e:
 				raise RuntimeError(f"Couldn't extract page content: {e}")
 
-			page_html = page_html_result
+			page_html = page_html_result['outerHTML']
 
-			markdownify_func = partial(markdownify.markdownify, strip=strip)
-
+			# Simple markdown conversion
 			try:
-				content = await asyncio.wait_for(
-					loop.run_in_executor(None, markdownify_func, page_html), timeout=5.0
-				)  # 5 second aggressive timeout
+				import re
+
+				import markdownify
+
+				if extract_links:
+					content = markdownify.markdownify(page_html, heading_style='ATX', bullets='-')
+				else:
+					content = markdownify.markdownify(page_html, heading_style='ATX', bullets='-', strip=['a'])
+					# Remove all markdown links and images, keep only the text
+					content = re.sub(r'!\[.*?\]\([^)]*\)', '', content, flags=re.MULTILINE | re.DOTALL)  # Remove images
+					content = re.sub(
+						r'\[([^\]]*)\]\([^)]*\)', r'\1', content, flags=re.MULTILINE | re.DOTALL
+					)  # Convert [text](url) -> text
+
+				# Remove weird positioning artifacts
+
+				content = re.sub(r'❓\s*\[\d+\]\s*\w+.*?Position:.*?Size:.*?\n?', '', content, flags=re.MULTILINE | re.DOTALL)
+				content = re.sub(r'Primary: UNKNOWN\n\nNo specific evidence found', '', content, flags=re.MULTILINE | re.DOTALL)
+				content = re.sub(r'UNKNOWN CONFIDENCE', '', content, flags=re.MULTILINE | re.DOTALL)
+				content = re.sub(r'!\[\]\(\)', '', content, flags=re.MULTILINE | re.DOTALL)
 			except Exception as e:
-				logger.warning(f'Markdownify failed: {type(e).__name__}')
 				raise RuntimeError(f'Could not convert html to markdown: {type(e).__name__}')
 
-			# manually append iframe text into the content so it's readable by the LLM (includes cross-origin iframes)
-			for iframe in page.frames:
-				try:
-					await iframe.wait_for_load_state(timeout=1000)  # 1 second aggressive timeout for iframe load
-				except Exception:
-					pass
+			# Simple truncation to 30k characters
+			if len(content) > 30000:
+				content = content[:30000] + '\n\n... [Content truncated at 30k characters] ...'
 
-				if iframe.url != page.url and not iframe.url.startswith('data:') and not iframe.url.startswith('about:'):
-					content += f'\n\nIFRAME {iframe.url}:\n'
-					# Run markdownify in a thread pool for iframe content as well
-					try:
-						# Aggressive timeouts for iframe content
-						iframe_html = await asyncio.wait_for(iframe.content(), timeout=2.0)  # 2 second aggressive timeout
-						iframe_markdown = await asyncio.wait_for(
-							loop.run_in_executor(None, markdownify_func, iframe_html),
-							timeout=2.0,  # 2 second aggressive timeout for iframe markdownify
-						)
-					except Exception:
-						iframe_markdown = ''  # Skip failed iframes
-					content += iframe_markdown
-			# replace multiple sequential \n with a single \n
-			content = re.sub(r'\n+', '\n', content)
+			# Simple prompt
+			prompt = f"""Extract the requested information from this webpage content.
 
-			# limit to 30000 characters - remove text in the middle (≈15000 tokens)
-			max_chars = 30000
-			if len(content) > max_chars:
-				logger.info(f'Content is too long, removing middle {len(content) - max_chars} characters')
-				content = (
-					content[: max_chars // 2]
-					+ '\n... left out the middle because it was too long ...\n'
-					+ content[-max_chars // 2 :]
-				)
+Query: {query}
 
-			prompt = """You convert websites into structured information. Extract information from this webpage based on the query. Focus only on content relevant to the query. If 
-1. The query is vague
-2. Does not make sense for the page
-3. Some/all of the information is not available
+Webpage Content:
+{content}
 
-Explain the content of the page and that the requested information is not available in the page. Respond in JSON format.\nQuery: {query}\n Website:\n{page}"""
+Provide the extracted information in a clear, structured format."""
+
 			try:
-				formatted_prompt = prompt.format(query=query, page=content)
-				# Aggressive timeout for LLM call
 				response = await asyncio.wait_for(
-					page_extraction_llm.ainvoke([UserMessage(content=formatted_prompt)]),
-					timeout=120.0,  # 120 second aggressive timeout for LLM call
+					page_extraction_llm.ainvoke([UserMessage(content=prompt)]),
+					timeout=120.0,
 				)
 
-				extracted_content = f'Page Link: {page.url}\nQuery: {query}\nExtracted Content:\n{response.completion}'
+				extracted_content = f'Query: {query}\nExtracted Content:\n{response.completion}'
 
-				# if content is small include it to memory
-				MAX_MEMORY_SIZE = 600
-				if len(extracted_content) < MAX_MEMORY_SIZE:
+				# Simple memory handling
+				if len(extracted_content) < 1000:
 					memory = extracted_content
 					include_extracted_content_only_once = False
 				else:
-					# find lines until MAX_MEMORY_SIZE
-					lines = extracted_content.splitlines()
-					display = ''
-					display_lines_count = 0
-					for line in lines:
-						if len(display) + len(line) < MAX_MEMORY_SIZE:
-							display += line + '\n'
-							display_lines_count += 1
-						else:
-							break
 					save_result = await file_system.save_extracted_content(extracted_content)
-					memory = f'Extracted content from {page.url}\n<query>{query}\n</query>\n<extracted_content>\n{display}{len(lines) - display_lines_count} more lines...\n</extracted_content>\n<file_system>{save_result}</file_system>'
+					memory = f'Extracted content from {cdp_session.url} for query: {query}\nContent saved to file system: {save_result}'
 					include_extracted_content_only_once = True
+
 				logger.info(f'📄 {memory}')
 				return ActionResult(
 					extracted_content=extracted_content,
 					include_extracted_content_only_once=include_extracted_content_only_once,
 					long_term_memory=memory,
 				)
-			except TimeoutError:
-				error_msg = f'LLM call timed out for query: {query}'
-				logger.warning(error_msg)
-				raise RuntimeError(error_msg)
 			except Exception as e:
 				logger.debug(f'Error extracting content: {e}')
-				msg = f'📄  Extracted from page\n: {content}\n'
-				logger.info(msg)
 				raise RuntimeError(str(e))
 
 		@self.registry.action(
-			'Scroll the page by specified number of pages (set down=True to scroll down, down=False to scroll up, num_pages=number of pages to scroll like 0.5 for half page, 1.0 for one page, etc.). Optional index parameter to scroll within a specific element or its scroll container (works well for dropdowns and custom UI components).',
+			'Scroll the page by specified number of pages (set down=True to scroll down, down=False to scroll up, num_pages=number of pages to scroll like 0.5 for half page, 1.0 for one page, etc.). Optional index parameter to scroll within a specific element or its scroll container (works well for dropdowns and custom UI components). Use index=0 or omit index to scroll the entire page.',
 			param_model=ScrollAction,
 		)
 		async def scroll(params: ScrollAction, browser_session: BrowserSession):
-			"""
-			(a) If index is provided, find scrollable containers in the element hierarchy and scroll directly.
-			(b) If no index or no container found, use browser._scroll_container for container-aware scrolling.
-			(c) If that JavaScript throws, fall back to window.scrollBy().
-			"""
-			page = await browser_session.get_current_page()
+			# Look up the node from the selector map if index is provided
+			# Special case: index 0 means scroll the whole page (root/body element)
+			node = None
+			if params.index is not None and params.index != 0:
+				try:
+					node = await browser_session.get_element_by_index(params.index)
+					if node is None:
+						# Element not found - return error
+						raise ValueError(f'Element index {params.index} not found in DOM')
+				except Exception as e:
+					# Error getting element - return error
+					raise ValueError(f'Failed to get element {params.index}: {e}') from e
 
-			# Helper function to get window height with retry decorator
-			@retry(wait=1, retries=3, timeout=5)
-			async def get_window_height():
-				return await page.evaluate('() => window.innerHeight')
-
-			# Get window height with retries
+			# Dispatch scroll event with node - the complex logic is handled in the event handler
+			# Convert pages to pixels (assuming 800px per page as standard viewport height)
+			pixels = int(params.num_pages * 800)
 			try:
-				window_height = await get_window_height()
+				event = browser_session.event_bus.dispatch(
+					ScrollEvent(direction='down' if params.down else 'up', amount=pixels, node=node)
+				)
+				await event
 			except Exception as e:
-				raise RuntimeError(f'Scroll failed due to an error: {e}')
-			window_height = window_height or 0
+				logger.error(f'Failed to dispatch ScrollEvent: {type(e).__name__}: {e}')
+				raise ValueError(f'Failed to scroll: {e}') from e
 
-			# Determine scroll amount based on num_pages
-			scroll_amount = int(window_height * params.num_pages)
-			pages_scrolled = params.num_pages
-
-			# Set direction based on down parameter
-			dy = scroll_amount if params.down else -scroll_amount
-
-			# Initialize result message components
 			direction = 'down' if params.down else 'up'
-			scroll_target = 'the page'
+			# If index is 0 or None, we're scrolling the page
+			target = 'the page' if params.index is None or params.index == 0 else f'element {params.index}'
 
-			# Element-specific scrolling if index is provided
-			if params.index is not None:
-				try:
-					element_node = await browser_session.get_dom_element_by_index(params.index)
-					if element_node is None:
-						raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
-
-					# Try direct container scrolling (no events that might close dropdowns)
-					container_scroll_js = """
-					(params) => {
-						const { dy, elementXPath } = params;
-						
-						// Get the target element by XPath
-						const targetElement = document.evaluate(elementXPath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-						if (!targetElement) {
-							return { success: false, reason: 'Element not found by XPath' };
-						}
-
-						console.log('[SCROLL DEBUG] Starting direct container scroll for element:', targetElement.tagName);
-						
-						// Try to find scrollable containers in the hierarchy (starting from element itself)
-						let currentElement = targetElement;
-						let scrollSuccess = false;
-						let scrolledElement = null;
-						let scrollDelta = 0;
-						let attempts = 0;
-						
-						// Check up to 10 elements in hierarchy (including the target element itself)
-						while (currentElement && attempts < 10) {
-							const computedStyle = window.getComputedStyle(currentElement);
-							const hasScrollableY = /(auto|scroll|overlay)/.test(computedStyle.overflowY);
-							const canScrollVertically = currentElement.scrollHeight > currentElement.clientHeight;
-							
-							console.log('[SCROLL DEBUG] Checking element:', currentElement.tagName, 
-								'hasScrollableY:', hasScrollableY, 
-								'canScrollVertically:', canScrollVertically,
-								'scrollHeight:', currentElement.scrollHeight,
-								'clientHeight:', currentElement.clientHeight);
-							
-							if (hasScrollableY && canScrollVertically) {
-								const beforeScroll = currentElement.scrollTop;
-								const maxScroll = currentElement.scrollHeight - currentElement.clientHeight;
-								
-								// Calculate scroll amount (1/3 of provided dy for gentler scrolling)
-								let scrollAmount = dy / 3;
-								
-								// Ensure we don't scroll beyond bounds
-								if (scrollAmount > 0) {
-									scrollAmount = Math.min(scrollAmount, maxScroll - beforeScroll);
-								} else {
-									scrollAmount = Math.max(scrollAmount, -beforeScroll);
-								}
-								
-								// Try direct scrollTop manipulation (most reliable)
-								currentElement.scrollTop = beforeScroll + scrollAmount;
-								
-								const afterScroll = currentElement.scrollTop;
-								const actualScrollDelta = afterScroll - beforeScroll;
-								
-								console.log('[SCROLL DEBUG] Scroll attempt:', currentElement.tagName, 
-									'before:', beforeScroll, 'after:', afterScroll, 'delta:', actualScrollDelta);
-								
-								if (Math.abs(actualScrollDelta) > 0.5) {
-									scrollSuccess = true;
-									scrolledElement = currentElement;
-									scrollDelta = actualScrollDelta;
-									console.log('[SCROLL DEBUG] Successfully scrolled container:', currentElement.tagName, 'delta:', actualScrollDelta);
-									break;
-								}
-							}
-							
-							// Move to parent (but don't go beyond body for dropdown case)
-							if (currentElement === document.body || currentElement === document.documentElement) {
-								break;
-							}
-							currentElement = currentElement.parentElement;
-							attempts++;
-						}
-						
-						if (scrollSuccess) {
-							// Successfully scrolled a container
-							return { 
-								success: true, 
-								method: 'direct_container_scroll',
-								containerType: 'element', 
-								containerTag: scrolledElement.tagName.toLowerCase(),
-								containerClass: scrolledElement.className || '',
-								containerId: scrolledElement.id || '',
-								scrollDelta: scrollDelta
-							};
-						} else {
-							// No container found or could scroll
-							console.log('[SCROLL DEBUG] No scrollable container found for element');
-							return { 
-								success: false, 
-								reason: 'No scrollable container found',
-								needsPageScroll: true
-							};
-						}
-					}
-					"""
-
-					# Pass parameters as a single object
-					scroll_params = {'dy': dy, 'elementXPath': element_node.xpath}
-					result = await page.evaluate(container_scroll_js, scroll_params)
-
-					if result['success']:
-						if result['containerType'] == 'element':
-							container_info = f'{result["containerTag"]}'
-							if result['containerId']:
-								container_info += f'#{result["containerId"]}'
-							elif result['containerClass']:
-								container_info += f'.{result["containerClass"].split()[0]}'
-							scroll_target = f"element {params.index}'s scroll container ({container_info})"
-							# Don't do additional page scrolling since we successfully scrolled the container
-						else:
-							scroll_target = f'the page (fallback from element {params.index})'
-					else:
-						# Container scroll failed, need page-level scrolling
-						logger.debug(f'Container scroll failed for element {params.index}: {result.get("reason", "Unknown")}')
-						scroll_target = f'the page (no container found for element {params.index})'
-						# This will trigger page-level scrolling below
-
-				except Exception as e:
-					logger.debug(f'Element-specific scrolling failed for index {params.index}: {e}')
-					scroll_target = f'the page (fallback from element {params.index})'
-					# Fall through to page-level scrolling
-
-			# Page-level scrolling (default or fallback)
-			if (
-				scroll_target == 'the page'
-				or 'fallback' in scroll_target
-				or 'no container found' in scroll_target
-				or 'mouse wheel failed' in scroll_target
-			):
-				logger.debug(f'🔄 Performing page-level scrolling. Reason: {scroll_target}')
-				try:
-					await browser_session._scroll_container(cast(int, dy))
-				except Exception as e:
-					# Hard fallback: always works on root scroller
-					await page.evaluate('(y) => window.scrollBy(0, y)', dy)
-					logger.debug('Smart scroll failed; used window.scrollBy fallback', exc_info=e)
-
-			# Create descriptive message
-			if pages_scrolled == 1.0:
-				long_term_memory = f'Scrolled {direction} {scroll_target} by one page'
+			if params.num_pages == 1.0:
+				long_term_memory = f'Scrolled {direction} {target} by one page'
 			else:
-				long_term_memory = f'Scrolled {direction} {scroll_target} by {pages_scrolled} pages'
+				long_term_memory = f'Scrolled {direction} {target} by {params.num_pages} pages'
 
 			msg = f'🔍 {long_term_memory}'
-
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=long_term_memory)
 
@@ -609,20 +560,15 @@ Explain the content of the page and that the requested information is not availa
 			'Send strings of special keys to use Playwright page.keyboard.press - examples include Escape, Backspace, Insert, PageDown, Delete, Enter, or Shortcuts such as `Control+o`, `Control+Shift+T`',
 			param_model=SendKeysAction,
 		)
-		async def send_keys(params: SendKeysAction, page: Page):
+		async def send_keys(params: SendKeysAction, browser_session: BrowserSession):
+			# Dispatch send keys event
 			try:
-				await page.keyboard.press(params.keys)
+				event = browser_session.event_bus.dispatch(SendKeysEvent(keys=params.keys))
+				await event
 			except Exception as e:
-				if 'Unknown key' in str(e):
-					# loop over the keys and try to send each one
-					for key in params.keys:
-						try:
-							await page.keyboard.press(key)
-						except Exception as e:
-							logger.debug(f'Error sending key {key}: {str(e)}')
-							raise e
-				else:
-					raise e
+				logger.error(f'Failed to dispatch SendKeysEvent: {type(e).__name__}: {e}')
+				raise ValueError(f'Failed to send keys: {e}') from e
+
 			msg = f'⌨️  Sent keys: {params.keys}'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=f'Sent keys: {params.keys}')
@@ -630,37 +576,18 @@ Explain the content of the page and that the requested information is not availa
 		@self.registry.action(
 			description='Scroll to a text in the current page',
 		)
-		async def scroll_to_text(text: str, page: Page):  # type: ignore
-			try:
-				# Try different locator strategies
-				locators = [
-					page.get_by_text(text, exact=False),
-					page.locator(f'text={text}'),
-					page.locator(f"//*[contains(text(), '{text}')]"),
-				]
+		async def scroll_to_text(text: str, browser_session: BrowserSession):  # type: ignore
+			# Dispatch scroll to text event
+			event = browser_session.event_bus.dispatch(ScrollToTextEvent(text=text))
+			await event
 
-				for locator in locators:
-					try:
-						if await locator.count() == 0:
-							continue
-
-						element = locator.first
-						is_visible = await element.is_visible()
-						bbox = await element.bounding_box()
-
-						if is_visible and bbox is not None and bbox['width'] > 0 and bbox['height'] > 0:
-							await element.scroll_into_view_if_needed()
-							await asyncio.sleep(0.5)  # Wait for scroll to complete
-							msg = f'🔍  Scrolled to text: {text}'
-							logger.info(msg)
-							return ActionResult(
-								extracted_content=msg, include_in_memory=True, long_term_memory=f'Scrolled to text: {text}'
-							)
-
-					except Exception as e:
-						logger.debug(f'Locator attempt failed: {str(e)}')
-						continue
-
+			# Check result to see if text was found
+			result = await event.event_result()
+			if result and result.get('found'):
+				msg = f'🔍  Scrolled to text: {text}'
+				logger.info(msg)
+				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=f'Scrolled to text: {text}')
+			else:
 				msg = f"Text '{text}' not found or not visible on page"
 				logger.info(msg)
 				return ActionResult(
@@ -669,10 +596,418 @@ Explain the content of the page and that the requested information is not availa
 					long_term_memory=f"Tried scrolling to text '{text}' but it was not found",
 				)
 
+		# Dropdown Actions
+
+		@self.registry.action(
+			'Get all options from any dropdown (native <select>, ARIA menus, or custom dropdowns like Semantic UI). Searches target element and up to 4 levels of children to find dropdowns. This only works on dropdown elements.',
+			param_model=GetDropdownOptionsAction,
+		)
+		async def get_dropdown_options(params: GetDropdownOptionsAction, browser_session: BrowserSession):
+			"""Get all options from a native dropdown or ARIA menu"""
+			# Look up the node from the selector map
+			node = await browser_session.get_element_by_index(params.index)
+			if node is None:
+				raise ValueError(f'Element index {params.index} not found in DOM')
+
+			# Get CDP session for this node
+			cdp_session = await browser_session.cdp_client_for_node(node)
+
+			# Convert node to object ID for CDP operations
+			try:
+				object_result = await cdp_session.cdp_client.send.DOM.resolveNode(
+					params={'backendNodeId': node.backend_node_id}, session_id=cdp_session.session_id
+				)
+				remote_object = object_result.get('object', {})
+				object_id = remote_object.get('objectId')
+				if not object_id:
+					raise ValueError('Could not get object ID from resolved node')
 			except Exception as e:
-				msg = f"Failed to scroll to text '{text}': {str(e)}"
-				logger.error(msg)
-				raise BrowserError(msg)
+				raise ValueError(f'Failed to resolve node to object: {e}') from e
+
+			try:
+				# Use JavaScript to extract dropdown options
+				options_script = """
+				function() {
+					const startElement = this;
+					
+					// Function to check if an element is a dropdown and extract options
+					function checkDropdownElement(element) {
+						// Check if it's a native select element
+						if (element.tagName.toLowerCase() === 'select') {
+							return {
+								type: 'select',
+								options: Array.from(element.options).map((opt, idx) => ({
+									text: opt.text,
+									value: opt.value,
+									index: idx,
+									selected: opt.selected
+								})),
+								id: element.id || '',
+								name: element.name || '',
+								source: 'target'
+							};
+						}
+						
+						// Check if it's an ARIA dropdown/menu
+						const role = element.getAttribute('role');
+						if (role === 'menu' || role === 'listbox' || role === 'combobox') {
+							// Find all menu items/options
+							const menuItems = element.querySelectorAll('[role="menuitem"], [role="option"]');
+							const options = [];
+							
+							menuItems.forEach((item, idx) => {
+								const text = item.textContent ? item.textContent.trim() : '';
+								if (text) {
+									options.push({
+										text: text,
+										value: item.getAttribute('data-value') || text,
+										index: idx,
+										selected: item.getAttribute('aria-selected') === 'true' || item.classList.contains('selected')
+									});
+								}
+							});
+							
+							return {
+								type: 'aria',
+								options: options,
+								id: element.id || '',
+								name: element.getAttribute('aria-label') || '',
+								source: 'target'
+							};
+						}
+						
+						// Check if it's a Semantic UI dropdown or similar
+						if (element.classList.contains('dropdown') || element.classList.contains('ui')) {
+							const menuItems = element.querySelectorAll('.item, .option, [data-value]');
+							const options = [];
+							
+							menuItems.forEach((item, idx) => {
+								const text = item.textContent ? item.textContent.trim() : '';
+								if (text) {
+									options.push({
+										text: text,
+										value: item.getAttribute('data-value') || text,
+										index: idx,
+										selected: item.classList.contains('selected') || item.classList.contains('active')
+									});
+								}
+							});
+							
+							if (options.length > 0) {
+								return {
+									type: 'custom',
+									options: options,
+									id: element.id || '',
+									name: element.getAttribute('aria-label') || '',
+									source: 'target'
+								};
+							}
+						}
+						
+						return null;
+					}
+					
+					// Function to recursively search children up to specified depth
+					function searchChildrenForDropdowns(element, maxDepth, currentDepth = 0) {
+						if (currentDepth >= maxDepth) return null;
+						
+						// Check all direct children
+						for (let child of element.children) {
+							// Check if this child is a dropdown
+							const result = checkDropdownElement(child);
+							if (result) {
+								result.source = `child-depth-${currentDepth + 1}`;
+								return result;
+							}
+							
+							// Recursively check this child's children
+							const childResult = searchChildrenForDropdowns(child, maxDepth, currentDepth + 1);
+							if (childResult) {
+								return childResult;
+							}
+						}
+						
+						return null;
+					}
+					
+					// First check the target element itself
+					let dropdownResult = checkDropdownElement(startElement);
+					if (dropdownResult) {
+						return dropdownResult;
+					}
+					
+					// If target element is not a dropdown, search children up to depth 4
+					dropdownResult = searchChildrenForDropdowns(startElement, 4);
+					if (dropdownResult) {
+						return dropdownResult;
+					}
+					
+					return {
+						error: `Element and its children (depth 4) are not recognizable dropdown types (tag: ${startElement.tagName}, role: ${startElement.getAttribute('role')}, classes: ${startElement.className})`
+					};
+				}
+				"""
+
+				result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+					params={
+						'functionDeclaration': options_script,
+						'objectId': object_id,
+						'returnByValue': True,
+					},
+					session_id=cdp_session.session_id,
+				)
+
+				dropdown_data = result.get('result', {}).get('value', {})
+
+				if dropdown_data.get('error'):
+					raise ValueError(dropdown_data['error'])
+
+				if not dropdown_data.get('options'):
+					raise ValueError('No options found in dropdown')
+
+				# Format options for display
+				formatted_options = []
+				for opt in dropdown_data['options']:
+					# Use JSON encoding to ensure exact string matching
+					encoded_text = json.dumps(opt['text'])
+					status = ' (selected)' if opt.get('selected') else ''
+					formatted_options.append(f'{opt["index"]}: text={encoded_text}, value={json.dumps(opt["value"])}{status}')
+
+				dropdown_type = dropdown_data.get('type', 'unknown')
+				element_info = f'ID: {dropdown_data.get("id", "none")}, Name: {dropdown_data.get("name", "none")}'
+				source_info = dropdown_data.get('source', 'unknown')
+
+				if source_info == 'target':
+					msg = f'Found {dropdown_type} dropdown ({element_info}):\n' + '\n'.join(formatted_options)
+				else:
+					msg = f'Found {dropdown_type} dropdown in {source_info} ({element_info}):\n' + '\n'.join(formatted_options)
+				msg += '\n\nUse the exact text string (without quotes) in select_dropdown_option'
+
+				if source_info == 'target':
+					logger.info(f'📋 Found {len(dropdown_data["options"])} dropdown options for index {params.index}')
+				else:
+					logger.info(
+						f'📋 Found {len(dropdown_data["options"])} dropdown options for index {params.index} in {source_info}'
+					)
+				return ActionResult(
+					extracted_content=msg,
+					include_in_memory=True,
+					long_term_memory=f'Found {len(dropdown_data["options"])} dropdown options for index {params.index}',
+					include_extracted_content_only_once=True,
+				)
+
+			except Exception as e:
+				error_msg = f'Failed to get dropdown options: {str(e)}'
+				logger.error(error_msg)
+				raise ValueError(error_msg) from e
+
+		@self.registry.action(
+			'Select dropdown option by exact text from any dropdown type (native <select>, ARIA menus, or custom dropdowns). Searches target element and children to find selectable options. You only need this for native dropdowns - for most other dropdowns you can just click and select the option yourself. Only use this if the click approach does not work. Dont use this for non dropdowns.',
+			param_model=SelectDropdownOptionAction,
+		)
+		async def select_dropdown_option(params: SelectDropdownOptionAction, browser_session: BrowserSession):
+			"""Select dropdown option by the text of the option you want to select"""
+			# Look up the node from the selector map
+			node = await browser_session.get_element_by_index(params.index)
+			if node is None:
+				raise ValueError(f'Element index {params.index} not found in DOM')
+
+			# Get CDP session for this node
+			cdp_session = await browser_session.cdp_client_for_node(node)
+
+			# Convert node to object ID for CDP operations
+			try:
+				object_result = await cdp_session.cdp_client.send.DOM.resolveNode(
+					params={'backendNodeId': node.backend_node_id}, session_id=cdp_session.session_id
+				)
+				remote_object = object_result.get('object', {})
+				object_id = remote_object.get('objectId')
+				if not object_id:
+					raise ValueError('Could not get object ID from resolved node')
+			except Exception as e:
+				raise ValueError(f'Failed to resolve node to object: {e}') from e
+
+			try:
+				# Use JavaScript to select the option
+				selection_script = """
+				function(targetText) {
+					const startElement = this;
+					
+					// Function to attempt selection on a dropdown element
+					function attemptSelection(element) {
+						// Handle native select elements
+						if (element.tagName.toLowerCase() === 'select') {
+							const options = Array.from(element.options);
+							for (const option of options) {
+								if (option.text === targetText) {
+									element.value = option.value;
+									option.selected = true;
+									
+									// Trigger change events
+									const changeEvent = new Event('change', { bubbles: true });
+									element.dispatchEvent(changeEvent);
+									
+									return {
+										success: true,
+										message: `Selected option: ${targetText}`,
+										value: option.value
+									};
+								}
+							}
+							return {
+								success: false,
+								error: `Option with text '${targetText}' not found in select element`
+							};
+						}
+						
+						// Handle ARIA dropdowns/menus
+						const role = element.getAttribute('role');
+						if (role === 'menu' || role === 'listbox' || role === 'combobox') {
+							const menuItems = element.querySelectorAll('[role="menuitem"], [role="option"]');
+							
+							for (const item of menuItems) {
+								if (item.textContent && item.textContent.trim() === targetText) {
+									// Clear previous selections
+									menuItems.forEach(mi => {
+										mi.setAttribute('aria-selected', 'false');
+										mi.classList.remove('selected');
+									});
+									
+									// Select this item
+									item.setAttribute('aria-selected', 'true');
+									item.classList.add('selected');
+									
+									// Trigger click and change events
+									item.click();
+									const clickEvent = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
+									item.dispatchEvent(clickEvent);
+									
+									return {
+										success: true,
+										message: `Selected ARIA menu item: ${targetText}`
+									};
+								}
+							}
+							return {
+								success: false,
+								error: `Menu item with text '${targetText}' not found`
+							};
+						}
+						
+						// Handle Semantic UI or custom dropdowns
+						if (element.classList.contains('dropdown') || element.classList.contains('ui')) {
+							const menuItems = element.querySelectorAll('.item, .option, [data-value]');
+							
+							for (const item of menuItems) {
+								if (item.textContent && item.textContent.trim() === targetText) {
+									// Clear previous selections
+									menuItems.forEach(mi => {
+										mi.classList.remove('selected', 'active');
+									});
+									
+									// Select this item
+									item.classList.add('selected', 'active');
+									
+									// Update dropdown text if there's a text element
+									const textElement = element.querySelector('.text');
+									if (textElement) {
+										textElement.textContent = targetText;
+									}
+									
+									// Trigger click and change events
+									item.click();
+									const clickEvent = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
+									item.dispatchEvent(clickEvent);
+									
+									// Also dispatch on the main dropdown element
+									const dropdownChangeEvent = new Event('change', { bubbles: true });
+									element.dispatchEvent(dropdownChangeEvent);
+									
+									return {
+										success: true,
+										message: `Selected custom dropdown item: ${targetText}`
+									};
+								}
+							}
+							return {
+								success: false,
+								error: `Custom dropdown item with text '${targetText}' not found`
+							};
+						}
+						
+						return null; // Not a dropdown element
+					}
+					
+					// Function to recursively search children for dropdowns
+					function searchChildrenForSelection(element, maxDepth, currentDepth = 0) {
+						if (currentDepth >= maxDepth) return null;
+						
+						// Check all direct children
+						for (let child of element.children) {
+							// Try selection on this child
+							const result = attemptSelection(child);
+							if (result && result.success) {
+								return result;
+							}
+							
+							// Recursively check this child's children
+							const childResult = searchChildrenForSelection(child, maxDepth, currentDepth + 1);
+							if (childResult && childResult.success) {
+								return childResult;
+							}
+						}
+						
+						return null;
+					}
+					
+					// First try the target element itself
+					let selectionResult = attemptSelection(startElement);
+					if (selectionResult && selectionResult.success) {
+						return selectionResult;
+					}
+					
+					// If target element selection failed, search children up to depth 4
+					selectionResult = searchChildrenForSelection(startElement, 4);
+					if (selectionResult && selectionResult.success) {
+						return selectionResult;
+					}
+					
+					return {
+						success: false,
+						error: `Element and its children (depth 4) do not contain a dropdown with option '${targetText}' (tag: ${startElement.tagName}, role: ${startElement.getAttribute('role')}, classes: ${startElement.className})`
+					};
+				}
+				"""
+
+				result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+					params={
+						'functionDeclaration': selection_script,
+						'arguments': [{'value': params.text}],
+						'objectId': object_id,
+						'returnByValue': True,
+					},
+					session_id=cdp_session.session_id,
+				)
+
+				selection_result = result.get('result', {}).get('value', {})
+
+				if selection_result.get('success'):
+					msg = selection_result.get('message', f'Selected option: {params.text}')
+					logger.info(f'✅ {msg}')
+					return ActionResult(
+						extracted_content=msg,
+						include_in_memory=True,
+						long_term_memory=f"Selected dropdown option '{params.text}' at index {params.index}",
+					)
+				else:
+					error_msg = selection_result.get('error', f'Failed to select option: {params.text}')
+					logger.error(f'❌ {error_msg}')
+					raise ValueError(error_msg)
+
+			except Exception as e:
+				error_msg = f'Failed to select dropdown option: {str(e)}'
+				logger.error(error_msg)
+				raise ValueError(error_msg) from e
 
 		# File System Actions
 		@self.registry.action(
@@ -735,395 +1070,409 @@ Explain the content of the page and that the requested information is not availa
 				include_extracted_content_only_once=True,
 			)
 
-		@self.registry.action(
-			description='Get all options from a native dropdown or ARIA menu',
-		)
-		async def get_dropdown_options(index: int, browser_session: BrowserSession) -> ActionResult:
-			"""Get all options from a native dropdown or ARIA menu"""
-			page = await browser_session.get_current_page()
-			dom_element = await browser_session.get_dom_element_by_index(index)
-			if dom_element is None:
-				raise Exception(f'Element index {index} does not exist - retry or use alternative actions')
+	# TODO: Refactor to use events instead of direct page/dom access
+	# @self.registry.action(
+	# 	description='Get all options from a native dropdown or ARIA menu',
+	# )
+	# async def get_dropdown_options(index: int, browser_session: BrowserSession) -> ActionResult:
+	# 	"""Get all options from a native dropdown or ARIA menu"""
 
-			try:
-				# Frame-aware approach since we know it works
-				all_options = []
-				frame_index = 0
+	# 	dom_element = await browser_session.get_dom_element_by_index(index)
+	# 	if dom_element is None:
+	# 		raise Exception(f'Element index {index} does not exist - retry or use alternative actions')
 
-				for frame in page.frames:
-					try:
-						# First check if it's a native select element
-						options = await frame.evaluate(
-							"""
-							(xpath) => {
-								const element = document.evaluate(xpath, document, null,
-									XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-								if (!element) return null;
+	# 	try:
+	# 		# Frame-aware approach since we know it works
+	# 		all_options = []
+	# 		frame_index = 0
 
-								// Check if it's a native select element
-								if (element.tagName.toLowerCase() === 'select') {
-									return {
-										type: 'select',
-										options: Array.from(element.options).map(opt => ({
-											text: opt.text, //do not trim, because we are doing exact match in select_dropdown_option
-											value: opt.value,
-											index: opt.index
-										})),
-										id: element.id,
-										name: element.name
-									};
-								}
-								
-								// Check if it's an ARIA menu
-								if (element.getAttribute('role') === 'menu' || 
-									element.getAttribute('role') === 'listbox' ||
-									element.getAttribute('role') === 'combobox') {
-									// Find all menu items
-									const menuItems = element.querySelectorAll('[role="menuitem"], [role="option"]');
-									const options = [];
-									
-									menuItems.forEach((item, idx) => {
-										// Get the text content of the menu item
-										const text = item.textContent.trim();
-										if (text) {
-											options.push({
-												text: text,
-												value: text, // For ARIA menus, use text as value
-												index: idx
-											});
-										}
-									});
-									
-									return {
-										type: 'aria',
-										options: options,
-										id: element.id || '',
-										name: element.getAttribute('aria-label') || ''
-									};
-								}
-								
-								return null;
-							}
-						""",
-							dom_element.xpath,
-						)
+	# 		for frame in page.frames:
+	# 			try:
+	# 				# First check if it's a native select element
+	# 				options = await frame.evaluate(
+	# 					"""
+	# 					(xpath) => {
+	# 						const element = document.evaluate(xpath, document, null,
+	# 							XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+	# 						if (!element) return null;
 
-						if options:
-							logger.debug(f'Found {options["type"]} dropdown in frame {frame_index}')
-							logger.debug(f'Element ID: {options["id"]}, Name: {options["name"]}')
+	# 						// Check if it's a native select element
+	# 						if (element.tagName.toLowerCase() === 'select') {
+	# 							return {
+	# 								type: 'select',
+	# 								options: Array.from(element.options).map(opt => ({
+	# 									text: opt.text, //do not trim, because we are doing exact match in select_dropdown_option
+	# 									value: opt.value,
+	# 									index: opt.index
+	# 								})),
+	# 								id: element.id,
+	# 								name: element.name
+	# 							};
+	# 						}
 
-							formatted_options = []
-							for opt in options['options']:
-								# encoding ensures AI uses the exact string in select_dropdown_option
-								encoded_text = json.dumps(opt['text'])
-								formatted_options.append(f'{opt["index"]}: text={encoded_text}')
+	# 						// Check if it's an ARIA menu
+	# 						if (element.getAttribute('role') === 'menu' ||
+	# 							element.getAttribute('role') === 'listbox' ||
+	# 							element.getAttribute('role') === 'combobox') {
+	# 							// Find all menu items
+	# 							const menuItems = element.querySelectorAll('[role="menuitem"], [role="option"]');
+	# 							const options = [];
 
-							all_options.extend(formatted_options)
+	# 							menuItems.forEach((item, idx) => {
+	# 								// Get the text content of the menu item
+	# 								const text = item.textContent.trim();
+	# 								if (text) {
+	# 									options.push({
+	# 										text: text,
+	# 										value: text, // For ARIA menus, use text as value
+	# 										index: idx
+	# 									});
+	# 								}
+	# 							});
 
-					except Exception as frame_e:
-						logger.debug(f'Frame {frame_index} evaluation failed: {str(frame_e)}')
+	# 							return {
+	# 								type: 'aria',
+	# 								options: options,
+	# 								id: element.id || '',
+	# 								name: element.getAttribute('aria-label') || ''
+	# 							};
+	# 						}
 
-					frame_index += 1
+	# 						return null;
+	# 					}
+	# 				""",
+	# 					dom_element.xpath,
+	# 				)
 
-				if all_options:
-					msg = '\n'.join(all_options)
-					msg += '\nUse the exact text string in select_dropdown_option'
-					logger.info(msg)
-					return ActionResult(
-						extracted_content=msg,
-						include_in_memory=True,
-						long_term_memory=f'Found dropdown options for index {index}.',
-						include_extracted_content_only_once=True,
-					)
-				else:
-					msg = 'No options found in any frame for dropdown'
-					logger.info(msg)
-					return ActionResult(
-						extracted_content=msg, include_in_memory=True, long_term_memory='No dropdown options found'
-					)
+	# 				if options:
+	# 					logger.debug(f'Found {options["type"]} dropdown in frame {frame_index}')
+	# 					logger.debug(f'Element ID: {options["id"]}, Name: {options["name"]}')
 
-			except Exception as e:
-				logger.error(f'Failed to get dropdown options: {str(e)}')
-				msg = f'Error getting options: {str(e)}'
-				logger.info(msg)
-				return ActionResult(extracted_content=msg, include_in_memory=True)
+	# 					formatted_options = []
+	# 					for opt in options['options']:
+	# 						# encoding ensures AI uses the exact string in select_dropdown_option
+	# 						encoded_text = json.dumps(opt['text'])
+	# 						formatted_options.append(f'{opt["index"]}: text={encoded_text}')
 
-		@self.registry.action(
-			description='Select dropdown option or ARIA menu item for interactive element index by the text of the option you want to select',
-		)
-		async def select_dropdown_option(
-			index: int,
-			text: str,
-			browser_session: BrowserSession,
-		) -> ActionResult:
-			"""Select dropdown option or ARIA menu item by the text of the option you want to select"""
-			page = await browser_session.get_current_page()
-			dom_element = await browser_session.get_dom_element_by_index(index)
-			if dom_element is None:
-				raise Exception(f'Element index {index} does not exist - retry or use alternative actions')
+	# 					all_options.extend(formatted_options)
 
-			logger.debug(f"Attempting to select '{text}' using xpath: {dom_element.xpath}")
-			logger.debug(f'Element attributes: {dom_element.attributes}')
-			logger.debug(f'Element tag: {dom_element.tag_name}')
+	# 			except Exception as frame_e:
+	# 				logger.debug(f'Frame {frame_index} evaluation failed: {str(frame_e)}')
 
-			xpath = '//' + dom_element.xpath
+	# 			frame_index += 1
 
-			try:
-				frame_index = 0
-				for frame in page.frames:
-					try:
-						logger.debug(f'Trying frame {frame_index} URL: {frame.url}')
+	# 		if all_options:
+	# 			msg = '\n'.join(all_options)
+	# 			msg += '\nUse the exact text string in select_dropdown_option'
+	# 			logger.info(msg)
+	# 			return ActionResult(
+	# 				extracted_content=msg,
+	# 				include_in_memory=True,
+	# 				long_term_memory=f'Found dropdown options for index {index}.',
+	# 				include_extracted_content_only_once=True,
+	# 			)
+	# 		else:
+	# 			msg = 'No options found in any frame for dropdown'
+	# 			logger.info(msg)
+	# 			return ActionResult(
+	# 				extracted_content=msg, include_in_memory=True, long_term_memory='No dropdown options found'
+	# 			)
 
-						# First check what type of element we're dealing with
-						element_info_js = """
-							(xpath) => {
-								try {
-									const element = document.evaluate(xpath, document, null,
-										XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-									if (!element) return null;
-									
-									const tagName = element.tagName.toLowerCase();
-									const role = element.getAttribute('role');
-									
-									// Check if it's a native select
-									if (tagName === 'select') {
-										return {
-											type: 'select',
-											found: true,
-											id: element.id,
-											name: element.name,
-											tagName: element.tagName,
-											optionCount: element.options.length,
-											currentValue: element.value,
-											availableOptions: Array.from(element.options).map(o => o.text.trim())
-										};
-									}
-									
-									// Check if it's an ARIA menu or similar
-									if (role === 'menu' || role === 'listbox' || role === 'combobox') {
-										const menuItems = element.querySelectorAll('[role="menuitem"], [role="option"]');
-										return {
-											type: 'aria',
-											found: true,
-											id: element.id || '',
-											role: role,
-											tagName: element.tagName,
-											itemCount: menuItems.length,
-											availableOptions: Array.from(menuItems).map(item => item.textContent.trim())
-										};
-									}
-									
-									return {
-										error: `Element is neither a select nor an ARIA menu (tag: ${tagName}, role: ${role})`,
-										found: false
-									};
-								} catch (e) {
-									return {error: e.toString(), found: false};
-								}
-							}
-						"""
+	# 	except Exception as e:
+	# 		logger.error(f'Failed to get dropdown options: {str(e)}')
+	# 		msg = f'Error getting options: {str(e)}'
+	# 		logger.info(msg)
+	# 		return ActionResult(extracted_content=msg, include_in_memory=True)
 
-						element_info = await frame.evaluate(element_info_js, dom_element.xpath)
+	# TODO: Refactor to use events instead of direct page/dom access
+	# @self.registry.action(
+	# 	description='Select dropdown option or ARIA menu item for interactive element index by the text of the option you want to select',
+	# )
+	# async def select_dropdown_option(
+	# 	index: int,
+	# 	text: str,
+	# 	browser_session: BrowserSession,
+	# ) -> ActionResult:
+	# 	"""Select dropdown option or ARIA menu item by the text of the option you want to select"""
+	# 	page = await browser_session.get_current_page()
+	# 	dom_element = await browser_session.get_dom_element_by_index(index)
+	# 	if dom_element is None:
+	# 		raise Exception(f'Element index {index} does not exist - retry or use alternative actions')
 
-						if element_info and element_info.get('found'):
-							logger.debug(f'Found {element_info.get("type")} element in frame {frame_index}: {element_info}')
+	# 	logger.debug(f"Attempting to select '{text}' using xpath: {dom_element.xpath}")
+	# 	logger.debug(f'Element attributes: {dom_element.attributes}')
+	# 	logger.debug(f'Element tag: {dom_element.tag_name}')
 
-							if element_info.get('type') == 'select':
-								# Handle native select element
-								# "label" because we are selecting by text
-								# nth(0) to disable error thrown by strict mode
-								# timeout=1000 because we are already waiting for all network events
-								selected_option_values = (
-									await frame.locator('//' + dom_element.xpath).nth(0).select_option(label=text, timeout=1000)
-								)
+	# 	xpath = '//' + dom_element.xpath
 
-								msg = f'selected option {text} with value {selected_option_values}'
-								logger.info(msg + f' in frame {frame_index}')
+	# 	try:
+	# 		frame_index = 0
+	# 		for frame in page.frames:
+	# 			try:
+	# 				logger.debug(f'Trying frame {frame_index} URL: {frame.url}')
 
-								return ActionResult(
-									extracted_content=msg, include_in_memory=True, long_term_memory=f"Selected option '{text}'"
-								)
+	# 				# First check what type of element we're dealing with
+	# 				element_info_js = """
+	# 					(xpath) => {
+	# 						try {
+	# 							const element = document.evaluate(xpath, document, null,
+	# 								XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+	# 							if (!element) return null;
 
-							elif element_info.get('type') == 'aria':
-								# Handle ARIA menu
-								click_aria_item_js = """
-									(params) => {
-										const { xpath, targetText } = params;
-										try {
-											const element = document.evaluate(xpath, document, null,
-												XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-											if (!element) return {success: false, error: 'Element not found'};
-											
-											// Find all menu items
-											const menuItems = element.querySelectorAll('[role="menuitem"], [role="option"]');
-											
-											for (const item of menuItems) {
-												const itemText = item.textContent.trim();
-												if (itemText === targetText) {
-													// Simulate click on the menu item
-													item.click();
-													
-													// Also try dispatching a click event in case the click handler needs it
-													const clickEvent = new MouseEvent('click', {
-														view: window,
-														bubbles: true,
-														cancelable: true
-													});
-													item.dispatchEvent(clickEvent);
-													
-													return {
-														success: true,
-														message: `Clicked menu item: ${targetText}`
-													};
-												}
-											}
-											
-											return {
-												success: false,
-												error: `Menu item with text '${targetText}' not found`
-											};
-										} catch (e) {
-											return {success: false, error: e.toString()};
-										}
-									}
-								"""
+	# 							const tagName = element.tagName.toLowerCase();
+	# 							const role = element.getAttribute('role');
 
-								result = await frame.evaluate(
-									click_aria_item_js, {'xpath': dom_element.xpath, 'targetText': text}
-								)
+	# 							// Check if it's a native select
+	# 							if (tagName === 'select') {
+	# 								return {
+	# 									type: 'select',
+	# 									found: true,
+	# 									id: element.id,
+	# 									name: element.name,
+	# 									tagName: element.tagName,
+	# 									optionCount: element.options.length,
+	# 									currentValue: element.value,
+	# 									availableOptions: Array.from(element.options).map(o => o.text.trim())
+	# 								};
+	# 							}
 
-								if result.get('success'):
-									msg = result.get('message', f'Selected ARIA menu item: {text}')
-									logger.info(msg + f' in frame {frame_index}')
-									return ActionResult(
-										extracted_content=msg,
-										include_in_memory=True,
-										long_term_memory=f"Selected menu item '{text}'",
-									)
-								else:
-									logger.error(f'Failed to select ARIA menu item: {result.get("error")}')
-									continue
+	# 							// Check if it's an ARIA menu or similar
+	# 							if (role === 'menu' || role === 'listbox' || role === 'combobox') {
+	# 								const menuItems = element.querySelectorAll('[role="menuitem"], [role="option"]');
+	# 								return {
+	# 									type: 'aria',
+	# 									found: true,
+	# 									id: element.id || '',
+	# 									role: role,
+	# 									tagName: element.tagName,
+	# 									itemCount: menuItems.length,
+	# 									availableOptions: Array.from(menuItems).map(item => item.textContent.trim())
+	# 								};
+	# 							}
 
-						elif element_info:
-							logger.error(f'Frame {frame_index} error: {element_info.get("error")}')
-							continue
+	# 							return {
+	# 								error: `Element is neither a select nor an ARIA menu (tag: ${tagName}, role: ${role})`,
+	# 								found: false
+	# 							};
+	# 						} catch (e) {
+	# 							return {error: e.toString(), found: false};
+	# 						}
+	# 					}
+	# 				"""
 
-					except Exception as frame_e:
-						logger.error(f'Frame {frame_index} attempt failed: {str(frame_e)}')
-						logger.error(f'Frame type: {type(frame)}')
-						logger.error(f'Frame URL: {frame.url}')
+	# 				element_info = await frame.evaluate(element_info_js, dom_element.xpath)
 
-					frame_index += 1
+	# 				if element_info and element_info.get('found'):
+	# 					logger.debug(f'Found {element_info.get("type")} element in frame {frame_index}: {element_info}')
 
-				msg = f"Could not select option '{text}' in any frame"
-				logger.info(msg)
-				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
+	# 					if element_info.get('type') == 'select':
+	# 						# Handle native select element
+	# 						# "label" because we are selecting by text
+	# 						# nth(0) to disable error thrown by strict mode
+	# 						# timeout=1000 because we are already waiting for all network events
+	# 						selected_option_values = (
+	# 							await frame.locator('//' + dom_element.xpath).nth(0).select_option(label=text, timeout=1000)
+	# 						)
 
-			except Exception as e:
-				msg = f'Selection failed: {str(e)}'
-				logger.error(msg)
-				raise BrowserError(msg)
+	# 						msg = f'selected option {text} with value {selected_option_values}'
+	# 						logger.info(msg + f' in frame {frame_index}')
 
-		@self.registry.action('Google Sheets: Get the contents of the entire sheet', domains=['https://docs.google.com'])
-		async def read_sheet_contents(page: Page):
-			# select all cells
-			await page.keyboard.press('Enter')
-			await page.keyboard.press('Escape')
-			await page.keyboard.press('ControlOrMeta+A')
-			await page.keyboard.press('ControlOrMeta+C')
+	# 						return ActionResult(
+	# 							extracted_content=msg, include_in_memory=True, long_term_memory=f"Selected option '{text}'"
+	# 						)
 
-			extracted_tsv = await page.evaluate('() => navigator.clipboard.readText()')
-			return ActionResult(
-				extracted_content=extracted_tsv,
-				include_in_memory=True,
-				long_term_memory='Retrieved sheet contents',
-				include_extracted_content_only_once=True,
-			)
+	# 					elif element_info.get('type') == 'aria':
+	# 						# Handle ARIA menu
+	# 						click_aria_item_js = """
+	# 							(params) => {
+	# 								const { xpath, targetText } = params;
+	# 								try {
+	# 									const element = document.evaluate(xpath, document, null,
+	# 										XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+	# 									if (!element) return {success: false, error: 'Element not found'};
 
-		@self.registry.action('Google Sheets: Get the contents of a cell or range of cells', domains=['https://docs.google.com'])
-		async def read_cell_contents(cell_or_range: str, browser_session: BrowserSession):
-			page = await browser_session.get_current_page()
+	# 									// Find all menu items
+	# 									const menuItems = element.querySelectorAll('[role="menuitem"], [role="option"]');
 
-			await select_cell_or_range(cell_or_range=cell_or_range, page=page)
+	# 									for (const item of menuItems) {
+	# 										const itemText = item.textContent.trim();
+	# 										if (itemText === targetText) {
+	# 											// Simulate click on the menu item
+	# 											item.click();
 
-			await page.keyboard.press('ControlOrMeta+C')
-			await asyncio.sleep(0.1)
-			extracted_tsv = await page.evaluate('() => navigator.clipboard.readText()')
-			return ActionResult(
-				extracted_content=extracted_tsv,
-				include_in_memory=True,
-				long_term_memory=f'Retrieved contents from {cell_or_range}',
-				include_extracted_content_only_once=True,
-			)
+	# 											// Also try dispatching a click event in case the click handler needs it
+	# 											const clickEvent = new MouseEvent('click', {
+	# 												view: window,
+	# 												bubbles: true,
+	# 												cancelable: true
+	# 											});
+	# 											item.dispatchEvent(clickEvent);
 
-		@self.registry.action(
-			'Google Sheets: Update the content of a cell or range of cells', domains=['https://docs.google.com']
-		)
-		async def update_cell_contents(cell_or_range: str, new_contents_tsv: str, browser_session: BrowserSession):
-			page = await browser_session.get_current_page()
+	# 											return {
+	# 												success: true,
+	# 												message: `Clicked menu item: ${targetText}`
+	# 											};
+	# 										}
+	# 									}
 
-			await select_cell_or_range(cell_or_range=cell_or_range, page=page)
+	# 									return {
+	# 										success: false,
+	# 										error: `Menu item with text '${targetText}' not found`
+	# 									};
+	# 								} catch (e) {
+	# 									return {success: false, error: e.toString()};
+	# 								}
+	# 							}
+	# 						"""
 
-			# simulate paste event from clipboard with TSV content
-			await page.evaluate(f"""
-				const clipboardData = new DataTransfer();
-				clipboardData.setData('text/plain', `{new_contents_tsv}`);
-				document.activeElement.dispatchEvent(new ClipboardEvent('paste', {{clipboardData}}));
-			""")
+	# 						result = await frame.evaluate(
+	# 							click_aria_item_js, {'xpath': dom_element.xpath, 'targetText': text}
+	# 						)
 
-			return ActionResult(
-				extracted_content=f'Updated cells: {cell_or_range} = {new_contents_tsv}',
-				include_in_memory=False,
-				long_term_memory=f'Updated cells {cell_or_range} with {new_contents_tsv}',
-			)
+	# 						if result.get('success'):
+	# 							msg = result.get('message', f'Selected ARIA menu item: {text}')
+	# 							logger.info(msg + f' in frame {frame_index}')
+	# 							return ActionResult(
+	# 								extracted_content=msg,
+	# 								include_in_memory=True,
+	# 								long_term_memory=f"Selected menu item '{text}'",
+	# 							)
+	# 						else:
+	# 							logger.error(f'Failed to select ARIA menu item: {result.get("error")}')
+	# 							continue
 
-		@self.registry.action('Google Sheets: Clear whatever cells are currently selected', domains=['https://docs.google.com'])
-		async def clear_cell_contents(cell_or_range: str, browser_session: BrowserSession):
-			page = await browser_session.get_current_page()
+	# 				elif element_info:
+	# 					logger.error(f'Frame {frame_index} error: {element_info.get("error")}')
+	# 					continue
 
-			await select_cell_or_range(cell_or_range=cell_or_range, page=page)
+	# 			except Exception as frame_e:
+	# 				logger.error(f'Frame {frame_index} attempt failed: {str(frame_e)}')
+	# 				logger.error(f'Frame type: {type(frame)}')
+	# 				logger.error(f'Frame URL: {frame.url}')
 
-			await page.keyboard.press('Backspace')
-			return ActionResult(
-				extracted_content=f'Cleared cells: {cell_or_range}',
-				include_in_memory=False,
-				long_term_memory=f'Cleared cells {cell_or_range}',
-			)
+	# 			frame_index += 1
 
-		@self.registry.action('Google Sheets: Select a specific cell or range of cells', domains=['https://docs.google.com'])
-		async def select_cell_or_range(cell_or_range: str, page: Page):
-			await page.keyboard.press('Enter')  # make sure we dont delete current cell contents if we were last editing
-			await page.keyboard.press('Escape')  # to clear current focus (otherwise select range popup is additive)
-			await asyncio.sleep(0.1)
-			await page.keyboard.press('Home')  # move cursor to the top left of the sheet first
-			await page.keyboard.press('ArrowUp')
-			await asyncio.sleep(0.1)
-			await page.keyboard.press('Control+G')  # open the goto range popup
-			await asyncio.sleep(0.2)
-			await page.keyboard.type(cell_or_range, delay=0.05)
-			await asyncio.sleep(0.2)
-			await page.keyboard.press('Enter')
-			await asyncio.sleep(0.2)
-			await page.keyboard.press('Escape')  # to make sure the popup still closes in the case where the jump failed
-			return ActionResult(
-				extracted_content=f'Selected cells: {cell_or_range}',
-				include_in_memory=False,
-				long_term_memory=f'Selected cells {cell_or_range}',
-			)
+	# 		msg = f"Could not select option '{text}' in any frame"
+	# 		logger.info(msg)
+	# 		return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
 
-		@self.registry.action(
-			'Google Sheets: Fallback method to type text into (only one) currently selected cell',
-			domains=['https://docs.google.com'],
-		)
-		async def fallback_input_into_single_selected_cell(text: str, page: Page):
-			await page.keyboard.type(text, delay=0.1)
-			await page.keyboard.press('Enter')  # make sure to commit the input so it doesn't get overwritten by the next action
-			await page.keyboard.press('ArrowUp')
-			return ActionResult(
-				extracted_content=f'Inputted text {text}',
-				include_in_memory=False,
-				long_term_memory=f"Inputted text '{text}' into cell",
-			)
+	# 	except Exception as e:
+	# 		msg = f'Selection failed: {str(e)}'
+	# 		logger.error(msg)
+	# 		raise BrowserError(msg)
+
+	# @self.registry.action('Google Sheets: Get the contents of the entire sheet', domains=['https://docs.google.com'])
+	# async def read_sheet_contents(browser_session: BrowserSession):
+	# 	# Use send keys events to select and copy all cells
+	# 	for key in ['Enter', 'Escape', 'ControlOrMeta+A', 'ControlOrMeta+C']:
+	# 		event = browser_session.event_bus.dispatch(SendKeysEvent(keys=key))
+	# 		await event
+
+	# 	# Get page to evaluate clipboard
+	# 	page = await browser_session.get_current_page()
+	# 	extracted_tsv = await page.evaluate('() => navigator.clipboard.readText()')
+	# 	return ActionResult(
+	# 		extracted_content=extracted_tsv,
+	# 		include_in_memory=True,
+	# 		long_term_memory='Retrieved sheet contents',
+	# 		include_extracted_content_only_once=True,
+	# 	)
+
+	# @self.registry.action('Google Sheets: Get the contents of a cell or range of cells', domains=['https://docs.google.com'])
+	# async def read_cell_contents(cell_or_range: str, browser_session: BrowserSession):
+	# 	page = await browser_session.get_current_page()
+
+	# 	await select_cell_or_range(cell_or_range=cell_or_range, page=page)
+
+	# 	await page.keyboard.press('ControlOrMeta+C')
+	# 	await asyncio.sleep(0.1)
+	# 	extracted_tsv = await page.evaluate('() => navigator.clipboard.readText()')
+	# 	return ActionResult(
+	# 		extracted_content=extracted_tsv,
+	# 		include_in_memory=True,
+	# 		long_term_memory=f'Retrieved contents from {cell_or_range}',
+	# 		include_extracted_content_only_once=True,
+	# 	)
+
+	# @self.registry.action(
+	# 	'Google Sheets: Update the content of a cell or range of cells', domains=['https://docs.google.com']
+	# )
+	# async def update_cell_contents(cell_or_range: str, new_contents_tsv: str, browser_session: BrowserSession):
+	# 	page = await browser_session.get_current_page()
+
+	# 	await select_cell_or_range(cell_or_range=cell_or_range, page=page)
+
+	# 	# simulate paste event from clipboard with TSV content
+	# 	await page.evaluate(f"""
+	# 		const clipboardData = new DataTransfer();
+	# 		clipboardData.setData('text/plain', `{new_contents_tsv}`);
+	# 		document.activeElement.dispatchEvent(new ClipboardEvent('paste', {{clipboardData}}));
+	# 	""")
+
+	# 	return ActionResult(
+	# 		extracted_content=f'Updated cells: {cell_or_range} = {new_contents_tsv}',
+	# 		include_in_memory=False,
+	# 		long_term_memory=f'Updated cells {cell_or_range} with {new_contents_tsv}',
+	# 	)
+
+	# @self.registry.action('Google Sheets: Clear whatever cells are currently selected', domains=['https://docs.google.com'])
+	# async def clear_cell_contents(cell_or_range: str, browser_session: BrowserSession):
+	# 	page = await browser_session.get_current_page()
+
+	# 	await select_cell_or_range(cell_or_range=cell_or_range, page=page)
+
+	# 	await page.keyboard.press('Backspace')
+	# 	return ActionResult(
+	# 		extracted_content=f'Cleared cells: {cell_or_range}',
+	# 		include_in_memory=False,
+	# 		long_term_memory=f'Cleared cells {cell_or_range}',
+	# 	)
+
+	# @self.registry.action('Google Sheets: Select a specific cell or range of cells', domains=['https://docs.google.com'])
+	# async def select_cell_or_range(cell_or_range: str, browser_session: BrowserSession):
+	# 	# Use send keys events for navigation
+	# 	for key in ['Enter', 'Escape']:
+	# 		event = browser_session.event_bus.dispatch(SendKeysEvent(keys=key))
+	# 		await event
+	# 	await asyncio.sleep(0.1)
+	# 	for key in ['Home', 'ArrowUp']:
+	# 		event = browser_session.event_bus.dispatch(SendKeysEvent(keys=key))
+	# 		await event
+	# 	await asyncio.sleep(0.1)
+	# 	event = browser_session.event_bus.dispatch(SendKeysEvent(keys='Control+G'))
+	# 	await event
+	# 	await asyncio.sleep(0.2)
+	# 	# Get page to type the cell range
+	# 	page = await browser_session.get_current_page()
+	# 	await page.keyboard.type(cell_or_range, delay=0.05)
+	# 	await asyncio.sleep(0.2)
+	# 	for key in ['Enter', 'Escape']:
+	# 		event = browser_session.event_bus.dispatch(SendKeysEvent(keys=key))
+	# 		await event
+	# 		await asyncio.sleep(0.2)
+	# 	return ActionResult(
+	# 		extracted_content=f'Selected cells: {cell_or_range}',
+	# 		include_in_memory=False,
+	# 		long_term_memory=f'Selected cells {cell_or_range}',
+	# 	)
+
+	# @self.registry.action(
+	# 	'Google Sheets: Fallback method to type text into (only one) currently selected cell',
+	# 	domains=['https://docs.google.com'],
+	# )
+	# async def fallback_input_into_single_selected_cell(text: str, browser_session: BrowserSession):
+	# 	# Get page to type text
+	# 	page = await browser_session.get_current_page()
+	# 	await page.keyboard.type(text, delay=0.1)
+	# 	# Use send keys for Enter and ArrowUp
+	# 	for key in ['Enter', 'ArrowUp']:
+	# 		event = browser_session.event_bus.dispatch(SendKeysEvent(keys=key))
+	# 		await event
+	# 	return ActionResult(
+	# 		extracted_content=f'Inputted text {text}',
+	# 		include_in_memory=False,
+	# 		long_term_memory=f"Inputted text '{text}' into cell",
+	# 	)
 
 	# Custom done action for structured output
 	def _register_done_action(self, output_model: type[T] | None, display_files_in_done_text: bool = True):

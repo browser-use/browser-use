@@ -3,6 +3,8 @@ Systematic debugging of the selector map issue.
 Test each assumption step by step to isolate the problem.
 """
 
+# pyright: reportGeneralTypeIssues=false
+
 import pytest
 
 from browser_use.browser import BrowserSession

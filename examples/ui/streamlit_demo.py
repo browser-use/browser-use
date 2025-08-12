@@ -84,4 +84,4 @@ if st.button('Run Agent'):
 
 	asyncio.run(run_agent())
 
-	st.button('Close Browser', on_click=lambda: asyncio.run(browser_session.close()))
+	st.button('Close Browser', on_click=lambda: asyncio.run(browser_session.kill()))

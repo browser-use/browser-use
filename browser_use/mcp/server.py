@@ -30,7 +30,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 try:
 	import psutil
@@ -587,12 +587,18 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
+		from browser_use.browser.events import NavigateToUrlEvent
+
 		if new_tab:
-			page = await self.browser_session.create_new_tab(url)
-			tab_idx = self.browser_session.tabs.index(page)
-			return f'Opened new tab #{tab_idx} with URL: {url}'
+			event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=url, new_tab=True))
+			await event
+			# Get the current tab count to determine the new tab index
+			tabs = await self.browser_session.get_tabs()
+			tab_index = len(tabs) - 1
+			return f'Opened new tab #{tab_index} with URL: {url}'
 		else:
-			await self.browser_session.navigate_to(url)
+			event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=url))
+			await event
 			return f'Navigated to: {url}'
 
 	async def _click(self, index: int, new_tab: bool = False) -> str:
@@ -610,36 +616,39 @@ class BrowserUseServer:
 			href = element.attributes.get('href')
 			if href:
 				# Convert relative href to absolute URL
-				current_page = await self.browser_session.get_current_page()
+				state = await self.browser_session.get_browser_state_summary()
+				current_url = state.url
 				if href.startswith('/'):
 					# Relative URL - construct full URL
 					from urllib.parse import urlparse
 
-					parsed = urlparse(current_page.url)
+					parsed = urlparse(current_url)
 					full_url = f'{parsed.scheme}://{parsed.netloc}{href}'
 				else:
 					full_url = href
 
 				# Open link in new tab
-				page = await self.browser_session.create_new_tab(full_url)
-				tab_idx = self.browser_session.tabs.index(page)
-				return f'Clicked element {index} and opened in new tab #{tab_idx}'
+				from browser_use.browser.events import NavigateToUrlEvent
+
+				event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=full_url, new_tab=True))
+				await event
+				tabs = await self.browser_session.get_tabs()
+				tab_index = len(tabs) - 1
+				return f'Clicked element {index} and opened in new tab #{tab_index}'
 			else:
-				# For non-link elements, try Cmd/Ctrl+Click
-				page = await self.browser_session.get_current_page()
-				element_handle = await self.browser_session.get_locate_element(element)
-				if element_handle:
-					# Use playwright's click with modifiers
-					modifier: Literal['Meta', 'Control'] = 'Meta' if sys.platform == 'darwin' else 'Control'
-					await element_handle.click(modifiers=[modifier])
-					# Wait a bit for potential new tab
-					await asyncio.sleep(0.5)
-					return f'Clicked element {index} with {modifier} key (new tab if supported)'
-				else:
-					return f'Could not locate element {index} for modified click'
+				# For non-link elements, just do a normal click
+				# Opening in new tab without href is not reliably supported
+				from browser_use.browser.events import ClickElementEvent
+
+				event = self.browser_session.event_bus.dispatch(ClickElementEvent(node=element))
+				await event
+				return f'Clicked element {index} (new tab not supported for non-link elements)'
 		else:
 			# Normal click
-			await self.browser_session._click_element_node(element)
+			from browser_use.browser.events import ClickElementEvent
+
+			event = self.browser_session.event_bus.dispatch(ClickElementEvent(node=element))
+			await event
 			return f'Clicked element {index}'
 
 	async def _type_text(self, index: int, text: str) -> str:
@@ -651,7 +660,10 @@ class BrowserUseServer:
 		if not element:
 			return f'Element with index {index} not found'
 
-		await self.browser_session._input_text_element_node(element, text)
+		from browser_use.browser.events import TypeTextEvent
+
+		event = self.browser_session.event_bus.dispatch(TypeTextEvent(node=element, text=text))
+		await event
 		return f"Typed '{text}' into element {index}"
 
 	async def _get_browser_state(self, include_screenshot: bool = False) -> str:
@@ -659,7 +671,7 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
-		state = await self.browser_session.get_browser_state_with_recovery(cache_clickable_elements_hashes=False)
+		state = await self.browser_session.get_browser_state_summary(cache_clickable_elements_hashes=False)
 
 		result = {
 			'url': state.url,
@@ -669,11 +681,11 @@ class BrowserUseServer:
 		}
 
 		# Add interactive elements with their indices
-		for index, element in state.selector_map.items():
+		for index, element in state.dom_state.selector_map.items():
 			elem_info = {
 				'index': index,
 				'tag': element.tag_name,
-				'text': element.get_all_text_till_next_clickable_element(max_depth=2)[:100],
+				'text': element.get_all_children_text(max_depth=2)[:100],
 			}
 			if element.attributes.get('placeholder'):
 				elem_info['placeholder'] = element.attributes['placeholder']
@@ -700,7 +712,7 @@ class BrowserUseServer:
 		if not self.controller:
 			return 'Error: Controller not initialized'
 
-		page = await self.browser_session.get_current_page()
+		state = await self.browser_session.get_browser_state_summary()
 
 		# Use the extract_structured_data action
 		# Create a dynamic action model that matches the controller's expectations
@@ -728,13 +740,16 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
-		page = await self.browser_session.get_current_page()
+		from browser_use.browser.events import ScrollEvent
 
-		# Get viewport height
-		viewport_height = await page.evaluate('() => window.innerHeight')
-		dy = viewport_height if direction == 'down' else -viewport_height
-
-		await page.evaluate('(y) => window.scrollBy(0, y)', dy)
+		# Scroll by a standard amount (500 pixels)
+		event = self.browser_session.event_bus.dispatch(
+			ScrollEvent(
+				direction=direction,  # type: ignore
+				amount=500,
+			)
+		)
+		await event
 		return f'Scrolled {direction}'
 
 	async def _go_back(self) -> str:
@@ -742,13 +757,19 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
-		await self.browser_session.go_back()
+		from browser_use.browser.events import GoBackEvent
+
+		event = self.browser_session.event_bus.dispatch(GoBackEvent())
+		await event
 		return 'Navigated back'
 
 	async def _close_browser(self) -> str:
 		"""Close the browser session."""
 		if self.browser_session:
-			await self.browser_session.stop()
+			from browser_use.browser.events import BrowserStopEvent
+
+			event = self.browser_session.event_bus.dispatch(BrowserStopEvent())
+			await event
 			self.browser_session = None
 			self.controller = None
 			return 'Browser closed'
@@ -759,9 +780,10 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
+		tabs_info = await self.browser_session.get_tabs()
 		tabs = []
-		for i, tab in enumerate(self.browser_session.tabs):
-			tabs.append({'index': i, 'url': tab.url, 'title': await tab.title() if not tab.is_closed() else 'Closed'})
+		for i, tab in enumerate(tabs_info):
+			tabs.append({'index': i, 'url': tab.url, 'title': tab.title or ''})
 		return json.dumps(tabs, indent=2)
 
 	async def _switch_tab(self, tab_index: int) -> str:
@@ -769,19 +791,25 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
-		await self.browser_session.switch_to_tab(tab_index)
-		page = await self.browser_session.get_current_page()
-		return f'Switched to tab {tab_index}: {page.url}'
+		from browser_use.browser.events import SwitchTabEvent
+
+		event = self.browser_session.event_bus.dispatch(SwitchTabEvent(tab_index=tab_index))
+		await event
+		state = await self.browser_session.get_browser_state_summary()
+		return f'Switched to tab {tab_index}: {state.url}'
 
 	async def _close_tab(self, tab_index: int) -> str:
 		"""Close a specific tab."""
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
-		if 0 <= tab_index < len(self.browser_session.tabs):
-			tab = self.browser_session.tabs[tab_index]
-			url = tab.url
-			await tab.close()
+		tabs = await self.browser_session.get_tabs()
+		if 0 <= tab_index < len(tabs):
+			url = tabs[tab_index].url
+			from browser_use.browser.events import CloseTabEvent
+
+			event = self.browser_session.event_bus.dispatch(CloseTabEvent(tab_index=tab_index))
+			await event
 			return f'Closed tab {tab_index}: {url}'
 		return f'Invalid tab index: {tab_index}'
 

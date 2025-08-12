@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 from browser_use import Agent, Controller
 from browser_use.agent.views import ActionResult
-from browser_use.browser.context import BrowserContext
+from browser_use.browser.types import BrowserContext
 from browser_use.llm import ChatOpenAI
 
 if not os.getenv('OPENAI_API_KEY'):
@@ -68,7 +68,7 @@ def extract_mistral_ocr(params: PdfExtractParams, browser: BrowserContext) -> Ac
 	markdown = '\n\n'.join(f'### Page {i + 1}\n{response.pages[i].markdown}' for i in range(len(response.pages)))
 	return ActionResult(
 		extracted_content=markdown,
-		include_in_memory=False,  ## PDF content can be very large, so we don't include it in memory
+		include_in_memory=False,  # PDF content can be very large, so we don't include it in memory
 	)
 
 

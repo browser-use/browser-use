@@ -23,7 +23,7 @@ async def main():
 		)
 	)
 
-	async with browser_session:
+	async with browser_session:  # type: ignore
 		agent = Agent(
 			task='Go to hackernews, then go to apple.com and return all titles of open tabs',
 			llm=llm,

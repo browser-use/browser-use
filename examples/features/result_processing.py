@@ -18,7 +18,7 @@ llm = ChatOpenAI(model='gpt-4.1')
 
 
 async def main():
-	async with BrowserSession(
+	async with BrowserSession(  # type: ignore
 		browser_profile=BrowserProfile(
 			headless=False,
 			traces_dir='./tmp/result_processing',

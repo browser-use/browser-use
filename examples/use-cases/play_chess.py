@@ -4,6 +4,8 @@
 # dependencies = ["python-chess", "browser-use", "beautifulsoup4"]
 # ///
 
+# pyright: reportAttributeAccessIssue=false
+
 import os
 import sys
 
@@ -22,7 +24,7 @@ from pydantic import BaseModel, Field
 
 from browser_use import Agent, Controller
 from browser_use.agent.views import ActionResult
-from browser_use.browser.context import BrowserContext
+from browser_use.browser.types import BrowserContext
 from browser_use.llm import ChatOpenAI
 
 if not os.getenv('OPENAI_API_KEY'):

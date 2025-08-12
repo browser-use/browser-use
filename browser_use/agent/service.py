@@ -23,7 +23,7 @@ from browser_use.agent.cloud_events import (
 	UpdateAgentTaskEvent,
 )
 from browser_use.agent.message_manager.utils import save_conversation
-from browser_use.dom.views import DEFAULT_INCLUDE_ATTRIBUTES
+from browser_use.browser.events import BrowserStateRequestEvent
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import BaseMessage, UserMessage
 from browser_use.tokens.service import TokenCost
@@ -60,10 +60,7 @@ from browser_use.browser.views import BrowserStateSummary
 from browser_use.config import CONFIG
 from browser_use.controller.registry.views import ActionModel
 from browser_use.controller.service import Controller
-from browser_use.dom.history_tree_processor.service import (
-	DOMHistoryElement,
-	HistoryTreeProcessor,
-)
+from browser_use.dom.views import DOMInteractedElement
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.observability import observe, observe_debug
 from browser_use.sync import CloudSync
@@ -164,7 +161,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		validate_output: bool = False,
 		generate_gif: bool | str = False,
 		available_file_paths: list[str] | None = None,
-		include_attributes: list[str] = DEFAULT_INCLUDE_ATTRIBUTES,
+		include_attributes: list[str] | None = None,
 		max_actions_per_step: int = 10,
 		use_thinking: bool = True,
 		flash_mode: bool = False,
@@ -185,13 +182,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		include_tool_call_examples: bool = False,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		llm_timeout: int = 60,
-		step_timeout: int = 180,
+		step_timeout: int = 120,
+		preload: bool = False,
+		include_recent_events: bool = False,
 		**kwargs,
 	):
 		if not isinstance(llm, BaseChatModel):
 			raise ValueError('invalid llm, must be from browser_use.llm')
 		# Check for deprecated planner parameters
-		planner_params = [planner_llm, use_vision_for_planner, is_planner_reasoning, extend_planner_system_message]
+		planner_params = [
+			planner_llm,
+			use_vision_for_planner,
+			is_planner_reasoning,
+			extend_planner_system_message,
+		]
 		if any(param is not None and param is not False for param in planner_params) or planner_interval != 1:
 			logger.warning(
 				'⚠️ Planner functionality has been removed in browser-use v0.3.3+. '
@@ -228,6 +232,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Core components
 		self.task = task
 		self.llm = llm
+		self.preload = preload
+		self.include_recent_events = include_recent_events
 		self.controller = (
 			controller if controller is not None else Controller(display_files_in_done_text=display_files_in_done_text)
 		)
@@ -344,6 +350,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			max_history_items=self.settings.max_history_items,
 			vision_detail_level=self.settings.vision_detail_level,
 			include_tool_call_examples=self.settings.include_tool_call_examples,
+			include_recent_events=self.include_recent_events,
 		)
 
 		if isinstance(browser, BrowserSession):
@@ -359,23 +366,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		browser_profile = browser_profile or DEFAULT_BROWSER_PROFILE
 
 		if browser_session:
-			# Always copy sessions that are passed in to avoid agents overwriting each other's agent_current_page and human_current_page by accident
-			# The model_copy() method now handles copying all necessary fields and setting up ownership
-			if browser_session._owns_browser_resources:
-				self.browser_session = browser_session
-			else:
-				self.logger.warning(
-					'⚠️ Attempting to use multiple Agents with the same BrowserSession! This is not supported yet and will likely lead to strange behavior, use separate BrowserSessions for each Agent.'
-				)
-				self.browser_session = browser_session.model_copy()
+			# Use the browser session directly without copying
+			# This ensures the CDP client and watchdogs are properly accessible
+			self.browser_session = browser_session
 		else:
 			if browser is not None:
 				assert isinstance(browser, Browser), 'Browser is not set up'
 			self.browser_session = BrowserSession(
 				browser_profile=browser_profile,
-				browser=browser,
-				browser_context=browser_context,
-				agent_current_page=page,
 				id=uuid7str()[:-4] + self.id[-4:],  # re-use the same 4-char suffix so they show up together in logs
 			)
 
@@ -484,20 +482,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Get instance-specific logger with task ID in the name"""
 
 		_browser_session_id = self.browser_session.id if self.browser_session else self.id
-		_current_page_id = str(id(self.browser_session and self.browser_session.agent_current_page))[-2:]
+		_current_page_id = (
+			self.browser_session.agent_focus.target_id[-2:]
+			if self.browser_session and self.browser_session.agent_focus and self.browser_session.agent_focus.target_id
+			else '--'
+		)
 		return logging.getLogger(f'browser_use.Agent🅰 {self.task_id[-4:]} on 🆂 {_browser_session_id[-4:]} 🅟 {_current_page_id}')
-
-	@property
-	def browser(self) -> Browser:
-		assert self.browser_session is not None, 'BrowserSession is not set up'
-		assert self.browser_session.browser is not None, 'Browser is not set up'
-		return self.browser_session.browser
-
-	@property
-	def browser_context(self) -> BrowserContext:
-		assert self.browser_session is not None, 'BrowserSession is not set up'
-		assert self.browser_session.browser_context is not None, 'BrowserContext is not set up'
-		return self.browser_session.browser_context
 
 	@property
 	def browser_profile(self) -> BrowserProfile:
@@ -710,25 +700,33 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		assert self.browser_session is not None, 'BrowserSession is not set up'
 
 		self.logger.debug(f'🌐 Step {self.state.n_steps}: Getting browser state...')
-		# Capture screenshots if needed for either vision (LLM input) or GIF generation
-		should_capture_screenshot = self.settings.use_vision or bool(self.settings.generate_gif)
-		browser_state_summary = await self.browser_session.get_browser_state_with_recovery(
-			cache_clickable_elements_hashes=True, include_screenshot=should_capture_screenshot
+		# Always take screenshots for all steps
+		# Use caching based on preload setting - if preload is False, don't use cached state
+		use_cache = self.preload
+		self.logger.debug(f'📸 Requesting browser state with include_screenshot=True, cached={use_cache}')
+		browser_state_summary = await self.browser_session.get_browser_state_summary(
+			cache_clickable_elements_hashes=True,
+			include_screenshot=True,  # always capture even if use_vision=False so that cloud sync is useful (it's fast now anyway)
+			cached=use_cache,
+			include_recent_events=self.include_recent_events,
 		)
-		current_page = await self.browser_session.get_current_page()
+		if browser_state_summary.screenshot:
+			self.logger.debug(f'📸 Got browser state WITH screenshot, length: {len(browser_state_summary.screenshot)}')
+		else:
+			self.logger.debug('📸 Got browser state WITHOUT screenshot')
 
 		# Check for new downloads after getting browser state (catches PDF auto-downloads and previous step downloads)
 		await self._check_and_update_downloads(f'Step {self.state.n_steps}: after getting browser state')
 
-		self._log_step_context(current_page, browser_state_summary)
+		self._log_step_context(browser_state_summary)
 		await self._raise_if_stopped_or_paused()
 
 		# Update action models with page-specific actions
 		self.logger.debug(f'📝 Step {self.state.n_steps}: Updating action models...')
-		await self._update_action_models_for_page(current_page)
+		await self._update_action_models_for_page(browser_state_summary.url)
 
 		# Get page-specific filtered actions
-		page_filtered_actions = self.controller.registry.get_prompt_description(current_page)
+		page_filtered_actions = self.controller.registry.get_prompt_description(browser_state_summary.url)
 
 		# Page-specific actions will be included directly in the browser_state message
 		self.logger.debug(f'💬 Step {self.state.n_steps}: Creating state messages for context...')
@@ -759,6 +757,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self._get_model_output_with_retry(input_messages), timeout=self.settings.llm_timeout
 			)
 		except TimeoutError:
+
+			@observe(name='_llm_call_timed_out_with_input')
+			async def _log_model_input_to_lmnr(input_messages: list[BaseMessage]) -> None:
+				"""Log the model input"""
+				pass
+
+			await _log_model_input_to_lmnr(input_messages)
+
 			raise TimeoutError(
 				f'LLM call timed out after {self.settings.llm_timeout} seconds. Keep your thinking and output short.'
 			)
@@ -888,7 +894,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			# Emit CreateAgentStepEvent
 			step_event = CreateAgentStepEvent.from_agent_step(
-				self, self.state.last_model_output, self.state.last_result, actions_data, browser_state_summary
+				self,
+				self.state.last_model_output,
+				self.state.last_result,
+				actions_data,
+				browser_state_summary,
 			)
 			self.eventbus.dispatch(step_event)
 
@@ -944,14 +954,24 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		return model_output
 
 	async def _handle_post_llm_processing(
-		self, browser_state_summary: BrowserStateSummary, input_messages: list[BaseMessage]
+		self,
+		browser_state_summary: BrowserStateSummary,
+		input_messages: list[BaseMessage],
 	) -> None:
 		"""Handle callbacks and conversation saving after LLM interaction"""
 		if self.register_new_step_callback and self.state.last_model_output:
 			if inspect.iscoroutinefunction(self.register_new_step_callback):
-				await self.register_new_step_callback(browser_state_summary, self.state.last_model_output, self.state.n_steps)
+				await self.register_new_step_callback(
+					browser_state_summary,
+					self.state.last_model_output,
+					self.state.n_steps,
+				)
 			else:
-				self.register_new_step_callback(browser_state_summary, self.state.last_model_output, self.state.n_steps)
+				self.register_new_step_callback(
+					browser_state_summary,
+					self.state.last_model_output,
+					self.state.n_steps,
+				)
 
 		if self.settings.save_conversation_path and self.state.last_model_output:
 			# Treat save_conversation_path as a directory (consistent with other recording paths)
@@ -975,14 +995,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Create and store history item"""
 
 		if model_output:
-			interacted_elements = AgentHistory.get_interacted_element(model_output, browser_state_summary.selector_map)
+			interacted_elements = AgentHistory.get_interacted_element(model_output, browser_state_summary.dom_state.selector_map)
 		else:
 			interacted_elements = [None]
 
 		# Store screenshot and get path
 		screenshot_path = None
 		if browser_state_summary.screenshot:
+			self.logger.debug(
+				f'📸 Storing screenshot for step {self.state.n_steps}, screenshot length: {len(browser_state_summary.screenshot)}'
+			)
 			screenshot_path = await self.screenshot_service.store_screenshot(browser_state_summary.screenshot, self.state.n_steps)
+			self.logger.debug(f'📸 Screenshot stored at: {screenshot_path}')
+		else:
+			self.logger.debug(f'📸 No screenshot in browser_state_summary for step {self.state.n_steps}')
 
 		state_history = BrowserStateHistory(
 			url=browser_state_summary.url,
@@ -1029,7 +1055,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			self._log_next_action_summary(parsed)
 			return parsed
-		except ValidationError as e:
+		except ValidationError:
 			# Just re-raise - Pydantic's validation errors are already descriptive
 			raise
 
@@ -1039,10 +1065,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self.logger.debug(f'🤖 Browser-Use Library Version {self.version} ({self.source})')
 
-	def _log_step_context(self, current_page, browser_state_summary) -> None:
+	def _log_step_context(self, browser_state_summary: BrowserStateSummary) -> None:
 		"""Log step context information"""
-		url_short = current_page.url[:50] + '...' if len(current_page.url) > 50 else current_page.url
-		interactive_count = len(browser_state_summary.selector_map) if browser_state_summary else 0
+		url = browser_state_summary.url if browser_state_summary else ''
+		url_short = url[:50] + '...' if len(url) > 50 else url
+		interactive_count = len(browser_state_summary.dom_state.selector_map) if browser_state_summary else 0
 		self.logger.info(
 			f'📍 Step {self.state.n_steps}: Evaluating page with {interactive_count} interactive elements on: {url_short}'
 		)
@@ -1179,6 +1206,33 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		return False, False
 
+	def _extract_url_from_task(self, task: str) -> str | None:
+		"""Extract URL from task string using naive pattern matching."""
+		import re
+
+		# Look for common URL patterns
+		patterns = [
+			r'https?://[^\s<>"\']+',  # Full URLs with http/https
+			r'(?:www\.)?[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,}(?:/[^\s<>"\']*)?',  # Domain names with subdomains and optional paths
+		]
+
+		for pattern in patterns:
+			match = re.search(pattern, task)
+			if match:
+				url = match.group(0)
+				# Add https:// if missing
+				if not url.startswith(('http://', 'https://')):
+					url = 'https://' + url
+				return url
+
+		# If no URL found, check if task mentions Google or search
+		task_lower = task.lower()
+		if 'google' in task_lower or 'search' in task_lower:
+			self.logger.debug('📍 Task mentions "google" or "search", defaulting to https://google.com')
+			return 'https://google.com'
+
+		return None
+
 	@observe(name='agent.run', metadata={'task': '{{task}}', 'debug': '{{debug}}'})
 	@time_execution_async('--run')
 	async def run(
@@ -1231,6 +1285,28 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.debug('📡 Dispatching CreateAgentTaskEvent...')
 			# Emit CreateAgentTaskEvent at the START of run()
 			self.eventbus.dispatch(CreateAgentTaskEvent.from_agent(self))
+
+			# Start browser session and attach watchdogs
+			assert self.browser_session is not None, 'Browser session must be initialized before starting'
+			self.logger.debug('🌐 Starting browser session...')
+			from browser_use.browser.events import BrowserStartEvent, NavigateToUrlEvent
+
+			event = self.browser_session.event_bus.dispatch(BrowserStartEvent())
+			await event
+
+			self.logger.debug('🔧 Browser session started with watchdogs attached')
+
+			# Check if task contains a URL and navigate to it immediately (only if preload is enabled)
+			if self.preload:
+				initial_url = self._extract_url_from_task(self.task)
+				if initial_url:
+					self.logger.info(f'🔗 Found URL in task: {initial_url}, navigating immediately...')
+					self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=initial_url))
+
+					# warms up the cache and element highlighting is more useful as a better loading animation than a DVD screensaver
+					self.browser_session.event_bus.dispatch(BrowserStateRequestEvent(include_dom=True, include_screenshot=True))
+
+					self.logger.debug(f'✅ Navigated to {initial_url}')
 
 			# Execute initial actions if provided
 			if self.initial_actions:
@@ -1410,16 +1486,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		results: list[ActionResult] = []
 
 		assert self.browser_session is not None, 'BrowserSession is not set up'
-		cached_selector_map = {}
-		cached_path_hashes = set()
-		# check all actions if any has index, if so, get the selector map
-		for action in actions:
-			if action.get_index() is not None:
-				cached_selector_map = await self.browser_session.get_selector_map()
-				cached_path_hashes = {e.hash.branch_path_hash for e in cached_selector_map.values()}
-				break
+		try:
+			cached_selector_map = self.browser_session._cached_browser_state_summary.dom_state.selector_map
+			cached_element_hashes = {hash(e) for e in cached_selector_map.values()}
+		except Exception as e:
+			self.logger.error(f'Error getting cached selector map: {e}')
+			cached_element_hashes = set()
 
-		# loop over actions and execute them
+		# await self.browser_session.remove_highlights()
+
 		for i, action in enumerate(actions):
 			if i > 0:
 				# ONLY ALLOW TO CALL `done` IF IT IS A SINGLE ACTION
@@ -1428,44 +1503,50 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					logger.info(msg)
 					break
 
-				if action.get_index() is not None:
-					new_browser_state_summary = await self.browser_session.get_browser_state_with_recovery(
-						cache_clickable_elements_hashes=False, include_screenshot=False
+			# DOM synchronization check - verify element indexes are still valid AFTER first action
+			# This prevents stale element detection but doesn't refresh before execution
+			if action.get_index() is not None and i != 0:
+				new_browser_state_summary = await self.browser_session.get_browser_state_summary(
+					cache_clickable_elements_hashes=False,
+					include_screenshot=False,
+				)
+				new_selector_map = new_browser_state_summary.dom_state.selector_map
+
+				# Detect index change after previous action
+				orig_target = cached_selector_map.get(action.get_index())  # type: ignore
+				orig_target_hash = hash(orig_target) if orig_target else None
+				new_target = new_selector_map.get(action.get_index())  # type: ignore
+				new_target_hash = hash(new_target) if new_target else None
+
+				if orig_target_hash != new_target_hash:
+					msg = f'Element index changed after action {i} / {len(actions)}, because page changed.'
+					logger.info(msg)
+					results.append(
+						ActionResult(
+							extracted_content=msg,
+							include_in_memory=True,
+							long_term_memory=msg,
+						)
 					)
-					new_selector_map = new_browser_state_summary.selector_map
+					break
 
-					# Detect index change after previous action
-					orig_target = cached_selector_map.get(action.get_index())  # type: ignore
-					orig_target_hash = orig_target.hash.branch_path_hash if orig_target else None
-					new_target = new_selector_map.get(action.get_index())  # type: ignore
-					new_target_hash = new_target.hash.branch_path_hash if new_target else None
-					if orig_target_hash != new_target_hash:
-						msg = f'Element index changed after action {i} / {len(actions)}, because page changed.'
-						logger.info(msg)
-						results.append(
-							ActionResult(
-								extracted_content=msg,
-								include_in_memory=True,
-								long_term_memory=msg,
-							)
+				# Check for new elements that appeared
+				new_element_hashes = {hash(e) for e in new_selector_map.values()}
+				if check_for_new_elements and not new_element_hashes.issubset(cached_element_hashes):
+					# next action requires index but there are new elements on the page
+					msg = f'Something new appeared after action {i} / {len(actions)}, following actions are NOT executed and should be retried.'
+					logger.info(msg)
+					results.append(
+						ActionResult(
+							extracted_content=msg,
+							include_in_memory=True,
+							long_term_memory=msg,
 						)
-						break
+					)
+					break
 
-					new_path_hashes = {e.hash.branch_path_hash for e in new_selector_map.values()}
-					if check_for_new_elements and not new_path_hashes.issubset(cached_path_hashes):
-						# next action requires index but there are new elements on the page
-						msg = f'Something new appeared after action {i} / {len(actions)}, following actions are NOT executed and should be retried.'
-						logger.info(msg)
-						results.append(
-							ActionResult(
-								extracted_content=msg,
-								include_in_memory=True,
-								long_term_memory=msg,
-							)
-						)
-						break
-
-				# wait between actions
+			# wait between actions (only after first action)
+			if i > 0:
 				await asyncio.sleep(self.browser_profile.wait_between_actions)
 
 			try:
@@ -1568,7 +1649,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def _execute_history_step(self, history_item: AgentHistory, delay: float) -> list[ActionResult]:
 		"""Execute a single step from history with element validation"""
 		assert self.browser_session is not None, 'BrowserSession is not set up'
-		state = await self.browser_session.get_browser_state_with_recovery(
+		state = await self.browser_session.get_browser_state_summary(
 			cache_clickable_elements_hashes=False, include_screenshot=False
 		)
 		if not state or not history_item.model_output:
@@ -1592,7 +1673,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	async def _update_action_indices(
 		self,
-		historical_element: DOMHistoryElement | None,
+		historical_element: DOMInteractedElement | None,
 		action: ActionModel,  # Type this properly based on your action model
 		browser_state_summary: BrowserStateSummary,
 	) -> ActionModel | None:
@@ -1600,20 +1681,27 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		Update action indices based on current page state.
 		Returns updated action or None if element cannot be found.
 		"""
-		if not historical_element or not browser_state_summary.element_tree:
+		if not historical_element or not browser_state_summary.dom_state.selector_map:
 			return action
 
-		current_element = HistoryTreeProcessor.find_history_element_in_tree(
-			historical_element, browser_state_summary.element_tree
+		# selector_hash_map = {hash(e): e for e in browser_state_summary.dom_state.selector_map.values()}
+
+		highlight_index, current_element = next(
+			(
+				(highlight_index, element)
+				for highlight_index, element in browser_state_summary.dom_state.selector_map.items()
+				if element.element_hash == historical_element.element_hash
+			),
+			(None, None),
 		)
 
-		if not current_element or current_element.highlight_index is None:
+		if not current_element or highlight_index is None:
 			return None
 
 		old_index = action.get_index()
-		if old_index != current_element.highlight_index:
-			action.set_index(current_element.highlight_index)
-			self.logger.info(f'Element moved in DOM, updated index from {old_index} to {current_element.highlight_index}')
+		if old_index != highlight_index:
+			action.set_index(highlight_index)
+			self.logger.info(f'Element moved in DOM, updated index from {old_index} to {highlight_index}')
 
 		return action
 
@@ -1664,15 +1752,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# The signal handler should have already reset the flags
 		# through its reset() method when called from run()
 
-		# playwright browser is always immediately killed by the first Ctrl+C (no way to stop that)
-		# so we need to restart the browser if user wants to continue
-		# the _init() method exists, even through its shows a linter error
-		if self.browser:
-			self.logger.info('🌎 Restarting/reconnecting to browser...')
-			loop = asyncio.get_event_loop()
-			loop.create_task(self.browser._init())  # type: ignore
-			loop.create_task(asyncio.sleep(5))
-
 	def stop(self) -> None:
 		"""Stop the agent"""
 		self.logger.info('⏹️ Agent stopping')
@@ -1720,20 +1799,40 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def close(self):
 		"""Close all resources"""
 		try:
-			# First close browser resources
-			assert self.browser_session is not None, 'BrowserSession is not set up'
-			await self.browser_session.stop()
+			# Only close browser if keep_alive is False (or not set)
+			if self.browser_session is not None:
+				if not self.browser_session.browser_profile.keep_alive:
+					# Kill the browser session - this dispatches BrowserStopEvent,
+					# stops the EventBus with clear=True, and recreates a fresh EventBus
+					await self.browser_session.kill()
 
 			# Force garbage collection
 			gc.collect()
 
+			# Debug: Log remaining threads and asyncio tasks
+			import threading
+
+			threads = threading.enumerate()
+			self.logger.debug(f'🧵 Remaining threads ({len(threads)}): {[t.name for t in threads]}')
+
+			# Get all asyncio tasks
+			tasks = asyncio.all_tasks(asyncio.get_event_loop())
+			# Filter out the current task (this close() coroutine)
+			other_tasks = [t for t in tasks if t != asyncio.current_task()]
+			if other_tasks:
+				self.logger.debug(f'⚡ Remaining asyncio tasks ({len(other_tasks)}):')
+				for task in other_tasks[:10]:  # Limit to first 10 to avoid spam
+					self.logger.debug(f'  - {task.get_name()}: {task}')
+			else:
+				self.logger.debug('⚡ No remaining asyncio tasks')
+
 		except Exception as e:
 			self.logger.error(f'Error during cleanup: {e}')
 
-	async def _update_action_models_for_page(self, page) -> None:
+	async def _update_action_models_for_page(self, page_url: str) -> None:
 		"""Update action models with page-specific actions"""
 		# Create new action model with current page's filtered actions
-		self.ActionModel = self.controller.registry.create_action_model(page=page)
+		self.ActionModel = self.controller.registry.create_action_model(page_url=page_url)
 		# Update output model with the new actions
 		if self.settings.flash_mode:
 			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
@@ -1743,7 +1842,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.AgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.ActionModel)
 
 		# Update done action model too
-		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'], page=page)
+		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'], page_url=page_url)
 		if self.settings.flash_mode:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.DoneActionModel)
 		elif self.settings.use_thinking:
