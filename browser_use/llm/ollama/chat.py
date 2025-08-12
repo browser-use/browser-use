@@ -15,7 +15,7 @@ import json, re
 
 T = TypeVar('T', bound=BaseModel)
 
-@dataclass
+
 
 @dataclass
 class ChatOllama(BaseChatModel):
