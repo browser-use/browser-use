@@ -148,8 +148,8 @@ async def record_activity(agent_obj):
 	extracted_content_json_last_elem = None
 
 	print('--- ON_STEP_START HOOK ---')
-	website_html = await agent_obj.browser_context.get_page_html()
-	website_screenshot = await agent_obj.browser_context.take_screenshot()
+	website_html = await agent_obj.browser_session.get_page_html()
+	website_screenshot = await agent_obj.browser_session.take_screenshot()
 
 	print('--> History:')
 	# Assert agent has state to satisfy type checker
