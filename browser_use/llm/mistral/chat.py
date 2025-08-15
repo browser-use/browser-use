@@ -167,7 +167,7 @@ class ChatMistral(BaseChatModel):
 					message=f'Server error: {e.message}',
 					status_code=e.status_code,
 					model=self.name,
-				)
+				) from e
 		except Exception as e:
 			logger.warning(f'Unexpected error in Mistral API call: {type(e).__name__}: {e}')
 			raise ModelProviderError(message=str(e), model=self.name) from e

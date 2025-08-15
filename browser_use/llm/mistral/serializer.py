@@ -86,9 +86,11 @@ class MistralMessageSerializer:
 			return MistralAssistantMessage(content=message.content)
 
 		if isinstance(message.content, list):
-			text_parts = [part.text for part in message.content if isinstance(part, ContentPartTextParam) and part.text]
-			content = '\n'.join(text_parts) if text_parts else None
-			return MistralAssistantMessage(content=content)
+			content_parts = []
+			for part in message.content:
+				if isinstance(part, ContentPartTextParam):
+					content_parts.append(MistralMessageSerializer._serialize_content_part_text(part))
+			return MistralAssistantMessage(content=content_parts)
 
 		return MistralAssistantMessage(content=str(message.content))
 
@@ -99,12 +101,11 @@ class MistralMessageSerializer:
 			return MistralSystemMessage(content=message.content)
 
 		if isinstance(message.content, list):
-			text_chunks = [
-				MistralMessageSerializer._serialize_content_part_text(part)
-				for part in message.content
-				if isinstance(part, ContentPartTextParam)
-			]
-			return MistralSystemMessage(content=text_chunks)
+			content_parts = []
+			for part in message.content:
+				if isinstance(part, ContentPartTextParam):
+					content_parts.append(MistralMessageSerializer._serialize_content_part_text(part))
+			return MistralSystemMessage(content=content_parts)
 
 		return MistralSystemMessage(content=str(message.content))
 

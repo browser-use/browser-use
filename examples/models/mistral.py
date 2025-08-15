@@ -5,14 +5,16 @@ Simple Mistral AI example for browser-use.
 
 import asyncio
 import os
+import sys
 
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
 from browser_use import Agent
+from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.llm import ChatMistral
 
 api_key = os.getenv('MISTRAL_API_KEY', '')
@@ -21,11 +23,18 @@ if not api_key:
 
 
 async def main():
-	llm = ChatMistral(model='mistral-small-latest', api_key=api_key, temperature=0.0)
+	llm = ChatMistral(model='mistral-large-latest', api_key=api_key, temperature=0.0)
+
+	browser_session = BrowserSession(
+		browser_profile=BrowserProfile(
+			allowed_domains=['amazon.com', '*.amazon.com'],
+		)
+	)
 
 	agent = Agent(
 		task='Go to amazon.com, search for laptop, sort by best rating, and give me the price of the first result',
 		llm=llm,
+		browser_session=browser_session,
 	)
 
 	await agent.run(max_steps=10)

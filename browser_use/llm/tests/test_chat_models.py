@@ -255,7 +255,7 @@ class TestChatModels:
 		if not os.getenv('MISTRAL_API_KEY'):
 			pytest.skip('MISTRAL_API_KEY not set')
 
-		chat = ChatMistral(model='mistral-small-latest', api_key=os.getenv('MISTRAL_API_KEY'), temperature=0)
+		chat = ChatMistral(model='mistral-large-latest', api_key=os.getenv('MISTRAL_API_KEY'), temperature=0)
 		response = await chat.ainvoke(self.CONVERSATION_MESSAGES)
 		completion = response.completion
 

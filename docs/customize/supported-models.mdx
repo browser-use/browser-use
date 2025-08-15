@@ -234,7 +234,12 @@ llm = ChatOllama(model="llama3.1:8b")
 from browser_use.llm import ChatMistral
 from browser_use import Agent
 
-llm = ChatMistral(model="mistral-small-latest", api_key=os.getenv('MISTRAL_API_KEY'))
+llm = ChatMistral(model="mistral-large-latest")
+
+agent = Agent(
+    task="Your task here",
+    llm=llm
+)
 ```
 
 Required environment variables:

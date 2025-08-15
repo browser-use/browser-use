@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 
 from browser_use.llm.anthropic.chat import ChatAnthropic
 from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.mistral.chat import ChatMistral
 from browser_use.llm.openai.chat import ChatOpenAI
 
 load_dotenv()
@@ -217,6 +218,11 @@ def get_llm(config: dict[str, Any]):
 				print('⚠️  Google API key not found. Please update your config or set GOOGLE_API_KEY environment variable.')
 				sys.exit(1)
 			return ChatGoogle(model=model_name, temperature=temperature)
+		elif model_name.startswith('mistral'):
+			if not CONFIG.MISTRAL_API_KEY:
+				print('⚠️  Mistral API key not found. Please update your config or set MISTRAL_API_KEY environment variable.')
+				sys.exit(1)
+			return ChatMistral(model=model_name, temperature=temperature)
 
 	# Auto-detect based on available API keys
 	if api_key or CONFIG.OPENAI_API_KEY:
@@ -225,9 +231,11 @@ def get_llm(config: dict[str, Any]):
 		return ChatAnthropic(model='claude-4-sonnet', temperature=temperature)
 	elif CONFIG.GOOGLE_API_KEY:
 		return ChatGoogle(model='gemini-2.5-pro', temperature=temperature)
+	elif CONFIG.MISTRAL_API_KEY:
+		return ChatMistral(model='mistral-small-latest', temperature=temperature)
 	else:
 		print(
-			'⚠️  No API keys found. Please update your config or set one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY.'
+			'⚠️  No API keys found. Please update your config or set one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, or MISTRAL_API_KEY.'
 		)
 		sys.exit(1)
 
