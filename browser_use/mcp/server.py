@@ -255,46 +255,59 @@ class BrowserUseServer:
 					description='Get the current state of the page including all interactive elements',
 					inputSchema={
 						'type': 'object',
-						'properties': {
-							'include_screenshot': {
-								'type': 'boolean',
-								'description': 'Whether to include a screenshot of the current page',
-								'default': False,
-							}
-						},
+						'properties': {},
 					},
 				),
 				types.Tool(
-					name='browser_extract_content',
-					description='Extract structured content from the current page based on a query',
+					name='browser_export_whole_webpage_as_pdf',
+					description="Renders the entire webpage from a specific tab into a PDF file. This tool attempts to preserve the original visual layout, including background graphics. The PDF is saved to the specified 'file_path'. Returns the absolute path to the generated file.",
 					inputSchema={
 						'type': 'object',
 						'properties': {
-							'query': {'type': 'string', 'description': 'What information to extract from the page'},
-							'extract_links': {
-								'type': 'boolean',
-								'description': 'Whether to include links in the extraction',
-								'default': False,
+							'file_path': {
+								'type': 'string',
+								'description': 'The relative path to save the PDF file. It must end with .pdf.',
+							},
+							'tab_index': {
+								'type': 'integer',
+								'description': 'Index of the tab to export. Defaults to the current tab.',
+								'default': None,
 							},
 						},
-						'required': ['query'],
+						'required': ['file_path'],
 					},
 				),
-				types.Tool(
-					name='browser_scroll',
-					description='Scroll the page',
-					inputSchema={
-						'type': 'object',
-						'properties': {
-							'direction': {
-								'type': 'string',
-								'enum': ['up', 'down'],
-								'description': 'Direction to scroll',
-								'default': 'down',
-							}
-						},
-					},
-				),
+				# types.Tool(
+				# 	name='browser_extract_content',
+				# 	description='Extract structured content from the current page based on a query',
+				# 	inputSchema={
+				# 		'type': 'object',
+				# 		'properties': {
+				# 			'query': {'type': 'string', 'description': 'What information to extract from the page'},
+				# 			'extract_links': {
+				# 				'type': 'boolean',
+				# 				'description': 'Whether to include links in the extraction',
+				# 				'default': False,
+				# 			},
+				# 		},
+				# 		'required': ['query'],
+				# 	},
+				# ),
+				# types.Tool(
+				# 	name='browser_scroll',
+				# 	description='Scroll the page',
+				# 	inputSchema={
+				# 		'type': 'object',
+				# 		'properties': {
+				# 			'direction': {
+				# 				'type': 'string',
+				# 				'enum': ['up', 'down'],
+				# 				'description': 'Direction to scroll',
+				# 				'default': 'down',
+				# 			}
+				# 		},
+				# 	},
+				# ),
 				types.Tool(
 					name='browser_go_back',
 					description='Go back to the previous page',
@@ -330,41 +343,41 @@ class BrowserUseServer:
 				# 		"properties": {}
 				# 	}
 				# ),
-				types.Tool(
-					name='retry_with_browser_use_agent',
-					description='Retry a task using the browser-use agent. Only use this as a last resort if you fail to interact with a page multiple times.',
-					inputSchema={
-						'type': 'object',
-						'properties': {
-							'task': {
-								'type': 'string',
-								'description': 'The high-level goal and detailed step-by-step description of the task the AI browser agent needs to attempt, along with any relevant data needed to complete the task and info about previous attempts.',
-							},
-							'max_steps': {
-								'type': 'integer',
-								'description': 'Maximum number of steps the agent can take',
-								'default': 100,
-							},
-							'model': {
-								'type': 'string',
-								'description': 'LLM model to use (e.g., gpt-4o, claude-3-opus-20240229)',
-								'default': 'gpt-4o',
-							},
-							'allowed_domains': {
-								'type': 'array',
-								'items': {'type': 'string'},
-								'description': 'List of domains the agent is allowed to visit (security feature)',
-								'default': [],
-							},
-							'use_vision': {
-								'type': 'boolean',
-								'description': 'Whether to use vision capabilities (screenshots) for the agent',
-								'default': True,
-							},
-						},
-						'required': ['task'],
-					},
-				),
+				# types.Tool(
+				# 	name='retry_with_browser_use_agent',
+				# 	description='Retry a task using the browser-use agent. Only use this as a last resort if you fail to interact with a page multiple times.',
+				# 	inputSchema={
+				# 		'type': 'object',
+				# 		'properties': {
+				# 			'task': {
+				# 				'type': 'string',
+				# 				'description': 'The high-level goal and detailed step-by-step description of the task the AI browser agent needs to attempt, along with any relevant data needed to complete the task and info about previous attempts.',
+				# 			},
+				# 			'max_steps': {
+				# 				'type': 'integer',
+				# 				'description': 'Maximum number of steps the agent can take',
+				# 				'default': 100,
+				# 			},
+				# 			'model': {
+				# 				'type': 'string',
+				# 				'description': 'LLM model to use (e.g., gpt-4o, claude-3-opus-20240229)',
+				# 				'default': 'gpt-4o',
+				# 			},
+				# 			'allowed_domains': {
+				# 				'type': 'array',
+				# 				'items': {'type': 'string'},
+				# 				'description': 'List of domains the agent is allowed to visit (security feature)',
+				# 				'default': [],
+				# 			},
+				# 			'use_vision': {
+				# 				'type': 'boolean',
+				# 				'description': 'Whether to use vision capabilities (screenshots) for the agent',
+				# 				'default': True,
+				# 			},
+				# 		},
+				# 		'required': ['task'],
+				# 	},
+				# ),
 			]
 
 		@self.server.call_tool()
@@ -423,6 +436,9 @@ class BrowserUseServer:
 			elif tool_name == 'browser_get_state':
 				return await self._get_browser_state(arguments.get('include_screenshot', False))
 
+			elif tool_name == 'browser_export_whole_webpage_as_pdf':
+				return await self._export_whole_webpage_as_pdf(arguments['file_path'], arguments.get('tab_index', None))
+
 			elif tool_name == 'browser_extract_content':
 				return await self._extract_content(arguments['query'], arguments.get('extract_links', False))
 
@@ -469,6 +485,7 @@ class BrowserUseServer:
 			'device_scale_factor': 1.0,
 			'disable_security': False,
 			'headless': False,
+			'viewport_expansion': -1,
 			**profile_config,  # Config values override defaults
 		}
 
@@ -678,6 +695,7 @@ class BrowserUseServer:
 			return 'Error: No browser session active'
 
 		state = await self.browser_session.get_browser_state_summary(cache_clickable_elements_hashes=False)
+		await self.browser_session.remove_highlights()
 
 		result = {
 			'url': state.url,
@@ -818,6 +836,91 @@ class BrowserUseServer:
 			await event
 			return f'Closed tab {tab_index}: {url}'
 		return f'Invalid tab index: {tab_index}'
+
+	async def _scroll_to_bottom(self, tab):
+		"""Use screen-by-screen scrolling with added delays to ensure lazy-loaded images are reliably triggered."""
+		logger.debug('Starting to scroll page to load all content...')
+
+		# Scrolling by the height of one screen at a time is more like human operation
+		# and makes it easier to trigger lazy loading.
+		viewport_height = await tab.evaluate('window.innerHeight')
+		last_height = await tab.evaluate('document.body.scrollHeight')
+		max_scroll_attempts = 1
+		scroll_attempts = 0
+
+		while True:
+			await tab.evaluate(f'window.scrollBy(0, {viewport_height})')
+
+			await asyncio.sleep(0.5)
+
+			try:
+				await tab.wait_for_load_state('networkidle', timeout=5000)
+			except Exception:
+				await asyncio.sleep(0.5)
+
+			new_height = await tab.evaluate('document.body.scrollHeight')
+			if new_height == last_height:
+				scroll_attempts += 1
+				if scroll_attempts >= max_scroll_attempts:
+					logger.debug('Page height has not changed for several attempts. Assuming bottom of the page.')
+					break
+			else:
+				scroll_attempts = 0
+
+			last_height = new_height
+
+		await tab.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+		await asyncio.sleep(2)
+		logger.debug('Page scrolling finished.')
+
+	async def _export_whole_webpage_as_pdf(self, file_path: str, tab_index: int | None = None) -> str:
+		"""Export the whole webpage as a PDF file."""
+		if not self.browser_session:
+			return 'Error: Browser session not active'
+
+		if not file_path.lower().endswith('.pdf'):
+			return 'Error: File path must end with .pdf'
+
+		await self.browser_session._wait_for_page_and_frames_load(timeout_overwrite=10.0)
+
+		tab = None
+		original_scroll_y = 0
+
+		try:
+			if tab_index is not None:
+				if not (0 <= tab_index < len(self.browser_session.tabs)):
+					return f'Error: Invalid tab index: {tab_index}'
+				tab = self.browser_session.tabs[tab_index]
+			else:
+				tab = await self.browser_session.get_current_page()
+
+			# step 1: Save the original scroll position for restoration later
+			original_scroll_y = await tab.evaluate('window.scrollY')
+
+			absolute_path = os.path.abspath(file_path)
+			directory = os.path.dirname(absolute_path)
+			if not os.path.exists(directory):
+				os.makedirs(directory)
+
+			# step 2: Scroll to the bottom of the page to ensure all lazy-loaded content is loaded
+			await self._scroll_to_bottom(tab)
+
+			# step 3: Emulate 'screen' media type for WYSIWYG layout
+			await tab.emulate_media(media='screen')
+
+			# step 4: Generate PDF
+			await tab.pdf(path=absolute_path, print_background=True, scale=0.5)
+
+			return absolute_path
+		except Exception as e:
+			logger.error(f'Failed to export PDF: {e}', exc_info=True)
+			return f'Error: Failed to export PDF: {e}'
+		finally:
+			# step 5: Restore the original scroll position and viewport size
+			if tab and not tab.is_closed():
+				await tab.emulate_media(media=None)
+				await tab.evaluate(f'window.scrollTo(0, {original_scroll_y})')
+				logger.debug(f'Restored the original scroll position to {original_scroll_y}px')
 
 	async def run(self):
 		"""Run the MCP server."""
