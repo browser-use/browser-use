@@ -73,27 +73,40 @@ class MistralMessageSerializer:
 				elif isinstance(part, ContentPartImageParam):
 					content_parts.append(MistralMessageSerializer._serialize_content_part_image(part))
 			return MistralUserMessage(content=content_parts)
-		else:
-			return MistralUserMessage(content=str(message.content))
+
+		return MistralUserMessage(content=str(message.content))
 
 	@staticmethod
 	def _serialize_assistant_message(message: AssistantMessage) -> MistralAssistantMessage:
 		"""Convert AssistantMessage to MistralAssistantMessage."""
-		return MistralAssistantMessage(content=message.content)
+		if message.content is None:
+			return MistralAssistantMessage(content=None)
+
+		if isinstance(message.content, str):
+			return MistralAssistantMessage(content=message.content)
+
+		if isinstance(message.content, list):
+			text_parts = [part.text for part in message.content if isinstance(part, ContentPartTextParam) and part.text]
+			content = '\n'.join(text_parts) if text_parts else None
+			return MistralAssistantMessage(content=content)
+
+		return MistralAssistantMessage(content=str(message.content))
 
 	@staticmethod
 	def _serialize_system_message(message: SystemMessage) -> MistralSystemMessage:
 		"""Convert SystemMessage to MistralSystemMessage."""
 		if isinstance(message.content, str):
 			return MistralSystemMessage(content=message.content)
-		elif isinstance(message.content, list):
-			text_chunks = []
-			for part in message.content:
-				if isinstance(part, ContentPartTextParam):
-					text_chunks.append(MistralMessageSerializer._serialize_content_part_text(part))
+
+		if isinstance(message.content, list):
+			text_chunks = [
+				MistralMessageSerializer._serialize_content_part_text(part)
+				for part in message.content
+				if isinstance(part, ContentPartTextParam)
+			]
 			return MistralSystemMessage(content=text_chunks)
-		else:
-			return MistralSystemMessage(content=str(message.content))
+
+		return MistralSystemMessage(content=str(message.content))
 
 	@staticmethod
 	def _serialize_content_part_text(part: ContentPartTextParam) -> TextChunk:

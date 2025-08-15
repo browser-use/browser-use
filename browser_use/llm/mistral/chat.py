@@ -61,7 +61,7 @@ class ChatMistral(BaseChatModel):
 	retry_initial_interval: int = 1
 	retry_max_interval: int = 50
 	retry_exponent: float = 1.1
-	retry_max_elapsed_time: int | None = 100
+	retry_max_elapsed_time: int = 100
 
 	# Cached client instance
 	_client: Mistral | None = field(default=None, init=False)
@@ -99,9 +99,9 @@ class ChatMistral(BaseChatModel):
 		"""Extract usage information from Mistral response."""
 		if response.usage is not None:
 			return ChatInvokeUsage(
-				prompt_tokens=response.usage.prompt_tokens,
-				completion_tokens=response.usage.completion_tokens,
-				total_tokens=response.usage.total_tokens,
+				prompt_tokens=response.usage.prompt_tokens or 0,
+				completion_tokens=response.usage.completion_tokens or 0,
+				total_tokens=response.usage.total_tokens or 0,
 				prompt_cached_tokens=None,
 				prompt_cache_creation_tokens=None,
 				prompt_image_tokens=None,
