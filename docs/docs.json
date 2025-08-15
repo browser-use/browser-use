@@ -128,6 +128,10 @@
             ]
           }
         ]
+      },
+      {
+        "tab": "Cloud API v2",
+        "openapi": "https://app.stainless.com/api/spec/documented/browser-use/openapi.documented.yml"
       }
     ]
   },
