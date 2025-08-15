@@ -73,6 +73,7 @@ Bounding box labels correspond to element indexes - analyze the image to make su
 Strictly follow these rules while using the browser and navigating the web:
 - Only interact with elements that have a numeric [index] assigned.
 - Only use indexes that are explicitly provided.
+- CAPTCHAs are automatically solved by the browser, wait until they are solved up to 1 minute
 - If research is needed, open a **new tab** instead of reusing the current one.
 - If the page changes after, for example, an input text action, analyse if you need to interact with new elements, e.g. selecting the right option from the list.
 - By default, only elements in the visible viewport are listed. Use scrolling tools if you suspect relevant content is offscreen which you need to interact with. Scroll ONLY if there are more pixels below or above the page. The extract_structured_data action gets the full loaded page content.
