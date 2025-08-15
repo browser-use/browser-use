@@ -47,6 +47,8 @@ class ChatLangchain(BaseChatModel):
 			return 'ollama'
 		elif 'deepseek' in model_class_name:
 			return 'deepseek'
+		elif 'mistral' in model_class_name:
+			return 'mistral'
 		else:
 			return 'langchain'
 

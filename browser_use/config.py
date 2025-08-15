@@ -156,6 +156,10 @@ class OldConfig:
 		return os.getenv('AZURE_OPENAI_KEY', '')
 
 	@property
+	def MISTRAL_API_KEY(self) -> str:
+		return os.getenv('MISTRAL_API_KEY', '')
+
+	@property
 	def SKIP_LLM_API_KEY_VERIFICATION(self) -> bool:
 		return os.getenv('SKIP_LLM_API_KEY_VERIFICATION', 'false').lower()[:1] in 'ty1'
 
@@ -199,6 +203,7 @@ class FlatEnvConfig(BaseSettings):
 	NOVITA_API_KEY: str = Field(default='')
 	AZURE_OPENAI_ENDPOINT: str = Field(default='')
 	AZURE_OPENAI_KEY: str = Field(default='')
+	MISTRAL_API_KEY: str = Field(default='')
 	SKIP_LLM_API_KEY_VERIFICATION: bool = Field(default=False)
 
 	# Runtime hints

@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.ollama.chat import ChatOllama
 	from browser_use.llm.openai.chat import ChatOpenAI
 	from browser_use.llm.openrouter.chat import ChatOpenRouter
+	from browser_use.llm.mistral.chat import ChatMistral
 
 # Lazy imports mapping for heavy chat models
 _LAZY_IMPORTS = {
@@ -49,6 +50,7 @@ _LAZY_IMPORTS = {
 	'ChatOllama': ('browser_use.llm.ollama.chat', 'ChatOllama'),
 	'ChatOpenAI': ('browser_use.llm.openai.chat', 'ChatOpenAI'),
 	'ChatOpenRouter': ('browser_use.llm.openrouter.chat', 'ChatOpenRouter'),
+	'ChatMistral': ('browser_use.llm.mistral.chat', 'ChatMistral'),
 }
 
 
@@ -92,4 +94,5 @@ __all__ = [
 	'ChatAzureOpenAI',
 	'ChatOllama',
 	'ChatOpenRouter',
+	'ChatMistral',
 ]

@@ -104,6 +104,7 @@ def get_default_config() -> dict[str, Any]:
 				'GOOGLE_API_KEY': CONFIG.GOOGLE_API_KEY,
 				'DEEPSEEK_API_KEY': CONFIG.DEEPSEEK_API_KEY,
 				'GROK_API_KEY': CONFIG.GROK_API_KEY,
+				'MISTRAL_API_KEY': CONFIG.MISTRAL_API_KEY,
 			},
 		},
 		'agent': agent_config,

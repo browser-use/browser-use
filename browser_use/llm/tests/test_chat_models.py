@@ -3,7 +3,7 @@ import os
 import pytest
 from pydantic import BaseModel
 
-from browser_use.llm import ChatAnthropic, ChatGoogle, ChatGroq, ChatOpenAI, ChatOpenRouter
+from browser_use.llm import ChatAnthropic, ChatGoogle, ChatGroq, ChatMistral, ChatOpenAI, ChatOpenRouter
 from browser_use.llm.messages import ContentPartTextParam
 
 
@@ -240,6 +240,36 @@ class TestChatModels:
 			pytest.skip('OPENROUTER_API_KEY not set')
 
 		chat = ChatOpenRouter(model='openai/gpt-4o-mini', api_key=os.getenv('OPENROUTER_API_KEY'), temperature=0)
+		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
+		completion = response.completion
+
+		assert isinstance(completion, CapitalResponse)
+		assert completion.country.lower() == self.EXPECTED_FRANCE_COUNTRY
+		assert completion.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
+
+	# Mistral Tests
+	@pytest.mark.asyncio
+	async def test_mistral_ainvoke_normal(self):
+		"""Test normal text response from Mistral"""
+		# Skip if no API key
+		if not os.getenv('MISTRAL_API_KEY'):
+			pytest.skip('MISTRAL_API_KEY not set')
+
+		chat = ChatMistral(model='mistral-small-latest', api_key=os.getenv('MISTRAL_API_KEY'), temperature=0)
+		response = await chat.ainvoke(self.CONVERSATION_MESSAGES)
+		completion = response.completion
+
+		assert isinstance(completion, str)
+		assert self.EXPECTED_GERMANY_CAPITAL in completion.lower()
+
+	@pytest.mark.asyncio
+	async def test_mistral_ainvoke_structured(self):
+		"""Test structured output from Mistral"""
+		# Skip if no API key
+		if not os.getenv('MISTRAL_API_KEY'):
+			pytest.skip('MISTRAL_API_KEY not set')
+
+		chat = ChatMistral(model='mistral-large-latest', api_key=os.getenv('MISTRAL_API_KEY'), temperature=0)
 		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
 		completion = response.completion
 

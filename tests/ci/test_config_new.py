@@ -277,6 +277,7 @@ class TestBackwardCompatibility:
 			'NOVITA_API_KEY',
 			'AZURE_OPENAI_ENDPOINT',
 			'AZURE_OPENAI_KEY',
+			'MISTRAL_API_KEY',
 			'SKIP_LLM_API_KEY_VERIFICATION',
 			'IN_DOCKER',
 			'IS_IN_EVALS',
