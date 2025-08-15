@@ -1,6 +1,7 @@
 """Local browser watchdog for managing browser subprocess lifecycle."""
 
 import asyncio
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -113,27 +114,38 @@ class LocalBrowserWatchdog(BaseWatchdog):
 						f'--remote-debugging-port={debug_port}',
 					]
 				)
+				assert '--user-data-dir' in str(launch_args), (
+					'User data dir must be set somewhere in launch args to a non-default path, otherwise Chrome will not let us attach via CDP'
+				)
 
-				# Get browser executable from playwright
-				# Use custom executable if provided, otherwise use playwright's
+				# Get browser executable
+				# Priority: custom executable > fallback paths > playwright subprocess
 				if profile.executable_path:
 					browser_path = profile.executable_path
-					self.logger.debug(f'[LocalBrowserWatchdog] Using custom executable: {browser_path}')
+					self.logger.debug(f'[LocalBrowserWatchdog] 📦 Using custom local browser executable_path= {browser_path}')
 				else:
-					self.logger.debug('[LocalBrowserWatchdog] Getting browser path from playwright...')
-					# Get browser path from playwright in a subprocess to avoid thread issues
-					browser_path = await self._get_browser_path_via_subprocess()
-					self.logger.debug(f'[LocalBrowserWatchdog] Got browser path: {browser_path}')
+					# self.logger.debug('[LocalBrowserWatchdog] 🔍 Looking for local browser binary path...')
+					# Try fallback paths first (system browsers preferred)
+					browser_path = self._find_installed_browser_path()
+					if not browser_path:
+						self.logger.error(
+							'[LocalBrowserWatchdog] ⚠️ No local browser binary found, installing browser using playwright subprocess...'
+						)
+						browser_path = await self._install_browser_with_playwright()
+
+				self.logger.debug(f'[LocalBrowserWatchdog] 📦 Found local browser installed at executable_path= {browser_path}')
+				if not browser_path:
+					raise RuntimeError('No local Chrome/Chromium install found, and failed to install with playwright')
 
 				# Launch browser subprocess directly
-				self.logger.debug(f'[LocalBrowserWatchdog] Launching browser subprocess with {len(launch_args)} args...')
+				self.logger.debug(f'[LocalBrowserWatchdog] 🚀 Launching browser subprocess with {len(launch_args)} args...')
 				subprocess = await asyncio.create_subprocess_exec(
 					browser_path,
 					*launch_args,
 					stdout=asyncio.subprocess.PIPE,
 					stderr=asyncio.subprocess.PIPE,
 				)
-				self.logger.debug(f'[LocalBrowserWatchdog] Browser subprocess launched with PID: {subprocess.pid}')
+				self.logger.info(f'[LocalBrowserWatchdog] 🎭 Browser subprocess launched with browser_pid= {subprocess.pid}')
 
 				# Convert to psutil.Process
 				process = psutil.Process(subprocess.pid)
@@ -190,51 +202,134 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		raise RuntimeError(f'Failed to launch browser after {max_retries} attempts')
 
 	@staticmethod
-	async def _get_browser_path_via_subprocess() -> str:
+	def _find_installed_browser_path() -> str | None:
+		"""Try to find browser executable from common fallback locations.
+
+		Prioritizes:
+		1. System Chrome Stable
+		1. Playwright chromium
+		2. Other system native browsers (Chromium -> Chrome Canary/Dev -> Brave)
+		3. Playwright headless-shell fallback
+
+		Returns:
+			Path to browser executable or None if not found
+		"""
+		import glob
+		import platform
+		from pathlib import Path
+
+		system = platform.system()
+		patterns = []
+
+		# Get playwright browsers path from environment variable if set
+		playwright_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH')
+
+		if system == 'Darwin':  # macOS
+			if not playwright_path:
+				playwright_path = '~/Library/Caches/ms-playwright'
+			patterns = [
+				'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+				f'{playwright_path}/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium',
+				'/Applications/Chromium.app/Contents/MacOS/Chromium',
+				'/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
+				'/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
+				f'{playwright_path}/chromium_headless_shell-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium',
+			]
+		elif system == 'Linux':
+			if not playwright_path:
+				playwright_path = '~/.cache/ms-playwright'
+			patterns = [
+				'/usr/bin/google-chrome-stable',
+				'/usr/bin/google-chrome',
+				'/usr/local/bin/google-chrome',
+				f'{playwright_path}/chromium-*/chrome-linux/chrome',
+				'/usr/bin/chromium',
+				'/usr/bin/chromium-browser',
+				'/usr/local/bin/chromium',
+				'/snap/bin/chromium',
+				'/usr/bin/google-chrome-beta',
+				'/usr/bin/google-chrome-dev',
+				'/usr/bin/brave-browser',
+				f'{playwright_path}/chromium_headless_shell-*/chrome-linux/chrome',
+			]
+		elif system == 'Windows':
+			if not playwright_path:
+				playwright_path = r'%LOCALAPPDATA%\ms-playwright'
+			patterns = [
+				r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+				r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
+				r'%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe',
+				r'%PROGRAMFILES%\Google\Chrome\Application\chrome.exe',
+				r'%PROGRAMFILES(X86)%\Google\Chrome\Application\chrome.exe',
+				f'{playwright_path}\\chromium-*\\chrome-win\\chrome.exe',
+				r'C:\Program Files\Chromium\Application\chrome.exe',
+				r'C:\Program Files (x86)\Chromium\Application\chrome.exe',
+				r'%LOCALAPPDATA%\Chromium\Application\chrome.exe',
+				r'C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe',
+				r'C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe',
+				r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
+				r'C:\Program Files\Microsoft\Edge\Application\msedge.exe',
+				r'%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe',
+				f'{playwright_path}\\chromium_headless_shell-*\\chrome-win\\chrome.exe',
+			]
+
+		for pattern in patterns:
+			# Expand user home directory
+			expanded_pattern = Path(pattern).expanduser()
+
+			# Handle Windows environment variables
+			if system == 'Windows':
+				pattern_str = str(expanded_pattern)
+				for env_var in ['%LOCALAPPDATA%', '%PROGRAMFILES%', '%PROGRAMFILES(X86)%']:
+					if env_var in pattern_str:
+						env_key = env_var.strip('%').replace('(X86)', ' (x86)')
+						env_value = os.environ.get(env_key, '')
+						if env_value:
+							pattern_str = pattern_str.replace(env_var, env_value)
+				expanded_pattern = Path(pattern_str)
+
+			# Convert to string for glob
+			pattern_str = str(expanded_pattern)
+
+			# Check if pattern contains wildcards
+			if '*' in pattern_str:
+				# Use glob to expand the pattern
+				matches = glob.glob(pattern_str)
+				if matches:
+					# Sort matches and take the last one (alphanumerically highest version)
+					matches.sort()
+					browser_path = matches[-1]
+					if Path(browser_path).exists() and Path(browser_path).is_file():
+						return browser_path
+			else:
+				# Direct path check
+				if expanded_pattern.exists() and expanded_pattern.is_file():
+					return str(expanded_pattern)
+
+		return None
+
+	async def _install_browser_with_playwright(self) -> str:
 		"""Get browser executable path from playwright in a subprocess to avoid thread issues."""
-		import json
-		import sys
-
-		# Python code to run in subprocess
-		get_path_code = """
-import asyncio
-import json
-import sys
-
-async def get_path():
-    from playwright.async_api import async_playwright
-    playwright = await async_playwright().start()
-    try:
-        path = playwright.chromium.executable_path
-        print(json.dumps({"path": path}))
-    finally:
-        await playwright.stop()
-
-asyncio.run(get_path())
-"""
 
 		# Run in subprocess with timeout
 		process = await asyncio.create_subprocess_exec(
-			sys.executable,
-			'-c',
-			get_path_code,
+			'uvx',
+			'playwright',
+			'install',
+			'chrome',
+			'--with-deps',
 			stdout=asyncio.subprocess.PIPE,
 			stderr=asyncio.subprocess.PIPE,
 		)
 
 		try:
-			# Wait for result with timeout
-			stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10.0)
-
-			# Parse the result
-			if stdout:
-				result = json.loads(stdout.decode())
-				return result['path']
-			else:
-				# Fallback to default location if subprocess fails
-				error_msg = stderr.decode() if stderr else 'Unknown error'
-				raise RuntimeError(f'Failed to get browser path from playwright: {error_msg}')
-
+			stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)
+			self.logger.debug(f'[LocalBrowserWatchdog] 📦 Playwright install output: {stdout}')
+			browser_path = self._find_installed_browser_path()
+			if browser_path:
+				return browser_path
+			self.logger.error(f'[LocalBrowserWatchdog] ❌ Playwright local browser installation error: \n{stdout}\n{stderr}')
+			raise RuntimeError('No local browser path found after: uvx playwright install chrome --with-deps')
 		except TimeoutError:
 			# Kill the subprocess if it times out
 			process.kill()

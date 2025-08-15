@@ -99,6 +99,7 @@ class TestBrowserSessionFileUploads:
 		await browser_session.start()
 		# Navigate to upload page using event
 		from browser_use.browser.events import NavigateToUrlEvent, NavigationCompleteEvent
+
 		event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=test_server.url_for('/upload')))
 		await event
 		# Wait for page to load
@@ -207,6 +208,7 @@ class TestBrowserSessionFileUploads:
 		await browser_session.start()
 		# Navigate to traversal page using event
 		from browser_use.browser.events import NavigateToUrlEvent, NavigationCompleteEvent
+
 		event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=test_server.url_for('/traversal')))
 		await event
 		# Wait for page to load
@@ -273,7 +275,8 @@ class TestBrowserSessionFileUploads:
 		test_server.expect_request('/limits').respond_with_data(html, content_type='text/html')
 		await browser_session.start()
 		# Navigate to limits page using event
-		from browser_use.browser.events import NavigateToUrlEvent, NavigationCompleteEvent  
+		from browser_use.browser.events import NavigateToUrlEvent, NavigationCompleteEvent
+
 		event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=test_server.url_for('/limits')))
 		await event
 		# Wait for page to load

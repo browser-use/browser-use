@@ -6,7 +6,6 @@ import pytest
 from pytest_httpserver import HTTPServer
 
 from browser_use.browser import BrowserProfile, BrowserSession
-from browser_use.dom.views import EnhancedDOMTreeNode, NodeType
 
 # Fix for httpserver hanging on shutdown - prevent blocking on socket close
 socketserver.ThreadingMixIn.block_on_close = False
@@ -81,9 +80,10 @@ class TestBrowserContext:
 		the allowed domains configuration.
 		"""
 		# Scenario 1: allowed_domains is None, any URL should be allowed.
-		from browser_use.browser.security_watchdog import SecurityWatchdog
 		from bubus import EventBus
-		
+
+		from browser_use.browser.security_watchdog import SecurityWatchdog
+
 		config1 = BrowserProfile(allowed_domains=None, headless=True, user_data_dir=None)
 		context1 = BrowserSession(browser_profile=config1)
 		event_bus1 = EventBus()
@@ -127,12 +127,12 @@ class TestBrowserContext:
 		"""
 		pass  # Method was removed from BrowserSession
 
-
 	@pytest.mark.asyncio
 	async def test_navigate_and_get_current_page(self, browser_session, base_url):
 		"""Test that navigate method changes the URL and get_current_page returns the proper page."""
 		# Navigate to the test page
 		from browser_use.browser.events import NavigateToUrlEvent
+
 		event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=f'{base_url}/'))
 		await event
 
@@ -151,6 +151,7 @@ class TestBrowserContext:
 		"""Test that refresh_page correctly reloads the current page."""
 		# Navigate to the test page
 		from browser_use.browser.events import NavigateToUrlEvent
+
 		event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=f'{base_url}/'))
 		await event
 
@@ -175,6 +176,7 @@ class TestBrowserContext:
 		"""Test that execute_javascript correctly executes JavaScript in the current page."""
 		# Navigate to a test page
 		from browser_use.browser.events import NavigateToUrlEvent
+
 		event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=f'{base_url}/'))
 		await event
 
@@ -196,6 +198,7 @@ class TestBrowserContext:
 		"""Test that get_scroll_info returns the correct scroll position information."""
 		# Navigate to the scroll test page
 		from browser_use.browser.events import NavigateToUrlEvent
+
 		event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=f'{base_url}/scroll_test'))
 		await event
 		page = await browser_session.get_current_page()
@@ -224,6 +227,7 @@ class TestBrowserContext:
 		"""Test that take_screenshot returns a valid base64 encoded image."""
 		# Navigate to the test page
 		from browser_use.browser.events import NavigateToUrlEvent
+
 		event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=f'{base_url}/'))
 		await event
 
@@ -247,6 +251,7 @@ class TestBrowserContext:
 		"""Test tab creation, switching, and closing operations."""
 		# Navigate to home page in first tab
 		from browser_use.browser.events import NavigateToUrlEvent
+
 		event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=f'{base_url}/'))
 		await event
 
@@ -339,6 +344,7 @@ class TestBrowserContext:
 
 		# Navigate to a test page
 		from browser_use.browser.events import NavigateToUrlEvent
+
 		event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=f'{base_url}/'))
 		await event
 

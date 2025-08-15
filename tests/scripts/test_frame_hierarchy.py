@@ -224,7 +224,7 @@ async def analyze_frame_hierarchy(url):
 		if session._cdp_client_root:
 			try:
 				await session._cdp_client_root.stop()
-			except:
+			except Exception:
 				pass  # Ignore errors if already disconnected
 
 		# Then stop the browser process

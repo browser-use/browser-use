@@ -94,12 +94,17 @@ async def upload_cv(index: int, browser_session: BrowserSession):
 		return ActionResult(error=f'Element at index {index} is not a file upload element')
 
 	try:
-		await file_upload_el.set_input_files(path)
+		# Dispatch upload file event with the file input element
+		from browser_use.browser.events import UploadFileEvent
+
+		event = browser_session.event_bus.dispatch(UploadFileEvent(node=dom_element, file_path=path))
+		await event
+		await event.event_result(raise_if_any=True, raise_if_none=False)
 		msg = f'Successfully uploaded file "{path}" to index {index}'
 		logger.info(msg)
 		return ActionResult(extracted_content=msg)
 	except Exception as e:
-		logger.debug(f'Error in set_input_files: {str(e)}')
+		logger.debug(f'Error in upload: {str(e)}')
 		return ActionResult(error=f'Failed to upload file to index {index}')
 
 

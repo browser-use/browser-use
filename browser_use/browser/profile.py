@@ -1,4 +1,5 @@
 import sys
+import tempfile
 from collections.abc import Iterable
 from enum import Enum
 from functools import cache
@@ -7,10 +8,9 @@ from re import Pattern
 from typing import Annotated, Any, Literal, Self
 from urllib.parse import urlparse
 
-from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 from uuid_extensions import uuid7str
 
-from browser_use.browser.types import ClientCertificate, Geolocation, HttpCredentials, ProxySettings, ViewportSize
 from browser_use.config import CONFIG
 from browser_use.observability import observe_debug
 from browser_use.utils import _log_pretty_path, logger
@@ -177,6 +177,17 @@ CHROME_DEFAULT_ARGS = [
 ]
 
 
+class ViewportSize(BaseModel):
+	width: int = Field(ge=0)
+	height: int = Field(ge=0)
+
+	def __getitem__(self, key: str) -> int:
+		return dict(self)[key]
+
+	def __setitem__(self, key: str, value: int) -> None:
+		setattr(self, key, value)
+
+
 @cache
 def get_display_size() -> ViewportSize | None:
 	# macOS
@@ -322,7 +333,7 @@ class BrowserContextArgs(BaseModel):
 	strict_selectors: bool = False
 
 	# Security options
-	proxy: ProxySettings | None = None
+	# proxy: ProxySettings | None = None
 	permissions: list[str] = Field(
 		default_factory=lambda: ['clipboardReadWrite', 'notifications'],
 		description='Browser permissions to grant (CDP Browser.grantPermissions).',
@@ -330,9 +341,9 @@ class BrowserContextArgs(BaseModel):
 		# notifications are to avoid browser fingerprinting
 	)
 	bypass_csp: bool = False
-	client_certificates: list[ClientCertificate] = Field(default_factory=list)
+	# client_certificates: list[ClientCertificate] = Field(default_factory=list)
 	extra_http_headers: dict[str, str] = Field(default_factory=dict)
-	http_credentials: HttpCredentials | None = None
+	# http_credentials: HttpCredentials | None = None
 	ignore_https_errors: bool = False
 	java_script_enabled: bool = True
 	base_url: UrlStr | None = None
@@ -347,7 +358,7 @@ class BrowserContextArgs(BaseModel):
 	is_mobile: bool = False
 	has_touch: bool = False
 	locale: str | None = None
-	geolocation: Geolocation | None = None
+	# geolocation: Geolocation | None = None
 	timezone_id: str | None = None
 	color_scheme: ColorScheme = ColorScheme.LIGHT
 	contrast: Contrast = Contrast.NO_PREFERENCE
@@ -431,7 +442,7 @@ class BrowserLaunchArgs(BaseModel):
 	)
 	slow_mo: float = Field(default=0, description='Slow down actions by this many milliseconds.')
 	timeout: float = Field(default=30000, description='Default timeout in milliseconds for connecting to a remote browser.')
-	proxy: ProxySettings | None = Field(default=None, description='Proxy settings to use to connect to the browser.')
+	# proxy: ProxySettings | None = Field(default=None, description='Proxy settings to use to connect to the browser.')
 	downloads_path: str | Path | None = Field(
 		default=None,
 		description='Directory to save downloads to.',
@@ -535,6 +546,14 @@ class BrowserLaunchPersistentContextArgs(BrowserLaunchArgs, BrowserContextArgs):
 	# Required parameter specific to launch_persistent_context, but can be None to use incognito temp dir
 	user_data_dir: str | Path | None = None
 
+	@field_validator('user_data_dir', mode='after')
+	@classmethod
+	def validate_user_data_dir(cls, v: str | Path | None) -> str | Path:
+		"""Validate user data dir is set to a non-default path."""
+		if v is None:
+			return tempfile.mkdtemp(prefix='browser-use-user-data-dir-')
+		return Path(v).expanduser().resolve()
+
 
 class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, BrowserLaunchArgs, BrowserNewContextArgs):
 	"""
@@ -583,7 +602,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	window_height: int | None = Field(default=None, description='DEPRECATED, use window_size["height"] instead', exclude=True)
 	window_width: int | None = Field(default=None, description='DEPRECATED, use window_size["width"] instead', exclude=True)
 	window_position: ViewportSize | None = Field(
-		default_factory=lambda: {'width': 0, 'height': 0},
+		default=ViewportSize(width=0, height=0),
 		description='Window position to use for the browser x,y from the top left when headless=False.',
 	)
 	cross_origin_iframes: bool = Field(
@@ -706,10 +725,13 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		elif not self.ignore_default_args:
 			default_args = CHROME_DEFAULT_ARGS
 
+		assert self.user_data_dir is not None, 'user_data_dir must be set to a non-default path'
+
 		# Capture args before conversion for logging
 		pre_conversion_args = [
 			*default_args,
 			*self.args,
+			f'--user-data-dir={self.user_data_dir}',
 			f'--profile-directory={self.profile_directory}',
 			*(CHROME_DOCKER_ARGS if (CONFIG.IN_DOCKER or not self.chromium_sandbox) else []),
 			*(CHROME_HEADLESS_ARGS if self.headless else []),

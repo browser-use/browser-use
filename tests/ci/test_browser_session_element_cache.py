@@ -66,8 +66,9 @@ async def browser_session():
 			headless=True,
 		)
 	)
-	async with session:
-		yield session
+	await session.start()
+	yield session
+	await session.stop()
 
 
 @pytest.fixture

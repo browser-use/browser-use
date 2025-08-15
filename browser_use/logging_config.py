@@ -218,7 +218,7 @@ class FIFOHandler(logging.Handler):
 			if self.fd is not None:
 				try:
 					os.close(self.fd)
-				except:
+				except Exception:
 					pass
 				self.fd = None
 
@@ -226,12 +226,12 @@ class FIFOHandler(logging.Handler):
 		if hasattr(self, 'fd') and self.fd is not None:
 			try:
 				os.close(self.fd)
-			except:
+			except Exception:
 				pass
 		super().close()
 
 
-def setup_log_pipes(session_id: str, base_dir: str = None):
+def setup_log_pipes(session_id: str, base_dir: str | None = None):
 	"""Setup named pipes for log streaming.
 
 	Usage:

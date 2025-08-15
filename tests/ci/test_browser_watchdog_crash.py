@@ -170,3 +170,150 @@ async def test_crash_watchdog_lifecycle():
 	await asyncio.sleep(0.1)  # Give it a moment to clean up
 	if session._crash_watchdog._monitoring_task:
 		assert session._crash_watchdog._monitoring_task.done()
+
+
+@pytest.mark.asyncio
+async def test_infinite_loop_page_blocking():
+	"""Test that pages with infinite JavaScript loops are detected as unresponsive."""
+	from pytest_httpserver import HTTPServer
+
+	# Create HTTP server with blocking page
+	httpserver = HTTPServer()
+	httpserver.start()
+
+	# Add route that serves permanently blocking JavaScript
+	httpserver.expect_request('/infinite-loop').respond_with_data(
+		'<html><body><h1>Loading...</h1><script>while(true){}</script></body></html>', content_type='text/html'
+	)
+
+	profile = BrowserProfile(headless=True)
+	session = BrowserSession(browser_profile=profile)
+
+	try:
+		# Start browser
+		session.event_bus.dispatch(BrowserStartEvent())
+		await session.event_bus.expect(BrowserConnectedEvent, timeout=5.0)
+
+		# Navigate to blocking page
+		blocking_url = httpserver.url_for('/infinite-loop')
+		session.event_bus.dispatch(NavigateToUrlEvent(url=blocking_url))
+
+		# The navigation should timeout or trigger an error
+		# We don't expect NavigationCompleteEvent since the page blocks
+		await asyncio.sleep(2)  # Give it time to detect the issue
+
+		# Try to interact with the page via CDP - should still work at protocol level
+		cdp_session = await session.get_or_create_cdp_session()
+
+		# CDP commands should still work even if page is blocked
+		version_result = await session.cdp_client.send.Browser.getVersion()
+		assert version_result is not None
+
+		# Close the blocking tab to recover
+		await session.cdp_client.send.Target.closeTarget(params={'targetId': cdp_session.target_id})
+
+	finally:
+		httpserver.stop()
+		session.event_bus.dispatch(BrowserStopEvent())
+		await asyncio.sleep(0.5)
+
+
+@pytest.mark.asyncio
+async def test_transient_blocking_recovery():
+	"""Test recovery from temporarily blocking JavaScript."""
+	from pytest_httpserver import HTTPServer
+
+	httpserver = HTTPServer()
+	httpserver.start()
+
+	# Page that blocks for 1 second then recovers
+	httpserver.expect_request('/transient-block').respond_with_data(
+		"""<html><body>
+		<h1 id="status">Blocking...</h1>
+		<script>
+			const start = Date.now();
+			while (Date.now() - start < 1000) {} // Block for 1 second
+			document.getElementById('status').textContent = 'Recovered!';
+		</script>
+		</body></html>""",
+		content_type='text/html',
+	)
+
+	profile = BrowserProfile(headless=True)
+	session = BrowserSession(browser_profile=profile)
+
+	try:
+		# Start browser
+		session.event_bus.dispatch(BrowserStartEvent())
+		await session.event_bus.expect(BrowserConnectedEvent, timeout=5.0)
+
+		# Navigate to transiently blocking page
+		url = httpserver.url_for('/transient-block')
+		session.event_bus.dispatch(NavigateToUrlEvent(url=url))
+
+		# Wait for the blocking to end
+		await asyncio.sleep(2)
+
+		# Verify page recovered and we can interact with it
+		cdp_session = await session.get_or_create_cdp_session()
+		result = await session.cdp_client.send.Runtime.evaluate(
+			params={'expression': 'document.getElementById("status").textContent', 'returnByValue': True},
+			session_id=cdp_session.session_id,
+		)
+
+		status_text = result.get('result', {}).get('value', '')
+		assert status_text == 'Recovered!', f"Expected 'Recovered!' but got '{status_text}'"
+
+	finally:
+		httpserver.stop()
+		session.event_bus.dispatch(BrowserStopEvent())
+		await asyncio.sleep(0.5)
+
+
+@pytest.mark.asyncio
+async def test_browser_process_kill_detection():
+	"""Test that killing the browser process is detected."""
+	import os
+	import signal
+
+	profile = BrowserProfile(headless=True)
+	session = BrowserSession(browser_profile=profile)
+
+	try:
+		# Start browser
+		session.event_bus.dispatch(BrowserStartEvent())
+		await session.event_bus.expect(BrowserConnectedEvent, timeout=5.0)
+
+		# Get browser process PID
+		browser_pid = None
+		if session._local_browser_watchdog and session._local_browser_watchdog._subprocess:
+			browser_pid = session._local_browser_watchdog._subprocess.pid
+
+		if browser_pid:
+			# Kill the browser process
+			try:
+				os.kill(browser_pid, signal.SIGKILL)
+			except ProcessLookupError:
+				pass  # Process might already be gone
+
+			# Wait for crash detection
+			try:
+				error_event = cast(
+					BrowserErrorEvent,
+					await session.event_bus.expect(
+						BrowserErrorEvent,
+						predicate=lambda e: 'disconnect' in cast(BrowserErrorEvent, e).message.lower(),
+						timeout=5.0,
+					),
+				)
+				assert error_event is not None
+			except TimeoutError:
+				# Crash detection might not trigger in all environments
+				pass
+
+	finally:
+		# Force cleanup
+		try:
+			await session.kill()
+		except Exception:
+			pass

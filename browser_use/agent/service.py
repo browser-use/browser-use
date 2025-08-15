@@ -23,7 +23,6 @@ from browser_use.agent.cloud_events import (
 	UpdateAgentTaskEvent,
 )
 from browser_use.agent.message_manager.utils import save_conversation
-from browser_use.browser.events import BrowserStateRequestEvent
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import BaseMessage, UserMessage
 from browser_use.tokens.service import TokenCost
@@ -55,7 +54,6 @@ from browser_use.agent.views import (
 )
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
-from browser_use.browser.types import Browser, BrowserContext, Page
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.config import CONFIG
 from browser_use.controller.registry.views import ActionModel
@@ -127,9 +125,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		task: str,
 		llm: BaseChatModel,
 		# Optional parameters
-		page: Page | None = None,
-		browser: Browser | BrowserSession | None = None,
-		browser_context: BrowserContext | None = None,
 		browser_profile: BrowserProfile | None = None,
 		browser_session: BrowserSession | None = None,
 		controller: Controller[Context] | None = None,
@@ -353,29 +348,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			include_recent_events=self.include_recent_events,
 		)
 
-		if isinstance(browser, BrowserSession):
-			browser_session = browser_session or browser
-
-		browser_context = page.context if page else browser_context
-		# assert not (browser_session and browser_profile), 'Cannot provide both browser_session and browser_profile'
-		# assert not (browser_session and browser), 'Cannot provide both browser_session and browser'
-		# assert not (browser_profile and browser), 'Cannot provide both browser_profile and browser'
-		# assert not (browser_profile and browser_context), 'Cannot provide both browser_profile and browser_context'
-		# assert not (browser and browser_context), 'Cannot provide both browser and browser_context'
-		# assert not (browser_session and browser_context), 'Cannot provide both browser_session and browser_context'
 		browser_profile = browser_profile or DEFAULT_BROWSER_PROFILE
 
-		if browser_session:
-			# Use the browser session directly without copying
-			# This ensures the CDP client and watchdogs are properly accessible
-			self.browser_session = browser_session
-		else:
-			if browser is not None:
-				assert isinstance(browser, Browser), 'Browser is not set up'
-			self.browser_session = BrowserSession(
-				browser_profile=browser_profile,
-				id=uuid7str()[:-4] + self.id[-4:],  # re-use the same 4-char suffix so they show up together in logs
-			)
+		self.browser_session = browser_session or BrowserSession(
+			browser_profile=browser_profile,
+			id=uuid7str()[:-4] + self.id[-4:],  # re-use the same 4-char suffix so they show up together in logs
+		)
 
 		if self.sensitive_data:
 			# Check if sensitive_data has domain-specific credentials
@@ -1300,24 +1278,45 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Start browser session and attach watchdogs
 			assert self.browser_session is not None, 'Browser session must be initialized before starting'
 			self.logger.debug('🌐 Starting browser session...')
-			from browser_use.browser.events import BrowserStartEvent, NavigateToUrlEvent
+			from browser_use.browser.events import BrowserStartEvent
 
 			event = self.browser_session.event_bus.dispatch(BrowserStartEvent())
 			await event
 
 			self.logger.debug('🔧 Browser session started with watchdogs attached')
 
-			# Check if task contains a URL and navigate to it immediately (only if preload is enabled)
+			# Check if task contains a URL and add it as an initial action (only if preload is enabled)
 			if self.preload:
 				initial_url = self._extract_url_from_task(self.task)
 				if initial_url:
-					self.logger.info(f'🔗 Found URL in task: {initial_url}, navigating immediately...')
-					self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=initial_url))
+					self.logger.info(f'🔗 Found URL in task: {initial_url}, adding as initial action...')
 
-					# warms up the cache and element highlighting is more useful as a better loading animation than a DVD screensaver
-					self.browser_session.event_bus.dispatch(BrowserStateRequestEvent(include_dom=True, include_screenshot=True))
+					# Create a go_to_url action for the initial URL
+					go_to_url_action = {
+						'go_to_url': {
+							'url': initial_url,
+							'new_tab': False,  # Navigate in current tab
+						}
+					}
 
-					self.logger.debug(f'✅ Navigated to {initial_url}')
+					# Add to initial_actions or create new list if none exist
+					if self.initial_actions:
+						# Convert back to dict format, prepend URL navigation, then convert back
+						initial_actions_dicts = []
+						for action in self.initial_actions:
+							action_data = action.model_dump(exclude_unset=True)
+							initial_actions_dicts.append(action_data)
+
+						# Prepend the go_to_url action
+						initial_actions_dicts = [go_to_url_action] + initial_actions_dicts
+
+						# Convert back to ActionModel instances
+						self.initial_actions = self._convert_initial_actions(initial_actions_dicts)
+					else:
+						# Create new initial_actions with just the go_to_url
+						self.initial_actions = self._convert_initial_actions([go_to_url_action])
+
+					self.logger.debug(f'✅ Added navigation to {initial_url} as initial action')
 
 			# Execute initial actions if provided
 			if self.initial_actions:
@@ -1581,15 +1580,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# Get action name from the action model
 				action_data = action.model_dump(exclude_unset=True)
 				action_name = next(iter(action_data.keys())) if action_data else 'unknown'
-				action_params = getattr(action, action_name, '') or str(action.model_dump(mode='json'))[:56].replace(
+				action_params = getattr(action, action_name, '') or str(action.model_dump(mode='json'))[:140].replace(
 					'"', ''
 				).replace('{', '').replace('}', '').replace("'", '').strip().strip(',')
 				# Ensure action_params is always a string before checking length
 				action_params = str(action_params)
-				action_params = f'{action_params[:50]}...' if len(action_params) > 54 else action_params
+				action_params = f'{action_params[:122]}...' if len(action_params) > 128 else action_params
 				time_start = time.time()
 
-				self.logger.info(f'🦾 Executing action {i + 1}/{total_actions}: {cyan}{action_name}({action_params}){reset}...')
+				self.logger.info(f'🦾 {cyan}[ACTION {i + 1}/{total_actions}] {action_name}({action_params})... {reset}')
 
 				result = await self.controller.act(
 					action=action,

@@ -52,7 +52,7 @@ async def disco_mode(browser_session: BrowserSession):
 				});
 			})()"""
 		},
-		session_id=cdp_session.session_id
+		session_id=cdp_session.session_id,
 	)
 
 
@@ -63,12 +63,11 @@ async def is_login_page(browser_session: BrowserSession) -> bool:
 		# Get current URL using CDP
 		cdp_session = await browser_session.get_or_create_cdp_session()
 		result = await cdp_session.cdp_client.send.Runtime.evaluate(
-			params={'expression': 'window.location.href', 'returnByValue': True},
-			session_id=cdp_session.session_id
+			params={'expression': 'window.location.href', 'returnByValue': True}, session_id=cdp_session.session_id
 		)
 		url = result.get('result', {}).get('value', '')
 		return 'login' in url.lower() or 'signin' in url.lower()
-	except:
+	except Exception:
 		return False
 
 
@@ -79,7 +78,7 @@ async def use_the_force(browser_session: BrowserSession):
 	# Check if it's a login page
 	if not await is_login_page(browser_session):
 		return  # Skip if not a login page
-	
+
 	# Execute JavaScript using CDP
 	cdp_session = await browser_session.get_or_create_cdp_session()
 	await cdp_session.cdp_client.send.Runtime.evaluate(
@@ -88,7 +87,7 @@ async def use_the_force(browser_session: BrowserSession):
 				document.querySelector('body').innerHTML = 'These are not the droids you are looking for';
 			})()"""
 		},
-		session_id=cdp_session.session_id
+		session_id=cdp_session.session_id,
 	)
 
 

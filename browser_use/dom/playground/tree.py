@@ -35,9 +35,12 @@ async def main():
 	# await browser.create_new_tab('https://semantic-ui.com/modules/dropdown.html#/definition')
 	# await browser.navigate('https://v0-website-with-clickable-elements.vercel.app/iframe-buttons')
 	from browser_use.browser.events import NavigateToUrlEvent
-	nav_event = browser.event_bus.dispatch(NavigateToUrlEvent(url='https://v0-website-with-clickable-elements.vercel.app/nested-iframe'))
+
+	nav_event = browser.event_bus.dispatch(
+		NavigateToUrlEvent(url='https://v0-website-with-clickable-elements.vercel.app/nested-iframe')
+	)
 	await nav_event
-	
+
 	# Wait a moment for page to fully load
 	await asyncio.sleep(2)
 
@@ -55,7 +58,7 @@ async def main():
 				if not targets:
 					raise ValueError('No targets available')
 				target_id = targets[0]['targetId']
-			
+
 			result = await dom_service.get_dom_tree(target_id)
 			if isinstance(result, tuple):
 				dom_tree = result[0]

@@ -112,6 +112,8 @@ async def calculate_square_size(browser: BrowserSession) -> float | None:
 			session_id=browser.agent_focus.session_id,
 		)
 		board_html = result.get('result', {}).get('value')
+		if not board_html:
+			raise ValueError('Failed to get board HTML')
 		soup = BeautifulSoup(board_html, 'html.parser')
 		pieces = soup.find_all('piece')
 		if not pieces:

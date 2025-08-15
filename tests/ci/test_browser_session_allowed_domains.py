@@ -6,9 +6,10 @@ class TestUrlAllowlistSecurity:
 
 	def test_authentication_bypass_prevention(self):
 		"""Test that the URL allowlist cannot be bypassed using authentication credentials."""
-		from browser_use.browser.security_watchdog import SecurityWatchdog
 		from bubus import EventBus
-		
+
+		from browser_use.browser.security_watchdog import SecurityWatchdog
+
 		# Create a context config with a sample allowed domain
 		browser_profile = BrowserProfile(allowed_domains=['example.com'], headless=True, user_data_dir=None)
 		browser_session = BrowserSession(browser_profile=browser_profile)
@@ -27,9 +28,10 @@ class TestUrlAllowlistSecurity:
 
 	def test_glob_pattern_matching(self):
 		"""Test that glob patterns in allowed_domains work correctly."""
-		from browser_use.browser.security_watchdog import SecurityWatchdog
 		from bubus import EventBus
-		
+
+		from browser_use.browser.security_watchdog import SecurityWatchdog
+
 		# Test *.example.com pattern (should match subdomains and main domain)
 		browser_profile = BrowserProfile(allowed_domains=['*.example.com'], headless=True, user_data_dir=None)
 		browser_session = BrowserSession(browser_profile=browser_profile)
@@ -90,9 +92,10 @@ class TestUrlAllowlistSecurity:
 
 	def test_glob_pattern_edge_cases(self):
 		"""Test edge cases for glob pattern matching to ensure proper behavior."""
-		from browser_use.browser.security_watchdog import SecurityWatchdog
 		from bubus import EventBus
-		
+
+		from browser_use.browser.security_watchdog import SecurityWatchdog
+
 		# Test with domains containing glob pattern in the middle
 		browser_profile = BrowserProfile(allowed_domains=['*.google.com', 'https://wiki.org'], headless=True, user_data_dir=None)
 		browser_session = BrowserSession(browser_profile=browser_profile)

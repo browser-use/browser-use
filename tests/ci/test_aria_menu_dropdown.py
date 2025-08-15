@@ -160,6 +160,7 @@ class TestARIAMenuDropdown:
 
 		# Wait for the page to load
 		from browser_use.browser.events import NavigationCompleteEvent
+
 		await browser_session.event_bus.expect(NavigationCompleteEvent, timeout=10.0)
 
 		# Initialize the DOM state to populate the selector map
@@ -225,6 +226,7 @@ class TestARIAMenuDropdown:
 
 		# Wait for the page to load
 		from browser_use.browser.events import NavigationCompleteEvent
+
 		await browser_session.event_bus.expect(NavigationCompleteEvent, timeout=10.0)
 
 		# Initialize the DOM state to populate the selector map
@@ -273,10 +275,10 @@ class TestARIAMenuDropdown:
 		assert 'Filter' in result.extracted_content
 
 		# Verify the click actually had an effect on the page using CDP
-		cdp_session = await session.attach_cdp_session()
+		cdp_session = await browser_session.get_or_create_cdp_session()
 		result = await cdp_session.cdp_client.send.Runtime.evaluate(
 			params={'expression': "document.getElementById('result').textContent", 'returnByValue': True},
-			session_id=cdp_session.session_id
+			session_id=cdp_session.session_id,
 		)
 		result_text = result.get('result', {}).get('value', '')
 		assert 'Filter' in result_text, f"Expected 'Filter' in result text, got '{result_text}'"
@@ -293,6 +295,7 @@ class TestARIAMenuDropdown:
 
 		# Wait for the page to load
 		from browser_use.browser.events import NavigationCompleteEvent
+
 		await browser_session.event_bus.expect(NavigationCompleteEvent, timeout=10.0)
 
 		# Initialize the DOM state to populate the selector map

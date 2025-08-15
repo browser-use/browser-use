@@ -16,6 +16,7 @@ from browser_use.browser import BrowserSession
 from browser_use.browser.events import (
 	ClickElementEvent,
 	CloseTabEvent,
+	GetDropdownOptionsEvent,
 	GoBackEvent,
 	NavigateToUrlEvent,
 	ScrollEvent,
@@ -62,6 +63,28 @@ UploadFileEvent.model_rebuild()
 Context = TypeVar('Context')
 
 T = TypeVar('T', bound=BaseModel)
+
+
+def extract_llm_error_message(error: Exception) -> str:
+	"""
+	Extract the clean error message from an exception that may contain <llm_error_msg> tags.
+
+	If the tags are found, returns the content between them.
+	Otherwise, returns the original error string.
+	"""
+	import re
+
+	error_str = str(error)
+
+	# Look for content between <llm_error_msg> tags
+	pattern = r'<llm_error_msg>(.*?)</llm_error_msg>'
+	match = re.search(pattern, error_str, re.DOTALL)
+
+	if match:
+		return match.group(1).strip()
+
+	# Fallback: return the original error string
+	return error_str
 
 
 class Controller(Generic[Context]):
@@ -151,14 +174,14 @@ class Controller(Generic[Context]):
 				)
 				await event
 				await event.event_result(raise_if_any=True, raise_if_none=False)
-				msg = f'🔍  Searched for "{params.query}" in Google'
+				memory = f"Searched Google for '{params.query}'"
+				msg = f'🔍  {memory}'
 				logger.info(msg)
-				return ActionResult(
-					extracted_content=msg, include_in_memory=True, long_term_memory=f"Searched Google for '{params.query}'"
-				)
+				return ActionResult(extracted_content=memory, include_in_memory=True, long_term_memory=memory)
 			except Exception as e:
 				logger.error(f'Failed to search Google: {e}')
-				return ActionResult(error=f'Failed to search Google for "{params.query}": {e}')
+				clean_msg = extract_llm_error_message(e)
+				return ActionResult(error=f'Failed to search Google for "{params.query}": {clean_msg}')
 
 		@self.registry.action(
 			'Navigate to URL, set new_tab=True to open in new tab, False to navigate in current tab', param_model=GoToUrlAction
@@ -183,6 +206,7 @@ class Controller(Generic[Context]):
 				error_msg = str(e)
 				# Always log the actual error first for debugging
 				browser_session.logger.error(f'❌ Navigation failed: {error_msg}')
+				clean_msg = extract_llm_error_message(e)
 
 				# Check if it's specifically a RuntimeError about CDP client
 				if isinstance(e, RuntimeError) and 'CDP client not initialized' in error_msg:
@@ -204,19 +228,21 @@ class Controller(Generic[Context]):
 					return ActionResult(error=site_unavailable_msg)
 				else:
 					# Return error in ActionResult instead of re-raising
-					return ActionResult(error=f'Navigation failed: {error_msg}')
+					return ActionResult(error=f'Navigation failed: {clean_msg}')
 
 		@self.registry.action('Go back', param_model=NoParamsAction)
 		async def go_back(_: NoParamsAction, browser_session: BrowserSession):
 			try:
 				event = browser_session.event_bus.dispatch(GoBackEvent())
 				await event
-				msg = '🔙  Navigated back'
+				memory = 'Navigated back'
+				msg = f'🔙  {memory}'
 				logger.info(msg)
-				return ActionResult(extracted_content=msg)
+				return ActionResult(extracted_content=memory)
 			except Exception as e:
 				logger.error(f'Failed to dispatch GoBackEvent: {type(e).__name__}: {e}')
-				error_msg = f'Failed to go back: {e}'
+				clean_msg = extract_llm_error_message(e)
+				error_msg = f'Failed to go back: {clean_msg}'
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
@@ -226,11 +252,13 @@ class Controller(Generic[Context]):
 			# Cap wait time at maximum 10 seconds
 			# Reduce the wait time by 3 seconds to account for the llm call which takes at least 3 seconds
 			# So if the model decides to wait for 5 seconds, the llm call took at least 3 seconds, so we only need to wait for 2 seconds
-			actual_seconds = min(max(seconds - 3, 0), 10)
-			msg = f'🕒  Waiting for {actual_seconds + 3} seconds'
-			logger.info(msg)
+			# Note by Mert: the above doesnt make sense because we do the LLM call right after this or this could be followed by another action after which we would like to wait
+			# so I revert this.
+			actual_seconds = min(max(seconds, 0), 10)
+			memory = f'Waited for {actual_seconds} seconds'
+			logger.info(f'🕒 {memory}')
 			await asyncio.sleep(actual_seconds)
-			return ActionResult(extracted_content=msg)
+			return ActionResult(extracted_content=memory, long_term_memory=memory)
 
 		# Element Interaction Actions
 
@@ -254,12 +282,22 @@ class Controller(Generic[Context]):
 				await event
 				# Wait for handler to complete and get any exception (None is expected on success)
 				await event.event_result(raise_if_any=True, raise_if_none=False)
-				msg = f'🖱️ Clicked element with index {params.index}'
+				memory = f'Clicked element with index {params.index}'
+				msg = f'🖱️ {memory}'
 				logger.info(msg)
-				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
+				return ActionResult(extracted_content=memory, include_in_memory=True, long_term_memory=memory)
 			except Exception as e:
 				logger.error(f'Failed to execute ClickElementEvent: {type(e).__name__}: {e}')
-				error_msg = f'Failed to click element {params.index}: {type(e).__name__}: {e}'
+				clean_msg = extract_llm_error_message(e)
+				error_msg = f'Failed to click element {params.index}: {clean_msg}'
+
+				# If it's a select dropdown error, automatically get the dropdown options
+				if 'dropdown' in str(e) and node:
+					try:
+						return await get_dropdown_options(index=params.index, browser_session=browser_session)
+					except Exception as dropdown_error:
+						pass
+
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
@@ -274,7 +312,9 @@ class Controller(Generic[Context]):
 
 			# Dispatch type text event with node
 			try:
-				event = browser_session.event_bus.dispatch(TypeTextEvent(node=node, text=params.text, clear_existing=params.clear_existing))
+				event = browser_session.event_bus.dispatch(
+					TypeTextEvent(node=node, text=params.text, clear_existing=params.clear_existing)
+				)
 				await event
 				await event.event_result(raise_if_any=True, raise_if_none=False)
 				msg = f"Input '{params.text}' into element {params.index}."
@@ -435,14 +475,14 @@ class Controller(Generic[Context]):
 				event = browser_session.event_bus.dispatch(SwitchTabEvent(tab_index=params.page_id))
 				await event
 				await event.event_result(raise_if_any=True, raise_if_none=False)
-				msg = f'🔄  Switched to tab #{params.page_id}'
+				memory = f'Switched to tab #{params.page_id}'
+				msg = f'🔄  {memory}'
 				logger.info(msg)
-				return ActionResult(
-					extracted_content=msg, include_in_memory=True, long_term_memory=f'Switched to tab {params.page_id}'
-				)
+				return ActionResult(extracted_content=memory, include_in_memory=True, long_term_memory=memory)
 			except Exception as e:
 				logger.error(f'Failed to switch tab: {e}')
-				return ActionResult(error=f'Failed to switch to tab {params.page_id}: {e}')
+				clean_msg = extract_llm_error_message(e)
+				return ActionResult(error=f'Failed to switch to tab {params.page_id}: {clean_msg}')
 
 		@self.registry.action('Close an existing tab', param_model=CloseTabAction)
 		async def close_tab(params: CloseTabAction, browser_session: BrowserSession):
@@ -451,16 +491,18 @@ class Controller(Generic[Context]):
 				event = browser_session.event_bus.dispatch(CloseTabEvent(tab_index=params.page_id))
 				await event
 				await event.event_result(raise_if_any=True, raise_if_none=False)
-				msg = f'❌  Closed tab #{params.page_id}'
+				memory = f'Closed tab #{params.page_id}'
+				msg = f'❌  {memory}'
 				logger.info(msg)
 				return ActionResult(
-					extracted_content=msg,
+					extracted_content=memory,
 					include_in_memory=True,
-					long_term_memory=f'Closed tab {params.page_id}',
+					long_term_memory=memory,
 				)
 			except Exception as e:
 				logger.error(f'Failed to close tab: {e}')
-				return ActionResult(error=f'Failed to close tab {params.page_id}: {e}')
+				clean_msg = extract_llm_error_message(e)
+				return ActionResult(error=f'Failed to close tab {params.page_id}: {clean_msg}')
 
 		# Content Actions
 
@@ -557,7 +599,10 @@ Provide the extracted information in a clear, structured format."""
 					include_extracted_content_only_once = False
 				else:
 					save_result = await file_system.save_extracted_content(extracted_content)
-					memory = f'Extracted content from {cdp_session.url} for query: {query}\nContent saved to file system: {save_result}'
+					current_url = await browser_session.get_current_page_url()
+					memory = (
+						f'Extracted content from {current_url} for query: {query}\nContent saved to file system: {save_result}'
+					)
 					include_extracted_content_only_once = True
 
 				logger.info(f'📄 {memory}')
@@ -600,7 +645,11 @@ Provide the extracted information in a clear, structured format."""
 				direction = 'down' if params.down else 'up'
 
 				# If index is 0 or None, we're scrolling the page
-				target = 'the page' if params.frame_element_index is None or params.frame_element_index == 0 else f'element {params.frame_element_index}'
+				target = (
+					'the page'
+					if params.frame_element_index is None or params.frame_element_index == 0
+					else f'element {params.frame_element_index}'
+				)
 
 				if params.num_pages == 1.0:
 					long_term_memory = f'Scrolled {direction} {target} by one page'
@@ -612,7 +661,8 @@ Provide the extracted information in a clear, structured format."""
 				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=long_term_memory)
 			except Exception as e:
 				logger.error(f'Failed to dispatch ScrollEvent: {type(e).__name__}: {e}')
-				error_msg = f'Failed to scroll: {e}'
+				clean_msg = extract_llm_error_message(e)
+				error_msg = f'Failed to scroll: {clean_msg}'
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
@@ -625,12 +675,14 @@ Provide the extracted information in a clear, structured format."""
 				event = browser_session.event_bus.dispatch(SendKeysEvent(keys=params.keys))
 				await event
 				await event.event_result(raise_if_any=True, raise_if_none=False)
-				msg = f'⌨️  Sent keys: {params.keys}'
+				memory = f'Sent keys: {params.keys}'
+				msg = f'⌨️  {memory}'
 				logger.info(msg)
-				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=f'Sent keys: {params.keys}')
+				return ActionResult(extracted_content=memory, include_in_memory=True, long_term_memory=memory)
 			except Exception as e:
 				logger.error(f'Failed to dispatch SendKeysEvent: {type(e).__name__}: {e}')
-				error_msg = f'Failed to send keys: {e}'
+				clean_msg = extract_llm_error_message(e)
+				error_msg = f'Failed to send keys: {clean_msg}'
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
@@ -643,9 +695,10 @@ Provide the extracted information in a clear, structured format."""
 			try:
 				# The handler returns None on success or raises an exception if text not found
 				await event.event_result(raise_if_any=True, raise_if_none=False)
-				msg = f'🔍  Scrolled to text: {text}'
+				memory = f'Scrolled to text: {text}'
+				msg = f'🔍  {memory}'
 				logger.info(msg)
-				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=f'Scrolled to text: {text}')
+				return ActionResult(extracted_content=memory, include_in_memory=True, long_term_memory=memory)
 			except Exception as e:
 				# Text not found
 				msg = f"Text '{text}' not found or not visible on page"
@@ -659,7 +712,7 @@ Provide the extracted information in a clear, structured format."""
 		# Dropdown Actions
 
 		@self.registry.action(
-			'Get all options from any dropdown (native <select>, ARIA menus, or custom dropdowns like Semantic UI). Searches target element and up to 4 levels of children to find dropdowns. This only works on dropdown elements.',
+			'Get list of option values exposed by a specific dropdown input field. Only works on dropdown-style form elements (<select>, Semantic UI/aria-labeled select, etc.).',
 			param_model=GetDropdownOptionsAction,
 		)
 		async def get_dropdown_options(params: GetDropdownOptionsAction, browser_session: BrowserSession):
@@ -669,197 +722,25 @@ Provide the extracted information in a clear, structured format."""
 			if node is None:
 				raise ValueError(f'Element index {params.index} not found in DOM')
 
-			# Get CDP session for this node
-			cdp_session = await browser_session.cdp_client_for_node(node)
+			# Dispatch GetDropdownOptionsEvent to the event handler
+			import json
 
-			# Convert node to object ID for CDP operations
-			try:
-				object_result = await cdp_session.cdp_client.send.DOM.resolveNode(
-					params={'backendNodeId': node.backend_node_id}, session_id=cdp_session.session_id
-				)
-				remote_object = object_result.get('object', {})
-				object_id = remote_object.get('objectId')
-				if not object_id:
-					raise ValueError('Could not get object ID from resolved node')
-			except Exception as e:
-				raise ValueError(f'Failed to resolve node to object: {e}') from e
+			event = browser_session.event_bus.dispatch(GetDropdownOptionsEvent(node=node))
+			dropdown_data = await event.event_result(timeout=3.0, raise_if_none=True, raise_if_any=True)
 
-			try:
-				# Use JavaScript to extract dropdown options
-				options_script = """
-				function() {
-					const startElement = this;
-					
-					// Function to check if an element is a dropdown and extract options
-					function checkDropdownElement(element) {
-						// Check if it's a native select element
-						if (element.tagName.toLowerCase() === 'select') {
-							return {
-								type: 'select',
-								options: Array.from(element.options).map((opt, idx) => ({
-									text: opt.text.trim(),
-									value: opt.value,
-									index: idx,
-									selected: opt.selected
-								})),
-								id: element.id || '',
-								name: element.name || '',
-								source: 'target'
-							};
-						}
-						
-						// Check if it's an ARIA dropdown/menu
-						const role = element.getAttribute('role');
-						if (role === 'menu' || role === 'listbox' || role === 'combobox') {
-							// Find all menu items/options
-							const menuItems = element.querySelectorAll('[role="menuitem"], [role="option"]');
-							const options = [];
-							
-							menuItems.forEach((item, idx) => {
-								const text = item.textContent ? item.textContent.trim() : '';
-								if (text) {
-									options.push({
-										text: text,
-										value: item.getAttribute('data-value') || text,
-										index: idx,
-										selected: item.getAttribute('aria-selected') === 'true' || item.classList.contains('selected')
-									});
-								}
-							});
-							
-							return {
-								type: 'aria',
-								options: options,
-								id: element.id || '',
-								name: element.getAttribute('aria-label') || '',
-								source: 'target'
-							};
-						}
-						
-						// Check if it's a Semantic UI dropdown or similar
-						if (element.classList.contains('dropdown') || element.classList.contains('ui')) {
-							const menuItems = element.querySelectorAll('.item, .option, [data-value]');
-							const options = [];
-							
-							menuItems.forEach((item, idx) => {
-								const text = item.textContent ? item.textContent.trim() : '';
-								if (text) {
-									options.push({
-										text: text,
-										value: item.getAttribute('data-value') || text,
-										index: idx,
-										selected: item.classList.contains('selected') || item.classList.contains('active')
-									});
-								}
-							});
-							
-							if (options.length > 0) {
-								return {
-									type: 'custom',
-									options: options,
-									id: element.id || '',
-									name: element.getAttribute('aria-label') || '',
-									source: 'target'
-								};
-							}
-						}
-						
-						return null;
-					}
-					
-					// Function to recursively search children up to specified depth
-					function searchChildrenForDropdowns(element, maxDepth, currentDepth = 0) {
-						if (currentDepth >= maxDepth) return null;
-						
-						// Check all direct children
-						for (let child of element.children) {
-							// Check if this child is a dropdown
-							const result = checkDropdownElement(child);
-							if (result) {
-								result.source = `child-depth-${currentDepth + 1}`;
-								return result;
-							}
-							
-							// Recursively check this child's children
-							const childResult = searchChildrenForDropdowns(child, maxDepth, currentDepth + 1);
-							if (childResult) {
-								return childResult;
-							}
-						}
-						
-						return null;
-					}
-					
-					// First check the target element itself
-					let dropdownResult = checkDropdownElement(startElement);
-					if (dropdownResult) {
-						return dropdownResult;
-					}
-					
-					// If target element is not a dropdown, search children up to depth 4
-					dropdownResult = searchChildrenForDropdowns(startElement, 4);
-					if (dropdownResult) {
-						return dropdownResult;
-					}
-					
-					return {
-						error: `Element and its children (depth 4) are not recognizable dropdown types (tag: ${startElement.tagName}, role: ${startElement.getAttribute('role')}, classes: ${startElement.className})`
-					};
-				}
-				"""
+			if not dropdown_data:
+				raise ValueError('Failed to get dropdown options - no data returned')
 
-				result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
-					params={
-						'functionDeclaration': options_script,
-						'objectId': object_id,
-						'returnByValue': True,
-					},
-					session_id=cdp_session.session_id,
-				)
+			# Extract the message from the returned data
+			msg = dropdown_data.get('message', '')
+			options_count = len(json.loads(dropdown_data.get('options', '[]')))  # Parse the string back to list to get count
 
-				dropdown_data = result.get('result', {}).get('value', {})
-
-				if dropdown_data.get('error'):
-					raise ValueError(dropdown_data['error'])
-
-				if not dropdown_data.get('options'):
-					raise ValueError('No options found in dropdown')
-
-				# Format options for display
-				formatted_options = []
-				for opt in dropdown_data['options']:
-					# Use JSON encoding to ensure exact string matching
-					encoded_text = json.dumps(opt['text'])
-					status = ' (selected)' if opt.get('selected') else ''
-					formatted_options.append(f'{opt["index"]}: text={encoded_text}, value={json.dumps(opt["value"])}{status}')
-
-				dropdown_type = dropdown_data.get('type', 'unknown')
-				element_info = f'ID: {dropdown_data.get("id", "none")}, Name: {dropdown_data.get("name", "none")}'
-				source_info = dropdown_data.get('source', 'unknown')
-
-				if source_info == 'target':
-					msg = f'Found {dropdown_type} dropdown ({element_info}):\n' + '\n'.join(formatted_options)
-				else:
-					msg = f'Found {dropdown_type} dropdown in {source_info} ({element_info}):\n' + '\n'.join(formatted_options)
-				msg += '\n\nUse the exact text string (without quotes) in select_dropdown_option'
-
-				if source_info == 'target':
-					logger.info(f'📋 Found {len(dropdown_data["options"])} dropdown options for index {params.index}')
-				else:
-					logger.info(
-						f'📋 Found {len(dropdown_data["options"])} dropdown options for index {params.index} in {source_info}'
-					)
-				return ActionResult(
-					extracted_content=msg,
-					include_in_memory=True,
-					long_term_memory=f'Found {len(dropdown_data["options"])} dropdown options for index {params.index}',
-					include_extracted_content_only_once=True,
-				)
-
-			except Exception as e:
-				error_msg = f'Failed to get dropdown options: {str(e)}'
-				logger.error(error_msg)
-				raise ValueError(error_msg) from e
+			return ActionResult(
+				extracted_content=msg,
+				include_in_memory=True,
+				long_term_memory=f'Found {options_count} dropdown options for index {params.index}',
+				include_extracted_content_only_once=True,
+			)
 
 		@self.registry.action(
 			'Select dropdown option by exact text from any dropdown type (native <select>, ARIA menus, or custom dropdowns). Searches target element and children to find selectable options.',
@@ -872,245 +753,23 @@ Provide the extracted information in a clear, structured format."""
 			if node is None:
 				raise ValueError(f'Element index {params.index} not found in DOM')
 
-			# Get CDP session for this node
-			cdp_session = await browser_session.cdp_client_for_node(node)
+			# Dispatch SelectDropdownOptionEvent to the event handler
+			from browser_use.browser.events import SelectDropdownOptionEvent
 
-			# Convert node to object ID for CDP operations
-			try:
-				object_result = await cdp_session.cdp_client.send.DOM.resolveNode(
-					params={'backendNodeId': node.backend_node_id}, session_id=cdp_session.session_id
-				)
-				remote_object = object_result.get('object', {})
-				object_id = remote_object.get('objectId')
-				if not object_id:
-					raise ValueError('Could not get object ID from resolved node')
-			except Exception as e:
-				raise ValueError(f'Failed to resolve node to object: {e}') from e
+			event = browser_session.event_bus.dispatch(SelectDropdownOptionEvent(node=node, text=params.text))
+			selection_data = await event.event_result()
 
-			try:
-				# Use JavaScript to select the option
-				selection_script = """
-				function(targetText) {
-					const startElement = this;
-					
-					// Function to attempt selection on a dropdown element
-					function attemptSelection(element) {
-						// Handle native select elements
-						if (element.tagName.toLowerCase() === 'select') {
-							const options = Array.from(element.options);
-							const targetTextLower = targetText.toLowerCase();
-							
-							for (const option of options) {
-								const optionTextLower = option.text.trim().toLowerCase();
-								const optionValueLower = option.value.toLowerCase();
-								
-								// Match against both text and value (case-insensitive)
-								if (optionTextLower === targetTextLower || optionValueLower === targetTextLower) {
-									element.value = option.value;
-									option.selected = true;
-									
-									// Trigger change events
-									const changeEvent = new Event('change', { bubbles: true });
-									element.dispatchEvent(changeEvent);
-									
-									return {
-										success: true,
-										message: `Selected option: ${option.text.trim()} (value: ${option.value})`,
-										value: option.value
-									};
-								}
-							}
-							
-							// Show all available options for debugging
-							const availableOptions = options.map(opt => ({
-								text: opt.text.trim(),
-								value: opt.value
-							}));
-							
-							return {
-								success: false,
-								error: `Option with text or value '${targetText}' not found in select element. Available options: ${JSON.stringify(availableOptions, null, 2)}`
-							};
-						}
-						
-						// Handle ARIA dropdowns/menus
-						const role = element.getAttribute('role');
-						if (role === 'menu' || role === 'listbox' || role === 'combobox') {
-							const menuItems = element.querySelectorAll('[role="menuitem"], [role="option"]');
-							const targetTextLower = targetText.toLowerCase();
-							
-							for (const item of menuItems) {
-								if (item.textContent) {
-									const itemTextLower = item.textContent.trim().toLowerCase();
-									const itemValueLower = (item.getAttribute('data-value') || '').toLowerCase();
-									
-									// Match against both text and data-value (case-insensitive)
-									if (itemTextLower === targetTextLower || itemValueLower === targetTextLower) {
-										// Clear previous selections
-										menuItems.forEach(mi => {
-											mi.setAttribute('aria-selected', 'false');
-											mi.classList.remove('selected');
-										});
-										
-										// Select this item
-										item.setAttribute('aria-selected', 'true');
-										item.classList.add('selected');
-										
-										// Trigger click and change events
-										item.click();
-										const clickEvent = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
-										item.dispatchEvent(clickEvent);
-										
-										return {
-											success: true,
-											message: `Selected ARIA menu item: ${item.textContent.trim()}`
-										};
-									}
-								}
-							}
-							
-							// Show all available options for debugging
-							const availableOptions = Array.from(menuItems).map(item => ({
-								text: item.textContent ? item.textContent.trim() : '',
-								value: item.getAttribute('data-value') || ''
-							})).filter(opt => opt.text || opt.value);
-							
-							return {
-								success: false,
-								error: `Menu item with text or value '${targetText}' not found. Available options: ${JSON.stringify(availableOptions, null, 2)}`
-							};
-						}
-						
-						// Handle Semantic UI or custom dropdowns
-						if (element.classList.contains('dropdown') || element.classList.contains('ui')) {
-							const menuItems = element.querySelectorAll('.item, .option, [data-value]');
-							const targetTextLower = targetText.toLowerCase();
-							
-							for (const item of menuItems) {
-								if (item.textContent) {
-									const itemTextLower = item.textContent.trim().toLowerCase();
-									const itemValueLower = (item.getAttribute('data-value') || '').toLowerCase();
-									
-									// Match against both text and data-value (case-insensitive)
-									if (itemTextLower === targetTextLower || itemValueLower === targetTextLower) {
-										// Clear previous selections
-										menuItems.forEach(mi => {
-											mi.classList.remove('selected', 'active');
-										});
-										
-										// Select this item
-										item.classList.add('selected', 'active');
-										
-										// Update dropdown text if there's a text element
-										const textElement = element.querySelector('.text');
-										if (textElement) {
-											textElement.textContent = item.textContent.trim();
-										}
-										
-										// Trigger click and change events
-										item.click();
-										const clickEvent = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
-										item.dispatchEvent(clickEvent);
-										
-										// Also dispatch on the main dropdown element
-										const dropdownChangeEvent = new Event('change', { bubbles: true });
-										element.dispatchEvent(dropdownChangeEvent);
-										
-										return {
-											success: true,
-											message: `Selected custom dropdown item: ${item.textContent.trim()}`
-										};
-									}
-								}
-							}
-							
-							// Show all available options for debugging
-							const availableOptions = Array.from(menuItems).map(item => ({
-								text: item.textContent ? item.textContent.trim() : '',
-								value: item.getAttribute('data-value') || ''
-							})).filter(opt => opt.text || opt.value);
-							
-							return {
-								success: false,
-								error: `Custom dropdown item with text or value '${targetText}' not found. Available options: ${JSON.stringify(availableOptions, null, 2)}`
-							};
-						}
-						
-						return null; // Not a dropdown element
-					}
-					
-					// Function to recursively search children for dropdowns
-					function searchChildrenForSelection(element, maxDepth, currentDepth = 0) {
-						if (currentDepth >= maxDepth) return null;
-						
-						// Check all direct children
-						for (let child of element.children) {
-							// Try selection on this child
-							const result = attemptSelection(child);
-							if (result && result.success) {
-								return result;
-							}
-							
-							// Recursively check this child's children
-							const childResult = searchChildrenForSelection(child, maxDepth, currentDepth + 1);
-							if (childResult && childResult.success) {
-								return childResult;
-							}
-						}
-						
-						return null;
-					}
-					
-					// First try the target element itself
-					let selectionResult = attemptSelection(startElement);
-					if (selectionResult) {
-						// If attemptSelection returned a result (success or failure), use it
-						// Don't search children if we found a dropdown element but selection failed
-						return selectionResult;
-					}
-					
-					// Only search children if target element is not a dropdown element
-					selectionResult = searchChildrenForSelection(startElement, 4);
-					if (selectionResult && selectionResult.success) {
-						return selectionResult;
-					}
-					
-					return {
-						success: false,
-						error: `Element and its children (depth 4) do not contain a dropdown with option '${targetText}' (tag: ${startElement.tagName}, role: ${startElement.getAttribute('role')}, classes: ${startElement.className})`
-					};
-				}
-				"""
+			if not selection_data:
+				raise ValueError('Failed to select dropdown option - no data returned')
 
-				result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
-					params={
-						'functionDeclaration': selection_script,
-						'arguments': [{'value': params.text}],
-						'objectId': object_id,
-						'returnByValue': True,
-					},
-					session_id=cdp_session.session_id,
-				)
+			# Extract the message from the returned data
+			msg = selection_data.get('message', f'Selected option: {params.text}')
 
-				selection_result = result.get('result', {}).get('value', {})
-
-				if selection_result.get('success'):
-					msg = selection_result.get('message', f'Selected option: {params.text}')
-					logger.info(f'✅ {msg}')
-					return ActionResult(
-						extracted_content=msg,
-						include_in_memory=True,
-						long_term_memory=f"Selected dropdown option '{params.text}' at index {params.index}",
-					)
-				else:
-					error_msg = selection_result.get('error', f'Failed to select option: {params.text}')
-					logger.error(f'❌ {error_msg}')
-					raise ValueError(error_msg)
-
-			except Exception as e:
-				error_msg = f'Failed to select dropdown option: {str(e)}'
-				logger.error(error_msg)
-				raise ValueError(error_msg) from e
+			return ActionResult(
+				extracted_content=msg,
+				include_in_memory=True,
+				long_term_memory=f"Selected dropdown option '{params.text}' at index {params.index}",
+			)
 
 		# File System Actions
 		@self.registry.action(
@@ -1172,297 +831,6 @@ Provide the extracted information in a clear, structured format."""
 				long_term_memory=memory,
 				include_extracted_content_only_once=True,
 			)
-
-	# TODO: Refactor to use events instead of direct page/dom access
-	# @self.registry.action(
-	# 	description='Get all options from a native dropdown or ARIA menu',
-	# )
-	# async def get_dropdown_options(index: int, browser_session: BrowserSession) -> ActionResult:
-	# 	"""Get all options from a native dropdown or ARIA menu"""
-
-	# 	dom_element = await browser_session.get_dom_element_by_index(index)
-	# 	if dom_element is None:
-	# 		raise Exception(f'Element index {index} does not exist - retry or use alternative actions')
-
-	# 	try:
-	# 		# Frame-aware approach since we know it works
-	# 		all_options = []
-	# 		frame_index = 0
-
-	# 		for frame in page.frames:
-	# 			try:
-	# 				# First check if it's a native select element
-	# 				options = await frame.evaluate(
-	# 					"""
-	# 					(xpath) => {
-	# 						const element = document.evaluate(xpath, document, null,
-	# 							XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-	# 						if (!element) return null;
-
-	# 						// Check if it's a native select element
-	# 						if (element.tagName.toLowerCase() === 'select') {
-	# 							return {
-	# 								type: 'select',
-	# 								options: Array.from(element.options).map(opt => ({
-	# 									text: opt.text, //do not trim, because we are doing exact match in select_dropdown_option
-	# 									value: opt.value,
-	# 									index: opt.index
-	# 								})),
-	# 								id: element.id,
-	# 								name: element.name
-	# 							};
-	# 						}
-
-	# 						// Check if it's an ARIA menu
-	# 						if (element.getAttribute('role') === 'menu' ||
-	# 							element.getAttribute('role') === 'listbox' ||
-	# 							element.getAttribute('role') === 'combobox') {
-	# 							// Find all menu items
-	# 							const menuItems = element.querySelectorAll('[role="menuitem"], [role="option"]');
-	# 							const options = [];
-
-	# 							menuItems.forEach((item, idx) => {
-	# 								// Get the text content of the menu item
-	# 								const text = item.textContent.trim();
-	# 								if (text) {
-	# 									options.push({
-	# 										text: text,
-	# 										value: text, // For ARIA menus, use text as value
-	# 										index: idx
-	# 									});
-	# 								}
-	# 							});
-
-	# 							return {
-	# 								type: 'aria',
-	# 								options: options,
-	# 								id: element.id || '',
-	# 								name: element.getAttribute('aria-label') || ''
-	# 							};
-	# 						}
-
-	# 						return null;
-	# 					}
-	# 				""",
-	# 					dom_element.xpath,
-	# 				)
-
-	# 				if options:
-	# 					logger.debug(f'Found {options["type"]} dropdown in frame {frame_index}')
-	# 					logger.debug(f'Element ID: {options["id"]}, Name: {options["name"]}')
-
-	# 					formatted_options = []
-	# 					for opt in options['options']:
-	# 						# encoding ensures AI uses the exact string in select_dropdown_option
-	# 						encoded_text = json.dumps(opt['text'])
-	# 						formatted_options.append(f'{opt["index"]}: text={encoded_text}')
-
-	# 					all_options.extend(formatted_options)
-
-	# 			except Exception as frame_e:
-	# 				logger.debug(f'Frame {frame_index} evaluation failed: {str(frame_e)}')
-
-	# 			frame_index += 1
-
-	# 		if all_options:
-	# 			msg = '\n'.join(all_options)
-	# 			msg += '\nUse the exact text string in select_dropdown_option'
-	# 			logger.info(msg)
-	# 			return ActionResult(
-	# 				extracted_content=msg,
-	# 				include_in_memory=True,
-	# 				long_term_memory=f'Found dropdown options for index {index}.',
-	# 				include_extracted_content_only_once=True,
-	# 			)
-	# 		else:
-	# 			msg = 'No options found in any frame for dropdown'
-	# 			logger.info(msg)
-	# 			return ActionResult(
-	# 				extracted_content=msg, include_in_memory=True, long_term_memory='No dropdown options found'
-	# 			)
-
-	# 	except Exception as e:
-	# 		logger.error(f'Failed to get dropdown options: {str(e)}')
-	# 		msg = f'Error getting options: {str(e)}'
-	# 		logger.info(msg)
-	# 		return ActionResult(extracted_content=msg, include_in_memory=True)
-
-	# TODO: Refactor to use events instead of direct page/dom access
-	# @self.registry.action(
-	# 	description='Select dropdown option or ARIA menu item for interactive element index by the text of the option you want to select',
-	# )
-	# async def select_dropdown_option(
-	# 	index: int,
-	# 	text: str,
-	# 	browser_session: BrowserSession,
-	# ) -> ActionResult:
-	# 	"""Select dropdown option or ARIA menu item by the text of the option you want to select"""
-	# 	page = await browser_session.get_current_page()
-	# 	dom_element = await browser_session.get_dom_element_by_index(index)
-	# 	if dom_element is None:
-	# 		raise Exception(f'Element index {index} does not exist - retry or use alternative actions')
-
-	# 	logger.debug(f"Attempting to select '{text}' using xpath: {dom_element.xpath}")
-	# 	logger.debug(f'Element attributes: {dom_element.attributes}')
-	# 	logger.debug(f'Element tag: {dom_element.tag_name}')
-
-	# 	xpath = '//' + dom_element.xpath
-
-	# 	try:
-	# 		frame_index = 0
-	# 		for frame in page.frames:
-	# 			try:
-	# 				logger.debug(f'Trying frame {frame_index} URL: {frame.url}')
-
-	# 				# First check what type of element we're dealing with
-	# 				element_info_js = """
-	# 					(xpath) => {
-	# 						try {
-	# 							const element = document.evaluate(xpath, document, null,
-	# 								XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-	# 							if (!element) return null;
-
-	# 							const tagName = element.tagName.toLowerCase();
-	# 							const role = element.getAttribute('role');
-
-	# 							// Check if it's a native select
-	# 							if (tagName === 'select') {
-	# 								return {
-	# 									type: 'select',
-	# 									found: true,
-	# 									id: element.id,
-	# 									name: element.name,
-	# 									tagName: element.tagName,
-	# 									optionCount: element.options.length,
-	# 									currentValue: element.value,
-	# 									availableOptions: Array.from(element.options).map(o => o.text.trim())
-	# 								};
-	# 							}
-
-	# 							// Check if it's an ARIA menu or similar
-	# 							if (role === 'menu' || role === 'listbox' || role === 'combobox') {
-	# 								const menuItems = element.querySelectorAll('[role="menuitem"], [role="option"]');
-	# 								return {
-	# 									type: 'aria',
-	# 									found: true,
-	# 									id: element.id || '',
-	# 									role: role,
-	# 									tagName: element.tagName,
-	# 									itemCount: menuItems.length,
-	# 									availableOptions: Array.from(menuItems).map(item => item.textContent.trim())
-	# 								};
-	# 							}
-
-	# 							return {
-	# 								error: `Element is neither a select nor an ARIA menu (tag: ${tagName}, role: ${role})`,
-	# 								found: false
-	# 							};
-	# 						} catch (e) {
-	# 							return {error: e.toString(), found: false};
-	# 						}
-	# 					}
-	# 				"""
-
-	# 				element_info = await frame.evaluate(element_info_js, dom_element.xpath)
-
-	# 				if element_info and element_info.get('found'):
-	# 					logger.debug(f'Found {element_info.get("type")} element in frame {frame_index}: {element_info}')
-
-	# 					if element_info.get('type') == 'select':
-	# 						# Handle native select element
-	# 						# "label" because we are selecting by text
-	# 						# nth(0) to disable error thrown by strict mode
-	# 						# timeout=1000 because we are already waiting for all network events
-	# 						selected_option_values = (
-	# 							await frame.locator('//' + dom_element.xpath).nth(0).select_option(label=text, timeout=1000)
-	# 						)
-
-	# 						msg = f'selected option {text} with value {selected_option_values}'
-	# 						logger.info(msg + f' in frame {frame_index}')
-
-	# 						return ActionResult(
-	# 							extracted_content=msg, include_in_memory=True, long_term_memory=f"Selected option '{text}'"
-	# 						)
-
-	# 					elif element_info.get('type') == 'aria':
-	# 						# Handle ARIA menu
-	# 						click_aria_item_js = """
-	# 							(params) => {
-	# 								const { xpath, targetText } = params;
-	# 								try {
-	# 									const element = document.evaluate(xpath, document, null,
-	# 										XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-	# 									if (!element) return {success: false, error: 'Element not found'};
-
-	# 									// Find all menu items
-	# 									const menuItems = element.querySelectorAll('[role="menuitem"], [role="option"]');
-
-	# 									for (const item of menuItems) {
-	# 										const itemText = item.textContent.trim();
-	# 										if (itemText === targetText) {
-	# 											// Simulate click on the menu item
-	# 											item.click();
-
-	# 											// Also try dispatching a click event in case the click handler needs it
-	# 											const clickEvent = new MouseEvent('click', {
-	# 												view: window,
-	# 												bubbles: true,
-	# 												cancelable: true
-	# 											});
-	# 											item.dispatchEvent(clickEvent);
-
-	# 											return {
-	# 												success: true,
-	# 												message: `Clicked menu item: ${targetText}`
-	# 											};
-	# 										}
-	# 									}
-
-	# 									return {
-	# 										success: false,
-	# 										error: `Menu item with text '${targetText}' not found`
-	# 									};
-	# 								} catch (e) {
-	# 									return {success: false, error: e.toString()};
-	# 								}
-	# 							}
-	# 						"""
-
-	# 						result = await frame.evaluate(
-	# 							click_aria_item_js, {'xpath': dom_element.xpath, 'targetText': text}
-	# 						)
-
-	# 						if result.get('success'):
-	# 							msg = result.get('message', f'Selected ARIA menu item: {text}')
-	# 							logger.info(msg + f' in frame {frame_index}')
-	# 							return ActionResult(
-	# 								extracted_content=msg,
-	# 								include_in_memory=True,
-	# 								long_term_memory=f"Selected menu item '{text}'",
-	# 							)
-	# 						else:
-	# 							logger.error(f'Failed to select ARIA menu item: {result.get("error")}')
-	# 							continue
-
-	# 				elif element_info:
-	# 					logger.error(f'Frame {frame_index} error: {element_info.get("error")}')
-	# 					continue
-
-	# 			except Exception as frame_e:
-	# 				logger.error(f'Frame {frame_index} attempt failed: {str(frame_e)}')
-	# 				logger.error(f'Frame type: {type(frame)}')
-	# 				logger.error(f'Frame URL: {frame.url}')
-
-	# 			frame_index += 1
-
-	# 		msg = f"Could not select option '{text}' in any frame"
-	# 		logger.info(msg)
-	# 		return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
-
-	# 	except Exception as e:
-	# 		msg = f'Selection failed: {str(e)}'
-	# 		logger.error(msg)
-	# 		raise BrowserError(msg)
 
 	# @self.registry.action('Google Sheets: Get the contents of the entire sheet', domains=['https://docs.google.com'])
 	# async def read_sheet_contents(browser_session: BrowserSession):

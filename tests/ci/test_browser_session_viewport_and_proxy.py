@@ -65,9 +65,9 @@ async def test_window_size_with_real_browser():
 					height: window.innerHeight
 				};
 			})()""",
-			'returnByValue': True
+			'returnByValue': True,
 		},
-		session_id=cdp_session.session_id
+		session_id=cdp_session.session_id,
 	)
 	video_size = result.get('result', {}).get('value', {})
 
@@ -80,9 +80,9 @@ async def test_window_size_with_real_browser():
 					height: window.innerHeight
 				}
 			})()""",
-			'returnByValue': True
+			'returnByValue': True,
 		},
-		session_id=cdp_session.session_id
+		session_id=cdp_session.session_id,
 	)
 	actual_size = result2.get('result', {}).get('value', {})
 
