@@ -317,7 +317,7 @@ class TestControllerIntegration:
 		assert urls[1] in page.url
 
 		# Switch back to first tab
-		switch_tab_action = {'switch_tab': SwitchTabAction(page_id=0)}
+		switch_tab_action = {'switch_tab': SwitchTabAction(tab_id=0)}
 
 		class SwitchTabActionModel(ActionModel):
 			switch_tab: SwitchTabAction | None = None
@@ -329,7 +329,7 @@ class TestControllerIntegration:
 		assert urls[0] in page.url
 
 		# Close the second tab
-		close_tab_action = {'close_tab': CloseTabAction(page_id=1)}
+		close_tab_action = {'close_tab': CloseTabAction(tab_id=1)}
 
 		class CloseTabActionModel(ActionModel):
 			close_tab: CloseTabAction | None = None

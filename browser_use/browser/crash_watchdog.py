@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 import psutil
 from bubus import BaseEvent
+from cdp_use.cdp.target import SessionID, TargetID
 from cdp_use.cdp.target.events import TargetCrashedEvent
 from pydantic import Field, PrivateAttr
 
@@ -71,7 +72,7 @@ class CrashWatchdog(BaseWatchdog):
 		assert self.browser_session.agent_focus is not None, 'No current target ID'
 		await self.attach_to_target(self.browser_session.agent_focus.target_id)
 
-	async def attach_to_target(self, target_id: str) -> None:
+	async def attach_to_target(self, target_id: TargetID) -> None:
 		"""Set up crash monitoring for a specific target using CDP."""
 		try:
 			# Create temporary session for monitoring without switching focus
@@ -106,7 +107,7 @@ class CrashWatchdog(BaseWatchdog):
 			# cdp_client.on('Network.loadingFailed', on_loading_failed, session_id=session_id)
 			# cdp_client.on('Network.loadingFinished', on_loading_finished, session_id=session_id)
 
-			def on_target_crashed(event: TargetCrashedEvent, session_id: str | None = None):
+			def on_target_crashed(event: TargetCrashedEvent, session_id: SessionID | None = None):
 				# Create and track the task
 				task = asyncio.create_task(self._on_target_crash_cdp(target_id))
 				self._cdp_event_tasks.add(task)
@@ -165,7 +166,7 @@ class CrashWatchdog(BaseWatchdog):
 		request_id = event.get('requestId', '')
 		self._active_requests.pop(request_id, None)
 
-	async def _on_target_crash_cdp(self, target_id: str) -> None:
+	async def _on_target_crash_cdp(self, target_id: TargetID) -> None:
 		"""Handle target crash detected via CDP."""
 		# Remove crashed session from pool
 		if session := self.browser_session._cdp_session_pool.pop(target_id, None):
@@ -187,17 +188,13 @@ class CrashWatchdog(BaseWatchdog):
 				f'[CrashWatchdog] 💥 Target crashed, navigating Agent to a new tab: {target_info.get("url", "unknown")}'
 			)
 
-		# Get tab index
-		tab_index = await self.browser_session.get_tab_index(target_id)
-
 		# Also emit generic browser error
 		self.event_bus.dispatch(
 			BrowserErrorEvent(
 				error_type='TargetCrash',
-				message=f'Target crashed: #{tab_index}',
+				message=f'Target crashed: {target_id}',
 				details={
 					# 'url': target_url,  # TODO: add url to details
-					'tab_index': tab_index,
 					'target_id': target_id,
 				},
 			)

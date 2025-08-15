@@ -36,7 +36,7 @@ class PopupsWatchdog(BaseWatchdog):
 
 		self.logger.info(f'📌 Starting dialog handler setup for target {target_id}')
 		try:
-			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
+			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)  # don't auto-focus new tabs! sometimes we need to open tabs in background
 
 			# Set up async handler for JavaScript dialogs - now we can handle them immediately!
 			async def handle_dialog(event_data, session_id: str | None = None):
@@ -99,7 +99,7 @@ class PopupsWatchdog(BaseWatchdog):
 
 		cdp_session = await asyncio.wait_for(self.browser_session.cdp_client_for_frame(event.frame_id), timeout=5.0)
 		try:
-			# delay to look more human
+			# delay to look more human before auto-closing, some popular antibot fingerprint tests check for modals closing too fast
 			await asyncio.sleep(0.25)
 			assert self.browser_session._cdp_client_root
 			# self.browser_session._cdp_client_root.register.Page.javascriptDialogClosed(lambda *args: None)
@@ -110,13 +110,11 @@ class PopupsWatchdog(BaseWatchdog):
 				),
 				timeout=5.0,
 			)
-			# CRITICAL: you must activate the target after handling the dialog, otherwise the browser will crash 5 seconds later
-			await self.browser_session.agent_focus.cdp_client.send.Target.activateTarget(
-				params={'targetId': current_focus_target_id}
-			)
+			# CRITICAL: you must re-focus (Target.activateTarget()) after handling the dialog, otherwise the browser will crash ~5 seconds later
+			await self.browser_session.get_or_create_cdp_session(target_id=current_focus_target_id, focus=True)
 			self.logger.info('✅ JS dialog popup handled successfully')
 
-			# graveyard:
+			# graveyard of past attempts:
 			# # new_target = await self.browser_session._cdp_client_root.send.Target.createTarget(params={'url': current_focus_url})
 			# # self.browser_session.agent_focus = await self.browser_session.get_or_create_cdp_session(target_id=new_target.get('targetId'), new_socket=True, focus=True)
 			# # raise NotImplementedError('TODO: figure out why this requires a hard refresh and new socket to avoid crashing the entire browser on JS dialogs')
@@ -135,6 +133,6 @@ class PopupsWatchdog(BaseWatchdog):
 			# raise
 		# finally:
 		# 	self.event_bus.dispatch(AgentFocusChangedEvent(
-		# 		tab_index=0,
+		# 		target_id=current_focus_target_id,
 		# 		url=self.browser_session.agent_focus.url,
 		# 	))

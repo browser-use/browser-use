@@ -91,7 +91,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Check if a new tab was opened
 			after_target_ids = await self.browser_session._cdp_get_all_pages()
-			if len(after_target_ids) > len(initial_target_ids):
+			new_target_ids = set(t['targetId'] for t in after_target_ids) - set(t['targetId'] for t in initial_target_ids)
+			if new_target_ids:
 				new_tab_msg = 'New tab opened - switching to it'
 				msg += f' - {new_tab_msg}'
 				self.logger.info(f'🔗 {new_tab_msg}')
@@ -104,8 +105,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 					# so in multi_act it usually already sends [click_element_by_index(123, new_tab=True), switch_tab(-1)] anyway
 					from browser_use.browser.events import SwitchTabEvent
 
-					last_tab_index = len(after_target_ids) - 1
-					switch_event = await self.event_bus.dispatch(SwitchTabEvent(tab_index=last_tab_index))
+					new_target_id = new_target_ids.pop()
+					switch_event = await self.event_bus.dispatch(SwitchTabEvent(target_id=new_target_id))
 					await switch_event
 
 			return None
@@ -531,7 +532,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 					raise Exception(f'Failed to click element: {e}')
 			finally:
 				# always re-focus back to original top-level page session context in case click opened a new tab/popup/window/dialog/etc.
-				await self.browser_session.get_or_create_cdp_session(focus=True)
+				cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
+				await cdp_session.cdp_client.send.Target.activateTarget(params={'targetId': cdp_session.target_id})
+				await cdp_session.cdp_client.send.Runtime.runIfWaitingForDebugger(session_id=cdp_session.session_id)
 
 		except URLNotAllowedError as e:
 			raise e

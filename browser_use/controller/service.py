@@ -127,9 +127,9 @@ class Controller(Generic[Context]):
 						# Switch to this tab first if it's not the current one
 						from browser_use.browser.events import SwitchTabEvent
 
-						if browser_session.agent_focus and tab.id != browser_session.agent_focus.target_id:
+						if browser_session.agent_focus and tab.target_id != browser_session.agent_focus.target_id:
 							try:
-								switch_event = browser_session.event_bus.dispatch(SwitchTabEvent(tab_index=i))
+								switch_event = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=tab.target_id))
 								await switch_event
 								await switch_event.event_result(raise_if_none=False)
 							except Exception as e:
@@ -150,9 +150,9 @@ class Controller(Generic[Context]):
 							# Switch to this tab first
 							from browser_use.browser.events import SwitchTabEvent
 
-							if browser_session.agent_focus and tab.id != browser_session.agent_focus.target_id:
+							if browser_session.agent_focus and tab.target_id != browser_session.agent_focus.target_id:
 								try:
-									switch_event = browser_session.event_bus.dispatch(SwitchTabEvent(tab_index=i))
+									switch_event = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=tab.target_id))
 									await switch_event
 									await switch_event.event_result()
 								except Exception as e:
@@ -455,8 +455,8 @@ class Controller(Generic[Context]):
 				event = browser_session.event_bus.dispatch(UploadFileEvent(node=file_input_node, file_path=params.path))
 				await event
 				await event.event_result(raise_if_any=True, raise_if_none=False)
-				msg = f'📁 Successfully uploaded file to index {params.index}'
-				logger.info(msg)
+				msg = f'Successfully uploaded file to index {params.index}'
+				logger.info(f'📁 {msg}')
 				return ActionResult(
 					extracted_content=msg,
 					include_in_memory=True,
@@ -472,28 +472,28 @@ class Controller(Generic[Context]):
 		async def switch_tab(params: SwitchTabAction, browser_session: BrowserSession):
 			# Dispatch switch tab event
 			try:
-				event = browser_session.event_bus.dispatch(SwitchTabEvent(tab_index=params.page_id))
+				target_id = browser_session.get_target_id_from_tab_id(params.tab_id)
+				event = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
 				await event
 				await event.event_result(raise_if_any=True, raise_if_none=False)
-				memory = f'Switched to tab #{params.page_id}'
-				msg = f'🔄  {memory}'
-				logger.info(msg)
+				memory = f'Switched to tab #{params.tab_id}'
+				logger.info(f'🔄  {memory}')
 				return ActionResult(extracted_content=memory, include_in_memory=True, long_term_memory=memory)
 			except Exception as e:
-				logger.error(f'Failed to switch tab: {e}')
+				logger.error(f'Failed to switch tab: {type(e).__name__}: {e}')
 				clean_msg = extract_llm_error_message(e)
-				return ActionResult(error=f'Failed to switch to tab {params.page_id}: {clean_msg}')
+				return ActionResult(error=f'Failed to switch to tab {params.tab_id}: {clean_msg}')
 
 		@self.registry.action('Close an existing tab', param_model=CloseTabAction)
 		async def close_tab(params: CloseTabAction, browser_session: BrowserSession):
 			# Dispatch close tab event
 			try:
-				event = browser_session.event_bus.dispatch(CloseTabEvent(tab_index=params.page_id))
+				target_id = browser_session.get_target_id_from_tab_id(params.tab_id)
+				event = browser_session.event_bus.dispatch(CloseTabEvent(target_id=target_id))
 				await event
 				await event.event_result(raise_if_any=True, raise_if_none=False)
-				memory = f'Closed tab #{params.page_id}'
-				msg = f'❌  {memory}'
-				logger.info(msg)
+				memory = f'Closed tab # {params.tab_id}'
+				logger.info(f'❌  {memory}')
 				return ActionResult(
 					extracted_content=memory,
 					include_in_memory=True,
@@ -502,7 +502,7 @@ class Controller(Generic[Context]):
 			except Exception as e:
 				logger.error(f'Failed to close tab: {e}')
 				clean_msg = extract_llm_error_message(e)
-				return ActionResult(error=f'Failed to close tab {params.page_id}: {clean_msg}')
+				return ActionResult(error=f'Failed to close tab {params.tab_id}: {clean_msg}')
 
 		# Content Actions
 

@@ -1,7 +1,7 @@
 """Event definitions for browser communication."""
 
 import inspect
-from typing import Any, Literal
+from typing import Any, Generic, Literal
 
 from bubus import BaseEvent
 from bubus.models import T_EventResultType
@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.dom.views import EnhancedDOMTreeNode
+from cdp_use.cdp.target import TargetID
 
 # ============================================================================
 # Agent/Controller -> BrowserSession Events (High-level browser actions)
@@ -53,13 +54,12 @@ class ElementSelectedEvent(BaseEvent[T_EventResultType]):
 # TODO: add page handle to events
 # class PageHandle(share a base with browser.session.CDPSession?):
 # 	url: str
-# 	tab_index: int
-# 	target_id: str
+# 	target_id: TargetID
 #   @classmethod
-#   def from_tab_index(cls, tab_index: int) -> Self:
-#     return cls(tab_index=tab_index)
+#   def from_target_id(cls, target_id: TargetID) -> Self:
+#     return cls(target_id=target_id)
 #   @classmethod
-#   def from_target_id(cls, target_id: str) -> Self:
+#   def from_target_id(cls, target_id: TargetID) -> Self:
 #     return cls(target_id=target_id)
 #   @classmethod
 #   def from_url(cls, url: str) -> Self:
@@ -97,7 +97,7 @@ class ClickElementEvent(ElementSelectedEvent[None]):
 	button: Literal['left', 'right', 'middle'] = 'left'
 	new_tab: bool = Field(
 		default=False,
-		description='Set True to open any link clicked in a new tab in the background, can use switch_tab(page_id=0) after to focus it',
+		description='Set True to open any link clicked in a new tab in the background, can use switch_tab(tab_id=-1) after to focus it',
 	)
 	# click_count: int = 1           # TODO
 	# expect_download: bool = False  # moved to downloads_watchdog.py
@@ -128,7 +128,7 @@ class ScrollEvent(ElementSelectedEvent[None]):
 class SwitchTabEvent(BaseEvent[None]):
 	"""Switch to a different tab."""
 
-	tab_index: int
+	target_id: TargetID | None = Field(default=None, description='None means switch to the most recently opened tab')
 
 	event_timeout: float | None = 10.0  # seconds
 
@@ -136,7 +136,7 @@ class SwitchTabEvent(BaseEvent[None]):
 class CloseTabEvent(BaseEvent[None]):
 	"""Close a tab."""
 
-	tab_index: int
+	target_id: TargetID
 
 	event_timeout: float | None = 10.0  # seconds
 
@@ -287,42 +287,44 @@ class BrowserKillEvent(BaseEvent):
 	event_timeout: float | None = 30.0  # seconds
 
 
-class ExecuteJavaScriptEvent(BaseEvent):
-	"""Execute JavaScript in page context."""
+# TODO: replace all Runtime.evaluate() calls with this event
+# class ExecuteJavaScriptEvent(BaseEvent):
+# 	"""Execute JavaScript in page context."""
 
-	tab_index: int
-	expression: str
-	await_promise: bool = True
+# 	target_id: TargetID
+# 	expression: str
+# 	await_promise: bool = True
 
-	event_timeout: float | None = 60.0  # seconds
+# 	event_timeout: float | None = 60.0  # seconds
 
+# TODO: add this and use the old BrowserProfile.viewport options to set it
+# class SetViewportEvent(BaseEvent):
+# 	"""Set the viewport size."""
 
-class SetViewportEvent(BaseEvent):
-	"""Set the viewport size."""
+# 	width: int
+# 	height: int
+# 	device_scale_factor: float = 1.0
 
-	width: int
-	height: int
-	device_scale_factor: float = 1.0
-
-	event_timeout: float | None = 15.0  # seconds
-
-
-class SetCookiesEvent(BaseEvent):
-	"""Set browser cookies."""
-
-	cookies: list[dict[str, Any]]
-
-	event_timeout: float | None = (
-		30.0  # only long to support the edge case of restoring a big localStorage / on many origins (has to O(n) visit each origin to restore)
-	)
+# 	event_timeout: float | None = 15.0  # seconds
 
 
-class GetCookiesEvent(BaseEvent):
-	"""Get browser cookies."""
+# Moved to strorage state
+# class SetCookiesEvent(BaseEvent):
+# 	"""Set browser cookies."""
 
-	urls: list[str] | None = None
+# 	cookies: list[dict[str, Any]]
 
-	event_timeout: float | None = 30.0  # seconds
+# 	event_timeout: float | None = (
+# 		30.0  # only long to support the edge case of restoring a big localStorage / on many origins (has to O(n) visit each origin to restore)
+# 	)
+
+
+# class GetCookiesEvent(BaseEvent):
+# 	"""Get browser cookies."""
+
+# 	urls: list[str] | None = None
+
+# 	event_timeout: float | None = 30.0  # seconds
 
 
 # ============================================================================
@@ -349,9 +351,8 @@ class BrowserStoppedEvent(BaseEvent):
 class TabCreatedEvent(BaseEvent):
 	"""A new tab was created."""
 
-	tab_index: int
+	target_id: TargetID
 	url: str
-	target_id: str
 
 	event_timeout: float | None = 30.0  # seconds
 
@@ -359,11 +360,10 @@ class TabCreatedEvent(BaseEvent):
 class TabClosedEvent(BaseEvent):
 	"""A tab was closed."""
 
-	tab_index: int
+	target_id: TargetID
 
 	# TODO:
-	# new_focus_tab_index: int | None = None
-	# new_focus_target_id: str | None = None
+	# new_focus_target_id: int | None = None
 	# new_focus_url: str | None = None
 
 	event_timeout: float | None = 10.0  # seconds
@@ -373,14 +373,14 @@ class TabClosedEvent(BaseEvent):
 # class TabUpdatedEvent(BaseEvent):
 # 	"""Tab information updated (URL changed, etc.)."""
 
-# 	tab_index: int
+# 	target_id: TargetID
 # 	url: str
 
 
 class AgentFocusChangedEvent(BaseEvent):
 	"""Agent focus changed to a different tab."""
 
-	tab_index: int
+	target_id: TargetID
 	url: str
 
 	event_timeout: float | None = 10.0  # seconds
@@ -389,7 +389,7 @@ class AgentFocusChangedEvent(BaseEvent):
 class TargetCrashedEvent(BaseEvent):
 	"""A target has crashed."""
 
-	tab_index: int
+	target_id: TargetID
 	error: str
 
 	event_timeout: float | None = 10.0  # seconds
@@ -398,7 +398,7 @@ class TargetCrashedEvent(BaseEvent):
 class NavigationStartedEvent(BaseEvent):
 	"""Navigation started."""
 
-	tab_index: int
+	target_id: TargetID
 	url: str
 
 	event_timeout: float | None = 30.0  # seconds
@@ -407,7 +407,7 @@ class NavigationStartedEvent(BaseEvent):
 class NavigationCompleteEvent(BaseEvent):
 	"""Navigation completed."""
 
-	tab_index: int
+	target_id: TargetID
 	url: str
 	status: int | None = None
 	error_message: str | None = None  # Error/timeout message if navigation had issues
@@ -499,7 +499,7 @@ class FileDownloadedEvent(BaseEvent):
 class AboutBlankDVDScreensaverShownEvent(BaseEvent):
 	"""AboutBlankWatchdog has shown DVD screensaver animation on an about:blank tab."""
 
-	tab_index: int
+	target_id: TargetID
 	error: str | None = None
 
 
@@ -510,6 +510,7 @@ class DialogOpenedEvent(BaseEvent):
 	message: str
 	url: str
 	frame_id: str
+	# target_id: TargetID   # TODO: add this to avoid needing target_id_from_frame() later
 
 
 # Note: Model rebuilding for forward references is handled in the importing modules

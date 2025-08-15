@@ -113,25 +113,9 @@ class TestTabManagement:
 		return result
 
 	async def _reset_tab_state(self, browser_session: BrowserSession, base_url: str):
-		# Ensure browser session is started and watchdogs are initialized
-		if not browser_session._browser_context:
-			await browser_session.start()
-
-		# close all existing tabs
-		if browser_session._browser_context:
-			for page in browser_session._browser_context.pages:
-				await page.close()
-
-		await asyncio.sleep(0.5)
-
-		# get/create a new tab - this will trigger the new event-driven page creation
-		initial_tab = await browser_session.get_current_page()
-
-		assert initial_tab is not None
-		assert browser_session.page is not None
-		assert browser_session.page.url == initial_tab.url
-		# page may be None until actual user interaction occurs
-		return initial_tab
+		# await browser_session.event_bus.dispatch(CloseTabEvent(target_id=browser_session.agent_focus.target_id))
+		# TODO: close all tabs using events + create new tab + focus it
+		pass
 
 	# Tab management tests
 
@@ -216,16 +200,17 @@ class TestTabManagement:
 		assert current_tab.url == second_tab.url == f'{base_url}/page2' == browser_session.page.url
 
 		# Find the correct tab index for the first tab (page1)
-		first_tab_index = None
+		first_tab_id = None
 		for i, tab in enumerate(browser_session.tabs):
 			if f'{base_url}/page1' in tab.url:
-				first_tab_index = i
+				first_tab_id = tab.target_id[-4:]
 				break
 
-		assert first_tab_index is not None, f'Could not find tab with page1 URL in {[p.url for p in browser_session.tabs]}'
+		assert first_tab_id is not None, f'Could not find tab with page1 URL in {[p.url for p in browser_session.tabs]}'
 
 		# Switch agent back to the first tab using correct index
-		await browser_session.switch_to_tab(first_tab_index)
+		from browser_use.browser.events import SwitchTabEvent
+		await browser_session.event_bus.dispatch(SwitchTabEvent(target_id=first_tab_id))
 		await asyncio.sleep(0.5)
 
 		# assert agent focus is on first tab
@@ -233,16 +218,16 @@ class TestTabManagement:
 		assert f'{base_url}/page1' in current_tab.url == browser_session.page.url
 
 		# Find the correct tab index for the second tab (page2)
-		second_tab_index = None
+		second_tab_id = None
 		for i, tab in enumerate(browser_session.tabs):
 			if f'{base_url}/page2' in tab.url:
-				second_tab_index = i
+				second_tab_id = tab.target_id[-4:]
 				break
 
-		assert second_tab_index is not None, f'Could not find tab with page2 URL in {[p.url for p in browser_session.tabs]}'
+		assert second_tab_id is not None, f'Could not find tab with page2 URL in {[p.url for p in browser_session.tabs]}'
 
 		# round-trip, switch agent back to second tab using correct index
-		await browser_session.switch_to_tab(second_tab_index)
+		await browser_session.event_bus.dispatch(SwitchTabEvent(target_id=second_tab_id))
 		await asyncio.sleep(0.5)
 
 		# assert agent focus is back on second tab
@@ -377,7 +362,7 @@ class TestEventDrivenTabOperations:
 		await browser_session.create_new_tab(f'{base_url}/page3')
 
 		# Switch to tab 0 via direct event
-		switch_event = browser_session.event_bus.dispatch(SwitchTabEvent(tab_index=0))
+		switch_event = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=browser_session.tabs[0].target_id))
 		await switch_event
 
 		# Verify the switch worked
@@ -385,7 +370,7 @@ class TestEventDrivenTabOperations:
 		assert f'{base_url}/page1' in current_url
 
 		# Switch to tab 2 via direct event
-		switch_event = browser_session.event_bus.dispatch(SwitchTabEvent(tab_index=2))
+		switch_event = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=browser_session.tabs[2].target_id))
 		await switch_event
 
 		# Verify the switch worked
@@ -404,7 +389,7 @@ class TestEventDrivenTabOperations:
 		assert initial_tab_count == 2
 
 		# Close tab 1 via direct event
-		close_event = browser_session.event_bus.dispatch(CloseTabEvent(tab_index=1))
+		close_event = browser_session.event_bus.dispatch(CloseTabEvent(target_id=browser_session.tabs[1].target_id))
 		await close_event
 
 		# Verify tab was closed
@@ -414,7 +399,7 @@ class TestEventDrivenTabOperations:
 		event_history = list(browser_session.event_bus.event_history.values())
 		closed_events = [e for e in event_history if isinstance(e, TabClosedEvent)]
 		assert len(closed_events) >= 1
-		assert closed_events[-1].tab_index == 1
+		assert closed_events[-1].target_id == browser_session.tabs[1].target_id
 
 	async def test_concurrent_tab_operations_via_events(self, browser_session, base_url):
 		"""Test concurrent tab operations via event system."""
@@ -434,8 +419,8 @@ class TestEventDrivenTabOperations:
 		assert len(browser_session.tabs) >= 3
 
 		# Switch between tabs concurrently (this should be serialized)
-		switch_event1 = browser_session.event_bus.dispatch(SwitchTabEvent(tab_index=0))
-		switch_event2 = browser_session.event_bus.dispatch(SwitchTabEvent(tab_index=1))
+		switch_event1 = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=browser_session.tabs[0].target_id))
+		switch_event2 = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=browser_session.tabs[1].target_id))
 
 		await asyncio.gather(switch_event1, switch_event2)
 

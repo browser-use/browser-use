@@ -21,7 +21,7 @@ class ClickElementAction(BaseModel):
 
 
 class InputTextAction(BaseModel):
-	index: int
+	index: int = Field(ge=0, description='index of the element to input text into, 0 is the page')
 	text: str
 	clear_existing: bool = Field(default=True, description='set True to clear existing text, False to append to existing text')
 
@@ -41,11 +41,11 @@ class StructuredOutputAction(BaseModel, Generic[T]):
 
 
 class SwitchTabAction(BaseModel):
-	page_id: int
+	tab_id: str = Field(min_length=4, max_length=4, description='4 character Tab ID')  # last 4 chars of TargetID
 
 
 class CloseTabAction(BaseModel):
-	page_id: int
+	tab_id: str = Field(min_length=4, max_length=4, description='4 character Tab ID')  # last 4 chars of TargetID
 
 
 class ScrollAction(BaseModel):

@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 import anyio
 from bubus import BaseEvent
 from cdp_use.cdp.browser import DownloadProgressEvent, DownloadWillBeginEvent
+from cdp_use.cdp.target import SessionID, TargetID
 from pydantic import PrivateAttr
 
 from browser_use.browser.events import (
@@ -62,17 +63,16 @@ class DownloadsWatchdog(BaseWatchdog):
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
 		"""Monitor new tabs for downloads."""
-		# logger.info(f'[DownloadsWatchdog] TabCreatedEvent received for tab {event.tab_index}: {event.url}')
+		# logger.info(f'[DownloadsWatchdog] TabCreatedEvent received for tab {event.target_id[-4:]}: {event.url}')
 
 		# Assert downloads path is configured (should always be set by BrowserProfile default)
 		assert self.browser_session.browser_profile.downloads_path is not None, 'Downloads path must be configured'
 
-		target_id = await self.browser_session.get_target_id_by_tab_index(event.tab_index)
-		if target_id:
-			# logger.info(f'[DownloadsWatchdog] Found target for tab {event.tab_index}, calling attach_to_target')
-			await self.attach_to_target(target_id)
+		if event.target_id:
+			# logger.info(f'[DownloadsWatchdog] Found target for tab {event.target_id}, calling attach_to_target')
+			await self.attach_to_target(event.target_id)
 		else:
-			self.logger.warning(f'[DownloadsWatchdog] No target found for tab {event.tab_index}')
+			self.logger.warning(f'[DownloadsWatchdog] No target found for tab {event.target_id}')
 
 	async def on_TabClosedEvent(self, event: TabClosedEvent) -> None:
 		"""Stop monitoring closed tabs."""
@@ -101,7 +101,7 @@ class DownloadsWatchdog(BaseWatchdog):
 
 	async def on_NavigationCompleteEvent(self, event: NavigationCompleteEvent) -> None:
 		"""Check for PDFs after navigation completes."""
-		self.logger.debug(f'[DownloadsWatchdog] NavigationCompleteEvent received for {event.url}, tab_index={event.tab_index}')
+		self.logger.debug(f'[DownloadsWatchdog] NavigationCompleteEvent received for {event.url}, tab #{event.target_id[-4:]}')
 
 		# Clear PDF cache for the navigated URL since content may have changed
 		if event.url in self._pdf_viewer_cache:
@@ -113,8 +113,8 @@ class DownloadsWatchdog(BaseWatchdog):
 			self.logger.debug('[DownloadsWatchdog] Skipping PDF check - auto-download disabled')
 			return
 
-		target_id = await self.browser_session.get_target_id_by_tab_index(event.tab_index)
-		self.logger.debug(f'[DownloadsWatchdog] Got target_id={target_id} for tab_index={event.tab_index}')
+		target_id = event.target_id
+		self.logger.debug(f'[DownloadsWatchdog] Got target_id={target_id} for tab #{event.target_id[-4:]}')
 
 		if target_id:
 			is_pdf = await self.check_for_pdf_viewer(target_id)
@@ -124,13 +124,13 @@ class DownloadsWatchdog(BaseWatchdog):
 				if not download_path:
 					self.logger.warning(f'[DownloadsWatchdog] ⚠️ PDF download failed for {event.url}')
 		else:
-			self.logger.debug(f'[DownloadsWatchdog] Could not get target_id for tab_index={event.tab_index}')
+			self.logger.debug(f'[DownloadsWatchdog] Could not get target_id for tab #{event.target_id[-4:]}')
 
 	def _is_auto_download_enabled(self) -> bool:
 		"""Check if auto-download PDFs is enabled in browser profile."""
 		return self.browser_session.browser_profile.auto_download_pdfs
 
-	async def attach_to_target(self, target_id: str) -> None:
+	async def attach_to_target(self, target_id: TargetID) -> None:
 		"""Set up download monitoring for a specific target."""
 		try:
 			downloads_path_raw = self.browser_session.browser_profile.downloads_path
@@ -164,7 +164,7 @@ class DownloadsWatchdog(BaseWatchdog):
 				)
 
 				# Register download event handlers
-				async def download_will_begin_handler(event: DownloadWillBeginEvent, session_id: str | None):
+				async def download_will_begin_handler(event: DownloadWillBeginEvent, session_id: SessionID | None):
 					self.logger.info(f'[DownloadsWatchdog] Download will begin: {event}')
 					# Create and track the task
 					task = asyncio.create_task(self._handle_cdp_download(event, target_id, session_id))
@@ -172,7 +172,7 @@ class DownloadsWatchdog(BaseWatchdog):
 					# Remove from set when done
 					task.add_done_callback(lambda t: self._cdp_event_tasks.discard(t))
 
-				async def download_progress_handler(event: DownloadProgressEvent, session_id: str | None):
+				async def download_progress_handler(event: DownloadProgressEvent, session_id: SessionID | None):
 					# Check if download is complete
 					if event.get('state') == 'completed':
 						file_path = event.get('filePath')
@@ -223,7 +223,7 @@ class DownloadsWatchdog(BaseWatchdog):
 		except Exception as e:
 			self.logger.error(f'[DownloadsWatchdog] Error tracking download: {e}')
 
-	async def _handle_cdp_download(self, event: DownloadWillBeginEvent, target_id: str, session_id: str | None) -> None:
+	async def _handle_cdp_download(self, event: DownloadWillBeginEvent, target_id: TargetID, session_id: SessionID | None) -> None:
 		"""Handle a CDP Page.downloadWillBegin event."""
 		downloads_dir = Path(
 			self.browser_session.browser_profile.downloads_path
@@ -502,7 +502,7 @@ class DownloadsWatchdog(BaseWatchdog):
 			if download_id in self._active_downloads:
 				del self._active_downloads[download_id]
 
-	async def check_for_pdf_viewer(self, target_id: str) -> bool:
+	async def check_for_pdf_viewer(self, target_id: TargetID) -> bool:
 		"""Check if the current target is Chrome's built-in PDF viewer.
 
 		Returns True if a PDF is detected and should be downloaded.
@@ -618,7 +618,7 @@ class DownloadsWatchdog(BaseWatchdog):
 			self._pdf_viewer_cache[page_url] = False
 			return False
 
-	async def trigger_pdf_download(self, target_id: str) -> str | None:
+	async def trigger_pdf_download(self, target_id: TargetID) -> str | None:
 		"""Trigger download of a PDF from Chrome's PDF viewer.
 
 		Returns the download path if successful, None otherwise.

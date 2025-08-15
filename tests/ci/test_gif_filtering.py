@@ -79,7 +79,7 @@ async def test_gif_filters_out_placeholder_screenshots(test_dir):
 				screenshot_path=None,  # Placeholder doesn't have a file path
 				url='about:blank',
 				title='New Tab',
-				tabs=[TabInfo(page_id=1, url='about:blank', title='New Tab')],
+				tabs=[TabInfo(target_id=1, url='about:blank', title='New Tab')],
 				interacted_element=[None],
 			),
 		)
@@ -99,7 +99,7 @@ async def test_gif_filters_out_placeholder_screenshots(test_dir):
 				screenshot_path=real_screenshot_1_path,
 				url='https://example.com',
 				title='Example',
-				tabs=[TabInfo(page_id=1, url='https://example.com', title='Example')],
+				tabs=[TabInfo(target_id=1, url='https://example.com', title='Example')],
 				interacted_element=[None],
 			),
 		)
@@ -119,7 +119,7 @@ async def test_gif_filters_out_placeholder_screenshots(test_dir):
 				screenshot_path=None,  # Placeholder doesn't have a file path
 				url='about:blank',
 				title='New Tab',
-				tabs=[TabInfo(page_id=2, url='about:blank', title='New Tab')],
+				tabs=[TabInfo(target_id=2, url='about:blank', title='New Tab')],
 				interacted_element=[None],
 			),
 		)
@@ -139,7 +139,7 @@ async def test_gif_filters_out_placeholder_screenshots(test_dir):
 				screenshot_path=real_screenshot_2_path,
 				url='https://example.com/page2',
 				title='Page 2',
-				tabs=[TabInfo(page_id=1, url='https://example.com/page2', title='Page 2')],
+				tabs=[TabInfo(target_id=1, url='https://example.com/page2', title='Page 2')],
 				interacted_element=[None],
 			),
 		)
@@ -206,7 +206,7 @@ async def test_gif_handles_all_placeholders(test_dir):
 					screenshot_path=None,  # Placeholder doesn't have a file path
 					url='about:blank',
 					title='New Tab',
-					tabs=[TabInfo(page_id=1, url='about:blank', title='New Tab')],
+					tabs=[TabInfo(target_id=1, url='about:blank', title='New Tab')],
 					interacted_element=[None],
 				),
 			)

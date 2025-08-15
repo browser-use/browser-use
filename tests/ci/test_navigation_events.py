@@ -58,12 +58,12 @@ async def test_navigation_events_fast_page_load(httpserver):
 		assert len(navigation_started_events) >= 1, 'Should have NavigationStartedEvent'
 		nav_started = navigation_started_events[-1]
 		assert nav_started.url == fast_url
-		assert nav_started.tab_index >= 0
+		assert nav_started.tab_id >= 0
 
 		# Verify NavigationCompleteEvent was emitted with success
 		assert len(navigation_complete_events) >= 1, 'Should have NavigationCompleteEvent'
 		assert nav_complete.url == fast_url
-		assert nav_complete.tab_index >= 0
+		assert nav_complete.target_id >= 0
 		assert nav_complete.status == 200, 'Should have successful HTTP status'
 		assert nav_complete.error_message is None, 'Should have no error message'
 		assert nav_complete.loading_status is None, 'Should have no loading status issues'

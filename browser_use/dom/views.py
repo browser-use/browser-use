@@ -8,7 +8,7 @@ from cdp_use.cdp.accessibility.types import AXPropertyName
 from cdp_use.cdp.dom.commands import GetDocumentReturns
 from cdp_use.cdp.dom.types import ShadowRootType
 from cdp_use.cdp.domsnapshot.commands import CaptureSnapshotReturns
-from cdp_use.cdp.target.types import TargetInfo
+from cdp_use.cdp.target.types import SessionID, TargetID, TargetInfo
 from uuid_extensions import uuid7str
 
 from browser_use.dom.utils import cap_text_length
@@ -191,7 +191,7 @@ class EnhancedSnapshotNode:
 # 	node_id: int
 # 	backend_node_id: int
 # 	frame_id: str | None
-# 	target_id: str
+# 	target_id: TargetID
 
 # 	node_type: NodeType
 # 	node_name: str
@@ -243,9 +243,9 @@ class EnhancedDOMTreeNode:
 	"""
 
 	# frames
-	session_id: str | None
-	target_id: str
+	target_id: TargetID
 	frame_id: str | None
+	session_id: SessionID | None
 	content_document: 'EnhancedDOMTreeNode | None'
 	"""
 	Content document is the document inside a new iframe.

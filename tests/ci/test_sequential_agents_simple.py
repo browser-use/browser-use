@@ -202,7 +202,7 @@ class TestSequentialAgentsSimple:
 				"memory": "Need to switch to tab 0",
 				"next_goal": "Switch to tab 0",
 				"action": [
-					{"switch_tab": {"page_id": 0}}
+					{"switch_tab": {"tab_id": 0}}
 				]
 			}"""
 		]

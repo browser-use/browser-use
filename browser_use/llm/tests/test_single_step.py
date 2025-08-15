@@ -35,7 +35,7 @@ def create_mock_state_message(temp_dir: str):
 		is_visible=True,
 		absolute_position=None,
 		session_id=None,
-		target_id='test-target',
+		target_id='ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234',
 		frame_id=None,
 		content_document=None,
 		shadow_root_type=None,
@@ -49,9 +49,9 @@ def create_mock_state_message(temp_dir: str):
 	# Create selector map
 	selector_map: DOMSelectorMap = {1: mock_button}
 
-	# Create mock tab info with proper integer page_id
+	# Create mock tab info with proper target_id
 	mock_tab = TabInfo(
-		page_id=1,  # Changed to integer
+		target_id='ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234',
 		url='https://example.com',
 		title='Test Page',
 	)

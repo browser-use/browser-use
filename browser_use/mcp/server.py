@@ -309,8 +309,8 @@ class BrowserUseServer:
 					description='Switch to a different tab',
 					inputSchema={
 						'type': 'object',
-						'properties': {'tab_index': {'type': 'integer', 'description': 'Index of the tab to switch to'}},
-						'required': ['tab_index'],
+						'properties': {'tab_id': {'type': 'str', 'description': '4 Character Tab ID of the tab to switch to'}},
+						'required': ['tab_id'],
 					},
 				),
 				types.Tool(
@@ -318,8 +318,8 @@ class BrowserUseServer:
 					description='Close a tab',
 					inputSchema={
 						'type': 'object',
-						'properties': {'tab_index': {'type': 'integer', 'description': 'Index of the tab to close'}},
-						'required': ['tab_index'],
+						'properties': {'tab_id': {'type': 'str', 'description': '4 Character Tab ID of the tab to close'}},
+						'required': ['tab_id'],
 					},
 				),
 				# types.Tool(
@@ -439,10 +439,10 @@ class BrowserUseServer:
 				return await self._list_tabs()
 
 			elif tool_name == 'browser_switch_tab':
-				return await self._switch_tab(arguments['tab_index'])
+				return await self._switch_tab(arguments['tab_id'])
 
 			elif tool_name == 'browser_close_tab':
-				return await self._close_tab(arguments['tab_index'])
+				return await self._close_tab(arguments['tab_id'])
 
 		return f'Unknown tool: {tool_name}'
 
@@ -598,10 +598,7 @@ class BrowserUseServer:
 		if new_tab:
 			event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=url, new_tab=True))
 			await event
-			# Get the current tab count to determine the new tab index
-			tabs = await self.browser_session.get_tabs()
-			tab_index = len(tabs) - 1
-			return f'Opened new tab #{tab_index} with URL: {url}'
+			return f'Opened new tab with URL: {url}'
 		else:
 			event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=url))
 			await event
@@ -638,9 +635,7 @@ class BrowserUseServer:
 
 				event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=full_url, new_tab=True))
 				await event
-				tabs = await self.browser_session.get_tabs()
-				tab_index = len(tabs) - 1
-				return f'Clicked element {index} and opened in new tab #{tab_index}'
+				return f'Clicked element {index} and opened in new tab {full_url[:20]}...'
 			else:
 				# For non-link elements, just do a normal click
 				# Opening in new tab without href is not reliably supported
@@ -789,35 +784,36 @@ class BrowserUseServer:
 		tabs_info = await self.browser_session.get_tabs()
 		tabs = []
 		for i, tab in enumerate(tabs_info):
-			tabs.append({'index': i, 'url': tab.url, 'title': tab.title or ''})
+			tabs.append({'tab_id': tab.target_id[-4:], 'url': tab.url, 'title': tab.title or ''})
 		return json.dumps(tabs, indent=2)
 
-	async def _switch_tab(self, tab_index: int) -> str:
+	async def _switch_tab(self, tab_id: str) -> str:
 		"""Switch to a different tab."""
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
 		from browser_use.browser.events import SwitchTabEvent
 
-		event = self.browser_session.event_bus.dispatch(SwitchTabEvent(tab_index=tab_index))
+		target_id = self.browser_session.get_target_id_from_tab_id(tab_id)
+		event = self.browser_session.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
 		await event
 		state = await self.browser_session.get_browser_state_summary()
-		return f'Switched to tab {tab_index}: {state.url}'
+		return f'Switched to tab {tab_id}: {state.url}'
 
-	async def _close_tab(self, tab_index: int) -> str:
+	async def _close_tab(self, tab_id: str) -> str:
 		"""Close a specific tab."""
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
-		tabs = await self.browser_session.get_tabs()
-		if 0 <= tab_index < len(tabs):
-			url = tabs[tab_index].url
-			from browser_use.browser.events import CloseTabEvent
 
-			event = self.browser_session.event_bus.dispatch(CloseTabEvent(tab_index=tab_index))
-			await event
-			return f'Closed tab {tab_index}: {url}'
-		return f'Invalid tab index: {tab_index}'
+		from browser_use.browser.events import CloseTabEvent
+
+		target_id = self.browser_session.get_target_id_from_tab_id(tab_id)
+		event = self.browser_session.event_bus.dispatch(CloseTabEvent(target_id=target_id))
+		await event
+		current_url = await self.browser_session.get_current_page_url()
+		return f'Closed tab # {tab_id}, now on {current_url}'
+
 
 	async def run(self):
 		"""Run the MCP server."""
