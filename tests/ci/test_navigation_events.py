@@ -219,7 +219,7 @@ async def test_navigation_events_history_pushstate(httpserver):
 
 		# Test 1: history.pushState (should NOT trigger NavigationCompleteEvent)
 		push_button_found = False
-		for idx, element in state.selector_map.items():
+		for idx, element in state.dom_state.selector_map.items():
 			if hasattr(element, 'attributes') and element.attributes.get('id') == 'push-btn':
 				push_button_found = True
 				click_element = await session.get_dom_element_by_index(idx)
@@ -238,7 +238,7 @@ async def test_navigation_events_history_pushstate(httpserver):
 		state = await session.get_browser_state_summary()
 		same_tab_link_found = False
 
-		for idx, element in state.selector_map.items():
+		for idx, element in state.dom_state.selector_map.items():
 			if hasattr(element, 'attributes') and element.attributes.get('id') == 'same-tab-link':
 				same_tab_link_found = True
 				click_element = await session.get_dom_element_by_index(idx)
@@ -267,7 +267,7 @@ async def test_navigation_events_history_pushstate(httpserver):
 		state = await session.get_browser_state_summary()
 		new_tab_link_found = False
 
-		for idx, element in state.selector_map.items():
+		for idx, element in state.dom_state.selector_map.items():
 			if hasattr(element, 'attributes') and element.attributes.get('id') == 'new-tab-link':
 				new_tab_link_found = True
 				# Use new_tab=True parameter to properly trigger new tab behavior
@@ -364,7 +364,7 @@ async def test_navigation_events_link_clicks(httpserver):
 		state = await session.get_browser_state_summary()
 		same_tab_link_found = False
 
-		for idx, element in state.selector_map.items():
+		for idx, element in state.dom_state.selector_map.items():
 			if hasattr(element, 'attributes') and element.attributes.get('id') == 'same-tab-link':
 				same_tab_link_found = True
 				click_element = await session.get_dom_element_by_index(idx)
@@ -393,7 +393,7 @@ async def test_navigation_events_link_clicks(httpserver):
 		state = await session.get_browser_state_summary()
 		new_tab_link_found = False
 
-		for idx, element in state.selector_map.items():
+		for idx, element in state.dom_state.selector_map.items():
 			if hasattr(element, 'attributes') and element.attributes.get('id') == 'new-tab-link':
 				new_tab_link_found = True
 				click_element = await session.get_dom_element_by_index(idx)
@@ -421,7 +421,7 @@ async def test_navigation_events_link_clicks(httpserver):
 		state = await session.get_browser_state_summary()
 		js_link_found = False
 
-		for idx, element in state.selector_map.items():
+		for idx, element in state.dom_state.selector_map.items():
 			if hasattr(element, 'attributes') and element.attributes.get('id') == 'js-navigation':
 				js_link_found = True
 				click_element = await session.get_dom_element_by_index(idx)

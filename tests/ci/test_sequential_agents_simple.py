@@ -31,7 +31,11 @@ class TestSequentialAgentsSimple:
 
 		# Verify browser is running
 		# Get initial browser PID from local_browser_watchdog
-		initial_pid = browser_session.local_browser_watchdog._subprocess.pid if browser_session.local_browser_watchdog and browser_session.local_browser_watchdog._subprocess else None
+		initial_pid = (
+			browser_session._local_browser_watchdog._subprocess.pid
+			if browser_session._local_browser_watchdog and browser_session._local_browser_watchdog._subprocess
+			else None
+		)
 		# Browser PID detection may fail in CI environments
 		# The important thing is that the browser is connected
 		# Verify session is connected
@@ -69,7 +73,11 @@ class TestSequentialAgentsSimple:
 		assert url is not None
 		if initial_pid is not None:
 			# Check browser PID is still the same
-			current_pid = browser_session.local_browser_watchdog._subprocess.pid if browser_session.local_browser_watchdog and browser_session.local_browser_watchdog._subprocess else None
+			current_pid = (
+				browser_session._local_browser_watchdog._subprocess.pid
+				if browser_session._local_browser_watchdog and browser_session._local_browser_watchdog._subprocess
+				else None
+			)
 			assert current_pid == initial_pid
 
 		# Delete agent1 and force garbage collection
@@ -83,7 +91,11 @@ class TestSequentialAgentsSimple:
 		assert url is not None
 		if initial_pid is not None:
 			# Check browser PID is still the same
-			current_pid = browser_session.local_browser_watchdog._subprocess.pid if browser_session.local_browser_watchdog and browser_session.local_browser_watchdog._subprocess else None
+			current_pid = (
+				browser_session._local_browser_watchdog._subprocess.pid
+				if browser_session._local_browser_watchdog and browser_session._local_browser_watchdog._subprocess
+				else None
+			)
 			assert current_pid == initial_pid
 		# Verify session is still connected
 		url = await browser_session.get_current_page_url()
@@ -117,7 +129,11 @@ class TestSequentialAgentsSimple:
 		assert url is not None
 		if initial_pid is not None:
 			# Check browser PID is still the same
-			current_pid = browser_session.local_browser_watchdog._subprocess.pid if browser_session.local_browser_watchdog and browser_session.local_browser_watchdog._subprocess else None
+			current_pid = (
+				browser_session._local_browser_watchdog._subprocess.pid
+				if browser_session._local_browser_watchdog and browser_session._local_browser_watchdog._subprocess
+				else None
+			)
 			assert current_pid == initial_pid
 		# Verify session is still connected
 		url = await browser_session.get_current_page_url()

@@ -17,7 +17,7 @@ class ClickableElementDetector:
 		# remove html and body nodes
 		if node.tag_name in {'html', 'body'}:
 			return False
-		
+
 		# IFRAME elements should be interactive if they're large enough to potentially need scrolling
 		# Small iframes (< 100px width or height) are unlikely to have scrollable content
 		if node.tag_name and node.tag_name.upper() == 'IFRAME':
@@ -109,7 +109,7 @@ class ClickableElementDetector:
 		}
 		if node.tag_name in interactive_tags:
 			return True
-		
+
 		# SVG elements need special handling - only interactive if they have explicit handlers
 		# svg_tags = {'svg', 'path', 'circle', 'rect', 'polygon', 'ellipse', 'line', 'polyline', 'g'}
 		# if node.tag_name in svg_tags:

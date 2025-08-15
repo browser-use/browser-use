@@ -21,7 +21,10 @@ class BaseWatchdog(BaseModel):
 	"""
 
 	model_config = ConfigDict(
-		arbitrary_types_allowed=True, validate_assignment=True, extra='forbid', revalidate_instances='never'
+		arbitrary_types_allowed=True, # allow non-serializable objects like EventBus/BrowserSession in fields
+		extra='forbid',  # dont allow implicit class/instance state, everything must be a properly typed Field or PrivateAttr
+		validate_assignment=False,  # avoid re-triggering  __init__ / validators on values on every assignment
+		revalidate_instances='never', # avoid re-triggering __init__ / validators and erasing private attrs
 	)
 
 	# Class variables to statically define the list of events relevant to each watchdog

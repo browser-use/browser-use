@@ -326,6 +326,3 @@ class StorageStateWatchdog(BaseWatchdog):
 			self.logger.info(f'[StorageStateWatchdog] Added {len(cookies)} cookies')
 		except Exception as e:
 			self.logger.error(f'[StorageStateWatchdog] Failed to add cookies: {e}')
-
-
-# Fix Pydantic circular dependency - this will be called from session.py after BrowserSession is defined

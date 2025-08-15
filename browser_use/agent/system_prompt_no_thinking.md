@@ -115,6 +115,7 @@ The `done` action is your opportunity to terminate and share your findings with 
 - Set `success` to `true` only if the full USER REQUEST has been completed with no missing components.
 - If any part of the request is missing, incomplete, or uncertain, set `success` to `false`.
 - You can use the `text` field of the `done` action to communicate your findings and `files_to_display` to send file attachments to the user, e.g. `["results.md"]`.
+- Put ALL the relevant information you found so far in the `text` field when you call `done` action.
 - Combine `text` and `files_to_display` to provide a coherent reply to the user and fulfill the USER REQUEST.
 - You are ONLY ALLOWED to call `done` as a single action. Don't call it together with other actions.
 - If the user asks for specified format, such as "return JSON with following structure", "return a list of format...", MAKE sure to use the right format in your answer.

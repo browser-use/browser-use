@@ -115,28 +115,28 @@ async def test_browser_use_download_with_http_server(http_server):
 		</body>
 		</html>
 		"""
-		
+
 		# Set content using CDP
-		cdp_session = await session.attach_cdp_session()
+		cdp_session = await browser_session.get_or_create_cdp_session()
 		await cdp_session.cdp_client.send.Page.setDocumentContent(
-			params={'frameId': cdp_session.cdp_client.page_frame_id, 'html': html_content},
-			session_id=cdp_session.session_id
+			params={'frameId': cdp_session.cdp_client.page_frame_id, 'html': html_content}, session_id=cdp_session.session_id
 		)
 
 		# Wait a moment for DOM to be ready
 		await asyncio.sleep(0.5)
 
 		# Click the download link using events
-		state = await session.get_browser_state_summary()
+		state = await browser_session.get_browser_state_summary()
 		download_link = None
 		for idx, element in state.dom_state.selector_map.items():
 			if element.attributes.get('id') == 'download-link':
 				download_link = element
 				break
-		
-		assert download_link is not None, "Download link not found"
+
+		assert download_link is not None, 'Download link not found'
 		from browser_use.browser.events import ClickElementEvent
-		click_event = session.event_bus.dispatch(ClickElementEvent(node=download_link))
+
+		click_event = browser_session.event_bus.dispatch(ClickElementEvent(node=download_link))
 		await click_event
 
 		# Wait for the DownloadsWatchdog to process the download by expecting the FileDownloadedEvent

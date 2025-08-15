@@ -117,10 +117,12 @@ async def test_downloads_watchdog_file_detection(download_test_server):
 
 			# Navigate to test page
 			test_url = download_test_server.url_for('/')
-			await session.navigate(test_url)
+			await session.event_bus.dispatch(NavigateToUrlEvent(url=test_url))
 
 			# Click download link to trigger download
-			await session.click('a[href="/download/test.pdf"]')
+			await session.event_bus.dispatch(
+				ClickElementEvent(element_node=session.get_element_node('a[href="/download/test.pdf"]'))
+			)
 
 			# Wait for download to complete
 			await asyncio.sleep(2.0)

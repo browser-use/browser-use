@@ -439,8 +439,12 @@ class TestParallelism:
 
 		try:
 			await session.start()
-			# Get browser PID from local_browser_watchdog
-			initial_browser_pid = session.local_browser_watchdog._subprocess.pid if session.local_browser_watchdog and session.local_browser_watchdog._subprocess else None
+			# Get browser PID from private local_browser_watchdog
+			initial_browser_pid = (
+				session._local_browser_watchdog._subprocess.pid
+				if session._local_browser_watchdog and session._local_browser_watchdog._subprocess
+				else None
+			)
 
 			# First agent
 			agent1 = Agent(
@@ -452,7 +456,11 @@ class TestParallelism:
 			result1 = await agent1.run()
 
 			# Session should still be alive
-			current_browser_pid = session.local_browser_watchdog._subprocess.pid if session.local_browser_watchdog and session.local_browser_watchdog._subprocess else None
+			current_browser_pid = (
+				session._local_browser_watchdog._subprocess.pid
+				if session._local_browser_watchdog and session._local_browser_watchdog._subprocess
+				else None
+			)
 			assert current_browser_pid is not None
 			assert current_browser_pid == initial_browser_pid
 
@@ -472,7 +480,11 @@ class TestParallelism:
 				if last_history.model_output and last_history.model_output.action:
 					assert any('done' in action.model_dump(include={'done'}) for action in last_history.model_output.action)
 			# Verify same browser process is still running
-			final_browser_pid = session.local_browser_watchdog._subprocess.pid if session.local_browser_watchdog and session.local_browser_watchdog._subprocess else None
+			final_browser_pid = (
+				session._local_browser_watchdog._subprocess.pid
+				if session._local_browser_watchdog and session._local_browser_watchdog._subprocess
+				else None
+			)
 			assert final_browser_pid == initial_browser_pid
 
 		finally:

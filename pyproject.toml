@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.5.12"
+version = "1.0.0rc1"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -17,14 +17,11 @@ dependencies = [
     "google-api-core>=2.25.0",
     "httpx>=0.28.1",
     "markdownify==1.1.0",
-    "patchright>=1.52.5",
-    "playwright>=1.52.0",
     "portalocker>=2.7.0,<3.0.0",
     "posthog>=3.7.0",
     "psutil>=7.0.0",
     "pydantic>=2.11.5",
     "pyobjc>=11.0; platform_system == 'darwin'",
-    "pyperclip>=1.9.0",
     "python-dotenv>=1.0.1",
     "requests>=2.32.3",
     "screeninfo>=0.8.1; platform_system != 'darwin'",
@@ -68,8 +65,8 @@ examples = [
     # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
     "botocore>=1.37.23",
     "imgcat>=0.6.0",
-    "stagehand-py>=0.3.6",
-    "browserbase>=0.4.0",
+    # "stagehand-py>=0.3.6",
+    # "browserbase>=0.4.0",
     "langchain-openai>=0.3.26",
 ]
 eval = [

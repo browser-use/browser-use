@@ -460,7 +460,7 @@ class TestTypeTextEvent:
 		state = await browser_session.get_browser_state_summary()
 
 		# Create a node with index 0 - this should type to the page (whatever has focus)
-		from browser_use.dom.views import EnhancedDOMTreeNode
+		from browser_use.dom.views import EnhancedDOMTreeNode, NodeType
 
 		mock_node = EnhancedDOMTreeNode(
 			element_index=0,
@@ -469,7 +469,7 @@ class TestTypeTextEvent:
 			session_id='',
 			frame_id='',
 			target_id='',
-			node_type=1,
+			node_type=NodeType.ELEMENT_NODE,
 			node_name='body',
 			node_value='',
 			attributes={},
@@ -531,7 +531,7 @@ class TestTypeTextEvent:
 		)
 
 		# Create a node with a non-existent index
-		from browser_use.dom.views import EnhancedDOMTreeNode
+		from browser_use.dom.views import EnhancedDOMTreeNode, NodeType
 
 		nonexistent_node = EnhancedDOMTreeNode(
 			element_index=99999,
@@ -540,7 +540,7 @@ class TestTypeTextEvent:
 			session_id='',
 			frame_id='',
 			target_id='',
-			node_type=1,
+			node_type=NodeType.ELEMENT_NODE,
 			node_name='input',
 			node_value='',
 			attributes={'id': 'nonexistent'},

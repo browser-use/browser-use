@@ -120,7 +120,7 @@ class CDPSession(BaseModel):
 		self.session_id = result['sessionId']
 
 		# Use specified domains or default domains
-		domains = domains or ['Page', 'DOM', 'DOMSnapshot', 'Accessibility', 'Runtime', 'Inspector']
+		domains = domains or ['Page', 'DOM', 'DOMSnapshot', 'Accessibility', 'Runtime', 'Inspector', 'Debugger']
 
 		# Enable all domains in parallel
 		enable_tasks = []
@@ -137,6 +137,17 @@ class CDPSession(BaseModel):
 		results = await asyncio.gather(*enable_tasks, return_exceptions=True)
 		if any(isinstance(result, Exception) for result in results):
 			raise RuntimeError(f'Failed to enable requested CDP domain: {results}')
+
+		# disable breakpoints on the page so it doesnt pause on crashes / debugger statements
+		try:
+			await self.cdp_client.send.Debugger.setSkipAllPauses(params={'skip': True}, session_id=self.session_id)
+			# if 'Debugger' not in domains:
+			# 	await self.cdp_client.send.Debugger.disable()
+			# await cdp_session.cdp_client.send.EventBreakpoints.disable(session_id=cdp_session.session_id)
+		except Exception as e:
+			# self.logger.warning(f'Failed to disable page JS breakpoints: {e}')
+			pass
+
 		target_info = await self.get_target_info()
 		self.title = target_info['title']
 		self.url = target_info['url']
@@ -395,10 +406,19 @@ class BrowserSession(BaseModel):
 			self.logger.warning('Cannot navigate - browser not connected')
 			return
 
+		target_id = None
+		tab_index = 0
+
+		# check if the url is already open in a tab somewhere that we haven't interacted with yet, if so, short-circuit and just switch to it
+		targets = await self._cdp_get_all_pages()
+		for target in targets:
+			if target.get('url') == event.url and target['targetId'] != self.agent_focus.target_id and not event.new_tab:
+				target_id = target['targetId']
+				event.new_tab = False
+				# await self.event_bus.dispatch(SwitchTabEvent(tab_index=tab_index))
+
 		try:
 			# Find or create target for navigation
-			target_id = None
-			tab_index = 0
 
 			self.logger.info(f'[on_NavigateToUrlEvent] Processing new_tab={event.new_tab}')
 			if event.new_tab:
@@ -439,7 +459,7 @@ class BrowserSession(BaseModel):
 						self.logger.warning(f'[on_NavigateToUrlEvent] Falling back to current tab at index {tab_index}')
 			else:
 				# Use current tab
-				target_id = self.agent_focus.target_id
+				target_id = target_id or self.agent_focus.target_id
 
 			# Activate target (bring to foreground)
 			tab_index = await self.get_tab_index(target_id)
@@ -483,15 +503,16 @@ class BrowserSession(BaseModel):
 			# - DOM rebuilding (dom_watchdog)
 
 		except Exception as e:
-			self.logger.error(f'Navigation failed: {e}')
-			self.event_bus.dispatch(
+			self.logger.error(f'Navigation failed: {type(e).__name__}: {e}')
+			await self.event_bus.dispatch(
 				NavigationCompleteEvent(
-					tab_index=tab_index if 'tab_index' in locals() else 0,
+					tab_index=tab_index,
 					url=event.url,
-					status=None,
-					error_message=str(e),
+					error_message=f'{type(e).__name__}: {e}',
 				)
 			)
+			await self.event_bus.dispatch(AgentFocusChangedEvent(tab_index=tab_index, url=event.url))
+			raise
 
 	async def on_SwitchTabEvent(self, event: SwitchTabEvent) -> None:
 		"""Handle tab switching - core browser functionality."""
@@ -504,7 +525,7 @@ class BrowserSession(BaseModel):
 			target_id = targets[event.tab_index]['targetId']
 
 			# Activate target
-			await self.cdp_client.send.Target.activateTarget(params={'targetId': target_id})
+			self.agent_focus = await self.get_or_create_cdp_session(target_id=target_id, focus=True)
 
 			# Dispatch focus changed event
 			target_url = targets[event.tab_index].get('url', '')
@@ -553,13 +574,13 @@ class BrowserSession(BaseModel):
 		self.logger.debug(f'🔄 AgentFocusChangedEvent received: tab_index={event.tab_index}, url={event.url}')
 
 		# Clear cached DOM state since focus changed
-		self.logger.debug('🔄 Clearing DOM cache...')
+		# self.logger.debug('🔄 Clearing DOM cache...')
 		if self._dom_watchdog:
 			self._dom_watchdog.clear_cache()
-			self.logger.debug('🔄 Cleared DOM cache after focus change')
+			# self.logger.debug('🔄 Cleared DOM cache after focus change')
 
 		# Clear cached browser state
-		self.logger.debug('🔄 Clearing cached browser state...')
+		# self.logger.debug('🔄 Clearing cached browser state...')
 		self._cached_browser_state_summary = None
 		self._cached_selector_map.clear()
 		self.logger.debug('🔄 Cached browser state cleared')
@@ -571,7 +592,7 @@ class BrowserSession(BaseModel):
 			self.logger.debug(f'🔄 Got {len(targets)} targets')
 			if 0 <= event.tab_index < len(targets):
 				target_id = targets[event.tab_index]['targetId']
-				self.logger.debug(f'🔄 Getting CDP session for target {target_id}...')
+				# self.logger.debug(f'🔄 Getting CDP session for target {target_id}...')
 				self.agent_focus = await self.get_or_create_cdp_session(target_id, focus=True)
 				self.logger.debug(f'🔄 Updated agent focus to tab {event.tab_index} (target {target_id})')
 
@@ -586,14 +607,15 @@ class BrowserSession(BaseModel):
 					timeout=2.0,
 				)
 				if test_result.get('result', {}).get('value') == 2:
-					self.logger.debug('🔄 ✅ Browser is responsive after focus change')
+					# self.logger.debug('🔄 ✅ Browser is responsive after focus change')
+					pass
 				else:
 					raise Exception('❌ Failed to execute test JS expression with Page.evaluate')
 			except Exception as e:
 				self.logger.error(f'🔄 ❌ Page appears crashed after focus change: {e}')
 				raise
 
-		self.logger.debug('🔄 AgentFocusChangedEvent handler completed successfully')
+		# self.logger.debug('🔄 AgentFocusChangedEvent handler completed successfully')
 
 	async def on_FileDownloadedEvent(self, event: FileDownloadedEvent) -> None:
 		"""Track downloaded files during this session."""
@@ -672,6 +694,9 @@ class BrowserSession(BaseModel):
 					f'[get_or_create_cdp_session] Switching agent focus from {self.agent_focus.target_id} to {target_id}'
 				)
 				self.agent_focus = session
+			if focus:
+				await session.cdp_client.send.Target.activateTarget(params={'targetId': session.target_id})
+				await session.cdp_client.send.Runtime.runIfWaitingForDebugger(session_id=session.session_id)
 			# else:
 			# self.logger.debug(f'[get_or_create_cdp_session] Reusing existing session for {target_id} (focus={focus})')
 			return session
@@ -701,6 +726,8 @@ class BrowserSession(BaseModel):
 				f'[get_or_create_cdp_session] Switching agent focus from {self.agent_focus.target_id} to {target_id}'
 			)
 			self.agent_focus = session
+			await session.cdp_client.send.Target.activateTarget(params={'targetId': session.target_id})
+			await session.cdp_client.send.Runtime.runIfWaitingForDebugger(session_id=session.session_id)
 		else:
 			self.logger.debug(
 				f'[get_or_create_cdp_session] Created session for {target_id} without changing focus (still on {self.agent_focus.target_id})'
@@ -776,7 +803,7 @@ class BrowserSession(BaseModel):
 		from browser_use.browser.popups_watchdog import PopupsWatchdog
 		from browser_use.browser.screenshot_watchdog import ScreenshotWatchdog
 		from browser_use.browser.security_watchdog import SecurityWatchdog
-		from browser_use.browser.storage_state_watchdog import StorageStateWatchdog
+		# from browser_use.browser.storage_state_watchdog import StorageStateWatchdog
 
 		# Initialize CrashWatchdog
 		# CrashWatchdog.model_rebuild()
@@ -797,14 +824,14 @@ class BrowserSession(BaseModel):
 		if self.browser_profile.auto_download_pdfs:
 			self.logger.info('📄 PDF auto-download enabled for this session')
 
-		# Initialize StorageStateWatchdog
-		StorageStateWatchdog.model_rebuild()
-		self._storage_state_watchdog = StorageStateWatchdog(event_bus=self.event_bus, browser_session=self)
-		# self.event_bus.on(BrowserConnectedEvent, self._storage_state_watchdog.on_BrowserConnectedEvent)
-		# self.event_bus.on(BrowserStopEvent, self._storage_state_watchdog.on_BrowserStopEvent)
-		# self.event_bus.on(SaveStorageStateEvent, self._storage_state_watchdog.on_SaveStorageStateEvent)
-		# self.event_bus.on(LoadStorageStateEvent, self._storage_state_watchdog.on_LoadStorageStateEvent)
-		self._storage_state_watchdog.attach_to_session()
+		# # Initialize StorageStateWatchdog
+		# StorageStateWatchdog.model_rebuild()
+		# self._storage_state_watchdog = StorageStateWatchdog(event_bus=self.event_bus, browser_session=self)
+		# # self.event_bus.on(BrowserConnectedEvent, self._storage_state_watchdog.on_BrowserConnectedEvent)
+		# # self.event_bus.on(BrowserStopEvent, self._storage_state_watchdog.on_BrowserStopEvent)
+		# # self.event_bus.on(SaveStorageStateEvent, self._storage_state_watchdog.on_SaveStorageStateEvent)
+		# # self.event_bus.on(LoadStorageStateEvent, self._storage_state_watchdog.on_LoadStorageStateEvent)
+		# self._storage_state_watchdog.attach_to_session()
 
 		# Initialize LocalBrowserWatchdog
 		LocalBrowserWatchdog.model_rebuild()
@@ -814,14 +841,14 @@ class BrowserSession(BaseModel):
 		# self.event_bus.on(BrowserStopEvent, self._local_browser_watchdog.on_BrowserStopEvent)
 		self._local_browser_watchdog.attach_to_session()
 
-		# Initialize SecurityWatchdog (replaces NavigationWatchdog for security checks only)
+		# Initialize SecurityWatchdog (hooks NavigationWatchdog and implements allowed_domains restriction)
 		SecurityWatchdog.model_rebuild()
 		self._security_watchdog = SecurityWatchdog(event_bus=self.event_bus, browser_session=self)
 		# Core navigation is now handled in BrowserSession directly
 		# SecurityWatchdog only handles security policy enforcement
 		self._security_watchdog.attach_to_session()
 
-		# Initialize AboutBlankWatchdog
+		# Initialize AboutBlankWatchdog (handles about:blank pages and DVD loading animation on first load)
 		AboutBlankWatchdog.model_rebuild()
 		self._aboutblank_watchdog = AboutBlankWatchdog(event_bus=self.event_bus, browser_session=self)
 		# self.event_bus.on(BrowserStopEvent, self._aboutblank_watchdog.on_BrowserStopEvent)
@@ -830,20 +857,20 @@ class BrowserSession(BaseModel):
 		# self.event_bus.on(TabClosedEvent, self._aboutblank_watchdog.on_TabClosedEvent)
 		self._aboutblank_watchdog.attach_to_session()
 
-		# Initialize PopupsWatchdog
+		# Initialize PopupsWatchdog (handles accepting and dismissing JS dialogs, alerts, confirm, onbeforeunload, etc.)
 		PopupsWatchdog.model_rebuild()
 		self._popups_watchdog = PopupsWatchdog(event_bus=self.event_bus, browser_session=self)
 		# self.event_bus.on(TabCreatedEvent, self._popups_watchdog.on_TabCreatedEvent)
 		# self.event_bus.on(DialogCloseEvent, self._popups_watchdog.on_DialogCloseEvent)
 		self._popups_watchdog.attach_to_session()
 
-		# Initialize PermissionsWatchdog
+		# Initialize PermissionsWatchdog (handles granting and revoking browser permissions like clipboard, microphone, camera, etc.)
 		PermissionsWatchdog.model_rebuild()
 		self._permissions_watchdog = PermissionsWatchdog(event_bus=self.event_bus, browser_session=self)
 		# self.event_bus.on(BrowserConnectedEvent, self._permissions_watchdog.on_BrowserConnectedEvent)
 		self._permissions_watchdog.attach_to_session()
 
-		# Initialize DefaultActionWatchdog
+		# Initialize DefaultActionWatchdog (handles all default actions like click, type, scroll, go back, go forward, refresh, wait, send keys, upload file, scroll to text, etc.)
 		DefaultActionWatchdog.model_rebuild()
 		self._default_action_watchdog = DefaultActionWatchdog(event_bus=self.event_bus, browser_session=self)
 		# self.event_bus.on(ClickElementEvent, self._default_action_watchdog.on_ClickElementEvent)
@@ -858,6 +885,7 @@ class BrowserSession(BaseModel):
 		# self.event_bus.on(ScrollToTextEvent, self._default_action_watchdog.on_ScrollToTextEvent)
 		self._default_action_watchdog.attach_to_session()
 
+		# Initialize ScreenshotWatchdog (handles taking screenshots of the browser)
 		ScreenshotWatchdog.model_rebuild()
 		self._screenshot_watchdog = ScreenshotWatchdog(event_bus=self.event_bus, browser_session=self)
 		# self.event_bus.on(BrowserStartEvent, self._screenshot_watchdog.on_BrowserStartEvent)
@@ -865,7 +893,7 @@ class BrowserSession(BaseModel):
 		# self.event_bus.on(ScreenshotEvent, self._screenshot_watchdog.on_ScreenshotEvent)
 		self._screenshot_watchdog.attach_to_session()
 
-		# Initialize DOMWatchdog (depends on ScreenshotWatchdog being registered)
+		# Initialize DOMWatchdog (handles building the DOM tree and detecting interactive elements, depends on ScreenshotWatchdog)
 		DOMWatchdog.model_rebuild()
 		self._dom_watchdog = DOMWatchdog(event_bus=self.event_bus, browser_session=self)
 		# self.event_bus.on(TabCreatedEvent, self._dom_watchdog.on_TabCreatedEvent)

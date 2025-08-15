@@ -15,7 +15,7 @@ async def browser_session():
 	session = BrowserSession()
 	await session.start()
 	yield session
-	await session.close()
+	await session.stop()
 
 
 async def test_search_google_creates_and_focuses_new_tab(browser_session: BrowserSession):
@@ -125,6 +125,6 @@ if __name__ == '__main__':
 
 			print('\n✅ All tests passed!')
 		finally:
-			await session.close()
+			await session.stop()
 
 	asyncio.run(run_all_tests())

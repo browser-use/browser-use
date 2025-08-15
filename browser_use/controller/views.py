@@ -78,9 +78,9 @@ class NoParamsAction(BaseModel):
 
 
 class GetDropdownOptionsAction(BaseModel):
-	index: int
+	index: int = Field(ge=1, description='index of the dropdown element to get the option values for')
 
 
 class SelectDropdownOptionAction(BaseModel):
-	index: int
-	text: str
+	index: int = Field(ge=1, description='index of the dropdown element to select an option for')
+	text: str = Field(description='the text or exact value of the option to select')

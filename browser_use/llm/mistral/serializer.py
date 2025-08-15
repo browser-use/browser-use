@@ -60,7 +60,7 @@ class MistralMessageSerializer:
 			return MistralMessageSerializer._serialize_assistant_message(message)
 		elif isinstance(message, SystemMessage):
 			return MistralMessageSerializer._serialize_system_message(message)
-		return MistralUserMessage(content=str(message.content))
+		raise ValueError(f'Unknown message type: {type(message)}')
 
 	@staticmethod
 	def _serialize_user_message(message: UserMessage) -> MistralUserMessage:

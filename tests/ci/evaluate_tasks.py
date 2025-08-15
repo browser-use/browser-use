@@ -80,6 +80,7 @@ async def run_single_task(task_file):
 		try:
 			await session.start()
 			from browser_use.browser.events import NavigateToUrlEvent
+
 			event = session.event_bus.dispatch(NavigateToUrlEvent(url='https://httpbin.org/get', new_tab=True))
 			await event
 			print('[DEBUG] Browser test: navigation successful', file=sys.stderr)

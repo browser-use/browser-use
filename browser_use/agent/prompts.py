@@ -182,7 +182,7 @@ class AgentMessagePrompt:
 		recent_events_text = ''
 		if self.include_recent_events and self.browser_state.recent_events:
 			recent_events_text = f'Recent browser events: {self.browser_state.recent_events}\n'
-		
+
 		browser_state = f"""{current_tab_text}
 Available tabs:
 {tabs_text}
@@ -220,7 +220,8 @@ Available tabs:
 
 		agent_state += f'<step_info>\n{step_info_description}\n</step_info>\n'
 		if self.available_file_paths:
-			agent_state += '<available_file_paths>\n' + '\n'.join(self.available_file_paths) + '\n</available_file_paths>\n'
+			available_file_paths_text = '\n'.join(self.available_file_paths)
+			agent_state += f'<available_file_paths>\n{available_file_paths_text}\nUse absolute full paths when referencing these files.\n</available_file_paths>\n'
 		return agent_state
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='get_user_message')

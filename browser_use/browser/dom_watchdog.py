@@ -256,6 +256,10 @@ class DOMWatchdog(BaseWatchdog):
 				# Skip DOM building if not requested
 				content = SerializedDOMState(_root=None, selector_map={})
 
+			# re-focus top-level page session context
+			assert self.browser_session.agent_focus is not None, 'No current target ID'
+			await self.browser_session.get_or_create_cdp_session(target_id=self.browser_session.agent_focus.target_id, focus=True)
+
 			# Get screenshot if requested
 			screenshot_b64 = None
 			if event.include_screenshot:
@@ -406,7 +410,7 @@ class DOMWatchdog(BaseWatchdog):
 				self._dom_service = DomService(browser_session=self.browser_session, logger=self.logger)
 				# self.logger.debug('🔍 DOMWatchdog._build_dom_tree: ✅ DomService created')
 			# else:
-				# self.logger.debug('🔍 DOMWatchdog._build_dom_tree: Reusing existing DomService')
+			# self.logger.debug('🔍 DOMWatchdog._build_dom_tree: Reusing existing DomService')
 
 			# Get serialized DOM tree using the service
 			self.logger.debug('🔍 DOMWatchdog._build_dom_tree: Calling DomService.get_serialized_dom_tree...')
@@ -488,10 +492,14 @@ class DOMWatchdog(BaseWatchdog):
 		if not self.browser_session.agent_focus:
 			raise RuntimeError('No active CDP session - browser may not be connected yet')
 
-		cdp_session = self.browser_session.agent_focus
+		cdp_session = await self.browser_session.get_or_create_cdp_session(
+			target_id=self.browser_session.agent_focus.target_id, focus=True
+		)
 
 		# Get layout metrics which includes all the information we need
-		metrics = await cdp_session.cdp_client.send.Page.getLayoutMetrics(session_id=cdp_session.session_id)
+		metrics = await asyncio.wait_for(
+			cdp_session.cdp_client.send.Page.getLayoutMetrics(session_id=cdp_session.session_id), timeout=10.0
+		)
 
 		# Extract different viewport types
 		layout_viewport = metrics.get('layoutViewport', {})

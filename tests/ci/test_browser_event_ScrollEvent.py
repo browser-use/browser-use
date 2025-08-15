@@ -117,7 +117,7 @@ class TestScrollActions:
 		assert '0.5 pages' in result.extracted_content
 
 		# Test 3: Test with invalid element index (should error)
-		invalid_scroll_action = {'scroll': ScrollAction(down=True, num_pages=1.0, index=999)}
+		invalid_scroll_action = {'scroll': ScrollAction(down=True, num_pages=1.0, frame_element_index=999)}
 		result = await controller.act(ScrollActionModel(**invalid_scroll_action), browser_session)
 
 		# This should fail with error about element not found
@@ -126,15 +126,15 @@ class TestScrollActions:
 		assert 'Element index 999 not found' in result.error or 'Failed to scroll' in result.error
 
 		# Test 4: Model parameter validation
-		scroll_with_index = ScrollAction(down=True, num_pages=1.0, index=5)
+		scroll_with_index = ScrollAction(down=True, num_pages=1.0, frame_element_index=5)
 		assert scroll_with_index.down is True
 		assert scroll_with_index.num_pages == 1.0
-		assert scroll_with_index.index == 5
+		assert scroll_with_index.frame_element_index == 5
 
 		scroll_without_index = ScrollAction(down=False, num_pages=0.25)
 		assert scroll_without_index.down is False
 		assert scroll_without_index.num_pages == 0.25
-		assert scroll_without_index.index is None
+		assert scroll_without_index.frame_element_index is None
 
 	async def test_scroll_with_cross_origin_disabled(self, browser_session, base_url):
 		"""Test that scroll works when cross_origin_iframes is disabled."""

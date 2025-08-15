@@ -124,7 +124,7 @@ class DomService:
 
 	async def _get_viewport_ratio(self, target_id: str) -> float:
 		"""Get viewport dimensions, device pixel ratio, and scroll position using CDP."""
-		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
+		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=True)
 
 		try:
 			# Get the layout metrics which includes the visual viewport
@@ -208,18 +208,18 @@ class DomService:
 				# The scrollRects represent the current scroll position
 				# The clientRects represent the viewport size
 				# Elements are visible if they fall within the viewport after accounting for scroll
-				
+
 				# The viewport of the frame (what's actually visible)
 				viewport_left = 0  # Viewport always starts at 0 in frame coordinates
 				viewport_top = 0
 				viewport_right = frame.snapshot_node.clientRects.width
 				viewport_bottom = frame.snapshot_node.clientRects.height
-				
+
 				# Adjust element bounds by the scroll offset to get position relative to viewport
 				# When scrolled down, scrollRects.y is positive, so we subtract it from element's y
 				adjusted_x = current_bounds.x - frame.snapshot_node.scrollRects.x
 				adjusted_y = current_bounds.y - frame.snapshot_node.scrollRects.y
-				
+
 				frame_intersects = (
 					adjusted_x < viewport_right
 					and adjusted_x + current_bounds.width > viewport_left
@@ -233,11 +233,19 @@ class DomService:
 						attrs = node.attributes
 						elem_id = attrs.get('id', '')
 						elem_name = attrs.get('name', '')
-						if 'city' in elem_id.lower() or 'city' in elem_name.lower() or \
-						   'state' in elem_id.lower() or 'state' in elem_name.lower() or \
-						   'zip' in elem_id.lower() or 'zip' in elem_name.lower():
+						if (
+							'city' in elem_id.lower()
+							or 'city' in elem_name.lower()
+							or 'state' in elem_id.lower()
+							or 'state' in elem_name.lower()
+							or 'zip' in elem_id.lower()
+							or 'zip' in elem_name.lower()
+						):
 							import logging
-							logging.info(f"🔍 DEBUG: Element id='{elem_id}' name='{elem_name}' not visible - adjusted bounds: x={adjusted_x}, y={adjusted_y}, w={current_bounds.width}, h={current_bounds.height}, viewport: {viewport_right}x{viewport_bottom}, scroll: x={frame.snapshot_node.scrollRects.x}, y={frame.snapshot_node.scrollRects.y}")
+
+							logging.info(
+								f"🔍 DEBUG: Element id='{elem_id}' name='{elem_name}' not visible - adjusted bounds: x={adjusted_x}, y={adjusted_y}, w={current_bounds.width}, h={current_bounds.height}, viewport: {viewport_right}x{viewport_bottom}, scroll: x={frame.snapshot_node.scrollRects.x}, y={frame.snapshot_node.scrollRects.y}"
+							)
 					return False
 
 				# Keep the original coordinate adjustment to maintain consistency
@@ -296,8 +304,8 @@ class DomService:
 		except Exception as e:
 			pass  # Page might not be ready yet
 		# DEBUG: Log before capturing snapshot
-		self.logger.info(f"🔍 DEBUG: Capturing DOM snapshot for target {target_id}")
-		
+		self.logger.info(f'🔍 DEBUG: Capturing DOM snapshot for target {target_id}')
+
 		# Get actual scroll positions for all iframes before capturing snapshot
 		iframe_scroll_positions = {}
 		try:
@@ -323,17 +331,19 @@ class DomService:
 						return scrollData;
 					})()
 					""",
-					'returnByValue': True
-				}, 
-				session_id=cdp_session.session_id
+					'returnByValue': True,
+				},
+				session_id=cdp_session.session_id,
 			)
 			if scroll_result and 'result' in scroll_result and 'value' in scroll_result['result']:
 				iframe_scroll_positions = scroll_result['result']['value']
 				for idx, scroll_data in iframe_scroll_positions.items():
-					self.logger.info(f"🔍 DEBUG: Iframe {idx} actual scroll position - scrollTop={scroll_data.get('scrollTop', 0)}, scrollLeft={scroll_data.get('scrollLeft', 0)}")
+					self.logger.info(
+						f'🔍 DEBUG: Iframe {idx} actual scroll position - scrollTop={scroll_data.get("scrollTop", 0)}, scrollLeft={scroll_data.get("scrollLeft", 0)}'
+					)
 		except Exception as e:
-			self.logger.debug(f"Failed to get iframe scroll positions: {e}")
-		
+			self.logger.debug(f'Failed to get iframe scroll positions: {e}')
+
 		snapshot_request = cdp_session.cdp_client.send.DOMSnapshot.captureSnapshot(
 			params={
 				'computedStyles': REQUIRED_COMPUTED_STYLES,
@@ -367,15 +377,15 @@ class DomService:
 			device_pixel_ratio = await asyncio.wait_for(device_pixel_ratio_request, timeout=2.0)
 		end = time.time()
 		cdp_timing = {'cdp_calls_total': end - start}
-		
+
 		# DEBUG: Log snapshot info
 		if snapshot and 'documents' in snapshot:
 			total_nodes = sum(len(doc.get('nodes', [])) for doc in snapshot['documents'])
-			self.logger.info(f"🔍 DEBUG: Snapshot contains {len(snapshot['documents'])} documents with {total_nodes} total nodes")
+			self.logger.info(f'🔍 DEBUG: Snapshot contains {len(snapshot["documents"])} documents with {total_nodes} total nodes')
 			# Log iframe-specific info
 			for doc_idx, doc in enumerate(snapshot['documents']):
 				if doc_idx > 0:  # Not the main document
-					self.logger.info(f"🔍 DEBUG: Document {doc_idx} has {len(doc.get('nodes', []))} nodes")
+					self.logger.info(f'🔍 DEBUG: Document {doc_idx} has {len(doc.get("nodes", []))} nodes')
 
 		return TargetAllTrees(
 			snapshot=snapshot,
@@ -515,7 +525,9 @@ class DomService:
 					total_frame_offset.x -= snapshot_data.scrollRects.x
 					total_frame_offset.y -= snapshot_data.scrollRects.y
 					# DEBUG: Log iframe scroll information
-					self.logger.info(f"🔍 DEBUG: HTML frame scroll - scrollY={snapshot_data.scrollRects.y}, scrollX={snapshot_data.scrollRects.x}, frameId={node.get('frameId')}, nodeId={node['nodeId']}")
+					self.logger.info(
+						f'🔍 DEBUG: HTML frame scroll - scrollY={snapshot_data.scrollRects.y}, scrollX={snapshot_data.scrollRects.x}, frameId={node.get("frameId")}, nodeId={node["nodeId"]}'
+					)
 
 			# Calculate new iframe offset for content documents, accounting for iframe scroll
 			if node['nodeName'].upper() == 'IFRAME' and snapshot_data and snapshot_data.bounds:
@@ -549,16 +561,23 @@ class DomService:
 
 			# Set visibility using the collected HTML frames
 			dom_tree_node.is_visible = self.is_element_visible_according_to_all_parents(dom_tree_node, updated_html_frames)
-			
+
 			# DEBUG: Log visibility info for form elements in iframes
 			if dom_tree_node.tag_name and dom_tree_node.tag_name.upper() in ['INPUT', 'SELECT', 'TEXTAREA', 'LABEL']:
 				attrs = dom_tree_node.attributes or {}
 				elem_id = attrs.get('id', '')
 				elem_name = attrs.get('name', '')
-				if 'city' in elem_id.lower() or 'city' in elem_name.lower() or \
-				   'state' in elem_id.lower() or 'state' in elem_name.lower() or \
-				   'zip' in elem_id.lower() or 'zip' in elem_name.lower():
-					self.logger.info(f"🔍 DEBUG: Form element {dom_tree_node.tag_name} id='{elem_id}' name='{elem_name}' - visible={dom_tree_node.is_visible}, bounds={dom_tree_node.snapshot_node.bounds if dom_tree_node.snapshot_node else 'NO_SNAPSHOT'}")
+				if (
+					'city' in elem_id.lower()
+					or 'city' in elem_name.lower()
+					or 'state' in elem_id.lower()
+					or 'state' in elem_name.lower()
+					or 'zip' in elem_id.lower()
+					or 'zip' in elem_name.lower()
+				):
+					self.logger.info(
+						f"🔍 DEBUG: Form element {dom_tree_node.tag_name} id='{elem_id}' name='{elem_name}' - visible={dom_tree_node.is_visible}, bounds={dom_tree_node.snapshot_node.bounds if dom_tree_node.snapshot_node else 'NO_SNAPSHOT'}"
+					)
 
 			# handle cross origin iframe (just recursively call the main function with the proper target if it exists in iframes)
 			# only do this if the iframe is visible (otherwise it's not worth it)

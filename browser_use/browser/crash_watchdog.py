@@ -300,15 +300,23 @@ class CrashWatchdog(BaseWatchdog):
 				self.logger.debug(f'[CrashWatchdog] Checking browser health for target {self.browser_session.agent_focus}')
 				cdp_session = await self.browser_session.get_or_create_cdp_session()
 			except Exception as e:
-				self.logger.debug(f'[CrashWatchdog] Checking browser health for target {self.browser_session.agent_focus} error: {type(e).__name__}: {e}')
-				self.agent_focus = cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=self.agent_focus.target_id, new_socket=True, focus=True)
+				self.logger.debug(
+					f'[CrashWatchdog] Checking browser health for target {self.browser_session.agent_focus} error: {type(e).__name__}: {e}'
+				)
+				self.agent_focus = cdp_session = await self.browser_session.get_or_create_cdp_session(
+					target_id=self.agent_focus.target_id, new_socket=True, focus=True
+				)
 
 			for target in (await self.browser_session.cdp_client.send.Target.getTargets()).get('targetInfos', []):
 				if target.get('type') == 'page':
 					cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target.get('targetId'))
 					if self._is_new_tab_page(target.get('url')) and target.get('url') != 'about:blank':
-						self.logger.debug(f'[CrashWatchdog] Redirecting chrome://new-tab-page/ to about:blank {target.get("url")}')
-						await cdp_session.cdp_client.send.Page.navigate(params={'url': 'about:blank'}, session_id=cdp_session.session_id)
+						self.logger.debug(
+							f'[CrashWatchdog] Redirecting chrome://new-tab-page/ to about:blank {target.get("url")}'
+						)
+						await cdp_session.cdp_client.send.Page.navigate(
+							params={'url': 'about:blank'}, session_id=cdp_session.session_id
+						)
 
 			# Quick ping to check if session is alive
 			self.logger.debug(f'[CrashWatchdog] Attempting to run simple JS test expression in session {cdp_session} 1+1')
@@ -318,7 +326,9 @@ class CrashWatchdog(BaseWatchdog):
 			)
 			self.logger.debug(f'[CrashWatchdog] Browser health check passed for target {self.browser_session.agent_focus}')
 		except Exception as e:
-			self.logger.error(f'[CrashWatchdog] ❌ Crashed session detected for target {self.browser_session.agent_focus} error: {type(e).__name__}: {e}')
+			self.logger.error(
+				f'[CrashWatchdog] ❌ Crashed session detected for target {self.browser_session.agent_focus} error: {type(e).__name__}: {e}'
+			)
 			# Remove crashed session from pool
 			if self.browser_session.agent_focus and (target_id := self.browser_session.agent_focus.target_id):
 				if session := self.browser_session._cdp_session_pool.pop(target_id, None):

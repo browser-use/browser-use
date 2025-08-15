@@ -180,9 +180,11 @@ class MessageManager:
 
 		action_results = ''
 		result_len = len(result)
+		read_state_idx = 0
 		for idx, action_result in enumerate(result):
 			if action_result.include_extracted_content_only_once and action_result.extracted_content:
-				self.state.read_state_description += action_result.extracted_content + '\n'
+				self.state.read_state_description += f'<read_state_{read_state_idx}>\n{action_result.extracted_content}\n</read_state_{read_state_idx}>\n'
+				read_state_idx += 1
 				logger.debug(f'Added extracted_content to read_state_description: {action_result.extracted_content}')
 
 			if action_result.long_term_memory:
@@ -199,6 +201,8 @@ class MessageManager:
 					error_text = action_result.error
 				action_results += f'Action {idx + 1}/{result_len}: {error_text}\n'
 				logger.debug(f'Added error to action_results: {error_text}')
+
+		self.state.read_state_description = self.state.read_state_description.strip('\n')
 
 		if action_results:
 			action_results = f'Action Results:\n{action_results}'
