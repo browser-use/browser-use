@@ -59,6 +59,10 @@ class OldConfig:
 		return os.getenv('ANONYMIZED_TELEMETRY', 'true').lower()[:1] in 'ty1'
 
 	@property
+	def CDP_USE_WARNING_LOGGING(self) -> bool:
+		return os.getenv('CDP_USE_WARNING_LOGGING', 'true').lower()[:1] in 'ty1'
+
+	@property
 	def BROWSER_USE_CLOUD_SYNC(self) -> bool:
 		return os.getenv('BROWSER_USE_CLOUD_SYNC', str(self.ANONYMIZED_TELEMETRY)).lower()[:1] in 'ty1'
 
@@ -189,6 +193,9 @@ class FlatEnvConfig(BaseSettings):
 	XDG_CACHE_HOME: str = Field(default='~/.cache')
 	XDG_CONFIG_HOME: str = Field(default='~/.config')
 	BROWSER_USE_CONFIG_DIR: str | None = Field(default=None)
+
+	# CDP configuration
+	CDP_USE_WARNING_LOGGING: bool = Field(default=True)
 
 	# LLM API keys
 	OPENAI_API_KEY: str = Field(default='')

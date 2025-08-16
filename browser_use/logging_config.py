@@ -129,12 +129,16 @@ def setup_logging(stream=None, log_level=None, force_setup=False):
 
 	# Configure CDP logging using cdp_use's setup function
 	# This enables the formatted CDP output at the same level as browser_use
+	# Check if CDP warning logging is enabled (default: True)
+	cdp_warning_enabled = CONFIG.CDP_USE_WARNING_LOGGING
+	
 	try:
 		from cdp_use.logging import setup_cdp_logging  # type: ignore
 
-		# Use the same stream and level as browser_use
+		# Use the same stream and level as browser_use, but adjust level based on warning setting
+		cdp_log_level = log_level if cdp_warning_enabled else logging.ERROR
 		setup_cdp_logging(
-			level=log_level,
+			level=cdp_log_level,
 			stream=stream or sys.stdout,
 			format_string='%(levelname)-8s [%(name)s] %(message)s' if log_type != 'result' else '%(message)s',
 		)
@@ -149,7 +153,9 @@ def setup_logging(stream=None, log_level=None, force_setup=False):
 		]
 		for logger_name in cdp_loggers:
 			cdp_logger = logging.getLogger(logger_name)
-			cdp_logger.setLevel(log_level)
+			# Set level based on warning setting - if warnings disabled, only show errors
+			cdp_log_level = log_level if cdp_warning_enabled else logging.ERROR
+			cdp_logger.setLevel(cdp_log_level)
 			cdp_logger.addHandler(console)
 			cdp_logger.propagate = False
 
@@ -261,12 +267,15 @@ def setup_log_pipes(session_id: str, base_dir: str | None = None):
 
 	# CDP logs
 	cdp_handler = FIFOHandler(str(pipe_dir / 'cdp.pipe'))
-	cdp_handler.setLevel(logging.DEBUG)
+	# Respect CDP warning logging setting for pipe logs too
+	cdp_warning_enabled = CONFIG.CDP_USE_WARNING_LOGGING
+	cdp_pipe_level = logging.DEBUG if cdp_warning_enabled else logging.ERROR
+	cdp_handler.setLevel(cdp_pipe_level)
 	cdp_handler.setFormatter(logging.Formatter('%(levelname)-8s [%(name)s] %(message)s'))
 	for name in ['websockets.client', 'cdp_use.client']:
 		logger = logging.getLogger(name)
 		logger.addHandler(cdp_handler)
-		logger.setLevel(logging.DEBUG)
+		logger.setLevel(cdp_pipe_level)
 		logger.propagate = True
 
 	# Event logs
