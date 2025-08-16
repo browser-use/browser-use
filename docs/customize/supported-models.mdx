@@ -28,6 +28,7 @@ Our library natively supports the following models:
 - Azure OpenAI
 - Gemini
 - Groq
+- Mistral
 
 We also support all other models that can be called via OpenAI compatible API (deepseek, novita, x, qwen). Please open a PR if you want to add a model.
 
@@ -225,4 +226,24 @@ from browser_use.llm import ChatOllama
 from browser_use import Agent
 
 llm = ChatOllama(model="llama3.1:8b")
+```
+
+## Mistral
+
+```python
+from browser_use.llm import ChatMistral
+from browser_use import Agent
+
+llm = ChatMistral(model="mistral-large-latest")
+
+agent = Agent(
+    task="Your task here",
+    llm=llm
+)
+```
+
+Required environment variables:
+
+```bash .env
+MISTRAL_API_KEY=
 ```
