@@ -10,7 +10,7 @@ import tiktoken
 from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.events import ClickElementEvent, TypeTextEvent
-from browser_use.browser.types import ViewportSize
+from browser_use.browser.profile import ViewportSize
 from browser_use.dom.debug.highlights import inject_highlighting_script, remove_highlighting_script
 from browser_use.dom.service import DomService
 from browser_use.dom.views import DEFAULT_INCLUDE_ATTRIBUTES

@@ -58,19 +58,16 @@ class SecurityWatchdog(BaseWatchdog):
 				BrowserErrorEvent(
 					error_type='NavigationBlocked',
 					message=f'Navigation to non-allowed URL: {event.url}',
-					details={'url': event.url, 'tab_index': event.tab_index},
+					details={'url': event.url, 'target_id': event.target_id},
 				)
 			)
 
 			# Close the target that navigated to the disallowed URL
 			try:
-				targets = await self.browser_session._cdp_get_all_pages()
-				if 0 <= event.tab_index < len(targets):
-					target_id = targets[event.tab_index]['targetId']
-					await self.browser_session._cdp_close_page(target_id)
-					self.logger.info(f'⛔️ Closed target with non-allowed URL: {event.url}')
+				await self.browser_session._cdp_close_page(event.target_id)
+				self.logger.info(f'⛔️ Closed target with non-allowed URL: {event.url}')
 			except Exception as e:
-				self.logger.error(f'⛔️ Failed to close target with non-allowed URL: {str(e)}')
+				self.logger.error(f'⛔️ Failed to close target with non-allowed URL: {type(e).__name__} {e}')
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
 		"""Check if new tab URL is allowed."""
@@ -82,7 +79,7 @@ class SecurityWatchdog(BaseWatchdog):
 				BrowserErrorEvent(
 					error_type='TabCreationBlocked',
 					message=f'Tab created with non-allowed URL: {event.url}',
-					details={'url': event.url, 'tab_index': event.tab_index, 'target_id': event.target_id},
+					details={'url': event.url, 'target_id': event.target_id},
 				)
 			)
 
@@ -91,7 +88,7 @@ class SecurityWatchdog(BaseWatchdog):
 				await self.browser_session._cdp_close_page(event.target_id)
 				self.logger.info(f'⛔️ Closed new tab with non-allowed URL: {event.url}')
 			except Exception as e:
-				self.logger.error(f'⛔️ Failed to close new tab with non-allowed URL: {str(e)}')
+				self.logger.error(f'⛔️ Failed to close new tab with non-allowed URL: {type(e).__name__} {e}')
 
 	def _log_glob_warning(self) -> None:
 		"""Log a warning about glob patterns in allowed_domains."""

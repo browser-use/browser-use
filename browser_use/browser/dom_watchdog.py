@@ -107,7 +107,7 @@ class DOMWatchdog(BaseWatchdog):
 				# Re-raise other errors
 				raise
 
-	def _get_recent_events_csv(self, limit: int = 10) -> str | None:
+	def _get_recent_events_str(self, limit: int = 10) -> str | None:
 		"""Get the most recent event names from the event bus as CSV.
 
 		Args:
@@ -124,6 +124,9 @@ class DOMWatchdog(BaseWatchdog):
 
 			# Take the most recent events and get their names
 			recent_event_names = [event.event_type for event in all_events[:limit]]
+			# TODO: in the future dump these as JSON instead of a CSV of the event names only
+			# some_event.model_dump(mode='json', exclude=some_event.event_builtin_fields)
+			# include event_results summarized / truncated to some reasonable length
 
 			if recent_event_names:
 				return ', '.join(recent_event_names)
@@ -173,6 +176,7 @@ class DOMWatchdog(BaseWatchdog):
 		self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: Getting tabs info...')
 		tabs_info = await self.browser_session.get_tabs()
 		self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Got {len(tabs_info)} tabs')
+		self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Tabs info: {tabs_info}')
 
 		# Get viewport / scroll position info, remember changing scroll position should invalidate selector_map cache because it only includes visible elements
 		# cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
@@ -225,7 +229,7 @@ class DOMWatchdog(BaseWatchdog):
 					pixels_below=0,
 					browser_errors=[],
 					is_pdf_viewer=False,
-					recent_events=self._get_recent_events_csv() if event.include_recent_events else None,
+					recent_events=self._get_recent_events_str() if event.include_recent_events else None,
 				)
 
 			# Normal path: Build DOM tree if requested
@@ -347,7 +351,7 @@ class DOMWatchdog(BaseWatchdog):
 				pixels_below=0,
 				browser_errors=[],
 				is_pdf_viewer=is_pdf_viewer,
-				recent_events=self._get_recent_events_csv() if event.include_recent_events else None,
+				recent_events=self._get_recent_events_str() if event.include_recent_events else None,
 			)
 
 			# Cache the state

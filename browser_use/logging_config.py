@@ -129,7 +129,7 @@ def setup_logging(stream=None, log_level=None, force_setup=False):
 
 	# Configure CDP logging using separate CDP_LOGGING_LEVEL
 	cdp_log_type = CONFIG.CDP_LOGGING_LEVEL.lower()
-	
+
 	# Determine the CDP log level to use
 	if cdp_log_type == 'result':
 		cdp_log_level = 35  # RESULT level value

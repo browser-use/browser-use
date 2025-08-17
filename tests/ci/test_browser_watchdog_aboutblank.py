@@ -200,18 +200,18 @@ async def test_aboutblank_watchdog_javascript_execution():
 		# Get the page and verify animation
 		# Get tab info instead of page
 		tabs1 = await session.get_tabs()
-		tab1 = tabs1[dvd_event1.tab_index] if dvd_event1.tab_index < len(tabs1) else None
-		assert tab1 is not None, f'Could not find tab at index {dvd_event1.tab_index}'
+		tab1 = tabs1[dvd_event1.target_id]
+		assert tab1 is not None, f'Could not find tab at index {dvd_event1.target_id}'
 
 		# Verify the animation was created
 		# Note: We can't directly evaluate on the page without accessing internal APIs
 		# The test should verify through events instead
-		assert dvd_event1.tab_index >= 0, 'DVD screensaver event should have valid tab index'
+		assert dvd_event1.target_id, 'DVD screensaver event should have valid tab index'
 
 		# Test 2: Close the tab and verify watchdog creates new about:blank tab with animation
 		from browser_use.browser.events import CloseTabEvent
 
-		event = session.event_bus.dispatch(CloseTabEvent(tab_index=dvd_event1.tab_index))
+		event = session.event_bus.dispatch(CloseTabEvent(target_id=dvd_event1.target_id))
 		await event
 
 		# Wait for new about:blank tab to be created and animation shown
@@ -221,13 +221,13 @@ async def test_aboutblank_watchdog_javascript_execution():
 		# Get the new page
 		# Get tab info instead of page
 		tabs2 = await session.get_tabs()
-		tab2 = tabs2[dvd_event2.tab_index] if dvd_event2.tab_index < len(tabs2) else None
-		assert tab2 is not None, f'Could not find tab at index {dvd_event2.tab_index}'
+		tab2 = tabs2[dvd_event2.target_id]
+		assert tab2 is not None, f'Could not find tab # {dvd_event2.target_id}'
 		assert CrashWatchdog._is_new_tab_page(tab2.url), f'Auto-created tab should be a new tab page, but got: {tab2.url}'
 
 		# Verify animation on the new tab through events
 		# Note: We can't directly evaluate on the page without accessing internal APIs
-		assert dvd_event2.tab_index >= 0, 'Second DVD screensaver event should have valid tab index'
+		assert dvd_event2.target_id, 'Second DVD screensaver event should have valid tab index'
 
 		# Verify no JavaScript errors occurred (particularly arguments.callee)
 		console_errors = []

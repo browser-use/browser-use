@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from cdp_use.cdp.accessibility.commands import GetFullAXTreeReturns
 from cdp_use.cdp.accessibility.types import AXNode
 from cdp_use.cdp.dom.types import Node
+from cdp_use.cdp.target import TargetID
 
 from browser_use.dom.enhanced_snapshot import (
 	REQUIRED_COMPUTED_STYLES,
@@ -52,7 +53,7 @@ class DomService:
 	async def __aexit__(self, exc_type, exc_value, traceback):
 		pass  # no need to cleanup anything, browser_session auto handles cleaning up session cache
 
-	async def _get_targets_for_page(self, target_id: str | None = None) -> CurrentPageTargets:
+	async def _get_targets_for_page(self, target_id: TargetID | None = None) -> CurrentPageTargets:
 		"""Get the target info for a specific page.
 
 		Args:
@@ -122,7 +123,7 @@ class DomService:
 		)
 		return enhanced_ax_node
 
-	async def _get_viewport_ratio(self, target_id: str) -> float:
+	async def _get_viewport_ratio(self, target_id: TargetID) -> float:
 		"""Get viewport dimensions, device pixel ratio, and scroll position using CDP."""
 		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=True)
 
@@ -256,7 +257,7 @@ class DomService:
 		# If we reach here, element is visible in main viewport and all containing iframes
 		return True
 
-	async def _get_ax_tree_for_all_frames(self, target_id: str) -> GetFullAXTreeReturns:
+	async def _get_ax_tree_for_all_frames(self, target_id: TargetID) -> GetFullAXTreeReturns:
 		"""Recursively collect all frames and merge their accessibility trees into a single array."""
 
 		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
@@ -293,7 +294,7 @@ class DomService:
 
 		return {'nodes': merged_nodes}
 
-	async def _get_all_trees(self, target_id: str) -> TargetAllTrees:
+	async def _get_all_trees(self, target_id: TargetID) -> TargetAllTrees:
 		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
 
 		# Wait for the page to be ready first
@@ -344,37 +345,84 @@ class DomService:
 		except Exception as e:
 			self.logger.debug(f'Failed to get iframe scroll positions: {e}')
 
-		snapshot_request = cdp_session.cdp_client.send.DOMSnapshot.captureSnapshot(
-			params={
-				'computedStyles': REQUIRED_COMPUTED_STYLES,
-				'includePaintOrder': True,
-				'includeDOMRects': True,
-				'includeBlendedBackgroundColors': False,
-				'includeTextColorOpacities': False,
-			},
-			session_id=cdp_session.session_id,
-		)
+		# Define CDP request factories to avoid duplication
+		def create_snapshot_request():
+			return cdp_session.cdp_client.send.DOMSnapshot.captureSnapshot(
+				params={
+					'computedStyles': REQUIRED_COMPUTED_STYLES,
+					'includePaintOrder': True,
+					'includeDOMRects': True,
+					'includeBlendedBackgroundColors': False,
+					'includeTextColorOpacities': False,
+				},
+				session_id=cdp_session.session_id,
+			)
 
-		dom_tree_request = cdp_session.cdp_client.send.DOM.getDocument(
-			params={'depth': -1, 'pierce': True}, session_id=cdp_session.session_id
-		)
-
-		ax_tree_request = self._get_ax_tree_for_all_frames(target_id)
-
-		device_pixel_ratio_request = self._get_viewport_ratio(target_id)
+		def create_dom_tree_request():
+			return cdp_session.cdp_client.send.DOM.getDocument(
+				params={'depth': -1, 'pierce': True}, session_id=cdp_session.session_id
+			)
 
 		start = time.time()
-		# Gather all CDP requests with timeout
-		try:
-			snapshot, dom_tree, ax_tree, device_pixel_ratio = await asyncio.wait_for(
-				asyncio.gather(snapshot_request, dom_tree_request, ax_tree_request, device_pixel_ratio_request), timeout=10.0
-			)
-		except TimeoutError:
-			# Try to get them individually to see which one hangs
-			snapshot = await asyncio.wait_for(snapshot_request, timeout=2.0)
-			dom_tree = await asyncio.wait_for(dom_tree_request, timeout=2.0)
-			ax_tree = await asyncio.wait_for(ax_tree_request, timeout=2.0)
-			device_pixel_ratio = await asyncio.wait_for(device_pixel_ratio_request, timeout=2.0)
+
+		# Create initial tasks
+		tasks = {
+			'snapshot': asyncio.create_task(create_snapshot_request()),
+			'dom_tree': asyncio.create_task(create_dom_tree_request()),
+			'ax_tree': asyncio.create_task(self._get_ax_tree_for_all_frames(target_id)),
+			'device_pixel_ratio': asyncio.create_task(self._get_viewport_ratio(target_id)),
+		}
+
+		# Wait for all tasks with timeout
+		done, pending = await asyncio.wait(tasks.values(), timeout=10.0)
+
+		# Retry any failed or timed out tasks
+		if pending:
+			for task in pending:
+				task.cancel()
+
+			# Retry mapping for pending tasks
+			retry_map = {
+				tasks['snapshot']: lambda: asyncio.create_task(create_snapshot_request()),
+				tasks['dom_tree']: lambda: asyncio.create_task(create_dom_tree_request()),
+				tasks['ax_tree']: lambda: asyncio.create_task(self._get_ax_tree_for_all_frames(target_id)),
+				tasks['device_pixel_ratio']: lambda: asyncio.create_task(self._get_viewport_ratio(target_id)),
+			}
+
+			# Create new tasks only for the ones that didn't complete
+			for key, task in tasks.items():
+				if task in pending and task in retry_map:
+					tasks[key] = retry_map[task]()
+
+			# Wait again with shorter timeout
+			done2, pending2 = await asyncio.wait([t for t in tasks.values() if not t.done()], timeout=2.0)
+
+			if pending2:
+				for task in pending2:
+					task.cancel()
+
+		# Extract results, tracking which ones failed
+		results = {}
+		failed = []
+		for key, task in tasks.items():
+			if task.done() and not task.cancelled():
+				try:
+					results[key] = task.result()
+				except Exception as e:
+					self.logger.warning(f'CDP request {key} failed with exception: {e}')
+					failed.append(key)
+			else:
+				self.logger.warning(f'CDP request {key} timed out')
+				failed.append(key)
+
+		# If any required tasks failed, raise an exception
+		if failed:
+			raise TimeoutError(f'CDP requests failed or timed out: {", ".join(failed)}')
+
+		snapshot = results['snapshot']
+		dom_tree = results['dom_tree']
+		ax_tree = results['ax_tree']
+		device_pixel_ratio = results['device_pixel_ratio']
 		end = time.time()
 		cdp_timing = {'cdp_calls_total': end - start}
 
@@ -397,14 +445,14 @@ class DomService:
 
 	async def get_dom_tree(
 		self,
-		target_id: str,
+		target_id: TargetID,
 		initial_html_frames: list[EnhancedDOMTreeNode] | None = None,
 		initial_total_frame_offset: DOMRect | None = None,
 	) -> EnhancedDOMTreeNode:
 		"""Get the DOM tree for a specific target.
 
 		Args:
-			target_id: Optional target ID. If None, uses current target.
+			target_id: Target ID of the page to get the DOM tree for.
 			initial_html_frames: List of HTML frame nodes encountered so far
 			initial_total_frame_offset: Accumulated coordinate offset
 		"""

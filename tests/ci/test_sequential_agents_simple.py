@@ -195,16 +195,17 @@ class TestSequentialAgentsSimple:
 		await asyncio.sleep(0.1)
 
 		# Agent 2: Switch to first tab
+		first_target_id = tabs[0].target_id
 		agent2_actions = [
-			"""{
+			f"""{{
 				"thinking": "Switching to first tab",
 				"evaluation_previous_goal": "Two tabs are open",
-				"memory": "Need to switch to tab 0",
-				"next_goal": "Switch to tab 0",
+				"memory": "Need to switch to tab {first_target_id[-4:]}",
+				"next_goal": "Switch to tab {first_target_id[-4:]}",
 				"action": [
-					{"switch_tab": {"page_id": 0}}
+					{{"switch_tab": {{"tab_id": "{first_target_id[-4:]}"}}
 				]
-			}"""
+			}}"""
 		]
 
 		agent2 = Agent(

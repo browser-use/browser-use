@@ -162,16 +162,16 @@ class AgentMessagePrompt:
 		# Find tabs that match both URL and title to identify current tab more reliably
 		for tab in self.browser_state.tabs:
 			if tab.url == self.browser_state.url and tab.title == self.browser_state.title:
-				current_tab_candidates.append(tab.page_id)
+				current_tab_candidates.append(tab.target_id)
 
 		# If we have exactly one match, mark it as current
 		# Otherwise, don't mark any tab as current to avoid confusion
-		current_tab_index = current_tab_candidates[0] if len(current_tab_candidates) == 1 else None
+		current_target_id = current_tab_candidates[0] if len(current_tab_candidates) == 1 else None
 
 		for tab in self.browser_state.tabs:
-			tabs_text += f'Tab {tab.page_id}: {tab.url} - {tab.title[:30]}\n'
+			tabs_text += f'Tab {tab.target_id[-4:]}: {tab.url} - {tab.title[:30]}\n'
 
-		current_tab_text = f'Current tab: {current_tab_index}' if current_tab_index is not None else ''
+		current_tab_text = f'Current tab: {current_target_id[-4:]}' if current_target_id is not None else ''
 
 		# Check if current page is a PDF viewer and add appropriate message
 		pdf_message = ''

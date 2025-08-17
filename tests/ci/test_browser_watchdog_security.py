@@ -42,7 +42,7 @@ async def test_navigation_tab_created_events():
 		# Wait for first TabCreatedEvent
 		first_event: TabCreatedEvent = cast(TabCreatedEvent, await session.event_bus.expect(TabCreatedEvent, timeout=3.0))
 		# The first event might be for about:blank or the target URL depending on timing
-		assert first_event.tab_index >= 0
+		assert first_event.target_id
 		assert isinstance(first_event.url, str)
 
 		# Create second tab - should emit another TabCreatedEvent
@@ -50,15 +50,15 @@ async def test_navigation_tab_created_events():
 
 		# Wait for second TabCreatedEvent
 		second_event: TabCreatedEvent = cast(TabCreatedEvent, await session.event_bus.expect(TabCreatedEvent, timeout=3.0))
-		assert second_event.tab_index >= 0
+		assert second_event.target_id
 		assert isinstance(second_event.url, str)
 
 		# Verify we have at least 2 TabCreatedEvents
 		assert len(tab_created_events) >= 2, f'Expected at least 2 TabCreatedEvents, got {len(tab_created_events)}'
 
 		# Verify the events have different tab indices (unless they're reusing the same tab)
-		unique_tab_indexes = {event.tab_index for event in tab_created_events}
-		assert len(unique_tab_indexes) >= 2, 'Should have at least two unique tab indices'
+		unique_tab_ids = {event.tab_id for event in tab_created_events}
+		assert len(unique_tab_ids) >= 2, 'Should have at least two unique tab ids'
 
 	finally:
 		# Stop browser
@@ -134,7 +134,7 @@ async def test_navigation_watchdog_agent_focus_tracking():
 		assert nav_watchdog is not None
 
 		# Initial tab should be tab 0
-		assert nav_watchdog.agent_tab_index == 0
+		assert nav_watchdog.agent_tab_id == 0
 
 		# Create a new tab
 		session.event_bus.dispatch(NavigateToUrlEvent(url='data:text/html,<h1>New Tab</h1>', new_tab=True))
@@ -147,7 +147,7 @@ async def test_navigation_watchdog_agent_focus_tracking():
 		await asyncio.sleep(0.2)
 
 		# The agent focus should be on a tab index > 0
-		assert nav_watchdog.agent_tab_index > 0
+		assert nav_watchdog.agent_tab_id > 0
 
 	finally:
 		# Stop browser

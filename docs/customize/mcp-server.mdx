@@ -243,7 +243,7 @@ browser_list_tabs(): string
 ```json
 [
   {
-    "index": 0,
+    "tab_id": 'AE21',
     "url": "https://example.com",
     "title": "Page Title"
   }
@@ -255,13 +255,13 @@ browser_list_tabs(): string
 Switch to a specific tab.
 
 ```typescript
-browser_switch_tab(tab_index: number): string
+browser_switch_tab(tab_id: string): string
 ```
 
 **Parameters:**
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `tab_index` | `number` | Yes | Index of tab to switch to |
+| `tab_id` | `string` | Yes | ID of tab to switch to (last 4 characters of TargetID) |
 
 **Returns:** Success message with tab URL
 
@@ -270,13 +270,13 @@ browser_switch_tab(tab_index: number): string
 Close a specific tab.
 
 ```typescript
-browser_close_tab(tab_index: number): string
+browser_close_tab(tab_id: string): string
 ```
 
 **Parameters:**
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `tab_index` | `number` | Yes | Tab to close |
+| `tab_id` | `string` | Yes | ID of the Tab to close (last 4 characters of TargetID) |
 
 **Returns:** Success message with closed tab URL
 

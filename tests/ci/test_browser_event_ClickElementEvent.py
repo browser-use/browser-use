@@ -203,7 +203,7 @@ class TestClickElementEvent:
 		assert result_text == expected_result_text, f"Expected result text '{expected_result_text}', got '{result_text}'"
 
 	async def test_click_element_new_tab(self, controller, browser_session, base_url, http_server):
-		"""Test that click_element_by_index with new_tab=True opens links in new tabs."""
+		"""Test that click_element_by_index with while_holding_ctrl=True opens links in new tabs."""
 		# Add route for new tab test page
 		http_server.expect_request('/newTab').respond_with_data(
 			"""
@@ -249,8 +249,8 @@ class TestClickElementEvent:
 
 		assert link_index is not None, 'Could not find link element'
 
-		# Click the link with new_tab=True
-		click_action = {'click_element_by_index': ClickElementAction(index=link_index, new_tab=True)}
+		# Click the link with while_holding_ctrl=True
+		click_action = {'click_element_by_index': ClickElementAction(index=link_index, while_holding_ctrl=True)}
 
 		class ClickActionModel(ActionModel):
 			click_element_by_index: ClickElementAction | None = None
@@ -285,7 +285,7 @@ class TestClickElementEvent:
 		assert f'{base_url}/page1' in new_tab.url, f'New tab should have page1 URL, but got {new_tab.url}'
 
 	async def test_click_element_normal_vs_new_tab(self, controller, browser_session, base_url, http_server):
-		"""Test that click_element_by_index behaves differently with new_tab=False vs new_tab=True."""
+		"""Test that click_element_by_index behaves differently with while_holding_ctrl=False vs while_holding_ctrl=True."""
 		# Add route for comparison test page
 		http_server.expect_request('/comparison').respond_with_data(
 			"""
@@ -327,8 +327,8 @@ class TestClickElementEvent:
 
 		assert len(link_indices) >= 2, 'Need at least 2 links for comparison test'
 
-		# Test normal click (new_tab=False) - should navigate in current tab
-		click_action_normal = {'click_element_by_index': ClickElementAction(index=link_indices[0], new_tab=False)}
+		# Test normal click (while_holding_ctrl=False) - should navigate in current tab
+		click_action_normal = {'click_element_by_index': ClickElementAction(index=link_indices[0], while_holding_ctrl=False)}
 
 		class ClickActionModel(ActionModel):
 			click_element_by_index: ClickElementAction | None = None
@@ -344,8 +344,8 @@ class TestClickElementEvent:
 		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
 		await asyncio.sleep(1)
 
-		# Test new tab click (new_tab=True) - should open in new tab
-		click_action_new_tab = {'click_element_by_index': ClickElementAction(index=link_indices[1], new_tab=True)}
+		# Test new tab click (while_holding_ctrl=True) - should open in new background tab
+		click_action_new_tab = {'click_element_by_index': ClickElementAction(index=link_indices[1], while_holding_ctrl=True)}
 		result = await controller.act(ClickActionModel(**click_action_new_tab), browser_session)
 		await asyncio.sleep(1)
 
