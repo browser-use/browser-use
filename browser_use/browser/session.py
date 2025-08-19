@@ -34,6 +34,8 @@ from browser_use.browser.events import (
 )
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.views import BrowserStateSummary, TabInfo
+from browser_use.browser.event_timeouts import EventTimeouts
+from browser_use.browser.timeout_bus import TimeoutAwareEventBus
 from browser_use.dom.views import EnhancedDOMTreeNode, TargetInfo
 from browser_use.utils import _log_pretty_url, is_new_tab_page
 
@@ -204,7 +206,13 @@ class BrowserSession(BaseModel):
 	)
 
 	# Main shared event bus for all browser session + all watchdogs
-	event_bus: EventBus = Field(default_factory=EventBus)
+	event_bus: EventBus = Field(default_factory=TimeoutAwareEventBus)
+
+	# Optional per-event timeout overrides
+	event_timeouts: EventTimeouts | None = Field(
+		default=None,
+		description='Override per-event timeouts (None = use event defaults)'
+	)
 
 	# Mutable public state
 	agent_focus: CDPSession | None = None
@@ -304,6 +312,10 @@ class BrowserSession(BaseModel):
 		BaseWatchdog.attach_handler_to_session(self, AgentFocusChangedEvent, self.on_AgentFocusChangedEvent)
 		BaseWatchdog.attach_handler_to_session(self, FileDownloadedEvent, self.on_FileDownloadedEvent)
 
+		# Apply timeout overrides to the event bus, if configured
+		if isinstance(self.event_bus, TimeoutAwareEventBus):
+			self.event_bus.set_timeouts(self.event_timeouts)
+
 	async def start(self) -> None:
 		"""Start the browser session."""
 		await self.event_bus.dispatch(BrowserStartEvent())
@@ -322,8 +334,10 @@ class BrowserSession(BaseModel):
 		await self.event_bus.stop(clear=True, timeout=5)
 		# Reset all state
 		await self.reset()
-		# Create fresh event bus
-		self.event_bus = EventBus()
+		# Create fresh event bus and re-apply overrides
+		self.event_bus = TimeoutAwareEventBus()
+		if isinstance(self.event_bus, TimeoutAwareEventBus):
+			self.event_bus.set_timeouts(self.event_timeouts)
 
 	async def stop(self) -> None:
 		"""Stop the browser session without killing the browser process.
@@ -344,8 +358,22 @@ class BrowserSession(BaseModel):
 		await self.event_bus.stop(clear=True, timeout=5)
 		# Reset all state
 		await self.reset()
-		# Create fresh event bus
-		self.event_bus = EventBus()
+		# Create fresh event bus and re-apply overrides
+		self.event_bus = TimeoutAwareEventBus()
+		if isinstance(self.event_bus, TimeoutAwareEventBus):
+			self.event_bus.set_timeouts(self.event_timeouts)
+
+	def get_event_timeouts(self) -> EventTimeouts:
+		"""Return effective per-event timeouts (defaults merged with overrides)."""
+		if self.event_timeouts is None:
+			return EventTimeouts.defaults()
+		return self.event_timeouts.merged_with_defaults()
+
+	def set_event_timeouts(self, timeouts: EventTimeouts | None) -> None:
+		"""Update timeout overrides and apply them to the event bus immediately."""
+		self.event_timeouts = timeouts
+		if isinstance(self.event_bus, TimeoutAwareEventBus):
+			self.event_bus.set_timeouts(timeouts)
 
 	async def on_BrowserStartEvent(self, event: BrowserStartEvent) -> dict[str, str]:
 		"""Handle browser start request.
