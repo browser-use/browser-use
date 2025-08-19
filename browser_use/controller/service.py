@@ -629,7 +629,10 @@ Provide the extracted information in a clear, structured format."""
 				raise RuntimeError(str(e))
 
 		@self.registry.action(
-			'Scroll the page by specified number of pages (set down=True to scroll down, down=False to scroll up, num_pages=number of pages to scroll like 0.5 for half page, 1.0 for one page, etc.). Optional index parameter to scroll within a specific element or its scroll container (works well for dropdowns and custom UI components). Use index=0 or omit index to scroll the entire page.',
+			"""Scroll the page by specified number of pages (set down=True to scroll down, down=False to scroll up, num_pages=number of pages to scroll like 0.5 for half page, 1.0 for one page, etc.). 
+			Optional index parameter to scroll within a specific element or its scroll container (works well for dropdowns and custom UI components). Use index=0 or omit index to scroll the entire page.
+			If you want to scroll to the end of the page use many pages like 8, be efficient.
+			""",
 			param_model=ScrollAction,
 		)
 		async def scroll(params: ScrollAction, browser_session: BrowserSession):
