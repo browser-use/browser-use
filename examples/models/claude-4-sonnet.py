@@ -18,7 +18,7 @@ Laminar.initialize()
 from browser_use import Agent
 from browser_use.llm import ChatAnthropic
 
-llm = ChatAnthropic(model='claude-4-sonnet-20250514', temperature=0.0)
+llm = ChatAnthropic(model='claude-sonnet-4-0', temperature=0.0)
 
 agent = Agent(
 	task='Go to amazon.com, search for laptop, sort by best rating, and give me the price of the first result',

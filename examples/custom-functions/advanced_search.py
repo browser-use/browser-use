@@ -14,9 +14,8 @@ import logging
 
 from pydantic import BaseModel
 
-from browser_use import ActionResult, Agent, Controller
+from browser_use import ActionResult, Agent, ChatOpenAI, Controller
 from browser_use.browser.profile import BrowserProfile
-from browser_use.llm import ChatOpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +92,7 @@ names = [
 async def main():
 	task = 'use search_web with "find email address of the following ETH professor:" for each of the following persons in a list of actions. Finally return the list with name and email if provided - do always 5 at once'
 	task += '\n' + '\n'.join(names)
-	model = ChatOpenAI(model='gpt-4.1')
+	model = ChatOpenAI(model='gpt-4.1-mini')
 	browser_profile = BrowserProfile()
 	agent = Agent(task=task, llm=model, controller=controller, browser_profile=browser_profile)
 

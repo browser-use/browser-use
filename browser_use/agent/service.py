@@ -1205,6 +1205,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			match = re.search(pattern, task)
 			if match:
 				url = match.group(0)
+				# Remove trailing punctuation that's not part of URLs
+				url = re.sub(r'[.,;:!?()\[\]]+$', '', url)
 				# Add https:// if missing
 				if not url.startswith(('http://', 'https://')):
 					url = 'https://' + url

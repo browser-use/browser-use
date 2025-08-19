@@ -10,9 +10,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from browser_use import Agent
+from browser_use import Agent, ChatOpenAI
 from browser_use.browser import BrowserProfile, BrowserSession
-from browser_use.llm import ChatOpenAI
 
 if not os.getenv('OPENAI_API_KEY'):
 	raise ValueError('OPENAI_API_KEY is not set')
@@ -40,7 +39,7 @@ This script demonstrates the new enhanced scrolling capabilities:
    - Container-aware scrolling prevents unwanted side effects
 """
 
-llm = ChatOpenAI(model='gpt-4.1')
+llm = ChatOpenAI(model='gpt-4.1-mini')
 
 browser_profile = BrowserProfile(headless=False)
 browser_session = BrowserSession(browser_profile=browser_profile)

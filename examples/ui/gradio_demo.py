@@ -17,8 +17,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 # Local module imports
-from browser_use import Agent
-from browser_use.llm import ChatOpenAI
+from browser_use import Agent, ChatOpenAI
 
 
 @dataclass
@@ -70,7 +69,7 @@ async def run_browser_task(
 	try:
 		agent = Agent(
 			task=task,
-			llm=ChatOpenAI(model='gpt-4.1'),
+			llm=ChatOpenAI(model='gpt-4.1-mini'),
 		)
 		result = await agent.run()
 		#  TODO: The result could be parsed better

@@ -39,7 +39,7 @@ def get_llm(provider: str):
 
 		return ChatAnthropic(model='claude-3-5-sonnet-20240620', temperature=0.0)
 	elif provider == 'openai':
-		from browser_use.llm import ChatOpenAI
+		from browser_use import ChatOpenAI
 
 		api_key = os.getenv('OPENAI_API_KEY')
 		if not api_key:

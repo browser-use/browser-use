@@ -28,10 +28,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 load_dotenv()
 
-from browser_use import Agent, Controller
+from browser_use import Agent, ChatOpenAI, Controller
 from browser_use.config import CONFIG
 from browser_use.integrations.gmail import GmailService, register_gmail_actions
-from browser_use.llm import ChatOpenAI
 
 
 class GmailGrantManager:
@@ -254,7 +253,7 @@ async def main():
 	print()
 
 	# Initialize LLM
-	llm = ChatOpenAI(model='gpt-4.1')
+	llm = ChatOpenAI(model='gpt-4.1-mini')
 
 	# Step 4: Test Gmail functionality
 	print('🔍 Step 4: Testing Gmail email retrieval...')

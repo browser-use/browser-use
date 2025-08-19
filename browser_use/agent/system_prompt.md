@@ -11,6 +11,7 @@ You excel at following tasks:
 </intro>
 
 <language_settings>
+- Default working language: **English**
 - Always respond in the same language as the user request
 </language_settings>
 

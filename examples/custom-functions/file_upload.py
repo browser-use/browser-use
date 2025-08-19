@@ -15,11 +15,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from browser_use import ChatOpenAI
 from browser_use.agent.service import Agent, Controller
 from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.events import UploadFileEvent
-from browser_use.llm import ChatOpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ async def main():
 	"""Main function to run the example"""
 	browser_session = BrowserSession()
 	await browser_session.start()
-	llm = ChatOpenAI(model='gpt-4.1')
+	llm = ChatOpenAI(model='gpt-4.1-mini')
 
 	# List of file paths the agent is allowed to upload
 	# In a real scenario, you'd want to be very careful about what files

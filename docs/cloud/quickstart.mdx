@@ -4,54 +4,26 @@ description: "Learn how to get started with the Browser Use Cloud API"
 icon: "cloud"
 ---
 
-The Browser Use Cloud API lets you create and manage browser automation agents programmatically. Each agent can execute tasks and provide real-time feedback through a live preview URL.
-
-## Prerequisites
+<img
+  className="block dark:hidden rounded-2xl"
+  src="/images/cloud-banner.png"
+  alt="Browser Use Cloud Banner"
+/>
+<img
+  className="hidden dark:block rounded-2xl"
+  src="/images/cloud-banner-dark.png"
+  alt="Browser Use Cloud Banner"
+/>
 
 <Note>
   You need an active subscription and an API key from
-  [cloud.browser-use.com/billing](https://cloud.browser-use.com/billing)
+  [cloud.browser-use.com/billing](https://cloud.browser-use.com/billing). For
+  detailed pricing information, see our [pricing page](/cloud/pricing).
 </Note>
-
-## Pricing
-
-The Browser Use Cloud API pricing consists of two components:
-
-1. **Task Initialization Cost**: $0.01 per started task
-2. **Task Step Cost**: Additional cost based on the specific model used for each step
-
-### LLM Model Step Pricing
-
-The following table shows the total cost per step for each available LLM model:
-
-| Model                            | Cost per Step |
-| -------------------------------- | ------------- |
-| GPT-4o                           | $0.03         |
-| GPT-4o mini                      | $0.01         |
-| GPT-4.1                          | $0.03         |
-| GPT-4.1 mini                     | $0.01         |
-| O4 mini                          | $0.02         |
-| O3                               | $0.03         |
-| Gemini 2.0 Flash                 | $0.01         |
-| Gemini 2.0 Flash Lite            | $0.01         |
-| Gemini 2.5 Flash Preview (04/17) | $0.01         |
-| Gemini 2.5 Flash                 | $0.01         |
-| Gemini 2.5 Pro                   | $0.03         |
-| Claude 3.7 Sonnet (2025-02-19)   | $0.03         |
-| Claude Sonnet 4 (2025-05-14)     | $0.03         |
-| Llama 4 Maverick 17B Instruct    | $0.01         |
-
-### Example Cost Calculation
-
-For example, using GPT-4.1 for a 10 step task:
-
-- Task initialization: $0.01
-- 10 steps × $0.03 per step
-- Total cost: $0.31
 
 ## Creating Your First Agent
 
-Create a new browser automation task by providing instructions in natural language:
+To understand how the API works visit the [Run Task](/api-reference/run-task?playground=open) page.
 
 ```bash
 curl -X POST https://api.browser-use.com/api/v1/run-task \
@@ -62,32 +34,11 @@ curl -X POST https://api.browser-use.com/api/v1/run-task \
   }'
 ```
 
-The API returns a task ID that you can use to manage the task and check the live preview URL.
+`run-task` API returns a task ID, which you can query to get the task status, live preview URL, and the result output.
 
 <Note>
-  The task response includes a `live_url` that you can embed in an iframe to
-  watch and control the agent in real-time.
+  To play around with the API, you can use the [Browser Use Cloud
+  Playground](https://cloud.browser-use.com/playground).
 </Note>
 
-## Managing Tasks
-
-Control running tasks with these operations:
-
-<AccordionGroup>
-  <Accordion title="Pause/Resume Tasks">
-    Temporarily pause task execution with [`/api/v1/pause-task`](/cloud/api-v1/pause-task) and resume with
-    [`/api/v1/resume-task`](/cloud/api-v1/resume-task). Useful for manual inspection or intervention.
-  </Accordion>
-
-  <Accordion title="Stop Tasks">
-    Permanently stop a task using [`/api/v1/stop-task`](/cloud/api-v1/stop-task). The task cannot be
-    resumed after being stopped.
-  </Accordion>
-</AccordionGroup>
-
-For detailed API documentation, see the tabs on the left, which include the full coverage of the API.
-
-<Note>
-  Need help? Contact our support team at support@browser-use.com or join our
-  [Discord community](https://link.browser-use.com/discord)
-</Note>
+For the full implementation guide see the [Implementation](/cloud/implementation) page.

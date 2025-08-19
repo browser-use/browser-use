@@ -14,13 +14,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from browser_use import Agent
-from browser_use.llm import ChatOpenAI
+from browser_use import Agent, ChatOpenAI
 
 # video: https://preview.screen.studio/share/clenCmS6
-llm = ChatOpenAI(model='gpt-4.1')
+llm = ChatOpenAI(model='gpt-4.1-mini')
 agent = Agent(
-	task='open 3 tabs with elon musk, trump, and steve jobs, then go back to the first and stop',
+	task='open 3 tabs with elon musk, sam altman, and steve jobs, then go back to the first and stop',
 	llm=llm,
 )
 

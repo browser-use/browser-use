@@ -40,8 +40,7 @@ Spin up your agent:
 import asyncio
 from dotenv import load_dotenv
 load_dotenv()
-from browser_use import Agent
-from browser_use.llm import ChatOpenAI
+from browser_use import Agent, ChatOpenAI
 
 async def main():
     agent = Agent(

@@ -135,7 +135,7 @@ async def inject_highlighting_script(dom_service: DomService, interactive_elemen
 			
 			// Use a high but reasonable z-index to be visible without covering important content
 			// High enough for most content but not maximum to avoid blocking critical popups/modals
-			const HIGHLIGHT_Z_INDEX = 999999; // High but reasonable z-index
+			const HIGHLIGHT_Z_INDEX = 2147483647; // Maximum z-index for CSS (2^31-1)
 			
 			// Create container for all highlights - use fixed positioning without scroll calculations
 			const container = document.createElement('div');

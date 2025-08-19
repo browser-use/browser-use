@@ -8,15 +8,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from browser_use import Agent
-from browser_use.llm import ChatOpenAI
+from browser_use import Agent, ChatOpenAI
 
-llm = ChatOpenAI(model='gpt-4.1')
+llm = ChatOpenAI(model='gpt-4.1-mini')
 
 initial_actions = [
 	{'go_to_url': {'url': 'https://www.google.com', 'new_tab': True}},
 	{'go_to_url': {'url': 'https://en.wikipedia.org/wiki/Randomness', 'new_tab': True}},
-	{'scroll_down': {'amount': 1000}},
 ]
 agent = Agent(
 	task='What theories are displayed on the page?',

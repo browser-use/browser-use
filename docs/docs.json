@@ -1,25 +1,28 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
+  "theme": "aspen",
   "name": "Browser Use",
   "colors": {
-    "primary": "#F97316",
+    "primary": "#FE750E",
     "light": "#FFF7ED",
     "dark": "#C2410C"
   },
   "favicon": "/favicon.ico",
+  "contextual": {
+    "options": ["copy", "view"]
+  },
+  "fonts": {
+    "family": "Geist"
+  },
+
   "navigation": {
     "tabs": [
       {
-        "tab": "Documentation",
+        "tab": "Library",
         "groups": [
           {
             "group": "Get Started",
-            "pages": [
-              "introduction",
-              "quickstart",
-              "cli"
-            ]
+            "pages": ["introduction", "quickstart", "cli"]
           },
           {
             "group": "Customize",
@@ -48,17 +51,18 @@
               "development/roadmap"
             ]
           }
-         
         ]
       },
       {
-        "tab": "Cloud API v1",
+        "tab": "Cloud API",
         "groups": [
           {
-            "group": "Cloud API v1",
+            "group": "Get Started",
+            "pages": ["cloud/quickstart", "cloud/search", "cloud/pricing"]
+          },
+          {
+            "group": "Guides",
             "pages": [
-              "cloud/quickstart",
-              "cloud/search", 
               "cloud/implementation",
               "cloud/custom-sdk",
               "cloud/webhooks",
@@ -68,10 +72,7 @@
           },
           {
             "group": "Search API",
-            "pages": [
-              "api-reference/simple-search",
-              "api-reference/search-url"
-            ]
+            "pages": ["api-reference/simple-search", "api-reference/search-url"]
           },
           {
             "group": "Tasks API",
@@ -110,22 +111,15 @@
           },
           {
             "group": "Files API",
-            "pages": [
-              "api-reference/upload-file-presigned-url"
-            ]
+            "pages": ["api-reference/upload-file-presigned-url"]
           },
           {
             "group": "User API",
-            "pages": [
-              "api-reference/check-balance",
-              "api-reference/user"
-            ]
+            "pages": ["api-reference/check-balance", "api-reference/user"]
           },
           {
             "group": "Health Check API",
-            "pages": [
-              "api-reference/ping"
-            ]
+            "pages": ["api-reference/ping"]
           }
         ]
       }
@@ -152,14 +146,14 @@
         "href": "https://github.com/browser-use/browser-use"
       },
       {
-        "label": "Twitter",
-        "href": "https://x.com/gregpr07"
+        "label": "Discord",
+        "href": "https://link.browser-use.com/discord"
       }
     ],
     "primary": {
       "type": "button",
-      "label": "Join Discord",
-      "href": "https://link.browser-use.com/discord"
+      "label": "Browser Use Cloud",
+      "href": "https://cloud.browser-use.com"
     }
   },
   "footer": {
