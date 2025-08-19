@@ -254,6 +254,10 @@ class BrowserSession(BaseModel):
 		description='pid of a running chromium-based browser process to connect to on localhost',
 		validation_alias=AliasChoices('chrome_pid'),  # old deprecated name = chrome_pid
 	)
+	debug_port: int | None = Field(
+		default=None,
+		description='CDP debugging port allocated for this browser session',
+	)
 	playwright: PlaywrightOrPatchright | None = Field(
 		default=None,
 		description='Playwright library object returned by: await (playwright or patchright).async_playwright().start()',
@@ -620,6 +624,12 @@ class BrowserSession(BaseModel):
 
 	def _kill_child_processes(self, _hint: str = '') -> None:
 		"""Kill any child processes that might be related to the browser"""
+
+		# Release allocated debug port
+		if self.debug_port is not None:
+			from .port_manager import release_port
+			release_port(self.debug_port)
+			self.debug_port = None
 
 		if not self.browser_profile.keep_alive and self.browser_pid:
 			try:
@@ -1201,12 +1211,10 @@ class BrowserSession(BaseModel):
 						assert self.playwright is not None, 'playwright instance is None'
 
 						# Find an available port for remote debugging
-						import socket
-
-						with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-							s.bind(('127.0.0.1', 0))
-							s.listen(1)
-							debug_port = s.getsockname()[1]
+						from .port_manager import allocate_port
+						
+						debug_port = allocate_port()
+						self.debug_port = debug_port
 
 						# Get chromium executable path from browser profile or fall back to to playwright default
 						chromium_path = self.browser_profile.executable_path or self.playwright.chromium.executable_path
