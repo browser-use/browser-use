@@ -1125,6 +1125,12 @@ class BrowserSession(BaseModel):
 		Args:
 			retry_count: Number of retries already attempted (max 2)
 		"""
+		
+		# Release any previously allocated debug port before retrying to prevent port leaks
+		if self.debug_port is not None:
+			from .port_manager import release_port
+			release_port(self.debug_port)
+			self.debug_port = None
 
 		# Note: cdp_url might be set from a previous attempt that failed and is being retried
 		# Only assert if we don't own browser resources (meaning cdp_url was user-provided for external browser)
@@ -1237,6 +1243,13 @@ class BrowserSession(BaseModel):
 						# Build final command
 						chrome_launch_cmd = [chromium_path] + final_args
 
+						# Add startup delay to prevent parallel Chrome launch conflicts
+						# Use debug port as seed for deterministic but varied delay
+						startup_delay = (debug_port % 10) * 0.5  # 0-4.5 second delay
+						if startup_delay > 0:
+							print(f"[PYTHON] Chrome startup delay: {startup_delay}s to prevent parallel launch conflicts")
+							await asyncio.sleep(startup_delay)
+
 						# Launch chrome as subprocess
 						self.logger.info(
 							f' ↳ Spawning Chrome subprocess listening on CDP http://127.0.0.1:{debug_port}/ with user_data_dir= {_log_pretty_path(self.browser_profile.user_data_dir)}'
@@ -1254,7 +1267,19 @@ class BrowserSession(BaseModel):
 						self.browser_pid = process.pid
 						self._set_browser_keep_alive(False)  # We launched it, so we should close it
 						self._owns_browser_resources = True  # We launched it, so we own it
-						# self.logger.debug(f'👶 Chrome subprocess launched with browser_pid={process.pid}')
+						print(f"[PYTHON] Chrome subprocess launched with PID {process.pid} on port {debug_port}")
+
+						# Give Chrome a moment to start before connecting
+						await asyncio.sleep(0.5)
+						
+						# Check if process is still running before trying to connect
+						if process.returncode is not None:
+							print(f"[PYTHON] Chrome process {process.pid} exited immediately with code {process.returncode}")
+							# Try to read stderr for error details
+							if process.stderr:
+								stderr_output = await process.stderr.read()
+								print(f"[PYTHON] Chrome stderr: {stderr_output.decode('utf-8', errors='replace')[:500]}")
+							raise RuntimeError(f"Chrome process exited immediately with code {process.returncode}")
 
 						# Use the existing setup_browser_via_browser_pid method to connect
 						# It will wait for the CDP port to become available
