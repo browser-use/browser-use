@@ -9,20 +9,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dotenv import load_dotenv
 
 load_dotenv()
-from lmnr import Laminar
-
-try:
-	Laminar.initialize(project_api_key=os.getenv('LMNR_PROJECT_API_KEY'))
-except Exception:
-	pass
 
 from browser_use import Agent
 
-# Initialize the model
-llm = ChatOpenAI(
-	model='o4-mini',
-	temperature=1.0,
-)
+llm = ChatOpenAI(model='o4-mini')
 
 
 task = (

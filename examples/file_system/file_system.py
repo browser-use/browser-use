@@ -5,8 +5,7 @@ import shutil
 
 from dotenv import load_dotenv
 
-from browser_use import Agent
-from browser_use.llm import ChatOpenAI
+from browser_use import Agent, ChatOpenAI
 
 load_dotenv()
 
@@ -17,12 +16,6 @@ agent_dir.mkdir(exist_ok=True)
 conversation_dir = agent_dir / 'conversations' / 'conversation'
 print(f'Agent logs directory: {agent_dir}')
 
-try:
-	from lmnr import Laminar
-
-	Laminar.initialize(project_api_key=os.getenv('LMNR_PROJECT_API_KEY'))
-except Exception as e:
-	print(f'Error initializing Laminar: {e}')
 
 task = """
 Go to https://mertunsall.github.io/posts/post1.html

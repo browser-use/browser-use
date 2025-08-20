@@ -190,7 +190,7 @@ class DOMWatchdog(BaseWatchdog):
 			# Fast path for empty pages
 			if not_a_meaningful_website:
 				self.logger.debug(f'⚡ Skipping BuildDOMTree for empty target: {page_url}')
-				self.logger.info(f'📸 Not taking screenshot for empty page: {page_url} (non-http/https URL)')
+				self.logger.debug(f'📸 Not taking screenshot for empty page: {page_url} (non-http/https URL)')
 
 				# Create minimal DOM state
 				content = SerializedDOMState(_root=None, selector_map={})

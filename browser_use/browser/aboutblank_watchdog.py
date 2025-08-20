@@ -70,7 +70,7 @@ class AboutBlankWatchdog(BaseWatchdog):
 		# Use _cdp_get_all_pages for quick check without fetching titles
 		page_targets = await self.browser_session._cdp_get_all_pages()
 		if len(page_targets) <= 1:
-			self.logger.info(
+			self.logger.debug(
 				'[AboutBlankWatchdog] Last tab closing, creating new about:blank tab to avoid closing entire browser'
 			)
 			# Create the animation tab since no tabs should remain
@@ -95,7 +95,7 @@ class AboutBlankWatchdog(BaseWatchdog):
 			# If no tabs exist at all, create one to keep browser alive
 			if len(page_targets) == 0:
 				# Only create a new tab if there are no tabs at all
-				self.logger.info('[AboutBlankWatchdog] No tabs exist, creating new about:blank DVD screensaver tab')
+				self.logger.debug('[AboutBlankWatchdog] No tabs exist, creating new about:blank DVD screensaver tab')
 				navigate_event = self.event_bus.dispatch(NavigateToUrlEvent(url='about:blank', new_tab=True))
 				await navigate_event
 				# Show DVD screensaver on the new tab

@@ -45,7 +45,7 @@ class StorageStateWatchdog(BaseWatchdog):
 
 	async def on_BrowserConnectedEvent(self, event: BrowserConnectedEvent) -> None:
 		"""Start monitoring when browser starts."""
-		self.logger.info('[StorageStateWatchdog] 🍪 Initializing auth/cookies sync <-> with storage_state.json file')
+		self.logger.debug('[StorageStateWatchdog] 🍪 Initializing auth/cookies sync <-> with storage_state.json file')
 
 		# Start monitoring
 		await self._start_monitoring()
@@ -85,7 +85,7 @@ class StorageStateWatchdog(BaseWatchdog):
 		assert self.browser_session.cdp_client is not None
 
 		self._monitoring_task = asyncio.create_task(self._monitor_storage_changes())
-		# self.logger.info('[StorageStateWatchdog] Started storage monitoring task')
+		# self.logger'[StorageStateWatchdog] Started storage monitoring task')
 
 	async def _stop_monitoring(self) -> None:
 		"""Stop the monitoring task."""
@@ -123,7 +123,7 @@ class StorageStateWatchdog(BaseWatchdog):
 
 				# Check if cookies have changed
 				if await self._have_cookies_changed():
-					self.logger.info('[StorageStateWatchdog] Detected changes to sync with storage_state.json')
+					self.logger.debug('[StorageStateWatchdog] Detected changes to sync with storage_state.json')
 					await self._save_storage_state()
 
 			except asyncio.CancelledError:
@@ -211,7 +211,7 @@ class StorageStateWatchdog(BaseWatchdog):
 					)
 				)
 
-				self.logger.info(
+				self.logger.debug(
 					f'[StorageStateWatchdog] Saved storage state to {json_path} '
 					f'({len(merged_state.get("cookies", []))} cookies, '
 					f'{len(merged_state.get("origins", []))} origins)'
@@ -241,7 +241,7 @@ class StorageStateWatchdog(BaseWatchdog):
 			if 'cookies' in storage and storage['cookies']:
 				await self.browser_session._cdp_set_cookies(storage['cookies'])
 				self._last_cookie_state = storage['cookies'].copy()
-				self.logger.info(f'[StorageStateWatchdog] Added {len(storage["cookies"])} cookies from storage state')
+				self.logger.debug(f'[StorageStateWatchdog] Added {len(storage["cookies"])} cookies from storage state')
 
 			# Apply origins (localStorage/sessionStorage) if present
 			if 'origins' in storage and storage['origins']:
@@ -258,7 +258,7 @@ class StorageStateWatchdog(BaseWatchdog):
 								window.sessionStorage.setItem({json.dumps(item['name'])}, {json.dumps(item['value'])});
 							"""
 							await self.browser_session._cdp_add_init_script(script)
-				self.logger.info(
+				self.logger.debug(
 					f'[StorageStateWatchdog] Applied localStorage/sessionStorage from {len(storage["origins"])} origins'
 				)
 
@@ -270,7 +270,7 @@ class StorageStateWatchdog(BaseWatchdog):
 				)
 			)
 
-			self.logger.info(f'[StorageStateWatchdog] Loaded storage state from: {load_path}')
+			self.logger.debug(f'[StorageStateWatchdog] Loaded storage state from: {load_path}')
 
 		except Exception as e:
 			self.logger.error(f'[StorageStateWatchdog] Failed to load storage state: {e}')
@@ -323,6 +323,6 @@ class StorageStateWatchdog(BaseWatchdog):
 			cookie_objects = [Cookie(**cookie_dict) if isinstance(cookie_dict, dict) else cookie_dict for cookie_dict in cookies]
 			# Set cookies using CDP
 			await self.browser_session._cdp_set_cookies(cookie_objects)
-			self.logger.info(f'[StorageStateWatchdog] Added {len(cookies)} cookies')
+			self.logger.debug(f'[StorageStateWatchdog] Added {len(cookies)} cookies')
 		except Exception as e:
 			self.logger.error(f'[StorageStateWatchdog] Failed to add cookies: {e}')

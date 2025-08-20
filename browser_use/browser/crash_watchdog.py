@@ -171,7 +171,7 @@ class CrashWatchdog(BaseWatchdog):
 		# Remove crashed session from pool
 		if session := self.browser_session._cdp_session_pool.pop(target_id, None):
 			await session.disconnect()
-			self.logger.info(f'[CrashWatchdog] Removed crashed session from pool: {target_id}')
+			self.logger.debug(f'[CrashWatchdog] Removed crashed session from pool: {target_id}')
 
 		# Get target info
 		cdp_client = self.browser_session.cdp_client
@@ -330,7 +330,7 @@ class CrashWatchdog(BaseWatchdog):
 			if self.browser_session.agent_focus and (target_id := self.browser_session.agent_focus.target_id):
 				if session := self.browser_session._cdp_session_pool.pop(target_id, None):
 					await session.disconnect()
-					self.logger.info(f'[CrashWatchdog] Removed crashed session from pool: {target_id}')
+					self.logger.debug(f'[CrashWatchdog] Removed crashed session from pool: {target_id}')
 			self.browser_session.agent_focus.target_id = None  # type: ignore
 
 		# Check browser process if we have PID
@@ -342,7 +342,7 @@ class CrashWatchdog(BaseWatchdog):
 					for session in self.browser_session._cdp_session_pool.values():
 						await session.disconnect()
 					self.browser_session._cdp_session_pool.clear()
-					self.logger.info('[CrashWatchdog] Cleared all sessions from pool due to browser crash')
+					self.logger.debug('[CrashWatchdog] Cleared all sessions from pool due to browser crash')
 
 					self.event_bus.dispatch(
 						BrowserErrorEvent(

@@ -1,10 +1,13 @@
 # 100% vibe coded
 
 import json
+import logging
 import traceback
 
 from browser_use.dom.service import DomService
 from browser_use.dom.views import DOMSelectorMap
+
+logger = logging.getLogger(__name__)
 
 
 def convert_dom_selector_map_to_highlight_format(selector_map: DOMSelectorMap) -> list[dict]:
@@ -55,7 +58,7 @@ async def remove_highlighting_script(dom_service: DomService) -> None:
 		# Get CDP client and session ID
 		cdp_session = await dom_service.browser_session.get_or_create_cdp_session()
 
-		print('🧹 Removing browser-use highlighting elements')
+		logger.debug('🧹 Removing browser-use highlighting elements')
 
 		# Create script to remove all highlights
 		script = """
@@ -82,24 +85,22 @@ async def remove_highlighting_script(dom_service: DomService) -> None:
 		await cdp_session.cdp_client.send.Runtime.evaluate(
 			params={'expression': script, 'returnByValue': True}, session_id=cdp_session.session_id
 		)
-		print('✅ All browser-use highlighting elements removed')
 
 	except Exception as e:
-		print(f'❌ Error removing highlighting elements: {e}')
-		traceback.print_exc()
+		logger.exception(f'Error removing highlighting elements: {e}', exc_info=True)
 
 
 async def inject_highlighting_script(dom_service: DomService, interactive_elements: DOMSelectorMap) -> None:
 	"""Inject JavaScript to highlight interactive elements with detailed hover tooltips that work around CSP restrictions."""
 	if not interactive_elements:
-		print('⚠️ No interactive elements to highlight')
+		logger.debug('⚠️ No interactive elements to highlight')
 		return
 
 	try:
 		# Convert DOMSelectorMap to the format expected by the JavaScript
 		converted_elements = convert_dom_selector_map_to_highlight_format(interactive_elements)
 
-		print(f'📍 Creating CSP-safe highlighting for {len(converted_elements)} elements')
+		logger.debug(f'📍 Creating CSP-safe highlighting for {len(converted_elements)} elements')
 
 		# ALWAYS remove any existing highlights first to prevent double-highlighting
 		await remove_highlighting_script(dom_service)
@@ -387,7 +388,7 @@ async def inject_highlighting_script(dom_service: DomService, interactive_elemen
 			// Add container to document
 			document.body.appendChild(container);
 			
-			console.log('✅ Browser-use highlighting complete');
+			console.log('Highlighting complete');
 		}})();
 		"""
 
@@ -397,8 +398,8 @@ async def inject_highlighting_script(dom_service: DomService, interactive_elemen
 		await cdp_session.cdp_client.send.Runtime.evaluate(
 			params={'expression': script, 'returnByValue': True}, session_id=cdp_session.session_id
 		)
-		print(f'✅ Enhanced CSP-safe highlighting injected for {len(converted_elements)} elements')
+		logger.debug(f'Enhanced CSP-safe highlighting injected for {len(converted_elements)} elements')
 
 	except Exception as e:
-		print(f'❌ Error injecting enhanced highlighting script: {e}')
+		logger.debug(f'❌ Error injecting enhanced highlighting script: {e}')
 		traceback.print_exc()

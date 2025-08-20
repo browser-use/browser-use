@@ -71,7 +71,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				self.logger.info(f'💾 {msg}')
 			else:
 				msg = f'Clicked button with index {index_for_logging}: {element_node.get_all_children_text(max_depth=2)}'
-				self.logger.info(f'🖱️ {msg}')
+				self.logger.debug(f'🖱️ {msg}')
 			self.logger.debug(f'Element xpath: {element_node.xpath}')
 
 			# Wait a bit for potential new tab to be created
@@ -136,6 +136,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 				except Exception as e:
 					# Element not found or error - fall back to typing to the page
 					self.logger.warning(f'Failed to type to element {index_for_logging}: {e}. Falling back to page typing.')
+					try:
+						await asyncio.wait_for(self._click_element_node_impl(element_node, while_holding_ctrl=False), timeout=3.0)
+					except Exception as e:
+						pass
 					await self._type_to_page(event.text)
 					self.logger.info(f'⌨️ Typed "{event.text}" to the page as fallback')
 
@@ -178,7 +182,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				# Try to scroll the element's container
 				success = await self._scroll_element_container(element_node, pixels)
 				if success:
-					self.logger.info(
+					self.logger.debug(
 						f'📜 Scrolled element {index_for_logging} container {event.direction} by {event.amount} pixels'
 					)
 
@@ -213,7 +217,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				self.browser_session._dom_watchdog.clear_cache()
 
 			# Log success
-			self.logger.info(f'📜 Scrolled {event.direction} by {event.amount} pixels')
+			self.logger.debug(f'📜 Scrolled {event.direction} by {event.amount} pixels')
 			return None
 		except Exception as e:
 			raise
@@ -248,8 +252,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				)
 
 			# Get CDP client
-			await self.browser_session.get_or_create_cdp_session(focus=True)
-			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=element_node.target_id, focus=False)
+			cdp_session = await self.browser_session.cdp_client_for_node(element_node)
 
 			# Get the correct session ID for the element's frame
 			session_id = cdp_session.session_id
@@ -675,14 +678,14 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Get the correct session ID for the element's iframe
 			# session_id = await self._get_session_id_for_element(element_node)
 
-			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=element_node.target_id, focus=True)
+			# cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=element_node.target_id, focus=True)
+			cdp_session = await self.browser_session.cdp_client_for_node(element_node)
 
 			# Get element info
 			backend_node_id = element_node.backend_node_id
 
 			# Scroll element into view
 			try:
-				await cdp_session.cdp_client.send.Target.activateTarget(params={'targetId': element_node.target_id})
 				await cdp_session.cdp_client.send.DOM.scrollIntoViewIfNeeded(
 					params={'backendNodeId': backend_node_id}, session_id=cdp_session.session_id
 				)
@@ -1340,7 +1343,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 						await cdp_client.send.DOM.scrollIntoViewIfNeeded(params={'nodeId': node_id}, session_id=session_id)
 
 						found = True
-						self.logger.info(f'📜 Scrolled to text: "{event.text}"')
+						self.logger.debug(f'📜 Scrolled to text: "{event.text}"')
 						break
 
 				# Clean up search
@@ -1376,7 +1379,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			)
 
 		if js_result.get('result', {}).get('value'):
-			self.logger.info(f'📜 Scrolled to text: "{event.text}" (via JS)')
+			self.logger.debug(f'📜 Scrolled to text: "{event.text}" (via JS)')
 			return None
 		else:
 			self.logger.warning(f'⚠️ Text not found: "{event.text}"')
@@ -1828,7 +1831,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 				if selection_result.get('success'):
 					msg = selection_result.get('message', f'Selected option: {target_text}')
-					self.logger.info(f'✅ {msg}')
+					self.logger.debug(f'{msg}')
 
 					# Return the result as a dict
 					return {

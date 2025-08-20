@@ -704,7 +704,7 @@ class BrowserUseApp(App):
 
 			# Hide intro panels if they're visible and show info panels + three-column view
 			if logo_panel.display:
-				logging.info('Hiding intro panels and showing info panels + three-column view')
+				logging.debug('Hiding intro panels and showing info panels + three-column view')
 
 				logo_panel.display = False
 				links_panel.display = False
@@ -717,7 +717,7 @@ class BrowserUseApp(App):
 				# Start updating info panels
 				self.update_info_panels()
 
-				logging.info('Info panels and three-column view should now be visible')
+				logging.debug('Info panels and three-column view should now be visible')
 		except Exception as e:
 			logging.error(f'Error in hide_intro_panels: {str(e)}')
 

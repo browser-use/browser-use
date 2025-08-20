@@ -83,7 +83,7 @@ class ChatAzureOpenAI(ChatOpenAILike):
 		else:
 			# Create a new async HTTP client with custom limits
 			_client_params['http_client'] = httpx.AsyncClient(
-				limits=httpx.Limits(max_connections=1000, max_keepalive_connections=100)
+				limits=httpx.Limits(max_connections=20, max_keepalive_connections=6)
 			)
 
 		self.client = AsyncAzureOpenAIClient(**_client_params)

@@ -141,8 +141,10 @@ class BrowserError(Exception):
 	def __str__(self) -> str:
 		if self.details:
 			return f'{self.message} ({self.details}) during: {self.while_handling_event}'
+		elif self.while_handling_event:
+			return f'{self.message} (while handling: {self.while_handling_event})'
 		else:
-			return f'{self.message} (while handling event: {self.while_handling_event})'
+			return self.message
 
 
 class URLNotAllowedError(BrowserError):

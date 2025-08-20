@@ -46,9 +46,8 @@ class ChatOpenAI(BaseChatModel):
 	model: ChatModel | str
 
 	# Model params
-	# set to 0.1 because browser-use aims to be more reliable and deterministic
 	temperature: float | None = 0.2
-	frequency_penalty: float | None = 0.1
+	frequency_penalty: float | None = 0.3  # this avoids infinite generation of \t for models like 4.1-mini
 	reasoning_effort: ReasoningEffort = 'low'
 	seed: int | None = None
 	service_tier: Literal['auto', 'default', 'flex', 'priority', 'scale'] | None = None
@@ -62,12 +61,12 @@ class ChatOpenAI(BaseChatModel):
 	base_url: str | httpx.URL | None = None
 	websocket_base_url: str | httpx.URL | None = None
 	timeout: float | httpx.Timeout | None = None
-	max_retries: int = 10  # Increase default retries for automation reliability
+	max_retries: int = 5  # Increase default retries for automation reliability
 	default_headers: Mapping[str, str] | None = None
 	default_query: Mapping[str, object] | None = None
 	http_client: httpx.AsyncClient | None = None
 	_strict_response_validation: bool = False
-	max_completion_tokens: int | None = 8000
+	max_completion_tokens: int | None = 4096
 
 	# Static
 	@property

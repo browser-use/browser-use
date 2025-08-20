@@ -1,22 +1,24 @@
 ---
-description: 
-globs: 
+description:
+globs:
 alwaysApply: true
 ---
+
 ## 🧠 General Guidelines for Contributing to `browser-use`
 
-**Browser-Use** is an AI agent that autonomously interacts with the web. It takes a user-defined task, navigates web pages using Chromium via Playwright, processes HTML, and repeatedly queries a language model (like `gpt-4o`) to decide the next action—until the task is completed.
+**Browser-Use** is an AI agent that autonomously interacts with the web. It takes a user-defined task, navigates web pages using Chromium via CDP, processes HTML, and repeatedly queries a language model (like `gpt-4o`) to decide the next action—until the task is completed.
 
 ### 🗂️ File Documentation
 
 When you create a **new file**:
 
-* **For humans**: At the top of the file, include a docstring in natural language explaining:
+- **For humans**: At the top of the file, include a docstring in natural language explaining:
 
-  * What this file does.
-  * How it fits into the browser-use system.
-  * If it introduces a new abstraction or replaces an old one.
-* **For LLMs/AI**: Include structured metadata using standardized comments such as:
+  - What this file does.
+  - How it fits into the browser-use system.
+  - If it introduces a new abstraction or replaces an old one.
+
+- **For LLMs/AI**: Include structured metadata using standardized comments such as:
 
   ```python
   # @file purpose: Defines <purpose>
@@ -26,7 +28,7 @@ When you create a **new file**:
 
 ### 🧰 Development Rules
 
-* ✅ **Always use [`uv`](mdc:https:/github.com/astral-sh/uv) instead of `pip`**
+- ✅ **Always use [`uv`](mdc:https:/github.com/astral-sh/uv) instead of `pip`**
   For deterministic and fast dependency installs.
 
 ```bash
@@ -35,14 +37,15 @@ source .venv/bin/activate
 uv sync
 ```
 
-* ✅ **Use real model names**
+- ✅ **Use real model names**
   Do **not** replace `gpt-4o` with `gpt-4`. The model `gpt-4o` is a distinct release and supported.
 
-* ✅ **Type-safe coding**
+- ✅ **Type-safe coding**
   Use **Pydantic v2 models** for all internal action schemas, task inputs/outputs, and controller I/O. This ensures robust validation and LLM-call integrity.
 
-* ✅ **Pre-commit formatting**
-ALWAYS make sure to run pre-commit before making PRs.
+- ✅ **Pre-commit formatting**
+  ALWAYS make sure to run pre-commit before making PRs.
+
 ---
 
 ## ⚙️ Adding New Actions
@@ -64,8 +67,8 @@ async def search_web(query: str, page: Page):
 
 ### Notes:
 
-* Use descriptive names and docstrings for each action.
-* Prefer returning `ActionResult` with structured content to help the agent reason better.
+- Use descriptive names and docstrings for each action.
+- Prefer returning `ActionResult` with structured content to help the agent reason better.
 
 ---
 
@@ -74,8 +77,7 @@ async def search_web(query: str, page: Page):
 To define a task and run a browser-use agent:
 
 ```python
-from browser_use import Agent
-from browser_use.llm import ChatOpenAI
+from browser_use import Agent, ChatOpenAI
 
 task = "Find the CEO of OpenAI and return their name"
 model = ChatOpenAI(model="gpt-4.1-mini")

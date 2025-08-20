@@ -15,8 +15,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-from browser_use import Agent
-from browser_use.llm import ChatOpenAI
+from browser_use import Agent, ChatOpenAI
 
 api_key = os.getenv('NOVITA_API_KEY', '')
 if not api_key:

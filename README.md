@@ -14,11 +14,7 @@
 [![Twitter Follow](https://img.shields.io/twitter/follow/Magnus?style=social)](https://x.com/intent/user?screen_name=mamagnus00)
 [![Weave Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fapp.workweave.ai%2Fapi%2Frepository%2Fbadge%2Forg_T5Pvn3UBswTHIsN1dWS3voPg%2F881458615&labelColor=#EC6341)](https://app.workweave.ai/reports/repository/org_T5Pvn3UBswTHIsN1dWS3voPg/881458615)
 
-🌐 Browser-use is the easiest way to connect your AI agents with the browser.
-
-💡 See what others are building and share your projects in our [Discord](https://link.browser-use.com/discord)! Want Swag? Check out our [Merch store](https://browsermerch.com).
-
-🌤️ Skip the setup - try our <b>hosted version</b> for instant browser automation! <b>[Try the cloud ☁︎](https://cloud.browser-use.com)</b>.
+🌤️ Want to skip the setup? Use our <b>[cloud](https://cloud.browser-use.com)</b> for faster, scalable, stealth-enabled browser automation!
 
 # Quick start
 
@@ -31,7 +27,7 @@ pip install browser-use
 Install the browser:
 
 ```bash
-playwright install chromium --with-deps --no-shell
+uvx playwright install chromium --with-deps --no-shell
 ```
 
 Spin up your agent:
@@ -40,13 +36,12 @@ Spin up your agent:
 import asyncio
 from dotenv import load_dotenv
 load_dotenv()
-from browser_use import Agent
-from browser_use.llm import ChatOpenAI
+from browser_use import Agent, ChatOpenAI
 
 async def main():
     agent = Agent(
-        task="Compare the price of gpt-4o and DeepSeek-V3",
-        llm=ChatOpenAI(model="o4-mini", temperature=1.0),
+        task="Find the number of stars of the browser-use repo",
+        llm=ChatOpenAI(model="gpt-4.1-mini"),
     )
     await agent.run()
 
@@ -68,97 +63,6 @@ MISTRAL_API_KEY=
 ```
 
 For other settings, models, and more, check out the [documentation 📕](https://docs.browser-use.com).
-
-### Test with UI
-
-You can test browser-use using its [Web UI](https://github.com/browser-use/web-ui) or [Desktop App](https://github.com/browser-use/desktop).
-
-### Test with an interactive CLI
-
-You can also use our `browser-use` interactive CLI (similar to `claude` code):
-
-```bash
-pip install "browser-use[cli]"
-browser-use
-```
-
-## MCP Integration
-
-Browser-use supports the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/), enabling integration with Claude Desktop and other MCP-compatible clients.
-
-### Use as MCP Server with Claude Desktop
-
-Add browser-use to your Claude Desktop configuration:
-
-```json
-{
-  "mcpServers": {
-    "browser-use": {
-      "command": "uvx",
-      "args": ["browser-use[cli]", "--mcp"],
-      "env": {
-        "OPENAI_API_KEY": "sk-..."
-      }
-    }
-  }
-}
-```
-
-This gives Claude Desktop access to browser automation tools for web scraping, form filling, and more.
-
-### Connect External MCP Servers to Browser-Use Agent
-
-Browser-use agents can connect to multiple external MCP servers to extend their capabilities:
-
-```python
-import asyncio
-from browser_use import Agent, Controller
-from browser_use.mcp.client import MCPClient
-from browser_use.llm import ChatOpenAI
-
-async def main():
-    # Initialize controller
-    controller = Controller()
-    
-    # Connect to multiple MCP servers
-    filesystem_client = MCPClient(
-        server_name="filesystem",
-        command="npx",
-        args=["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/documents"]
-    )
-    
-    github_client = MCPClient(
-        server_name="github", 
-        command="npx",
-        args=["-y", "@modelcontextprotocol/server-github"],
-        env={"GITHUB_TOKEN": "your-github-token"}
-    )
-    
-    # Connect and register tools from both servers
-    await filesystem_client.connect()
-    await filesystem_client.register_to_controller(controller)
-    
-    await github_client.connect()
-    await github_client.register_to_controller(controller)
-    
-    # Create agent with MCP-enabled controller
-    agent = Agent(
-        task="Find the latest report.pdf in my documents and create a GitHub issue about it",
-        llm=ChatOpenAI(model="gpt-4o"),
-        controller=controller  # Controller has tools from both MCP servers
-    )
-    
-    # Run the agent
-    await agent.run()
-    
-    # Cleanup
-    await filesystem_client.disconnect()
-    await github_client.disconnect()
-
-asyncio.run(main())
-```
-
-See the [MCP documentation](https://docs.browser-use.com/customize/mcp-server) for more details.
 
 # Demos
 
@@ -198,6 +102,83 @@ https://github.com/user-attachments/assets/de73ee39-432c-4b97-b4e8-939fd7f323b3
 
 For more examples see the [examples](examples) folder or join the [Discord](https://link.browser-use.com/discord) and show off your project. You can also see our [`awesome-prompts`](https://github.com/browser-use/awesome-prompts) repo for prompting inspiration.
 
+## MCP Integration
+
+Browser-use supports the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/), enabling integration with Claude Desktop and other MCP-compatible clients.
+
+### Use as MCP Server with Claude Desktop
+
+Add browser-use to your Claude Desktop configuration:
+
+```json
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "uvx",
+      "args": ["browser-use[cli]", "--mcp"],
+      "env": {
+        "OPENAI_API_KEY": "sk-..."
+      }
+    }
+  }
+}
+```
+
+This gives Claude Desktop access to browser automation tools for web scraping, form filling, and more.
+
+### Connect External MCP Servers to Browser-Use Agent
+
+Browser-use agents can connect to multiple external MCP servers to extend their capabilities:
+
+```python
+import asyncio
+from browser_use import Agent, Controller, ChatOpenAI
+from browser_use.mcp.client import MCPClient
+
+async def main():
+    # Initialize controller
+    controller = Controller()
+
+    # Connect to multiple MCP servers
+    filesystem_client = MCPClient(
+        server_name="filesystem",
+        command="npx",
+        args=["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/documents"]
+    )
+
+    github_client = MCPClient(
+        server_name="github",
+        command="npx",
+        args=["-y", "@modelcontextprotocol/server-github"],
+        env={"GITHUB_TOKEN": "your-github-token"}
+    )
+
+    # Connect and register tools from both servers
+    await filesystem_client.connect()
+    await filesystem_client.register_to_controller(controller)
+
+    await github_client.connect()
+    await github_client.register_to_controller(controller)
+
+    # Create agent with MCP-enabled controller
+    agent = Agent(
+        task="Find the latest pdf report in my documents and create a GitHub issue about it",
+        llm=ChatOpenAI(model="gpt-4.1-mini"),
+        controller=controller  # Controller has tools from both MCP servers
+    )
+
+    # Run the agent
+    await agent.run()
+
+    # Cleanup
+    await filesystem_client.disconnect()
+    await github_client.disconnect()
+
+asyncio.run(main())
+```
+
+See the [MCP documentation](https://docs.browser-use.com/customize/mcp-server) for more details.
+
 # Vision
 
 Tell your computer what to do, and it gets it done.
@@ -206,25 +187,21 @@ Tell your computer what to do, and it gets it done.
 
 ### Agent
 
-- [ ] Improve agent memory to handle +100 steps
-- [ ] Enhance planning capabilities (load website specific context)
+- [ ] Make agent 3x faster
 - [ ] Reduce token consumption (system prompt, DOM state)
 
 ### DOM Extraction
 
-- [ ] Enable detection for all possible UI elements
-- [ ] Improve state representation for UI elements so that all LLMs can understand what's on the page
+- [ ] Enable interaction with all UI elements
+- [ ] Improve state representation for UI elements so that any LLM can understand what's on the page
 
 ### Workflows
 
 - [ ] Let user record a workflow - which we can rerun with browser-use as a fallback
-- [ ] Make rerunning of workflows work, even if pages change
 
 ### User Experience
 
 - [ ] Create various templates for tutorial execution, job application, QA testing, social media, etc. which users can just copy & paste.
-- [ ] Improve docs
-- [ ] Make it faster
 
 ### Parallelization
 

@@ -18,9 +18,13 @@ load_dotenv()
 from browser_use import Agent
 from browser_use.llm import ChatAzureOpenAI
 
-# Initialize the Azure OpenAI client
+# Make sure your deployment exists, double check the region and model name
+api_key = os.getenv('AZURE_OPENAI_KEY')
+azure_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
 llm = ChatAzureOpenAI(
-	model='o4-mini',
+	model='gpt-4.1-mini',
+	api_key=api_key,
+	azure_endpoint=azure_endpoint,
 )
 
 TASK = """
@@ -35,7 +39,6 @@ agent = Agent(
 
 async def main():
 	await agent.run(max_steps=10)
-	input('Press Enter to continue...')
 
 
 asyncio.run(main())

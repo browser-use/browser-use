@@ -27,9 +27,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from browser_use import ChatOpenAI
 from browser_use.agent.service import Agent, Controller
 from browser_use.browser import BrowserSession
-from browser_use.llm import ChatOpenAI
 
 # Initialize controller and registry
 controller = Controller()
@@ -95,7 +95,7 @@ async def main():
 	"""Main function to run the example"""
 	browser_session = BrowserSession()
 	await browser_session.start()
-	llm = ChatOpenAI(model='gpt-4.1')
+	llm = ChatOpenAI(model='gpt-4.1-mini')
 
 	# Create the agent
 	agent = Agent(  # disco mode will not be triggered on apple.com because the LLM won't be able to see that action available, it should work on Google.com though.

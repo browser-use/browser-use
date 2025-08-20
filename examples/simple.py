@@ -2,29 +2,27 @@ import asyncio
 import os
 import sys
 
-from browser_use.llm.openai.chat import ChatOpenAI
-
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-
-from browser_use import Agent
-
-# Initialize the model
-llm = ChatOpenAI(
-	model='gpt-5-mini',
-)
-
-
-task = 'Go to google.com/travel/flights and find the cheapest flight from New York to Paris on 2025-07-15'
-agent = Agent(task=task, llm=llm)
+from browser_use import Agent, ChatOpenAI
 
 
 async def main():
-	await agent.run()
+	# Choose your model
+	llm = ChatOpenAI(model='gpt-4.1-mini')
+
+	# Define your task
+	task = 'Go and find the founders of browser-use'
+
+	# Create the agent
+	agent = Agent(task=task, llm=llm)
+
+	# Start
+	await agent.run(max_steps=2)
 
 
 if __name__ == '__main__':

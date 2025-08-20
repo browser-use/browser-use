@@ -47,11 +47,11 @@ try:
 	from lmnr import observe as _lmnr_observe  # type: ignore
 
 	if os.environ.get('BROWSER_USE_VERBOSE_OBSERVABILITY', 'false').lower() == 'true':
-		logger.info('Lmnr is available for observability')
+		logger.debug('Lmnr is available for observability')
 	_LMNR_AVAILABLE = True
 except ImportError:
 	if os.environ.get('BROWSER_USE_VERBOSE_OBSERVABILITY', 'false').lower() == 'true':
-		logger.info('Lmnr is not available for observability')
+		logger.debug('Lmnr is not available for observability')
 	_LMNR_AVAILABLE = False
 
 
