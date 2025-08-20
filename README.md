@@ -52,14 +52,6 @@ Add your API keys for the provider you want to use to your `.env` file.
 
 ```bash
 OPENAI_API_KEY=
-ANTHROPIC_API_KEY=
-AZURE_OPENAI_ENDPOINT=
-AZURE_OPENAI_KEY=
-GOOGLE_API_KEY=
-DEEPSEEK_API_KEY=
-GROK_API_KEY=
-NOVITA_API_KEY=
-MISTRAL_API_KEY=
 ```
 
 For other settings, models, and more, check out the [documentation 📕](https://docs.browser-use.com).
