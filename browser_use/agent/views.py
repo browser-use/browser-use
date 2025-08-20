@@ -300,6 +300,8 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 	history: list[AgentHistory]
 	usage: UsageSummary | None = None
 
+	stopped: bool = False
+
 	_output_model_schema: type[AgentStructuredOutput] | None = None
 
 	def total_duration_seconds(self) -> float:
@@ -372,6 +374,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		"""Custom serialization that properly uses AgentHistory's model_dump"""
 		return {
 			'history': [h.model_dump(**kwargs) for h in self.history],
+           	'stopped': self.stopped,
 		}
 
 	@classmethod
