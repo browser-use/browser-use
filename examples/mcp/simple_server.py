@@ -9,7 +9,7 @@ Prerequisites:
    pip install 'browser-use[cli]'
 
 2. Start the browser-use MCP server in a separate terminal:
-   uvx browser-use --mcp
+   uvx 'browser-use[cli]' --mcp
 
 3. Run this client example:
    python simple_server.py
@@ -29,7 +29,7 @@ async def run_simple_browser_automation():
 	"""Connect to browser-use MCP server and perform basic browser automation."""
 
 	# Create connection parameters for the browser-use MCP server
-	server_params = StdioServerParameters(command='uvx', args=['browser-use', '--mcp'], env={})
+	server_params = StdioServerParameters(command='uvx', args=['browser-use[cli]', '--mcp'], env={})
 
 	async with stdio_client(server_params) as (read, write):
 		async with ClientSession(read, write) as session:
