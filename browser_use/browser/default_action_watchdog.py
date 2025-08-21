@@ -572,8 +572,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 					},
 					session_id=cdp_session.session_id,
 				)
-				# Add 18ms delay between keystrokes
-				await asyncio.sleep(0.018)
+				# Add 1.8ms delay between keystrokes
+				await asyncio.sleep(0.0018)
 
 		except Exception as e:
 			raise Exception(f'Failed to type to page: {str(e)}')
@@ -820,8 +820,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 					},
 					session_id=cdp_session.session_id,
 				)
-				# Small delay between characters
-				await asyncio.sleep(0.09)
+				# Small delay between characters (9ms)
+				await asyncio.sleep(0.009)
 
 		except Exception as e:
 			self.logger.error(f'Failed to input text via CDP: {type(e).__name__}: {e}')
