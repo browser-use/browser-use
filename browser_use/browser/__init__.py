@@ -4,11 +4,13 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
 	from .profile import BrowserProfile
 	from .session import BrowserSession
+	from .event_timeouts import EventTimeouts
 
 # Lazy imports mapping for heavy browser components
 _LAZY_IMPORTS = {
 	'BrowserProfile': ('.profile', 'BrowserProfile'),
 	'BrowserSession': ('.session', 'BrowserSession'),
+	'EventTimeouts': ('.event_timeouts', 'EventTimeouts'),
 }
 
 
@@ -35,4 +37,5 @@ def __getattr__(name: str):
 __all__ = [
 	'BrowserSession',
 	'BrowserProfile',
+	'EventTimeouts',
 ]
