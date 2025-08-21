@@ -6,15 +6,72 @@ icon: "eye"
 
 ## Overview
 
-Browser Use has a native integration with [Laminar](https://lmnr.ai) - open-source platform for tracing, evals and labeling of AI agents.
-Read more about Laminar in the [Laminar docs](https://docs.lmnr.ai).
+Browser Use has native integrations with [Lucidic AI](https://lucidic.ai) and [Laminar](https://lmnr.ai) - powerful platforms for tracing, monitoring, and analyzing AI agent executions. These integrations provide comprehensive visibility into browser automation workflows, agent decision-making, and performance metrics.
+
+## Lucidic AI
+
+<Note>
+    Lucidic AI is the all-in-one agent dev platform with tracing, state management, and customizable evaluations.
+</Note>
+
+### Setup
+
+To setup Lucidic AI, you need to install the `lucidicai` package and obtain your API key and agent ID from the [Lucidic AI platform](https://lucidic.ai).
+
+```bash
+pip install lucidicai
+export LUCIDIC_API_KEY=<your-api-key>
+export LUCIDIC_AGENT_ID=<your-agent-id>
+```
+
+You can leave these in your .env file, or pass them in during initialization.
+
+### Usage
+
+Initialize Lucidic AI at the start of your project and it will automatically trace all Browser Use agent steps, including goals, actions, state, and screenshots.
+
+```python {5-6, 8-9}
+from langchain_openai import ChatOpenAI
+from browser_use import Agent
+import asyncio
+
+import lucidicai as lai
+
+# Initialize Lucidic AI session
+lai.init()
+
+async def main():
+    agent = Agent(
+        task="open google, search for AI observability tools",
+        llm=ChatOpenAI(model="gpt-4o-mini"),
+    )
+    result = await agent.run()
+    print(result)
+
+asyncio.run(main())
+```
+
+### Viewing Traces
+
+The Trace View shows a comprehensive timeline of your agent run. It includes all steps and events in sequential order.
+
+It shows:
+ - Basic Information: **Status, Model, Start Time, Duration, Cost**
+ - **Prettified vs Raw Request/Response** (click the wand/text icon in the top right of Input/Output to toggle)
+ - **Screenshots** and multimodal data
+
+> **Pro tip:** **SPEED UP** iteration and debugging time by avoiding rerunning the same failed run with [Time Travels](https://docs.lucidic.ai/features/time-travel). They enable you to freeze time and rerun the event in isolation to see if your error/success is reliable.
+
+<img className="block" src="/images/lucidic.png" alt="Lucidic" />
+
+## Laminar
 
 <Note>
   Laminar excels at tracing browser agents by providing unified visibility into
   both browser session recordings and agent execution steps.
 </Note>
 
-## Setup
+### Setup
 
 To setup Laminar, you need to install the `lmnr` package and set the `LMNR_PROJECT_API_KEY` environment variable.
 
@@ -28,7 +85,7 @@ pip install 'lmnr[all]'
 export LMNR_PROJECT_API_KEY=<your-project-api-key>
 ```
 
-## Usage
+### Usage
 
 Then, you simply initialize the Laminar at the top of your project and both Browser Use and session recordings will be automatically traced.
 
@@ -52,7 +109,7 @@ async def main():
 asyncio.run(main())
 ```
 
-## Viewing Traces
+### Viewing Traces
 
 You can view traces in the Laminar UI by going to the traces tab in your project.
 When you select a trace, you can see both the browser session recording and the agent execution steps.
@@ -62,6 +119,6 @@ In the trace view, you can also see the agent's current step, the tool it's usin
 
 <img className="block" src="/images/laminar.png" alt="Laminar" />
 
-## Laminar
-
-To learn more about tracing and evaluating your browser agents, check out the [Laminar docs](https://docs.lmnr.ai).
+To learn more about these platforms:
+- [Lucidic AI Documentation](https://docs.lucidic.ai)
+- [Laminar Documentation](https://docs.lmnr.ai)

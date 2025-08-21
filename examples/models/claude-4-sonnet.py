@@ -15,6 +15,9 @@ from lmnr import Laminar
 load_dotenv()
 Laminar.initialize()
 
+import lucidicai as lai
+lai.init(providers=["anthropic"])
+
 from browser_use import Agent
 from browser_use.llm import ChatAnthropic
 

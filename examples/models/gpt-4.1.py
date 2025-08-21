@@ -13,6 +13,8 @@ from browser_use import Agent, ChatOpenAI
 
 load_dotenv()
 
+import lucidicai as lai
+lai.init(providers=["openai"])
 
 Laminar.initialize()
 
