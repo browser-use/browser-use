@@ -18,9 +18,8 @@ load_dotenv()
 import httpx
 from pydantic import BaseModel
 
-from browser_use import Agent, Controller
+from browser_use import Agent, ChatOpenAI, Controller
 from browser_use.agent.views import ActionResult
-from browser_use.llm import ChatOpenAI
 
 
 class Profile(BaseModel):
@@ -68,7 +67,7 @@ async def main():
 		'Go to this tiktok video url, open it and extract the @username from the resulting url. Then do a websearch for this username to find all his social media profiles. Return me the links to the social media profiles with the platform name.'
 		' https://www.tiktokv.com/share/video/7470981717659110678/  '
 	)
-	model = ChatOpenAI(model='gpt-4.1')
+	model = ChatOpenAI(model='gpt-4.1-mini')
 	agent = Agent(task=task, llm=model, controller=controller)
 
 	history = await agent.run()

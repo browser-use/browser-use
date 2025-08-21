@@ -131,7 +131,7 @@ async def main():
 	except Exception as e:
 		print(f'\n❌ Error: {e}')
 		print('\nMake sure the browser-use MCP server is running:')
-		print('  uvx browser-use --mcp')
+		print("  uvx 'browser-use[cli]' --mcp")
 
 
 if __name__ == '__main__':

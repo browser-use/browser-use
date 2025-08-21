@@ -1,41 +1,20 @@
 ---
 title: "Supported Models"
-description: "Guide to using different chat models with Browser Use"
+description: "Using different chat providers with Browser Use"
 icon: "robot"
 ---
 
-## Overview
-
-Here's how to configure the models.
-
-### Migration from Langchain
-
-We have recently switched from Langchain to our own implementation of the models. To migrate the previous code, just replace `from langchain_openai import ChatOpenAI` with `from browser_use.llm import ChatOpenAI` etc. The methods should be compatible(ish).
-
-We also made and example [here](https://github.com/browser-use/browser-use/blob/main/examples/models/langchain) to help you stay with Langchain in case your workflow requires it.
-
 ## Model Recommendations
 
-We recommend using GPT-4.1 for the best performance (best accuracy ~\$0.01 per step). The best price to performance can be achieved using `gemini-2.0-flash-exp` (currently also the most popular model, costs ~\$0.001 per step).
+We recommend using `O3` for the best performance. The best price to performance can be achieved using `gemini-2.0-flash-exp`.
 
 ## Supported Models
 
-Our library natively supports the following models:
-
-- OpenAI
-- Anthropic
-- AWS Bedrock (multiple providers)
-- Azure OpenAI
-- Gemini
-- Groq
-
-We also support all other models that can be called via OpenAI compatible API (deepseek, novita, x, qwen). Please open a PR if you want to add a model.
-
-We have natively switched to structured output when possible,
+In addition to all the models below, we support all other models that can be called via OpenAI compatible API (deepseek, novita, x, qwen). We are open to PRs for more providers.
 
 ### OpenAI
 
-OpenAI's GPT-4.1 models are recommended for best performance.
+`O3` model is recommended for best performance.
 
 ```python
 from browser_use.llm import ChatOpenAI
@@ -43,12 +22,12 @@ from browser_use import Agent
 
 # Initialize the model
 llm = ChatOpenAI(
-    model="gpt-4.1",
+    model="o3",
 )
 
 # Create agent with the model
 agent = Agent(
-    task="Your task here",
+    task="...", # Your task here
     llm=llm
 )
 ```
@@ -59,6 +38,12 @@ Required environment variables:
 OPENAI_API_KEY=
 ```
 
+<Info>
+  You can use any OpenAI compatible model by passing the model name to the
+  `ChatOpenAI` class using a custom URL (or any other parameter that would go
+  into the normal OpenAI API call).
+</Info>
+
 ### Anthropic
 
 ```python
@@ -67,12 +52,12 @@ from browser_use import Agent
 
 # Initialize the model
 llm = ChatAnthropic(
-    model="claude-3-5-sonnet-20240620",
+    model="claude-sonnet-4-0",
 )
 
 # Create agent with the model
 agent = Agent(
-    task="Your task here",
+    task="...", # Your task here
     llm=llm
 )
 ```
@@ -93,12 +78,12 @@ import os
 
 # Initialize the model
 llm = ChatAzureOpenAI(
-    model="gpt-4.1",
+    model="o4-mini",
 )
 
 # Create agent with the model
 agent = Agent(
-    task="Your task here",
+    task="...", # Your task here
     llm=llm
 )
 ```
@@ -226,3 +211,11 @@ from browser_use import Agent
 
 llm = ChatOllama(model="llama3.1:8b")
 ```
+
+## Migration Guides
+
+### From Langchain
+
+To migrate the Langchain based code, just replace `from langchain_openai import ChatOpenAI` with `from browser_use.llm import ChatOpenAI` etc. The methods should be compatible(ish).
+
+We also made and example [here](https://github.com/browser-use/browser-use/blob/main/examples/models/langchain) to help you stay with Langchain in case your workflow requires it.

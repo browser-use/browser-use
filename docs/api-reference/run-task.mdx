@@ -17,7 +17,13 @@ Creates a new browser automation task and returns the task ID that can be used t
 </ParamField>
 
 <ParamField body="allowed_domains" type="array">
-  List of domains that the agent is allowed to visit. If not set, the agent will be allowed to visit all domains (not recommended if you are using secrets).
+  List of domains that the agent is allowed to visit (e.g. ["google.com", "amazon.com", "*.skyscanner.com"]). <br/>
+  We recommend using a wildcard to allow all subdomains of a domain (e.g. "*.skyscanner.com"). <br/>
+  If not set, the agent will be allowed to visit all domains (not recommended if you are using secrets).
+</ParamField>
+
+<ParamField body="browser_profile_id" type="string">
+  ID of the browser profile to use. If not set, the default profile will be used.
 </ParamField>
 
 <ParamField body="save_browser_data" type="boolean" default="false">
@@ -31,11 +37,12 @@ Creates a new browser automation task and returns the task ID that can be used t
 <ParamField body="llm_model" type="string" default="gpt-4.1">
   LLM model to use. 
   Available options: 
-  - gpt-4o
-  - gpt-4o-mini
   - gpt-4.1
   - gpt-4.1-mini
+  - o4-mini
+  - o3
   - gemini-2.5-flash
+  - gemini-2.5-pro
   - claude-sonnet-4-20250514
 </ParamField>
 
@@ -75,6 +82,10 @@ Creates a new browser automation task and returns the task ID that can be used t
   If set to True, enables public sharing of the task execution. When enabled, a public_share_url will be generated that allows others to view the task results without authentication.
 </ParamField>
 
+<ParamField body="metadata" type="object">
+  Optional dictionary of string key-value pairs for custom tagging. Max 10 pairs. Keys: strings (max 100 chars, non-empty). Values: strings (max 1000 chars).
+</ParamField>
+
 ## Response
 
 <ResponseField name="id" type="string">
@@ -104,7 +115,11 @@ payload = {
     "browser_viewport_width": 123,
     "browser_viewport_height": 123,
     "max_agent_steps": 123,
-    "enable_public_share": True
+    "enable_public_share": True,
+    "metadata": {
+        "campaign": "q4-automation",
+        "team": "marketing"
+    }
 }
 headers = {
     "Authorization": "Bearer <token>",
@@ -140,7 +155,11 @@ curl --request POST \
   "browser_viewport_width": 123,
   "browser_viewport_height": 123,
   "max_agent_steps": 123,
-  "enable_public_share": true
+  "enable_public_share": true,
+  "metadata": {
+    "campaign": "q4-automation",
+    "team": "marketing"
+  }
 }'
 ```
 
@@ -148,7 +167,7 @@ curl --request POST \
 const options = {
   method: 'POST',
   headers: {Authorization: 'Bearer <token>', 'Content-Type': 'application/json'},
-  body: '{"task":"<string>","secrets":{},"allowed_domains":["<string>"],"save_browser_data":true,"structured_output_json":"<string>","llm_model":"gpt-4o","use_adblock":true,"use_proxy":true,"proxy_country_code":"us","highlight_elements":true,"included_file_names":["<string>"],"browser_viewport_width":123,"browser_viewport_height":123,"max_agent_steps":123,"enable_public_share":true}'
+  body: '{"task":"<string>","secrets":{},"allowed_domains":["<string>"],"save_browser_data":true,"structured_output_json":"<string>","llm_model":"gpt-4o","use_adblock":true,"use_proxy":true,"proxy_country_code":"us","highlight_elements":true,"included_file_names":["<string>"],"browser_viewport_width":123,"browser_viewport_height":123,"max_agent_steps":123,"enable_public_share":true,"metadata":{"campaign":"q4-automation","team":"marketing"}}'
 };
 
 fetch('https://api.browser-use.com/api/v1/run-task', options)

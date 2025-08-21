@@ -82,6 +82,10 @@ Returns detailed information about a specific scheduled task, including its sche
   When the scheduled task was last updated
 </ResponseField>
 
+<ResponseField name="metadata" type="object | null">
+  Custom metadata key-value pairs associated with the scheduled task
+</ResponseField>
+
 <RequestExample>
 
 ```python python
@@ -124,7 +128,11 @@ curl --request GET \
   "end_at": "2023-12-31T23:59:59Z",
   "is_active": true,
   "created_at": "2023-01-01T00:00:00Z",
-  "updated_at": "2023-01-01T00:00:00Z"
+  "updated_at": "2023-01-01T00:00:00Z",
+  "metadata": {
+    "campaign": "q4-automation",
+    "team": "marketing"
+  }
 }
 ```
 

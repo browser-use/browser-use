@@ -19,7 +19,7 @@ async def test_iterative_country_generation():
 	"""Test token cost tracking with iterative country generation"""
 
 	# Initialize token cost service
-	tc = TokenCost()
+	tc = TokenCost(include_cost=True)
 
 	# System prompt that explains the iterative task
 	system_prompt = """You are a country name generator. When asked, you will provide exactly ONE country name and nothing else.
@@ -75,8 +75,14 @@ Only output the country name, no numbers, no punctuation, just the name."""
 	print(f'Total tokens: {summary.total_tokens:,}')
 	print(f'Total cost: ${summary.total_cost:.6f}')
 
+	expected_cost = 0
+	expected_invocations = 0
+
 	print('\n📊 Cost breakdown by model:')
 	for model, stats in summary.by_model.items():
+		expected_cost += stats.cost
+		expected_invocations += stats.invocations
+
 		print(f'\n{model}:')
 		print(f'  Calls: {stats.invocations}')
 		print(f'  Prompt tokens: {stats.prompt_tokens:,}')
@@ -84,6 +90,11 @@ Only output the country name, no numbers, no punctuation, just the name."""
 		print(f'  Total tokens: {stats.total_tokens:,}')
 		print(f'  Cost: ${stats.cost:.6f}')
 		print(f'  Average tokens per call: {stats.average_tokens_per_invocation:.1f}')
+
+	assert summary.entry_count == expected_invocations, f'Expected {expected_invocations} invocations, got {summary.entry_count}'
+	assert abs(summary.total_cost - expected_cost) < 1e-6, (
+		f'Expected total cost ${expected_cost:.6f}, got ${summary.total_cost:.6f}'
+	)
 
 
 if __name__ == '__main__':

@@ -40,6 +40,7 @@ class ChatAWSBedrock(BaseChatModel):
 	max_tokens: int | None = 4096
 	temperature: float | None = None
 	top_p: float | None = None
+	seed: int | None = None
 	stop_sequences: list[str] | None = None
 
 	# AWS credentials and configuration
@@ -105,6 +106,8 @@ class ChatAWSBedrock(BaseChatModel):
 			config['topP'] = self.top_p
 		if self.stop_sequences is not None:
 			config['stopSequences'] = self.stop_sequences
+		if self.seed is not None:
+			config['seed'] = self.seed
 		return config
 
 	def _format_tools_for_request(self, output_format: type[BaseModel]) -> list[dict[str, Any]]:

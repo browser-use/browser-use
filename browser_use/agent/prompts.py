@@ -1,6 +1,6 @@
 import importlib.resources
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
 from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam, ImageURL, SystemMessage, UserMessage
 from browser_use.observability import observe_debug
@@ -75,6 +75,8 @@ class SystemPrompt:
 
 
 class AgentMessagePrompt:
+	vision_detail_level: Literal['auto', 'low', 'high']
+
 	def __init__(
 		self,
 		browser_state_summary: 'BrowserStateSummary',
@@ -89,6 +91,8 @@ class AgentMessagePrompt:
 		sensitive_data: str | None = None,
 		available_file_paths: list[str] | None = None,
 		screenshots: list[str] | None = None,
+		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
+		include_recent_events: bool = False,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
@@ -102,41 +106,13 @@ class AgentMessagePrompt:
 		self.sensitive_data: str | None = sensitive_data
 		self.available_file_paths: list[str] | None = available_file_paths
 		self.screenshots = screenshots or []
+		self.vision_detail_level = vision_detail_level
+		self.include_recent_events = include_recent_events
 		assert self.browser_state
-
-	@observe_debug(ignore_input=True, ignore_output=True, name='_deduplicate_screenshots')
-	def _deduplicate_screenshots(self, screenshots: list[str]) -> list[str]:
-		"""
-		Remove consecutive duplicate screenshots, keeping only the most recent of each.
-
-		Args:
-			screenshots: List of base64-encoded screenshot strings in chronological order (oldest first)
-
-		Returns:
-			List of screenshots with consecutive duplicates removed, maintaining chronological order
-		"""
-		if not screenshots:
-			return []
-
-		if len(screenshots) == 1:
-			return screenshots
-
-		# Keep track of unique screenshots by comparing each with the next one
-		unique_screenshots = []
-
-		for i in range(len(screenshots)):
-			# Always keep the last screenshot
-			if i == len(screenshots) - 1:
-				unique_screenshots.append(screenshots[i])
-			# Only keep screenshot if it's different from the next one
-			elif screenshots[i] != screenshots[i + 1]:
-				unique_screenshots.append(screenshots[i])
-
-		return unique_screenshots
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='_get_browser_state_description')
 	def _get_browser_state_description(self) -> str:
-		elements_text = self.browser_state.element_tree.clickable_elements_to_string(include_attributes=self.include_attributes)
+		elements_text = self.browser_state.dom_state.llm_representation(include_attributes=self.include_attributes)
 
 		if len(elements_text) > self.max_clickable_elements_length:
 			elements_text = elements_text[: self.max_clickable_elements_length]
@@ -186,22 +162,32 @@ class AgentMessagePrompt:
 		# Find tabs that match both URL and title to identify current tab more reliably
 		for tab in self.browser_state.tabs:
 			if tab.url == self.browser_state.url and tab.title == self.browser_state.title:
-				current_tab_candidates.append(tab.page_id)
+				current_tab_candidates.append(tab.target_id)
 
 		# If we have exactly one match, mark it as current
 		# Otherwise, don't mark any tab as current to avoid confusion
-		current_tab_id = current_tab_candidates[0] if len(current_tab_candidates) == 1 else None
+		current_target_id = current_tab_candidates[0] if len(current_tab_candidates) == 1 else None
 
 		for tab in self.browser_state.tabs:
-			tabs_text += f'Tab {tab.page_id}: {tab.url} - {tab.title[:30]}\n'
+			tabs_text += f'Tab {tab.target_id[-4:]}: {tab.url} - {tab.title[:30]}\n'
 
-		current_tab_text = f'Current tab: {current_tab_id}' if current_tab_id is not None else ''
+		current_tab_text = f'Current tab: {current_target_id[-4:]}' if current_target_id is not None else ''
+
+		# Check if current page is a PDF viewer and add appropriate message
+		pdf_message = ''
+		if self.browser_state.is_pdf_viewer:
+			pdf_message = 'PDF viewer cannot be rendered. In this page, DO NOT use the extract_structured_data action as PDF content cannot be rendered. Use the read_file action on the downloaded PDF in available_file_paths to read the full content.\n\n'
+
+		# Add recent events if available and requested
+		recent_events_text = ''
+		if self.include_recent_events and self.browser_state.recent_events:
+			recent_events_text = f'Recent browser events: {self.browser_state.recent_events}\n'
 
 		browser_state = f"""{current_tab_text}
 Available tabs:
 {tabs_text}
 {page_info_text}
-Interactive elements from top layer of the current page inside the viewport{truncated_text}:
+{recent_events_text}{pdf_message}Interactive elements from top layer of the current page inside the viewport{truncated_text}:
 {elements_text}
 """
 		return browser_state
@@ -234,11 +220,13 @@ Interactive elements from top layer of the current page inside the viewport{trun
 
 		agent_state += f'<step_info>\n{step_info_description}\n</step_info>\n'
 		if self.available_file_paths:
-			agent_state += '<available_file_paths>\n' + '\n'.join(self.available_file_paths) + '\n</available_file_paths>\n'
+			available_file_paths_text = '\n'.join(self.available_file_paths)
+			agent_state += f'<available_file_paths>\n{available_file_paths_text}\nUse absolute full paths when referencing these files.\n</available_file_paths>\n'
 		return agent_state
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='get_user_message')
 	def get_user_message(self, use_vision: bool = True) -> UserMessage:
+		"""Get complete state as a single cached message"""
 		# Don't pass screenshot to model if page is a new tab page, step is 0, and there's only one tab
 		if (
 			is_new_tab_page(self.browser_state.url)
@@ -248,6 +236,7 @@ Interactive elements from top layer of the current page inside the viewport{trun
 		):
 			use_vision = False
 
+		# Build complete state description
 		state_description = (
 			'<agent_history>\n'
 			+ (self.agent_history_description.strip('\n') if self.agent_history_description else '')
@@ -255,25 +244,23 @@ Interactive elements from top layer of the current page inside the viewport{trun
 		)
 		state_description += '<agent_state>\n' + self._get_agent_state_description().strip('\n') + '\n</agent_state>\n'
 		state_description += '<browser_state>\n' + self._get_browser_state_description().strip('\n') + '\n</browser_state>\n'
-		state_description += (
-			'<read_state>\n'
-			+ (self.read_state_description.strip('\n') if self.read_state_description else '')
-			+ '\n</read_state>\n'
-		)
+		# Only add read_state if it has content
+		read_state_description = self.read_state_description.strip('\n').strip() if self.read_state_description else ''
+		if read_state_description:
+			state_description += '<read_state>\n' + read_state_description + '\n</read_state>\n'
+
 		if self.page_filtered_actions:
-			state_description += 'For this page, these additional actions are available:\n'
+			state_description += '<page_specific_actions>\n'
 			state_description += self.page_filtered_actions + '\n'
+			state_description += '</page_specific_actions>\n'
 
 		if use_vision is True and self.screenshots:
 			# Start with text description
 			content_parts: list[ContentPartTextParam | ContentPartImageParam] = [ContentPartTextParam(text=state_description)]
 
-			# Deduplicate screenshots, keeping only the most recent of each unique image
-			unique_screenshots = self._deduplicate_screenshots(self.screenshots)
-
 			# Add screenshots with labels
-			for i, screenshot in enumerate(unique_screenshots):
-				if i == len(unique_screenshots) - 1:
+			for i, screenshot in enumerate(self.screenshots):
+				if i == len(self.screenshots) - 1:
 					label = 'Current screenshot:'
 				else:
 					# Use simple, accurate labeling since we don't have actual step timing info
@@ -288,10 +275,11 @@ Interactive elements from top layer of the current page inside the viewport{trun
 						image_url=ImageURL(
 							url=f'data:image/png;base64,{screenshot}',
 							media_type='image/png',
+							detail=self.vision_detail_level,
 						),
 					)
 				)
 
-			return UserMessage(content=content_parts)
+			return UserMessage(content=content_parts, cache=True)
 
-		return UserMessage(content=state_description)
+		return UserMessage(content=state_description, cache=True)

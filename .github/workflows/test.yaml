@@ -105,6 +105,15 @@ jobs:
       - run: playwright install chromium --with-deps
       # - run: patchright install chromium --with-deps
 
+      - name: Cache browser-use extensions
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.config/browseruse/extensions
+          key: ${{ runner.os }}-browseruse-extensions-${{ hashFiles('browser_use/browser/profile.py') }}
+          restore-keys: |
+            ${{ runner.os }}-browseruse-extensions-
+
       - run: pytest tests/ci/${{ matrix.test_filename }}.py
 
   evaluate-tasks:
@@ -155,6 +164,15 @@ jobs:
 
       - run: playwright install chromium --with-deps
       - run: patchright install chromium --with-deps
+
+      - name: Cache browser-use extensions
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.config/browseruse/extensions
+          key: ${{ runner.os }}-browseruse-extensions-${{ hashFiles('browser_use/browser/profile.py') }}
+          restore-keys: |
+            ${{ runner.os }}-browseruse-extensions-
 
       - name: Run agent tasks evaluation and capture score
         id: eval

@@ -35,6 +35,8 @@ class ChatOpenRouter(BaseChatModel):
 
 	# Model params
 	temperature: float | None = None
+	top_p: float | None = None
+	seed: int | None = None
 
 	# Client initialization parameters
 	api_key: str | None = None
@@ -63,6 +65,8 @@ class ChatOpenRouter(BaseChatModel):
 			'default_headers': self.default_headers,
 			'default_query': self.default_query,
 			'_strict_response_validation': self._strict_response_validation,
+			'top_p': self.top_p,
+			'seed': self.seed,
 		}
 
 		# Create client_params dict with non-None values
@@ -141,6 +145,8 @@ class ChatOpenRouter(BaseChatModel):
 					model=self.model,
 					messages=openrouter_messages,
 					temperature=self.temperature,
+					top_p=self.top_p,
+					seed=self.seed,
 					extra_headers=extra_headers,
 				)
 
@@ -165,6 +171,8 @@ class ChatOpenRouter(BaseChatModel):
 					model=self.model,
 					messages=openrouter_messages,
 					temperature=self.temperature,
+					top_p=self.top_p,
+					seed=self.seed,
 					response_format=ResponseFormatJSONSchema(
 						json_schema=response_format_schema,
 						type='json_schema',

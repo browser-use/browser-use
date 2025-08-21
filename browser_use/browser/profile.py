@@ -1,4 +1,5 @@
 import sys
+import tempfile
 from collections.abc import Iterable
 from enum import Enum
 from functools import cache
@@ -7,10 +8,9 @@ from re import Pattern
 from typing import Annotated, Any, Literal, Self
 from urllib.parse import urlparse
 
-from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 from uuid_extensions import uuid7str
 
-from browser_use.browser.types import ClientCertificate, Geolocation, HttpCredentials, ProxySettings, ViewportSize
 from browser_use.config import CONFIG
 from browser_use.observability import observe_debug
 from browser_use.utils import _log_pretty_path, logger
@@ -64,6 +64,7 @@ CHROME_DISABLED_COMPONENTS = [
 	'OverscrollHistoryNavigation',
 	'InfiniteSessionRestore',
 	'ExtensionDisableUnsupportedDeveloper',
+	'ExtensionManifestV2Unsupported',
 ]
 
 CHROME_HEADLESS_ARGS = [
@@ -175,6 +176,17 @@ CHROME_DEFAULT_ARGS = [
 	'--disable-default-apps',
 	f'--disable-features={",".join(CHROME_DISABLED_COMPONENTS)}',
 ]
+
+
+class ViewportSize(BaseModel):
+	width: int = Field(ge=0)
+	height: int = Field(ge=0)
+
+	def __getitem__(self, key: str) -> int:
+		return dict(self)[key]
+
+	def __setitem__(self, key: str, value: int) -> None:
+		setattr(self, key, value)
 
 
 @cache
@@ -322,17 +334,17 @@ class BrowserContextArgs(BaseModel):
 	strict_selectors: bool = False
 
 	# Security options
-	proxy: ProxySettings | None = None
+	# proxy: ProxySettings | None = None
 	permissions: list[str] = Field(
-		default_factory=lambda: ['clipboard-read', 'clipboard-write', 'notifications'],
-		description='Browser permissions to grant (see playwright docs for valid permissions).',
-		# clipboard is for google sheets and pyperclip automations
+		default_factory=lambda: ['clipboardReadWrite', 'notifications'],
+		description='Browser permissions to grant (CDP Browser.grantPermissions).',
+		# clipboardReadWrite is for google sheets and pyperclip automations
 		# notifications are to avoid browser fingerprinting
 	)
 	bypass_csp: bool = False
-	client_certificates: list[ClientCertificate] = Field(default_factory=list)
+	# client_certificates: list[ClientCertificate] = Field(default_factory=list)
 	extra_http_headers: dict[str, str] = Field(default_factory=dict)
-	http_credentials: HttpCredentials | None = None
+	# http_credentials: HttpCredentials | None = None
 	ignore_https_errors: bool = False
 	java_script_enabled: bool = True
 	base_url: UrlStr | None = None
@@ -347,7 +359,7 @@ class BrowserContextArgs(BaseModel):
 	is_mobile: bool = False
 	has_touch: bool = False
 	locale: str | None = None
-	geolocation: Geolocation | None = None
+	# geolocation: Geolocation | None = None
 	timezone_id: str | None = None
 	color_scheme: ColorScheme = ColorScheme.LIGHT
 	contrast: Contrast = Contrast.NO_PREFERENCE
@@ -431,7 +443,7 @@ class BrowserLaunchArgs(BaseModel):
 	)
 	slow_mo: float = Field(default=0, description='Slow down actions by this many milliseconds.')
 	timeout: float = Field(default=30000, description='Default timeout in milliseconds for connecting to a remote browser.')
-	proxy: ProxySettings | None = Field(default=None, description='Proxy settings to use to connect to the browser.')
+	# proxy: ProxySettings | None = Field(default=None, description='Proxy settings to use to connect to the browser.')
 	downloads_path: str | Path | None = Field(
 		default=None,
 		description='Directory to save downloads to.',
@@ -457,6 +469,16 @@ class BrowserLaunchArgs(BaseModel):
 	def validate_devtools_headless(self) -> Self:
 		"""Cannot open devtools when headless is True"""
 		assert not (self.headless and self.devtools), 'headless=True and devtools=True cannot both be set at the same time'
+		return self
+
+	@model_validator(mode='after')
+	def set_default_downloads_path(self) -> Self:
+		"""Set a unique default downloads path if none is provided."""
+		if self.downloads_path is None:
+			import tempfile
+
+			# Create unique temporary directory for downloads
+			self.downloads_path = Path(tempfile.mkdtemp(prefix='browser-use-downloads-'))
 		return self
 
 	@staticmethod
@@ -523,7 +545,15 @@ class BrowserLaunchPersistentContextArgs(BrowserLaunchArgs, BrowserContextArgs):
 	model_config = ConfigDict(extra='ignore', validate_assignment=False, revalidate_instances='always')
 
 	# Required parameter specific to launch_persistent_context, but can be None to use incognito temp dir
-	user_data_dir: str | Path | None = CONFIG.BROWSER_USE_DEFAULT_USER_DATA_DIR
+	user_data_dir: str | Path | None = None
+
+	@field_validator('user_data_dir', mode='after')
+	@classmethod
+	def validate_user_data_dir(cls, v: str | Path | None) -> str | Path:
+		"""Validate user data dir is set to a non-default path."""
+		if v is None:
+			return tempfile.mkdtemp(prefix='browser-use-user-data-dir-')
+		return Path(v).expanduser().resolve()
 
 
 class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, BrowserLaunchArgs, BrowserNewContextArgs):
@@ -573,8 +603,12 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	window_height: int | None = Field(default=None, description='DEPRECATED, use window_size["height"] instead', exclude=True)
 	window_width: int | None = Field(default=None, description='DEPRECATED, use window_size["width"] instead', exclude=True)
 	window_position: ViewportSize | None = Field(
-		default_factory=lambda: ViewportSize(width=0, height=0),
+		default=ViewportSize(width=0, height=0),
 		description='Window position to use for the browser x,y from the top left when headless=False.',
+	)
+	cross_origin_iframes: bool = Field(
+		default=False,
+		description='Enable cross-origin iframe support (OOPIF/Out-of-Process iframes). When False (default), only same-origin frames are processed to avoid complexity and hanging.',
 	)
 
 	# --- Page load/wait timings ---
@@ -589,6 +623,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	include_dynamic_attributes: bool = Field(default=True, description='Include dynamic attributes in selectors.')
 	highlight_elements: bool = Field(default=True, description='Highlight interactive elements on the page.')
 	viewport_expansion: int = Field(default=500, description='Viewport expansion in pixels for LLM context.')
+
+	# --- Downloads ---
+	auto_download_pdfs: bool = Field(default=True, description='Automatically download PDFs when navigating to PDF viewer pages.')
 
 	profile_directory: str = 'Default'  # e.g. 'Profile 1', 'Profile 2', 'Custom Profile', etc.
 
@@ -624,9 +661,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			logger.warning(
 				f'⚠️ BrowserProfile(window_width=..., window_height=...) are deprecated, use BrowserProfile(window_size={"width": 1280, "height": 1100}) instead.'
 			)
-			current_width = (self.window_size['width'] if self.window_size is not None else 0) or self.window_width or 1280
-			current_height = (self.window_size['height'] if self.window_size is not None else 0) or self.window_height or 1100
-			self.window_size = ViewportSize(width=current_width, height=current_height)
+			window_size = self.window_size or ViewportSize(width=0, height=0)
+			window_size['width'] = window_size['width'] or self.window_width or 1280
+			window_size['height'] = window_size['height'] or self.window_height or 1100
+			self.window_size = window_size
 
 		return self
 
@@ -688,10 +726,13 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		elif not self.ignore_default_args:
 			default_args = CHROME_DEFAULT_ARGS
 
+		assert self.user_data_dir is not None, 'user_data_dir must be set to a non-default path'
+
 		# Capture args before conversion for logging
 		pre_conversion_args = [
 			*default_args,
 			*self.args,
+			f'--user-data-dir={self.user_data_dir}',
 			f'--profile-directory={self.profile_directory}',
 			*(CHROME_DOCKER_ARGS if (CONFIG.IN_DOCKER or not self.chromium_sandbox) else []),
 			*(CHROME_HEADLESS_ARGS if self.headless else []),
@@ -699,12 +740,12 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.deterministic_rendering else []),
 			*(
 				[f'--window-size={self.window_size["width"]},{self.window_size["height"]}']
-				if self.window_size is not None
+				if self.window_size
 				else (['--start-maximized'] if not self.headless else [])
 			),
 			*(
 				[f'--window-position={self.window_position["width"]},{self.window_position["height"]}']
-				if self.window_position is not None
+				if self.window_position
 				else []
 			),
 			*(self._get_extension_args() if self.enable_default_extensions else []),
@@ -735,7 +776,6 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		Ensure default extensions are downloaded and cached locally.
 		Returns list of paths to extension directories.
 		"""
-		from pathlib import Path
 
 		# Extension definitions - optimized for automation and content extraction
 		extensions = [
@@ -754,11 +794,27 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				'id': 'lckanjgmijmafbedllaakclkaicjfmnk',
 				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dlckanjgmijmafbedllaakclkaicjfmnk%26uc',
 			},
+			# {
+			# 	'name': 'Captcha Solver: Auto captcha solving service',
+			# 	'id': 'pgojnojmmhpofjgdmaebadhbocahppod',
+			# 	'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dpgojnojmmhpofjgdmaebadhbocahppod%26uc',
+			# },
+			# {
+			# 	'name': 'Consent-O-Matic',
+			# 	'id': 'mdjildafknihdffpkfmmpnpoiajfjnjd',
+			# 	'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dmdjildafknihdffpkfmmpnpoiajfjnjd%26uc',
+			# },
+			# {
+			# 	'name': 'Privacy | Protect Your Payments',
+			# 	'id': 'hmgpakheknboplhmlicfkkgjipfabmhp',
+			# 	'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dhmgpakheknboplhmlicfkkgjipfabmhp%26uc',
+			# },
 		]
 
 		# Create extensions cache directory
-		cache_dir = Path.home() / '.browser-use' / 'extensions'
+		cache_dir = CONFIG.BROWSER_USE_EXTENSIONS_DIR
 		cache_dir.mkdir(parents=True, exist_ok=True)
+		# logger.debug(f'📁 Extensions cache directory: {_log_pretty_path(cache_dir)}')
 
 		extension_paths = []
 		loaded_extension_names = []
@@ -769,6 +825,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 			# Check if extension is already extracted
 			if ext_dir.exists() and (ext_dir / 'manifest.json').exists():
+				# logger.debug(f'✅ Using cached {ext["name"]} extension from {_log_pretty_path(ext_dir)}')
 				extension_paths.append(str(ext_dir))
 				loaded_extension_names.append(ext['name'])
 				continue
@@ -778,22 +835,23 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				if not crx_file.exists():
 					logger.info(f'📦 Downloading {ext["name"]} extension...')
 					self._download_extension(ext['url'], crx_file)
+				else:
+					logger.debug(f'📦 Found cached {ext["name"]} .crx file')
 
 				# Extract extension
-				if crx_file.exists():
-					logger.info(f'📂 Extracting {ext["name"]} extension...')
-					self._extract_extension(crx_file, ext_dir)
-					extension_paths.append(str(ext_dir))
-					loaded_extension_names.append(ext['name'])
+				logger.info(f'📂 Extracting {ext["name"]} extension...')
+				self._extract_extension(crx_file, ext_dir)
+				extension_paths.append(str(ext_dir))
+				loaded_extension_names.append(ext['name'])
 
 			except Exception as e:
 				logger.warning(f'⚠️ Failed to setup {ext["name"]} extension: {e}')
 				continue
 
 		if extension_paths:
-			logger.info(f'✅ Extensions ready: {len(extension_paths)} extensions loaded ({", ".join(loaded_extension_names)})')
+			logger.debug(f'[BrowserProfile] 🧩 Extensions loaded ({len(extension_paths)}): [{", ".join(loaded_extension_names)}]')
 		else:
-			logger.warning('⚠️ No default extensions could be loaded')
+			logger.warning('[BrowserProfile] ⚠️ No default extensions could be loaded')
 
 		return extension_paths
 

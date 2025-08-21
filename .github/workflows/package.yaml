@@ -31,7 +31,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest, self-hosted]
         python-version: ["3.11", "3.13"]
     env:
       ANONYMIZED_TELEMETRY: 'false'
@@ -53,4 +53,4 @@ jobs:
             source /tmp/testenv/bin/activate
           fi
           uv pip install *.whl
-          python -c 'from browser_use import Agent, Browser, Controller, ActionModel, ActionResult'
+          python -c 'from browser_use import Agent, BrowserProfile, BrowserSession, Controller, ActionModel, ActionResult'

@@ -11,8 +11,7 @@ load_dotenv()
 
 from onepassword.client import Client  # type: ignore  # pip install onepassword-sdk
 
-from browser_use import ActionResult, Agent, Controller
-from browser_use.llm import ChatOpenAI
+from browser_use import ActionResult, Agent, ChatOpenAI, Controller
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -46,7 +45,7 @@ async def main():
 	# Example task using the 1Password 2FA action
 	task = 'Go to account.google.com, enter username and password, then if prompted for 2FA code, get 2FA code from 1Password for and enter it'
 
-	model = ChatOpenAI(model='gpt-4.1')
+	model = ChatOpenAI(model='gpt-4.1-mini')
 	agent = Agent(task=task, llm=model, controller=controller)
 
 	result = await agent.run()

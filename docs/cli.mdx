@@ -13,7 +13,7 @@ The `browser-use` command-line interface provides multiple modes of operation fo
 Get started with browser-use immediately using `uvx`:
 
 ```bash
-uvx browser-use --help
+uvx 'browser-use[cli]' --help
 ```
 
 Or install it globally:
@@ -29,7 +29,7 @@ uv tool install 'browser-use[cli]'
 Launch an interactive terminal UI where you can chat with the browser automation agent:
 
 ```bash
-uvx browser-use
+uvx 'browser-use[cli]'
 ```
 
 This opens a chat interface where you can:
@@ -55,7 +55,7 @@ Options:
 Run browser-use as a Model Context Protocol server:
 
 ```bash
-uvx browser-use --mcp   # exoects MCP JSON RPC over stdio
+uvx 'browser-use[cli]' --mcp   # expects MCP JSON RPC over stdio
 ```
 
 This mode exposes browser automation capabilities as MCP tools that can be used by:
@@ -78,7 +78,7 @@ The default configuration file is located at:
 
 You can override this location with:
 - `BROWSER_USE_CONFIG_PATH` environment variable
-- `BROWSER_USE_CONFIG_DIR` environment variable (directory containing config.json)
+- `BROWSER_USE_CONFIG_DIR` environment variable (directory containing `config.json`)
 
 ### Configuration File Format
 
@@ -166,36 +166,36 @@ Each profile directory contains Chrome user data, allowing you to:
 
 ```bash
 # Interactive mode
-uvx browser-use
+uvx 'browser-use[cli]'
 
 # One-shot task
-uvx browser-use -p "Go to github.com and search for browser-use"
+uvx 'browser-use[cli]' -p "Go to github.com and search for browser-use"
 
 # Headless one-shot
-uvx browser-use --headless -p "Extract prices from example.com/products"
+uvx 'browser-use[cli]' --headless -p "Extract prices from example.com/products"
 ```
 
 ### With Configuration
 
 ```bash
 # Use specific config file
-BROWSER_USE_CONFIG_PATH=~/my-config.json uvx browser-use
+BROWSER_USE_CONFIG_PATH=~/my-config.json uvx 'browser-use[cli]'
 
 # Override settings via environment
-BROWSER_USE_HEADLESS=true OPENAI_API_KEY=sk-... uvx browser-use -p "Check my email"
+BROWSER_USE_HEADLESS=true OPENAI_API_KEY=sk-... uvx 'browser-use[cli]' -p "Check my email"
 
 # Use different LLM model
-BROWSER_USE_LLM_MODEL=gpt-4-turbo uvx browser-use
+BROWSER_USE_LLM_MODEL=gpt-4-turbo uvx 'browser-use[cli]'
 ```
 
 ### MCP Server Usage
 
 ```bash
 # Start MCP server
-uvx browser-use --mcp
+uvx 'browser-use[cli]' --mcp
 
 # With custom settings
-BROWSER_USE_HEADLESS=false OPENAI_API_KEY=sk-... uvx browser-use --mcp
+BROWSER_USE_HEADLESS=false OPENAI_API_KEY=sk-... uvx 'browser-use[cli]' --mcp
 ```
 
 For Claude Desktop integration, add to your Claude Desktop config:
@@ -205,7 +205,7 @@ For Claude Desktop integration, add to your Claude Desktop config:
   "mcpServers": {
     "browser-use": {
       "command": "uvx",
-      "args": ["browser-use", "--mcp"],
+      "args": ["browser-use[cli]", "--mcp"],
       "env": {
         "OPENAI_API_KEY": "sk-...",
         "BROWSER_USE_HEADLESS": "false"
@@ -228,7 +228,7 @@ For Claude Desktop integration, add to your Claude Desktop config:
 Enable debug logging for troubleshooting:
 
 ```bash
-BROWSER_USE_LOGGING_LEVEL=debug uvx browser-use
+BROWSER_USE_LOGGING_LEVEL=debug uvx 'browser-use[cli]'
 ```
 
 ## See Also

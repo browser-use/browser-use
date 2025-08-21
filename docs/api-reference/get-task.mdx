@@ -99,6 +99,10 @@ Returns comprehensive information about a task, including its current status, st
   Public URL for sharing the task (if public sharing was enabled)
 </ResponseField>
 
+<ResponseField name="metadata" type="object | null">
+  Custom metadata key-value pairs associated with the task
+</ResponseField>
+
 <RequestExample>
 
 ```python python
@@ -159,7 +163,11 @@ fetch('https://api.browser-use.com/api/v1/task/{task_id}', options)
   "output_files": [
     "<string>"
   ],
-  "public_share_url": "<string>"
+  "public_share_url": "<string>",
+  "metadata": {
+    "campaign": "q4-automation",
+    "team": "marketing"
+  }
 }
     ```
 

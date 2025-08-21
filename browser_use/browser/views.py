@@ -1,20 +1,44 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from pydantic import BaseModel
+from bubus import BaseEvent
+from cdp_use.cdp.target import TargetID
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_serializer
 
-from browser_use.dom.history_tree_processor.service import DOMHistoryElement
-from browser_use.dom.views import DOMState
+from browser_use.dom.views import DOMInteractedElement, SerializedDOMState
+
+# Known placeholder image data for about:blank pages - a 4x4 white PNG
+PLACEHOLDER_4PX_SCREENSHOT = (
+	'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAFElEQVR4nGP8//8/AwwwMSAB3BwAlm4DBfIlvvkAAAAASUVORK5CYII='
+)
 
 
 # Pydantic
 class TabInfo(BaseModel):
 	"""Represents information about a browser tab"""
 
-	page_id: int
+	model_config = ConfigDict(
+		extra='forbid',
+		validate_by_name=True,
+		validate_by_alias=True,
+		populate_by_name=True,
+	)
+
+	# Original fields
 	url: str
 	title: str
-	parent_page_id: int | None = None  # parent page that contains this popup or cross-origin iframe
+	target_id: TargetID = Field(serialization_alias='tab_id', validation_alias=AliasChoices('tab_id', 'target_id'))
+	parent_target_id: TargetID | None = Field(
+		default=None, serialization_alias='parent_tab_id', validation_alias=AliasChoices('parent_tab_id', 'parent_target_id')
+	)  # parent page that contains this popup or cross-origin iframe
+
+	@field_serializer('target_id')
+	def serialize_target_id(self, target_id: TargetID, _info: Any) -> str:
+		return target_id[-4:]
+
+	@field_serializer('parent_target_id')
+	def serialize_parent_target_id(self, parent_target_id: TargetID | None, _info: Any) -> str | None:
+		return parent_target_id[-4:] if parent_target_id else None
 
 
 class PageInfo(BaseModel):
@@ -42,12 +66,11 @@ class PageInfo(BaseModel):
 
 
 @dataclass
-class BrowserStateSummary(DOMState):
+class BrowserStateSummary:
 	"""The summary of the browser's current state designed for an LLM to process"""
 
-	# provided by DOMState:
-	# element_tree: DOMElementNode
-	# selector_map: SelectorMap
+	# provided by SerializedDOMState:
+	dom_state: SerializedDOMState
 
 	url: str
 	title: str
@@ -59,6 +82,8 @@ class BrowserStateSummary(DOMState):
 	pixels_above: int = 0
 	pixels_below: int = 0
 	browser_errors: list[str] = field(default_factory=list)
+	is_pdf_viewer: bool = False  # Whether the current page is a PDF viewer
+	recent_events: str | None = None  # Text summary of recent browser events
 
 
 @dataclass
@@ -68,13 +93,32 @@ class BrowserStateHistory:
 	url: str
 	title: str
 	tabs: list[TabInfo]
-	interacted_element: list[DOMHistoryElement | None] | list[None]
-	screenshot: str | None = None
+	interacted_element: list[DOMInteractedElement | None] | list[None]
+	screenshot_path: str | None = None
+
+	def get_screenshot(self) -> str | None:
+		"""Load screenshot from disk and return as base64 string"""
+		if not self.screenshot_path:
+			return None
+
+		import base64
+		from pathlib import Path
+
+		path_obj = Path(self.screenshot_path)
+		if not path_obj.exists():
+			return None
+
+		try:
+			with open(path_obj, 'rb') as f:
+				screenshot_data = f.read()
+			return base64.b64encode(screenshot_data).decode('utf-8')
+		except Exception:
+			return None
 
 	def to_dict(self) -> dict[str, Any]:
 		data = {}
 		data['tabs'] = [tab.model_dump() for tab in self.tabs]
-		data['screenshot'] = self.screenshot
+		data['screenshot_path'] = self.screenshot_path
 		data['interacted_element'] = [el.to_dict() if el else None for el in self.interacted_element]
 		data['url'] = self.url
 		data['title'] = self.title
@@ -83,6 +127,24 @@ class BrowserStateHistory:
 
 class BrowserError(Exception):
 	"""Base class for all browser errors"""
+
+	message: str
+	details: dict[str, Any] | None = None
+	while_handling_event: BaseEvent[Any] | None = None
+
+	def __init__(self, message: str, details: dict[str, Any] | None = None, event: BaseEvent[Any] | None = None):
+		self.message = message
+		super().__init__(message)
+		self.details = details
+		self.while_handling_event = event
+
+	def __str__(self) -> str:
+		if self.details:
+			return f'{self.message} ({self.details}) during: {self.while_handling_event}'
+		elif self.while_handling_event:
+			return f'{self.message} (while handling: {self.while_handling_event})'
+		else:
+			return self.message
 
 
 class URLNotAllowedError(BrowserError):

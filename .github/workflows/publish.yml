@@ -79,21 +79,21 @@ jobs:
       - run: uv run ruff check --no-fix --select PLE # quick check for syntax errors to avoid waiting time doing the rest of the build
       - run: uv build
 
-      - name: Detect installed Playwright version
-        run: echo "PLAYWRIGHT_VERSION=$(uv pip list --format json | jq -r '.[] | select(.name == "playwright") | .version')" >> $GITHUB_ENV
+      # - name: Detect installed Playwright version
+      #   run: echo "PLAYWRIGHT_VERSION=$(uv pip list --format json | jq -r '.[] | select(.name == "playwright") | .version')" >> $GITHUB_ENV
 
-      - name: Cache playwright binaries
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ env.PLAYWRIGHT_VERSION }}
+      # - name: Cache playwright binaries
+      #   uses: actions/cache@v3
+      #   with:
+      #     path: |
+      #       ~/.cache/ms-playwright
+      #     key: ${{ runner.os }}-playwright-${{ env.PLAYWRIGHT_VERSION }}
 
-      - run: playwright install chrome
-      - run: playwright install chromium
+      - run: uvx playwright install chrome
+      - run: uvx playwright install chromium
 
       # TODO: just depend on the other test.yml action for this instead of re-running the tests here
-      - run: uv run pytest tests/ci/test_controller.py   # final sanity check: run a few of the tests before release
+      # - run: uv run pytest tests/ci/test_controller.py   # final sanity check: run a few of the tests before release
       
       # publish to PyPI
       - run: uv publish --trusted-publishing always

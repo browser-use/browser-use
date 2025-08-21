@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict
 
 from browser_use.browser import BrowserSession
-from browser_use.browser.types import Page
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 
@@ -20,9 +19,8 @@ class RegisteredAction(BaseModel):
 	function: Callable
 	param_model: type[BaseModel]
 
-	# filters: provide specific domains or a function to determine whether the action should be available on the given page or not
+	# filters: provide specific domains to determine whether the action should be available on the given URL or not
 	domains: list[str] | None = None  # e.g. ['*.google.com', 'www.bing.com', 'yahoo.*]
-	page_filter: Callable[[Page], bool] | None = None
 
 	model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -102,43 +100,30 @@ class ActionRegistry(BaseModel):
 				return True
 		return False
 
-	@staticmethod
-	def _match_page_filter(page_filter: Callable[[Page], bool] | None, page: Page) -> bool:
-		"""Match a page filter against a page"""
-		if page_filter is None:
-			return True
-		return page_filter(page)
-
-	def get_prompt_description(self, page: Page | None = None) -> str:
+	def get_prompt_description(self, page_url: str | None = None) -> str:
 		"""Get a description of all actions for the prompt
 
 		Args:
-			page: If provided, filter actions by page using page_filter and domains.
+			page_url: If provided, filter actions by URL using domain filters.
 
 		Returns:
 			A string description of available actions.
 			- If page is None: return only actions with no page_filter and no domains (for system prompt)
 			- If page is provided: return only filtered actions that match the current page (excluding unfiltered actions)
 		"""
-		if page is None:
-			# For system prompt (no page provided), include only actions with no filters
-			return '\n'.join(
-				action.prompt_description()
-				for action in self.actions.values()
-				if action.page_filter is None and action.domains is None
-			)
+		if page_url is None:
+			# For system prompt (no URL provided), include only actions with no filters
+			return '\n'.join(action.prompt_description() for action in self.actions.values() if action.domains is None)
 
-		# only include filtered actions for the current page
+		# only include filtered actions for the current page URL
 		filtered_actions = []
 		for action in self.actions.values():
-			if not (action.domains or action.page_filter):
+			if not action.domains:
 				# skip actions with no filters, they are already included in the system prompt
 				continue
 
-			domain_is_allowed = self._match_domains(action.domains, page.url)
-			page_is_allowed = self._match_page_filter(action.page_filter, page)
-
-			if domain_is_allowed and page_is_allowed:
+			# Check domain filter
+			if self._match_domains(action.domains, page_url):
 				filtered_actions.append(action)
 
 		return '\n'.join(action.prompt_description() for action in filtered_actions)
@@ -155,19 +140,14 @@ class SpecialActionParameters(BaseModel):
 	# browser-use code doesn't use this at all, we just pass it down to your actions for convenience
 	context: Any | None = None
 
-	# browser-use session object, can be used to create new tabs, navigate, access playwright objects, etc.
+	# browser-use session object, can be used to create new tabs, navigate, access CDP
 	browser_session: BrowserSession | None = None
 
-	# legacy support for actions that ask for the old model names
-	browser: BrowserSession | None = None
-	browser_context: BrowserSession | None = (
-		None  # extra confusing, this is actually not referring to a playwright BrowserContext,
-		# but rather the name for BrowserUse's own old BrowserContext object from <v0.2.0
-		# should be deprecated then removed after v0.3.0 to avoid ambiguity
-	)  # we can't change it too fast because many people's custom actions out in the wild expect this argument
+	# Current page URL for filtering and context
+	page_url: str | None = None
 
-	# actions can get the playwright Page, shortcut for page = await browser_session.get_current_page()
-	page: Page | None = None
+	# CDP client for direct Chrome DevTools Protocol access
+	cdp_client: Any | None = None  # CDPClient type from cdp_use
 
 	# extra injected config if the action asks for these arg names
 	page_extraction_llm: BaseChatModel | None = None
@@ -178,4 +158,4 @@ class SpecialActionParameters(BaseModel):
 	@classmethod
 	def get_browser_requiring_params(cls) -> set[str]:
 		"""Get parameter names that require browser_session"""
-		return {'browser_session', 'browser', 'browser_context', 'page'}
+		return {'browser_session', 'cdp_client', 'page_url'}

@@ -31,7 +31,7 @@ class DiscordBot(commands.Bot):
 
 	Usage:
 	    ```python
-	    from browser_use.llm import ChatOpenAI
+	    from browser_use import ChatOpenAI
 
 	    llm = ChatOpenAI()
 	    bot = DiscordBot(llm=llm, prefix='$bu', ack=True)

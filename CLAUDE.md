@@ -15,12 +15,22 @@ We want our library APIs to be ergonomic, intuitive, and hard to get wrong.
 - Run tests using `uv run pytest -vxs tests/ci`
 - Run the type checker using `uv run pyright`
 
+## CDP-Use
+
+We use a thin wrapper around CDP called cdp-use: https://github.com/browser-use/cdp-use. cdp-use only provides shallow typed interfaces for the websocket calls, all CDP client and session management + other CDP helpers still live in browser_use/browser/session.py.
+
+- CDP-Use: All CDP APIs are exposed in an automatically typed interfaces via cdp-use `cdp_client.send.DomainHere.methodNameHere(params=...)` like so:
+  - `cdp_client.send.DOMSnapshot.enable(session_id=session_id)`
+  - `cdp_client.send.Target.attachToTarget(params={'targetId': target_id, 'flatten': True})` or better:
+    `cdp_client.send.Target.attachToTarget(params=ActivateTargetParameters(targetId=target_id, flatten=True))` (import `from cdp_use.cdp.target import ActivateTargetParameters`)
+  - `cdp_client.register.Browser.downloadWillBegin(callback_func_here)` for event registration, INSTEAD OF `cdp_client.on(...)` which does not exist!
+
 ## Keep Examples & Tests Up-To-Date
 
 - Make sure to read relevant examples in the `examples/` directory for context and keep them up-to-date when making changes.
 - Make sure to read the relevant tests in the `tests/` directory (especially `tests/ci/*.py`) and keep them up-to-date as well. 
-- Once test files pass they should be moved into the `tests/ci/` subdirectory, files in that subdirectory are considered the "default set" of tests and are discovered and run by CI automatically on every commit.
-- Never use mocks in tests other than for the llm, instead use pytest fixtures to set up real objects and pytest-httpserver
+- Once test files pass they should be moved into the `tests/ci/` subdirectory, files in that subdirectory are considered the "default set" of tests and are discovered and run by CI automatically on every commit. Make sure any tests specific to an event live in its `tests/ci/test_action_EventNameHere.py` file.
+- Never mock anything in tests, always use real objects!! The **only** exception is the llm, for the llm you can use pytest fixtures and utils in `conftest.py` to set up LLM responses. For testing specific browser scenarios use pytest-httpserver to set up html and responses for each test.
 - Never use real remote URLs in tests (e.g. `https://google.com` or `https://example.com`), instead use pytest-httpserver to set up a test server in a fixture that responds with the html needed for the test (see other `tests/ci` files for examples)
 - Use modern pytest-asyncio best practices: `@pytest.mark.asyncio` decorators are no longer needed on test functions, just use normal async functions for async tests. Use `loop = asyncio.get_event_loop()` inside tests that need it instead of passing `event_loop` as a function argument. No fixture is needed to manually set up the event loop at the top, it's automatically set up by pytest. Fixture functions (even async ones) only need a simple `@pytest.fixture` decorator with no arguments.
 

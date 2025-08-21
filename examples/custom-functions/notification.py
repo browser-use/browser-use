@@ -8,8 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from browser_use import ActionResult, Agent, Controller
-from browser_use.llm import ChatOpenAI
+from browser_use import ActionResult, Agent, ChatOpenAI, Controller
 
 controller = Controller()
 
@@ -34,7 +33,7 @@ async def done(text: str):
 
 async def main():
 	task = 'go to brower-use.com and then done'
-	model = ChatOpenAI(model='gpt-4.1')
+	model = ChatOpenAI(model='gpt-4.1-mini')
 	agent = Agent(task=task, llm=model, controller=controller)
 
 	await agent.run()

@@ -365,11 +365,11 @@ shared_profile = BrowserProfile(
     keep_alive=True,                  # don't close the browser after the agent finishes
 )
 
-window1 = BrowserSession(browser_profile=profile_a)
+window1 = BrowserSession(browser_profile=shared_profile)
 await window1.start()
 agent1 = Agent(browser_session=window1)
 
-window2 = BrowserSession(browser_profile=profile_a)
+window2 = BrowserSession(browser_profile=shared_profile)
 await window2.start()
 agent2 = Agent(browser_session=window2)
 

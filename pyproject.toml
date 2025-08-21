@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.5.5"
+version = "0.6.0"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -12,28 +12,26 @@ classifiers = [
 ]
 dependencies = [
     "aiofiles>=24.1.0",
+    "aiohttp==3.12.15",
     "anyio>=4.9.0",
-    "bubus>=1.4.5",
+    "bubus>=1.5.4",
     "google-api-core>=2.25.0",
     "httpx>=0.28.1",
     "markdownify==1.1.0",
-    "patchright>=1.52.5",
-    "playwright>=1.52.0",
     "portalocker>=2.7.0,<3.0.0",
     "posthog>=3.7.0",
     "psutil>=7.0.0",
     "pydantic>=2.11.5",
     "pyobjc>=11.0; platform_system == 'darwin'",
-    "pyperclip>=1.9.0",
     "python-dotenv>=1.0.1",
     "requests>=2.32.3",
     "screeninfo>=0.8.1; platform_system != 'darwin'",
     "typing-extensions>=4.12.2",
     "uuid7>=0.1.0",
     "authlib>=1.6.0",
-    "google-genai>=1.26.0",
-    "openai>=1.97.0",
-    "anthropic>=0.58.2",
+    "google-genai==1.29.0",
+    "openai==1.99.2",
+    "anthropic==0.58.2",
     "groq>=0.30.0",
     "ollama>=0.5.1",
     "google-api-python-client>=2.174.0",
@@ -41,6 +39,7 @@ dependencies = [
     "google-auth-oauthlib>=1.2.2",
     "mcp>=1.10.1",
     "pypdf>=5.7.0",
+    "cdp-use>=1.4.0",
     "markdown-pdf==1.5",
     "langchain-google-genai>=1.0.0",
 ]
@@ -67,8 +66,8 @@ examples = [
     # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
     "botocore>=1.37.23",
     "imgcat>=0.6.0",
-    "stagehand-py>=0.3.6",
-    "browserbase>=0.4.0",
+    # "stagehand-py>=0.3.6",
+    # "browserbase>=0.4.0",
     "langchain-openai>=0.3.26",
 ]
 eval = [
@@ -124,7 +123,7 @@ skip-magic-trailing-comma = false
 
 [tool.pyright]
 typeCheckingMode = "basic"
-exclude = ["tests/old/", ".venv/", ".git/", "__pycache__/", "./test_*.py", "./debug_*.py", "private_example/"]
+exclude = [".venv/", ".git/", "__pycache__/", "./test_*.py", "./debug_*.py", "private_example/", "debug/*", "tests/scripts/*", "tests/old/*", "browser_use/dom/playground/*"]
 venvPath = "."
 venv = ".venv"
 
@@ -140,6 +139,7 @@ include = [
     "browser_use/py.typed",
     "browser_use/dom/**/*.js",
     "!tests/**/*.py",
+    "!debug/*",
 ]
 
 [tool.pytest.ini_options]

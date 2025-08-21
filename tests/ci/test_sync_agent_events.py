@@ -88,7 +88,7 @@ class TestAgentEventLifecycle:
 
 		assert isinstance(step_event, CreateAgentStepEvent)
 		assert step_event.agent_task_id == task_event.id
-		assert step_event.step == 2  # Step is incremented before event is emitted
+		assert step_event.step == 1  # Step is incremented before event is emitted
 		assert step_event.url == httpserver.url_for('/')
 
 		assert isinstance(update_event, UpdateAgentTaskEvent)

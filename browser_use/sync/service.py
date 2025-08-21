@@ -93,14 +93,14 @@ class CloudSync:
 						f'Failed to send sync event: POST {response.request.url} {response.status_code} - {response.text}'
 					)
 		except httpx.TimeoutException:
-			logger.warning(f'⚠️ Event send timed out after 10 seconds: {event}')
+			logger.warning(f'Event send timed out after 10 seconds: {event}')
 		except httpx.ConnectError as e:
 			# logger.warning(f'⚠️ Failed to connect to cloud service at {self.base_url}: {e}')
 			pass
 		except httpx.HTTPError as e:
-			logger.warning(f'⚠️ HTTP error sending event {event}: {type(e).__name__}: {e}')
+			logger.warning(f'HTTP error sending event {event}: {type(e).__name__}: {e}')
 		except Exception as e:
-			logger.warning(f'⚠️ Unexpected error sending event {event}: {type(e).__name__}: {e}')
+			logger.warning(f'Unexpected error sending event {event}: {type(e).__name__}: {e}')
 
 	async def _background_auth(self, agent_session_id: str) -> None:
 		"""Run authentication in background or show cloud URL if already authenticated"""

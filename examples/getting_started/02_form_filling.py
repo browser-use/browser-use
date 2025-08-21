@@ -21,13 +21,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from browser_use import Agent
-from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use import Agent, ChatOpenAI
 
 
 async def main():
 	# Initialize the model
-	llm = ChatOpenAI(model='gpt-4o-mini')
+	llm = ChatOpenAI(model='gpt-4.1-mini')
 
 	# Define a form filling task
 	task = """

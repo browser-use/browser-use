@@ -79,11 +79,12 @@ async def run_single_task(task_file):
 		# Test if browser is working
 		try:
 			await session.start()
-			page = await session.create_new_tab()
-			print('[DEBUG] Browser test: page created successfully', file=sys.stderr)
-			await page.goto('https://httpbin.org/get', timeout=10000)
+			from browser_use.browser.events import NavigateToUrlEvent
+
+			event = session.event_bus.dispatch(NavigateToUrlEvent(url='https://httpbin.org/get', new_tab=True))
+			await event
 			print('[DEBUG] Browser test: navigation successful', file=sys.stderr)
-			title = await page.title()
+			title = await session.get_current_page_title()
 			print(f"[DEBUG] Browser test: got title '{title}'", file=sys.stderr)
 		except Exception as browser_error:
 			print(f'[DEBUG] Browser test failed: {str(browser_error)}', file=sys.stderr)

@@ -11,8 +11,7 @@ The `Agent` class is the core component of Browser Use that handles browser auto
 ## Basic Settings
 
 ```python
-from browser_use import Agent
-from browser_use.llm import ChatOpenAI
+from browser_use import Agent, ChatOpenAI
 
 agent = Agent(
     task="Search for latest news about AI",
@@ -46,6 +45,7 @@ agent = Agent(
   - When enabled, the model processes visual information from web pages
   - Disable to reduce costs or use models without vision support
   - For GPT-4o, image processing costs approximately 800-1000 tokens (~$0.002 USD) per image (but this depends on the defined screen size)
+- `vision_detail_level`: Controls the detail level of screenshots sent to the vision model. Can be `'low'`, `'high'`, or `'auto'` (default). Using `'low'` can significantly reduce token consumption and cost for simpler visual tasks, while `'high'` provides more detail for complex visual analysis.
 - `save_conversation_path`: Path to save the complete conversation history. Useful for debugging.
 - `override_system_message`: Completely replace the default system prompt with a custom one.
 - `extend_system_message`: Add additional instructions to the default system prompt.
@@ -132,7 +132,7 @@ history = await agent.run()
 
 # Access (some) useful information
 history.urls()              # List of visited URLs
-history.screenshots()       # List of screenshot paths
+history.screenshot_paths()       # List of screenshot paths
 history.action_names()      # Names of executed actions
 history.extracted_content() # Content extracted during execution
 history.errors()           # Any errors that occurred
@@ -172,60 +172,12 @@ agent = Agent(
 )
 ```
 
-## Run with message context
 
-You can configure the agent and provide a separate message to help the LLM understand the task better.
 
-```python
-from browser_use.llm import ChatOpenAI
 
-agent = Agent(
-    task="your task",
-    message_context="Additional information about the task",
-    llm = ChatOpenAI(model='gpt-4o')
-)
-```
-
-## Run with planner model
-
-You can configure the agent to use a separate planner model for high-level task planning:
-
-```python
-from browser_use.llm import ChatOpenAI
-
-# Initialize models
-llm = ChatOpenAI(model='gpt-4o')
-planner_llm = ChatOpenAI(model='o3-mini')
-
-agent = Agent(
-    task="your task",
-    llm=llm,
-    planner_llm=planner_llm,           # Separate model for planning
-    use_vision_for_planner=False,      # Disable vision for planner
-    planner_interval=4                 # Plan every 4 steps
-)
-```
-
-### Planner Parameters
-
-- `planner_llm`: A chat model instance used for high-level task planning. Can be a smaller/cheaper model than the main LLM.
-- `use_vision_for_planner`: Enable/disable vision capabilities for the planner model. Defaults to `True`.
-- `planner_interval`: Number of steps between planning phases. Defaults to `1`.
-
-Using a separate planner model can help:
-
-- Reduce costs by using a smaller model for high-level planning
-- Improve task decomposition and strategic thinking
-- Better handle complex, multi-step tasks
-
-<Note>
-  The planner model is optional. If not specified, the agent will not use the
-  planner model.
-</Note>
 
 ### Optional Parameters
 
-- `message_context`: Additional information about the task to help the LLM understand the task better.
 - `initial_actions`: List of initial actions to run before the main task.
 - `max_actions_per_step`: Maximum number of actions to run in a step. Defaults to `10`.
 - `max_failures`: Maximum number of failures before giving up. Defaults to `3`.

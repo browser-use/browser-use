@@ -42,8 +42,8 @@ This endpoint requires an active subscription.
 <ParamField body="structured_output_json" type="string">
   JSON schema for structured output
 </ParamField>
-<ParamField body="llm_model" type="string" default="gpt-4o">
-  LLM model to use. Available options: gpt-4o, gpt-4o-mini, gpt-4.1, gpt-4.1-mini, o4-mini, o3, gemini-2.0-flash, gemini-2.0-flash-lite, gemini-2.5-flash-preview-04-17, gemini-2.5-flash, gemini-2.5-pro, claude-3-7-sonnet-20250219, claude-sonnet-4-20250514, llama-4-maverick-17b-128e-instruct
+<ParamField body="llm_model" type="string" default="gpt-4.1">
+  LLM model to use. Available options: gpt-4.1, gpt-4.1-mini, o4-mini, o3, gemini-2.5-flash, gemini-2.5-pro, claude-sonnet-4-20250514
 </ParamField>
 <ParamField body="use_adblock" type="boolean" default="true">
   Whether to use an adblocker
@@ -73,6 +73,10 @@ This endpoint requires an active subscription.
   Whether to enable public sharing of task executions
 </ParamField>
 
+<ParamField body="metadata" type="object">
+  Optional dictionary of string key-value pairs for custom tagging. Max 10 pairs. Keys: strings (max 100 chars, non-empty). Values: strings (max 1000 chars).
+</ParamField>
+
 *Either `interval_minutes` or `cron_expression` is required depending on the `schedule_type`.
 
 ## Response
@@ -100,7 +104,11 @@ task_data = {
   "interval_minutes": 60,
   "start_at": start_time,
   "end_at": end_time,
-  "use_adblock": True
+  "use_adblock": True,
+  "metadata": {
+    "campaign": "q4-automation",
+    "team": "marketing"
+  }
 }
 
 response = requests.post(f'{BASE_URL}/scheduled-task', headers=HEADERS, json=task_data)
@@ -117,7 +125,11 @@ curl --request POST \
     "task": "Visit example.com and check if the site is up",
     "schedule_type": "interval",
     "interval_minutes": 60,
-    "use_adblock": true
+    "use_adblock": true,
+    "metadata": {
+      "campaign": "q4-automation",
+      "team": "marketing"
+    }
   }'
 ```
 

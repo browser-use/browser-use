@@ -67,10 +67,16 @@ The payload follows this structure:
   "payload": {
     "session_id": "cd9cc7bf-e3af-4181-80a2-73f083bc94b4",
     "task_id": "5b73fb3f-a3cb-4912-be40-17ce9e9e1a45",
-    "status": "finished"
+    "status": "finished",
+    "metadata": {
+      "campaign": "q4-automation",
+      "team": "marketing"
+    }
   }
 }
 ```
+
+The webhook payload now includes a `metadata` field containing any custom key-value pairs that were provided when the task was created. This allows you to correlate webhook events with your internal tracking systems.
 
 ## Implementing Webhook Verification
 

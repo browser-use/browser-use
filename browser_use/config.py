@@ -105,6 +105,12 @@ class OldConfig:
 	def BROWSER_USE_DEFAULT_USER_DATA_DIR(self) -> Path:
 		return self.BROWSER_USE_PROFILES_DIR / 'default'
 
+	@property
+	def BROWSER_USE_EXTENSIONS_DIR(self) -> Path:
+		path = self.BROWSER_USE_CONFIG_DIR / 'extensions'
+		self._ensure_dirs()
+		return path
+
 	def _ensure_dirs(self) -> None:
 		"""Create directories if they don't exist (only once)"""
 		if not self._dirs_created:
@@ -113,6 +119,7 @@ class OldConfig:
 			)
 			config_dir.mkdir(parents=True, exist_ok=True)
 			(config_dir / 'profiles').mkdir(parents=True, exist_ok=True)
+			(config_dir / 'extensions').mkdir(parents=True, exist_ok=True)
 			self._dirs_created = True
 
 	# LLM API key configuration
@@ -173,6 +180,7 @@ class FlatEnvConfig(BaseSettings):
 
 	# Logging and telemetry
 	BROWSER_USE_LOGGING_LEVEL: str = Field(default='info')
+	CDP_LOGGING_LEVEL: str = Field(default='error')
 	ANONYMIZED_TELEMETRY: bool = Field(default=True)
 	BROWSER_USE_CLOUD_SYNC: bool | None = Field(default=None)
 	BROWSER_USE_CLOUD_API_URL: str = Field(default='https://api.browser-use.com')
@@ -253,7 +261,7 @@ class DBStyleConfigJSON(BaseModel):
 
 def create_default_config() -> DBStyleConfigJSON:
 	"""Create a fresh default configuration."""
-	logger.info('Creating fresh default config.json')
+	logger.debug('Creating fresh default config.json')
 
 	new_config = DBStyleConfigJSON()
 
@@ -298,14 +306,14 @@ def load_and_migrate_config(config_path: Path) -> DBStyleConfigJSON:
 				return DBStyleConfigJSON(**data)
 
 		# Old format detected - delete it and create fresh config
-		logger.info(f'Old config format detected at {config_path}, creating fresh config')
+		logger.debug(f'Old config format detected at {config_path}, creating fresh config')
 		new_config = create_default_config()
 
 		# Overwrite with new config
 		with open(config_path, 'w') as f:
 			json.dump(new_config.model_dump(), f, indent=2)
 
-		logger.info(f'Created fresh config.json at {config_path}')
+		logger.debug(f'Created fresh config.json at {config_path}')
 		return new_config
 
 	except Exception as e:

@@ -12,7 +12,7 @@ Prerequisites:
    pip install 'browser-use[cli]'
 
 2. Start the browser-use MCP server:
-   uvx browser-use --mcp
+   uvx 'browser-use[cli]' --mcp
 
 3. Run this example:
    python advanced_server.py
@@ -241,7 +241,7 @@ async def main():
 
 	try:
 		# Connect to browser-use MCP server
-		await assistant.connect_server(name='browser', command='uvx', args=['browser-use', '--mcp'])
+		await assistant.connect_server(name='browser', command='uvx', args=['browser-use[cli]', '--mcp'])
 
 		# Optionally connect to filesystem server
 		# Note: Uncomment to enable file operations

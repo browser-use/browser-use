@@ -24,7 +24,7 @@ class ChatAzureOpenAI(ChatOpenAILike):
 
 	# Client initialization parameters
 	api_key: str | None = None
-	api_version: str | None = '2024-10-21'
+	api_version: str | None = '2024-12-01-preview'
 	azure_endpoint: str | None = None
 	azure_deployment: str | None = None
 	base_url: str | None = None
@@ -83,7 +83,7 @@ class ChatAzureOpenAI(ChatOpenAILike):
 		else:
 			# Create a new async HTTP client with custom limits
 			_client_params['http_client'] = httpx.AsyncClient(
-				limits=httpx.Limits(max_connections=1000, max_keepalive_connections=100)
+				limits=httpx.Limits(max_connections=20, max_keepalive_connections=6)
 			)
 
 		self.client = AsyncAzureOpenAIClient(**_client_params)

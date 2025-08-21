@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 	from browser_use.agent.prompts import SystemPrompt
 	from browser_use.agent.service import Agent
 	from browser_use.agent.views import ActionModel, ActionResult, AgentHistoryList
-	from browser_use.browser import Browser, BrowserConfig, BrowserContext, BrowserContextConfig, BrowserProfile, BrowserSession
+	from browser_use.browser import BrowserProfile, BrowserSession
 	from browser_use.controller.service import Controller
 	from browser_use.dom.service import DomService
 	from browser_use.llm.anthropic.chat import ChatAnthropic
@@ -63,12 +63,8 @@ _LAZY_IMPORTS = {
 	'ActionResult': ('browser_use.agent.views', 'ActionResult'),
 	'AgentHistoryList': ('browser_use.agent.views', 'AgentHistoryList'),
 	# Browser components (heavy due to playwright/patchright)
-	'Browser': ('browser_use.browser', 'Browser'),
-	'BrowserConfig': ('browser_use.browser', 'BrowserConfig'),
 	'BrowserSession': ('browser_use.browser', 'BrowserSession'),
 	'BrowserProfile': ('browser_use.browser', 'BrowserProfile'),
-	'BrowserContext': ('browser_use.browser', 'BrowserContext'),
-	'BrowserContextConfig': ('browser_use.browser', 'BrowserContextConfig'),
 	# Controller (moderate weight)
 	'Controller': ('browser_use.controller.service', 'Controller'),
 	# DOM service (moderate weight)
@@ -103,8 +99,6 @@ def __getattr__(name: str):
 
 __all__ = [
 	'Agent',
-	'Browser',
-	'BrowserConfig',
 	'BrowserSession',
 	'BrowserProfile',
 	'Controller',
@@ -113,8 +107,6 @@ __all__ = [
 	'ActionResult',
 	'ActionModel',
 	'AgentHistoryList',
-	'BrowserContext',
-	'BrowserContextConfig',
 	# Chat models
 	'ChatOpenAI',
 	'ChatGoogle',
