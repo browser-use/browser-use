@@ -351,6 +351,7 @@ class Controller(Generic[Context]):
 			params: UploadFileAction, browser_session: BrowserSession, available_file_paths: list[str], file_system: FileSystem
 		):
 			# Check if file is in available_file_paths (user-provided or downloaded files)
+			# For remote browsers (is_local=False), we allow absolute remote paths even if not tracked locally
 			if params.path not in available_file_paths:
 				# Also check if it's a recently downloaded file that might not be in available_file_paths yet
 				downloaded_files = browser_session.downloaded_files
@@ -365,16 +366,26 @@ class Controller(Generic[Context]):
 							file_system_path = str(file_system.get_dir() / params.path)
 							params = UploadFileAction(index=params.index, path=file_system_path)
 						else:
-							raise BrowserError(
-								f'File path {params.path} is not available. Must be in available_file_paths, downloaded_files, or a file managed by file_system.'
-							)
+							# If browser is remote, allow passing a remote-accessible absolute path
+							if not browser_session.is_local:
+								pass
+							else:
+								raise BrowserError(
+									f'File path {params.path} is not available. Must be in available_file_paths, downloaded_files, or a file managed by file_system.'
+								)
 					else:
-						raise BrowserError(
-							f'File path {params.path} is not available. Must be in available_file_paths or downloaded_files.'
-						)
+						# If browser is remote, allow passing a remote-accessible absolute path
+						if not browser_session.is_local:
+							pass
+						else:
+							raise BrowserError(
+								f'File path {params.path} is not available. Must be in available_file_paths or downloaded_files.'
+							)
 
-			if not os.path.exists(params.path):
-				raise BrowserError(f'File {params.path} does not exist')
+			# For local browsers, ensure the file exists on the local filesystem
+			if browser_session.is_local:
+				if not os.path.exists(params.path):
+					raise BrowserError(f'File {params.path} does not exist')
 
 			# Get the selector map to find the node
 			selector_map = await browser_session.get_selector_map()
