@@ -72,8 +72,50 @@ from browser_use.utils import (
 	time_execution_async,
 	time_execution_sync,
 )
+import pandas as pd
+from sentence_transformers import SentenceTransformer
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+current_dir = Path(__file__).parent.parent
+data_path = (current_dir / 'data' / 'simple_data.csv').resolve()
+
+print("Loading Sentence Transformer model...")
+model = SentenceTransformer("all-MiniLM-L6-v2")
+print("Model loaded.")
+
+
+
+data = pd.read_csv(data_path, delimiter=';')
+print("Encoding data from data.csv... This may take a moment.")
+corpus = data['description'].tolist()
+data_embeddings = model.encode(corpus)
+print("Data encoding complete.")
+
+def context_search(query: str, threshold: float = 0.6):
+    """
+    Searches for relevant context in the dataframe based on a query.
+
+    Args:
+        query (str): The user's search query.
+        threshold (float): The similarity score threshold for including a result.
+
+    Returns:
+        str: A concatenated string of context from matching entries.
+    """
+
+    query_embedding = model.encode(query)
+
+    similarities = model.similarity(query_embedding, data_embeddings)
+
+    context = "Here is the related task workflow information for the task:\n\n"
+    for i, score in enumerate(similarities[0]):
+        if score > threshold:
+            print(f"Found match (index {i}) with score: {score:.4f}")
+            context += f"Description: {data['description'][i]}\n"
+            context += f"Code: {data['code'][i]}\n\n"
+
+    return context
 
 
 def log_response(response: AgentOutput, registry=None, logger=None) -> None:
@@ -716,6 +758,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Page-specific actions will be included directly in the browser_state message
 		self.logger.debug(f'💬 Step {self.state.n_steps}: Creating state messages for context...')
+		
 		self._message_manager.create_state_messages(
 			browser_state_summary=browser_state_summary,
 			model_output=self.state.last_model_output,
@@ -734,6 +777,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def _get_next_action(self, browser_state_summary: BrowserStateSummary) -> None:
 		"""Execute LLM interaction with retry logic and handle callbacks"""
 		input_messages = self._message_manager.get_messages()
+		context_message = context_search(self.task, threshold=0.4)
+		input_messages += [UserMessage(content=context_message)]
 		self.logger.debug(
 			f'🤖 Step {self.state.n_steps}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
 		)
