@@ -436,18 +436,9 @@ class DOMWatchdog(BaseWatchdog):
 				self.browser_session.update_cached_selector_map(self.selector_map)
 			self.logger.debug(f'🔍 DOMWatchdog._build_dom_tree: ✅ Selector maps updated, {len(self.selector_map)} elements')
 
-			# Inject highlighting for visual feedback if we have elements
-			if self.selector_map and self._dom_service:
-				try:
-					self.logger.debug('🔍 DOMWatchdog._build_dom_tree: Injecting highlighting script...')
-					from browser_use.dom.debug.highlights import inject_highlighting_script
-
-					await inject_highlighting_script(self._dom_service, self.selector_map)
-					self.logger.debug(
-						f'🔍 DOMWatchdog._build_dom_tree: ✅ Injected highlighting for {len(self.selector_map)} elements'
-					)
-				except Exception as e:
-					self.logger.debug(f'🔍 DOMWatchdog._build_dom_tree: Failed to inject highlighting: {e}')
+			# Skip script-based highlighting injection for performance
+			# Python-based highlighting will be applied post-screenshot
+			self.logger.debug('🔍 DOMWatchdog._build_dom_tree: Skipping script injection, will use Python highlighting')
 
 			self.logger.debug('🔍 DOMWatchdog._build_dom_tree: ✅ COMPLETED DOM tree build')
 			return self.current_dom_state

@@ -365,6 +365,27 @@ class BrowserUseServer:
 						'required': ['task'],
 					},
 				),
+				types.Tool(
+					name='browser_get_highlighted_screenshot',
+					description='Get a screenshot with highlighted interactive elements, with optional filtering',
+					inputSchema={
+						'type': 'object',
+						'properties': {
+							'include_indices': {
+								'type': 'array',
+								'items': {'type': 'integer'},
+								'description': 'List of element indices to highlight (if empty, highlight all)',
+								'default': []
+							},
+							'exclude_indices': {
+								'type': 'array', 
+								'items': {'type': 'integer'},
+								'description': 'List of element indices to exclude from highlighting',
+								'default': []
+							}
+						},
+					},
+				),
 			]
 
 		@self.server.call_tool()
@@ -422,6 +443,12 @@ class BrowserUseServer:
 
 			elif tool_name == 'browser_get_state':
 				return await self._get_browser_state(arguments.get('include_screenshot', False))
+
+			elif tool_name == 'browser_get_highlighted_screenshot':
+				return await self._get_highlighted_screenshot(
+					include_indices=arguments.get('include_indices', []),
+					exclude_indices=arguments.get('exclude_indices', [])
+				)
 
 			elif tool_name == 'browser_extract_content':
 				return await self._extract_content(arguments['query'], arguments.get('extract_links', False))
@@ -695,7 +722,48 @@ class BrowserUseServer:
 			result['interactive_elements'].append(elem_info)
 
 		if include_screenshot and state.screenshot:
+			# Provide both plain and highlighted screenshots for flexibility
 			result['screenshot'] = state.screenshot
+			highlighted_screenshot = state.get_highlighted_screenshot()
+			if highlighted_screenshot:
+				result['highlighted_screenshot'] = highlighted_screenshot
+
+		return json.dumps(result, indent=2)
+
+	async def _get_highlighted_screenshot(self, include_indices: list[int] = None, exclude_indices: list[int] = None) -> str:
+		"""Get a highlighted screenshot with optional filtering."""
+		if not self.browser_session:
+			return 'Error: No browser session active'
+
+		state = await self.browser_session.get_browser_state_summary(cache_clickable_elements_hashes=False, include_screenshot=True)
+		
+		if not state.screenshot:
+			return 'Error: No screenshot available'
+
+		# Convert lists to sets for filtering
+		include_set = set(include_indices) if include_indices else None
+		exclude_set = set(exclude_indices) if exclude_indices else None
+
+		# Generate highlighted screenshot
+		highlighted_screenshot = state.get_highlighted_screenshot(
+			include_indices=include_set,
+			exclude_indices=exclude_set
+		)
+
+		if not highlighted_screenshot:
+			return 'Error: Failed to generate highlighted screenshot'
+
+		result = {
+			'highlighted_screenshot': highlighted_screenshot,
+			'url': state.url,
+			'title': state.title,
+			'total_elements': len(state.dom_state.selector_map),
+			'highlighted_elements': len([
+				idx for idx in state.dom_state.selector_map.keys()
+				if (include_set is None or idx in include_set) and
+				   (exclude_set is None or idx not in exclude_set)
+			])
+		}
 
 		return json.dumps(result, indent=2)
 

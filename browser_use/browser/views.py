@@ -84,6 +84,93 @@ class BrowserStateSummary:
 	browser_errors: list[str] = field(default_factory=list)
 	is_pdf_viewer: bool = False  # Whether the current page is a PDF viewer
 	recent_events: str | None = None  # Text summary of recent browser events
+	
+	# Python-based highlighting fields
+	highlighted_screenshot: str | None = field(default=None, repr=False)  # Screenshot with bounding boxes
+	
+	def get_highlighted_screenshot(
+		self, 
+		include_indices: set[int] | None = None,
+		exclude_indices: set[int] | None = None,
+		force_regenerate: bool = False
+	) -> str | None:
+		"""
+		Get a highlighted screenshot with bounding boxes around interactive elements.
+		
+		Args:
+			include_indices: Set of indices to include (if None, include all)
+			exclude_indices: Set of indices to exclude
+			force_regenerate: Whether to regenerate even if cached version exists
+			
+		Returns:
+			Base64 encoded highlighted screenshot or None if screenshot unavailable
+		"""
+		if not self.screenshot:
+			return None
+			
+		# Use cached version if available and no custom filters
+		if (not force_regenerate and 
+			include_indices is None and 
+			exclude_indices is None and 
+			self.highlighted_screenshot):
+			return self.highlighted_screenshot
+			
+		# Generate highlighted screenshot
+		try:
+			from browser_use.dom.debug.python_highlights import create_highlighted_image
+			
+			highlighted = create_highlighted_image(
+				screenshot_b64=self.screenshot,
+				selector_map=self.dom_state.selector_map,
+				include_indices=include_indices,
+				exclude_indices=exclude_indices,
+				show_index_labels=True,
+				box_thickness=2,
+			)
+			
+			# Cache if no custom filters were applied
+			if include_indices is None and exclude_indices is None:
+				self.highlighted_screenshot = highlighted
+				
+			return highlighted
+			
+		except Exception as e:
+			# Fall back to original screenshot if highlighting fails
+			return self.screenshot
+	
+	def get_image_pair(
+		self,
+		include_indices: set[int] | None = None,
+		exclude_indices: set[int] | None = None,
+	) -> tuple[str | None, str | None]:
+		"""
+		Get both unhighlighted and highlighted screenshots as a pair.
+		
+		This is optimized for quickly getting both versions for merging.
+		
+		Args:
+			include_indices: Set of indices to include (if None, include all)
+			exclude_indices: Set of indices to exclude
+			
+		Returns:
+			Tuple of (unhighlighted_screenshot, highlighted_screenshot)
+		"""
+		if not self.screenshot:
+			return None, None
+			
+		try:
+			from browser_use.dom.debug.python_highlights import create_image_pair
+			
+			return create_image_pair(
+				screenshot_b64=self.screenshot,
+				selector_map=self.dom_state.selector_map,
+				include_indices=include_indices,
+				exclude_indices=exclude_indices,
+			)
+			
+		except Exception:
+			# Fall back to returning just the original screenshot
+			return self.screenshot, self.screenshot
 
 
 @dataclass

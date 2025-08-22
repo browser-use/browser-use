@@ -274,10 +274,15 @@ class MessageManager:
 		if sensitive_data:
 			self.sensitive_data_description = self._get_sensitive_data_description(browser_state_summary.url)
 
-		# Use only the current screenshot
+		# Use highlighted screenshot if available, fall back to plain screenshot
 		screenshots = []
 		if browser_state_summary.screenshot:
-			screenshots.append(browser_state_summary.screenshot)
+			# Generate highlighted screenshot with bounding boxes
+			highlighted_screenshot = browser_state_summary.get_highlighted_screenshot()
+			if highlighted_screenshot:
+				screenshots.append(highlighted_screenshot)
+			else:
+				screenshots.append(browser_state_summary.screenshot)
 
 		# Create single state message with all content
 		assert browser_state_summary

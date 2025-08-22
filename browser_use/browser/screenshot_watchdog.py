@@ -53,8 +53,5 @@ class ScreenshotWatchdog(BaseWatchdog):
 			self.logger.error(f'[ScreenshotWatchdog] Screenshot failed: {e}')
 			raise
 		finally:
-			# Try to remove highlights even on failure
-			try:
-				await self.browser_session.remove_highlights()
-			except Exception:
-				pass
+			# No need to remove highlights since we don't inject them anymore
+			pass
