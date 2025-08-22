@@ -37,6 +37,7 @@ from browser_use.browser.events import (
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.views import BrowserStateSummary, TabInfo
 from browser_use.dom.views import EnhancedDOMTreeNode, TargetInfo
+from browser_use.observability import observe_debug
 from browser_use.utils import _log_pretty_url, is_new_tab_page
 
 DEFAULT_BROWSER_PROFILE = BrowserProfile()
@@ -747,7 +748,7 @@ class BrowserSession(BaseModel):
 		return self.agent_focus.session_id if self.agent_focus else None
 
 	# ========== Helper Methods ==========
-
+	@observe_debug(ignore_input=True, ignore_output=True, name='get_browser_state_summary')
 	async def get_browser_state_summary(
 		self,
 		cache_clickable_elements_hashes: bool = True,

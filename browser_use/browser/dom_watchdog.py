@@ -232,65 +232,68 @@ class DOMWatchdog(BaseWatchdog):
 					recent_events=self._get_recent_events_str() if event.include_recent_events else None,
 				)
 
-			# Normal path: Build DOM tree if requested
-			if event.include_dom:
-				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: 🌳 Building DOM tree...')
+			# Execute DOM building and screenshot capture in parallel
+			dom_task = None
+			screenshot_task = None
 
-				# Build the DOM directly using the internal method
+			# Start DOM building task if requested
+			if event.include_dom:
+				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: 🌳 Starting DOM tree build task...')
+
 				previous_state = (
 					self.browser_session._cached_browser_state_summary.dom_state
 					if self.browser_session._cached_browser_state_summary
 					else None
 				)
 
+				dom_task = asyncio.create_task(self._build_dom_tree_without_highlights(previous_state))
+
+			# Start clean screenshot task if requested (without JS highlights)
+			if event.include_screenshot:
+				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: 📸 Starting clean screenshot task...')
+				screenshot_task = asyncio.create_task(self._capture_clean_screenshot())
+
+			# Wait for both tasks to complete
+			content = None
+			screenshot_b64 = None
+
+			if dom_task:
 				try:
-					# Call the DOM building method directly
-					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: Starting _build_dom_tree...')
-					content = await self._build_dom_tree(previous_state)
-					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ _build_dom_tree completed')
+					content = await dom_task
+					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ DOM tree build completed')
 				except Exception as e:
 					self.logger.warning(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: DOM build failed: {e}, using minimal state')
 					content = SerializedDOMState(_root=None, selector_map={})
-
-				if not content:
-					# Fallback to minimal DOM state
-					self.logger.warning('DOM build returned no content, using minimal state')
-					content = SerializedDOMState(_root=None, selector_map={})
 			else:
-				# Skip DOM building if not requested
 				content = SerializedDOMState(_root=None, selector_map={})
 
-			# re-focus top-level page session context
-			assert self.browser_session.agent_focus is not None, 'No current target ID'
-			await self.browser_session.get_or_create_cdp_session(target_id=self.browser_session.agent_focus.target_id, focus=True)
-
-			# Get screenshot if requested
-			screenshot_b64 = None
-			if event.include_screenshot:
-				self.logger.debug(
-					f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: 📸 DOM watchdog requesting screenshot, include_screenshot={event.include_screenshot}'
-				)
+			if screenshot_task:
 				try:
-					# Check if handler is registered
-					handlers = self.event_bus.handlers.get('ScreenshotEvent', [])
-					handler_names = [getattr(h, '__name__', str(h)) for h in handlers]
-					self.logger.debug(f'📸 ScreenshotEvent handlers registered: {len(handlers)} - {handler_names}')
-
-					screenshot_event = self.event_bus.dispatch(ScreenshotEvent(full_page=False))
-					self.logger.debug('📸 Dispatched ScreenshotEvent, waiting for event to complete...')
-
-					# Wait for the event itself to complete (this waits for all handlers)
-					await screenshot_event
-
-					# Get the single handler result
-					screenshot_b64 = await screenshot_event.event_result(raise_if_any=True, raise_if_none=True)
-				except TimeoutError:
-					self.logger.warning('📸 Screenshot timed out after 6 seconds - no handler registered or slow page?')
-
+					screenshot_b64 = await screenshot_task
+					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ Clean screenshot captured')
 				except Exception as e:
-					self.logger.warning(f'📸 Screenshot failed: {type(e).__name__}: {e}')
-			else:
-				self.logger.debug(f'📸 Skipping screenshot, include_screenshot={event.include_screenshot}')
+					self.logger.warning(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Clean screenshot failed: {e}')
+					screenshot_b64 = None
+
+			# Apply Python-based highlighting if both DOM and screenshot are available
+			if screenshot_b64 and content and content.selector_map and self.browser_session.browser_profile.highlight_elements:
+				try:
+					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: 🎨 Applying Python-based highlighting...')
+					from browser_use.browser.python_highlights import create_highlighted_screenshot_async
+
+					# Get CDP session for viewport info
+					cdp_session = await self.browser_session.get_or_create_cdp_session()
+
+					screenshot_b64 = await create_highlighted_screenshot_async(screenshot_b64, content.selector_map, cdp_session)
+					self.logger.debug(
+						f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ Applied highlights to {len(content.selector_map)} elements'
+					)
+				except Exception as e:
+					self.logger.warning(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Python highlighting failed: {e}')
+
+			# Ensure we have valid content
+			if not content:
+				content = SerializedDOMState(_root=None, selector_map={})
 
 			# Tabs info already fetched at the beginning
 
@@ -460,6 +463,87 @@ class DOMWatchdog(BaseWatchdog):
 					message=str(e),
 				)
 			)
+			raise
+
+	async def _build_dom_tree_without_highlights(self, previous_state: SerializedDOMState | None = None) -> SerializedDOMState:
+		"""Build DOM tree without injecting JavaScript highlights (for parallel execution)."""
+		try:
+			self.logger.debug('🔍 DOMWatchdog._build_dom_tree_without_highlights: STARTING DOM tree build')
+
+			# Create or reuse DOM service
+			if self._dom_service is None:
+				self._dom_service = DomService(browser_session=self.browser_session, logger=self.logger)
+
+			# Get serialized DOM tree using the service
+			self.logger.debug('🔍 DOMWatchdog._build_dom_tree_without_highlights: Calling DomService.get_serialized_dom_tree...')
+			start = time.time()
+			self.current_dom_state, self.enhanced_dom_tree, timing_info = await self._dom_service.get_serialized_dom_tree(
+				previous_cached_state=previous_state,
+			)
+			end = time.time()
+			self.logger.debug(
+				'🔍 DOMWatchdog._build_dom_tree_without_highlights: ✅ DomService.get_serialized_dom_tree completed'
+			)
+
+			self.logger.debug(f'Time taken to get DOM tree: {end - start} seconds')
+			self.logger.debug(f'Timing breakdown: {timing_info}')
+
+			# Update selector map for other watchdogs
+			self.logger.debug('🔍 DOMWatchdog._build_dom_tree_without_highlights: Updating selector maps...')
+			self.selector_map = self.current_dom_state.selector_map
+			# Update BrowserSession's cached selector map
+			if self.browser_session:
+				self.browser_session.update_cached_selector_map(self.selector_map)
+			self.logger.debug(
+				f'🔍 DOMWatchdog._build_dom_tree_without_highlights: ✅ Selector maps updated, {len(self.selector_map)} elements'
+			)
+
+			# Skip JavaScript highlighting injection - Python highlighting will be applied later
+			self.logger.debug('🔍 DOMWatchdog._build_dom_tree_without_highlights: ✅ COMPLETED DOM tree build (no JS highlights)')
+			return self.current_dom_state
+
+		except Exception as e:
+			self.logger.error(f'Failed to build DOM tree without highlights: {e}')
+			self.event_bus.dispatch(
+				BrowserErrorEvent(
+					error_type='DOMBuildFailed',
+					message=str(e),
+				)
+			)
+			raise
+
+	async def _capture_clean_screenshot(self) -> str:
+		"""Capture a clean screenshot without JavaScript highlights."""
+		try:
+			self.logger.debug('🔍 DOMWatchdog._capture_clean_screenshot: Capturing clean screenshot...')
+
+			# Ensure we have a focused CDP session
+			assert self.browser_session.agent_focus is not None, 'No current target ID'
+			await self.browser_session.get_or_create_cdp_session(target_id=self.browser_session.agent_focus.target_id, focus=True)
+
+			# Check if handler is registered
+			handlers = self.event_bus.handlers.get('ScreenshotEvent', [])
+			handler_names = [getattr(h, '__name__', str(h)) for h in handlers]
+			self.logger.debug(f'📸 ScreenshotEvent handlers registered: {len(handlers)} - {handler_names}')
+
+			screenshot_event = self.event_bus.dispatch(ScreenshotEvent(full_page=False))
+			self.logger.debug('📸 Dispatched ScreenshotEvent, waiting for event to complete...')
+
+			# Wait for the event itself to complete (this waits for all handlers)
+			await screenshot_event
+
+			# Get the single handler result
+			screenshot_b64 = await screenshot_event.event_result(raise_if_any=True, raise_if_none=True)
+			if screenshot_b64 is None:
+				raise RuntimeError('Screenshot handler returned None')
+			self.logger.debug('🔍 DOMWatchdog._capture_clean_screenshot: ✅ Clean screenshot captured successfully')
+			return str(screenshot_b64)
+
+		except TimeoutError:
+			self.logger.warning('📸 Clean screenshot timed out after 6 seconds - no handler registered or slow page?')
+			raise
+		except Exception as e:
+			self.logger.warning(f'📸 Clean screenshot failed: {type(e).__name__}: {e}')
 			raise
 
 	async def _wait_for_stable_network(self):
