@@ -161,6 +161,8 @@ def update_config_with_click_args(config: dict[str, Any], ctx: click.Context) ->
 		config['model'] = {}
 	if 'browser' not in config:
 		config['browser'] = {}
+	if 'logging' not in config:
+		config['logging'] = {}
 
 	# Update configuration with command-line args if provided
 	if ctx.params.get('model'):
@@ -191,6 +193,14 @@ def update_config_with_click_args(config: dict[str, Any], ctx: click.Context) ->
 		proxy['password'] = ctx.params['proxy_password']
 	if proxy:
 		config['browser']['proxy'] = proxy
+
+	# Handle log file options
+	if ctx.params.get('log_file'):
+		config['logging']['log_file'] = ctx.params['log_file']
+	if ctx.params.get('debug_log_file'):
+		config['logging']['debug_log_file'] = ctx.params['debug_log_file']
+	if ctx.params.get('info_log_file'):
+		config['logging']['info_log_file'] = ctx.params['info_log_file']
 
 	return config
 
@@ -1343,8 +1353,18 @@ async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
 	# Set up logging to only show results by default
 	os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'result'
 
-	# Re-run setup_logging to apply the new log level
-	setup_logging()
+	# Load config first to get log file settings
+	config = load_user_config()
+	config = update_config_with_click_args(config, ctx)
+
+	# Extract log file settings from config
+	logging_config = config.get('logging', {})
+	log_file = logging_config.get('log_file')
+	debug_log_file = logging_config.get('debug_log_file')
+	info_log_file = logging_config.get('info_log_file')
+
+	# Re-run setup_logging to apply the new log level and file handlers
+	setup_logging(log_file=log_file, debug_log_file=debug_log_file, info_log_file=info_log_file)
 
 	# The logging is now properly configured by setup_logging()
 	# No need to manually configure handlers since setup_logging() handles it
@@ -1355,10 +1375,6 @@ async def run_prompt_mode(prompt: str, ctx: click.Context, debug: bool = False):
 	error_msg = None
 
 	try:
-		# Load config
-		config = load_user_config()
-		config = update_config_with_click_args(config, ctx)
-
 		# Get LLM
 		llm = get_llm(config)
 
@@ -1475,6 +1491,37 @@ async def textual_interface(config: dict[str, Any]):
 		# Add null handler to ensure no output to stdout/stderr
 		null_handler = logging.NullHandler()
 		root_logger.addHandler(null_handler)
+		
+		# Add file handlers if specified in config
+		logging_config = config.get('logging', {})
+		log_file = logging_config.get('log_file')
+		debug_log_file = logging_config.get('debug_log_file')
+		info_log_file = logging_config.get('info_log_file')
+		
+		# Simple formatter for file handlers
+		class SimpleFormatter(logging.Formatter):
+			def format(self, record):
+				return super().format(record)
+		
+		# Add file handlers
+		if log_file:
+			file_handler = logging.FileHandler(log_file)
+			file_handler.setLevel(logging.INFO)  # Use INFO as default level for TUI
+			file_handler.setFormatter(SimpleFormatter('%(asctime)s - %(levelname)-8s [%(name)s] %(message)s'))
+			root_logger.addHandler(file_handler)
+		
+		if debug_log_file:
+			debug_handler = logging.FileHandler(debug_log_file)
+			debug_handler.setLevel(logging.DEBUG)
+			debug_handler.setFormatter(SimpleFormatter('%(asctime)s - %(levelname)-8s [%(name)s] %(message)s'))
+			root_logger.addHandler(debug_handler)
+		
+		if info_log_file:
+			info_handler = logging.FileHandler(info_log_file)
+			info_handler.setLevel(logging.INFO)
+			info_handler.setFormatter(SimpleFormatter('%(asctime)s - %(levelname)-8s [%(name)s] %(message)s'))
+			root_logger.addHandler(info_handler)
+		
 		logger.debug('Logging configured for Textual UI')
 
 	logger.debug('Setting up Browser, Controller, and LLM...')
@@ -1593,6 +1640,9 @@ async def textual_interface(config: dict[str, Any]):
 @click.option('--proxy-password', type=str, help='Proxy auth password')
 @click.option('-p', '--prompt', type=str, help='Run a single task without the TUI (headless mode)')
 @click.option('--mcp', is_flag=True, help='Run as MCP server (exposes JSON RPC via stdin/stdout)')
+@click.option('--log-file', type=str, help='Save all logs to this file')
+@click.option('--debug-log-file', type=str, help='Save debug level logs to this file')
+@click.option('--info-log-file', type=str, help='Save info level logs to this file')
 @click.pass_context
 def main(ctx: click.Context, debug: bool = False, **kwargs):
 	"""Browser-Use Interactive TUI or Command Line Executor
