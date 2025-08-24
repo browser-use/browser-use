@@ -637,6 +637,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# The task continues with new instructions, it doesn't end and start a new one
 		self.task = new_task
 		self._message_manager.add_new_task(new_task)
+		
+		# Reset waiting for user input flag if it was set
+		if hasattr(self, '_waiting_for_user_input'):
+			self._waiting_for_user_input = False
+			self.logger.info('🟢 User input received, agent will resume execution')
+
+	def is_waiting_for_user_input(self) -> bool:
+		"""Check if the agent is currently waiting for user input"""
+		return hasattr(self, '_waiting_for_user_input') and self._waiting_for_user_input
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='_raise_if_stopped_or_paused')
 	async def _raise_if_stopped_or_paused(self) -> None:
@@ -1379,6 +1388,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						agent_run_error = 'Agent stopped programmatically while paused'
 						break
 
+				# Check if agent is waiting for user input
+				if hasattr(self, '_waiting_for_user_input') and self._waiting_for_user_input:
+					self.logger.debug(f'⏸️ Step {step}: Agent waiting for user input...')
+					# Exit the execution loop - the agent will resume when add_new_task is called
+					return self.history
+
 				if on_step_start is not None:
 					await on_step_start(self)
 
@@ -1646,6 +1661,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.logger.debug(
 					f'☑️ Executed action {i + 1}/{total_actions}: {green}{action_params}{reset} in {time_elapsed:.2f}s'
 				)
+
+				# Check if this is a wait_for_user_input action
+				if result.metadata and result.metadata.get('wait_for_user_input'):
+					question = result.metadata.get('question', 'Please provide input')
+					self.logger.info(f'🔴 Agent is waiting for user input: {question}')
+					# Set a flag that the agent is waiting for user input
+					if not hasattr(self, '_waiting_for_user_input'):
+						self._waiting_for_user_input = True
+					return results  # Exit the action loop to allow user input
 
 				if results[-1].is_done or results[-1].error or i == total_actions - 1:
 					break

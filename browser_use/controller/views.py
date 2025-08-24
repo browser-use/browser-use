@@ -34,6 +34,10 @@ class DoneAction(BaseModel):
 	files_to_display: list[str] | None = []
 
 
+class WaitForUserInputAction(BaseModel):
+	question: str = Field(description='Question to ask the user while waiting for their input')
+
+
 T = TypeVar('T', bound=BaseModel)
 
 

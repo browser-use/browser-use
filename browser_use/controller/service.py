@@ -43,6 +43,7 @@ from browser_use.controller.views import (
 	StructuredOutputAction,
 	SwitchTabAction,
 	UploadFileAction,
+	WaitForUserInputAction,
 )
 from browser_use.dom.service import EnhancedDOMTreeNode
 from browser_use.filesystem.file_system import FileSystem
@@ -972,6 +973,18 @@ Provide the extracted information in a clear, structured format."""
 	# 		include_in_memory=False,
 	# 		long_term_memory=f"Inputted text '{text}' into cell",
 	# 	)
+
+		# Wait for user input action
+		@self.registry.action(
+			'Pause execution and wait for user input. Use this to ask the user questions or get clarification during task execution.',
+			param_model=WaitForUserInputAction,
+		)
+		async def wait_for_user_input(params: WaitForUserInputAction):
+			return ActionResult(
+				extracted_content=f"Waiting for user input: {params.question}",
+				long_term_memory=f"Asked user: {params.question}",
+				metadata={'wait_for_user_input': True, 'question': params.question}
+			)
 
 	# Custom done action for structured output
 	def _register_done_action(self, output_model: type[T] | None, display_files_in_done_text: bool = True):

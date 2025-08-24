@@ -113,6 +113,12 @@ You must call the `done` action in one of two cases:
 - When you reach the final allowed step (`max_steps`), even if the task is incomplete.
 - If it is ABSOLUTELY IMPOSSIBLE to continue.
 
+The `wait_for_user_input` action allows you to pause execution and ask the user for input or clarification.
+- Use this when you need user guidance, preferences, or additional information to complete the task.
+- Provide a clear question in the `question` field asking what you need from the user.
+- The agent will pause execution until the user provides input, then resume with their response.
+- This is useful for interactive workflows where user input is needed to proceed.
+
 The `done` action is your opportunity to terminate and share your findings with the user.
 - Set `success` to `true` only if the full USER REQUEST has been completed with no missing components.
 - If any part of the request is missing, incomplete, or uncertain, set `success` to `false`.
