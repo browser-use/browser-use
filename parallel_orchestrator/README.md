@@ -1,196 +1,109 @@
-# Browser Use Parallel Agents
+# Parallel Orchestrator for Browser-Use
 
-A beautiful, interactive terminal interface for multi-agent browser orchestration using AI-driven task decomposition and parallel execution.
+A multi-agent system that automatically splits complex tasks into parallel subtasks and executes them simultaneously using Browser-Use.
 
-## 🚀 Features
+## What It Does
 
-- **Beautiful ASCII Art Banner** - Styled startup banner with grid-based text
-- **Live Dashboard** - Real-time terminal interface with multiple panels
-- **Task Queue Management** - Track all subtasks created by the base agent
-- **Worker Agent Status** - Monitor up to 10 worker agents with live status updates
-- **Shared Memory Output** - Live display of results from completed subtasks
-- **Progress Tracking** - Visual progress bar showing completion status
-- **Interactive Chat Interface** - Enter tasks and see results without closing the app
-- **Clean Output Files** - Results saved to `final_answers.txt` for easy access
+Give it any task like "Find the ages of Elon Musk and Sam Altman" and it will:
+1. Split the task into subtasks (one for each person)
+2. Create worker agents to handle each subtask in parallel
+3. Execute all subtasks simultaneously using browser automation
+4. Combine the results into a final answer
 
-## 📋 Dashboard Panels
+## Features
 
-### Task Queue
-- Shows all subtasks created by the base agent
-- Status indicators: Pending ⏳ / Assigned 🔄 / Done ✅ / Failed ❌
-- Task descriptions and assignment tracking
+- **Smart Task Splitting**: Uses AI to break down complex tasks into parallel subtasks
+- **True Parallelism**: Runs multiple browser automation tasks at the same time
+- **Beautiful Interface**: Real-time progress tracking with a clean terminal UI
+- **Error Recovery**: Handles failures gracefully without stopping the entire process
+- **Resource Management**: Automatically cleans up browser sessions
 
-### Worker Agent Status
-- Displays up to 10 worker agents
-- Real-time status: Idle 💤 / Running 🔄 / Done ✅ / Failed ❌
-- Progress tracking and retry attempts
-- Current task assignments
+## Quick Start
 
-### Shared Memory Output
-- Live display of results from completed subtasks
-- Truncated previews for long results
-- Real-time updates as tasks complete
-
-### Final Aggregated Output
-- Clean, AI-processed final answers
-- Formatted results ready for use
-- Updates when all tasks are complete
-
-### Progress Bar
-- Visual progress indicator: ████░░░░░░ 4/10 tasks done
-- Percentage completion tracking
-- Real-time updates
-
-## 🛠️ Installation
-
-1. **Set your Gemini API key:**
-```bash
-export GOOGLE_API_KEY="your-actual-gemini-api-key-here"
-```
-
-2. **Install dependencies:**
-```bash
-pip install rich>=14.0.0
-```
-
-## 🎮 Usage
-
-### Quick Start
-```bash
-python3.11 run_interface.py
-```
-
-### Manual Start
-```bash
-python3.11 terminal_interface.py
-```
-
-### Basic Example
-```bash
-python3.11 example.py
-```
-
-## 💬 Interactive Commands
-
-Once the interface is running:
-
-1. **Enter your task** - Type any natural language task
-   ```
-   Enter your task: Find the ages of Elon Musk and Sam Altman
+1. **Install Browser-Use**:
+   ```bash
+   pip install browser-use
    ```
 
-2. **Watch the dashboard** - See real-time updates as:
-   - Base Agent splits the task
-   - Worker Agents are created
-   - Tasks are assigned and executed
-   - Results are aggregated
+2. **Set your API key**:
+   ```bash
+   export GOOGLE_API_KEY='your-google-api-key-here'
+   ```
 
-3. **View results** - See final answers in:
-   - Terminal output
-   - `final_answers.txt` file
+3. **Run the system**:
+   ```bash
+   python3.11 parallel_orchestrator/real_interface.py
+   ```
 
-4. **Continue chatting** - Enter 'q' to quit or enter another task
+## Usage
 
-## 🎯 Example Tasks
+### Interactive Mode
+Run the interface and enter tasks interactively:
+```bash
+python3.11 parallel_orchestrator/real_interface.py
+```
 
-- **"Find the ages of Elon Musk and Sam Altman"**
-- **"Search for the latest iPhone and Samsung Galaxy prices"**
-- **"Compare Tesla and Ford stock prices"**
-- **"Find the weather in New York and Los Angeles"**
-- **"Search for the top 3 AI companies and their CEOs"**
+The system will show you:
+- Real-time progress as workers execute tasks
+- Final results in the terminal
+- Option to run multiple tasks in sequence
 
-## 🔧 System Architecture
+### Programmatic Mode
+```python
+from parallel_orchestrator.base_agent import BaseAgent
+import asyncio
 
-### Base Agent
-- Uses AI to analyze and split complex tasks
-- Creates optimal number of worker agents
-- Aggregates results from all workers
-- Generates clean, final answers
+async def main():
+    base_agent = BaseAgent(
+        api_key="your-api-key",
+        model='gemini-1.5-flash',
+        max_workers=10,
+        headless=True
+    )
+    
+    results = await base_agent.process_task("Find the ages of Elon Musk and Sam Altman")
+    print(results)
 
-### Worker Agents
-- Execute individual subtasks in parallel
-- Use browser automation for web scraping
-- Store results in shared memory
-- Provide real-time status updates
+asyncio.run(main())
+```
 
-### Shared Memory
-- Thread-safe communication between agents
-- Real-time status tracking
-- Result storage and retrieval
-- Dashboard data source
+## Example Tasks
 
-## 📊 Status Indicators
+The system works well with tasks that can be broken into parallel parts:
 
-- **⏳ Pending** - Task created, waiting for assignment
-- **🔄 Assigned** - Task assigned to worker, ready to run
-- **🔄 Running** - Worker actively executing task
-- **✅ Done** - Task completed successfully
-- **❌ Failed** - Task failed with error
-- **💤 Idle** - Worker available, no task assigned
+- "Find the ages of Elon Musk and Sam Altman"
+- "When were Apple, Microsoft and Google founded?"
+- "Compare Tesla and Ford stock prices"
+- "Find weather in New York and Los Angeles"
+- "Search for the top 3 AI companies and their CEOs"
 
-## 🎨 Visual Features
+## How It Works
 
-- **Color-coded status** - Different colors for different states
-- **Emoji indicators** - Visual status icons
-- **Progress bars** - Visual completion tracking
-- **Real-time updates** - Live dashboard refresh
-- **Responsive layout** - Adapts to terminal size
+1. **Task Analysis**: AI analyzes your task and determines how to split it
+2. **Worker Creation**: Creates worker agents for each subtask
+3. **Parallel Execution**: All workers run simultaneously using Browser-Use
+4. **Result Collection**: Results are gathered and combined
+5. **Final Output**: Clean, formatted answer is displayed in the terminal
 
-## 🔍 Troubleshooting
+## Configuration
 
-### API Quota Issues
-If you hit Gemini API quota limits:
-- Wait for quota reset (midnight PT / noon Tbilisi time)
-- Use a different API key
-- Switch to a paid plan
+- **API Key**: Set `GOOGLE_API_KEY` environment variable
+- **Model**: Uses Gemini 1.5 Flash by default
+- **Max Workers**: Up to 10 parallel workers (configurable)
+- **Headless Mode**: Runs browsers in background by default
 
-### Browser Issues
-If browser automation fails:
-- Check internet connection
-- Ensure Playwright is installed
-- Try running in headless mode
+## Troubleshooting
 
-### Import Errors
-If you get import errors:
-- Install missing dependencies: `pip install rich`
-- Check you're in the correct directory
-- Verify Python version (3.11+)
+- **API Key Issues**: Make sure `GOOGLE_API_KEY` is set correctly
+- **Browser Problems**: Ensure Chrome/Chromium is installed
+- **Rate Limits**: The system handles API limits gracefully
 
-## 📝 Output Files
+## Architecture
 
-- **`final_answers.txt`** - Clean, formatted final results
-- **`shared_memory_contents.txt`** - Detailed debug information
-- **Terminal output** - Real-time dashboard and results
+- **BaseAgent**: Orchestrates task splitting and result aggregation
+- **WorkerAgent**: Executes individual subtasks using Browser-Use
+- **SharedMemory**: Thread-safe communication between agents
 
-## 🚀 Advanced Usage
+## License
 
-### Custom Tasks
-The system can handle any natural language task that can be broken down into parallel subtasks:
-
-- **Research tasks** - Find information about multiple topics
-- **Comparison tasks** - Compare multiple items or services
-- **Data collection** - Gather data from multiple sources
-- **Monitoring tasks** - Check status of multiple systems
-
-### Task Optimization
-The Base Agent automatically:
-- Analyzes task complexity
-- Determines optimal number of workers
-- Splits tasks for maximum parallelism
-- Handles task dependencies
-
-## 🎉 Success Stories
-
-The system has successfully completed tasks like:
-- Finding ages of multiple people in parallel
-- Comparing stock prices across companies
-- Researching multiple AI companies simultaneously
-- Gathering weather data for multiple cities
-
-## 🔮 Future Enhancements
-
-- **Custom worker types** - Specialized agents for different tasks
-- **Task scheduling** - Queue management for multiple tasks
-- **Result caching** - Avoid re-running completed tasks
-- **Advanced analytics** - Performance metrics and optimization
-- **Web interface** - Browser-based dashboard option 
+MIT License - same as Browser-Use 

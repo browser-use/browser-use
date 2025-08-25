@@ -246,10 +246,13 @@ async def main():
     # Check for API key
     api_key = os.getenv('GOOGLE_API_KEY')
     if not api_key or api_key == "YOUR_API_K...":
-        # Set the actual API key
-        api_key = "AIzaSyA5_5u1A7ynST0rOn5QWrO1EH4sHqnyJVw"
-        os.environ['GOOGLE_API_KEY'] = api_key
-        print("✅ API key set successfully!")
+        # Get API key from environment variable
+        api_key = os.getenv('GOOGLE_API_KEY')
+        if not api_key:
+            print("❌ Error: GOOGLE_API_KEY environment variable not set.")
+            print("Please set it with: export GOOGLE_API_KEY='your-key-here'")
+            sys.exit(1)
+        print("✅ API key found!")
     else:
         print("✅ API key found!")
     

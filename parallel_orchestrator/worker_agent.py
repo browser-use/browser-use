@@ -6,6 +6,7 @@ from typing import Any
 
 from browser_use import Agent, BrowserProfile, BrowserSession, Controller
 from browser_use.llm import ChatGoogle
+from browser_use.llm.messages import UserMessage
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -119,17 +120,37 @@ class WorkerAgent:
             except Exception as e:
                 logger.error(f'Worker {self.worker_id}: Error during cleanup: {str(e)}')
 
-    def _extract_person_name(self, task: str) -> str:
-        """Extract a meaningful name from the task for result storage."""
-        # Look for common person names in the task
-        people = ["Mark Zuckerberg", "Elon Musk", "Donald Trump", "Sam Altman", "Alexandr Wang", "Roy Lee"]
-        for person in people:
-            if person.lower() in task.lower():
-                return person
-        
-        # If no specific person found, create a generic name
-        task_words = task.split()[:3]  # Take first 3 words
-        return f"Task_{'_'.join(task_words)}"
+    async def _generate_result_key(self, task: str) -> str:
+        """Generate a meaningful result key from the task using AI logic."""
+        # Use AI to extract a meaningful key from the task
+        try:
+            if self.shared_memory and hasattr(self, 'llm'):
+                prompt = f"""
+                Given this task: "{task}"
+                
+                Generate a short, meaningful key (2-4 words) that represents what this task is looking for.
+                Examples:
+                - "Find the age of Elon Musk" → "Elon_Musk_age"
+                - "When was Tesla founded" → "Tesla_founding_date"
+                - "Compare Apple and Microsoft" → "Apple_Microsoft_comparison"
+                - "Find weather in New York" → "New_York_weather"
+                
+                Return only the key, no explanation.
+                """
+                
+                # Use the LLM to generate a meaningful key
+                response = await self.llm.ainvoke([UserMessage(content=prompt)])
+                key = response.completion.strip().replace(" ", "_")
+                return key if key else f"Task_{hashlib.md5(task.encode()).hexdigest()[:8]}"
+            else:
+                # Fallback: use task hash
+                task_hash = hashlib.md5(task.encode()).hexdigest()[:8]
+                return f"Task_{task_hash}"
+        except Exception as e:
+            logger.debug(f"Error generating AI key: {str(e)}")
+            # Fallback: use task hash
+            task_hash = hashlib.md5(task.encode()).hexdigest()[:8]
+            return f"Task_{task_hash}"
 
     async def run_task(self):
         """Run the assigned task and return results."""
@@ -177,7 +198,7 @@ class WorkerAgent:
                 await self.shared_memory.set(f"worker_{self.worker_id}_progress", "75%")
 
             # Extract meaningful name for result key
-            result_key = self._extract_person_name(task)
+            result_key = await self._generate_result_key(task)
 
             # Store result in shared memory
             if self.shared_memory:
