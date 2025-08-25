@@ -57,6 +57,15 @@ OPENAI_API_KEY=
 
 For other settings, models, and more, check out the [documentation 📕](https://docs.browser-use.com).
 
+## 🎯 Prompt Guide
+
+Want to get the best results from your browser agents? Check out our comprehensive **[Prompt Guide](PROMPT_GUIDE.md)** for:
+- Step-by-step prompting strategies for high accuracy
+- Troubleshooting when agents get stuck or wait too long
+- Complete reference of available tools and actions
+- Real-world examples with structured data extraction
+- Best practices and common pitfalls to avoid
+
 # Demos
 
 <br/><br/>
