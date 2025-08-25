@@ -38,7 +38,8 @@
                   "quickstart",
                   "quickstart_llm"
                 ]
-              }
+              },
+              "examples"
             ]
           },
           {
