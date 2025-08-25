@@ -35,11 +35,10 @@ async def my_step_hook(agent: Agent):
     #   agent.controller, agent.llm, agent.browser_session
     #   agent.pause(), agent.resume(), agent.add_new_task(...), etc.
 
-    # You also have direct access to the playwright Page and Browser Context
-    page = await agent.browser_session.get_current_page()
-    #   https://playwright.dev/python/docs/api/class-page
-
-    current_url = page.url
+    # You also have direct access to the browser state
+    state = await agent.browser_session.get_browser_state_summary()
+    
+    current_url = state.url
     visit_log = agent.history.urls()
     previous_url = visit_log[-2] if len(visit_log) >= 2 else None
     print(f"Agent was last on URL: {previous_url} and is now on {current_url}")
@@ -96,10 +95,10 @@ When working with agent hooks, you have access to the entire `Agent` instance. H
   - `agent.history.model_actions()`: Actions taken by the agent
   - `agent.history.extracted_content()`: Content extracted from web pages
   - `agent.history.urls()`: URLs visited by the agent
-- `agent.browser_session` gives direct access to the `BrowserSession()` and playwright objects
-  - `agent.browser_session.get_current_page()`: Get the current playwright `Page` object the agent is focused on
-  - `agent.browser_session.browser_context`: Get the current playwright `BrowserContext` object
-  - `agent.browser_session.browser_context.pages`: Get all the tabs currently open in the context
+- `agent.browser_session` gives direct access to the `BrowserSession()` and CDP interface
+  - `agent.browser_session.agent_focus`: Get the current CDP session the agent is focused on
+  - `agent.browser_session.get_or_create_cdp_session()`: Get the current CDP session for browser interaction
+  - `agent.browser_session.get_tabs()`: Get all tabs currently open
   - `agent.browser_session.get_page_html()`: Current page HTML
   - `agent.browser_session.take_screenshot()`: Screenshot of the current page
 

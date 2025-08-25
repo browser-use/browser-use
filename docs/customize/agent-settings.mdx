@@ -58,9 +58,12 @@ agent = Agent(
 
 ### Reuse Existing Browser Context
 
-By default browser-use launches its own builtin browser using playwright chromium.
-You can also connect to a remote browser or pass any of the following
-existing playwright objects to the Agent: `page`, `browser_context`, `browser`, `browser_session`, or `browser_profile`.
+By default browser-use launches its own builtin browser using Playwright-installed chromium.
+You can also connect to a remote browser or pass `browser_session` or `browser_profile` objects to the Agent.
+
+<Note>
+Playwright Page/Browser/Context objects are no longer supported. Browser Use now uses CDP exclusively for browser interaction.
+</Note>
 
 These all get passed down to create a `BrowserSession` for the `Agent`:
 
@@ -79,12 +82,8 @@ agent = Agent(
       executable_path=...               # provide a custom chrome binary path
       # or
       channel=...                       # specify chrome, chromium, ms-edge, etc.
-      # or
-      page=page,                        # use an existing playwright Page object
-      # or
-      browser_context=browser_context,  # use an existing playwright BrowserContext object
-      # or
-      browser=browser,                  # use an existing playwright Browser object
+      # Note: Playwright Page/Browser/Context objects are no longer supported.
+      # Browser Use now uses CDP directly for browser interaction.
     ),
 )
 ```

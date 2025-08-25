@@ -24,11 +24,13 @@ With pip (Python>=3.11):
 pip install browser-use
 ```
 
-If you don't already have Chrome or Chromium installed, you can also download the latest Chromium using playwright's install shortcut:
+If you don't already have Chrome or Chromium installed, you can also download the latest Chromium using Playwright's install shortcut:
 
 ```bash
 uvx playwright install chromium --with-deps --no-shell
 ```
+
+**Note:** Browser Use uses Playwright only for installing browser binaries. All browser interaction is done through Chrome DevTools Protocol (CDP) for better performance and reliability.
 
 
 Spin up your agent:

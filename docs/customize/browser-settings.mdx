@@ -34,7 +34,7 @@ agent = Agent('fill out the form on this page', browser_session=browser_session)
 ## `BrowserSession`
 
 - `BrowserSession(**params)` is Browser Use's object that tracks a connection to a running browser. It sets up:
-  - the `playwright`, `browser`, `browser_context`, and `page` objects and tracks which tabs the agent/human are focused on
+  - the CDP client connection and tracks which tabs the agent is focused on
   - methods to interact with the browser window, apply config needed by the Agent, and run the `DOMService` for element detection
   - it can take a `browser_profile=BrowserProfile(...)` template containing some config defaults, and `**kwargs` session-specific config overrides
 
@@ -159,8 +159,12 @@ This is useful because a user may only have 2 or 3 profiles, but they could have
 - [Playwright parameters](#playwright)
 - [Browser-Use parameters](#browser-use-parameters) (extra options we provide on top of `playwright`)
 
-The only parameters `BrowserProfile` can NOT take are the session-specific connection parameters and live playwright objects:  
-`cdp_url`, `wss_url`, `browser_pid`, `page`, `browser`, `browser_context`, `playwright`, etc.
+The only parameters `BrowserProfile` can NOT take are the session-specific connection parameters:  
+`cdp_url`, `wss_url`, `browser_pid`, etc.
+
+<Note>
+Playwright Page/Browser/Context objects are no longer supported as parameters.
+</Note>
 
 ### Basic Example
 
@@ -932,14 +936,16 @@ browser_session = BrowserSession(
 
 # you can drive a session without the agent / reuse it between agents
 await browser_session.start()
-page = await browser_session.get_current_page()
-await page.goto('https://example.com/first/page')
+
+# Navigate using events
+from browser_use.browser.events import NavigateToUrlEvent
+navigate_event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url='https://example.com/first/page'))
+await navigate_event
 
 async def run_search():
     agent = Agent(
         task='Your task',
         llm=llm,
-        page=page,                        # optional: pass a specific playwright page to start on
         browser_session=browser_session,  # optional: pass an existing browser session to an agent
     )
 ```
