@@ -8,6 +8,7 @@ from inspect import Parameter, iscoroutinefunction, signature
 from types import UnionType
 from typing import Any, Generic, Optional, TypeVar, Union, get_args, get_origin
 
+import pyotp
 from pydantic import BaseModel, Field, RootModel, create_model
 
 from browser_use.browser import BrowserSession
@@ -446,7 +447,14 @@ class Registry(Generic[Context]):
 
 				for placeholder in matches:
 					if placeholder in applicable_secrets:
-						value = value.replace(f'<secret>{placeholder}</secret>', applicable_secrets[placeholder])
+						replacement_value = applicable_secrets[placeholder]
+
+						# generate a totp code if secret is a 2fa secret
+						if 'otp_secret' in placeholder:
+							totp = pyotp.TOTP(applicable_secrets[placeholder], digits=6)
+							replacement_value = totp.now()
+
+						value = value.replace(f'<secret>{placeholder}</secret>', replacement_value)
 						replaced_placeholders.add(placeholder)
 					else:
 						# Keep track of missing placeholders
