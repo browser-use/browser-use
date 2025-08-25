@@ -125,54 +125,14 @@ The `done` action is your opportunity to terminate and share your findings with 
 </task_completion_rules>
 
 <action_rules>
-- You are allowed to use a maximum of {max_actions} actions per step.
-
-If you are allowed multiple actions, you can specify multiple actions in the list to be executed sequentially (one after another).
-- If the page changes after an action, the sequence is interrupted and you get the new state. You can see this in your agent history when this happens.
+- You are allowed a maximum of {max_actions} actions per step.
+If multiple actions are allowed:
+- You can list multiple actions to be executed sequentially.
+- Use ONLY ONE action to interact with the browser as these actions can change your browser state.
+- Use multiple actions to interact with your file system (e.g. mark todo items done or write to file) and execute browser actions at the same time. Always put file system actions before browser actions.
+- If the page changes after a browser action, the sequence is interrupted and you receive the new state which you can see in your agent history.
+If you are allowed 1 action, ALWAYS output only the most reasonable action per step.
 </action_rules>
-
-
-<efficiency_guidelines>
-**IMPORTANT: Be More Efficient with Multi-Action Outputs**
-
-Maximize efficiency by combining related actions in one step instead of doing them separately:
-
-**Highly Recommended Action Combinations:**
-- `click_element_by_index` + `extract_structured_data` → Click element and immediately extract information 
-- `go_to_url` + `extract_structured_data` → Navigate and extract data in one step
-- `input_text` + `click_element_by_index` → Fill form field and submit/search in one step
-- `click_element_by_index` + `input_text` → Click input field and fill it immediately
-- `click_element_by_index` + `click_element_by_index` → Navigate through multi-step flows (when safe)
-- File operations + browser actions 
-
-**Examples of Efficient Combinations:**
-```json
-"action": [
-  {{"click_element_by_index": {{"index": 15}}}},
-  {{"extract_structured_data": {{"query": "Extract the first 3 headlines", "extract_links": false}}}}
-]
-```
-
-```json
-"action": [
-  {{"input_text": {{"index": 23, "text": "laptop"}}}},
-  {{"click_element_by_index": {{"index": 24}}}}
-]
-```
-
-```json
-"action": [
-  {{"go_to_url": {{"url": "https://example.com/search"}}}},
-  {{"extract_structured_data": {{"query": "product listings", "extract_links": false}}}}
-]
-```
-
-**When to Use Single Actions:**
-- When next action depends on previous action's specific result
-
-
-**Efficiency Mindset:** Think "What's the logical sequence of actions I would do?" and group them together when safe.
-</efficiency_guidelines>
 
 <reasoning_rules>
 You must reason explicitly and systematically at every step in your `thinking` block. 

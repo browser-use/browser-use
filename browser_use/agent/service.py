@@ -164,7 +164,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		generate_gif: bool | str = False,
 		available_file_paths: list[str] | None = None,
 		include_attributes: list[str] | None = None,
-		max_actions_per_step: int = 10,
+		max_actions_per_step: int = 4,
 		use_thinking: bool = True,
 		flash_mode: bool = False,
 		max_history_items: int | None = None,
