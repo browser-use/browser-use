@@ -95,6 +95,8 @@ https://github.com/user-attachments/assets/de73ee39-432c-4b97-b4e8-939fd7f323b3
 
 For more examples see the [examples](examples) folder or join the [Discord](https://link.browser-use.com/discord) and show off your project. You can also see our [`awesome-prompts`](https://github.com/browser-use/awesome-prompts) repo for prompting inspiration.
 
+⚡ **Need maximum speed?** Check out our [speed-optimized example](examples/getting_started/05_speed_optimized.py) that combines flash mode, fast LLMs (Llama 4 on Groq), and optimized settings for 3-5x faster execution.
+
 ## MCP Integration
 
 Browser-use supports the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/), enabling integration with Claude Desktop and other MCP-compatible clients.
