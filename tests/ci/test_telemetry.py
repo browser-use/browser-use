@@ -111,6 +111,8 @@ def test_cli_telemetry_event():
 	assert 'version' in props
 	assert 'action' in props
 	assert 'mode' in props
+	assert 'is_docker' in props  # Docker context should be included
+	assert isinstance(props['is_docker'], bool)  # Should be a boolean
 	assert 'name' not in props  # name should not be in properties
 
 
@@ -259,6 +261,8 @@ def test_mcp_server_telemetry_event_with_parent_process():
 	props = event.properties
 	assert 'parent_process_cmdline' in props
 	assert props['parent_process_cmdline'] == 'python -m browser_use.mcp.server'
+	assert 'is_docker' in props  # Docker context should be included
+	assert isinstance(props['is_docker'], bool)  # Should be a boolean
 
 
 def test_telemetry_device_id_uses_config_dir():

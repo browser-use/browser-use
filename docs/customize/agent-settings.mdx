@@ -15,7 +15,7 @@ from browser_use import Agent, ChatOpenAI
 
 agent = Agent(
     task="Search for latest news about AI",
-    llm=ChatOpenAI(model="gpt-4o"),
+    llm=ChatOpenAI(model="gpt-4.1-mini"),
 )
 ```
 
@@ -58,9 +58,9 @@ agent = Agent(
 
 ### Reuse Existing Browser Context
 
-By default browser-use launches its own builtin browser using playwright chromium.
-You can also connect to a remote browser or pass any of the following
-existing playwright objects to the Agent: `page`, `browser_context`, `browser`, `browser_session`, or `browser_profile`.
+By default browser-use launches its own builtin browser using Playwright-installed chromium.
+You can also connect to a remote browser or pass `browser_session` or `browser_profile` objects to the Agent.
+
 
 These all get passed down to create a `BrowserSession` for the `Agent`:
 
@@ -79,12 +79,7 @@ agent = Agent(
       executable_path=...               # provide a custom chrome binary path
       # or
       channel=...                       # specify chrome, chromium, ms-edge, etc.
-      # or
-      page=page,                        # use an existing playwright Page object
-      # or
-      browser_context=browser_context,  # use an existing playwright BrowserContext object
-      # or
-      browser=browser,                  # use an existing playwright Browser object
+
     ),
 )
 ```

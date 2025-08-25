@@ -70,6 +70,7 @@ class AgentState(BaseModel):
 	paused: bool = False
 	stopped: bool = False
 	session_initialized: bool = False  # Track if session events have been dispatched
+	follow_up_task: bool = False  # Track if the agent is a follow-up task
 
 	message_manager_state: MessageManagerState = Field(default_factory=MessageManagerState)
 	file_system_state: FileSystemState | None = None
@@ -108,6 +109,9 @@ class ActionResult(BaseModel):
 	# if update_only_read_state is False we add the extracted_content to the agent long term memory if no long_term_memory is provided
 	extracted_content: str | None = None
 	include_extracted_content_only_once: bool = False  # Whether the extracted content should be used to update the read_state
+
+	# Metadata for observability (e.g., click coordinates)
+	metadata: dict | None = None
 
 	# Deprecated
 	include_in_memory: bool = False  # whether to include in extracted_content inside long_term_memory

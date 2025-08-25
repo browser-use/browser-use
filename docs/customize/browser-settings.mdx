@@ -22,16 +22,19 @@ agent = Agent('fill out the form on this page', browser_session=browser_session)
 ```
 
 <Note>
-  The new `BrowserSession` & `BrowserProfile` accept all the same arguments that Playwright's [`launch_persistent_context(...)`](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context) takes, giving you full control over browser settings at launch. (see below for the full list)
+  The new `BrowserSession` & `BrowserProfile` accept all the same arguments that
+  Playwright's
+  [`launch_persistent_context(...)`](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context)
+  takes, giving you full control over browser settings at launch. (see below for
+  the full list)
 </Note>
-
 
 ---
 
 ## `BrowserSession`
 
 - `BrowserSession(**params)` is Browser Use's object that tracks a connection to a running browser. It sets up:
-  - the `playwright`, `browser`, `browser_context`, and `page` objects and tracks which tabs the agent/human are focused on
+  - the CDP client connection and tracks which tabs the agent is focused on
   - methods to interact with the browser window, apply config needed by the Agent, and run the `DOMService` for element detection
   - it can take a `browser_profile=BrowserProfile(...)` template containing some config defaults, and `**kwargs` session-specific config overrides
 
@@ -65,8 +68,9 @@ PID of a running chromium-based browser process to connect to on localhost. See 
 
 <Note>
   For web scraping tasks on sites that restrict automated access, we recommend
-  using [our cloud](https://browser-use.com) or an external browser provider for better reliability. 
-  See the [Connect to your Browser](real-browser) guide for detailed connection instructions.
+  using [our cloud](https://browser-use.com) or an external browser provider for
+  better reliability. See the [Connect to your Browser](/customize/real-browser)
+  guide for detailed connection instructions.
 </Note>
 
 ### Session-Specific Parameters
@@ -79,13 +83,10 @@ browser_profile: BrowserProfile = BrowserProfile()
 
 Optional `BrowserProfile` template containing default config to use for the `BrowserSession`. (see below for more info)
 
-
-
-
 #### `**kwargs`
 
-`BrowserSession` can also accept *all* of the parameters [below](#browserprofile).
-(the parameters *above* this point are specific to `BrowserSession` and cannot be stored in a `BrowserProfile` template)
+`BrowserSession` can also accept _all_ of the parameters [below](#browserprofile).
+(the parameters _above_ this point are specific to `BrowserSession` and cannot be stored in a `BrowserProfile` template)
 
 Extra `**kwargs` passed to `BrowserSession(...)` act as session-specific overrides to the `BrowserProfile(...)` template.
 
@@ -111,7 +112,6 @@ await asyncio.gather(agent1.run(), agent2.run())
 
 ---
 
-
 ## `BrowserProfile`
 
 A `BrowserProfile` is a 📋 config template for a 🎭 `BrowserSession(...)`.
@@ -124,7 +124,9 @@ When you find yourself storing or re-using many browser configs, you can upgrade
 - config = {key: val, key: val, ...}
 - BrowserSession(**config)
 ```
+
 To this instead:
+
 ```diff
 + config = BrowserProfile(key=val, key=val, ...)
 + BrowserSession(browser_profile=config)
@@ -145,20 +147,24 @@ session = BrowserSession(headless=True, storage_state='auth.json', viewport={...
 
 <Tip>
 `BrowserProfiles`s are designed to easily be given 🆔 `uuid`s and put in a database + made editable by users. 
-`BrowserSession`s get their own 🆔 `uuid`s and be linked by 🖇 foreign key to whatever `BrowserProfiles` they use.  
+`BrowserSession`s get their own 🆔 `uuid`s and be linked by 🖇 foreign key to whatever `BrowserProfiles` they use.
 
 This cleanly separates the per-connection rows from the bulky re-usable config and avoids wasting space in your db.
 This is useful because a user may only have 2 or 3 profiles, but they could have 100k+ sessions within a few months.
-</Tip>
 
+</Tip>
 
 `BrowserProfile` and `BrowserSession` can both take any of the:
 
 - [Playwright parameters](#playwright)
 - [Browser-Use parameters](#browser-use-parameters) (extra options we provide on top of `playwright`)
 
-The only parameters `BrowserProfile` can NOT take are the session-specific connection parameters and live playwright objects:  
-`cdp_url`, `wss_url`, `browser_pid`, `page`, `browser`, `browser_context`, `playwright`, etc.
+The only parameters `BrowserProfile` can NOT take are the session-specific connection parameters:  
+`cdp_url`, `wss_url`, `browser_pid`, etc.
+
+<Note>
+Playwright Page/Browser/Context objects are no longer supported as parameters.
+</Note>
 
 ### Basic Example
 
@@ -195,6 +201,7 @@ If `True` it wont close the browser after the first `agent.run()` ends. Useful f
 ```python
 stealth: bool = False
 ```
+
 Set to `True` to use [`patchright`](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright) to avoid bot-blocking. (Might cause issues with some sites, requires manual testing.)
 
 <a name="restrict-urls"></a>
@@ -207,13 +214,14 @@ allowed_domains: list[str] | None = None
 
 List of allowed domains for navigation. If None, all domains are allowed.
 Example: `['google.com', '*.wikipedia.org']` - Here the agent will only be able to access `google.com` exactly and `wikipedia.org` + `*.wikipedia.org`.
-  
+
 Glob patterns are supported:
+
 - `['example.com']` ✅ will match only `https://example.com/*` exactly, subdomains will not be allowed.
   It's always the most secure to list all the domains you want to give the access to explicitly w/ schemes e.g.
   `['https://google.com', 'http*://www.google.com', 'https://myaccount.google.com', 'https://mail.google.com', 'https://docs.google.com']`
-- `['*.example.com']` ⚠️ **CAUTION** this will match `https://example.com` and *all* its subdomains.
-  Make sure *all* the subdomains are safe for the agent! `abc.example.com`, `def.example.com`, ..., `useruploads.example.com`, `admin.example.com`
+- `['*.example.com']` ⚠️ **CAUTION** this will match `https://example.com` and _all_ its subdomains.
+  Make sure _all_ the subdomains are safe for the agent! `abc.example.com`, `def.example.com`, ..., `useruploads.example.com`, `admin.example.com`
 
 #### `disable_security`
 
@@ -222,8 +230,8 @@ disable_security: bool = False
 ```
 
 <Warning>
-⚠️ Setting this to `True` is NOT RECOMMENDED.  
-It completely disables all basic browser security features.
+  ⚠️ Setting this to `True` is NOT RECOMMENDED. It completely disables all basic
+  browser security features.
 </Warning>
 
 This option is for debugging and interacting across cross-origin iFrames when there are no cookies or sensitive data in use.
@@ -236,11 +244,10 @@ deterministic_rendering: bool = False
 ```
 
 <Warning>
-⚠️ Setting this to `True` is NOT RECOMMENDED.  
-It can be glitchy & slow, and it increases chances of getting blocked by anti-bot systems. It's mostly useful for QA applications.
+  ⚠️ Setting this to `True` is NOT RECOMMENDED. It can be glitchy & slow, and it
+  increases chances of getting blocked by anti-bot systems. It's mostly useful
+  for QA applications.
 </Warning>
-
-
 
 It's a shortcut for adding these launch args:
 
@@ -251,7 +258,7 @@ It's a shortcut for adding these launch args:
 - `--force-device-scale-factor=2`
 - `--enable-webgl`
 
-With these options fonts will look slightly worse than macOS and slightly than Windows, but rendering will be more consistent between OSs and runs. The cost is performance and stability. Software rendering is slower, easier to fingerprint as a bot, and sometimes glitchy. You likely *don't need this option* unless you're trying to do screenshot diffing.
+With these options fonts will look slightly worse than macOS and slightly than Windows, but rendering will be more consistent between OSs and runs. The cost is performance and stability. Software rendering is slower, easier to fingerprint as a bot, and sometimes glitchy. You likely _don't need this option_ unless you're trying to do screenshot diffing.
 
 #### `highlight_elements`
 
@@ -268,6 +275,7 @@ viewport_expansion: int = 500
 ```
 
 Viewport expansion in pixels. With this you can control how much of the page is included in the context of the LLM:
+
 - `-1`: All elements from the entire page will be included, regardless of visibility (highest token usage but most complete).
 - `0`: Only elements which are currently visible in the viewport will be included.
 - `500` (default): Elements in the viewport plus an additional 500 pixels in each direction will be included, providing a balance between context and token usage.
@@ -330,8 +338,8 @@ The library will automatically save a new `storage_state.json` next to any `cook
 `storage_state.json`: `{"cookies": [{cookie}, {cookie}, {cookie}], "origins": {... optional localstorage state ...}}`
 
 Or run `playwright open https://example.com/ --save-storage=storage_state.json` and log into any sites you need to generate a fresh storage state file.
-</Warning>
 
+</Warning>
 
 #### `profile_directory`
 
@@ -366,13 +374,12 @@ trace_path: str | None = None
 
 Directory path for saving Agent trace files. Files are automatically named as `{trace_path}/{context_id}.zip`.
 
-
 ---
 
-<a name="playwright-parameters"></a><a name="playwright"></a>
+<a name="playwright-parameters"></a>
+<a name="playwright"></a>
 
 ### Playwright Launch Options
-
 
 All the parameters below are standard playwright parameters and can be passed to both `BrowserSession` and `BrowserProfile`.
 They are defined in `browser_use/browser/profile.py`. See here for the [official Playwright documentation](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context) for all of these options.
@@ -383,7 +390,7 @@ They are defined in `browser_use/browser/profile.py`. See here for the [official
 headless: bool | None = None
 ```
 
-Runs the browser without a visible UI. If None, auto-detects based on display availability. If you set `headless=False` on a server with no monitor attached, the browser will fail to launch (use `xvfb` + vnc to give a headless server a virtual display you can remote control). 
+Runs the browser without a visible UI. If None, auto-detects based on display availability. If you set `headless=False` on a server with no monitor attached, the browser will fail to launch (use `xvfb` + vnc to give a headless server a virtual display you can remote control).
 
 `headless=False` is recommended for maximum stealth and is required for human-in-the-loop workflows.
 
@@ -424,9 +431,8 @@ If you see errors like `Failed to parse Extensions` or similar and failures when
 ```python
 args: list[str] = []
 ```
+
 Additional command-line arguments to pass to the browser. See here for the [full list of available chrome launch options](https://peter.sh/experiments/chromium-command-line-switches/).
-
-
 
 #### `ignore_default_args`
 
@@ -434,7 +440,7 @@ Additional command-line arguments to pass to the browser. See here for the [full
 ignore_default_args: list[str] | bool = ['--enable-automation', '--disable-extensions']
 ```
 
-List of default CLI args to stop playwright from including when launching chrome. Set it to `True` to disable *all* default options (not recommended).
+List of default CLI args to stop playwright from including when launching chrome. Set it to `True` to disable _all_ default options (not recommended).
 
 #### `env`
 
@@ -488,10 +494,14 @@ Whether to automatically accept all downloads.
 #### `proxy`
 
 ```python
-proxy: dict | None = None
+proxy: ProxySettings | None = None
 ```
 
-Proxy settings. Example: `{"server": "http://proxy.com:8080", "username": "user", "password": "pass"}`. 
+Proxy settings (typed). Example:
+
+```python
+proxy=ProxySettings(server="http://proxy.com:8080", username="user", password="pass")
+```
 
 #### `permissions`
 
@@ -535,7 +545,6 @@ default_navigation_timeout: float | None = None
 ```
 
 Default timeout for page navigation in milliseconds (e.g. `30000` if you want 30s).
-
 
 ### Playwright Viewport Options
 
@@ -613,8 +622,8 @@ no_viewport: bool | None = not headless
 
 Disable fixed viewport. Content will resize with window.
 
-*Tip:* don't use this parameter, it's a playwright standard parameter but it's redundant and only serves to override the `viewport` setting above.
-A viewport is *always* used in headless mode regardless of this setting, and is *never* used in headful mode unless you pass `viewport={width, height}` explicitly.
+_Tip:_ don't use this parameter, it's a playwright standard parameter but it's redundant and only serves to override the `viewport` setting above.
+A viewport is _always_ used in headless mode regardless of this setting, and is _never_ used in headful mode unless you pass `viewport={width, height}` explicitly.
 
 #### `device_scale_factor`
 
@@ -720,7 +729,8 @@ bypass_csp: bool = False
 ```
 
 <Warning>
-Enabling this can increase security risk and makes the bot very easy to fingerprint. (Cloudflare, Datadome, etc. will block you)
+  Enabling this can increase security risk and makes the bot very easy to
+  fingerprint. (Cloudflare, Datadome, etc. will block you)
 </Warning>
 
 Toggles bypassing Content-Security-Policy. Enabling reduces some CSP-related errors that can arise from automation scripts injected into pages with strict policies that forbid inline scripts.
@@ -732,7 +742,7 @@ java_script_enabled: bool = True
 ```
 
 <Warning>
-Not recommended, untested with Browser Use and likely breaks things.
+  Not recommended, untested with Browser Use and likely breaks things.
 </Warning>
 
 Whether or not to enable JavaScript in the context.
@@ -769,7 +779,6 @@ client_certificates: list[ClientCertificate] = []
 
 Client certificates to be used with requests.
 
-
 ### Playwright Recording Options
 
 Note: Browser Use also provides some of our own recording-related options not listed below (see above).
@@ -786,7 +795,9 @@ record_video_dir: str | Path | None = None
 Directory to save `.webm` video recordings. [Playwright Docs: `record_video_dir`](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context-option-record-video-dir)
 
 <Note>
-This parameter also has an alias `save_recording_path` for backwards compatibility with past versions, but we recommend using the standard Playwright name `record_video_dir` going forward.
+  This parameter also has an alias `save_recording_path` for backwards
+  compatibility with past versions, but we recommend using the standard
+  Playwright name `record_video_dir` going forward.
 </Note>
 
 #### `record_video_size`
@@ -810,7 +821,9 @@ record_har_path: str | Path | None = None
 Path to save `.har` network trace files. [Playwright Docs: `record_har_path`](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context-option-record-har-path)
 
 <Note>
-This parameter also has an alias `save_har_path` for backwards compatibility with past versions, but we recommend using the standard Playwright name `record_har_path` going forward.
+  This parameter also has an alias `save_har_path` for backwards compatibility
+  with past versions, but we recommend using the standard Playwright name
+  `record_har_path` going forward.
 </Note>
 
 #### `record_har_content`
@@ -867,7 +880,9 @@ traces_dir: str | Path | None = None
 Directory to save all-in-one trace files. Files are automatically named as `{traces_dir}/{context_id}.zip`. [Playwright Docs: `traces_dir`](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context-option-traces-dir)
 
 <Note>
-This parameter also has an alias `trace_path` for backwards compatibility with past versions, but we recommend using the standard Playwright name `traces_dir` going forward.
+  This parameter also has an alias `trace_path` for backwards compatibility with
+  past versions, but we recommend using the standard Playwright name
+  `traces_dir` going forward.
 </Note>
 
 #### `handle_sighup`
@@ -921,14 +936,16 @@ browser_session = BrowserSession(
 
 # you can drive a session without the agent / reuse it between agents
 await browser_session.start()
-page = await browser_session.get_current_page()
-await page.goto('https://example.com/first/page')
+
+# Navigate using events
+from browser_use.browser.events import NavigateToUrlEvent
+navigate_event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url='https://example.com/first/page'))
+await navigate_event
 
 async def run_search():
     agent = Agent(
         task='Your task',
         llm=llm,
-        page=page,                        # optional: pass a specific playwright page to start on
         browser_session=browser_session,  # optional: pass an existing browser session to an agent
     )
 ```

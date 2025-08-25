@@ -1,0 +1,130 @@
+---
+title: "Python"
+description: "Get started with Browser Use Cloud API using Python"
+icon: "python"
+---
+
+<img
+  src="/images/cloud-banner-python.png"
+  alt="Browser Use Python"
+  width="full"
+/>
+
+> The repository is available on [GitHub](https://github.com/browser-use/browser-use-python).
+
+```sh
+pip install browser-use-sdk
+```
+
+☝️ Get your API Key at [Browser Use Cloud](https://cloud.browser-use.com/billing)
+
+```python
+from browser_use_sdk import BrowserUse
+
+client = BrowserUse(api_key="bu_...")
+
+result = client.tasks.run(
+    task="Search for the top 10 Hacker News posts and return the title and url."
+)
+
+result.done_output
+```
+
+> The full API reference can be found in [api.md](https://github.com/browser-use/browser-use-python/blob/main/api.md).
+
+## Async usage
+
+Simply import `AsyncBrowserUse` instead of `BrowserUse` and use `await` with each API call:
+
+```python
+import os
+import asyncio
+from browser_use_sdk import AsyncBrowserUse
+
+client = AsyncBrowserUse(
+    api_key=os.environ.get("BROWSER_USE_API_KEY"),  # This is the default and can be omitted
+)
+
+
+async def main() -> None:
+    task = await client.tasks.run(
+        task="Search for the top 10 Hacker News posts and return the title and url.",
+    )
+    print(task.done_output)
+
+
+asyncio.run(main())
+```
+
+Functionality between the synchronous and asynchronous clients is otherwise identical.
+
+## Structured Output with Pydantic
+
+Browser Use Python SDK provides first class support for Pydantic models.
+
+```py
+class HackerNewsPost(BaseModel):
+    title: str
+    url: str
+
+class SearchResult(BaseModel):
+    posts: List[HackerNewsPost]
+
+async def main() -> None:
+    structured_result = await client.tasks.run(
+        task="""
+        Find top 10 Hacker News articles and return the title and url.
+        """,
+        structured_output_json=SearchResult,
+    )
+
+    if structured_result.parsed_output is not None:
+        print("Top HackerNews Posts:")
+        for post in structured_result.parsed_output.posts:
+            print(f" - {post.title} - {post.url}")
+
+asyncio.run(main())
+```
+
+## Streaming Updates with Async Iterators
+
+```py
+class HackerNewsPost(BaseModel):
+    title: str
+    url: str
+
+class SearchResult(BaseModel):
+    posts: List[HackerNewsPost]
+
+
+async def main() -> None:
+    structured_task = await client.tasks.create(
+        task="""
+        Find top 10 Hacker News articles and return the title and url.
+        """,
+        structured_output_json=SearchResult,
+    )
+
+    async for update in client.tasks.stream(structured_task.id, structured_output_json=SearchResult):
+        if len(update.steps) > 0:
+            last_step = update.steps[-1]
+            print(f"{update.status}: {last_step.url} ({last_step.next_goal})")
+        else:
+            print(f"{update.status}")
+
+        if update.status == "finished":
+            if update.parsed_output is None:
+                print("No output...")
+            else:
+                print("Top HackerNews Posts:")
+                for post in update.parsed_output.posts:
+                    print(f" - {post.title} - {post.url}")
+
+                break
+
+asyncio.run(main())
+```
+
+## Advanced
+
+For more advanced usage of the SDK and contributions to the SDK, see [Github repository](https://github.com/browser-use/browser-use-python).

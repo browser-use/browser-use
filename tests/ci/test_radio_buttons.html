@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Radio Button Test</title>
+</head>
+<body>
+    <h1>Radio Button Test Page</h1>
+    
+    <form>
+        <fieldset>
+            <legend>Select your favorite color:</legend>
+            
+            <label>
+                <input type="radio" name="color" value="red" id="radio-red">
+                Red
+            </label>
+            <br>
+            
+            <label>
+                <input type="radio" name="color" value="blue" id="radio-blue">
+                Blue
+            </label>
+            <br>
+            
+            <label>
+                <input type="radio" name="color" value="green" id="radio-green">
+                Green
+            </label>
+            <br>
+        </fieldset>
+        
+        <fieldset>
+            <legend>Select your favorite animal:</legend>
+            
+            <label>
+                <input type="radio" name="animal" value="cat" id="radio-cat">
+                Cat
+            </label>
+            <br>
+            
+            <label>
+                <input type="radio" name="animal" value="dog" id="radio-dog">
+                Dog
+            </label>
+            <br>
+            
+            <label>
+                <input type="radio" name="animal" value="bird" id="radio-bird">
+                Bird
+            </label>
+            <br>
+        </fieldset>
+        
+        <div id="result-message" style="margin-top: 20px; padding: 10px; background-color: #f0f0f0; display: none;">
+            <p id="secret-text"></p>
+        </div>
+    </form>
+    
+    <script>
+        function checkSelection() {
+            const colorRadios = document.querySelectorAll('input[name="color"]');
+            const animalRadios = document.querySelectorAll('input[name="animal"]');
+            
+            let selectedColor = null;
+            let selectedAnimal = null;
+            
+            // Get selected color
+            for (const radio of colorRadios) {
+                if (radio.checked) {
+                    selectedColor = radio.value;
+                    break;
+                }
+            }
+            
+            // Get selected animal
+            for (const radio of animalRadios) {
+                if (radio.checked) {
+                    selectedAnimal = radio.value;
+                    break;
+                }
+            }
+            
+            const resultDiv = document.getElementById('result-message');
+            const secretText = document.getElementById('secret-text');
+            
+            // Show secret if both Blue and Dog are selected
+            if (selectedColor === 'blue' && selectedAnimal === 'dog') {
+                secretText.textContent = 'SECRET_SUCCESS_12345: Blue dog combination unlocked!';
+                resultDiv.style.display = 'block';
+                resultDiv.style.backgroundColor = '#d4edda';
+            } else if (selectedColor && selectedAnimal) {
+                secretText.textContent = `Selected: ${selectedColor} ${selectedAnimal}`;
+                resultDiv.style.display = 'block';
+                resultDiv.style.backgroundColor = '#f8d7da';
+            } else {
+                resultDiv.style.display = 'none';
+            }
+        }
+        
+        // Add event listeners to all radio buttons
+        document.querySelectorAll('input[type="radio"]').forEach(radio => {
+            radio.addEventListener('change', checkSelection);
+        });
+    </script>
+</body>
+</html>

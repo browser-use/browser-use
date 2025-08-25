@@ -1,0 +1,145 @@
+---
+title: "Node.js"
+description: "Get started with Browser Use Cloud API using Node.js"
+icon: "node-js"
+---
+
+<img src="/images/cloud-banner-js.png" alt="Browser Use Node.js" width="full" />
+
+> The repository is available on [GitHub](https://github.com/browser-use/browser-use-node)
+
+<CodeGroup>
+
+```sh npm
+npm install browser-use-sdk
+```
+
+```sh pnpm
+pnpm add browser-use-sdk
+```
+
+```sh yarn
+yarn add browser-use-sdk
+```
+
+```sh bun
+bun add browser-use-sdk
+```
+
+</CodeGroup>
+
+☝️ Get your API Key at [Browser Use Cloud](https://cloud.browser-use.com/billing)
+
+```ts
+import BrowserUse from "browser-use-sdk";
+
+const client = new BrowserUse({
+  apiKey: "bu_...",
+});
+
+const result = await client.tasks.run({
+  task: "Search for the top 10 Hacker News posts and return the title and url.",
+});
+
+console.log(result.doneOutput);
+```
+
+> The full API of this library can be found in [api.md](https://github.com/browser-use/browser-use-node/blob/main/api.md).
+
+### Structured Output with Zod
+
+```ts
+import z from "zod";
+
+const TaskOutput = z.object({
+  posts: z.array(
+    z.object({
+      title: z.string(),
+      url: z.string(),
+    })
+  ),
+});
+
+const result = await client.tasks.run({
+  task: "Search for the top 10 Hacker News posts and return the title and url.",
+  schema: TaskOutput,
+});
+
+for (const post of result.parsedOutput.posts) {
+  console.log(`${post.title} - ${post.url}`);
+}
+```
+
+### Streaming Agent Updates
+
+```ts
+const task = await browseruse.tasks.create({
+  task: "Search for the top 10 Hacker News posts and return the title and url.",
+  schema: TaskOutput,
+});
+
+const stream = browseruse.tasks.stream({
+  taskId: task.id,
+  schema: TaskOutput,
+});
+
+for await (const msg of stream) {
+  switch (msg.status) {
+    case "started":
+      console.log(`started: ${msg.data.session.liveUrl}`);
+      break;
+    case "paused":
+    case "stopped":
+      console.log(`running: ${msg}`);
+      break;
+
+    case "finished":
+      console.log(`done:`);
+
+      for (const post of msg.parsedOutput.posts) {
+        console.log(`${post.title} - ${post.url}`);
+      }
+      break;
+  }
+}
+```
+
+## Webhook Verification
+
+> We encourage you to use the SDK functions that verify and parse webhook events.
+
+```ts
+import {
+  verifyWebhookEventSignature,
+  type WebhookAgentTaskStatusUpdatePayload,
+} from "browser-use-sdk/lib/webhooks";
+
+export async function POST(req: Request) {
+  const signature = req.headers["x-browser-use-signature"] as string;
+  const timestamp = req.headers["x-browser-use-timestamp"] as string;
+
+  const event = await verifyWebhookEventSignature(
+    {
+      body,
+      signature,
+      timestamp,
+    },
+    {
+      secret: SECRET_KEY,
+    }
+  );
+
+  if (!event.ok) {
+    return;
+  }
+
+  switch (event.event.type) {
+    case "agent.task.status_update":
+      break;
+    case "test":
+      break;
+    default:
+      break;
+  }
+}
+```

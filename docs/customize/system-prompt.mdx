@@ -65,8 +65,8 @@ Always suggest exploring multiple options before making a decision.
 """
 
 # Create agent with extended planner system prompt
-llm = ChatOpenAI(model='gpt-4o')
-planner_llm = ChatOpenAI(model='gpt-4o-mini')
+llm = ChatOpenAI(model='gpt-4.1-mini')
+planner_llm = ChatOpenAI(model='gpt-4.1-mini-mini')
 
 agent = Agent(
 	task="Your task here",

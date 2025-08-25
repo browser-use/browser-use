@@ -59,10 +59,18 @@ When the LLM calls an action, it sees its argument names & types, and will provi
 
 ```python
 @controller.action('Click element')
-def click_element(css_selector: str, page: Page) -> ActionResult:
+async def click_element(css_selector: str, browser_session: BrowserSession) -> ActionResult:
     # css_selector is an action param the LLM must provide when calling
-    # page is a special framework-provided param to access the browser APIs (see below)
-    await page.locator(css_selector).click()
+    # browser_session is a special framework-provided param to access the browser APIs (see below)
+    
+    # Get the current CDP session to interact with the browser
+    cdp_session = await browser_session.get_or_create_cdp_session()
+    
+    # Use CDP to evaluate JavaScript and click the element
+    await cdp_session.cdp_client.send.Runtime.evaluate(
+        params={'expression': f'document.querySelector("{css_selector}").click()'},
+        session_id=cdp_session.session_id,
+    )
     return ActionResult(extracted_content=f"Clicked element {css_selector}")
 ```
 
@@ -89,12 +97,27 @@ class MyParams(BaseModel):
     field4: str = Field(default='abc', description='Detailed description for the LLM')
 
 @controller.action('My action', param_model=MyParams)
-def my_action(params: MyParams, page: Page) -> ActionResult:
-    await page.keyboard.type(params.field2)
-    return ActionResult(extracted_content=f"Inputted {params} on {page.url}")
+async def my_action(params: MyParams, browser_session: BrowserSession) -> ActionResult:
+    # Get the current CDP session to interact with the browser
+    cdp_session = await browser_session.get_or_create_cdp_session()
+    
+    # Use CDP to type text
+    await cdp_session.cdp_client.send.Input.insertText(
+        params={'text': params.field2},
+        session_id=cdp_session.session_id,
+    )
+    
+    # Get current URL using CDP
+    result = await cdp_session.cdp_client.send.Runtime.evaluate(
+        params={'expression': 'window.location.href', 'returnByValue': True},
+        session_id=cdp_session.session_id,
+    )
+    current_url = result.get('result', {}).get('value', 'unknown')
+    
+    return ActionResult(extracted_content=f"Inputted {params} on {current_url}")
 ```
 
-Any special framework-provided arguments (e.g. `page`) will be passed as separate positional arguments after `params`.
+Any special framework-provided arguments (e.g. `browser_session`) will be passed as separate positional arguments after `params`.
 
 <Important>
 To use a `BaseModel` the arg *must* be called `params`. Action function args are matched and filled like named arguments; arg order doesn't matter but names and types do.
@@ -104,47 +127,134 @@ To use a `BaseModel` the arg *must* be called `params`. Action function args are
 
 These special action parameters are injected by the `Controller` and are passed as extra args to any actions that expect them.
 
-For example, actions that need to run playwright code to interact with the browser should take the argument `page` or `browser_session`.
+For example, actions that need to interact with the browser should take the `browser_session` argument.
 
-- `page: Page` - The current Playwright page (shortcut for `browser_session.get_current_page()`)
-- `browser_session: BrowserSession` - The current browser session (and playwright context via `browser_session.browser_context`)
+- `browser_session: BrowserSession` - The current browser session with access to CDP for browser interaction
 - `context: AgentContext` - Any optional top-level context object passed to the Agent, e.g. `Agent(context=user_provided_obj)`
 - `page_extraction_llm: BaseChatModel` - LLM instance used for page content extraction
 - `available_file_paths: list[str]` - List of available file paths for upload / processing
 - `has_sensitive_data: bool` - Whether the action content contains sensitive data markers (check this to avoid logging sensitive data to terminal by accident)
 
-#### Example: Action uses the current `page`
+<Note>
+Browser Use has moved from Playwright to Chrome DevTools Protocol (CDP) for browser interaction. The `browser_session` provides access to CDP through `browser_session.agent_focus.cdp_client` or `await browser_session.get_or_create_cdp_session()`. Playwright is only used internally to install the browser binary, but all browser interaction is done via CDP.
+</Note>
 
+### Understanding the Browser Session Context
+
+The `BrowserSession` object provides multiple ways to interact with the browser:
+
+#### 1. Direct CDP Access
 ```python
-from browser_use.browser.types import Page
-from browser_use import Controller, ActionResult
+# Get the current CDP session
+cdp_session = await browser_session.get_or_create_cdp_session()
 
-controller = Controller()
+# Execute JavaScript
+result = await cdp_session.cdp_client.send.Runtime.evaluate(
+    params={'expression': 'document.title', 'returnByValue': True},
+    session_id=cdp_session.session_id,
+)
 
-@controller.action('Type keyboard input into a page')
-async def input_text_into_page(text: str, page: Page) -> ActionResult:
-    await page.keyboard.type(text)
-    return ActionResult(extracted_content='Website opened')
+# Click at coordinates
+await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+    params={
+        'type': 'mousePressed',
+        'x': 100,
+        'y': 200,
+        'button': 'left',
+        'clickCount': 1,
+    },
+    session_id=cdp_session.session_id,
+)
+await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+    params={
+        'type': 'mouseReleased',
+        'x': 100,
+        'y': 200,
+        'button': 'left',
+    },
+    session_id=cdp_session.session_id,
+)
 ```
 
-#### Example: Action uses the `browser_context`
+#### 2. Event-Based Actions
+```python
+from browser_use.browser.events import ClickElementEvent, TypeTextEvent, NavigateToUrlEvent
+
+# Get a DOM element first
+element = await browser_session.get_dom_element_by_index(5)
+
+# Dispatch events through the event bus
+click_event = browser_session.event_bus.dispatch(ClickElementEvent(node=element))
+await click_event
+
+type_event = browser_session.event_bus.dispatch(TypeTextEvent(node=element, text="Hello"))
+await type_event
+
+navigate_event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url="https://example.com"))
+await navigate_event
+```
+
+#### 3. High-Level Browser Session Methods
+```python
+# Get current page information
+state = await browser_session.get_browser_state_summary()
+print(f"Current URL: {state.url}")
+print(f"Page title: {state.title}")
+
+# Take a screenshot
+screenshot_path = await browser_session.take_screenshot()
+
+# Get page HTML
+html = await browser_session.get_page_html()
+
+# Get all open tabs
+tabs = await browser_session.get_tabs()
+```
+
+#### Example: Action uses the current browser session
 
 ```python
 from browser_use import BrowserSession, Controller, ActionResult
 
 controller = Controller()
 
+@controller.action('Type keyboard input into a page')
+async def input_text_into_page(text: str, browser_session: BrowserSession) -> ActionResult:
+    # Get the current CDP session to interact with the browser
+    cdp_session = await browser_session.get_or_create_cdp_session()
+    
+    # Use CDP to type text
+    await cdp_session.cdp_client.send.Input.insertText(
+        params={'text': text},
+        session_id=cdp_session.session_id,
+    )
+    return ActionResult(extracted_content='Text input completed')
+```
+
+#### Example: Action uses browser session for tab management
+
+```python
+from browser_use import BrowserSession, Controller, ActionResult
+from browser_use.browser.events import NavigateToUrlEvent, SwitchTabEvent
+
+controller = Controller()
+
 @controller.action('Open website')
 async def open_website(url: str, browser_session: BrowserSession) -> ActionResult:
-    # find matching existing tab by looking through all pages in playwright browser_context
-    all_tabs = await browser_session.browser_context.pages
-    for tab in all_tabs:
+    # Get all open tabs
+    tabs = await browser_session.get_tabs()
+    
+    # Check if URL is already open in any tab
+    for tab in tabs:
         if tab.url == url:
-            await tab.bring_to_foreground()
-            return ActionResult(extracted_content=f'Switched to tab with url {url}')
-    # otherwise, create a new tab
-    new_tab = await browser_session.browser_context.new_page()
-    await new_tab.goto(url)
+            # Switch to existing tab using events
+            switch_event = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=tab.target_id))
+            await switch_event
+            return ActionResult(extracted_content=f'Switched to existing tab with url {url}')
+    
+    # Otherwise, open URL in a new tab using events
+    navigate_event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=url, new_tab=True))
+    await navigate_event
     return ActionResult(extracted_content=f'Opened new tab with url {url}')
 ```
 
@@ -155,15 +265,15 @@ async def open_website(url: str, browser_session: BrowserSession) -> ActionResul
 ## Important Rules
 
 1. **Return an [`ActionResult`](https://github.com/search?q=repo%3Abrowser-use%2Fbrowser-use+%22class+ActionResult%28BaseModel%29%22&type=code)**: All actions should return an `ActionResult | str | None`. The stringified version of the result is passed back to the LLM, and optionally persisted in the long-term memory when `ActionResult(..., include_in_memory=True)`.
-2. **Type hints on arguments are required**: They are used to verify that action params don't conflict with special arguments injected by the controller (e.g. `page`)
+2. **Type hints on arguments are required**: They are used to verify that action params don't conflict with special arguments injected by the controller (e.g. `browser_session`)
 3. **Actions functions called directly must be passed kwargs**: When calling actions from other actions or python code, you must **pass all parameters as kwargs only**, even though the actions are usually defined using positional args (for the same reasons as [pluggy](https://pluggy.readthedocs.io/en/stable/index.html#calling-hooks)).
     Action arguments are always matched by name and type, **not** positional order, so this helps prevent ambiguity / reordering issues while keeping action signatures short.
     ```python
     @controller.action('Fill in the country form field')
-    def input_country_field(country: str, page: Page) -> ActionResult:
-        await some_action(123, page=page)                                # ❌ not allowed: positional args, use kwarg syntax when calling
-        await some_action(abc=123, page=page)                            # ✅ allowed: action params & special kwargs
-        await some_other_action(params=OtherAction(abc=123), page=page)  # ✅ allowed: params=model & special kwargs
+    async def input_country_field(country: str, browser_session: BrowserSession) -> ActionResult:
+        await some_action(123, browser_session=browser_session)                                # ❌ not allowed: positional args, use kwarg syntax when calling
+        await some_action(abc=123, browser_session=browser_session)                            # ✅ allowed: action params & special kwargs
+        await some_other_action(params=OtherAction(abc=123), browser_session=browser_session)  # ✅ allowed: params=model & special kwargs
     ```
 
 ```python
@@ -173,12 +283,12 @@ class PinCodeParams(BaseModel):
     retries: int = 3                                               # ✅ supports optional/defaults
 
 @controller.action('...', param_model=PinCodeParams)
-async def input_pin_code(params: PinCodeParams, page: Page): ...   # ✅ special params at the end
+async def input_pin_code(params: PinCodeParams, browser_session: BrowserSession): ...   # ✅ special params at the end
 
 # Using function arguments to define action params
-async def input_pin_code(code: int, retries: int, page: Page): ... # ✅ params first, special params second, no defaults
+async def input_pin_code(code: int, retries: int, browser_session: BrowserSession): ... # ✅ params first, special params second, no defaults
 async def input_pin_code(code: int, retries: int=3): ...           # ✅ defaults ok only if no special params needed
-async def input_pin_code(code: int, retries: int=3, page: Page): ... # ❌ Python SyntaxError! not allowed
+async def input_pin_code(code: int, retries: int=3, browser_session: BrowserSession): ... # ❌ Python SyntaxError! not allowed
 ```
 
 
@@ -228,23 +338,8 @@ agent = Agent(controller=controller, ...)
 ```
 
 
-If you want actions to only be available on certain pages, and to not tell the LLM about them on other pages,
- you can use the `allowed_domains` and `page_filter`:
 
-```python
-from pydantic import BaseModel
-from browser_use import Controller, ActionResult
-
-controller = Controller()
-
-async def is_ai_allowed(page: Page):
-    if api.some_service.check_url(page.url):
-        logger.warning('Allowing AI agent to visit url:', page.url)
-        return True
-    return False
-
-@controller.action('Fill out secret_form', allowed_domains=['https://*.example.com'], page_filter=is_ai_allowed)
+@controller.action('Fill out secret_form', allowed_domains=['https://*.example.com'])
 def fill_out_form(...) -> ActionResult:
-    ... will only be runnable by LLM on pages that match https://*.example.com *AND* where is_ai_allowed(page) returns True
-
+    ... will only be runnable by LLM on pages that match https://*.example.com
 ```

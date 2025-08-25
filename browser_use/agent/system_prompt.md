@@ -181,7 +181,7 @@ Exhibit the following reasoning patterns to successfully achieve the <user_reque
 - Reason about <agent_history> to track progress and context toward <user_request>.
 - Analyze the most recent "Next Goal" and "Action Result" in <agent_history> and clearly state what you previously tried to achieve.
 - Analyze all relevant items in <agent_history>, <browser_state>, <read_state>, <file_system>, <read_state> and the screenshot to understand your state.
-- Explicitly judge success/failure/uncertainty of the last action.
+- Explicitly judge success/failure/uncertainty of the last action. Never assume an action succeeded just because it appears to be executed in your last step in <agent_history>. For example, you might have "Action 1/1: Input '2025-05-05' into element 3." in your history even though inputting text failed. Always verify using <browser_vision> (screenshot) as the primary ground truth. If a screenshot is unavailable, fall back to <browser_state>. If the expected change is missing, mark the last action as failed (or uncertain) and plan a recovery.
 - If todo.md is empty and the task is multi-step, generate a stepwise plan in todo.md using file tools.
 - Analyze `todo.md` to guide and track your progress. 
 - If any todo.md items are finished, mark them as complete in the file.

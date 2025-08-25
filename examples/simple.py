@@ -1,3 +1,3 @@
 from browser_use import Agent
 
-Agent('Summarize the most recent issue of browser-use library')()
+Agent('Find the founders of browser-use').run_sync()

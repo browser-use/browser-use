@@ -28,10 +28,6 @@ if TYPE_CHECKING:
 	from browser_use.browser.session import BrowserSession
 
 
-# TODO: enable cross origin iframes -> experimental for now
-ENABLE_CROSS_ORIGIN_IFRAMES = False
-
-
 class DomService:
 	"""
 	Service for getting the DOM tree and other DOM-related information.
@@ -43,9 +39,12 @@ class DomService:
 
 	logger: logging.Logger
 
-	def __init__(self, browser_session: 'BrowserSession', logger: logging.Logger | None = None):
+	def __init__(
+		self, browser_session: 'BrowserSession', logger: logging.Logger | None = None, cross_origin_iframes: bool = False
+	):
 		self.browser_session = browser_session
 		self.logger = logger or browser_session.logger
+		self.cross_origin_iframes = cross_origin_iframes
 
 	async def __aenter__(self):
 		return self
@@ -616,7 +615,7 @@ class DomService:
 
 			if (
 				# TODO: hacky way to disable cross origin iframes for now
-				ENABLE_CROSS_ORIGIN_IFRAMES and node['nodeName'].upper() == 'IFRAME' and node.get('contentDocument', None) is None
+				self.cross_origin_iframes and node['nodeName'].upper() == 'IFRAME' and node.get('contentDocument', None) is None
 			):  # None meaning there is no content
 				# Use get_all_frames to find the iframe's target
 				frame_id = node.get('frameId', None)

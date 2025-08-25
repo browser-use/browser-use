@@ -1,24 +1,23 @@
 ---
 title: "Supported Models"
-description: "Using different chat providers with Browser Use"
+description: "Choose your favorite LLM"
 icon: "robot"
 ---
 
-## Model Recommendations
+### Recommendations
 
-We recommend using `O3` for the best performance. The best price to performance can be achieved using `gemini-2.0-flash-exp`.
+- Best accuracy: `O3`
+- Fastest: `llama4` on groq
+- Balanced: fast + cheap + clever: `gemini-2.5-flash` or `gpt-4.1-mini`
 
-## Supported Models
-
-In addition to all the models below, we support all other models that can be called via OpenAI compatible API (deepseek, novita, x, qwen). We are open to PRs for more providers.
+Find full examples built for you in github [examples/models](https://github.com/browser-use/browser-use/tree/main/examples/models).
 
 ### OpenAI
 
 `O3` model is recommended for best performance.
 
 ```python
-from browser_use.llm import ChatOpenAI
-from browser_use import Agent
+from browser_use import Agent, ChatOpenAI
 
 # Initialize the model
 llm = ChatOpenAI(
@@ -47,8 +46,7 @@ OPENAI_API_KEY=
 ### Anthropic
 
 ```python
-from browser_use.llm import ChatAnthropic
-from browser_use import Agent
+from browser_use import Agent, ChatAnthropic
 
 # Initialize the model
 llm = ChatAnthropic(
@@ -71,8 +69,7 @@ ANTHROPIC_API_KEY=
 ### Azure OpenAI
 
 ```python
-from browser_use.llm import ChatAzureOpenAI
-from browser_use import Agent
+from browser_use import Agent, ChatAzureOpenAI
 from pydantic import SecretStr
 import os
 
@@ -100,8 +97,7 @@ AZURE_OPENAI_API_KEY=
 > [!IMPORTANT] `GEMINI_API_KEY` was the old environment var name, it should be called `GOOGLE_API_KEY` as of 2025-05.
 
 ```python
-from browser_use.llm import ChatGoogle
-from browser_use import Agent
+from browser_use import Agent, ChatGoogle
 from dotenv import load_dotenv
 
 # Read GOOGLE_API_KEY into env
@@ -130,8 +126,7 @@ AWS Bedrock provides access to multiple model providers through a single API. We
 #### General AWS Bedrock (supports all providers)
 
 ```python
-from browser_use.llm import ChatAWSBedrock
-from browser_use import Agent
+from browser_use import Agent, ChatAWSBedrock
 
 # Works with any Bedrock model (Anthropic, Meta, AI21, etc.)
 llm = ChatAWSBedrock(
@@ -149,8 +144,7 @@ agent = Agent(
 #### Anthropic Claude via AWS Bedrock (convenience class)
 
 ```python
-from browser_use.llm import ChatAnthropicBedrock
-from browser_use import Agent
+from browser_use import Agent, ChatAnthropicBedrock
 
 # Anthropic-specific class with Claude defaults
 llm = ChatAnthropicBedrock(
@@ -186,8 +180,7 @@ You can also use AWS profiles or IAM roles instead of environment variables. The
 ## Groq
 
 ```python
-from browser_use.llm import ChatGroq
-from browser_use import Agent
+from browser_use import Agent, ChatGroq
 
 llm = ChatGroq(model="meta-llama/llama-4-maverick-17b-128e-instruct")
 
@@ -206,16 +199,15 @@ GROQ_API_KEY=
 ## Ollama
 
 ```python
-from browser_use.llm import ChatOllama
-from browser_use import Agent
+from browser_use import Agent, ChatOllama
 
 llm = ChatOllama(model="llama3.1:8b")
 ```
 
-## Migration Guides
+## Langchain
 
-### From Langchain
+[Example](https://github.com/browser-use/browser-use/blob/main/examples/models/langchain) on how to use Langchain with Browser Use.
 
-To migrate the Langchain based code, just replace `from langchain_openai import ChatOpenAI` with `from browser_use.llm import ChatOpenAI` etc. The methods should be compatible(ish).
+## Other models (DeepSeek, Novita, X, Qwen...)
 
-We also made and example [here](https://github.com/browser-use/browser-use/blob/main/examples/models/langchain) to help you stay with Langchain in case your workflow requires it.
+We support all other models that can be called via OpenAI compatible API. We are open to PRs for more providers.

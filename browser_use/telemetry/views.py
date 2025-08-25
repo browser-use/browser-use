@@ -3,6 +3,8 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from browser_use.config import is_running_in_docker
+
 
 @dataclass
 class BaseTelemetryEvent(ABC):
@@ -13,7 +15,10 @@ class BaseTelemetryEvent(ABC):
 
 	@property
 	def properties(self) -> dict[str, Any]:
-		return {k: v for k, v in asdict(self).items() if k != 'name'}
+		props = {k: v for k, v in asdict(self).items() if k != 'name'}
+		# Add Docker context if running in Docker
+		props['is_docker'] = is_running_in_docker()
+		return props
 
 
 @dataclass

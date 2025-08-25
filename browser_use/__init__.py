@@ -5,7 +5,14 @@ from browser_use.logging_config import setup_logging
 
 # Only set up logging if not in MCP mode or if explicitly requested
 if os.environ.get('BROWSER_USE_SETUP_LOGGING', 'true').lower() != 'false':
-	logger = setup_logging()
+	from browser_use.config import CONFIG
+
+	# Get log file paths from config/environment
+	debug_log_file = getattr(CONFIG, 'BROWSER_USE_DEBUG_LOG_FILE', None)
+	info_log_file = getattr(CONFIG, 'BROWSER_USE_INFO_LOG_FILE', None)
+
+	# Set up logging with file handlers if specified
+	logger = setup_logging(debug_log_file=debug_log_file, info_log_file=info_log_file)
 else:
 	import logging
 

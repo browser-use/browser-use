@@ -9,12 +9,19 @@
   },
   "favicon": "/favicon.ico",
   "contextual": {
-    "options": ["copy", "view"]
+    "options": [
+      "copy",
+      "view"
+    ]
   },
   "fonts": {
     "family": "Geist"
   },
-
+  "integrations": {
+    "posthog": {
+      "apiKey": "phc_F8JMNjW1i2KbGUTaW1unnDdLSPCoyc52SGRU0JecaUh"
+    }
+  },
   "navigation": {
     "tabs": [
       {
@@ -22,7 +29,11 @@
         "groups": [
           {
             "group": "Get Started",
-            "pages": ["introduction", "quickstart", "cli"]
+            "pages": [
+              "introduction",
+              "quickstart",
+              "quickstart_llm"
+            ]
           },
           {
             "group": "Customize",
@@ -32,12 +43,8 @@
               "customize/browser-settings",
               "customize/real-browser",
               "customize/output-format",
-              "customize/system-prompt",
               "customize/sensitive-data",
-              "customize/custom-functions",
-              "customize/mcp-client",
-              "customize/mcp-server",
-              "customize/hooks"
+              "customize/custom-functions"
             ]
           },
           {
@@ -45,6 +52,9 @@
             "pages": [
               "development/contribution-guide",
               "development/local-setup",
+              "customize/mcp-client",
+              "customize/mcp-server",
+              "customize/hooks",
               "development/telemetry",
               "development/observability",
               "development/evaluations",
@@ -54,72 +64,59 @@
         ]
       },
       {
-        "tab": "Cloud API",
-        "groups": [
+        "tab": "Cloud",
+        "versions": [
           {
-            "group": "Get Started",
-            "pages": ["cloud/quickstart", "cloud/search", "cloud/pricing"]
-          },
-          {
-            "group": "Guides",
-            "pages": [
-              "cloud/implementation",
-              "cloud/custom-sdk",
-              "cloud/webhooks",
-              "cloud/authentication",
-              "cloud/n8n-browser-use-integration"
+            "version": "v2",
+            "groups": [
+              {
+                "group": "Get Started",
+                "pages": [
+                  "cloud/v2/quickstart",
+                  "cloud/v2/python-quickstart",
+                  "cloud/v2/node-quickstart"
+                ]
+              },
+              {
+                "group": "Platform",
+                "pages": [
+                  "cloud/v1/pricing",
+                  "cloud/v1/n8n-browser-use-integration",
+                  "cloud/v1/search"
+                ]
+              },
+              {
+                "group": "REST API reference",
+                "openapi": "https://app.stainless.com/api/spec/documented/browser-use/openapi.documented.yml"
+              }
             ]
           },
           {
-            "group": "Search API",
-            "pages": ["api-reference/simple-search", "api-reference/search-url"]
-          },
-          {
-            "group": "Tasks API",
-            "pages": [
-              "api-reference/run-task",
-              "api-reference/stop-task",
-              "api-reference/pause-task",
-              "api-reference/resume-task",
-              "api-reference/get-task",
-              "api-reference/get-task-status",
-              "api-reference/list-tasks",
-              "api-reference/get-task-media",
-              "api-reference/get-task-screenshots",
-              "api-reference/get-task-output-file"
+            "version": "v1",
+            "groups": [
+              {
+                "group": "Get Started",
+                "pages": [
+                  "cloud/v1/quickstart",
+                  "cloud/v1/search",
+                  "cloud/v1/pricing"
+                ]
+              },
+              {
+                "group": "Guides",
+                "pages": [
+                  "cloud/v1/implementation",
+                  "cloud/v1/custom-sdk",
+                  "cloud/v1/webhooks",
+                  "cloud/v1/authentication",
+                  "cloud/v1/n8n-browser-use-integration"
+                ]
+              },
+              {
+                "group": "REST API reference",
+                "openapi": "https://api.browser-use.com/api/v1/openapi.json"
+              }
             ]
-          },
-          {
-            "group": "Scheduled Tasks API",
-            "pages": [
-              "api-reference/list-scheduled-tasks",
-              "api-reference/create-scheduled-task",
-              "api-reference/get-scheduled-task",
-              "api-reference/update-scheduled-task",
-              "api-reference/delete-scheduled-task"
-            ]
-          },
-          {
-            "group": "Browser Profiles API",
-            "pages": [
-              "api-reference/list-browser-profiles",
-              "api-reference/create-browser-profile",
-              "api-reference/get-browser-profile",
-              "api-reference/update-browser-profile",
-              "api-reference/delete-browser-profile"
-            ]
-          },
-          {
-            "group": "Files API",
-            "pages": ["api-reference/upload-file-presigned-url"]
-          },
-          {
-            "group": "User API",
-            "pages": ["api-reference/check-balance", "api-reference/user"]
-          },
-          {
-            "group": "Health Check API",
-            "pages": ["api-reference/ping"]
           }
         ]
       }
@@ -135,7 +132,11 @@
       "display": "interactive"
     },
     "examples": {
-      "languages": ["javascript", "curl", "python"],
+      "languages": [
+        "javascript",
+        "curl",
+        "python"
+      ],
       "required": true
     }
   },
