@@ -631,7 +631,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		description='Window position to use for the browser x,y from the top left when headless=False.',
 	)
 	cross_origin_iframes: bool = Field(
-		default=False,
+		default=True,
 		description='Enable cross-origin iframe support (OOPIF/Out-of-Process iframes). When False (default), only same-origin frames are processed to avoid complexity and hanging.',
 	)
 
