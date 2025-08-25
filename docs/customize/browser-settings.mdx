@@ -359,13 +359,31 @@ window_position: dict | None = {"width": 0, "height": 0}
 
 Window position from top-left corner.
 
-#### `save_recording_path`
+#### `record_video_dir`
 
 ```python
-save_recording_path: str | None = None
+record_video_dir: str | Path | None = None
 ```
 
-Directory path for saving video recordings.
+(alias: `save_recording_path`)
+
+Directory to save video recordings. If a path is provided, a video of the session will be recorded to an MP4 file in this directory.
+
+#### `record_video_size`
+
+```python
+record_video_size: dict | None = None
+```
+
+The frame size (width, height) of the video recording. If not set, it will default to the browser's viewport size. Example: `{"width": 1280, "height": 720}`
+
+#### `record_video_framerate`
+
+```python
+record_video_framerate: int = 30
+```
+
+The framerate for the video recording. Defaults to 30 frames per second.
 
 #### `trace_path`
 
@@ -783,32 +801,6 @@ Client certificates to be used with requests.
 ### Playwright Recording Options
 
 Note: Browser Use also provides some of our own recording-related options not listed below (see above).
-
-#### `record_video_dir`
-
-<a name="record-video-dir"></a>
-<a name="save-recording-path"></a>
-
-```python
-record_video_dir: str | Path | None = None
-```
-
-Directory to save `.webm` video recordings. [Playwright Docs: `record_video_dir`](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context-option-record-video-dir)
-
-<Note>
-  This parameter also has an alias `save_recording_path` for backwards
-  compatibility with past versions, but we recommend using the standard
-  Playwright name `record_video_dir` going forward.
-</Note>
-
-#### `record_video_size`
-
-```python
-record_video_size: dict | None = None. [Playwright Docs: `record_video_size`](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context-option-record-video-size)
-
-```
-
-Video size. Example: `{"width": 1280, "height": 720}`
 
 #### `record_har_path`
 
