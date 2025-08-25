@@ -15,7 +15,7 @@ from browser_use import Agent, ChatOpenAI
 
 agent = Agent(
     task="Search for latest news about AI",
-    llm=ChatOpenAI(model="gpt-4.1-mini"),
+    llm=ChatOpenAI(model="gpt-4o-mini"),
 )
 ```
 
@@ -173,11 +173,42 @@ agent = Agent(
 
 ### Optional Parameters
 
+**Task Execution:**
 - `initial_actions`: List of initial actions to run before the main task.
 - `max_actions_per_step`: Maximum number of actions to run in a step. Defaults to `10`.
 - `max_failures`: Maximum number of failures before giving up. Defaults to `3`.
 - `retry_delay`: Time to wait between retries in seconds when rate limited. Defaults to `10`.
+
+**Visual Settings:**
+- `vision_detail_level`: Controls the detail level of screenshots sent to the vision model. Can be `'low'`, `'high'`, or `'auto'` (default). Using `'low'` can significantly reduce token consumption.
 - `generate_gif`: Enable/disable GIF generation. Defaults to `False`. Set to `True` or a string path to save the GIF.
+- `include_attributes`: List of HTML attributes to include in DOM extraction. Defaults to common attributes.
+
+**Conversation & Memory:**
+- `save_conversation_path`: Path to save the complete conversation history. Useful for debugging.
+- `save_conversation_path_encoding`: Encoding for saved conversations. Defaults to `'utf-8'`.
+- `max_history_items`: Maximum number of history items to keep in memory. Defaults to unlimited.
+- `use_thinking`: Enable/disable the agent's reasoning process in output. Defaults to `True`.
+
+**Timeouts:**
+- `llm_timeout`: Timeout in seconds for LLM calls. Defaults to `90`.
+- `step_timeout`: Timeout in seconds for each step. Defaults to `120`.
+
+**Output & Validation:**
+- `output_model_schema`: Pydantic model schema for structured output validation.
+- `validate_output`: Enable strict output validation. Defaults to `False`.
+- `display_files_in_done_text`: Include file information in completion messages. Defaults to `True`.
+
+**Advanced:**
+- `flash_mode`: Enable fast mode with reduced evaluation. Defaults to `False`.
+- `calculate_cost`: Track and calculate token costs. Defaults to `False`.
+- `include_tool_call_examples`: Include examples in tool calls. Defaults to `False`.
+- `include_recent_events`: Include recent browser events in context. Defaults to `False`.
+- `preload`: Enable preloading of browser components. Defaults to `True`.
+- `available_file_paths`: List of file paths the agent can access.
+- `file_system_path`: Base path for file system operations.
+- `context`: Custom context object passed to actions.
+- `sensitive_data`: Dictionary of sensitive data to mask in logs.
 
 ## Memory
 

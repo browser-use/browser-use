@@ -67,7 +67,7 @@ async def my_step_hook(agent: Agent):
 
 agent = Agent(
     task="Search for the latest news about AI",
-    llm=ChatOpenAI(model="gpt-4.1-mini"),
+    llm=ChatOpenAI(model="gpt-4o-mini"),
 )
 
 await agent.run(
@@ -336,7 +336,7 @@ async def run_agent():
     """Run the Browser-Use agent with the recording hook"""
     agent = Agent(
         task="Compare the price of gpt-4o and DeepSeek-V3",
-        llm=ChatOpenAI(model="gpt-4.1-mini"),
+        llm=ChatOpenAI(model="gpt-4o-mini"),
     )
 
     try:

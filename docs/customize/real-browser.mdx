@@ -232,14 +232,14 @@ reused_profile = BrowserProfile(user_data_dir='~/.config/browseruse/profiles/def
 
 agent1 = Agent(
     task="The first task...",
-    llm=ChatOpenAI(model="gpt-4.1-mini-mini"),
+    llm=ChatOpenAI(model="gpt-4o-mini-mini"),
     browser_profile=reused_profile,    # pass the profile in, it will auto-create a session
 )
 await agent1.run()
 
 agent2 = Agent(
     task="The second task...",
-    llm=ChatOpenAI(model="gpt-4.1-mini-mini"),
+    llm=ChatOpenAI(model="gpt-4o-mini-mini"),
     browser_profile=reused_profile,    # agent will auto-create its own new session
 )
 await agent2.run()
@@ -264,14 +264,14 @@ await reused_session.start()   # when keep_alive=True, session must be started m
 
 agent1 = Agent(
     task="The first task...",
-    llm=ChatOpenAI(model="gpt-4.1-mini-mini"),
+    llm=ChatOpenAI(model="gpt-4o-mini-mini"),
     browser_session=reused_session,
 )
 await agent1.run()
 
 agent2 = Agent(
     task="The second task...",
-    llm=ChatOpenAI(model="gpt-4.1-mini-mini"),
+    llm=ChatOpenAI(model="gpt-4o-mini-mini"),
     browser_session=reused_session,      # re-use the same session
 )
 await agent2.run()
@@ -304,13 +304,13 @@ tabs = await browser_session.get_tabs()
 # Create agents that will work with different tabs
 agent1 = Agent(
     task="The first task...",
-    llm=ChatOpenAI(model="gpt-4.1-mini-mini"),
+    llm=ChatOpenAI(model="gpt-4o-mini-mini"),
     browser_session=browser_session,
 )
 
 agent2 = Agent(
     task="The second task...",
-    llm=ChatOpenAI(model="gpt-4.1-mini-mini"),  
+    llm=ChatOpenAI(model="gpt-4o-mini-mini"),  
     browser_session=browser_session,
 )
 
@@ -342,12 +342,12 @@ await navigate_event
 
 agent1 = Agent(
     task="Fill out the form in section A...",
-    llm=ChatOpenAI(model="gpt-4.1-mini-mini"),
+    llm=ChatOpenAI(model="gpt-4o-mini-mini"),
     browser_session=shared_session
 )
 agent2 = Agent(
     task="Fill out the form in section B...",
-    llm=ChatOpenAI(model="gpt-4.1-mini-mini"),
+    llm=ChatOpenAI(model="gpt-4o-mini-mini"),
     browser_session=shared_session,
 )
 

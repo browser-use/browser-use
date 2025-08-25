@@ -6,22 +6,22 @@ icon: "robot"
 
 ### Recommendations
 
-- Best accuracy: `O3`
-- Fastest: `llama4` on groq
-- Balanced: fast + cheap + clever: `gemini-2.5-flash`
+- Best accuracy: `gpt-4o`
+- Fastest: `llama-4-maverick` on groq
+- Balanced: fast + cheap + clever: `gpt-4o-mini`
 
 Find full examples built for you in github [examples/models](https://github.com/browser-use/browser-use/tree/main/examples/models).
 
 ### OpenAI
 
-`O3` model is recommended for best performance.
+`gpt-4o` model is recommended for best performance.
 
 ```python
 from browser_use import Agent, ChatOpenAI
 
 # Initialize the model
 llm = ChatOpenAI(
-    model="o3",
+    model="gpt-4o",
 )
 
 # Create agent with the model
@@ -75,7 +75,7 @@ import os
 
 # Initialize the model
 llm = ChatAzureOpenAI(
-    model="o4-mini",
+    model="gpt-4o-mini",
 )
 
 # Create agent with the model
