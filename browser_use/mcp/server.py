@@ -309,7 +309,7 @@ class BrowserUseServer:
 					description='Switch to a different tab',
 					inputSchema={
 						'type': 'object',
-						'properties': {'tab_id': {'type': 'str', 'description': '4 Character Tab ID of the tab to switch to'}},
+						'properties': {'tab_id': {'type': 'string', 'description': '4 Character Tab ID of the tab to switch to'}},
 						'required': ['tab_id'],
 					},
 				),
@@ -318,7 +318,7 @@ class BrowserUseServer:
 					description='Close a tab',
 					inputSchema={
 						'type': 'object',
-						'properties': {'tab_id': {'type': 'str', 'description': '4 Character Tab ID of the tab to close'}},
+						'properties': {'tab_id': {'type': 'string', 'description': '4 Character Tab ID of the tab to close'}},
 						'required': ['tab_id'],
 					},
 				),
