@@ -1,62 +1,21 @@
 ---
 title: "Quickstart"
-description: ""
+description: "Get started with Browser Use in minutes"
 icon: "rocket"
 ---
 
+Get Browser Use up and running in just a few simple steps:
 
-## 1. Easy setup
-
-Use [uv](https://docs.astral.sh/uv/) to create and activate the environment:
-
-```bash
-uv venv --python 3.12
-```
-
-```bash
-# For Mac/Linux:
-source .venv/bin/activate
-
-# For Windows:
-.venv\Scripts\activate
-```
-
-Install browser-use:
-
-```bash
-uv pip install browser-use
-```
-
-Install Chromium:
-
-```bash
-uvx playwright install chromium --with-deps
-```
-
-## 2. Choose your favorite LLM
-Create a `.env` file and add your API key:
-
-```bash .env
-OPENAI_API_KEY=
-```
-
-See [Supported Models](/customize/supported-models) for other models.
-
-## 3. Run your first agent
-
-```python agent.py
-from browser_use import Agent, ChatOpenAI
-from dotenv import load_dotenv
-import asyncio
-
-load_dotenv()
-
-llm = ChatOpenAI(model="gpt-4.1-mini")
-task="Find the number 1 post on Show HN"
-
-async def main():
-    agent = Agent(task, llm)
-    await agent.run()
-
-asyncio.run(main())
-```
+<CardGroup cols={3}>
+  <Card title="1. Easy Setup" icon="play" href="/quickstart/easy-setup">
+    Install Browser Use and its dependencies
+  </Card>
+  
+  <Card title="2. Choose your LLM" icon="brain" href="/quickstart/choose-llm">
+    Configure your language model API key
+  </Card>
+  
+  <Card title="3. Run your first agent" icon="rocket" href="/quickstart/first-agent">
+    Create and execute your first Browser Use agent
+  </Card>
+</CardGroup>

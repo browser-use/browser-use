@@ -1,0 +1,31 @@
+---
+title: "Easy Setup"
+description: "Quick setup guide for Browser Use"
+icon: "play"
+---
+
+Use [uv](https://docs.astral.sh/uv/) to create and activate the environment:
+
+```bash
+uv venv --python 3.12
+```
+
+```bash
+# For Mac/Linux:
+source .venv/bin/activate
+
+# For Windows:
+.venv\Scripts\activate
+```
+
+Install browser-use:
+
+```bash
+uv pip install browser-use
+```
+
+Install Chromium:
+
+```bash
+uvx playwright install chromium --with-deps
+```

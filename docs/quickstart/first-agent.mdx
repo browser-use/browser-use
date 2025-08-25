@@ -1,0 +1,22 @@
+---
+title: "Run your first agent"
+description: "Create and run your first Browser Use agent"
+icon: "rocket"
+---
+
+```python agent.py
+from browser_use import Agent, ChatOpenAI
+from dotenv import load_dotenv
+import asyncio
+
+load_dotenv()
+
+llm = ChatOpenAI(model="gpt-4.1-mini")
+task="Find the number 1 post on Show HN"
+
+async def main():
+    agent = Agent(task, llm)
+    await agent.run()
+
+asyncio.run(main())
+```

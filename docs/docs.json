@@ -2,6 +2,9 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "aspen",
   "name": "Browser Use",
+  "anchors": {
+    "from": "disable"
+  },
   "colors": {
     "primary": "#FE750E",
     "light": "#FFF7ED",
@@ -31,7 +34,15 @@
             "group": "Get Started",
             "pages": [
               "introduction",
-              "quickstart"
+              {
+                "group": "Quickstart",
+                "pages": [
+                  "quickstart",
+                  "quickstart/easy-setup",
+                  "quickstart/choose-llm",
+                  "quickstart/first-agent"
+                ]
+              }
             ]
           },
           {
