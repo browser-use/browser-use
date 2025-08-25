@@ -37,12 +37,19 @@ except ImportError:
     from rich.tree import Tree
     from rich.columns import Columns
 
-from base_agent import BaseAgent
-from shared_memory import SharedMemory
+# Disable logging for clean output
+logging.disable(logging.CRITICAL)
+
+try:
+    from .base_agent import BaseAgent
+    from .shared_memory import SharedMemory
+except ImportError:
+    from base_agent import BaseAgent
+    from shared_memory import SharedMemory
 
 def show_banner():
     """Display the beautiful ASCII art banner."""
-    console = Console(force_terminal=True, color_system="truecolor")
+    console = Console()
     banner = """
 [bold red]
 ╔═══════════════════════════════════════════════════════════════════════════════════════════════════════╗
@@ -66,17 +73,22 @@ def show_banner():
 
 def get_user_task():
     """Get the task from user input with beautiful prompt."""
-    console = Console(force_terminal=True, color_system="truecolor")
-    console.print("\n[bold cyan]Enter your task:[/bold cyan]")
-    console.print("[dim]Example: 'Find the ages of Elon Musk and Sam Altman'[/dim]")
-    console.print("[dim]Example: 'When were Apple, Microsoft and Google founded?'[/dim]\n")
+    print("\nEnter your task:")
+    print("Example: 'Find the ages of Elon Musk and Sam Altman'")
+    print("Example: 'When were Apple, Microsoft and Google founded?'\n")
     
-    task = input("> ").strip()
-    if not task:
-        console.print("[red]No task provided. Exiting...[/red]")
+    try:
+        task = input("> ").strip()
+        print(f"Received task: {task}")
+        
+        if not task:
+            print("No task provided. Exiting...")
+            sys.exit(1)
+        
+        return task
+    except Exception as e:
+        print(f"Error getting input: {e}")
         sys.exit(1)
-    
-    return task
 
 def _status_to_renderable(name: str, status: str):
     status_lower = (status or "").lower()
@@ -119,7 +131,8 @@ class TerminalInterface:
         os.environ['GOOGLE_API_KEY'] = api_key
         print("API key set successfully!")
         
-        self.console = Console(force_terminal=True, color_system="truecolor")
+        # Create console with automatic color detection
+        self.console = Console()
         self.shared_memory = SharedMemory()
         
         # Create base agent (share memory instance)
@@ -145,16 +158,18 @@ class TerminalInterface:
     async def run_task(self, task):
         """Run a single task with a static subtask tree snapshot (no live updates)."""
         try:
-            # Seed shared memory header and suppress log noise
+            # Seed shared memory header and disable logging for clean output
             await self.shared_memory.set("task_start", task)
             await self.shared_memory.set("task_status", "Starting")
+            
+            # Disable logging for clean output
             logging.disable(logging.CRITICAL)
 
             # Begin processing in background
             process = asyncio.create_task(self.base_agent.process_task(task))
 
             # Wait until subtasks are available to render a single snapshot
-            for _ in range(300):  # up to ~30s
+            for i in range(300):  # up to ~30s
                 total_tasks = await self.shared_memory.get("total_tasks")
                 if total_tasks and int(total_tasks) > 0:
                     break
@@ -166,7 +181,7 @@ class TerminalInterface:
 
             # Wait for processing to complete silently
             await process
-            logging.disable(logging.NOTSET)
+            logging.disable(logging.CRITICAL)
 
             # Update snapshot to show Done/Failed statuses before final answer
             final_tree = await build_subtask_tree(self.shared_memory)
@@ -177,13 +192,16 @@ class TerminalInterface:
             return await self.shared_memory.get("final_results")
 
         except Exception as e:
-            logging.disable(logging.NOTSET)
+            logging.disable(logging.CRITICAL)
             self.console.print(f"[red]Error running task: {e}[/red]")
+            import traceback
+            self.console.print(f"[red]Traceback: {traceback.format_exc()}[/red]")
             return None
     
     async def main_loop(self):
         """Main interactive loop."""
         self.show_banner()
+        print("Banner displayed, now getting user input...")  # Debug line
         
         while True:
             try:
@@ -192,8 +210,6 @@ class TerminalInterface:
                 
                 # Run the task
                 results = await self.run_task(task)
-                
-                # Do not show completion banners; only tree + final answer
                 
                 # Ask if user wants to continue
                 self.console.print("\n[bold cyan]Would you like to run another task? (y/n):[/bold cyan]")
@@ -208,6 +224,8 @@ class TerminalInterface:
                 break
             except Exception as e:
                 self.console.print(f"[red]Unexpected error: {e}[/red]")
+                import traceback
+                self.console.print(f"[red]Traceback: {traceback.format_exc()}[/red]")
 
 async def main():
     """Main entry point."""
