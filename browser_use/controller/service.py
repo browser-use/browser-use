@@ -538,21 +538,22 @@ class Controller(Generic[Context]):
 		# This action is temporarily disabled as it needs refactoring to use events
 
 		@self.registry.action(
-			"""Extract structured, semantic data (e.g. product description, price, all information about XYZ) from the current webpage based on a textual query.
-		This tool takes the entire markdown of the page and extracts the query from it.
-		Set extract_links=True ONLY if your query requires extracting links/URLs from the page.
-		Only use this for specific queries for information retrieval from the page. Don't use this to get interactive elements - the tool does not see HTML elements, only the markdown.
-		Note: Extracting from the same page will yield the same results unless more content is loaded (e.g., through scrolling for dynamic content, or new page is loaded) - so one extraction per page state is sufficient. If you want to scrape a listing of many elements always first scroll a lot until the page end to load everything and then call this tool in the end.
-		If you called extract_structured_data in the last step and the result was not good (e.g. because of antispam protection), use the current browser state and scrolling to get the information, dont call extract_structured_data again.
-		""",
+			"""Read the current page as markdown. This tool passes the entire page through markdownify and adds it to your <read_state> in the next step. 
+Recommended to be used when:
+- The information you need is not visible in the current browser state and screenshot
+- You want to read the entire page beyond the visible part to get all the information
+Not recommended to:
+- Find interactive elements or clickable items (use current browser state or scroll for that)
+""",
 		)
-		async def extract_structured_data(
-			query: str,
-			extract_links: bool,
+		async def read_entire_page_as_markdown(
+			include_links: bool,
 			browser_session: BrowserSession,
-			page_extraction_llm: BaseChatModel,
-			file_system: FileSystem,
 		):
+			# Constants
+			MAX_CHAR_LIMIT = 30000
+			MAX_NEWLINES = 3
+			
 			cdp_session = await browser_session.get_or_create_cdp_session()
 
 			# Wait for the page to be ready (same pattern used in DOM service)
@@ -574,13 +575,12 @@ class Controller(Generic[Context]):
 
 			page_html = page_html_result['outerHTML']
 
-			# Simple markdown conversion
+			# Convert HTML to markdown
 			try:
 				import re
-
 				import markdownify
 
-				if extract_links:
+				if include_links:
 					content = markdownify.markdownify(page_html, heading_style='ATX', bullets='-')
 				else:
 					content = markdownify.markdownify(page_html, heading_style='ATX', bullets='-', strip=['a'])
@@ -591,57 +591,140 @@ class Controller(Generic[Context]):
 					)  # Convert [text](url) -> text
 
 				# Remove weird positioning artifacts
-
 				content = re.sub(r'❓\s*\[\d+\]\s*\w+.*?Position:.*?Size:.*?\n?', '', content, flags=re.MULTILINE | re.DOTALL)
 				content = re.sub(r'Primary: UNKNOWN\n\nNo specific evidence found', '', content, flags=re.MULTILINE | re.DOTALL)
 				content = re.sub(r'UNKNOWN CONFIDENCE', '', content, flags=re.MULTILINE | re.DOTALL)
 				content = re.sub(r'!\[\]\(\)', '', content, flags=re.MULTILINE | re.DOTALL)
+				# Compress consecutive newlines (4+ newlines become 3 newlines)
+				content = re.sub(r'\n{4,}', '\n' * MAX_NEWLINES, content)
+				# Strip all whitespace (newlines, spaces, tabs) from beginning and end
+				content = content.strip()
 			except Exception as e:
 				raise RuntimeError(f'Could not convert html to markdown: {type(e).__name__}')
-
-			# Simple truncation to 30k characters
-			if len(content) > 30000:
-				content = content[:30000] + '\n\n... [Content truncated at 30k characters] ...'
-
-			# Simple prompt
-			prompt = f"""Extract the requested information from this webpage content.
 			
-Query: {query}
+			content_begin = "In the previous step, you asked to read the entire page as markdown - you can find the page markdown below.\n<page_markdown>\n"
+			content_end = "\n</page_markdown>\nThis content will disappear in the next step. You should read the content carefully to extract all the information you need from the page."
+			content = content_begin + content + content_end
 
-Webpage Content:
-{content}
+			# Truncate if content is too long
+			if len(content) > MAX_CHAR_LIMIT:
+				content = content[:MAX_CHAR_LIMIT] + f'\n\n... [Content truncated at {MAX_CHAR_LIMIT:,} characters] ...'
 
-Provide the extracted information in a clear, structured format."""
+			current_url = await browser_session.get_current_page_url()
+			memory = f'Read entire page as markdown from {current_url}'
+			
+			logger.info(f'📄 {memory}')
+			return ActionResult(
+				extracted_content=content,
+				include_extracted_content_only_once=True,
+				long_term_memory=memory,
+			)
 
-			try:
-				response = await asyncio.wait_for(
-					page_extraction_llm.ainvoke([UserMessage(content=prompt)]),
-					timeout=120.0,
-				)
+# 		@self.registry.action(
+# 			"""Extract structured, semantic data (e.g. product description, price, all information about XYZ) from the current webpage based on a textual query.
+# 		This tool takes the entire markdown of the page and extracts the query from it.
+# 		Set extract_links=True ONLY if your query requires extracting links/URLs from the page.
+# 		Only use this for specific queries for information retrieval from the page. Don't use this to get interactive elements - the tool does not see HTML elements, only the markdown.
+# 		Note: Extracting from the same page will yield the same results unless more content is loaded (e.g., through scrolling for dynamic content, or new page is loaded) - so one extraction per page state is sufficient. If you want to scrape a listing of many elements always first scroll a lot until the page end to load everything and then call this tool in the end.
+# 		If you called extract_structured_data in the last step and the result was not good (e.g. because of antispam protection), use the current browser state and scrolling to get the information, dont call extract_structured_data again.
+# 		""",
+# 		)
+# 		async def extract_structured_data(
+# 			query: str,
+# 			extract_links: bool,
+# 			browser_session: BrowserSession,
+# 			page_extraction_llm: BaseChatModel,
+# 			file_system: FileSystem,
+# 		):
+# 			cdp_session = await browser_session.get_or_create_cdp_session()
 
-				extracted_content = f'Query: {query}\n Result:\n{response.completion}'
+# 			# Wait for the page to be ready (same pattern used in DOM service)
+# 			try:
+# 				ready_state = await cdp_session.cdp_client.send.Runtime.evaluate(
+# 					params={'expression': 'document.readyState'}, session_id=cdp_session.session_id
+# 				)
+# 			except Exception:
+# 				pass  # Page might not be ready yet
 
-				# Simple memory handling
-				if len(extracted_content) < 1000:
-					memory = extracted_content
-					include_extracted_content_only_once = False
-				else:
-					save_result = await file_system.save_extracted_content(extracted_content)
-					current_url = await browser_session.get_current_page_url()
-					memory = (
-						f'Extracted content from {current_url} for query: {query}\nContent saved to file system: {save_result}'
-					)
-					include_extracted_content_only_once = True
+# 			try:
+# 				# Get the HTML content
+# 				body_id = await cdp_session.cdp_client.send.DOM.getDocument(session_id=cdp_session.session_id)
+# 				page_html_result = await cdp_session.cdp_client.send.DOM.getOuterHTML(
+# 					params={'backendNodeId': body_id['root']['backendNodeId']}, session_id=cdp_session.session_id
+# 				)
+# 			except Exception as e:
+# 				raise RuntimeError(f"Couldn't extract page content: {e}")
 
-				logger.info(f'📄 {memory}')
-				return ActionResult(
-					extracted_content=extracted_content,
-					include_extracted_content_only_once=include_extracted_content_only_once,
-					long_term_memory=memory,
-				)
-			except Exception as e:
-				logger.debug(f'Error extracting content: {e}')
-				raise RuntimeError(str(e))
+# 			page_html = page_html_result['outerHTML']
+
+# 			# Simple markdown conversion
+# 			try:
+# 				import re
+
+# 				import markdownify
+
+# 				if extract_links:
+# 					content = markdownify.markdownify(page_html, heading_style='ATX', bullets='-')
+# 				else:
+# 					content = markdownify.markdownify(page_html, heading_style='ATX', bullets='-', strip=['a'])
+# 					# Remove all markdown links and images, keep only the text
+# 					content = re.sub(r'!\[.*?\]\([^)]*\)', '', content, flags=re.MULTILINE | re.DOTALL)  # Remove images
+# 					content = re.sub(
+# 						r'\[([^\]]*)\]\([^)]*\)', r'\1', content, flags=re.MULTILINE | re.DOTALL
+# 					)  # Convert [text](url) -> text
+
+# 				# Remove weird positioning artifacts
+
+# 				content = re.sub(r'❓\s*\[\d+\]\s*\w+.*?Position:.*?Size:.*?\n?', '', content, flags=re.MULTILINE | re.DOTALL)
+# 				content = re.sub(r'Primary: UNKNOWN\n\nNo specific evidence found', '', content, flags=re.MULTILINE | re.DOTALL)
+# 				content = re.sub(r'UNKNOWN CONFIDENCE', '', content, flags=re.MULTILINE | re.DOTALL)
+# 				content = re.sub(r'!\[\]\(\)', '', content, flags=re.MULTILINE | re.DOTALL)
+# 			except Exception as e:
+# 				raise RuntimeError(f'Could not convert html to markdown: {type(e).__name__}')
+
+# 			# Simple truncation to 30k characters
+# 			if len(content) > 30000:
+# 				content = content[:30000] + '\n\n... [Content truncated at 30k characters] ...'
+
+# 			# Simple prompt
+# 			prompt = f"""Extract the requested information from this webpage content.
+			
+# Query: {query}
+
+# Webpage Content:
+# {content}
+
+# Provide the extracted information in a clear, structured format."""
+
+# 			try:
+# 				response = await asyncio.wait_for(
+# 					page_extraction_llm.ainvoke([UserMessage(content=prompt)]),
+# 					timeout=120.0,
+# 				)
+
+# 				extracted_content = f'Query: {query}\n Result:\n{response.completion}'
+
+# 				# Simple memory handling
+# 				if len(extracted_content) < 1000:
+# 					memory = extracted_content
+# 					include_extracted_content_only_once = False
+# 				else:
+# 					save_result = await file_system.save_extracted_content(extracted_content)
+# 					current_url = await browser_session.get_current_page_url()
+# 					memory = (
+# 						f'Extracted content from {current_url} for query: {query}\nContent saved to file system: {save_result}'
+# 					)
+# 					include_extracted_content_only_once = True
+
+# 				logger.info(f'📄 {memory}')
+# 				return ActionResult(
+# 					extracted_content=extracted_content,
+# 					include_extracted_content_only_once=include_extracted_content_only_once,
+# 					long_term_memory=memory,
+# 				)
+# 			except Exception as e:
+# 				logger.debug(f'Error extracting content: {e}')
+# 				raise RuntimeError(str(e))
 
 		@self.registry.action(
 			'Scroll the page by specified number of pages (set down=True to scroll down, down=False to scroll up, num_pages=number of pages to scroll like 0.5 for half page, 1.0 for one page, etc.). Optional index parameter to scroll within a specific element or its scroll container (works well for dropdowns and custom UI components). Use index=0 or omit index to scroll the entire page.',
