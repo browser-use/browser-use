@@ -194,8 +194,8 @@ async def inject_highlighting_script(dom_service: DomService, interactive_elemen
 				// Enhanced label with interactive index
 				const label = createTextElement('div', element.interactive_index, `
 					position: absolute;
-					top: -20px;
-					left: 0;
+					bottom: -20px;
+					right: 0;
 					background-color: #4a90e2;
 					color: white;
 					padding: 2px 6px;
