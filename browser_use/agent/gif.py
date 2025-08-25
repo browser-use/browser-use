@@ -87,6 +87,8 @@ def create_history_gif(
 		# Try different font options in order of preference
 		# ArialUni is a font that comes with Office and can render most non-alphabet characters
 		font_options = [
+			'PingFang',
+			'STHeiti Medium',
 			'Microsoft YaHei',  # 微软雅黑
 			'SimHei',  # 黑体
 			'SimSun',  # 宋体
