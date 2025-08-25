@@ -1,0 +1,23 @@
+---
+title: "Groq"
+description: "Using Groq models with Browser Use"
+icon: "bolt"
+mode: "wide"
+---
+
+```python
+from browser_use import Agent, ChatGroq
+
+llm = ChatGroq(model="meta-llama/llama-4-maverick-17b-128e-instruct")
+
+agent = Agent(
+    task="Your task here",
+    llm=llm
+)
+```
+
+Required environment variables:
+
+```bash .env
+GROQ_API_KEY=
+```

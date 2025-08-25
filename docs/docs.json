@@ -31,16 +31,48 @@
             "group": "Get Started",
             "pages": [
               "introduction",
-              "quickstart",
-              "quickstart_llm"
+              {
+                "group": "Quickstart",
+                "icon": "rocket",
+                "pages": [
+                  "quickstart",
+                  "quickstart_llm"
+                ]
+              }
             ]
           },
           {
             "group": "Customize",
             "pages": [
-              "customize/supported-models",
-              "customize/agent-settings",
-              "customize/browser-settings",
+              {
+                "group": "Supported Models",
+                "icon": "cpu",
+                "pages": [
+                  "customize/supported-models",
+                  "customize/models/groq",
+                  "customize/models/ollama",
+                  "customize/models/langchain",
+                  "customize/models/other-models"
+                ]
+              },
+              {
+                "group": "Agent Settings",
+                "icon": "robot",
+                "pages": [
+                  "customize/agent/overview",
+                  "customize/agent/basic-settings",
+                  "customize/agent/behavior"
+                ]
+              },
+              {
+                "group": "Browser Settings",
+                "icon": "window",
+                "pages": [
+                  "customize/browser-settings",
+                  "customize/browser/browser-session",
+                  "customize/browser/browser-profile"
+                ]
+              },
               "customize/real-browser",
               "customize/output-format",
               "customize/sensitive-data",
@@ -50,15 +82,35 @@
           {
             "group": "Development",
             "pages": [
-              "development/contribution-guide",
-              "development/local-setup",
-              "customize/mcp-client",
-              "customize/mcp-server",
-              "customize/hooks",
-              "development/telemetry",
-              "development/observability",
-              "development/evaluations",
-              "development/roadmap"
+              {
+                "group": "Setup",
+                "icon": "wrench",
+                "pages": [
+                  "development/setup/quick-setup",
+                  "development/local-setup",
+                  "development/setup/detailed-setup"
+                ]
+              },
+              {
+                "group": "Integration",
+                "icon": "puzzle-piece",
+                "pages": [
+                  "customize/mcp-client",
+                  "customize/mcp-server",
+                  "customize/hooks"
+                ]
+              },
+              {
+                "group": "Advanced",
+                "icon": "graduation-cap",
+                "pages": [
+                  "development/contribution-guide",
+                  "development/telemetry",
+                  "development/observability",
+                  "development/evaluations",
+                  "development/roadmap"
+                ]
+              }
             ]
           }
         ]

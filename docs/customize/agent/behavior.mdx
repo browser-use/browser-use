@@ -1,0 +1,43 @@
+---
+title: "Agent Behavior"
+description: "Configure how the agent operates and behaves"
+icon: "robot"
+mode: "wide"
+---
+
+Control how the agent operates:
+
+```python
+agent = Agent(
+    task="your task",
+    llm=llm,
+    controller=custom_controller,  # For custom tool calling
+    use_vision=True,              # Enable vision capabilities
+    save_conversation_path="logs/conversation"  # Save chat logs
+)
+```
+
+## Behavior Parameters
+
+- `controller`: Registry of functions the agent can call. Defaults to base Controller. See <a href="/customize/custom-functions">Custom Functions</a> for details.
+- `use_vision`: Enable/disable vision capabilities. Defaults to `True`.
+  - When enabled, the model processes visual information from web pages
+  - Disable to reduce costs or use models without vision support
+  - For GPT-4o, image processing costs approximately 800-1000 tokens (~$0.002 USD) per image (but this depends on the defined screen size)
+- `vision_detail_level`: Controls the detail level of screenshots sent to the vision model. Can be `'low'`, `'high'`, or `'auto'` (default). Using `'low'` can significantly reduce token consumption and cost for simpler visual tasks, while `'high'` provides more detail for complex visual analysis.
+- `save_conversation_path`: Path to save the complete conversation history. Useful for debugging.
+- `override_system_message`: Completely replace the default system prompt with a custom one.
+- `extend_system_message`: Add additional instructions to the default system prompt.
+
+<Note>
+  Vision capabilities are recommended for better web interaction understanding,
+  but can be disabled to reduce costs or when using models without vision
+  support.
+</Note>
+
+## Reuse Existing Browser Context
+
+By default browser-use launches its own builtin browser using Playwright-installed chromium.
+You can also connect to a remote browser or pass `browser_session` or `browser_profile` objects to the Agent.
+
+These all get passed down to create a `BrowserSession` for the `Agent`:

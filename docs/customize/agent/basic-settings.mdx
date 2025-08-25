@@ -1,0 +1,20 @@
+---
+title: "Basic Settings"
+description: "Basic agent configuration and required parameters"
+icon: "sliders"
+mode: "wide"
+---
+
+```python
+from browser_use import Agent, ChatOpenAI
+
+agent = Agent(
+    task="Search for latest news about AI",
+    llm=ChatOpenAI(model="gpt-4.1-mini"),
+)
+```
+
+## Required Parameters
+
+- `task`: The instruction for the agent to execute
+- `llm`: A chat model instance. See <a href="/customize/supported-models">Supported Models</a> for supported models.
