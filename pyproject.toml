@@ -41,6 +41,8 @@ dependencies = [
     "pypdf>=5.7.0",
     "cdp-use>=1.4.0",
     "markdown-pdf==1.5",
+    "pandas>=2.3.2",
+    "sentence-transformers>=5.1.0",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
