@@ -76,6 +76,7 @@
                 "group": "Examples",
                 "icon": "folder-open",
                 "pages": [
+                  "customize/max-accuracy-o3",
                   "customize/fast-agent",
                   "customize/chain-agents",
                   "customize/parallel-browser",

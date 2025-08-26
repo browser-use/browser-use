@@ -1,0 +1,319 @@
+---
+title: "Maximum Accuracy with O3"
+description: "Configure browser-use for maximum accuracy using OpenAI's O3 model with optimized settings and prompting techniques"
+icon: "bullseye"
+mode: "wide"
+---
+
+## Overview
+
+OpenAI's **O3 model** provides the highest reasoning capability for browser automation tasks. This guide shows how to configure browser-use for maximum accuracy when precision is more important than speed.
+
+<Note>
+  O3 model is more expensive than other models, but provides superior accuracy for complex tasks requiring careful reasoning and precise execution.
+</Note>
+
+## Quick Setup
+
+```python
+from browser_use import Agent, BrowserProfile, ChatOpenAI
+
+# O3 model with accuracy-optimized settings
+llm = ChatOpenAI(
+    model="o3",
+    temperature=0.0,  # Minimize randomness
+)
+
+# Accuracy-focused browser profile
+browser_profile = BrowserProfile(
+    minimum_wait_page_load_time=1.0,
+    wait_between_actions=1.5,
+    slow_mo=500,  # Slow down for precision
+    vision_detail_level='high',
+)
+
+# Create agent with accuracy settings
+agent = Agent(
+    task="your precise task here",
+    llm=llm,
+    browser_profile=browser_profile,
+    max_actions_per_step=3,  # Lower for deliberate execution
+    use_thinking=True,
+    step_timeout=300,  # 5 minutes per step
+    extend_system_message=ACCURACY_PROMPT,
+)
+```
+
+## Complete Configuration
+
+### 1. Model Configuration
+
+```python
+llm = ChatOpenAI(
+    model="o3",
+    temperature=0.0,  # Deterministic responses
+    # O3 specific settings for accuracy
+)
+```
+
+**Key settings for O3:**
+- `temperature=0.0`: Eliminates randomness for consistent results
+- `model="o3"`: Uses the most capable reasoning model
+
+### 2. Browser Profile for Accuracy
+
+```python
+browser_profile = BrowserProfile(
+    # Extended wait times for complex pages
+    minimum_wait_page_load_time=1.0,        # Wait longer before capturing
+    wait_for_network_idle_page_load_time=2.0, # Ensure network completion
+    maximum_wait_page_load_time=10.0,       # Allow time for heavy pages
+    wait_between_actions=1.5,               # Stability between actions
+    
+    # Enhanced visual analysis
+    highlight_elements=True,                # Better element visibility
+    viewport_expansion=800,                 # More context for AI
+    vision_detail_level='high',            # Maximum screenshot detail
+    
+    # Browser stability settings
+    headless=False,                        # Visual debugging
+    slow_mo=500,                          # 500ms delay between actions
+    timeout=60000,                        # 60 second operation timeout
+    default_navigation_timeout=45000,     # 45 second navigation timeout
+)
+```
+
+### 3. Agent Settings for Maximum Precision
+
+```python
+agent = Agent(
+    task=task,
+    llm=llm,
+    browser_profile=browser_profile,
+    
+    # Deliberate execution settings
+    max_actions_per_step=3,               # Lower number for careful steps
+    use_thinking=True,                    # Enable explicit reasoning
+    flash_mode=False,                     # Keep full reasoning process
+    
+    # Error handling for complex tasks
+    max_failures=5,                       # More retry attempts
+    retry_delay=15,                       # Longer delays between retries
+    
+    # Extended timeouts for O3 processing
+    llm_timeout=120,                      # 2 minutes for complex reasoning
+    step_timeout=300,                     # 5 minutes per step
+    
+    # Vision optimization
+    use_vision=True,
+    vision_detail_level='high',
+    
+    # Cost tracking for O3 usage
+    calculate_cost=True,
+)
+```
+
+## Accuracy-Optimized Prompting
+
+### System Message Extensions
+
+```python
+ACCURACY_OPTIMIZATION_PROMPT = """
+Accuracy and precision instructions:
+- Take your time to carefully analyze each page state before acting
+- Double-check element selectors and ensure you're targeting the correct elements
+- Verify that actions were successful before proceeding to the next step
+- If an action fails, analyze why and try alternative approaches
+- Be thorough in your reasoning and explain your thought process clearly
+- When extracting data, cross-reference multiple sources if available
+- Always validate that the information you extract is complete and accurate
+- If you're uncertain about any element or action, describe what you see
+- Focus on precision over speed - accuracy is the primary goal
+"""
+
+agent = Agent(
+    # ... other settings
+    extend_system_message=ACCURACY_OPTIMIZATION_PROMPT,
+)
+```
+
+### Task Design for Accuracy
+
+Structure your tasks with explicit validation steps:
+
+```python
+task = """
+Perform this research task with maximum accuracy:
+
+1. Navigate to the target website
+2. VERIFY the page loaded correctly before proceeding
+3. Locate the specific information requested
+4. CROSS-REFERENCE the information with multiple sources on the page
+5. Extract the data with exact formatting
+6. VALIDATE that all required information was captured
+7. Format the response clearly with confidence indicators
+
+Be extremely thorough and double-check all extracted information.
+"""
+```
+
+## Timing Configuration
+
+### Page Load Optimization
+
+```python
+# For complex, dynamic websites
+browser_profile = BrowserProfile(
+    minimum_wait_page_load_time=2.0,        # Heavy pages need more time
+    wait_for_network_idle_page_load_time=3.0, # Ensure all resources loaded
+    maximum_wait_page_load_time=15.0,       # Very patient loading
+)
+
+# For simpler, static websites
+browser_profile = BrowserProfile(
+    minimum_wait_page_load_time=0.5,
+    wait_for_network_idle_page_load_time=1.0,
+    maximum_wait_page_load_time=5.0,
+)
+```
+
+### Action Timing
+
+```python
+# Conservative timing for critical tasks
+browser_profile = BrowserProfile(
+    wait_between_actions=2.0,    # 2 seconds between actions
+    slow_mo=1000,               # 1 second browser delay
+)
+
+# Balanced timing for most accuracy tasks
+browser_profile = BrowserProfile(
+    wait_between_actions=1.5,    # 1.5 seconds between actions
+    slow_mo=500,                # 500ms browser delay
+)
+```
+
+## Complete Example
+
+```python
+import asyncio
+from browser_use import Agent, BrowserProfile, ChatOpenAI
+from dotenv import load_dotenv
+
+load_dotenv()
+
+ACCURACY_PROMPT = """
+Accuracy instructions:
+- Analyze each page carefully before acting
+- Verify element selections are correct
+- Cross-reference extracted information
+- Double-check all data for completeness
+- Focus on precision over speed
+"""
+
+async def max_accuracy_task():
+    # O3 model configuration
+    llm = ChatOpenAI(
+        model="o3",
+        temperature=0.0,
+    )
+    
+    # Accuracy-optimized browser settings
+    browser_profile = BrowserProfile(
+        minimum_wait_page_load_time=1.0,
+        wait_for_network_idle_page_load_time=2.0,
+        wait_between_actions=1.5,
+        slow_mo=500,
+        headless=False,
+        vision_detail_level='high',
+        highlight_elements=True,
+        viewport_expansion=800,
+    )
+    
+    # Create accuracy-focused agent
+    agent = Agent(
+        task="Extract company information from website with 100% accuracy",
+        llm=llm,
+        browser_profile=browser_profile,
+        max_actions_per_step=3,
+        use_thinking=True,
+        flash_mode=False,
+        max_failures=5,
+        retry_delay=15,
+        llm_timeout=120,
+        step_timeout=300,
+        use_vision=True,
+        vision_detail_level='high',
+        extend_system_message=ACCURACY_PROMPT,
+        calculate_cost=True,
+    )
+    
+    # Execute with conservative step limit
+    history = await agent.run(max_steps=15)
+    
+    return history
+
+# Run the accuracy-focused agent
+asyncio.run(max_accuracy_task())
+```
+
+## Performance Considerations
+
+### Cost Management
+
+O3 model usage can be expensive. Monitor costs with:
+
+```python
+agent = Agent(
+    # ... other settings
+    calculate_cost=True,  # Track API costs
+)
+
+# After execution
+history = await agent.run()
+print(f"Total cost: ${history.total_cost}")
+```
+
+### Optimal Settings by Task Type
+
+| Task Type | max_actions_per_step | wait_between_actions | slow_mo |
+|-----------|---------------------|---------------------|---------|
+| Data Extraction | 2-3 | 1.5s | 500ms |
+| Form Filling | 1-2 | 2.0s | 1000ms |
+| Navigation | 3-5 | 1.0s | 300ms |
+| Research | 2-3 | 1.5s | 500ms |
+
+## Troubleshooting
+
+### Common Issues
+
+**Timeouts with O3:**
+- Increase `llm_timeout` to 180+ seconds
+- Increase `step_timeout` to 400+ seconds
+
+**Element Detection Issues:**
+- Set `vision_detail_level='high'`
+- Increase `viewport_expansion` to 1000+
+- Enable `highlight_elements=True`
+
+**Inconsistent Results:**
+- Set `temperature=0.0`
+- Use specific, detailed prompting
+- Increase `wait_between_actions`
+
+### Debugging Tips
+
+```python
+agent = Agent(
+    # ... other settings
+    save_conversation_path="./accuracy_debug.json",  # Save full conversation
+    generate_gif=True,                               # Visual debugging
+)
+```
+
+## See Also
+
+- [Supported Models](/customize/supported-models) - Overview of all available models
+- [Agent Parameters](/customize/agent-parameters) - Complete parameter reference  
+- [Browser Parameters](/customize/browser-parameters) - Browser configuration options
+- [Fast Agent](/customize/fast-agent) - Speed-optimized configuration (opposite approach)
