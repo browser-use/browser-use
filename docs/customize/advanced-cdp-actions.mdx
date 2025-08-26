@@ -1,0 +1,463 @@
+---
+title: "Advanced CDP Actions"
+description: "Create custom browser automation actions using Chrome DevTools Protocol (CDP) with detailed session and event system integration"
+---
+
+# Advanced CDP Actions
+
+Browser-Use provides powerful capabilities for creating custom actions using Chrome DevTools Protocol (CDP). This guide demonstrates how to build sophisticated browser automation actions with proper session management, event handling, and CDP integration.
+
+## Understanding the Architecture
+
+Browser-Use uses a layered architecture for browser interaction:
+
+1. **High-level Actions**: Standard browser actions (click, type, navigate)
+2. **Event System**: Event bus for coordinating browser operations
+3. **CDP Sessions**: Direct Chrome DevTools Protocol access
+4. **Browser Management**: Session lifecycle and target management
+
+### CDP Session Management
+
+The browser session provides access to CDP through multiple approaches:
+
+```python
+from browser_use.browser.session import BrowserSession
+
+# Get the active CDP session
+cdp_session = browser_session.agent_focus  # Current active session
+# Or create/get a session for a specific target
+cdp_session = await browser_session.get_or_create_cdp_session(target_id="...")
+
+# Access CDP client
+cdp_client = cdp_session.cdp_client
+session_id = cdp_session.session_id
+target_id = cdp_session.target_id
+```
+
+### Event System Integration
+
+Browser-Use uses an event bus system for coordinating browser operations:
+
+```python
+from browser_use.browser.events import ClickElementEvent, NavigateToUrlEvent
+
+# Dispatch events through the event bus
+event = browser_session.event_bus.dispatch(ClickElementEvent(node=element))
+await event
+
+# Get results from event handlers
+result = await event.event_result(raise_if_any=True, raise_if_none=False)
+```
+
+## Custom CDP Click Actions
+
+### Basic CDP Click Implementation
+
+Here's a complete example of a custom CDP click action with advanced features:
+
+```python
+import asyncio
+import logging
+import platform
+from typing import Literal
+from pydantic import BaseModel, Field
+from browser_use import Controller, ActionResult
+from browser_use.browser.session import BrowserSession
+
+class CustomClickAction(BaseModel):
+    """Advanced click action with CDP-specific options."""
+    
+    x: int = Field(..., description="X coordinate to click")
+    y: int = Field(..., description="Y coordinate to click") 
+    button: Literal['left', 'right', 'middle'] = Field(default='left')
+    click_count: int = Field(default=1, description="Number of clicks (1=single, 2=double)")
+    modifiers: list[Literal['Alt', 'Control', 'Meta', 'Shift']] = Field(default=[])
+    delay_before_ms: int = Field(default=100, description="Delay before clicking")
+    delay_after_ms: int = Field(default=150, description="Delay after clicking")
+    move_mouse_first: bool = Field(default=True, description="Move mouse to position first")
+
+def calculate_modifier_bits(modifiers: list[str]) -> int:
+    """Convert modifier names to CDP bitmask."""
+    modifier_map = {'Alt': 1, 'Control': 2, 'Meta': 4, 'Shift': 8}
+    return sum(modifier_map.get(mod, 0) for mod in modifiers)
+
+async def execute_cdp_click_sequence(
+    browser_session: BrowserSession,
+    x: int, y: int,
+    button: str = 'left',
+    click_count: int = 1,
+    modifiers: int = 0,
+    delay_before_ms: int = 100,
+    delay_after_ms: int = 150,
+    move_mouse_first: bool = True
+) -> dict:
+    """Execute a complete click sequence using CDP."""
+    
+    if not browser_session.agent_focus:
+        raise RuntimeError("No active CDP session available")
+    
+    cdp_session = browser_session.agent_focus
+    start_time = asyncio.get_event_loop().time()
+    
+    try:
+        # Pre-click delay
+        if delay_before_ms > 0:
+            await asyncio.sleep(delay_before_ms / 1000.0)
+        
+        # Move mouse to position (recommended for compatibility)
+        if move_mouse_first:
+            await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+                params={'type': 'mouseMoved', 'x': x, 'y': y},
+                session_id=cdp_session.session_id,
+            )
+            await asyncio.sleep(0.05)  # Stability delay
+        
+        # Mouse down
+        await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+            params={
+                'type': 'mousePressed',
+                'x': x, 'y': y,
+                'button': button,
+                'clickCount': click_count,
+                'modifiers': modifiers,
+            },
+            session_id=cdp_session.session_id,
+        )
+        
+        await asyncio.sleep(0.02)  # Realistic click timing
+        
+        # Mouse up
+        await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+            params={
+                'type': 'mouseReleased',
+                'x': x, 'y': y,
+                'button': button,
+                'modifiers': modifiers,
+            },
+            session_id=cdp_session.session_id,
+        )
+        
+        # Post-click delay
+        if delay_after_ms > 0:
+            await asyncio.sleep(delay_after_ms / 1000.0)
+        
+        end_time = asyncio.get_event_loop().time()
+        
+        return {
+            'success': True,
+            'coordinates': {'x': x, 'y': y},
+            'button': button,
+            'click_count': click_count,
+            'modifiers': modifiers,
+            'total_time_ms': round((end_time - start_time) * 1000, 2),
+            'target_id': cdp_session.target_id,
+            'session_id': cdp_session.session_id
+        }
+        
+    except Exception as e:
+        return {'success': False, 'error': str(e), 'coordinates': {'x': x, 'y': y}}
+```
+
+### Registering Custom Actions
+
+```python
+def register_custom_click_actions(controller: Controller):
+    """Register custom CDP click actions with the controller."""
+    
+    @controller.action(
+        "Perform an advanced custom click at specific coordinates with precise timing control",
+        param_model=CustomClickAction
+    )
+    async def custom_cdp_click(params: CustomClickAction, browser_session: BrowserSession) -> ActionResult:
+        """Execute a custom click action using direct CDP commands."""
+        
+        if not browser_session.agent_focus:
+            return ActionResult(error="No active browser session available")
+        
+        # Convert modifier names to CDP bitmask
+        modifier_bits = calculate_modifier_bits(params.modifiers)
+        
+        # Execute the click
+        result = await execute_cdp_click_sequence(
+            browser_session=browser_session,
+            x=params.x, y=params.y,
+            button=params.button,
+            click_count=params.click_count,
+            modifiers=modifier_bits,
+            delay_before_ms=params.delay_before_ms,
+            delay_after_ms=params.delay_after_ms,
+            move_mouse_first=params.move_mouse_first
+        )
+        
+        if result['success']:
+            click_type = "double-click" if params.click_count == 2 else f"{params.click_count}x click"
+            message = f"Successfully executed {click_type} with {params.button} button at ({params.x}, {params.y})"
+            if params.modifiers:
+                message += f" with {', '.join(params.modifiers)} modifier(s)"
+            
+            return ActionResult(
+                extracted_content=message,
+                include_in_memory=True,
+                long_term_memory=f"Custom CDP click: {click_type} at ({params.x}, {params.y})",
+                metadata=result
+            )
+        else:
+            return ActionResult(
+                error=f"Custom CDP click failed: {result.get('error', 'Unknown error')}",
+                metadata=result
+            )
+```
+
+## Enhanced Element Clicking
+
+Combine element-based targeting with CDP's advanced capabilities:
+
+```python
+class ElementClickAction(BaseModel):
+    """Click an element by index with advanced CDP options."""
+    
+    element_index: int = Field(..., description="Element index from browser state")
+    button: Literal['left', 'right', 'middle'] = Field(default='left')
+    click_count: int = Field(default=1)
+    force_coordinates: bool = Field(default=False, description="Use coordinate-based clicking")
+    offset_x: int = Field(default=0, description="X offset from element center")
+    offset_y: int = Field(default=0, description="Y offset from element center")
+    modifiers: list[Literal['Alt', 'Control', 'Meta', 'Shift']] = Field(default=[])
+
+@controller.action(
+    "Click an element by index using advanced CDP options",
+    param_model=ElementClickAction
+)
+async def enhanced_element_click(params: ElementClickAction, browser_session: BrowserSession) -> ActionResult:
+    """Enhanced element clicking with CDP integration."""
+    
+    if not browser_session.agent_focus:
+        return ActionResult(error="No active browser session available")
+    
+    try:
+        # Get the element from browser-use's element tracking
+        element = await browser_session.get_element_by_index(params.element_index)
+        if not element:
+            return ActionResult(error=f"Element with index {params.element_index} not found")
+        
+        if params.force_coordinates or not element.absolute_position:
+            # Use coordinate-based clicking with CDP box model
+            cdp_session = browser_session.agent_focus
+            
+            # Get element box model from CDP
+            box_model_result = await cdp_session.cdp_client.send.DOM.getBoxModel(
+                params={'nodeId': element.node_id},
+                session_id=cdp_session.session_id
+            )
+            
+            if 'model' not in box_model_result:
+                return ActionResult(error=f"Could not get box model for element {params.element_index}")
+            
+            # Calculate center coordinates from content box
+            content_box = box_model_result['model']['content']
+            center_x = (content_box[0] + content_box[4]) / 2 + params.offset_x
+            center_y = (content_box[1] + content_box[5]) / 2 + params.offset_y
+            
+            # Execute click using CDP
+            modifier_bits = calculate_modifier_bits(params.modifiers)
+            result = await execute_cdp_click_sequence(
+                browser_session=browser_session,
+                x=int(center_x), y=int(center_y),
+                button=params.button,
+                click_count=params.click_count,
+                modifiers=modifier_bits
+            )
+            
+            if result['success']:
+                click_type = "double-click" if params.click_count == 2 else f"{params.click_count}x click"
+                message = f"Enhanced element click: {click_type} on element {params.element_index}"
+                if params.modifiers:
+                    message += f" with {', '.join(params.modifiers)} modifier(s)"
+                
+                return ActionResult(
+                    extracted_content=message,
+                    include_in_memory=True,
+                    metadata={**result, 'element_index': params.element_index}
+                )
+            else:
+                return ActionResult(
+                    error=f"Enhanced element click failed: {result.get('error')}",
+                    metadata=result
+                )
+        
+        else:
+            # Use browser-use's event system for simple clicks
+            from browser_use.browser.events import ClickElementEvent
+            
+            if params.modifiers or params.click_count > 1 or params.button != 'left':
+                # Use coordinate-based clicking for advanced features
+                if element.absolute_position:
+                    center_x = element.absolute_position['x'] + element.absolute_position['width'] / 2 + params.offset_x
+                    center_y = element.absolute_position['y'] + element.absolute_position['height'] / 2 + params.offset_y
+                    
+                    modifier_bits = calculate_modifier_bits(params.modifiers)
+                    result = await execute_cdp_click_sequence(
+                        browser_session=browser_session,
+                        x=int(center_x), y=int(center_y),
+                        button=params.button,
+                        click_count=params.click_count,
+                        modifiers=modifier_bits
+                    )
+                    
+                    if result['success']:
+                        return ActionResult(
+                            extracted_content=f"Enhanced element click with advanced options on element {params.element_index}",
+                            include_in_memory=True,
+                            metadata={**result, 'element_index': params.element_index}
+                        )
+                    else:
+                        return ActionResult(error=f"Enhanced element click failed: {result.get('error')}")
+                else:
+                    return ActionResult(error="Element position not available for advanced click options")
+            else:
+                # Use standard browser-use event system
+                event = browser_session.event_bus.dispatch(ClickElementEvent(node=element))
+                await event
+                click_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
+                
+                return ActionResult(
+                    extracted_content=f"Clicked element {params.element_index} using event system",
+                    include_in_memory=True,
+                    metadata={'element_index': params.element_index, 'event_result': click_metadata}
+                )
+    
+    except Exception as e:
+        return ActionResult(error=f"Enhanced element click failed: {str(e)}")
+```
+
+## Platform-Aware Actions
+
+Create actions that automatically adapt to different operating systems:
+
+```python
+@controller.action(
+    "Perform a platform-aware 'open in new tab' click using the correct modifier key"
+)
+async def smart_new_tab_click(element_index: int, browser_session: BrowserSession) -> ActionResult:
+    """Smart new tab click that uses the correct modifier for the current platform."""
+    
+    # Determine correct modifier for platform
+    if platform.system() == 'Darwin':
+        modifiers = ['Meta']  # Cmd key on macOS
+        modifier_name = "Cmd"
+    else:
+        modifiers = ['Control']  # Ctrl key on Windows/Linux
+        modifier_name = "Ctrl"
+    
+    # Use enhanced element click with platform-appropriate modifier
+    enhanced_click = ElementClickAction(
+        element_index=element_index,
+        modifiers=modifiers
+    )
+    
+    result = await enhanced_element_click(enhanced_click, browser_session)
+    
+    if not result.error:
+        result.extracted_content = f"Smart new-tab click on element {element_index} using {modifier_name}+Click"
+        result.long_term_memory = f"Opened element {element_index} in new tab using {modifier_name}+Click"
+    
+    return result
+```
+
+## Usage Example
+
+Here's how to use these custom CDP actions in practice:
+
+```python
+from browser_use import Agent, Controller
+from langchain_openai import ChatOpenAI
+
+async def main():
+    # Create controller and register custom actions
+    controller = Controller()
+    register_custom_click_actions(controller)
+    
+    # Set up LLM
+    llm = ChatOpenAI(model="gpt-4o-mini")
+    
+    # Create agent with custom actions
+    task = """
+    Navigate to https://example.com and demonstrate the custom click actions:
+    1. Use a custom CDP click to click at coordinates (100, 200)
+    2. Use enhanced element click to double-click on the first link
+    3. Use smart new tab click to open a link in a new tab
+    """
+    
+    agent = Agent(task=task, llm=llm, controller=controller)
+    result = await agent.run()
+    
+    print(f"Task completed: {result}")
+
+# Run the example
+# asyncio.run(main())
+```
+
+## Key Concepts
+
+### CDP Session Management
+
+- **Session Lifecycle**: Each browser tab has its own CDP session with a unique `session_id` and `target_id`
+- **Session Pool**: Browser-Use maintains a pool of CDP sessions for efficient reuse
+- **Focus Management**: The `agent_focus` property tracks the currently active session
+
+### Event System Integration
+
+- **Event Bus**: Coordinates high-level browser operations
+- **Event Handlers**: Process events and execute the actual browser actions
+- **Event Results**: Provide feedback and metadata from completed operations
+
+### Error Handling
+
+- **Graceful Degradation**: Fall back to simpler methods when advanced features aren't available
+- **Timeout Management**: Use appropriate timeouts for different types of operations
+- **Detailed Error Messages**: Provide clear feedback about what went wrong
+
+### Best Practices
+
+1. **Always check session availability** before executing CDP commands
+2. **Use appropriate delays** for realistic timing and stability
+3. **Handle platform differences** for cross-platform compatibility
+4. **Provide detailed metadata** in action results for debugging
+5. **Implement proper error handling** with fallback strategies
+
+## Advanced CDP Operations
+
+Beyond clicking, you can use CDP for many other operations:
+
+```python
+# Execute JavaScript
+result = await cdp_session.cdp_client.send.Runtime.evaluate(
+    params={'expression': 'document.title', 'returnByValue': True},
+    session_id=cdp_session.session_id,
+)
+
+# Get element attributes
+attributes = await cdp_session.cdp_client.send.DOM.getAttributes(
+    params={'nodeId': element.node_id},
+    session_id=cdp_session.session_id,
+)
+
+# Take a screenshot
+screenshot = await cdp_session.cdp_client.send.Page.captureScreenshot(
+    params={'format': 'png', 'quality': 90},
+    session_id=cdp_session.session_id,
+)
+
+# Set viewport
+await cdp_session.cdp_client.send.Emulation.setDeviceMetricsOverride(
+    params={
+        'width': 1920,
+        'height': 1080,
+        'deviceScaleFactor': 1,
+        'mobile': False,
+    },
+    session_id=cdp_session.session_id,
+)
+```
+
+This comprehensive guide provides the foundation for creating sophisticated browser automation actions using CDP within the Browser-Use framework. The examples demonstrate proper session management, event integration, and error handling patterns that ensure robust and reliable automation.

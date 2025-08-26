@@ -338,9 +338,32 @@ controller = Controller(exclude_actions=['search_google'])
 agent = Agent(controller=controller, ...)
 ```
 
+## Domain Filtering
 
+You can restrict actions to specific domains for security:
 
+```python
 @controller.action('Fill out secret_form', allowed_domains=['https://*.example.com'])
 def fill_out_form(...) -> ActionResult:
-    ... will only be runnable by LLM on pages that match https://*.example.com
+    # ... will only be runnable by LLM on pages that match https://*.example.com
+    pass
 ```
+
+## Advanced CDP Actions
+
+For more sophisticated browser automation needs, see our [Advanced CDP Actions](/customize/advanced-cdp-actions) guide which covers:
+
+- **Custom click actions** with precise timing and modifier control
+- **Enhanced element clicking** with coordinate override capabilities  
+- **Platform-aware actions** that adapt to different operating systems
+- **Deep integration** with Browser-Use's event system and session management
+- **Comprehensive error handling** and fallback strategies
+
+The advanced guide includes complete working examples for creating robust custom actions using Chrome DevTools Protocol directly, including:
+
+- Direct CDP session management
+- Event bus integration patterns
+- Advanced mouse and keyboard input handling
+- Cross-platform compatibility considerations
+
+This is particularly useful for complex automation scenarios that require fine-grained control over browser interactions.
