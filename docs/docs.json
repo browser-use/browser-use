@@ -31,23 +31,28 @@
             "group": "Get Started",
             "pages": [
               "introduction",
-              "quickstart"
+              "quickstart",
+              "quickstart_llm"
             ]
           },
           {
             "group": "Customize",
             "pages": [
-              "customize/supported-models",
-              "customize/agent-settings",
+              {
+                "group": "Agent",
+                "icon": "robot",
+                "isDefaultOpen": true,
+                "pages": [
+                  "customize/agent-basic",
+                  "customize/supported-models",
+                  "customize/agent-parameters",
+                  "customize/agent-output-format"
+                ]
+              },
               "customize/browser-settings",
               "customize/real-browser",
-              "customize/output-format",
-              "customize/system-prompt",
               "customize/sensitive-data",
-              "customize/custom-functions",
-              "customize/mcp-client",
-              "customize/mcp-server",
-              "customize/hooks"
+              "customize/custom-functions"
             ]
           },
           {
@@ -55,6 +60,9 @@
             "pages": [
               "development/contribution-guide",
               "development/local-setup",
+              "customize/mcp-client",
+              "customize/mcp-server",
+              "customize/hooks",
               "development/telemetry",
               "development/observability",
               "development/evaluations",

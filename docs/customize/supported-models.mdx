@@ -2,17 +2,17 @@
 title: "Supported Models"
 description: "Choose your favorite LLM"
 icon: "robot"
+
 ---
 
 ### Recommendations
 
 - Best accuracy: `O3`
 - Fastest: `llama4` on groq
-- Balanced: fast + cheap + clever: `gemini-2.5-flash`
+- Balanced: fast + cheap + clever: `gemini-2.5-flash` or `gpt-4.1-mini`
 
-Find full examples built for you in github [examples/models](https://github.com/browser-use/browser-use/tree/main/examples/models).
 
-### OpenAI
+### OpenAI [example](https://github.com/browser-use/browser-use/blob/main/examples/models/gpt-4.1.py)
 
 `O3` model is recommended for best performance.
 
@@ -43,7 +43,7 @@ OPENAI_API_KEY=
   into the normal OpenAI API call).
 </Info>
 
-### Anthropic
+### Anthropic [example](https://github.com/browser-use/browser-use/blob/main/examples/models/claude-4-sonnet.py)
 
 ```python
 from browser_use import Agent, ChatAnthropic
@@ -66,7 +66,7 @@ And add the variable:
 ANTHROPIC_API_KEY=
 ```
 
-### Azure OpenAI
+### Azure OpenAI [example](https://github.com/browser-use/browser-use/blob/main/examples/models/azure_openai.py)
 
 ```python
 from browser_use import Agent, ChatAzureOpenAI
@@ -92,7 +92,7 @@ AZURE_OPENAI_ENDPOINT=https://your-endpoint.openai.azure.com/
 AZURE_OPENAI_API_KEY=
 ```
 
-### Gemini
+### Gemini [example](https://github.com/browser-use/browser-use/blob/main/examples/models/gemini.py)
 
 > [!IMPORTANT] `GEMINI_API_KEY` was the old environment var name, it should be called `GOOGLE_API_KEY` as of 2025-05.
 
@@ -104,7 +104,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Initialize the model
-llm = ChatGoogle(model='gemini-2.0-flash-exp')
+llm = ChatGoogle(model='gemini-2.5-flash')
 
 # Create agent with the model
 agent = Agent(
@@ -119,7 +119,7 @@ Required environment variables:
 GOOGLE_API_KEY=
 ```
 
-### AWS Bedrock
+### AWS Bedrock [example](https://github.com/browser-use/browser-use/blob/main/examples/models/aws.py)
 
 AWS Bedrock provides access to multiple model providers through a single API. We support both a general AWS Bedrock client and provider-specific convenience classes.
 
@@ -177,7 +177,7 @@ You can also use AWS profiles or IAM roles instead of environment variables. The
 - Session tokens for temporary credentials
 - AWS SSO authentication (`aws_sso_auth=True`)
 
-## Groq
+## Groq [example](https://github.com/browser-use/browser-use/blob/main/examples/models/llama4-groq.py)
 
 ```python
 from browser_use import Agent, ChatGroq
@@ -211,3 +211,9 @@ llm = ChatOllama(model="llama3.1:8b")
 ## Other models (DeepSeek, Novita, X, Qwen...)
 
 We support all other models that can be called via OpenAI compatible API. We are open to PRs for more providers.
+
+**Examples available:**
+- [DeepSeek](https://github.com/browser-use/browser-use/blob/main/examples/models/deepseek-chat.py)
+- [Novita](https://github.com/browser-use/browser-use/blob/main/examples/models/novita.py)
+- [OpenRouter](https://github.com/browser-use/browser-use/blob/main/examples/models/openrouter.py)
+
