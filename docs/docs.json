@@ -11,7 +11,9 @@
   "contextual": {
     "options": [
       "copy",
-      "view"
+      "view",
+      "chatgpt",
+      "claude"
     ]
   },
   "fonts": {
