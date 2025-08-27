@@ -274,7 +274,7 @@ class MessageManager:
 
 		# Use the passed sensitive_data parameter, falling back to instance variable
 		effective_sensitive_data = sensitive_data if sensitive_data is not None else self.sensitive_data
-		if effective_sensitive_data:
+		if effective_sensitive_data is not None:
 			# Update instance variable to keep it in sync
 			self.sensitive_data = effective_sensitive_data
 			self.sensitive_data_description = self._get_sensitive_data_description(browser_state_summary.url)
