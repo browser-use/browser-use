@@ -1472,6 +1472,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			raise e
 
 		finally:
+			self.history.stopped = self.state.stopped
+   
 			# Log token usage summary
 			await self.token_cost_service.log_usage_summary()
 
