@@ -777,7 +777,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def _get_next_action(self, browser_state_summary: BrowserStateSummary) -> None:
 		"""Execute LLM interaction with retry logic and handle callbacks"""
 		input_messages = self._message_manager.get_messages()
-		context_message = context_search(self.task, threshold=0.4)
+		context_message = context_search(self.task, threshold=0.3)
 		input_messages += [UserMessage(content=context_message)]
 		self.logger.debug(
 			f'🤖 Step {self.state.n_steps}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
