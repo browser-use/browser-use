@@ -38,7 +38,7 @@ controller = Controller()
 async def main():
 	agent = Agent(
 		task='Visit https://duckduckgo.com and search for "browser-use founders"',
-		lllm=ChatOpenAI(model='gpt-4.1-mini'),
+		llm=ChatOpenAI(model='gpt-4.1-mini'),
 		controller=controller,
 		browser_session=browser_session,
 	)

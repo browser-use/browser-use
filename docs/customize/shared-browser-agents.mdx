@@ -1,0 +1,491 @@
+---
+title: "Shared Browser Sessions with Multiple Agents"
+description: "Learn how to use multiple agents with the same browser session via websocket connections"
+icon: "users"
+mode: "wide"
+---
+
+## Overview
+
+Browser-Use supports multiple agents working with the same browser session, enabling powerful multi-agent workflows. This guide shows you how to:
+
+1. **Share browser sessions** between multiple agents
+2. **Connect to existing browsers** via CDP websocket
+3. **Create custom actions** that access shared browser state
+4. **Coordinate agents** using browser-based communication
+
+<Note>
+This feature is particularly useful for complex workflows where specialized agents need to work together in the same browser context, sharing cookies, sessions, and navigation state.
+</Note>
+
+## Use Cases
+
+- **Multi-step workflows**: Research agent → Analysis agent → Report agent
+- **Specialized agents**: One agent logs in, another performs actions
+- **Existing browser sessions**: Connect to browsers that already have logged-in sessions
+- **Agent coordination**: Agents communicate via browser localStorage/state
+- **Cross-process automation**: Multiple Python scripts controlling the same browser
+
+## Method 1: Shared Browser Session (Recommended)
+
+Create a browser session that multiple agents can use sequentially or concurrently.
+
+### Basic Example
+
+```python
+from browser_use import Agent, Controller
+from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.llm import ChatOpenAI
+
+# Create a shared browser session
+async def setup_shared_browser():
+    browser_session = BrowserSession(
+        browser_profile=BrowserProfile(
+            headless=False,
+            keep_alive=True,  # Important: keeps browser alive between agents
+            user_data_dir='~/.config/browseruse/profiles/shared_demo',
+        )
+    )
+    await browser_session.start()
+    return browser_session
+
+# Use the shared browser with multiple agents
+async def multi_agent_workflow():
+    shared_browser = await setup_shared_browser()
+    
+    try:
+        # Agent 1: Research
+        research_agent = Agent(
+            task="Go to https://github.com/browser-use/browser-use and collect information",
+            llm=ChatOpenAI(model='gpt-4o-mini'),
+            browser=shared_browser,  # Share the browser session
+        )
+        await research_agent.run()
+        
+        # Agent 2: Analysis (uses same browser, can see previous navigation)
+        analysis_agent = Agent(
+            task="Analyze the current page and summarize the project information",
+            llm=ChatOpenAI(model='gpt-4o-mini'),
+            browser=shared_browser,  # Same shared browser
+        )
+        await analysis_agent.run()
+        
+    finally:
+        await shared_browser.kill()
+```
+
+### Sequential vs Concurrent Agents
+
+```python
+# Sequential (recommended for most cases)
+await agent1.run()
+await agent2.run()
+await agent3.run()
+
+# Concurrent (agents work in different tabs)
+await asyncio.gather(
+    agent1.run(),
+    agent2.run(), 
+    agent3.run()
+)
+```
+
+<Warning>
+When running agents concurrently, they may interfere with each other if working in the same tab. Use different tabs or coordinate their actions carefully.
+</Warning>
+
+## Method 2: Connect to Existing Browser
+
+Connect multiple agents to a browser that's already running with remote debugging enabled.
+
+### Prerequisites
+
+Start Chrome/Chromium with remote debugging:
+
+```bash
+# macOS
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
+
+# Linux  
+google-chrome --remote-debugging-port=9222
+
+# Windows
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222
+```
+
+### Connection Example
+
+```python
+from browser_use import Agent
+from browser_use.browser import BrowserProfile, BrowserSession
+
+async def connect_to_existing_browser():
+    # Get the WebSocket URL from the existing browser
+    import httpx
+    async with httpx.AsyncClient() as client:
+        response = await client.get("http://localhost:9222/json/version")
+        browser_info = response.json()
+        websocket_url = browser_info['webSocketDebuggerUrl']
+    
+    # Connect to the existing browser
+    browser_session = BrowserSession(
+        browser_profile=BrowserProfile(
+            cdp_url=websocket_url,  # or "http://localhost:9222"
+            is_local=False,  # Important: don't try to launch new browser
+            keep_alive=True,  # Don't close when agent finishes
+        )
+    )
+    
+    await browser_session.start()
+    return browser_session
+
+# Use with multiple agents
+async def multi_agent_existing_browser():
+    shared_browser = await connect_to_existing_browser()
+    
+    # Multiple agents can now connect to the same existing browser
+    agent1 = Agent(task="...", browser=shared_browser)
+    agent2 = Agent(task="...", browser=shared_browser)
+    
+    await agent1.run()
+    await agent2.run()
+    
+    # Browser remains open since it was already running
+```
+
+## Method 3: Custom Controller Actions
+
+Create custom actions that can access and manipulate the shared browser session.
+
+### Browser Session Access
+
+```python
+from browser_use import Controller, ActionResult
+from browser_use.browser import BrowserSession
+
+class SharedBrowserController(Controller):
+    def __init__(self):
+        super().__init__()
+        
+        @self.action("Get information about all browser tabs")
+        async def get_browser_tabs(browser_session: BrowserSession) -> ActionResult:
+            """Custom action that accesses the shared browser session."""
+            tabs = await browser_session.get_tabs()
+            
+            result = f"Found {len(tabs)} tabs:\n"
+            for i, tab in enumerate(tabs, 1):
+                result += f"{i}. {tab.get('title', 'Unknown')} - {tab.get('url', 'Unknown')}\n"
+            
+            return ActionResult(
+                extracted_content=result,
+                include_in_memory=True
+            )
+        
+        @self.action("Switch to a specific tab by index")
+        async def switch_to_tab(tab_index: int, browser_session: BrowserSession) -> ActionResult:
+            """Switch to a specific tab by its index (1-based)."""
+            tabs = await browser_session.get_tabs()
+            
+            if 1 <= tab_index <= len(tabs):
+                target_tab = tabs[tab_index - 1]
+                target_id = target_tab.get('targetId')
+                await browser_session.switch_to_tab(target_id)
+                
+                return ActionResult(
+                    extracted_content=f"Switched to tab {tab_index}: {target_tab.get('title')}",
+                    include_in_memory=True
+                )
+            else:
+                return ActionResult(
+                    error=f"Invalid tab index {tab_index}. Available: 1-{len(tabs)}",
+                    include_in_memory=True
+                )
+
+# Use the custom controller
+controller = SharedBrowserController()
+agent = Agent(
+    task="Use get_browser_tabs to see available tabs, then switch_to_tab to navigate",
+    browser=shared_browser,
+    controller=controller,
+)
+```
+
+### Agent Communication via Browser State
+
+```python
+class AgentCoordinationController(Controller):
+    def __init__(self):
+        super().__init__()
+        
+        @self.action("Store data for other agents to access")
+        async def store_agent_data(
+            key: str, 
+            value: str, 
+            browser_session: BrowserSession
+        ) -> ActionResult:
+            """Store data in localStorage for other agents."""
+            js_code = f"localStorage.setItem('{key}', '{value}');"
+            
+            await browser_session.cdp_client.send.Runtime.evaluate(
+                expression=js_code,
+                targetId=browser_session.current_target_id
+            )
+            
+            return ActionResult(
+                extracted_content=f"Stored data: {key} = {value}",
+                include_in_memory=True
+            )
+        
+        @self.action("Retrieve data stored by other agents")
+        async def get_agent_data(
+            key: str, 
+            browser_session: BrowserSession
+        ) -> ActionResult:
+            """Retrieve data from localStorage."""
+            js_code = f"localStorage.getItem('{key}');"
+            
+            result = await browser_session.cdp_client.send.Runtime.evaluate(
+                expression=js_code,
+                targetId=browser_session.current_target_id,
+                returnByValue=True
+            )
+            
+            value = result.get('result', {}).get('value')
+            
+            return ActionResult(
+                extracted_content=f"Retrieved data for {key}: {value}",
+                include_in_memory=True
+            )
+
+# Coordinated workflow
+async def coordinated_workflow():
+    shared_browser = await setup_shared_browser()
+    controller = AgentCoordinationController()
+    
+    # Agent 1: Collector
+    collector = Agent(
+        task="Collect data from https://httpbin.org/json and store it using store_agent_data with key 'collected_data'",
+        browser=shared_browser,
+        controller=controller,
+    )
+    await collector.run()
+    
+    # Agent 2: Analyzer
+    analyzer = Agent(
+        task="Use get_agent_data with key 'collected_data' to retrieve data and analyze it",
+        browser=shared_browser,
+        controller=controller,
+    )
+    await analyzer.run()
+```
+
+## Complete Examples
+
+### Example 1: Multi-Agent Research Workflow
+
+```python
+import asyncio
+from browser_use import Agent
+from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.llm import ChatOpenAI
+
+async def research_workflow():
+    # Setup shared browser
+    browser_session = BrowserSession(
+        browser_profile=BrowserProfile(
+            headless=False,
+            keep_alive=True,
+            user_data_dir='~/.config/browseruse/profiles/research',
+        )
+    )
+    await browser_session.start()
+    
+    try:
+        # Agent 1: Research - Opens multiple research tabs
+        research_agent = Agent(
+            task="Open tabs for: GitHub browser-use, documentation site, and Python.org",
+            llm=ChatOpenAI(model='gpt-4o-mini'),
+            browser=browser_session,
+        )
+        await research_agent.run()
+        
+        # Agent 2: Analysis - Analyzes the open tabs
+        analysis_agent = Agent(
+            task="Visit each open tab and summarize the content",
+            llm=ChatOpenAI(model='gpt-4o-mini'),
+            browser=browser_session,
+        )
+        await analysis_agent.run()
+        
+        # Agent 3: Report - Creates final report
+        report_agent = Agent(
+            task="Create a comprehensive report based on the analyzed content",
+            llm=ChatOpenAI(model='gpt-4o-mini'),
+            browser=browser_session,
+        )
+        await report_agent.run()
+        
+    finally:
+        await browser_session.kill()
+
+# Run the workflow
+asyncio.run(research_workflow())
+```
+
+### Example 2: Existing Browser Connection
+
+```python
+import asyncio
+import httpx
+from browser_use import Agent
+from browser_use.browser import BrowserProfile, BrowserSession
+
+async def connect_and_work():
+    # Check if browser is available
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get("http://localhost:9222/json/version")
+            browser_info = response.json()
+            websocket_url = browser_info['webSocketDebuggerUrl']
+    except:
+        print("No browser found. Start Chrome with: --remote-debugging-port=9222")
+        return
+    
+    # Connect to existing browser
+    browser_session = BrowserSession(
+        browser_profile=BrowserProfile(
+            cdp_url=websocket_url,
+            is_local=False,
+            keep_alive=True,
+        )
+    )
+    await browser_session.start()
+    
+    # Multiple agents working with existing browser
+    inspector = Agent(
+        task="Analyze the current browser state and open tabs",
+        browser=browser_session,
+    )
+    await inspector.run()
+    
+    navigator = Agent(
+        task="Navigate to interesting sites based on current state",
+        browser=browser_session,
+    )
+    await navigator.run()
+
+# Run
+asyncio.run(connect_and_work())
+```
+
+## Best Practices
+
+### 1. Browser Session Management
+
+```python
+# ✅ Good: Use keep_alive for shared sessions
+browser_session = BrowserSession(
+    browser_profile=BrowserProfile(
+        keep_alive=True,  # Don't close between agents
+        user_data_dir='~/.config/browseruse/profiles/shared',
+    )
+)
+
+# ✅ Good: Clean up properly
+try:
+    await agent1.run()
+    await agent2.run()
+finally:
+    await browser_session.kill()  # Clean shutdown
+```
+
+### 2. Agent Coordination
+
+```python
+# ✅ Good: Sequential for dependent tasks
+await collector_agent.run()  # Must complete first
+await analyzer_agent.run()   # Uses collector's data
+
+# ✅ Good: Concurrent for independent tasks
+await asyncio.gather(
+    news_agent.run(),     # Works in tab 1
+    weather_agent.run(),  # Works in tab 2
+    stock_agent.run(),    # Works in tab 3
+)
+```
+
+### 3. Error Handling
+
+```python
+# ✅ Good: Handle connection failures
+try:
+    browser_session = await connect_to_existing_browser()
+except Exception as e:
+    print(f"Failed to connect: {e}")
+    # Fallback to new browser
+    browser_session = BrowserSession(...)
+```
+
+### 4. Custom Actions
+
+```python
+# ✅ Good: Defensive programming in custom actions
+@controller.action("Safe tab operation")
+async def safe_tab_operation(browser_session: BrowserSession) -> ActionResult:
+    try:
+        if not browser_session.current_target_id:
+            return ActionResult(error="No active tab")
+        
+        # Perform operation
+        result = await browser_session.some_operation()
+        
+        return ActionResult(extracted_content=str(result))
+    except Exception as e:
+        return ActionResult(error=f"Operation failed: {e}")
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Browser connection refused**
+   - Ensure Chrome is started with `--remote-debugging-port=9222`
+   - Check firewall settings
+   - Verify port is not in use
+
+2. **Agents interfering with each other**
+   - Use sequential execution for dependent tasks
+   - Implement coordination via localStorage
+   - Use different tabs for concurrent agents
+
+3. **Session cleanup issues**
+   - Always use `keep_alive=True` for shared sessions
+   - Properly clean up with `await browser_session.kill()`
+   - Handle exceptions in finally blocks
+
+### Debugging Tips
+
+```python
+# Enable debug logging
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+# Check browser connection
+print(f"CDP URL: {browser_session.cdp_url}")
+print(f"Current target: {browser_session.current_target_id}")
+
+# List available tabs
+tabs = await browser_session.get_tabs()
+for tab in tabs:
+    print(f"Tab: {tab.get('title')} - {tab.get('url')}")
+```
+
+## Additional Resources
+
+- [Browser Configuration Guide](./real-browser) - Learn about browser setup options
+- [Custom Functions](./custom-functions) - Create custom controller actions  
+- [Examples](https://github.com/browser-use/browser-use/tree/main/examples/browser) - See complete working examples
+
+<Tip>
+Try the examples in `examples/browser/shared_browser_agents.py` and `examples/browser/connect_to_existing_browser.py` to see these patterns in action!
+</Tip>
