@@ -111,7 +111,7 @@ body:
       placeholder: |
         from dotenv import load_dotenv
         load_dotenv()  # tip: always load_dotenv() before other imports
-        from browser_use import Agent, BrowserSession, Controller
+        from browser_use import Agent, BrowserSession, Tools
         from browser_use.llm import ChatOpenAI
 
         agent = Agent(

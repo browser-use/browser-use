@@ -58,14 +58,14 @@ from browser_use.agent.views import (
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
 from browser_use.browser.views import BrowserStateSummary
 from browser_use.config import CONFIG
-from browser_use.controller.registry.views import ActionModel
-from browser_use.controller.service import Controller
 from browser_use.dom.views import DOMInteractedElement
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.observability import observe, observe_debug
 from browser_use.sync import CloudSync
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import AgentTelemetryEvent
+from browser_use.tools.registry.views import ActionModel
+from browser_use.tools.service import Tools
 from browser_use.utils import (
 	_log_pretty_path,
 	get_browser_use_version,
@@ -136,7 +136,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		browser_profile: BrowserProfile | None = None,
 		browser_session: BrowserSession | None = None,
 		browser: Browser | None = None,  # Alias for browser_session (cleaner naming)
-		controller: Controller[Context] | None = None,
+		tools: Tools[Context] | None = None,
+		controller: Tools[Context] | None = None,  # alias for tools for backwards compatibility
 		# Initial agent run parameters
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
@@ -238,14 +239,17 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.llm = llm
 		self.preload = preload
 		self.include_recent_events = include_recent_events
-		self.controller = (
-			controller if controller is not None else Controller(display_files_in_done_text=display_files_in_done_text)
-		)
+		if tools is not None:
+			self.tools = tools
+		elif controller is not None:
+			self.tools = controller
+		else:
+			self.tools = Tools(display_files_in_done_text=display_files_in_done_text)
 
 		# Structured output
 		self.output_model_schema = output_model_schema
 		if self.output_model_schema is not None:
-			self.controller.use_structured_output_action(self.output_model_schema)
+			self.tools.use_structured_output_action(self.output_model_schema)
 
 		self.sensitive_data = sensitive_data
 
@@ -330,7 +334,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Initialize available actions for system prompt (only non-filtered actions)
 		# These will be used for the system prompt to maintain caching
-		self.unfiltered_actions = self.controller.registry.get_prompt_description()
+		self.unfiltered_actions = self.tools.registry.get_prompt_description()
 
 		# Initialize message manager with state
 		# Initial system prompt with all actions - will be updated during each step
@@ -618,9 +622,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	# 		self.planner_model_name = None
 
 	def _setup_action_models(self) -> None:
-		"""Setup dynamic action models from controller's registry"""
+		"""Setup dynamic action models from tools's registry"""
 		# Initially only include actions with no filters
-		self.ActionModel = self.controller.registry.create_action_model()
+		self.ActionModel = self.tools.registry.create_action_model()
 		# Create output model with the dynamic actions
 		if self.settings.flash_mode:
 			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
@@ -630,7 +634,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.AgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.ActionModel)
 
 		# used to force the done action when max_steps is reached
-		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'])
+		self.DoneActionModel = self.tools.registry.create_action_model(include_actions=['done'])
 		if self.settings.flash_mode:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.DoneActionModel)
 		elif self.settings.use_thinking:
@@ -725,7 +729,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._update_action_models_for_page(browser_state_summary.url)
 
 		# Get page-specific filtered actions
-		page_filtered_actions = self.controller.registry.get_prompt_description(browser_state_summary.url)
+		page_filtered_actions = self.tools.registry.get_prompt_description(browser_state_summary.url)
 
 		# Page-specific actions will be included directly in the browser_state message
 		self.logger.debug(f'💬 Step {self.state.n_steps}: Creating state messages for context...')
@@ -1062,7 +1066,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				parsed.action = parsed.action[: self.settings.max_actions_per_step]
 
 			if not (hasattr(self.state, 'paused') and (self.state.paused or self.state.stopped)):
-				log_response(parsed, self.controller.registry.registry, self.logger)
+				log_response(parsed, self.tools.registry.registry, self.logger)
 
 			self._log_next_action_summary(parsed)
 			return parsed
@@ -1643,7 +1647,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				time_start = time.time()
 				self.logger.info(f'  🦾 {blue}[ACTION {i + 1}/{total_actions}]{reset} {action_params}')
 
-				result = await self.controller.act(
+				result = await self.tools.act(
 					action=action,
 					browser_session=self.browser_session,
 					file_system=self.file_system,
@@ -1865,7 +1869,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			params = action_dict[action_name]
 
 			# Get the parameter model for this action from registry
-			action_info = self.controller.registry.registry.actions[action_name]
+			action_info = self.tools.registry.registry.actions[action_name]
 			param_model = action_info.param_model
 
 			# Create validated parameters using the appropriate param model
@@ -1928,7 +1932,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def _update_action_models_for_page(self, page_url: str) -> None:
 		"""Update action models with page-specific actions"""
 		# Create new action model with current page's filtered actions
-		self.ActionModel = self.controller.registry.create_action_model(page_url=page_url)
+		self.ActionModel = self.tools.registry.create_action_model(page_url=page_url)
 		# Update output model with the new actions
 		if self.settings.flash_mode:
 			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
@@ -1938,7 +1942,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.AgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.ActionModel)
 
 		# Update done action model too
-		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'], page_url=page_url)
+		self.DoneActionModel = self.tools.registry.create_action_model(include_actions=['done'], page_url=page_url)
 		if self.settings.flash_mode:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.DoneActionModel)
 		elif self.settings.use_thinking:

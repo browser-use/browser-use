@@ -28,7 +28,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 load_dotenv()
 
-from browser_use import Agent, ChatOpenAI, Controller
+from browser_use import Agent, ChatOpenAI, Tools
 from browser_use.config import CONFIG
 from browser_use.integrations.gmail import GmailService, register_gmail_actions
 
@@ -241,13 +241,13 @@ async def main():
 			print('❌ Failed to recover Gmail authentication. Please check your setup.')
 			return
 
-	# Step 3: Initialize controller with authenticated service
+	# Step 3: Initialize tools with authenticated service
 	print('\n🔍 Step 3: Registering Gmail actions...')
 
-	controller = Controller()
-	register_gmail_actions(controller, gmail_service=gmail_service)
+	tools = Tools()
+	register_gmail_actions(tools, gmail_service=gmail_service)
 
-	print('✅ Gmail actions registered with controller')
+	print('✅ Gmail actions registered with tools')
 	print('Available Gmail actions:')
 	print('- get_recent_emails: Get recent emails with filtering')
 	print()
@@ -258,7 +258,7 @@ async def main():
 	# Step 4: Test Gmail functionality
 	print('🔍 Step 4: Testing Gmail email retrieval...')
 
-	agent = Agent(task='Get recent emails from Gmail to test the integration is working properly', llm=llm, controller=controller)
+	agent = Agent(task='Get recent emails from Gmail to test the integration is working properly', llm=llm, tools=tools)
 
 	try:
 		history = await agent.run()
@@ -283,7 +283,7 @@ async def main():
 	agent2 = Agent(
 		task='Search for any 2FA verification codes or OTP codes in recent Gmail emails from the last 30 minutes',
 		llm=llm,
-		controller=controller,
+		tools=tools,
 	)
 
 	history2 = await agent2.run()
@@ -307,7 +307,7 @@ async def main():
 		3. Show what types of emails and codes can be detected
 		""",
 		llm=llm,
-		controller=controller,
+		tools=tools,
 	)
 
 	history3 = await agent3.run()

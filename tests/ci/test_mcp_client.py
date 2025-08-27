@@ -13,7 +13,7 @@ from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 from pytest_httpserver import HTTPServer
 
-from browser_use import ActionResult, Agent, BrowserProfile, BrowserSession, Controller
+from browser_use import ActionResult, Agent, BrowserProfile, BrowserSession, Tools
 from browser_use.mcp.client import MCPClient
 
 
@@ -230,7 +230,7 @@ async def test_mcp_server_script():
 
 async def test_mcp_client_basic_connection(test_mcp_server_script):
 	"""Test basic MCP client connection and tool discovery."""
-	controller = Controller()
+	tools = Tools()
 
 	mcp_client = MCPClient(server_name='test-server', command=sys.executable, args=[test_mcp_server_script])
 
@@ -246,11 +246,11 @@ async def test_mcp_client_basic_connection(test_mcp_server_script):
 		assert 'process_trace_update' in mcp_client._tools
 		assert 'process_array_data' in mcp_client._tools
 
-		# Register tools to controller
-		await mcp_client.register_to_controller(controller)
+		# Register tools to tools
+		await mcp_client.register_to_tools(tools)
 
 		# Verify tools are registered as actions
-		actions = controller.registry.registry.actions
+		actions = tools.registry.registry.actions
 		assert 'count_to_n' in actions
 		assert 'echo_message' in actions
 		assert 'get_test_data' in actions
@@ -286,14 +286,14 @@ async def test_mcp_tools_with_agent(test_mcp_server_script, httpserver: HTTPServ
 
 	browser_session = BrowserSession(browser_profile=BrowserProfile(headless=True, user_data_dir=None, keep_alive=True))
 	await browser_session.start()
-	controller = Controller()
+	tools = Tools()
 
 	# Connect MCP client
 	mcp_client = MCPClient(server_name='test-server', command=sys.executable, args=[test_mcp_server_script])
 
 	try:
 		await mcp_client.connect()
-		await mcp_client.register_to_controller(controller)
+		await mcp_client.register_to_tools(tools)
 
 		# Import create_mock_llm from conftest
 		from tests.ci.conftest import create_mock_llm
@@ -312,7 +312,7 @@ async def test_mcp_tools_with_agent(test_mcp_server_script, httpserver: HTTPServ
 			task=f"Go to {httpserver.url_for('/')} then use count_to_n to count to 3, and echo_message to say 'MCP works!'",
 			llm=mock_llm,
 			browser_session=browser_session,
-			controller=controller,
+			tools=tools,
 		)
 
 		# Run agent
@@ -348,16 +348,16 @@ async def test_mcp_tools_with_agent(test_mcp_server_script, httpserver: HTTPServ
 
 async def test_mcp_tool_parameter_validation(test_mcp_server_script):
 	"""Test that MCP tool parameters are properly validated."""
-	controller = Controller()
+	tools = Tools()
 
 	mcp_client = MCPClient(server_name='test-server', command=sys.executable, args=[test_mcp_server_script])
 
 	try:
 		await mcp_client.connect()
-		await mcp_client.register_to_controller(controller)
+		await mcp_client.register_to_tools(tools)
 
 		# Get the count_to_n action
-		count_action = controller.registry.registry.actions['count_to_n']
+		count_action = tools.registry.registry.actions['count_to_n']
 
 		# Test with valid parameter
 		params = count_action.param_model(n=7)
@@ -373,7 +373,7 @@ async def test_mcp_tool_parameter_validation(test_mcp_server_script):
 		assert param_model.model_fields['n'].is_required()
 
 		# Test echo_message with optional parameter
-		echo_action = controller.registry.registry.actions['echo_message']
+		echo_action = tools.registry.registry.actions['echo_message']
 
 		# With default prefix
 		params = echo_action.param_model(message='Test')
@@ -391,7 +391,7 @@ async def test_mcp_tool_parameter_validation(test_mcp_server_script):
 
 async def test_mcp_client_prefix_and_filtering(test_mcp_server_script):
 	"""Test tool filtering and prefixing."""
-	controller = Controller()
+	tools = Tools()
 
 	mcp_client = MCPClient(server_name='test-server', command=sys.executable, args=[test_mcp_server_script])
 
@@ -399,10 +399,10 @@ async def test_mcp_client_prefix_and_filtering(test_mcp_server_script):
 		await mcp_client.connect()
 
 		# Register only specific tools with prefix
-		await mcp_client.register_to_controller(controller, tool_filter=['count_to_n', 'echo_message'], prefix='mcp_')
+		await mcp_client.register_to_tools(tools, tool_filter=['count_to_n', 'echo_message'], prefix='mcp_')
 
 		# Verify registration
-		actions = controller.registry.registry.actions
+		actions = tools.registry.registry.actions
 		assert 'mcp_count_to_n' in actions
 		assert 'mcp_echo_message' in actions
 		assert 'mcp_get_test_data' not in actions  # Filtered out
@@ -420,19 +420,19 @@ async def test_mcp_client_prefix_and_filtering(test_mcp_server_script):
 
 async def test_mcp_tool_error_handling(test_mcp_server_script):
 	"""Test error handling in MCP tools."""
-	controller = Controller()
+	tools = Tools()
 
 	mcp_client = MCPClient(server_name='test-server', command=sys.executable, args=[test_mcp_server_script])
 
 	try:
 		await mcp_client.connect()
-		await mcp_client.register_to_controller(controller)
+		await mcp_client.register_to_tools(tools)
 
 		# Disconnect to simulate connection loss
 		await mcp_client.disconnect()
 
 		# Try to use tool after disconnect
-		echo_action = controller.registry.registry.actions['echo_message']
+		echo_action = tools.registry.registry.actions['echo_message']
 		params = echo_action.param_model(message='Test')
 		result: ActionResult = await echo_action.function(params=params)
 
@@ -446,17 +446,17 @@ async def test_mcp_tool_error_handling(test_mcp_server_script):
 
 async def test_mcp_client_context_manager(test_mcp_server_script):
 	"""Test using MCP client as context manager."""
-	controller = Controller()
+	tools = Tools()
 
 	# Use as context manager
 	async with MCPClient(server_name='test-server', command=sys.executable, args=[test_mcp_server_script]) as mcp_client:
 		# Should auto-connect
 		assert mcp_client.session is not None
 
-		await mcp_client.register_to_controller(controller)
+		await mcp_client.register_to_tools(tools)
 
 		# Test tool works
-		action = controller.registry.registry.actions['get_test_data']
+		action = tools.registry.registry.actions['get_test_data']
 		# get_test_data has no parameters
 		result = await action.function()
 		assert 'apple' in result.extracted_content
@@ -467,8 +467,8 @@ async def test_mcp_client_context_manager(test_mcp_server_script):
 
 
 async def test_multiple_mcp_servers(test_mcp_server_script):
-	"""Test connecting multiple MCP servers to the same controller."""
-	controller = Controller()
+	"""Test connecting multiple MCP servers to the same tools."""
+	tools = Tools()
 
 	# First MCP server with prefix
 	mcp1 = MCPClient(server_name='server1', command=sys.executable, args=[test_mcp_server_script])
@@ -479,13 +479,13 @@ async def test_multiple_mcp_servers(test_mcp_server_script):
 	try:
 		# Connect and register both
 		await mcp1.connect()
-		await mcp1.register_to_controller(controller, prefix='s1_')
+		await mcp1.register_to_tools(tools, prefix='s1_')
 
 		await mcp2.connect()
-		await mcp2.register_to_controller(controller, prefix='s2_')
+		await mcp2.register_to_tools(tools, prefix='s2_')
 
 		# Verify both sets of tools are available
-		actions = controller.registry.registry.actions
+		actions = tools.registry.registry.actions
 		assert 's1_count_to_n' in actions
 		assert 's2_count_to_n' in actions
 
@@ -512,16 +512,16 @@ async def test_multiple_mcp_servers(test_mcp_server_script):
 
 async def test_mcp_result_formatting(test_mcp_server_script):
 	"""Test that different MCP result formats are handled correctly."""
-	controller = Controller()
+	tools = Tools()
 
 	mcp_client = MCPClient(server_name='test-server', command=sys.executable, args=[test_mcp_server_script])
 
 	try:
 		await mcp_client.connect()
-		await mcp_client.register_to_controller(controller)
+		await mcp_client.register_to_tools(tools)
 
 		# Test JSON result formatting
-		action = controller.registry.registry.actions['get_test_data']
+		action = tools.registry.registry.actions['get_test_data']
 		result = await action.function()
 
 		# Should contain formatted JSON
@@ -550,7 +550,7 @@ async def test_agent_with_multiple_mcp_servers(test_mcp_server_script, httpserve
 
 	browser_session = BrowserSession(browser_profile=BrowserProfile(headless=True, user_data_dir=None))
 	await browser_session.start()
-	controller = Controller()
+	tools = Tools()
 
 	# Connect two MCP servers with different prefixes
 	mcp_server1 = MCPClient(server_name='math-server', command=sys.executable, args=[test_mcp_server_script])
@@ -559,10 +559,10 @@ async def test_agent_with_multiple_mcp_servers(test_mcp_server_script, httpserve
 	try:
 		# Connect and register both servers
 		await mcp_server1.connect()
-		await mcp_server1.register_to_controller(controller, prefix='math_', tool_filter=['count_to_n'])
+		await mcp_server1.register_to_tools(tools, prefix='math_', tool_filter=['count_to_n'])
 
 		await mcp_server2.connect()
-		await mcp_server2.register_to_controller(controller, prefix='data_', tool_filter=['echo_message', 'get_test_data'])
+		await mcp_server2.register_to_tools(tools, prefix='data_', tool_filter=['echo_message', 'get_test_data'])
 
 		# Import create_mock_llm from conftest
 		from tests.ci.conftest import create_mock_llm
@@ -582,7 +582,7 @@ async def test_agent_with_multiple_mcp_servers(test_mcp_server_script, httpserve
 			task=f'Go to {httpserver.url_for("/")}, use math_count_to_n to count to 5, then use data_echo_message and data_get_test_data',
 			llm=mock_llm,
 			browser_session=browser_session,
-			controller=controller,
+			tools=tools,
 			extend_system_message="""You have access to tools from two MCP servers:
 - math server: Provides math_count_to_n for counting
 - data server: Provides data_echo_message for echoing and data_get_test_data for JSON data
@@ -635,16 +635,16 @@ Use tools from both servers to complete the task.""",
 
 async def test_mcp_nested_object_parameters(test_mcp_server_script):
 	"""Test that MCP tools with nested object parameters are properly handled."""
-	controller = Controller()
+	tools = Tools()
 
 	mcp_client = MCPClient(server_name='test-server', command=sys.executable, args=[test_mcp_server_script])
 
 	try:
 		await mcp_client.connect()
-		await mcp_client.register_to_controller(controller)
+		await mcp_client.register_to_tools(tools)
 
 		# Get the process_trace_update action
-		trace_action = controller.registry.registry.actions['process_trace_update']
+		trace_action = tools.registry.registry.actions['process_trace_update']
 
 		# Verify the parameter model has nested structure
 		param_model = trace_action.param_model
@@ -727,16 +727,16 @@ async def test_mcp_nested_object_parameters(test_mcp_server_script):
 
 async def test_mcp_array_type_inference(test_mcp_server_script):
 	"""Test that MCP tools with array parameters have proper type inference."""
-	controller = Controller()
+	tools = Tools()
 
 	mcp_client = MCPClient(server_name='test-server', command=sys.executable, args=[test_mcp_server_script])
 
 	try:
 		await mcp_client.connect()
-		await mcp_client.register_to_controller(controller)
+		await mcp_client.register_to_tools(tools)
 
 		# Get the process_array_data action
-		array_action = controller.registry.registry.actions['process_array_data']
+		array_action = tools.registry.registry.actions['process_array_data']
 
 		# Verify the parameter model has array types
 		param_model = array_action.param_model

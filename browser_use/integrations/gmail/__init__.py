@@ -5,11 +5,11 @@ This integration enables agents to read email content and extract verification c
 Usage:
     from browser_use.integrations.gmail import GmailService, register_gmail_actions
     # Option 1: Register Gmail actions with file-based authentication
-    controller = Controller()
-    register_gmail_actions(controller)
+    tools = Tools()
+    register_gmail_actions(tools)
     # Option 2: Register Gmail actions with direct access token (recommended for production)
-    controller = Controller()
-    register_gmail_actions(controller, access_token="your_access_token_here")
+    tools = Tools()
+    register_gmail_actions(tools, access_token="your_access_token_here")
     # Option 3: Use the service directly
     gmail = GmailService(access_token="your_access_token_here")
     await gmail.authenticate()

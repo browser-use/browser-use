@@ -10,11 +10,11 @@ mode: "wide"
 
 
 ```python
-from browser_use import Controller, ActionResult
+from browser_use import Tools, ActionResult
 
-controller = Controller()
+tools = Tools()
 
-@controller.action('Ask human for help with a question')
+@tools.action('Ask human for help with a question')
 def ask_human(question: str) -> ActionResult:
     answer = input(f'{question} > ')
     return f'The human responded with: {answer}'
@@ -22,7 +22,7 @@ def ask_human(question: str) -> ActionResult:
 agent = Agent(
     task='Ask human for help',
     llm=llm,
-    controller=controller,
+    tools=tools,
 )
 ```
 

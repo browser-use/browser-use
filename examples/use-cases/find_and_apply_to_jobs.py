@@ -21,7 +21,7 @@ load_dotenv()
 from pydantic import BaseModel
 from PyPDF2 import PdfReader  # type: ignore
 
-from browser_use import ActionResult, Agent, ChatOpenAI, Controller
+from browser_use import ActionResult, Agent, ChatOpenAI, Tools
 from browser_use.browser import BrowserProfile, BrowserSession
 
 required_env_vars = ['AZURE_OPENAI_KEY', 'AZURE_OPENAI_ENDPOINT']
@@ -31,7 +31,7 @@ for var in required_env_vars:
 
 logger = logging.getLogger(__name__)
 # full screen mode
-controller = Controller()
+tools = Tools()
 
 # NOTE: This is the path to your cv file
 # create a dummy cv
@@ -51,7 +51,7 @@ class Job(BaseModel):
 	salary: str | None = None
 
 
-@controller.action('Save jobs to file - with a score how well it fits to my profile', param_model=Job)
+@tools.action('Save jobs to file - with a score how well it fits to my profile', param_model=Job)
 def save_jobs(job: Job):
 	with open('jobs.csv', 'a', newline='') as f:
 		writer = csv.writer(f)
@@ -60,13 +60,13 @@ def save_jobs(job: Job):
 	return 'Saved job to file'
 
 
-@controller.action('Read jobs from file')
+@tools.action('Read jobs from file')
 def read_jobs():
 	with open('jobs.csv') as f:
 		return f.read()
 
 
-@controller.action('Read my cv for context to fill forms')
+@tools.action('Read my cv for context to fill forms')
 def read_cv():
 	pdf = PdfReader(CV)
 	text = ''
@@ -76,7 +76,7 @@ def read_cv():
 	return ActionResult(extracted_content=text, include_in_memory=True)
 
 
-@controller.action(
+@tools.action(
 	'Upload cv to element - call this function to upload if element is not found, try with different index of the same upload element',
 )
 async def upload_cv(index: int, browser_session: BrowserSession):
@@ -147,7 +147,7 @@ async def main():
 
 	agents = []
 	for task in tasks:
-		agent = Agent(task=task, llm=model, controller=controller, browser_session=browser_session)
+		agent = Agent(task=task, llm=model, tools=tools, browser_session=browser_session)
 		agents.append(agent)
 
 	await asyncio.gather(*[agent.run() for agent in agents])

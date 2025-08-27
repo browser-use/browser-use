@@ -12,7 +12,7 @@ import pytest
 from dotenv import load_dotenv
 
 # Third-party imports
-from browser_use import Agent, Controller
+from browser_use import Agent, Tools
 
 # Local imports
 from browser_use.browser import BrowserProfile, BrowserSession
@@ -20,9 +20,9 @@ from browser_use.browser import BrowserProfile, BrowserSession
 # Load environment variables.
 load_dotenv()
 
-# Initialize language model and controller.
+# Initialize language model and tools.
 llm = ChatOpenAI(model='gpt-4.1')
-controller = Controller()
+tools = Tools()
 
 
 @pytest.mark.skip(reason='this is for local testing only')
@@ -46,7 +46,7 @@ async def test_wait_for_element():
 			llm=llm,
 			browser_session=browser_session,
 			initial_actions=initial_actions,
-			controller=controller,
+			tools=tools,
 		)
 
 		# Run the agent for a few steps to trigger navigation and then the wait action.

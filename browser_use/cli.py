@@ -39,7 +39,7 @@ except ImportError:
 
 os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'result'
 
-from browser_use import Agent, Controller
+from browser_use import Agent, Tools
 from browser_use.agent.views import AgentSettings
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.config import CONFIG
@@ -449,7 +449,7 @@ class BrowserUseApp(App):
 		super().__init__(*args, **kwargs)
 		self.config = config
 		self.browser_session: BrowserSession | None = None  # Will be set before app.run_async()
-		self.controller: Controller | None = None  # Will be set before app.run_async()
+		self.controller: Tools | None = None  # Will be set before app.run_async()
 		self.agent: Agent | None = None
 		self.llm: Any | None = None  # Will be set before app.run_async()
 		self.task_history = config.get('command_history', [])
@@ -514,7 +514,7 @@ class BrowserUseApp(App):
 
 		# Also ensure agent loggers go to the main output
 		# Use a wildcard pattern to catch all agent-related loggers
-		for logger_name in ['browser_use.Agent', 'browser_use.controller', 'browser_use.agent', 'browser_use.agent.service']:
+		for logger_name in ['browser_use.Agent', 'browser_use.tools', 'browser_use.agent', 'browser_use.agent.service']:
 			agent_logger = logging.getLogger(logger_name)
 			agent_logger.propagate = False
 			agent_logger.handlers = [log_handler]
@@ -855,7 +855,7 @@ class BrowserUseApp(App):
 			self.agent = Agent(
 				task=task,
 				llm=self.llm,
-				controller=self.controller if self.controller else Controller(),
+				controller=self.controller if self.controller else Tools(),
 				browser_session=self.browser_session,
 				source='cli',
 				**agent_settings.model_dump(),
@@ -1520,7 +1520,7 @@ async def textual_interface(config: dict[str, Any]):
 	# Step 3: Initialize Controller
 	logger.debug('Initializing Controller...')
 	try:
-		controller = Controller()
+		controller = Tools()
 		logger.debug('Controller initialized successfully')
 	except Exception as e:
 		logger.error(f'Error initializing Controller: {str(e)}', exc_info=True)

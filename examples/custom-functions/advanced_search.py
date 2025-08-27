@@ -14,7 +14,7 @@ import logging
 
 from pydantic import BaseModel
 
-from browser_use import ActionResult, Agent, ChatOpenAI, Controller
+from browser_use import ActionResult, Agent, ChatOpenAI, Tools
 from browser_use.browser.profile import BrowserProfile
 
 logger = logging.getLogger(__name__)
@@ -33,10 +33,10 @@ SERP_API_KEY = os.getenv('SERPER_API_KEY')
 if not SERP_API_KEY:
 	raise ValueError('SERPER_API_KEY is not set')
 
-controller = Controller(exclude_actions=['search_google'], output_model=PersonList)
+tools = Tools(exclude_actions=['search_google'], output_model=PersonList)
 
 
-@controller.registry.action('Search the web for a specific query. Returns a short description and links of the results.')
+@tools.registry.action('Search the web for a specific query. Returns a short description and links of the results.')
 async def search_web(query: str):
 	# do a serp search for the query
 	conn = http.client.HTTPSConnection('google.serper.dev')
@@ -94,7 +94,7 @@ async def main():
 	task += '\n' + '\n'.join(names)
 	model = ChatOpenAI(model='gpt-4.1-mini')
 	browser_profile = BrowserProfile()
-	agent = Agent(task=task, llm=model, controller=controller, browser_profile=browser_profile)
+	agent = Agent(task=task, llm=model, tools=tools, browser_profile=browser_profile)
 
 	history = await agent.run()
 

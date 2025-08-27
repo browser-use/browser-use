@@ -33,7 +33,7 @@ from browser_use import Agent, ChatOpenAI
 async def my_step_hook(agent: Agent):
     # inside a hook you can access all the state and methods under the Agent object:
     #   agent.settings, agent.state, agent.task
-    #   agent.controller, agent.llm, agent.browser_session
+    #   agent.tools, agent.llm, agent.browser_session
     #   agent.pause(), agent.resume(), agent.add_new_task(...), etc.
 
     # You also have direct access to the browser state
@@ -83,8 +83,8 @@ await agent.run(
 When working with agent hooks, you have access to the entire `Agent` instance. Here are some useful data points you can access:
 
 - `agent.task` lets you see what the main task is, `agent.add_new_task(...)` lets you queue up a new one
-- `agent.controller` give access to the `Controller()` object and `Registry()` containing the available actions
-  - `agent.controller.registry.execute_action('click_element_by_index', {'index': 123}, browser_session=agent.browser_session)`
+- `agent.tools` give access to the `Tools()` object and `Registry()` containing the available actions
+  - `agent.tools.registry.execute_action('click_element_by_index', {'index': 123}, browser_session=agent.browser_session)`
 - `agent.context` lets you access any user-provided context object passed in to `Agent(context=...)`
 - `agent.sensitive_data` contains the sensitive data dict, which can be updated in-place to add/remove/modify items
 - `agent.settings` contains all the configuration options passed to the `Agent(...)` at init time

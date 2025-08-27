@@ -1,7 +1,7 @@
 """
 Real integration tests for Google Sheets actions against the actual Google Sheets website.
 Tests the enhanced action registry system with Google Sheets keyboard automation.
-Uses the existing Google Sheets actions from the main controller.
+Uses the existing Google Sheets actions from the main tools.
 """
 
 import asyncio
@@ -10,7 +10,7 @@ import os
 import pytest
 
 from browser_use.browser import BrowserProfile, BrowserSession
-from browser_use.controller.service import Controller
+from browser_use.tools.service import Tools
 
 # Test Google Sheets URL (public read-only spreadsheet for testing)
 TEST_GOOGLE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1INaIcfpYXlMRWO__de61SHFCaqt1lfHlcvtXZPItlpI/edit'
@@ -31,13 +31,13 @@ async def browser_session():
 
 
 @pytest.fixture
-def controller():
-	"""Create a controller instance (Google Sheets actions are already registered)."""
-	return Controller()
+def tools():
+	"""Create a tools instance (Google Sheets actions are already registered)."""
+	return Tools()
 
 
 @pytest.mark.asyncio
-async def test_selector_map_basic(browser_session, controller):
+async def test_selector_map_basic(browser_session, tools):
 	"""Test that the selector map gets populated on a basic page."""
 	# Go to a simple page first
 	page = await browser_session.get_current_page()
@@ -56,7 +56,7 @@ async def test_selector_map_basic(browser_session, controller):
 
 
 @pytest.mark.asyncio
-async def test_click_element_basic(browser_session, controller):
+async def test_click_element_basic(browser_session, tools):
 	"""Test basic click element action to verify registry works."""
 	# Go to a simple page
 	page = await browser_session.get_current_page()
@@ -75,7 +75,7 @@ async def test_click_element_basic(browser_session, controller):
 		first_index = list(selector_map.keys())[0]
 		print(f'Trying to click element index: {first_index}')
 
-		result = await controller.registry.execute_action(
+		result = await tools.registry.execute_action(
 			'click_element_by_index', {'index': first_index}, browser_session=browser_session
 		)
 
@@ -91,10 +91,10 @@ async def test_click_element_basic(browser_session, controller):
 
 
 @pytest.mark.asyncio
-async def test_google_sheets_open(browser_session, controller):
+async def test_google_sheets_open(browser_session, tools):
 	"""Test opening a Google Sheet using the existing action."""
 	# First check what actions are available
-	available_actions = list(controller.registry.registry.actions.keys())
+	available_actions = list(tools.registry.registry.actions.keys())
 
 	# Google Sheets actions are registered with specific names
 	sheet_actions = [
@@ -110,10 +110,10 @@ async def test_google_sheets_open(browser_session, controller):
 	found_sheet_actions = [action for action in sheet_actions if action in available_actions]
 
 	if not found_sheet_actions:
-		pytest.skip('No Google Sheets actions found in controller')
+		pytest.skip('No Google Sheets actions found in tools')
 
 	# First navigate to the Google Sheets URL
-	result = await controller.registry.execute_action(
+	result = await tools.registry.execute_action(
 		'go_to_url', {'url': TEST_GOOGLE_SHEET_URL, 'new_tab': False}, browser_session=browser_session
 	)
 
@@ -126,18 +126,18 @@ async def test_google_sheets_open(browser_session, controller):
 
 	# Try to read the sheet contents
 	if 'read_sheet_contents' in available_actions:
-		result = await controller.registry.execute_action('read_sheet_contents', {}, browser_session=browser_session)
+		result = await tools.registry.execute_action('read_sheet_contents', {}, browser_session=browser_session)
 		print(f'Read result: {result.extracted_content if result.extracted_content else "No content"}')
 		print(f'Read error: {result.error if result.error else "No error"}')
 
 
 @pytest.mark.asyncio
-async def test_list_all_actions(browser_session, controller):
+async def test_list_all_actions(browser_session, tools):
 	"""Debug test to list all available actions."""
-	available_actions = list(controller.registry.registry.actions.keys())
+	available_actions = list(tools.registry.registry.actions.keys())
 	print('All available actions:')
 	for action in sorted(available_actions):
 		print(f'  - {action}')
 
-	# Just verify the controller has some actions
+	# Just verify the tools has some actions
 	assert len(available_actions) > 0

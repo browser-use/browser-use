@@ -9,7 +9,7 @@ pytest.skip('TODO: fix - uses removed get_current_page method', allow_module_lev
 
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
-from browser_use.controller.service import Controller
+from browser_use.tools.service import Tools
 
 
 @pytest.fixture
@@ -74,9 +74,9 @@ async def browser_session():
 
 
 @pytest.fixture
-def controller():
-	"""Create a controller instance."""
-	return Controller()
+def tools():
+	"""Create a tools instance."""
+	return Tools()
 
 
 @pytest.mark.asyncio
@@ -125,7 +125,7 @@ async def test_assumption_2_cached_selector_map_persists(browser_session, httpse
 
 
 @pytest.mark.asyncio
-async def test_assumption_3_action_gets_same_selector_map(browser_session, controller, httpserver):
+async def test_assumption_3_action_gets_same_selector_map(browser_session, tools, httpserver):
 	"""Test assumption 3: Action gets the same selector map as cached."""
 	# Go to a simple page
 	page = await browser_session.get_current_page()
@@ -141,7 +141,7 @@ async def test_assumption_3_action_gets_same_selector_map(browser_session, contr
 	print(f'  - Element 0 exists in cache: {0 in cached_selector_map}')
 
 	# Create a test action that checks the selector map it receives
-	@controller.registry.action('Test: Check selector map')
+	@tools.registry.action('Test: Check selector map')
 	async def test_check_selector_map(browser_session: BrowserSession):
 		from browser_use import ActionResult
 
@@ -152,7 +152,7 @@ async def test_assumption_3_action_gets_same_selector_map(browser_session, contr
 		)
 
 	# Execute the test action
-	result = await controller.registry.execute_action('test_check_selector_map', {}, browser_session=browser_session)
+	result = await tools.registry.execute_action('test_check_selector_map', {}, browser_session=browser_session)
 
 	print(f'Action result: {result.extracted_content}')
 
@@ -161,7 +161,7 @@ async def test_assumption_3_action_gets_same_selector_map(browser_session, contr
 
 
 @pytest.mark.asyncio
-async def test_assumption_4_click_action_specific_issue(browser_session, controller, httpserver):
+async def test_assumption_4_click_action_specific_issue(browser_session, tools, httpserver):
 	"""Test assumption 4: Specific issue with click_element_by_index action."""
 	# Go to a simple page
 	page = await browser_session.get_current_page()
@@ -177,7 +177,7 @@ async def test_assumption_4_click_action_specific_issue(browser_session, control
 	print(f'  - Element 0 exists: {0 in cached_selector_map}')
 
 	# Create a test action that replicates click_element_by_index logic
-	@controller.registry.action('Test: Debug click logic')
+	@tools.registry.action('Test: Debug click logic')
 	async def test_debug_click_logic(index: int, browser_session: BrowserSession):
 		from browser_use import ActionResult
 
@@ -199,7 +199,7 @@ async def test_assumption_4_click_action_specific_issue(browser_session, control
 		)
 
 	# Test with index 0
-	result = await controller.registry.execute_action('test_debug_click_logic', {'index': 0}, browser_session=browser_session)
+	result = await tools.registry.execute_action('test_debug_click_logic', {'index': 0}, browser_session=browser_session)
 
 	print(f'Debug click result: {result.extracted_content or result.error}')
 
@@ -273,7 +273,7 @@ async def test_assumption_6_page_changes_affect_selector_map(browser_session, ht
 
 
 @pytest.mark.asyncio
-async def test_assumption_8_same_browser_session_instance(browser_session, controller, httpserver):
+async def test_assumption_8_same_browser_session_instance(browser_session, tools, httpserver):
 	"""Test assumption 8: Action gets the same browser_session instance."""
 	# Go to a simple page
 	page = await browser_session.get_current_page()
@@ -291,7 +291,7 @@ async def test_assumption_8_same_browser_session_instance(browser_session, contr
 	print(f'2. Original cache exists: {browser_session._cached_browser_state_summary is not None}')
 
 	# Create action that checks browser session identity
-	@controller.registry.action('Test: Check browser session identity')
+	@tools.registry.action('Test: Check browser session identity')
 	async def test_check_session_identity(browser_session: BrowserSession):
 		from browser_use import ActionResult
 
@@ -302,7 +302,7 @@ async def test_assumption_8_same_browser_session_instance(browser_session, contr
 		)
 
 	# Execute action
-	result = await controller.registry.execute_action('test_check_session_identity', {}, browser_session=browser_session)
+	result = await tools.registry.execute_action('test_check_session_identity', {}, browser_session=browser_session)
 
 	print(f'3. Action result: {result.extracted_content}')
 
@@ -318,7 +318,7 @@ async def test_assumption_8_same_browser_session_instance(browser_session, contr
 
 
 @pytest.mark.asyncio
-async def test_assumption_9_pydantic_private_attrs(browser_session, controller, httpserver):
+async def test_assumption_9_pydantic_private_attrs(browser_session, tools, httpserver):
 	"""Test assumption 9: Pydantic model validation affects private attributes."""
 	# Go to a simple page
 	page = await browser_session.get_current_page()
@@ -334,7 +334,7 @@ async def test_assumption_9_pydantic_private_attrs(browser_session, controller, 
 	print(f'2. Original browser_session ID: {id(browser_session)}')
 
 	# Import the SpecialActionParameters to test directly
-	from browser_use.controller.registry.views import SpecialActionParameters
+	from browser_use.tools.registry.views import SpecialActionParameters
 
 	# Test what happens when we put browser_session through model_validate
 	special_params_data = {
@@ -380,7 +380,7 @@ async def test_assumption_9_pydantic_private_attrs(browser_session, controller, 
 
 
 @pytest.mark.asyncio
-async def test_assumption_7_cache_gets_cleared(browser_session, controller, httpserver):
+async def test_assumption_7_cache_gets_cleared(browser_session, tools, httpserver):
 	"""Test assumption 7: Check if _cached_browser_state_summary gets cleared."""
 	# Go to a simple page
 	page = await browser_session.get_current_page()
@@ -401,7 +401,7 @@ async def test_assumption_7_cache_gets_cleared(browser_session, controller, http
 	print(f'4. Pre-action cache: {browser_session._cached_browser_state_summary is not None}')
 
 	# Create action that checks cache state (NO page parameter)
-	@controller.registry.action('Test: Check cache state no page')
+	@tools.registry.action('Test: Check cache state no page')
 	async def test_check_cache_state_no_page(browser_session: BrowserSession):
 		from browser_use import ActionResult
 
@@ -415,7 +415,7 @@ async def test_assumption_7_cache_gets_cleared(browser_session, controller, http
 		)
 
 	# Create action that checks cache state (WITH page parameter)
-	@controller.registry.action('Test: Check cache state with page')
+	@tools.registry.action('Test: Check cache state with page')
 	async def test_check_cache_state_with_page(browser_session: BrowserSession, page):
 		from browser_use import ActionResult
 
@@ -429,14 +429,12 @@ async def test_assumption_7_cache_gets_cleared(browser_session, controller, http
 		)
 
 	# Test action WITHOUT page parameter
-	result_no_page = await controller.registry.execute_action(
-		'test_check_cache_state_no_page', {}, browser_session=browser_session
-	)
+	result_no_page = await tools.registry.execute_action('test_check_cache_state_no_page', {}, browser_session=browser_session)
 
 	print(f'5a. Action result (NO page): {result_no_page.extracted_content}')
 
 	# Test action WITH page parameter
-	result_with_page = await controller.registry.execute_action(
+	result_with_page = await tools.registry.execute_action(
 		'test_check_cache_state_with_page', {}, browser_session=browser_session
 	)
 
@@ -447,7 +445,7 @@ async def test_assumption_7_cache_gets_cleared(browser_session, controller, http
 
 
 @pytest.mark.asyncio
-async def test_final_real_click_with_debug(browser_session, controller, httpserver):
+async def test_final_real_click_with_debug(browser_session, tools, httpserver):
 	"""Final test: Try actual click with maximum debugging."""
 	# Go to a simple page
 	page = await browser_session.get_current_page()
@@ -469,9 +467,7 @@ async def test_final_real_click_with_debug(browser_session, controller, httpserv
 	if 0 in cached_map:
 		print('4. Attempting real click_element_by_index...')
 		try:
-			result = await controller.registry.execute_action(
-				'click_element_by_index', {'index': 0}, browser_session=browser_session
-			)
+			result = await tools.registry.execute_action('click_element_by_index', {'index': 0}, browser_session=browser_session)
 			print(f'5. Click SUCCESS: {result.extracted_content}')
 		except Exception as e:
 			print(f'5. Click FAILED: {e}')

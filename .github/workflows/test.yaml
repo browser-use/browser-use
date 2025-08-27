@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       TEST_FILENAMES: ${{ steps.lsgrep.outputs.TEST_FILENAMES }}
-      # ["test_browser", "test_controller", "test_browser_session", "test_tab_management", ...]
+      # ["test_browser", "test_tools", "test_browser_session", "test_tab_management", ...]
     steps:
       - uses: actions/checkout@v4
       - id: lsgrep
@@ -56,7 +56,7 @@ jobs:
         test_filename: ${{ fromJson(needs.find_tests.outputs.TEST_FILENAMES || '["FAILED_TO_DISCOVER_TESTS"]') }}
         # autodiscovers all the files in tests/ci/test_*.py
         # - test_browser
-        # - test_controller
+        # - test_tools
         # - test_browser_session
         # - test_tab_management
         # ... and more

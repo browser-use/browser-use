@@ -12,9 +12,9 @@ from browser_use.agent.views import ActionModel
 from browser_use.browser import BrowserSession
 from browser_use.browser.events import BrowserStateRequestEvent, FileDownloadedEvent
 from browser_use.browser.profile import BrowserProfile
-from browser_use.controller.service import Controller
-from browser_use.controller.views import ClickElementAction, GoToUrlAction, UploadFileAction
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.tools.service import Tools
+from browser_use.tools.views import ClickElementAction, GoToUrlAction, UploadFileAction
 
 
 @pytest.fixture(scope='function')
@@ -151,8 +151,8 @@ class TestDownloadUploadFullCircle:
 
 			await browser_session.start()
 
-			# Create controller and file system
-			controller = Controller()
+			# Create tools and file system
+			tools = Tools()
 			file_system = FileSystem(base_dir=tmpdir)
 
 			try:
@@ -162,7 +162,7 @@ class TestDownloadUploadFullCircle:
 				class GoToUrlActionModel(ActionModel):
 					go_to_url: GoToUrlAction | None = None
 
-				result = await controller.act(
+				result = await tools.act(
 					GoToUrlActionModel(go_to_url=GoToUrlAction(url=f'{base_url}/download-page', new_tab=False)), browser_session
 				)
 				assert result.error is None, f'Navigation to download page failed: {result.error}'
@@ -187,7 +187,7 @@ class TestDownloadUploadFullCircle:
 					click_element_by_index: ClickElementAction | None = None
 
 				# Click the download link
-				result = await controller.act(
+				result = await tools.act(
 					ClickActionModel(click_element_by_index=ClickElementAction(index=download_link_index)), browser_session
 				)
 				assert result.error is None, f'Click on download link failed: {result.error}'
@@ -224,7 +224,7 @@ class TestDownloadUploadFullCircle:
 				print(f'📑 Tabs before navigation: {len(tabs_before)} tabs')
 				for i, tab in enumerate(tabs_before):
 					print(f'  Tab {i}: {tab.url}')
-				result = await controller.act(
+				result = await tools.act(
 					GoToUrlActionModel(go_to_url=GoToUrlAction(url=f'{base_url}/upload-page', new_tab=True)), browser_session
 				)
 				assert result.error is None, f'Navigation to upload page failed: {result.error}'
@@ -266,7 +266,7 @@ class TestDownloadUploadFullCircle:
 					upload_file_to_element: UploadFileAction | None = None
 
 				# The downloaded file should be automatically available for upload
-				result = await controller.act(
+				result = await tools.act(
 					UploadActionModel(upload_file_to_element=UploadFileAction(index=file_input_index, path=downloaded_file_path)),
 					browser_session,
 					available_file_paths=[],  # Empty, but file is in downloaded_files
@@ -294,7 +294,7 @@ class TestDownloadUploadFullCircle:
 				assert submit_button_index is not None, 'Submit button not found'
 
 				# Click the submit button
-				result = await controller.act(
+				result = await tools.act(
 					ClickActionModel(click_element_by_index=ClickElementAction(index=submit_button_index)), browser_session
 				)
 				assert result.error is None, f'Click on submit button failed: {result.error}'

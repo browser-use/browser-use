@@ -11,16 +11,16 @@ from typing import Any, Generic, Optional, TypeVar, Union, get_args, get_origin
 from pydantic import BaseModel, Field, RootModel, create_model
 
 from browser_use.browser import BrowserSession
-from browser_use.controller.registry.views import (
+from browser_use.filesystem.file_system import FileSystem
+from browser_use.llm.base import BaseChatModel
+from browser_use.observability import observe_debug
+from browser_use.telemetry.service import ProductTelemetry
+from browser_use.tools.registry.views import (
 	ActionModel,
 	ActionRegistry,
 	RegisteredAction,
 	SpecialActionParameters,
 )
-from browser_use.filesystem.file_system import FileSystem
-from browser_use.llm.base import BaseChatModel
-from browser_use.observability import observe_debug
-from browser_use.telemetry.service import ProductTelemetry
 from browser_use.utils import is_new_tab_page, match_url_with_domain_pattern, time_execution_async
 
 Context = TypeVar('Context')
@@ -121,7 +121,7 @@ class Registry(Generic[Context]):
 						param_type_name = getattr(param_type, '__name__', str(param_type))
 						raise ValueError(
 							f"Action '{func.__name__}' parameter '{param.name}: {param_type_name}' "
-							f"conflicts with special argument injected by controller: '{param.name}: {expected_type_name}'"
+							f"conflicts with special argument injected by tools: '{param.name}: {expected_type_name}'"
 						)
 				special_params.append(param)
 			else:

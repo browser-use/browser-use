@@ -8,7 +8,7 @@ mode: "wide"
 ## Available Parameters
 
 ### Core Settings
-- `controller`: Registry of [our tools](https://github.com/browser-use/browser-use/blob/main/browser_use/controller/service.py
+- `tools`: Registry of [our tools](https://github.com/browser-use/browser-use/blob/main/browser_use/tools/service.py
 ) the agent can call. [Example for custom tools](https://github.com/browser-use/browser-use/tree/main/examples/custom-functions)
 - `browser`: Browser object where you can specify the browser settings.
 - `output_model_schema`: Pydantic model class for structured output validation. [Example](https://github.com/browser-use/browser-use/blob/main/examples/features/custom_output.py)
@@ -48,3 +48,7 @@ mode: "wide"
 ### Advanced Options
 - `calculate_cost` (default: `False`): Calculate and track API costs
 - `display_files_in_done_text` (default: `True`): Show file information in completion messages
+
+### Backwards Compatibility
+- `controller`: Alias for `tools` for backwards compatibility.
+- `browser_session`: Alias for `browser` for backwards compatibility.

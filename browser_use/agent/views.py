@@ -13,7 +13,6 @@ from uuid_extensions import uuid7str
 
 from browser_use.agent.message_manager.views import MessageManagerState
 from browser_use.browser.views import BrowserStateHistory
-from browser_use.controller.registry.views import ActionModel
 from browser_use.dom.views import DEFAULT_INCLUDE_ATTRIBUTES, DOMInteractedElement, DOMSelectorMap
 
 # from browser_use.dom.history_tree_processor.service import (
@@ -25,6 +24,7 @@ from browser_use.dom.views import DEFAULT_INCLUDE_ATTRIBUTES, DOMInteractedEleme
 from browser_use.filesystem.file_system import FileSystemState
 from browser_use.llm.base import BaseChatModel
 from browser_use.tokens.views import UsageSummary
+from browser_use.tools.registry.views import ActionModel
 
 
 class AgentSettings(BaseModel):

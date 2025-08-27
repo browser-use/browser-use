@@ -10,11 +10,11 @@ Tools return results using `ActionResult` or simple strings.
 ## Return Types
 
 ```python
-@controller.action('My tool')
+@tools.action('My tool')
 def my_tool() -> str:
     return "Task completed successfully"
 
-@controller.action('Advanced tool')
+@tools.action('Advanced tool')
 def advanced_tool() -> ActionResult:
     return ActionResult(
         extracted_content="Main result",
@@ -69,7 +69,7 @@ return ActionResult(
 Set `is_done=True` to stop the agent completely. Use when your tool finishes the entire task:
 
 ```python
-@controller.action(description='Complete the task')
+@tools.action(description='Complete the task')
 def finish_task() -> ActionResult:
     return ActionResult(
         extracted_content="Task completed!",

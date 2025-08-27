@@ -188,7 +188,7 @@ class BrowserSession(BaseModel):
 	"""Event-driven browser session with backwards compatibility.
 
 	This class provides a 2-layer architecture:
-	- High-level event handling for agents/controllers
+	- High-level event handling for agents/tools
 	- Direct CDP/Playwright calls for browser operations
 
 	Supports both event-driven and imperative calling styles.

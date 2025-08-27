@@ -41,7 +41,7 @@ uv sync
   Do **not** replace `gpt-4o` with `gpt-4`. The model `gpt-4o` is a distinct release and supported.
 
 - ✅ **Type-safe coding**
-  Use **Pydantic v2 models** for all internal action schemas, task inputs/outputs, and controller I/O. This ensures robust validation and LLM-call integrity.
+  Use **Pydantic v2 models** for all internal action schemas, task inputs/outputs, and tools I/O. This ensures robust validation and LLM-call integrity.
 
 - ✅ **Pre-commit formatting**
   ALWAYS make sure to run pre-commit before making PRs.
@@ -54,11 +54,11 @@ To add a new action that your browser agent can execute:
 
 ```python
 from playwright.async_api import Page
-from browser_use.core.controller import Controller, ActionResult
+from browser_use.core.tools import Tools, ActionResult
 
-controller = Controller()
+tools = Tools()
 
-@controller.registry.action("Search the web for a specific query")
+@tools.registry.action("Search the web for a specific query")
 async def search_web(query: str, page: Page):
     # Implement your logic here, e.g., query a search engine and return results
     result = ...
@@ -82,7 +82,7 @@ from browser_use import Agent, ChatOpenAI
 task = "Find the CEO of OpenAI and return their name"
 model = ChatOpenAI(model="gpt-4.1-mini")
 
-agent = Agent(task=task, llm=model, controller=controller)
+agent = Agent(task=task, llm=model, tools=tools)
 
 history = await agent.run()
 ```

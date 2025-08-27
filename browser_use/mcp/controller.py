@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import Field, create_model
 
 from browser_use.agent.views import ActionResult
-from browser_use.controller.registry.service import Registry
+from browser_use.tools.registry.service import Registry
 
 logger = logging.getLogger(__name__)
 
@@ -248,13 +248,13 @@ async def register_mcp_tools(registry: Registry, mcp_command: str, mcp_args: lis
 
 	Example:
 		```python
-	        from browser_use import Controller
-	        from browser_use.mcp.controller import register_mcp_tools
+	        from browser_use import Tools
+	        from browser_use.mcp.tools import register_mcp_tools
 
-	        controller = Controller()
+	        tools = Tools()
 
 	        # Register Playwright MCP tools
-	        mcp = await register_mcp_tools(controller.registry, 'npx', ['@playwright/mcp@latest', '--headless'])
+	        mcp = await register_mcp_tools(tools.registry, 'npx', ['@playwright/mcp@latest', '--headless'])
 
 	        # Now all MCP tools are available as browser-use actions
 		```

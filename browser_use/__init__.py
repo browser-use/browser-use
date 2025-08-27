@@ -50,7 +50,6 @@ if TYPE_CHECKING:
 	from browser_use.agent.views import ActionModel, ActionResult, AgentHistoryList
 	from browser_use.browser import BrowserProfile, BrowserSession
 	from browser_use.browser import BrowserSession as Browser
-	from browser_use.controller.service import Controller
 	from browser_use.dom.service import DomService
 	from browser_use.llm.anthropic.chat import ChatAnthropic
 	from browser_use.llm.azure.chat import ChatAzureOpenAI
@@ -58,6 +57,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.groq.chat import ChatGroq
 	from browser_use.llm.ollama.chat import ChatOllama
 	from browser_use.llm.openai.chat import ChatOpenAI
+	from browser_use.tools.service import Controller, Tools
 
 
 # Lazy imports mapping - only import when actually accessed
@@ -74,8 +74,9 @@ _LAZY_IMPORTS = {
 	'BrowserSession': ('browser_use.browser', 'BrowserSession'),
 	'Browser': ('browser_use.browser', 'BrowserSession'),  # Alias for BrowserSession
 	'BrowserProfile': ('browser_use.browser', 'BrowserProfile'),
-	# Controller (moderate weight)
-	'Controller': ('browser_use.controller.service', 'Controller'),
+	# Tools (moderate weight)
+	'Tools': ('browser_use.tools.service', 'Tools'),
+	'Controller': ('browser_use.tools.service', 'Controller'),  # alias
 	# DOM service (moderate weight)
 	'DomService': ('browser_use.dom.service', 'DomService'),
 	# Chat models (very heavy imports)
@@ -111,6 +112,7 @@ __all__ = [
 	'BrowserSession',
 	'Browser',  # Alias for BrowserSession
 	'BrowserProfile',
+	'Tools',
 	'Controller',
 	'DomService',
 	'SystemPrompt',
@@ -124,4 +126,6 @@ __all__ = [
 	'ChatGroq',
 	'ChatAzureOpenAI',
 	'ChatOllama',
+	'Tools',
+	'Controller',
 ]

@@ -1,15 +1,15 @@
 ---
 title: "Remove Tools"
-description: "You can exclude default tools when creating a controller:"
+description: "You can exclude default tools when creating a tools:"
 icon: "minus"
 mode: "wide"
 ---
 
 
 ```python
-from browser_use import Controller
+from browser_use import Tools
 
-controller = Controller(exclude_actions=['search_google', 'wait'])
-agent = Agent(task='...', llm=llm, controller=controller)
+tools = Tools(exclude_actions=['search_google', 'wait'])
+agent = Agent(task='...', llm=llm, tools=tools)
 ```
 

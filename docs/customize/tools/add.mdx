@@ -17,21 +17,21 @@ Examples:
 - send emails
 - ...
 
-Simply add `@controller.action(...)` to your function.
+Simply add `@tools.action(...)` to your function.
 
 ```python
-from browser_use import Controller, Agent
+from browser_use import Tools, Agent
 
-controller = Controller()
+tools = Tools()
 
-@controller.action(description='Ask human for help with a question')
+@tools.action(description='Ask human for help with a question')
 def ask_human(question: str) -> ActionResult:
     answer = input(f'{question} > ')
     return f'The human responded with: {answer}'
 ```
 
 ```python
-agent = Agent(task='...', llm=llm, controller=controller)
+agent = Agent(task='...', llm=llm, tools=tools)
 ```
 
 - **`description`** *(required)* - What the tool does, the LLM uses this to decide when to call it.
@@ -62,7 +62,7 @@ class Cars(BaseModel):
     name: str = Field(description='The name of the car, e.g. "Toyota Camry"')
     price: int = Field(description='The price of the car as int in USD, e.g. 25000')
 
-@controller.action(description='Save cars to file')
+@tools.action(description='Save cars to file')
 def save_cars(cars: list[Cars]) -> str:
     with open('cars.json', 'w') as f:
         json.dump(cars, f)
@@ -75,7 +75,7 @@ task = "find cars and save them to file"
 Limit tools to specific domains:
 
 ```python
-@controller.action(
+@tools.action(
     description='Fill out banking forms',
     allowed_domains=['https://mybank.com']
 )

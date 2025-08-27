@@ -53,4 +53,4 @@ jobs:
             source /tmp/testenv/bin/activate
           fi
           uv pip install *.whl
-          python -c 'from browser_use import Agent, BrowserProfile, BrowserSession, Controller, ActionModel, ActionResult'
+          python -c 'from browser_use import Agent, BrowserProfile, BrowserSession, Tools, ActionModel, ActionResult'
