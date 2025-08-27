@@ -13,7 +13,6 @@ from uuid_extensions import uuid7str
 
 from browser_use.agent.message_manager.views import MessageManagerState
 from browser_use.browser.views import BrowserStateHistory
-from browser_use.controller.registry.views import ActionModel
 from browser_use.dom.views import DEFAULT_INCLUDE_ATTRIBUTES, DOMInteractedElement, DOMSelectorMap
 
 # from browser_use.dom.history_tree_processor.service import (
@@ -25,6 +24,7 @@ from browser_use.dom.views import DEFAULT_INCLUDE_ATTRIBUTES, DOMInteractedEleme
 from browser_use.filesystem.file_system import FileSystemState
 from browser_use.llm.base import BaseChatModel
 from browser_use.tokens.views import UsageSummary
+from browser_use.tools.registry.views import ActionModel
 
 
 class AgentSettings(BaseModel):
@@ -32,12 +32,9 @@ class AgentSettings(BaseModel):
 
 	use_vision: bool = True
 	vision_detail_level: Literal['auto', 'low', 'high'] = 'auto'
-	use_vision_for_planner: bool = False
 	save_conversation_path: str | Path | None = None
 	save_conversation_path_encoding: str | None = 'utf-8'
 	max_failures: int = 3
-	retry_delay: int = 10
-	validate_output: bool = False
 	generate_gif: bool | str = False
 	override_system_message: str | None = None
 	extend_system_message: str | None = None
@@ -48,10 +45,6 @@ class AgentSettings(BaseModel):
 	max_history_items: int | None = None
 
 	page_extraction_llm: BaseChatModel | None = None
-	planner_llm: BaseChatModel | None = None
-	planner_interval: int = 1  # Run planner every N steps
-	is_planner_reasoning: bool = False  # type: ignore
-	extend_planner_system_message: str | None = None
 	calculate_cost: bool = False
 	include_tool_call_examples: bool = False
 	llm_timeout: int = 60  # Timeout in seconds for LLM calls

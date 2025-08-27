@@ -6,8 +6,8 @@ from pytest_httpserver import HTTPServer
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
-from browser_use.controller.service import Controller
-from browser_use.controller.views import (
+from browser_use.tools.service import Tools
+from browser_use.tools.views import (
 	GoToUrlAction,
 	ScrollAction,
 )
@@ -71,15 +71,15 @@ async def browser_session():
 
 
 @pytest.fixture
-def controller():
-	"""Create and provide a Controller instance."""
-	return Controller()
+def tools():
+	"""Create and provide a Tools instance."""
+	return Tools()
 
 
 class TestScrollActions:
 	"""Test scroll-related actions and events."""
 
-	async def test_scroll_actions(self, controller, browser_session, base_url, http_server):
+	async def test_scroll_actions(self, tools, browser_session, base_url, http_server):
 		"""Test basic scroll action functionality."""
 
 		# Navigate to scrollable page
@@ -88,7 +88,7 @@ class TestScrollActions:
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
 
-		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
 
 		# Test 1: Basic page scroll down
 		scroll_action = {'scroll': ScrollAction(down=True, num_pages=1.0)}
@@ -96,7 +96,7 @@ class TestScrollActions:
 		class ScrollActionModel(ActionModel):
 			scroll: ScrollAction | None = None
 
-		result = await controller.act(ScrollActionModel(**scroll_action), browser_session)
+		result = await tools.act(ScrollActionModel(**scroll_action), browser_session)
 
 		# Verify scroll down succeeded
 		assert isinstance(result, ActionResult)
@@ -108,7 +108,7 @@ class TestScrollActions:
 
 		# Test 2: Basic page scroll up
 		scroll_up_action = {'scroll': ScrollAction(down=False, num_pages=0.5)}
-		result = await controller.act(ScrollActionModel(**scroll_up_action), browser_session)
+		result = await tools.act(ScrollActionModel(**scroll_up_action), browser_session)
 
 		assert isinstance(result, ActionResult)
 		assert result.error is None, f'Scroll up failed: {result.error}'
@@ -118,7 +118,7 @@ class TestScrollActions:
 
 		# Test 3: Test with invalid element index (should error)
 		invalid_scroll_action = {'scroll': ScrollAction(down=True, num_pages=1.0, frame_element_index=999)}
-		result = await controller.act(ScrollActionModel(**invalid_scroll_action), browser_session)
+		result = await tools.act(ScrollActionModel(**invalid_scroll_action), browser_session)
 
 		# This should fail with error about element not found
 		assert isinstance(result, ActionResult)

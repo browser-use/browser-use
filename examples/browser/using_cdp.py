@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from browser_use import Agent, Controller
+from browser_use import Agent, Tools
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.llm import ChatOpenAI
 
@@ -32,14 +32,14 @@ browser_session = BrowserSession(
 		is_local=False,
 	)
 )
-controller = Controller()
+tools = Tools()
 
 
 async def main():
 	agent = Agent(
 		task='Visit https://duckduckgo.com and search for "browser-use founders"',
 		lllm=ChatOpenAI(model='gpt-4.1-mini'),
-		controller=controller,
+		tools=tools,
 		browser_session=browser_session,
 	)
 

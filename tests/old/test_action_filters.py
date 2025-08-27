@@ -4,8 +4,8 @@ import pytest
 from pydantic import BaseModel
 
 from browser_use.browser.types import Page
-from browser_use.controller.registry.service import Registry
-from browser_use.controller.registry.views import ActionRegistry, RegisteredAction
+from browser_use.tools.registry.service import Registry
+from browser_use.tools.registry.views import ActionRegistry, RegisteredAction
 
 
 class EmptyParamModel(BaseModel):

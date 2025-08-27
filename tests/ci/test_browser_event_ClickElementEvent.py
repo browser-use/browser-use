@@ -8,8 +8,8 @@ from pytest_httpserver import HTTPServer
 from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
-from browser_use.controller.service import Controller
-from browser_use.controller.views import (
+from browser_use.tools.service import Tools
+from browser_use.tools.views import (
 	ClickElementAction,
 	GoToUrlAction,
 	UploadFileAction,
@@ -64,15 +64,15 @@ async def browser_session():
 
 
 @pytest.fixture(scope='function')
-def controller():
-	"""Create and provide a Controller instance."""
-	return Controller()
+def tools():
+	"""Create and provide a Tools instance."""
+	return Tools()
 
 
 class TestClickElementEvent:
 	"""Test cases for ClickElementEvent and click_element_by_index action."""
 
-	async def test_error_handling(self, controller, browser_session):
+	async def test_error_handling(self, tools, browser_session):
 		"""Test error handling when an action fails."""
 		# Create an action with an invalid index
 		invalid_action = {'click_element_by_index': ClickElementAction(index=999)}  # doesn't exist on page
@@ -83,11 +83,11 @@ class TestClickElementEvent:
 			click_element_by_index: ClickElementAction | None = None
 
 		# This should fail since the element doesn't exist
-		result: ActionResult = await controller.act(ClickActionModel(**invalid_action), browser_session)
+		result: ActionResult = await tools.act(ClickActionModel(**invalid_action), browser_session)
 
 		assert result.error is not None
 
-	async def test_click_element_by_index(self, controller, browser_session, base_url, http_server):
+	async def test_click_element_by_index(self, tools, browser_session, base_url, http_server):
 		"""Test that click_element_by_index correctly clicks an element and handles different outcomes."""
 		# Add route for clickable elements test page
 		http_server.expect_request('/clickable').respond_with_data(
@@ -137,7 +137,7 @@ class TestClickElementEvent:
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
 
-		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
 
 		# Wait for the page to load
 		await asyncio.sleep(0.5)  # Give page time to load
@@ -178,7 +178,7 @@ class TestClickElementEvent:
 			click_element_by_index: ClickElementAction | None = None
 
 		# Execute the action with the button index
-		result = await controller.act(
+		result = await tools.act(
 			ClickElementActionModel(click_element_by_index=ClickElementAction(index=button_index)), browser_session
 		)
 
@@ -202,7 +202,7 @@ class TestClickElementEvent:
 		result_text = result_js.get('result', {}).get('value', '')
 		assert result_text == expected_result_text, f"Expected result text '{expected_result_text}', got '{result_text}'"
 
-	async def test_click_element_new_tab(self, controller, browser_session, base_url, http_server):
+	async def test_click_element_new_tab(self, tools, browser_session, base_url, http_server):
 		"""Test that click_element_by_index with while_holding_ctrl=True opens links in new tabs."""
 		# Add route for new tab test page
 		http_server.expect_request('/newTab').respond_with_data(
@@ -229,7 +229,7 @@ class TestClickElementEvent:
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
 
-		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
 		await asyncio.sleep(1)  # Wait for page to load
 
 		# Count initial tabs
@@ -255,7 +255,7 @@ class TestClickElementEvent:
 		class ClickActionModel(ActionModel):
 			click_element_by_index: ClickElementAction | None = None
 
-		result = await controller.act(ClickActionModel(**click_action), browser_session)
+		result = await tools.act(ClickActionModel(**click_action), browser_session)
 		await asyncio.sleep(1)  # Wait for new tab to open
 
 		# Verify the result
@@ -284,7 +284,7 @@ class TestClickElementEvent:
 		# Verify the new tab has the correct URL
 		assert f'{base_url}/page1' in new_tab.url, f'New tab should have page1 URL, but got {new_tab.url}'
 
-	async def test_click_element_normal_vs_new_tab(self, controller, browser_session, base_url, http_server):
+	async def test_click_element_normal_vs_new_tab(self, tools, browser_session, base_url, http_server):
 		"""Test that click_element_by_index behaves differently with while_holding_ctrl=False vs while_holding_ctrl=True."""
 		# Add route for comparison test page
 		http_server.expect_request('/comparison').respond_with_data(
@@ -312,7 +312,7 @@ class TestClickElementEvent:
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
 
-		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
 		await asyncio.sleep(1)
 
 		tabs = await browser_session.get_tabs()
@@ -333,7 +333,7 @@ class TestClickElementEvent:
 		class ClickActionModel(ActionModel):
 			click_element_by_index: ClickElementAction | None = None
 
-		result = await controller.act(ClickActionModel(**click_action_normal), browser_session)
+		result = await tools.act(ClickActionModel(**click_action_normal), browser_session)
 		await asyncio.sleep(1)
 
 		# Should still have same number of tabs
@@ -341,19 +341,19 @@ class TestClickElementEvent:
 		assert len(tabs) == initial_tab_count
 
 		# Navigate back to comparison page for second test
-		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
 		await asyncio.sleep(1)
 
 		# Test new tab click (while_holding_ctrl=True) - should open in new background tab
 		click_action_new_tab = {'click_element_by_index': ClickElementAction(index=link_indices[1], while_holding_ctrl=True)}
-		result = await controller.act(ClickActionModel(**click_action_new_tab), browser_session)
+		result = await tools.act(ClickActionModel(**click_action_new_tab), browser_session)
 		await asyncio.sleep(1)
 
 		# Should have one more tab
 		tabs = await browser_session.get_tabs()
 		assert len(tabs) == initial_tab_count + 1
 
-	async def test_inline_element_mostly_offscreen(self, controller, browser_session, base_url, http_server):
+	async def test_inline_element_mostly_offscreen(self, tools, browser_session, base_url, http_server):
 		"""Test clicking an inline element that's mostly outside the viewport."""
 		# Add route for test page with inline element extending beyond viewport
 		http_server.expect_request('/inline_offscreen').respond_with_data(
@@ -399,7 +399,7 @@ class TestClickElementEvent:
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
 
-		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
 		await asyncio.sleep(0.5)
 
 		# Get the clickable elements
@@ -419,9 +419,7 @@ class TestClickElementEvent:
 		class ClickActionModel(ActionModel):
 			click_element_by_index: ClickElementAction | None = None
 
-		result = await controller.act(
-			ClickActionModel(click_element_by_index=ClickElementAction(index=inline_index)), browser_session
-		)
+		result = await tools.act(ClickActionModel(click_element_by_index=ClickElementAction(index=inline_index)), browser_session)
 
 		assert result.error is None, f'Click failed: {result.error}'
 
@@ -433,7 +431,7 @@ class TestClickElementEvent:
 		)
 		assert result_js.get('result', {}).get('value') == 'Inline clicked'
 
-	async def test_block_inside_inline_multiline(self, controller, browser_session, base_url, http_server):
+	async def test_block_inside_inline_multiline(self, tools, browser_session, base_url, http_server):
 		"""Test clicking a block element inside an inline element that spans multiple lines."""
 		# Add route for complex nested layout
 		http_server.expect_request('/block_in_inline').respond_with_data(
@@ -483,7 +481,7 @@ class TestClickElementEvent:
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
 
-		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
 		await asyncio.sleep(0.5)
 
 		# Get the clickable elements
@@ -503,9 +501,7 @@ class TestClickElementEvent:
 		class ClickActionModel(ActionModel):
 			click_element_by_index: ClickElementAction | None = None
 
-		result = await controller.act(
-			ClickActionModel(click_element_by_index=ClickElementAction(index=block_index)), browser_session
-		)
+		result = await tools.act(ClickActionModel(click_element_by_index=ClickElementAction(index=block_index)), browser_session)
 
 		assert result.error is None, f'Click failed: {result.error}'
 
@@ -517,7 +513,7 @@ class TestClickElementEvent:
 		)
 		assert result_js.get('result', {}).get('value') == 'Block clicked'
 
-	async def test_element_covered_by_overlay(self, controller, browser_session, base_url, http_server):
+	async def test_element_covered_by_overlay(self, tools, browser_session, base_url, http_server):
 		"""Test clicking an element that's mostly covered by another element."""
 		# Add route for overlapping elements
 		http_server.expect_request('/covered_element').respond_with_data(
@@ -573,7 +569,7 @@ class TestClickElementEvent:
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
 
-		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
 		await asyncio.sleep(0.5)
 
 		# Get the clickable elements
@@ -593,9 +589,7 @@ class TestClickElementEvent:
 		class ClickActionModel(ActionModel):
 			click_element_by_index: ClickElementAction | None = None
 
-		result = await controller.act(
-			ClickActionModel(click_element_by_index=ClickElementAction(index=target_index)), browser_session
-		)
+		result = await tools.act(ClickActionModel(click_element_by_index=ClickElementAction(index=target_index)), browser_session)
 
 		assert result.error is None, f'Click failed: {result.error}'
 
@@ -607,7 +601,7 @@ class TestClickElementEvent:
 		)
 		assert result_js.get('result', {}).get('value') == 'Target clicked'
 
-	async def test_file_input_click_prevention(self, controller, browser_session, base_url, http_server):
+	async def test_file_input_click_prevention(self, tools, browser_session, base_url, http_server):
 		"""Test that clicking a file input element raises an exception."""
 		# Add route with file input
 		http_server.expect_request('/file_input').respond_with_data(
@@ -635,7 +629,7 @@ class TestClickElementEvent:
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
 
-		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
 		await asyncio.sleep(0.5)
 
 		# Get the clickable elements
@@ -656,7 +650,7 @@ class TestClickElementEvent:
 		class ClickActionModel(ActionModel):
 			click_element_by_index: ClickElementAction | None = None
 
-		result = await controller.act(
+		result = await tools.act(
 			ClickActionModel(click_element_by_index=ClickElementAction(index=file_input_index)), browser_session
 		)
 
@@ -666,7 +660,7 @@ class TestClickElementEvent:
 			f'Error message should mention file input, got: {result.error}'
 		)
 
-	async def test_select_dropdown_click_prevention(self, controller, browser_session, base_url, http_server):
+	async def test_select_dropdown_click_prevention(self, tools, browser_session, base_url, http_server):
 		"""Test that clicking a select dropdown element raises an exception."""
 		# Add route with select dropdown
 		http_server.expect_request('/select_dropdown').respond_with_data(
@@ -698,7 +692,7 @@ class TestClickElementEvent:
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
 
-		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
 		await asyncio.sleep(0.5)
 
 		# Get the clickable elements
@@ -718,9 +712,7 @@ class TestClickElementEvent:
 		class ClickActionModel(ActionModel):
 			click_element_by_index: ClickElementAction | None = None
 
-		result = await controller.act(
-			ClickActionModel(click_element_by_index=ClickElementAction(index=select_index)), browser_session
-		)
+		result = await tools.act(ClickActionModel(click_element_by_index=ClickElementAction(index=select_index)), browser_session)
 
 		# Should have an error about select elements
 		assert result.error is not None, 'Expected error for select element click'
@@ -1009,7 +1001,7 @@ class TestClickElementEvent:
 			f'Navigation should have succeeded after beforeunload was accepted, current URL: {current_url}'
 		)
 
-	async def test_file_upload_click_and_verify(self, controller, browser_session, base_url, http_server):
+	async def test_file_upload_click_and_verify(self, tools, browser_session, base_url, http_server):
 		"""Test that clicking a file upload element and uploading a file works correctly."""
 		# Create a temporary test file
 		import tempfile as temp_module
@@ -1096,7 +1088,7 @@ class TestClickElementEvent:
 			class GoToUrlActionModel(ActionModel):
 				go_to_url: GoToUrlAction | None = None
 
-			await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+			await tools.act(GoToUrlActionModel(**goto_action), browser_session)
 
 			# Wait for the page to load
 			await asyncio.sleep(0.5)
@@ -1129,7 +1121,7 @@ class TestClickElementEvent:
 				file_system = FileSystem(base_dir=temp_dir)
 
 				# Upload the file using the label index (should find the associated file input)
-				result = await controller.act(
+				result = await tools.act(
 					UploadFileActionModel(upload_file_to_element=UploadFileAction(index=label_index, path=temp_file_path)),
 					browser_session,
 					available_file_paths=[temp_file_path],  # Pass the file path as available
@@ -1207,13 +1199,13 @@ class TestClickElementEvent:
 			# Clean up the temporary file
 			Path(temp_file_path).unlink(missing_ok=True)
 
-	async def test_file_upload_path_validation(self, controller, browser_session, base_url, http_server):
+	async def test_file_upload_path_validation(self, tools, browser_session, base_url, http_server):
 		"""Test that file upload validates paths correctly with available_file_paths, downloaded_files, and FileSystem."""
 		from pathlib import Path
 
 		from browser_use.browser.views import BrowserError
-		from browser_use.controller.views import UploadFileAction
 		from browser_use.filesystem.file_system import FileSystem
+		from browser_use.tools.views import UploadFileAction
 
 		# Create a temporary test file that's NOT in available_file_paths
 		with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as temp_file:
@@ -1241,7 +1233,7 @@ class TestClickElementEvent:
 			class GoToUrlActionModel(ActionModel):
 				go_to_url: GoToUrlAction | None = None
 
-			await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+			await tools.act(GoToUrlActionModel(**goto_action), browser_session)
 			await asyncio.sleep(0.5)
 
 			# Get browser state to populate selector map
@@ -1262,7 +1254,7 @@ class TestClickElementEvent:
 
 				try:
 					# This should fail because the file is not in available_file_paths
-					result = await controller.act(
+					result = await tools.act(
 						upload_action,
 						browser_session,
 						available_file_paths=[],  # Empty available_file_paths
@@ -1274,7 +1266,7 @@ class TestClickElementEvent:
 					assert 'not available' in str(e), f'Error should mention file not available: {e}'
 
 				# Test 2: Add file to available_file_paths - should succeed
-				result = await controller.act(
+				result = await tools.act(
 					upload_action,
 					browser_session,
 					available_file_paths=[test_file_path],  # File is now in available_file_paths
@@ -1289,7 +1281,7 @@ class TestClickElementEvent:
 				# Try to upload using just the filename (should check FileSystem)
 				upload_action_fs = UploadActionModel(upload_file_to_element=UploadFileAction(index=1, path='test.txt'))
 
-				result = await controller.act(
+				result = await tools.act(
 					upload_action_fs,
 					browser_session,
 					available_file_paths=[],  # Empty available_file_paths
@@ -1302,7 +1294,7 @@ class TestClickElementEvent:
 				browser_session._downloaded_files.append(test_file_path)
 
 				# Try uploading with the file only in downloaded_files
-				result = await controller.act(
+				result = await tools.act(
 					upload_action,
 					browser_session,
 					available_file_paths=[],  # Empty available_file_paths, but file is in downloaded_files

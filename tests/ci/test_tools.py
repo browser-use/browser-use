@@ -9,15 +9,15 @@ from pytest_httpserver import HTTPServer
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
-from browser_use.controller.service import Controller
-from browser_use.controller.views import (
+from browser_use.filesystem.file_system import FileSystem
+from browser_use.tools.service import Tools
+from browser_use.tools.views import (
 	DoneAction,
 	GoToUrlAction,
 	NoParamsAction,
 	SearchGoogleAction,
 	SendKeysAction,
 )
-from browser_use.filesystem.file_system import FileSystem
 
 
 @pytest.fixture(scope='session')
@@ -85,15 +85,15 @@ async def browser_session():
 
 
 @pytest.fixture(scope='function')
-def controller():
-	"""Create and provide a Controller instance."""
-	return Controller()
+def tools():
+	"""Create and provide a Tools instance."""
+	return Tools()
 
 
-class TestControllerIntegration:
-	"""Integration tests for Controller using actual browser instances."""
+class TestToolsIntegration:
+	"""Integration tests for Tools using actual browser instances."""
 
-	async def test_registry_actions(self, controller, browser_session):
+	async def test_registry_actions(self, tools, browser_session):
 		"""Test that the registry contains the expected default actions."""
 		# Check that common actions are registered
 		common_actions = [
@@ -109,18 +109,18 @@ class TestControllerIntegration:
 		]
 
 		for action in common_actions:
-			assert action in controller.registry.registry.actions
-			assert controller.registry.registry.actions[action].function is not None
-			assert controller.registry.registry.actions[action].description is not None
+			assert action in tools.registry.registry.actions
+			assert tools.registry.registry.actions[action].function is not None
+			assert tools.registry.registry.actions[action].description is not None
 
-	async def test_custom_action_registration(self, controller, browser_session, base_url):
+	async def test_custom_action_registration(self, tools, browser_session, base_url):
 		"""Test registering a custom action and executing it."""
 
 		# Define a custom action
 		class CustomParams(BaseModel):
 			text: str
 
-		@controller.action('Test custom action', param_model=CustomParams)
+		@tools.action('Test custom action', param_model=CustomParams)
 		async def custom_action(params: CustomParams, browser_session):
 			page = await browser_session.get_current_page()
 			return ActionResult(extracted_content=f'Custom action executed with: {params.text} on {page.url}')
@@ -131,7 +131,7 @@ class TestControllerIntegration:
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
 
-		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
 
 		# Create the custom action model
 		custom_action_data = {'custom_action': CustomParams(text='test_value')}
@@ -140,7 +140,7 @@ class TestControllerIntegration:
 			custom_action: CustomParams | None = None
 
 		# Execute the custom action
-		result = await controller.act(CustomActionModel(**custom_action_data), browser_session)
+		result = await tools.act(CustomActionModel(**custom_action_data), browser_session)
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
@@ -148,16 +148,16 @@ class TestControllerIntegration:
 		assert 'Custom action executed with: test_value on' in result.extracted_content
 		assert f'{base_url}/page1' in result.extracted_content
 
-	async def test_wait_action(self, controller, browser_session):
+	async def test_wait_action(self, tools, browser_session):
 		"""Test that the wait action correctly waits for the specified duration."""
 
 		# verify that it's in the default action set
 		wait_action = None
-		for action_name, action in controller.registry.registry.actions.items():
+		for action_name, action in tools.registry.registry.actions.items():
 			if 'wait' in action_name.lower() and 'seconds' in str(action.param_model.model_fields):
 				wait_action = action
 				break
-		assert wait_action is not None, 'Could not find wait action in controller'
+		assert wait_action is not None, 'Could not find wait action in tools'
 
 		# Check that it has seconds parameter with default
 		assert 'seconds' in wait_action.param_model.model_fields
@@ -174,7 +174,7 @@ class TestControllerIntegration:
 		start_time = time.time()
 
 		# Execute wait action
-		result = await controller.act(WaitActionModel(**wait_action), browser_session)
+		result = await tools.act(WaitActionModel(**wait_action), browser_session)
 
 		# Record end time
 		end_time = time.time()
@@ -195,7 +195,7 @@ class TestControllerIntegration:
 		start_time = time.time()
 
 		# Execute wait action
-		result = await controller.act(WaitActionModel(**wait_action), browser_session)
+		result = await tools.act(WaitActionModel(**wait_action), browser_session)
 
 		# Record end time
 		end_time = time.time()
@@ -209,7 +209,7 @@ class TestControllerIntegration:
 		assert end_time - start_time <= 2.1  # Allow some timing margin
 		assert end_time - start_time >= 1.9  # Allow some timing margin
 
-	async def test_go_back_action(self, controller, browser_session, base_url):
+	async def test_go_back_action(self, tools, browser_session, base_url):
 		"""Test that go_back action navigates to the previous page."""
 		# Navigate to first page
 		goto_action1 = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
@@ -217,7 +217,7 @@ class TestControllerIntegration:
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
 
-		await controller.act(GoToUrlActionModel(**goto_action1), browser_session)
+		await tools.act(GoToUrlActionModel(**goto_action1), browser_session)
 
 		# Store the first page URL
 		page1 = await browser_session.get_current_page()
@@ -226,7 +226,7 @@ class TestControllerIntegration:
 
 		# Navigate to second page
 		goto_action2 = {'go_to_url': GoToUrlAction(url=f'{base_url}/page2', new_tab=False)}
-		await controller.act(GoToUrlActionModel(**goto_action2), browser_session)
+		await tools.act(GoToUrlActionModel(**goto_action2), browser_session)
 
 		# Verify we're on the second page
 		page2 = await browser_session.get_current_page()
@@ -240,7 +240,7 @@ class TestControllerIntegration:
 		class GoBackActionModel(ActionModel):
 			go_back: NoParamsAction | None = None
 
-		result = await controller.act(GoBackActionModel(**go_back_action), browser_session)
+		result = await tools.act(GoBackActionModel(**go_back_action), browser_session)
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
@@ -258,7 +258,7 @@ class TestControllerIntegration:
 		# Try to verify we're back on the first page, but don't fail the test if not
 		assert f'{base_url}/page1' in final_url, f'Expected to return to page1 but got {final_url}'
 
-	async def test_navigation_chain(self, controller, browser_session, base_url):
+	async def test_navigation_chain(self, tools, browser_session, base_url):
 		"""Test navigating through multiple pages and back through history."""
 		# Set up a chain of navigation: Home -> Page1 -> Page2
 		urls = [f'{base_url}/', f'{base_url}/page1', f'{base_url}/page2']
@@ -270,7 +270,7 @@ class TestControllerIntegration:
 			class GoToUrlActionModel(ActionModel):
 				go_to_url: GoToUrlAction | None = None
 
-			await controller.act(GoToUrlActionModel(**action_data), browser_session)
+			await tools.act(GoToUrlActionModel(**action_data), browser_session)
 
 			# Verify current page
 			page = await browser_session.get_current_page()
@@ -283,14 +283,14 @@ class TestControllerIntegration:
 			class GoBackActionModel(ActionModel):
 				go_back: NoParamsAction | None = None
 
-			await controller.act(GoBackActionModel(**go_back_action), browser_session)
+			await tools.act(GoBackActionModel(**go_back_action), browser_session)
 			await asyncio.sleep(1)  # Wait for navigation to complete
 
 			page = await browser_session.get_current_page()
 			assert expected_url in page.url
 
 	# TODO: update to use TargetIDs / 4-char tab_id
-	# async def test_concurrent_tab_operations(self, controller, browser_session, base_url):
+	# async def test_concurrent_tab_operations(self, tools, browser_session, base_url):
 	# 	"""Test operations across multiple tabs."""
 	# 	# Create two tabs with different content
 	# 	urls = [f'{base_url}/page1', f'{base_url}/page2']
@@ -301,7 +301,7 @@ class TestControllerIntegration:
 	# 	class GoToUrlActionModel(ActionModel):
 	# 		go_to_url: GoToUrlAction | None = None
 
-	# 	await controller.act(GoToUrlActionModel(**goto_action1), browser_session)
+	# 	await tools.act(GoToUrlActionModel(**goto_action1), browser_session)
 
 	# 	# Open second tab
 	# 	open_tab_action = {'go_to_url': GoToUrlAction(url=urls[1], new_tab=True)}
@@ -309,7 +309,7 @@ class TestControllerIntegration:
 	# 	class OpenTabActionModel(ActionModel):
 	# 		go_to_url: GoToUrlAction | None = None
 
-	# 	await controller.act(OpenTabActionModel(**open_tab_action), browser_session)
+	# 	await tools.act(OpenTabActionModel(**open_tab_action), browser_session)
 
 	# 	# Verify we're on second tab
 	# 	page = await browser_session.get_current_page()
@@ -321,7 +321,7 @@ class TestControllerIntegration:
 	# 	class SwitchTabActionModel(ActionModel):
 	# 		switch_tab: SwitchTabAction | None = None
 
-	# 	await controller.act(SwitchTabActionModel(**switch_tab_action), browser_session)
+	# 	await tools.act(SwitchTabActionModel(**switch_tab_action), browser_session)
 
 	# 	# Verify we're back on first tab
 	# 	page = await browser_session.get_current_page()
@@ -333,7 +333,7 @@ class TestControllerIntegration:
 	# 	class CloseTabActionModel(ActionModel):
 	# 		close_tab: CloseTabAction | None = None
 
-	# 	await controller.act(CloseTabActionModel(**close_tab_action), browser_session)
+	# 	await tools.act(CloseTabActionModel(**close_tab_action), browser_session)
 
 	# 	# Verify tabs after close - AboutBlankWatchdog may create an animation tab
 	# 	tabs_info = await browser_session.get_tabs_info()
@@ -352,18 +352,18 @@ class TestControllerIntegration:
 
 	async def test_excluded_actions(self, browser_session):
 		"""Test that excluded actions are not registered."""
-		# Create controller with excluded actions
-		excluded_controller = Controller(exclude_actions=['search_google', 'scroll'])
+		# Create tools with excluded actions
+		excluded_tools = Tools(exclude_actions=['search_google', 'scroll'])
 
 		# Verify excluded actions are not in the registry
-		assert 'search_google' not in excluded_controller.registry.registry.actions
-		assert 'scroll' not in excluded_controller.registry.registry.actions
+		assert 'search_google' not in excluded_tools.registry.registry.actions
+		assert 'scroll' not in excluded_tools.registry.registry.actions
 
 		# But other actions are still there
-		assert 'go_to_url' in excluded_controller.registry.registry.actions
-		assert 'click_element_by_index' in excluded_controller.registry.registry.actions
+		assert 'go_to_url' in excluded_tools.registry.registry.actions
+		assert 'click_element_by_index' in excluded_tools.registry.registry.actions
 
-	async def test_search_google_action(self, controller, browser_session, base_url):
+	async def test_search_google_action(self, tools, browser_session, base_url):
 		"""Test the search_google action."""
 
 		await browser_session.get_current_page()
@@ -374,7 +374,7 @@ class TestControllerIntegration:
 		class SearchGoogleActionModel(ActionModel):
 			search_google: SearchGoogleAction | None = None
 
-		result = await controller.act(SearchGoogleActionModel(**search_action), browser_session)
+		result = await tools.act(SearchGoogleActionModel(**search_action), browser_session)
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
@@ -385,7 +385,7 @@ class TestControllerIntegration:
 		page = await browser_session.get_current_page()
 		assert page.url is not None and 'Python' in page.url
 
-	async def test_done_action(self, controller, browser_session, base_url):
+	async def test_done_action(self, tools, browser_session, base_url):
 		"""Test that DoneAction completes a task and reports success or failure."""
 		# Create a temporary directory for the file system
 		with tempfile.TemporaryDirectory() as temp_dir:
@@ -397,7 +397,7 @@ class TestControllerIntegration:
 			class GoToUrlActionModel(ActionModel):
 				go_to_url: GoToUrlAction | None = None
 
-			await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+			await tools.act(GoToUrlActionModel(**goto_action), browser_session)
 
 			success_done_message = 'Successfully completed task'
 
@@ -408,7 +408,7 @@ class TestControllerIntegration:
 				done: DoneAction | None = None
 
 			# Execute done action with file_system
-			result = await controller.act(DoneActionModel(**done_action), browser_session, file_system=file_system)
+			result = await tools.act(DoneActionModel(**done_action), browser_session, file_system=file_system)
 
 			# Verify the result
 			assert isinstance(result, ActionResult)
@@ -424,7 +424,7 @@ class TestControllerIntegration:
 			failed_done_action = {'done': DoneAction(text=failed_done_message, success=False)}
 
 			# Execute failed done action with file_system
-			result = await controller.act(DoneActionModel(**failed_done_action), browser_session, file_system=file_system)
+			result = await tools.act(DoneActionModel(**failed_done_action), browser_session, file_system=file_system)
 
 			# Verify the result
 			assert isinstance(result, ActionResult)
@@ -434,7 +434,7 @@ class TestControllerIntegration:
 			assert result.is_done is True
 			assert result.error is None
 
-	async def test_send_keys_action(self, controller, browser_session, base_url, http_server):
+	async def test_send_keys_action(self, tools, browser_session, base_url, http_server):
 		"""Test SendKeysAction using a controlled local HTML file."""
 		# Set up keyboard test page for this test
 		http_server.expect_request('/keyboard').respond_with_data(
@@ -501,7 +501,7 @@ class TestControllerIntegration:
 			go_to_url: GoToUrlAction | None = None
 
 		# Execute navigation
-		goto_result = await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+		goto_result = await tools.act(GoToUrlActionModel(**goto_action), browser_session)
 		await asyncio.sleep(0.1)
 
 		# Verify navigation result
@@ -528,7 +528,7 @@ class TestControllerIntegration:
 		class SendKeysActionModel(ActionModel):
 			send_keys: SendKeysAction | None = None
 
-		tab_result = await controller.act(SendKeysActionModel(**tab_keys_action), browser_session)
+		tab_result = await tools.act(SendKeysActionModel(**tab_keys_action), browser_session)
 		await asyncio.sleep(0.1)
 
 		# Verify Tab action result
@@ -549,7 +549,7 @@ class TestControllerIntegration:
 		# 2. Type text into the input
 		test_text = 'This is a test'
 		type_action = {'send_keys': SendKeysAction(keys=test_text)}
-		type_result = await controller.act(SendKeysActionModel(**type_action), browser_session)
+		type_result = await tools.act(SendKeysActionModel(**type_action), browser_session)
 		await asyncio.sleep(0.1)
 
 		# Verify typing action result
@@ -570,7 +570,7 @@ class TestControllerIntegration:
 
 		# 3. Test Ctrl+A for select all
 		select_all_action = {'send_keys': SendKeysAction(keys='ControlOrMeta+a')}
-		select_all_result = await controller.act(SendKeysActionModel(**select_all_action), browser_session)
+		select_all_result = await tools.act(SendKeysActionModel(**select_all_action), browser_session)
 		# Wait longer for selection to take effect
 		await asyncio.sleep(1.0)
 
@@ -596,7 +596,7 @@ class TestControllerIntegration:
 		assert 'Selection length:' in result_text
 
 		# 4. Test Tab to next field
-		tab_result2 = await controller.act(SendKeysActionModel(**tab_keys_action), browser_session)
+		tab_result2 = await tools.act(SendKeysActionModel(**tab_keys_action), browser_session)
 		await asyncio.sleep(0.1)
 
 		# Verify second Tab action result
@@ -616,7 +616,7 @@ class TestControllerIntegration:
 		# 5. Type in the textarea
 		textarea_text = 'Testing multiline\ninput text'
 		textarea_action = {'send_keys': SendKeysAction(keys=textarea_text)}
-		textarea_result = await controller.act(SendKeysActionModel(**textarea_action), browser_session)
+		textarea_result = await tools.act(SendKeysActionModel(**textarea_action), browser_session)
 
 		# Verify textarea typing action result
 		assert isinstance(textarea_result, ActionResult)
@@ -638,8 +638,8 @@ class TestControllerIntegration:
 		assert lines[1] == 'input text'
 
 		# Test that Tab cycles back to the first element if we tab again
-		await controller.act(SendKeysActionModel(**tab_keys_action), browser_session)
-		await controller.act(SendKeysActionModel(**tab_keys_action), browser_session)
+		await tools.act(SendKeysActionModel(**tab_keys_action), browser_session)
+		await tools.act(SendKeysActionModel(**tab_keys_action), browser_session)
 
 		active_element_id = await page.evaluate('() => document.activeElement.id')
 		assert active_element_id == 'textInput', 'Tab cycling through form elements failed'
@@ -648,7 +648,7 @@ class TestControllerIntegration:
 		input_value = await page.evaluate('() => document.getElementById("textInput").value')
 		assert input_value == test_text, "Input value shouldn't have changed after tabbing"
 
-	async def test_get_dropdown_options(self, controller, browser_session, base_url, http_server):
+	async def test_get_dropdown_options(self, tools, browser_session, base_url, http_server):
 		"""Test that get_dropdown_options correctly retrieves options from a dropdown."""
 		# Add route for dropdown test page
 		http_server.expect_request('/dropdown1').respond_with_data(
@@ -678,7 +678,7 @@ class TestControllerIntegration:
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
 
-		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
 
 		# Wait for the page to load using CDP
 		cdp_session = browser_session.agent_focus
@@ -715,7 +715,7 @@ class TestControllerIntegration:
 			get_dropdown_options: dict[str, int]
 
 		# Execute the action with the dropdown index
-		result = await controller.act(
+		result = await tools.act(
 			action=GetDropdownOptionsModel(get_dropdown_options={'index': dropdown_index}),
 			browser_session=browser_session,
 		)
@@ -772,7 +772,7 @@ class TestControllerIntegration:
 				f"Option at index {i} has wrong value: expected '{expected['value']}', got '{actual['value']}'"
 			)
 
-	async def test_select_dropdown_option(self, controller, browser_session, base_url, http_server):
+	async def test_select_dropdown_option(self, tools, browser_session, base_url, http_server):
 		"""Test that select_dropdown_option correctly selects an option from a dropdown."""
 		# Add route for dropdown test page
 		http_server.expect_request('/dropdown2').respond_with_data(
@@ -802,7 +802,7 @@ class TestControllerIntegration:
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
 
-		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
 
 		# Wait for the page to load using CDP
 		cdp_session = browser_session.agent_focus
@@ -839,7 +839,7 @@ class TestControllerIntegration:
 			select_dropdown_option: dict
 
 		# Execute the action with the dropdown index
-		result = await controller.act(
+		result = await tools.act(
 			SelectDropdownOptionModel(select_dropdown_option={'index': dropdown_index, 'text': 'Second Option'}),
 			browser_session,
 		)

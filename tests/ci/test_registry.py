@@ -21,15 +21,15 @@ from pytest_httpserver.httpserver import HandlerType
 from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
-from browser_use.controller.registry.service import Registry
-from browser_use.controller.registry.views import ActionModel as BaseActionModel
-from browser_use.controller.views import (
+from browser_use.llm.messages import UserMessage
+from browser_use.tools.registry.service import Registry
+from browser_use.tools.registry.views import ActionModel as BaseActionModel
+from browser_use.tools.views import (
 	ClickElementAction,
 	InputTextAction,
 	NoParamsAction,
 	SearchGoogleAction,
 )
-from browser_use.llm.messages import UserMessage
 from tests.ci.conftest import create_mock_llm
 
 # Configure logging
@@ -504,8 +504,8 @@ class TestRegistryEdgeCases:
 		assert 'Should execute: test' in result.extracted_content
 
 
-class TestExistingControllerActions:
-	"""Test that existing controller actions continue to work"""
+class TestExistingToolsActions:
+	"""Test that existing tools actions continue to work"""
 
 	async def test_existing_action_models(self, registry, browser_session):
 		"""Test that existing action parameter models work correctly"""
@@ -665,7 +665,7 @@ class TestType2Pattern:
 		assert len(fields) == 0 or all(f in ['title'] for f in fields)
 
 	def test_no_special_params_action(self):
-		"""Test action with no special params (like wait action in Controller)"""
+		"""Test action with no special params (like wait action in Tools)"""
 		registry = Registry()
 
 		@registry.action('Wait for x seconds default 3')
@@ -954,7 +954,7 @@ class TestParamsModelArgsAndKwargs:
 
 		This test demonstrates the problem and our fix. The issue happens because:
 
-		1. In controller/service.py, we have:
+		1. In tools/service.py, we have:
 		```python
 		@registry.action('Google Sheets: Select a specific cell or range of cells')
 		async def select_cell_or_range(browser_session: BrowserSession, cell_or_range: str):
@@ -985,8 +985,8 @@ class TestParamsModelArgsAndKwargs:
 		This test confirms that this approach works.
 		"""
 
-		from browser_use.controller.registry.service import Registry
-		from browser_use.controller.registry.views import ActionModel
+		from browser_use.tools.registry.service import Registry
+		from browser_use.tools.registry.views import ActionModel
 
 		# Simple context for testing
 		class TestContext:

@@ -11,16 +11,16 @@ from typing import Any, Generic, Optional, TypeVar, Union, get_args, get_origin
 from pydantic import BaseModel, Field, RootModel, create_model
 
 from browser_use.browser import BrowserSession
-from browser_use.controller.registry.views import (
+from browser_use.filesystem.file_system import FileSystem
+from browser_use.llm.base import BaseChatModel
+from browser_use.observability import observe_debug
+from browser_use.telemetry.service import ProductTelemetry
+from browser_use.tools.registry.views import (
 	ActionModel,
 	ActionRegistry,
 	RegisteredAction,
 	SpecialActionParameters,
 )
-from browser_use.filesystem.file_system import FileSystem
-from browser_use.llm.base import BaseChatModel
-from browser_use.observability import observe_debug
-from browser_use.telemetry.service import ProductTelemetry
 from browser_use.utils import is_new_tab_page, match_url_with_domain_pattern, time_execution_async
 
 Context = TypeVar('Context')
@@ -121,7 +121,7 @@ class Registry(Generic[Context]):
 						param_type_name = getattr(param_type, '__name__', str(param_type))
 						raise ValueError(
 							f"Action '{func.__name__}' parameter '{param.name}: {param_type_name}' "
-							f"conflicts with special argument injected by controller: '{param.name}: {expected_type_name}'"
+							f"conflicts with special argument injected by tools: '{param.name}: {expected_type_name}'"
 						)
 				special_params.append(param)
 			else:
@@ -316,8 +316,6 @@ class Registry(Generic[Context]):
 		file_system: FileSystem | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		available_file_paths: list[str] | None = None,
-		#
-		context: Context | None = None,
 	) -> Any:
 		"""Execute a registered action with simplified parameter handling"""
 		if action_name not in self.registry.actions:
@@ -348,7 +346,6 @@ class Registry(Generic[Context]):
 
 			# Build special context dict
 			special_context = {
-				'context': context,
 				'browser_session': browser_session,
 				'page_extraction_llm': page_extraction_llm,
 				'available_file_paths': available_file_paths,

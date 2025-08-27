@@ -1,13 +1,8 @@
-import asyncio
-
 from browser_use import Agent, ChatOpenAI
 
+agent = Agent(
+	task='Ask human for help',
+	llm=ChatOpenAI(model='gpt-4.1-mini'),
+)
 
-async def main():
-	task = 'Find the founders of browser-use'
-	agent = Agent(task=task, llm=ChatOpenAI(model='gpt-4.1-mini'))
-	await agent.run()
-
-
-if __name__ == '__main__':
-	asyncio.run(main())
+agent.run_sync()

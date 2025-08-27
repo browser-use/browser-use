@@ -125,12 +125,12 @@ Browser-use agents can connect to multiple external MCP servers to extend their 
 
 ```python
 import asyncio
-from browser_use import Agent, Controller, ChatOpenAI
+from browser_use import Agent, Tools, ChatOpenAI
 from browser_use.mcp.client import MCPClient
 
 async def main():
-    # Initialize controller
-    controller = Controller()
+    # Initialize tools
+    tools = Tools()
 
     # Connect to multiple MCP servers
     filesystem_client = MCPClient(
@@ -148,16 +148,16 @@ async def main():
 
     # Connect and register tools from both servers
     await filesystem_client.connect()
-    await filesystem_client.register_to_controller(controller)
+    await filesystem_client.register_to_tools(tools)
 
     await github_client.connect()
-    await github_client.register_to_controller(controller)
+    await github_client.register_to_tools(tools)
 
-    # Create agent with MCP-enabled controller
+    # Create agent with MCP-enabled tools
     agent = Agent(
         task="Find the latest pdf report in my documents and create a GitHub issue about it",
         llm=ChatOpenAI(model="gpt-4.1-mini"),
-        controller=controller  # Controller has tools from both MCP servers
+        tools=tools  # Tools has tools from both MCP servers
     )
 
     # Run the agent

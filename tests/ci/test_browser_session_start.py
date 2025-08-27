@@ -537,7 +537,7 @@ class TestBrowserSessionReusePatterns:
 			task='The first task...',
 			llm=mock_llm,
 			browser_profile=reused_profile,
-			enable_memory=False,  # Disable memory for tests
+			=False,  # Disable memory for tests
 		)
 		await agent1.run()
 
@@ -550,7 +550,7 @@ class TestBrowserSessionReusePatterns:
 			task='The second task...',
 			llm=mock_llm,
 			browser_profile=reused_profile,
-			enable_memory=False,  # Disable memory for tests
+			  # Disable memory for tests
 		)
 		await agent2.run()
 
@@ -581,7 +581,7 @@ class TestBrowserSessionReusePatterns:
 				task='The first task...',
 				llm=mock_llm,
 				browser_session=reused_session,
-				enable_memory=False,  # Disable memory for tests
+				  # Disable memory for tests
 			)
 			await agent1.run()
 
@@ -593,7 +593,7 @@ class TestBrowserSessionReusePatterns:
 				task='The second task...',
 				llm=mock_llm,
 				browser_session=reused_session,
-				enable_memory=False,  # Disable memory for tests
+				  # Disable memory for tests
 			)
 			await agent2.run()
 
@@ -687,19 +687,19 @@ class TestBrowserSessionReusePatterns:
 	# 			task='First parallel task...',
 	# 			llm=mock_llm1,
 	# 			browser_session=shared_browser,
-	# 			enable_memory=False,  # Disable memory for tests
+	# 			  # Disable memory for tests
 	# 		)
 	# 		agent2 = Agent(
 	# 			task='Second parallel task...',
 	# 			llm=mock_llm2,
 	# 			browser_session=shared_browser,
-	# 			enable_memory=False,  # Disable memory for tests
+	# 			  # Disable memory for tests
 	# 		)
 	# 		agent3 = Agent(
 	# 			task='Third parallel task...',
 	# 			llm=mock_llm3,
 	# 			browser_session=shared_browser,
-	# 			enable_memory=False,  # Disable memory for tests
+	# 			  # Disable memory for tests
 	# 		)
 
 	# 		# Run all agents in parallel
@@ -766,13 +766,13 @@ class TestBrowserSessionReusePatterns:
 	# 			task='Fill out the form in section A...',
 	# 			llm=mock_llm,
 	# 			browser_session=shared_browser,
-	# 			enable_memory=False,  # Disable memory for tests
+	# 			  # Disable memory for tests
 	# 		)
 	# 		agent2 = Agent(
 	# 			task='Fill out the form in section B...',
 	# 			llm=mock_llm,
 	# 			browser_session=shared_browser,
-	# 			enable_memory=False,  # Disable memory for tests
+	# 			  # Disable memory for tests
 	# 		)
 
 	# 		# Set up httpserver and navigate to a page before running agents

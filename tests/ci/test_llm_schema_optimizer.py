@@ -6,8 +6,8 @@ optimizes the schemas for agent actions without losing information.
 from pydantic import BaseModel
 
 from browser_use.agent.views import AgentOutput
-from browser_use.controller.service import Controller
 from browser_use.llm.schema import SchemaOptimizer
+from browser_use.tools.service import Tools
 
 
 class ProductInfo(BaseModel):
@@ -26,12 +26,12 @@ def test_optimizer_preserves_all_fields_in_structured_done_action():
 	This test specifically checks for a bug where fields were being lost
 	during the optimization process.
 	"""
-	# 1. Setup a controller with a custom output model, simulating an Agent
+	# 1. Setup a tools with a custom output model, simulating an Agent
 	#    being created with an `output_model_schema`.
-	controller = Controller(output_model=ProductInfo)
+	tools = Tools(output_model=ProductInfo)
 
 	# 2. Get the dynamically created AgentOutput model, which includes all registered actions.
-	ActionModel = controller.registry.create_action_model()
+	ActionModel = tools.registry.create_action_model()
 	agent_output_model = AgentOutput.type_with_custom_actions(ActionModel)
 
 	# 3. Run the schema optimizer on the agent's output model.

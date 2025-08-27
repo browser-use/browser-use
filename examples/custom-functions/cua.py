@@ -24,7 +24,7 @@ load_dotenv()
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
-from browser_use import Agent, ChatOpenAI, Controller
+from browser_use import Agent, ChatOpenAI, Tools
 from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
 
@@ -177,10 +177,10 @@ async def handle_model_action(browser_session: BrowserSession, action) -> Action
 		return ActionResult(error=ERROR_MSG)
 
 
-controller = Controller()
+tools = Tools()
 
 
-@controller.registry.action(
+@tools.registry.action(
 	'Use OpenAI Computer Use Assistant (CUA) as a fallback when standard browser actions cannot achieve the desired goal. This action sends a screenshot and description to OpenAI CUA and executes the returned computer use actions.',
 	param_model=OpenAICUAAction,
 )
@@ -294,11 +294,11 @@ async def main():
     Use the OpenAI CUA fallback to click on "Tree is open..." link.
     """
 
-	# Create agent with our custom controller that includes CUA fallback
+	# Create agent with our custom tools that includes CUA fallback
 	agent = Agent(
 		task=task,
 		llm=llm,
-		controller=controller,
+		tools=tools,
 		browser_session=browser_session,
 	)
 

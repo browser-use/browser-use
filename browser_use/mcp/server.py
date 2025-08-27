@@ -78,9 +78,9 @@ _configure_mcp_server_logging()
 from browser_use import ActionModel, Agent
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.config import get_default_llm, get_default_profile, load_browser_use_config
-from browser_use.controller.service import Controller
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use.tools.service import Tools
 
 logger = logging.getLogger(__name__)
 
@@ -186,7 +186,7 @@ class BrowserUseServer:
 		self.config = load_browser_use_config()
 		self.agent: Agent | None = None
 		self.browser_session: BrowserSession | None = None
-		self.controller: Controller | None = None
+		self.tools: Tools | None = None
 		self.llm: ChatOpenAI | None = None
 		self.file_system: FileSystem | None = None
 		self._telemetry = ProductTelemetry()
@@ -465,7 +465,6 @@ class BrowserUseServer:
 			'wait_between_actions': 0.5,
 			'keep_alive': True,
 			'user_data_dir': '~/.config/browseruse/profiles/default',
-			'is_mobile': False,
 			'device_scale_factor': 1.0,
 			'disable_security': False,
 			'headless': False,
@@ -487,8 +486,8 @@ class BrowserUseServer:
 		self.browser_session = BrowserSession(browser_profile=profile)
 		await self.browser_session.start()
 
-		# Create controller for direct actions
-		self.controller = Controller()
+		# Create tools for direct actions
+		self.tools = Tools()
 
 		# Initialize LLM from config
 		llm_config = get_default_llm(self.config)
@@ -710,13 +709,13 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
-		if not self.controller:
-			return 'Error: Controller not initialized'
+		if not self.tools:
+			return 'Error: Tools not initialized'
 
 		state = await self.browser_session.get_browser_state_summary()
 
 		# Use the extract_structured_data action
-		# Create a dynamic action model that matches the controller's expectations
+		# Create a dynamic action model that matches the tools's expectations
 		from pydantic import create_model
 
 		# Create action model dynamically
@@ -727,7 +726,7 @@ class BrowserUseServer:
 		)
 
 		action = ExtractAction()
-		action_result = await self.controller.act(
+		action_result = await self.tools.act(
 			action=action,
 			browser_session=self.browser_session,
 			page_extraction_llm=self.llm,
@@ -772,7 +771,7 @@ class BrowserUseServer:
 			event = self.browser_session.event_bus.dispatch(BrowserStopEvent())
 			await event
 			self.browser_session = None
-			self.controller = None
+			self.tools = None
 			return 'Browser closed'
 		return 'No browser session to close'
 

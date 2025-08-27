@@ -4,8 +4,8 @@ from pydantic import BaseModel
 from browser_use.agent.service import Agent
 from browser_use.agent.views import AgentHistoryList
 from browser_use.browser import BrowserProfile, BrowserSession
-from browser_use.controller.service import Controller
 from browser_use.llm import ChatAzureOpenAI
+from browser_use.tools.service import Tools
 
 
 @pytest.fixture
@@ -21,22 +21,22 @@ async def browser_session():
 
 
 @pytest.fixture
-async def controller():
-	"""Initialize the controller with self-registered actions"""
-	controller = Controller()
+async def tools():
+	"""Initialize the tools with self-registered actions"""
+	tools = Tools()
 
 	# Define custom actions without Pydantic models
-	@controller.action('Print a message')
+	@tools.action('Print a message')
 	def print_message(message: str):
 		print(f'Message: {message}')
 		return f'Printed message: {message}'
 
-	@controller.action('Add two numbers')
+	@tools.action('Add two numbers')
 	def add_numbers(a: int, b: int):
 		result = a + b
 		return f'The sum is {result}'
 
-	@controller.action('Concatenate strings')
+	@tools.action('Concatenate strings')
 	def concatenate_strings(str1: str, str2: str):
 		result = str1 + str2
 		return f'Concatenated string: {result}'
@@ -55,21 +55,21 @@ async def controller():
 		address: Address
 
 	# Add actions with Pydantic model arguments
-	@controller.action('Process simple model', param_model=SimpleModel)
+	@tools.action('Process simple model', param_model=SimpleModel)
 	def process_simple_model(model: SimpleModel):
 		return f'Processed {model.name}, age {model.age}'
 
-	@controller.action('Process nested model', param_model=NestedModel)
+	@tools.action('Process nested model', param_model=NestedModel)
 	def process_nested_model(model: NestedModel):
 		user_info = f'{model.user.name}, age {model.user.age}'
 		address_info = f'{model.address.street}, {model.address.city}'
 		return f'Processed user {user_info} at address {address_info}'
 
-	@controller.action('Process multiple models')
+	@tools.action('Process multiple models')
 	def process_multiple_models(model1: SimpleModel, model2: Address):
 		return f'Processed {model1.name} living at {model2.street}, {model2.city}'
 
-	yield controller
+	yield tools
 
 
 @pytest.fixture
@@ -83,12 +83,12 @@ def llm():
 
 
 # @pytest.mark.skip(reason="Skipping test for now")
-async def test_self_registered_actions_no_pydantic(llm, controller):
+async def test_self_registered_actions_no_pydantic(llm, tools):
 	"""Test self-registered actions with individual arguments"""
 	agent = Agent(
 		task="First, print the message 'Hello, World!'. Then, add 10 and 20. Next, concatenate 'foo' and 'bar'.",
 		llm=llm,
-		controller=controller,
+		tools=tools,
 	)
 	history: AgentHistoryList = await agent.run(max_steps=10)
 	# Check that custom actions were executed
@@ -100,12 +100,12 @@ async def test_self_registered_actions_no_pydantic(llm, controller):
 
 
 # @pytest.mark.skip(reason="Skipping test for now")
-async def test_mixed_arguments_actions(llm, controller):
+async def test_mixed_arguments_actions(llm, tools):
 	"""Test actions with mixed argument types"""
 
 	# Define another action during the test
 	# Test for async actions
-	@controller.action('Calculate the area of a rectangle')
+	@tools.action('Calculate the area of a rectangle')
 	async def calculate_area(length: float, width: float):
 		area = length * width
 		return f'The area is {area}'
@@ -113,7 +113,7 @@ async def test_mixed_arguments_actions(llm, controller):
 	agent = Agent(
 		task='Calculate the area of a rectangle with length 5.5 and width 3.2.',
 		llm=llm,
-		controller=controller,
+		tools=tools,
 	)
 	history = await agent.run(max_steps=5)
 
@@ -130,12 +130,12 @@ async def test_mixed_arguments_actions(llm, controller):
 		pytest.fail(f'{correct} not found in extracted content')
 
 
-async def test_pydantic_simple_model(llm, controller):
+async def test_pydantic_simple_model(llm, tools):
 	"""Test action with a simple Pydantic model argument"""
 	agent = Agent(
 		task="Process a simple model with name 'Alice' and age 30.",
 		llm=llm,
-		controller=controller,
+		tools=tools,
 	)
 	history = await agent.run(max_steps=5)
 
@@ -151,12 +151,12 @@ async def test_pydantic_simple_model(llm, controller):
 		pytest.fail(f'{correct} not found in extracted content')
 
 
-async def test_pydantic_nested_model(llm, controller):
+async def test_pydantic_nested_model(llm, tools):
 	"""Test action with a nested Pydantic model argument"""
 	agent = Agent(
 		task="Process a nested model with user name 'Bob', age 25, living at '123 Maple St', 'Springfield'.",
 		llm=llm,
-		controller=controller,
+		tools=tools,
 	)
 	history = await agent.run(max_steps=5)
 

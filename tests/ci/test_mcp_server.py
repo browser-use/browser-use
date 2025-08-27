@@ -655,15 +655,15 @@ class TestMCPServerExtraction:
 		result = await server._extract_content('query')
 		assert result == 'Error: FileSystem not initialized'
 
-	async def test_extract_content_no_controller(self, mock_llm):
-		"""Test extraction without controller."""
+	async def test_extract_content_no_tools(self, mock_llm):
+		"""Test extraction without tools."""
 		server = BrowserUseServer()
 		await server._init_browser_session(headless=True, user_data_dir=None, keep_alive=False)
 		server.llm = mock_llm  # Use mock LLM so we get past the LLM check
-		server.controller = None
+		server.tools = None
 
 		result = await server._extract_content('query')
-		assert result == 'Error: Controller not initialized'
+		assert result == 'Error: Tools not initialized'
 
 	async def test_extract_content_no_session(self):
 		"""Test extraction without browser session."""
@@ -685,7 +685,7 @@ class TestMCPServerLifecycle:
 
 		# Verify no session initially
 		assert server.browser_session is None
-		assert server.controller is None
+		assert server.tools is None
 		assert server.file_system is None
 
 		# Initialize session
@@ -693,7 +693,7 @@ class TestMCPServerLifecycle:
 
 		# Verify all components initialized
 		assert server.browser_session is not None
-		assert server.controller is not None
+		assert server.tools is not None
 		assert server.file_system is not None
 
 		# Verify browser profile settings
@@ -735,7 +735,7 @@ class TestMCPServerLifecycle:
 
 		# Verify everything cleaned up
 		assert server.browser_session is None
-		assert server.controller is None
+		assert server.tools is None
 
 	async def test_close_browser_no_session(self):
 		"""Test closing when no browser session."""

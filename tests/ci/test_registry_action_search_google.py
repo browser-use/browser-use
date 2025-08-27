@@ -6,7 +6,7 @@ import pytest
 
 from browser_use.browser import BrowserSession
 from browser_use.browser.events import BrowserStateRequestEvent, NavigateToUrlEvent
-from browser_use.controller.service import Controller
+from browser_use.tools.service import Tools
 
 
 @pytest.fixture
@@ -20,8 +20,8 @@ async def browser_session():
 
 async def test_search_google_creates_and_focuses_new_tab(browser_session: BrowserSession):
 	"""Test that search_google creates a new tab and properly switches focus to it."""
-	# Create controller to get the search_google action
-	controller = Controller()
+	# Create tools to get the search_google action
+	tools = Tools()
 
 	# Get initial browser state
 	initial_state_event = browser_session.event_bus.dispatch(BrowserStateRequestEvent(include_screenshot=False))
@@ -30,7 +30,7 @@ async def test_search_google_creates_and_focuses_new_tab(browser_session: Browse
 	initial_tabs_count = len(initial_state.tabs)
 
 	# Execute search_google action
-	action_result = await controller.registry.execute_action(
+	action_result = await tools.registry.execute_action(
 		action_name='search_google',
 		params={'query': 'test search'},
 		browser_session=browser_session,

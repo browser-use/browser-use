@@ -28,12 +28,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from browser_use import ChatOpenAI
-from browser_use.agent.service import Agent, Controller
+from browser_use.agent.service import Agent, Tools
 from browser_use.browser import BrowserSession
 
-# Initialize controller and registry
-controller = Controller()
-registry = controller.registry
+# Initialize tools and registry
+tools = Tools()
+registry = tools.registry
 
 
 # Action will only be available to Agent on Google domains because of the domain filter
@@ -106,7 +106,7 @@ async def main():
         """,
 		llm=llm,
 		browser_session=browser_session,
-		controller=controller,
+		tools=tools,
 	)
 
 	# Run the agent

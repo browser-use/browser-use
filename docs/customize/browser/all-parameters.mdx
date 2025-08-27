@@ -16,10 +16,8 @@ mode: "wide"
 - `viewport`: Content area size, same format as `window_size`. Use `{'width': 1280, 'height': 720}` or `ViewportSize` object
 - `no_viewport` (default: `None`): Disable viewport emulation, content fits to window size
 - `device_scale_factor`: Device scale factor (DPI). Set to `2.0` or `3.0` for high-resolution screenshots
-- `color_scheme` (default: `'light'`): Preferred color scheme (`'light'`, `'dark'`, `'no-preference'`)
-- `contrast` (default: `'no-preference'`): High contrast mode (`'no-preference'`, `'more'`)
-- `reduced_motion` (default: `'no-preference'`): Motion preference (`'reduce'`, `'no-preference'`)
-- `forced_colors` (default: `'none'`): Forced colors mode (`'active'`, `'none'`)
+
+
 
 ## Browser Behavior
 - `stealth` (default: `False`): Use stealth techniques to avoid bot detection
@@ -38,15 +36,13 @@ mode: "wide"
 - `user_data_dir` (default: auto-generated temp): Directory for browser profile data. Use `None` for incognito mode
 - `profile_directory` (default: `'Default'`): Chrome profile subdirectory name (`'Profile 1'`, `'Work Profile'`, etc.)
 - `storage_state`: Browser storage state (cookies, localStorage). Can be file path string or dict object
-- `cookies_file`: **DEPRECATED** - Use `storage_state` instead
 
 ## Network & Security
 - `proxy`: Proxy configuration using `ProxySettings(server='http://host:8080', bypass='localhost,127.0.0.1', username='user', password='pass')`
 - `permissions` (default: `['clipboardReadWrite', 'notifications']`): Browser permissions to grant. Use list like `['camera', 'microphone', 'geolocation']`
-- `bypass_csp` (default: `False`): Bypass Content Security Policy (increases bot detection risk)
-- `ignore_https_errors` (default: `False`): Ignore HTTPS certificate errors
-- `extra_http_headers`: Additional HTTP headers sent with every request. Use dict like `{'Accept-Language': 'en-US', 'Custom-Header': 'value'}`
+
 - `headers`: Additional HTTP headers for connect requests (remote browsers only)
+
 
 ## Browser Launch
 - `executable_path`: Path to browser executable for custom installations. Platform examples:
@@ -61,19 +57,12 @@ mode: "wide"
 - `ignore_default_args`: List of default args to disable, or `True` to disable all. Use list like `['--enable-automation', '--disable-extensions']`
 
 ## Timing & Performance
-- `slow_mo` (default: `0.0`): Slow down actions by this many milliseconds
-- `timeout` (default: `30000`): Default timeout for browser operations in milliseconds
-- `default_timeout`: Default timeout for playwright calls in milliseconds
-- `default_navigation_timeout`: Default timeout for page navigation in milliseconds
 - `minimum_wait_page_load_time` (default: `0.25`): Minimum time to wait before capturing page state in seconds
 - `wait_for_network_idle_page_load_time` (default: `0.5`): Time to wait for network activity to cease in seconds
-- `maximum_wait_page_load_time` (default: `5.0`): Maximum time to wait for page load in seconds
 - `wait_between_actions` (default: `0.5`): Time to wait between agent actions in seconds
 
 ## AI Integration
 - `highlight_elements` (default: `True`): Highlight interactive elements for AI vision
-- `viewport_expansion` (default: `500`): Viewport expansion in pixels for AI context
-- `include_dynamic_attributes` (default: `True`): Include dynamic attributes in selectors for better element identification
 
 ## Downloads & Files
 - `accept_downloads` (default: `True`): Automatically accept all downloads
@@ -82,10 +71,6 @@ mode: "wide"
 
 ## Device Emulation
 - `user_agent`: Custom user agent string. Example: `'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)'`
-- `is_mobile` (default: `False`): Enable mobile viewport and touch events
-- `has_touch` (default: `False`): Enable touch events for mobile emulation
-- `locale`: User locale like `'en-GB'`, `'de-DE'`, `'ja-JP'`
-- `timezone_id`: Timezone identifier like `'America/New_York'`, `'Europe/London'`, `'UTC'`
 - `screen`: Screen size information, same format as `window_size`
 
 ## Recording & Debugging
@@ -98,11 +83,6 @@ mode: "wide"
 ## Advanced Options
 - `disable_security` (default: `False`): ⚠️ **NOT RECOMMENDED** - Disables all browser security features
 - `deterministic_rendering` (default: `False`): ⚠️ **NOT RECOMMENDED** - Forces consistent rendering but reduces performance
-- `java_script_enabled` (default: `True`): Enable/disable JavaScript execution
-- `offline` (default: `False`): Start browser in offline mode
-- `strict_selectors` (default: `False`): Use strict selector matching
-- `base_url`: Base URL for relative navigation
-- `service_workers` (default: `'allow'`): Service worker policy (`'allow'`, `'block'`)
 
 ---
 

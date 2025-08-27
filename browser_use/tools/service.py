@@ -27,8 +27,13 @@ from browser_use.browser.events import (
 	UploadFileEvent,
 )
 from browser_use.browser.views import BrowserError
-from browser_use.controller.registry.service import Registry
-from browser_use.controller.views import (
+from browser_use.dom.service import EnhancedDOMTreeNode
+from browser_use.filesystem.file_system import FileSystem
+from browser_use.llm.base import BaseChatModel
+from browser_use.llm.messages import UserMessage
+from browser_use.observability import observe_debug
+from browser_use.tools.registry.service import Registry
+from browser_use.tools.views import (
 	ClickElementAction,
 	CloseTabAction,
 	DoneAction,
@@ -44,11 +49,6 @@ from browser_use.controller.views import (
 	SwitchTabAction,
 	UploadFileAction,
 )
-from browser_use.dom.service import EnhancedDOMTreeNode
-from browser_use.filesystem.file_system import FileSystem
-from browser_use.llm.base import BaseChatModel
-from browser_use.llm.messages import UserMessage
-from browser_use.observability import observe_debug
 from browser_use.utils import _log_pretty_url, time_execution_sync
 
 logger = logging.getLogger(__name__)
@@ -87,7 +87,7 @@ def extract_llm_error_message(error: Exception) -> str:
 	return error_str
 
 
-class Controller(Generic[Context]):
+class Tools(Generic[Context]):
 	def __init__(
 		self,
 		exclude_actions: list[str] = [],
@@ -1082,8 +1082,6 @@ Provide the extracted information in a clear, structured format."""
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		available_file_paths: list[str] | None = None,
 		file_system: FileSystem | None = None,
-		#
-		context: Context | None = None,
 	) -> ActionResult:
 		"""Execute an action"""
 
@@ -1115,7 +1113,6 @@ Provide the extracted information in a clear, structured format."""
 							file_system=file_system,
 							sensitive_data=sensitive_data,
 							available_file_paths=available_file_paths,
-							context=context,
 						)
 					except Exception as e:
 						# Log the original exception with traceback for observability
@@ -1136,3 +1133,7 @@ Provide the extracted information in a clear, structured format."""
 				else:
 					raise ValueError(f'Invalid action result type: {type(result)} of {result}')
 		return ActionResult()
+
+
+# Alias for backwards compatibility
+Controller = Tools

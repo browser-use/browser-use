@@ -4,7 +4,6 @@ from collections.abc import Iterable
 from enum import Enum
 from functools import cache
 from pathlib import Path
-from re import Pattern
 from typing import Annotated, Any, Literal, Self
 from urllib.parse import urlparse
 
@@ -250,36 +249,6 @@ def validate_cli_arg(arg: str) -> str:
 # ===== Enum definitions =====
 
 
-class ColorScheme(str, Enum):
-	LIGHT = 'light'
-	DARK = 'dark'
-	NO_PREFERENCE = 'no-preference'
-	NULL = 'null'
-
-
-class Contrast(str, Enum):
-	NO_PREFERENCE = 'no-preference'
-	MORE = 'more'
-	NULL = 'null'
-
-
-class ReducedMotion(str, Enum):
-	REDUCE = 'reduce'
-	NO_PREFERENCE = 'no-preference'
-	NULL = 'null'
-
-
-class ForcedColors(str, Enum):
-	ACTIVE = 'active'
-	NONE = 'none'
-	NULL = 'null'
-
-
-class ServiceWorkers(str, Enum):
-	ALLOW = 'allow'
-	BLOCK = 'block'
-
-
 class RecordHarContent(str, Enum):
 	OMIT = 'omit'
 	EMBED = 'embed'
@@ -329,8 +298,6 @@ class BrowserContextArgs(BaseModel):
 
 	# Browser context parameters
 	accept_downloads: bool = True
-	offline: bool = False
-	strict_selectors: bool = False
 
 	# Security options
 	# proxy: ProxySettings | None = None
@@ -340,14 +307,8 @@ class BrowserContextArgs(BaseModel):
 		# clipboardReadWrite is for google sheets and pyperclip automations
 		# notifications are to avoid browser fingerprinting
 	)
-	bypass_csp: bool = False
 	# client_certificates: list[ClientCertificate] = Field(default_factory=list)
-	extra_http_headers: dict[str, str] = Field(default_factory=dict)
 	# http_credentials: HttpCredentials | None = None
-	ignore_https_errors: bool = False
-	java_script_enabled: bool = True
-	base_url: UrlStr | None = None
-	service_workers: ServiceWorkers = ServiceWorkers.ALLOW
 
 	# Viewport options
 	user_agent: str | None = None
@@ -355,26 +316,15 @@ class BrowserContextArgs(BaseModel):
 	viewport: ViewportSize | None = Field(default=None)
 	no_viewport: bool | None = None
 	device_scale_factor: NonNegativeFloat | None = None
-	is_mobile: bool = False
-	has_touch: bool = False
-	locale: str | None = None
 	# geolocation: Geolocation | None = None
-	timezone_id: str | None = None
-	color_scheme: ColorScheme = ColorScheme.LIGHT
-	contrast: Contrast = Contrast.NO_PREFERENCE
-	reduced_motion: ReducedMotion = ReducedMotion.NO_PREFERENCE
-	forced_colors: ForcedColors = ForcedColors.NONE
 
 	# Recording Options
 	record_har_content: RecordHarContent = RecordHarContent.EMBED
 	record_har_mode: RecordHarMode = RecordHarMode.FULL
-	record_har_omit_content: bool = False
 	record_har_path: str | Path | None = Field(default=None, validation_alias=AliasChoices('save_har_path', 'record_har_path'))
-	record_har_url_filter: str | Pattern | None = None
 	record_video_dir: str | Path | None = Field(
 		default=None, validation_alias=AliasChoices('save_recording_path', 'record_video_dir')
 	)
-	record_video_size: ViewportSize | None = None
 
 
 class BrowserConnectArgs(BaseModel):
@@ -389,8 +339,6 @@ class BrowserConnectArgs(BaseModel):
 	model_config = ConfigDict(extra='ignore', validate_assignment=True, revalidate_instances='always', populate_by_name=True)
 
 	headers: dict[str, str] | None = Field(default=None, description='Additional HTTP headers to be sent with connect request')
-	slow_mo: float = 0.0
-	timeout: float = 30_000
 
 
 class BrowserLaunchArgs(BaseModel):
@@ -440,8 +388,7 @@ class BrowserLaunchArgs(BaseModel):
 	devtools: bool = Field(
 		default=False, description='Whether to open DevTools panel automatically for every page, only works when headless=False.'
 	)
-	slow_mo: float = Field(default=0, description='Slow down actions by this many milliseconds.')
-	timeout: float = Field(default=30000, description='Default timeout in milliseconds for connecting to a remote browser.')
+
 	# proxy: ProxySettings | None = Field(default=None, description='Proxy settings to use to connect to the browser.')
 	downloads_path: str | Path | None = Field(
 		default=None,
@@ -453,15 +400,7 @@ class BrowserLaunchArgs(BaseModel):
 		description='Directory for saving playwright trace.zip files (playwright actions, screenshots, DOM snapshots, HAR traces).',
 		validation_alias=AliasChoices('trace_path', 'traces_dir'),
 	)
-	handle_sighup: bool = Field(
-		default=True, description='Whether playwright should swallow SIGHUP signals and kill the browser.'
-	)
-	handle_sigint: bool = Field(
-		default=False, description='Whether playwright should swallow SIGINT signals and kill the browser.'
-	)
-	handle_sigterm: bool = Field(
-		default=False, description='Whether playwright should swallow SIGTERM signals and kill the browser.'
-	)
+
 	# firefox_user_prefs: dict[str, str | float | bool] = Field(default_factory=dict)
 
 	@model_validator(mode='after')
@@ -636,17 +575,15 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	)
 
 	# --- Page load/wait timings ---
-	default_navigation_timeout: float | None = Field(default=None, description='Default page navigation timeout.')
-	default_timeout: float | None = Field(default=None, description='Default playwright call timeout.')
+
 	minimum_wait_page_load_time: float = Field(default=0.25, description='Minimum time to wait before capturing page state.')
 	wait_for_network_idle_page_load_time: float = Field(default=0.5, description='Time to wait for network idle.')
-	maximum_wait_page_load_time: float = Field(default=5.0, description='Maximum time to wait for page load.')
+
 	wait_between_actions: float = Field(default=0.5, description='Time to wait between actions.')
 
 	# --- UI/viewport/DOM ---
-	include_dynamic_attributes: bool = Field(default=True, description='Include dynamic attributes in selectors.')
+
 	highlight_elements: bool = Field(default=True, description='Highlight interactive elements on the page.')
-	viewport_expansion: int = Field(default=500, description='Viewport expansion in pixels for LLM context.')
 
 	# --- Downloads ---
 	auto_download_pdfs: bool = Field(default=True, description='Automatically download PDFs when navigating to PDF viewer pages.')
@@ -657,10 +594,6 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	# save_recording_path: alias of record_video_dir
 	# save_har_path: alias of record_har_path
 	# trace_path: alias of traces_dir
-
-	cookies_file: Path | None = Field(
-		default=None, description='File to save cookies to. DEPRECATED, use `storage_state` instead.'
-	)
 
 	# TODO: finish implementing extension support in extensions.py
 	# extension_ids_to_preinstall: list[str] = Field(
@@ -697,12 +630,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		"""Warn when both storage_state and user_data_dir are set, as this can cause conflicts."""
 		has_storage_state = self.storage_state is not None
 		has_user_data_dir = (self.user_data_dir is not None) and ('tmp' not in str(self.user_data_dir).lower())
-		has_cookies_file = self.cookies_file is not None
-		static_source = 'cookies_file' if has_cookies_file else 'storage_state' if has_storage_state else None
 
-		if static_source and has_user_data_dir:
+		if has_storage_state and has_user_data_dir:
 			logger.warning(
-				f'⚠️ BrowserSession(...) was passed both {static_source} AND user_data_dir. {static_source}={self.storage_state or self.cookies_file} will forcibly overwrite '
+				f'⚠️ BrowserSession(...) was passed both storage_state AND user_data_dir. storage_state={self.storage_state} will forcibly overwrite '
 				f'cookies/localStorage/sessionStorage in user_data_dir={self.user_data_dir}. '
 				f'For multiple browsers in parallel, use only storage_state with user_data_dir=None, '
 				f'or use a separate user_data_dir for each browser and set storage_state=None.'
@@ -960,22 +891,6 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 					zip_ref.extractall(extract_dir)
 
 				os.unlink(temp_zip.name)
-
-	def kwargs_for_launch_persistent_context(self) -> BrowserLaunchPersistentContextArgs:
-		"""Return the kwargs for BrowserType.launch()."""
-		return BrowserLaunchPersistentContextArgs(**self.model_dump(exclude={'args'}), args=self.get_args())
-
-	def kwargs_for_new_context(self) -> BrowserNewContextArgs:
-		"""Return the kwargs for BrowserContext.new_context()."""
-		return BrowserNewContextArgs(**self.model_dump(exclude={'args'}))
-
-	def kwargs_for_connect(self) -> BrowserConnectArgs:
-		"""Return the kwargs for BrowserType.connect()."""
-		return BrowserConnectArgs(**self.model_dump(exclude={'args'}))
-
-	def kwargs_for_launch(self) -> BrowserLaunchArgs:
-		"""Return the kwargs for BrowserType.connect_over_cdp()."""
-		return BrowserLaunchArgs(**self.model_dump(exclude={'args'}), args=self.get_args())
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='detect_display_configuration')
 	def detect_display_configuration(self) -> None:

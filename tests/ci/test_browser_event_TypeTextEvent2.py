@@ -6,8 +6,8 @@ from pytest_httpserver import HTTPServer
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
-from browser_use.controller.service import Controller
-from browser_use.controller.views import (
+from browser_use.tools.service import Tools
+from browser_use.tools.views import (
 	GoToUrlAction,
 	InputTextAction,
 )
@@ -68,15 +68,15 @@ async def browser_session():
 
 
 @pytest.fixture
-def controller():
-	"""Create and provide a Controller instance."""
-	return Controller()
+def tools():
+	"""Create and provide a Tools instance."""
+	return Tools()
 
 
 class TestTypeTextEvent:
 	"""Test TypeTextEvent and input_text action functionality."""
 
-	async def test_input_text_action(self, controller, browser_session, base_url, http_server):
+	async def test_input_text_action(self, tools, browser_session, base_url, http_server):
 		"""Test that InputTextAction correctly inputs text into form fields."""
 		# Set up search form endpoint for this test
 		http_server.expect_request('/searchform').respond_with_data(
@@ -101,7 +101,7 @@ class TestTypeTextEvent:
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
 
-		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
 
 		# Wait for page to load
 		await asyncio.sleep(0.5)
@@ -114,7 +114,7 @@ class TestTypeTextEvent:
 		# In a real test, you would get the actual index from the selector map
 
 		# For demonstration, we'll just use a hard-coded mock value
-		# and check that the controller processes the action correctly
+		# and check that the tools processes the action correctly
 		mock_input_index = 1  # This would normally be determined dynamically
 
 		# Create input text action
@@ -124,8 +124,8 @@ class TestTypeTextEvent:
 			input_text: InputTextAction | None = None
 
 		# The actual input might fail if the page structure changes or in headless mode
-		# So we'll just verify the controller correctly processes the action
-		result = await controller.act(InputTextActionModel(**input_action), browser_session)
+		# So we'll just verify the tools correctly processes the action
+		result = await tools.act(InputTextActionModel(**input_action), browser_session)
 
 		# Verify the result is an ActionResult
 		assert isinstance(result, ActionResult)

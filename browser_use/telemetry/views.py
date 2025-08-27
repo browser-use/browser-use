@@ -27,11 +27,9 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	task: str
 	model: str
 	model_provider: str
-	planner_llm: str | None
 	max_steps: int
 	max_actions_per_step: int
 	use_vision: bool
-	use_validation: bool
 	version: str
 	source: str
 	cdp_url: str | None

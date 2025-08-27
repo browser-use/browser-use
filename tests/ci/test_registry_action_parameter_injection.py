@@ -340,7 +340,7 @@ class TestBrowserContext:
 	async def test_custom_action_with_no_arguments(self, browser_session, base_url):
 		"""Test that custom actions with no arguments are handled correctly"""
 		from browser_use.agent.views import ActionResult
-		from browser_use.controller.registry.service import Registry
+		from browser_use.tools.registry.service import Registry
 
 		# Create a registry
 		registry = Registry()

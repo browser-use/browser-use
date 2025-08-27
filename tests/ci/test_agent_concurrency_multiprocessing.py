@@ -44,7 +44,6 @@ def run_agent_in_subprocess_module(task_description):
 		agent = Agent(
 			task=task_description,
 			llm=mock_llm,
-			enable_memory=False,
 			browser_profile=BrowserProfile(headless=True, user_data_dir=None),
 		)
 		return await agent.run()
@@ -92,7 +91,6 @@ class TestParallelism:
 		agent = Agent(
 			task='Test task',
 			llm=mock_llm,
-			enable_memory=False,
 			browser_profile=BrowserProfile(headless=True, user_data_dir=None),
 		)
 		result = await agent.run()
@@ -130,14 +128,12 @@ class TestParallelism:
 				task='First parallel task',
 				llm=mock_llm,
 				browser_session=browser_session,
-				enable_memory=False,
 			)
 
 			agent2 = Agent(
 				task='Second parallel task',
 				llm=mock_llm,
 				browser_session=browser_session,
-				enable_memory=False,
 			)
 
 			# Run both agents in parallel on the same event loop
@@ -182,7 +178,6 @@ class TestParallelism:
 				task='First sequential task',
 				llm=mock_llm,
 				browser_session=browser_session,
-				enable_memory=False,
 			)
 			result1 = await agent1.run()
 
@@ -191,7 +186,6 @@ class TestParallelism:
 				task='Second sequential task',
 				llm=mock_llm,
 				browser_session=browser_session,
-				enable_memory=False,
 			)
 			result2 = await agent2.run()
 
@@ -220,7 +214,6 @@ class TestParallelism:
 		agent1 = Agent(
 			task='First loop task',
 			llm=mock_llm,
-			enable_memory=False,
 			browser_profile=BrowserProfile(headless=True, user_data_dir=None),
 		)
 		result1 = await agent1.run()
@@ -228,7 +221,6 @@ class TestParallelism:
 		agent2 = Agent(
 			task='Second loop task',
 			llm=mock_llm,
-			enable_memory=False,
 			browser_profile=BrowserProfile(headless=True, user_data_dir=None),
 		)
 		result2 = await agent2.run()
@@ -261,7 +253,6 @@ class TestParallelism:
 					agent = Agent(
 						task=task_description,
 						llm=mock_llm,
-						enable_memory=False,
 						browser_profile=BrowserProfile(headless=True, user_data_dir=None),
 					)
 					return await agent.run()
@@ -385,14 +376,12 @@ class TestParallelism:
 				task='Task in tab 1',
 				llm=mock_llm1,
 				browser_session=shared_session,
-				enable_memory=False,
 			)
 
 			agent2 = Agent(
 				task='Task in tab 2',
 				llm=mock_llm2,
 				browser_session=shared_session,
-				enable_memory=False,
 			)
 
 			# Run in parallel
@@ -451,7 +440,6 @@ class TestParallelism:
 				task='First task',
 				llm=mock_llm,
 				browser_session=session,
-				enable_memory=False,
 			)
 			result1 = await agent1.run()
 
@@ -469,7 +457,6 @@ class TestParallelism:
 				task='Second task',
 				llm=mock_llm,
 				browser_session=session,
-				enable_memory=False,
 			)
 			result2 = await agent2.run()
 
