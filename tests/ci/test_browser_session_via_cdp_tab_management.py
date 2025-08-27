@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 from browser_use.browser.events import NavigateToUrlEvent, TabCreatedEvent
-from browser_use.browser.profile import BrowserProfile
+from browser_use.browser.profile import BrowserProfile, ViewportSize
 from browser_use.browser.session import BrowserSession
 
 
@@ -30,7 +30,7 @@ async def httpserver_url(httpserver):
 @pytest.mark.skip(reason='TODO: fix')
 async def test_new_tab_cdp_session_attachment(httpserver_url):
 	"""Test that CDP session is properly attached when creating new tabs."""
-	browser = BrowserSession(browser_profile=BrowserProfile(headless=True, viewport={'width': 800, 'height': 600}))
+	browser = BrowserSession(browser_profile=BrowserProfile(headless=True, viewport=ViewportSize(width=800, height=600)))
 
 	tab_created_events = []
 
@@ -71,7 +71,7 @@ async def test_new_tab_cdp_session_attachment(httpserver_url):
 		result = await cdp_session.cdp_client.send.Runtime.evaluate(
 			params={'expression': 'document.title'}, session_id=cdp_session.session_id
 		)
-		assert result['result']['value'] == 'Test Page'
+		assert result['result'].get('value') == 'Test Page'
 
 		# Get browser state to verify DOM can be built on new tab
 		from browser_use.browser.events import BrowserStateRequestEvent
@@ -89,7 +89,7 @@ async def test_new_tab_cdp_session_attachment(httpserver_url):
 
 async def test_multiple_new_tabs_cdp_session(httpserver_url):
 	"""Test creating multiple new tabs in succession."""
-	browser = BrowserSession(browser_profile=BrowserProfile(headless=True, viewport={'width': 800, 'height': 600}))
+	browser = BrowserSession(browser_profile=BrowserProfile(headless=True, viewport=ViewportSize(width=800, height=600)))
 
 	try:
 		await browser.start()
@@ -115,7 +115,7 @@ async def test_multiple_new_tabs_cdp_session(httpserver_url):
 		result = await cdp_session.cdp_client.send.Runtime.evaluate(
 			params={'expression': 'window.location.href'}, session_id=cdp_session.session_id
 		)
-		assert 'tab=2' in result['result']['value'], 'Should be on the last created tab'
+		assert 'tab=2' in result['result'].get('value', ''), 'Should be on the last created tab'
 
 	finally:
 		await browser.stop()

@@ -108,32 +108,43 @@ class DOMWatchdog(BaseWatchdog):
 				raise
 
 	def _get_recent_events_str(self, limit: int = 10) -> str | None:
-		"""Get the most recent event names from the event bus as CSV.
+		"""Get the most recent events from the event bus as JSON.
 
 		Args:
 			limit: Maximum number of recent events to include
 
 		Returns:
-			CSV string of recent event names or None if not available
+			JSON string of recent events or None if not available
 		"""
+		import json
+
 		try:
 			# Get all events from history, sorted by creation time (most recent first)
 			all_events = sorted(
 				self.browser_session.event_bus.event_history.values(), key=lambda e: e.event_created_at.timestamp(), reverse=True
 			)
 
-			# Take the most recent events and get their names
-			recent_event_names = [event.event_type for event in all_events[:limit]]
-			# TODO: in the future dump these as JSON instead of a CSV of the event names only
-			# some_event.model_dump(mode='json', exclude=some_event.event_builtin_fields)
-			# include event_results summarized / truncated to some reasonable length
+			# Take the most recent events and create JSON-serializable data
+			recent_events_data = []
+			for event in all_events[:limit]:
+				event_data = {
+					'event_type': event.event_type,
+					'timestamp': event.event_created_at.isoformat(),
+				}
+				# Add specific fields for certain event types
+				if hasattr(event, 'url'):
+					event_data['url'] = getattr(event, 'url')
+				if hasattr(event, 'error_message'):
+					event_data['error_message'] = getattr(event, 'error_message')
+				if hasattr(event, 'target_id'):
+					event_data['target_id'] = getattr(event, 'target_id')
+				recent_events_data.append(event_data)
 
-			if recent_event_names:
-				return ', '.join(recent_event_names)
+			return json.dumps(recent_events_data)  # Return empty array if no events
 		except Exception as e:
 			self.logger.debug(f'Failed to get recent events: {e}')
 
-		return None
+		return json.dumps([])  # Return empty JSON array on error
 
 	async def on_BrowserStateRequestEvent(self, event: BrowserStateRequestEvent) -> 'BrowserStateSummary':
 		"""Handle browser state request by coordinating DOM building and screenshot capture.

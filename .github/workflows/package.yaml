@@ -46,11 +46,11 @@ jobs:
       - name: Set up venv and test for OS/Python versions
         shell: bash
         run: |
-          uv venv /tmp/testenv --python ${{ matrix.python-version }}
+          uv venv /tmp/testenv --python ${{ matrix.python-version }} --clear
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             . /tmp/testenv/Scripts/activate
           else
             source /tmp/testenv/bin/activate
           fi
           uv pip install *.whl
-          python -c 'from browser_use import Agent, BrowserProfile, BrowserSession, Controller, ActionModel, ActionResult'
+          python -c 'from browser_use import Agent, BrowserProfile, BrowserSession, Tools, ActionModel, ActionResult'

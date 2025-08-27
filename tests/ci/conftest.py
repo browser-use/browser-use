@@ -20,9 +20,9 @@ socketserver.ThreadingMixIn.block_on_close = False
 socketserver.ThreadingMixIn.daemon_threads = True
 
 from browser_use.agent.views import AgentOutput
-from browser_use.controller.service import Controller
 from browser_use.llm import BaseChatModel
 from browser_use.llm.views import ChatInvokeCompletion
+from browser_use.tools.service import Tools
 
 # Load environment variables before any imports
 load_dotenv()
@@ -84,8 +84,8 @@ def create_mock_llm(actions: list[str] | None = None) -> BaseChatModel:
 	Returns:
 		Mock LLM that will return the actions in order, or just a done action if no actions provided.
 	"""
-	controller = Controller()
-	ActionModel = controller.registry.create_action_model()
+	tools = Tools()
+	ActionModel = tools.registry.create_action_model()
 	AgentOutputWithActions = AgentOutput.type_with_custom_actions(ActionModel)
 
 	llm = AsyncMock(spec=BaseChatModel)

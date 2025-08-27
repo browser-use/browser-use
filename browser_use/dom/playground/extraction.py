@@ -20,7 +20,6 @@ TIMEOUT = 60
 
 
 async def test_focus_vs_all_elements():
-	# async with async_patchright() as patchright:
 	browser_session = BrowserSession(
 		browser_profile=BrowserProfile(
 			# executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',

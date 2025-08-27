@@ -12,7 +12,7 @@ from browser_use.browser.views import BrowserStateSummary
 from browser_use.dom.views import EnhancedDOMTreeNode
 
 # ============================================================================
-# Agent/Controller -> BrowserSession Events (High-level browser actions)
+# Agent/Tools -> BrowserSession Events (High-level browser actions)
 # ============================================================================
 
 

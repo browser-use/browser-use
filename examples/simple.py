@@ -1,3 +1,8 @@
-from browser_use import Agent
+from browser_use import Agent, ChatOpenAI
 
-Agent('Find the founders of browser-use').run_sync()
+agent = Agent(
+	task='Find founders of browser-use',
+	llm=ChatOpenAI(model='gpt-4.1-mini'),
+)
+
+agent.run_sync()

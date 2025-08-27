@@ -1,0 +1,27 @@
+---
+title: "Basics"
+description: ""
+icon: "play"
+mode: "wide"
+---
+
+
+```python
+from browser_use import Agent, ChatOpenAI
+
+agent = Agent(
+    task="Search for latest news about AI",
+    llm=ChatOpenAI(model="gpt-4.1-mini"),
+)
+
+async def main():
+    history = await agent.run(max_steps=100)
+```
+
+- `task`: The task you want to automate.
+- `llm`: Your favorite LLM. See <a href="/customize/supported-models">Supported Models</a>.
+
+
+The agent is executed using the async `run()` method:
+
+- `max_steps` (default: `100`): Maximum number of steps the agent can take

@@ -1,0 +1,45 @@
+---
+title: "Chain Agents"
+description: "Chain multiple tasks together with the same agent and browser session."
+icon: "link"
+mode: "wide"
+---
+
+## Chain Agent Tasks
+
+Keep your browser session alive and chain multiple tasks together. Perfect for conversational workflows or multi-step processes.
+
+```python
+import asyncio
+from dotenv import load_dotenv
+load_dotenv()
+
+from browser_use import Agent, BrowserProfile
+
+profile = BrowserProfile(keep_alive=True)
+
+async def main():
+	agent = Agent(task="Go to reddit.com", browser_profile=profile)
+	await agent.run(max_steps=1)
+
+	while True:
+		user_response = input('\n👤 New task or "q" to quit: ')
+		if user_response.lower() == 'q':
+			break
+		agent.add_new_task(f'New task: {user_response}')
+		await agent.run()
+
+if __name__ == '__main__':
+	asyncio.run(main())
+```
+
+## How It Works
+
+1. **Persistent Browser**: `BrowserProfile(keep_alive=True)` prevents browser from closing between tasks
+2. **Task Chaining**: Use `agent.add_new_task()` to add follow-up tasks
+3. **Context Preservation**: Agent maintains memory and browser state across tasks
+4. **Interactive Flow**: Perfect for conversational interfaces or complex workflows
+
+<Note>
+The browser session remains active throughout the entire chain, preserving all cookies, local storage, and page state.
+</Note>

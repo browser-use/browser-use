@@ -30,7 +30,7 @@ def http_server():
 
 	# Read the HTML file content
 	html_file = Path(__file__).parent / 'test_radio_buttons.html'
-	with open(html_file, 'r') as f:
+	with open(html_file) as f:
 		html_content = f.read()
 
 	# Add route for radio buttons test page

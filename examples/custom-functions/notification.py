@@ -8,12 +8,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from browser_use import ActionResult, Agent, ChatOpenAI, Controller
+from browser_use import ActionResult, Agent, ChatOpenAI, Tools
 
-controller = Controller()
+tools = Tools()
 
 
-@controller.registry.action('Done with task ')
+@tools.registry.action('Done with task')
 async def done(text: str):
 	import yagmail  # type: ignore
 
@@ -34,7 +34,7 @@ async def done(text: str):
 async def main():
 	task = 'go to brower-use.com and then done'
 	model = ChatOpenAI(model='gpt-4.1-mini')
-	agent = Agent(task=task, llm=model, controller=controller)
+	agent = Agent(task=task, llm=model, tools=tools)
 
 	await agent.run()
 

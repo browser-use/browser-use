@@ -12,6 +12,7 @@ load_dotenv()
 from browser_use import Agent, ChatOpenAI
 from browser_use.agent.views import AgentHistoryList
 from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.browser.profile import ViewportSize
 
 llm = ChatOpenAI(model='gpt-4.1-mini')
 
@@ -21,7 +22,7 @@ async def main():
 		browser_profile=BrowserProfile(
 			headless=False,
 			traces_dir='./tmp/result_processing',
-			window_size={'width': 1280, 'height': 1000},
+			window_size=ViewportSize(width=1280, height=1000),
 			user_data_dir='~/.config/browseruse/profiles/default',
 		)
 	)

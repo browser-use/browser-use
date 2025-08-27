@@ -111,7 +111,7 @@ body:
       placeholder: |
         from dotenv import load_dotenv
         load_dotenv()  # tip: always load_dotenv() before other imports
-        from browser_use import Agent, BrowserSession, Controller
+        from browser_use import Agent, BrowserSession, Tools
         from browser_use.llm import ChatOpenAI
 
         agent = Agent(
@@ -131,8 +131,3 @@ body:
         $ python /app/browser-use/examples/browser/real_browser.py
         DEBUG    [browser] 🌎  Initializing new browser
         DEBUG    [agent] Version: 0.1.46-9-g62760ba, Source: git
-        INFO     [agent] 🧠 Starting an agent with main_model=gpt-4o +tools +vision +memory, planner_model=None, extraction_model=gpt-4o
-        DEBUG    [agent] Verifying the ChatOpenAI LLM knows the capital of France...
-        DEBUG    [langsmith.client] Sending multipart request with context: trace=91282a01-6667-48a1-8cd7-21aa9337a580,id=91282a01-6667-48a1-8cd7-21aa9337a580
-        DEBUG    [agent] 🪪 LLM API keys OPENAI_API_KEY work, ChatOpenAI model is connected & responding correctly.
-        ...

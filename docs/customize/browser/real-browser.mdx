@@ -1,0 +1,57 @@
+---
+title: "Real Browser"
+description: ""
+icon: "arrow-right-to-bracket"
+---
+
+Connect your existing Chrome browser to preserve authentication.
+
+## Basic Example
+
+```python
+from browser_use import Agent, Browser, ChatOpenAI
+
+# Connect to your existing Chrome browser
+browser = Browser(
+    executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    user_data_dir='~/Library/Application Support/Google/Chrome',
+    profile_directory='Default',
+)
+
+agent = Agent(
+    task='Visit https://duckduckgo.com and search for "browser-use founders"',
+    browser=browser,
+    llm=ChatOpenAI(model='gpt-4.1-mini'),
+)
+async def main():
+	await agent.run()
+```
+
+> **Note:** You need to fully close chrome before running this example.
+
+> **Note:** Google blocks this approach currently so we use DuckDuckGo instead.
+
+
+
+## How it Works
+
+1. **`executable_path`** - Path to your Chrome installation
+2. **`user_data_dir`** - Your Chrome profile folder (keeps cookies, extensions, bookmarks)
+3. **`profile_directory`** - Specific profile name (Default, Profile 1, etc.)
+
+
+## Platform Paths
+
+```python
+# macOS
+executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+user_data_dir='~/Library/Application Support/Google/Chrome'
+
+# Windows
+executable_path='C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+user_data_dir='%LOCALAPPDATA%\\Google\\Chrome\\User Data'
+
+# Linux
+executable_path='/usr/bin/google-chrome'
+user_data_dir='~/.config/google-chrome'
+```

@@ -134,7 +134,7 @@ async def analyze_frame_hierarchy(url):
 		for tid, sess_id in target_sessions.items():
 			try:
 				await session.cdp_client.send.Target.detachFromTarget(params={'sessionId': sess_id})
-			except:
+			except Exception:
 				pass
 
 		print('\n📊 Frame Statistics:')

@@ -21,15 +21,15 @@ from pytest_httpserver.httpserver import HandlerType
 from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
-from browser_use.controller.registry.service import Registry
-from browser_use.controller.registry.views import ActionModel as BaseActionModel
-from browser_use.controller.views import (
+from browser_use.llm.messages import UserMessage
+from browser_use.tools.registry.service import Registry
+from browser_use.tools.registry.views import ActionModel as BaseActionModel
+from browser_use.tools.views import (
 	ClickElementAction,
 	InputTextAction,
 	NoParamsAction,
 	SearchGoogleAction,
 )
-from browser_use.llm.messages import UserMessage
 from tests.ci.conftest import create_mock_llm
 
 # Configure logging
@@ -238,31 +238,6 @@ class TestActionRegistryParameterPatterns:
 		assert result.extracted_content is not None
 		assert 'No params action executed on' in result.extracted_content
 		assert '/test' in result.extracted_content
-
-	async def test_legacy_browser_parameter_names(self, registry, browser_session):
-		"""Test that legacy browser parameter names still work"""
-
-		@registry.action('Action with legacy browser param')
-		async def legacy_browser_action(text: str, browser: BrowserSession):
-			url = await browser.get_current_page_url()
-			return ActionResult(extracted_content=f'Legacy browser: {text}, URL: {url}')
-
-		@registry.action('Action with legacy browser_context param')
-		async def legacy_context_action(text: str, browser_context: BrowserSession):
-			url = await browser_context.get_current_page_url()
-			return ActionResult(extracted_content=f'Legacy context: {text}, URL: {url}')
-
-		# Test legacy browser parameter
-		result1 = await registry.execute_action('legacy_browser_action', {'text': 'test1'}, browser_session=browser_session)
-		assert result1.extracted_content is not None
-		assert 'Legacy browser: test1, URL:' in result1.extracted_content
-		assert '/test' in result1.extracted_content
-
-		# Test legacy browser_context parameter
-		result2 = await registry.execute_action('legacy_context_action', {'text': 'test2'}, browser_session=browser_session)
-		assert result2.extracted_content is not None
-		assert 'Legacy context: test2, URL:' in result2.extracted_content
-		assert '/test' in result2.extracted_content
 
 
 class TestActionToActionCalling:
@@ -504,8 +479,8 @@ class TestRegistryEdgeCases:
 		assert 'Should execute: test' in result.extracted_content
 
 
-class TestExistingControllerActions:
-	"""Test that existing controller actions continue to work"""
+class TestExistingToolsActions:
+	"""Test that existing tools actions continue to work"""
 
 	async def test_existing_action_models(self, registry, browser_session):
 		"""Test that existing action parameter models work correctly"""
@@ -665,7 +640,7 @@ class TestType2Pattern:
 		assert len(fields) == 0 or all(f in ['title'] for f in fields)
 
 	def test_no_special_params_action(self):
-		"""Test action with no special params (like wait action in Controller)"""
+		"""Test action with no special params (like wait action in Tools)"""
 		registry = Registry()
 
 		@registry.action('Wait for x seconds default 3')
@@ -766,11 +741,8 @@ class TestDecoratedFunctionBehavior:
 		"""Decorated function should ignore extra kwargs for easy unpacking"""
 		registry = Registry()
 
-		class MockPage:
-			pass
-
 		@registry.action('Simple action')
-		async def simple_action(value: int, page: Page):
+		async def simple_action(value: int):
 			return ActionResult(extracted_content=str(value))
 
 		# Should work even with extra kwargs
@@ -813,7 +785,6 @@ class TestParamsModelGeneration:
 		assert 'include_images' in model_fields
 
 		# Should NOT include special params
-		assert 'page' not in model_fields
 		assert 'browser_session' not in model_fields
 
 	def test_preserves_type_annotations(self):
@@ -841,44 +812,6 @@ class TestParamsModelGeneration:
 		assert 'null' in schema['properties']['name']['anyOf'][1]['type']
 
 
-class TestErrorMessages:
-	"""Test error messages for validation failures (from normalization tests)"""
-
-	def test_clear_error_for_kwargs(self):
-		"""Error message for kwargs should be clear"""
-		registry = Registry()
-
-		try:
-
-			@registry.action('Bad')
-			async def bad(x: int, **kwargs):
-				pass
-
-			pytest.fail('Should have raised ValueError')
-		except ValueError as e:
-			assert 'kwargs' in str(e).lower()
-			assert 'not allowed' in str(e).lower()
-			assert 'bad' in str(e).lower()  # Should mention function name
-
-	def test_clear_error_for_param_conflicts(self):
-		"""Error message for param conflicts should be helpful"""
-		registry = Registry()
-
-		try:
-
-			@registry.action('Bad')
-			async def bad(page: str):
-				pass
-
-			pytest.fail('Should have raised ValueError')
-		except ValueError as e:
-			error_msg = str(e)
-			assert 'page: str' in error_msg
-			assert 'conflicts' in error_msg
-			assert f'page: {repr(Page)}' in error_msg  # Show expected type
-			assert 'bad' in error_msg.lower()  # Show function name
-
-
 class TestParameterOrdering:
 	"""Test mixed ordering of parameters (from normalization tests)"""
 
@@ -904,17 +837,6 @@ class TestParameterOrdering:
 		# Only action params in model
 		assert set(model_fields.keys()) == {'first', 'second', 'third'}
 		assert model_fields['third'].default is True
-
-	def test_all_params_at_end(self):
-		"""Should work with all action params at the end"""
-		registry = Registry()
-
-		@registry.action('Params at end')
-		async def params_at_end(page: Page, query: str, limit: int = 10):
-			return ActionResult()
-
-		action = registry.registry.actions['params_at_end']
-		assert set(action.param_model.model_fields.keys()) == {'query', 'limit'}
 
 	def test_extract_content_pattern_registration(self):
 		"""Test that the extract_content pattern with mixed params registers correctly"""
@@ -954,7 +876,7 @@ class TestParamsModelArgsAndKwargs:
 
 		This test demonstrates the problem and our fix. The issue happens because:
 
-		1. In controller/service.py, we have:
+		1. In tools/service.py, we have:
 		```python
 		@registry.action('Google Sheets: Select a specific cell or range of cells')
 		async def select_cell_or_range(browser_session: BrowserSession, cell_or_range: str):
@@ -985,8 +907,8 @@ class TestParamsModelArgsAndKwargs:
 		This test confirms that this approach works.
 		"""
 
-		from browser_use.controller.registry.service import Registry
-		from browser_use.controller.registry.views import ActionModel
+		from browser_use.tools.registry.service import Registry
+		from browser_use.tools.registry.views import ActionModel
 
 		# Simple context for testing
 		class TestContext:

@@ -5,6 +5,7 @@ if TYPE_CHECKING:
 	from .profile import BrowserProfile, ProxySettings
 	from .session import BrowserSession
 
+
 # Lazy imports mapping for heavy browser components
 _LAZY_IMPORTS = {
 	'ProxySettings': ('.profile', 'ProxySettings'),

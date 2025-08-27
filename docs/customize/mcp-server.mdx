@@ -18,8 +18,8 @@ The MCP server acts as a bridge between MCP-compatible AI assistants and browser
 ```mermaid
 graph LR
     A[Claude Desktop] -->|MCP Protocol| B[Browser-use MCP Server]
-    B --> C[BrowserSession]
-    B --> D[Controller]
+    B --> C[Browser]
+    B --> D[Tools]
     B --> E[FileSystem]
     C --> F[Playwright Browser]
     
@@ -380,7 +380,7 @@ uvx 'browser-use[cli]' --mcp
 playwright install chromium
 
 # Test browser launch
-python -c "from browser_use import BrowserSession; import asyncio; asyncio.run(BrowserSession().start())"
+python -c "from browser_use import Browser; import asyncio; asyncio.run(Browser().start())"
 ```
 
 ### Connection Errors

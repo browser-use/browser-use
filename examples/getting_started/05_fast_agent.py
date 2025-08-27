@@ -14,7 +14,7 @@ from browser_use import Agent, BrowserProfile
 
 # Speed optimization instructions for the model
 SPEED_OPTIMIZATION_PROMPT = """
-SPEED OPTIMIZATION INSTRUCTIONS:
+Speed optimization instructions:
 - Be extremely concise and direct in your responses
 - Get to the goal as quickly as possible
 - Use multi-action sequences whenever possible to reduce steps

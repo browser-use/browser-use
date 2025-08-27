@@ -8,7 +8,7 @@ class TestUrlAllowlistSecurity:
 		"""Test that the URL allowlist cannot be bypassed using authentication credentials."""
 		from bubus import EventBus
 
-		from browser_use.browser.security_watchdog import SecurityWatchdog
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
 
 		# Create a context config with a sample allowed domain
 		browser_profile = BrowserProfile(allowed_domains=['example.com'], headless=True, user_data_dir=None)
@@ -30,7 +30,7 @@ class TestUrlAllowlistSecurity:
 		"""Test that glob patterns in allowed_domains work correctly."""
 		from bubus import EventBus
 
-		from browser_use.browser.security_watchdog import SecurityWatchdog
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
 
 		# Test *.example.com pattern (should match subdomains and main domain)
 		browser_profile = BrowserProfile(allowed_domains=['*.example.com'], headless=True, user_data_dir=None)
@@ -94,7 +94,7 @@ class TestUrlAllowlistSecurity:
 		"""Test edge cases for glob pattern matching to ensure proper behavior."""
 		from bubus import EventBus
 
-		from browser_use.browser.security_watchdog import SecurityWatchdog
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
 
 		# Test with domains containing glob pattern in the middle
 		browser_profile = BrowserProfile(allowed_domains=['*.google.com', 'https://wiki.org'], headless=True, user_data_dir=None)

@@ -49,8 +49,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 load_dotenv()
 
-# Disable all telemetry
-os.environ['BROWSER_USE_CLOUD_SYNC'] = 'false'
+
 os.environ['ANONYMIZED_TELEMETRY'] = 'false'
 
 

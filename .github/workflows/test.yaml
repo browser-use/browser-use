@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       TEST_FILENAMES: ${{ steps.lsgrep.outputs.TEST_FILENAMES }}
-      # ["test_browser", "test_controller", "test_browser_session", "test_tab_management", ...]
+      # ["test_browser", "test_tools", "test_browser_session", "test_tab_management", ...]
     steps:
       - uses: actions/checkout@v4
       - id: lsgrep
@@ -56,7 +56,7 @@ jobs:
         test_filename: ${{ fromJson(needs.find_tests.outputs.TEST_FILENAMES || '["FAILED_TO_DISCOVER_TESTS"]') }}
         # autodiscovers all the files in tests/ci/test_*.py
         # - test_browser
-        # - test_controller
+        # - test_tools
         # - test_browser_session
         # - test_tab_management
         # ... and more
@@ -77,33 +77,15 @@ jobs:
 
       - run: uv sync --dev --all-extras
 
-      - name: Detect installed Playwright version
-        run: echo "PLAYWRIGHT_VERSION=$(uv pip list --format json | jq -r '.[] | select(.name == "playwright") | .version')" >> $GITHUB_ENV
-
-      - name: Cache chrome binaries
-        uses: actions/cache@v4
-        with:
-          path: |
-            /tmp/google-chrome-stable_current_amd64.deb
-          key: ${{ runner.os }}-${{ runner.arch }}-chrome-stable
-
-      - name: Install Chrome stable binary
-        run: |
-          sudo apt-get update -qq \
-          && sudo curl -o "/tmp/google-chrome-stable_current_amd64.deb" --no-clobber "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb" \
-          && sudo apt-get install -y "/tmp/google-chrome-stable_current_amd64.deb" -f
-      - run: patchright install chrome --with-deps
-      # - run: playwright install chrome --with-deps
-
       - name: Cache chromium binaries
         uses: actions/cache@v4
         with:
           path: |
             ~/.cache/ms-playwright
-          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ env.PLAYWRIGHT_VERSION }}-chromium
+          key: ${{ runner.os }}-${{ runner.arch }}-chromium-browser
 
-      - run: playwright install chromium --with-deps
-      # - run: patchright install chromium --with-deps
+      - name: Install Chromium browser
+        run: uvx playwright install chromium --with-deps --no-shell
 
       - name: Cache browser-use extensions
         uses: actions/cache@v4
@@ -137,33 +119,15 @@ jobs:
 
       - run: uv sync --dev --all-extras
 
-      - name: Detect installed Playwright version
-        run: echo "PLAYWRIGHT_VERSION=$(uv pip list --format json | jq -r '.[] | select(.name == "playwright") | .version')" >> $GITHUB_ENV
-
-      - name: Cache chrome binaries
-        uses: actions/cache@v4
-        with:
-          path: |
-            /tmp/google-chrome-stable_current_amd64.deb
-          key: ${{ runner.os }}-${{ runner.arch }}-chrome-stable
-
-      - name: Install Chrome stable binary
-        run: |
-          sudo apt-get update -qq \
-          && sudo curl -o "/tmp/google-chrome-stable_current_amd64.deb" --no-clobber "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb" \
-          && sudo apt-get install -y "/tmp/google-chrome-stable_current_amd64.deb" -f
-      - run: patchright install chrome --with-deps
-      - run: playwright install chrome --with-deps
-
       - name: Cache chromium binaries
         uses: actions/cache@v4
         with:
           path: |
             ~/.cache/ms-playwright
-          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ env.PLAYWRIGHT_VERSION }}-chromium
+          key: ${{ runner.os }}-${{ runner.arch }}-chromium-browser
 
-      - run: playwright install chromium --with-deps
-      - run: patchright install chromium --with-deps
+      - name: Install Chromium browser
+        run: uvx playwright install chromium --with-deps --no-shell
 
       - name: Cache browser-use extensions
         uses: actions/cache@v4
