@@ -245,7 +245,12 @@ def _create_task_frame(
 	else:
 		font_size = base_font_size
 
-	larger_font = ImageFont.truetype(regular_font.path, font_size)  # type: ignore
+	# Try to create a larger font, but fall back to regular font if it fails
+	try:
+		larger_font = ImageFont.truetype(regular_font.path, font_size)  # type: ignore
+	except (OSError, AttributeError):
+		# Fall back to regular font if .path is not available or font loading fails
+		larger_font = regular_font
 
 	# Generate wrapped text with the calculated font size
 	wrapped_text = _wrap_text(task, larger_font, max_width)
