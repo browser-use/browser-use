@@ -53,6 +53,40 @@ class DownloadsWatchdog(BaseWatchdog):
 	_download_cdp_session: Any = PrivateAttr(default=None)  # Store CDP session reference
 	_cdp_event_tasks: set[asyncio.Task] = PrivateAttr(default_factory=set)  # Track CDP event handler tasks
 	_cdp_downloads_info: dict[str, dict[str, Any]] = PrivateAttr(default_factory=dict)  # Map guid -> info
+	_dispatched_download_paths: set[str] = PrivateAttr(default_factory=set)  # Deduplicate events by file path
+
+	def _dispatch_file_download_event(
+		self,
+		*,
+		url: str,
+		path: str,
+		file_name: str,
+		file_size: int,
+		file_type: str | None = None,
+		mime_type: str | None = None,
+		from_cache: bool = False,
+		auto_download: bool = False,
+	) -> None:
+		"""Central helper to emit FileDownloadedEvent only once per path."""
+		if path in self._dispatched_download_paths:
+			self.logger.debug(f"[DownloadsWatchdog] 🔁 Suppressing duplicate FileDownloadedEvent for {path}")
+			return
+		self._dispatched_download_paths.add(path)
+		try:
+			self.event_bus.dispatch(
+				FileDownloadedEvent(
+					url=url,
+					path=path,
+					file_name=file_name,
+					file_size=file_size,
+					file_type=file_type,
+					mime_type=mime_type,
+					from_cache=from_cache,
+					auto_download=auto_download,
+				)
+			)
+		except Exception as e:
+			self.logger.error(f"[DownloadsWatchdog] Failed dispatching FileDownloadedEvent for {path}: {e}")
 
 	async def on_BrowserLaunchEvent(self, event: BrowserLaunchEvent) -> None:
 		self.logger.debug(f'[DownloadsWatchdog] Received BrowserLaunchEvent, EventBus ID: {id(self.event_bus)}')
@@ -99,6 +133,7 @@ class DownloadsWatchdog(BaseWatchdog):
 		self._sessions_with_listeners.clear()
 		self._active_downloads.clear()
 		self._pdf_viewer_cache.clear()
+		self._dispatched_download_paths.clear()
 
 	async def on_NavigationCompleteEvent(self, event: NavigationCompleteEvent) -> None:
 		"""Check for PDFs after navigation completes."""
@@ -248,13 +283,12 @@ class DownloadsWatchdog(BaseWatchdog):
 				# Dispatch download event
 				from browser_use.browser.events import FileDownloadedEvent
 
-				self.event_bus.dispatch(
-					FileDownloadedEvent(
-						url=str(path),  # Use the file path as URL for local files
-						path=str(path),
-						file_name=path.name,
-						file_size=file_size,
-					)
+				self._dispatch_file_download_event(
+					url=str(path),  # Use the file path as URL for local files
+					path=str(path),
+					file_name=path.name,
+					file_size=file_size,
+					file_type=path.suffix.lower().lstrip('.') or None,
 				)
 			else:
 				self.logger.warning(f'[DownloadsWatchdog] Downloaded file not found: {file_path}')
@@ -295,92 +329,56 @@ class DownloadsWatchdog(BaseWatchdog):
 				self.logger.debug(f'[DownloadsWatchdog] Files before download: {[f.name for f in files_before]}')
 
 			# Try manual JavaScript fetch as a fallback for local browsers
+			# For local browsers we attempt a fast JS fetch fallback (now safe due to dedup) to capture the file sooner.
 			if self.browser_session.is_local:
-				self.logger.debug(f'[DownloadsWatchdog] Attempting JS fetch fallback for {download_url}')
-
-				unique_filename = None
-				file_size = None
-				download_result = None
+				import json as _json
 				try:
-					# Escape the URL for JavaScript
-					import json
-
-					escaped_url = json.dumps(download_url)
-
-					# Get the proper session for the frame that initiated the download
 					cdp_session = await self.browser_session.cdp_client_for_frame(event.get('frameId'))
-					assert cdp_session
-
-					result = await cdp_session.cdp_client.send.Runtime.evaluate(
-						params={
-							'expression': f"""
+					if cdp_session:
+						escaped_url = _json.dumps(download_url)
+						js_code = """
 						(async () => {{
-							try {{
-								const response = await fetch({escaped_url});
-								if (!response.ok) {{
-									throw new Error(`HTTP error! status: ${{response.status}}`);
-								}}
-								const blob = await response.blob();
-								const arrayBuffer = await blob.arrayBuffer();
-								const uint8Array = new Uint8Array(arrayBuffer);
-								return {{
-									data: Array.from(uint8Array),
-									size: uint8Array.length,
-									contentType: response.headers.get('content-type') || 'application/octet-stream'
-								}};
-							}} catch (error) {{
-								throw new Error(`Fetch failed: ${{error.message}}`);
-							}}
-						}})()
-						""",
-							'awaitPromise': True,
-							'returnByValue': True,
-						},
-						session_id=cdp_session.session_id,
-					)
-					download_result = result.get('result', {}).get('value')
-
-					if download_result and download_result.get('data'):
-						# Save the file
-						file_data = bytes(download_result['data'])
-						file_size = len(file_data)
-
-						# Ensure unique filename
-						unique_filename = await self._get_unique_filename(str(downloads_dir), suggested_filename)
-						final_path = downloads_dir / unique_filename
-
-						# Write the file
-						import anyio
-
-						async with await anyio.open_file(final_path, 'wb') as f:
-							await f.write(file_data)
-
-						self.logger.debug(f'[DownloadsWatchdog] ✅ Downloaded and saved file: {final_path} ({file_size} bytes)')
-						expected_path = final_path
-						# Emit download event immediately
-						file_ext = expected_path.suffix.lower().lstrip('.')
-						file_type = file_ext if file_ext else None
-						self.event_bus.dispatch(
-							FileDownloadedEvent(
+						  try {{
+						    const response = await fetch({escaped_url});
+						    if (!response.ok) throw new Error(`HTTP error ${{response.status}}`);
+						    const blob = await response.blob();
+						    const arrayBuffer = await blob.arrayBuffer();
+						    const uint8Array = new Uint8Array(arrayBuffer);
+						    return {{ data: Array.from(uint8Array), size: uint8Array.length, contentType: response.headers.get('content-type') || 'application/octet-stream' }};
+						  }} catch (e) {{
+						    return {{ error: e.message }};
+						  }}
+						})()
+						"""
+						result = await cdp_session.cdp_client.send.Runtime.evaluate(
+							params={
+								'expression': js_code,
+								'awaitPromise': True,
+								'returnByValue': True,
+							},
+							session_id=cdp_session.session_id,
+						)
+						val = result.get('result', {}).get('value')
+						if val and val.get('data') and not val.get('error'):
+							file_bytes = bytes(val['data'])
+							unique_filename = await self._get_unique_filename(str(downloads_dir), suggested_filename)
+							final_path = downloads_dir / unique_filename
+							async with await anyio.open_file(final_path, 'wb') as _f:
+								await _f.write(file_bytes)
+							self.logger.debug(f'[DownloadsWatchdog] ✅ JS fallback saved: {final_path} ({len(file_bytes)} bytes)')
+							self._dispatch_file_download_event(
 								url=download_url,
-								path=str(expected_path),
-								file_name=unique_filename or expected_path.name,
-								file_size=file_size or 0,
-								file_type=file_type,
-								mime_type=(download_result.get('contentType') if download_result else None),
-								from_cache=False,
-								auto_download=False,
+								path=str(final_path),
+								file_name=unique_filename,
+								file_size=len(file_bytes),
+								file_type=final_path.suffix.lower().lstrip('.') or None,
+								mime_type=val.get('contentType'),
 							)
-						)
-						self.logger.debug(
-							f'[DownloadsWatchdog] ✅ File download completed via CDP: {suggested_filename} ({file_size} bytes) saved to {expected_path}'
-						)
-						return
-					else:
-						self.logger.error('[DownloadsWatchdog] ❌ No data received from fetch')
-
-				except Exception as fetch_error:
-					self.logger.error(f'[DownloadsWatchdog] ❌ Failed to download file via fetch: {fetch_error}')
+							return
+						else:
+							self.logger.debug('[DownloadsWatchdog] JS fallback returned no data or error')
+				except Exception as _exc:
+					self.logger.debug(f'[DownloadsWatchdog] JS fallback failed: {_exc}')
 
 			# For remote browsers, don't poll local filesystem; downloadProgress handler will emit the event
 			if not self.browser_session.is_local:
@@ -427,14 +425,12 @@ class DownloadsWatchdog(BaseWatchdog):
 								file_type = file_ext if file_ext else None
 
 								# Dispatch download event
-								self.event_bus.dispatch(
-									FileDownloadedEvent(
-										url=download_url,
-										path=str(file_path),
-										file_name=file_path.name,
-										file_size=file_size,
-										file_type=file_type,
-									)
+								self._dispatch_file_download_event(
+									url=download_url,
+									path=str(file_path),
+									file_name=file_path.name,
+									file_size=file_size,
+									file_type=file_type,
 								)
 								return
 						except Exception as e:
