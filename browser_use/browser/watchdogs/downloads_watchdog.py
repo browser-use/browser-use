@@ -69,7 +69,7 @@ class DownloadsWatchdog(BaseWatchdog):
 	) -> None:
 		"""Central helper to emit FileDownloadedEvent only once per path."""
 		if path in self._dispatched_download_paths:
-			self.logger.debug(f"[DownloadsWatchdog] 🔁 Suppressing duplicate FileDownloadedEvent for {path}")
+			self.logger.debug(f'[DownloadsWatchdog] 🔁 Suppressing duplicate FileDownloadedEvent for {path}')
 			return
 		self._dispatched_download_paths.add(path)
 		try:
@@ -86,7 +86,7 @@ class DownloadsWatchdog(BaseWatchdog):
 				)
 			)
 		except Exception as e:
-			self.logger.error(f"[DownloadsWatchdog] Failed dispatching FileDownloadedEvent for {path}: {e}")
+			self.logger.error(f'[DownloadsWatchdog] Failed dispatching FileDownloadedEvent for {path}: {e}')
 
 	async def on_BrowserLaunchEvent(self, event: BrowserLaunchEvent) -> None:
 		self.logger.debug(f'[DownloadsWatchdog] Received BrowserLaunchEvent, EventBus ID: {id(self.event_bus)}')
@@ -281,7 +281,6 @@ class DownloadsWatchdog(BaseWatchdog):
 				self.logger.debug(f'[DownloadsWatchdog] Tracked download: {path.name} ({file_size} bytes)')
 
 				# Dispatch download event
-				from browser_use.browser.events import FileDownloadedEvent
 
 				self._dispatch_file_download_event(
 					url=str(path),  # Use the file path as URL for local files
@@ -332,6 +331,7 @@ class DownloadsWatchdog(BaseWatchdog):
 			# For local browsers we attempt a fast JS fetch fallback (now safe due to dedup) to capture the file sooner.
 			if self.browser_session.is_local:
 				import json as _json
+
 				try:
 					cdp_session = await self.browser_session.cdp_client_for_frame(event.get('frameId'))
 					if cdp_session:
