@@ -342,7 +342,7 @@ class BrowserUseServer:
 							},
 							'max_steps': {
 								'type': 'integer',
-								'description': 'Maximum number of steps the agent can take',
+								'description': 'Maximum number of steps an agent can take.',
 								'default': 100,
 							},
 							'model': {
