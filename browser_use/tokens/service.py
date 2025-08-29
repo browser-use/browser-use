@@ -340,8 +340,15 @@ class TokenCost:
 			return result
 
 		# Replace the method with our tracked version
-		# Using setattr to avoid type checking issues with overloaded methods
-		setattr(llm, 'ainvoke', tracked_ainvoke)
+		try:
+			# Try to use property setter if it exists (for Pydantic models with validation)
+			if hasattr(llm.__class__, 'ainvoke') and isinstance(getattr(llm.__class__, 'ainvoke', None), property):
+				llm.ainvoke = tracked_ainvoke
+			else:
+				# Using setattr for regular objects
+				setattr(llm, 'ainvoke', tracked_ainvoke)
+		except Exception as e:
+			logger.warning(f"Failed to replace ainvoke method: {e}. Using the original method without tracking.")
 
 		return llm
 
