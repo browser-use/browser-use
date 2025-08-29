@@ -1941,3 +1941,137 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		import asyncio
 
 		return asyncio.run(self.run(max_steps=max_steps, on_step_start=on_step_start, on_step_end=on_step_end))
+
+
+	async def process_single_task(self, task: str = None, max_steps: int = 20) -> bool:
+		"""
+		Process a single task while preserving browser state and context.
+		
+		This method allows the agent to handle a task without the internal loop,
+		so you can call it repeatedly from your own loop.
+		
+		Args:
+			task: The task to run
+			max_steps: Maximum steps to take for the task
+			
+		Returns:
+			bool: True if the task completed successfully, False otherwise
+		"""
+		if not task:
+			print("No task provided.")
+			return False
+			
+		# Reset consecutive failures counter but keep history and browser state
+		self.state.consecutive_failures = 0
+		
+		# Reinitialize eventbus for the task to prevent QueueShutDown errors
+		try:
+			# Import dynamically to avoid issues
+			import importlib
+			bubus = importlib.import_module('bubus')
+			# Create a new eventbus with a unique name based on time
+			import time
+			timestamp = int(time.time() * 1000) % 10000
+			self.eventbus = bubus.EventBus(name=f'Agent_{str(self.id)[-4:]}_{timestamp}')
+		except Exception as e:
+			print(f"Warning: Could not initialize event bus: {e}")
+		
+		# Add task to the agent
+		self.add_new_task(task)
+		
+		# Run the task
+		print(f"\n🔄 Running: {task}")
+		try:
+			result = await self.run(max_steps=max_steps)
+			print("\n✅ Task completed. Browser session remains active.")
+			return True
+		except Exception as e:
+			print(f"\n❌ Error: {e}")
+			if "QueueShutDown" in str(e):
+				print("Event queue was shut down.")
+			else:
+				print("Browser session may be in an inconsistent state.")
+			return False
+			
+	async def continuous_browser_control(self, initial_task: str = None, max_steps_per_task: int = 20) -> None:
+		"""
+		Enable continuous browser control with multiple tasks without clearing history.
+		
+		This method allows the agent to continue taking input from the user after completing a task,
+		preserving browser state and context between interactions.
+		
+		Args:
+			initial_task: The first task to run (optional if agent was already initialized with a task)
+			max_steps_per_task: Maximum steps to take for each individual task
+			
+		Returns:
+			None - this function runs in an interactive loop until user terminates it.
+		"""
+		# Run initial task if provided
+		if initial_task:
+			success = await self.process_single_task(initial_task, max_steps_per_task)
+			if not success:
+				print("Attempting to continue anyway...")
+		
+		# Keep browser session alive for continued interaction
+		while True:
+			try:
+				follow_up = input("\n✏️ Enter follow-up task (or type 'exit' to quit): ")
+				
+				# Check for exit command
+				if follow_up.lower() in ['exit', 'quit', 'q']:
+					print("Exiting continuous browser control mode...")
+					break
+					
+				# Process the follow-up task
+				success = await self.process_single_task(follow_up, max_steps_per_task)
+				if not success:
+					choice = input("Continue anyway? (y/n): ")
+					if choice.lower() != 'y':
+						break
+				
+			except KeyboardInterrupt:
+				print("\n⏸️ Paused. Press Ctrl+C again to exit or Enter to continue.")
+				try:
+					input()
+					continue
+				except KeyboardInterrupt:
+					print("\nExiting continuous browser control mode...")
+					break
+			except Exception as e:
+				print(f"\n❌ Error: {e}")
+				print("Browser session may be in an inconsistent state.")
+				choice = input("Continue anyway? (y/n): ")
+				if choice.lower() != 'y':
+					break
+		
+		print("Continuous browser control session ended.")
+		
+	def process_single_task_sync(self, task: str = None, max_steps: int = 20) -> bool:
+		"""
+		Synchronous wrapper around process_single_task for easier usage without asyncio.
+		
+		Args:
+			task: The task to run
+			max_steps: Maximum steps to take for the task
+			
+		Returns:
+			bool: True if the task completed successfully, False otherwise
+		"""
+		import asyncio
+		return asyncio.run(self.process_single_task(task=task, max_steps=max_steps))
+	
+	def continuous_browser_control_sync(self, initial_task: str = None, max_steps_per_task: int = 20) -> None:
+		"""
+		Synchronous wrapper around continuous_browser_control for easier usage without asyncio.
+		
+		Args:
+			initial_task: The first task to run (optional if agent was already initialized with a task)
+			max_steps_per_task: Maximum steps to take for each individual task
+			
+		Returns:
+			None
+		"""
+		import asyncio
+		return asyncio.run(self.continuous_browser_control(initial_task=initial_task, max_steps_per_task=max_steps_per_task))
+
