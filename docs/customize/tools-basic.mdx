@@ -1,0 +1,85 @@
+---
+title: "Tools Overview"
+description: "Extend default agent with custom action functions to accomplish specific tasks"
+icon: "wrench"
+mode: "wide"
+---
+
+Custom actions are functions *you* provide, that are added to our [default actions](https://github.com/browser-use/browser-use/blob/main/browser_use/controller/service.py) the agent can use to accomplish tasks.
+
+Action functions can request [arbitrary parameters](/customize/tools-parameters#action-parameters-via-pydantic-model) that the LLM has to come up with + a fixed set of [framework-provided arguments](/customize/tools-parameters#framework-provided-parameters) for browser APIs / `Agent(context=...)` / etc.
+
+<Note>
+  Our default set of actions is already quite powerful, the built-in `Controller` provides basics like `go_to_url`, `scroll_down`, `extract_content`, [and more](https://github.com/browser-use/browser-use/blob/main/browser_use/controller/service.py).
+</Note>
+
+It's easy to add your own actions to implement additional custom behaviors, integrations with other apps, or performance optimizations.
+
+For examples of custom actions (e.g. uploading files, asking a human-in-the-loop for help, drawing a polygon with the mouse, and more), see [examples/custom-functions](https://github.com/browser-use/browser-use/tree/main/examples/custom-functions).
+
+## Quick Example
+
+Here's a simple custom action that asks a human for help:
+
+```python
+from browser_use import Controller, ActionResult
+
+controller = Controller()
+
+@controller.action('Ask human for help with a question')
+def ask_human(question: str) -> ActionResult:
+    answer = input(f'{question} > ')
+    return ActionResult(extracted_content=f'The human responded with: {answer}', include_in_memory=True)
+
+# Then pass your controller to the agent to use it
+agent = Agent(
+    task='...',
+    llm=llm,
+    controller=controller,
+)
+```
+
+<Note>
+  Keep your action function names and descriptions short and concise:
+  - The LLM chooses between actions to run solely based on the function name and description
+  - The LLM decides how to fill action params based on their names, type hints, & defaults
+</Note>
+
+## What You Can Do With Custom Actions
+
+Custom actions enable you to:
+
+- **Integrate with external services** - Call APIs, databases, or other systems
+- **Add domain-specific logic** - Implement business rules or specialized workflows
+- **Optimize performance** - Create faster alternatives to default actions for specific use cases
+- **Handle file operations** - Upload, download, or process files
+- **Enable human-in-the-loop** - Ask for user input or approval when needed
+- **Access browser internals** - Use Chrome DevTools Protocol for advanced browser control
+
+## Browser Interaction Context
+
+<Note>
+Browser Use has moved from Playwright to Chrome DevTools Protocol (CDP) for browser interaction. The `browser_session` provides access to CDP through `browser_session.agent_focus.cdp_client` or `await browser_session.get_or_create_cdp_session()`. Playwright is only used internally to install the browser binary, but all browser interaction is done via CDP.
+</Note>
+
+Your custom actions can interact with the browser in several ways:
+
+- **Direct CDP access** for low-level browser control
+- **Event-based actions** for structured browser interactions  
+- **High-level browser session methods** for common operations
+
+Learn more about these approaches in the [Tools Parameters](/customize/tools-parameters) section.
+
+## Important Rules
+
+1. **Return an [`ActionResult`](https://github.com/search?q=repo%3Abrowser-use%2Fbrowser-use+%22class+ActionResult%28BaseModel%29%22&type=code)**: All actions should return an `ActionResult | str | None`. The stringified version of the result is passed back to the LLM, and optionally persisted in the long-term memory when `ActionResult(..., include_in_memory=True)`.
+
+2. **Type hints on arguments are required**: They are used to verify that action params don't conflict with special arguments injected by the controller (e.g. `browser_session`)
+
+3. **Actions functions called directly must be passed kwargs**: When calling actions from other actions or python code, you must **pass all parameters as kwargs only**, even though the actions are usually defined using positional args.
+
+## Next Steps
+
+- Learn how to [register actions and manage controllers](/customize/tools-register)
+- Explore [parameter types and patterns](/customize/tools-parameters)
+- Check out [real examples](https://github.com/browser-use/browser-use/tree/main/examples/custom-functions)

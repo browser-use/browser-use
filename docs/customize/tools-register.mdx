@@ -1,0 +1,218 @@
+---
+title: "Action Registration"
+description: "Register custom actions, manage controllers, and configure domain restrictions"
+icon: "plus"
+mode: "wide"
+---
+
+## Action Function Registration
+
+To register your own custom functions (which can be `sync` or `async`), decorate them with the `@controller.action(...)` decorator. This saves them into the `controller.registry`.
+
+```python
+from browser_use import Controller, ActionResult
+
+controller = Controller()
+
+@controller.action('Ask human for help with a question', domains=['example.com'])   # pass allowed_domains= or page_filter= to limit actions to certain pages
+def ask_human(question: str) -> ActionResult:
+    answer = input(f'{question} > ')
+    return ActionResult(extracted_content=f'The human responded with: {answer}', include_in_memory=True)
+```
+
+```python
+# Then pass your controller to the agent to use it
+agent = Agent(
+    task='...',
+    llm=llm,
+    controller=controller,
+)
+```
+
+<Note>
+  Keep your action function names and descriptions short and concise:
+  - The LLM chooses between actions to run solely based on the function name and description
+  - The LLM decides how to fill action params based on their names, type hints, & defaults
+</Note>
+
+## Controller Management
+
+### Creating Controllers
+
+Controllers are stateless and can be reused across multiple agents:
+
+```python
+from browser_use import Controller
+
+controller = Controller()
+
+# Register multiple actions
+@controller.action('First action')
+def action_one(param: str) -> ActionResult:
+    return ActionResult(extracted_content=f"Result: {param}")
+
+@controller.action('Second action')
+def action_two(param: int) -> ActionResult:
+    return ActionResult(extracted_content=f"Number: {param}")
+```
+
+### Excluding Actions
+
+If you want to exclude some registered actions and make them unavailable to the agent, you can do:
+
+```python
+controller = Controller(exclude_actions=['search_google'])
+agent = Agent(controller=controller, ...)
+```
+
+## Reusing Custom Actions Across Agents
+
+You can use the same controller for multiple agents.
+
+```python
+controller = Controller()
+
+# ... register actions to the controller
+
+agent = Agent(
+    task="Go to website X and find the latest news",
+    llm=llm,
+    controller=controller
+)
+
+# Run the agent
+await agent.run()
+
+agent2 = Agent(
+    task="Go to website Y and find the latest news",
+    llm=llm,
+    controller=controller
+)
+
+await agent2.run()
+```
+
+<Note>
+  The controller is stateless and can be used to register multiple actions and
+  multiple agents.
+</Note>
+
+## Domain Restrictions
+
+You can restrict actions to only run on specific domains or pages using the `allowed_domains` or `page_filter` parameters:
+
+### Domain-Based Restrictions
+
+```python
+@controller.action('Fill out secret_form', allowed_domains=['https://*.example.com'])
+def fill_out_form(...) -> ActionResult:
+    # This action will only be runnable by LLM on pages that match https://*.example.com
+    ...
+```
+
+### Custom Page Filters
+
+For more complex restrictions, you can use custom page filters:
+
+```python
+def is_secure_page(url: str) -> bool:
+    return url.startswith('https://') and 'login' not in url
+
+@controller.action('Safe action', page_filter=is_secure_page)
+def safe_action(...) -> ActionResult:
+    # This action will only run on HTTPS pages without 'login' in the URL
+    ...
+```
+
+## Action Organization Best Practices
+
+### Grouping Related Actions
+
+Organize related actions together:
+
+```python
+# E-commerce actions
+@controller.action('Add item to cart')
+def add_to_cart(product_id: str, quantity: int) -> ActionResult:
+    ...
+
+@controller.action('Remove item from cart')
+def remove_from_cart(product_id: str) -> ActionResult:
+    ...
+
+@controller.action('Proceed to checkout')
+def checkout() -> ActionResult:
+    ...
+```
+
+### Using Descriptive Names
+
+Choose clear, descriptive names that help the LLM understand when to use each action:
+
+```python
+# Good: Clear and specific
+@controller.action('Extract product price from e-commerce page')
+def extract_product_price() -> ActionResult:
+    ...
+
+# Bad: Too vague
+@controller.action('Get data')
+def get_data() -> ActionResult:
+    ...
+```
+
+### Action Documentation
+
+Include helpful descriptions and type hints:
+
+```python
+@controller.action('Search for products with filters and return results')
+def search_products(
+    query: str,           # Search term
+    category: str = '',   # Optional product category
+    max_price: float = 0  # Maximum price filter (0 = no limit)
+) -> ActionResult:
+    """
+    Search for products with optional filtering.
+    Returns a list of matching products with details.
+    """
+    ...
+```
+
+## Action Registration Patterns
+
+### Simple Function Registration
+
+```python
+@controller.action('Simple action description')
+def simple_action(param: str) -> ActionResult:
+    return ActionResult(extracted_content=f"Processed: {param}")
+```
+
+### Async Function Registration
+
+```python
+@controller.action('Async action description')
+async def async_action(param: str, browser_session: Browser) -> ActionResult:
+    # Perform async operations
+    result = await some_async_operation(param)
+    return ActionResult(extracted_content=result)
+```
+
+### Registration with Domain Restrictions
+
+```python
+@controller.action(
+    'Bank-specific action',
+    allowed_domains=['https://mybank.com', 'https://*.mybank.com']
+)
+def bank_action(account_id: str) -> ActionResult:
+    # This action only works on bank domains
+    ...
+```
+
+## Next Steps
+
+- Learn about [parameter types and patterns](/customize/tools-parameters)
+- Explore [real examples](https://github.com/browser-use/browser-use/tree/main/examples/custom-functions)
+- Read about [browser session context](/customize/tools-parameters#framework-provided-parameters)

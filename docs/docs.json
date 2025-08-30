@@ -96,6 +96,16 @@
                 ]
               },
               {
+                "group": "Tools",
+                "icon": "wrench",
+                "isDefaultOpen": false,
+                "pages": [
+                  "customize/tools-basic",
+                  "customize/tools-register",
+                  "customize/tools-parameters"
+                ]
+              },
+              {
                 "group": "Examples",
                 "icon": "folder-open",
                 "pages": [
