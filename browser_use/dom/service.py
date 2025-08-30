@@ -27,6 +27,10 @@ from browser_use.dom.views import (
 if TYPE_CHECKING:
 	from browser_use.browser.session import BrowserSession
 
+# Global limits to prevent iframe explosion
+MAX_TOTAL_IFRAMES = 3   # Maximum number of iframe documents to process (very conservative to prevent explosions)
+MAX_IFRAME_DEPTH = 1    # Maximum depth for cross-origin iframe recursion (only 1 level deep)
+
 
 class DomService:
 	"""
@@ -407,16 +411,22 @@ class DomService:
 		end = time.time()
 		cdp_timing = {'cdp_calls_total': end - start}
 
-		# DEBUG: Log snapshot info
+		# DEBUG: Log snapshot info and limit documents to prevent explosion
 		if snapshot and 'documents' in snapshot:
+			original_doc_count = len(snapshot['documents'])
+			# Limit to MAX_TOTAL_IFRAMES documents to prevent iframe explosion
+			if original_doc_count > MAX_TOTAL_IFRAMES:
+				self.logger.warning(f'⚠️ Limiting processing of {original_doc_count} iframes on page to only first {MAX_TOTAL_IFRAMES} to prevent crashes!')
+				snapshot['documents'] = snapshot['documents'][:MAX_TOTAL_IFRAMES]
+			
 			total_nodes = sum(len(doc.get('nodes', [])) for doc in snapshot['documents'])
 			self.logger.debug(
-				f'🔍 DEBUG: Snapshot contains {len(snapshot["documents"])} documents with {total_nodes} total nodes'
+				f'🔍 DEBUG: Snapshot contains {len(snapshot["documents"])} frames with {total_nodes} total nodes'
 			)
 			# Log iframe-specific info
 			for doc_idx, doc in enumerate(snapshot['documents']):
 				if doc_idx > 0:  # Not the main document
-					self.logger.debug(f'🔍 DEBUG: Document {doc_idx} has {len(doc.get("nodes", []))} nodes')
+					self.logger.debug(f'🔍 DEBUG: Iframe #{doc_idx} {doc.get("frameId", "no-frame-id")} {doc.get("url", "no-url")} has {len(doc.get("nodes", []))} nodes')
 
 		return TargetAllTrees(
 			snapshot=snapshot,
@@ -431,6 +441,7 @@ class DomService:
 		target_id: TargetID,
 		initial_html_frames: list[EnhancedDOMTreeNode] | None = None,
 		initial_total_frame_offset: DOMRect | None = None,
+		iframe_depth: int = 0,
 	) -> EnhancedDOMTreeNode:
 		"""Get the DOM tree for a specific target.
 
@@ -438,6 +449,7 @@ class DomService:
 			target_id: Target ID of the page to get the DOM tree for.
 			initial_html_frames: List of HTML frame nodes encountered so far
 			initial_total_frame_offset: Accumulated coordinate offset
+			iframe_depth: Current depth of iframe nesting to prevent infinite recursion
 		"""
 
 		trees = await self._get_all_trees(target_id)
@@ -617,33 +629,61 @@ class DomService:
 				# TODO: hacky way to disable cross origin iframes for now
 				self.cross_origin_iframes and node['nodeName'].upper() == 'IFRAME' and node.get('contentDocument', None) is None
 			):  # None meaning there is no content
-				# Use get_all_frames to find the iframe's target
-				frame_id = node.get('frameId', None)
-				if frame_id:
-					all_frames, _ = await self.browser_session.get_all_frames()
-					frame_info = all_frames.get(frame_id)
-					iframe_document_target = None
-					if frame_info and frame_info.get('frameTargetId'):
-						# Get the target info for this iframe
-						targets = await self.browser_session.cdp_client.send.Target.getTargets()
-						iframe_document_target = next(
-							(t for t in targets['targetInfos'] if t['targetId'] == frame_info['frameTargetId']), None
-						)
+				# Check iframe depth to prevent infinite recursion
+				if iframe_depth >= MAX_IFRAME_DEPTH:
+					self.logger.debug(f'Skipping iframe at depth {iframe_depth} to prevent infinite recursion (max depth: {MAX_IFRAME_DEPTH})')
 				else:
-					iframe_document_target = None
-				# if target actually exists in one of the frames, just recursively build the dom tree for it
-				if iframe_document_target:
-					self.logger.debug(f'Getting content document for iframe {node.get("frameId", None)}')
-					content_document = await self.get_dom_tree(
-						target_id=iframe_document_target.get('targetId'),
-						# TODO: experiment with this values -> not sure whether the whole cross origin iframe should be ALWAYS included as soon as some part of it is visible or not.
-						# Current config: if the cross origin iframe is AT ALL visible, then just include everything inside of it!
-						# initial_html_frames=updated_html_frames,
-						initial_total_frame_offset=total_frame_offset,
-					)
+					# Check if iframe is visible and large enough (>= 200px in both dimensions)
+					should_process_iframe = False
+					
+					# First check if the iframe element itself is visible
+					if dom_tree_node.is_visible:
+						# Check iframe dimensions
+						if dom_tree_node.snapshot_node and dom_tree_node.snapshot_node.bounds:
+							bounds = dom_tree_node.snapshot_node.bounds
+							width = bounds.get('width', 0)
+							height = bounds.get('height', 0)
+							
+							# Only process if iframe is at least 200px in both dimensions
+							if width >= 200 and height >= 200:
+								should_process_iframe = True
+								self.logger.debug(f'Processing cross-origin iframe: visible=True, width={width}, height={height}')
+							else:
+								self.logger.debug(f'Skipping small cross-origin iframe: width={width}, height={height} (needs >= 200px)')
+						else:
+							self.logger.debug('Skipping cross-origin iframe: no bounds available')
+					else:
+						self.logger.debug('Skipping invisible cross-origin iframe')
+					
+					if should_process_iframe:
+						# Use get_all_frames to find the iframe's target
+						frame_id = node.get('frameId', None)
+						if frame_id:
+							all_frames, _ = await self.browser_session.get_all_frames()
+							frame_info = all_frames.get(frame_id)
+							iframe_document_target = None
+							if frame_info and frame_info.get('frameTargetId'):
+								# Get the target info for this iframe
+								targets = await self.browser_session.cdp_client.send.Target.getTargets()
+								iframe_document_target = next(
+									(t for t in targets['targetInfos'] if t['targetId'] == frame_info['frameTargetId']), None
+								)
+						else:
+							iframe_document_target = None
+						# if target actually exists in one of the frames, just recursively build the dom tree for it
+						if iframe_document_target:
+							self.logger.debug(f'Getting content document for iframe {node.get("frameId", None)} at depth {iframe_depth + 1}')
+							content_document = await self.get_dom_tree(
+								target_id=iframe_document_target.get('targetId'),
+								# TODO: experiment with this values -> not sure whether the whole cross origin iframe should be ALWAYS included as soon as some part of it is visible or not.
+								# Current config: if the cross origin iframe is AT ALL visible, then just include everything inside of it!
+								# initial_html_frames=updated_html_frames,
+								initial_total_frame_offset=total_frame_offset,
+								iframe_depth=iframe_depth + 1,
+							)
 
-					dom_tree_node.content_document = content_document
-					dom_tree_node.content_document.parent_node = dom_tree_node
+							dom_tree_node.content_document = content_document
+							dom_tree_node.content_document.parent_node = dom_tree_node
 
 			return dom_tree_node
 

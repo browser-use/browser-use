@@ -53,15 +53,18 @@ class PopupsWatchdog(BaseWatchdog):
 				self.logger.debug(f"🔔 JavaScript {dialog_type} dialog detected: '{message[:50]}...' - accepting immediately")
 
 				# Dispatch the event first so tests can observe it
-				event = self.browser_session.event_bus.dispatch(
-					DialogOpenedEvent(
-						frame_id=frame_id,
-						dialog_type=dialog_type,
-						message=message,
-						url=url,
+				try:
+					event = self.browser_session.event_bus.dispatch(
+						DialogOpenedEvent(
+							frame_id=frame_id,
+							dialog_type=dialog_type,
+							message=message,
+							url=url,
+						)
 					)
-				)
-				await event.event_result(raise_if_none=False, raise_if_any=True, timeout=5.0)
+					await event.event_result(raise_if_none=False, raise_if_any=True, timeout=5.0)
+				except Exception as e:
+					self.logger.error(f'Failed to dispatch DialogOpenedEvent callback event: {event} error: {type(e).__name__}: {e}')
 
 				# Accept the dialog immediately to unblock the browser
 				try:
