@@ -92,14 +92,28 @@ class SimplifiedNode:
 	is_new: bool = False
 	excluded_by_parent: bool = False  # New field for bbox filtering
 
+	def _clean_original_node_json(self, node_json: dict) -> dict:
+		"""Recursively remove children_nodes and shadow_roots from original_node JSON."""
+		# Remove the fields we don't want in SimplifiedNode serialization
+		if 'children_nodes' in node_json:
+			del node_json['children_nodes']
+		if 'shadow_roots' in node_json:
+			del node_json['shadow_roots']
+
+		# Clean nested content_document if it exists
+		if node_json.get('content_document'):
+			node_json['content_document'] = self._clean_original_node_json(node_json['content_document'])
+
+		return node_json
+
 	def __json__(self) -> dict:
 		original_node_json = self.original_node.__json__()
-		del original_node_json['children_nodes']
-		del original_node_json['shadow_roots']
+		# Remove children_nodes and shadow_roots to avoid duplication with SimplifiedNode.children
+		cleaned_original_node_json = self._clean_original_node_json(original_node_json)
 		return {
 			'should_display': self.should_display,
 			'interactive_index': self.interactive_index,
-			'original_node': original_node_json,
+			'original_node': cleaned_original_node_json,
 			'children': [c.__json__() for c in self.children],
 		}
 
