@@ -1141,6 +1141,29 @@ class BrowserSession(BaseModel):
 			# Log summary of redirections
 			if redirected_targets:
 				self.logger.debug(f'Redirected {len(redirected_targets)} chrome://newtab pages to about:blank')
+				
+				# Close the redirected setup tabs to avoid having multiple about:blank tabs
+				# Only keep one about:blank tab for the agent to use
+				if len(redirected_targets) > 0 and len(page_targets) > 1:
+					# Close all but the first redirected tab to avoid duplicate about:blank tabs
+					tabs_to_close = redirected_targets[1:] if len(redirected_targets) > 1 else []
+					
+					# If we have non-redirected tabs, prefer to close all redirected tabs
+					non_redirected_tabs = [t for t in page_targets if t['targetId'] not in redirected_targets]
+					if non_redirected_tabs:
+						tabs_to_close = redirected_targets
+					
+					for target_id in tabs_to_close:
+						try:
+							await self._cdp_close_page(target_id)
+							self.logger.debug(f'🗑️ Closed redundant setup tab {target_id[-4:]} to avoid duplicate about:blank tabs')
+							# Remove from page_targets list
+							page_targets = [t for t in page_targets if t['targetId'] != target_id]
+							# Clean up the redirect session
+							if target_id in redirect_sessions:
+								redirect_sessions.pop(target_id)
+						except Exception as e:
+							self.logger.warning(f'Failed to close redundant setup tab {target_id}: {e}')
 
 			if not page_targets:
 				# No pages found, create a new one
