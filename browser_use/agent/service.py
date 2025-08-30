@@ -1451,16 +1451,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					self.logger.debug(msg)
 					break
 
-			# DOM synchronization check - verify element indexes are still valid AFTER first action
-			# This prevents stale element detection but doesn't refresh before execution
-			if action.get_index() is not None and i != 0:
+			# DOM synchronization check - verify element indexes are still valid BEFORE any action
+			# This prevents stale element detection by validating against the page state when LLM made the decision
+			if action.get_index() is not None:
 				new_browser_state_summary = await self.browser_session.get_browser_state_summary(
 					cache_clickable_elements_hashes=False,
 					include_screenshot=False,
 				)
 				new_selector_map = new_browser_state_summary.dom_state.selector_map
 
-				# Detect index change after previous action
+				# Detect index change - either after previous action (i > 0) or since LLM call (i == 0)
 				orig_target = cached_selector_map.get(action.get_index())
 				orig_target_hash = orig_target.parent_branch_hash() if orig_target else None
 
@@ -1478,7 +1478,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				if orig_target_hash != new_target_hash:
 					# Get names of remaining actions that won't be executed
 					remaining_actions_str = get_remaining_actions_str(actions, i)
-					msg = f'Page changed after action {i} / {total_actions}: actions {remaining_actions_str} were not executed'
+					if i == 0:
+						msg = f'Page changed since LLM call: actions {remaining_actions_str} were not executed (element {action.get_index()} hash changed)'
+					else:
+						msg = f'Page changed after action {i} / {total_actions}: actions {remaining_actions_str} were not executed'
 					logger.info(msg)
 					results.append(
 						ActionResult(
@@ -1496,7 +1499,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					# log difference in len debug
 					self.logger.debug(f'New elements: {abs(len(new_element_hashes) - len(cached_element_hashes))}')
 					remaining_actions_str = get_remaining_actions_str(actions, i)
-					msg = f'Something new appeared after action {i} / {total_actions}: actions {remaining_actions_str} were not executed'
+					if i == 0:
+						msg = f'New elements appeared since LLM call: actions {remaining_actions_str} were not executed'
+					else:
+						msg = f'Something new appeared after action {i} / {total_actions}: actions {remaining_actions_str} were not executed'
 					logger.info(msg)
 					results.append(
 						ActionResult(
@@ -1506,6 +1512,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						)
 					)
 					break
+
+				# Update cached state for subsequent actions if validation passed
+				if action.get_index() is not None:
+					cached_selector_map = dict(new_selector_map)
+					cached_element_hashes = {e.parent_branch_hash() for e in new_selector_map.values()}
 
 			# wait between actions (only after first action)
 			if i > 0:
