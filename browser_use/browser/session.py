@@ -424,6 +424,7 @@ class BrowserSession(BaseModel):
 		BaseWatchdog.attach_handler_to_session(self, BrowserStopEvent, self.on_BrowserStopEvent)
 		BaseWatchdog.attach_handler_to_session(self, NavigateToUrlEvent, self.on_NavigateToUrlEvent)
 		BaseWatchdog.attach_handler_to_session(self, SwitchTabEvent, self.on_SwitchTabEvent)
+		BaseWatchdog.attach_handler_to_session(self, TabCreatedEvent, self.on_TabCreatedEvent)
 		BaseWatchdog.attach_handler_to_session(self, TabClosedEvent, self.on_TabClosedEvent)
 		BaseWatchdog.attach_handler_to_session(self, AgentFocusChangedEvent, self.on_AgentFocusChangedEvent)
 		BaseWatchdog.attach_handler_to_session(self, FileDownloadedEvent, self.on_FileDownloadedEvent)
@@ -702,6 +703,22 @@ class BrowserSession(BaseModel):
 		cdp_session = await self.get_or_create_cdp_session(target_id=None, focus=False)
 		await self.event_bus.dispatch(TabClosedEvent(target_id=event.target_id))
 		await cdp_session.cdp_client.send.Target.closeTarget(params={'targetId': event.target_id})
+
+	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
+		"""Handle tab creation - apply viewport settings to new tab."""
+		# Apply viewport settings if configured
+		if self.browser_profile.viewport and not self.browser_profile.no_viewport:
+			try:
+				viewport_width = self.browser_profile.viewport.width
+				viewport_height = self.browser_profile.viewport.height
+				device_scale_factor = self.browser_profile.device_scale_factor or 1.0
+
+				# Use the helper method with the new tab's target_id
+				await self._cdp_set_viewport(viewport_width, viewport_height, device_scale_factor, target_id=event.target_id)
+
+				self.logger.debug(f'Applied viewport {viewport_width}x{viewport_height} to tab {event.target_id[-8:]}')
+			except Exception as e:
+				self.logger.warning(f'Failed to set viewport for new tab {event.target_id[-8:]}: {e}')
 
 	async def on_TabClosedEvent(self, event: TabClosedEvent) -> None:
 		"""Handle tab closure - update focus if needed."""
@@ -1737,10 +1754,31 @@ class BrowserSession(BaseModel):
 			params={'identifier': identifier}, session_id=cdp_session.session_id
 		)
 
-	async def _cdp_set_viewport(self, width: int, height: int, device_scale_factor: float = 1.0, mobile: bool = False) -> None:
-		"""Set viewport using CDP Emulation.setDeviceMetricsOverride."""
-		await self.cdp_client.send.Emulation.setDeviceMetricsOverride(
-			params={'width': width, 'height': height, 'deviceScaleFactor': device_scale_factor, 'mobile': mobile}
+	async def _cdp_set_viewport(
+		self, width: int, height: int, device_scale_factor: float = 1.0, mobile: bool = False, target_id: str | None = None
+	) -> None:
+		"""Set viewport using CDP Emulation.setDeviceMetricsOverride.
+
+		Args:
+			width: Viewport width
+			height: Viewport height
+			device_scale_factor: Device scale factor (default 1.0)
+			mobile: Whether to emulate mobile device (default False)
+			target_id: Optional target ID to set viewport for. If not provided, uses agent_focus.
+		"""
+		if target_id:
+			# Set viewport for specific target
+			cdp_session = await self.get_or_create_cdp_session(target_id, focus=False, new_socket=False)
+		elif self.agent_focus:
+			# Use current focus
+			cdp_session = self.agent_focus
+		else:
+			self.logger.warning('Cannot set viewport: no target_id provided and agent_focus not initialized')
+			return
+
+		await cdp_session.cdp_client.send.Emulation.setDeviceMetricsOverride(
+			params={'width': width, 'height': height, 'deviceScaleFactor': device_scale_factor, 'mobile': mobile},
+			session_id=cdp_session.session_id,
 		)
 
 	async def _cdp_get_storage_state(self) -> dict:
