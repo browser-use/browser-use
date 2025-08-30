@@ -1407,6 +1407,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					except Exception as e:
 						logger.debug(f'Cloud authentication error: {e}')
 
+			# Display the sync URL at the end of the run
+			self.display_sync_url()
+
 			# Stop the event bus gracefully, waiting for all events to be processed
 			# Use longer timeout to avoid deadlocks in tests with multiple agents
 			await self.eventbus.stop(timeout=3.0)
@@ -1789,6 +1792,48 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	@property
 	def message_manager(self) -> MessageManager:
 		return self._message_manager
+
+	def display_sync_url(self) -> None:
+		"""Display the Browser Use Cloud URL for this agent run or signup URL if not authenticated"""
+		try:
+			import shutil
+
+			from browser_use.config import CONFIG
+
+			# Generate the frontend URL - use default if no cloud sync is configured
+			if hasattr(self, 'cloud_sync') and self.cloud_sync:
+				base_url = self.cloud_sync.base_url
+			else:
+				base_url = CONFIG.BROWSER_USE_CLOUD_API_URL
+
+			frontend_url = CONFIG.BROWSER_USE_CLOUD_UI_URL or base_url.replace('//api.', '//cloud.')
+			terminal_width, _terminal_height = shutil.get_terminal_size((80, 20))
+
+			# Check if we have cloud sync enabled and user is authenticated
+			if (
+				hasattr(self, 'cloud_sync')
+				and self.cloud_sync
+				and self.cloud_sync.auth_client
+				and self.cloud_sync.auth_client.is_authenticated
+			):
+				# User is authenticated - show the specific run URL
+				session_url = f'{frontend_url.rstrip("/")}/agent/{self.session_id}'
+				self.logger.info('─' * max(terminal_width - 40, 20))
+				self.logger.info('🌐  View the details of this run in Browser Use Cloud:')
+				self.logger.info(f'    👉  {session_url}')
+				self.logger.info('─' * max(terminal_width - 40, 20))
+			else:
+				# User is not authenticated or cloud sync not enabled - show the signup URL
+				# Remove any stray '%' at the end of the URL before appending /signup
+				clean_frontend_url = frontend_url.rstrip('/%')
+				signup_url = f'{clean_frontend_url}/signup'
+				self.logger.info('─' * max(terminal_width - 40, 20))
+				self.logger.info('🌐  Replay this run & inspect details:')
+				self.logger.info(f'    👉  {signup_url}')
+				self.logger.info('─' * max(terminal_width - 40, 20))
+
+		except Exception as e:
+			self.logger.debug('Failed to display sync URL: {}'.format(e))
 
 	async def close(self):
 		"""Close all resources"""
