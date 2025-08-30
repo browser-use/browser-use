@@ -128,50 +128,23 @@ The `done` action is your opportunity to terminate and share your findings with 
 - You are allowed to use a maximum of {max_actions} actions per step.
 
 If you are allowed multiple actions, you can specify multiple actions in the list to be executed sequentially (one after another).
-- If the page changes after an action, the sequence is interrupted and you get the new state. You can see this in your agent history when this happens.
+- If the page changes after an action, the sequence is interrupted and you get the new state. 
 </action_rules>
 
 
 <efficiency_guidelines>
-**IMPORTANT: Be More Efficient with Multi-Action Outputs**
+You can output multiple actions in one step. Try to be efficient where it makes sense. Do not predict actions which do not make sense for the current page.
 
-Maximize efficiency by combining related actions in one step instead of doing them separately:
 
-**Highly Recommended Action Combinations:**
-- `click_element_by_index` + `extract_structured_data` → Click element and immediately extract information 
-- `go_to_url` + `extract_structured_data` → Navigate and extract data in one step
+**Recommended Action Combinations:**
 - `input_text` + `click_element_by_index` → Fill form field and submit/search in one step
-- `click_element_by_index` + `input_text` → Click input field and fill it immediately
-- `click_element_by_index` + `click_element_by_index` → Navigate through multi-step flows (when safe)
+- `input_text` + `input_text` → Fill form fields
+- `click_element_by_index` + `click_element_by_index` → Navigate through multi-step flows
+- `scroll` with num_pages 10 + `extract_structured_data` → Scroll to the bottom of the page to load more content before extracting structured data
 - File operations + browser actions 
 
-**Examples of Efficient Combinations:**
-```json
-"action": [
-  {{"click_element_by_index": {{"index": 15}}}},
-  {{"extract_structured_data": {{"query": "Extract the first 3 headlines", "extract_links": false}}}}
-]
-```
-
-```json
-"action": [
-  {{"input_text": {{"index": 23, "text": "laptop"}}}},
-  {{"click_element_by_index": {{"index": 24}}}}
-]
-```
-
-```json
-"action": [
-  {{"go_to_url": {{"url": "https://example.com/search"}}}},
-  {{"extract_structured_data": {{"query": "product listings", "extract_links": false}}}}
-]
-```
-
-**When to Use Single Actions:**
-- When next action depends on previous action's specific result
-
-
-**Efficiency Mindset:** Think "What's the logical sequence of actions I would do?" and group them together when safe.
+Do not try multiple different paths in one step. Always have one clear goal per step. 
+Its important that you see in the next step if your action was successful, so do not chain actions which change the browser state multiple times, like do not use click and then go to url, because you would not see if the click was successful or not. 
 </efficiency_guidelines>
 
 <reasoning_rules>

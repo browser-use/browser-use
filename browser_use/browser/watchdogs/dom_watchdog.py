@@ -255,16 +255,16 @@ class DOMWatchdog(BaseWatchdog):
 			# Get target title safely
 			try:
 				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: Getting page title...')
-				title = await asyncio.wait_for(self.browser_session.get_current_page_title(), timeout=2.0)
+				title = await asyncio.wait_for(self.browser_session.get_current_page_title(), timeout=1.0)
 				self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Got title: {title}')
 			except Exception as e:
 				self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Failed to get title: {e}')
 				title = 'Page'
 
-			# Get comprehensive page info from CDP
+			# Get comprehensive page info from CDP with timeout
 			try:
 				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: Getting page info from CDP...')
-				page_info = await self._get_page_info()
+				page_info = await asyncio.wait_for(self._get_page_info(), timeout=1.0)
 				self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Got page info from CDP: {page_info}')
 			except Exception as e:
 				self.logger.debug(

@@ -1139,23 +1139,21 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Extract URL from task string using naive pattern matching."""
 		import re
 
+		# Remove email addresses from task before looking for URLs
+		task_without_emails = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '', task)
+
 		# Look for common URL patterns
 		patterns = [
 			r'https?://[^\s<>"\']+',  # Full URLs with http/https
 			r'(?:www\.)?[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,}(?:/[^\s<>"\']*)?',  # Domain names with subdomains and optional paths
 		]
 
-		# Email pattern to exclude
-		email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-
 		found_urls = []
 		for pattern in patterns:
-			matches = re.finditer(pattern, task)
+			matches = re.finditer(pattern, task_without_emails)
 			for match in matches:
 				url = match.group(0)
-				# Skip if this looks like an email address
-				if re.search(email_pattern, url):
-					continue
+
 				# Remove trailing punctuation that's not part of URLs
 				url = re.sub(r'[.,;:!?()\[\]]+$', '', url)
 				# Add https:// if missing

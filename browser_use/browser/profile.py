@@ -759,11 +759,11 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				'id': 'cjpalhdlnbpafiamejdnhcphjbkeiagm',
 				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dcjpalhdlnbpafiamejdnhcphjbkeiagm%26uc',
 			},
-			{
-				'name': "I still don't care about cookies",
-				'id': 'edibdbjcniadpccecjdfdjjppcpchdlm',
-				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dedibdbjcniadpccecjdfdjjppcpchdlm%26uc',
-			},
+			# {
+			# 	'name': "I still don't care about cookies",
+			# 	'id': 'edibdbjcniadpccecjdfdjjppcpchdlm',
+			# 	'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dedibdbjcniadpccecjdfdjjppcpchdlm%26uc',
+			# },
 			{
 				'name': 'ClearURLs',
 				'id': 'lckanjgmijmafbedllaakclkaicjfmnk',
@@ -774,11 +774,11 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			# 	'id': 'pgojnojmmhpofjgdmaebadhbocahppod',
 			# 	'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dpgojnojmmhpofjgdmaebadhbocahppod%26uc',
 			# },
-			# {
-			# 	'name': 'Consent-O-Matic',
-			# 	'id': 'mdjildafknihdffpkfmmpnpoiajfjnjd',
-			# 	'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dmdjildafknihdffpkfmmpnpoiajfjnjd%26uc',
-			# },
+			{
+				'name': 'Consent-O-Matic',
+				'id': 'mdjildafknihdffpkfmmpnpoiajfjnjd',
+				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dmdjildafknihdffpkfmmpnpoiajfjnjd%26uc',
+			},
 			# {
 			# 	'name': 'Privacy | Protect Your Payments',
 			# 	'id': 'hmgpakheknboplhmlicfkkgjipfabmhp',
