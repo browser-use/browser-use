@@ -12,6 +12,7 @@ from pydantic import Field, PrivateAttr
 
 from browser_use.browser.events import (
 	BrowserConnectedEvent,
+	BrowserStopEvent,
 	LoadStorageStateEvent,
 	SaveStorageStateEvent,
 	StorageStateLoadedEvent,
@@ -26,6 +27,7 @@ class StorageStateWatchdog(BaseWatchdog):
 	# Event contracts
 	LISTENS_TO: ClassVar[list[type[BaseEvent]]] = [
 		BrowserConnectedEvent,
+		BrowserStopEvent,
 		SaveStorageStateEvent,
 		LoadStorageStateEvent,
 	]
@@ -51,7 +53,12 @@ class StorageStateWatchdog(BaseWatchdog):
 		await self._start_monitoring()
 
 		# Automatically load storage state after browser start
-		self.event_bus.dispatch(LoadStorageStateEvent())
+		await self.event_bus.dispatch(LoadStorageStateEvent())
+
+	async def on_BrowserStopEvent(self, event: BrowserStopEvent) -> None:
+		"""Stop monitoring when browser stops."""
+		self.logger.debug('[StorageStateWatchdog] Stopping storage_state monitoring')
+		await self._stop_monitoring()
 
 	async def on_SaveStorageStateEvent(self, event: SaveStorageStateEvent) -> None:
 		"""Handle storage state save request."""
