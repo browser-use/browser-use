@@ -723,8 +723,35 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			if proxy_bypass:
 				pre_conversion_args.append(f'--proxy-bypass-list={proxy_bypass}')
 
-		# convert to dict and back to dedupe and merge duplicate args
-		final_args_list = BrowserLaunchArgs.args_as_list(BrowserLaunchArgs.args_as_dict(pre_conversion_args))
+		# Special handling for --disable-features to merge values instead of overwriting
+		# This prevents disable_security=True from breaking extensions by ensuring
+		# both default features (including extension-related) and security features are preserved
+		disable_features_values = []
+		non_disable_features_args = []
+
+		# Extract and merge all --disable-features values
+		for arg in pre_conversion_args:
+			if arg.startswith('--disable-features='):
+				features = arg.split('=', 1)[1]
+				disable_features_values.extend(features.split(','))
+			else:
+				non_disable_features_args.append(arg)
+
+		# Remove duplicates while preserving order
+		if disable_features_values:
+			unique_features = []
+			seen = set()
+			for feature in disable_features_values:
+				feature = feature.strip()
+				if feature and feature not in seen:
+					unique_features.append(feature)
+					seen.add(feature)
+
+			# Add merged disable-features back
+			non_disable_features_args.append(f'--disable-features={",".join(unique_features)}')
+
+		# convert to dict and back to dedupe and merge other duplicate args
+		final_args_list = BrowserLaunchArgs.args_as_list(BrowserLaunchArgs.args_as_dict(non_disable_features_args))
 		return final_args_list
 
 	def _get_extension_args(self) -> list[str]:
