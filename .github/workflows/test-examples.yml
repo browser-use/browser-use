@@ -1,0 +1,341 @@
+name: test-examples
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      excluded_dirs:
+        description: 'Comma-separated list of directories to exclude (e.g., api,integrations)'
+        required: false
+        default: ''
+
+jobs:
+  find_examples:
+    runs-on: ubuntu-latest
+    outputs:
+      EXAMPLE_FILES: ${{ steps.find_examples.outputs.EXAMPLE_FILES }}
+      CONFIG: ${{ steps.load_config.outputs.CONFIG }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Load configuration
+        id: load_config
+        run: |
+          CONFIG=$(cat .github/workflows/example-test-config.json)
+          echo "CONFIG=${CONFIG}" >> "$GITHUB_OUTPUT"
+          echo "Loaded configuration:"
+          echo "$CONFIG" | jq '.'
+      
+      - name: Find example files
+        id: find_examples
+        run: |
+          # Get excluded directories from config or input override
+          if [ -n "${{ github.event.inputs.excluded_dirs }}" ]; then
+            EXCLUDED_DIRS="${{ github.event.inputs.excluded_dirs }}"
+          else
+            EXCLUDED_DIRS=$(echo '${{ steps.load_config.outputs.CONFIG }}' | jq -r '.excluded_directories | join(",")')
+          fi
+          
+          echo "Excluding directories: $EXCLUDED_DIRS"
+          
+          # Convert comma-separated list to find exclude arguments
+          EXCLUDE_ARGS=""
+          IFS=',' read -ra DIRS <<< "$EXCLUDED_DIRS"
+          for dir in "${DIRS[@]}"; do
+            dir=$(echo "$dir" | xargs)  # trim whitespace
+            if [ ! -z "$dir" ]; then
+              EXCLUDE_ARGS="$EXCLUDE_ARGS -path ./examples/$dir -prune -o"
+            fi
+          done
+          
+          # Find all Python files in examples, excluding specified directories
+          if [ ! -z "$EXCLUDE_ARGS" ]; then
+            EXAMPLE_FILES=$(find examples $EXCLUDE_ARGS -name "*.py" -type f -print | grep -v __pycache__ | sort | jq -R -s -c 'split("\n")[:-1]')
+          else
+            EXAMPLE_FILES=$(find examples -name "*.py" -type f | grep -v __pycache__ | sort | jq -R -s -c 'split("\n")[:-1]')
+          fi
+          
+          echo "EXAMPLE_FILES=${EXAMPLE_FILES}" >> "$GITHUB_OUTPUT"
+          echo "Found example files:"
+          echo "$EXAMPLE_FILES" | jq -r '.[]'
+          
+      - name: Check that at least one example file is found
+        run: |
+          if [ "${{ steps.find_examples.outputs.EXAMPLE_FILES }}" = "[]" ] || [ -z "${{ steps.find_examples.outputs.EXAMPLE_FILES }}" ]; then
+            echo "Failed to find any example files!" > /dev/stderr
+            exit 1
+          fi
+
+  test_examples:
+    needs: find_examples
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        example_file: ${{ fromJson(needs.find_examples.outputs.EXAMPLE_FILES) }}
+    
+    env:
+      ANONYMIZED_TELEMETRY: 'false'
+      BROWSER_USE_LOGGING_LEVEL: 'INFO'
+      # Add API keys if needed for examples (optional)
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+      BROWSER_USE_API_KEY: ${{ secrets.BROWSER_USE_API_KEY }}
+      
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          
+      - name: Install dependencies
+        run: |
+          uv venv --python 3.11
+          source .venv/bin/activate
+          uv sync
+          
+      - name: Install Playwright browsers
+        run: |
+          source .venv/bin/activate
+          uvx playwright install chromium
+          
+      - name: Test example file
+        id: test_example
+        timeout-minutes: ${{ fromJson(needs.find_examples.outputs.CONFIG).timeout_minutes }}
+        run: |
+          source .venv/bin/activate
+          
+          # Set example file path
+          EXAMPLE_FILE="${{ matrix.example_file }}"
+          echo "Testing: $EXAMPLE_FILE"
+          
+          # Get timeout from config (convert to seconds)
+          TIMEOUT_MINUTES=$(echo '${{ needs.find_examples.outputs.CONFIG }}' | jq -r '.timeout_minutes')
+          TIMEOUT_SECONDS=$((TIMEOUT_MINUTES * 60))
+          
+          # Check if this is a critical example
+          IS_CRITICAL=$(echo '${{ needs.find_examples.outputs.CONFIG }}' | jq -r --arg file "$EXAMPLE_FILE" '.critical_examples | contains([$file])')
+          echo "IS_CRITICAL=$IS_CRITICAL" >> "$GITHUB_OUTPUT"
+          
+          # Test the example with timeout
+          timeout ${TIMEOUT_SECONDS}s python "$EXAMPLE_FILE" 2>&1 | tee example_output.log || {
+            EXIT_CODE=$?
+            echo "Example failed with exit code: $EXIT_CODE"
+            
+            # Check if it was a timeout
+            if [ $EXIT_CODE -eq 124 ]; then
+              echo "RESULT=timeout" >> "$GITHUB_OUTPUT"
+              echo "ERROR=Example timed out after $TIMEOUT_MINUTES minutes" >> "$GITHUB_OUTPUT"
+            else
+              echo "RESULT=error" >> "$GITHUB_OUTPUT"
+              echo "ERROR=Example failed with exit code $EXIT_CODE" >> "$GITHUB_OUTPUT"
+            fi
+            
+            # Show last 50 lines of output for debugging
+            echo "Last 50 lines of output:"
+            tail -n 50 example_output.log || true
+            
+            # For critical examples, fail immediately
+            if [ "$IS_CRITICAL" = "true" ]; then
+              echo "CRITICAL EXAMPLE FAILED - this will cause workflow failure"
+            fi
+            
+            exit $EXIT_CODE
+          }
+          
+          echo "RESULT=success" >> "$GITHUB_OUTPUT"
+          echo "Example completed successfully"
+          
+      - name: Upload example output on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: example-output-${{ matrix.example_file }}
+          path: example_output.log
+          retention-days: 7
+
+  check_results:
+    needs: [find_examples, test_examples]
+    runs-on: ubuntu-latest
+    if: always()
+    outputs:
+      SHOULD_FAIL: ${{ steps.analyze.outputs.SHOULD_FAIL }}
+      FAILURE_SUMMARY: ${{ steps.analyze.outputs.FAILURE_SUMMARY }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Analyze results and check failure patterns
+        id: analyze
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const config = ${{ needs.find_examples.outputs.CONFIG }};
+            const maxConsecutiveFailures = config.max_consecutive_failures || 3;
+            
+            // Get workflow run jobs
+            const { data: jobs } = await github.rest.actions.listJobsForWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            });
+            
+            // Filter test_examples jobs
+            const testJobs = jobs.jobs.filter(job => 
+              job.name.startsWith('test_examples')
+            );
+            
+            let failedExamples = [];
+            let succeededExamples = [];
+            let criticalFailures = [];
+            
+            for (const job of testJobs) {
+              const exampleFile = job.name.replace('test_examples (', '').replace(')', '');
+              
+              if (job.conclusion === 'failure') {
+                failedExamples.push(exampleFile);
+                
+                // Check if it's a critical example
+                if (config.critical_examples.includes(exampleFile)) {
+                  criticalFailures.push(exampleFile);
+                }
+              } else if (job.conclusion === 'success') {
+                succeededExamples.push(exampleFile);
+              }
+            }
+            
+            // Create summary
+            let summary = `## Example Test Results Summary\n\n`;
+            summary += `- **Total Examples**: ${testJobs.length}\n`;
+            summary += `- **Succeeded**: ${succeededExamples.length}\n`;
+            summary += `- **Failed**: ${failedExamples.length}\n`;
+            summary += `- **Critical Failures**: ${criticalFailures.length}\n\n`;
+            
+            if (failedExamples.length > 0) {
+              summary += `### Failed Examples:\n`;
+              failedExamples.forEach(example => {
+                const isCritical = config.critical_examples.includes(example);
+                summary += `- ${example}${isCritical ? ' (CRITICAL)' : ''}\n`;
+              });
+              summary += `\n`;
+            }
+            
+            // Determine if workflow should fail
+            let shouldFail = false;
+            let failureReason = '';
+            
+            if (criticalFailures.length > 0) {
+              shouldFail = true;
+              failureReason = `Critical examples failed: ${criticalFailures.join(', ')}`;
+            } else if (failedExamples.length >= maxConsecutiveFailures) {
+              shouldFail = true;
+              failureReason = `Too many failures (${failedExamples.length} >= ${maxConsecutiveFailures})`;
+            }
+            
+            if (shouldFail) {
+              summary += `### ❌ Workflow Failed\n**Reason**: ${failureReason}\n\n`;
+            } else {
+              summary += `### ✅ Workflow Passed\nAll critical examples succeeded and failure count is within acceptable limits.\n\n`;
+            }
+            
+            // Write to step summary
+            await core.summary.addRaw(summary).write();
+            
+            // Set outputs
+            core.setOutput('SHOULD_FAIL', shouldFail.toString());
+            core.setOutput('FAILURE_SUMMARY', failureReason);
+            
+            return {
+              shouldFail,
+              failureReason,
+              failedCount: failedExamples.length,
+              criticalFailures: criticalFailures.length
+            };
+            
+      - name: Fail workflow if needed
+        if: steps.analyze.outputs.SHOULD_FAIL == 'true'
+        run: |
+          echo "Workflow failed: ${{ steps.analyze.outputs.FAILURE_SUMMARY }}"
+          exit 1
+          
+  notify_on_failure:
+    needs: [find_examples, test_examples, check_results]
+    runs-on: ubuntu-latest
+    if: needs.check_results.outputs.SHOULD_FAIL == 'true'
+    steps:
+      - name: Create issue on critical failures
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const config = ${{ needs.find_examples.outputs.CONFIG }};
+            const failureSummary = `${{ needs.check_results.outputs.FAILURE_SUMMARY }}`;
+            
+            const title = 'Example Tests Failing on Release';
+            const body = `
+            ## Example Tests Failed
+            
+            The example tests failed during the release process.
+            
+            **Release**: ${{ github.ref_name }}
+            **Workflow Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            **Failure Reason**: ${failureSummary}
+            
+            ### Configuration
+            - **Max Consecutive Failures**: ${config.max_consecutive_failures}
+            - **Timeout**: ${config.timeout_minutes} minutes
+            - **Excluded Directories**: ${config.excluded_directories.join(', ')}
+            
+            ### Critical Examples
+            ${config.critical_examples.map(example => `- ${example}`).join('\n')}
+            
+            Please investigate the failing examples and ensure they work correctly.
+            
+            ---
+            *This issue was automatically created by the example-tests workflow.*
+            `;
+            
+            // Check if issue already exists
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: ['example-tests', 'release']
+            });
+            
+            const existingIssue = issues.data.find(issue => 
+              issue.title.includes('Example Tests Failing')
+            );
+            
+            if (!existingIssue) {
+              const newIssue = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['example-tests', 'release', 'bug']
+              });
+              
+              console.log(`Created new issue: ${newIssue.data.html_url}`);
+            } else {
+              // Update existing issue with new failure
+              const comment = await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existingIssue.number,
+                body: `
+                ## New Failure Detected
+                
+                **Release**: ${{ github.ref_name }}
+                **Workflow Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                **Failure Reason**: ${failureSummary}
+                **Timestamp**: ${new Date().toISOString()}
+                `
+              });
+              
+              console.log(`Updated existing issue with comment: ${comment.data.html_url}`);
+            }
