@@ -71,7 +71,6 @@ class DownloadsWatchdog(BaseWatchdog):
 		if path in self._dispatched_download_paths:
 			self.logger.debug(f'[DownloadsWatchdog] 🔁 Suppressing duplicate FileDownloadedEvent for {path}')
 			return
-		self._dispatched_download_paths.add(path)
 		try:
 			self.event_bus.dispatch(
 				FileDownloadedEvent(
@@ -85,6 +84,8 @@ class DownloadsWatchdog(BaseWatchdog):
 					auto_download=auto_download,
 				)
 			)
+			# Mark as dispatched only after success
+			self._dispatched_download_paths.add(path)
 		except Exception as e:
 			self.logger.error(f'[DownloadsWatchdog] Failed dispatching FileDownloadedEvent for {path}: {e}')
 
@@ -240,14 +241,12 @@ class DownloadsWatchdog(BaseWatchdog):
 								effective_path = file_path or str(Path(downloads_path) / suggested_filename)
 								file_name = Path(effective_path).name
 								file_ext = Path(file_name).suffix.lower().lstrip('.')
-								self.event_bus.dispatch(
-									FileDownloadedEvent(
-										url=info.get('url', ''),
-										path=str(effective_path),
-										file_name=file_name,
-										file_size=0,
-										file_type=file_ext if file_ext else None,
-									)
+								self._dispatch_file_download_event(
+									url=info.get('url', ''),
+									path=str(effective_path),
+									file_name=file_name,
+									file_size=0,
+									file_type=file_ext if file_ext else None,
 								)
 								self.logger.debug(f'[DownloadsWatchdog] ✅ (remote) Download completed: {effective_path}')
 							finally:
@@ -336,20 +335,24 @@ class DownloadsWatchdog(BaseWatchdog):
 					cdp_session = await self.browser_session.cdp_client_for_frame(event.get('frameId'))
 					if cdp_session:
 						escaped_url = _json.dumps(download_url)
-						js_code = """
-						(async () => {{
-						  try {{
-						    const response = await fetch({escaped_url});
-						    if (!response.ok) throw new Error(`HTTP error ${{response.status}}`);
-						    const blob = await response.blob();
-						    const arrayBuffer = await blob.arrayBuffer();
-						    const uint8Array = new Uint8Array(arrayBuffer);
-						    return {{ data: Array.from(uint8Array), size: uint8Array.length, contentType: response.headers.get('content-type') || 'application/octet-stream' }};
-						  }} catch (e) {{
-						    return {{ error: e.message }};
-						  }}
-						})()
-						"""
+						js_code = f"""
+									(async () => {{
+									try {{
+										const response = await fetch({escaped_url});
+										if (!response.ok) throw new Error(`HTTP error ${{response.status}}`);
+										const blob = await response.blob();
+										const arrayBuffer = await blob.arrayBuffer();
+										const uint8Array = new Uint8Array(arrayBuffer);
+										return {{ 
+										data: Array.from(uint8Array), 
+										size: uint8Array.length, 
+										contentType: response.headers.get('content-type') || 'application/octet-stream' 
+										}};
+									}} catch (e) {{
+										return {{ error: e.message }};
+									}}
+									}})()
+								"""
 						result = await cdp_session.cdp_client.send.Runtime.evaluate(
 							params={
 								'expression': js_code,
@@ -358,9 +361,9 @@ class DownloadsWatchdog(BaseWatchdog):
 							},
 							session_id=cdp_session.session_id,
 						)
-						val = result.get('result', {}).get('value')
-						if val and val.get('data') and not val.get('error'):
-							file_bytes = bytes(val['data'])
+						download_result = result.get('result', {}).get('value')
+						if download_result and download_result.get('data') and not download_result.get('error'):
+							file_bytes = bytes(download_result['data'])
 							unique_filename = await self._get_unique_filename(str(downloads_dir), suggested_filename)
 							final_path = downloads_dir / unique_filename
 							async with await anyio.open_file(final_path, 'wb') as _f:
@@ -372,7 +375,7 @@ class DownloadsWatchdog(BaseWatchdog):
 								file_name=unique_filename,
 								file_size=len(file_bytes),
 								file_type=final_path.suffix.lower().lstrip('.') or None,
-								mime_type=val.get('contentType'),
+								mime_type=download_result.get('contentType'),
 							)
 							return
 						else:
@@ -516,17 +519,15 @@ class DownloadsWatchdog(BaseWatchdog):
 				auto_download = self._is_auto_download_enabled()
 
 			# Emit download event
-			self.event_bus.dispatch(
-				FileDownloadedEvent(
-					url=url,
-					path=str(download_path),
-					file_name=suggested_filename,
-					file_size=file_size,
-					file_type=file_type,
-					mime_type=mime_type,
-					from_cache=False,
-					auto_download=auto_download,
-				)
+			self._dispatch_file_download_event(
+				url=url,
+				path=str(download_path),
+				file_name=suggested_filename,
+				file_size=file_size,
+				file_type=file_type,
+				mime_type=mime_type,
+				from_cache=False,
+				auto_download=auto_download,
 			)
 
 			self.logger.debug(
@@ -812,17 +813,15 @@ class DownloadsWatchdog(BaseWatchdog):
 
 					# Emit file downloaded event
 					self.logger.debug(f'[DownloadsWatchdog] Dispatching FileDownloadedEvent for {unique_filename}')
-					self.event_bus.dispatch(
-						FileDownloadedEvent(
-							url=pdf_url,
-							path=download_path,
-							file_name=unique_filename,
-							file_size=response_size,
-							file_type='pdf',
-							mime_type='application/pdf',
-							from_cache=download_result.get('fromCache', False),
-							auto_download=True,
-						)
+					self._dispatch_file_download_event(
+						url=pdf_url,
+						path=download_path,
+						file_name=unique_filename,
+						file_size=response_size,
+						file_type='pdf',
+						mime_type='application/pdf',
+						from_cache=download_result.get('fromCache', False),
+						auto_download=True,
 					)
 
 					# No need to detach - session is cached
