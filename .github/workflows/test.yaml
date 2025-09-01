@@ -172,6 +172,11 @@ jobs:
             const score = `${passed}/${total}`;
             const percentage = Math.round((passed / total) * 100);
             
+            // Fail the workflow if 0% pass rate
+            if (percentage === 0) {
+              core.setFailed(`Evaluation failed: 0% pass rate (${passed}/${total})`);
+            }
+            
             // Create detailed table
             let tableRows = '';
             detailedResults.forEach(result => {

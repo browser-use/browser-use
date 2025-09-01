@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.7.0"
+version = "0.7.1"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -14,10 +14,9 @@ dependencies = [
     "aiofiles>=24.1.0",
     "aiohttp==3.12.15",
     "anyio>=4.9.0",
-    "bubus>=1.5.4",
+    "bubus>=1.5.6",
     "google-api-core>=2.25.0",
     "httpx>=0.28.1",
-    "markdownify==1.1.0",
     "portalocker>=2.7.0,<3.0.0",
     "posthog>=3.7.0",
     "psutil>=7.0.0",
@@ -41,6 +40,7 @@ dependencies = [
     "pypdf>=5.7.0",
     "cdp-use>=1.4.0",
     "markdown-pdf==1.5",
+    "html2text>=2025.4.15",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -90,6 +90,9 @@ all = [
 [project.urls]
 Repository = "https://github.com/browser-use/browser-use"
 
+[project.scripts]
+browseruse = "browser_use.cli:main"
+browser-use = "browser_use.cli:main"
 
 [build-system]
 requires = ["hatchling"]

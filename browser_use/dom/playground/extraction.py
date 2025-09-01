@@ -11,7 +11,6 @@ from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.events import ClickElementEvent, TypeTextEvent
 from browser_use.browser.profile import ViewportSize
-from browser_use.dom.debug.highlights import inject_highlighting_script, remove_highlighting_script
 from browser_use.dom.service import DomService
 from browser_use.dom.views import DEFAULT_INCLUDE_ATTRIBUTES
 from browser_use.filesystem.file_system import FileSystem
@@ -115,11 +114,7 @@ async def test_focus_vs_all_elements():
 		last_clicked_index = None  # Track the index for text input
 		while True:
 			try:
-				await remove_highlighting_script(dom_service)
-
 				# 	all_elements_state = await dom_service.get_serialized_dom_tree()
-
-				# 	await inject_highlighting_script(dom_service, all_elements_state.selector_map)
 
 				website_type = 'DIFFICULT' if website in difficult_websites else 'SAMPLE'
 				print(f'\n{"=" * 60}')
@@ -143,8 +138,6 @@ async def test_focus_vs_all_elements():
 
 				# Combine all timing info
 				all_timing = {'get_state_summary_total': get_state_time, **timing_info}
-
-				await inject_highlighting_script(dom_service, all_elements_state.dom_state.selector_map)
 
 				selector_map = all_elements_state.dom_state.selector_map
 				total_elements = len(selector_map.keys())

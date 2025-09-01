@@ -130,31 +130,6 @@
         "tab": "Cloud",
         "versions": [
           {
-            "version": "v2",
-            "groups": [
-              {
-                "group": "Get Started",
-                "pages": [
-                  "cloud/v2/quickstart",
-                  "cloud/v2/python-quickstart",
-                  "cloud/v2/node-quickstart"
-                ]
-              },
-              {
-                "group": "Platform",
-                "pages": [
-                  "cloud/v1/pricing",
-                  "cloud/v1/n8n-browser-use-integration",
-                  "cloud/v1/search"
-                ]
-              },
-              {
-                "group": "REST API reference",
-                "openapi": "https://app.stainless.com/api/spec/documented/browser-use/openapi.documented.yml"
-              }
-            ]
-          },
-          {
             "version": "v1",
             "groups": [
               {
@@ -178,6 +153,27 @@
               {
                 "group": "REST API reference",
                 "openapi": "https://api.browser-use.com/api/v1/openapi.json"
+              }
+            ]
+          },
+          {
+            "version": "v2",
+            "groups": [
+              {
+                "group": "Get Started",
+                "pages": [
+                  "cloud/v2/quickstart",
+                  "cloud/v2/python-quickstart",
+                  "cloud/v2/node-quickstart"
+                ]
+              },
+              {
+                "group": "Platform",
+                "pages": [
+                  "cloud/v1/pricing",
+                  "cloud/v1/n8n-browser-use-integration",
+                  "cloud/v1/search"
+                ]
               }
             ]
           }

@@ -394,10 +394,10 @@ class TestScreenshotEventSystem:
 
 			# Test the NEW event-driven path: direct event dispatching
 			event = browser_session.event_bus.dispatch(ScreenshotEvent(full_page=False))
-			screenshot_result = (await event.event_result()) or {}
-			assert screenshot_result.get('screenshot')
-			assert isinstance(screenshot_result['screenshot'], str)
-			assert len(base64.b64decode(screenshot_result['screenshot'])) > 5000
+			screenshot_b64 = await event.event_result()
+			assert screenshot_b64 is not None
+			assert isinstance(screenshot_b64, str)
+			assert len(base64.b64decode(screenshot_b64)) > 5000
 
 		finally:
 			await browser_session.kill()

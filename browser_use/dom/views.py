@@ -12,6 +12,7 @@ from cdp_use.cdp.target.types import SessionID, TargetID, TargetInfo
 from uuid_extensions import uuid7str
 
 from browser_use.dom.utils import cap_text_length
+from browser_use.observability import observe_debug
 
 # Serializer types
 DEFAULT_INCLUDE_ATTRIBUTES = [
@@ -91,14 +92,28 @@ class SimplifiedNode:
 	is_new: bool = False
 	excluded_by_parent: bool = False  # New field for bbox filtering
 
+	def _clean_original_node_json(self, node_json: dict) -> dict:
+		"""Recursively remove children_nodes and shadow_roots from original_node JSON."""
+		# Remove the fields we don't want in SimplifiedNode serialization
+		if 'children_nodes' in node_json:
+			del node_json['children_nodes']
+		if 'shadow_roots' in node_json:
+			del node_json['shadow_roots']
+
+		# Clean nested content_document if it exists
+		if node_json.get('content_document'):
+			node_json['content_document'] = self._clean_original_node_json(node_json['content_document'])
+
+		return node_json
+
 	def __json__(self) -> dict:
 		original_node_json = self.original_node.__json__()
-		del original_node_json['children_nodes']
-		del original_node_json['shadow_roots']
+		# Remove children_nodes and shadow_roots to avoid duplication with SimplifiedNode.children
+		cleaned_original_node_json = self._clean_original_node_json(original_node_json)
 		return {
 			'should_display': self.should_display,
 			'interactive_index': self.interactive_index,
-			'original_node': original_node_json,
+			'original_node': cleaned_original_node_json,
 			'children': [c.__json__() for c in self.children],
 		}
 
@@ -412,6 +427,25 @@ class EnhancedDOMTreeNode:
 
 		return f'<{self.tag_name}>{cap_text_length(self.get_all_children_text(), max_text_length) or ""}'
 
+	def get_meaningful_text_for_llm(self) -> str:
+		"""
+		Get the meaningful text content that the LLM actually sees for this element.
+		This matches exactly what goes into the DOMTreeSerializer output.
+		"""
+		meaningful_text = ''
+		if hasattr(self, 'attributes') and self.attributes:
+			# Priority order: value, aria-label, title, placeholder, alt, text content
+			for attr in ['value', 'aria-label', 'title', 'placeholder', 'alt']:
+				if attr in self.attributes and self.attributes[attr]:
+					meaningful_text = self.attributes[attr]
+					break
+
+		# Fallback to text content if no meaningful attributes
+		if not meaningful_text:
+			meaningful_text = self.get_all_children_text()
+
+		return meaningful_text.strip()
+
 	@property
 	def is_actually_scrollable(self) -> bool:
 		"""
@@ -677,6 +711,7 @@ class SerializedDOMState:
 
 	selector_map: DOMSelectorMap
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='llm_representation')
 	def llm_representation(
 		self,
 		include_attributes: list[str] | None = None,

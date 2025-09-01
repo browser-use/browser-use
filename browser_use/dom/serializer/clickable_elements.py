@@ -20,7 +20,7 @@ class ClickableElementDetector:
 
 		# IFRAME elements should be interactive if they're large enough to potentially need scrolling
 		# Small iframes (< 100px width or height) are unlikely to have scrollable content
-		if node.tag_name and node.tag_name.upper() == 'IFRAME':
+		if node.tag_name and node.tag_name.upper() == 'IFRAME' or node.tag_name.upper() == 'FRAME':
 			if node.snapshot_node and node.snapshot_node.bounds:
 				width = node.snapshot_node.bounds.width
 				height = node.snapshot_node.bounds.height
@@ -94,14 +94,14 @@ class ClickableElementDetector:
 					# Skip properties we can't process
 					continue
 
-		# ENHANCED TAG CHECK: Include truly interactive elements
+				# ENHANCED TAG CHECK: Include truly interactive elements
+		# Note: 'label' removed - labels are handled by other attribute checks below - other wise labels with "for" attribute can destroy the real clickable element on apartments.com
 		interactive_tags = {
 			'button',
 			'input',
 			'select',
 			'textarea',
 			'a',
-			'label',
 			'details',
 			'summary',
 			'option',

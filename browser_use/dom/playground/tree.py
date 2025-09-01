@@ -6,7 +6,6 @@ import aiofiles
 
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.types import ViewportSize
-from browser_use.dom.debug.highlights import inject_highlighting_script, remove_highlighting_script
 from browser_use.dom.service import DomService
 from browser_use.dom.views import EnhancedDOMTreeNode
 
@@ -46,8 +45,6 @@ async def main():
 
 	while True:
 		async with DomService(browser) as dom_service:
-			await remove_highlighting_script(dom_service)
-
 			start = time.time()
 			# Get current target ID from browser session
 			if browser.agent_focus and browser.agent_focus.target_id:
@@ -121,8 +118,6 @@ async def main():
 			print('saved dom tree to tmp/dom_tree.json')
 			print('saved snapshot to tmp/snapshot.json')
 			print('saved ax tree to tmp/ax_tree.json')
-
-			await inject_highlighting_script(dom_service, serialized_dom_state.selector_map)
 
 			input('Done. Press Enter to continue...')
 

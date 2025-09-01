@@ -143,10 +143,10 @@ class DOMTreeSerializer:
 			if node.node_name.lower() in DISABLED_ELEMENTS:
 				return None
 
-			if node.node_name == 'IFRAME':
+			if node.node_name == 'IFRAME' or node.node_name == 'FRAME':
 				if node.content_document:
 					simplified = SimplifiedNode(original_node=node, children=[])
-					for child in node.content_document.children:
+					for child in node.content_document.children_nodes or []:
 						simplified_child = self._create_simplified_tree(child)
 						if simplified_child:
 							simplified.children.append(simplified_child)
@@ -159,7 +159,7 @@ class DOMTreeSerializer:
 			is_scrollable = node.is_actually_scrollable
 
 			# Include if interactive (regardless of visibility), or scrollable, or has children to process
-			should_include = (is_interactive and is_visible) or is_scrollable or node.children_and_shadow_roots
+			should_include = (is_interactive and is_visible) or is_scrollable or bool(node.children_and_shadow_roots)
 
 			if should_include:
 				simplified = SimplifiedNode(original_node=node, children=[])
@@ -435,7 +435,12 @@ class DOMTreeSerializer:
 			# Add element with interactive_index if clickable, scrollable, or iframe
 			is_any_scrollable = node.original_node.is_actually_scrollable or node.original_node.is_scrollable
 			should_show_scroll = node.original_node.should_show_scroll_info
-			if node.interactive_index is not None or is_any_scrollable or node.original_node.tag_name.upper() == 'IFRAME':
+			if (
+				node.interactive_index is not None
+				or is_any_scrollable
+				or node.original_node.tag_name.upper() == 'IFRAME'
+				or node.original_node.tag_name.upper() == 'FRAME'
+			):
 				next_depth += 1
 
 				# Build attributes string
@@ -453,6 +458,9 @@ class DOMTreeSerializer:
 				elif node.original_node.tag_name.upper() == 'IFRAME':
 					# Iframe element (not interactive)
 					line = f'{depth_str}|IFRAME|<{node.original_node.tag_name}'
+				elif node.original_node.tag_name.upper() == 'FRAME':
+					# Frame element (not interactive)
+					line = f'{depth_str}|FRAME|<{node.original_node.tag_name}'
 				else:
 					line = f'{depth_str}<{node.original_node.tag_name}'
 

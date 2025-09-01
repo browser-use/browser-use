@@ -5,45 +5,107 @@ icon: "rocket"
 ---
 
 
-## 1. Easy setup
+## 1. Fast setup
 
-Use [uv](https://docs.astral.sh/uv/) to create and activate the environment:
-
-```bash
+<Tabs>
+<Tab title="uv">
+```bash create environment
 uv venv --python 3.12
 ```
+</Tab>
+<Tab title="pip">
+```bash create environment
+python -m venv .venv
+```
+</Tab>
+</Tabs>
 
-```bash
-# For Mac/Linux:
+<Tabs>
+<Tab title="Mac/Linux">
+```bash activate environment
 source .venv/bin/activate
-
-# For Windows:
+```
+</Tab>
+<Tab title="Windows">
+```bash activate environment
 .venv\Scripts\activate
 ```
+</Tab>
+</Tabs>
 
-Install browser-use:
-
-```bash
+<Tabs>
+<Tab title="uv">
+```bash install browser-use & chromium
 uv pip install browser-use
+uvx playwright install chromium --with-deps 
 ```
-
-Install Chromium:
-
-```bash
-uvx playwright install chromium --with-deps
+</Tab>
+<Tab title="pip">
+```bash install browser-use & chromium
+pip install browser-use
+playwright install chromium --with-deps
 ```
+</Tab>
+</Tabs>
 
 ## 2. Choose your favorite LLM
-Create a `.env` file and add your API key:
+Create a `.env` file and add your API key. Don't have one? Start with a [free Gemini key](https://aistudio.google.com/app/u/1/apikey?pli=1).
 
-```bash .env
+<Tabs>
+<Tab title="Mac/Linux">
+```bash create .env file
+touch .env
+```
+</Tab>
+<Tab title="Windows">
+```cmd create .env file
+echo. > .env
+```
+</Tab>
+</Tabs>
+
+<Tabs>
+<Tab title="Google">
+```bash add your key to .env file
+GEMINI_API_KEY=
+```
+</Tab>
+<Tab title="OpenAI">
+```bash add your key to .env file
 OPENAI_API_KEY=
 ```
+</Tab>
+<Tab title="Anthropic">
+```bash add your key to .env file
+ANTHROPIC_API_KEY=
+```
+</Tab>
+</Tabs>
 
-See [Supported Models](/customize/supported-models) for other models.
+See [Supported Models](/customize/supported-models) for more.
 
 ## 3. Run your first agent
 
+<Tabs>
+<Tab title="Google">
+```python agent.py
+from browser_use import Agent, ChatGoogle
+from dotenv import load_dotenv
+import asyncio
+
+load_dotenv()
+
+async def main():
+    llm = ChatGoogle(model="gemini-2.5-flash")
+    task = "Find the number 1 post on Show HN"
+    agent = Agent(task=task, llm=llm)
+    await agent.run()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+</Tab>
+<Tab title="OpenAI">
 ```python agent.py
 from browser_use import Agent, ChatOpenAI
 from dotenv import load_dotenv
@@ -60,3 +122,23 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+</Tab>
+<Tab title="Anthropic">
+```python agent.py
+from browser_use import Agent, ChatAnthropic
+from dotenv import load_dotenv
+import asyncio
+
+load_dotenv()
+
+async def main():
+    llm = ChatAnthropic(model='claude-sonnet-4-0', temperature=0.0)
+    task = "Find the number 1 post on Show HN"
+    agent = Agent(task=task, llm=llm)
+    await agent.run()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+</Tab>
+</Tabs>

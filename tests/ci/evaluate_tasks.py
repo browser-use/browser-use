@@ -17,11 +17,7 @@ import aiofiles
 import yaml
 from pydantic import BaseModel
 
-from browser_use.agent.service import Agent
-from browser_use.agent.views import AgentHistoryList
-from browser_use.browser.profile import BrowserProfile
-from browser_use.browser.session import BrowserSession
-from browser_use.llm import ChatOpenAI
+from browser_use import Agent, AgentHistoryList, BrowserProfile, BrowserSession, ChatOpenAI
 from browser_use.llm.messages import UserMessage
 
 # --- CONFIG ---

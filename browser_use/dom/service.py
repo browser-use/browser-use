@@ -187,7 +187,7 @@ class DomService:
 		for frame in reversed(html_frames):
 			if (
 				frame.node_type == NodeType.ELEMENT_NODE
-				and frame.node_name.upper() == 'IFRAME'
+				and (frame.node_name.upper() == 'IFRAME' or frame.node_name.upper() == 'FRAME')
 				and frame.snapshot_node
 				and frame.snapshot_node.bounds
 			):
@@ -561,7 +561,11 @@ class DomService:
 					)
 
 			# Calculate new iframe offset for content documents, accounting for iframe scroll
-			if node['nodeName'].upper() == 'IFRAME' and snapshot_data and snapshot_data.bounds:
+			if (
+				(node['nodeName'].upper() == 'IFRAME' or node['nodeName'].upper() == 'FRAME')
+				and snapshot_data
+				and snapshot_data.bounds
+			):
 				if snapshot_data.bounds:
 					updated_html_frames.append(dom_tree_node)
 

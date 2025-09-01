@@ -147,8 +147,9 @@ class DownloadsWatchdog(BaseWatchdog):
 		# Check if auto-download is enabled
 		auto_download_enabled = self._is_auto_download_enabled()
 		if not auto_download_enabled:
-			self.logger.debug('[DownloadsWatchdog] Skipping PDF check - auto-download disabled')
 			return
+
+		# Note: Using network-based PDF detection that doesn't require JavaScript
 
 		target_id = event.target_id
 		self.logger.debug(f'[DownloadsWatchdog] Got target_id={target_id} for tab #{event.target_id[-4:]}')
@@ -405,7 +406,7 @@ class DownloadsWatchdog(BaseWatchdog):
 		start_time = asyncio.get_event_loop().time()
 
 		while asyncio.get_event_loop().time() - start_time < max_wait:
-			await asyncio.sleep(2.0)  # Check every 2 seconds
+			await asyncio.sleep(5.0)  # Check every 5 seconds
 
 			if Path(downloads_dir).exists():
 				for file_path in Path(downloads_dir).iterdir():
@@ -549,8 +550,9 @@ class DownloadsWatchdog(BaseWatchdog):
 				del self._active_downloads[download_id]
 
 	async def check_for_pdf_viewer(self, target_id: TargetID) -> bool:
-		"""Check if the current target is Chrome's built-in PDF viewer.
+		"""Check if the current target is a PDF using network-based detection.
 
+		This method avoids JavaScript execution that can crash WebSocket connections.
 		Returns True if a PDF is detected and should be downloaded.
 		"""
 		self.logger.debug(f'[DownloadsWatchdog] Checking if target {target_id} is PDF viewer...')
@@ -572,96 +574,113 @@ class DownloadsWatchdog(BaseWatchdog):
 			return cached_result
 
 		try:
-			# Create a temporary CDP session for this target without switching focus
-			import asyncio
-
-			temp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
-
-			result = await asyncio.wait_for(
-				temp_session.cdp_client.send.Runtime.evaluate(
-					params={
-						'expression': """
-				(() => {
-					// Check for Chrome's built-in PDF viewer (both old and new selectors)
-					const pdfEmbed = document.querySelector('embed[type="application/x-google-chrome-pdf"]') ||
-									document.querySelector('embed[type="application/pdf"]');
-					if (pdfEmbed) {
-						// For Chrome PDF viewer, use window.location.href not embed.src (which is often about:blank)
-						return {
-							isPdf: true,
-							url: window.location.href,
-							isChromePdfViewer: true
-						};
-					}
-					
-					// Check for direct PDF navigation
-					if (document.contentType === 'application/pdf') {
-						return {
-							isPdf: true,
-							url: window.location.href,
-							isDirectPdf: true
-						};
-					}
-					
-					// Also check if the URL ends with .pdf or has PDF in it
-					const url = window.location.href;
-					const isPdfUrl = url.toLowerCase().includes('.pdf');
-					if (isPdfUrl) {
-						return {
-							isPdf: true,
-							url: url,
-							isPdfUrl: true
-						};
-					}
-					
-					// Check for PDF in iframe
-					const iframes = document.querySelectorAll('iframe');
-					for (const iframe of iframes) {
-						try {
-							const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-							if (iframeDoc.contentType === 'application/pdf') {
-								return {
-									isPdf: true,
-									url: iframe.src,
-									isIframePdf: true
-								};
-							}
-						} catch (e) {
-							// Cross-origin iframe, skip
-						}
-					}
-					
-					return { isPdf: false };
-				})()
-				""",
-						'returnByValue': True,
-					},
-					session_id=temp_session.session_id,
-				),
-				timeout=5.0,  # 5 second timeout to prevent hanging
-			)
-
-			# No need to detach - session is cached
-			is_pdf_viewer = result.get('result', {}).get('value', {})
-
-			if is_pdf_viewer.get('isPdf', False):
-				self.logger.debug(
-					f'[DownloadsWatchdog] PDF detected: {is_pdf_viewer.get("url", "unknown")} '
-					f'(type: {"Chrome viewer" if is_pdf_viewer.get("isChromePdfViewer") else "direct PDF" if is_pdf_viewer.get("isDirectPdf") else "PDF URL" if is_pdf_viewer.get("isPdfUrl") else "iframe PDF"})'
-				)
+			# Method 1: Check URL patterns (fastest, most reliable)
+			url_is_pdf = self._check_url_for_pdf(page_url)
+			if url_is_pdf:
+				self.logger.debug(f'[DownloadsWatchdog] PDF detected via URL pattern: {page_url}')
 				self._pdf_viewer_cache[page_url] = True
 				return True
 
+			# Method 2: Check network response headers via CDP (safer than JavaScript)
+			header_is_pdf = await self._check_network_headers_for_pdf(target_id)
+			if header_is_pdf:
+				self.logger.debug(f'[DownloadsWatchdog] PDF detected via network headers: {page_url}')
+				self._pdf_viewer_cache[page_url] = True
+				return True
+
+			# Method 3: Check Chrome's PDF viewer specific URLs
+			chrome_pdf_viewer = self._is_chrome_pdf_viewer_url(page_url)
+			if chrome_pdf_viewer:
+				self.logger.debug(f'[DownloadsWatchdog] Chrome PDF viewer detected: {page_url}')
+				self._pdf_viewer_cache[page_url] = True
+				return True
+
+			# Not a PDF
 			self._pdf_viewer_cache[page_url] = False
 			return False
 
-		except TimeoutError:
-			self.logger.warning(f'[DownloadsWatchdog] ❌ PDF check timed out for target: {page_url}')
-			self._pdf_viewer_cache[page_url] = False
-			return False
 		except Exception as e:
 			self.logger.warning(f'[DownloadsWatchdog] ❌ Error checking for PDF viewer: {e}')
 			self._pdf_viewer_cache[page_url] = False
+			return False
+
+	def _check_url_for_pdf(self, url: str) -> bool:
+		"""Check if URL indicates a PDF file."""
+		if not url:
+			return False
+
+		url_lower = url.lower()
+
+		# Direct PDF file extensions
+		if url_lower.endswith('.pdf'):
+			return True
+
+		# PDF in path
+		if '.pdf' in url_lower:
+			return True
+
+		# PDF MIME type in URL parameters
+		if any(
+			param in url_lower
+			for param in [
+				'content-type=application/pdf',
+				'content-type=application%2fpdf',
+				'mimetype=application/pdf',
+				'type=application/pdf',
+			]
+		):
+			return True
+
+		return False
+
+	def _is_chrome_pdf_viewer_url(self, url: str) -> bool:
+		"""Check if this is Chrome's internal PDF viewer URL."""
+		if not url:
+			return False
+
+		url_lower = url.lower()
+
+		# Chrome PDF viewer uses chrome-extension:// URLs
+		if 'chrome-extension://' in url_lower and 'pdf' in url_lower:
+			return True
+
+		# Chrome PDF viewer internal URLs
+		if url_lower.startswith('chrome://') and 'pdf' in url_lower:
+			return True
+
+		return False
+
+	async def _check_network_headers_for_pdf(self, target_id: TargetID) -> bool:
+		"""Infer PDF via navigation history/URL; headers are not available post-navigation in this context."""
+		try:
+			import asyncio
+
+			# Get CDP session
+			temp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
+
+			# Get navigation history to find the main resource
+			history = await asyncio.wait_for(
+				temp_session.cdp_client.send.Page.getNavigationHistory(session_id=temp_session.session_id), timeout=3.0
+			)
+
+			current_entry = history.get('entries', [])
+			if current_entry:
+				current_index = history.get('currentIndex', 0)
+				if 0 <= current_index < len(current_entry):
+					current_url = current_entry[current_index].get('url', '')
+
+					# Check if the URL itself suggests PDF
+					if self._check_url_for_pdf(current_url):
+						return True
+
+			# Note: CDP doesn't easily expose response headers for completed navigations
+			# For more complex cases, we'd need to set up Network.responseReceived listeners
+			# before navigation, but that's overkill for most PDF detection cases
+
+			return False
+
+		except Exception as e:
+			self.logger.debug(f'[DownloadsWatchdog] Network headers check failed (non-critical): {e}')
 			return False
 
 	async def trigger_pdf_download(self, target_id: TargetID) -> str | None:

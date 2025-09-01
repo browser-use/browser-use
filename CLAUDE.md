@@ -1,5 +1,60 @@
-Browser-Use is an async python >= 3.11 library that implements AI browser driver abilities using LLMs + playwright.
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+Browser-Use is an async python >= 3.11 library that implements AI browser driver abilities using LLMs + CDP (Chrome DevTools Protocol). The core architecture enables AI agents to autonomously navigate web pages, interact with elements, and complete complex tasks by processing HTML and making LLM-driven decisions.
+
+## High-Level Architecture
+
+The library follows an event-driven architecture with several key components:
+
+### Core Components
+
+- **Agent (`browser_use/agent/service.py`)**: The main orchestrator that takes tasks, manages browser sessions, and executes LLM-driven action loops
+- **BrowserSession (`browser_use/browser/session.py`)**: Manages browser lifecycle, CDP connections, and coordinates multiple watchdog services through an event bus
+- **Tools (`browser_use/tools/service.py`)**: Action registry that maps LLM decisions to browser operations (click, type, scroll, etc.)
+- **DomService (`browser_use/dom/service.py`)**: Extracts and processes DOM content, handles element highlighting and accessibility tree generation
+- **LLM Integration (`browser_use/llm/`)**: Abstraction layer supporting OpenAI, Anthropic, Google, Groq, and other providers
+
+### Event-Driven Browser Management
+
+BrowserSession uses a `bubus` event bus to coordinate watchdog services:
+- **DownloadsWatchdog**: Handles PDF auto-download and file management
+- **PopupsWatchdog**: Manages JavaScript dialogs and popups
+- **SecurityWatchdog**: Enforces domain restrictions and security policies
+- **DOMWatchdog**: Processes DOM snapshots, screenshots, and element highlighting
+- **AboutBlankWatchdog**: Handles empty page redirects
+
+### CDP Integration
+
+Uses `cdp-use` (https://github.com/browser-use/cdp-use) for typed CDP protocol access. All CDP client management lives in `browser_use/browser/session.py`.
+
 We want our library APIs to be ergonomic, intuitive, and hard to get wrong.
+
+## Development Commands
+
+**Setup:**
+```bash
+uv venv --python 3.11
+source .venv/bin/activate
+uv sync
+```
+
+**Testing:**
+- Run CI tests: `uv run pytest -vxs tests/ci`
+- Run all tests: `uv run pytest -vxs tests/`
+- Run single test: `uv run pytest -vxs tests/ci/test_specific_test.py`
+
+**Quality Checks:**
+- Type checking: `uv run pyright`
+- Linting/formatting: `uv run ruff check --fix` and `uv run ruff format`
+- Pre-commit hooks: `uv run pre-commit run --all-files`
+
+**MCP Server Mode:**
+The library can run as an MCP server for integration with Claude Desktop:
+```bash
+uvx browser-use[cli] --mcp
+```
 
 ## Code Style
 
@@ -67,3 +122,42 @@ When doing any truly massive refactors, trend towards using simple event buses a
 
 If you struggle to update or edit files in-place, try shortening your match string to 1 or 2 lines instead of 3.
 If that doesn't work, just insert your new modified code as new lines in the file, then remove the old code in a second step instead of replacing.
+
+## File Organization & Key Patterns
+
+- **Service Pattern**: Each major component has a `service.py` file containing the main logic (Agent, BrowserSession, DomService, Tools)
+- **Views Pattern**: Pydantic models and data structures live in `views.py` files
+- **Events**: Event definitions in `events.py` files, following the event-driven architecture
+- **Browser Profile**: `browser_use/browser/profile.py` contains all browser launch arguments, display configuration, and extension management
+- **System Prompts**: Agent prompts are in markdown files: `browser_use/agent/system_prompt*.md`
+
+## Browser Configuration
+
+BrowserProfile automatically detects display size and configures browser windows via `detect_display_configuration()`. Key configurations:
+- Display size detection for macOS (`AppKit.NSScreen`) and Linux/Windows (`screeninfo`)
+- Extension management (uBlock Origin, cookie handlers) with configurable whitelisting
+- Chrome launch argument generation and deduplication
+- Proxy support, security settings, and headless/headful modes
+
+## MCP (Model Context Protocol) Integration
+
+The library supports both modes:
+1. **As MCP Server**: Exposes browser automation tools to MCP clients like Claude Desktop
+2. **With MCP Clients**: Agents can connect to external MCP servers (filesystem, GitHub, etc.) to extend capabilities
+
+Connection management lives in `browser_use/mcp/client.py`.
+
+## Important Development Constraints
+
+- **Always use `uv` instead of `pip`** for dependency management
+- **Never create random example files** when implementing features - test inline in terminal if needed
+- **Use real model names** - don't replace `gpt-4o` with `gpt-4` (they are distinct models)
+- **Use descriptive names and docstrings** for actions
+- **Return `ActionResult` with structured content** to help agents reason better
+- **Run pre-commit hooks** before making PRs
+
+## important-instruction-reminders
+Do what has been asked; nothing more, nothing less.
+NEVER create files unless they're absolutely necessary for achieving your goal.
+ALWAYS prefer editing an existing file to creating a new one.
+NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.
