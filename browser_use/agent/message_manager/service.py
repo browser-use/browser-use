@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Literal, Callable
+from collections.abc import Callable, Mapping
+from typing import Literal
 
 from browser_use.agent.message_manager.views import (
 	HistoryItem,
@@ -103,7 +104,7 @@ class MessageManager:
 		state: MessageManagerState = MessageManagerState(),
 		use_thinking: bool = True,
 		include_attributes: list[str] | None = None,
-		sensitive_data: dict[str, str | Callable[[], str] | dict[str, str | Callable[[], str]]] | None = None,
+		sensitive_data: Mapping[str, str | Callable[[], str] | Mapping[str, str | Callable[[], str]]] | None = None,
 		max_history_items: int | None = None,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		include_tool_call_examples: bool = False,

@@ -3,7 +3,7 @@ import functools
 import inspect
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from inspect import Parameter, iscoroutinefunction, signature
 from types import UnionType
 from typing import Any, Generic, Optional, TypeVar, Union, get_args, get_origin
@@ -314,7 +314,7 @@ class Registry(Generic[Context]):
 		browser_session: BrowserSession | None = None,
 		page_extraction_llm: BaseChatModel | None = None,
 		file_system: FileSystem | None = None,
-		sensitive_data: dict[str, str | Callable[[], str] | dict[str, str | Callable[[], str]]] | None = None,
+		sensitive_data: Mapping[str, str | Callable[[], str] | Mapping[str, str | Callable[[], str]]] | None = None,
 		available_file_paths: list[str] | None = None,
 	) -> Any:
 		"""Execute a registered action with simplified parameter handling"""
@@ -391,7 +391,7 @@ class Registry(Generic[Context]):
 			logger.info(f'🔒 Using sensitive data placeholders: {", ".join(sorted(placeholders_used))}{url_info}')
 
 	def _replace_sensitive_data(
-		self, params: BaseModel, sensitive_data: dict[str, Any], current_url: str | None = None
+		self, params: BaseModel, sensitive_data: Mapping[str, Any], current_url: str | None = None
 	) -> BaseModel:
 		"""
 		Replaces sensitive data placeholders in params with actual values.

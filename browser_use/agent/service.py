@@ -7,7 +7,7 @@ import re
 import sys
 import tempfile
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Generic, Literal, TypeVar
@@ -136,7 +136,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		tools: Tools[Context] | None = None,
 		controller: Tools[Context] | None = None,  # Alias for tools
 		# Initial agent run parameters
-		sensitive_data: dict[str, str | Callable[[], str] | dict[str, str | Callable[[], str]]] | None = None,
+		sensitive_data: Mapping[str, str | Callable[[], str] | Mapping[str, str | Callable[[], str]]] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
 		# Cloud Callbacks
 		register_new_step_callback: (
