@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Literal
+from typing import Literal, Callable
 
 from browser_use.agent.message_manager.views import (
 	HistoryItem,
@@ -103,7 +103,7 @@ class MessageManager:
 		state: MessageManagerState = MessageManagerState(),
 		use_thinking: bool = True,
 		include_attributes: list[str] | None = None,
-		sensitive_data: dict[str, str | dict[str, str]] | None = None,
+		sensitive_data: dict[str, str | Callable[[], str] | dict[str, str | Callable[[], str]]] | None = None,
 		max_history_items: int | None = None,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		include_tool_call_examples: bool = False,
@@ -389,14 +389,15 @@ class MessageManager:
 			# Collect all sensitive values, immediately converting old format to new format
 			sensitive_values: dict[str, str] = {}
 
-			# Process all sensitive data entries
+			# Process all sensitive data entries (mask only static string values; never evaluate callables here)
 			for key_or_domain, content in self.sensitive_data.items():
 				if isinstance(content, dict):
 					# Already in new format: {domain: {key: value}}
 					for key, val in content.items():
-						if val:  # Skip empty values
+						# Only include concrete strings; skip callables entirely to avoid evaluation during logging
+						if isinstance(val, str) and val:
 							sensitive_values[key] = val
-				elif content:  # Old format: {key: value} - convert to new format internally
+				elif isinstance(content, str) and content:  # Old format: {key: value} - convert to new format internally
 					# We treat this as if it was {'http*://*': {key_or_domain: content}}
 					sensitive_values[key_or_domain] = content
 

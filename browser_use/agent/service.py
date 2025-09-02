@@ -136,7 +136,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		tools: Tools[Context] | None = None,
 		controller: Tools[Context] | None = None,  # Alias for tools
 		# Initial agent run parameters
-		sensitive_data: dict[str, str | dict[str, str]] | None = None,
+		sensitive_data: dict[str, str | Callable[[], str] | dict[str, str | Callable[[], str]]] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
 		# Cloud Callbacks
 		register_new_step_callback: (

@@ -314,7 +314,7 @@ class Registry(Generic[Context]):
 		browser_session: BrowserSession | None = None,
 		page_extraction_llm: BaseChatModel | None = None,
 		file_system: FileSystem | None = None,
-		sensitive_data: dict[str, str | dict[str, str]] | None = None,
+		sensitive_data: dict[str, str | Callable[[], str] | dict[str, str | Callable[[], str]]] | None = None,
 		available_file_paths: list[str] | None = None,
 	) -> Any:
 		"""Execute a registered action with simplified parameter handling"""
@@ -413,7 +413,8 @@ class Registry(Generic[Context]):
 		replaced_placeholders = set()
 
 		# Process sensitive data based on format and current URL
-		applicable_secrets = {}
+		# applicable_secrets maps placeholder -> provider (str or callable)
+		applicable_secrets: dict[str, Any] = {}
 
 		for domain_or_key, content in sensitive_data.items():
 			if isinstance(content, dict):
@@ -427,16 +428,50 @@ class Registry(Generic[Context]):
 				# Old format: {key: value}, expose to all domains (only allowed for legacy reasons)
 				applicable_secrets[domain_or_key] = content
 
-		# Filter out empty values
-		applicable_secrets = {k: v for k, v in applicable_secrets.items() if v}
+		# Filter out empty string values; keep callables for deferred evaluation
+		filtered_applicable: dict[str, Any] = {}
+		for k, v in applicable_secrets.items():
+			if callable(v):
+				filtered_applicable[k] = v
+			elif v:
+				filtered_applicable[k] = v
+		applicable_secrets = filtered_applicable
+
+		# Cache resolved values to ensure one evaluation per placeholder per call
+		resolved_cache: dict[str, str] = {}
+
+		def resolve_secret(placeholder: str) -> str | None:
+			if placeholder in resolved_cache:
+				return resolved_cache[placeholder]
+			provider = applicable_secrets.get(placeholder)
+			if provider is None:
+				return None
+			try:
+				if callable(provider):
+					result = provider()
+					if not isinstance(result, str) or result == '':
+						logger.warning(
+							f"Sensitive data provider for '{placeholder}' did not return a non-empty string; leaving placeholder unreplaced."
+						)
+						return None
+					resolved_cache[placeholder] = result
+					return result
+				else:
+					# Static string value
+					resolved_cache[placeholder] = provider
+					return provider
+			except Exception as e:
+				logger.warning(f"Sensitive data provider for '{placeholder}' raised: {e}; leaving placeholder unreplaced.")
+				return None
 
 		def recursively_replace_secrets(value: str | dict | list) -> str | dict | list:
 			if isinstance(value, str):
 				matches = secret_pattern.findall(value)
 
 				for placeholder in matches:
-					if placeholder in applicable_secrets:
-						value = value.replace(f'<secret>{placeholder}</secret>', applicable_secrets[placeholder])
+					resolved = resolve_secret(placeholder)
+					if resolved is not None:
+						value = value.replace(f'<secret>{placeholder}</secret>', resolved)
 						replaced_placeholders.add(placeholder)
 					else:
 						# Keep track of missing placeholders
