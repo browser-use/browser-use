@@ -90,6 +90,9 @@ all = [
 [project.urls]
 Repository = "https://github.com/browser-use/browser-use"
 
+[project.scripts]
+browseruse = "browser_use.cli:main"
+browser-use = "browser_use.cli:main"
 
 [build-system]
 requires = ["hatchling"]
