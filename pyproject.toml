@@ -28,9 +28,9 @@ dependencies = [
     "typing-extensions>=4.12.2",
     "uuid7>=0.1.0",
     "authlib>=1.6.0",
-    "google-genai==1.29.0",
-    "openai==1.99.2",
-    "anthropic==0.58.2",
+    "google-genai>=1.29.0,<2.0.0",
+    "openai>=1.99.2,<2.0.0",
+    "anthropic>=0.58.2,<1.0.0",
     "groq>=0.30.0",
     "ollama>=0.5.1",
     "google-api-python-client>=2.174.0",
@@ -62,6 +62,7 @@ aws = [
     "boto3>=1.38.45"
 ]
 examples = [
+    "agentmail>=0.0.53",
     # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
     "botocore>=1.37.23",
     "imgcat>=0.6.0",
@@ -199,4 +200,5 @@ dev-dependencies = [
     "lmnr[all]==0.7.6",
     # "pytest-playwright-asyncio>=0.7.0",  # not actually needed I think
     "pytest-timeout>=2.4.0",
+    "pydantic_settings>=2.10.1"
 ]

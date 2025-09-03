@@ -9,13 +9,13 @@ icon: "rocket"
 
 <Tabs>
 <Tab title="uv">
-```bash create environment
+```bash create environment 
 uv venv --python 3.12
 ```
 </Tab>
 <Tab title="pip">
-```bash create environment
-python -m venv .venv
+```bash create environment with python >= 3.11 
+python3.12 -m venv .venv
 ```
 </Tab>
 </Tabs>
@@ -43,7 +43,7 @@ uvx playwright install chromium --with-deps
 <Tab title="pip">
 ```bash install browser-use & chromium
 pip install browser-use
-playwright install chromium --with-deps
+pip install playwright && playwright install chromium --with-deps
 ```
 </Tab>
 </Tabs>

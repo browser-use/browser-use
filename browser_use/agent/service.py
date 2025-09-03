@@ -24,7 +24,7 @@ from browser_use.agent.cloud_events import (
 )
 from browser_use.agent.message_manager.utils import save_conversation
 from browser_use.llm.base import BaseChatModel
-from browser_use.llm.messages import BaseMessage, UserMessage
+from browser_use.llm.messages import BaseMessage, ContentPartImageParam, ContentPartTextParam, UserMessage
 from browser_use.llm.openai.chat import ChatOpenAI
 from browser_use.tokens.service import TokenCost
 
@@ -128,7 +128,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	def __init__(
 		self,
 		task: str,
-		llm: BaseChatModel = ChatOpenAI(model='gpt-4.1-mini'),
+		llm: BaseChatModel | None = None,
 		# Optional parameters
 		browser_profile: BrowserProfile | None = None,
 		browser_session: BrowserSession | None = None,
@@ -179,8 +179,26 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		step_timeout: int = 120,
 		directly_open_url: bool = True,
 		include_recent_events: bool = False,
+		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 		**kwargs,
 	):
+		if llm is None:
+			default_llm_name = CONFIG.DEFAULT_LLM
+			if default_llm_name:
+				try:
+					from browser_use.llm.models import get_llm_by_name
+
+					llm = get_llm_by_name(default_llm_name)
+				except (ImportError, ValueError) as e:
+					# Use the logger that's already imported at the top of the module
+					logger.warning(
+						f'Failed to create default LLM "{default_llm_name}": {e}. Falling back to ChatOpenAI(model="gpt-4.1-mini")'
+					)
+					llm = ChatOpenAI(model='gpt-4.1-mini')
+			else:
+				# No default LLM specified, use the original default
+				llm = ChatOpenAI(model='gpt-4.1-mini')
+
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
 		if available_file_paths is None:
@@ -223,6 +241,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.tools.use_structured_output_action(self.output_model_schema)
 
 		self.sensitive_data = sensitive_data
+
+		self.sample_images = sample_images
 
 		self.settings = AgentSettings(
 			use_vision=use_vision,
@@ -297,7 +317,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.warning('⚠️ XAI models do not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
 
-		self.logger.info(f'🧠 Starting a browser-use version {self.version} with model={self.llm.model}')
 		logger.debug(
 			f'{" +vision" if self.settings.use_vision else ""}'
 			f' extraction_model={self.settings.page_extraction_llm.model if self.settings.page_extraction_llm else "Unknown"}'
@@ -330,6 +349,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			vision_detail_level=self.settings.vision_detail_level,
 			include_tool_call_examples=self.settings.include_tool_call_examples,
 			include_recent_events=self.include_recent_events,
+			sample_images=self.sample_images,
 		)
 
 		if self.sensitive_data:
@@ -994,6 +1014,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self.logger.debug(f'🤖 Browser-Use Library Version {self.version} ({self.source})')
 
+	def _log_first_step_startup(self) -> None:
+		"""Log startup message only on the first step"""
+		if len(self.history.history) == 0:
+			self.logger.info(f'🧠 Starting a browser-use version {self.version} with model={self.llm.model}')
+
 	def _log_step_context(self, browser_state_summary: BrowserStateSummary) -> None:
 		"""Log step context information"""
 		url = browser_state_summary.url if browser_state_summary else ''
@@ -1122,6 +1147,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		Returns:
 		        Tuple[bool, bool]: (is_done, is_valid)
 		"""
+		if len(self.history.history) == 0:
+			# First step
+			self._log_first_step_startup()
+			await self._execute_initial_actions()
+
 		await self.step(step_info)
 
 		if self.history.is_done():
@@ -1250,6 +1280,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.logger.warning('⚠️ No browser focus established, may cause navigation issues')
 
 			await self._execute_initial_actions()
+			# Log startup message on first step (only if we haven't already done steps)
+			self._log_first_step_startup()
 
 			self.logger.debug(f'🔄 Starting main execution loop with max {max_steps} steps...')
 			for step in range(max_steps):
@@ -1476,7 +1508,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				if orig_target_hash != new_target_hash:
 					# Get names of remaining actions that won't be executed
 					remaining_actions_str = get_remaining_actions_str(actions, i)
-					msg = f'Page changed after action {i} / {total_actions}: actions {remaining_actions_str} were not executed'
+					msg = f'Page changed after action: actions {remaining_actions_str} are not yet executed'
 					logger.info(msg)
 					results.append(
 						ActionResult(

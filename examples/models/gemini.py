@@ -9,10 +9,10 @@ from lmnr import Laminar
 
 load_dotenv()
 
-Laminar.initialize()
-
 
 from browser_use import Agent, ChatGoogle
+
+Laminar.initialize()
 
 api_key = os.getenv('GOOGLE_API_KEY')
 if not api_key:

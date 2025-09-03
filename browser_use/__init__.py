@@ -51,6 +51,7 @@ if TYPE_CHECKING:
 	from browser_use.browser import BrowserProfile, BrowserSession
 	from browser_use.browser import BrowserSession as Browser
 	from browser_use.dom.service import DomService
+	from browser_use.llm import models
 	from browser_use.llm.anthropic.chat import ChatAnthropic
 	from browser_use.llm.azure.chat import ChatAzureOpenAI
 	from browser_use.llm.google.chat import ChatGoogle
@@ -85,6 +86,8 @@ _LAZY_IMPORTS = {
 	'ChatGroq': ('browser_use.llm.groq.chat', 'ChatGroq'),
 	'ChatAzureOpenAI': ('browser_use.llm.azure.chat', 'ChatAzureOpenAI'),
 	'ChatOllama': ('browser_use.llm.ollama.chat', 'ChatOllama'),
+	# LLM models module
+	'models': ('browser_use.llm.models', None),
 }
 
 
@@ -96,7 +99,11 @@ def __getattr__(name: str):
 			from importlib import import_module
 
 			module = import_module(module_path)
-			attr = getattr(module, attr_name)
+			if attr_name is None:
+				# For modules like 'models', return the module itself
+				attr = module
+			else:
+				attr = getattr(module, attr_name)
 			# Cache the imported attribute in the module's globals
 			globals()[name] = attr
 			return attr
@@ -126,4 +133,6 @@ __all__ = [
 	'ChatOllama',
 	'Tools',
 	'Controller',
+	# LLM models module
+	'models',
 ]

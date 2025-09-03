@@ -156,11 +156,14 @@ class SecurityWatchdog(BaseWatchdog):
 						return True
 				else:
 					# Use fnmatch for other glob patterns
-					if fnmatch.fnmatch(host, pattern):
+					if fnmatch.fnmatch(
+						full_url_pattern if '://' in pattern else host,
+						pattern,
+					):
 						return True
 			else:
 				# Exact match
-				if pattern.startswith(('http://', 'https://', 'chrome://', 'brave://', 'file://')):
+				if '://' in pattern:
 					# Full URL pattern
 					if url.startswith(pattern):
 						return True

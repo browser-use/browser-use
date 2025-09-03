@@ -73,10 +73,11 @@ class ChatGoogle(BaseChatModel):
 
 	# Model configuration
 	model: VerifiedGeminiModels | str
-	temperature: float | None = None
+	temperature: float | None = 0.2
 	top_p: float | None = None
 	seed: int | None = None
 	thinking_budget: int | None = None
+	max_output_tokens: int | None = 4096
 	config: types.GenerateContentConfigDict | None = None
 
 	# Client initialization parameters
@@ -192,6 +193,9 @@ class ChatGoogle(BaseChatModel):
 		if self.thinking_budget is not None:
 			thinking_config_dict: types.ThinkingConfigDict = {'thinking_budget': self.thinking_budget}
 			config['thinking_config'] = thinking_config_dict
+
+		if self.max_output_tokens is not None:
+			config['max_output_tokens'] = self.max_output_tokens
 
 		async def _make_api_call():
 			if output_format is None:
