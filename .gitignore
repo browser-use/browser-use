@@ -53,3 +53,5 @@ credentials.json
 token.json
 
 !docs/docs.json
+
+CLAUDE.md
