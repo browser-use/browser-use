@@ -179,6 +179,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		directly_open_url: bool = True,
 		include_recent_events: bool = False,
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
+		enable_final_recovery: bool = True,
 		**kwargs,
 	):
 		if llm is None:
@@ -262,6 +263,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			include_tool_call_examples=include_tool_call_examples,
 			llm_timeout=llm_timeout,
 			step_timeout=step_timeout,
+			enable_final_recovery=enable_final_recovery,
 		)
 
 		# Token cost service
@@ -886,6 +888,85 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		return model_output
 
+	async def _attempt_final_recovery(self, browser_state_summary: BrowserStateSummary) -> None:
+		"""Attempt one final recovery call to get a done output after consecutive failures"""
+		self.logger.warning(f'🔄 Attempting final recovery after {self.settings.max_failures} consecutive failures...')
+		
+		# Create a special message explaining the situation
+		recovery_message = UserMessage(
+			content=f'You have failed {self.settings.max_failures} consecutive times. This is your final attempt to provide a response. '
+			f'You MUST use the "done" action now with whatever partial results or information you have gathered so far. '
+			f'Set success=False since the task could not be completed due to the failures, but provide all intermediate '
+			f'results and findings in the text field. Include any progress made before the failures occurred.'
+		)
+		
+		# Get current messages and add the recovery message
+		input_messages = self._message_manager.get_messages()
+		recovery_messages = input_messages + [recovery_message]
+		
+		try:
+			# Force the agent to use done action only
+			original_agent_output = self.AgentOutput
+			self.AgentOutput = self.DoneAgentOutput
+			
+			# Call the model with recovery context
+			model_output = await asyncio.wait_for(
+				self.get_model_output(recovery_messages), 
+				timeout=self.settings.llm_timeout
+			)
+			
+			# If model still doesn't return done action, force it
+			if (not model_output.action or 
+				not any(action.model_dump(exclude_unset=True).get('done') for action in model_output.action)):
+				
+				self.logger.warning('Model did not return done action in final recovery. Forcing done action.')
+				action_instance = self.ActionModel()
+				setattr(
+					action_instance,
+					'done',
+					{
+						'success': False,
+						'text': f'Task failed after {self.settings.max_failures} consecutive failures. '
+								f'Intermediate results: {self._get_intermediate_results()}',
+					},
+				)
+				model_output.action = [action_instance]
+			
+			self.state.last_model_output = model_output
+			
+			# Execute the final action
+			await self._execute_actions()
+			await self._post_process()
+			
+			# Restore original agent output
+			self.AgentOutput = original_agent_output
+			
+			self.logger.info('🎯 Final recovery attempt completed')
+			
+		except Exception as e:
+			self.logger.error(f'❌ Final recovery attempt failed: {e}')
+			# Create a final fallback result
+			self.state.last_result = [ActionResult(
+				is_done=True,
+				success=False,
+				extracted_content=f'Task failed after {self.settings.max_failures} consecutive failures. '
+							   f'Final recovery attempt also failed: {str(e)}. '
+							   f'Intermediate results: {self._get_intermediate_results()}',
+				error=str(e)
+			)]
+	
+	def _get_intermediate_results(self) -> str:
+		"""Get intermediate results from the agent's history for the final recovery"""
+		if not self.history.history:
+			return "No intermediate results available."
+		
+		results = []
+		for i, step in enumerate(self.history.history[-5:], 1):  # Get last 5 steps
+			if step.result and step.result[0].extracted_content:
+				results.append(f"Step {i}: {step.result[0].extracted_content[:200]}...")
+		
+		return "\n".join(results) if results else "No meaningful intermediate results found."
+
 	async def _handle_post_llm_processing(
 		self,
 		browser_state_summary: BrowserStateSummary,
@@ -1278,9 +1359,23 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 				# Check if we should stop due to too many failures
 				if self.state.consecutive_failures >= self.settings.max_failures:
-					self.logger.error(f'❌ Stopping due to {self.settings.max_failures} consecutive failures')
-					agent_run_error = f'Stopped due to {self.settings.max_failures} consecutive failures'
-					break
+					if self.settings.enable_final_recovery:
+						try:
+							# Get current browser state for final recovery
+							browser_state_summary = await self.browser_session.get_browser_state_summary(
+								include_screenshot=self.settings.use_vision
+							)
+							await self._attempt_final_recovery(browser_state_summary)
+							# Final recovery completed, break out of loop
+							break
+						except Exception as e:
+							self.logger.error(f'❌ Final recovery failed: {e}')
+							agent_run_error = f'Stopped due to {self.settings.max_failures} consecutive failures and failed final recovery'
+							break
+					else:
+						self.logger.error(f'❌ Stopping due to {self.settings.max_failures} consecutive failures')
+						agent_run_error = f'Stopped due to {self.settings.max_failures} consecutive failures'
+						break
 
 				# Check control flags before each step
 				if self.state.stopped:
