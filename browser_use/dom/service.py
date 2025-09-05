@@ -275,7 +275,7 @@ class DomService:
 
 		return {'nodes': merged_nodes}
 
-	async def _get_all_trees(self, target_id: TargetID) -> TargetAllTrees:
+	async def _get_all_trees(self, target_id: TargetID, include_accessibility: bool = True) -> TargetAllTrees:
 		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
 
 		# Wait for the page to be ready first
@@ -331,7 +331,7 @@ class DomService:
 			return cdp_session.cdp_client.send.DOMSnapshot.captureSnapshot(
 				params={
 					'computedStyles': REQUIRED_COMPUTED_STYLES,
-					'includePaintOrder': True,
+					'includePaintOrder': False,  # OPTIMIZED: Never used in processing
 					'includeDOMRects': True,
 					'includeBlendedBackgroundColors': False,
 					'includeTextColorOpacities': False,
@@ -340,6 +340,8 @@ class DomService:
 			)
 
 		def create_dom_tree_request():
+			# NOTE: depth=-1 gets full tree, pierce=True includes shadow DOM
+			# These are likely necessary for complete DOM traversal but could be optimized in future
 			return cdp_session.cdp_client.send.DOM.getDocument(
 				params={'depth': -1, 'pierce': True}, session_id=cdp_session.session_id
 			)
@@ -350,9 +352,12 @@ class DomService:
 		tasks = {
 			'snapshot': asyncio.create_task(create_snapshot_request()),
 			'dom_tree': asyncio.create_task(create_dom_tree_request()),
-			'ax_tree': asyncio.create_task(self._get_ax_tree_for_all_frames(target_id)),
 			'device_pixel_ratio': asyncio.create_task(self._get_viewport_ratio(target_id)),
 		}
+		
+		# OPTIMIZATION: Only include accessibility tree if requested
+		if include_accessibility:
+			tasks['ax_tree'] = asyncio.create_task(self._get_ax_tree_for_all_frames(target_id))
 
 		# Wait for all tasks with timeout
 		done, pending = await asyncio.wait(tasks.values(), timeout=10.0)
@@ -366,9 +371,11 @@ class DomService:
 			retry_map = {
 				tasks['snapshot']: lambda: asyncio.create_task(create_snapshot_request()),
 				tasks['dom_tree']: lambda: asyncio.create_task(create_dom_tree_request()),
-				tasks['ax_tree']: lambda: asyncio.create_task(self._get_ax_tree_for_all_frames(target_id)),
 				tasks['device_pixel_ratio']: lambda: asyncio.create_task(self._get_viewport_ratio(target_id)),
 			}
+			# OPTIMIZATION: Only add AX tree retry if it was requested
+			if 'ax_tree' in tasks:
+				retry_map[tasks['ax_tree']] = lambda: asyncio.create_task(self._get_ax_tree_for_all_frames(target_id))
 
 			# Create new tasks only for the ones that didn't complete
 			for key, task in tasks.items():
@@ -402,7 +409,8 @@ class DomService:
 
 		snapshot = results['snapshot']
 		dom_tree = results['dom_tree']
-		ax_tree = results['ax_tree']
+		# OPTIMIZATION: Handle optional accessibility tree
+		ax_tree = results.get('ax_tree', {'nodes': []})  # Empty if not requested
 		device_pixel_ratio = results['device_pixel_ratio']
 		end = time.time()
 		cdp_timing = {'cdp_calls_total': end - start}
@@ -431,6 +439,7 @@ class DomService:
 		target_id: TargetID,
 		initial_html_frames: list[EnhancedDOMTreeNode] | None = None,
 		initial_total_frame_offset: DOMRect | None = None,
+		include_accessibility: bool = True,  # OPTIMIZATION: Make AX tree optional
 	) -> EnhancedDOMTreeNode:
 		"""Get the DOM tree for a specific target.
 
@@ -440,7 +449,7 @@ class DomService:
 			initial_total_frame_offset: Accumulated coordinate offset
 		"""
 
-		trees = await self._get_all_trees(target_id)
+		trees = await self._get_all_trees(target_id, include_accessibility=include_accessibility)
 
 		dom_tree = trees.dom_tree
 		ax_tree = trees.ax_tree
@@ -656,7 +665,8 @@ class DomService:
 		return enhanced_dom_tree_node
 
 	async def get_serialized_dom_tree(
-		self, previous_cached_state: SerializedDOMState | None = None
+		self, previous_cached_state: SerializedDOMState | None = None, 
+		include_accessibility: bool = True  # OPTIMIZATION: Make AX tree optional
 	) -> tuple[SerializedDOMState, EnhancedDOMTreeNode, dict[str, float]]:
 		"""Get the serialized DOM tree representation for LLM consumption.
 
@@ -666,7 +676,10 @@ class DomService:
 
 		# Use current target (None means use current)
 		assert self.browser_session.current_target_id is not None
-		enhanced_dom_tree = await self.get_dom_tree(target_id=self.browser_session.current_target_id)
+		enhanced_dom_tree = await self.get_dom_tree(
+			target_id=self.browser_session.current_target_id, 
+			include_accessibility=include_accessibility
+		)
 
 		start = time.time()
 		serialized_dom_state, serializer_timing = DOMTreeSerializer(

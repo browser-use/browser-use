@@ -365,8 +365,17 @@ class DOMWatchdog(BaseWatchdog):
 			# Get serialized DOM tree using the service
 			self.logger.debug('🔍 DOMWatchdog._build_dom_tree_without_highlights: Calling DomService.get_serialized_dom_tree...')
 			start = time.time()
+			
+			# OPTIMIZATION: Disable accessibility tree for potentially large pages to improve performance
+			# Pages with > 5000 elements often cause timeouts, AX tree is less critical than DOM/snapshot
+			include_accessibility = True
+			if previous_state and previous_state.selector_map and len(previous_state.selector_map) > 5000:
+				include_accessibility = False
+				self.logger.debug('🔍 OPTIMIZATION: Disabling accessibility tree for large page to improve performance')
+			
 			self.current_dom_state, self.enhanced_dom_tree, timing_info = await self._dom_service.get_serialized_dom_tree(
 				previous_cached_state=previous_state,
+				include_accessibility=include_accessibility,
 			)
 			end = time.time()
 			self.logger.debug(

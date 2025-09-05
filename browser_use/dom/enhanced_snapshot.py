@@ -16,32 +16,17 @@ from browser_use.dom.views import DOMRect, EnhancedSnapshotNode
 
 # Only the ESSENTIAL computed styles for interactivity and visibility detection
 REQUIRED_COMPUTED_STYLES = [
-	# Essential for visibility
+	# OPTIMIZED: Only styles actually used in processing pipeline
+	# Visibility detection (service.py:165-167)
 	'display',
-	'visibility',
+	'visibility', 
 	'opacity',
-	'position',
-	'z-index',
-	'pointer-events',
+	# Cursor for interactivity (enhanced_snapshot.py:122)
 	'cursor',
+	# Scrolling detection (views.py:479-481)
 	'overflow',
 	'overflow-x',
 	'overflow-y',
-	'width',
-	'height',
-	'top',
-	'left',
-	'right',
-	'bottom',
-	'transform',
-	'clip',
-	'clip-path',
-	'user-select',
-	'background-color',
-	'color',
-	'border',
-	'margin',
-	'padding',
 ]
 
 
@@ -101,8 +86,7 @@ def build_snapshot_lookup(
 			bounding_box = None
 			computed_styles = {}
 
-			# Look for layout tree node that corresponds to this snapshot node
-			paint_order = None
+					# Look for layout tree node that corresponds to this snapshot node
 			client_rects = None
 			scroll_rects = None
 			stacking_contexts = None
@@ -130,9 +114,7 @@ def build_snapshot_lookup(
 						computed_styles = _parse_computed_styles(strings, style_indices)
 						cursor_style = computed_styles.get('cursor')
 
-					# Extract paint order if available
-					if layout_idx < len(layout.get('paintOrders', [])):
-						paint_order = layout.get('paintOrders', [])[layout_idx]
+					# OPTIMIZED: Removed paint_order extraction - never used
 
 					# Extract client rects if available
 					client_rects_data = layout.get('clientRects', [])
@@ -169,7 +151,7 @@ def build_snapshot_lookup(
 				clientRects=client_rects,
 				scrollRects=scroll_rects,
 				computed_styles=computed_styles if computed_styles else None,
-				paint_order=paint_order,
+				paint_order=None,  # OPTIMIZED: Always None since never used
 				stacking_contexts=stacking_contexts,
 			)
 
