@@ -12,6 +12,7 @@ from browser_use import Agent, ChatOpenAI
 
 load_dotenv()
 
+
 # All the models are type safe from OpenAI in case you need a list of supported models
 llm = ChatOpenAI(model='gpt-4.1-mini')
 agent = Agent(
