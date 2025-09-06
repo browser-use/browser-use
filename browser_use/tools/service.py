@@ -236,17 +236,17 @@ class Tools(Generic[Context]):
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			'Wait for x seconds default 3 (max 10 seconds). This can be used to wait until the page is fully loaded.'
+			'Wait for x seconds (default 3) (max 30 seconds). This can be used to wait until the page is fully loaded.'
 		)
 		async def wait(seconds: int = 3):
-			# Cap wait time at maximum 10 seconds
+			# Cap wait time at maximum 30 seconds
 			# Reduce the wait time by 3 seconds to account for the llm call which takes at least 3 seconds
 			# So if the model decides to wait for 5 seconds, the llm call took at least 3 seconds, so we only need to wait for 2 seconds
 			# Note by Mert: the above doesnt make sense because we do the LLM call right after this or this could be followed by another action after which we would like to wait
 			# so I revert this.
-			actual_seconds = min(max(seconds, 0), 10)
-			memory = f'Waited for {actual_seconds} seconds'
-			logger.info(f'🕒 {memory}')
+			actual_seconds = min(max(seconds - 3, 0), 30)
+			memory = f'Waited for {seconds} seconds'
+			logger.info(f'🕒 waited for {actual_seconds} seconds + 3 seconds for LLM call')
 			await asyncio.sleep(actual_seconds)
 			return ActionResult(extracted_content=memory, long_term_memory=memory)
 

@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import platform
+import re
 import signal
 import time
 from collections.abc import Callable, Coroutine
@@ -15,6 +16,9 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Pre-compiled regex for URL detection - used in URL shortening
+URL_PATTERN = re.compile(r'https?://[^\s<>"\']+|www\.[^\s<>"\']+|[^\s<>"\']+\.[a-z]{2,}(?:/[^\s<>"\']*)?', re.IGNORECASE)
 
 
 logger = logging.getLogger(__name__)

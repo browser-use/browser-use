@@ -49,10 +49,13 @@ class AgentSettings(BaseModel):
 	include_tool_call_examples: bool = False
 	llm_timeout: int = 60  # Timeout in seconds for LLM calls
 	step_timeout: int = 180  # Timeout in seconds for each step
+	final_response_after_failure: bool = True  # If True, attempt one final recovery call after max_failures
 
 
 class AgentState(BaseModel):
 	"""Holds all state information for an Agent"""
+
+	model_config = ConfigDict(arbitrary_types_allowed=True)
 
 	agent_id: str = Field(default_factory=uuid7str)
 	n_steps: int = 1
@@ -60,6 +63,8 @@ class AgentState(BaseModel):
 	last_result: list[ActionResult] | None = None
 	last_plan: str | None = None
 	last_model_output: AgentOutput | None = None
+
+	# Pause/resume state (kept serialisable for checkpointing)
 	paused: bool = False
 	stopped: bool = False
 	session_initialized: bool = False  # Track if session events have been dispatched
@@ -67,9 +72,6 @@ class AgentState(BaseModel):
 
 	message_manager_state: MessageManagerState = Field(default_factory=MessageManagerState)
 	file_system_state: FileSystemState | None = None
-
-	# class Config:
-	# 	arbitrary_types_allowed = True
 
 
 @dataclass

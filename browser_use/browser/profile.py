@@ -10,7 +10,6 @@ from urllib.parse import urlparse
 from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from browser_use.config import CONFIG
-from browser_use.observability import observe_debug
 from browser_use.utils import _log_pretty_path, logger
 
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
@@ -616,6 +615,18 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	# save_har_path: alias of record_har_path
 	# trace_path: alias of traces_dir
 
+	# these shadow the old playwright args on BrowserContextArgs, but it's ok
+	# because we handle them ourselves in a watchdog and we no longer use playwright, so they should live in the scope for our own config in BrowserProfile long-term
+	record_video_dir: Path | None = Field(
+		default=None,
+		description='Directory to save video recordings. If set, a video of the session will be recorded.',
+		validation_alias=AliasChoices('save_recording_path', 'record_video_dir'),
+	)
+	record_video_size: ViewportSize | None = Field(
+		default=None, description='Video frame size. If not set, it will use the viewport size.'
+	)
+	record_video_framerate: int = Field(default=30, description='The framerate to use for the video recording.')
+
 	# TODO: finish implementing extension support in extensions.py
 	# extension_ids_to_preinstall: list[str] = Field(
 	# 	default_factory=list, description='List of Chrome extension IDs to preinstall.'
@@ -746,6 +757,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			pre_conversion_args.append(f'--proxy-server={proxy_server}')
 			if proxy_bypass:
 				pre_conversion_args.append(f'--proxy-bypass-list={proxy_bypass}')
+
+		# User agent flag
+		if self.user_agent:
+			pre_conversion_args.append(f'--user-agent={self.user_agent}')
 
 		# convert to dict and back to dedupe and merge duplicate args
 		final_args_list = BrowserLaunchArgs.args_as_list(BrowserLaunchArgs.args_as_dict(pre_conversion_args))
@@ -989,7 +1004,6 @@ async function initialize(checkInitialized, magic) {{
 
 				os.unlink(temp_zip.name)
 
-	@observe_debug(ignore_input=True, ignore_output=True, name='detect_display_configuration')
 	def detect_display_configuration(self) -> None:
 		"""
 		Detect the system display size and initialize the display-related config defaults:
@@ -1004,36 +1018,43 @@ async function initialize(checkInitialized, magic) {{
 		if self.headless is None:
 			self.headless = not has_screen_available
 
-		# set up window size and position if headful
+		# Determine viewport behavior based on mode and user preferences
+		user_provided_viewport = self.viewport is not None
+
 		if self.headless:
-			# headless mode: no window available, use viewport instead to constrain content size
+			# Headless mode: always use viewport for content size control
 			self.viewport = self.viewport or self.window_size or self.screen
-			self.window_position = None  # no windows to position in headless mode
+			self.window_position = None
 			self.window_size = None
-			self.no_viewport = False  # viewport is always enabled in headless mode
+			self.no_viewport = False
 		else:
-			# headful mode: use window, disable viewport by default, content fits to size of window
+			# Headful mode: respect user's viewport preference
 			self.window_size = self.window_size or self.screen
-			self.no_viewport = True if self.no_viewport is None else self.no_viewport
-			self.viewport = None if self.no_viewport else self.viewport
 
-		# automatically setup viewport if any config requires it
-		use_viewport = self.headless or self.viewport or self.device_scale_factor
-		self.no_viewport = not use_viewport if self.no_viewport is None else self.no_viewport
-		use_viewport = not self.no_viewport
+			if user_provided_viewport:
+				# User explicitly set viewport - enable viewport mode
+				self.no_viewport = False
+			else:
+				# Default headful: content fits to window (no viewport)
+				self.no_viewport = True if self.no_viewport is None else self.no_viewport
 
-		if use_viewport:
-			# if we are using viewport, make device_scale_factor and screen are set to real values to avoid easy fingerprinting
+		# Handle special requirements (device_scale_factor forces viewport mode)
+		if self.device_scale_factor and self.no_viewport is None:
+			self.no_viewport = False
+
+		# Finalize configuration
+		if self.no_viewport:
+			# No viewport mode: content adapts to window
+			self.viewport = None
+			self.device_scale_factor = None
+			self.screen = None
+			assert self.viewport is None
+			assert self.no_viewport is True
+		else:
+			# Viewport mode: ensure viewport is set
 			self.viewport = self.viewport or self.screen
 			self.device_scale_factor = self.device_scale_factor or 1.0
 			assert self.viewport is not None
 			assert self.no_viewport is False
-		else:
-			# device_scale_factor and screen are not supported non-viewport mode, the system monitor determines these
-			self.viewport = None
-			self.device_scale_factor = None  # only supported in viewport mode
-			self.screen = None  # only supported in viewport mode
-			assert self.viewport is None
-			assert self.no_viewport is True
 
 		assert not (self.headless and self.no_viewport), 'headless=True and no_viewport=True cannot both be set at the same time'

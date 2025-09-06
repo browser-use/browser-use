@@ -66,6 +66,10 @@
     {
       "source": "/development/observability",
       "destination": "/development/monitoring/observability"
+    },
+    {
+      "source": "/development/hooks",
+      "destination": "/customize/hooks"
     }
   ],
   "navigation": {
@@ -143,6 +147,14 @@
                 "pages": [
                   "development/setup/local-setup",
                   "development/setup/contribution-guide"
+                ]
+              },
+              {
+                "group": "Advanced",
+                "icon": "gear",
+                "isDefaultOpen": false,
+                "pages": [
+                  "customize/hooks"
                 ]
               },
               {

@@ -16,32 +16,16 @@ from browser_use.dom.views import DOMRect, EnhancedSnapshotNode
 
 # Only the ESSENTIAL computed styles for interactivity and visibility detection
 REQUIRED_COMPUTED_STYLES = [
-	# Essential for visibility
-	'display',
-	'visibility',
-	'opacity',
-	'position',
-	'z-index',
-	'pointer-events',
-	'cursor',
-	'overflow',
-	'overflow-x',
-	'overflow-y',
-	'width',
-	'height',
-	'top',
-	'left',
-	'right',
-	'bottom',
-	'transform',
-	'clip',
-	'clip-path',
-	'user-select',
-	'background-color',
-	'color',
-	'border',
-	'margin',
-	'padding',
+	# Only styles actually accessed in the codebase (prevents Chrome crashes on heavy sites)
+	'display',  # Used in service.py visibility detection
+	'visibility',  # Used in service.py visibility detection
+	'opacity',  # Used in service.py visibility detection
+	'overflow',  # Used in views.py scrollability detection
+	'overflow-x',  # Used in views.py scrollability detection
+	'overflow-y',  # Used in views.py scrollability detection
+	'cursor',  # Used in enhanced_snapshot.py cursor extraction
+	'pointer-events',  # Used for clickability logic
+	'position',  # Used for visibility logic
 ]
 
 
@@ -81,6 +65,14 @@ def build_snapshot_lookup(
 			for i, backend_node_id in enumerate(nodes['backendNodeId']):
 				backend_node_to_snapshot_index[backend_node_id] = i
 
+		# PERFORMANCE: Pre-build layout index map to eliminate O(n²) double lookups
+		# Preserve original behavior: use FIRST occurrence for duplicates
+		layout_index_map = {}
+		if layout and 'nodeIndex' in layout:
+			for layout_idx, node_index in enumerate(layout['nodeIndex']):
+				if node_index not in layout_index_map:  # Only store first occurrence
+					layout_index_map[node_index] = layout_idx
+
 		# Build snapshot lookup for each backend node id
 		for backend_node_id, snapshot_index in backend_node_to_snapshot_index.items():
 			is_clickable = None
@@ -98,8 +90,9 @@ def build_snapshot_lookup(
 			client_rects = None
 			scroll_rects = None
 			stacking_contexts = None
-			for layout_idx, node_index in enumerate(layout.get('nodeIndex', [])):
-				if node_index == snapshot_index and layout_idx < len(layout.get('bounds', [])):
+			if snapshot_index in layout_index_map:
+				layout_idx = layout_index_map[snapshot_index]
+				if layout_idx < len(layout.get('bounds', [])):
 					# Parse bounding box
 					bounds = layout['bounds'][layout_idx]
 					if len(bounds) >= 4:
@@ -152,8 +145,6 @@ def build_snapshot_lookup(
 					# Extract stacking contexts if available
 					if layout_idx < len(layout.get('stackingContexts', [])):
 						stacking_contexts = layout.get('stackingContexts', {}).get('index', [])[layout_idx]
-
-					break
 
 			snapshot_lookup[backend_node_id] = EnhancedSnapshotNode(
 				is_clickable=is_clickable,

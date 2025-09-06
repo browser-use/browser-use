@@ -1,6 +1,7 @@
 import asyncio
 import os
 import sys
+from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -16,7 +17,7 @@ browser_session = BrowserSession(
 	browser_profile=BrowserProfile(
 		keep_alive=True,
 		headless=False,
-		record_video_dir='./tmp/recordings',
+		record_video_dir=Path('./tmp/recordings'),
 		user_data_dir='~/.config/browseruse/profiles/default',
 	)
 )

@@ -5,14 +5,10 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from dotenv import load_dotenv
-from lmnr import Laminar
-
-load_dotenv()
-
 
 from browser_use import Agent, ChatGoogle
 
-Laminar.initialize()
+load_dotenv()
 
 api_key = os.getenv('GOOGLE_API_KEY')
 if not api_key:

@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.7.1"
+version = "0.7.3"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -38,9 +38,11 @@ dependencies = [
     "google-auth-oauthlib>=1.2.2",
     "mcp>=1.10.1",
     "pypdf>=5.7.0",
+    "reportlab>=4.0.0",
     "cdp-use>=1.4.0",
-    "markdown-pdf==1.5",
+    "pyotp>=2.9.0",
     "html2text>=2025.4.15",
+    "pillow>=11.2.1",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -61,6 +63,10 @@ cli = [
 aws = [
     "boto3>=1.38.45"
 ]
+video = [
+    "imageio[ffmpeg]>=2.37.0",
+    "numpy>=2.3.2",
+]
 examples = [
     "agentmail>=0.0.53",
     # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
@@ -71,9 +77,8 @@ examples = [
     "langchain-openai>=0.3.26",
 ]
 eval = [
-    "lmnr[all]==0.7.6",
+    "lmnr[all]==0.7.10",
     "anyio>=4.9.0",
-    "Pillow>=11.2.1",
     "psutil>=7.0.0",
     "datamodel-code-generator>=0.26.0",
     "hyperbrowser==0.47.0",
@@ -196,8 +201,7 @@ dev-dependencies = [
     "pyright>=1.1.403",
     "ty>=0.0.1a1",
     "pytest-xdist>=3.7.0",
-    "pillow>=11.2.1",
-    "lmnr[all]==0.7.6",
+    "lmnr[all]==0.7.10",
     # "pytest-playwright-asyncio>=0.7.0",  # not actually needed I think
     "pytest-timeout>=2.4.0",
     "pydantic_settings>=2.10.1"

@@ -1,0 +1,119 @@
+---
+title: "Lifecycle Hooks"
+description: "Customize agent behavior with lifecycle hooks"
+icon: "Wrench"
+mode: "wide"
+---
+
+Browser-Use provides lifecycle hooks that allow you to execute custom code at specific points during the agent's execution.
+Hook functions can be used to read and modify agent state while running, implement custom logic, change configuration, integrate the Agent with external applications.
+
+## Available Hooks
+
+Currently, Browser-Use provides the following hooks:
+
+| Hook            | Description                                  | When it's called                                                                                  |
+| --------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `on_step_start` | Executed at the beginning of each agent step | Before the agent processes the current state and decides on the next action                       |
+| `on_step_end`   | Executed at the end of each agent step       | After the agent has executed all the actions for the current step, before it starts the next step |
+
+```python
+await agent.run(on_step_start=..., on_step_end=...)
+```
+
+Each hook should be an `async` callable function that accepts the `agent` instance as its only parameter.
+
+### Basic Example
+
+```python
+import asyncio
+from pathlib import Path
+
+from browser_use import Agent, ChatOpenAI
+from browser_use.browser.events import ScreenshotEvent
+
+
+async def my_step_hook(agent: Agent):
+	# inside a hook you can access all the state and methods under the Agent object:
+	#   agent.settings, agent.state, agent.task
+	#   agent.tools, agent.llm, agent.browser_session
+	#   agent.pause(), agent.resume(), agent.add_new_task(...), etc.
+
+	# You also have direct access to the browser state
+	state = await agent.browser_session.get_browser_state_summary()
+
+	current_url = state.url
+	visit_log = agent.history.urls()
+	previous_url = visit_log[-2] if len(visit_log) >= 2 else None
+	print(f'Agent was last on URL: {previous_url} and is now on {current_url}')
+	cdp_session = await agent.browser_session.get_or_create_cdp_session()
+
+	# Example: Get page HTML content
+	doc = await cdp_session.cdp_client.send.DOM.getDocument(session_id=cdp_session.session_id)
+	html_result = await cdp_session.cdp_client.send.DOM.getOuterHTML(
+		params={'nodeId': doc['root']['nodeId']}, session_id=cdp_session.session_id
+	)
+	page_html = html_result['outerHTML']
+
+	# Example: Take a screenshot using the event system
+	screenshot_event = agent.browser_session.event_bus.dispatch(ScreenshotEvent(full_page=False))
+	await screenshot_event
+	result = await screenshot_event.event_result(raise_if_any=True, raise_if_none=True)
+
+	# Example: pause agent execution and resume it based on some custom code
+	if '/finished' in current_url:
+		agent.pause()
+		Path('result.txt').write_text(page_html)
+		input('Saved "finished" page content to result.txt, press [Enter] to resume...')
+		agent.resume()
+
+
+async def main():
+	agent = Agent(
+		task='Search for the latest news about AI',
+		llm=ChatOpenAI(model='gpt-5-mini'),
+	)
+
+	await agent.run(
+		on_step_start=my_step_hook,
+		# on_step_end=...
+		max_steps=10,
+	)
+
+
+if __name__ == '__main__':
+	asyncio.run(main())
+```
+
+## Data Available in Hooks
+
+When working with agent hooks, you have access to the entire `Agent` instance. Here are some useful data points you can access:
+
+- `agent.task` lets you see what the main task is, `agent.add_new_task(...)` lets you queue up a new one
+- `agent.tools` give access to the `Tools()` object and `Registry()` containing the available actions
+  - `agent.tools.registry.execute_action('click_element_by_index', {'index': 123}, browser_session=agent.browser_session)`
+- `agent.context` lets you access any user-provided context object passed in to `Agent(context=...)`
+- `agent.sensitive_data` contains the sensitive data dict, which can be updated in-place to add/remove/modify items
+- `agent.settings` contains all the configuration options passed to the `Agent(...)` at init time
+- `agent.llm` gives direct access to the main LLM object (e.g. `ChatOpenAI`)
+- `agent.state` gives access to lots of internal state, including agent thoughts, outputs, actions, etc.
+- `agent.history` gives access to historical data from the agent's execution:
+  - `agent.history.model_thoughts()`: Reasoning from Browser Use's model.
+  - `agent.history.model_outputs()`: Raw outputs from the Browser Use's model.
+  - `agent.history.model_actions()`: Actions taken by the agent
+  - `agent.history.extracted_content()`: Content extracted from web pages
+  - `agent.history.urls()`: URLs visited by the agent
+- `agent.browser_session` gives direct access to the `BrowserSession` and CDP interface
+  - `agent.browser_session.agent_focus`: Get the current CDP session the agent is focused on
+  - `agent.browser_session.get_or_create_cdp_session()`: Get the current CDP session for browser interaction
+  - `agent.browser_session.get_tabs()`: Get all tabs currently open
+  - `agent.browser_session.get_current_page_url()`: Get the URL of the current active tab
+  - `agent.browser_session.get_current_page_title()`: Get the title of the current active tab
+
+## Tips for Using Hooks
+
+- **Avoid blocking operations**: Since hooks run in the same execution thread as the agent, keep them efficient and avoid blocking operations.
+- **Use custom tools instead**: hooks are fairly advanced, most things can be implemented with [custom tools](/customize/tools/basics) instead
+- **Increase step_timeout**: If your hook is doing something that takes a long time, you can increase the `step_timeout` parameter in the `Agent(...)` constructor.
+
+---
