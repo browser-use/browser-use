@@ -335,6 +335,7 @@ class BrowserSession(BaseModel):
 	_dom_watchdog: Any | None = PrivateAttr(default=None)
 	_screenshot_watchdog: Any | None = PrivateAttr(default=None)
 	_permissions_watchdog: Any | None = PrivateAttr(default=None)
+	_recording_watchdog: Any | None = PrivateAttr(default=None)
 
 	_logger: Any = PrivateAttr(default=None)
 
@@ -401,6 +402,7 @@ class BrowserSession(BaseModel):
 		self._dom_watchdog = None
 		self._screenshot_watchdog = None
 		self._permissions_watchdog = None
+		self._recording_watchdog = None
 
 	def model_post_init(self, __context) -> None:
 		"""Register event handlers after model initialization."""
@@ -969,6 +971,7 @@ class BrowserSession(BaseModel):
 		from browser_use.browser.watchdogs.local_browser_watchdog import LocalBrowserWatchdog
 		from browser_use.browser.watchdogs.permissions_watchdog import PermissionsWatchdog
 		from browser_use.browser.watchdogs.popups_watchdog import PopupsWatchdog
+		from browser_use.browser.watchdogs.recording_watchdog import RecordingWatchdog
 		from browser_use.browser.watchdogs.screenshot_watchdog import ScreenshotWatchdog
 		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
 		# from browser_use.browser.storage_state_watchdog import StorageStateWatchdog
@@ -1067,6 +1070,11 @@ class BrowserSession(BaseModel):
 		# self.event_bus.on(TabCreatedEvent, self._dom_watchdog.on_TabCreatedEvent)
 		# self.event_bus.on(BrowserStateRequestEvent, self._dom_watchdog.on_BrowserStateRequestEvent)
 		self._dom_watchdog.attach_to_session()
+
+		# Initialize RecordingWatchdog (handles video recording)
+		RecordingWatchdog.model_rebuild()
+		self._recording_watchdog = RecordingWatchdog(event_bus=self.event_bus, browser_session=self)
+		self._recording_watchdog.attach_to_session()
 
 		# Mark watchdogs as attached to prevent duplicate attachment
 		self._watchdogs_attached = True

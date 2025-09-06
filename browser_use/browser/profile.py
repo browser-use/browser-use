@@ -615,6 +615,18 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	# save_har_path: alias of record_har_path
 	# trace_path: alias of traces_dir
 
+	# these shadow the old playwright args on BrowserContextArgs, but it's ok
+	# because we handle them ourselves in a watchdog and we no longer use playwright, so they should live in the scope for our own config in BrowserProfile long-term
+	record_video_dir: Path | None = Field(
+		default=None,
+		description='Directory to save video recordings. If set, a video of the session will be recorded.',
+		validation_alias=AliasChoices('save_recording_path', 'record_video_dir'),
+	)
+	record_video_size: ViewportSize | None = Field(
+		default=None, description='Video frame size. If not set, it will use the viewport size.'
+	)
+	record_video_framerate: int = Field(default=30, description='The framerate to use for the video recording.')
+
 	# TODO: finish implementing extension support in extensions.py
 	# extension_ids_to_preinstall: list[str] = Field(
 	# 	default_factory=list, description='List of Chrome extension IDs to preinstall.'

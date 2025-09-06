@@ -63,6 +63,9 @@ cli = [
 aws = [
     "boto3>=1.38.45"
 ]
+video = [
+    "imageio[ffmpeg]>=2.37.0"
+]
 examples = [
     "agentmail>=0.0.53",
     # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
