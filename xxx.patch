@@ -1,0 +1,52 @@
+From f3db0a91daab6025b6cbc9c4d150fc61723282b3 Mon Sep 17 00:00:00 2001
+From: "dekun.dk" <dekun.dk@alibaba-inc.com>
+Date: Fri, 22 Aug 2025 21:52:52 +0800
+Subject: [PATCH] fix qwen test type annotations for pyright compliance
+
+---
+ tests/ci/test_qwen_integration.py | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/tests/ci/test_qwen_integration.py b/tests/ci/test_qwen_integration.py
+index 6bd27d03..27ebb282 100644
+--- a/tests/ci/test_qwen_integration.py
++++ b/tests/ci/test_qwen_integration.py
+@@ -4,7 +4,7 @@ import pytest
+ from pydantic import BaseModel
+ 
+ from browser_use.llm import ChatQwen
+-from browser_use.llm.messages import ContentPartTextParam, SystemMessage, UserMessage
++from browser_use.llm.messages import BaseMessage, ContentPartTextParam, SystemMessage, UserMessage
+ 
+ 
+ class QwenTestResponseModel(BaseModel):
+@@ -94,7 +94,7 @@ class TestQwenIntegration:
+ 				max_tokens=50,
+ 			)
+ 
+-			messages = [UserMessage(content='Say "test" in one word.')]
++			messages: list[BaseMessage] = [UserMessage(content='Say "test" in one word.')]
+ 			try:
+ 				response = await chat.ainvoke(messages)
+ 				assert response is not None
+@@ -110,7 +110,7 @@ class TestQwenIntegration:
+ 		if not os.getenv('QWEN_API_KEY'):
+ 			pytest.skip('QWEN_API_KEY not set')
+ 
+-		messages = [UserMessage(content='Say hello briefly.')]
++		messages: list[BaseMessage] = [UserMessage(content='Say hello briefly.')]
+ 
+ 		# Test with temperature 0 (deterministic)
+ 		chat_det = ChatQwen(
+@@ -140,7 +140,7 @@ class TestQwenIntegration:
+ 			max_tokens=20,
+ 		)
+ 
+-		messages = [UserMessage(content='Say hello briefly.')]
++		messages: list[BaseMessage] = [UserMessage(content='Say hello briefly.')]
+ 		response = await chat.ainvoke(messages)
+ 
+ 		assert response is not None
+-- 
+2.47.1
+
