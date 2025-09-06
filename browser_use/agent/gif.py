@@ -272,7 +272,7 @@ def _create_task_frame(
 	else:
 		font_size = base_font_size
 
-	larger_font = ImageFont.truetype(task_font.path, font_size)
+	larger_font = ImageFont.truetype(task_font.path, font_size) if hasattr(task_font, "path") else task_font
 
 	# Generate wrapped text with the calculated font size
 	wrapped_text = _wrap_text(task, larger_font, max_width)
