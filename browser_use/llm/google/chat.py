@@ -19,7 +19,15 @@ T = TypeVar('T', bound=BaseModel)
 
 
 VerifiedGeminiModels = Literal[
-	'gemini-2.0-flash', 'gemini-2.0-flash-exp', 'gemini-2.0-flash-lite-preview-02-05', 'Gemini-2.0-exp'
+	'gemini-2.0-flash',
+	'gemini-2.0-flash-exp',
+	'gemini-2.0-flash-lite-preview-02-05',
+	'Gemini-2.0-exp',
+	'gemma-3-27b-it',
+	'gemma-3-4b',
+	'gemma-3-12b',
+	'gemma-3n-e2b',
+	'gemma-3n-e4b',
 ]
 
 
@@ -59,6 +67,8 @@ class ChatGoogle(BaseChatModel):
 		project: Google Cloud project ID
 		location: Google Cloud location
 		http_options: HTTP options for the client
+		include_system_in_user: If True, system messages are included in the first user message
+		supports_structured_output: If True, uses native JSON mode; if False, uses prompt-based fallback
 
 	Example:
 		from google.genai import types
@@ -79,6 +89,8 @@ class ChatGoogle(BaseChatModel):
 	thinking_budget: int | None = None
 	max_output_tokens: int | None = 4096
 	config: types.GenerateContentConfigDict | None = None
+	include_system_in_user: bool = False
+	supports_structured_output: bool = True  # New flag
 
 	# Client initialization parameters
 	api_key: str | None = None
@@ -168,8 +180,10 @@ class ChatGoogle(BaseChatModel):
 			Either a string response or an instance of output_format
 		"""
 
-		# Serialize messages to Google format
-		contents, system_instruction = GoogleMessageSerializer.serialize_messages(messages)
+		# Serialize messages to Google format with the include_system_in_user flag
+		contents, system_instruction = GoogleMessageSerializer.serialize_messages(
+			messages, include_system_in_user=self.include_system_in_user
+		)
 
 		# Build config dictionary starting with user-provided config
 		config: types.GenerateContentConfigDict = {}
@@ -217,36 +231,109 @@ class ChatGoogle(BaseChatModel):
 				)
 
 			else:
-				# Return structured response
-				config['response_mime_type'] = 'application/json'
-				# Convert Pydantic model to Gemini-compatible schema
-				optimized_schema = SchemaOptimizer.create_optimized_json_schema(output_format)
+				# Handle structured output
+				if self.supports_structured_output:
+					# Use native JSON mode
+					config['response_mime_type'] = 'application/json'
+					# Convert Pydantic model to Gemini-compatible schema
+					optimized_schema = SchemaOptimizer.create_optimized_json_schema(output_format)
 
-				gemini_schema = self._fix_gemini_schema(optimized_schema)
-				config['response_schema'] = gemini_schema
+					gemini_schema = self._fix_gemini_schema(optimized_schema)
+					config['response_schema'] = gemini_schema
 
-				response = await self.get_client().aio.models.generate_content(
-					model=self.model,
-					contents=contents,
-					config=config,
-				)
+					response = await self.get_client().aio.models.generate_content(
+						model=self.model,
+						contents=contents,
+						config=config,
+					)
 
-				usage = self._get_usage(response)
+					usage = self._get_usage(response)
 
-				# Handle case where response.parsed might be None
-				if response.parsed is None:
-					# When using response_schema, Gemini returns JSON as text
+					# Handle case where response.parsed might be None
+					if response.parsed is None:
+						# When using response_schema, Gemini returns JSON as text
+						if response.text:
+							try:
+								# Parse the JSON text and validate with the Pydantic model
+								parsed_data = json.loads(response.text)
+								return ChatInvokeCompletion(
+									completion=output_format.model_validate(parsed_data),
+									usage=usage,
+								)
+							except (json.JSONDecodeError, ValueError) as e:
+								raise ModelProviderError(
+									message=f'Failed to parse or validate response: {str(e)}',
+									status_code=500,
+									model=self.model,
+								) from e
+						else:
+							raise ModelProviderError(
+								message='No response from model',
+								status_code=500,
+								model=self.model,
+							)
+
+					# Ensure we return the correct type
+					if isinstance(response.parsed, output_format):
+						return ChatInvokeCompletion(
+							completion=response.parsed,
+							usage=usage,
+						)
+					else:
+						# If it's not the expected type, try to validate it
+						return ChatInvokeCompletion(
+							completion=output_format.model_validate(response.parsed),
+							usage=usage,
+						)
+				else:
+					# Fallback: Request JSON in the prompt for models without native JSON mode
+					# Create a copy of messages to modify
+					modified_messages = [m.model_copy(deep=True) for m in messages]
+
+					# Add JSON instruction to the last message
+					if modified_messages and isinstance(modified_messages[-1].content, str):
+						json_instruction = f'\n\nPlease respond with a valid JSON object that matches this schema: {SchemaOptimizer.create_optimized_json_schema(output_format)}'
+						modified_messages[-1].content += json_instruction
+
+					# Re-serialize with modified messages
+					fallback_contents, fallback_system = GoogleMessageSerializer.serialize_messages(
+						modified_messages, include_system_in_user=self.include_system_in_user
+					)
+
+					# Update config with fallback system instruction if present
+					fallback_config = config.copy()
+					if fallback_system:
+						fallback_config['system_instruction'] = fallback_system
+
+					response = await self.get_client().aio.models.generate_content(
+						model=self.model,
+						contents=fallback_contents,  # type: ignore
+						config=fallback_config,
+					)
+
+					usage = self._get_usage(response)
+
+					# Try to extract JSON from the text response
 					if response.text:
 						try:
-							# Parse the JSON text and validate with the Pydantic model
-							parsed_data = json.loads(response.text)
+							# Try to find JSON in the response
+							text = response.text.strip()
+
+							# Common patterns: JSON wrapped in markdown code blocks
+							if text.startswith('```json') and text.endswith('```'):
+								text = text[7:-3].strip()
+							elif text.startswith('```') and text.endswith('```'):
+								text = text[3:-3].strip()
+
+							# Parse and validate
+							parsed_data = json.loads(text)
 							return ChatInvokeCompletion(
 								completion=output_format.model_validate(parsed_data),
 								usage=usage,
 							)
 						except (json.JSONDecodeError, ValueError) as e:
 							raise ModelProviderError(
-								message=f'Failed to parse or validate response: {str(e)}',
+								message=f'Model does not support JSON mode and failed to parse JSON from text response: {str(e)}',
 								status_code=500,
 								model=self.model,
 							) from e
@@ -256,19 +343,6 @@ class ChatGoogle(BaseChatModel):
 							status_code=500,
 							model=self.model,
 						)
-
-				# Ensure we return the correct type
-				if isinstance(response.parsed, output_format):
-					return ChatInvokeCompletion(
-						completion=response.parsed,
-						usage=usage,
-					)
-				else:
-					# If it's not the expected type, try to validate it
-					return ChatInvokeCompletion(
-						completion=output_format.model_validate(response.parsed),
-						usage=usage,
-					)
 
 		try:
 			# Use manual retry loop for Google API calls
