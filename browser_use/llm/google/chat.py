@@ -393,6 +393,10 @@ class ChatGoogle(BaseChatModel):
 				):
 					cleaned['properties'] = {'_placeholder': {'type': 'string'}}
 
+				# Also remove 'title' from the required list if it exists
+				if 'required' in cleaned and isinstance(cleaned.get('required'), list):
+					cleaned['required'] = [p for p in cleaned['required'] if p != 'title']
+
 				return cleaned
 			elif isinstance(obj, list):
 				return [clean_schema(item) for item in obj]
