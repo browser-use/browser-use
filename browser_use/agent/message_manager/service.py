@@ -17,6 +17,7 @@ from browser_use.browser.views import BrowserStateSummary
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.messages import (
 	BaseMessage,
+	ContentPartImageParam,
 	ContentPartTextParam,
 	SystemMessage,
 )
@@ -108,6 +109,7 @@ class MessageManager:
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		include_tool_call_examples: bool = False,
 		include_recent_events: bool = False,
+		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 	):
 		self.task = task
 		self.state = state
@@ -119,6 +121,7 @@ class MessageManager:
 		self.vision_detail_level = vision_detail_level
 		self.include_tool_call_examples = include_tool_call_examples
 		self.include_recent_events = include_recent_events
+		self.sample_images = sample_images
 
 		assert max_history_items is None or max_history_items > 5, 'max_history_items must be None or greater than 5'
 
@@ -190,10 +193,10 @@ class MessageManager:
 				logger.debug(f'Added extracted_content to read_state_description: {action_result.extracted_content}')
 
 			if action_result.long_term_memory:
-				action_results += f'Action {idx + 1}/{result_len}: {action_result.long_term_memory}\n'
+				action_results += f'{action_result.long_term_memory}\n'
 				logger.debug(f'Added long_term_memory to action_results: {action_result.long_term_memory}')
 			elif action_result.extracted_content and not action_result.include_extracted_content_only_once:
-				action_results += f'Action {idx + 1}/{result_len}: {action_result.extracted_content}\n'
+				action_results += f'{action_result.extracted_content}\n'
 				logger.debug(f'Added extracted_content to action_results: {action_result.extracted_content}')
 
 			if action_result.error:
@@ -201,13 +204,13 @@ class MessageManager:
 					error_text = action_result.error[:100] + '......' + action_result.error[-100:]
 				else:
 					error_text = action_result.error
-				action_results += f'Action {idx + 1}/{result_len}: {error_text}\n'
+				action_results += f'{error_text}\n'
 				logger.debug(f'Added error to action_results: {error_text}')
 
 		self.state.read_state_description = self.state.read_state_description.strip('\n')
 
 		if action_results:
-			action_results = f'Action Results:\n{action_results}'
+			action_results = f'Result:\n{action_results}'
 		action_results = action_results.strip('\n') if action_results else None
 
 		# Build the history item
@@ -306,6 +309,7 @@ class MessageManager:
 			screenshots=screenshots,
 			vision_detail_level=self.vision_detail_level,
 			include_recent_events=self.include_recent_events,
+			sample_images=self.sample_images,
 		).get_user_message(use_vision)
 
 		# Set the state message with caching enabled

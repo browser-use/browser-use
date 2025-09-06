@@ -236,17 +236,17 @@ class Tools(Generic[Context]):
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			'Wait for x seconds default 3 (max 10 seconds). This can be used to wait until the page is fully loaded.'
+			'Wait for x seconds (default 3) (max 30 seconds). This can be used to wait until the page is fully loaded.'
 		)
 		async def wait(seconds: int = 3):
-			# Cap wait time at maximum 10 seconds
+			# Cap wait time at maximum 30 seconds
 			# Reduce the wait time by 3 seconds to account for the llm call which takes at least 3 seconds
 			# So if the model decides to wait for 5 seconds, the llm call took at least 3 seconds, so we only need to wait for 2 seconds
 			# Note by Mert: the above doesnt make sense because we do the LLM call right after this or this could be followed by another action after which we would like to wait
 			# so I revert this.
-			actual_seconds = min(max(seconds, 0), 10)
-			memory = f'Waited for {actual_seconds} seconds'
-			logger.info(f'🕒 {memory}')
+			actual_seconds = min(max(seconds - 3, 0), 30)
+			memory = f'Waited for {seconds} seconds'
+			logger.info(f'🕒 waited for {actual_seconds} seconds + 3 seconds for LLM call')
 			await asyncio.sleep(actual_seconds)
 			return ActionResult(extracted_content=memory, long_term_memory=memory)
 
@@ -266,7 +266,7 @@ class Tools(Generic[Context]):
 				# Look up the node from the selector map
 				node = await browser_session.get_element_by_index(params.index)
 				if node is None:
-					raise ValueError(f'Element index {params.index} not found in DOM')
+					raise ValueError(f'Element index {params.index} not found in browser state')
 
 				event = browser_session.event_bus.dispatch(
 					ClickElementEvent(node=node, while_holding_ctrl=params.while_holding_ctrl or False)
@@ -315,7 +315,7 @@ class Tools(Generic[Context]):
 			# Look up the node from the selector map
 			node = await browser_session.get_element_by_index(params.index)
 			if node is None:
-				raise ValueError(f'Element index {params.index} not found in DOM')
+				raise ValueError(f'Element index {params.index} not found in browser state')
 
 			# Dispatch type text event with node
 			try:
@@ -325,7 +325,7 @@ class Tools(Generic[Context]):
 				await event
 				input_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
 				msg = f"Input '{params.text}' into element {params.index}."
-				logger.info(msg)
+				logger.debug(msg)
 
 				# Include input coordinates in metadata if available
 				return ActionResult(
@@ -669,7 +669,9 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				raise RuntimeError(str(e))
 
 		@self.registry.action(
-			"""Scroll the page by specified number of pages (set down=True to scroll down, down=False to scroll up, num_pages=number of pages to scroll like 0.5 for half page, 10.0 for ten pages, etc.). Optional index parameter to scroll within a specific element or its scroll container (works well for dropdowns and custom UI components). If you want to scroll the entire page, don't use index.
+			"""Scroll the page by specified number of pages (set down=True to scroll down, down=False to scroll up, num_pages=number of pages to scroll like 0.5 for half page, 10.0 for ten pages, etc.). 
+			Default behavior is to scroll the entire page. This is enough for most cases.
+			Optional if there are multiple scroll containers, use frame_element_index parameter with an element inside the container you want to scroll in. For that you must use indices that exist in your browser_state (works well for dropdowns and custom UI components). 
 			Instead of scrolling step after step, use a high number of pages at once like 10 to get to the bottom of the page.
 			If you know where you want to scroll to, use scroll_to_text instead of this tool.
 			""",
@@ -681,18 +683,15 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				# Special case: index 0 means scroll the whole page (root/body element)
 				node = None
 				if params.frame_element_index is not None and params.frame_element_index != 0:
-					try:
-						node = await browser_session.get_element_by_index(params.frame_element_index)
-						if node is None:
-							# Element not found - return error
-							raise ValueError(f'Element index {params.frame_element_index} not found in DOM')
-					except Exception as e:
-						# Error getting element - return error
-						raise ValueError(f'Failed to get element {params.frame_element_index}: {e}') from e
+					node = await browser_session.get_element_by_index(params.frame_element_index)
+					if node is None:
+						# Element does not exist
+						msg = f'Element index {params.frame_element_index} not found in browser state'
+						return ActionResult(error=msg)
 
 				# Dispatch scroll event with node - the complex logic is handled in the event handler
-				# Convert pages to pixels (assuming 800px per page as standard viewport height)
-				pixels = int(params.num_pages * 800)
+				# Convert pages to pixels (assuming 1000px per page as standard viewport height)
+				pixels = int(params.num_pages * 1000)
 				event = browser_session.event_bus.dispatch(
 					ScrollEvent(direction='down' if params.down else 'up', amount=pixels, node=node)
 				)
@@ -765,7 +764,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		# Dropdown Actions
 
 		@self.registry.action(
-			'Get list of option values exposed by a specific dropdown input field. Only works on dropdown-style form elements (<select>, Semantic UI/aria-labeled select, etc.).',
+			'Get list of values for a dropdown input field. Only works on dropdown-style form elements (<select>, Semantic UI/aria-labeled select, etc.). Do not use this tool for none dropdown elements.',
 			param_model=GetDropdownOptionsAction,
 		)
 		async def get_dropdown_options(params: GetDropdownOptionsAction, browser_session: BrowserSession):
@@ -773,7 +772,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			# Look up the node from the selector map
 			node = await browser_session.get_element_by_index(params.index)
 			if node is None:
-				raise ValueError(f'Element index {params.index} not found in DOM')
+				raise ValueError(f'Element index {params.index} not found in browser state')
 
 			# Dispatch GetDropdownOptionsEvent to the event handler
 
@@ -799,7 +798,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			# Look up the node from the selector map
 			node = await browser_session.get_element_by_index(params.index)
 			if node is None:
-				raise ValueError(f'Element index {params.index} not found in DOM')
+				raise ValueError(f'Element index {params.index} not found in browser state')
 
 			# Dispatch SelectDropdownOptionEvent to the event handler
 			from browser_use.browser.events import SelectDropdownOptionEvent

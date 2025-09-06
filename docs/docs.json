@@ -9,7 +9,10 @@
   },
   "favicon": "/favicon.ico",
   "contextual": {
-    "options": ["copy", "view"]
+    "options": [
+      "copy",
+      "view"
+    ]
   },
   "fonts": {
     "family": "Geist"
@@ -42,11 +45,31 @@
     },
     {
       "source": "/development/evaluations",
-      "destination": "/development/contribution-guide"
+      "destination": "/development/setup/contribution-guide"
     },
     {
       "source": "/cli",
       "destination": "/quickstart"
+    },
+    {
+      "source": "/development/local-setup",
+      "destination": "/development/setup/local-setup"
+    },
+    {
+      "source": "/development/contribution-guide",
+      "destination": "/development/setup/contribution-guide"
+    },
+    {
+      "source": "/development/telemetry",
+      "destination": "/development/monitoring/telemetry"
+    },
+    {
+      "source": "/development/observability",
+      "destination": "/development/monitoring/observability"
+    },
+    {
+      "source": "/development/hooks",
+      "destination": "/customize/hooks"
     }
   ],
   "navigation": {
@@ -56,7 +79,11 @@
         "groups": [
           {
             "group": "Get Started",
-            "pages": ["introduction", "quickstart", "quickstart_llm"]
+            "pages": [
+              "introduction",
+              "quickstart",
+              "quickstart_llm"
+            ]
           },
           {
             "group": "Customize",
@@ -102,9 +129,11 @@
                   "customize/examples/fast-agent",
                   "customize/examples/chain-agents",
                   "customize/examples/parallel-browser",
+                  "customize/examples/playwright-integration",
                   "customize/examples/sensitive-data",
                   "customize/examples/secure",
-                  "customize/examples/more-examples"
+                  "customize/examples/more-examples",
+                  "customize/examples/prompting-guide"
                 ]
               }
             ]
@@ -112,22 +141,40 @@
           {
             "group": "Development",
             "pages": [
-              "development/contribution-guide",
-              "development/local-setup",
               {
-                "group": "MCP",
-                "icon": "link",
-                "pages": ["customize/mcp-client", "customize/mcp-server"]
+                "group": "Contribution",
+                "icon": "github",
+                "isDefaultOpen": true,
+                "pages": [
+                  "development/setup/local-setup",
+                  "development/setup/contribution-guide"
+                ]
               },
-              "customize/hooks",
-              "development/telemetry",
-              "development/observability"
+              {
+                "group": "Advanced",
+                "icon": "gear",
+                "isDefaultOpen": false,
+                "pages": [
+                  "customize/hooks"
+                ]
+              },
+              {
+                "group": "Monitoring",
+                "icon": "chart-mixed",
+                "isDefaultOpen": false,
+                "pages": [
+                  "development/monitoring/observability",
+                  "development/monitoring/telemetry"
+                ]
+              },
+              "development/get-help"
             ]
           }
         ]
       },
       {
         "tab": "Cloud",
+        "hidden": true,
         "versions": [
           {
             "version": "v1",
@@ -155,27 +202,6 @@
                 "openapi": "https://api.browser-use.com/api/v1/openapi.json"
               }
             ]
-          },
-          {
-            "version": "v2",
-            "groups": [
-              {
-                "group": "Get Started",
-                "pages": [
-                  "cloud/v2/quickstart",
-                  "cloud/v2/python-quickstart",
-                  "cloud/v2/node-quickstart"
-                ]
-              },
-              {
-                "group": "Platform",
-                "pages": [
-                  "cloud/v1/pricing",
-                  "cloud/v1/n8n-browser-use-integration",
-                  "cloud/v1/search"
-                ]
-              }
-            ]
           }
         ]
       }
@@ -191,7 +217,11 @@
       "display": "interactive"
     },
     "examples": {
-      "languages": ["javascript", "curl", "python"],
+      "languages": [
+        "javascript",
+        "curl",
+        "python"
+      ],
       "required": true
     }
   },

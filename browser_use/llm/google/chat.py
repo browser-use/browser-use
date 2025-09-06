@@ -73,10 +73,11 @@ class ChatGoogle(BaseChatModel):
 
 	# Model configuration
 	model: VerifiedGeminiModels | str
-	temperature: float | None = None
+	temperature: float | None = 0.2
 	top_p: float | None = None
 	seed: int | None = None
 	thinking_budget: int | None = None
+	max_output_tokens: int | None = 4096
 	config: types.GenerateContentConfigDict | None = None
 
 	# Client initialization parameters
@@ -192,6 +193,9 @@ class ChatGoogle(BaseChatModel):
 		if self.thinking_budget is not None:
 			thinking_config_dict: types.ThinkingConfigDict = {'thinking_budget': self.thinking_budget}
 			config['thinking_config'] = thinking_config_dict
+
+		if self.max_output_tokens is not None:
+			config['max_output_tokens'] = self.max_output_tokens
 
 		async def _make_api_call():
 			if output_format is None:
@@ -388,6 +392,10 @@ class ChatGoogle(BaseChatModel):
 					and len(cleaned['properties']) == 0
 				):
 					cleaned['properties'] = {'_placeholder': {'type': 'string'}}
+
+				# Also remove 'title' from the required list if it exists
+				if 'required' in cleaned and isinstance(cleaned.get('required'), list):
+					cleaned['required'] = [p for p in cleaned['required'] if p != 'title']
 
 				return cleaned
 			elif isinstance(obj, list):

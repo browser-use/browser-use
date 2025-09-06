@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.7.1"
+version = "0.7.3"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -28,9 +28,9 @@ dependencies = [
     "typing-extensions>=4.12.2",
     "uuid7>=0.1.0",
     "authlib>=1.6.0",
-    "google-genai==1.29.0",
-    "openai==1.99.2",
-    "anthropic==0.58.2",
+    "google-genai>=1.29.0,<2.0.0",
+    "openai>=1.99.2,<2.0.0",
+    "anthropic>=0.58.2,<1.0.0",
     "groq>=0.30.0",
     "ollama>=0.5.1",
     "google-api-python-client>=2.174.0",
@@ -38,9 +38,11 @@ dependencies = [
     "google-auth-oauthlib>=1.2.2",
     "mcp>=1.10.1",
     "pypdf>=5.7.0",
+    "reportlab>=4.0.0",
     "cdp-use>=1.4.0",
-    "markdown-pdf==1.5",
+    "pyotp>=2.9.0",
     "html2text>=2025.4.15",
+    "pillow>=11.2.1",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -61,7 +63,12 @@ cli = [
 aws = [
     "boto3>=1.38.45"
 ]
+video = [
+    "imageio[ffmpeg]>=2.37.0",
+    "numpy>=2.3.2",
+]
 examples = [
+    "agentmail>=0.0.53",
     # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
     "botocore>=1.37.23",
     "imgcat>=0.6.0",
@@ -70,9 +77,8 @@ examples = [
     "langchain-openai>=0.3.26",
 ]
 eval = [
-    "lmnr[all]==0.7.6",
+    "lmnr[all]==0.7.10",
     "anyio>=4.9.0",
-    "Pillow>=11.2.1",
     "psutil>=7.0.0",
     "datamodel-code-generator>=0.26.0",
     "hyperbrowser==0.47.0",
@@ -90,6 +96,9 @@ all = [
 [project.urls]
 Repository = "https://github.com/browser-use/browser-use"
 
+[project.scripts]
+browseruse = "browser_use.cli:main"
+browser-use = "browser_use.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -192,8 +201,8 @@ dev-dependencies = [
     "pyright>=1.1.403",
     "ty>=0.0.1a1",
     "pytest-xdist>=3.7.0",
-    "pillow>=11.2.1",
-    "lmnr[all]==0.7.6",
+    "lmnr[all]==0.7.10",
     # "pytest-playwright-asyncio>=0.7.0",  # not actually needed I think
     "pytest-timeout>=2.4.0",
+    "pydantic_settings>=2.10.1"
 ]
