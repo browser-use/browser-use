@@ -269,3 +269,89 @@ def test_is_new_tab_page():
 	assert is_new_tab_page('http://google.com') is False
 	assert is_new_tab_page('') is False
 	assert is_new_tab_page('chrome://settings') is False
+
+
+def test_callable_sensitive_data_old_format(registry):
+	"""Callables in old format should be evaluated at replacement time."""
+
+	params = SensitiveParams(text='Enter <secret>otp</secret> and <secret>password</secret>')
+
+	# Providers: one callable and one static
+	call_count = {'n': 0}
+
+	def otp_provider():
+		call_count['n'] += 1
+		return '123456'
+
+	sensitive_data = {
+		'otp': otp_provider,
+		'password': 'pass123',
+	}
+
+	result = registry._replace_sensitive_data(params, sensitive_data)
+	assert result.text == 'Enter 123456 and pass123'
+	assert call_count['n'] == 1
+
+
+def test_callable_sensitive_data_domain_scoped(registry):
+	"""Domain-scoped callables are only used when URL matches."""
+
+	params = SensitiveParams(text='Code: <secret>otp</secret>')
+
+	call_count = {'n': 0}
+
+	def otp_provider():
+		call_count['n'] += 1
+		return '654321'
+
+	sensitive_data = {
+		'example.com': {'otp': otp_provider},
+	}
+
+	# Without URL, should not replace
+	res_no_url = registry._replace_sensitive_data(params, sensitive_data)
+	assert res_no_url.text == 'Code: <secret>otp</secret>'
+	assert call_count['n'] == 0
+
+	# With matching URL, should replace and evaluate once
+	res_with_url = registry._replace_sensitive_data(params, sensitive_data, 'https://example.com/login')
+	assert res_with_url.text == 'Code: 654321'
+	assert call_count['n'] == 1
+
+
+def test_callable_evaluated_once_per_placeholder(registry):
+	"""Same placeholder appearing twice is resolved once per call."""
+
+	params = SensitiveParams(text='OTP1: <secret>otp</secret>, OTP2: <secret>otp</secret>')
+
+	call_count = {'n': 0}
+
+	def otp_provider():
+		call_count['n'] += 1
+		return '999000'
+
+	sensitive_data = {'otp': otp_provider}
+
+	res = registry._replace_sensitive_data(params, sensitive_data)
+	assert res.text == 'OTP1: 999000, OTP2: 999000'
+	assert call_count['n'] == 1
+
+
+def test_sanitization_does_not_evaluate_callables(message_manager):
+	"""MessageManager should not evaluate callable sensitive values during sanitization."""
+
+	called = {'flag': False}
+
+	def raising_provider():
+		called['flag'] = True
+		raise RuntimeError('Should not be called during sanitization')
+
+	message_manager.sensitive_data = {
+		'example.com': {'otp': raising_provider},
+		'password': raising_provider,
+	}
+	message = UserMessage(content='This text has no real secrets inside')
+	# Should not raise and should not mark called
+	res = message_manager._filter_sensitive_data(message)
+	assert isinstance(res.content, str)
+	assert called['flag'] is False
