@@ -659,6 +659,9 @@ class EnhancedDOMTreeNode:
 	def __hash__(self) -> int:
 		"""
 		Hash the element based on its parent branch path and attributes.
+		
+		Note: Excludes 'value' attribute from hash calculation to prevent multiact 
+		from breaking when input field values change.
 
 		TODO: migrate this to use only backendNodeId + current SessionId
 		"""
@@ -667,8 +670,8 @@ class EnhancedDOMTreeNode:
 		parent_branch_path = self._get_parent_branch_path()
 		parent_branch_path_string = '/'.join(parent_branch_path)
 
-		# Get attributes hash
-		attributes_string = ''.join(f'{key}={value}' for key, value in self.attributes.items())
+		# Get attributes hash (excluding 'value' to prevent multiact issues)
+		attributes_string = ''.join(f'{key}={value}' for key, value in self.attributes.items() if key != 'value')
 
 		# Combine both for final hash
 		combined_string = f'{parent_branch_path_string}|{attributes_string}'
