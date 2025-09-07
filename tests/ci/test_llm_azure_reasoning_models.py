@@ -16,6 +16,7 @@ async def test_azure_openai_reasoning_model_parameter_filtering(monkeypatch):
 		api_key='test-key',
 		azure_endpoint='https://test.openai.azure.com',
 		azure_deployment='gpt-5-chat',
+		service_tier='auto',  # This should be filtered out for Azure
 	)
 
 	# Create test messages
@@ -89,6 +90,7 @@ async def test_azure_openai_non_reasoning_model_parameters(monkeypatch):
 		azure_deployment='gpt-4o',
 		temperature=0.7,
 		frequency_penalty=0.5,
+		service_tier='auto',  # This should still be filtered out for Azure
 	)
 
 	messages: list[BaseMessage] = [UserMessage(content='Test message')]
