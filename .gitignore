@@ -53,3 +53,10 @@ credentials.json
 token.json
 
 !docs/docs.json
+
+
+temp-profile-*
+
+screenshot.png
+
+# *.md

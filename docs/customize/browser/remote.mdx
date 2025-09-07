@@ -1,0 +1,55 @@
+---
+title: "Remote Browser"
+description: ""
+icon: "cloud"
+mode: "wide"
+---
+
+```python
+from browser_use import Agent, Browser, ChatOpenAI
+
+# Connect to remote browser
+browser = Browser(
+    cdp_url='http://remote-server:9222'
+)
+
+
+agent = Agent(
+    task="Your task here",
+    llm=ChatOpenAI(model='gpt-4.1-mini'),
+    browser=browser,
+)
+```
+
+
+## Get a CDP URL
+### Cloud Browser
+Get a cdp url from your favorite browser provider like AnchorBorwser, HyperBrowser, BrowserBase, Steel.dev, etc.
+
+
+
+
+### Proxy Connection
+
+```python
+
+from browser_use import Agent, Browser, ChatOpenAI
+from browser_use.browser import ProxySettings
+
+browser = Browser(
+        headless=False,
+        proxy=ProxySettings(
+            server="http://proxy-server:8080",
+            username="proxy-user",
+            password="proxy-pass"
+        )
+        cdp_url="http://remote-server:9222"
+)
+
+
+agent = Agent(
+    task="Your task here",
+    llm=ChatOpenAI(model='gpt-4.1-mini'),
+    browser=browser,
+)
+```

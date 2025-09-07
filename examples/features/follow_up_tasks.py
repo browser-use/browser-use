@@ -2,47 +2,30 @@ import asyncio
 import os
 import sys
 
+from browser_use.browser.profile import BrowserProfile
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from browser_use import Agent, Controller
-from browser_use.browser import BrowserProfile, BrowserSession
-from browser_use.llm import ChatOpenAI
+from browser_use import Agent
 
-# Initialize the model
-llm = ChatOpenAI(
-	model='gpt-4.1',
-	temperature=0.0,
-)
-# Get your chrome path
-browser_session = BrowserSession(
-	browser_profile=BrowserProfile(
-		executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-		keep_alive=True,
-		user_data_dir='~/.config/browseruse/profiles/default',
-	),
-)
-
-controller = Controller()
+profile = BrowserProfile(keep_alive=True)
 
 
-task = 'Find the founders of browser-use and draft them a short personalized message'
-
-agent = Agent(task=task, llm=llm, controller=controller, browser_session=browser_session)
+task = """Go to reddit.com"""
 
 
 async def main():
-	await agent.run()
+	agent = Agent(task=task, browser_profile=profile)
+	await agent.run(max_steps=1)
 
-	# new_task = input('Type in a new task: ')
-	new_task = 'Find an image of the founders'
-
-	agent.add_new_task(new_task)
-
-	await agent.run()
+	while True:
+		user_response = input('\n👤 New task or "q" to quit: ')
+		agent.add_new_task(f'New task: {user_response}')
+		await agent.run()
 
 
 if __name__ == '__main__':

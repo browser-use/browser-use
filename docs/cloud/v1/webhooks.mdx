@@ -1,0 +1,145 @@
+---
+title: "Webhooks"
+description: "Learn how to integrate webhooks with Browser Use Cloud API"
+icon: "code"
+mode: "wide"
+---
+
+Webhooks allow you to receive real-time notifications about events in your Browser Use tasks. This guide will show you how to set up and verify webhook endpoints.
+
+## Prerequisites
+
+<Note>
+  You need an active subscription to create webhooks. See your billing page
+  [cloud.browser-use.com/billing](https://cloud.browser-use.com/billing)
+</Note>
+
+## Setting Up Webhooks
+
+To receive webhook notifications, you need to:
+
+1. Create an endpoint that can receive HTTPS POST requests
+2. Configure your webhook URL in the Browser Use dashboard
+3. Implement signature verification to ensure webhook authenticity
+
+<Note>
+  When adding a webhook URL in the dashboard, it must be a valid HTTPS URL that can receive POST requests. 
+  On creation, we will send a test payload `{"type": "test", "timestamp": "2024-03-21T12:00:00Z", "payload": {"test": "ok"}}` to verify the endpoint is working correctly before creating the actual webhook!
+</Note>
+
+## Webhook Events
+
+Browser Use sends various types of events. Each event has a specific type and payload structure.
+
+### Event Types
+
+Currently supported events:
+
+| Event Type                 | Description                      |
+| -------------------------- | -------------------------------- |
+| `agent.task.status_update` | Status updates for running tasks |
+
+### Task Status Updates
+
+The `agent.task.status_update` event includes the following statuses:
+
+| Status         | Description                            |
+| -------------- | -------------------------------------- |
+| `initializing` | A task is initializing                 |
+| `started`      | A Task has started (browser available) |
+| `paused`       | A task has been paused mid execution   |
+| `stopped`      | A task has been stopped mid execution  |
+| `finished`     | A task has finished                    |
+
+## Webhook Payload Structure
+
+Each webhook call includes:
+
+- A JSON payload with event details
+- `X-Browser-Use-Timestamp` header with the current timestamp
+- `X-Browser-Use-Signature` header for verification
+
+The payload follows this structure:
+
+```json
+{
+  "type": "agent.task.status_update",
+  "timestamp": "2025-05-25T09:22:22.269116+00:00",
+  "payload": {
+    "session_id": "cd9cc7bf-e3af-4181-80a2-73f083bc94b4",
+    "task_id": "5b73fb3f-a3cb-4912-be40-17ce9e9e1a45",
+    "status": "finished",
+    "metadata": {
+      "campaign": "q4-automation",
+      "team": "marketing"
+    }
+  }
+}
+```
+
+The webhook payload now includes a `metadata` field containing any custom key-value pairs that were provided when the task was created. This allows you to correlate webhook events with your internal tracking systems.
+
+## Implementing Webhook Verification
+
+To ensure webhook authenticity, you must verify the signature. Here's an example implementation in Python using FastAPI:
+
+```python
+import uvicorn
+import hmac
+import hashlib
+import json
+import os
+
+from fastapi import FastAPI, Request, HTTPException
+
+app = FastAPI()
+
+SECRET_KEY = os.environ['SECRET_KEY']
+
+def verify_signature(payload: dict, timestamp: str, received_signature: str) -> bool:
+    message = f'{timestamp}.{json.dumps(payload, separators=(",", ":"), sort_keys=True)}'
+    expected_signature = hmac.new(SECRET_KEY.encode(), message.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected_signature, received_signature)
+
+@app.post('/webhook')
+async def webhook(request: Request):
+    body = await request.json()
+
+    timestamp = request.headers.get('X-Browser-Use-Timestamp')
+    signature = request.headers.get('X-Browser-Use-Signature')
+    if not timestamp or not signature:
+        raise HTTPException(status_code=400, detail='Missing timestamp or signature')
+
+    if not verify_signature(body, timestamp, signature):
+        raise HTTPException(status_code=403, detail='Invalid signature')
+
+    # Handle different event types
+    event_type = body.get('type')
+    if event_type == 'agent.task.status_update':
+        # Handle task status update
+        print('Task status update received:', body['payload'])
+    elif event_type == 'test':
+        # Handle test webhook
+        print('Test webhook received:', body['payload'])
+    else:
+        print('Unknown event type:', event_type)
+
+    return {'status': 'success', 'message': 'Webhook received'}
+
+if __name__ == '__main__':
+    uvicorn.run(app, host='0.0.0.0', port=8080)
+```
+
+## Best Practices
+
+1. **Always verify signatures**: Never process webhook payloads without verifying the signature
+2. **Handle retries**: Browser Use will retry failed webhook deliveries up to 5 times
+3. **Respond quickly**: Return a 200 response as soon as you've verified the signature
+4. **Process asynchronously**: Handle the webhook payload processing in a background task
+5. **Monitor failures**: Set up monitoring for webhook delivery failures
+6. **Handle unknown events**: Implement graceful handling of new event types that may be added in the future
+
+<Note>
+  Need help? Contact our support team at support@browser-use.com or join our
+  [Discord community](https://link.browser-use.com/discord)
+</Note>

@@ -12,7 +12,7 @@ repos:
           - tomli
 
   - repo: https://github.com/asottile/pyupgrade
-    rev: v3.19.1
+    rev: v3.20.0
     hooks:
       - id: pyupgrade
         args: [--py311-plus]
@@ -23,19 +23,20 @@ repos:
   #     - id: add-trailing-comma
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.2
+    rev: v0.12.10
     hooks:
-      - id: ruff
+      - id: ruff-check
+        args: [ --fix ]
       - id: ruff-format
       # see pyproject.toml for more details on ruff config
 
   - repo: https://github.com/RobertCraigie/pyright-python
-    rev: v1.1.403
+    rev: v1.1.404
     hooks:
     - id: pyright
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       # check for basic syntax errors in python and data files
       - id: check-ast

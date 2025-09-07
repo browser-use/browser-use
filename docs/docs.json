@@ -1,130 +1,206 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
+  "theme": "aspen",
   "name": "Browser Use",
   "colors": {
-    "primary": "#F97316",
+    "primary": "#FE750E",
     "light": "#FFF7ED",
     "dark": "#C2410C"
   },
   "favicon": "/favicon.ico",
+  "contextual": {
+    "options": [
+      "copy",
+      "view"
+    ]
+  },
+  "fonts": {
+    "family": "Geist"
+  },
+  "integrations": {
+    "posthog": {
+      "apiKey": "phc_F8JMNjW1i2KbGUTaW1unnDdLSPCoyc52SGRU0JecaUh"
+    }
+  },
+  "redirects": [
+    {
+      "source": "/customize/supported-models",
+      "destination": "/customize/agent/supported-models"
+    },
+    {
+      "source": "/customize/agent-settings",
+      "destination": "/customize/agent/all-parameters"
+    },
+    {
+      "source": "/customize/browser-settings",
+      "destination": "/customize/browser/all-parameters"
+    },
+    {
+      "source": "/customize/custom-functions",
+      "destination": "/customize/tools/add"
+    },
+    {
+      "source": "/customize/system-prompt",
+      "destination": "/customize/agent/all-parameters#system-messages"
+    },
+    {
+      "source": "/development/evaluations",
+      "destination": "/development/setup/contribution-guide"
+    },
+    {
+      "source": "/cli",
+      "destination": "/quickstart"
+    },
+    {
+      "source": "/development/local-setup",
+      "destination": "/development/setup/local-setup"
+    },
+    {
+      "source": "/development/contribution-guide",
+      "destination": "/development/setup/contribution-guide"
+    },
+    {
+      "source": "/development/telemetry",
+      "destination": "/development/monitoring/telemetry"
+    },
+    {
+      "source": "/development/observability",
+      "destination": "/development/monitoring/observability"
+    },
+    {
+      "source": "/development/hooks",
+      "destination": "/customize/hooks"
+    }
+  ],
   "navigation": {
     "tabs": [
       {
-        "tab": "Documentation",
+        "tab": "Library",
         "groups": [
           {
             "group": "Get Started",
             "pages": [
               "introduction",
               "quickstart",
-              "cli"
+              "quickstart_llm"
             ]
           },
           {
             "group": "Customize",
             "pages": [
-              "customize/supported-models",
-              "customize/agent-settings",
-              "customize/browser-settings",
-              "customize/real-browser",
-              "customize/output-format",
-              "customize/system-prompt",
-              "customize/sensitive-data",
-              "customize/custom-functions",
-              "customize/mcp-client",
-              "customize/mcp-server",
-              "customize/hooks"
+              {
+                "group": "Agent",
+                "icon": "robot",
+                "isDefaultOpen": true,
+                "pages": [
+                  "customize/agent/basics",
+                  "customize/agent/supported-models",
+                  "customize/agent/output-format",
+                  "customize/agent/all-parameters"
+                ]
+              },
+              {
+                "group": "Browser",
+                "icon": "window",
+                "isDefaultOpen": false,
+                "pages": [
+                  "customize/browser/basics",
+                  "customize/browser/real-browser",
+                  "customize/browser/remote",
+                  "customize/browser/all-parameters"
+                ]
+              },
+              {
+                "group": "Tools",
+                "icon": "wrench",
+                "isDefaultOpen": false,
+                "pages": [
+                  "customize/tools/basics",
+                  "customize/tools/available",
+                  "customize/tools/add",
+                  "customize/tools/remove",
+                  "customize/tools/response"
+                ]
+              },
+              {
+                "group": "Examples",
+                "icon": "folder-open",
+                "pages": [
+                  "customize/examples/fast-agent",
+                  "customize/examples/chain-agents",
+                  "customize/examples/parallel-browser",
+                  "customize/examples/playwright-integration",
+                  "customize/examples/sensitive-data",
+                  "customize/examples/secure",
+                  "customize/examples/more-examples",
+                  "customize/examples/prompting-guide"
+                ]
+              }
             ]
           },
           {
             "group": "Development",
             "pages": [
-              "development/contribution-guide",
-              "development/local-setup",
-              "development/telemetry",
-              "development/observability",
-              "development/evaluations",
-              "development/roadmap"
+              {
+                "group": "Contribution",
+                "icon": "github",
+                "isDefaultOpen": true,
+                "pages": [
+                  "development/setup/local-setup",
+                  "development/setup/contribution-guide"
+                ]
+              },
+              {
+                "group": "Advanced",
+                "icon": "gear",
+                "isDefaultOpen": false,
+                "pages": [
+                  "customize/hooks"
+                ]
+              },
+              {
+                "group": "Monitoring",
+                "icon": "chart-mixed",
+                "isDefaultOpen": false,
+                "pages": [
+                  "development/monitoring/observability",
+                  "development/monitoring/telemetry"
+                ]
+              },
+              "development/get-help"
             ]
           }
-         
         ]
       },
       {
-        "tab": "Cloud API v1",
-        "groups": [
+        "tab": "Cloud",
+        "hidden": true,
+        "versions": [
           {
-            "group": "Cloud API v1",
-            "pages": [
-              "cloud/quickstart",
-              "cloud/search", 
-              "cloud/implementation",
-              "cloud/custom-sdk",
-              "cloud/webhooks",
-              "cloud/authentication",
-              "cloud/n8n-browser-use-integration"
-            ]
-          },
-          {
-            "group": "Search API",
-            "pages": [
-              "api-reference/simple-search",
-              "api-reference/search-url"
-            ]
-          },
-          {
-            "group": "Tasks API",
-            "pages": [
-              "api-reference/run-task",
-              "api-reference/stop-task",
-              "api-reference/pause-task",
-              "api-reference/resume-task",
-              "api-reference/get-task",
-              "api-reference/get-task-status",
-              "api-reference/list-tasks",
-              "api-reference/get-task-media",
-              "api-reference/get-task-screenshots",
-              "api-reference/get-task-output-file"
-            ]
-          },
-          {
-            "group": "Scheduled Tasks API",
-            "pages": [
-              "api-reference/list-scheduled-tasks",
-              "api-reference/create-scheduled-task",
-              "api-reference/get-scheduled-task",
-              "api-reference/update-scheduled-task",
-              "api-reference/delete-scheduled-task"
-            ]
-          },
-          {
-            "group": "Browser Profiles API",
-            "pages": [
-              "api-reference/list-browser-profiles",
-              "api-reference/create-browser-profile",
-              "api-reference/get-browser-profile",
-              "api-reference/update-browser-profile",
-              "api-reference/delete-browser-profile"
-            ]
-          },
-          {
-            "group": "Files API",
-            "pages": [
-              "api-reference/upload-file-presigned-url"
-            ]
-          },
-          {
-            "group": "User API",
-            "pages": [
-              "api-reference/check-balance",
-              "api-reference/user"
-            ]
-          },
-          {
-            "group": "Health Check API",
-            "pages": [
-              "api-reference/ping"
+            "version": "v1",
+            "groups": [
+              {
+                "group": "Get Started",
+                "pages": [
+                  "cloud/v1/quickstart",
+                  "cloud/v1/search",
+                  "cloud/v1/pricing"
+                ]
+              },
+              {
+                "group": "Guides",
+                "pages": [
+                  "cloud/v1/implementation",
+                  "cloud/v1/custom-sdk",
+                  "cloud/v1/webhooks",
+                  "cloud/v1/authentication",
+                  "cloud/v1/n8n-browser-use-integration"
+                ]
+              },
+              {
+                "group": "REST API reference",
+                "openapi": "https://api.browser-use.com/api/v1/openapi.json"
+              }
             ]
           }
         ]
@@ -141,7 +217,11 @@
       "display": "interactive"
     },
     "examples": {
-      "languages": ["javascript", "curl", "python"],
+      "languages": [
+        "javascript",
+        "curl",
+        "python"
+      ],
       "required": true
     }
   },
@@ -152,14 +232,14 @@
         "href": "https://github.com/browser-use/browser-use"
       },
       {
-        "label": "Twitter",
-        "href": "https://x.com/gregpr07"
+        "label": "Discord",
+        "href": "https://link.browser-use.com/discord"
       }
     ],
     "primary": {
       "type": "button",
-      "label": "Join Discord",
-      "href": "https://link.browser-use.com/discord"
+      "label": "Browser Use Cloud",
+      "href": "https://cloud.browser-use.com"
     }
   },
   "footer": {

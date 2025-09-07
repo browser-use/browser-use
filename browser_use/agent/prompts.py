@@ -92,6 +92,8 @@ class AgentMessagePrompt:
 		available_file_paths: list[str] | None = None,
 		screenshots: list[str] | None = None,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
+		include_recent_events: bool = False,
+		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
@@ -106,11 +108,13 @@ class AgentMessagePrompt:
 		self.available_file_paths: list[str] | None = available_file_paths
 		self.screenshots = screenshots or []
 		self.vision_detail_level = vision_detail_level
+		self.include_recent_events = include_recent_events
+		self.sample_images = sample_images or []
 		assert self.browser_state
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='_get_browser_state_description')
 	def _get_browser_state_description(self) -> str:
-		elements_text = self.browser_state.element_tree.clickable_elements_to_string(include_attributes=self.include_attributes)
+		elements_text = self.browser_state.dom_state.llm_representation(include_attributes=self.include_attributes)
 
 		if len(elements_text) > self.max_clickable_elements_length:
 			elements_text = elements_text[: self.max_clickable_elements_length]
@@ -130,8 +134,13 @@ class AgentMessagePrompt:
 			pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
 			total_pages = pi.page_height / pi.viewport_height if pi.viewport_height > 0 else 0
 			current_page_position = pi.scroll_y / max(pi.page_height - pi.viewport_height, 1)
-			page_info_text = f'Page info: {pi.viewport_width}x{pi.viewport_height}px viewport, {pi.page_width}x{pi.page_height}px total page size, {pages_above:.1f} pages above, {pages_below:.1f} pages below, {total_pages:.1f} total pages, at {current_page_position:.0%} of page'
-
+			page_info_text = '<page_info>'
+			page_info_text += f'Viewport size: {pi.viewport_width}x{pi.viewport_height}px, Total page size: {pi.page_width}x{pi.page_height}px, '
+			page_info_text += f'{pages_above:.1f} pages above, '
+			page_info_text += f'{pages_below:.1f} pages below, '
+			page_info_text += f'{total_pages:.1f} total pages'
+			page_info_text += '</page_info>\n'
+			# , at {current_page_position:.0%} of page
 		if elements_text != '':
 			if has_content_above:
 				if self.browser_state.page_info:
@@ -160,38 +169,47 @@ class AgentMessagePrompt:
 		# Find tabs that match both URL and title to identify current tab more reliably
 		for tab in self.browser_state.tabs:
 			if tab.url == self.browser_state.url and tab.title == self.browser_state.title:
-				current_tab_candidates.append(tab.page_id)
+				current_tab_candidates.append(tab.target_id)
 
 		# If we have exactly one match, mark it as current
 		# Otherwise, don't mark any tab as current to avoid confusion
-		current_tab_id = current_tab_candidates[0] if len(current_tab_candidates) == 1 else None
+		current_target_id = current_tab_candidates[0] if len(current_tab_candidates) == 1 else None
 
 		for tab in self.browser_state.tabs:
-			tabs_text += f'Tab {tab.page_id}: {tab.url} - {tab.title[:30]}\n'
+			tabs_text += f'Tab {tab.target_id[-4:]}: {tab.url} - {tab.title[:30]}\n'
 
-		current_tab_text = f'Current tab: {current_tab_id}' if current_tab_id is not None else ''
+		current_tab_text = f'Current tab: {current_target_id[-4:]}' if current_target_id is not None else ''
 
 		# Check if current page is a PDF viewer and add appropriate message
 		pdf_message = ''
 		if self.browser_state.is_pdf_viewer:
 			pdf_message = 'PDF viewer cannot be rendered. In this page, DO NOT use the extract_structured_data action as PDF content cannot be rendered. Use the read_file action on the downloaded PDF in available_file_paths to read the full content.\n\n'
 
+		# Add recent events if available and requested
+		recent_events_text = ''
+		if self.include_recent_events and self.browser_state.recent_events:
+			recent_events_text = f'Recent browser events: {self.browser_state.recent_events}\n'
+
 		browser_state = f"""{current_tab_text}
 Available tabs:
 {tabs_text}
 {page_info_text}
-{pdf_message}Interactive elements from top layer of the current page inside the viewport{truncated_text}:
+{recent_events_text}{pdf_message}Elements you can interact with inside the viewport{truncated_text}:
 {elements_text}
 """
 		return browser_state
 
 	def _get_agent_state_description(self) -> str:
 		if self.step_info:
-			step_info_description = f'Step {self.step_info.step_number + 1} of {self.step_info.max_steps} max possible steps\n'
+			step_info_description = f'Step {self.step_info.step_number + 1}. Maximum steps: {self.step_info.max_steps}\n'
 		else:
 			step_info_description = ''
+
 		time_str = datetime.now().strftime('%Y-%m-%d %H:%M')
 		step_info_description += f'Current date and time: {time_str}'
+
+		time_str = datetime.now().strftime('%Y-%m-%d')
+		step_info_description += f'Current date: {time_str}'
 
 		_todo_contents = self.file_system.get_todo_contents() if self.file_system else ''
 		if not len(_todo_contents):
@@ -213,7 +231,8 @@ Available tabs:
 
 		agent_state += f'<step_info>\n{step_info_description}\n</step_info>\n'
 		if self.available_file_paths:
-			agent_state += '<available_file_paths>\n' + '\n'.join(self.available_file_paths) + '\n</available_file_paths>\n'
+			available_file_paths_text = '\n'.join(self.available_file_paths)
+			agent_state += f'<available_file_paths>\n{available_file_paths_text}\nUse absolute full paths when referencing these files.\n</available_file_paths>\n'
 		return agent_state
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='get_user_message')
@@ -232,7 +251,7 @@ Available tabs:
 		state_description = (
 			'<agent_history>\n'
 			+ (self.agent_history_description.strip('\n') if self.agent_history_description else '')
-			+ '\n</agent_history>\n'
+			+ '\n</agent_history>\n\n'
 		)
 		state_description += '<agent_state>\n' + self._get_agent_state_description().strip('\n') + '\n</agent_state>\n'
 		state_description += '<browser_state>\n' + self._get_browser_state_description().strip('\n') + '\n</browser_state>\n'
@@ -249,6 +268,9 @@ Available tabs:
 		if use_vision is True and self.screenshots:
 			# Start with text description
 			content_parts: list[ContentPartTextParam | ContentPartImageParam] = [ContentPartTextParam(text=state_description)]
+
+			# Add sample images
+			content_parts.extend(self.sample_images)
 
 			# Add screenshots with labels
 			for i, screenshot in enumerate(self.screenshots):

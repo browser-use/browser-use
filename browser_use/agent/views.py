@@ -13,16 +13,18 @@ from uuid_extensions import uuid7str
 
 from browser_use.agent.message_manager.views import MessageManagerState
 from browser_use.browser.views import BrowserStateHistory
-from browser_use.controller.registry.views import ActionModel
-from browser_use.dom.history_tree_processor.service import (
-	DOMElementNode,
-	DOMHistoryElement,
-	HistoryTreeProcessor,
-)
-from browser_use.dom.views import SelectorMap
+from browser_use.dom.views import DEFAULT_INCLUDE_ATTRIBUTES, DOMInteractedElement, DOMSelectorMap
+
+# from browser_use.dom.history_tree_processor.service import (
+# 	DOMElementNode,
+# 	DOMHistoryElement,
+# 	HistoryTreeProcessor,
+# )
+# from browser_use.dom.views import SelectorMap
 from browser_use.filesystem.file_system import FileSystemState
 from browser_use.llm.base import BaseChatModel
 from browser_use.tokens.views import UsageSummary
+from browser_use.tools.registry.views import ActionModel
 
 
 class AgentSettings(BaseModel):
@@ -30,45 +32,30 @@ class AgentSettings(BaseModel):
 
 	use_vision: bool = True
 	vision_detail_level: Literal['auto', 'low', 'high'] = 'auto'
-	use_vision_for_planner: bool = False
 	save_conversation_path: str | Path | None = None
 	save_conversation_path_encoding: str | None = 'utf-8'
 	max_failures: int = 3
-	retry_delay: int = 10
-	validate_output: bool = False
 	generate_gif: bool | str = False
 	override_system_message: str | None = None
 	extend_system_message: str | None = None
-	include_attributes: list[str] = [
-		'title',
-		'type',
-		'name',
-		'role',
-		'tabindex',
-		'aria-label',
-		'placeholder',
-		'value',
-		'alt',
-		'aria-expanded',
-	]
-	max_actions_per_step: int = 10
+	include_attributes: list[str] | None = DEFAULT_INCLUDE_ATTRIBUTES
+	max_actions_per_step: int = 4
 	use_thinking: bool = True
 	flash_mode: bool = False  # If enabled, disables evaluation_previous_goal and next_goal, and sets use_thinking = False
 	max_history_items: int | None = None
 
 	page_extraction_llm: BaseChatModel | None = None
-	planner_llm: BaseChatModel | None = None
-	planner_interval: int = 1  # Run planner every N steps
-	is_planner_reasoning: bool = False  # type: ignore
-	extend_planner_system_message: str | None = None
 	calculate_cost: bool = False
 	include_tool_call_examples: bool = False
 	llm_timeout: int = 60  # Timeout in seconds for LLM calls
 	step_timeout: int = 180  # Timeout in seconds for each step
+	final_response_after_failure: bool = True  # If True, attempt one final recovery call after max_failures
 
 
 class AgentState(BaseModel):
 	"""Holds all state information for an Agent"""
+
+	model_config = ConfigDict(arbitrary_types_allowed=True)
 
 	agent_id: str = Field(default_factory=uuid7str)
 	n_steps: int = 1
@@ -76,14 +63,15 @@ class AgentState(BaseModel):
 	last_result: list[ActionResult] | None = None
 	last_plan: str | None = None
 	last_model_output: AgentOutput | None = None
+
+	# Pause/resume state (kept serialisable for checkpointing)
 	paused: bool = False
 	stopped: bool = False
+	session_initialized: bool = False  # Track if session events have been dispatched
+	follow_up_task: bool = False  # Track if the agent is a follow-up task
 
 	message_manager_state: MessageManagerState = Field(default_factory=MessageManagerState)
 	file_system_state: FileSystemState | None = None
-
-	# class Config:
-	# 	arbitrary_types_allowed = True
 
 
 @dataclass
@@ -116,6 +104,9 @@ class ActionResult(BaseModel):
 	# if update_only_read_state is False we add the extracted_content to the agent long term memory if no long_term_memory is provided
 	extracted_content: str | None = None
 	include_extracted_content_only_once: bool = False  # Whether the extracted content should be used to update the read_state
+
+	# Metadata for observability (e.g., click coordinates)
+	metadata: dict | None = None
 
 	# Deprecated
 	include_in_memory: bool = False  # whether to include in extracted_content inside long_term_memory
@@ -263,13 +254,13 @@ class AgentHistory(BaseModel):
 	model_config = ConfigDict(arbitrary_types_allowed=True, protected_namespaces=())
 
 	@staticmethod
-	def get_interacted_element(model_output: AgentOutput, selector_map: SelectorMap) -> list[DOMHistoryElement | None]:
+	def get_interacted_element(model_output: AgentOutput, selector_map: DOMSelectorMap) -> list[DOMInteractedElement | None]:
 		elements = []
 		for action in model_output.action:
 			index = action.get_index()
 			if index is not None and index in selector_map:
-				el: DOMElementNode = selector_map[index]
-				elements.append(HistoryTreeProcessor.convert_dom_element_to_history_element(el))
+				el = selector_map[index]
+				elements.append(DOMInteractedElement.load_from_enhanced_dom_tree(el))
 			else:
 				elements.append(None)
 		return elements

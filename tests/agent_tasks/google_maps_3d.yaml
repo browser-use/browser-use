@@ -1,0 +1,10 @@
+name: Google Maps 3d Screenshot
+task: Go to google.com/maps and search for ETH Zurich Hauptgebäude. When found, close the side panel to see the map full screen. Then, if not already in Satellite View, switch to Satellite View. With Satellite View enabled, click the 3d icon to enable 3d view. Pan the map so that ETH Zurich Hauptgebäude and the Zurich Lake in the background are clearly visible. If able, take a screenshot.
+judge_context:
+  - Agent must only use www.google.com/maps
+  - Agent should correctly search for ETH Zurich Hauptgebäude
+  - Agent should close the side panel
+  - After the agent performing the task the map should be visible in Satellite view, if it was not already
+  - The Agent should correctly click the correct 3d button to enable 3d mode
+  - The Agent should correctly pan the map so that ETH Zurich Hauptgebäude as well as the Zurich Lake in the background should be visible
+max_steps: 25

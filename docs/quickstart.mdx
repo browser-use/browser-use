@@ -1,75 +1,144 @@
 ---
-title: "Quickstart"
-description: "Start using Browser Use with this quickstart guide"
+title: "Human Quickstart"
+description: ""
 icon: "rocket"
 ---
 
-{/* You can install Browser Use from PyPI or clone it from Github. */}
 
-## Prepare the environment
+## 1. Fast setup
 
-Browser Use requires Python 3.11 or higher.
-
-First, we recommend using [uv](https://docs.astral.sh/uv/) to setup the Python environment.
-
-```bash
-uv venv --python 3.11
+<Tabs>
+<Tab title="uv">
+```bash create environment 
+uv venv --python 3.12
 ```
+</Tab>
+<Tab title="pip">
+```bash create environment with python >= 3.11 
+python3.12 -m venv .venv
+```
+</Tab>
+</Tabs>
 
-and activate it with:
-
-```bash
-# For Mac/Linux:
+<Tabs>
+<Tab title="Mac/Linux">
+```bash activate environment
 source .venv/bin/activate
-
-# For Windows:
+```
+</Tab>
+<Tab title="Windows">
+```bash activate environment
 .venv\Scripts\activate
 ```
+</Tab>
+</Tabs>
 
-Install the dependencies:
-
-```bash
+<Tabs>
+<Tab title="uv">
+```bash install browser-use & chromium
 uv pip install browser-use
+uvx playwright install chromium --with-deps 
 ```
-
-Then install playwright:
-
-```bash
-uv run playwright install
+</Tab>
+<Tab title="pip">
+```bash install browser-use & chromium
+pip install browser-use
+pip install playwright && playwright install chromium --with-deps
 ```
+</Tab>
+</Tabs>
 
-## Create an agent
+## 2. Choose your favorite LLM
+Create a `.env` file and add your API key. Don't have one? Start with a [free Gemini key](https://aistudio.google.com/app/u/1/apikey?pli=1).
 
-Then you can use the agent as follows:
-
-```python agent.py
-from browser_use.llm import ChatOpenAI
-from browser_use import Agent
-from dotenv import load_dotenv
-load_dotenv()
-
-import asyncio
-
-llm = ChatOpenAI(model="gpt-4.1")
-
-async def main():
-    agent = Agent(
-        task="Compare the price of gpt-4o and DeepSeek-V3",
-        llm=llm,
-    )
-    result = await agent.run()
-    print(result)
-
-asyncio.run(main())
+<Tabs>
+<Tab title="Mac/Linux">
+```bash create .env file
+touch .env
 ```
+</Tab>
+<Tab title="Windows">
+```cmd create .env file
+echo. > .env
+```
+</Tab>
+</Tabs>
 
-## Set up your LLM API keys
-
-`ChatOpenAI` and other chat models require API keys. You should store these in your `.env` file. For example, for OpenAI and Anthropic, you can set the API keys in your `.env` file, such as:
-
-```bash .env
+<Tabs>
+<Tab title="Google">
+```bash add your key to .env file
+GEMINI_API_KEY=
+```
+</Tab>
+<Tab title="OpenAI">
+```bash add your key to .env file
 OPENAI_API_KEY=
+```
+</Tab>
+<Tab title="Anthropic">
+```bash add your key to .env file
 ANTHROPIC_API_KEY=
 ```
+</Tab>
+</Tabs>
 
-For other LLM models you can refer to the [Supported Models](/customize/supported-models) page to find how to set them up with their specific API keys.
+See [Supported Models](/customize/supported-models) for more.
+
+## 3. Run your first agent
+
+<Tabs>
+<Tab title="Google">
+```python agent.py
+from browser_use import Agent, ChatGoogle
+from dotenv import load_dotenv
+import asyncio
+
+load_dotenv()
+
+async def main():
+    llm = ChatGoogle(model="gemini-2.5-flash")
+    task = "Find the number 1 post on Show HN"
+    agent = Agent(task=task, llm=llm)
+    await agent.run()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+</Tab>
+<Tab title="OpenAI">
+```python agent.py
+from browser_use import Agent, ChatOpenAI
+from dotenv import load_dotenv
+import asyncio
+
+load_dotenv()
+
+async def main():
+    llm = ChatOpenAI(model="gpt-4.1-mini")
+    task = "Find the number 1 post on Show HN"
+    agent = Agent(task=task, llm=llm)
+    await agent.run()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+</Tab>
+<Tab title="Anthropic">
+```python agent.py
+from browser_use import Agent, ChatAnthropic
+from dotenv import load_dotenv
+import asyncio
+
+load_dotenv()
+
+async def main():
+    llm = ChatAnthropic(model='claude-sonnet-4-0', temperature=0.0)
+    task = "Find the number 1 post on Show HN"
+    agent = Agent(task=task, llm=llm)
+    await agent.run()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+</Tab>
+</Tabs>

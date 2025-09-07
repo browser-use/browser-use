@@ -21,16 +21,15 @@ from pytest_httpserver.httpserver import HandlerType
 from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
-from browser_use.browser.types import Page
-from browser_use.controller.registry.service import Registry
-from browser_use.controller.registry.views import ActionModel as BaseActionModel
-from browser_use.controller.views import (
+from browser_use.llm.messages import UserMessage
+from browser_use.tools.registry.service import Registry
+from browser_use.tools.registry.views import ActionModel as BaseActionModel
+from browser_use.tools.views import (
 	ClickElementAction,
 	InputTextAction,
 	NoParamsAction,
 	SearchGoogleAction,
 )
-from browser_use.llm.messages import UserMessage
 from tests.ci.conftest import create_mock_llm
 
 # Configure logging
@@ -106,7 +105,10 @@ async def browser_session(base_url):
 		)
 	)
 	await browser_session.start()
-	await browser_session.navigate(f'{base_url}/test', new_tab=True)
+	from browser_use.browser.events import NavigateToUrlEvent
+
+	browser_session.event_bus.dispatch(NavigateToUrlEvent(url=f'{base_url}/test'))
+	await asyncio.sleep(0.5)  # Wait for navigation
 	yield browser_session
 	await browser_session.kill()
 
@@ -133,11 +135,14 @@ class TestActionRegistryParameterPatterns:
 
 		@registry.action('Action with individual params and browser')
 		async def action_with_browser(text: str, browser_session: BrowserSession):
-			page = await browser_session.get_current_page()
-			return ActionResult(extracted_content=f'Text: {text}, URL: {page.url}')
+			url = await browser_session.get_current_page_url()
+			return ActionResult(extracted_content=f'Text: {text}, URL: {url}')
 
 		# Navigate to test page first
-		await browser_session.create_new_tab(f'{base_url}/test')
+		from browser_use.browser.events import NavigateToUrlEvent
+
+		event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=f'{base_url}/test', new_tab=True))
+		await event
 
 		# Test execution
 		result = await registry.execute_action('action_with_browser', {'text': 'hello'}, browser_session=browser_session)
@@ -147,56 +152,21 @@ class TestActionRegistryParameterPatterns:
 		assert 'Text: hello, URL:' in result.extracted_content
 		assert base_url in result.extracted_content
 
-	async def test_page_parameter_injection(self, registry, browser_session, base_url):
-		"""Test action with direct Page parameter injection"""
-
-		@registry.action('Action with page parameter')
-		async def action_with_page(text: str, page: Page):
-			title = await page.title()
-			return ActionResult(extracted_content=f'Text: {text}, Page Title: {title}')
-
-		# Navigate to test page first
-		await browser_session.create_new_tab(f'{base_url}/test')
-
-		# Test execution
-		result = await registry.execute_action('action_with_page', {'text': 'hello'}, browser_session=browser_session)
-
-		assert isinstance(result, ActionResult)
-		assert result.extracted_content is not None
-		assert 'Text: hello, Page Title: Test Page' in result.extracted_content
-
-	async def test_pydantic_model_with_page_parameter(self, registry, browser_session, base_url):
-		"""Test pydantic model action with page parameter injection"""
-
-		@registry.action('Pydantic action with page', param_model=ComplexParams)
-		async def pydantic_action_with_page(params: ComplexParams, page: Page):
-			title = await page.title()
-			return ActionResult(extracted_content=f'Text: {params.text}, Number: {params.number}, Page Title: {title}')
-
-		# Navigate to test page first
-		await browser_session.create_new_tab(f'{base_url}/test')
-
-		# Test execution
-		result = await registry.execute_action(
-			'pydantic_action_with_page', {'text': 'test', 'number': 100}, browser_session=browser_session
-		)
-
-		assert isinstance(result, ActionResult)
-		assert result.extracted_content is not None
-		assert 'Text: test, Number: 100, Page Title: Test Page' in result.extracted_content
-
 	async def test_pydantic_model_parameters(self, registry, browser_session, base_url):
 		"""Test action that takes a pydantic model as first parameter"""
 
 		@registry.action('Action with pydantic model', param_model=ComplexParams)
 		async def pydantic_action(params: ComplexParams, browser_session: BrowserSession):
-			page = await browser_session.get_current_page()
+			url = await browser_session.get_current_page_url()
 			return ActionResult(
-				extracted_content=f'Text: {params.text}, Number: {params.number}, Flag: {params.optional_flag}, URL: {page.url}'
+				extracted_content=f'Text: {params.text}, Number: {params.number}, Flag: {params.optional_flag}, URL: {url}'
 			)
 
 		# Navigate to test page first
-		await browser_session.create_new_tab(f'{base_url}/test')
+		from browser_use.browser.events import NavigateToUrlEvent
+
+		event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=f'{base_url}/test', new_tab=True))
+		await event
 
 		# Test execution
 		result = await registry.execute_action(
@@ -216,19 +186,23 @@ class TestActionRegistryParameterPatterns:
 		@registry.action('Action with multiple special params')
 		async def multi_special_action(
 			text: str,
-			page: Page,
+			browser_session: BrowserSession,
 			page_extraction_llm: BaseChatModel,
 			available_file_paths: list,
 		):
 			llm_response = await page_extraction_llm.ainvoke([UserMessage(content='test')])
 			files = available_file_paths or []
+			url = await browser_session.get_current_page_url()
 
 			return ActionResult(
-				extracted_content=f'Text: {text}, URL: {page.url}, LLM: {llm_response.completion}, Files: {len(files)}'
+				extracted_content=f'Text: {text}, URL: {url}, LLM: {llm_response.completion}, Files: {len(files)}'
 			)
 
 		# Navigate to test page first
-		await browser_session.create_new_tab(f'{base_url}/test')
+		from browser_use.browser.events import NavigateToUrlEvent
+
+		event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=f'{base_url}/test', new_tab=True))
+		await event
 
 		# Test execution
 		result = await registry.execute_action(
@@ -251,8 +225,9 @@ class TestActionRegistryParameterPatterns:
 		"""Test action with NoParamsAction model"""
 
 		@registry.action('No params action', param_model=NoParamsAction)
-		async def no_params_action(params: NoParamsAction, page: Page):
-			return ActionResult(extracted_content=f'No params action executed on {page.url}')
+		async def no_params_action(params: NoParamsAction, browser_session: BrowserSession):
+			url = await browser_session.get_current_page_url()
+			return ActionResult(extracted_content=f'No params action executed on {url}')
 
 		# Test execution with any parameters (should be ignored)
 		result = await registry.execute_action(
@@ -264,76 +239,6 @@ class TestActionRegistryParameterPatterns:
 		assert 'No params action executed on' in result.extracted_content
 		assert '/test' in result.extracted_content
 
-	async def test_legacy_browser_parameter_names(self, registry, browser_session):
-		"""Test that legacy browser parameter names still work"""
-
-		@registry.action('Action with legacy browser param')
-		async def legacy_browser_action(text: str, browser: BrowserSession):
-			page = await browser.get_current_page()
-			return ActionResult(extracted_content=f'Legacy browser: {text}, URL: {page.url}')
-
-		@registry.action('Action with legacy browser_context param')
-		async def legacy_context_action(text: str, browser_context: BrowserSession):
-			page = await browser_context.get_current_page()
-			return ActionResult(extracted_content=f'Legacy context: {text}, URL: {page.url}')
-
-		# Test legacy browser parameter
-		result1 = await registry.execute_action('legacy_browser_action', {'text': 'test1'}, browser_session=browser_session)
-		assert result1.extracted_content is not None
-		assert 'Legacy browser: test1, URL:' in result1.extracted_content
-		assert '/test' in result1.extracted_content
-
-		# Test legacy browser_context parameter
-		result2 = await registry.execute_action('legacy_context_action', {'text': 'test2'}, browser_session=browser_session)
-		assert result2.extracted_content is not None
-		assert 'Legacy context: test2, URL:' in result2.extracted_content
-		assert '/test' in result2.extracted_content
-
-	async def test_page_parameter_optimization(self, browser_session: BrowserSession, httpserver: HTTPServer):
-		"""Test that actions can use page: Page parameter directly instead of browser_session"""
-		registry = Registry()
-
-		httpserver.expect_request('/test').respond_with_data('<html><body>Test Page</body></html>')
-		page = await browser_session.get_current_page()
-		await page.goto(httpserver.url_for('/test'))
-
-		# Action that takes page directly (optimized pattern)
-		@registry.action('Action with direct page parameter')
-		async def direct_page_action(text: str, page: Page):
-			# This is the optimized pattern - no need to call get_current_page()
-			return ActionResult(extracted_content=f'Direct page: {text}, URL: {page.url}')
-
-		# Action that takes browser_session and calls get_current_page (old pattern)
-		@registry.action('Action with browser_session parameter')
-		async def browser_session_action(text: str, browser_session: BrowserSession):
-			page = await browser_session.get_current_page()
-			return ActionResult(extracted_content=f'Browser session: {text}, URL: {page.url}')
-
-		# Test direct page parameter
-		result1 = await registry.execute_action('direct_page_action', {'text': 'optimized'}, browser_session=browser_session)
-		assert result1.extracted_content is not None
-		assert 'Direct page: optimized, URL:' in result1.extracted_content
-		assert '/test' in result1.extracted_content
-
-		# Test browser_session parameter (should still work)
-		result2 = await registry.execute_action('browser_session_action', {'text': 'legacy'}, browser_session=browser_session)
-		assert result2.extracted_content is not None
-		assert 'Browser session: legacy, URL:' in result2.extracted_content
-		assert '/test' in result2.extracted_content
-
-		# Verify both patterns work with pydantic models too
-		class PageActionParams(BaseActionModel):
-			message: str = Field(..., description='Test message')
-
-		@registry.action('Pydantic action with page', param_model=PageActionParams)
-		async def pydantic_page_action(params: PageActionParams, page: Page):
-			return ActionResult(extracted_content=f'Pydantic page: {params.message}, URL: {page.url}')
-
-		result3 = await registry.execute_action('pydantic_page_action', {'message': 'pydantic'}, browser_session=browser_session)
-		assert result3.extracted_content is not None
-		assert 'Pydantic page: pydantic, URL:' in result3.extracted_content
-		assert '/test' in result3.extracted_content
-
 
 class TestActionToActionCalling:
 	"""Test scenarios where actions call other actions"""
@@ -343,8 +248,8 @@ class TestActionToActionCalling:
 
 		# Helper function that actions can call
 		async def helper_function(browser_session: BrowserSession, data: str):
-			page = await browser_session.get_current_page()
-			return f'Helper processed: {data} on {page.url}'
+			url = await browser_session.get_current_page_url()
+			return f'Helper processed: {data} on {url}'
 
 		@registry.action('First action')
 		async def first_action(text: str, browser_session: BrowserSession):
@@ -373,8 +278,8 @@ class TestActionToActionCalling:
 
 		# Simulate the _select_cell_or_range helper function
 		async def _select_cell_or_range(browser_session: BrowserSession, cell_or_range: str):
-			page = await browser_session.get_current_page()
-			return ActionResult(extracted_content=f'Selected cell {cell_or_range} on {page.url}')
+			url = await browser_session.get_current_page_url()
+			return ActionResult(extracted_content=f'Selected cell {cell_or_range} on {url}')
 
 		@registry.action('Select cell or range')
 		async def select_cell_or_range(cell_or_range: str, browser_session: BrowserSession):
@@ -424,8 +329,8 @@ class TestActionToActionCalling:
 
 		@registry.action('Base action')
 		async def base_action(value: str, browser_session: BrowserSession):
-			page = await browser_session.get_current_page()
-			return ActionResult(extracted_content=f'Base: {value} on {page.url}')
+			url = await browser_session.get_current_page_url()
+			return ActionResult(extracted_content=f'Base: {value} on {url}')
 
 		@registry.action('Middle action')
 		async def middle_action(input_val: str, browser_session: BrowserSession):
@@ -460,8 +365,8 @@ class TestRegistryEdgeCases:
 
 		@registry.action('Action that should reject positional args')
 		async def test_action(cell_or_range: str, browser_session: BrowserSession):
-			page = await browser_session.get_current_page()
-			return ActionResult(extracted_content=f'Selected cell {cell_or_range} on {page.url}')
+			url = await browser_session.get_current_page_url()
+			return ActionResult(extracted_content=f'Selected cell {cell_or_range} on {url}')
 
 		# Test that calling with positional arguments raises TypeError
 		with pytest.raises(
@@ -480,8 +385,8 @@ class TestRegistryEdgeCases:
 
 		@registry.action('Requires browser')
 		async def requires_browser(text: str, browser_session: BrowserSession):
-			page = await browser_session.get_current_page()
-			return ActionResult(extracted_content=f'Text: {text}, URL: {page.url}')
+			url = await browser_session.get_current_page_url()
+			return ActionResult(extracted_content=f'Text: {text}, URL: {url}')
 
 		# Should raise RuntimeError when browser_session is required but not provided
 		with pytest.raises(RuntimeError, match='requires browser_session but none provided'):
@@ -498,7 +403,7 @@ class TestRegistryEdgeCases:
 
 		@registry.action('Requires LLM')
 		async def requires_llm(text: str, browser_session: BrowserSession, page_extraction_llm: BaseChatModel):
-			page = await browser_session.get_current_page()
+			url = await browser_session.get_current_page_url()
 			llm_response = await page_extraction_llm.ainvoke([UserMessage(content='test')])
 			return ActionResult(extracted_content=f'Text: {text}, LLM: {llm_response.completion}')
 
@@ -574,8 +479,8 @@ class TestRegistryEdgeCases:
 		assert 'Should execute: test' in result.extracted_content
 
 
-class TestExistingControllerActions:
-	"""Test that existing controller actions continue to work"""
+class TestExistingToolsActions:
+	"""Test that existing tools actions continue to work"""
 
 	async def test_existing_action_models(self, registry, browser_session):
 		"""Test that existing action parameter models work correctly"""
@@ -681,9 +586,7 @@ class TestType1Pattern:
 		from browser_use.llm.base import BaseChatModel
 
 		@registry.action('Extract content', param_model=ExtractAction)
-		async def extract_content(
-			params: ExtractAction, browser_session: BrowserSession, page: Page, page_extraction_llm: BaseChatModel
-		):
+		async def extract_content(params: ExtractAction, browser_session: BrowserSession, page_extraction_llm: BaseChatModel):
 			return ActionResult(extracted_content=params.goal)
 
 		assert 'extract_content' in registry.registry.actions
@@ -697,7 +600,7 @@ class TestType2Pattern:
 		registry = Registry()
 
 		@registry.action('Fill field')
-		async def fill_field(index: int, text: str, page: Page):
+		async def fill_field(index: int, text: str, browser_session: BrowserSession):
 			return ActionResult(extracted_content=f'Filled {index} with {text}')
 
 		# Verify registration
@@ -728,7 +631,7 @@ class TestType2Pattern:
 		registry = Registry()
 
 		@registry.action('Save PDF')
-		async def save_pdf(browser_session: BrowserSession, page: Page):
+		async def save_pdf(browser_session: BrowserSession):
 			return ActionResult(extracted_content='Saved PDF')
 
 		action = registry.registry.actions['save_pdf']
@@ -737,7 +640,7 @@ class TestType2Pattern:
 		assert len(fields) == 0 or all(f in ['title'] for f in fields)
 
 	def test_no_special_params_action(self):
-		"""Test action with no special params (like wait action in Controller)"""
+		"""Test action with no special params (like wait action in Tools)"""
 		registry = Registry()
 
 		@registry.action('Wait for x seconds default 3')
@@ -767,19 +670,12 @@ class TestValidationRules:
 		with pytest.raises(ValueError, match='kwargs.*not allowed'):
 
 			@registry.action('Bad action')
-			async def bad_action(index: int, page: Page, **kwargs):
+			async def bad_action(index: int, browser_session: BrowserSession, **kwargs):
 				pass
 
 	def test_error_on_special_param_name_with_wrong_type(self):
 		"""Should error if special param name used with wrong type"""
 		registry = Registry()
-
-		# Using 'page' with str type should error
-		with pytest.raises(ValueError, match=rf'conflicts with special argument.*page: {repr(Page)}'):
-
-			@registry.action('Navigate')
-			async def navigate_to_page(page: str, browser_session: BrowserSession):
-				pass
 
 		# Using 'browser_session' with wrong type should error
 		with pytest.raises(ValueError, match='conflicts with special argument.*browser_session: BrowserSession'):
@@ -795,7 +691,6 @@ class TestValidationRules:
 		@registry.action('Good action')
 		async def good_action(
 			index: int,
-			page: Page,  # Correct type
 			browser_session: BrowserSession,  # Correct type
 		):
 			return ActionResult()
@@ -846,16 +741,12 @@ class TestDecoratedFunctionBehavior:
 		"""Decorated function should ignore extra kwargs for easy unpacking"""
 		registry = Registry()
 
-		class MockPage:
-			pass
-
 		@registry.action('Simple action')
-		async def simple_action(value: int, page: Page):
+		async def simple_action(value: int):
 			return ActionResult(extracted_content=str(value))
 
 		# Should work even with extra kwargs
 		special_context = {
-			'page': MockPage(),
 			'browser_session': None,
 			'page_extraction_llm': create_mock_llm(),
 			'context': {'extra': 'data'},
@@ -881,7 +772,6 @@ class TestParamsModelGeneration:
 			query: str,
 			max_results: int,
 			include_images: bool = True,
-			page: Page = None,  # type: ignore
 			browser_session: BrowserSession = None,  # type: ignore
 		):
 			return ActionResult()
@@ -895,7 +785,6 @@ class TestParamsModelGeneration:
 		assert 'include_images' in model_fields
 
 		# Should NOT include special params
-		assert 'page' not in model_fields
 		assert 'browser_session' not in model_fields
 
 	def test_preserves_type_annotations(self):
@@ -923,44 +812,6 @@ class TestParamsModelGeneration:
 		assert 'null' in schema['properties']['name']['anyOf'][1]['type']
 
 
-class TestErrorMessages:
-	"""Test error messages for validation failures (from normalization tests)"""
-
-	def test_clear_error_for_kwargs(self):
-		"""Error message for kwargs should be clear"""
-		registry = Registry()
-
-		try:
-
-			@registry.action('Bad')
-			async def bad(x: int, **kwargs):
-				pass
-
-			pytest.fail('Should have raised ValueError')
-		except ValueError as e:
-			assert 'kwargs' in str(e).lower()
-			assert 'not allowed' in str(e).lower()
-			assert 'bad' in str(e).lower()  # Should mention function name
-
-	def test_clear_error_for_param_conflicts(self):
-		"""Error message for param conflicts should be helpful"""
-		registry = Registry()
-
-		try:
-
-			@registry.action('Bad')
-			async def bad(page: str):
-				pass
-
-			pytest.fail('Should have raised ValueError')
-		except ValueError as e:
-			error_msg = str(e)
-			assert 'page: str' in error_msg
-			assert 'conflicts' in error_msg
-			assert f'page: {repr(Page)}' in error_msg  # Show expected type
-			assert 'bad' in error_msg.lower()  # Show function name
-
-
 class TestParameterOrdering:
 	"""Test mixed ordering of parameters (from normalization tests)"""
 
@@ -975,7 +826,6 @@ class TestParameterOrdering:
 			first: str,
 			browser_session: BrowserSession,
 			second: int,
-			page: Page,
 			third: bool = True,
 			page_extraction_llm: BaseChatModel = None,  # type: ignore
 		):
@@ -988,17 +838,6 @@ class TestParameterOrdering:
 		assert set(model_fields.keys()) == {'first', 'second', 'third'}
 		assert model_fields['third'].default is True
 
-	def test_all_params_at_end(self):
-		"""Should work with all action params at the end"""
-		registry = Registry()
-
-		@registry.action('Params at end')
-		async def params_at_end(page: Page, query: str, limit: int = 10):
-			return ActionResult()
-
-		action = registry.registry.actions['params_at_end']
-		assert set(action.param_model.model_fields.keys()) == {'query', 'limit'}
-
 	def test_extract_content_pattern_registration(self):
 		"""Test that the extract_content pattern with mixed params registers correctly"""
 		registry = Registry()
@@ -1007,7 +846,6 @@ class TestParameterOrdering:
 		@registry.action('Extract content from page')
 		async def extract_content(
 			goal: str,
-			page: Page,
 			page_extraction_llm,
 			include_links: bool = False,
 		):
@@ -1038,7 +876,7 @@ class TestParamsModelArgsAndKwargs:
 
 		This test demonstrates the problem and our fix. The issue happens because:
 
-		1. In controller/service.py, we have:
+		1. In tools/service.py, we have:
 		```python
 		@registry.action('Google Sheets: Select a specific cell or range of cells')
 		async def select_cell_or_range(browser_session: BrowserSession, cell_or_range: str):
@@ -1069,8 +907,8 @@ class TestParamsModelArgsAndKwargs:
 		This test confirms that this approach works.
 		"""
 
-		from browser_use.controller.registry.service import Registry
-		from browser_use.controller.registry.views import ActionModel
+		from browser_use.tools.registry.service import Registry
+		from browser_use.tools.registry.views import ActionModel
 
 		# Simple context for testing
 		class TestContext:

@@ -18,9 +18,8 @@ load_dotenv()
 import httpx
 from pydantic import BaseModel
 
-from browser_use import Agent, Controller
+from browser_use import Agent, ChatOpenAI, Tools
 from browser_use.agent.views import ActionResult
-from browser_use.llm import ChatOpenAI
 
 
 class Profile(BaseModel):
@@ -32,7 +31,7 @@ class Profiles(BaseModel):
 	profiles: list[Profile]
 
 
-controller = Controller(exclude_actions=['search_google'], output_model=Profiles)
+tools = Tools(exclude_actions=['search_google'], output_model=Profiles)
 BEARER_TOKEN = os.getenv('BEARER_TOKEN')
 
 if not BEARER_TOKEN:
@@ -41,7 +40,7 @@ if not BEARER_TOKEN:
 	raise ValueError('BEARER_TOKEN is not set - go to https://www.heytessa.ai/ and create an api key')
 
 
-@controller.registry.action('Search the web for a specific query')
+@tools.registry.action('Search the web for a specific query')
 async def search_web(query: str):
 	keys_to_use = ['url', 'title', 'content', 'author', 'score']
 	headers = {'Authorization': f'Bearer {BEARER_TOKEN}'}
@@ -68,8 +67,8 @@ async def main():
 		'Go to this tiktok video url, open it and extract the @username from the resulting url. Then do a websearch for this username to find all his social media profiles. Return me the links to the social media profiles with the platform name.'
 		' https://www.tiktokv.com/share/video/7470981717659110678/  '
 	)
-	model = ChatOpenAI(model='gpt-4.1')
-	agent = Agent(task=task, llm=model, controller=controller)
+	model = ChatOpenAI(model='gpt-4.1-mini')
+	agent = Agent(task=task, llm=model, tools=tools)
 
 	history = await agent.run()
 

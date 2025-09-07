@@ -1,0 +1,45 @@
+---
+title: "Quickstart"
+description: "Learn how to get started with the Browser Use Cloud API"
+icon: "cloud"
+mode: "wide"
+---
+
+<img
+  className="block dark:hidden rounded-2xl"
+  src="/images/cloud-banner.png"
+  alt="Browser Use Cloud Banner"
+/>
+<img
+  className="hidden dark:block rounded-2xl"
+  src="/images/cloud-banner-dark.png"
+  alt="Browser Use Cloud Banner"
+/>
+
+<Note>
+  You need an active subscription and an API key from
+  [cloud.browser-use.com/billing](https://cloud.browser-use.com/billing). For
+  detailed pricing information, see our [pricing page](/cloud/v1/pricing).
+</Note>
+
+## Creating Your First Agent
+
+To understand how the API works visit the [Run Task](/api-reference/api-v1/run-task?playground=open) page.
+
+```bash
+curl -X POST https://api.browser-use.com/api/v1/run-task \
+  -H "Authorization: Bearer your_api_key_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task": "Go to google.com and search for Browser Use"
+  }'
+```
+
+`run-task` API returns a task ID, which you can query to get the task status, live preview URL, and the result output.
+
+<Note>
+  To play around with the API, you can use the [Browser Use Cloud
+  Playground](https://cloud.browser-use.com/playground).
+</Note>
+
+For the full implementation guide see the [Implementation](/cloud/v1/implementation) page.

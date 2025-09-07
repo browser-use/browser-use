@@ -69,6 +69,9 @@ def create_history_gif(
 		return
 
 	# Find the first non-placeholder screenshot
+	# A screenshot is considered a placeholder if:
+	# 1. It's the exact 4px placeholder for about:blank pages, OR
+	# 2. It comes from a new tab page (chrome://newtab/, about:blank, etc.)
 	first_real_screenshot = None
 	for screenshot in screenshots:
 		if screenshot and screenshot != PLACEHOLDER_4PX_SCREENSHOT:
@@ -76,7 +79,7 @@ def create_history_gif(
 			break
 
 	if not first_real_screenshot:
-		logger.warning('No valid screenshots found (all are placeholders)')
+		logger.warning('No valid screenshots found (all are placeholders or from new tab pages)')
 		return
 
 	# Try to load nicer fonts
@@ -84,6 +87,8 @@ def create_history_gif(
 		# Try different font options in order of preference
 		# ArialUni is a font that comes with Office and can render most non-alphabet characters
 		font_options = [
+			'PingFang',
+			'STHeiti Medium',
 			'Microsoft YaHei',  # 微软雅黑
 			'SimHei',  # 黑体
 			'SimSun',  # 宋体
@@ -165,6 +170,13 @@ def create_history_gif(
 			logger.debug(f'Skipping placeholder screenshot from about:blank page at step {i}')
 			continue
 
+		# Skip screenshots from new tab pages
+		from browser_use.utils import is_new_tab_page
+
+		if is_new_tab_page(item.state.url):
+			logger.debug(f'Skipping screenshot from new tab page ({item.state.url}) at step {i}')
+			continue
+
 		# Convert base64 screenshot to PIL Image
 		img_data = base64.b64decode(screenshot)
 		image = Image.open(io.BytesIO(img_data))
@@ -235,7 +247,12 @@ def _create_task_frame(
 	else:
 		font_size = base_font_size
 
-	larger_font = ImageFont.truetype(regular_font.path, font_size)  # type: ignore
+	# Try to create a larger font, but fall back to regular font if it fails
+	try:
+		larger_font = ImageFont.truetype(regular_font.path, font_size)  # type: ignore
+	except (OSError, AttributeError):
+		# Fall back to regular font if .path is not available or font loading fails
+		larger_font = regular_font
 
 	# Generate wrapped text with the calculated font size
 	wrapped_text = _wrap_text(task, larger_font, max_width)

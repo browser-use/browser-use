@@ -4,10 +4,10 @@ This module provides integration between external MCP servers and browser-use's 
 MCP tools are dynamically discovered and registered as browser-use actions.
 
 Example usage:
-    from browser_use import Controller
+    from browser_use import Tools
     from browser_use.mcp.client import MCPClient
 
-    controller = Controller()
+    tools = Tools()
 
     # Connect to an MCP server
     mcp_client = MCPClient(
@@ -17,7 +17,7 @@ Example usage:
     )
 
     # Register all MCP tools as browser-use actions
-    await mcp_client.register_to_controller(controller)
+    await mcp_client.register_to_tools(tools)
 
     # Now use with Agent as normal - MCP tools are available as actions
 """
@@ -30,10 +30,10 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from browser_use.agent.views import ActionResult
-from browser_use.controller.registry.service import Registry
-from browser_use.controller.service import Controller
 from browser_use.telemetry import MCPClientTelemetryEvent, ProductTelemetry
-from browser_use.utils import get_browser_use_version, is_new_tab_page
+from browser_use.tools.registry.service import Registry
+from browser_use.tools.service import Tools
+from browser_use.utils import get_browser_use_version
 
 logger = logging.getLogger(__name__)
 
@@ -207,23 +207,23 @@ class MCPClient:
 			)
 			self._telemetry.flush()
 
-	async def register_to_controller(
+	async def register_to_tools(
 		self,
-		controller: Controller,
+		tools: Tools,
 		tool_filter: list[str] | None = None,
 		prefix: str | None = None,
 	) -> None:
-		"""Register MCP tools as actions in the browser-use controller.
+		"""Register MCP tools as actions in the browser-use tools.
 
 		Args:
-			controller: Browser-use controller to register actions to
+			tools: Browser-use tools to register actions to
 			tool_filter: Optional list of tool names to register (None = all tools)
 			prefix: Optional prefix to add to action names (e.g., "playwright_")
 		"""
 		if not self._connected:
 			await self.connect()
 
-		registry = controller.registry
+		registry = tools.registry
 
 		for tool_name, tool in self._tools.items():
 			# Skip if not in filter
@@ -297,11 +297,8 @@ class MCPClient:
 
 		# Set up action filters
 		domains = None
-		page_filter = None
-
-		if is_browser_tool:
-			# Browser tools should only be available when on a web page
-			page_filter = lambda page: page and not is_new_tab_page(page.url)
+		# Note: page_filter has been removed since we no longer use Page objects
+		# Browser tools filtering would need to be done via domain filters instead
 
 		# Create async wrapper function for the MCP tool
 		# Need to define function with explicit parameters to satisfy registry validation
@@ -403,9 +400,7 @@ class MCPClient:
 		description = tool.description or f'MCP tool from {self.server_name}: {tool.name}'
 
 		# Use the registry's action decorator
-		registry.action(description=description, param_model=param_model, domains=domains, page_filter=page_filter)(
-			mcp_action_wrapper
-		)
+		registry.action(description=description, param_model=param_model, domains=domains)(mcp_action_wrapper)
 
 		logger.debug(f"✅ Registered MCP tool '{tool.name}' as action '{action_name}'")
 

@@ -2,17 +2,13 @@ from typing import TYPE_CHECKING
 
 # Type stubs for lazy imports
 if TYPE_CHECKING:
-	from .browser import Browser, BrowserConfig
-	from .context import BrowserContext, BrowserContextConfig
-	from .profile import BrowserProfile
+	from .profile import BrowserProfile, ProxySettings
 	from .session import BrowserSession
+
 
 # Lazy imports mapping for heavy browser components
 _LAZY_IMPORTS = {
-	'Browser': ('.browser', 'Browser'),
-	'BrowserConfig': ('.browser', 'BrowserConfig'),
-	'BrowserContext': ('.context', 'BrowserContext'),
-	'BrowserContextConfig': ('.context', 'BrowserContextConfig'),
+	'ProxySettings': ('.profile', 'ProxySettings'),
 	'BrowserProfile': ('.profile', 'BrowserProfile'),
 	'BrowserSession': ('.session', 'BrowserSession'),
 }
@@ -38,4 +34,8 @@ def __getattr__(name: str):
 	raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 
-__all__ = ['Browser', 'BrowserConfig', 'BrowserContext', 'BrowserContextConfig', 'BrowserSession', 'BrowserProfile']
+__all__ = [
+	'BrowserSession',
+	'BrowserProfile',
+	'ProxySettings',
+]

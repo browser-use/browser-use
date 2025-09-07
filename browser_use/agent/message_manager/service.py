@@ -17,6 +17,7 @@ from browser_use.browser.views import BrowserStateSummary
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.messages import (
 	BaseMessage,
+	ContentPartImageParam,
 	ContentPartTextParam,
 	SystemMessage,
 )
@@ -107,6 +108,8 @@ class MessageManager:
 		max_history_items: int | None = None,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		include_tool_call_examples: bool = False,
+		include_recent_events: bool = False,
+		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 	):
 		self.task = task
 		self.state = state
@@ -117,6 +120,8 @@ class MessageManager:
 		self.max_history_items = max_history_items
 		self.vision_detail_level = vision_detail_level
 		self.include_tool_call_examples = include_tool_call_examples
+		self.include_recent_events = include_recent_events
+		self.sample_images = sample_images
 
 		assert max_history_items is None or max_history_items > 5, 'max_history_items must be None or greater than 5'
 
@@ -178,16 +183,20 @@ class MessageManager:
 
 		action_results = ''
 		result_len = len(result)
+		read_state_idx = 0
 		for idx, action_result in enumerate(result):
 			if action_result.include_extracted_content_only_once and action_result.extracted_content:
-				self.state.read_state_description += action_result.extracted_content + '\n'
+				self.state.read_state_description += (
+					f'<read_state_{read_state_idx}>\n{action_result.extracted_content}\n</read_state_{read_state_idx}>\n'
+				)
+				read_state_idx += 1
 				logger.debug(f'Added extracted_content to read_state_description: {action_result.extracted_content}')
 
 			if action_result.long_term_memory:
-				action_results += f'Action {idx + 1}/{result_len}: {action_result.long_term_memory}\n'
+				action_results += f'{action_result.long_term_memory}\n'
 				logger.debug(f'Added long_term_memory to action_results: {action_result.long_term_memory}')
 			elif action_result.extracted_content and not action_result.include_extracted_content_only_once:
-				action_results += f'Action {idx + 1}/{result_len}: {action_result.extracted_content}\n'
+				action_results += f'{action_result.extracted_content}\n'
 				logger.debug(f'Added extracted_content to action_results: {action_result.extracted_content}')
 
 			if action_result.error:
@@ -195,19 +204,27 @@ class MessageManager:
 					error_text = action_result.error[:100] + '......' + action_result.error[-100:]
 				else:
 					error_text = action_result.error
-				action_results += f'Action {idx + 1}/{result_len}: {error_text}\n'
+				action_results += f'{error_text}\n'
 				logger.debug(f'Added error to action_results: {error_text}')
 
+		self.state.read_state_description = self.state.read_state_description.strip('\n')
+
 		if action_results:
-			action_results = f'Action Results:\n{action_results}'
+			action_results = f'Result:\n{action_results}'
 		action_results = action_results.strip('\n') if action_results else None
 
 		# Build the history item
 		if model_output is None:
-			# Only add error history item if we have a valid step number
-			if step_number is not None and step_number > 0:
-				history_item = HistoryItem(step_number=step_number, error='Agent failed to output in the right format.')
-				self.state.agent_history_items.append(history_item)
+			# Add history item for initial actions (step 0) or errors (step > 0)
+			if step_number is not None:
+				if step_number == 0 and action_results:
+					# Step 0 with initial action results
+					history_item = HistoryItem(step_number=step_number, action_results=action_results)
+					self.state.agent_history_items.append(history_item)
+				elif step_number > 0:
+					# Error case for steps > 0
+					history_item = HistoryItem(step_number=step_number, error='Agent failed to output in the right format.')
+					self.state.agent_history_items.append(history_item)
 		else:
 			history_item = HistoryItem(
 				step_number=step_number,
@@ -229,7 +246,7 @@ class MessageManager:
 		for key, value in sensitive_data.items():
 			if isinstance(value, dict):
 				# New format: {domain: {key: value}}
-				if match_url_with_domain_pattern(current_page_url, key, True):
+				if current_page_url and match_url_with_domain_pattern(current_page_url, key, True):
 					placeholders.update(value.keys())
 			else:
 				# Old format: {key: value}
@@ -263,7 +280,12 @@ class MessageManager:
 
 		# First, update the agent history items with the latest step results
 		self._update_agent_history_description(model_output, result, step_info)
-		if sensitive_data:
+
+		# Use the passed sensitive_data parameter, falling back to instance variable
+		effective_sensitive_data = sensitive_data if sensitive_data is not None else self.sensitive_data
+		if effective_sensitive_data is not None:
+			# Update instance variable to keep it in sync
+			self.sensitive_data = effective_sensitive_data
 			self.sensitive_data_description = self._get_sensitive_data_description(browser_state_summary.url)
 
 		# Use only the current screenshot
@@ -286,6 +308,8 @@ class MessageManager:
 			available_file_paths=available_file_paths,
 			screenshots=screenshots,
 			vision_detail_level=self.vision_detail_level,
+			include_recent_events=self.include_recent_events,
+			sample_images=self.sample_images,
 		).get_user_message(use_vision)
 
 		# Set the state message with caching enabled

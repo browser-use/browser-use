@@ -32,30 +32,28 @@ class HistoryItem(BaseModel):
 
 	def to_string(self) -> str:
 		"""Get string representation of the history item"""
-		step_str = f'step_{self.step_number}' if self.step_number is not None else 'step_unknown'
+		step_str = 'step' if self.step_number is not None else 'step_unknown'
 
 		if self.error:
 			return f"""<{step_str}>
 {self.error}
 </{step_str}>"""
 		elif self.system_message:
-			return f"""<sys>
-{self.system_message}
-</sys>"""
+			return ''  # empty string
 		else:
 			content_parts = []
 
 			# Only include evaluation_previous_goal if it's not None/empty
 			if self.evaluation_previous_goal:
-				content_parts.append(f'Evaluation of Previous Step: {self.evaluation_previous_goal}')
+				content_parts.append(f'{self.evaluation_previous_goal}')
 
 			# Always include memory
 			if self.memory:
-				content_parts.append(f'Memory: {self.memory}')
+				content_parts.append(f'{self.memory}')
 
 			# Only include next_goal if it's not None/empty
 			if self.next_goal:
-				content_parts.append(f'Next Goal: {self.next_goal}')
+				content_parts.append(f'{self.next_goal}')
 
 			if self.action_results:
 				content_parts.append(self.action_results)

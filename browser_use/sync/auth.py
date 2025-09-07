@@ -134,7 +134,7 @@ class DeviceAuthClient:
 				data={
 					'client_id': self.client_id,
 					'scope': self.scope,
-					'agent_session_id': agent_session_id,
+					'agent_session_id': agent_session_id or '',
 					'device_id': self.device_id,
 				},
 			)
@@ -147,7 +147,7 @@ class DeviceAuthClient:
 					data={
 						'client_id': self.client_id,
 						'scope': self.scope,
-						'agent_session_id': agent_session_id,
+						'agent_session_id': agent_session_id or '',
 						'device_id': self.device_id,
 					},
 				)
@@ -351,4 +351,7 @@ class DeviceAuthClient:
 	def clear_auth(self) -> None:
 		"""Clear stored authentication"""
 		self.auth_config = CloudAuthConfig()
-		self.auth_config.save_to_file()
+
+		# Remove the config file entirely instead of saving empty values
+		config_path = CONFIG.BROWSER_USE_CONFIG_DIR / 'cloud_auth.json'
+		config_path.unlink(missing_ok=True)

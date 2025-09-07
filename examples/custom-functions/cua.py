@@ -24,17 +24,9 @@ load_dotenv()
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
-from browser_use import Agent, Controller
+from browser_use import Agent, ChatOpenAI, Tools
 from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
-from browser_use.llm import ChatOpenAI
-
-try:
-	from lmnr import Laminar
-
-	Laminar.initialize(project_api_key=os.getenv('LMNR_PROJECT_API_KEY'))
-except ImportError:
-	pass
 
 
 class OpenAICUAAction(BaseModel):
@@ -43,13 +35,16 @@ class OpenAICUAAction(BaseModel):
 	description: str = Field(..., description='Description of your next goal')
 
 
-async def handle_model_action(page, action) -> ActionResult:
+async def handle_model_action(browser_session: BrowserSession, action) -> ActionResult:
 	"""
 	Given a computer action (e.g., click, double_click, scroll, etc.),
-	execute the corresponding operation on the Playwright page.
+	execute the corresponding operation using CDP.
 	"""
 	action_type = action.type
 	ERROR_MSG: str = 'Could not execute the CUA action.'
+
+	if not browser_session.agent_focus:
+		return ActionResult(error='No active browser session')
 
 	try:
 		match action_type:
@@ -60,7 +55,27 @@ async def handle_model_action(page, action) -> ActionResult:
 				# Not handling things like middle click, etc.
 				if button != 'left' and button != 'right':
 					button = 'left'
-				await page.mouse.click(x, y, button=button)
+
+				# Use CDP to click
+				await browser_session.agent_focus.cdp_client.send.Input.dispatchMouseEvent(
+					params={
+						'type': 'mousePressed',
+						'x': x,
+						'y': y,
+						'button': button,
+						'clickCount': 1,
+					},
+					session_id=browser_session.agent_focus.session_id,
+				)
+				await browser_session.agent_focus.cdp_client.send.Input.dispatchMouseEvent(
+					params={
+						'type': 'mouseReleased',
+						'x': x,
+						'y': y,
+						'button': button,
+					},
+					session_id=browser_session.agent_focus.session_id,
+				)
 				msg = f'Clicked at ({x}, {y}) with button {button}'
 				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
 
@@ -68,8 +83,24 @@ async def handle_model_action(page, action) -> ActionResult:
 				x, y = action.x, action.y
 				scroll_x, scroll_y = action.scroll_x, action.scroll_y
 				print(f'Action: scroll at ({x}, {y}) with offsets (scroll_x={scroll_x}, scroll_y={scroll_y})')
-				await page.mouse.move(x, y)
-				await page.evaluate(f'window.scrollBy({scroll_x}, {scroll_y})')
+
+				# Move mouse to position first
+				await browser_session.agent_focus.cdp_client.send.Input.dispatchMouseEvent(
+					params={
+						'type': 'mouseMoved',
+						'x': x,
+						'y': y,
+					},
+					session_id=browser_session.agent_focus.session_id,
+				)
+
+				# Execute scroll using JavaScript
+				await browser_session.agent_focus.cdp_client.send.Runtime.evaluate(
+					params={
+						'expression': f'window.scrollBy({scroll_x}, {scroll_y})',
+					},
+					session_id=browser_session.agent_focus.session_id,
+				)
 				msg = f'Scrolled at ({x}, {y}) with offsets (scroll_x={scroll_x}, scroll_y={scroll_y})'
 				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
 
@@ -78,19 +109,43 @@ async def handle_model_action(page, action) -> ActionResult:
 				for k in keys:
 					print(f"Action: keypress '{k}'")
 					# A simple mapping for common keys; expand as needed.
+					key_code = k
 					if k.lower() == 'enter':
-						await page.keyboard.press('Enter')
+						key_code = 'Enter'
 					elif k.lower() == 'space':
-						await page.keyboard.press(' ')
-					else:
-						await page.keyboard.press(k)
+						key_code = 'Space'
+
+					# Use CDP to send key
+					await browser_session.agent_focus.cdp_client.send.Input.dispatchKeyEvent(
+						params={
+							'type': 'keyDown',
+							'key': key_code,
+						},
+						session_id=browser_session.agent_focus.session_id,
+					)
+					await browser_session.agent_focus.cdp_client.send.Input.dispatchKeyEvent(
+						params={
+							'type': 'keyUp',
+							'key': key_code,
+						},
+						session_id=browser_session.agent_focus.session_id,
+					)
 				msg = f'Pressed keys: {keys}'
 				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
 
 			case 'type':
 				text = action.text
 				print(f'Action: type text: {text}')
-				await page.keyboard.type(text)
+
+				# Type text character by character
+				for char in text:
+					await browser_session.agent_focus.cdp_client.send.Input.dispatchKeyEvent(
+						params={
+							'type': 'char',
+							'text': char,
+						},
+						session_id=browser_session.agent_focus.session_id,
+					)
 				msg = f'Typed text: {text}'
 				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
 
@@ -115,10 +170,10 @@ async def handle_model_action(page, action) -> ActionResult:
 		return ActionResult(error=ERROR_MSG)
 
 
-controller = Controller()
+tools = Tools()
 
 
-@controller.registry.action(
+@tools.registry.action(
 	'Use OpenAI Computer Use Assistant (CUA) as a fallback when standard browser actions cannot achieve the desired goal. This action sends a screenshot and description to OpenAI CUA and executes the returned computer use actions.',
 	param_model=OpenAICUAAction,
 )
@@ -130,14 +185,15 @@ async def openai_cua_fallback(params: OpenAICUAAction, browser_session: BrowserS
 	print(f'🎯 CUA Action Starting - Goal: {params.description}')
 
 	try:
-		page = await browser_session.get_current_page()
-		page_info = browser_session.browser_state_summary.page_info
+		# Get browser state summary
+		state = await browser_session.get_browser_state_summary()
+		page_info = state.page_info
 		if not page_info:
 			raise Exception('Page info not found - cannot execute CUA action')
 
 		print(f'📐 Viewport size: {page_info.viewport_width}x{page_info.viewport_height}')
 
-		screenshot_b64 = browser_session.browser_state_summary.screenshot
+		screenshot_b64 = state.screenshot
 		if not screenshot_b64:
 			raise Exception('Screenshot not found - cannot execute CUA action')
 
@@ -201,7 +257,7 @@ async def openai_cua_fallback(params: OpenAICUAAction, browser_session: BrowserS
 		action = computer_call.action
 		print(f'🎬 Executing CUA action: {action.type} - {action}')
 
-		action_result = await handle_model_action(page, action)
+		action_result = await handle_model_action(browser_session, action)
 		await asyncio.sleep(0.1)
 
 		print('✅ CUA action completed successfully')
@@ -231,11 +287,11 @@ async def main():
     Use the OpenAI CUA fallback to click on "Tree is open..." link.
     """
 
-	# Create agent with our custom controller that includes CUA fallback
+	# Create agent with our custom tools that includes CUA fallback
 	agent = Agent(
 		task=task,
 		llm=llm,
-		controller=controller,
+		tools=tools,
 		browser_session=browser_session,
 	)
 
@@ -253,7 +309,7 @@ async def main():
 
 	finally:
 		# Clean up browser session
-		await browser_session.close()
+		await browser_session.kill()
 		print('\n🧹 Browser session closed')
 
 

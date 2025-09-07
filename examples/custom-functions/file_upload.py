@@ -1,8 +1,15 @@
+"""
+Example of implementing file upload functionality.
+
+This shows how to upload files to file input elements on web pages.
+"""
+
 import asyncio
 import logging
 import os
 import sys
-from pathlib import Path
+
+import aiofiles
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -10,24 +17,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from lmnr import Laminar
-
-try:
-	Laminar.initialize(project_api_key=os.getenv('LMNR_PROJECT_API_KEY'))
-except Exception:
-	pass
-
-from browser_use import Agent, Controller
+from browser_use import ChatOpenAI
+from browser_use.agent.service import Agent, Tools
 from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
-from browser_use.llm import ChatOpenAI
+from browser_use.browser.events import UploadFileEvent
 
 logger = logging.getLogger(__name__)
 
-controller = Controller()
+# Initialize tools
+tools = Tools()
 
 
-@controller.action('Upload file to interactive element with file path')
+@tools.action('Upload file to interactive element with file path')
 async def upload_file(index: int, path: str, browser_session: BrowserSession, available_file_paths: list[str]):
 	if path not in available_file_paths:
 		return ActionResult(error=f'File path {path} is not available')
@@ -35,55 +37,77 @@ async def upload_file(index: int, path: str, browser_session: BrowserSession, av
 	if not os.path.exists(path):
 		return ActionResult(error=f'File {path} does not exist')
 
-	file_upload_dom_el = await browser_session.find_file_upload_element_by_index(index, max_height=3, max_descendant_depth=3)
-
-	if file_upload_dom_el is None:
-		msg = f'No file upload element found at index {index}'
-		logger.info(msg)
-		return ActionResult(error=msg)
-
-	file_upload_el = await browser_session.get_locate_element(file_upload_dom_el)
-
-	if file_upload_el is None:
-		msg = f'No file upload element found at index {index}'
-		logger.info(msg)
-		return ActionResult(error=msg)
-
 	try:
-		await file_upload_el.set_input_files(path)
+		# Get the DOM element by index
+		dom_element = await browser_session.get_dom_element_by_index(index)
+
+		if dom_element is None:
+			msg = f'No element found at index {index}'
+			logger.info(msg)
+			return ActionResult(error=msg)
+
+		# Check if it's a file input element
+		if dom_element.tag_name.lower() != 'input' or dom_element.attributes.get('type') != 'file':
+			msg = f'Element at index {index} is not a file input element'
+			logger.info(msg)
+			return ActionResult(error=msg)
+
+		# Dispatch the upload file event
+		event = browser_session.event_bus.dispatch(UploadFileEvent(node=dom_element, file_path=path))
+		await event
+
 		msg = f'Successfully uploaded file to index {index}'
 		logger.info(msg)
 		return ActionResult(extracted_content=msg, include_in_memory=True)
+
 	except Exception as e:
 		msg = f'Failed to upload file to index {index}: {str(e)}'
 		logger.info(msg)
 		return ActionResult(error=msg)
 
 
-def create_file(file_type: str = 'txt'):
-	with open(f'tmp.{file_type}', 'w') as f:
-		f.write('test')
-	file_path = Path.cwd() / f'tmp.{file_type}'
-	logger.info(f'Created file: {file_path}')
-	return str(file_path)
-
-
 async def main():
-	task = 'Go to https://kzmpmkh2zfk1ojnpxfn1.lite.vusercontent.net/ and - read the file content and upload them to fields'
-	task = 'Go to https://www.freepdfconvert.com/, upload the file tmp.pdf into the field choose a file - dont click the fileupload button'
-	available_file_paths = [create_file('txt'), create_file('pdf'), create_file('csv')]
+	"""Main function to run the example"""
+	browser_session = BrowserSession()
+	await browser_session.start()
+	llm = ChatOpenAI(model='gpt-4.1-mini')
 
-	model = ChatOpenAI(model='gpt-4.1-mini')
+	# List of file paths the agent is allowed to upload
+	# In a real scenario, you'd want to be very careful about what files
+	# the agent can access and upload
+	available_file_paths = [
+		'/tmp/test_document.pdf',
+		'/tmp/test_image.jpg',
+	]
+
+	# Create test files if they don't exist
+	for file_path in available_file_paths:
+		if not os.path.exists(file_path):
+			async with aiofiles.open(file_path, 'w') as f:
+				await f.write('Test file content for upload example')
+
+	# Create the agent with file upload capability
 	agent = Agent(
-		task=task,
-		llm=model,
-		controller=controller,
-		available_file_paths=available_file_paths,
+		task="""
+            Go to https://www.w3schools.com/howto/howto_html_file_upload_button.asp and try to upload one of the available test files.
+        """,
+		llm=llm,
+		browser_session=browser_session,
+		tools=tools,
+		# Pass the available file paths to the tools context
+		custom_context={'available_file_paths': available_file_paths},
 	)
 
-	await agent.run()
+	# Run the agent
+	await agent.run(max_steps=10)
 
-	input('Press Enter to close...')
+	# Cleanup
+	await browser_session.kill()
+
+	# Clean up test files
+	for file_path in available_file_paths:
+		if os.path.exists(file_path):
+			os.remove(file_path)
 
 
 if __name__ == '__main__':

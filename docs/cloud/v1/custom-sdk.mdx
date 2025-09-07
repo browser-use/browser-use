@@ -1,0 +1,93 @@
+---
+title: "Cloud SDK"
+description: "Learn how to set up your own Browser Use Cloud SDK"
+icon: "code"
+mode: "wide"
+---
+
+This guide walks you through setting up your own Browser Use Cloud SDK.
+
+## Building your own client (OpenAPI)
+
+<Note>
+  This approach is recommended **only** if you need to run simple tasks and
+  **don’t require fine-grained control**.
+</Note>
+
+The best way to build your own client is to use our [OpenAPI specification](http://api.browser-use.com/openapi.json) to generate a type-safe client library.
+
+### Python
+
+Use [openapi-python-client](https://github.com/openapi-generators/openapi-python-client) to generate a modern Python client:
+
+```bash
+# Install the generator
+pipx install openapi-python-client --include-deps
+
+# Generate the client
+openapi-python-client generate --url http://api.browser-use.com/openapi.json
+```
+
+This will create a Python package with full type hints, modern dataclasses, and async support.
+
+### TypeScript/JavaScript
+
+Use [OpenAPI TS](https://openapi-ts.dev/) library to generate a type safe TypeScript client for the Browser Use API. 
+
+The following guide shows how to create a simple type-safe `fetch` client, but you can also use other generators.
+
+- React Query - https://openapi-ts.dev/openapi-react-query/
+- SWR - https://openapi-ts.dev/swr-openapi/
+
+
+<CodeGroup>
+```bash npm
+npm install openapi-fetch 
+npm install -D openapi-typescript typescript
+```
+
+```bash yarn
+yarn add openapi-fetch
+yarn add -D openapi-typescript typescript
+```
+```bash pnpm
+pnpm add openapi-fetch
+pnpm add -D openapi-typescript typescript
+```
+</CodeGroup>
+
+```json title="package.json"
+{
+  "scripts": {
+    "openapi:gen": "openapi-typescript https://api.browser-use.com/openapi.json -o ./src/lib/api/v1.d.ts"
+  }
+}
+```
+
+```bash
+pnpm openapi:gen
+```
+
+```ts
+// client.ts
+
+'use client'
+
+import createClient from 'openapi-fetch'
+import { paths } from '@/lib/api/v1'
+
+export type Client = ReturnType<typeof createClient<paths>>
+
+export const client = createClient<paths>({
+    baseUrl: 'https://api.browser-use.com/',
+
+    // NOTE: You can get your API key from https://cloud.browser-use.com/billing!
+    headers: { Authorization: `Bearer ${apiKey}` },
+})
+
+```
+
+<Note>
+  Need help? Contact our support team at support@browser-use.com or join our
+  [Discord community](https://link.browser-use.com/discord)
+</Note>

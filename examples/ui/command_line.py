@@ -26,7 +26,7 @@ load_dotenv()
 
 from browser_use import Agent
 from browser_use.browser import BrowserSession
-from browser_use.controller.service import Controller
+from browser_use.tools.service import Tools
 
 
 def get_llm(provider: str):
@@ -39,7 +39,7 @@ def get_llm(provider: str):
 
 		return ChatAnthropic(model='claude-3-5-sonnet-20240620', temperature=0.0)
 	elif provider == 'openai':
-		from browser_use.llm import ChatOpenAI
+		from browser_use import ChatOpenAI
 
 		api_key = os.getenv('OPENAI_API_KEY')
 		if not api_key:
@@ -70,13 +70,13 @@ def parse_arguments():
 def initialize_agent(query: str, provider: str):
 	"""Initialize the browser agent with the given query and provider."""
 	llm = get_llm(provider)
-	controller = Controller()
+	tools = Tools()
 	browser_session = BrowserSession()
 
 	return Agent(
 		task=query,
 		llm=llm,
-		controller=controller,
+		tools=tools,
 		browser_session=browser_session,
 		use_vision=True,
 		max_actions_per_step=1,
@@ -91,7 +91,7 @@ async def main():
 	await agent.run(max_steps=25)
 
 	input('Press Enter to close the browser...')
-	await browser_session.close()
+	await browser_session.kill()
 
 
 if __name__ == '__main__':

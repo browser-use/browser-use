@@ -20,9 +20,9 @@ socketserver.ThreadingMixIn.block_on_close = False
 socketserver.ThreadingMixIn.daemon_threads = True
 
 from browser_use.agent.views import AgentOutput
-from browser_use.controller.service import Controller
 from browser_use.llm import BaseChatModel
 from browser_use.llm.views import ChatInvokeCompletion
+from browser_use.tools.service import Tools
 
 # Load environment variables before any imports
 load_dotenv()
@@ -44,7 +44,7 @@ def setup_test_environment():
 	Automatically set up test environment for all tests.
 	"""
 
-	# Create a temporary directory for test config
+	# Create a temporary directory for test config (but not for extensions)
 	config_dir = tempfile.mkdtemp(prefix='browseruse_tests_')
 
 	original_env = {}
@@ -54,7 +54,8 @@ def setup_test_environment():
 		'BROWSER_USE_CLOUD_SYNC': 'true',
 		'BROWSER_USE_CLOUD_API_URL': 'http://placeholder-will-be-replaced-by-specific-test-fixtures',
 		'BROWSER_USE_CLOUD_UI_URL': 'http://placeholder-will-be-replaced-by-specific-test-fixtures',
-		'BROWSER_USE_CONFIG_DIR': config_dir,
+		# Don't set BROWSER_USE_CONFIG_DIR anymore - let it use the default ~/.config/browseruse
+		# This way extensions will be cached in ~/.config/browseruse/extensions
 	}
 
 	for key, value in test_env_vars.items():
@@ -83,8 +84,8 @@ def create_mock_llm(actions: list[str] | None = None) -> BaseChatModel:
 	Returns:
 		Mock LLM that will return the actions in order, or just a done action if no actions provided.
 	"""
-	controller = Controller()
-	ActionModel = controller.registry.create_action_model()
+	tools = Tools()
+	ActionModel = tools.registry.create_action_model()
 	AgentOutputWithActions = AgentOutput.type_with_custom_actions(ActionModel)
 
 	llm = AsyncMock(spec=BaseChatModel)
@@ -167,6 +168,8 @@ async def browser_session():
 	await session.start()
 	yield session
 	await session.kill()
+	# Ensure event bus is properly stopped
+	await session.event_bus.stop(clear=True, timeout=5)
 
 
 @pytest.fixture(scope='function')
@@ -187,7 +190,6 @@ def cloud_sync(httpserver: HTTPServer):
 	# Create CloudSync with test server URL
 	cloud_sync = CloudSync(
 		base_url=test_http_server_url,
-		enable_auth=False,  # Disable auth for most tests, they can override this if needed
 	)
 
 	return cloud_sync

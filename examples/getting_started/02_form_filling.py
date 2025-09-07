@@ -21,8 +21,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from browser_use import Agent
-from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use import Agent, ChatOpenAI
 
 
 async def main():
