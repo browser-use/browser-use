@@ -236,8 +236,8 @@ class DOMTreeSerializer:
 			return
 
 		# Skip assigning index to excluded nodes, or ignored by paint order
-		if not node.excluded_by_parent and not node.ignored_by_paint_order:
-			# Assign index to clickable elements that are also visible
+		if (is_interactive_assign or node.original_node.is_actually_scrollable) and is_visible:
+			# Assign index to clickable and scrollable elements that are also visible
 			is_interactive_assign = self._is_interactive_cached(node.original_node)
 			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
 
