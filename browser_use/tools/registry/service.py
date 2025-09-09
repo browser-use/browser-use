@@ -481,7 +481,7 @@ class Registry(Generic[Context]):
 							if resolved is not None:
 								replacement_value = replacement_value.replace(f'<secret>{placeholder}</secret>', resolved)
 						value = value.replace(f'<secret>{placeholder}</secret>', replacement_value)
-						replaced_placeholders.add(placeholder)								
+						replaced_placeholders.add(placeholder)
 					else:
 						# Keep track of missing placeholders
 						all_missing_placeholders.add(placeholder)
