@@ -145,6 +145,14 @@ class DOMRect:
 	y: float
 	width: float
 	height: float
+	
+	def to_dict(self) -> dict[str, Any]:
+		return {
+			'x': self.x,
+			'y': self.y,
+			'width': self.width,
+			'height': self.height,
+		}
 
 
 @dataclass(slots=True)
@@ -758,11 +766,16 @@ class DOMInteractedElement:
 
 	def to_dict(self) -> dict[str, Any]:
 		return {
+			'node_id': self.node_id,
+			'backend_node_id': self.backend_node_id,
+			'frame_id': self.frame_id,
 			'node_type': self.node_type.value,
 			'node_value': self.node_value,
 			'node_name': self.node_name,
 			'attributes': self.attributes,
+			'bounds': self.bounds.to_dict() if self.bounds else None,
 			'x_path': self.x_path,
+			'element_hash': self.element_hash,
 		}
 
 	@classmethod

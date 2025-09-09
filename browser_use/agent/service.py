@@ -1833,6 +1833,39 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				result[0].long_term_memory = f'Found initial url and automatically loaded it. {result[0].long_term_memory}'
 			self.state.last_result = result
 			self.logger.debug('Initial actions completed')
+			
+			# 将初始动作的结果保存到历史中
+			if result and self.browser_session:
+				try:
+					# 获取浏览器状态
+					browser_state_summary = await self.browser_session.get_browser_state_summary(
+						cache_clickable_elements_hashes=True,
+						include_screenshot=True,
+						include_recent_events=self.include_recent_events,
+					)
+					
+					# 创建初始动作的AgentOutput（模拟LLM输出）
+					initial_model_output = self.AgentOutput(
+						evaluation_previous_goal="",
+						memory="",
+						next_goal="",
+						action=self.initial_actions,
+						thinking=None
+					)
+					
+					# 创建元数据
+					metadata = StepMetadata(
+						step_number=0,  # 初始动作的步骤号为0
+						step_start_time=time.time(),
+						step_end_time=time.time(),
+					)
+					
+					# 保存到历史
+					await self._make_history_item(initial_model_output, browser_state_summary, result, metadata)
+					self.logger.debug('Initial actions saved to history')
+					
+				except Exception as e:
+					self.logger.error(f'Failed to save initial actions to history: {e}')
 
 	async def _execute_history_step(self, history_item: AgentHistory, delay: float) -> list[ActionResult]:
 		"""Execute a single step from history with element validation"""
