@@ -216,3 +216,41 @@ We support all other models that can be called via OpenAI compatible API. We are
 - [DeepSeek](https://github.com/browser-use/browser-use/blob/main/examples/models/deepseek-chat.py)
 - [Novita](https://github.com/browser-use/browser-use/blob/main/examples/models/novita.py)
 - [OpenRouter](https://github.com/browser-use/browser-use/blob/main/examples/models/openrouter.py)
+
+## Hugging Face Inference (OpenAI-compatible)
+
+You can use Hugging Face Inference Endpoints or the Hub's OpenAI-compatible API.
+
+```python
+from browser_use import Agent
+from browser_use.llm.huggingface.chat import ChatHuggingFace
+
+llm = ChatHuggingFace(
+    model="meta-llama/Meta-Llama-3.1-8B-Instruct",
+)
+
+agent = Agent(task="Your task here", llm=llm)
+```
+
+Required environment variables:
+
+```bash .env
+HUGGINGFACE_API_KEY=  # or HF_API_KEY
+# Optional custom base if you're using your own endpoint
+# HF_OPENAI_API_BASE=https://<your-endpoint-host>/v1
+```
+
+Factory shortcut is also supported:
+
+```python
+from browser_use.llm.models import get_llm_by_name
+
+llm = get_llm_by_name(
+    "huggingface_meta_llama_3_1_8b_instruct"  # underscores -> dashes
+)
+```
+
+Notes:
+
+- Complex model IDs with slashes/dots are best passed via the direct constructor.
+- Structured output via Pydantic v2 schemas is supported out of the box.
