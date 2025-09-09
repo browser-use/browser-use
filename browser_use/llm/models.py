@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from browser_use.llm.azure.chat import ChatAzureOpenAI
 from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use.llm.huggingface.chat import ChatHuggingFace
 
 if TYPE_CHECKING:
 	from browser_use.llm.base import BaseChatModel
@@ -73,7 +74,9 @@ def get_llm_by_name(model_name: str):
 	# Parse model name
 	parts = model_name.split('_', 1)
 	if len(parts) < 2:
-		raise ValueError(f"Invalid model name format: '{model_name}'. Expected format: 'provider_model_name'")
+		raise ValueError(
+			f"Invalid model name format: '{model_name}'. Expected format: 'provider_model_name'"
+		)
 
 	provider = parts[0]
 	model_part = parts[1]
@@ -101,16 +104,32 @@ def get_llm_by_name(model_name: str):
 	elif provider == 'azure':
 		api_key = os.getenv('AZURE_OPENAI_KEY') or os.getenv('AZURE_OPENAI_API_KEY')
 		azure_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
-		return ChatAzureOpenAI(model=model, api_key=api_key, azure_endpoint=azure_endpoint)
+		return ChatAzureOpenAI(
+			model=model, api_key=api_key, azure_endpoint=azure_endpoint
+		)
 
 	# Google Models
 	elif provider == 'google':
 		api_key = os.getenv('GOOGLE_API_KEY')
 		return ChatGoogle(model=model, api_key=api_key)
 
+	# Hugging Face Inference Endpoints (OpenAI-compatible)
+	elif provider == 'huggingface':
+		api_key = os.getenv('HUGGINGFACE_API_KEY') or os.getenv('HF_API_KEY')
+		base_url = (
+			os.getenv('HF_OPENAI_API_BASE') or 'https://api-inference.huggingface.co/v1'
+		)
+		return ChatHuggingFace(
+			model=model,
+			api_key=api_key,
+			base_url=base_url,
+		)
+
 	else:
-		available_providers = ['openai', 'azure', 'google']
-		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
+		available_providers = ['openai', 'azure', 'google', 'huggingface']
+		raise ValueError(
+			f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}"
+		)
 
 
 # Pre-configured model instances (lazy loaded via __getattr__)
@@ -168,4 +187,6 @@ __all__ = [
 	'google_gemini_2_5_pro',
 	'google_gemini_2_5_flash',
 	'google_gemini_2_5_flash_lite',
+	# Hugging Face instances - created on demand
+	# Example: llm.huggingface_meta_llama_3_1_8b_instruct
 ]
