@@ -685,6 +685,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Page-specific actions will be included directly in the browser_state message
 		self.logger.debug(f'💬 Step {self.state.n_steps}: Creating state messages for context...')
+		# Provide resolved dynamic secrets from the previous step to the message manager for masking
+		try:
+			self._message_manager.resolved_sensitive_values = getattr(self.tools.registry, 'last_resolved_secrets', {}) or {}
+		except Exception:
+			self._message_manager.resolved_sensitive_values = {}
 		self._message_manager.create_state_messages(
 			browser_state_summary=browser_state_summary,
 			model_output=self.state.last_model_output,

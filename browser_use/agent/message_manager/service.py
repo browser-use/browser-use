@@ -122,6 +122,9 @@ class MessageManager:
 		self.vision_detail_level = vision_detail_level
 		self.include_tool_call_examples = include_tool_call_examples
 		self.include_recent_events = include_recent_events
+
+		# Map of placeholder key -> resolved secret value from last action execution
+		self.resolved_sensitive_values: dict[str, str] = {}
 		self.sample_images = sample_images
 
 		assert max_history_items is None or max_history_items > 5, 'max_history_items must be None or greater than 5'
@@ -394,33 +397,20 @@ class MessageManager:
 			if not self.sensitive_data:
 				return value
 
-			# Collect all sensitive values, immediately converting old format to new format
+			# Collect sensitive values to mask, without evaluating callables during logging
 			sensitive_values: dict[str, str] = {}
 
-			# Evaluate callables safely to ensure dynamic secrets are masked in messages
+			# Include resolved dynamic secrets from the last action execution
+			sensitive_values.update(self.resolved_sensitive_values)
+
+			# Include static string values from sensitive_data (old and new formats)
 			for key_or_domain, content in self.sensitive_data.items():
 				if isinstance(content, dict):
-					# New format: {domain: {key: value}}
 					for key, val in content.items():
-						try:
-							if isinstance(val, str) and val:
-								sensitive_values[key] = val
-							elif callable(val):
-								resolved = val()
-								if isinstance(resolved, str) and resolved:
-									sensitive_values[key] = resolved
-						except Exception as e:
-							logger.warning(f'Error evaluating sensitive_data provider for key={key}: {e}')
+						if isinstance(val, str) and val:
+							sensitive_values[key] = val
 				elif isinstance(content, str) and content:
-					# Old format: {key: value}
 					sensitive_values[key_or_domain] = content
-				elif callable(content):
-					try:
-						resolved = content()
-						if isinstance(resolved, str) and resolved:
-							sensitive_values[key_or_domain] = resolved
-					except Exception as e:
-						logger.warning(f'Error evaluating sensitive_data provider for key={key_or_domain}: {e}')
 
 			# If there are no valid sensitive data entries, just return the original value
 			if not sensitive_values:

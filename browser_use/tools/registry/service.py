@@ -418,7 +418,7 @@ class Registry(Generic[Context]):
 		applicable_secrets: dict[str, Any] = {}
 
 		for domain_or_key, content in sensitive_data.items():
-			if isinstance(content, dict):
+			if isinstance(content, Mapping):
 				# New format: {domain_pattern: {key: value}}
 				# Only include secrets for domains that match the current URL
 				if current_url and not is_new_tab_page(current_url):
@@ -496,6 +496,13 @@ class Registry(Generic[Context]):
 
 		params_dump = params.model_dump()
 		processed_params = recursively_replace_secrets(params_dump)
+
+		# Expose the resolved values for masking in subsequent logs/state
+		try:
+			self.last_resolved_secrets = dict(resolved_cache)
+		except Exception:
+			# Do not fail action execution if we cannot set this attribute
+			pass
 
 		# Log sensitive data usage
 		self._log_sensitive_data_usage(replaced_placeholders, current_url)
