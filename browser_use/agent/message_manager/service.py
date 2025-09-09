@@ -397,17 +397,30 @@ class MessageManager:
 			# Collect all sensitive values, immediately converting old format to new format
 			sensitive_values: dict[str, str] = {}
 
-			# Process all sensitive data entries (mask only static string values; never evaluate callables here)
+			# Evaluate callables safely to ensure dynamic secrets are masked in messages
 			for key_or_domain, content in self.sensitive_data.items():
 				if isinstance(content, dict):
-					# Already in new format: {domain: {key: value}}
+					# New format: {domain: {key: value}}
 					for key, val in content.items():
-						# Only include concrete strings; skip callables entirely to avoid evaluation during logging
-						if isinstance(val, str) and val:
-							sensitive_values[key] = val
-				elif isinstance(content, str) and content:  # Old format: {key: value} - convert to new format internally
-					# We treat this as if it was {'http*://*': {key_or_domain: content}}
+						try:
+							if isinstance(val, str) and val:
+								sensitive_values[key] = val
+							elif callable(val):
+								resolved = val()
+								if isinstance(resolved, str) and resolved:
+									sensitive_values[key] = resolved
+						except Exception as e:
+							logger.warning(f'Error evaluating sensitive_data provider for key={key}: {e}')
+				elif isinstance(content, str) and content:
+					# Old format: {key: value}
 					sensitive_values[key_or_domain] = content
+				elif callable(content):
+					try:
+						resolved = content()
+						if isinstance(resolved, str) and resolved:
+							sensitive_values[key_or_domain] = resolved
+					except Exception as e:
+						logger.warning(f'Error evaluating sensitive_data provider for key={key_or_domain}: {e}')
 
 			# If there are no valid sensitive data entries, just return the original value
 			if not sensitive_values:

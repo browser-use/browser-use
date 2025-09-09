@@ -337,21 +337,35 @@ def test_callable_evaluated_once_per_placeholder(registry):
 	assert call_count['n'] == 1
 
 
-def test_sanitization_does_not_evaluate_callables(message_manager):
-	"""MessageManager should not evaluate callable sensitive values during sanitization."""
+def test_sanitization_evaluates_callables_safely(message_manager):
+	"""MessageManager evaluates callable sensitive values and ignores errors."""
 
 	called = {'flag': False}
 
 	def raising_provider():
 		called['flag'] = True
-		raise RuntimeError('Should not be called during sanitization')
+		raise RuntimeError('Expected during sanitization evaluation')
 
 	message_manager.sensitive_data = {
 		'example.com': {'otp': raising_provider},
 		'password': raising_provider,
 	}
 	message = UserMessage(content='This text has no real secrets inside')
-	# Should not raise and should not mark called
+	# Should not raise but should attempt evaluation
 	res = message_manager._filter_sensitive_data(message)
 	assert isinstance(res.content, str)
-	assert called['flag'] is False
+	assert called['flag'] is True
+
+
+def test_sanitization_masks_values_from_callable(message_manager):
+	"""If the callable returns a value present in the message, it is masked."""
+
+	def provider():
+		return 'MASKME'
+
+	message_manager.sensitive_data = {
+		'otp': provider,
+	}
+	message = UserMessage(content='Code is MASKME')
+	res = message_manager._filter_sensitive_data(message)
+	assert '<secret>otp</secret>' in res.content
