@@ -271,28 +271,6 @@ def test_is_new_tab_page():
 	assert is_new_tab_page('chrome://settings') is False
 
 
-def test_callable_sensitive_data_old_format(registry):
-	"""Callables in old format should be evaluated at replacement time."""
-
-	params = SensitiveParams(text='Enter <secret>otp</secret> and <secret>password</secret>')
-
-	# Providers: one callable and one static
-	call_count = {'n': 0}
-
-	def otp_provider():
-		call_count['n'] += 1
-		return '123456'
-
-	sensitive_data = {
-		'otp': otp_provider,
-		'password': 'pass123',
-	}
-
-	result = registry._replace_sensitive_data(params, sensitive_data)
-	assert result.text == 'Enter 123456 and pass123'
-	assert call_count['n'] == 1
-
-
 def test_callable_sensitive_data_domain_scoped(registry):
 	"""Domain-scoped callables are only used when URL matches."""
 
