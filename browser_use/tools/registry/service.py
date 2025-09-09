@@ -476,12 +476,12 @@ class Registry(Generic[Context]):
 							totp = pyotp.TOTP(applicable_secrets[placeholder], digits=6)
 							replacement_value = totp.now()
 						else:
-              replacement_value = applicable_secrets[placeholder]
-              resolved = resolve_secret(placeholder)
-              if resolved is not None:
-                replacement_value = replacement_value.replace(f'<secret>{placeholder}</secret>', resolved)
-						value = value.replace(f'<secret>{placeholder}</secret>', replacement_value)
-						replaced_placeholders.add(placeholder)
+							replacement_value = applicable_secrets[placeholder]
+							resolved = resolve_secret(placeholder)
+							if resolved is not None:
+								replacement_value = replacement_value.replace(f'<secret>{placeholder}</secret>', resolved)
+							value = value.replace(f'<secret>{placeholder}</secret>', replacement_value)
+							replaced_placeholders.add(placeholder)
 					else:
 						# Keep track of missing placeholders
 						all_missing_placeholders.add(placeholder)
