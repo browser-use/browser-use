@@ -471,20 +471,17 @@ class Registry(Generic[Context]):
 				# check if the placeholder key, like x_password is in the output parameters of the LLM and replace it with the sensitive data
 				for placeholder in matches:
 					if placeholder in applicable_secrets:
-						# TOTP special-case: keep existing behavior separate from dynamic provider feature
+						# generate a totp code if secret is a 2fa secret
 						if 'bu_2fa_code' in placeholder:
-							try:
-								totp_seed = applicable_secrets[placeholder]
-								totp = pyotp.TOTP(totp_seed, digits=6)
-								value = value.replace(f'<secret>{placeholder}</secret>', totp.now())
-								replaced_placeholders.add(placeholder)
-							except Exception as e:
-								logger.warning(f"Error generating TOTP for '{placeholder}': {e}")
+							totp = pyotp.TOTP(applicable_secrets[placeholder], digits=6)
+							replacement_value = totp.now()
 						else:
+							replacement_value = applicable_secrets[placeholder]
 							resolved = resolve_secret(placeholder)
 							if resolved is not None:
-								value = value.replace(f'<secret>{placeholder}</secret>', resolved)
-								replaced_placeholders.add(placeholder)
+								replacement_value = replacement_value.replace(f'<secret>{placeholder}</secret>', resolved)
+						value = value.replace(f'<secret>{placeholder}</secret>', replacement_value)
+						replaced_placeholders.add(placeholder)								
 					else:
 						# Keep track of missing placeholders
 						all_missing_placeholders.add(placeholder)
