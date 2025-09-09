@@ -28,13 +28,6 @@ from browser_use import Agent, ChatOpenAI, Tools
 from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
 
-try:
-	from lmnr import Laminar
-
-	Laminar.initialize(project_api_key=os.getenv('LMNR_PROJECT_API_KEY'))
-except ImportError:
-	pass
-
 
 class OpenAICUAAction(BaseModel):
 	"""Parameters for OpenAI Computer Use Assistant action."""

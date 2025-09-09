@@ -90,6 +90,8 @@ class SimplifiedNode:
 	interactive_index: int | None = None
 
 	is_new: bool = False
+
+	ignored_by_paint_order: bool = False  # More info in dom/serializer/paint_order.py
 	excluded_by_parent: bool = False  # New field for bbox filtering
 
 	def _clean_original_node_json(self, node_json: dict) -> dict:
@@ -113,6 +115,8 @@ class SimplifiedNode:
 		return {
 			'should_display': self.should_display,
 			'interactive_index': self.interactive_index,
+			'ignored_by_paint_order': self.ignored_by_paint_order,
+			'excluded_by_parent': self.excluded_by_parent,
 			'original_node': cleaned_original_node_json,
 			'children': [c.__json__() for c in self.children],
 		}
@@ -372,6 +376,7 @@ class EnhancedDOMTreeNode:
 			'node_type': self.node_type.name,
 			'node_name': self.node_name,
 			'node_value': self.node_value,
+			'is_visible': self.is_visible,
 			'attributes': self.attributes,
 			'is_scrollable': self.is_scrollable,
 			'session_id': self.session_id,

@@ -8,6 +8,11 @@
 
 name: publish
 
+# Cancel in-progress runs when a new commit is pushed to the same branch/PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 on:
   release:
     types: [published]     # publish full release to PyPI when a release is created on Github

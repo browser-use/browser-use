@@ -23,14 +23,24 @@ Or as an MCP server in Claude Desktop or other MCP clients:
     }
 """
 
+import os
+import sys
+
+# Set environment variables BEFORE any browser_use imports to prevent early logging
+os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'critical'
+os.environ['BROWSER_USE_SETUP_LOGGING'] = 'false'
+
 import asyncio
 import json
 import logging
-import os
-import sys
 import time
 from pathlib import Path
 from typing import Any
+
+# Configure logging for MCP mode - redirect to stderr but preserve critical diagnostics
+logging.basicConfig(
+	stream=sys.stderr, level=logging.WARNING, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', force=True
+)
 
 try:
 	import psutil
@@ -49,30 +59,33 @@ from browser_use.logging_config import setup_logging
 def _configure_mcp_server_logging():
 	"""Configure logging for MCP server mode - redirect all logs to stderr to prevent JSON RPC interference."""
 	# Set environment to suppress browser-use logging during server mode
-	os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'error'
+	os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'warning'
 	os.environ['BROWSER_USE_SETUP_LOGGING'] = 'false'  # Prevent automatic logging setup
 
-	# Configure logging to stderr for MCP mode
-	setup_logging(stream=sys.stderr, log_level='error', force_setup=True)
+	# Configure logging to stderr for MCP mode - preserve warnings and above for troubleshooting
+	setup_logging(stream=sys.stderr, log_level='warning', force_setup=True)
 
 	# Also configure the root logger and all existing loggers to use stderr
 	logging.root.handlers = []
 	stderr_handler = logging.StreamHandler(sys.stderr)
 	stderr_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 	logging.root.addHandler(stderr_handler)
-	logging.root.setLevel(logging.ERROR)
+	logging.root.setLevel(logging.CRITICAL)
 
-	# Configure all existing loggers to use stderr
+	# Configure all existing loggers to use stderr and CRITICAL level
 	for name in list(logging.root.manager.loggerDict.keys()):
 		logger_obj = logging.getLogger(name)
 		logger_obj.handlers = []
+		logger_obj.setLevel(logging.CRITICAL)
 		logger_obj.addHandler(stderr_handler)
-		logger_obj.setLevel(logging.ERROR)
 		logger_obj.propagate = False
 
 
 # Configure MCP server logging before any browser_use imports to capture early log lines
 _configure_mcp_server_logging()
+
+# Additional suppression - disable all logging completely for MCP mode
+logging.disable(logging.CRITICAL)
 
 # Import browser_use modules
 from browser_use import ActionModel, Agent
@@ -100,13 +113,13 @@ def _ensure_all_loggers_use_stderr():
 
 	# Configure root logger
 	logging.root.handlers = [stderr_handler]
-	logging.root.setLevel(logging.ERROR)
+	logging.root.setLevel(logging.CRITICAL)
 
 	# Configure all existing loggers
 	for name in list(logging.root.manager.loggerDict.keys()):
 		logger_obj = logging.getLogger(name)
 		logger_obj.handlers = [stderr_handler]
-		logger_obj.setLevel(logging.ERROR)
+		logger_obj.setLevel(logging.CRITICAL)
 		logger_obj.propagate = False
 
 
@@ -116,16 +129,10 @@ _ensure_all_loggers_use_stderr()
 
 # Try to import MCP SDK
 try:
-	import contextlib
-
 	import mcp.server.stdio
 	import mcp.types as types
 	from mcp.server import NotificationOptions, Server
 	from mcp.server.models import InitializationOptions
-	from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-	from starlette.applications import Starlette
-	from starlette.routing import Mount
-	from starlette.types import Receive, Scope, Send
 
 	MCP_AVAILABLE = True
 
@@ -178,7 +185,7 @@ def get_parent_process_cmdline() -> str | None:
 class BrowserUseServer:
 	"""MCP Server for browser-use capabilities."""
 
-	def __init__(self):
+	def __init__(self, session_timeout_minutes: int = 10):
 		# Ensure all logging goes to stderr (in case new loggers were created)
 		_ensure_all_loggers_use_stderr()
 
@@ -191,6 +198,11 @@ class BrowserUseServer:
 		self.file_system: FileSystem | None = None
 		self._telemetry = ProductTelemetry()
 		self._start_time = time.time()
+
+		# Session management
+		self.active_sessions: dict[str, dict[str, Any]] = {}  # session_id -> session info
+		self.session_timeout_minutes = session_timeout_minutes
+		self._cleanup_task: Any = None
 
 		# Setup handlers
 		self._setup_handlers()
@@ -365,7 +377,42 @@ class BrowserUseServer:
 						'required': ['task'],
 					},
 				),
+				# Browser session management tools
+				types.Tool(
+					name='browser_list_sessions',
+					description='List all active browser sessions with their details and last activity time',
+					inputSchema={'type': 'object', 'properties': {}},
+				),
+				types.Tool(
+					name='browser_close_session',
+					description='Close a specific browser session by its ID',
+					inputSchema={
+						'type': 'object',
+						'properties': {
+							'session_id': {
+								'type': 'string',
+								'description': 'The browser session ID to close (get from browser_list_sessions)',
+							}
+						},
+						'required': ['session_id'],
+					},
+				),
+				types.Tool(
+					name='browser_close_all',
+					description='Close all active browser sessions and clean up resources',
+					inputSchema={'type': 'object', 'properties': {}},
+				),
 			]
+
+		@self.server.list_resources()
+		async def handle_list_resources() -> list[types.Resource]:
+			"""List available resources (none for browser-use)."""
+			return []
+
+		@self.server.list_prompts()
+		async def handle_list_prompts() -> list[types.Prompt]:
+			"""List available prompts (none for browser-use)."""
+			return []
 
 		@self.server.call_tool()
 		async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
@@ -405,8 +452,18 @@ class BrowserUseServer:
 				use_vision=arguments.get('use_vision', True),
 			)
 
+		# Browser session management tools (don't require active session)
+		if tool_name == 'browser_list_sessions':
+			return await self._list_sessions()
+
+		elif tool_name == 'browser_close_session':
+			return await self._close_session(arguments['session_id'])
+
+		elif tool_name == 'browser_close_all':
+			return await self._close_all_sessions()
+
 		# Direct browser control tools (require active session)
-		if tool_name.startswith('browser_'):
+		elif tool_name.startswith('browser_'):
 			# Ensure browser session exists
 			if not self.browser_session:
 				await self._init_browser_session()
@@ -485,6 +542,9 @@ class BrowserUseServer:
 		# Create browser session
 		self.browser_session = BrowserSession(browser_profile=profile)
 		await self.browser_session.start()
+
+		# Track the session for management
+		self._track_session(self.browser_session)
 
 		# Create tools for direct actions
 		self.tools = Tools()
@@ -592,6 +652,9 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
+		# Update session activity
+		self._update_session_activity(self.browser_session.id)
+
 		from browser_use.browser.events import NavigateToUrlEvent
 
 		if new_tab:
@@ -607,6 +670,9 @@ class BrowserUseServer:
 		"""Click an element by index."""
 		if not self.browser_session:
 			return 'Error: No browser session active'
+
+		# Update session activity
+		self._update_session_activity(self.browser_session.id)
 
 		# Get the element
 		element = await self.browser_session.get_dom_element_by_index(index)
@@ -812,8 +878,140 @@ class BrowserUseServer:
 		current_url = await self.browser_session.get_current_page_url()
 		return f'Closed tab # {tab_id}, now on {current_url}'
 
+	def _track_session(self, session: BrowserSession) -> None:
+		"""Track a browser session for management."""
+		self.active_sessions[session.id] = {
+			'session': session,
+			'created_at': time.time(),
+			'last_activity': time.time(),
+			'url': getattr(session, 'current_url', None),
+		}
+
+	def _update_session_activity(self, session_id: str) -> None:
+		"""Update the last activity time for a session."""
+		if session_id in self.active_sessions:
+			self.active_sessions[session_id]['last_activity'] = time.time()
+
+	async def _list_sessions(self) -> str:
+		"""List all active browser sessions."""
+		if not self.active_sessions:
+			return 'No active browser sessions'
+
+		sessions_info = []
+		for session_id, session_data in self.active_sessions.items():
+			session = session_data['session']
+			created_at = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(session_data['created_at']))
+			last_activity = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(session_data['last_activity']))
+
+			# Check if session is still active
+			is_active = hasattr(session, 'cdp_client') and session.cdp_client is not None
+
+			sessions_info.append(
+				{
+					'session_id': session_id,
+					'created_at': created_at,
+					'last_activity': last_activity,
+					'active': is_active,
+					'current_url': session_data.get('url', 'Unknown'),
+					'age_minutes': (time.time() - session_data['created_at']) / 60,
+				}
+			)
+
+		return json.dumps(sessions_info, indent=2)
+
+	async def _close_session(self, session_id: str) -> str:
+		"""Close a specific browser session."""
+		if session_id not in self.active_sessions:
+			return f'Session {session_id} not found'
+
+		session_data = self.active_sessions[session_id]
+		session = session_data['session']
+
+		try:
+			# Close the session
+			if hasattr(session, 'kill'):
+				await session.kill()
+			elif hasattr(session, 'close'):
+				await session.close()
+
+			# Remove from tracking
+			del self.active_sessions[session_id]
+
+			# If this was the current session, clear it
+			if self.browser_session and self.browser_session.id == session_id:
+				self.browser_session = None
+				self.tools = None
+
+			return f'Successfully closed session {session_id}'
+		except Exception as e:
+			return f'Error closing session {session_id}: {str(e)}'
+
+	async def _close_all_sessions(self) -> str:
+		"""Close all active browser sessions."""
+		if not self.active_sessions:
+			return 'No active sessions to close'
+
+		closed_count = 0
+		errors = []
+
+		for session_id in list(self.active_sessions.keys()):
+			try:
+				result = await self._close_session(session_id)
+				if 'Successfully closed' in result:
+					closed_count += 1
+				else:
+					errors.append(f'{session_id}: {result}')
+			except Exception as e:
+				errors.append(f'{session_id}: {str(e)}')
+
+		# Clear current session references
+		self.browser_session = None
+		self.tools = None
+
+		result = f'Closed {closed_count} sessions'
+		if errors:
+			result += f'. Errors: {"; ".join(errors)}'
+
+		return result
+
+	async def _cleanup_expired_sessions(self) -> None:
+		"""Background task to clean up expired sessions."""
+		current_time = time.time()
+		timeout_seconds = self.session_timeout_minutes * 60
+
+		expired_sessions = []
+		for session_id, session_data in self.active_sessions.items():
+			last_activity = session_data['last_activity']
+			if current_time - last_activity > timeout_seconds:
+				expired_sessions.append(session_id)
+
+		for session_id in expired_sessions:
+			try:
+				await self._close_session(session_id)
+				logger.info(f'Auto-closed expired session {session_id}')
+			except Exception as e:
+				logger.error(f'Error auto-closing session {session_id}: {e}')
+
+	async def _start_cleanup_task(self) -> None:
+		"""Start the background cleanup task."""
+
+		async def cleanup_loop():
+			while True:
+				try:
+					await self._cleanup_expired_sessions()
+					# Check every 2 minutes
+					await asyncio.sleep(120)
+				except Exception as e:
+					logger.error(f'Error in cleanup task: {e}')
+					await asyncio.sleep(120)
+
+		self._cleanup_task = asyncio.create_task(cleanup_loop())
+
 	async def run(self):
 		"""Run the MCP server."""
+		# Start the cleanup task
+		await self._start_cleanup_task()
+
 		async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
 			await self.server.run(
 				read_stream,
@@ -828,45 +1026,13 @@ class BrowserUseServer:
 				),
 			)
 
-	async def run_http(self, port: int = 3000, json_response: bool = False):
-		"""Run the MCP server over Streamable HTTP."""
-		session_manager = StreamableHTTPSessionManager(
-			app=self.server,
-			event_store=None,
-			json_response=json_response,
-			stateless=True,
-		)
 
-		async def handle_streamable_http(scope: Scope, receive: Receive, send: Send) -> None:
-			await session_manager.handle_request(scope, receive, send)
-
-		@contextlib.asynccontextmanager
-		async def lifespan(app: Starlette):
-			async with session_manager.run():
-				logger.info('BrowserUseServer started in Streamable HTTP mode')
-				yield
-
-		starlette_app = Starlette(
-			debug=False,
-			routes=[
-				Mount('/mcp', app=handle_streamable_http),
-			],
-			lifespan=lifespan,
-		)
-
-		import uvicorn
-
-		config = uvicorn.Config(starlette_app, host='127.0.0.1', port=port, loop='asyncio')
-		server = uvicorn.Server(config)
-		await server.serve()
-
-
-async def main(http: bool = False, port: int = 3000, json_response: bool = False):
+async def main(session_timeout_minutes: int = 10):
 	if not MCP_AVAILABLE:
 		print('MCP SDK is required. Install with: pip install mcp', file=sys.stderr)
 		sys.exit(1)
 
-	server = BrowserUseServer()
+	server = BrowserUseServer(session_timeout_minutes=session_timeout_minutes)
 	server._telemetry.capture(
 		MCPServerTelemetryEvent(
 			version=get_browser_use_version(),
@@ -876,10 +1042,7 @@ async def main(http: bool = False, port: int = 3000, json_response: bool = False
 	)
 
 	try:
-		if http:
-			await server.run_http(port=port, json_response=json_response)
-		else:
-			await server.run()
+		await server.run()
 	finally:
 		duration = time.time() - server._start_time
 		server._telemetry.capture(
@@ -894,12 +1057,4 @@ async def main(http: bool = False, port: int = 3000, json_response: bool = False
 
 
 if __name__ == '__main__':
-	import argparse
-
-	parser = argparse.ArgumentParser()
-	parser.add_argument('--http', action='store_true', help='Run in Streamable HTTP mode instead of stdio')
-	parser.add_argument('--port', type=int, default=3000, help='HTTP port (only in HTTP mode)')
-	parser.add_argument('--json-response', action='store_true', help='Use JSON responses instead of SSE')
-	args = parser.parse_args()
-
-	asyncio.run(main(http=args.http, port=args.port, json_response=args.json_response))
+	asyncio.run(main())

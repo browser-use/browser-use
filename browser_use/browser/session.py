@@ -44,9 +44,6 @@ from browser_use.utils import _log_pretty_url, is_new_tab_page
 
 DEFAULT_BROWSER_PROFILE = BrowserProfile()
 
-MAX_SCREENSHOT_HEIGHT = 2000
-MAX_SCREENSHOT_WIDTH = 1920
-
 _LOGGED_UNIQUE_SESSION_IDS = set()  # track unique session IDs that have been logged to make sure we always assign a unique enough id to new sessions and avoid ambiguity in logs
 red = '\033[91m'
 reset = '\033[0m'
@@ -247,6 +244,8 @@ class BrowserSession(BaseModel):
 		record_har_mode: str | None = None,
 		record_har_path: str | Path | None = None,
 		record_video_dir: str | Path | None = None,
+		record_video_framerate: int | None = None,
+		record_video_size: dict | None = None,
 		# From BrowserLaunchPersistentContextArgs
 		user_data_dir: str | Path | None = None,
 		# From BrowserNewContextArgs
@@ -260,15 +259,20 @@ class BrowserSession(BaseModel):
 		enable_default_extensions: bool | None = None,
 		window_size: dict | None = None,
 		window_position: dict | None = None,
-		cross_origin_iframes: bool | None = None,
 		minimum_wait_page_load_time: float | None = None,
 		wait_for_network_idle_page_load_time: float | None = None,
 		wait_between_actions: float | None = None,
-		highlight_elements: bool | None = None,
 		filter_highlight_ids: bool | None = None,
 		auto_download_pdfs: bool | None = None,
 		profile_directory: str | None = None,
 		cookie_whitelist_domains: list[str] | None = None,
+		# DOM extraction layer configuration
+		cross_origin_iframes: bool | None = None,
+		highlight_elements: bool | None = None,
+		paint_order_filtering: bool | None = None,
+		# Iframe processing limits
+		max_iframes: int | None = None,
+		max_iframe_depth: int | None = None,
 	):
 		# Following the same pattern as AgentSettings in service.py
 		# Only pass non-None values to avoid validation errors
@@ -338,6 +342,7 @@ class BrowserSession(BaseModel):
 	_dom_watchdog: Any | None = PrivateAttr(default=None)
 	_screenshot_watchdog: Any | None = PrivateAttr(default=None)
 	_permissions_watchdog: Any | None = PrivateAttr(default=None)
+	_recording_watchdog: Any | None = PrivateAttr(default=None)
 
 	_logger: Any = PrivateAttr(default=None)
 
@@ -404,6 +409,7 @@ class BrowserSession(BaseModel):
 		self._dom_watchdog = None
 		self._screenshot_watchdog = None
 		self._permissions_watchdog = None
+		self._recording_watchdog = None
 
 	def model_post_init(self, __context) -> None:
 		"""Register event handlers after model initialization."""
@@ -425,6 +431,7 @@ class BrowserSession(BaseModel):
 		BaseWatchdog.attach_handler_to_session(self, BrowserStopEvent, self.on_BrowserStopEvent)
 		BaseWatchdog.attach_handler_to_session(self, NavigateToUrlEvent, self.on_NavigateToUrlEvent)
 		BaseWatchdog.attach_handler_to_session(self, SwitchTabEvent, self.on_SwitchTabEvent)
+		BaseWatchdog.attach_handler_to_session(self, TabCreatedEvent, self.on_TabCreatedEvent)
 		BaseWatchdog.attach_handler_to_session(self, TabClosedEvent, self.on_TabClosedEvent)
 		BaseWatchdog.attach_handler_to_session(self, AgentFocusChangedEvent, self.on_AgentFocusChangedEvent)
 		BaseWatchdog.attach_handler_to_session(self, FileDownloadedEvent, self.on_FileDownloadedEvent)
@@ -707,6 +714,22 @@ class BrowserSession(BaseModel):
 		await self.event_bus.dispatch(TabClosedEvent(target_id=event.target_id))
 		await cdp_session.cdp_client.send.Target.closeTarget(params={'targetId': event.target_id})
 
+	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
+		"""Handle tab creation - apply viewport settings to new tab."""
+		# Apply viewport settings if configured
+		if self.browser_profile.viewport and not self.browser_profile.no_viewport:
+			try:
+				viewport_width = self.browser_profile.viewport.width
+				viewport_height = self.browser_profile.viewport.height
+				device_scale_factor = self.browser_profile.device_scale_factor or 1.0
+
+				# Use the helper method with the new tab's target_id
+				await self._cdp_set_viewport(viewport_width, viewport_height, device_scale_factor, target_id=event.target_id)
+
+				self.logger.debug(f'Applied viewport {viewport_width}x{viewport_height} to tab {event.target_id[-8:]}')
+			except Exception as e:
+				self.logger.warning(f'Failed to set viewport for new tab {event.target_id[-8:]}: {e}')
+
 	async def on_TabClosedEvent(self, event: TabClosedEvent) -> None:
 		"""Handle tab closure - update focus if needed."""
 		if not self.agent_focus:
@@ -955,9 +978,10 @@ class BrowserSession(BaseModel):
 		from browser_use.browser.watchdogs.local_browser_watchdog import LocalBrowserWatchdog
 		from browser_use.browser.watchdogs.permissions_watchdog import PermissionsWatchdog
 		from browser_use.browser.watchdogs.popups_watchdog import PopupsWatchdog
+		from browser_use.browser.watchdogs.recording_watchdog import RecordingWatchdog
 		from browser_use.browser.watchdogs.screenshot_watchdog import ScreenshotWatchdog
 		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
-		# from browser_use.browser.storage_state_watchdog import StorageStateWatchdog
+		from browser_use.browser.watchdogs.storage_state_watchdog import StorageStateWatchdog
 
 		# Initialize CrashWatchdog
 		# CrashWatchdog.model_rebuild()
@@ -978,14 +1002,27 @@ class BrowserSession(BaseModel):
 		if self.browser_profile.auto_download_pdfs:
 			self.logger.debug('📄 PDF auto-download enabled for this session')
 
-		# # Initialize StorageStateWatchdog
-		# StorageStateWatchdog.model_rebuild()
-		# self._storage_state_watchdog = StorageStateWatchdog(event_bus=self.event_bus, browser_session=self)
-		# # self.event_bus.on(BrowserConnectedEvent, self._storage_state_watchdog.on_BrowserConnectedEvent)
-		# # self.event_bus.on(BrowserStopEvent, self._storage_state_watchdog.on_BrowserStopEvent)
-		# # self.event_bus.on(SaveStorageStateEvent, self._storage_state_watchdog.on_SaveStorageStateEvent)
-		# # self.event_bus.on(LoadStorageStateEvent, self._storage_state_watchdog.on_LoadStorageStateEvent)
-		# self._storage_state_watchdog.attach_to_session()
+		# Initialize StorageStateWatchdog conditionally
+		# Enable when user provides either storage_state or user_data_dir (indicating they want persistence)
+		should_enable_storage_state = (
+			self.browser_profile.storage_state is not None or self.browser_profile.user_data_dir is not None
+		)
+
+		if should_enable_storage_state:
+			StorageStateWatchdog.model_rebuild()
+			self._storage_state_watchdog = StorageStateWatchdog(
+				event_bus=self.event_bus,
+				browser_session=self,
+				# More conservative defaults when auto-enabled
+				auto_save_interval=60.0,  # 1 minute instead of 30 seconds
+				save_on_change=False,  # Only save on shutdown by default
+			)
+			self._storage_state_watchdog.attach_to_session()
+			self.logger.debug(
+				f'🍪 StorageStateWatchdog enabled (storage_state: {bool(self.browser_profile.storage_state)}, user_data_dir: {bool(self.browser_profile.user_data_dir)})'
+			)
+		else:
+			self.logger.debug('🍪 StorageStateWatchdog disabled (no storage_state or user_data_dir configured)')
 
 		# Initialize LocalBrowserWatchdog
 		LocalBrowserWatchdog.model_rebuild()
@@ -1053,6 +1090,11 @@ class BrowserSession(BaseModel):
 		# self.event_bus.on(TabCreatedEvent, self._dom_watchdog.on_TabCreatedEvent)
 		# self.event_bus.on(BrowserStateRequestEvent, self._dom_watchdog.on_BrowserStateRequestEvent)
 		self._dom_watchdog.attach_to_session()
+
+		# Initialize RecordingWatchdog (handles video recording)
+		RecordingWatchdog.model_rebuild()
+		self._recording_watchdog = RecordingWatchdog(event_bus=self.event_bus, browser_session=self)
+		self._recording_watchdog.attach_to_session()
 
 		# Mark watchdogs as attached to prevent duplicate attachment
 		self._watchdogs_attached = True
@@ -1631,7 +1673,7 @@ class BrowserSession(BaseModel):
 		"""Get list of files downloaded during this browser session.
 
 		Returns:
-		    list[str]: List of absolute file paths to downloaded files in this session
+			list[str]: List of absolute file paths to downloaded files in this session
 		"""
 		return self._downloaded_files.copy()
 
@@ -1758,22 +1800,119 @@ class BrowserSession(BaseModel):
 			params={'identifier': identifier}, session_id=cdp_session.session_id
 		)
 
-	async def _cdp_set_viewport(self, width: int, height: int, device_scale_factor: float = 1.0, mobile: bool = False) -> None:
-		"""Set viewport using CDP Emulation.setDeviceMetricsOverride."""
-		await self.cdp_client.send.Emulation.setDeviceMetricsOverride(
-			params={'width': width, 'height': height, 'deviceScaleFactor': device_scale_factor, 'mobile': mobile}
+	async def _cdp_set_viewport(
+		self, width: int, height: int, device_scale_factor: float = 1.0, mobile: bool = False, target_id: str | None = None
+	) -> None:
+		"""Set viewport using CDP Emulation.setDeviceMetricsOverride.
+
+		Args:
+			width: Viewport width
+			height: Viewport height
+			device_scale_factor: Device scale factor (default 1.0)
+			mobile: Whether to emulate mobile device (default False)
+			target_id: Optional target ID to set viewport for. If not provided, uses agent_focus.
+		"""
+		if target_id:
+			# Set viewport for specific target
+			cdp_session = await self.get_or_create_cdp_session(target_id, focus=False, new_socket=False)
+		elif self.agent_focus:
+			# Use current focus
+			cdp_session = self.agent_focus
+		else:
+			self.logger.warning('Cannot set viewport: no target_id provided and agent_focus not initialized')
+			return
+
+		await cdp_session.cdp_client.send.Emulation.setDeviceMetricsOverride(
+			params={'width': width, 'height': height, 'deviceScaleFactor': device_scale_factor, 'mobile': mobile},
+			session_id=cdp_session.session_id,
 		)
+
+	async def _cdp_get_origins(self) -> list[dict[str, Any]]:
+		"""Get origins with localStorage and sessionStorage using CDP."""
+		origins = []
+		cdp_session = await self.get_or_create_cdp_session(target_id=None, new_socket=False)
+
+		try:
+			# Enable DOMStorage domain to track storage
+			await cdp_session.cdp_client.send.DOMStorage.enable(session_id=cdp_session.session_id)
+
+			try:
+				# Get all frames to find unique origins
+				frames_result = await cdp_session.cdp_client.send.Page.getFrameTree(session_id=cdp_session.session_id)
+
+				# Extract unique origins from frames
+				unique_origins = set()
+
+				def _extract_origins(frame_tree):
+					"""Recursively extract origins from frame tree."""
+					frame = frame_tree.get('frame', {})
+					origin = frame.get('securityOrigin')
+					if origin and origin != 'null':
+						unique_origins.add(origin)
+
+					# Process child frames
+					for child in frame_tree.get('childFrames', []):
+						_extract_origins(child)
+
+				async def _get_storage_items(origin: str, is_local_storage: bool) -> list[dict[str, str]] | None:
+					"""Helper to get storage items for an origin."""
+					storage_type = 'localStorage' if is_local_storage else 'sessionStorage'
+					try:
+						result = await cdp_session.cdp_client.send.DOMStorage.getDOMStorageItems(
+							params={'storageId': {'securityOrigin': origin, 'isLocalStorage': is_local_storage}},
+							session_id=cdp_session.session_id,
+						)
+
+						items = []
+						for item in result.get('entries', []):
+							if len(item) == 2:  # Each item is [key, value]
+								items.append({'name': item[0], 'value': item[1]})
+
+						return items if items else None
+					except Exception as e:
+						self.logger.debug(f'Failed to get {storage_type} for {origin}: {e}')
+						return None
+
+				_extract_origins(frames_result.get('frameTree', {}))
+
+				# For each unique origin, get localStorage and sessionStorage
+				for origin in unique_origins:
+					origin_data = {'origin': origin}
+
+					# Get localStorage
+					local_storage = await _get_storage_items(origin, is_local_storage=True)
+					if local_storage:
+						origin_data['localStorage'] = local_storage
+
+					# Get sessionStorage
+					session_storage = await _get_storage_items(origin, is_local_storage=False)
+					if session_storage:
+						origin_data['sessionStorage'] = session_storage
+
+					# Only add origin if it has storage data
+					if 'localStorage' in origin_data or 'sessionStorage' in origin_data:
+						origins.append(origin_data)
+
+			finally:
+				# Always disable DOMStorage tracking when done
+				await cdp_session.cdp_client.send.DOMStorage.disable(session_id=cdp_session.session_id)
+
+		except Exception as e:
+			self.logger.warning(f'Failed to get origins: {e}')
+
+		return origins
 
 	async def _cdp_get_storage_state(self) -> dict:
 		"""Get storage state (cookies, localStorage, sessionStorage) using CDP."""
 		# Use the _cdp_get_cookies helper which handles session attachment
 		cookies = await self._cdp_get_cookies()
 
-		# Get localStorage and sessionStorage would require evaluating JavaScript
-		# on each origin, which is more complex. For now, return cookies only.
+		# Get origins with localStorage/sessionStorage
+		origins = await self._cdp_get_origins()
+
 		return {
 			'cookies': cookies,
-			'origins': [],  # Would need to iterate through origins for localStorage/sessionStorage
+			'origins': origins,
 		}
 
 	async def _cdp_navigate(self, url: str, target_id: TargetID | None = None) -> None:
@@ -2116,3 +2255,125 @@ class BrowserSession(BaseModel):
 				self.logger.debug(f'Failed to get CDP client for target {node.target_id}: {e}, using main session')
 
 		return await self.get_or_create_cdp_session()
+
+	async def take_screenshot(
+		self,
+		path: str | None = None,
+		full_page: bool = False,
+		format: str = 'png',
+		quality: int | None = None,
+		clip: dict | None = None,
+	) -> bytes:
+		"""Take a screenshot using CDP.
+
+		Args:
+			path: Optional file path to save screenshot
+			full_page: Capture entire scrollable page beyond viewport
+			format: Image format ('png', 'jpeg', 'webp')
+			quality: Quality 0-100 for JPEG format
+			clip: Region to capture {'x': int, 'y': int, 'width': int, 'height': int}
+
+		Returns:
+			Screenshot data as bytes
+		"""
+		import base64
+
+		from cdp_use.cdp.page import CaptureScreenshotParameters
+
+		cdp_session = await self.get_or_create_cdp_session()
+
+		# Build parameters dict explicitly to satisfy TypedDict expectations
+		params: CaptureScreenshotParameters = {
+			'format': format,
+			'captureBeyondViewport': full_page,
+		}
+
+		if quality is not None and format == 'jpeg':
+			params['quality'] = quality
+
+		if clip:
+			params['clip'] = {
+				'x': clip['x'],
+				'y': clip['y'],
+				'width': clip['width'],
+				'height': clip['height'],
+				'scale': 1,
+			}
+
+		params = CaptureScreenshotParameters(**params)
+
+		result = await cdp_session.cdp_client.send.Page.captureScreenshot(params=params, session_id=cdp_session.session_id)
+
+		if not result or 'data' not in result:
+			raise Exception('Screenshot failed - no data returned')
+
+		screenshot_data = base64.b64decode(result['data'])
+
+		if path:
+			Path(path).write_bytes(screenshot_data)
+
+		return screenshot_data
+
+	async def screenshot_element(
+		self,
+		selector: str,
+		path: str | None = None,
+		format: str = 'png',
+		quality: int | None = None,
+	) -> bytes:
+		"""Take a screenshot of a specific element.
+
+		Args:
+			selector: CSS selector for the element
+			path: Optional file path to save screenshot
+			format: Image format ('png', 'jpeg', 'webp')
+			quality: Quality 0-100 for JPEG format
+
+		Returns:
+			Screenshot data as bytes
+		"""
+
+		bounds = await self._get_element_bounds(selector)
+		if not bounds:
+			raise ValueError(f"Element '{selector}' not found or has no bounds")
+
+		return await self.take_screenshot(
+			path=path,
+			format=format,
+			quality=quality,
+			clip=bounds,
+		)
+
+	async def _get_element_bounds(self, selector: str) -> dict | None:
+		"""Get element bounding box using CDP."""
+
+		cdp_session = await self.get_or_create_cdp_session()
+
+		# Get document
+		doc = await cdp_session.cdp_client.send.DOM.getDocument(params={'depth': 1}, session_id=cdp_session.session_id)
+
+		# Query selector
+		node_result = await cdp_session.cdp_client.send.DOM.querySelector(
+			params={'nodeId': doc['root']['nodeId'], 'selector': selector}, session_id=cdp_session.session_id
+		)
+
+		node_id = node_result.get('nodeId')
+		if not node_id:
+			return None
+
+		# Get bounding box
+		box_result = await cdp_session.cdp_client.send.DOM.getBoxModel(
+			params={'nodeId': node_id}, session_id=cdp_session.session_id
+		)
+
+		box_model = box_result.get('model')
+		if not box_model:
+			return None
+
+		content = box_model['content']
+		return {
+			'x': min(content[0], content[2], content[4], content[6]),
+			'y': min(content[1], content[3], content[5], content[7]),
+			'width': max(content[0], content[2], content[4], content[6]) - min(content[0], content[2], content[4], content[6]),
+			'height': max(content[1], content[3], content[5], content[7]) - min(content[1], content[3], content[5], content[7]),
+		}

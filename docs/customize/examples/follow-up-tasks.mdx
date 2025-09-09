@@ -1,6 +1,6 @@
 ---
-title: "Chain Agents"
-description: "Chain multiple tasks together with the same agent and browser session."
+title: "Follow up tasks"
+description: "Follow up tasks with the same browser session."
 icon: "link"
 mode: "wide"
 ---
@@ -10,27 +10,29 @@ mode: "wide"
 Keep your browser session alive and chain multiple tasks together. Perfect for conversational workflows or multi-step processes.
 
 ```python
-import asyncio
 from dotenv import load_dotenv
+
+from browser_use import Agent, Browser
+
+
 load_dotenv()
 
-from browser_use import Agent, BrowserProfile
+import asyncio
 
-profile = BrowserProfile(keep_alive=True)
 
 async def main():
-	agent = Agent(task="Go to reddit.com", browser_profile=profile)
-	await agent.run(max_steps=1)
+	browser = Browser(keep_alive=True)
 
-	while True:
-		user_response = input('\n👤 New task or "q" to quit: ')
-		if user_response.lower() == 'q':
-			break
-		agent.add_new_task(f'New task: {user_response}')
-		await agent.run()
+	await browser.start()
 
-if __name__ == '__main__':
-	asyncio.run(main())
+	agent = Agent(task='search for browser-use.', browser_session=browser)
+	await agent.run(max_steps=2)
+	agent.add_new_task('return the title of first result')
+	await agent.run()
+
+	await browser.kill()
+
+asyncio.run(main())
 ```
 
 ## How It Works
@@ -38,7 +40,8 @@ if __name__ == '__main__':
 1. **Persistent Browser**: `BrowserProfile(keep_alive=True)` prevents browser from closing between tasks
 2. **Task Chaining**: Use `agent.add_new_task()` to add follow-up tasks
 3. **Context Preservation**: Agent maintains memory and browser state across tasks
-4. **Interactive Flow**: Perfect for conversational interfaces or complex workflows
+4. **Interactive Flow**: Perfect for conversational interfaces 
+5. **Break down long flows**: If you have very long flows, you can keep the browser alive and send new agents to it.
 
 <Note>
 The browser session remains active throughout the entire chain, preserving all cookies, local storage, and page state.

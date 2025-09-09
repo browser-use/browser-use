@@ -15,6 +15,7 @@ Examples:
 - calling LLMs
 - get 2fa codes
 - send emails
+- Playwright integration (see [GitHub example](https://github.com/browser-use/browser-use/blob/main/examples/browser/playwright_integration.py))
 - ...
 
 Simply add `@tools.action(...)` to your function.
@@ -83,3 +84,10 @@ def fill_bank_form(account_number: str) -> str:
     # Only works on mybank.com
     return f'Filled form for account {account_number}'
 ```
+
+## Advanced Example
+
+For a comprehensive example of custom tools with Playwright integration, see:
+**[Playwright Integration Example](https://github.com/browser-use/browser-use/blob/main/examples/browser/playwright_integration.py)**
+
+This shows how to create custom actions that use Playwright's precise browser automation alongside Browser-Use.

@@ -14,12 +14,8 @@ Requirements:
 
 import asyncio
 
-from lmnr import Laminar
-
 from browser_use import Agent
 from browser_use.llm import ChatAnthropicBedrock, ChatAWSBedrock
-
-Laminar.initialize()
 
 
 async def example_anthropic_bedrock():

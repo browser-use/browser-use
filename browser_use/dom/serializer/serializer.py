@@ -2,6 +2,7 @@
 
 
 from browser_use.dom.serializer.clickable_elements import ClickableElementDetector
+from browser_use.dom.serializer.paint_order import PaintOrderRemover
 from browser_use.dom.utils import cap_text_length
 from browser_use.dom.views import (
 	DOMRect,
@@ -40,6 +41,7 @@ class DOMTreeSerializer:
 		previous_cached_state: SerializedDOMState | None = None,
 		enable_bbox_filtering: bool = True,
 		containment_threshold: float | None = None,
+		paint_order_filtering: bool = True,
 	):
 		self.root_node = root_node
 		self._interactive_counter = 1
@@ -52,6 +54,8 @@ class DOMTreeSerializer:
 		# Bounding box filtering configuration
 		self.enable_bbox_filtering = enable_bbox_filtering
 		self.containment_threshold = containment_threshold or self.DEFAULT_CONTAINMENT_THRESHOLD
+		# Paint order filtering configuration
+		self.paint_order_filtering = paint_order_filtering
 
 	def serialize_accessible_elements(self) -> tuple[SerializedDOMState, dict[str, float]]:
 		import time
@@ -70,15 +74,18 @@ class DOMTreeSerializer:
 		end_step1 = time.time()
 		self.timing_info['create_simplified_tree'] = end_step1 - start_step1
 
-		# Step 2: Optimize tree (remove unnecessary parents)
+		# Step 2: Remove elements based on paint order
+		start_step3 = time.time()
+		if self.paint_order_filtering and simplified_tree:
+			PaintOrderRemover(simplified_tree).calculate_paint_order()
+		end_step3 = time.time()
+		self.timing_info['calculate_paint_order'] = end_step3 - start_step3
+
+		# Step 3: Optimize tree (remove unnecessary parents)
 		start_step2 = time.time()
 		optimized_tree = self._optimize_tree(simplified_tree)
 		end_step2 = time.time()
 		self.timing_info['optimize_tree'] = end_step2 - start_step2
-
-		# # Step 3: Detect and group semantic elements
-		# if optimized_tree:
-		#   self._detect_semantic_groups(optimized_tree)
 
 		# Step 3: Apply bounding box filtering (NEW)
 		if self.enable_bbox_filtering and optimized_tree:
@@ -117,13 +124,13 @@ class DOMTreeSerializer:
 
 		return self._clickable_cache[node.node_id]
 
-	def _create_simplified_tree(self, node: EnhancedDOMTreeNode) -> SimplifiedNode | None:
+	def _create_simplified_tree(self, node: EnhancedDOMTreeNode, depth: int = 0) -> SimplifiedNode | None:
 		"""Step 1: Create a simplified tree with enhanced element detection."""
 
 		if node.node_type == NodeType.DOCUMENT_NODE:
 			# for all cldren including shadow roots
 			for child in node.children_and_shadow_roots:
-				simplified_child = self._create_simplified_tree(child)
+				simplified_child = self._create_simplified_tree(child, depth + 1)
 				if simplified_child:
 					return simplified_child
 
@@ -133,7 +140,7 @@ class DOMTreeSerializer:
 			# Super simple pass-through for shadow DOM elements
 			simplified = SimplifiedNode(original_node=node, children=[])
 			for child in node.children_and_shadow_roots:
-				simplified_child = self._create_simplified_tree(child)
+				simplified_child = self._create_simplified_tree(child, depth + 1)
 				if simplified_child:
 					simplified.children.append(simplified_child)
 			return simplified
@@ -147,32 +154,28 @@ class DOMTreeSerializer:
 				if node.content_document:
 					simplified = SimplifiedNode(original_node=node, children=[])
 					for child in node.content_document.children_nodes or []:
-						simplified_child = self._create_simplified_tree(child)
-						if simplified_child:
+						simplified_child = self._create_simplified_tree(child, depth + 1)
+						if simplified_child is not None:
 							simplified.children.append(simplified_child)
 					return simplified
 
-			# Use enhanced scoring for inclusion decision
-			is_interactive = self._is_interactive_cached(node)
-
-			is_visible = node.snapshot_node and node.is_visible
+			is_visible = node.is_visible
 			is_scrollable = node.is_actually_scrollable
 
 			# Include if interactive (regardless of visibility), or scrollable, or has children to process
-			should_include = (is_interactive and is_visible) or is_scrollable or bool(node.children_and_shadow_roots)
 
-			if should_include:
+			if is_visible or is_scrollable or bool(node.children_and_shadow_roots):
 				simplified = SimplifiedNode(original_node=node, children=[])
 				# simplified._analysis = analysis  # Store analysis for grouping
 
 				# Process children
 				for child in node.children_and_shadow_roots:
-					simplified_child = self._create_simplified_tree(child)
+					simplified_child = self._create_simplified_tree(child, depth + 1)
 					if simplified_child:
 						simplified.children.append(simplified_child)
 
 				# Return if meaningful or has meaningful children
-				if (is_interactive and is_visible) or is_scrollable or simplified.children:
+				if is_visible or is_scrollable or simplified.children:
 					return simplified
 
 		elif node.node_type == NodeType.TEXT_NODE:
@@ -202,7 +205,7 @@ class DOMTreeSerializer:
 		is_visible = node.original_node.snapshot_node and node.original_node.is_visible
 
 		if (
-			(is_interactive_opt and is_visible)  # Only keep interactive nodes that are visible
+			is_visible  # Keep all visible nodes
 			or node.original_node.is_actually_scrollable
 			or node.original_node.node_type == NodeType.TEXT_NODE
 			or node.children
@@ -228,8 +231,8 @@ class DOMTreeSerializer:
 		if not node:
 			return
 
-		# Skip assigning index to excluded nodes
-		if not (hasattr(node, 'excluded_by_parent') and node.excluded_by_parent):
+		# Skip assigning index to excluded nodes, or ignored by paint order
+		if not node.excluded_by_parent and not node.ignored_by_paint_order:
 			# Assign index to clickable elements that are also visible
 			is_interactive_assign = self._is_interactive_cached(node.original_node)
 			is_visible = node.original_node.snapshot_node and node.original_node.is_visible

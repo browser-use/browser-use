@@ -18,11 +18,11 @@ company_credentials = {'x_user': 'your-real-username@email.com', 'x_pass': 'your
 sensitive_data = company_credentials
 
 # Option 2: Secrets per domain with regex
-# sensitive_data: dict[str, str | dict[str, str]] = {
+# sensitive_data = {
 #     'https://*.example-staging.com': company_credentials,
 #     'http*://test.example.com': company_credentials,
 #     'https://example.com': company_credentials,
-#     'https://*.google.com': {'g_email': 'user@gmail.com', 'g_pass': 'google_password'},
+#     'https://google.com': {'g_email': 'user@gmail.com', 'g_pass': 'google_password'},
 # }
 
 

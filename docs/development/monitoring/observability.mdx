@@ -31,7 +31,7 @@ import asyncio
 
 from lmnr import Laminar, Instruments
 # this line auto-instruments Browser Use and any browser you use (local or remote)
-Laminar.initialize(project_api_key="...")
+Laminar.initialize(project_api_key="...", disabled_instruments={Instruments.BROWSER_USE})
 
 async def main():
     agent = Agent(
@@ -56,3 +56,41 @@ In the trace view, you can also see the agent's current step, the tool it's usin
 ## Laminar
 
 To learn more about tracing and evaluating your browser agents, check out the [Laminar docs](https://docs.lmnr.ai).
+
+## Browser Use Cloud Authentication
+
+Browser Use can sync your agent runs to the cloud for easy viewing and sharing. Authentication is required to protect your data.
+
+### Quick Setup
+
+```bash
+# Authenticate once to enable cloud sync for all future runs
+browser-use auth
+# Or if using module directly:
+python -m browser_use.cli auth
+```
+
+**Note**: Cloud sync is enabled by default. If you've disabled it, you can re-enable with `export BROWSER_USE_CLOUD_SYNC=true`.
+
+### Manual Authentication
+
+```python
+# Authenticate from code after task completion
+from browser_use import Agent
+
+agent = Agent(task="your task")
+await agent.run()
+
+# Later, authenticate for future runs
+await agent.authenticate_cloud_sync()
+```
+
+### Reset Authentication
+
+```bash
+# Force re-authentication with a different account
+rm ~/.config/browseruse/cloud_auth.json
+browser-use auth
+```
+
+**Note**: Authentication uses OAuth Device Flow - you must complete the auth process while the command is running. Links expire when the polling stops.

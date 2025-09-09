@@ -67,12 +67,10 @@ class GmailGrantManager:
 			with open(self.credentials_file) as f:
 				creds = json.load(f)
 
-			required_fields = ['web']
-			web = creds['web']
-			if not web:
-				return False, "Invalid credentials format - missing 'web' section"
-
-			return True, 'Credentials file is valid'
+			# Accept if either 'web' or 'installed' section exists and is not empty
+			if creds.get('web') or creds.get('installed'):
+				return True, 'Credentials file is valid'
+			return False, "Invalid credentials format - neither 'web' nor 'installed' sections found"
 
 		except json.JSONDecodeError:
 			return False, 'Credentials file is not valid JSON'

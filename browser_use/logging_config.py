@@ -138,7 +138,7 @@ def setup_logging(stream=None, log_level=None, force_setup=False, debug_log_file
 
 	# Create debug log file handler
 	if debug_log_file:
-		debug_handler = logging.FileHandler(debug_log_file)
+		debug_handler = logging.FileHandler(debug_log_file, encoding='utf-8')
 		debug_handler.setLevel(logging.DEBUG)
 		debug_handler.setFormatter(BrowserUseFormatter('%(asctime)s - %(levelname)-8s [%(name)s] %(message)s', logging.DEBUG))
 		file_handlers.append(debug_handler)
@@ -146,7 +146,7 @@ def setup_logging(stream=None, log_level=None, force_setup=False, debug_log_file
 
 	# Create info log file handler
 	if info_log_file:
-		info_handler = logging.FileHandler(info_log_file)
+		info_handler = logging.FileHandler(info_log_file, encoding='utf-8')
 		info_handler.setLevel(logging.INFO)
 		info_handler.setFormatter(BrowserUseFormatter('%(asctime)s - %(levelname)-8s [%(name)s] %(message)s', logging.INFO))
 		file_handlers.append(info_handler)

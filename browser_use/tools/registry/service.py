@@ -8,6 +8,7 @@ from inspect import Parameter, iscoroutinefunction, signature
 from types import UnionType
 from typing import Any, Generic, Optional, TypeVar, Union, get_args, get_origin
 
+import pyotp
 from pydantic import BaseModel, Field, RootModel, create_model
 
 from browser_use.browser import BrowserSession
@@ -467,11 +468,19 @@ class Registry(Generic[Context]):
 		def recursively_replace_secrets(value: str | dict | list) -> str | dict | list:
 			if isinstance(value, str):
 				matches = secret_pattern.findall(value)
-
+				# check if the placeholder key, like x_password is in the output parameters of the LLM and replace it with the sensitive data
 				for placeholder in matches:
-					resolved = resolve_secret(placeholder)
-					if resolved is not None:
-						value = value.replace(f'<secret>{placeholder}</secret>', resolved)
+					if placeholder in applicable_secrets:
+						# generate a totp code if secret is a 2fa secret
+						if 'bu_2fa_code' in placeholder:
+							totp = pyotp.TOTP(applicable_secrets[placeholder], digits=6)
+							replacement_value = totp.now()
+						else:
+              replacement_value = applicable_secrets[placeholder]
+              resolved = resolve_secret(placeholder)
+              if resolved is not None:
+                replacement_value = replacement_value.replace(f'<secret>{placeholder}</secret>', resolved)
+						value = value.replace(f'<secret>{placeholder}</secret>', replacement_value)
 						replaced_placeholders.add(placeholder)
 					else:
 						# Keep track of missing placeholders

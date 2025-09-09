@@ -190,7 +190,6 @@ def cloud_sync(httpserver: HTTPServer):
 	# Create CloudSync with test server URL
 	cloud_sync = CloudSync(
 		base_url=test_http_server_url,
-		enable_auth=False,  # Disable auth for most tests, they can override this if needed
 	)
 
 	return cloud_sync

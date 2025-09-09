@@ -51,7 +51,14 @@ class TestUrlAllowlistSecurity:
 
 		# Test more complex glob patterns
 		browser_profile = BrowserProfile(
-			allowed_domains=['*.google.com', 'https://wiki.org', 'https://good.com', 'chrome://version', 'brave://*'],
+			allowed_domains=[
+				'*.google.com',
+				'https://wiki.org',
+				'https://good.com',
+				'https://*.test.com',
+				'chrome://version',
+				'brave://*',
+			],
 			headless=True,
 			user_data_dir=None,
 		)
@@ -89,6 +96,10 @@ class TestUrlAllowlistSecurity:
 		assert watchdog._is_url_allowed('https://subdomain.example.com@evil.com') is False
 		assert watchdog._is_url_allowed('https://sub.example.com%20@malicious.org') is False
 		assert watchdog._is_url_allowed('https://anygoogle.com@evil.org') is False
+
+		# Test pattern matching
+		assert watchdog._is_url_allowed('https://www.test.com') is True
+		assert watchdog._is_url_allowed('https://www.testx.com') is False
 
 	def test_glob_pattern_edge_cases(self):
 		"""Test edge cases for glob pattern matching to ensure proper behavior."""

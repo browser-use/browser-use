@@ -198,6 +198,10 @@ GROQ_API_KEY=
 
 ## Ollama
 
+1. Install Ollama: https://github.com/ollama/ollama
+2. Run `ollama serve` to start the server 
+3. In a new terminal, install the model you want to use: `ollama pull llama3.1:8b` (this has 4.9GB)
+
 ```python
 from browser_use import Agent, ChatOllama
 
@@ -208,7 +212,39 @@ llm = ChatOllama(model="llama3.1:8b")
 
 [Example](https://github.com/browser-use/browser-use/blob/main/examples/models/langchain) on how to use Langchain with Browser Use.
 
-## Other models (DeepSeek, Novita, X, Qwen...)
+## Qwen [example](https://github.com/browser-use/browser-use/blob/main/examples/models/qwen.py)
+
+Currently, only `qwen-vl-max` is recommended for Browser Use. Other Qwen models, including `qwen-max`, have issues with the action schema format.
+Smaller Qwen models may return incorrect action schema formats (e.g., `actions: [{"go_to_url": "google.com"}]` instead of `[{"go_to_url": {"url": "google.com"}}]`). If you want to use other models, add concrete examples of the correct action format to your prompt.
+
+```python
+from browser_use import Agent, ChatOpenAI
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+# Get API key from https://modelstudio.console.alibabacloud.com/?tab=playground#/api-key
+api_key = os.getenv('ALIBABA_CLOUD')
+base_url = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1'
+
+llm = ChatOpenAI(model='qwen-vl-max', api_key=api_key, base_url=base_url)
+
+agent = Agent(
+    task="Your task here",
+    llm=llm,
+    use_vision=True
+)
+```
+
+Required environment variables:
+
+```bash .env
+ALIBABA_CLOUD=
+```
+
+
+## Other models (DeepSeek, Novita, X...)
 
 We support all other models that can be called via OpenAI compatible API. We are open to PRs for more providers.
 

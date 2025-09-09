@@ -27,17 +27,17 @@ T = TypeVar('T', bound=BaseModel)
 
 @dataclass
 class ChatDeepSeek(BaseChatModel):
-	"""DeepSeek /chat/completions 封装（OpenAI-compatible）。"""
+	"""DeepSeek /chat/completions wrapper (OpenAI-compatible)."""
 
 	model: str = 'deepseek-chat'
 
-	# 生成参数
+	# Generation parameters
 	max_tokens: int | None = None
 	temperature: float | None = None
 	top_p: float | None = None
 	seed: int | None = None
 
-	# 连接参数
+	# Connection parameters
 	api_key: str | None = None
 	base_url: str | httpx.URL | None = 'https://api.deepseek.com/v1'
 	timeout: float | httpx.Timeout | None = None
@@ -85,11 +85,11 @@ class ChatDeepSeek(BaseChatModel):
 		stop: list[str] | None = None,
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		"""
-		DeepSeek ainvoke 支持:
-		1. 普通文本/多轮对话
+		DeepSeek ainvoke supports:
+		1. Regular text/multi-turn conversation
 		2. Function Calling
 		3. JSON Output (response_format)
-		4. 对话前缀续写 (beta, prefix, stop)
+		4. Conversation prefix continuation (beta, prefix, stop)
 		"""
 		client = self._client()
 		ds_messages = DeepSeekMessageSerializer.serialize_messages(messages)
@@ -104,15 +104,15 @@ class ChatDeepSeek(BaseChatModel):
 		if self.seed is not None:
 			common['seed'] = self.seed
 
-		# Beta 对话前缀续写（见官方文档）
+		# Beta conversation prefix continuation (see official documentation)
 		if self.base_url and str(self.base_url).endswith('/beta'):
-			# 最后一个 assistant 必须 prefix
+			# The last assistant message must have prefix
 			if ds_messages and isinstance(ds_messages[-1], dict) and ds_messages[-1].get('role') == 'assistant':
 				ds_messages[-1]['prefix'] = True
 			if stop:
 				common['stop'] = stop
 
-		# ① 普通多轮对话/文本输出
+		# ① Regular multi-turn conversation/text output
 		if output_format is None and not tools:
 			try:
 				resp = await client.chat.completions.create(  # type: ignore
@@ -131,7 +131,7 @@ class ChatDeepSeek(BaseChatModel):
 			except Exception as e:
 				raise ModelProviderError(str(e), model=self.name) from e
 
-		# ② Function Calling 路径（有 tools 或 output_format）
+		# ② Function Calling path (with tools or output_format)
 		if tools or (output_format is not None and hasattr(output_format, 'model_json_schema')):
 			try:
 				call_tools = tools
@@ -166,14 +166,14 @@ class ChatDeepSeek(BaseChatModel):
 					parsed = json.loads(raw_args)
 				else:
 					parsed = raw_args
-				# --------- 修复点: 只有 output_format 不为 None 才能用 model_validate ----------
+				# --------- Fix: only use model_validate when output_format is not None ----------
 				if output_format is not None:
 					return ChatInvokeCompletion(
 						completion=output_format.model_validate(parsed),
 						usage=None,
 					)
 				else:
-					# 若无 output_format，直接返回 dict
+					# If no output_format, return dict directly
 					return ChatInvokeCompletion(
 						completion=parsed,
 						usage=None,
@@ -185,7 +185,7 @@ class ChatDeepSeek(BaseChatModel):
 			except Exception as e:
 				raise ModelProviderError(str(e), model=self.name) from e
 
-		# ③ JSON Output 路径（官方 response_format）
+		# ③ JSON Output path (official response_format)
 		if output_format is not None and hasattr(output_format, 'model_json_schema'):
 			try:
 				resp = await client.chat.completions.create(  # type: ignore
@@ -209,5 +209,4 @@ class ChatDeepSeek(BaseChatModel):
 			except Exception as e:
 				raise ModelProviderError(str(e), model=self.name) from e
 
-		# 所有路径兜底
 		raise ModelProviderError('No valid ainvoke execution path for DeepSeek LLM', model=self.name)

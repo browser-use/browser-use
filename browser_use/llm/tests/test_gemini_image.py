@@ -3,7 +3,6 @@ import base64
 import io
 import random
 
-from lmnr import Laminar
 from PIL import Image, ImageDraw, ImageFont
 
 from browser_use.llm.google.chat import ChatGoogle
@@ -16,8 +15,6 @@ from browser_use.llm.messages import (
 	SystemMessage,
 	UserMessage,
 )
-
-Laminar.initialize()
 
 
 def create_random_text_image(text: str = 'hello world', width: int = 4000, height: int = 4000) -> str:

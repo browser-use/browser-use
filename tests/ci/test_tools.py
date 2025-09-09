@@ -164,7 +164,7 @@ class TestToolsIntegration:
 		assert schema['properties']['seconds']['default'] == 3
 
 		# Create wait action for 1 second - fix to use a dictionary
-		wait_action = {'wait': {'seconds': 1}}  # Corrected format
+		wait_action = {'wait': {'seconds': 3}}  # Corrected format
 
 		class WaitActionModel(ActionModel):
 			wait: dict | None = None
@@ -184,7 +184,7 @@ class TestToolsIntegration:
 		assert 'Waited for' in result.extracted_content or 'Waiting for' in result.extracted_content
 
 		# Verify that approximately 1 second has passed (allowing some margin)
-		assert 0.8 <= end_time - start_time <= 1.5  # Allow some timing margin for 1 second wait
+		assert end_time - start_time <= 0.5  # We wait 3-3 seconds for LLM call
 
 		# longer wait
 		# Create wait action for 1 second - fix to use a dictionary
@@ -204,9 +204,7 @@ class TestToolsIntegration:
 		assert result.extracted_content is not None
 		assert 'Waited for' in result.extracted_content or 'Waiting for' in result.extracted_content
 
-		# Verify that approximately 5 seconds have passed (allowing some margin)
-		assert 4.5 <= end_time - start_time <= 6.0  # Allow some timing margin for 5 second wait
-		assert end_time - start_time >= 1.9  # Allow some timing margin
+		assert 1.5 <= end_time - start_time <= 2.5  # We wait 5-3 seconds for LLM call
 
 	async def test_go_back_action(self, tools, browser_session, base_url):
 		"""Test that go_back action navigates to the previous page."""

@@ -38,23 +38,20 @@ class TestCloudSyncInit:
 
 	async def test_init_with_auth_enabled(self, temp_config_dir):
 		"""Test CloudSync initialization with auth enabled."""
-		service = CloudSync(enable_auth=True, base_url='http://localhost:8000')
+		service = CloudSync(base_url='http://localhost:8000')
 
 		assert service.base_url == 'http://localhost:8000'
-		assert service.enable_auth is True
 		assert service.auth_client is not None
 		assert isinstance(service.auth_client, DeviceAuthClient)
-		assert service.pending_events == []
 		assert service.session_id is None
 
-	async def test_init_with_auth_disabled(self, temp_config_dir):
-		"""Test CloudSync initialization with auth disabled."""
-		service = CloudSync(enable_auth=False, base_url='http://localhost:8000')
+	async def test_init_basic(self, temp_config_dir):
+		"""Test CloudSync basic initialization."""
+		service = CloudSync(base_url='http://localhost:8000')
 
 		assert service.base_url == 'http://localhost:8000'
-		assert service.enable_auth is False
-		assert service.auth_client is None
-		assert service.pending_events == []
+		assert service.auth_client is not None  # Always has auth_client in current version
+		assert isinstance(service.auth_client, DeviceAuthClient)
 
 
 class TestCloudSyncEventHandling:
