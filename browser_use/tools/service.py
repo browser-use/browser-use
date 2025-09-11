@@ -350,7 +350,7 @@ class Tools(Generic[Context]):
 			node = await browser_session.get_element_by_index(params.index)
 			if node is None:
 				raise ValueError(f'Element index {params.index} not found in browser state')
-			
+
 			# Dispatch hover event with node
 			try:
 				event = browser_session.event_bus.dispatch(HoverElementEvent(node=node))
@@ -360,7 +360,7 @@ class Tools(Generic[Context]):
 				memory = f'Hovered over element with index {params.index}'
 				msg = f'🖱️  {memory}'
 				logger.info(msg)
-				
+
 				# Include hover coordinates in metadata if available
 				return ActionResult(
 					extracted_content=msg,

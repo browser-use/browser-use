@@ -9,8 +9,8 @@ from browser_use.browser.events import (
 	GetDropdownOptionsEvent,
 	GoBackEvent,
 	GoForwardEvent,
-	RefreshEvent,
 	HoverElementEvent,
+	RefreshEvent,
 	ScrollEvent,
 	ScrollToTextEvent,
 	SelectDropdownOptionEvent,
@@ -2191,18 +2191,22 @@ class DefaultActionWatchdog(BaseWatchdog):
 						if len(content_quad) >= 8:
 							quads = [
 								[
-									content_quad[0], content_quad[1],  # x1, y1
-									content_quad[2], content_quad[3],  # x2, y2
-									content_quad[4], content_quad[5],  # x3, y3
-									content_quad[6], content_quad[7],  # x4, y4
+									content_quad[0],
+									content_quad[1],  # x1, y1
+									content_quad[2],
+									content_quad[3],  # x2, y2
+									content_quad[4],
+									content_quad[5],  # x3, y3
+									content_quad[6],
+									content_quad[7],  # x4, y4
 								]
 							]
-							self.logger.debug(f'Got quad from DOM.getBoxModel')
+							self.logger.debug('Got quad from DOM.getBoxModel')
 				except Exception as e:
 					self.logger.debug(f'DOM.getBoxModel failed: {e}')
 
 			if not quads:
-				raise BrowserError(f'Failed to get element geometry for hover')
+				raise BrowserError('Failed to get element geometry for hover')
 
 			# Calculate center point from the first (largest) quad
 			quad = quads[0]
@@ -2211,7 +2215,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Check if element is visible in viewport
 			if center_x < 0 or center_y < 0 or center_x > viewport_width or center_y > viewport_height:
-				self.logger.warning(f'Element center ({center_x:.1f}, {center_y:.1f}) is outside viewport ({viewport_width}x{viewport_height})')
+				self.logger.warning(
+					f'Element center ({center_x:.1f}, {center_y:.1f}) is outside viewport ({viewport_width}x{viewport_height})'
+				)
 
 			# Perform the hover using CDP - just move mouse to element
 			self.logger.debug(f'🖱️ Moving mouse to hover over element at x: {center_x}px y: {center_y}px')
