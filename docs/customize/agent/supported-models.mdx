@@ -219,11 +219,14 @@ MISTRAL_API_KEY=
 MISTRAL_BASE_URL=https://api.mistral.ai/v1
 ```
 
-Alternatively, you can use `ChatOpenAI` directly with Mistral by setting a custom base URL:
+Alternatively, you can use `ChatOpenAI` directly with Mistral by setting a custom base URL. Be sure to pass the correct API key explicitly (from `MISTRAL_API_KEY`) or set `OPENAI_API_KEY` to your Mistral key.
 
 ```python
 from browser_use import Agent, ChatOpenAI
-llm = ChatOpenAI(model="mistral-medium-latest", base_url="https://api.mistral.ai/v1")
+import os
+
+api_key = os.getenv('MISTRAL_API_KEY')  # or set OPENAI_API_KEY to your Mistral key
+llm = ChatOpenAI(model='mistral-medium-latest', base_url='https://api.mistral.ai/v1', api_key=api_key)
 ```
 
 Optional: control output length with `max_tokens` (Mistral parameter name). By default we do not set a limit to keep responses unrestricted:
