@@ -203,9 +203,11 @@ class ChatMistral(ChatOpenAI):
 				)
 			except Exception:
 				error_message = str(e)
+			# Ensure an int for static typing (pyright)
+			_status_code = int(getattr(getattr(e, 'response', None), 'status_code', 429) or 429)
 			raise ModelProviderError(
 				message=error_message,
-				status_code=getattr(e.response, 'status_code', None),
+				status_code=_status_code,
 				model=self.name,
 			) from e
 
