@@ -196,6 +196,44 @@ Required environment variables:
 GROQ_API_KEY=
 ```
 
+## Mistral
+
+Mistral exposes an OpenAI-compatible API. Use the dedicated `ChatMistral` class for convenient defaults.
+
+```python
+from browser_use import Agent, ChatMistral
+
+llm = ChatMistral(model="mistral-medium-latest")
+
+agent = Agent(
+    task="Your task here",
+    llm=llm
+)
+```
+
+Required environment variables:
+
+```bash .env
+MISTRAL_API_KEY=
+# Optional, defaults to https://api.mistral.ai/v1
+MISTRAL_BASE_URL=https://api.mistral.ai/v1
+```
+
+Alternatively, you can use `ChatOpenAI` directly with Mistral by setting a custom base URL:
+
+```python
+from browser_use import Agent, ChatOpenAI
+llm = ChatOpenAI(model="mistral-medium-latest", base_url="https://api.mistral.ai/v1")
+```
+
+Optional: control output length with `max_tokens` (Mistral parameter name). By default we do not set a limit to keep responses unrestricted:
+
+```python
+from browser_use import ChatMistral
+
+llm = ChatMistral(model="mistral-medium-latest", max_tokens=2000)
+```
+
 ## Ollama
 
 1. Install Ollama: https://github.com/ollama/ollama

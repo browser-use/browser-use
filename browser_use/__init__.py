@@ -54,6 +54,7 @@ if TYPE_CHECKING:
 	from browser_use.llm import models
 	from browser_use.llm.anthropic.chat import ChatAnthropic
 	from browser_use.llm.azure.chat import ChatAzureOpenAI
+	from browser_use.llm.chat_mistral import ChatMistral
 	from browser_use.llm.google.chat import ChatGoogle
 	from browser_use.llm.groq.chat import ChatGroq
 	from browser_use.llm.ollama.chat import ChatOllama
@@ -81,6 +82,7 @@ _LAZY_IMPORTS = {
 	'DomService': ('browser_use.dom.service', 'DomService'),
 	# Chat models (very heavy imports)
 	'ChatOpenAI': ('browser_use.llm.openai.chat', 'ChatOpenAI'),
+	'ChatMistral': ('browser_use.llm.chat_mistral', 'ChatMistral'),
 	'ChatGoogle': ('browser_use.llm.google.chat', 'ChatGoogle'),
 	'ChatAnthropic': ('browser_use.llm.anthropic.chat', 'ChatAnthropic'),
 	'ChatGroq': ('browser_use.llm.groq.chat', 'ChatGroq'),
@@ -126,6 +128,7 @@ __all__ = [
 	'AgentHistoryList',
 	# Chat models
 	'ChatOpenAI',
+	'ChatMistral',
 	'ChatGoogle',
 	'ChatAnthropic',
 	'ChatGroq',
