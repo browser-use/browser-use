@@ -13,7 +13,7 @@ import os
 import sys
 import warnings
 
-import aiofiles
+import anyio
 import yaml
 from pydantic import BaseModel
 
@@ -47,8 +47,7 @@ async def run_single_task(task_file):
 		warnings.filterwarnings('ignore')
 
 		print('[DEBUG] Loading task file...', file=sys.stderr)
-		async with aiofiles.open(task_file, 'r') as f:
-			content = await f.read()
+		content = await anyio.Path(task_file).read_text()
 		task_data = yaml.safe_load(content)
 		task = task_data['task']
 		judge_context = task_data.get('judge_context', ['The agent must solve the task'])
