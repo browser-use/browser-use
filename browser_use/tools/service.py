@@ -18,6 +18,7 @@ from browser_use.browser.events import (
 	CloseTabEvent,
 	GetDropdownOptionsEvent,
 	GoBackEvent,
+	HoverElementEvent,
 	NavigateToUrlEvent,
 	ScrollEvent,
 	ScrollToTextEvent,
@@ -39,6 +40,7 @@ from browser_use.tools.views import (
 	DoneAction,
 	GetDropdownOptionsAction,
 	GoToUrlAction,
+	HoverElementAction,
 	InputTextAction,
 	NoParamsAction,
 	ScrollAction,
@@ -57,6 +59,7 @@ logger = logging.getLogger(__name__)
 # This must be done after all imports are complete
 ClickElementEvent.model_rebuild()
 TypeTextEvent.model_rebuild()
+HoverElementEvent.model_rebuild()
 ScrollEvent.model_rebuild()
 UploadFileEvent.model_rebuild()
 
@@ -339,6 +342,35 @@ class Tools(Generic[Context]):
 				# Log the full error for debugging
 				logger.error(f'Failed to dispatch TypeTextEvent: {type(e).__name__}: {e}')
 				error_msg = f'Failed to input text into element {params.index}: {e}'
+				return ActionResult(error=error_msg)
+
+		@self.registry.action('Hover element by index', param_model=HoverElementAction)
+		async def hover_element(params: HoverElementAction, browser_session: BrowserSession):
+			# Look up the node from the selector map
+			node = await browser_session.get_element_by_index(params.index)
+			if node is None:
+				raise ValueError(f'Element index {params.index} not found in browser state')
+			
+			# Dispatch hover event with node
+			try:
+				event = browser_session.event_bus.dispatch(HoverElementEvent(node=node))
+				await event
+				# Wait for handler to complete and get any exception or metadata
+				hover_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
+				memory = f'Hovered over element with index {params.index}'
+				msg = f'🖱️  {memory}'
+				logger.info(msg)
+				
+				# Include hover coordinates in metadata if available
+				return ActionResult(
+					extracted_content=msg,
+					long_term_memory=memory,
+					metadata=hover_metadata if isinstance(hover_metadata, dict) else None,
+				)
+			except BrowserError as e:
+				return handle_browser_error(e)
+			except Exception as e:
+				error_msg = f'Failed to hover over element {params.index}: {str(e)}'
 				return ActionResult(error=error_msg)
 
 		@self.registry.action('Upload file to interactive element with file path', param_model=UploadFileAction)
