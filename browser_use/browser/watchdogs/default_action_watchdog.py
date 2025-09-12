@@ -9,6 +9,7 @@ from browser_use.browser.events import (
 	GetDropdownOptionsEvent,
 	GoBackEvent,
 	GoForwardEvent,
+	HoverElementEvent,
 	RefreshEvent,
 	ScrollEvent,
 	ScrollToTextEvent,
@@ -26,6 +27,7 @@ from browser_use.dom.service import EnhancedDOMTreeNode
 # This must be done after all imports are complete
 ClickElementEvent.model_rebuild()
 GetDropdownOptionsEvent.model_rebuild()
+HoverElementEvent.model_rebuild()
 SelectDropdownOptionEvent.model_rebuild()
 TypeTextEvent.model_rebuild()
 ScrollEvent.model_rebuild()
@@ -113,6 +115,31 @@ class DefaultActionWatchdog(BaseWatchdog):
 			result_metadata['new_tab_opened'] = new_tab_opened
 
 			return result_metadata
+		except Exception as e:
+			raise
+
+	async def on_HoverElementEvent(self, event: HoverElementEvent) -> dict | None:
+		"""Handle hover request with CDP."""
+		try:
+			# Check if session is alive before attempting any operations
+			if not self.browser_session.agent_focus or not self.browser_session.agent_focus.target_id:
+				error_msg = 'Cannot execute hover: browser session is corrupted (target_id=None). Session may have crashed.'
+				self.logger.error(f'⚠️ {error_msg}')
+				raise BrowserError(error_msg)
+
+			# Use the provided node
+			element_node = event.node
+			index_for_logging = element_node.element_index or 'unknown'
+
+			# Perform the actual hover using internal implementation
+			hover_metadata = await self._hover_element_node_impl(element_node)
+
+			# Build success message
+			msg = f'Hovered over element with index {index_for_logging}: {element_node.get_all_children_text(max_depth=2)}'
+			self.logger.debug(f'🖱️ {msg}')
+			self.logger.debug(f'Element xpath: {element_node.xpath}')
+
+			return hover_metadata
 		except Exception as e:
 			raise
 
@@ -2116,3 +2143,93 @@ class DefaultActionWatchdog(BaseWatchdog):
 			error_msg = f'Failed to select dropdown option "{target_text}" for element {index_for_logging}: {str(e)}'
 			self.logger.error(error_msg)
 			raise ValueError(error_msg) from e
+
+	async def _hover_element_node_impl(self, element_node) -> dict | None:
+		"""
+		Hover over an element using pure CDP.
+
+		Args:
+			element_node: The DOM element to hover over
+		"""
+		try:
+			# Get CDP client
+			cdp_session = await self.browser_session.cdp_client_for_node(element_node)
+
+			# Get the correct session ID for the element's frame
+			session_id = cdp_session.session_id
+
+			# Get element bounds
+			backend_node_id = element_node.backend_node_id
+
+			# Get viewport dimensions for visibility checks
+			layout_metrics = await cdp_session.cdp_client.send.Page.getLayoutMetrics(session_id=session_id)
+			viewport_width = layout_metrics['layoutViewport']['clientWidth']
+			viewport_height = layout_metrics['layoutViewport']['clientHeight']
+
+			# Try multiple methods to get element geometry
+			quads = []
+
+			# Method 1: Try DOM.getContentQuads first
+			try:
+				content_quads_result = await cdp_session.cdp_client.send.DOM.getContentQuads(
+					params={'backendNodeId': backend_node_id}, session_id=session_id
+				)
+				if 'quads' in content_quads_result and content_quads_result['quads']:
+					quads = content_quads_result['quads']
+					self.logger.debug(f'Got {len(quads)} quads from DOM.getContentQuads')
+			except Exception as e:
+				self.logger.debug(f'DOM.getContentQuads failed: {e}')
+
+			# Method 2: Fall back to DOM.getBoxModel
+			if not quads:
+				try:
+					box_model = await cdp_session.cdp_client.send.DOM.getBoxModel(
+						params={'backendNodeId': backend_node_id}, session_id=session_id
+					)
+					if 'model' in box_model and 'content' in box_model['model']:
+						content_quad = box_model['model']['content']
+						if len(content_quad) >= 8:
+							quads = [
+								[
+									content_quad[0], content_quad[1],  # x1, y1
+									content_quad[2], content_quad[3],  # x2, y2
+									content_quad[4], content_quad[5],  # x3, y3
+									content_quad[6], content_quad[7],  # x4, y4
+								]
+							]
+							self.logger.debug('Got quad from DOM.getBoxModel')
+				except Exception as e:
+					self.logger.debug(f'DOM.getBoxModel failed: {e}')
+
+			if not quads:
+				raise BrowserError('Failed to get element geometry for hover')
+
+			# Calculate center point from the first (largest) quad
+			quad = quads[0]
+			center_x = (quad[0] + quad[2] + quad[4] + quad[6]) / 4
+			center_y = (quad[1] + quad[3] + quad[5] + quad[7]) / 4
+
+			# Check if element is visible in viewport
+			if center_x < 0 or center_y < 0 or center_x > viewport_width or center_y > viewport_height:
+				self.logger.warning(f'Element center ({center_x:.1f}, {center_y:.1f}) is outside viewport ({viewport_width}x{viewport_height})')
+
+			# Perform the hover using CDP - just move mouse to element
+			self.logger.debug(f'🖱️ Moving mouse to hover over element at x: {center_x}px y: {center_y}px')
+			await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+				params={
+					'type': 'mouseMoved',
+					'x': center_x,
+					'y': center_y,
+				},
+				session_id=session_id,
+			)
+
+			# Return hover metadata with coordinates
+			return {
+				'hover_x': center_x,
+				'hover_y': center_y,
+			}
+
+		except Exception as e:
+			self.logger.error(f'Failed to hover over element via CDP: {type(e).__name__}: {e}')
+			raise BrowserError(f'Failed to hover over element: {repr(element_node)}')
