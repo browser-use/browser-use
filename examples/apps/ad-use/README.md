@@ -2,8 +2,8 @@
 
 Automatically generate Instagram ads from any landing page using browser agents and Google's Nano Banana 🍌 image generation model.
 
-[!CAUTION]
-This demo requires browser-use v0.7.4+.
+> [!WARNING]
+> This demo requires browser-use v0.7.4+.
 
 https://github.com/user-attachments/assets/7fab54a9-b36b-4fba-ab98-a438f2b86b7e
 
@@ -30,10 +30,10 @@ export GOOGLE_API_KEY='your-google-api-key-here'
 
 ```bash
 # Basic - Generate ad from any website
-python ad_generator.py https://www.apple.com/iphone-16-pro/
+python ad_generator.py https://www.apple.com/iphone-17-pro/
 
 # Debug Mode - See the browser in action
-python ad_generator.py https://www.apple.com/iphone-16-pro/ --debug
+python ad_generator.py https://www.apple.com/iphone-17-pro/ --debug
 ```
 
 ## Programmatic Usage
@@ -61,7 +61,3 @@ Generated ads are saved in the `output/` directory with:
 ## License
 
 MIT
-
----
-
-Powered by [Browser Use](https://github.com/browser-use/browser-use) 
