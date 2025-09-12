@@ -192,6 +192,10 @@ class ClickableElementDetector:
 				if any(attr in node.attributes for attr in icon_attributes):
 					return True
 
+		# Additional important case - item is clickable if it clearly states that it's clickable.
+		if node.snapshot_node and node.snapshot_node.is_clickable:
+			return True
+
 		# Final fallback: cursor style indicates interactivity (for cases Chrome missed)
 		if node.snapshot_node and node.snapshot_node.cursor_style and node.snapshot_node.cursor_style == 'pointer':
 			return True
