@@ -59,7 +59,15 @@ temp-profile-*
 
 screenshot.png
 
-# *.md
+*.md
 
 all_github_issues_progress.md
 all_github_issues.md
+
+data/extensions
+data/profiles
+data/device_id
+
+1753683755292-30b3431f487b4cc1863e57a81d78e289.sh
+docker-compose.yaml
+examples/use-cases/ownership_check_array_oaktree.py
