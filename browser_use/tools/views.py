@@ -97,4 +97,5 @@ class HoverElementAction(BaseModel):
 	"""
 	Moves the mouse over the element identified by the index in the selector map.
 	"""
+
 	index: int
