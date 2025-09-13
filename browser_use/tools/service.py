@@ -37,6 +37,7 @@ from browser_use.tools.views import (
 	ClickElementAction,
 	CloseTabAction,
 	DoneAction,
+	ExecuteCDPAction,
 	GetDropdownOptionsAction,
 	GoToUrlAction,
 	InputTextAction,
@@ -891,6 +892,35 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				long_term_memory=memory,
 				include_extracted_content_only_once=True,
 			)
+
+			# General CDP execution tool
+
+		@self.registry.action(
+			"""This JavaScript code gets executed with Runtime.evaluate
+			 - Write code to solve problems you could not solve with other tools.
+			 - Don't write comments in here, no human reads that.
+			 - Write only valid code. 
+EXAMPLES:
+Clicking on coordinates, using when other tools fail, filling a form all at once, hovering, dragging, extracting only links, extracting query, zooming ....
+You can also use it to explore the website.
+""",
+			param_model=ExecuteCDPAction,
+		)
+		async def execute_js(params: ExecuteCDPAction, browser_session: BrowserSession):
+			# Pre-process JavaScript to fix common issues
+			code = params.js_code
+			cdp_session = await browser_session.get_or_create_cdp_session()
+			try:
+				result = await cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': code}, session_id=cdp_session.session_id
+				)
+				result_text = result.get('result', {}).get('value', '')
+				description = result.get('result', {}).get('description', '')
+				error_message = result.get('exceptionDetails', {}).get('text', '')
+				return ActionResult(extracted_content=result_text)
+
+			except Exception as e:
+				return ActionResult(error=f'Failed to execute JavaScript: {e}')
 
 	# Custom done action for structured output
 	async def extract_clean_markdown(
