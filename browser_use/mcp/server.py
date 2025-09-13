@@ -204,11 +204,18 @@ class BrowserUseServer:
 		self.session_timeout_minutes = session_timeout_minutes
 		self._cleanup_task: Any = None
 
+		# Serialize tool calls to avoid races within a session
+		self._tool_lock = asyncio.Lock()
+
 		# Setup handlers
 		self._setup_handlers()
 
 	def _setup_handlers(self):
 		"""Setup MCP server handlers."""
+
+		# Resolve defaults once at setup time
+		llm_defaults = get_default_llm(self.config)
+		default_agent_model = llm_defaults.get('model', 'gpt-4o')
 
 		@self.server.list_tools()
 		async def handle_list_tools() -> list[types.Tool]:
@@ -359,8 +366,8 @@ class BrowserUseServer:
 							},
 							'model': {
 								'type': 'string',
-								'description': 'LLM model to use (e.g., gpt-4o, claude-3-opus-20240229)',
-								'default': 'gpt-4o',
+								'description': 'LLM model to use (e.g., mistral-medium-latest, gpt-4o, claude-3-opus-20240229)',
+								'default': default_agent_model,
 							},
 							'allowed_domains': {
 								'type': 'array',
@@ -420,7 +427,9 @@ class BrowserUseServer:
 			start_time = time.time()
 			error_msg = None
 			try:
-				result = await self._execute_tool(name, arguments or {})
+				# Serialize tool calls to the underlying browser session to avoid races
+				async with self._tool_lock:
+					result = await self._execute_tool(name, arguments or {})
 				return [types.TextContent(type='text', text=result)]
 			except Exception as e:
 				error_msg = str(e)
@@ -569,7 +578,7 @@ class BrowserUseServer:
 		self,
 		task: str,
 		max_steps: int = 100,
-		model: str = 'gpt-4o',
+		model: str | None = None,
 		allowed_domains: list[str] | None = None,
 		use_vision: bool = True,
 	) -> str:
@@ -582,11 +591,8 @@ class BrowserUseServer:
 		if not api_key:
 			return 'Error: OPENAI_API_KEY not set in config or environment'
 
-		# Override model if provided in tool call
-		if model != llm_config.get('model', 'gpt-4o'):
-			llm_model = model
-		else:
-			llm_model = llm_config.get('model', 'gpt-4o')
+		# Choose model: prefer explicit tool arg, else config default
+		llm_model = model or llm_config.get('model', 'gpt-4o')
 
 		llm = ChatOpenAI(
 			model=llm_model,
