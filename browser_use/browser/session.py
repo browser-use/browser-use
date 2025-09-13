@@ -273,6 +273,8 @@ class BrowserSession(BaseModel):
 		# Iframe processing limits
 		max_iframes: int | None = None,
 		max_iframe_depth: int | None = None,
+		# Custom interactive selectors
+		custom_interactive_selectors: list[str] | None = None,
 	):
 		# Following the same pattern as AgentSettings in service.py
 		# Only pass non-None values to avoid validation errors

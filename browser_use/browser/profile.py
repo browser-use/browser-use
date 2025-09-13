@@ -599,6 +599,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		default=5,
 		description='Maximum depth for cross-origin iframe recursion (default: 5 levels deep).',
 	)
+	custom_interactive_selectors: list[str] | None = Field(
+		default=None,
+		description='List of CSS selectors that should always be marked as interactive elements'
+	)
 
 	# --- Page load/wait timings ---
 

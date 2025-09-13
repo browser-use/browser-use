@@ -49,6 +49,7 @@ class DomService:
 		paint_order_filtering: bool = True,
 		max_iframes: int = 100,
 		max_iframe_depth: int = 5,
+		custom_interactive_selectors: list[str] | None = None,
 	):
 		self.browser_session = browser_session
 		self.logger = logger or browser_session.logger
@@ -56,6 +57,7 @@ class DomService:
 		self.paint_order_filtering = paint_order_filtering
 		self.max_iframes = max_iframes
 		self.max_iframe_depth = max_iframe_depth
+		self.custom_interactive_selectors = custom_interactive_selectors
 
 	async def __aenter__(self):
 		return self
@@ -725,7 +727,10 @@ class DomService:
 
 		start = time.time()
 		serialized_dom_state, serializer_timing = DOMTreeSerializer(
-			enhanced_dom_tree, previous_cached_state, paint_order_filtering=self.paint_order_filtering
+			enhanced_dom_tree, 
+			previous_cached_state, 
+			paint_order_filtering=self.paint_order_filtering,
+			custom_interactive_selectors=self.custom_interactive_selectors
 		).serialize_accessible_elements()
 
 		end = time.time()

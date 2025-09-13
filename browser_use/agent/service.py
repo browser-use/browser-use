@@ -182,6 +182,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 		final_response_after_failure: bool = True,
 		_url_shortening_limit: int = 25,
+		custom_interactive_selectors: list[str] | None = None,
 		**kwargs,
 	):
 		if llm is None:
@@ -216,6 +217,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if browser and browser_session:
 			raise ValueError('Cannot specify both "browser" and "browser_session" parameters. Use "browser" for the cleaner API.')
 		browser_session = browser or browser_session
+
+		# Update browser profile with custom interactive selectors if provided
+		if custom_interactive_selectors and browser_profile:
+			# Merge custom selectors into existing browser profile
+			browser_profile = browser_profile.model_copy(update={'custom_interactive_selectors': custom_interactive_selectors})
+		elif custom_interactive_selectors:
+			# Create new browser profile with custom selectors
+			browser_profile = (browser_profile or DEFAULT_BROWSER_PROFILE).model_copy(update={'custom_interactive_selectors': custom_interactive_selectors})
 
 		self.browser_session = browser_session or BrowserSession(
 			browser_profile=browser_profile,
