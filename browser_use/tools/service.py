@@ -18,6 +18,7 @@ from browser_use.browser.events import (
 	CloseTabEvent,
 	GetDropdownOptionsEvent,
 	GoBackEvent,
+	HoverElementEvent,
 	NavigateToUrlEvent,
 	ScrollEvent,
 	ScrollToTextEvent,
@@ -39,6 +40,7 @@ from browser_use.tools.views import (
 	DoneAction,
 	GetDropdownOptionsAction,
 	GoToUrlAction,
+	HoverElementAction,
 	InputTextAction,
 	NoParamsAction,
 	ScrollAction,
@@ -57,6 +59,7 @@ logger = logging.getLogger(__name__)
 # This must be done after all imports are complete
 ClickElementEvent.model_rebuild()
 TypeTextEvent.model_rebuild()
+HoverElementEvent.model_rebuild()
 ScrollEvent.model_rebuild()
 UploadFileEvent.model_rebuild()
 
@@ -341,6 +344,35 @@ class Tools(Generic[Context]):
 				error_msg = f'Failed to input text into element {params.index}: {e}'
 				return ActionResult(error=error_msg)
 
+		@self.registry.action('Hover element by index', param_model=HoverElementAction)
+		async def hover_element(params: HoverElementAction, browser_session: BrowserSession):
+			# Look up the node from the selector map
+			node = await browser_session.get_element_by_index(params.index)
+			if node is None:
+				raise ValueError(f'Element index {params.index} not found in browser state')
+
+			# Dispatch hover event with node
+			try:
+				event = browser_session.event_bus.dispatch(HoverElementEvent(node=node))
+				await event
+				# Wait for handler to complete and get any exception or metadata
+				hover_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
+				memory = f'Hovered over element with index {params.index}'
+				msg = f'🖱️  {memory}'
+				logger.info(msg)
+
+				# Include hover coordinates in metadata if available
+				return ActionResult(
+					extracted_content=msg,
+					long_term_memory=memory,
+					metadata=hover_metadata if isinstance(hover_metadata, dict) else None,
+				)
+			except BrowserError as e:
+				return handle_browser_error(e)
+			except Exception as e:
+				error_msg = f'Failed to hover over element {params.index}: {str(e)}'
+				return ActionResult(error=error_msg)
+
 		@self.registry.action('Upload file to interactive element with file path', param_model=UploadFileAction)
 		async def upload_file_to_element(
 			params: UploadFileAction, browser_session: BrowserSession, available_file_paths: list[str], file_system: FileSystem
@@ -471,7 +503,7 @@ class Tools(Generic[Context]):
 					msg = 'No file upload element found on the page'
 					logger.error(msg)
 					raise BrowserError(msg)
-					# TODO: figure out why this fails sometimes + add fallback hail mary, just look for any file input on page
+				# TODO: figure out why this fails sometimes + add fallback hail mary, just look for any file input on page
 
 			# Dispatch upload file event with the file input node
 			try:
@@ -670,11 +702,11 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		@self.registry.action(
 			"""Scroll the page by specified number of pages (set down=True to scroll down, down=False to scroll up, num_pages=number of pages to scroll like 0.5 for half page, 10.0 for ten pages, etc.). 
-			Default behavior is to scroll the entire page. This is enough for most cases.
-			Optional if there are multiple scroll containers, use frame_element_index parameter with an element inside the container you want to scroll in. For that you must use indices that exist in your browser_state (works well for dropdowns and custom UI components). 
-			Instead of scrolling step after step, use a high number of pages at once like 10 to get to the bottom of the page.
-			If you know where you want to scroll to, use scroll_to_text instead of this tool.
-			""",
+            Default behavior is to scroll the entire page. This is enough for most cases.
+            Optional if there are multiple scroll containers, use frame_element_index parameter with an element inside the container you want to scroll in. For that you must use indices that exist in your browser_state (works well for dropdowns and custom UI components). 
+            Instead of scrolling step after step, use a high number of pages at once like 10 to get to the bottom of the page.
+            If you know where you want to scroll to, use scroll_to_text instead of this tool.
+            """,
 			param_model=ScrollAction,
 		)
 		async def scroll(params: ScrollAction, browser_session: BrowserSession):
@@ -899,11 +931,11 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		"""Extract clean markdown from the current page.
 
 		Args:
-			browser_session: Browser session to extract content from
-			extract_links: Whether to preserve links in markdown
+		    browser_session: Browser session to extract content from
+		    extract_links: Whether to preserve links in markdown
 
 		Returns:
-			tuple: (clean_markdown_content, content_statistics)
+		    tuple: (clean_markdown_content, content_statistics)
 		"""
 		import re
 
@@ -959,11 +991,11 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		Light preprocessing of html2text output - minimal cleanup since html2text is already clean.
 
 		Args:
-			content: Markdown content from html2text to lightly filter
-			max_newlines: Maximum consecutive newlines to allow
+		    content: Markdown content from html2text to lightly filter
+		    max_newlines: Maximum consecutive newlines to allow
 
 		Returns:
-			tuple: (filtered_content, chars_filtered)
+		    tuple: (filtered_content, chars_filtered)
 		"""
 		import re
 

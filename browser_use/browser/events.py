@@ -148,6 +148,14 @@ class TypeTextEvent(ElementSelectedEvent[dict | None]):
 	event_timeout: float | None = _get_timeout('TIMEOUT_TypeTextEvent', 15.0)  # seconds
 
 
+class HoverElementEvent(ElementSelectedEvent[dict | None]):
+	"""Hover over an element."""
+
+	node: 'EnhancedDOMTreeNode'
+
+	event_timeout: float | None = _get_timeout('TIMEOUT_HoverElementEvent', 15.0)  # seconds
+
+
 class ScrollEvent(ElementSelectedEvent[None]):
 	"""Scroll the page or element."""
 
