@@ -3,7 +3,7 @@ import functools
 import inspect
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from inspect import Parameter, iscoroutinefunction, signature
 from types import UnionType
 from typing import Any, Generic, Optional, TypeVar, Union, get_args, get_origin
@@ -315,7 +315,7 @@ class Registry(Generic[Context]):
 		browser_session: BrowserSession | None = None,
 		page_extraction_llm: BaseChatModel | None = None,
 		file_system: FileSystem | None = None,
-		sensitive_data: dict[str, str | dict[str, str]] | None = None,
+		sensitive_data: Mapping[str, str | Callable[[], str] | Mapping[str, str | Callable[[], str]]] | None = None,
 		available_file_paths: list[str] | None = None,
 	) -> Any:
 		"""Execute a registered action with simplified parameter handling"""
@@ -392,7 +392,7 @@ class Registry(Generic[Context]):
 			logger.info(f'🔒 Using sensitive data placeholders: {", ".join(sorted(placeholders_used))}{url_info}')
 
 	def _replace_sensitive_data(
-		self, params: BaseModel, sensitive_data: dict[str, Any], current_url: str | None = None
+		self, params: BaseModel, sensitive_data: Mapping[str, Any], current_url: str | None = None
 	) -> BaseModel:
 		"""
 		Replaces sensitive data placeholders in params with actual values.
@@ -414,10 +414,11 @@ class Registry(Generic[Context]):
 		replaced_placeholders = set()
 
 		# Process sensitive data based on format and current URL
-		applicable_secrets = {}
+		# applicable_secrets maps placeholder -> provider (str or callable)
+		applicable_secrets: dict[str, Any] = {}
 
 		for domain_or_key, content in sensitive_data.items():
-			if isinstance(content, dict):
+			if isinstance(content, Mapping):
 				# New format: {domain_pattern: {key: value}}
 				# Only include secrets for domains that match the current URL
 				if current_url and not is_new_tab_page(current_url):
@@ -428,8 +429,41 @@ class Registry(Generic[Context]):
 				# Old format: {key: value}, expose to all domains (only allowed for legacy reasons)
 				applicable_secrets[domain_or_key] = content
 
-		# Filter out empty values
-		applicable_secrets = {k: v for k, v in applicable_secrets.items() if v}
+		# Filter out empty string values; keep callables for deferred evaluation
+		filtered_applicable: dict[str, Any] = {}
+		for k, v in applicable_secrets.items():
+			if callable(v):
+				filtered_applicable[k] = v
+			elif v:
+				filtered_applicable[k] = v
+		applicable_secrets = filtered_applicable
+
+		# Cache resolved values to ensure one evaluation per placeholder per call
+		resolved_cache: dict[str, str] = {}
+
+		def resolve_secret(placeholder: str) -> str | None:
+			if placeholder in resolved_cache:
+				return resolved_cache[placeholder]
+			provider = applicable_secrets.get(placeholder)
+			if provider is None:
+				return None
+			try:
+				if callable(provider):
+					result = provider()
+					if not isinstance(result, str) or result == '':
+						logger.warning(
+							f"Sensitive data provider for '{placeholder}' did not return a non-empty string; leaving placeholder unreplaced."
+						)
+						return None
+					resolved_cache[placeholder] = result
+					return result
+				else:
+					# Static string value
+					resolved_cache[placeholder] = provider
+					return provider
+			except Exception as e:
+				logger.warning(f"Sensitive data provider for '{placeholder}' raised: {e}; leaving placeholder unreplaced.")
+				return None
 
 		def recursively_replace_secrets(value: str | dict | list) -> str | dict | list:
 			if isinstance(value, str):
@@ -442,8 +476,11 @@ class Registry(Generic[Context]):
 							totp = pyotp.TOTP(applicable_secrets[placeholder], digits=6)
 							replacement_value = totp.now()
 						else:
-							replacement_value = applicable_secrets[placeholder]
-
+							resolved = resolve_secret(placeholder)
+							if resolved is not None:
+								replacement_value = resolved
+							else:
+								replacement_value = applicable_secrets[placeholder]
 						value = value.replace(f'<secret>{placeholder}</secret>', replacement_value)
 						replaced_placeholders.add(placeholder)
 					else:
@@ -460,6 +497,13 @@ class Registry(Generic[Context]):
 
 		params_dump = params.model_dump()
 		processed_params = recursively_replace_secrets(params_dump)
+
+		# Expose the resolved values for masking in subsequent logs/state
+		try:
+			self.last_resolved_secrets = dict(resolved_cache)
+		except Exception:
+			# Do not fail action execution if we cannot set this attribute
+			pass
 
 		# Log sensitive data usage
 		self._log_sensitive_data_usage(replaced_placeholders, current_url)

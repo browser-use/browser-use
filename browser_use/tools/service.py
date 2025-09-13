@@ -3,6 +3,7 @@ import enum
 import json
 import logging
 import os
+from collections.abc import Callable, Mapping
 from typing import Any, Generic, TypeVar
 
 try:
@@ -1081,7 +1082,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		browser_session: BrowserSession,
 		#
 		page_extraction_llm: BaseChatModel | None = None,
-		sensitive_data: dict[str, str | dict[str, str]] | None = None,
+		sensitive_data: Mapping[str, str | Callable[[], str] | Mapping[str, str | Callable[[], str]]] | None = None,
 		available_file_paths: list[str] | None = None,
 		file_system: FileSystem | None = None,
 	) -> ActionResult:
