@@ -59,6 +59,12 @@ python scheduler.py --test
 3. **Run scheduler**:
 ```bash
 python scheduler.py
+
+# Debug Mode - See the browser in action
+python scheduler.py --debug
+
+# Auto Mode - Respond to unread messages every ~30 minutes
+python scheduler.py --auto
 ```
 
 ## Programmatic Usage

@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -26,6 +27,7 @@ def setup_environment(debug: bool):
 parser = argparse.ArgumentParser(description='WhatsApp Scheduler - Send scheduled messages via WhatsApp Web')
 parser.add_argument('--debug', action='store_true', help='Debug mode: show browser and verbose logs')
 parser.add_argument('--test', action='store_true', help='Test mode: show what messages would be sent without sending them')
+parser.add_argument('--auto', action='store_true', help='Auto mode: respond to unread messages every 30 minutes')
 args = parser.parse_args()
 setup_environment(args.debug)
 
@@ -140,6 +142,36 @@ async def send_message(contact, message):
 	print(f'✅ Sent to {contact}')
 
 
+async def auto_respond_to_unread():
+	"""Click unread tab and respond to messages"""
+	print('\nAuto-responding to unread messages...')
+
+	llm = ChatGoogle(model='gemini-2.0-flash-exp', temperature=0.3, api_key=GOOGLE_API_KEY)
+
+	task = """
+	1. Go to https://web.whatsapp.com
+	2. Wait for page to load
+	3. Click on the "Unread" filter tab
+	4. If there are unread messages:
+	   - Click on each unread chat
+	   - Read the last message
+	   - Generate and send a friendly, contextual response
+	   - Move to next unread chat
+	5. Report how many messages were responded to
+	"""
+
+	browser = BrowserSession(
+		headless=not args.debug,
+		user_data_dir=str(USER_DATA_DIR),
+		storage_state=str(STORAGE_STATE_FILE) if STORAGE_STATE_FILE.exists() else None,
+	)
+
+	agent = Agent(task=task, llm=llm, browser_session=browser)
+	result = await agent.run()
+	print('✅ Auto-response complete')
+	return result
+
+
 async def main():
 	if not GOOGLE_API_KEY:
 		print('❌ Set GOOGLE_API_KEY or GEMINI_API_KEY environment variable')
@@ -148,6 +180,29 @@ async def main():
 	print('WhatsApp Scheduler')
 	print(f'Profile: {USER_DATA_DIR}')
 	print()
+
+	# Auto mode - respond to unread messages periodically
+	if args.auto:
+		print('AUTO MODE - Responding to unread messages every ~30 minutes')
+		print('Press Ctrl+C to stop.\n')
+
+		while True:
+			try:
+				await auto_respond_to_unread()
+
+				# Wait 30 minutes +/- 5 minutes randomly
+				wait_minutes = 30 + random.randint(-5, 5)
+				print(f'\n⏰ Next check in {wait_minutes} minutes...')
+				await asyncio.sleep(wait_minutes * 60)
+
+			except KeyboardInterrupt:
+				print('\n\nAuto mode stopped by user')
+				break
+			except Exception as e:
+				print(f'\n❌ Error in auto mode: {e}')
+				print('Waiting 5 minutes before retry...')
+				await asyncio.sleep(300)
+		return
 
 	# Parse messages
 	print('Parsing messages.txt...')
