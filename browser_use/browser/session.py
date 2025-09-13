@@ -323,6 +323,7 @@ class BrowserSession(BaseModel):
 
 	# Mutable public state
 	agent_focus: CDPSession | None = None
+	agent_paused_for_captcha: bool = False  # Used by CaptchaWatchdog to pause agent
 
 	# Mutable private state shared between watchdogs
 	_cdp_client_root: CDPClient | None = PrivateAttr(default=None)
@@ -342,6 +343,7 @@ class BrowserSession(BaseModel):
 	_dom_watchdog: Any | None = PrivateAttr(default=None)
 	_screenshot_watchdog: Any | None = PrivateAttr(default=None)
 	_permissions_watchdog: Any | None = PrivateAttr(default=None)
+	_captcha_watchdog: Any | None = PrivateAttr(default=None)
 	_recording_watchdog: Any | None = PrivateAttr(default=None)
 
 	_logger: Any = PrivateAttr(default=None)
@@ -409,6 +411,7 @@ class BrowserSession(BaseModel):
 		self._dom_watchdog = None
 		self._screenshot_watchdog = None
 		self._permissions_watchdog = None
+		self._captcha_watchdog = None
 		self._recording_watchdog = None
 
 	def model_post_init(self, __context) -> None:
@@ -1060,6 +1063,13 @@ class BrowserSession(BaseModel):
 		self._permissions_watchdog = PermissionsWatchdog(event_bus=self.event_bus, browser_session=self)
 		# self.event_bus.on(BrowserConnectedEvent, self._permissions_watchdog.on_BrowserConnectedEvent)
 		self._permissions_watchdog.attach_to_session()
+
+		# Initialize CaptchaWatchdog (handles captcha solving events and coordinates agent pausing)
+		from browser_use.browser.watchdogs.captcha_watchdog import CaptchaWatchdog
+
+		CaptchaWatchdog.model_rebuild()
+		self._captcha_watchdog = CaptchaWatchdog(event_bus=self.event_bus, browser_session=self)
+		self._captcha_watchdog.attach_to_session()
 
 		# Initialize DefaultActionWatchdog (handles all default actions like click, type, scroll, go back, go forward, refresh, wait, send keys, upload file, scroll to text, etc.)
 		DefaultActionWatchdog.model_rebuild()
