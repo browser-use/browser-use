@@ -37,6 +37,7 @@ from browser_use.tools.views import (
 	ClickElementAction,
 	CloseTabAction,
 	DoneAction,
+	GeneralCDPAction,
 	GetDropdownOptionsAction,
 	GoToUrlAction,
 	InputTextAction,
@@ -831,6 +832,452 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					# Fallback to regular error
 					error_msg = selection_data.get('error', f'Failed to select option: {params.text}')
 					return ActionResult(error=error_msg)
+
+		# General CDP Actions
+		@self.registry.action(
+			'Execute general CDP actions with CSS selectors or XPath. Supports click, type, extract content, evaluate JavaScript, scroll to element, hover, and select text. Use this for elements that are not detected as interactive but you know should be clickable/interactable.',
+			param_model=GeneralCDPAction,
+		)
+		async def execute_cdp_action(params: GeneralCDPAction, browser_session: BrowserSession):
+			"""Execute a general CDP action using selectors."""
+			try:
+				cdp_session = await browser_session.get_or_create_cdp_session()
+				
+				# Helper function to safely escape strings for JavaScript
+				def js_escape(s: str) -> str:
+					"""Escape a string for safe use in JavaScript."""
+					if s is None:
+						return 'null'
+					return json.dumps(s)
+				
+				# Helper function to wait for selector
+				async def wait_for_selector_if_needed():
+					if not params.wait_for_selector:
+						return
+					
+					wait_script = f"""
+					(function() {{
+						const startTime = Date.now();
+						const timeout = {params.timeout * 1000};
+						
+						function checkSelector() {{
+							const element = document.querySelector({js_escape(params.selector)});
+							if (element) {{
+								return element;
+							}}
+							if (Date.now() - startTime > timeout) {{
+								throw new Error('Selector timeout: ' + {js_escape(params.selector)});
+							}}
+							return null;
+						}}
+						
+						return new Promise((resolve, reject) => {{
+							function poll() {{
+								try {{
+									const element = checkSelector();
+									if (element) {{
+										resolve(element);
+									}} else {{
+										setTimeout(poll, 100);
+									}}
+								}} catch (error) {{
+									reject(error);
+								}}
+							}}
+							poll();
+						}});
+					}})();
+					"""
+					
+					try:
+						await cdp_session.cdp_client.send.Runtime.evaluate(
+							params={'expression': wait_script, 'awaitPromise': True, 'returnByValue': False},
+							session_id=cdp_session.session_id
+						)
+					except Exception as e:
+						if 'timeout' in str(e).lower():
+							raise BrowserError(f'Selector not found within {params.timeout}s: {params.selector}')
+						raise
+
+				# Execute the action based on type
+				if params.action_type == 'click':
+					await wait_for_selector_if_needed()
+					
+					click_script = f"""
+					(function() {{
+						const element = document.querySelector({js_escape(params.selector)});
+						if (!element) throw new Error('Element not found: ' + {js_escape(params.selector)});
+						
+						// Scroll element into view
+						element.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+						
+						// Create and dispatch click event
+						const rect = element.getBoundingClientRect();
+						const clickEvent = new MouseEvent('click', {{
+							view: window,
+							bubbles: true,
+							cancelable: true,
+							clientX: rect.left + rect.width / 2,
+							clientY: rect.top + rect.height / 2
+						}});
+						
+						element.dispatchEvent(clickEvent);
+						
+						return {{
+							success: true,
+							coordinates: {{ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }},
+							tagName: element.tagName,
+							text: element.textContent?.trim() || ''
+						}};
+					}})();
+					"""
+					
+					result = await cdp_session.cdp_client.send.Runtime.evaluate(
+						params={'expression': click_script, 'returnByValue': True},
+						session_id=cdp_session.session_id
+					)
+					
+					click_result = result.get('result', {}).get('value', {})
+					memory = f"Clicked element with selector '{params.selector}'"
+					if click_result.get('text'):
+						memory += f" (text: '{click_result['text'][:50]}...')"
+					
+					logger.info(f'🖱️ {memory}')
+					return ActionResult(
+						long_term_memory=memory,
+						metadata=click_result
+					)
+
+				elif params.action_type == 'type':
+					if not params.text:
+						raise ValueError("Text parameter required for type action")
+					
+					await wait_for_selector_if_needed()
+					
+					type_script = f"""
+					(function() {{
+						const element = document.querySelector({js_escape(params.selector)});
+						if (!element) throw new Error('Element not found: ' + {js_escape(params.selector)});
+						
+						// Focus the element
+						element.focus();
+						element.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+						
+						// Clear existing content if it's an input
+						if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {{
+							element.value = '';
+						}} else {{
+							element.textContent = '';
+						}}
+						
+						// Set the new text
+						const textToType = {js_escape(params.text)};
+						if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {{
+							element.value = textToType;
+							element.dispatchEvent(new Event('input', {{ bubbles: true }}));
+							element.dispatchEvent(new Event('change', {{ bubbles: true }}));
+						}} else {{
+							element.textContent = textToType;
+						}}
+						
+						return {{
+							success: true,
+							tagName: element.tagName,
+							value: element.value || element.textContent
+						}};
+					}})();
+					"""
+					
+					result = await cdp_session.cdp_client.send.Runtime.evaluate(
+						params={'expression': type_script, 'returnByValue': True},
+						session_id=cdp_session.session_id
+					)
+					
+					type_result = result.get('result', {}).get('value', {})
+					memory = f"Typed '{params.text}' into element with selector '{params.selector}'"
+					
+					logger.info(f'⌨️ {memory}')
+					return ActionResult(
+						long_term_memory=memory,
+						metadata=type_result
+					)
+
+				elif params.action_type == 'extract':
+					await wait_for_selector_if_needed()
+					
+					attribute = params.extract_attribute or 'textContent'
+					multiple_str = 'true' if params.multiple else 'false'
+					
+					extract_script = f"""
+					(function() {{
+						const multiple = {multiple_str};
+						const attribute = {js_escape(attribute)};
+						
+						if (multiple) {{
+							const elements = document.querySelectorAll({js_escape(params.selector)});
+							const results = [];
+							elements.forEach((element, index) => {{
+								let value;
+								if (attribute === 'textContent') {{
+									value = element.textContent?.trim() || '';
+								}} else if (attribute === 'innerHTML') {{
+									value = element.innerHTML;
+								}} else if (attribute === 'outerHTML') {{
+									value = element.outerHTML;
+								}} else {{
+									value = element.getAttribute(attribute) || '';
+								}}
+								results.push({{ index, value, tagName: element.tagName }});
+							}});
+							return {{ success: true, results, count: elements.length }};
+						}} else {{
+							const element = document.querySelector({js_escape(params.selector)});
+							if (!element) throw new Error('Element not found: ' + {js_escape(params.selector)});
+							
+							let value;
+							if (attribute === 'textContent') {{
+								value = element.textContent?.trim() || '';
+							}} else if (attribute === 'innerHTML') {{
+								value = element.innerHTML;
+							}} else if (attribute === 'outerHTML') {{
+								value = element.outerHTML;
+							}} else {{
+								value = element.getAttribute(attribute) || '';
+							}}
+							
+							return {{ success: true, value, tagName: element.tagName }};
+						}}
+					}})();
+					"""
+					
+					result = await cdp_session.cdp_client.send.Runtime.evaluate(
+						params={'expression': extract_script, 'returnByValue': True},
+						session_id=cdp_session.session_id
+					)
+					
+					extract_result = result.get('result', {}).get('value', {})
+					
+					if params.multiple:
+						extracted_content = f"Extracted {extract_result.get('count', 0)} elements with selector '{params.selector}':\\n"
+						for item in extract_result.get('results', []):
+							extracted_content += f"- {item.get('tagName', 'Unknown')}: {item.get('value', '')[:100]}...\\n"
+					else:
+						extracted_content = f"Extracted from '{params.selector}': {extract_result.get('value', '')}"
+					
+					memory = f"Extracted {attribute} from selector '{params.selector}'"
+					if params.multiple:
+						memory += f" ({extract_result.get('count', 0)} elements)"
+					
+					logger.info(f'📄 {memory}')
+					return ActionResult(
+						extracted_content=extracted_content,
+						long_term_memory=memory,
+						metadata=extract_result
+					)
+
+				elif params.action_type == 'evaluate':
+					if not params.script:
+						raise ValueError("Script parameter required for evaluate action")
+					
+					result = await cdp_session.cdp_client.send.Runtime.evaluate(
+						params={'expression': params.script, 'returnByValue': True},
+						session_id=cdp_session.session_id
+					)
+					
+					eval_result = result.get('result', {}).get('value')
+					memory = f"Evaluated JavaScript: {params.script[:100]}..."
+					
+					logger.info(f'🔧 {memory}')
+					return ActionResult(
+						extracted_content=f"JavaScript result: {eval_result}",
+						long_term_memory=memory,
+						metadata={'result': eval_result}
+					)
+
+				elif params.action_type == 'scroll_to':
+					await wait_for_selector_if_needed()
+					
+					scroll_script = f"""
+					(function() {{
+						const element = document.querySelector({js_escape(params.selector)});
+						if (!element) throw new Error('Element not found: ' + {js_escape(params.selector)});
+						
+						const rect = element.getBoundingClientRect();
+						const offsetY = {params.scroll_offset};
+						
+						element.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+						
+						// Apply additional offset if specified
+						if (offsetY !== 0) {{
+							window.scrollBy(0, offsetY);
+						}}
+						
+						return {{
+							success: true,
+							coordinates: {{ x: rect.left, y: rect.top }},
+							tagName: element.tagName
+						}};
+					}})();
+					"""
+					
+					result = await cdp_session.cdp_client.send.Runtime.evaluate(
+						params={'expression': scroll_script, 'returnByValue': True},
+						session_id=cdp_session.session_id
+					)
+					
+					scroll_result = result.get('result', {}).get('value', {})
+					memory = f"Scrolled to element with selector '{params.selector}'"
+					
+					logger.info(f'🔍 {memory}')
+					return ActionResult(
+						long_term_memory=memory,
+						metadata=scroll_result
+					)
+
+				elif params.action_type == 'hover':
+					await wait_for_selector_if_needed()
+					
+					hover_script = f"""
+					(function() {{
+						const element = document.querySelector({js_escape(params.selector)});
+						if (!element) throw new Error('Element not found: ' + {js_escape(params.selector)});
+						
+						// Scroll element into view
+						element.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+						
+						// Create and dispatch mouse events
+						const rect = element.getBoundingClientRect();
+						const centerX = rect.left + rect.width / 2;
+						const centerY = rect.top + rect.height / 2;
+						
+						const mouseEnterEvent = new MouseEvent('mouseenter', {{
+							view: window,
+							bubbles: true,
+							cancelable: true,
+							clientX: centerX,
+							clientY: centerY
+						}});
+						
+						const mouseOverEvent = new MouseEvent('mouseover', {{
+							view: window,
+							bubbles: true,
+							cancelable: true,
+							clientX: centerX,
+							clientY: centerY
+						}});
+						
+						element.dispatchEvent(mouseEnterEvent);
+						element.dispatchEvent(mouseOverEvent);
+						
+						return {{
+							success: true,
+							coordinates: {{ x: centerX, y: centerY }},
+							tagName: element.tagName
+						}};
+					}})();
+					"""
+					
+					result = await cdp_session.cdp_client.send.Runtime.evaluate(
+						params={'expression': hover_script, 'returnByValue': True},
+						session_id=cdp_session.session_id
+					)
+					
+					hover_result = result.get('result', {}).get('value', {})
+					memory = f"Hovered over element with selector '{params.selector}'"
+					
+					logger.info(f'👆 {memory}')
+					return ActionResult(
+						long_term_memory=memory,
+						metadata=hover_result
+					)
+
+				elif params.action_type == 'select':
+					if not params.text:
+						raise ValueError("Text parameter required for select action")
+					
+					await wait_for_selector_if_needed()
+					
+					select_script = f"""
+					(function() {{
+						const element = document.querySelector({js_escape(params.selector)});
+						if (!element) throw new Error('Element not found: ' + {js_escape(params.selector)});
+						
+						const textToSelect = {js_escape(params.text)};
+						
+						// Handle different selection methods
+						if (element.tagName === 'SELECT') {{
+							// For select elements, find and select option
+							const options = Array.from(element.options);
+							const option = options.find(opt => 
+								opt.text === textToSelect || 
+								opt.value === textToSelect ||
+								opt.text.includes(textToSelect)
+							);
+							
+							if (option) {{
+								option.selected = true;
+								element.dispatchEvent(new Event('change', {{ bubbles: true }}));
+								return {{ success: true, selectedText: option.text, selectedValue: option.value }};
+							}} else {{
+								throw new Error('Option not found: ' + textToSelect);
+							}}
+						}} else {{
+							// For text selection in other elements
+							const range = document.createRange();
+							const selection = window.getSelection();
+							
+							// Find text node containing the target text
+							function findTextNode(node, text) {{
+								if (node.nodeType === Node.TEXT_NODE && node.textContent.includes(text)) {{
+									return node;
+								}}
+								for (let child of node.childNodes) {{
+									const result = findTextNode(child, text);
+									if (result) return result;
+								}}
+								return null;
+							}}
+							
+							const textNode = findTextNode(element, textToSelect);
+							if (textNode) {{
+								const startIndex = textNode.textContent.indexOf(textToSelect);
+								range.setStart(textNode, startIndex);
+								range.setEnd(textNode, startIndex + textToSelect.length);
+								
+								selection.removeAllRanges();
+								selection.addRange(range);
+								
+								return {{ success: true, selectedText: textToSelect }};
+							}} else {{
+								throw new Error('Text not found for selection: ' + textToSelect);
+							}}
+						}}
+					}})();
+					"""
+					
+					result = await cdp_session.cdp_client.send.Runtime.evaluate(
+						params={'expression': select_script, 'returnByValue': True},
+						session_id=cdp_session.session_id
+					)
+					
+					select_result = result.get('result', {}).get('value', {})
+					memory = f"Selected '{params.text}' in element with selector '{params.selector}'"
+					
+					logger.info(f'✅ {memory}')
+					return ActionResult(
+						long_term_memory=memory,
+						metadata=select_result
+					)
+
+				else:
+					raise ValueError(f"Unsupported action type: {params.action_type}")
+
+			except BrowserError:
+				raise
+			except Exception as e:
+				error_msg = f"Failed to execute CDP action '{params.action_type}' with selector '{params.selector}': {str(e)}"
+				logger.error(error_msg)
+				return ActionResult(error=error_msg)
 
 		# File System Actions
 		@self.registry.action(
