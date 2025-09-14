@@ -75,6 +75,7 @@ class CDPSession(BaseModel):
 		new_socket: bool = False,
 		cdp_url: str | None = None,
 		domains: list[str] | None = None,
+		headers: dict[str, str] | None = None,
 	):
 		"""Create a CDP session for a target.
 
@@ -84,6 +85,7 @@ class CDPSession(BaseModel):
 			new_socket: If True, create a dedicated WebSocket connection for this target
 			cdp_url: CDP URL (required if new_socket is True)
 			domains: List of CDP domains to enable. If None, enables default domains.
+			headers: Headers to pass to WebSocket connection (for authentication)
 		"""
 		if new_socket:
 			if not cdp_url:
@@ -94,7 +96,7 @@ class CDPSession(BaseModel):
 			logger = logging.getLogger(f'browser_use.CDPSession.{target_id[-4:]}')
 			logger.debug(f'🔌 Creating new dedicated WebSocket connection for target 🅣 {target_id}')
 
-			target_cdp_client = CDPClient(cdp_url)
+			target_cdp_client = CDPClient(cdp_url, additional_headers=headers)
 			await target_cdp_client.start()
 
 			cdp_session = cls(
@@ -892,6 +894,7 @@ class BrowserSession(BaseModel):
 			target_id,
 			new_socket=should_use_new_socket,
 			cdp_url=self.cdp_url if should_use_new_socket else None,
+			headers=getattr(self.browser_profile, 'headers', None),
 		)
 		self._cdp_session_pool[target_id] = session
 		# log length of _cdp_session_pool
@@ -1132,7 +1135,8 @@ class BrowserSession(BaseModel):
 			# Convert HTTP URL to WebSocket URL if needed
 
 			# Create and store the CDP client for direct CDP communication
-			self._cdp_client_root = CDPClient(self.cdp_url)
+			headers = getattr(self.browser_profile, 'headers', None)
+			self._cdp_client_root = CDPClient(self.cdp_url, additional_headers=headers)
 			assert self._cdp_client_root is not None
 			await self._cdp_client_root.start()
 			await self._cdp_client_root.send.Target.setAutoAttach(
@@ -1168,7 +1172,7 @@ class BrowserSession(BaseModel):
 					try:
 						# Create a CDP session for redirection (minimal domains to avoid duplicate event handlers)
 						# Only enable Page domain for navigation, avoid duplicate event handlers
-						redirect_session = await CDPSession.for_target(self._cdp_client_root, target_id, domains=['Page'])
+						redirect_session = await CDPSession.for_target(self._cdp_client_root, target_id, domains=['Page'], headers=getattr(self.browser_profile, 'headers', None))
 						# Navigate to about:blank
 						await redirect_session.cdp_client.send.Page.navigate(
 							params={'url': 'about:blank'}, session_id=redirect_session.session_id
@@ -1203,7 +1207,7 @@ class BrowserSession(BaseModel):
 				self.agent_focus = redirect_sessions[target_id]
 			else:
 				# For the initial connection, we'll use the shared root WebSocket
-				self.agent_focus = await CDPSession.for_target(self._cdp_client_root, target_id, new_socket=False)
+				self.agent_focus = await CDPSession.for_target(self._cdp_client_root, target_id, new_socket=False, headers=getattr(self.browser_profile, 'headers', None))
 			if self.agent_focus:
 				self._cdp_session_pool[target_id] = self.agent_focus
 
