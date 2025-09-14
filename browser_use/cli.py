@@ -165,7 +165,7 @@ def save_user_config(config: dict[str, Any]) -> None:
 
 		# Save to separate history file
 		history_file = CONFIG.BROWSER_USE_CONFIG_DIR / 'command_history.json'
-		with open(history_file, 'w') as f:
+		with open(history_file, 'w', encoding='utf-8') as f:
 			json.dump(history, f, indent=2, ensure_ascii=False)
 
 
