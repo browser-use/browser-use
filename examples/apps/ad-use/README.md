@@ -3,7 +3,7 @@
 Automatically generate Instagram ads from any landing page using browser agents and Google's Nano Banana 🍌 image generation model.
 
 > [!WARNING]
-> This demo requires browser-use v0.7.4+.
+> This demo requires browser-use v0.7.7+.
 
 https://github.com/user-attachments/assets/7fab54a9-b36b-4fba-ab98-a438f2b86b7e
 
@@ -24,6 +24,12 @@ pip install -U browser-use
 Export your Gemini API key, get it from: [Google AI Studio](https://makersuite.google.com/app/apikey) 
 ```
 export GOOGLE_API_KEY='your-google-api-key-here'
+```
+
+Clone the repo and cd into the app folder
+```bash
+git clone https://github.com/browser-use/browser-use.git
+cd browser-use/examples/apps/ad-use
 ```
 
 ## Normal Usage

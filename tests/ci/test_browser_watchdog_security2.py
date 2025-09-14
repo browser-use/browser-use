@@ -134,3 +134,156 @@ class TestUrlAllowlistSecurity:
 		# Shouldn't match potentially malicious domains with a similar structure
 		# This demonstrates why the previous pattern was risky and why it's now rejected
 		assert watchdog._is_url_allowed('https://www.google.evil.com') is False
+
+	def test_automatic_www_subdomain_addition(self):
+		"""Test that root domains automatically allow www subdomain."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		# Test with simple root domains
+		browser_profile = BrowserProfile(allowed_domains=['example.com', 'test.org'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# Root domain should allow itself
+		assert watchdog._is_url_allowed('https://example.com') is True
+		assert watchdog._is_url_allowed('https://test.org') is True
+
+		# Root domain should automatically allow www subdomain
+		assert watchdog._is_url_allowed('https://www.example.com') is True
+		assert watchdog._is_url_allowed('https://www.test.org') is True
+
+		# Should not allow other subdomains
+		assert watchdog._is_url_allowed('https://mail.example.com') is False
+		assert watchdog._is_url_allowed('https://sub.test.org') is False
+
+		# Should not allow unrelated domains
+		assert watchdog._is_url_allowed('https://notexample.com') is False
+		assert watchdog._is_url_allowed('https://www.notexample.com') is False
+
+	def test_www_subdomain_not_added_for_country_tlds(self):
+		"""Test www subdomain is NOT automatically added for country-specific TLDs (2+ dots)."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		# Test with country-specific TLDs - these should NOT get automatic www
+		browser_profile = BrowserProfile(
+			allowed_domains=['example.co.uk', 'test.com.au', 'site.co.jp'], headless=True, user_data_dir=None
+		)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# Root domains should work exactly as specified
+		assert watchdog._is_url_allowed('https://example.co.uk') is True
+		assert watchdog._is_url_allowed('https://test.com.au') is True
+		assert watchdog._is_url_allowed('https://site.co.jp') is True
+
+		# www subdomains should NOT work automatically (user must specify explicitly)
+		assert watchdog._is_url_allowed('https://www.example.co.uk') is False
+		assert watchdog._is_url_allowed('https://www.test.com.au') is False
+		assert watchdog._is_url_allowed('https://www.site.co.jp') is False
+
+		# Other subdomains should not work
+		assert watchdog._is_url_allowed('https://mail.example.co.uk') is False
+		assert watchdog._is_url_allowed('https://api.test.com.au') is False
+
+	def test_www_subdomain_not_added_for_existing_subdomains(self):
+		"""Test that www is not automatically added for domains that already have subdomains."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		# Test with existing subdomains - should NOT get automatic www
+		browser_profile = BrowserProfile(allowed_domains=['mail.example.com', 'api.test.org'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# Exact subdomain should work
+		assert watchdog._is_url_allowed('https://mail.example.com') is True
+		assert watchdog._is_url_allowed('https://api.test.org') is True
+
+		# www should NOT be automatically added to subdomains
+		assert watchdog._is_url_allowed('https://www.mail.example.com') is False
+		assert watchdog._is_url_allowed('https://www.api.test.org') is False
+
+		# Root domains should not work either
+		assert watchdog._is_url_allowed('https://example.com') is False
+		assert watchdog._is_url_allowed('https://test.org') is False
+
+	def test_www_subdomain_not_added_for_wildcard_patterns(self):
+		"""Test that www is not automatically added for wildcard patterns."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		# Test with wildcard patterns - should NOT get automatic www logic
+		browser_profile = BrowserProfile(allowed_domains=['*.example.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# Wildcard should match everything including root and www
+		assert watchdog._is_url_allowed('https://example.com') is True
+		assert watchdog._is_url_allowed('https://www.example.com') is True
+		assert watchdog._is_url_allowed('https://mail.example.com') is True
+
+	def test_www_subdomain_not_added_for_url_patterns(self):
+		"""Test that www is not automatically added for full URL patterns."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		# Test with full URL patterns - should NOT get automatic www logic
+		browser_profile = BrowserProfile(
+			allowed_domains=['https://example.com', 'http://test.org'], headless=True, user_data_dir=None
+		)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# Exact URL should work
+		assert watchdog._is_url_allowed('https://example.com/path') is True
+		assert watchdog._is_url_allowed('http://test.org/page') is True
+
+		# www should NOT be automatically added for full URL patterns
+		assert watchdog._is_url_allowed('https://www.example.com') is False
+		assert watchdog._is_url_allowed('http://www.test.org') is False
+
+	def test_is_root_domain_helper(self):
+		"""Test the _is_root_domain helper method logic."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(allowed_domains=['example.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# Simple root domains (1 dot) - should return True
+		assert watchdog._is_root_domain('example.com') is True
+		assert watchdog._is_root_domain('test.org') is True
+		assert watchdog._is_root_domain('site.net') is True
+
+		# Subdomains (more than 1 dot) - should return False
+		assert watchdog._is_root_domain('www.example.com') is False
+		assert watchdog._is_root_domain('mail.example.com') is False
+		assert watchdog._is_root_domain('example.co.uk') is False
+		assert watchdog._is_root_domain('test.com.au') is False
+
+		# Wildcards - should return False
+		assert watchdog._is_root_domain('*.example.com') is False
+		assert watchdog._is_root_domain('*example.com') is False
+
+		# Full URLs - should return False
+		assert watchdog._is_root_domain('https://example.com') is False
+		assert watchdog._is_root_domain('http://test.org') is False
+
+		# Invalid domains - should return False
+		assert watchdog._is_root_domain('example') is False
+		assert watchdog._is_root_domain('') is False
