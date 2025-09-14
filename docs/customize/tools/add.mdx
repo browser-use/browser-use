@@ -5,8 +5,8 @@ icon: "plus"
 mode: "wide"
 ---
 
-
 Examples:
+
 - deterministic clicks
 - file handling
 - calling APIs
@@ -35,11 +35,10 @@ def ask_human(question: str) -> ActionResult:
 agent = Agent(task='...', llm=llm, tools=tools)
 ```
 
-- **`description`** *(required)* - What the tool does, the LLM uses this to decide when to call it.
+- **`description`** _(required)_ - What the tool does, the LLM uses this to decide when to call it.
 - **`allowed_domains`** - List of domains where tool can run (e.g. `['*.example.com']`), defaults to all domains
 
 The Agent fills your function parameters based on their names, type hints, & defaults.
-
 
 ## Available Objects
 
@@ -65,12 +64,13 @@ class Cars(BaseModel):
 
 @tools.action(description='Save cars to file')
 def save_cars(cars: list[Cars]) -> str:
-    with open('cars.json', 'w') as f:
+    with open('cars.json', 'w', encoding='utf-8') as f:
         json.dump(cars, f)
     return f'Saved {len(cars)} cars to file'
 
 task = "find cars and save them to file"
 ```
+
 ## Domain Restrictions
 
 Limit tools to specific domains:
