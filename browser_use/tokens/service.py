@@ -153,7 +153,7 @@ class TokenCost:
 			timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
 			cache_file = self._cache_dir / f'pricing_{timestamp_str}.json'
 
-			async with aiofiles.open(cache_file, 'w') as f:
+			async with aiofiles.open(cache_file, 'w', encoding='utf-8') as f:
 				await f.write(cached.model_dump_json(indent=2))
 
 		except Exception as e:
