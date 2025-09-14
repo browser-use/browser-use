@@ -123,7 +123,7 @@ class GmailService:
 					self.creds = flow.run_local_server(port=8080, open_browser=True)
 
 				# Save tokens for next time
-				async with aiofiles.open(self.token_file, 'w') as token:
+				async with aiofiles.open(self.token_file, 'w', encoding='utf-8') as token:
 					await token.write(self.creds.to_json())
 				logger.info(f'💾 Tokens saved to {self.token_file}')
 
