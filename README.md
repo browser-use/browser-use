@@ -26,35 +26,19 @@
 
 🌤️ Want to skip the setup? Use our <b>[cloud](https://cloud.browser-use.com)</b> for faster, scalable, stealth-enabled browser automation!
 
-## 🎉 OSS Twitter Hackathon
+**🚀 Use the latest version!** 
 
-We just hit **69,000 GitHub ⭐**!
-To celebrate, we're launching **#nicehack69** — a Twitter-first hackathon with a **$6,900 prize pool**. Dream big and show us the future of browser-use agents that go beyond demos!
-
-**Deadline: September 10, 2025**
-
-**[🚀 Join the hackathon →](https://github.com/browser-use/nicehack69)**
-
-<div align="center">
-<a href="https://github.com/browser-use/nicehack69">
-<img src="./static/NiceHack69.png" alt="NiceHack69 Hackathon" width="600"/>
-</a>
-</div>
-
-
-> **🚀 Use the latest version!** 
-> 
 > We ship every day improvements for **speed**, **accuracy**, and **UX**. 
 > ```bash
-> pip install --upgrade browser-use
+> uv pip install --upgrade browser-use
 > ```
 
-# Quickstart new users
+# 🤖 Quickstart
 
-With pip (Python>=3.11):
+With uv (Python>=3.11):
 
 ```bash
-pip install browser-use
+uv pip install browser-use
 ```
 
 If you don't already have Chrome or Chromium installed, you can also download the latest Chromium using playwright's install shortcut:
