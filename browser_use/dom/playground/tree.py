@@ -67,7 +67,7 @@ async def main():
 			end = time.time()
 			print(f'Time taken: {end - start} seconds')
 
-			async with aiofiles.open('tmp/enhanced_dom_tree.json', 'w') as f:
+			async with aiofiles.open('tmp/enhanced_dom_tree.json', 'w', encoding='utf-8') as f:
 				await f.write(json.dumps(dom_tree.__json__(), indent=1))
 
 			print('Saved enhanced dom tree to tmp/enhanced_dom_tree.json')
@@ -95,7 +95,7 @@ async def main():
 
 			serialized_dom_state, timing_info = await dom_service.get_serialized_dom_tree()
 
-			async with aiofiles.open('tmp/serialized_dom_tree.txt', 'w') as f:
+			async with aiofiles.open('tmp/serialized_dom_tree.txt', 'w', encoding='utf-8') as f:
 				await f.write(serialized_dom_state.llm_representation())
 
 			# print(serialized)
@@ -106,13 +106,13 @@ async def main():
 			end = time.time()
 			print(f'Time taken: {end - start} seconds')
 
-			async with aiofiles.open('tmp/snapshot.json', 'w') as f:
+			async with aiofiles.open('tmp/snapshot.json', 'w', encoding='utf-8') as f:
 				await f.write(json.dumps(snapshot, indent=1))
 
-			async with aiofiles.open('tmp/dom_tree.json', 'w') as f:
+			async with aiofiles.open('tmp/dom_tree.json', 'w', encoding='utf-8') as f:
 				await f.write(json.dumps(dom_tree, indent=1))
 
-			async with aiofiles.open('tmp/ax_tree.json', 'w') as f:
+			async with aiofiles.open('tmp/ax_tree.json', 'w', encoding='utf-8') as f:
 				await f.write(json.dumps(ax_tree, indent=1))
 
 			print('saved dom tree to tmp/dom_tree.json')
