@@ -39,7 +39,7 @@ dependencies = [
     "mcp>=1.10.1",
     "pypdf>=5.7.0",
     "reportlab>=4.0.0",
-    "cdp-use @ git+https://github.com/browser-use/cdp-use.git@3dd549a",
+    "cdp-use==1.4.1",
     "pyotp>=2.9.0",
     "html2text>=2025.4.15",
     "pillow>=11.2.1",

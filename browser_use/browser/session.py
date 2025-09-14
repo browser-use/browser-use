@@ -1172,7 +1172,12 @@ class BrowserSession(BaseModel):
 					try:
 						# Create a CDP session for redirection (minimal domains to avoid duplicate event handlers)
 						# Only enable Page domain for navigation, avoid duplicate event handlers
-						redirect_session = await CDPSession.for_target(self._cdp_client_root, target_id, domains=['Page'], headers=getattr(self.browser_profile, 'headers', None))
+						redirect_session = await CDPSession.for_target(
+							self._cdp_client_root,
+							target_id,
+							domains=['Page'],
+							headers=getattr(self.browser_profile, 'headers', None),
+						)
 						# Navigate to about:blank
 						await redirect_session.cdp_client.send.Page.navigate(
 							params={'url': 'about:blank'}, session_id=redirect_session.session_id
@@ -1207,7 +1212,9 @@ class BrowserSession(BaseModel):
 				self.agent_focus = redirect_sessions[target_id]
 			else:
 				# For the initial connection, we'll use the shared root WebSocket
-				self.agent_focus = await CDPSession.for_target(self._cdp_client_root, target_id, new_socket=False, headers=getattr(self.browser_profile, 'headers', None))
+				self.agent_focus = await CDPSession.for_target(
+					self._cdp_client_root, target_id, new_socket=False, headers=getattr(self.browser_profile, 'headers', None)
+				)
 			if self.agent_focus:
 				self._cdp_session_pool[target_id] = self.agent_focus
 
