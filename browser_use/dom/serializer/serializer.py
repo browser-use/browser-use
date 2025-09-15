@@ -137,13 +137,16 @@ class DOMTreeSerializer:
 			return None
 
 		if node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
-			# Super simple pass-through for shadow DOM elements
+			# ENHANCED shadow DOM processing - always include shadow content
 			simplified = SimplifiedNode(original_node=node, children=[])
 			for child in node.children_and_shadow_roots:
 				simplified_child = self._create_simplified_tree(child, depth + 1)
 				if simplified_child:
 					simplified.children.append(simplified_child)
-			return simplified
+
+			# Always return shadow DOM fragments, even if children seem empty
+			# Shadow DOM often contains the actual interactive content in SPAs
+			return simplified if simplified.children else SimplifiedNode(original_node=node, children=[])
 
 		elif node.node_type == NodeType.ELEMENT_NODE:
 			# Skip non-content elements
@@ -161,18 +164,25 @@ class DOMTreeSerializer:
 
 			is_visible = node.is_visible
 			is_scrollable = node.is_actually_scrollable
+			has_shadow_content = bool(node.children_and_shadow_roots)
 
-			# Include if interactive (regardless of visibility), or scrollable, or has children to process
+			# ENHANCED SHADOW DOM DETECTION: Include shadow hosts even if not visible
+			is_shadow_host = any(child.node_type == NodeType.DOCUMENT_FRAGMENT_NODE for child in node.children_and_shadow_roots)
 
-			if is_visible or is_scrollable or bool(node.children_and_shadow_roots):
-				simplified = SimplifiedNode(original_node=node, children=[])
-				# simplified._analysis = analysis  # Store analysis for grouping
+			# Include if interactive (regardless of visibility), scrollable, has children, or is shadow host
+			if is_visible or is_scrollable or has_shadow_content or is_shadow_host:
+				simplified = SimplifiedNode(original_node=node, children=[], is_shadow_host=is_shadow_host)
 
-				# Process children
+				# Process ALL children including shadow roots with enhanced logging
 				for child in node.children_and_shadow_roots:
 					simplified_child = self._create_simplified_tree(child, depth + 1)
 					if simplified_child:
 						simplified.children.append(simplified_child)
+
+				# SHADOW DOM SPECIAL CASE: Always include shadow hosts even if not visible
+				# Many SPA frameworks (React, Vue) render content in shadow DOM
+				if is_shadow_host and simplified.children:
+					return simplified
 
 				# Return if meaningful or has meaningful children
 				if is_visible or is_scrollable or simplified.children:
@@ -449,23 +459,34 @@ class DOMTreeSerializer:
 				# Build attributes string
 				attributes_html_str = DOMTreeSerializer._build_attributes_string(node.original_node, include_attributes, '')
 
-				# Build the line
+				# Build the line with shadow host indicator
+				shadow_prefix = ''
+				if node.is_shadow_host:
+					# Check if any shadow children are closed
+					has_closed_shadow = any(
+						child.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE
+						and child.original_node.shadow_root_type
+						and child.original_node.shadow_root_type.lower() == 'closed'
+						for child in node.children
+					)
+					shadow_prefix = '|SHADOW(closed)|' if has_closed_shadow else '|SHADOW(open)|'
+
 				if should_show_scroll and node.interactive_index is None:
 					# Scrollable container but not clickable
-					line = f'{depth_str}|SCROLL|<{node.original_node.tag_name}'
+					line = f'{depth_str}{shadow_prefix}|SCROLL|<{node.original_node.tag_name}'
 				elif node.interactive_index is not None:
 					# Clickable (and possibly scrollable)
 					new_prefix = '*' if node.is_new else ''
 					scroll_prefix = '|SCROLL+' if should_show_scroll else '['
-					line = f'{depth_str}{new_prefix}{scroll_prefix}{node.interactive_index}]<{node.original_node.tag_name}'
+					line = f'{depth_str}{shadow_prefix}{new_prefix}{scroll_prefix}{node.interactive_index}]<{node.original_node.tag_name}'
 				elif node.original_node.tag_name.upper() == 'IFRAME':
 					# Iframe element (not interactive)
-					line = f'{depth_str}|IFRAME|<{node.original_node.tag_name}'
+					line = f'{depth_str}{shadow_prefix}|IFRAME|<{node.original_node.tag_name}'
 				elif node.original_node.tag_name.upper() == 'FRAME':
 					# Frame element (not interactive)
-					line = f'{depth_str}|FRAME|<{node.original_node.tag_name}'
+					line = f'{depth_str}{shadow_prefix}|FRAME|<{node.original_node.tag_name}'
 				else:
-					line = f'{depth_str}<{node.original_node.tag_name}'
+					line = f'{depth_str}{shadow_prefix}<{node.original_node.tag_name}'
 
 				if attributes_html_str:
 					line += f' {attributes_html_str}'
@@ -480,6 +501,25 @@ class DOMTreeSerializer:
 
 				formatted_text.append(line)
 
+		elif node.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
+			# Shadow DOM representation - show clearly to LLM
+			if node.original_node.shadow_root_type and node.original_node.shadow_root_type.lower() == 'closed':
+				formatted_text.append(f'{depth_str}▼ Shadow Content (Closed)')
+			else:
+				formatted_text.append(f'{depth_str}▼ Shadow Content (Open)')
+
+			next_depth += 1
+
+			# Process shadow DOM children
+			for child in node.children:
+				child_text = DOMTreeSerializer.serialize_tree(child, include_attributes, next_depth)
+				if child_text:
+					formatted_text.append(child_text)
+
+			# Close shadow DOM indicator
+			if node.children:  # Only show close if we had content
+				formatted_text.append(f'{depth_str}▲ Shadow Content End')
+
 		elif node.original_node.node_type == NodeType.TEXT_NODE:
 			# Include visible text
 			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
@@ -492,11 +532,12 @@ class DOMTreeSerializer:
 				clean_text = node.original_node.node_value.strip()
 				formatted_text.append(f'{depth_str}{clean_text}')
 
-		# Process children
-		for child in node.children:
-			child_text = DOMTreeSerializer.serialize_tree(child, include_attributes, next_depth)
-			if child_text:
-				formatted_text.append(child_text)
+		# Process children (for non-shadow elements)
+		if node.original_node.node_type != NodeType.DOCUMENT_FRAGMENT_NODE:
+			for child in node.children:
+				child_text = DOMTreeSerializer.serialize_tree(child, include_attributes, next_depth)
+				if child_text:
+					formatted_text.append(child_text)
 
 		return '\n'.join(formatted_text)
 

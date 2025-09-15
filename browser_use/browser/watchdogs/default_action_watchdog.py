@@ -1883,7 +1883,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			self.logger.error(msg)
 			raise BrowserError(message=msg, long_term_memory=msg)
 		except Exception as e:
-			msg = f'Failed to get dropdown options for element with index {index_for_logging}'
+			msg = 'Failed to get dropdown options'
 			error_msg = f'{msg}: {str(e)}'
 			self.logger.error(error_msg)
 			raise BrowserError(

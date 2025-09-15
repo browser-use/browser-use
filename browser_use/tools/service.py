@@ -83,7 +83,7 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 class Tools(Generic[Context]):
 	def __init__(
 		self,
-		exclude_actions: list[str] = [],
+		exclude_actions: list[str] = ['extract_structured_data', 'scroll_to_text', 'scroll', 'wait'],
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
 	):
@@ -274,7 +274,7 @@ class Tools(Generic[Context]):
 				await event
 				# Wait for handler to complete and get any exception or metadata
 				click_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
-				memory = f'Clicked element with index {params.index}'
+				memory = 'Clicked element'
 
 				if params.while_holding_ctrl:
 					memory += ' and opened in new tab'
@@ -891,6 +891,85 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				long_term_memory=memory,
 				include_extracted_content_only_once=True,
 			)
+
+			# General CDP execution tool
+
+		@self.registry.action(
+			"""This JavaScript code gets executed with Runtime.evaluate
+EXAMPLES:
+Using when other tools fail, filling a form all at once, hovering, dragging, extracting only links, extracting content from the page, Clicking on coordinates, zooming ....
+You can also use it to explore the website.
+- Write code to solve problems you could not solve with other tools.
+- Don't write comments in here, no human reads that.
+- Write only valid code. 
+- juse this to e.g. extract + filter links, convert the page to json into the format you need etc...
+- wrap your code in a function(){{ ... }})() 
+- wrap your code in a try catch block
+- limit the output otherwise your context will explode
+
+## Basic DOM interaction (single line preferred):
+Return: 
+JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.textContent.trim()))
+- execute_js can only return strings/numbers/booleans that are readable
+- Objects return "Executed successfully (returned object)" - useless!
+- If you get `{}` or `[]` results, your selectors are WRONG. Use shadow DOM detection (#5) first.
+- NEVER repeat the same failing selector more than 2 times. Switch strategies immediately.
+- After 2 failed attempts: 1) Check shadow DOM, 2) Wait for content loading, 3) Use coordinates.
+
+## React/Modern Framework Components:
+Adopt your strategy for React Native Web, React, Angular, Vue, MUI pages etc.
+
+1. **React synthetic events** 
+(function(){{ const el = document.querySelector('selector'); el.dispatchEvent(new MouseEvent('click', {{bubbles: true, cancelable: true}})); el.dispatchEvent(new Event('change', {{bubbles: true}})); return 'clicked'; }})()
+
+2. **React input handling** (for form inputs that ignore value assignment):
+```javascript
+(function(){{ const input = document.querySelector('input'); const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; nativeInputValueSetter.call(input, 'new value'); input.dispatchEvent(new Event('input', {{bubbles: true}})); return 'input set'; }})()
+
+3. **Detect shadow DOM components, iframes, etc
+(function(){{ const host = document.querySelector('my-component'); if(host && host.shadowRoot) {{ const input = host.shadowRoot.querySelector('input'); return input ? 'found' : 'not found'; }} return 'no shadow'; }})()
+
+4. **Real keyboard simulation** (for protected inputs):
+(function(){{ const input = document.querySelector('input'); if(input) {{ input.focus(); 'text'.split('').forEach(char => {{ ['keydown','keypress','input','keyup'].forEach(type => input.dispatchEvent(new KeyboardEvent(type, {{key: char, bubbles: true}}))) }}); }} return 'typed'; }})()
+
+5. **Shadow DOM & SPA Content** (when main DOM is empty):
+- Check total elements: `document.querySelectorAll('*').length` (if < 10, page not loaded)
+- Find shadow hosts: Check `element.shadowRoot` on all elements
+- Extract from shadow: Use `element.shadowRoot.querySelectorAll(selector)` instead
+- Wait for loading: Many SPAs load content asynchronously, try scrolling or waiting
+
+## When stuck explore new options:
+Inspect React components: `document.querySelector('selector').getAttribute('class')`
+Check for modals or overlays: `document.querySelector('.modal, [role="dialog"]')`
+Explore page structure: `document.body.innerHTML.substring(100, 400)`
+
+**Coordinate-based fallbacks:**
+Use coordinates interaction only if execute_js fails twice.
+In the browser state, you see `x=150 y=75` - these are center coordinates of elements.
+(function(){{ const x = 150, y = 75; const el = document.elementFromPoint(x, y); if(el) {{ el.focus(); document.execCommand('insertText', false, 'your text'); return 'input at coordinates'; }} return 'no element at coordinates'; }})()
+(function(){{ const x = 150, y = 75; const el = document.elementFromPoint(x, y); if(el) {{ el.dispatchEvent(new MouseEvent('click', {{bubbles: true, cancelable: true}})); return 'clicked at coordinates'; }} return 'no element at coordinates'; }})()
+
+""",
+		)
+		async def execute_js(code: str, browser_session: BrowserSession):
+			# Pre-process JavaScript to fix common issues and add error handling
+
+			cdp_session = await browser_session.get_or_create_cdp_session()
+			result_text = ''
+			try:
+				result = await cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': code, 'returnByValue': True}, session_id=cdp_session.session_id
+				)
+				result_text = result.get('result', {}).get('value', '')
+				description = result.get('result', {}).get('description', '')
+				if len(result_text) > 20000:
+					result_text = result_text[:20000] + ' Truncated after 20000 characters ...'
+				# Return the result (could be empty string, which is valid)
+				return ActionResult(extracted_content=f'Code: {code}\n\nResult: {result_text}')
+
+			except Exception as e:
+				result = f'Failed to execute JavaScript {code}: {e} '
+				return ActionResult(error=result)
 
 	# Custom done action for structured output
 	async def extract_clean_markdown(

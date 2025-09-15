@@ -188,9 +188,7 @@ class TestClickElementEvent:
 		result_text = result.extracted_content or result.long_term_memory
 		# Core logic validation: Verify click was successful
 		assert result_text is not None
-		assert f'Clicked element with index {button_index}' in result_text, (
-			f'Expected click confirmation in result content, got: {result_text}'
-		)
+		assert 'Clicked element' in result_text, f'Expected click confirmation in result content, got: {result_text}'
 		# Note: The click action doesn't include button text in the result, only the index
 
 		# Verify the click actually had an effect on the page using CDP
@@ -262,9 +260,7 @@ class TestClickElementEvent:
 		assert isinstance(result, ActionResult)
 		result_text = result.extracted_content or result.long_term_memory
 		assert result_text is not None
-		assert f'Clicked element with index {link_index}' in result_text, (
-			f'Expected click confirmation in result content, got: {result_text}'
-		)
+		assert 'Clicked element' in result_text, f'Expected click confirmation in result content, got: {result_text}'
 
 		# Verify that a new tab was opened
 		tabs = await browser_session.get_tabs()

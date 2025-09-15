@@ -91,3 +91,7 @@ class GetDropdownOptionsAction(BaseModel):
 class SelectDropdownOptionAction(BaseModel):
 	index: int = Field(ge=1, description='index of the dropdown element to select an option for')
 	text: str = Field(description='the text or exact value of the option to select')
+
+
+class ExecuteCDPAction(BaseModel):
+	js_code: str = Field(description='JavaScript code to execute via CDP Runtime.evaluate')

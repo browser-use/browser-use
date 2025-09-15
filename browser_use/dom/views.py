@@ -19,6 +19,8 @@ DEFAULT_INCLUDE_ATTRIBUTES = [
 	'title',
 	'type',
 	'checked',
+	# 'class',
+	# 'id',
 	'name',
 	'role',
 	'value',
@@ -93,6 +95,7 @@ class SimplifiedNode:
 
 	ignored_by_paint_order: bool = False  # More info in dom/serializer/paint_order.py
 	excluded_by_parent: bool = False  # New field for bbox filtering
+	is_shadow_host: bool = False  # New field for shadow DOM hosts
 
 	def _clean_original_node_json(self, node_json: dict) -> dict:
 		"""Recursively remove children_nodes and shadow_roots from original_node JSON."""
