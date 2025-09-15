@@ -2,7 +2,7 @@ import asyncio
 import json
 import time
 
-import aiofiles
+import anyio
 
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.types import ViewportSize
@@ -67,8 +67,7 @@ async def main():
 			end = time.time()
 			print(f'Time taken: {end - start} seconds')
 
-			async with aiofiles.open('tmp/enhanced_dom_tree.json', 'w') as f:
-				await f.write(json.dumps(dom_tree.__json__(), indent=1))
+			await anyio.Path('tmp/enhanced_dom_tree.json').write_text(json.dumps(dom_tree.__json__(), indent=1))
 
 			print('Saved enhanced dom tree to tmp/enhanced_dom_tree.json')
 
@@ -95,8 +94,7 @@ async def main():
 
 			serialized_dom_state, timing_info = await dom_service.get_serialized_dom_tree()
 
-			async with aiofiles.open('tmp/serialized_dom_tree.txt', 'w') as f:
-				await f.write(serialized_dom_state.llm_representation())
+			await anyio.Path('tmp/serialized_dom_tree.txt').write_text(serialized_dom_state.llm_representation())
 
 			# print(serialized)
 			print('Saved serialized dom tree to tmp/serialized_dom_tree.txt')
@@ -106,14 +104,11 @@ async def main():
 			end = time.time()
 			print(f'Time taken: {end - start} seconds')
 
-			async with aiofiles.open('tmp/snapshot.json', 'w') as f:
-				await f.write(json.dumps(snapshot, indent=1))
+			await anyio.Path('tmp/snapshot.json').write_text(json.dumps(snapshot, indent=1))
 
-			async with aiofiles.open('tmp/dom_tree.json', 'w') as f:
-				await f.write(json.dumps(dom_tree, indent=1))
+			await anyio.Path('tmp/dom_tree.json').write_text(json.dumps(dom_tree, indent=1))
 
-			async with aiofiles.open('tmp/ax_tree.json', 'w') as f:
-				await f.write(json.dumps(ax_tree, indent=1))
+			await anyio.Path('tmp/ax_tree.json').write_text(json.dumps(ax_tree, indent=1))
 
 			print('saved dom tree to tmp/dom_tree.json')
 			print('saved snapshot to tmp/snapshot.json')

@@ -11,7 +11,6 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "aiofiles>=24.1.0",
     "aiohttp==3.12.15",
     "anyio>=4.9.0",
     "bubus>=1.5.6",
