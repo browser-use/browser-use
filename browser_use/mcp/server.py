@@ -849,11 +849,17 @@ class BrowserUseServer:
 			event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=url, new_tab=True))
 			await event
 			await self.browser_session.wait_for_page_idle()
+			await self.browser_session.get_browser_state_summary(
+				cache_clickable_elements_hashes=True, include_screenshot=False, cached=False
+			)
 			return f'Opened new tab with URL: {url}'
 		else:
 			event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=url))
 			await event
 			await self.browser_session.wait_for_page_idle()
+			await self.browser_session.get_browser_state_summary(
+				cache_clickable_elements_hashes=True, include_screenshot=False, cached=False
+			)
 			return f'Navigated to: {url}'
 
 	async def _click(self, index: int, new_tab: bool = False) -> str:

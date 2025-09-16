@@ -155,6 +155,7 @@ class DOMWatchdog(BaseWatchdog):
 		tabs_info = await self.browser_session.get_tabs()
 		if not tabs_info and effective_url.lower().startswith(('http', 'https')):
 			from browser_use.browser.views import TabInfo
+
 			target_id = self.browser_session.agent_focus.target_id if self.browser_session.agent_focus else 'tab'
 			tabs_info = [TabInfo(url=effective_url, title='Pending', target_id=target_id)]
 			self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: Synthesized tab info from navigation history')
