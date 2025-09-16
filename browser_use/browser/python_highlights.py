@@ -12,7 +12,7 @@ import os
 
 from PIL import Image, ImageDraw, ImageFont
 
-from browser_use.dom.views import DOMSelectorMap
+from browser_use.dom.views import DOMSelectorMap, EnhancedDOMTreeNode
 from browser_use.observability import observe_debug
 from browser_use.utils import time_execution_async
 
@@ -339,7 +339,7 @@ def draw_bounding_box_with_text(
 
 def process_element_highlight(
 	element_id: int,
-	element,
+	element: EnhancedDOMTreeNode,
 	draw,
 	device_pixel_ratio: float,
 	font,

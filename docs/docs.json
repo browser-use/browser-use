@@ -74,6 +74,46 @@
     {
       "source": "/customize/examples/chain-agents",
       "destination": "/customize/examples/follow-up-tasks"
+    },
+    {
+      "source": "/customize/examples/fast-agent",
+      "destination": "/examples/templates/fast-agent"
+    },
+    {
+      "source": "/customize/examples/follow-up-tasks",
+      "destination": "/examples/templates/follow-up-tasks"
+    },
+    {
+      "source": "/customize/examples/parallel-browser",
+      "destination": "/examples/templates/parallel-browser"
+    },
+    {
+      "source": "/customize/examples/playwright-integration",
+      "destination": "/examples/templates/playwright-integration"
+    },
+    {
+      "source": "/customize/examples/sensitive-data",
+      "destination": "/examples/templates/sensitive-data"
+    },
+    {
+      "source": "/customize/examples/secure",
+      "destination": "/examples/templates/secure"
+    },
+    {
+      "source": "/customize/examples/more-examples",
+      "destination": "/examples/templates/more-examples"
+    },
+    {
+      "source": "/customize/examples/ad-use",
+      "destination": "/examples/apps/ad-use"
+    },
+    {
+      "source": "/customize/examples/vibetest-use",
+      "destination": "/examples/apps/vibetest-use"
+    },
+    {
+      "source": "/customize/examples/prompting-guide",
+      "destination": "/customize/agent/prompting-guide"
     }
   ],
   "navigation": {
@@ -99,6 +139,7 @@
                 "pages": [
                   "customize/agent/basics",
                   "customize/agent/supported-models",
+                  "customize/agent/prompting-guide",
                   "customize/agent/output-format",
                   "customize/agent/all-parameters"
                 ]
@@ -127,25 +168,39 @@
                 ]
               },
               {
-                "group": "Examples",
-                "icon": "folder-open",
-                "pages": [
-                  "customize/examples/fast-agent",
-                  "customize/examples/follow-up-tasks",
-                  "customize/examples/parallel-browser",
-                  "customize/examples/playwright-integration",
-                  "customize/examples/sensitive-data",
-                  "customize/examples/secure",
-                  "customize/examples/more-examples",
-                  "customize/examples/prompting-guide"
-                ]
-              },
-              {
                 "group": "Integration",
                 "icon": "plug",
                 "isDefaultOpen": false,
                 "pages": [
                   "customize/mcp-server"
+                ]
+              }
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              {
+                "group": "Templates",
+                "icon": "folder",
+                "pages": [
+                  "examples/templates/fast-agent",
+                  "examples/templates/follow-up-tasks",
+                  "examples/templates/parallel-browser",
+                  "examples/templates/playwright-integration",
+                  "examples/templates/sensitive-data",
+                  "examples/templates/secure",
+                  "examples/templates/more-examples"
+                ]
+              },
+              {
+                "group": "Apps",
+                "icon": "box-open",
+                "pages": [
+                  "examples/apps/ad-use",
+                  "examples/apps/vibetest-use",
+                  "examples/apps/news-use",
+                  "examples/apps/msg-use"
                 ]
               }
             ]

@@ -90,6 +90,24 @@ class SecurityWatchdog(BaseWatchdog):
 			except Exception as e:
 				self.logger.error(f'⛔️ Failed to close new tab with non-allowed URL: {type(e).__name__} {e}')
 
+	def _is_root_domain(self, domain: str) -> bool:
+		"""Check if a domain is a root domain (no subdomain present).
+
+		Simple heuristic: only add www for domains with exactly 1 dot (domain.tld).
+		For complex cases like country TLDs or subdomains, users should configure explicitly.
+
+		Args:
+			domain: The domain to check
+
+		Returns:
+			True if it's a simple root domain, False otherwise
+		"""
+		# Skip if it contains wildcards or protocol
+		if '*' in domain or '://' in domain:
+			return False
+
+		return domain.count('.') == 1
+
 	def _log_glob_warning(self) -> None:
 		"""Log a warning about glob patterns in allowed_domains."""
 		global _GLOB_WARNING_SHOWN
@@ -109,8 +127,12 @@ class SecurityWatchdog(BaseWatchdog):
 		Returns:
 			True if the URL is allowed, False otherwise
 		"""
+
 		# If no allowed_domains specified, allow all URLs
-		if not self.browser_session.browser_profile.allowed_domains:
+		if (
+			not self.browser_session.browser_profile.allowed_domains
+			and not self.browser_session.browser_profile.prohibited_domains
+		):
 			return True
 
 		# Always allow internal browser targets
@@ -131,45 +153,67 @@ class SecurityWatchdog(BaseWatchdog):
 		if not host:
 			return False
 
-		# Full URL for matching (scheme + host)
-		full_url_pattern = f'{parsed.scheme}://{host}'
-
 		# Check each allowed domain pattern
-		for pattern in self.browser_session.browser_profile.allowed_domains:
-			# Handle glob patterns
-			if '*' in pattern:
-				self._log_glob_warning()
-				import fnmatch
+		if self.browser_session.browser_profile.allowed_domains:
+			for pattern in self.browser_session.browser_profile.allowed_domains:
+				if self._is_url_match(url, host, parsed.scheme, pattern):
+					return True
 
-				# Check if pattern matches the host
-				if pattern.startswith('*.'):
-					# Pattern like *.example.com should match subdomains and main domain
-					domain_part = pattern[2:]  # Remove *.
-					if host == domain_part or host.endswith('.' + domain_part):
-						# Only match http/https URLs for domain-only patterns
-						if parsed.scheme in ['http', 'https']:
-							return True
-				elif pattern.endswith('/*'):
-					# Pattern like brave://* should match any brave:// URL
-					prefix = pattern[:-1]  # Remove the * at the end
-					if url.startswith(prefix):
+			return False
+
+		# Check each prohibited domain pattern
+		if self.browser_session.browser_profile.prohibited_domains:
+			for pattern in self.browser_session.browser_profile.prohibited_domains:
+				if self._is_url_match(url, host, parsed.scheme, pattern):
+					return False
+
+			return True
+
+		return True
+
+	def _is_url_match(self, url: str, host: str, scheme: str, pattern: str) -> bool:
+		"""Check if a URL matches a pattern."""
+
+		# Full URL for matching (scheme + host)
+		full_url_pattern = f'{scheme}://{host}'
+
+		# Handle glob patterns
+		if '*' in pattern:
+			self._log_glob_warning()
+			import fnmatch
+
+			# Check if pattern matches the host
+			if pattern.startswith('*.'):
+				# Pattern like *.example.com should match subdomains and main domain
+				domain_part = pattern[2:]  # Remove *.
+				if host == domain_part or host.endswith('.' + domain_part):
+					# Only match http/https URLs for domain-only patterns
+					if scheme in ['http', 'https']:
 						return True
-				else:
-					# Use fnmatch for other glob patterns
-					if fnmatch.fnmatch(
-						full_url_pattern if '://' in pattern else host,
-						pattern,
-					):
-						return True
+			elif pattern.endswith('/*'):
+				# Pattern like brave://* should match any brave:// URL
+				prefix = pattern[:-1]  # Remove the * at the end
+				if url.startswith(prefix):
+					return True
 			else:
-				# Exact match
-				if '://' in pattern:
-					# Full URL pattern
-					if url.startswith(pattern):
-						return True
-				else:
-					# Domain-only pattern
-					if host == pattern:
-						return True
+				# Use fnmatch for other glob patterns
+				if fnmatch.fnmatch(
+					full_url_pattern if '://' in pattern else host,
+					pattern,
+				):
+					return True
+		else:
+			# Exact match
+			if '://' in pattern:
+				# Full URL pattern
+				if url.startswith(pattern):
+					return True
+			else:
+				# Domain-only pattern (case-insensitive comparison)
+				if host.lower() == pattern.lower():
+					return True
+				# If pattern is a root domain, also check www subdomain
+				if self._is_root_domain(pattern) and host.lower() == f'www.{pattern.lower()}':
+					return True
 
 		return False

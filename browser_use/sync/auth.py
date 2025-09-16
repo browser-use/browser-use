@@ -297,7 +297,7 @@ class DeviceAuthClient:
 			verification_uri_complete = device_auth['verification_uri_complete'].replace(self.base_url, frontend_url)
 
 			terminal_width, _terminal_height = shutil.get_terminal_size((80, 20))
-			if show_instructions:
+			if show_instructions and CONFIG.BROWSER_USE_CLOUD_SYNC:
 				logger.info('─' * max(terminal_width - 40, 20))
 				logger.info('🌐  View the details of this run in Browser Use Cloud:')
 				logger.info(f'    👉  {verification_uri_complete}')

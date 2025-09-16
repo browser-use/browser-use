@@ -563,30 +563,62 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Type the text character by character to the focused element
 			for char in text:
-				# Send keydown
-				await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-					params={
-						'type': 'keyDown',
-						'key': char,
-					},
-					session_id=cdp_session.session_id,
-				)
-				# Send char for actual text input
-				await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-					params={
-						'type': 'char',
-						'text': char,
-					},
-					session_id=cdp_session.session_id,
-				)
-				# Send keyup
-				await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-					params={
-						'type': 'keyUp',
-						'key': char,
-					},
-					session_id=cdp_session.session_id,
-				)
+				# Handle newline characters as Enter key
+				if char == '\n':
+					# Send proper Enter key sequence
+					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+						params={
+							'type': 'keyDown',
+							'key': 'Enter',
+							'code': 'Enter',
+							'windowsVirtualKeyCode': 13,
+						},
+						session_id=cdp_session.session_id,
+					)
+					# Send char event with carriage return
+					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+						params={
+							'type': 'char',
+							'text': '\r',
+						},
+						session_id=cdp_session.session_id,
+					)
+					# Send keyup
+					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+						params={
+							'type': 'keyUp',
+							'key': 'Enter',
+							'code': 'Enter',
+							'windowsVirtualKeyCode': 13,
+						},
+						session_id=cdp_session.session_id,
+					)
+				else:
+					# Handle regular characters
+					# Send keydown
+					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+						params={
+							'type': 'keyDown',
+							'key': char,
+						},
+						session_id=cdp_session.session_id,
+					)
+					# Send char for actual text input
+					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+						params={
+							'type': 'char',
+							'text': char,
+						},
+						session_id=cdp_session.session_id,
+					)
+					# Send keyup
+					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+						params={
+							'type': 'keyUp',
+							'key': char,
+						},
+						session_id=cdp_session.session_id,
+					)
 				# Add 18ms delay between keystrokes
 				await asyncio.sleep(0.018)
 
@@ -1007,48 +1039,86 @@ class DefaultActionWatchdog(BaseWatchdog):
 			self.logger.debug(f'🎯 Typing text character by character: "{text}"')
 
 			for i, char in enumerate(text):
-				# Get proper modifiers, VK code, and base key for the character
-				modifiers, vk_code, base_key = self._get_char_modifiers_and_vk(char)
-				key_code = self._get_key_code_for_char(base_key)
+				# Handle newline characters as Enter key
+				if char == '\n':
+					# Send proper Enter key sequence
+					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+						params={
+							'type': 'keyDown',
+							'key': 'Enter',
+							'code': 'Enter',
+							'windowsVirtualKeyCode': 13,
+						},
+						session_id=cdp_session.session_id,
+					)
 
-				# self.logger.debug(f'🎯 Typing character {i + 1}/{len(text)}: "{char}" (base_key: {base_key}, code: {key_code}, modifiers: {modifiers}, vk: {vk_code})')
+					# Small delay to emulate human typing speed
+					await asyncio.sleep(0.001)
 
-				# Step 1: Send keyDown event (NO text parameter)
-				await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-					params={
-						'type': 'keyDown',
-						'key': base_key,
-						'code': key_code,
-						'modifiers': modifiers,
-						'windowsVirtualKeyCode': vk_code,
-					},
-					session_id=cdp_session.session_id,
-				)
+					# Send char event with carriage return
+					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+						params={
+							'type': 'char',
+							'text': '\r',
+							'key': 'Enter',
+						},
+						session_id=cdp_session.session_id,
+					)
 
-				# Small delay to emulate human typing speed
-				await asyncio.sleep(0.001)
+					# Send keyUp event
+					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+						params={
+							'type': 'keyUp',
+							'key': 'Enter',
+							'code': 'Enter',
+							'windowsVirtualKeyCode': 13,
+						},
+						session_id=cdp_session.session_id,
+					)
+				else:
+					# Handle regular characters
+					# Get proper modifiers, VK code, and base key for the character
+					modifiers, vk_code, base_key = self._get_char_modifiers_and_vk(char)
+					key_code = self._get_key_code_for_char(base_key)
 
-				# Step 2: Send char event (WITH text parameter) - this is crucial for text input
-				await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-					params={
-						'type': 'char',
-						'text': char,
-						'key': char,
-					},
-					session_id=cdp_session.session_id,
-				)
+					# self.logger.debug(f'🎯 Typing character {i + 1}/{len(text)}: "{char}" (base_key: {base_key}, code: {key_code}, modifiers: {modifiers}, vk: {vk_code})')
 
-				# Step 3: Send keyUp event (NO text parameter)
-				await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-					params={
-						'type': 'keyUp',
-						'key': base_key,
-						'code': key_code,
-						'modifiers': modifiers,
-						'windowsVirtualKeyCode': vk_code,
-					},
-					session_id=cdp_session.session_id,
-				)
+					# Step 1: Send keyDown event (NO text parameter)
+					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+						params={
+							'type': 'keyDown',
+							'key': base_key,
+							'code': key_code,
+							'modifiers': modifiers,
+							'windowsVirtualKeyCode': vk_code,
+						},
+						session_id=cdp_session.session_id,
+					)
+
+					# Small delay to emulate human typing speed
+					await asyncio.sleep(0.001)
+
+					# Step 2: Send char event (WITH text parameter) - this is crucial for text input
+					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+						params={
+							'type': 'char',
+							'text': char,
+							'key': char,
+						},
+						session_id=cdp_session.session_id,
+					)
+
+					# Step 3: Send keyUp event (NO text parameter)
+					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+						params={
+							'type': 'keyUp',
+							'key': base_key,
+							'code': key_code,
+							'modifiers': modifiers,
+							'windowsVirtualKeyCode': vk_code,
+						},
+						session_id=cdp_session.session_id,
+					)
 
 				# Small delay between characters to look human (realistic typing speed)
 				await asyncio.sleep(0.001)
