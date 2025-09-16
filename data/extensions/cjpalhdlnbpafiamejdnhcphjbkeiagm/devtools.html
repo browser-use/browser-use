@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark" />
+<title>uBlock — Dev tools</title>
+
+<link rel="stylesheet" href="lib/codemirror/lib/codemirror.css">
+<link rel="stylesheet" href="lib/codemirror/addon/fold/foldgutter.css">
+<link rel="stylesheet" href="lib/codemirror/addon/search/matchesonscrollbar.css">
+
+<link rel="stylesheet" href="css/themes/default.css">
+<link rel="stylesheet" href="css/common.css">
+<link rel="stylesheet" href="css/fa-icons.css">
+<link rel="stylesheet" href="css/dashboard-common.css">
+<link rel="stylesheet" href="css/cloud-ui.css">
+<link rel="stylesheet" href="css/devtools.css">
+<link rel="stylesheet" href="css/codemirror.css">
+</head>
+
+<body>
+
+<div class="body">
+    <p>
+        <button id="console-clear" class="iconified" type="button"><span class="fa-icon">trash-o</span><span class="hover"></span></button>
+        <button id="console-fold" class="iconified" type="button"><span class="fa-icon">double-angle-up</span><span class="hover"></span></button>
+        <button id="console-unfold" class="iconified" type="button"><span class="fa-icon fa-icon-vflipped">double-angle-up</span><span class="hover"></span></button>
+        <button id="snfe-dump" type="button">SNFE: Dump<span class="hover"></span></button>
+        <button id="snfe-todnr" type="button">SNFE: DNR<span class="hover"></span></button>
+        <button id="snfe-benchmark" type="button" disabled>SNFE: Benchmark<span class="hover"></span></button>
+        <button id="cfe-dump" type="button">CFE: Dump<span class="hover"></span></button>
+        <button id="cfe-benchmark" type="button" disabled>CFE: Benchmark<span class="hover"></span></button>
+        <button id="sfe-benchmark" type="button" disabled>SFE: Benchmark<span class="hover"></span></button>
+        <button id="purge-all-caches" type="button" data-i18n-title="3pPurgeAll"><span data-i18n="3pPurgeAll">_</span><span class="hover"></span></button>
+</div>
+<div id="console" class="codeMirrorContainer codeMirrorBreakAll"></div>
+
+<script src="lib/codemirror/lib/codemirror.js"></script>
+<script src="lib/codemirror/addon/display/panel.js"></script>
+<script src="lib/codemirror/addon/fold/foldcode.js"></script>
+<script src="lib/codemirror/addon/fold/foldgutter.js"></script>
+<script src="lib/codemirror/addon/scroll/annotatescrollbar.js"></script>
+<script src="lib/codemirror/addon/search/searchcursor.js"></script>
+<script src="lib/codemirror/addon/selection/active-line.js"></script>
+<script src="lib/hsluv/hsluv-0.1.0.min.js"></script>
+
+<script src="js/vapi.js"></script>
+<script src="js/vapi-common.js"></script>
+<script src="js/vapi-client.js"></script>
+
+<script src="js/codemirror/search.js" type="module"></script>
+<script src="js/codemirror/search-thread.js"></script>
+
+<script src="js/fa-icons.js" type="module"></script>
+<script src="js/theme.js" type="module"></script>
+<script src="js/i18n.js" type="module"></script>
+<script src="js/dashboard-common.js" type="module"></script>
+<script src="js/devtools.js" type="module"></script>
+
+</body>
+</html>

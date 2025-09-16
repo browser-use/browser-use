@@ -1,0 +1,23 @@
+{
+	"sEmptyTable":     "Hakuna data iliyo patikana",
+	"sInfo":           "Inaonyesha _START_ mpaka _END_ ya matokeo _TOTAL_",
+	"sInfoEmpty":      "Inaonyesha 0 hadi 0 ya matokeo 0",
+	"sInfoFiltered":   "(uschujo kutoka matokeo idadi _MAX_)",
+	"sInfoPostFix":    "",
+	"sInfoThousands":  ",",
+	"sLengthMenu":     "Onyesha _MENU_ matokeo",
+	"sLoadingRecords": "Inapakia...",
+	"sProcessing":     "Processing...",
+	"sSearch":         "Tafuta:",
+	"sZeroRecords":    "Rekodi vinavyolingana haziku patikana",
+	"oPaginate": {
+		"sFirst":    "Mwanzo",
+		"sLast":     "Mwisho",
+		"sNext":     "Ijayo",
+		"sPrevious": "Kabla"
+	},
+	"oAria": {
+		"sSortAscending": ": seti kulainisha sanjari kwa mtindo wa upandaji",
+		"sSortDescending": ": seti kulainisha sanjari kwa mtindo wa mteremko"
+	}
+}

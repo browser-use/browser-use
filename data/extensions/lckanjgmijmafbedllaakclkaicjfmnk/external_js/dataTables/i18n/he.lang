@@ -1,0 +1,18 @@
+{
+    "processing":   "מעבד...",
+    "lengthMenu":   "הצג _MENU_ פריטים",
+    "zeroRecords":  "לא נמצאו רשומות מתאימות",
+    "emptyTable":   "לא נמצאו רשומות מתאימות",
+    "info": "_START_ עד _END_ מתוך _TOTAL_ רשומות" ,
+    "infoEmpty":    "0 עד 0 מתוך 0 רשומות",
+    "infoFiltered": "(מסונן מסך _MAX_  רשומות)",
+    "infoPostFix":  "",
+    "search":       "חפש:",
+    "url":          "",
+    "paginate": {
+        "first":    "ראשון",
+        "previous": "קודם",
+        "next":     "הבא",
+        "last":     "אחרון"
+    }
+}

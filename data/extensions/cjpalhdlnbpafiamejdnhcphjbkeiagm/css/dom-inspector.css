@@ -1,0 +1,41 @@
+html#ublock0-inspector,
+#ublock0-inspector body {
+    background: transparent;
+    box-sizing: border-box;
+    height: 100vh;
+        height: 100svh;
+    margin: 0;
+    overflow: hidden;
+    width: 100vw;
+}
+#ublock0-inspector :focus {
+    outline: none;
+}
+#ublock0-inspector svg {
+    box-sizing: border-box;
+    height: 100%;
+    left: 0;
+    pointer-events: none;
+    position: fixed;
+    top: 0;
+    width: 100%;
+}
+#ublock0-inspector svg > path {
+    stroke-width: 1px;
+    }
+#ublock0-inspector svg > path:nth-of-type(1) {
+    fill: rgba(255,0,0,0.2);
+    stroke: #F00;
+}
+#ublock0-inspector svg > path:nth-of-type(2) {
+    fill: rgba(0,255,0,0.2);
+    stroke: #0F0;
+}
+#ublock0-inspector svg > path:nth-of-type(3) {
+    fill: rgba(255,0,0,0.2);
+    stroke: #F00;
+}
+#ublock0-inspector svg > path:nth-of-type(4) {
+    fill: rgba(0,0,255,0.1);
+    stroke: #00F;
+}

@@ -1,0 +1,98 @@
+/*
+ * ClearURLs
+ * Copyright (c) 2017-2020 Kevin Röbert
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+:root {
+    --page-bg-color: #fff;
+    --page-fg-color: #15141a;
+
+    --input-bg-color: #fff;
+    --input-border-color: #8f8F9d;
+    --input-fg-color: #15141a;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --page-bg-color: #23222b;
+        --page-fg-color: #fbfbfe;
+
+        --input-bg-color: #42414d;
+        --input-border-color: #8f8F9d;
+        --input-fg-color: #fbfbfe;
+    }
+}
+
+body {
+    background-color: var(--page-bg-color);
+    color: var(--page-fg-color);
+    font-size: 14px;
+}
+
+table {
+    color: var(--page-fg-color) !important;
+}
+
+.form-control,
+.form-control:disabled,
+.form-control:focus,
+.form-control[readonly] {
+    background-color: var(--input-bg-color);
+    border: solid 1px var(--input-border-color);
+    color: var(--input-fg-color);
+}
+
+.small-version {
+    font-size: 10px;
+}
+
+.brand {
+    font-size: 17px;
+}
+
+.navbar-margin {
+    margin-top: 0;
+    margin-bottom: 10px;
+}
+
+#donate {
+    transition: 0.3s;
+    opacity: 0.8;
+    color: #ffa500;
+}
+
+#donate:hover {
+    opacity: 1;
+}
+
+.btn-default {
+    color: #333;
+    background-color: #fff;
+    border-color: #ccc
+}
+
+.btn-default.focus,
+.btn-default:focus {
+    color: #333;
+    background-color: #e6e6e6;
+    border-color: #8c8c8c
+}
+
+.btn-default:hover {
+    color: #333;
+    background-color: #e6e6e6;
+    border-color: #adadad
+}

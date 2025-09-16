@@ -1,0 +1,55 @@
+body > div.body {
+    padding: 0 0.5em;
+    }
+h2, h3 {
+    margin: 1em 0;
+    }
+h2 {
+    font-size: 18px;
+    }
+h3 {
+    font-size: 16px;
+    }
+a {
+    text-decoration: none;
+    }
+.fa-icon.info {
+    color: var(--info0-ink);
+        fill: var(--info0-ink);
+    font-size: 115%;
+    }
+.fa-icon.info:hover {
+    transform: scale(1.25);
+    }
+.fa-icon.info.important {
+    color: var(--info2-ink);
+        fill: var(--info2-ink);
+    }
+.info.very-important {
+    color: var(--info3-ink);
+        fill: var(--info3-ink);
+    }
+input[type="number"] {
+    width: 5em;
+    }
+@media (max-height: 640px), (max-height: 800px) and (max-width: 480px) {
+    .body > p,
+    .body > ul {
+        margin: 0.5em 0;
+        }
+    .vverbose {
+        display: none !important;
+        }
+    }
+/**
+    On mobile device, the on-screen keyboard may take up
+    so much space that it overlaps the content being edited.
+    The rule below makes it possible to scroll the edited
+    content within view.
+*/
+:root.mobile {
+    overflow: auto;
+    }
+:root.mobile body {
+    min-height: 600px;
+    }

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark" />
+<title data-i18n="advancedSettingsPageName"></title>
+
+<link rel="stylesheet" href="lib/codemirror/lib/codemirror.css">
+
+<link rel="stylesheet" href="css/themes/default.css">
+<link rel="stylesheet" href="css/common.css">
+<link rel="stylesheet" href="css/fa-icons.css">
+<link rel="stylesheet" href="css/dashboard-common.css">
+<link rel="stylesheet" href="css/advanced-settings.css">
+<link rel="stylesheet" href="css/codemirror.css">
+<link rel="icon" type="image/png" href="img/icon_64.png">
+</head>
+
+<body>
+<div class="body">
+    <p><span data-i18n="advancedSettingsWarning"></span> <a class="fa-icon info important" href="https://github.com/gorhill/uBlock/wiki/Advanced-settings" target="_blank">info-circle</a>
+    <p>
+        <button id="advancedSettingsApply" class="preferred" type="button" disabled data-i18n="genericApplyChanges">_<span class="hover"></span></button>&ensp;
+</div>
+
+<div id="advancedSettings" class="codeMirrorContainer cm-theme-override"></div>
+
+<script src="lib/codemirror/lib/codemirror.js"></script>
+<script src="lib/codemirror/addon/selection/active-line.js"></script>
+<script src="lib/hsluv/hsluv-0.1.0.min.js"></script>
+
+<script src="js/fa-icons.js" type="module"></script>
+<script src="js/vapi.js"></script>
+<script src="js/vapi-common.js"></script>
+<script src="js/vapi-client.js"></script>
+<script src="js/theme.js" type="module"></script>
+<script src="js/i18n.js" type="module"></script>
+<script src="js/dashboard-common.js" type="module"></script>
+<script src="js/advanced-settings.js" type="module"></script>
+
+</body>
+</html>

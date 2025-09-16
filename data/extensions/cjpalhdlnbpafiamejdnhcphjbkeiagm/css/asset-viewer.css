@@ -1,0 +1,80 @@
+/**
+    uBlock Origin - a browser extension to block requests.
+    Copyright (C) 2014-present Raymond Hill
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see {http://www.gnu.org/licenses/}.
+
+    Home: https://github.com/gorhill/uBlock
+*/
+
+body {
+    border: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+        height: 100svh;
+    margin: 0;
+    overflow: hidden;
+    padding: 0;
+    width: 100vw;
+    }
+#subscribe {
+    display: flex;
+    flex-shrink: 0;
+    justify-content: space-between;
+    max-height: 6em;
+    padding-inline-end: 0.5em;
+    }
+#subscribe.hide {
+    display: none;
+    }
+.logo {
+    background-color: #fffa;
+    flex-shrink: 0;
+    width: 2em;
+    }
+#subscribePrompt {
+    display: inline-flex;
+    flex-direction: column;
+    padding: 0.5em;
+    }
+#subscribePrompt > span {
+    font-weight: bold;
+    }
+#subscribePrompt > a {
+    font-size: 14px;
+    word-break: break-all;
+    }
+#subscribe > button {
+    align-self: center;
+    }
+#subscribe > .fa-icon {
+    color: var(--accent-ink-1);
+        fill: var(--accent-ink-1);
+    font-size: 20px;
+    }
+body.loading #subscribe > button,
+body:not(.loading) #subscribe > .fa-icon {
+    display: none;
+    }
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+    }
+body.loading #subscribe > .fa-icon > svg {
+    animation: spin 1s steps(8) infinite;
+    }
+#content {
+    flex-grow: 1;
+    }

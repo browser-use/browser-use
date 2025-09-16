@@ -1,0 +1,23 @@
+{
+	"sEmptyTable":     "ცხრილში არ არის მონაცემები",
+	"sInfo":           "ნაჩვენებია ჩანაწერები _START_–დან _END_–მდე, _TOTAL_ ჩანაწერიდან",
+	"sInfoEmpty":      "ნაჩვენებია ჩანაწერები 0–დან 0–მდე, 0 ჩანაწერიდან",
+	"sInfoFiltered":   "(გაფილტრული შედეგი _MAX_ ჩანაწერიდან)",
+	"sInfoPostFix":    "",
+	"sInfoThousands":  ".",
+	"sLengthMenu":     "აჩვენე _MENU_ ჩანაწერი",
+	"sLoadingRecords": "იტვირთება...",
+	"sProcessing":     "მუშავდება...",
+	"sSearch":         "ძიება:",
+	"sZeroRecords":    "არაფერი მოიძებნა",
+	"oPaginate": {
+		"sFirst":    "პირველი",
+		"sLast":     "ბოლო",
+		"sNext":     "შემდეგი",
+		"sPrevious": "წინა"
+	},
+	"oAria": {
+		"sSortAscending":  ": სვეტის დალაგება ზრდის მიხედვით",
+		"sSortDescending": ": სვეტის დალაგება კლების მიხედვით"
+	}
+}

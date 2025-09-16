@@ -1,0 +1,80 @@
+html {
+    height: 100vh;
+        height: 100svh;
+    overflow: hidden;
+    width: 100vw;
+    }
+body {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    justify-content: stretch;
+    overflow: hidden;
+    width: 100%;
+    }
+.body {
+    flex-shrink: 0;
+    }
+#diff {
+    border: 0;
+    white-space: nowrap;
+}
+#diff .tools > * {
+    margin-bottom: 1em;
+    }
+#diff .ruleActions {
+    border: 0;
+    box-sizing: border-box;
+    display: inline-block;
+    padding: 0;
+    text-align: center;
+    vertical-align: top;
+    width: 50%;
+    white-space: nowrap;
+    }
+#diff .ruleActions .fieldset-header {
+    margin: 0.5em 0;
+    }
+
+#ruleFilter {
+    align-items: center;
+    background-color: var(--surface-2);
+    direction: ltr;
+    display: flex;
+    justify-content: center;
+    padding: 0.5em 0;
+    }
+#ruleFilter #diffCollapse {
+    padding: 0 0.5em;
+    font-size: 150%;
+    }
+#ruleFilter #diffCollapse.active {
+    transform: scale(1, -1);
+    }
+
+.codeMirrorContainer {
+    flex-grow: 1;
+    }
+.codeMirrorContainer .CodeMirror {
+    background-color: var(--surface-1);
+    }
+.CodeMirror-merge, .CodeMirror-merge-pane, .CodeMirror-merge .CodeMirror {
+    box-sizing: border-box;
+    height: 100%;
+    }
+body.editing .CodeMirror-merge-copy,
+body.editing .CodeMirror-merge-copy-reverse {
+    display: none;
+    }
+body.editing .CodeMirror-merge-editor .CodeMirror {
+    background-color: var(--surface-0);
+    }
+body[dir="rtl"] .CodeMirror-merge-pane-rightmost {
+    right: unset;
+    left: 0;
+}
+
+/* mobile devices */
+:root.mobile #diff .tools {
+    overflow: auto;
+    }

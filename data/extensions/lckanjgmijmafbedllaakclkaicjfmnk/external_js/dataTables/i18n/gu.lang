@@ -1,0 +1,23 @@
+{
+	"sEmptyTable":     "કોષ્ટકમાં કોઈ ડેટા ઉપલબ્ધ નથી",
+	"sInfo":           "કુલ_પ્રવેશો_અંત_પ્રારંભ_દર્શાવે_છે",
+	"sInfoEmpty":      "0 પ્રવેશો 0 0 બતાવી રહ્યું છે",
+	"sInfoFiltered":   "(_MAX_ કુલ પ્રવેશો માંથી ફિલ્ટર)",
+	"sInfoPostFix":    "",
+	"sInfoThousands":  ",",
+	"sLengthMenu":     "બતાવો _MENU_ પ્રવેશો",
+	"sLoadingRecords": "લોડ કરી રહ્યું છે ...",
+	"sProcessing":     "પ્રક્રિયા ...",
+	"sSearch":         "શોધો:",
+	"sZeroRecords":    "કોઈ મેળ ખાતા રેકોર્ડ મળી",
+	"oPaginate": {
+		"sFirst":      "પ્રથમ",
+		"sLast":       "અંતિમ",
+		"sNext":       "આગામી",
+		"sPrevious":   "ગત"
+	},
+	"oAria": {
+		"sSortAscending":  ": સ્તંભ ચડતા ક્રમમાં ગોઠવવા માટે સક્રિય",
+		"sSortDescending": ": કૉલમ ઉતરતા ક્રમમાં ગોઠવવા માટે સક્રિય"
+	}
+}

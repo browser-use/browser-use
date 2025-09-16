@@ -1,0 +1,23 @@
+{
+    "sEmptyTable": "పట్టికలో డేటా లేదు.",
+    "sInfo": "మొత్తం _TOTAL_ ఎంట్రీలులో _START_ నుండి _END_ వరకు చూపిస్తున్నాం",
+    "sInfoEmpty": "చూపిస్తున్నాం 0 నుండి 0 వరకు 0 ఎంట్రీలు లో",
+    "sInfoFiltered": "( _MAX_ ఎంట్రీలులో నుండి వడపోయాబడినవి)",
+    "sInfoPostFix": "",
+    "sInfoThousands": ",",
+    "sLengthMenu": " _MENU_ ఎంట్రీలు చూపించు",
+    "sLoadingRecords": "లోడ్ అవుతుంది ...",
+    "sProcessing": "ప్రాసెస్ చేయబడుతుంది...",
+    "sSearch": "వెతుకు:",
+    "sZeroRecords": "మ్యాచింగ్ రికార్డులు లేవు",
+    "oPaginate": {
+        "sFirst": "మొదటి",
+        "sLast": "చివరి",
+        "sNext": "తర్వాత",
+        "sPrevious": "మునుపటి"
+    },
+    "oAria": {
+        "sSortAscending": ": నిలువరుసను ఆరోహణ క్రమం అమర్చండి",
+        "sSortDescending": ": నిలువరుసను అవరోహణ క్రమం అమర్చండి"
+    }
+}

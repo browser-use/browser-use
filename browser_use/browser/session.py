@@ -330,6 +330,7 @@ class BrowserSession(BaseModel):
 	_cached_browser_state_summary: Any = PrivateAttr(default=None)
 	_cached_selector_map: dict[int, EnhancedDOMTreeNode] = PrivateAttr(default_factory=dict)
 	_downloaded_files: list[str] = PrivateAttr(default_factory=list)  # Track files downloaded during this session
+	_last_navigation_url: str | None = PrivateAttr(default=None)
 
 	# Watchdogs
 	_crash_watchdog: Any | None = PrivateAttr(default=None)
@@ -653,6 +654,7 @@ class BrowserSession(BaseModel):
 			await self.event_bus.dispatch(
 				AgentFocusChangedEvent(target_id=target_id, url=event.url)
 			)  # do not await! AgentFocusChangedEvent calls SwitchTabEvent and it will deadlock, dispatch to enqueue and return
+			self._last_navigation_url = event.url
 
 			# Note: These should be handled by dedicated watchdogs:
 			# - Security checks (security_watchdog)
@@ -745,6 +747,8 @@ class BrowserSession(BaseModel):
 	async def on_AgentFocusChangedEvent(self, event: AgentFocusChangedEvent) -> None:
 		"""Handle agent focus change - update focus and clear cache."""
 		self.logger.debug(f'🔄 AgentFocusChangedEvent received: target_id=...{event.target_id[-4:]} url={event.url}')
+		if event.url:
+			self._last_navigation_url = event.url
 
 		# Clear cached DOM state since focus changed
 		# self.logger.debug('🔄 Clearing DOM cache...')
@@ -1495,6 +1499,19 @@ class BrowserSession(BaseModel):
 		event = self.event_bus.dispatch(NavigateToUrlEvent(url=url, new_tab=new_tab))
 		await event
 		await event.event_result(raise_if_any=True, raise_if_none=False)
+
+	async def wait_for_page_idle(self) -> None:
+		"""Pause until the current page has had time to settle after a navigation."""
+		if not self.agent_focus:
+			return
+
+		minimum_wait = self.browser_profile.minimum_wait_page_load_time or 0.0
+		if minimum_wait > 0:
+			await asyncio.sleep(minimum_wait)
+
+		network_idle_wait = self.browser_profile.wait_for_network_idle_page_load_time or 0.0
+		if network_idle_wait > 0:
+			await asyncio.sleep(network_idle_wait)
 
 	# ========== DOM Helper Methods ==========
 

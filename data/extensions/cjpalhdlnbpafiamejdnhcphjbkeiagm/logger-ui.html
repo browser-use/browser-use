@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=560, initial-scale=1">
+<meta name="color-scheme" content="light dark" />
+<link rel="stylesheet" href="css/themes/default.css">
+<link rel="stylesheet" href="css/common.css">
+<link rel="stylesheet" href="css/fa-icons.css">
+<link rel="stylesheet" href="css/logger-ui.css">
+<link rel="stylesheet" href="css/logger-ui-inspector.css">
+<link rel="icon" type="image/png" href="img/icon_64.png">
+<title data-i18n="statsPageName"></title>
+<style id="vwRendererRuntimeStyles"></style>
+</head>
+<body>
+
+<div class="permatoolbar">
+    <div>
+        <select id="pageSelector">
+            <option value="0" data-i18n="logAll">
+            <option value="-1" data-i18n="logBehindTheScene">
+            <option value="_" data-i18n="loggerCurrentTab">
+        </select>&ensp;
+        <button id="refresh" class="iconified notext disabled needdom" data-i18n-title="loggerReloadTip" type="button"><span class="fa-icon">refresh</span><span class="hover"></span></button>
+        <button id="showdom" class="iconified notext disabled needdom" data-i18n-title="loggerDomInspectorTip" type="button"><span class="fa-icon">code</span><span class="hover"></span></button>
+        <button id="showpopup" class="iconified notext disabled needdom" data-i18n-title="loggerPopupPanelTip" type="button"><span class="fa-icon"><svg><use href="/img/ublock-defs.svg#ubo-solid"></use></svg></span><span class="hover"></span></button>
+    </div>
+    <div>
+        <button class="logConsole iconified notext" title="Show/hide console" type="button"><span class="fa-icon">terminal</span><span class="hover"></span></button>
+    </div>
+    <div>
+        <a class="wikilink fa-icon" href="https://github.com/gorhill/uBlock/wiki/The-logger" target="_blank" data-i18n-title="loggerInfoTip">book</a>
+    </div>
+</div>
+
+<div id="inspectors">
+    <div id="domInspector" class="inspector hCompact">
+        <div class="permatoolbar">
+            <div>
+                <button class="iconified notext vExpandToggler"><span class="fa-icon">double-angle-up</span><span class="hover"></span></button>
+                <button class="iconified notext vCompactToggler"><span class="fa-icon">double-angle-up</span><span class="hover"></span></button>
+                <button class="iconified notext hCompactToggler"><span class="fa-icon">double-angle-left</span><span class="hover"></span></button>
+                <button class="iconified notext revert disabled"><span class="fa-icon">eraser</span><span class="hover"></span></button>
+                <button class="iconified notext commit disabled"><span class="fa-icon">floppy-o</span><span class="hover"></span></button>
+            </div>
+        </div>
+        <div class="vscrollable">
+            <ul id="domTree"></ul>
+        </div>
+    </div>
+    <div id="netInspector" class="inspector f">
+        <div class="permatoolbar">
+            <div>
+                <button class="iconified notext vCompactToggler"><span class="fa-icon">double-angle-up</span><span class="hover"></span></button>
+                <button id="clean" class="iconified notext disabled"><span class="fa-icon">times</span><span class="hover"></span></button>
+                <button id="clear" class="iconified notext disabled" data-i18n-title="loggerClearTip"><span class="fa-icon">eraser</span><span class="hover"></span></button>
+                <button id="pause" class="iconified notext"><span class="fa-icon" data-i18n-title="loggerPauseTip">pause-circle-o</span><span class="fa-icon" data-i18n-title="loggerUnpauseTip">play-circle-o</span><span class="hover"></span></button>&ensp;
+                <span id="filterExprGroup">
+                    <button id="filterButton" class="iconified notext" data-i18n-title="loggerRowFiltererButtonTip"><span class="fa-icon">filter</span><span class="hover"></span></button>
+                    <span id="filterInput">
+                        <input type="search" placeholder="logFilterPrompt" spellcheck="false">
+                        <span id="filterExprButton" class="button fa-icon expanded" data-i18n-title="loggerRowFiltererBuiltinTip">angle-up</span>
+                        <div id="filterExprPicker">
+                            <div><span data-filtex="!" data-i18n="loggerRowFiltererBuiltinNot"></span><span data-filtex="\x1F--\x1F|\x1F<<\x1F|\x1F##" data-i18n="loggerRowFiltererBuiltinBlocked"></span><span data-filtex="\x1F\+\+\x1F|\x1F\*\*\x1F|\x1F#@#" data-i18n="loggerRowFiltererBuiltinAllowed"></span><span data-filtex="[$,](?:csp|permissions|removeparam|redirect-rule|replace|urlskip|ur[il]transform)=|\x1F\<\<\x1F" data-i18n="loggerRowFiltererBuiltinModified"></span></div>
+                            <div><span data-filtex="!" data-i18n="loggerRowFiltererBuiltinNot"></span>
+                                <span style="flex-direction: column;">
+                                    <div><span data-filtex="\x1F(?:css|(?:inline-)?font)\x1F">css/font</span><span data-filtex="\x1Fimage\x1F">image</span><span data-filtex="\x1Fmedia\x1F">media</span><span data-filtex="\x1F(?:inline-)?script(?:ing)?\x1F">script</span></div>
+                                    <div><span data-filtex="\x1F(?:websocket|xhr)\x1F">xhr</span><span data-filtex="\x1F(?:frame|object)\x1F">frame</span><span data-filtex="\x1F(?:dom|g(?:eneric)?hide|s(?:pecific)?hide)\x1F">dom</span><span data-filtex="\x1F(?:scriptlet)\x1F">scriptlet</span><span data-filtex="\x1F(?:beacon|csp_report|doc|ping|popup|popunder|other)\x1F">other</span></div>
+                                </span>
+                            </div>
+                            <div><span data-filtex="!" data-i18n="loggerRowFiltererBuiltinNot"></span><span data-filtex="\x1F(?:0,)?1\x1F" data-i18n="loggerRowFiltererBuiltin1p"></span><span data-filtex="\x1F(?:3(?:,\d)?|0,3)\x1F" data-i18n="loggerRowFiltererBuiltin3p"></span><span data-filtex="\x1F0,\d\x1F">tabless</span></div>
+                            <div><span data-filtex="!" data-i18n="loggerRowFiltererBuiltinNot"></span><span data-filtex="\x1Fget\x1F">get</span><span data-filtex="\x1Fhead\x1F">head</span><span data-filtex="\x1Fpost\x1F">post</span></div>
+                            <div><span data-filtex="!" data-i18n="loggerRowFiltererBuiltinNot" class="on"></span>
+                                <span style="flex-direction: column;">
+                                    <span data-filtex="\bcsp=[^\x1F]+\x1F(?:--|\+\+)\x1F">csp</span><span data-filtex="\bpermissions=[^\x1F]+\x1F(?:--|\+\+)\x1F" class="on">permissions</span><span data-filtex="\bredirect-rule=[^\x1F]+\x1F(?:--|\+\+)\x1F">redirect</span><span data-filtex="\bremoveparam=[^\x1F]+\x1F(?:--|\+\+)\x1F">removeparam</span><span data-filtex="\breplace=[^\x1F]+\x1F(?:--|\+\+)\x1F">replace</span><span data-filtex="\burlskip=[^\x1F]+\x1F(?:--|\+\+)\x1F">urlskip</span>
+                                </span>
+                            </div>
+                            <div id="filterExprCnameOf" style="display:none"><span data-filtex="!" data-i18n="loggerRowFiltererBuiltinNot"></span><span data-filtex="\x1FaliasURL=.">CNAME</span></div>
+                            <div><span data-filtex="!" data-i18n="loggerRowFiltererBuiltinNot"></span>
+                                <span style="flex-direction: column;">
+                                    <div><span data-filtex="\x1Finfo\x1F">info</span><span data-filtex="\x1Ferror\x1F">error</span></div>
+                                </span>
+                            </div>
+                        </div>
+                    </span>
+                </span>
+            </div>
+            <div>
+                <button id="loggerStats" class="iconified notext" style="display: none;"><span class="fa-icon">bar-chart</span><span class="hover"></span></button>
+                <button id="loggerExport" class="iconified notext"><span class="fa-icon">clipboard</span><span class="hover"></span></button>
+                <button id="loggerSettings" class="iconified notext"><span class="fa-icon">cog</span><span class="hover"></span></button>
+            </div>
+        </div>
+        <div class="vscrollable">
+            <div id="vwRenderer">
+                <div id="vwScroller">
+                    <div id="vwVirtualContent">
+                        <div id="vwContent"></div>
+                    </div>
+                </div>
+                <div id="vwLineSizer">
+                    <div class="logEntry oneLine"><div class="fields"><span>00:00:00</span><span>&nbsp;</span><span>**</span><span>&nbsp;</span><span>3,3</span><span>options</span><span>inline-script</span><span>&nbsp;</span></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="entryTools inspector"></div>
+    <div id="infoInspector" class="inspector">
+        <div class="permatoolbar">
+            <div>
+                <button id="clearConsole" class="iconified notext"><span class="fa-icon">eraser</span><span class="hover"></span></button>
+                <button id="logLevel" class="iconified notext" title="Toggle verbose mode" type="button"><span class="fa-icon">volume-up</span><span class="hover"></span></button>&ensp;
+                <input type="search" placeholder="Filter output" spellcheck="false">
+            </div>
+        </div>
+        <div class="vscrollable">
+        </div>
+    </div>
+    <iframe id="popupContainer"></iframe>
+</div>
+
+<div id="modalOverlay">
+    <div>
+        <div class="closeButton"><svg viewBox="0 0 64 64"><path d="M 16 16 L 48 48 M 16 48 L 48 16" /></svg></div>
+        <div id="modalOverlayContainer"></div>
+    </div>
+</div>
+
+<div id="templates" style="display: none;">
+    <div id="logEntryTemplate"><div class="fields"><span></span>&#8203;<span></span>&#8203;<span></span>&#8203;<span></span>&#8203;<span></span>&#8203;<span></span>&#8203;<span></span>&#8203;<span></span></div></div>
+
+    <div class="netFilteringDialog" data-pane="details">
+        <div class="hide preview"><span>click to preview</span></div>
+        <div class="headers">
+            <span>
+                <span class="header details" data-pane="details" data-i18n="loggerEntryDetailsHeader"></span>
+                <span class="header dynamic" data-pane="dynamic" data-i18n="loggerURLFilteringHeader"></span>
+                <span class="header static" data-pane="static" data-i18n="loggerStaticFilteringHeader"></span>
+            </span>
+            <span class="tools"><span class="fa-icon picker">eye-dropper</span><span class="fa-icon reload">refresh</span></span>
+            <span class="closeButton"><svg viewBox="0 0 64 64"><path d="M 16 16 L 48 48 M 16 48 L 48 16" /></span>
+        </div>
+        <div class="panes">
+            <div class="pane details" data-pane="details">
+                <div><span data-i18n="loggerEntryDetailsFilter"></span><span></span><span class="exceptor" style="visibility: collapse"></span></div>
+                <div><span data-i18n="loggerEntryDetailsFilterList"></span><span class="prose"></span></div>
+                <div><span data-i18n="loggerEntryDetailsRule"></span><span></span></div>
+                <div><span data-i18n="loggerEntryDetailsRootContext"></span><span></span></div>
+                <div><span data-i18n="loggerEntryDetailsContext"></span><span></span></div>
+                <div><span data-i18n="loggerEntryDetailsPartyness"></span><span class="prose"></span></div>
+                <div><span data-i18n="loggerEntryDetailsType"></span><span></span></div>
+                <div><span data-i18n="loggerEntryDetailsURL"></span><span></span></div>
+                <div><span>CNAME</span><span></span></div>
+                <div><span>Original URL</span><span></span></div>
+            </div>
+            <div class="pane dynamic" data-pane="dynamic">
+                <div class="toolbar row">
+                    <span><span id="saveRules" class="fa-icon">lock</span></span>
+                    <span>
+                        <label><span data-i18n="loggerURLFilteringContextLabel"></span> <select class="dynamic origin"></select></label>&emsp;
+                        <label><span data-i18n="loggerURLFilteringTypeLabel"></span> <select class="dynamic type"><option><option value="*">*</select></label>
+                    </span>
+                    <div class="entry row">
+                        <span class="action"><span class="allow">&nbsp;</span><span class="noop">&nbsp;</span><span class="block">&nbsp;</span></span>
+                        <span class="url"></span>
+                    </div>
+                </div>
+                <div class="entries"></div>
+            </div>
+            <div class="pane static" data-pane="static">
+                <div></div>
+                <div><textarea class="staticFilter" spellcheck="false"></textarea>
+                   <button id="createStaticFilter" class="preferred" type="button" data-i18n="pickerCreate">_<span class="hover"></span></button>
+               </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="filterFinderDialog">
+    </div>
+
+    <div id="filterFinderListEntry">
+        <span class="listEntry"><!--
+         --><a href="asset-viewer.html?url=" target="_blank"></a>&nbsp;<!--
+         --><a href="#" class="fa-icon" target="_blank">home</a><!--
+     --></span>
+    </div>
+
+    <div id="cosmeticFilteringDialog" class="modalDialog">
+        <textarea class="cosmeticFilters"></textarea>
+        <button id="createCosmeticFilters" class="preferred" type="button" data-i18n="pickerCreate"></button>
+    </div>
+
+    <div id="loggerStatsDialog">
+        <div class="sortedEntries"></div>
+    </div>
+
+    <div id="loggerExportDialog">
+        <div class="options">
+            <div data-radio="format">
+                <span data-i18n="loggerExportFormatList" data-radio-item="list"></span>
+                <span data-i18n="loggerExportFormatTable" data-radio-item="table"></span>
+            </div>
+            <div data-radio="encoding">
+                <span data-i18n="loggerExportEncodePlain" data-radio-item="plain"></span>
+                <span data-i18n="loggerExportEncodeMarkdown" data-radio-item="markdown"></span>
+            </div>
+            <div>
+                <span data-i18n="genericCopyToClipboard" class="pushbutton"></span>
+            </div>
+        </div>
+        <textarea class="output" readonly spellcheck="false"></textarea>
+    </div>
+
+    <div id="loggerSettingsDialog">
+        <div><span data-i18n="loggerSettingDiscardPrompt"></span>
+            <ul>
+            <li><label><span data-i18n="loggerSettingPerEntryMaxAge"><input type="number" min="0" max="50000" step="15" /></span></label>
+            <li><label><span data-i18n="loggerSettingPerTabMaxLoads"><input type="number" min="0" max="1000000" /></span></label>
+            <li><label><span data-i18n="loggerSettingPerTabMaxEntries"><input type="number" min="0" max="1000000" step="100" /></span></label>
+            </ul>
+        </div>
+        <div><span data-i18n="loggerSettingHideColumnsPrompt"></span>
+            <ul>
+            <li><label data-i18n="loggerSettingHideColumnTime"><span class="input checkbox"><input type="checkbox" data-column="0" /><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span></label>
+            <li><label data-i18n="loggerSettingHideColumnFilter"><span class="input checkbox"><input type="checkbox" data-column="1" /><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span></label>
+            <li><label data-i18n="loggerSettingHideColumnContext"><span class="input checkbox"><input type="checkbox" data-column="3" /><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span></label>
+            <li><label data-i18n="loggerSettingHideColumnPartyness"><span class="input checkbox"><input type="checkbox" data-column="4" /><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span></label>
+            </ul>
+        </div>
+        <div><label><span data-i18n="loggerSettingPerEntryLineCount"><input type="number" min="2" max="6"></span></label></div>
+    </div>
+
+</div>
+
+<script src="lib/hsluv/hsluv-0.1.0.min.js"></script>
+
+<script src="js/fa-icons.js" type="module"></script>
+<script src="js/vapi.js"></script>
+<script src="js/vapi-common.js"></script>
+<script src="js/vapi-client.js"></script>
+<script src="js/theme.js" type="module"></script>
+<script src="js/i18n.js" type="module"></script>
+<script src="js/logger-ui.js" type="module"></script>
+<script src="js/logger-ui-inspector.js" type="module"></script>
+
+</body>
+</html>

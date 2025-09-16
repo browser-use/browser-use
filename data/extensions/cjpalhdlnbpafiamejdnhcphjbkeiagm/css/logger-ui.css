@@ -1,0 +1,1019 @@
+body {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+        height: 100svh;
+    overflow-y: hidden;
+    width: 100vw;
+    }
+textarea {
+    box-sizing: border-box;
+    direction: ltr;
+    min-height: 6rem;
+    resize: vertical;
+    width: 100%;
+    }
+.permatoolbar {
+    background-color: var(--surface-1);
+    border: 0;
+    box-sizing: border-box;
+    display: flex;
+    flex-shrink: 0;
+    font-size: 120%;
+    justify-content: space-between;
+    margin: 0;
+    padding: 0.25em;
+    }
+.permatoolbar > div {
+    display: flex;
+    }
+.permatoolbar button.iconified {
+    padding-left: var(--default-gap-xsmall);
+    padding-right: var(--default-gap-xsmall);
+    }
+.permatoolbar button.active {
+    fill: rgb(var(--primary-50));
+    }
+.permatoolbar button > .fa-icon {
+    font-size: 180%;
+    }
+#pageSelector {
+    min-width: 10em;
+    padding: 0.25em 0;
+    width: 50vw;
+    }
+#showpopup {
+    display: inline-flex;
+    align-items: center;
+    }
+#showpopup img {
+    filter: grayscale(100%);
+    height: auto;
+    width: 1em;
+    }
+#info {
+    fill: #ccc;
+    }
+#info:hover {
+    fill: #000;
+    }
+
+/*
+    https://github.com/gorhill/uBlock/issues/3293
+    => https://devhints.io/css-system-font-stack
+*/
+#inspectors {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    flex-wrap: nowrap;
+    font-family: "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+    overflow: hidden;
+    position: relative;
+    }
+.inspector {
+    border-top: 1px solid var(--border-4);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    }
+.inspector .permatoolbar {
+    border-bottom: 1px solid var(--border-1);
+    }
+.vscrollable {
+    direction: ltr;
+    flex-grow: 1;
+    font-size: var(--font-size-smaller);
+    height: 1px; /* necessary for proper space allocation by flex boxes */
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+#domInspector button.vExpandToggler > .fa-icon {
+    transform: scaleY(1)
+    }
+.inspector:not(.vExpanded) button.vCompactToggler > .fa-icon {
+    transform: scaleY(-1)
+    }
+.hCompact button.hCompactToggler > .fa-icon {
+    transform: scaleX(-1)
+    }
+
+#inspectors.dom #netInspector {
+    display: none;
+    }
+
+#netInspector #pause > .fa-icon[data-i18n-title="loggerUnpauseTip"] {
+    display: none;
+}
+#netInspector.paused #pause > .fa-icon[data-i18n-title="loggerPauseTip"] {
+    display: none;
+}
+#netInspector.paused #pause > .fa-icon[data-i18n-title="loggerUnpauseTip"] {
+    display: inline-flex;
+    fill: #5F9EA0;
+}
+#netInspector #filterExprGroup {
+    display: flex;
+    position: relative;
+    }
+#netInspector #filterButton {
+    opacity: 0.25;
+    }
+#netInspector.f #filterButton {
+    opacity: 1;
+    }
+#netInspector #filterInput {
+    border: 1px solid gray;
+    display: inline-flex;
+    }
+#netInspector #filterInput > input {
+    border: 0;
+    min-width: 16em;
+    }
+#netInspector #filterExprButton {
+    transform: scaleY(-1);
+    }
+#netInspector #filterExprButton:hover {
+    background-color: transparent;
+    }
+#netInspector #filterExprButton.expanded {
+    transform: scaleY(1);
+    }
+#netInspector #filterExprPicker {
+    background-color: var(--surface-0);
+    border: 1px solid gray;
+    display: none;
+    position: absolute;
+    flex-direction: column;
+    font-size: small;
+    top: 100%;
+    z-index: 100;
+    }
+body[dir="ltr"] #netInspector #filterExprPicker {
+    right: 0;
+    }
+body[dir="rtl"] #netInspector #filterExprPicker {
+    left: 0;
+    }
+
+#netInspector #filterExprGroup:hover #filterExprButton.expanded ~ #filterExprPicker {
+    display: flex;
+    }
+#netInspector #filterExprPicker > div {
+    border: 1px dotted #ddd;
+    border-left: 0;
+    border-right: 0;
+    display: flex;
+    padding: 0.5em;
+    }
+#netInspector #filterExprPicker > div:first-of-type {
+    border-top: 0;
+    }
+#netInspector #filterExprPicker > div:last-of-type {
+    border-bottom: 0;
+    }
+#netInspector #filterExprPicker div {
+    display: flex;
+    }
+#netInspector #filterExprPicker span[data-filtex] {
+    align-items: center;
+    border: 1px solid transparent;
+    cursor: pointer;
+    display: inline-flex;
+    margin: 0 0.5em 0 0;
+    padding: 0.25em;
+    white-space: nowrap;
+    }
+#netInspector #filterExprPicker span[data-filtex]:last-of-type {
+    margin: 0;
+    }
+#netInspector #filterExprPicker span[data-filtex]:hover {
+    background-color: rgb(var(--primary-70) / 25%);
+    border: 1px solid rgb(var(--primary-70));
+    }
+#netInspector #filterExprPicker span.on[data-filtex],
+#filterExprButton.active {
+    background-color: rgb(var(--primary-70) / 40%);
+    }
+#netInspector #filterExprPicker span.on[data-filtex] {
+    border: 1px solid rgb(var(--primary-70));
+    }
+
+#netInspector .vscrollable {
+    overflow: hidden;
+    }
+#vwRenderer {
+    box-sizing: border-box;
+    height: 100%;
+    overflow: hidden;
+    position: relative;
+    width: 100%;
+    }
+#vwRenderer #vwScroller {
+    height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    position: absolute;
+    width: 100%;
+    }
+#vwRenderer #vwScroller #vwVirtualContent {
+    overflow: hidden;
+    }
+#vwRenderer #vwContent {
+    left: 0;
+    overflow: hidden;
+    position: absolute;
+    width: 100%;
+    }
+#vwRenderer .logEntry {
+    background-color: var(--surface-1);
+    display: block;
+    left: 0;
+    overflow: hidden;
+    position: absolute;
+    width: 100%;
+    }
+#vwRenderer .logEntry:empty {
+    display: none;
+    }
+#vwRenderer .logEntry > div {
+    border-bottom: 1px dotted var(--border-1);
+    box-sizing: border-box;
+    display: flex;
+    height: 100%;
+    max-height: 200px;
+    white-space: nowrap;
+    }
+#vwRenderer .logEntry > div[data-status="1"],
+.netFilteringDialog > .panes > .details > div[data-status="1"] {
+    background-color: rgb(var(--popup-cell-block-surface-rgb) / 50%);
+    }
+#vwRenderer .logEntry > div[data-status="1"][data-modifier],
+.netFilteringDialog > .panes > .details > div[data-status="1"][data-modifier] {
+    background-color: var(--logger-modified-surface);
+    }
+#vwRenderer .logEntry > div[data-status="3"] {
+    background-color: rgba(108, 108, 108, 0.1);
+    }
+:root.colorBlind #vwRenderer .logEntry > div[data-status="3"] {
+    background-color: rgba(96, 96, 96, 0.1);
+    }
+#vwRenderer .logEntry > div[data-status="2"],
+.netFilteringDialog > .panes > .details > div[data-status="2"] {
+    background-color: rgb(var(--popup-cell-allow-surface-rgb) / 50%);
+    }
+#vwRenderer .logEntry > div[data-tabid="-1"] {
+    text-shadow: 0 0.2em 0.4em #aaa;
+    }
+#vwRenderer .logEntry > div.extendedRealm,
+#vwRenderer .logEntry > div.redirect {
+    background-color: var(--logger-redirected-surface);
+    }
+#vwRenderer .logEntry > div.extendedRealm.scriptlet {
+    background-color: var(--logger-scriptlet-surface);
+    }
+:root.colorBlind #vwRenderer .logEntry > div.extendedRealm,
+:root.colorBlind #vwRenderer .logEntry > div.redirect {
+    background-color: rgba(0, 19, 110, 0.1);
+    }
+#vwRenderer .logEntry > div[data-aliasid] {
+    color: var(--popup-cell-cname-ink);
+    }
+#vwRenderer .logEntry > div[data-type="tabLoad"] {
+    background-color: #666;
+    color: white;
+    }
+#vwRenderer .logEntry > div[data-type="error"] {
+    color: var(--cm-negative);
+    }
+#vwRenderer .logEntry > div[data-type="info"] {
+    color: var(--sf-def-ink);
+    }
+#vwRenderer .logEntry > div.voided {
+    opacity: 0.5;
+    }
+#vwRenderer .logEntry > div.voided:hover {
+    opacity: 0.7;
+    }
+
+#vwRenderer .logEntry > .fields > span {
+    border-left: 1px dotted var(--border-1);
+    box-sizing: border-box;
+    display: inline-block;
+    height: 100%;
+    overflow: hidden;
+    padding: 2px;
+    vertical-align: middle;
+    white-space: nowrap;
+    word-break: break-all;
+    }
+#vwRenderer .logEntry > div:hover > span {
+    background-color: rgba(0,0,0,0.04);
+    }
+body[dir="ltr"] #vwRenderer .logEntry > .fields > span:first-child {
+    border-left: 0;
+    }
+body[dir="rtl"] #vwRenderer .logEntry > .fields > span:first-child {
+    border-right: 0;
+    }
+#vwRenderer .logEntry > div > span:nth-of-type(1) {
+    }
+#vwRenderer .logEntry > div > span:nth-of-type(2) {
+    }
+#vwRenderer .logEntry > .fields > span:nth-of-type(2) {
+    text-overflow: ellipsis;
+    }
+#vwRenderer .logEntry > .fields.messageRealm > span:nth-of-type(2) ~ span {
+    display: none;
+    }
+.vExpanded #vwRenderer #vwContent .logEntry > .fields > span:nth-of-type(2) {
+    overflow-y: auto;
+    white-space: pre-line;
+    }
+#vwRenderer .logEntry > .fields.messageRealm[data-type="tabLoad"] > span:nth-of-type(2) {
+    text-align: center;
+    }
+#vwRenderer .logEntry > .fields.extendedRealm > span:nth-of-type(2) > span:first-of-type {
+    display: none;
+    }
+#vwRenderer .logEntry > .fields.extendedRealm.isException > span:nth-of-type(2) > span:last-of-type {
+    text-decoration: line-through rgba(0,0,255,0.7);
+    }
+#vwRenderer .logEntry > .fields > span:nth-of-type(3) {
+    font-family: monospace;
+    padding-left: 0.3em;
+    padding-right: 0.3em;
+    text-align: center;
+    }
+#netInspector:not(.vExpanded) #vwRenderer .logEntry > .fields > span:nth-of-type(4) {
+    text-align: right;
+    }
+#vwRenderer #vwContent .logEntry > .fields > span:nth-of-type(4) {
+    text-overflow: ellipsis;
+    }
+.vExpanded #vwRenderer #vwContent .logEntry > .fields > span:nth-of-type(4) {
+    overflow-y: auto;
+    text-overflow: clip;
+    white-space: pre-line;
+    }
+#vwRenderer .logEntry > .fields > span:nth-of-type(5) {
+    text-align: center;
+    }
+#vwRenderer .logEntry > .fields > span:nth-of-type(3),
+#vwRenderer .logEntry > .fields > span:nth-of-type(5),
+#vwRenderer .logEntry > .fields > span:nth-of-type(7) {
+    white-space: nowrap !important;
+    }
+#vwRenderer .logEntry > .fields > span:nth-of-type(8) {
+    position: relative;
+    }
+#vwRenderer #vwContent .logEntry > .fields > span:nth-of-type(8) {
+    text-overflow: ellipsis;
+    }
+.vExpanded #vwRenderer #vwContent .logEntry > .fields > span:nth-of-type(8) {
+    overflow-y: auto;
+    white-space: pre-line;
+    }
+#vwRenderer .logEntry > .fields > span:nth-of-type(8) b {
+    font-weight: bold;
+    }
+#vwRenderer .logEntry > div[data-status="1"] > span:nth-of-type(8) b,
+.netFilteringDialog > .panes > .details > div[data-status="1"] b {
+    background-color: rgb(var(--popup-cell-block-surface-rgb) / 100%);
+    }
+#vwRenderer .logEntry > div[data-status="1"][data-modifier] > span:nth-of-type(8) b,
+.netFilteringDialog > .panes > .details > div[data-status="1"][data-modifier] b {
+    background-color: var(--logger-modified-em-surface);
+    }
+#vwRenderer .logEntry > div[data-status="3"] > span:nth-of-type(8) b {
+    background-color: rgba(108, 108, 108, 0.2);
+    }
+:root.colorBlind #vwRenderer .logEntry > div[data-status="3"] > span:nth-of-type(8) b {
+    background-color: rgba(96, 96, 96, 0.2);
+    }
+#vwRenderer .logEntry > div[data-status="2"] > span:nth-of-type(8) b,
+.netFilteringDialog > .panes > .details > div[data-status="2"] b {
+    background-color: rgb(var(--popup-cell-allow-surface-rgb) / 100%);
+    }
+#vwRenderer .logEntry > .fields > span:nth-of-type(8) a {
+    align-items: center;
+    background-color: dimgray;
+    color: white;
+    display: none;
+    height: min(100%, 1.5em);
+    justify-content: center;
+    padding: 0.1em;
+    opacity: 0.4;
+    position: absolute;
+    right: 0;
+    text-decoration: none;
+    top: 0;
+    width: 1.5em;
+    }
+#netInspector.vExpanded #vwRenderer .logEntry > .fields > span:nth-of-type(8) a {
+    bottom: 0px;
+    height: unset;
+    padding: 0.2em;
+    top: unset;
+    }
+#vwRenderer .logEntry > .fields > span:nth-of-type(8) a::after {
+    content: '\2197';
+    }
+#vwRenderer .logEntry > .fields.networkRealm > span:nth-of-type(8):hover a {
+    display: inline-flex;
+    }
+#vwRenderer .logEntry > .fields > span:nth-of-type(8) a:hover {
+    opacity: 1;
+    }
+
+@keyframes unrollRow {
+    to {
+        box-shadow: 0 2px 3px 0 #444;
+        height: auto;
+        max-height: 200px;
+        z-index: 1;
+    }
+}
+@keyframes unrollRowCell {
+    to {
+        height: auto;
+        overflow-y: auto;
+        white-space: pre-wrap;
+    }
+}
+#netInspector:not(.vExpanded) #vwRenderer .logEntry:hover {
+    animation-delay: 0.8s;
+    animation-fill-mode: forwards;
+    animation-name: unrollRow;
+    animation-timing-function: step-start;
+    }
+#netInspector:not(.vExpanded) #vwRenderer .logEntry:hover > .fields > span {
+    animation-delay: 0.8s;
+    animation-fill-mode: forwards;
+    animation-name: unrollRowCell;
+    animation-timing-function: step-start;
+    }
+
+#vwRenderer #vwBottom {
+    background-color: #00F;
+    height: 0;
+    overflow: hidden;
+    width: 100%;
+    }
+#vwRenderer #vwLineSizer {
+    left: 0;
+    pointer-events: none;
+    position: absolute;
+    top: 0;
+    visibility: hidden;
+    width: 100%;
+    }
+
+#inspectors .entryTools {
+    background-color: var(--surface-0);
+    flex-basis: 50%;
+    }
+#inspectors .entryTools:empty {
+    display: none;
+    }
+
+.closeButton {
+    stroke: var(--ink-1);
+    stroke-width: 3px;
+    width: 1.6em;
+    height: 1.6em;
+    bottom: calc(100% + 2px);
+    }
+body[dir="ltr"] .closeButton {
+    right: 0;
+    }
+body[dir="rtl"] .closeButton {
+    left: 0;
+    }
+.closeButton:hover {
+    background-color: var(--surface-2) !important;
+    }
+.closeButton > * {
+    pointer-events: none;
+    }
+
+#inspectors #infoInspector {
+    flex-basis: 200%;
+    }
+#inspectors:not(.console) #infoInspector {
+    display: none;
+    }
+#inspectors #infoInspector .vscrollable {
+    font-family: monospace;
+    font-size: small;
+    }
+#inspectors #infoInspector .vscrollable > div {
+    border-bottom: 1px dotted gray;
+    padding: 0.2em;
+    white-space: pre-wrap;
+    word-break: break-all;
+    }
+#inspectors #infoInspector .vscrollable > div:first-of-type {
+    }
+#inspectors #infoInspector .vscrollable > div[data-type="error"] {
+    color: var(--cm-negative);
+    }
+
+#popupContainer {
+    background-color: var(--surface-1);
+    border: 1px solid gray;
+    bottom: 0;
+    display: none;
+    max-height: min(800px, calc(100vh - 2rem));
+        max-height: min(800px, calc(100svh - 2rem));
+    min-width: 360px;
+    overflow: hidden;
+    position: fixed;
+    right: 0;
+    z-index: 200;
+    }
+#inspectors.popupOn #popupContainer {
+    display: block;
+    }
+
+#modalOverlay {
+    align-items: center;
+    background-color: rgba(0, 0, 0, 0.5);
+    border: 0;
+    bottom: 0;
+    display: none;
+    justify-content: center;
+    left: 0;
+    margin: 0;
+    position: fixed;
+    right: 0;
+    top: 0;
+    z-index: 400;
+    }
+#modalOverlay.on {
+    display: flex;
+    }
+#modalOverlay > div {
+    position: relative;
+    }
+#modalOverlay .closeButton {
+    background-color: var(--surface-1);
+    position: absolute;
+    }
+
+#modalOverlayContainer {
+    background-color: var(--surface-1);
+    border: 0;
+    box-sizing: border-box;
+    padding: 1em;
+    max-height: 90vh;
+    overflow-y: auto;
+    width: 90vw;
+    }
+
+.netFilteringDialog {
+    font-size: var(--font-size-smaller);
+    }
+.netFilteringDialog a {
+    text-decoration: none;
+    }
+.netFilteringDialog select {
+    max-width: 50vw;
+    outline: none;
+    text-overflow: ellipsis;
+}
+.netFilteringDialog > .preview {
+    align-items: center;
+    /* http://lea.verou.me/css3patterns/ */
+    background-color: #aaa;
+    background-image:
+        linear-gradient(
+            45deg,
+            #666 25%,
+            transparent 25%,
+            transparent 75%,
+            #666 75%,
+            #666
+        ),
+        linear-gradient(
+            45deg,
+            #666 25%,
+            transparent 25%,
+            transparent 75%,
+            #666 75%,
+            #666
+        );
+    background-position:0 0, 9px 9px;
+    background-size: 18px 18px;
+    display: flex;
+    justify-content: center;
+    margin-bottom: 1em;
+    padding: 0.5em;
+    text-align: center;
+    }
+.netFilteringDialog > .preview > * {
+    max-width: 100%;
+    max-height: 20vh;
+    }
+.netFilteringDialog > .preview > span {
+    background-color: var(--surface-3);
+    cursor: pointer;
+    padding: 1em;
+    }
+
+.netFilteringDialog > .headers {
+    align-items: center;
+    border-bottom: 1px solid var(--border-4);
+    display: flex;
+    justify-content: space-between;
+    line-height: 2;
+    }
+.netFilteringDialog > .headers .header {
+    border: 1px solid var(--border-2);
+    border-bottom: 1px solid var(--border-4);
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    color: var(--border-2);
+    cursor: pointer;
+    display: inline-block;
+    margin-inline-end: 4px;
+    padding: 0 1em;
+    position: relative;
+    top: 1px;
+    }
+.netFilteringDialog[data-pane="details"] > .headers [data-pane="details"],
+.netFilteringDialog[data-pane="dynamic"] > .headers [data-pane="dynamic"],
+.netFilteringDialog[data-pane="static"] > .headers [data-pane="static"] {
+    background-color: var(--surface-0);
+    border-color: var(--border-4);
+    border-bottom: 1px solid transparent;
+    color: var(--ink-1);
+    }
+.netFilteringDialog > .headers > .tools {
+    bottom: 0;
+    display: flex;
+    height: 100%;
+    margin-inline-start: 2rem;
+    }
+.netFilteringDialog > .headers > .tools > span {
+    color: var(--ink-3);
+        fill: var(--ink-3);
+    cursor: pointer;
+    font-size: 1.5em;
+    padding: 0 0.25em;
+    text-align: center;
+    }
+.netFilteringDialog > .headers > .tools > span:hover {
+    color: var(--ink-1);
+        fill: var(--ink-1);
+    }
+.netFilteringDialog.extendedRealm > .headers .dynamic,
+.netFilteringDialog.extendedRealm > .panes > .dynamic {
+    display: none;
+    }
+.netFilteringDialog.extendedRealm > .headers .static,
+.netFilteringDialog.extendedRealm > .panes > .static {
+    display: none;
+    }
+.netFilteringDialog > div.panes {
+    overflow: hidden;
+    overflow-y: auto;
+    padding-top: 1em;
+    }
+.netFilteringDialog > div.panes > div {
+    display: none;
+    }
+.netFilteringDialog[data-pane="details"] > .panes > [data-pane="details"],
+.netFilteringDialog[data-pane="dynamic"] > .panes > [data-pane="dynamic"],
+.netFilteringDialog[data-pane="static"] > .panes > [data-pane="static"] {
+    display: flex;
+    flex-direction: column;
+    padding: 0 var(--default-gap-xsmall) var(--default-gap-xsmall) var(--default-gap-xsmall);
+    }
+.netFilteringDialog > .panes > .details > div {
+    align-items: stretch;
+    background-color: var(--surface-2);
+    border: 0;
+    border-bottom: 1px solid var(--surface-0);
+    display: flex;
+    }
+.netFilteringDialog > .panes > .details > div > span {
+    padding: 0.5em;
+    }
+.netFilteringDialog > .panes > .details > div > span:nth-of-type(1) {
+    border: 0;
+    flex-grow: 0;
+    flex-shrink: 0;
+    text-align: right;
+    width: 8em;
+    }
+body[dir="ltr"] .netFilteringDialog > .panes > .details > div > span:nth-of-type(1) {
+    border-right: 1px solid var(--surface-0);
+    }
+body[dir="rtl"] .netFilteringDialog > .panes > .details > div > span:nth-of-type(1) {
+    border-left: 1px solid var(--surface-0);
+    }
+.netFilteringDialog > .panes > .details > div > span:nth-of-type(2) {
+    flex-grow: 1;
+    max-height: 10vh;
+    overflow: hidden auto;
+    white-space: pre-line
+    }
+.netFilteringDialog > .panes > .details > div > span:nth-of-type(2):not(.prose) {
+    word-break: break-all;
+    }
+.netFilteringDialog > .panes > .details > div > span:nth-of-type(2) .listEntry {
+    display: inline-flex;
+    }
+.netFilteringDialog > .panes > .details > div > span:nth-of-type(2) .fa-icon {
+    font-size: 110%;
+    opacity: 0.5;
+    }
+.netFilteringDialog > .panes > .details > div > span:nth-of-type(2) .fa-icon:hover {
+    opacity: 1;
+    }
+.netFilteringDialog > .panes > .details .exceptor {
+    align-items: center;
+    border-left: 1px solid var(--surface-0);
+    cursor: pointer;
+    display: inline-flex;
+    font-family: monospace;
+    opacity: 0.8;
+    }
+.netFilteringDialog > .panes > .details .exceptor:hover {
+    opacity: 1;
+    }
+.netFilteringDialog > .panes > .details .exceptored .filter {
+    text-decoration: line-through;
+    }
+.netFilteringDialog > .panes > .details .exceptored .exceptor {
+    background-color: rgb(var(--primary-50) / 50%);
+    }
+.netFilteringDialog > .panes > .details .exceptor::before {
+    content: '@@';
+    }
+.netFilteringDialog.extendedRealm > .panes > .details .exceptor::before {
+    content: '#@#';
+    }
+.netFilteringDialog > div.panes > .dynamic > .toolbar {
+    padding-bottom: 1em;
+    }
+.netFilteringDialog > div.panes > .dynamic .row {
+    display: flex;
+    min-height: 2.2em;
+    }
+.netFilteringDialog > div.panes > .dynamic .row > span:nth-of-type(1) {
+    align-self: stretch;
+    border: 0;
+    display: inline-flex;
+    flex-grow: 0;
+    flex-shrink: 0;
+    text-align: center;
+    width: 4.5em;
+    }
+body[dir="ltr"] .netFilteringDialog > div.panes > .dynamic .row > span:nth-of-type(1) {
+    border-right: 1px solid var(--surface-0);
+    }
+body[dir="rtl"] .netFilteringDialog > div.panes > .dynamic .row > span:nth-of-type(1) {
+    border-left: 1px solid var(--surface-0);
+    }
+.netFilteringDialog > div.panes > .dynamic .row > span:nth-of-type(2) {
+    align-self: center;
+    padding: 0 0.5em;
+    }
+.netFilteringDialog > div.panes > .dynamic > .toolbar #saveRules {
+    background-color: #ffe;
+    border: 1px solid #ddc;
+    border-radius: 4px;
+    fill: #888;
+    cursor: pointer;
+    font-size: 2em;
+    visibility: hidden;
+    width: 100%;
+    }
+body.dirty .netFilteringDialog > div.panes > .dynamic > .toolbar #saveRules {
+    visibility: visible;
+    }
+.netFilteringDialog > div.panes > .dynamic > .toolbar #saveRules:hover {
+    fill: black;
+    }
+.netFilteringDialog > div.panes > .dynamic > .toolbar .entry {
+    display: none;
+    }
+.netFilteringDialog > div.panes > .dynamic .entry {
+    background-color: var(--surface-2);
+    border: 0;
+    border-bottom: 1px solid var(--surface-0);
+    }
+.netFilteringDialog > div.panes > .dynamic .entry:hover {
+    background-color: var(--surface-3);
+    }
+.netFilteringDialog > div.panes > .dynamic .entry > .action {
+    background-color: transparent;
+    border: 0;
+    cursor: pointer;
+    }
+.netFilteringDialog > div.panes > .dynamic .entry > .action > span {
+    background-color: transparent;
+    border: 0;
+    display: inline-block;
+    height: 100%;
+    opacity: 0.2;
+    visibility: hidden;
+    width: 33.33%;
+    }
+.netFilteringDialog > div.panes > .dynamic .entry > .action.allow {
+    background-color: rgba(0, 160, 0, 0.3);
+    }
+:root.colorBlind .netFilteringDialog > div.panes > .dynamic .entry > .action.allow {
+    background-color: rgba(255, 194, 57, 0.4);
+    }
+.netFilteringDialog > div.panes > .dynamic .entry > .action.noop {
+    background-color: rgba(108, 108, 108, 0.3);
+    }
+:root.colorBlind .netFilteringDialog > div.panes > .dynamic .entry > .action.noop {
+    background-color: rgba(96, 96, 96, 0.4);
+    }
+.netFilteringDialog > div.panes > .dynamic .entry > .action.block {
+    background-color: rgba(192, 0, 0, 0.3);
+    }
+:root.colorBlind .netFilteringDialog > div.panes > .dynamic .entry > .action.block {
+    background-color: rgba(0, 19, 110, 0.4);
+    }
+.netFilteringDialog > div.panes > .dynamic .entry > .action.own.allow {
+    background-color: rgba(0, 160, 0, 1);
+    }
+:root.colorBlind .netFilteringDialog > div.panes > .dynamic .entry > .action.own.allow {
+    background-color: rgba(255, 194, 57, 1);
+    }
+.netFilteringDialog > div.panes > .dynamic .entry > .action.own.noop,
+:root.colorBlind .netFilteringDialog > div.panes > .dynamic .entry > .action.own.noop {
+    background-color: rgba(108, 108, 108, 1);
+    }
+.netFilteringDialog > div.panes > .dynamic .entry > .action.own.block {
+    background-color: rgba(192, 0, 0, 1);
+    }
+:root.colorBlind .netFilteringDialog > div.panes > .dynamic .entry > .action.own.block {
+    background-color: rgba(0, 19, 110, 1);
+    }
+.netFilteringDialog > div.panes > .dynamic .entry > .action:not(.own):hover > span {
+    opacity: 0.2;
+    visibility: visible;
+    }
+.netFilteringDialog > div.panes > .dynamic .entry > .action:not(.own):hover > span:hover {
+    opacity: 0.75;
+    }
+.netFilteringDialog > div.panes > .dynamic .entry > .action > .allow {
+    background-color: rgb(0, 160, 0);
+    }
+:root.colorBlind  .netFilteringDialog > div.panes > .dynamic .entry > .action > .allow {
+    background-color: rgb(255, 194, 57);
+    }
+.netFilteringDialog > div.panes > .dynamic .entry > .action > .noop {
+    background-color: rgb(108, 108, 108);
+    }
+.netFilteringDialog > div.panes > .dynamic .entry > .action > .block {
+    background-color: rgb(192, 0, 0);
+    }
+:root.colorBlind  .netFilteringDialog > div.panes > .dynamic .entry > .action > .block {
+    background-color: rgb(0, 19, 110);
+    }
+.netFilteringDialog > div.panes > .dynamic .entry > .url {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    }
+.netFilteringDialog > div.panes > div.static > div {
+    line-height: 2;
+    }
+.netFilteringDialog > div.panes > div.static textarea {
+    height: 6em;
+    word-break: break-all;
+    }
+.netFilteringDialog > div.panes > div.static > div:nth-of-type(2) {
+    text-align: center;
+    }
+
+#filterFinderDialog {
+    word-break: break-all;
+    }
+#filterFinderDialog code {
+    background: #eee;
+    font-size: 85%;
+    padding: 3px;
+    unicode-bidi: plaintext;
+    white-space: pre-wrap;
+    }
+#filterFinderDialog ul {
+    font-size: larger;
+    }
+#filterFinderDialog .filterFinderListEntry {
+    align-items: flex-end;
+    display: flex;
+    }
+#filterFinderDialog .filterFinderListEntry a {
+    text-decoration: none;
+    }
+#filterFinderDialog .filterFinderListEntry a.fa-icon {
+    margin: 0 0.5em;
+    opacity: 0.6;
+    }
+#filterFinderDialog .filterFinderListEntry a.fa-icon:hover {
+    opacity: 1;
+    }
+#filterFinderDialog .filterFinderListEntry a.fa-icon[href=""] {
+    display: none;
+    }
+#filterFinderDialog > *:first-child {
+    margin-top: 0;
+    }
+#filterFinderDialog > *:last-child {
+    margin-bottom: 0;
+    }
+
+#loggerStatsDialog .sortedEntries {
+    display: flex;
+    flex-direction: column;
+    font-size: smaller;
+    }
+#loggerStatsDialog .sortedEntries > div {
+    display: flex;
+    }
+#loggerStatsDialog .sortedEntries > div > span:first-of-type {
+    flex-grow: 0;
+    flex-shrink: 0;
+    padding: 0 2em 0 0;
+    text-align: right;
+    width: 3em;
+    }
+#loggerStatsDialog .sortedEntries > div > span:last-of-type {
+    flex-grow: 1;
+    flex-shrink: 1;
+    white-space: pre;
+    }
+
+#loggerExportDialog {
+    display: flex;
+    flex-direction: column;
+    }
+#loggerExportDialog .options {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 1em;
+    }
+#loggerExportDialog .options > div {
+    display: inline-flex;
+    }
+#loggerExportDialog .options span[data-i18n] {
+    border: 1px solid rgb(var(--primary-70));
+    cursor: pointer;
+    font-size: 90%;
+    margin: 0;
+    padding: 0.5em;
+    white-space: nowrap;
+    }
+#loggerExportDialog .options span[data-i18n]:hover {
+    background-color: rgb(var(--primary-70) / 40%);
+    }
+#loggerExportDialog .options span.on[data-i18n],
+#loggerExportDialog .options span.pushbutton:active {
+    background-color: rgb(var(--primary-70) / 40%);
+    }
+#loggerExportDialog .output {
+    font-size: small;
+    height: 80vh;
+    padding: 0.5em;
+    white-space: pre-wrap;
+    }
+
+#loggerSettingsDialog {
+    display: flex;
+    flex-direction: column;
+    }
+#loggerSettingsDialog > div {
+    padding-bottom: 1em;
+    }
+#loggerSettingsDialog > div:last-of-type {
+    padding-bottom: 0;
+    }
+#loggerSettingsDialog ul {
+    padding: 0;
+    }
+body[dir="ltr"] #loggerSettingsDialog ul {
+    padding-left: 2em;
+    }
+body[dir="rtl"] #loggerSettingsDialog ul {
+    padding-right: 2em;
+    }
+#loggerSettingsDialog li {
+    list-style-type: none;
+    margin: 0.5em 0 0 0;
+    }
+#loggerSettingsDialog input {
+    max-width: 6em;
+    }
+
+.hide {
+    display: none !important;
+    }

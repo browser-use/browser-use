@@ -1,0 +1,384 @@
+@charset "UTF-8";
+/* https://protocol.mozilla.org/assets/docs/css/protocol.css */
+@font-face {
+    font-family: Inter;
+    font-style: normal;
+    font-weight: normal;
+    src: url('fonts/Inter/Inter-Regular.woff2') format('woff2');
+}
+@font-face {
+    font-family: Inter;
+    font-style: normal;
+    font-weight: 600;
+    src: url('fonts/Inter/Inter-SemiBold.woff2') format('woff2');
+}
+@font-face {
+    font-family: Metropolis;
+    font-style: normal;
+    font-weight: normal;
+    src: url('fonts/Metropolis/Metropolis-Regular.woff2') format('woff2');
+}
+@font-face {
+    font-family: Metropolis;
+    font-style: normal;
+    font-weight: 600;
+    src: url('fonts/Metropolis/Metropolis-SemiBold.woff2') format('woff2');
+}
+
+/**
+    Common uBO spacing.
+    Ref: https://github.com/uBlockOrigin/uBlock-issues/issues/1005
+*/
+:root {
+    --default-gap-xxlarge: 40px;
+    --default-gap-xlarge: 32px;
+    --default-gap-large: 24px;
+    --default-gap: 16px;
+    --default-gap-small: 12px;
+    --default-gap-xsmall: 8px;
+    --default-gap-xxsmall: 4px;
+    --button-font-size: max(calc(var(--font-size) * 0.875), 14px);
+    }
+
+/* Common uBO styles */
+body {
+    background-color: var(--surface-1);
+    border: 0;
+    box-sizing: border-box;
+    color: var(--ink-1);
+        fill: var(--ink-1);
+    font-family: var(--font-family);
+    font-size: var(--font-size);
+    line-height: 1.5;
+    margin: 0;
+    padding: 0;
+    }
+a:not(.fa-icon) {
+    color: var(--link-ink);
+        fill: var(--link-ink);
+    }
+a:not(.fa-icon):hover {
+    color: var(--link-hover-ink);
+        fill: var(--link-hover-ink);
+    }
+code, .code {
+    background-color: var(--surface-2);
+    font-family: monospace;
+    font-size: var(--monospace-size);
+    padding: 2px 4px;
+    }
+hr {
+    border: 0;
+    border-top: 1px solid var(--surface-2);
+    margin: 1em 0;
+    }
+textarea {
+    font-size: 90%;
+    }
+button {
+    align-items: center;
+    appearance: none;
+    -moz-appearance: none;
+    -webkit-appearance: none;
+    border: var(--button-border-size) solid var(--ink-1);
+    border-radius: var(--button-border-radius);
+    background-color: var(--button-surface);
+    color: var(--button-ink);
+    display: inline-flex;
+    fill: var(--button-ink);
+    font-size: var(--button-font-size);
+    justify-content: center;
+    min-height: 36px;
+    padding: 0 var(--font-size);
+    position: relative;
+    vertical-align: middle;
+    }
+button.vflex {
+    height: 100%;
+    min-height: unset;
+    padding-bottom: 0;
+    padding-top: 0;
+    }
+button > .hover {
+    background-color: var(--elevation-up-surface);
+    border-radius: var(--button-border-radius);
+    height: 100%;
+    left: 0;
+    opacity: 0;
+    pointer-events: none;
+    position: absolute;
+    top: 0;
+    width: 100%;
+    z-index: 100;
+    }
+button:not(.disabled):not([disabled]):hover > .hover {
+    opacity: var(--elevation-up1-opacity);
+    }
+button.notext:not(.disabled):not([disabled]):hover > .hover {
+    opacity: var(--elevation-up2-opacity);
+    }
+button.active {
+    }
+button.disabled,
+button[disabled] {
+    background-color: var(--button-disabled-surface);
+    color: var(--button-ink);
+    fill: var(--button-ink);
+    filter: var(--button-disabled-filter);
+    pointer-events: none;
+    }
+button.preferred:not(.disabled):not([disabled]) {
+    background-color: var(--button-preferred-surface);
+    color: var(--button-preferred-ink);
+        fill: var(--button-preferred-ink);
+    }
+button.preferred:not(.disabled):not([disabled]):hover > .hover {
+    background-color: var(--elevation-down-surface);
+    opacity: var(--elevation-down1-opacity);
+    }
+button.iconified.notext {
+    background-color: transparent;
+    }
+button.iconified > .fa-icon {
+    font-size: 120%;
+    padding-left: 0;
+    padding-right: 0;
+    }
+button.iconified > .fa-icon + [data-i18n] {
+    padding-right: 0;
+    padding-left: 0.4em;
+    }
+body[dir="rtl"] button.iconified > .fa-icon + [data-i18n] {
+    padding-right: 0.4em;
+    padding-left: 0;
+    }
+label {
+    align-items: center;
+    display: inline-flex;
+    position: relative;
+    }
+section.notice {
+    background-color: var(--notice-surface);
+    box-shadow: var(--notice-surface-shadow);
+    color: var(--notice-ink);
+    }
+:root:not(.classic) section.notice a {
+    color: var(--surface-2);
+    }
+
+/**
+    Checkbox design borrowed from:
+    - https://material.io/components/selection-controls
+    Motivation:
+    - To comply with design suggestions to make uBO comply with
+      Firefox Preview design guidelines.
+    - To have a single checkbox design across all platforms.
+*/
+.checkbox {
+    box-sizing: border-box;
+    display: inline-flex;
+    flex-shrink: 0;
+    height: var(--checkbox-size);
+    margin: 0;
+    margin-inline-end: var(--checkbox-margin-end);
+    -webkit-margin-end: var(--checkbox-margin-end);
+    position: relative;
+    width: var(--checkbox-size);
+    }
+label:hover .checkbox:not([disabled]) {
+    background-color: var(--surface-2);
+    }
+.checkbox > input[type="checkbox"] {
+    box-sizing: border-box;
+    height: 100%;
+    margin: 0;
+    min-width: var(--checkbox-size);
+    opacity: var(--native-control-opacity);
+    position: absolute;
+    width: 100%;
+    }
+.checkbox > input[type="checkbox"] + svg {
+    background-color: transparent;
+    border: 2px solid var(--checkbox-ink);
+    border-radius: 2px;
+    box-sizing: border-box;
+    fill: none;
+    height: 100%;
+    opacity: calc(1 - var(--native-control-opacity));
+    pointer-events: none;
+    position: absolute;
+    stroke: none;
+    stroke-width: 3.12px;
+    width: 100%;
+    }
+.checkbox > input[type="checkbox"]:checked + svg {
+    background-color: var(--checkbox-checked-ink);
+    border-color: var(--checkbox-checked-ink);
+    stroke: var(--surface-1);
+    }
+.checkbox[disabled],
+.checkbox[disabled] ~ span {
+    filter: var(--checkbox-disabled-filter);
+    }
+.checkbox.partial > input[type="checkbox"]:checked + svg {
+    background-color: var(--surface-1);
+    border-color: var(--checkbox-checked-ink);
+    stroke: var(--checkbox-checked-ink);
+    }
+
+.radio {
+    --margin-end: calc(var(--font-size) * 0.75);
+    box-sizing: border-box;
+    display: inline-flex;
+    flex-shrink: 0;
+    height: calc(var(--checkbox-size) + 2px);
+    margin: 0;
+    margin-inline-end: var(--margin-end);
+    -webkit-margin-end: var(--margin-end);
+    position: relative;
+    width: calc(var(--checkbox-size) + 2px);
+    }
+.radio > input[type="radio"] {
+    box-sizing: border-box;
+    height: 100%;
+    margin: 0;
+    min-width: var(--checkbox-size);
+    opacity: var(--native-control-opacity);
+    position: absolute;
+    width: 100%;
+    }
+.radio > input[type="radio"] + svg {
+    background-color: transparent;
+    box-sizing: border-box;
+    height: 100%;
+    opacity: calc(1 - var(--native-control-opacity));
+    pointer-events: none;
+    position: absolute;
+    width: 100%;
+    }
+.radio > input[type="radio"] + svg > path {
+    fill: var(--checkbox-ink);
+    }
+.radio > input[type="radio"] + svg > circle {
+    fill: transparent;
+    }
+label:hover .radio > input[type="radio"]:not(:checked) + svg > circle {
+    fill: var(--surface-3);
+    }
+.radio > input[type="radio"]:checked + svg > path,
+.radio > input[type="radio"]:checked + svg > circle {
+    fill: var(--checkbox-checked-ink);
+    }
+
+select {
+    padding: 2px;
+    }
+
+.searchfield {
+    align-items: center;
+    column-gap: var(--default-gap-xxsmall);
+    display: inline-flex;
+    position: relative;
+    }
+.searchfield .fa-icon {
+    color: var(--ink-4);
+        fill: var(--ink-4);
+    font-size: 1em !important;
+    left: 2px;
+    position: absolute;
+    transform: none;
+    }
+.searchfield input:not(:placeholder-shown) ~ .fa-icon {
+    display: none;
+    }
+
+.hidden {
+    display: none;
+    height: 0;
+    visibility: hidden;
+    width: 0;
+    }
+.subtil {
+    color: var(--subtil-ink);
+    cursor: default;
+    opacity: 66%;
+    }
+.fieldset {
+    margin: var(--font-size);
+    }
+.fieldset-header {
+    color: var(--fieldset-header-ink);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    }
+.ul {
+    margin: 1em 0;
+    }
+.li {
+    align-items: center;
+    display: flex;
+    margin: calc(var(--font-size) * 0.75) 0;
+    }
+.liul {
+    margin: 0.5em 0;
+    margin-inline-start: 2em;
+    -webkit-margin-start: 2em;
+    }
+@media (max-width: 640px) {
+    button.iconified > .fa-icon {
+        font-size: 1.2rem;
+        padding: 0;
+        }
+    button.iconified:not(.dontshrink) > [data-i18n] {
+        display: none;
+        }
+    }
+
+.countryFlag {
+    height: var(--font-size);
+    position: relative;
+    top: calc(var(--font-size) / 7);
+    max-width: calc(var(--font-size) * 1.5);
+    }
+
+.logo {
+    align-items: center;
+    display: inline-flex;
+    padding: 0 0.5em;
+    width: 1.25em;
+    }
+.logo > img {
+    width: 100%;
+    }
+
+.wikilink[href=""] {
+    display: none;
+    }
+.wikilink.fa-icon {
+    color: var(--info0-ink);
+        fill: var(--info0-ink);
+    padding: var(--default-gap-xxsmall) var(--default-gap-xsmall);
+    }
+.wikilink.fa-icon:hover {
+    transform: scale(1.2);
+    }
+.wikilink.fa-icon > svg {
+    height: 1.25rem;
+    width: 1.25rem;
+    }
+
+/* high dpi devices */
+:root.hidpi button {
+    font-family: Metropolis, sans-serif;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    }
+:root.hidpi .fieldset-header {
+    font-family: Metropolis, sans-serif;
+    }
+
+/* touch-screen devices */
+:root.mobile label {
+    flex-grow: 1
+    }

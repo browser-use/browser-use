@@ -1,0 +1,16 @@
+<!--
+
+    The SVG definitions were imported piecemeal from:
+        checkbox:
+        - https://material.io/develop/web/components/input-controls/checkboxes/
+        
+    License:
+    - https://github.com/material-components/material-components-web/blob/master/LICENSE
+
+-->
+
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="display: none;">
+    <defs>
+    <symbol id="checkmark" viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></symbol>
+    </defs>
+</svg>

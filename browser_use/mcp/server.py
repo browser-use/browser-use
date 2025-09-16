@@ -92,6 +92,7 @@ from browser_use import ActionModel, Agent
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.config import get_default_llm, get_default_profile, load_browser_use_config
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.llm.base import BaseChatModel
 from browser_use.llm.openai.chat import ChatOpenAI
 from browser_use.tools.service import Tools
 
@@ -194,7 +195,7 @@ class BrowserUseServer:
 		self.agent: Agent | None = None
 		self.browser_session: BrowserSession | None = None
 		self.tools: Tools | None = None
-		self.llm: ChatOpenAI | None = None
+		self.llm: BaseChatModel | None = None
 		self.file_system: FileSystem | None = None
 		self._telemetry = ProductTelemetry()
 		self._start_time = time.time()
@@ -512,6 +513,187 @@ class BrowserUseServer:
 
 		return f'Unknown tool: {tool_name}'
 
+	@staticmethod
+	def _filter_dataclass_kwargs(config: dict[str, Any], cls: type[Any]) -> dict[str, Any]:
+		fields = getattr(cls, '__dataclass_fields__', {})
+		kwargs: dict[str, Any] = {}
+		for key in fields:
+			if key == 'model':
+				continue
+			if key in config and config[key] is not None:
+				kwargs[key] = config[key]
+		return kwargs
+
+	@staticmethod
+	def _infer_llm_provider(model_name: str) -> str:
+		name = (model_name or '').lower()
+		if 'claude' in name or 'anthropic' in name:
+			return 'anthropic'
+		if 'mistral' in name:
+			return 'mistral'
+		if 'gemini' in name or 'google' in name:
+			return 'google'
+		if 'deepseek' in name:
+			return 'deepseek'
+		if 'groq' in name:
+			return 'groq'
+		if 'openrouter' in name:
+			return 'openrouter'
+		if 'ollama' in name:
+			return 'ollama'
+		if 'azure' in name:
+			return 'azure'
+		if 'bedrock' in name:
+			return 'aws-bedrock'
+		return 'openai'
+
+	def _create_llm_from_config(
+		self,
+		llm_config: dict[str, Any] | None,
+		model_override: str | None = None,
+	) -> BaseChatModel:
+		config = dict(llm_config or {})
+		for meta_key in ('id', 'default', 'created_at'):
+			config.pop(meta_key, None)
+
+		if model_override is not None:
+			config['model'] = model_override
+
+		model_name = config.pop('model', None) or 'gpt-4o'
+
+		# Treat placeholder or empty API keys as absent so provider defaults/env vars can be used
+		api_key_value = config.get('api_key')
+		if isinstance(api_key_value, str) and (not api_key_value.strip() or 'your-openai-api-key-here' in api_key_value.lower()):
+			config.pop('api_key', None)
+		provider = (config.pop('provider', None) or '').strip().lower()
+		provider_aliases = {
+			'': 'openai',
+			'openai-compatible': 'openai',
+			'openai_compatible': 'openai',
+			'openai-like': 'openai',
+			'openai_like': 'openai',
+			'azure-openai': 'azure',
+			'azureopenai': 'azure',
+			'google-vertex': 'google',
+			'google_vertex': 'google',
+			'google-vertex-anthropic': 'anthropic',
+			'aws_bedrock': 'aws-bedrock',
+		}
+		provider = provider_aliases.get(provider, provider or self._infer_llm_provider(model_name))
+
+		if provider == 'openai' and 'api_key' not in config and not os.getenv('OPENAI_API_KEY'):
+			inferred_provider = self._infer_llm_provider(model_name)
+			if inferred_provider != 'openai':
+				provider = inferred_provider
+			elif os.getenv('MISTRAL_API_KEY'):
+				provider = 'mistral'
+			elif os.getenv('ANTHROPIC_API_KEY'):
+				provider = 'anthropic'
+			elif os.getenv('GOOGLE_API_KEY'):
+				provider = 'google'
+			elif os.getenv('DEEPSEEK_API_KEY'):
+				provider = 'deepseek'
+			elif os.getenv('GROQ_API_KEY'):
+				provider = 'groq'
+			elif os.getenv('NOVITA_API_KEY'):
+				provider = 'openrouter'
+
+		if provider == 'azure':
+			from browser_use.llm.azure.chat import ChatAzureOpenAI
+
+			kwargs = self._filter_dataclass_kwargs(config, ChatAzureOpenAI)
+			temp = config.get('temperature')
+			if 'temperature' in config:
+				kwargs['temperature'] = temp
+			else:
+				kwargs.setdefault('temperature', 0.7)
+			if config.get('max_tokens') is not None:
+				kwargs['max_completion_tokens'] = config['max_tokens']
+			return ChatAzureOpenAI(model=model_name, **kwargs)
+
+		if provider == 'anthropic':
+			from browser_use.llm import ChatAnthropic
+
+			kwargs = self._filter_dataclass_kwargs(config, ChatAnthropic)
+			if 'temperature' in config:
+				kwargs['temperature'] = config.get('temperature')
+			if config.get('max_tokens') is not None and 'max_tokens' not in kwargs:
+				kwargs['max_tokens'] = config['max_tokens']
+			if 'api_key' not in kwargs and config.get('api_key'):
+				kwargs['api_key'] = config['api_key']
+			return ChatAnthropic(model=model_name, **kwargs)
+
+		if provider == 'google':
+			from browser_use.llm import ChatGoogle
+
+			kwargs = self._filter_dataclass_kwargs(config, ChatGoogle)
+			if 'temperature' in config:
+				kwargs['temperature'] = config.get('temperature')
+			return ChatGoogle(model=model_name, **kwargs)
+
+		if provider == 'mistral':
+			from browser_use.llm.chat_mistral import ChatMistral
+
+			kwargs = self._filter_dataclass_kwargs(config, ChatOpenAI)
+			if 'temperature' in config:
+				kwargs['temperature'] = config.get('temperature')
+			else:
+				kwargs.setdefault('temperature', 0.7)
+			if config.get('max_tokens') is not None:
+				kwargs['max_tokens'] = config['max_tokens']
+			if config.get('base_url') is not None:
+				kwargs['base_url'] = config['base_url']
+			if config.get('api_key'):
+				kwargs['api_key'] = config['api_key']
+			return ChatMistral(model=model_name, **kwargs)
+
+		if provider == 'groq':
+			from browser_use.llm.groq.chat import ChatGroq
+
+			kwargs = self._filter_dataclass_kwargs(config, ChatGroq)
+			return ChatGroq(model=model_name, **kwargs)
+
+		if provider == 'deepseek':
+			from browser_use.llm.deepseek.chat import ChatDeepSeek
+
+			kwargs = self._filter_dataclass_kwargs(config, ChatDeepSeek)
+			return ChatDeepSeek(model=model_name, **kwargs)
+
+		if provider == 'openrouter':
+			from browser_use.llm.openrouter.chat import ChatOpenRouter
+
+			kwargs = self._filter_dataclass_kwargs(config, ChatOpenRouter)
+			return ChatOpenRouter(model=model_name, **kwargs)
+
+		if provider == 'ollama':
+			from browser_use.llm.ollama.chat import ChatOllama
+
+			kwargs = self._filter_dataclass_kwargs(config, ChatOllama)
+			return ChatOllama(model=model_name, **kwargs)
+
+		if provider == 'aws-bedrock':
+			from browser_use.llm.aws.chat_bedrock import ChatAWSBedrock
+
+			kwargs = self._filter_dataclass_kwargs(config, ChatAWSBedrock)
+			if config.get('max_tokens') is not None and 'max_tokens' not in kwargs:
+				kwargs['max_tokens'] = config['max_tokens']
+			return ChatAWSBedrock(model=model_name, **kwargs)
+
+		# Default to OpenAI-compatible models
+		kwargs = self._filter_dataclass_kwargs(config, ChatOpenAI)
+		temp = config.get('temperature')
+		if 'temperature' in config:
+			kwargs['temperature'] = temp
+		else:
+			kwargs.setdefault('temperature', 0.7)
+		api_key = kwargs.get('api_key') or config.get('api_key') or os.getenv('OPENAI_API_KEY')
+		if not api_key:
+			raise ValueError('OPENAI_API_KEY not set in config or environment')
+		kwargs['api_key'] = api_key
+		if config.get('max_tokens') is not None:
+			kwargs['max_completion_tokens'] = config['max_tokens']
+		return ChatOpenAI(model=model_name, **kwargs)
+
 	async def _init_browser_session(self, allowed_domains: list[str] | None = None, **kwargs):
 		"""Initialize browser session using config"""
 		if self.browser_session:
@@ -560,13 +742,14 @@ class BrowserUseServer:
 
 		# Initialize LLM from config
 		llm_config = get_default_llm(self.config)
-		if api_key := llm_config.get('api_key'):
-			self.llm = ChatOpenAI(
-				model=llm_config.get('model', 'gpt-4o-mini'),
-				api_key=api_key,
-				temperature=llm_config.get('temperature', 0.7),
-				# max_tokens=llm_config.get('max_tokens'),
-			)
+		try:
+			self.llm = self._create_llm_from_config(llm_config)
+		except ValueError as e:
+			logger.debug(f'LLM not initialized: {e}')
+			self.llm = None
+		except Exception as e:
+			logger.error(f'Failed to initialize LLM: {e}', exc_info=True)
+			self.llm = None
 
 		# Initialize FileSystem for extraction actions
 		file_system_path = profile_config.get('file_system_path', '~/.browser-use-mcp')
@@ -587,18 +770,17 @@ class BrowserUseServer:
 
 		# Get LLM config
 		llm_config = get_default_llm(self.config)
-		api_key = llm_config.get('api_key') or os.getenv('OPENAI_API_KEY')
-		if not api_key:
-			return 'Error: OPENAI_API_KEY not set in config or environment'
+		config_override = dict(llm_config)
+		if model is not None:
+			config_override['model'] = model
 
-		# Choose model: prefer explicit tool arg, else config default
-		llm_model = model or llm_config.get('model', 'gpt-4o')
-
-		llm = ChatOpenAI(
-			model=llm_model,
-			api_key=api_key,
-			temperature=llm_config.get('temperature', 0.7),
-		)
+		try:
+			llm = self._create_llm_from_config(config_override)
+		except ValueError as e:
+			return f'Error: {e}'
+		except Exception as e:
+			logger.error(f'Failed to initialize LLM for retry_with_browser_use_agent: {e}', exc_info=True)
+			return f'Error: Failed to initialize LLM: {e}'
 
 		# Get profile config and merge with tool parameters
 		profile_config = get_default_profile(self.config)
@@ -666,10 +848,12 @@ class BrowserUseServer:
 		if new_tab:
 			event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=url, new_tab=True))
 			await event
+			await self.browser_session.wait_for_page_idle()
 			return f'Opened new tab with URL: {url}'
 		else:
 			event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=url))
 			await event
+			await self.browser_session.wait_for_page_idle()
 			return f'Navigated to: {url}'
 
 	async def _click(self, index: int, new_tab: bool = False) -> str:

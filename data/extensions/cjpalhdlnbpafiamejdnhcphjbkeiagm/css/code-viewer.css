@@ -1,0 +1,68 @@
+body {
+    border: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+        height: 100svh;
+    margin: 0;
+    overflow: hidden;
+    padding: 0;
+    width: 100vw;
+    }
+#header {
+    background-color: var(--cm-gutter-surface);
+    border-bottom: 1px solid var(--surface-1);
+    padding: var(--default-gap-xsmall);
+    position: relative;
+    z-index: 1000000;
+    }
+#header input[type="url"] {
+    box-sizing: border-box;
+    font-size: var(--font-size-smaller);
+    width: 100%;
+    }
+#header:focus-within #pastURLs {
+    display: flex;
+    }
+#currentURL {
+    display: flex;
+    gap: 0.5rem;
+    }
+#currentURL > .fa-icon {
+    padding: 0 0.5rem;
+    }
+#currentURL > .fa-icon:hover {
+    background-color: var(--surface-3);
+    }
+#pastURLs {
+    background-color: var(--surface-0);
+    border: 1px solid var(--border-1);
+    display: none;
+    flex-direction: column;
+    font-size: var(--font-size-smaller);
+    position: absolute;
+    }
+#pastURLs > span {
+    cursor: pointer;
+    overflow: hidden;
+    padding: 2px 4px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    width: 75vw;
+    }
+#pastURLs > span.selected {
+    font-weight: bold;
+    }
+#pastURLs > span:hover {
+    background-color: var(--surface-1);
+    }
+#content {
+    flex-grow: 1;
+    }
+
+.cm-href {
+    cursor: pointer;
+    }
+.cm-href:hover {
+    text-decoration: underline;
+    }

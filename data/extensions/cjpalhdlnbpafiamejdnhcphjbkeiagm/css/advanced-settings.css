@@ -1,0 +1,27 @@
+html {
+    height: 100vh;
+        height: 100svh;
+    overflow: hidden;
+    width: 100vw;
+    }
+body {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    justify-content: stretch;
+    overflow: hidden;
+    width: 100%;
+    }
+.body {
+    flex-shrink: 0;
+    }
+.codeMirrorContainer {
+    flex-grow: 1;
+    }
+#advancedSettings {
+    border: var(--default-gap-xxsmall) solid var(--surface-2);
+    text-align: left;
+    }
+.CodeMirror-wrap pre {
+    word-break: break-all;
+    }

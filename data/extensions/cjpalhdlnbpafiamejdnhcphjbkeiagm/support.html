@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark" />
+<title>uBlock Origin — Support</title>
+
+<link rel="stylesheet" href="lib/codemirror/lib/codemirror.css">
+
+<link rel="stylesheet" href="css/themes/default.css">
+<link rel="stylesheet" href="css/common.css">
+<link rel="stylesheet" href="css/dashboard-common.css">
+<link rel="stylesheet" href="css/fa-icons.css">
+<link rel="stylesheet" href="css/support.css">
+<link rel="stylesheet" href="css/codemirror.css">
+<link rel="icon" type="image/png" href="img/icon_64.png">
+</head>
+
+<body>
+
+<div class="body">
+    <div class="a">
+        <h3 data-i18n="supportS1H"></h3>
+        <div class="supportEntry">
+            <div>
+                <p data-i18n="supportS1P1">
+            </div>
+            <button type="button" data-url="https://github.com/gorhill/uBlock/wiki" data-i18n="supportOpenButton">_<span class="hover"></span></button>
+        </div>
+        <hr>
+    </div>
+    <div class="b">
+        <h3 data-i18n="supportS2H"></h3>
+        <div class="supportEntry">
+            <div>
+                <p data-i18n="supportS2P1">
+            </div>
+            <button type="button" data-url="https://www.reddit.com/r/uBlockOrigin/" data-i18n="supportOpenButton">_<span class="hover"></span></button>
+        </div>
+        <hr>
+    </div>
+    <div class="c">
+        <h3 data-i18n="supportS3H"></h3>
+        <div class="supportEntry">
+            <div>
+                <p data-i18n="supportS3P1">
+                <p data-i18n="supportS3P2">
+                <p data-i18n="supportS3P3">
+            </div>
+            <button id="filterReport" type="button" data-url="https://github.com/uBlockOrigin/uAssets/issues/new?template=report_from_ubo.yml" data-i18n="supportOpenButton">_<span class="hover"></span></button>
+        </div>
+        <hr>
+    </div>
+    <div class="d">
+        <h3 data-i18n="supportS4H"></h3>
+        <div class="supportEntry">
+            <div>
+                <p data-i18n="supportS4P1">
+            </div>
+            <button id="bugReport" type="button" data-url="https://github.com/uBlockOrigin/uBlock-issues/issues/new?template=bug_report_from_ubo.yml" data-i18n="supportOpenButton">_<span class="hover"></span></button>
+        </div>
+        <hr>
+    </div>
+    <div class="e">
+        <h3 data-i18n="supportS6H"></h3>
+        <p data-i18n="supportS3P1"></p>
+        <div class="supportEntry shouldUpdate">
+            <hr>
+            <p data-i18n="supportS6P2S1">_</p>
+            <button type="button" class="iconified"><span class="fa-icon">refresh</span><span data-i18n="3pUpdateNow">_</span><span class="hover"></span></button>
+            <u class="updated" data-i18n="supportS6P2S2">_</u>
+        </div>
+        <div class="supportEntry">
+            <hr>
+            <p data-i18n="supportS6P1S1"></p>
+            <button type="button" data-i18n="supportFindSpecificButton">_<span class="hover"></span></button>
+        </div>
+        <div class="supportEntry createEntry">
+            <hr>
+            <p>
+                <label data-i18n="supportS6URL"></label><br>
+                <select name="url">
+                    <option></option>
+                </select>
+            </p>
+            <p>
+                <label data-i18n="supportS6Select1"></label><br>
+                <select name="type">
+                    <option value="[unknown]" data-i18n="supportS6Select1Option0" selected disabled></option>
+                    <option value="ads" data-i18n="supportS6Select1Option1"></option>
+                    <option value="detection" data-i18n="supportS6Select1Option3"></option>
+                    <option value="popups" data-i18n="supportS6Select1Option6"></option>
+                    <option value="nuisance" data-i18n="supportS6Select1Option2"></option>
+                    <option value="breakage" data-i18n="supportS6Select1Option5"></option>
+                    <option value="privacy" data-i18n="supportS6Select1Option4"></option>
+                    <option value="badware" data-i18n="supportS6Select1Option7"></option>
+                </select>
+            </p>
+            <p>
+                <label><span class="input checkbox"><input id="isNSFW" type="checkbox"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span data-i18n="supportS6Checkbox1"></span></label>
+            </p>
+            <button type="button" data-i18n="supportReportSpecificButton" class="preferred">_<span class="hover"></span></button>
+        </div>
+        <hr>
+        <h3 id="showSupportInfo" class="subtil" data-i18n="supportS5H">_<span>&nbsp;&#x25b8;</span></h3>
+    </div>
+    <div class="a b c d">
+        <h3 data-i18n="supportS5H"></h3>
+        <p data-i18n="supportS5P1">
+        <p>
+            <button id="selectAllButton" type="button" data-i18n="genericSelectAll">_<span class="hover"></span></button>
+            <button id="moreButton" type="button" data-i18n="popupMoreButton_v2" data-url="/devtools.html">_<span class="hover"></span></button>
+        <div id="supportData" class="codeMirrorContainer"></div>
+    </div>
+</div>
+
+<script src="lib/codemirror/lib/codemirror.js"></script>
+<script src="lib/codemirror/addon/selection/active-line.js"></script>
+<script src="lib/hsluv/hsluv-0.1.0.min.js"></script>
+
+<script src="js/fa-icons.js" type="module"></script>
+<script src="js/vapi.js"></script>
+<script src="js/vapi-common.js"></script>
+<script src="js/vapi-client.js"></script>
+<script src="js/theme.js" type="module"></script>
+<script src="js/i18n.js" type="module"></script>
+<script src="js/dashboard-common.js" type="module"></script>
+<script src="js/support.js" type="module"></script>
+
+</body>
+</html>

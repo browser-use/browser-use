@@ -1,0 +1,120 @@
+html, body {
+    background-color: var(--surface-0);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+        height: 100svh;
+    justify-content: stretch;
+    overflow: hidden;
+    position: relative;
+    width: 100vw;
+    }
+body.notReady {
+    display: none;
+    }
+#dashboard-nav {
+    align-items: center;
+    background-color: var(--surface-1);
+    border: 0;
+    border-bottom: 1px solid var(--border-1);
+    display: flex;
+    flex-shrink: 0;
+    justify-content: space-between;
+    overflow-x: hidden;
+    padding: 0;
+    position: sticky;
+    top: 0;
+    width: 100%;
+    z-index: 10;
+    }
+#dashboard-nav > span {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    }
+.tabButton {
+    background-color: transparent;
+    border: 0;
+    border-bottom: 3px solid transparent;
+    border-radius: 0;
+    color: var(--dashboard-tab-ink);
+        fill: var(--dashboard-tab-ink);
+    font-family: var(--font-family);
+    font-size: var(--font-size);
+    padding: 0.7em 1.4em calc(0.7em - 3px);
+    text-decoration: none;
+    white-space: nowrap;
+    }
+.tabButton:focus {
+    outline: 0;
+    }
+/* 
+ * TODO: support keyboard-driven navigation
+ * 
+.tabButton:not(:active):focus {
+    background-color: var(--dashboard-tab-focus-surface);
+    }
+ */
+.tabButton.selected {
+    background-color: var(--dashboard-tab-active-surface);
+    border-bottom: 3px solid var(--dashboard-tab-active-ink);
+    color: var(--dashboard-tab-active-ink);
+        fill: var(--dashboard-tab-active-ink);
+    }
+iframe {
+    background-color: transparent;
+    border: 0;
+    flex-grow: 1;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    }
+#unsavedWarning {
+    display: none;
+    left: 0;
+    position: absolute;
+    width: 100%;
+    z-index: 20;
+    }
+#unsavedWarning.on {
+    display: initial;
+    }
+#unsavedWarning > div:first-of-type {
+    padding: 0.5em;
+    }
+#unsavedWarning > div:last-of-type {
+    height: 100vh;
+        height: 100svh;
+    position: absolute;
+    width: 100vw;
+    }
+
+body .tabButton[data-pane="no-dashboard.html"] {
+    display: none;
+    }
+body.noDashboard #dashboard-nav {
+    display: none;
+    }
+
+/* high dpi devices */
+:root.hidpi .tabButton {
+    font-family: Metropolis, sans-serif;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    }
+
+/* hover-able devices */
+:root.desktop .tabButton {
+    cursor: default;
+    }
+:root.desktop .tabButton:not(.selected) {
+    cursor: pointer;
+    }
+:root.desktop .tabButton:not(.selected):hover {
+    background-color: var(--dashboard-tab-hover-surface);
+    border-bottom-color: var(--dashboard-tab-hover-border);
+    }
+
+:root.mobile #dashboard-nav .logo {
+    display: none;
+    }

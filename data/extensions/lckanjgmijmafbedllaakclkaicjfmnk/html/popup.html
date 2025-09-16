@@ -1,0 +1,165 @@
+<!--
+ClearURLs
+Copyright (c) 2017-2020 Kevin Röbert
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Lesser General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>ClearURLs</title>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="../css/bootstrap.min.css">
+    <link rel="stylesheet" type="text/css" href="../css/switchButtons.css">
+    <link rel="stylesheet" type="text/css" href="../css/core.css">
+</head>
+<body>
+        <div class="container-fluid"
+        style="min-width: 200px">
+        <div class="row">
+            <nav class="col-sm-12 navbar-margin navbar navbar-dark bg-dark">
+                <div class="container">
+                        <span class="navbar-brand">
+                            <span class="float-left"><img src="../img/clearurls.svg"
+                                width="30" height="30" alt=""></span>
+                                <span style="color: #FF7800;" class="float-right brand">
+                                    ClearURLs
+                                </span><br />
+                                <span class="badge badge-warning float-left small-version"
+                                id="version"></span>
+                        </span>
+                        <a id="donate" target="_blank" href="https://www.paypal.me/KevinRoebert">
+                            <i class="float-right fas fa-hand-holding-usd"></i>
+                        </a>
+                        </div>
+                </nav>
+            </div>
+
+            <div class="row" id="references_section">
+                <div class="col-sm-4 offset-sm-4 text-center">
+                    <a id="cleaning_tools" target="_blank"><span class="fas fa-tools" style="font-size: 1.5em; margin-right: 1em;"></span></a>
+                    <a id="settings" target="_blank"><span class="fas fa-cog" style="font-size: 1.5em"></span></a>
+                </div>
+            </div>
+
+            <div class="row" id="config_section">
+                <div class="col-sm-4 offset-sm-4">
+                    <h5><b id="configs_head"></b></h5>
+                    <label class="switch">
+                        <input type="checkbox" id="globalStatus">
+                        <span class="slider round"></span>
+                        <label id="configs_switch_filter"></label>
+                    </label>
+                    <br>
+                    <label class="switch">
+                        <input type="checkbox" id="logging">
+                        <span class="slider round"></span>
+                        <label id="configs_switch_log"></label>
+                    </label>
+                    <br>
+                    <label class="switch">
+                        <input type="checkbox" id="tabcounter">
+                        <span class="slider round"></span>
+                        <label id="configs_switch_badges"></label>
+                    </label>
+                    <br>
+                    <label class="switch">
+                        <input type="checkbox" id="statistics">
+                        <span class="slider round"></span>
+                        <label id="configs_switch_statistics"></label>
+                    </label>
+                    <div class="clearfix"></div>
+                    <br />
+                </div>
+            </div>
+
+            <div class="row" id="statistic_section">
+                <div class="col-sm-4 offset-sm-4">
+                    <h5><b id="statistics_head"></b></h5>
+
+                    <div class="progress">
+                        <div class="progress-bar bg-danger progress-bar-striped"
+                        role="progressbar" style="width: 0%" id="progress_blocked"></div>
+                        <div class="progress-bar bg-info progress-bar-striped"
+                        role="progressbar" style="width: 100%" id="progress_non_blocked"></div>
+                    </div>
+                    <br>
+                    <div>
+                        <span class="float-left" id="statistics_elements"></span>
+                        <span class="float-right text-info"
+                        id="statistics_total_elements"></span>
+                        <div class="clearfix"></div>
+                    </div>
+
+                    <div>
+                        <span class="float-left" id="statistics_blocked"></span>
+                        <span class="float-right text-danger"
+                        id="statistics_value"></span>
+                        <div class="clearfix"></div>
+                    </div>
+
+                    <div>
+                        <span class="float-left" id="statistics_percentage"></span>
+                        <span class="float-right text-success"
+                        id="statistics_value_global_percentage"></span>
+                        <div class="clearfix"></div>
+                    </div>
+                    <br />
+                    <div class="text-center">
+                        <button type="button" id="reset_counter_btn"
+                        class="btn btn-danger btn-sm text-wrap">
+                    </button>
+                    <div class="clearfix"></div>
+                    <br />
+                </div>
+            </div>
+        </div>
+
+        <div class="row" id="status_section">
+            <div class="col-sm-4 offset-sm-4">
+                <h5><b id="rules_status_head"></b></h5>
+                <div class="text-center">
+                    <a href="https://gitlab.com/ClearURLs/rules/-/commits/master/data.min.json"
+                    id="hashStatus" class="btn btn-primary btn-sm text-wrap" target="_blank"></a>
+                </div>
+                <div class="clearfix"></div>
+                <br />
+            </div>
+        </div>
+        <br />
+        <div class="row" id="log_section">
+            <div class="col-sm-4 offset-sm-4">
+                <div class="text-center">
+                    <a id="loggingPage" target="_blank"
+                    class="btn btn-default btn-sm btn-block text-wrap"></a>
+                </div>
+            </div>
+        </div>
+        <br />
+    </div>
+
+    <!-- Optional JavaScript -->
+    <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+    <script type="application/javascript" src="../browser-polyfill.js"></script>
+    <script src="../external_js/fontawesome/all.min.js"></script>
+    <script src="../core_js/popup.js"></script>
+    <script src="../core_js/write_version.js"></script>
+</body>
+</html>

@@ -1,0 +1,68 @@
+body {
+  -moz-user-select: none;
+  user-select: none;
+  font: 14px/18px Arial, Helvetica, sans-serif;
+  background: #e8e8e8;
+  padding: 0;
+  margin: 0;
+}
+
+a[id] {
+  display: block;
+  cursor: pointer;
+  text-decoration: none;
+  color: #000;
+  padding: 4px;
+  border-top: 1px dashed #888;
+}
+a[id]:hover {
+  background-color: #ccc;
+}
+#toggle,
+#report {
+  display: none;
+}
+#refresh {
+  display: none;
+  text-align: center;
+  font-size: 200%;
+  padding: 10px;
+  font-weight: bold;
+  color: #cc4223;
+}
+
+.menu {
+  text-align: left;
+  padding: 10px 0;
+  word-wrap: break-word;
+}
+
+.menu-hidden {
+  display: none !important;
+}
+
+h3 {
+  margin-top: 0px;
+}
+
+#report_issue_type,
+label[id*="issue_description"] {
+  margin-bottom: 5px;
+}
+
+label[id*="issue_description"] {
+  color: rgb(43, 43, 43);
+  font-style: italic;
+  display: none;
+}
+
+label#general_issue_description {
+  display: block;
+}
+
+#report-notes {
+  height: 70px;
+  min-width: 100%;
+  max-width: 100%;
+  margin-bottom: 5px;
+}

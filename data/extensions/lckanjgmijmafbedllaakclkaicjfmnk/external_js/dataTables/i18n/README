@@ -1,0 +1,426 @@
+/**
+* Albanian translation
+*  @name Albanian
+*  @anchor Albanian
+*  @author Besnik Belegu
+*/
+/**
+* Afrikaans translation
+*  @name Afrikaans
+*  @anchor Afrikaans
+*  @author <a href="http://www.ajoft.com">Ajoft Software</a>
+*/
+/**
+* Welsh translation
+*  @name Welsh
+*  @anchor Welsh
+*  @author <a href="https://eveoh.nl/">Marco Krikke</a>
+*/
+/**
+* Vietnamese translation
+*  @name Vietnamese
+*  @anchor Vietnamese
+*  @author Trinh Phuoc Thai
+*/
+/**
+* Uzbek translation
+*  @name Uzbek
+*  @anchor Uzbek
+*  @author <a href="http://davlat.info">Farkhod Dadajanov</a>
+*/
+/**
+* Urdu translation
+*  @name Urdu
+*  @anchor Urdu
+*  @author Zafar Subzwari
+*/
+/**
+* Ukranian translation
+*  @name Ukranian
+*  @anchor Ukranian
+*  @author <i>antyrat</i>
+*/
+/**
+* Turkish translation
+*  @name Turkish
+*  @anchor Turkish
+*  @author Umit Gorkem & Erdal TAŞKESEN
+*/
+/**
+* Thai translation
+*  @name Thai
+*  @anchor Thai
+*  @author Thanva Thonglor , <a href="http://auycro.github.io/about/">Gumpanat Keardkeawfa</a>
+*/
+/**
+* Telugu translation (te, te-IN)
+*  @name Telugu
+*  @anchor Telugu
+*  @author <a href="https://in.linkedin.com/in/srinivas-rathikrindi-0405973a">Srinivas Rathikrindi</a>
+**/
+/**
+* Tamil translation
+*  @name Tamil
+*  @anchor Tamil
+*  @author Sam Arul Raj
+*/
+/**
+* Swedish translation
+* @name Swedish
+* @anchor Swedish
+* @author <a href="http://www.kmmtiming.se/">Kristoffer Karlström</a>
+*/
+/**
+* Swahili translation
+*  @name Swahili
+*  @anchor Swahili
+*  @author <a href="http://zoop.co.tz/schoolpesa/">Roy Owino</a>
+*/
+/**
+* Spanish translation
+*  @name Spanish
+*  @anchor Spanish
+*  @author Giovanni Ariza, Aristobulo Gomez and Roberto Poo
+*/
+/**
+* Slovenian translation
+*  @name Slovenian
+*  @anchor Slovenian
+*  @author Marko Kroflic, Blaž Brenčič and Andrej Florjančič
+*/
+/**
+* Slovak translation
+*  @name Slovak
+*  @anchor Slovak
+*  @author <a href="https://github.com/dlugos">Ivan Dlugoš</a>
+*  @author (original translation) <a href="http://miskerik.com/">Maroš Miškerik</a>
+*/
+/**
+* Sinhala translation
+*  @name Sinhala
+*  @anchor Sinhala
+*  @author Isuru Sampath Ratnayake
+*/
+/**
+* Serbian translation (Latin alphabet)
+*  @name Serbian (Latin)
+*  @anchor Serbian (Latin)
+*  @author <a href="http://mnovakovic.byteout.com">Marko Novakovic</a>
+*/
+/**
+* Russian translation
+*  @name Russian
+*  @anchor Russian
+*  @author Tjoma
+*  @autor aspyatkin
+*/
+/**
+* Romanian translation
+*  @name Romanian
+*  @anchor Romanian
+*  @author <a href="http://www.jurubita.ro/">Alexandru Jurubita</a>
+*/
+/**
+* Portuguese Brasil translation
+*  @name Portuguese Brasil
+*  @anchor Portuguese Brasil
+*  @author Julio Cesar Viana Palma
+*/
+/**
+* Portuguese translation
+*  @name Portuguese
+*  @anchor Portuguese
+*  @author Nuno Felicio
+*/
+/**
+* Polish translation
+*  @name Polish
+*  @anchor Polish
+*  @author Tomasz Kowalski
+*  @author Michał Grzelak
+*/
+/**
+* Persian translation
+*  @name Persian
+*  @anchor Persian
+*  @author <a href="http://www.chavoshi.com/">Ehsan Chavoshi</a>
+*  @author <a href="http://www.robowiki.ir/">Mohammad Babazadeh</a>
+*/
+/**
+* Pashto translation
+*  @name Pashto
+*  @anchor Pashto
+*  @author <a href="http://mbrig.com/">MBrig | Muhammad Nasir Rahimi</a>
+*/
+/**
+* Norwegian Nynorsk translation
+*  @name Norwegian-Nynorsk
+*  @anchor Norwegian-Nynorsk
+*  @author Andreas-Johann Østerdal Ulvestad
+*/
+/**
+* Norwegian Bokmål translation
+*  @name Norwegian-Bokmal
+*  @anchor Norwegian-Bokmal
+*  @author Petter Ekrann
+*  @author Vegard Johannessen
+*/
+/**
+* Nepali
+*  @name Nepali
+*  @anchor Nepali
+*  @author Bishwo Adhikari
+*/
+/**
+* Mongolian - Монгол хэлний орчуулга
+*  @name Mongolian
+*  @anchor Mongolian
+*  @author <a href="http://www.Batmandakh.com/">Batmandakh Erdenebileg</a>
+*/
+/**
+* Malay translation
+*  @name Malay
+*  @anchor Malay
+*  @author Mohamad Zharif
+*/
+/**
+* Macedonian translation
+*  @name Macedonian
+*  @anchor Macedonian
+*  @author Bojan Petkovski
+*/
+/**
+* Lithuanian translation
+*  @name Lithuanian
+*  @anchor Lithuanian
+*  @author <a href="http://www.kurdingopinigai.lt">Kęstutis Morkūnas</a>
+*  @author Algirdas Brazas
+*/
+/**
+* Latvian translation
+*  @name Latvian
+*  @anchor Latvian
+*  @author Oskars Podans, Ruslans Jermakovičs and Edgars
+*/
+/**
+*  @name Kyrgyz
+*  @anchor Kyrgyz
+*  @author <a href="https://github.com/nursultan92/">Nursultan Turdaliev</a> and _tynar_
+*/
+/**
+* Korean translation
+*  @name Korean
+*  @anchor Korean
+*  @author WonGoo Lee
+*/
+/**
+*  Kazakh translation
+*  @name Kazakh
+*  @anchor Kazakh
+*  @author <a href="https://github.com/talgautb">Talgat Uspanov</a>
+*/
+/**
+* Japanese translation
+*  @name Japanese
+*  @anchor Japanese
+*  @author <i>yusuke</i> and <a href="https://github.com/wiraqutra">Seigo ISHINO</a>
+*/
+/**
+* Italian translation
+*  @name Italian
+*  @anchor Italian
+*  @author Nicola Zecchin & Giulio Quaresima
+*/
+/**
+* Irish translation
+*  @name Irish
+*  @anchor Irish
+*  @author <a href="http://letsbefamous.com">Lets Be Famous Journal</a>
+*/
+/**
+* Indonesian translation
+*  @name Indonesian
+*  @anchor Indonesian
+*  @author Landung Wahana
+*/
+/**
+* Indonesian translation
+*  @name Indonesian
+*  @anchor Indonesian
+*  @author Cipto Hadi
+*/
+/**
+* Icelandic translation
+*  @name Icelandic
+*  @anchor Icelandic
+*  @author Finnur Kolbeinsson
+*/
+/**
+* Hungarian translation
+*  @name Hungarian
+*  @anchor Hungarian
+*  @author <a href="http://www.maschek.hu">Adam Maschek</a> and Lajos Cseppentő
+*/
+/**
+* Hindi translation
+*  @name Hindi
+*  @anchor Hindi
+*  @author <a href="http://outshinesolutions.com">Outshine Solutions</a>
+*/
+/**
+* Hebrew translation
+*  @name Hebrew
+*  @anchor Hebrew
+*  @author <a href="http://ww3.co.il/">Neil Osman (WW3)</a>
+*/
+/**
+* Gujarati translation
+*  @name Gujarati
+*  @anchor Gujarati
+*  @author <a href="http://www.apoto.com/">Apoto</a>
+*/
+/**
+* Greek translation
+*  @name Greek
+*  @anchor Greek
+*  @author Abraam Ziogas
+*  @author Leonidas Arvanitis
+*/
+/**
+* German translation
+*  @name German
+*  @anchor German
+*  @author Joerg Holz
+*  @author DJmRek - Markus Bergt
+*  @author OSWorX https://osworx.net
+*/
+/**
+* Georgian translation
+*  @name Georgian
+*  @anchor Georgian
+*  @author Mikheil Nadareishvili, updated by <a href="http://www.brunjadze.xyz/">Mirza Brunjadze</a>
+*/
+/**
+* Galician translation
+*  @name Galician
+*  @anchor Galician
+*  @author <i>Emilio</i>
+*  @author <i>Xosé Antonio Rubal López</i>
+*/
+/**
+* French translation
+*  @name French
+*  @anchor French
+*  @author
+*/
+/**
+* Finnish translation
+*  @name Finnish
+*  @anchor Finnish
+*  @author Seppo Äyräväinen
+*  @author Viktors Cvetkovs
+*  @author <a href="https://ironlions.fi">Niko Granö</a>
+*/
+/**
+* Filipino translation
+*  @name Filipino
+*  @anchor Filipino
+*  @author <a href="http://citi360.com/">Citi360</a>
+*/
+/**
+* Estonian translation
+*  @name Estonian
+*  @anchor Estonian
+*  @author <a href="http://www.arts9.com/">Janek Todoruk</a>
+*/
+/**
+* English - this is the default DataTables ships with
+*  @name English
+*  @anchor English
+*  @author <a href="http://www.sprymedia.co.uk/">Allan Jardine</a>
+*/
+/**
+* Dutch translation
+*  @name Dutch
+*  @anchor Dutch
+*  @author <a href="http://www.blikgooien.nl/">Erwin Kerk</a> and <i>ashwin</i>
+*/
+/**
+* Danish translation
+*  @name Danish
+*  @anchor Danish
+*  @author <a href="http://www.kor.dk/">Werner Knudsen</a>
+*/
+/**
+* Czech translation
+*  @name Czech
+*  @anchor Czech
+*  @author <a href="http://blog.magerio.cz/">Magerio</a>
+*/
+/**
+* Croatian translation
+*  @name Croatian
+*  @anchor Croatian
+*  @author Predrag Mušić and _hrvoj3e_
+*/
+/**
+* Chinese (traditional) translation
+*  @name Chinese (traditional)
+*  @anchor Chinese (traditional)
+*  @author <a href="https://gimmerank.com/">GimmeRank Affiliate</a>
+*  @author <a href="https://github.com/PeterDaveHello">Peter Dave Hello</a>
+*/
+/**
+* Catalan translation
+*  @name Catalan
+*  @anchor Catalan
+*  @author Sergi
+*/
+/**
+* Amharic translation
+*  @name Amharic
+*  @anchor Amharic
+*  @author veduket
+*/
+/**
+* Arabic translation
+*  @name Arabic
+*  @anchor Arabic
+*  @author Ossama Khayat
+*/
+/**
+* Armenian - translation
+*  @name Armenian
+*  @anchor Armenian
+*  @author <a href="http://www.voznisoft.com/">Levon Levonyan</a>
+*/
+/**
+* Azerbaijan translation
+*  @name Azerbaijan
+*  @anchor Azerbaijan
+*  @author H.Huseyn
+*/
+/**
+* Bangla translation
+*  @name Bangla
+*  @anchor Bangla
+*  @author <a href="http://khaledcse06.wordpress.com">Md. Khaled Ben Islam</a>
+*/
+/**
+* Basque translation
+*  @name Basque
+*  @anchor Basque
+*  @author <a href="https://github.com/xabikip/">Xabi Pico</a>
+*/
+/**
+* Belarusian translation
+* @name Belarusian
+* @anchor Belarusian
+* @author vkachurka
+*/
+/**
+* Bulgarian translation
+*  @name Bulgarian
+*  @anchor Bulgarian
+*  @author Rostislav Stoyanov, Oliwier Thomas
+*/

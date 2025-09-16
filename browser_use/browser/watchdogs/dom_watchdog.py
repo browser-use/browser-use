@@ -85,6 +85,26 @@ class DOMWatchdog(BaseWatchdog):
 
 		return json.dumps([])  # Return empty JSON array on error
 
+	def _get_recent_navigation_url(self) -> str | None:
+		if hasattr(self.browser_session, '_last_navigation_url') and self.browser_session._last_navigation_url:
+			return self.browser_session._last_navigation_url
+		"""Return the most recent HTTP(S) navigation URL from the event history."""
+		try:
+			events = sorted(
+				self.browser_session.event_bus.event_history.values(),
+				key=lambda e: e.event_created_at.timestamp(),
+				reverse=True,
+			)
+		except Exception:
+			return None
+
+		for event in events:
+			if event.event_type in {'NavigationCompleteEvent', 'NavigationStartedEvent'}:
+				url = getattr(event, 'url', '') or ''
+				if url.lower().startswith(('http', 'https')):
+					return url
+		return None
+
 	async def on_BrowserStateRequestEvent(self, event: BrowserStateRequestEvent) -> 'BrowserStateSummary':
 		"""Handle browser state request by coordinating DOM building and screenshot capture.
 
@@ -100,6 +120,14 @@ class DOMWatchdog(BaseWatchdog):
 
 		self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: STARTING browser state request')
 		page_url = await self.browser_session.get_current_page_url()
+		effective_url = page_url
+		if not page_url.lower().startswith(('http', 'https')):
+			recent_url = self._get_recent_navigation_url()
+			if recent_url:
+				self.logger.debug(
+					f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Using recent navigation URL {recent_url} instead of {page_url}'
+				)
+				effective_url = recent_url
 		self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Got page URL: {page_url}')
 		if self.browser_session.agent_focus:
 			self.logger.debug(
@@ -109,7 +137,7 @@ class DOMWatchdog(BaseWatchdog):
 			self.logger.debug(f'Current page URL: {page_url}, no cdp_session attached')
 
 		# check if we should skip DOM tree build for pointless pages
-		not_a_meaningful_website = page_url.lower().split(':', 1)[0] not in ('http', 'https')
+		not_a_meaningful_website = effective_url.lower().split(':', 1)[0] not in ('http', 'https')
 
 		# Wait for page stability using browser profile settings (main branch pattern)
 		if not not_a_meaningful_website:
@@ -125,6 +153,11 @@ class DOMWatchdog(BaseWatchdog):
 		# Get tabs info once at the beginning for all paths
 		self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: Getting tabs info...')
 		tabs_info = await self.browser_session.get_tabs()
+		if not tabs_info and effective_url.lower().startswith(('http', 'https')):
+			from browser_use.browser.views import TabInfo
+			target_id = self.browser_session.agent_focus.target_id if self.browser_session.agent_focus else 'tab'
+			tabs_info = [TabInfo(url=effective_url, title='Pending', target_id=target_id)]
+			self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: Synthesized tab info from navigation history')
 		self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Got {len(tabs_info)} tabs')
 		self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Tabs info: {tabs_info}')
 
@@ -170,7 +203,7 @@ class DOMWatchdog(BaseWatchdog):
 
 				return BrowserStateSummary(
 					dom_state=content,
-					url=page_url,
+					url=effective_url,
 					title='Empty Tab',
 					tabs=tabs_info,
 					screenshot=screenshot_b64,
@@ -286,7 +319,7 @@ class DOMWatchdog(BaseWatchdog):
 				)
 
 			# Check for PDF viewer
-			is_pdf_viewer = page_url.endswith('.pdf') or '/pdf/' in page_url
+			is_pdf_viewer = effective_url.endswith('.pdf') or '/pdf/' in effective_url
 
 			# Build and cache the browser state summary
 			if screenshot_b64:
@@ -300,7 +333,7 @@ class DOMWatchdog(BaseWatchdog):
 
 			browser_state = BrowserStateSummary(
 				dom_state=content,
-				url=page_url,
+				url=effective_url,
 				title=title,
 				tabs=tabs_info,
 				screenshot=screenshot_b64,
@@ -324,7 +357,7 @@ class DOMWatchdog(BaseWatchdog):
 			# Return minimal recovery state
 			return BrowserStateSummary(
 				dom_state=SerializedDOMState(_root=None, selector_map={}),
-				url=page_url if 'page_url' in locals() else '',
+				url=effective_url if 'effective_url' in locals() else '',
 				title='Error',
 				tabs=[],
 				screenshot=None,

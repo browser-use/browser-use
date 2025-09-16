@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html id="ublock0-epicker">
+
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<title>uBlock Origin Element Picker</title>
+<link rel="stylesheet" href="../lib/codemirror/lib/codemirror.css">
+<link rel="stylesheet" href="../lib/codemirror/addon/hint/show-hint.css">
+
+<link rel="stylesheet" href="../css/themes/default.css">
+<link rel="stylesheet" href="../css/common.css">
+<link rel="stylesheet" href="../css/epicker-ui.css">
+<link rel="stylesheet" href="../css/codemirror.css">
+</head>
+
+<body>
+<aside style="right: 2px; bottom: 2px;">
+<div id="windowbar"><div id="minimize"><svg viewBox="0 0 64 64"><path d="M 16,48 H 48" /><rect x="16" y="16" height="32" width="32" /></svg></div><div id="move"></div><div id="quit" data-i18n-title="pickerQuit"><svg viewBox="0 0 64 64"><path d="M16 16L48 48M16 48L48 16" /></svg></div></div>
+<section>
+    <div>
+        <div class="codeMirrorContainer codeMirrorBreakAll cm-theme-override"></div>
+        <div class="resultsetWidgets">
+            <span id="resultsetModifiers">
+                <span id="resultsetDepth" class="resultsetModifier">
+                    <span><span></span><span></span><span></span></span>
+                    <input type="range" min="0" max="7" value="7">
+                </span>
+                <span id="resultsetSpecificity" class="resultsetModifier">
+                    <span><span></span><span></span><span></span></span>
+                    <input type="range" min="0" max="7" value="6">
+                </span>
+            </span>
+            <span id="resultsetCount"></span>
+        </div>
+    </div>
+    <div id="toolbar">
+        <div>
+            <button id="pick" type="button" data-i18n="pickerPick">_<span class="hover"></span></button>
+            <button id="preview" type="button" data-i18n="pickerPreview">_<span class="hover"></span></button>
+        </div>
+        <button id="create" type="button" class="preferred" disabled data-i18n="pickerCreate">_<span class="hover"></span></button>
+    </div>
+</section>
+<ul id="candidateFilters">
+    <li id="netFilters">
+        <span data-i18n="pickerNetFilters"></span>
+        <ul lang="en" class="changeFilter"></ul>
+    </li>
+    <li id="cosmeticFilters" data-specificity="3">
+        <span data-i18n="pickerCosmeticFilters"></span>
+        <ul lang="en" class="changeFilter"></ul>
+    </li>
+</ul>
+</aside>
+<svg id="sea"><path d></path><path d></path></svg>
+
+<script src="../lib/codemirror/lib/codemirror.js"></script>
+<script src="../lib/codemirror/addon/edit/closebrackets.js"></script>
+<script src="../lib/codemirror/addon/edit/matchbrackets.js"></script>
+<script src="../lib/codemirror/addon/hint/show-hint.js"></script>
+<script src="../lib/hsluv/hsluv-0.1.0.min.js"></script>
+
+<script src="../js/vapi.js"></script>
+<script src="../js/vapi-common.js"></script>
+<script src="../js/vapi-client.js"></script>
+<script src="../js/theme.js" type="module"></script>
+<script src="../js/i18n.js" type="module"></script>
+<script src="../js/epicker-ui.js" type="module"></script>
+
+</body>
+</html>

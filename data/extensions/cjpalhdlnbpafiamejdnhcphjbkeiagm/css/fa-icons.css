@@ -1,0 +1,154 @@
+.fa-icon {
+    align-items: center;
+    background-color: transparent;
+    border: 0;
+    display: inline-flex;
+    justify-content: center;
+    margin: 0;
+    padding: 0 0.1em;
+    position: relative;
+    user-select: none;
+    vertical-align: text-bottom;
+    -webkit-user-select: none;
+    }
+.fa-icon > * {
+    pointer-events: none;
+    }
+/*
+.fa-icon.disabled,
+.fa-icon[disabled] {
+    color: var(--button-disabled-ink);
+    fill: var(--button-disabled-ink);
+    filter: var(--button-disabled-filter);
+    stroke: var(--button-disabled-ink);
+    pointer-events: none;
+    }
+*/
+.fa-icon > .fa-icon-badge,
+.fa-icon.disabled > .fa-icon-badge {
+    visibility: hidden;
+    }
+.fa-icon.fa-icon-badged > .fa-icon-badge {
+    bottom: -20%;
+    display: inline-block;
+    font: 60% sans-serif;
+    left: calc(100% - 0.2em);
+    position: absolute;
+    visibility: visible;
+    }
+.fa-icon.fa-icon-hflipped > svg {
+    transform: scale(-1, 1);
+    transform-origin: 50%;
+    }
+.fa-icon.fa-icon-vflipped > svg {
+    transform: scale(1, -1);
+    transform-origin: 50%;
+    }
+.fa-icon.fa-icon-rotright > svg {
+    transform: rotate(90deg);
+    transform-origin: 50%;
+    }
+.fa-icon.fa-icon-rotleft > svg {
+    transform: rotate(-90deg);
+    transform-origin: 50%;
+    }
+
+.fa-icon > svg {
+    height: 1em;
+    overflow: visible;
+    width: 1em;
+    }
+
+.fa-icon > .fa-icon_bar-chart {
+    width: calc(1em * 2048 / 1792);
+    }
+.fa-icon > .fa-icon_cloud-download,
+.fa-icon > .fa-icon_cloud-upload,
+.fa-icon > .fa-icon_cogs,
+.fa-icon > .fa-icon_eraser,
+.fa-icon > .fa-icon_film {
+    width: calc(1em * 1920 / 1792);
+    }
+.fa-icon > .fa-icon_code {
+    width: calc(1em * 1830 / 1792);
+    }
+.fa-icon > .fa-icon_exclamation-triangle {
+    width: calc(1em * 1794 / 1792);
+    }
+.fa-icon > .fa-icon_clipboard,
+.fa-icon > .fa-icon_comment-alt,
+.fa-icon > .fa-icon_external-link,
+.fa-icon > .fa-icon_eye-dropper,
+.fa-icon > .fa-icon_eye-open,
+.fa-icon > .fa-icon_eye-slash,
+.fa-icon > .fa-icon_files-o,
+.fa-icon > .fa-icon_list-alt {
+    width: calc(1em * 1792 / 1792);
+    }
+.fa-icon > .fa-icon_sun,
+.fa-icon > .fa-icon_sun-o {
+    width: calc(1em * 1708 / 1792);
+    }
+.fa-icon > .fa-icon_book,
+.fa-icon > .fa-icon_download-alt,
+.fa-icon > .fa-icon_font,
+.fa-icon > .fa-icon_search,
+.fa-icon > .fa-icon_spinner,
+.fa-icon > .fa-icon_unlink,
+.fa-icon > .fa-icon_upload-alt,
+.fa-icon > .fa-icon_volume-up,
+.fa-icon > .fa-icon_zoom-in,
+.fa-icon > .fa-icon_zoom-out {
+    width: calc(1em * 1664 / 1792);
+    }
+.fa-icon > .fa-icon_terminal {
+    width: calc(1em * 1651 / 1792);
+    }
+.fa-icon > .fa-icon_magic {
+    width: calc(1em * 1637 / 1792);
+    }
+.fa-icon > .fa-icon_home {
+    width: calc(1em * 1612 / 1792);
+    }
+.fa-icon > .fa-icon_check {
+    width: calc(1em * 1550 / 1792);
+    }
+.fa-icon > .fa-icon_cog,
+.fa-icon > .fa-icon_clock-o,
+.fa-icon > .fa-icon_floppy-o,
+.fa-icon > .fa-icon_info-circle,
+.fa-icon > .fa-icon_pause-circle-o,
+.fa-icon > .fa-icon_play-circle-o,
+.fa-icon > .fa-icon_power-off,
+.fa-icon > .fa-icon_question-circle,
+.fa-icon > .fa-icon_refresh,
+.fa-icon > .fa-icon_save,
+.fa-icon > .fa-icon_sliders,
+.fa-icon > .fa-icon_undo {
+    width: calc(1em * 1536 / 1792);
+    }
+.fa-icon > .fa-icon_arrow-right {
+    width: calc(1em * 1472 / 1792);
+    }
+.fa-icon > .fa-icon_filter {
+    width: calc(1em * 1410 / 1792);
+    }
+.fa-icon > .fa-icon_plus,
+.fa-icon > .fa-icon_trash-o {
+    width: calc(1em * 1408 / 1792);
+    }
+.fa-icon > .fa-icon_times {
+    width: calc(1em * 1188 / 1792);
+    }
+.fa-icon > .fa-icon_angle-up,
+.fa-icon > .fa-icon_double-angle-up,
+.fa-icon > .fa-icon_lock,
+.fa-icon > .fa-icon_unlock-alt {
+    width: calc(1em *  1152 / 1792);
+    }
+.fa-icon > .fa-icon_double-angle-left {
+    width: calc(1em *  966 / 1792);
+    }
+.fa-icon > .fa-icon_bolt {
+    width: calc(1em *  896 / 1792);
+    }

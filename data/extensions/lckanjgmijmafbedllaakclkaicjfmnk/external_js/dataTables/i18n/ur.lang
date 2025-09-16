@@ -1,0 +1,17 @@
+{
+	"sProcessing":   "ہے جاري عملدرامد...",
+	"sLengthMenu":   "دکہائين شقيں کي (_MENU_) فہرست",
+	"sZeroRecords":  "ملے نہيں مفروضات جلتے ملتے کوئ",
+	"sInfo":         "فہرست کي تک _END_ سے _START_ سے ميں _TOTAL_ فہرست پوري ہے نظر پيش",
+	"sInfoEmpty":    "فہرست کي تک 0 سے 0 سے ميں 0 قل ہے نظر پيشّ",
+	"sInfoFiltered": "(فہرست ہوئ چھني سے ميں _MAX_ قل)",
+	"sInfoPostFix":  "",
+	"sSearch":       "کرو تلاش:",
+	"sUrl":          "",
+	"oPaginate": {
+		"sFirst":    "پہلا",
+		"sPrevious": "پچہلا",
+		"sNext":     "اگلا",
+		"sLast":     "آخري"
+	}
+}
