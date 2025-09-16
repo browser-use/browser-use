@@ -559,6 +559,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		default=None,
 		description='List of allowed domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]',
 	)
+	prohibited_domains: list[str] | None = Field(
+		default=None,
+		description='List of prohibited domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]. Allowed domains take precedence over prohibited domains.',
+	)
 	keep_alive: bool | None = Field(default=None, description='Keep browser alive after agent run.')
 
 	# --- Proxy settings ---

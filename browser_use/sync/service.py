@@ -26,10 +26,16 @@ class CloudSync:
 		self.session_id: str | None = None
 		self.allow_session_events_for_auth = allow_session_events_for_auth
 		self.auth_flow_active = False  # Flag to indicate auth flow is running
+		# Check if cloud sync is actually enabled - if not, we should remain silent
+		self.enabled = CONFIG.BROWSER_USE_CLOUD_SYNC
 
 	async def handle_event(self, event: BaseEvent) -> None:
 		"""Handle an event by sending it to the cloud"""
 		try:
+			# If cloud sync is disabled, don't handle any events
+			if not self.enabled:
+				return
+
 			# Extract session ID from CreateAgentSessionEvent
 			if event.event_type == 'CreateAgentSessionEvent' and hasattr(event, 'id'):
 				self.session_id = str(event.id)  # type: ignore
@@ -121,6 +127,10 @@ class CloudSync:
 		assert self.auth_client, 'auth_client must exist before calling CloudSync._background_auth()'
 		assert self.session_id, 'session_id must be set before calling CloudSync._background_auth() can fire'
 		try:
+			# Only show cloud URLs if cloud sync is enabled
+			if not self.enabled:
+				return
+
 			# Always show the cloud URL (auth happens immediately when session starts now)
 			frontend_url = CONFIG.BROWSER_USE_CLOUD_UI_URL or self.base_url.replace('//api.', '//cloud.')
 			session_url = f'{frontend_url.rstrip("/")}/agent/{agent_session_id}'
@@ -188,6 +198,10 @@ class CloudSync:
 
 	async def authenticate(self, show_instructions: bool = True) -> bool:
 		"""Authenticate with the cloud service"""
+		# If cloud sync is disabled, don't authenticate
+		if not self.enabled:
+			return False
+
 		# Check if already authenticated first
 		if self.auth_client.is_authenticated:
 			import logging

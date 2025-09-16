@@ -424,6 +424,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.cloud_sync = cloud_sync or CloudSync()
 			# Register cloud sync handler
 			self.eventbus.on('*', self.cloud_sync.handle_event)
+		else:
+			self.cloud_sync = None
 
 		if self.settings.save_conversation_path:
 			self.settings.save_conversation_path = Path(self.settings.save_conversation_path).expanduser().resolve()
@@ -835,15 +837,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					action_dict = action.model_dump() if hasattr(action, 'model_dump') else {}
 					actions_data.append(action_dict)
 
-			# Emit CreateAgentStepEvent
-			step_event = CreateAgentStepEvent.from_agent_step(
-				self,
-				self.state.last_model_output,
-				self.state.last_result,
-				actions_data,
-				browser_state_summary,
-			)
-			self.eventbus.dispatch(step_event)
+			# Emit CreateAgentStepEvent only if cloud sync is enabled
+			if self.enable_cloud_sync:
+				step_event = CreateAgentStepEvent.from_agent_step(
+					self,
+					self.state.last_model_output,
+					self.state.last_result,
+					actions_data,
+					browser_state_summary,
+				)
+				self.eventbus.dispatch(step_event)
 
 		# Increment step counter after step is fully completed
 		self.state.n_steps += 1
@@ -1415,18 +1418,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			# Only dispatch session events if this is the first run
 			if not self.state.session_initialized:
-				self.logger.debug('📡 Dispatching CreateAgentSessionEvent...')
-				# Emit CreateAgentSessionEvent at the START of run()
-				self.eventbus.dispatch(CreateAgentSessionEvent.from_agent(self))
+				if self.enable_cloud_sync:
+					self.logger.debug('📡 Dispatching CreateAgentSessionEvent...')
+					# Emit CreateAgentSessionEvent at the START of run()
+					self.eventbus.dispatch(CreateAgentSessionEvent.from_agent(self))
+
+					# Brief delay to ensure session is created in backend before sending task
+					await asyncio.sleep(0.2)
 
 				self.state.session_initialized = True
 
-				# Brief delay to ensure session is created in backend before sending task
-				await asyncio.sleep(0.2)
-
-			self.logger.debug('📡 Dispatching CreateAgentTaskEvent...')
-			# Emit CreateAgentTaskEvent at the START of run()
-			self.eventbus.dispatch(CreateAgentTaskEvent.from_agent(self))
+			if self.enable_cloud_sync:
+				self.logger.debug('📡 Dispatching CreateAgentTaskEvent...')
+				# Emit CreateAgentTaskEvent at the START of run()
+				self.eventbus.dispatch(CreateAgentTaskEvent.from_agent(self))
 
 			# Start browser session and attach watchdogs
 			assert self.browser_session is not None, 'Browser session must be initialized before starting'
@@ -1572,7 +1577,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# not when they are completed
 
 			# Emit UpdateAgentTaskEvent at the END of run() with final task state
-			self.eventbus.dispatch(UpdateAgentTaskEvent.from_agent(self))
+			if self.enable_cloud_sync:
+				self.eventbus.dispatch(UpdateAgentTaskEvent.from_agent(self))
 
 			# Generate GIF if needed before stopping event bus
 			if self.settings.generate_gif:
@@ -1591,7 +1597,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					self.eventbus.dispatch(output_event)
 
 			# Wait briefly for cloud auth to start and print the URL, but don't block for completion
-			if self.enable_cloud_sync and hasattr(self, 'cloud_sync'):
+			if self.enable_cloud_sync and hasattr(self, 'cloud_sync') and self.cloud_sync is not None:
 				if self.cloud_sync.auth_task and not self.cloud_sync.auth_task.done():
 					try:
 						# Wait up to 1 second for auth to start and print URL

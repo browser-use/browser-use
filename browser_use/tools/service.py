@@ -892,6 +892,50 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				include_extracted_content_only_once=True,
 			)
 
+		@self.registry.action(
+			"""This JavaScript code gets executed with Runtime.evaluate
+EXAMPLES:
+Using when other tools fail, filling a form all at once, hovering, dragging, extracting only links, extracting content from the page, Clicking on coordinates, zooming, use this if the user provides custom selecotrs which you can otherwise not interact with ....
+You can also use it to explore the website.
+- Write code to solve problems you could not solve with other tools.
+- Don't write comments in here, no human reads that.
+- Write only valid js code. 
+- use this to e.g. extract + filter links, convert the page to json into the format you need etc...
+- wrap your code in a function(){{ ... }})() 
+- wrap your code in a try catch block
+- limit the output otherwise your context will explode
+- think if you deal with special elements like iframes / shadow roots etc
+- Adopt your strategy for React Native Web, React, Angular, Vue, MUI pages etc.
+- e.g. with  synthetic events, keyboard simulation, shadow DOM, etc.
+
+## Basic DOM interaction (single line preferred):
+Return: 
+JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.textContent.trim()))
+- execute_js can only return strings/numbers/booleans that are readable
+- Objects return "Executed successfully (returned object)" - useless!
+
+""",
+		)
+		async def execute_js(code: str, browser_session: BrowserSession):
+			# Pre-process JavaScript to fix common issues and add error handling
+
+			cdp_session = await browser_session.get_or_create_cdp_session()
+			result_text = ''
+			try:
+				result = await cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': code, 'returnByValue': True}, session_id=cdp_session.session_id
+				)
+				result_text = result.get('result', {}).get('value', '')
+				result_text = str(result_text)
+				if len(result_text) > 20000:
+					result_text = result_text[:20000] + ' Truncated after 20000 characters ...'
+				# Return the result (could be empty string, which is valid)
+				return ActionResult(extracted_content=f'Code: {code}\n\nResult: {result_text}')
+
+			except Exception as e:
+				result_text = f'Failed to execute JavaScript {code}: {e} '
+				return ActionResult(error=result_text)
+
 	# Custom done action for structured output
 	async def extract_clean_markdown(
 		self, browser_session: BrowserSession, extract_links: bool = False

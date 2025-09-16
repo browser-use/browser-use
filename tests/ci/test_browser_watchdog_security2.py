@@ -287,3 +287,149 @@ class TestUrlAllowlistSecurity:
 		# Invalid domains - should return False
 		assert watchdog._is_root_domain('example') is False
 		assert watchdog._is_root_domain('') is False
+
+
+class TestUrlProhibitlistSecurity:
+	"""Tests for URL prohibitlist (blocked domains) behavior and matching semantics."""
+
+	def test_simple_prohibited_domains(self):
+		"""Domain-only patterns block exact host and www, but not other subdomains."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(prohibited_domains=['example.com', 'test.org'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# Block exact and www
+		assert watchdog._is_url_allowed('https://example.com') is False
+		assert watchdog._is_url_allowed('https://www.example.com') is False
+		assert watchdog._is_url_allowed('https://test.org') is False
+		assert watchdog._is_url_allowed('https://www.test.org') is False
+
+		# Allow other subdomains when only root is prohibited
+		assert watchdog._is_url_allowed('https://mail.example.com') is True
+		assert watchdog._is_url_allowed('https://api.test.org') is True
+
+		# Allow unrelated domains
+		assert watchdog._is_url_allowed('https://notexample.com') is True
+
+	def test_glob_pattern_prohibited(self):
+		"""Wildcard patterns block subdomains and main domain for http/https only."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(prohibited_domains=['*.example.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# Block subdomains and main domain
+		assert watchdog._is_url_allowed('https://example.com') is False
+		assert watchdog._is_url_allowed('https://www.example.com') is False
+		assert watchdog._is_url_allowed('https://mail.example.com') is False
+
+		# Allow other domains
+		assert watchdog._is_url_allowed('https://notexample.com') is True
+
+		# Wildcard with domain-only should not apply to non-http(s)
+		assert watchdog._is_url_allowed('chrome://abc.example.com') is True
+
+	def test_full_url_prohibited_patterns(self):
+		"""Full URL patterns block only matching scheme/host/prefix."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(prohibited_domains=['https://wiki.org', 'brave://*'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# Scheme-specific blocking
+		assert watchdog._is_url_allowed('http://wiki.org') is True
+		assert watchdog._is_url_allowed('https://wiki.org') is False
+		assert watchdog._is_url_allowed('https://wiki.org/path') is False
+
+		# Internal URL prefix blocking
+		assert watchdog._is_url_allowed('brave://anything/') is False
+		assert watchdog._is_url_allowed('chrome://settings') is True
+
+	def test_internal_urls_allowed_even_when_prohibited(self):
+		"""Internal new-tab/blank URLs are always allowed regardless of prohibited list."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(prohibited_domains=['*'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		assert watchdog._is_url_allowed('about:blank') is True
+		assert watchdog._is_url_allowed('chrome://new-tab-page/') is True
+		assert watchdog._is_url_allowed('chrome://new-tab-page') is True
+		assert watchdog._is_url_allowed('chrome://newtab/') is True
+
+	def test_prohibited_ignored_when_allowlist_present(self):
+		"""When allowlist is set, prohibited list is ignored by design."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(
+			allowed_domains=['*.example.com'],
+			prohibited_domains=['https://example.com'],
+			headless=True,
+			user_data_dir=None,
+		)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# Allowed by allowlist even though exact URL is in prohibited list
+		assert watchdog._is_url_allowed('https://example.com') is True
+		assert watchdog._is_url_allowed('https://www.example.com') is True
+
+		# Not in allowlist => blocked (prohibited list is not consulted in this mode)
+		assert watchdog._is_url_allowed('https://api.example.com') is True  # wildcard allowlist includes this
+		# A domain outside the allowlist should be blocked
+		assert watchdog._is_url_allowed('https://notexample.com') is False
+
+	def test_auth_credentials_do_not_cause_false_block(self):
+		"""Credentials injection with prohibited domain in username should not block unrelated hosts."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(prohibited_domains=['example.com'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# Host is malicious.com, should not be blocked just because username contains example.com
+		assert watchdog._is_url_allowed('https://example.com:password@malicious.com') is True
+		assert watchdog._is_url_allowed('https://example.com@malicious.com') is True
+		assert watchdog._is_url_allowed('https://example.com%20@malicious.com') is True
+		assert watchdog._is_url_allowed('https://example.com%3A@malicious.com') is True
+
+		# Legitimate credentials to a prohibited host should be blocked
+		assert watchdog._is_url_allowed('https://user:password@example.com') is False
+
+	def test_case_insensitive_prohibited_domains(self):
+		"""Prohibited domain matching should be case-insensitive."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(prohibited_domains=['Example.COM'], headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		assert watchdog._is_url_allowed('https://example.com') is False
+		assert watchdog._is_url_allowed('https://WWW.EXAMPLE.COM') is False
+		assert watchdog._is_url_allowed('https://mail.example.com') is True
