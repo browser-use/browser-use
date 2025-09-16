@@ -456,7 +456,7 @@ class BrowserUseServer:
 			return await self._retry_with_browser_use_agent(
 				task=arguments['task'],
 				max_steps=arguments.get('max_steps', 100),
-				model=arguments.get('model', 'gpt-4o'),
+				model=arguments.get('model'),
 				allowed_domains=arguments.get('allowed_domains', []),
 				use_vision=arguments.get('use_vision', True),
 			)
