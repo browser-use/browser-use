@@ -83,7 +83,7 @@ async def main():
 	# Create test files if they don't exist
 	for file_path in available_file_paths:
 		if not os.path.exists(file_path):
-			async with aiofiles.open(file_path, 'w') as f:
+			async with aiofiles.open(file_path, 'w', encoding='utf-8') as f:
 				await f.write('Test file content for upload example')
 
 	# Create the agent with file upload capability

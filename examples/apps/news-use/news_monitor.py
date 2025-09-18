@@ -205,7 +205,7 @@ def save_article(article: dict, file_path: str = 'news_data.json'):
 	# Keep last 100
 	existing = existing[-100:]
 
-	with open(file_path, 'w') as f:
+	with open(file_path, 'w', encoding='utf-8') as f:
 		json.dump(existing, f, ensure_ascii=False, indent=2)
 
 

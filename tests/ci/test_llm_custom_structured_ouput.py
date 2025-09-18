@@ -28,7 +28,7 @@ def test_optimized_schema():
 	os.makedirs('./tmp', exist_ok=True)
 
 	# Save optimized schema
-	with open('./tmp/optimized_schema.json', 'w') as f:
+	with open('./tmp/optimized_schema.json', 'w', encoding='utf-8') as f:
 		json.dump(optimized_schema, f, separators=(',', ':'), indent=2)
 
 	print('✅ Optimized schema generated and saved to ./tmp/optimized_schema.json')
