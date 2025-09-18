@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 from functools import cached_property
 from pathlib import Path
 from typing import Any, Literal, Self, cast
@@ -45,6 +46,20 @@ from browser_use.utils import _log_pretty_url, is_new_tab_page
 DEFAULT_BROWSER_PROFILE = BrowserProfile()
 
 _LOGGED_UNIQUE_SESSION_IDS = set()  # track unique session IDs that have been logged to make sure we always assign a unique enough id to new sessions and avoid ambiguity in logs
+_DIAG_ENV_KEY = 'BROWSER_USE_MCP_DIAG_LOG'
+
+
+def _mcp_diag(message: str) -> None:
+	path = os.getenv(_DIAG_ENV_KEY)
+	if not path:
+		return
+	try:
+		from datetime import datetime
+		timestamp = datetime.utcnow().isoformat()
+		with open(path, 'a', encoding='utf-8') as fh:
+			fh.write(f'{timestamp}Z | {message}\n')
+	except Exception:
+		pass
 red = '\033[91m'
 reset = '\033[0m'
 
@@ -494,21 +509,26 @@ class BrowserSession(BaseModel):
 		# await self.reset()
 
 		# Initialize and attach all watchdogs FIRST so LocalBrowserWatchdog can handle BrowserLaunchEvent
+		_mcp_diag('browser_session:on_start:attach_watchdogs_begin')
 		await self.attach_all_watchdogs()
+		_mcp_diag('browser_session:on_start:attach_watchdogs_done')
 
 		try:
 			# If no CDP URL, launch local browser
 			if not self.cdp_url:
 				if self.is_local:
 					# Launch local browser using event-driven approach
+					_mcp_diag('browser_session:on_start:dispatch_launch_event')
 					launch_event = self.event_bus.dispatch(BrowserLaunchEvent())
 					await launch_event
+					_mcp_diag('browser_session:on_start:launch_event_completed')
 
 					# Get the CDP URL from LocalBrowserWatchdog handler result
 					launch_result: BrowserLaunchResult = cast(
 						BrowserLaunchResult, await launch_event.event_result(raise_if_none=True, raise_if_any=True)
 					)
 					self.browser_profile.cdp_url = launch_result.cdp_url
+					_mcp_diag(f'browser_session:on_start:launch_result cdp={launch_result.cdp_url}')
 				else:
 					raise ValueError('Got BrowserSession(is_local=False) but no cdp_url was provided to connect to!')
 
@@ -517,8 +537,10 @@ class BrowserSession(BaseModel):
 			# Only connect if not already connected
 			if self._cdp_client_root is None:
 				# Setup browser via CDP (for both local and remote cases)
+				_mcp_diag(f'browser_session:on_start:connecting cdp={self.cdp_url}')
 				await self.connect(cdp_url=self.cdp_url)
 				assert self.cdp_client is not None
+				_mcp_diag('browser_session:on_start:cdp_connected')
 
 				# Notify that browser is connected (single place)
 				self.event_bus.dispatch(BrowserConnectedEvent(cdp_url=self.cdp_url))
@@ -526,9 +548,11 @@ class BrowserSession(BaseModel):
 				self.logger.debug('Already connected to CDP, skipping reconnection')
 
 			# Return the CDP URL for other components
+			_mcp_diag('browser_session:on_start:completed')
 			return {'cdp_url': self.cdp_url}
 
 		except Exception as e:
+			_mcp_diag(f'browser_session:on_start:error {type(e).__name__}: {e}')
 			self.event_bus.dispatch(
 				BrowserErrorEvent(
 					error_type='BrowserStartEventError',

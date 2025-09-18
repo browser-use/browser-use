@@ -219,6 +219,7 @@ class FlatEnvConfig(BaseSettings):
 	BROWSER_USE_HEADLESS: bool | None = Field(default=None)
 	BROWSER_USE_ALLOWED_DOMAINS: str | None = Field(default=None)
 	BROWSER_USE_LLM_MODEL: str | None = Field(default=None)
+	BROWSER_USE_EPHEMERAL_SESSIONS: bool | None = Field(default=None)
 
 	# Proxy env vars
 	BROWSER_USE_PROXY_URL: str | None = Field(default=None)
@@ -454,6 +455,7 @@ class Config:
 			'browser_profile': self._get_default_profile(),
 			'llm': self._get_default_llm(),
 			'agent': self._get_default_agent(),
+			'session': {'ephemeral_sessions': False},
 		}
 
 		# Fresh env config for overrides
@@ -488,6 +490,9 @@ class Config:
 
 		if env_config.BROWSER_USE_LLM_MODEL:
 			config['llm']['model'] = env_config.BROWSER_USE_LLM_MODEL
+
+		if env_config.BROWSER_USE_EPHEMERAL_SESSIONS is not None:
+			config['session']['ephemeral_sessions'] = env_config.BROWSER_USE_EPHEMERAL_SESSIONS
 
 		return config
 

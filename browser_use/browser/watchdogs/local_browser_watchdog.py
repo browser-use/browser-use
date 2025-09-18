@@ -4,6 +4,7 @@ import asyncio
 import os
 import shutil
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -21,6 +22,20 @@ from browser_use.browser.watchdog_base import BaseWatchdog
 
 if TYPE_CHECKING:
 	pass
+
+
+_DIAG_ENV_KEY = 'BROWSER_USE_MCP_DIAG_LOG'
+
+
+def _mcp_diag(message: str) -> None:
+	path = os.getenv(_DIAG_ENV_KEY)
+	if not path:
+		return
+	try:
+		with open(path, 'a', encoding='utf-8') as fh:
+			fh.write(f'{datetime.utcnow().isoformat()}Z | local_watchdog:{message}\n')
+	except Exception:
+		pass
 
 
 class LocalBrowserWatchdog(BaseWatchdog):
@@ -41,20 +56,22 @@ class LocalBrowserWatchdog(BaseWatchdog):
 	_owns_browser_resources: bool = PrivateAttr(default=True)
 	_temp_dirs_to_cleanup: list[Path] = PrivateAttr(default_factory=list)
 	_original_user_data_dir: str | None = PrivateAttr(default=None)
+	_browser_log_paths: dict[int, str] = PrivateAttr(default_factory=dict)
 
 	async def on_BrowserLaunchEvent(self, event: BrowserLaunchEvent) -> BrowserLaunchResult:
 		"""Launch a local browser process."""
 
 		try:
+			_mcp_diag('launch_event:start')
 			self.logger.debug('[LocalBrowserWatchdog] Received BrowserLaunchEvent, launching local browser...')
 
-			# self.logger.debug('[LocalBrowserWatchdog] Calling _launch_browser...')
 			process, cdp_url = await self._launch_browser()
+			_mcp_diag(f'launch_event:success cdp={cdp_url}')
 			self._subprocess = process
-			# self.logger.debug(f'[LocalBrowserWatchdog] _launch_browser returned: process={process}, cdp_url={cdp_url}')
 
 			return BrowserLaunchResult(cdp_url=cdp_url)
 		except Exception as e:
+			_mcp_diag(f'launch_event:error {type(e).__name__}: {e}')
 			self.logger.error(f'[LocalBrowserWatchdog] Exception in on_BrowserLaunchEvent: {e}', exc_info=True)
 			raise
 
@@ -86,72 +103,67 @@ class LocalBrowserWatchdog(BaseWatchdog):
 			self.event_bus.dispatch(BrowserKillEvent())
 
 	async def _launch_browser(self, max_retries: int = 3) -> tuple[psutil.Process, str]:
-		"""Launch browser process and return (process, cdp_url).
+		"""Launch browser process and return (process, cdp_url)."""
 
-		Handles launch errors by falling back to temporary directories if needed.
-
-		Returns:
-			Tuple of (psutil.Process, cdp_url)
-		"""
-		# Keep track of original user_data_dir to restore if needed
 		profile = self.browser_session.browser_profile
 		self._original_user_data_dir = str(profile.user_data_dir) if profile.user_data_dir else None
 		self._temp_dirs_to_cleanup = []
 
 		for attempt in range(max_retries):
 			try:
-				# Get launch args from profile
 				launch_args = profile.get_args()
+				_mcp_diag(f'_launch_browser:attempt={attempt} args={len(launch_args)}')
 
-				# Add debugging port
 				debug_port = self._find_free_port()
-				launch_args.extend(
-					[
-						f'--remote-debugging-port={debug_port}',
-					]
-				)
+				launch_args.extend([f'--remote-debugging-port={debug_port}'])
 				assert '--user-data-dir' in str(launch_args), (
 					'User data dir must be set somewhere in launch args to a non-default path, otherwise Chrome will not let us attach via CDP'
 				)
 
-				# Get browser executable
-				# Priority: custom executable > fallback paths > playwright subprocess
 				if profile.executable_path:
 					browser_path = profile.executable_path
 					self.logger.debug(f'[LocalBrowserWatchdog] 📦 Using custom local browser executable_path= {browser_path}')
 				else:
-					# self.logger.debug('[LocalBrowserWatchdog] 🔍 Looking for local browser binary path...')
-					# Try fallback paths first (system browsers preferred)
 					browser_path = self._find_installed_browser_path()
 					if not browser_path:
-						self.logger.error(
-							'[LocalBrowserWatchdog] ⚠️ No local browser binary found, installing browser using playwright subprocess...'
-						)
+						self.logger.error('[LocalBrowserWatchdog] ⚠️ No local browser binary found, installing browser using playwright subprocess...')
 						browser_path = await self._install_browser_with_playwright()
 
 				self.logger.debug(f'[LocalBrowserWatchdog] 📦 Found local browser installed at executable_path= {browser_path}')
 				if not browser_path:
 					raise RuntimeError('No local Chrome/Chromium install found, and failed to install with playwright')
 
-				# Launch browser subprocess directly
 				self.logger.debug(f'[LocalBrowserWatchdog] 🚀 Launching browser subprocess with {len(launch_args)} args...')
-				subprocess = await asyncio.create_subprocess_exec(
-					browser_path,
-					*launch_args,
-					stdout=asyncio.subprocess.PIPE,
-					stderr=asyncio.subprocess.PIPE,
-				)
+				log_fd, log_path = tempfile.mkstemp(prefix='browseruse-chrome-', suffix='.log')
+				log_file = os.fdopen(log_fd, 'w', encoding='utf-8')
+				try:
+					subprocess = await asyncio.create_subprocess_exec(
+						browser_path,
+						*launch_args,
+						stdout=log_file,
+						stderr=log_file,
+					)
+				finally:
+					log_file.close()
 				self.logger.debug(
 					f'[LocalBrowserWatchdog] 🎭 Browser running with browser_pid= {subprocess.pid} 🔗 listening on CDP port :{debug_port}'
 				)
 
-				# Convert to psutil.Process
 				process = psutil.Process(subprocess.pid)
+				self._browser_log_paths[process.pid] = log_path
+				_mcp_diag(f'_launch_browser:process pid={process.pid} port={debug_port} log={log_path}')
 
-				# Wait for CDP to be ready and get the URL
-				cdp_url = await self._wait_for_cdp_url(debug_port)
+				try:
+					cdp_url = await self._wait_for_cdp_url(debug_port, timeout=60)
+				except TimeoutError as timeout_err:
+					tail = self._read_browser_log_tail(process.pid)
+					_mcp_diag(f'_launch_browser:cdp_timeout port={debug_port} pid={process.pid} log={log_path} tail={tail}')
+					await self._cleanup_process(process)
+					self._browser_log_paths.pop(process.pid, None)
+					raise timeout_err
 
-				# Success! Clean up any temp dirs we created but didn't use
+				_mcp_diag(f'_launch_browser:cdp_ready port={debug_port} log={log_path}')
+
 				for tmp_dir in self._temp_dirs_to_cleanup:
 					try:
 						shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -161,31 +173,25 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				return process, cdp_url
 
 			except Exception as e:
+				if 'process' in locals():
+					self._browser_log_paths.pop(process.pid, None)
 				error_str = str(e).lower()
 
-				# Check if this is a user_data_dir related error
 				if any(err in error_str for err in ['singletonlock', 'user data directory', 'cannot create', 'already in use']):
 					self.logger.warning(f'Browser launch failed (attempt {attempt + 1}/{max_retries}): {e}')
 
 					if attempt < max_retries - 1:
-						# Create a temporary directory for next attempt
 						tmp_dir = Path(tempfile.mkdtemp(prefix='browseruse-tmp-'))
 						self._temp_dirs_to_cleanup.append(tmp_dir)
-
-						# Update profile to use temp directory
 						profile.user_data_dir = str(tmp_dir)
 						self.logger.debug(f'Retrying with temporary user_data_dir: {tmp_dir}')
-
-						# Small delay before retry
 						await asyncio.sleep(0.5)
 						continue
 
-				# Not a recoverable error or last attempt failed
-				# Restore original user_data_dir before raising
+				_mcp_diag(f'_launch_browser:attempt_error {type(e).__name__}: {e}')
 				if self._original_user_data_dir is not None:
 					profile.user_data_dir = self._original_user_data_dir
 
-				# Clean up any temp dirs we created
 				for tmp_dir in self._temp_dirs_to_cleanup:
 					try:
 						shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -194,9 +200,9 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 				raise
 
-		# Should not reach here, but just in case
 		if self._original_user_data_dir is not None:
 			profile.user_data_dir = self._original_user_data_dir
+		_mcp_diag(f'_launch_browser:failed_max_retries attempts={max_retries}')
 		raise RuntimeError(f'Failed to launch browser after {max_retries} attempts')
 
 	@staticmethod
@@ -372,7 +378,19 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				# Connection error - Chrome might not be ready yet
 				await asyncio.sleep(0.1)
 
+		_mcp_diag(f'_wait_for_cdp_url:timeout port={port} timeout={timeout}')
 		raise TimeoutError(f'Browser did not start within {timeout} seconds')
+
+	def _read_browser_log_tail(self, pid: int, lines: int = 10) -> str:
+		log_path = self._browser_log_paths.get(pid)
+		if not log_path or not Path(log_path).exists():
+			return 'unavailable'
+		try:
+			with open(log_path, 'r', encoding='utf-8') as fh:
+				content = fh.readlines()[-lines:]
+			return ' || '.join(line.strip() for line in content)
+		except Exception as exc:
+			return f'error_reading_log:{exc}'
 
 	@staticmethod
 	async def _cleanup_process(process: psutil.Process) -> None:

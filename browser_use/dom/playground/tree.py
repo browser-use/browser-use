@@ -3,9 +3,9 @@ import json
 import time
 
 import aiofiles
+from browser_use.browser.types import ViewportSize
 
 from browser_use.browser import BrowserProfile, BrowserSession
-from browser_use.browser.types import ViewportSize
 from browser_use.dom.service import DomService
 from browser_use.dom.views import EnhancedDOMTreeNode
 
