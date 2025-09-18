@@ -1,0 +1,23 @@
+{
+    "sEmptyTable":     "ባዶ ሰንጠረዥ",
+    "sInfo":           "ከጠቅላላው _TOTAL_ ዝርዝሮች ውስጥ ከ _START_ እስከ _END_ ያሉት ዝርዝር",
+    "sInfoEmpty":      "ከጠቅላላው 0 ዝርዝሮች ውስጥ ከ 0 እስከ 0 ያሉት ዝርዝር",
+    "sInfoFiltered":   "(ከጠቅላላው _MAX_ የተመረጡ ዝርዝሮች)",
+    "sInfoPostFix":    "",
+    "sInfoThousands":  ",",
+    "sLengthMenu":     "የዝርዝሮች ብዛት _MENU_",
+    "sLoadingRecords": "በማቅረብ ላይ...",
+    "sProcessing":     "በማቀናበር ላይ...",
+    "sSearch":         "ፈልግ:",
+    "sZeroRecords":    "ከሚፈለገው ጋር የሚሚሳሰል ዝርዝር አልተገኘም",
+    "oPaginate": {
+        "sFirst":    "መጀመሪያ",
+        "sLast":     "መጨረሻ",
+        "sNext":     "ቀጣዩ",
+        "sPrevious": "የበፊቱ"
+    },
+    "oAria": {
+        "sSortAscending":  ": ከመጀመሪያ ወደ መጨረሻ(ወጪ) አደራደር",
+        "sSortDescending": ": ከመጨረሻ ወደ መጀመሪያ(ወራጅ) አደራደር"
+    }
+}

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1">
+<meta name="color-scheme" content="light dark" />
+<title>uBlock — Filter lists</title>
+<link rel="stylesheet" type="text/css" href="css/themes/default.css">
+<link rel="stylesheet" type="text/css" href="css/common.css">
+<link rel="stylesheet" type="text/css" href="css/fa-icons.css">
+<link rel="stylesheet" type="text/css" href="css/dashboard-common.css">
+<link rel="stylesheet" type="text/css" href="css/cloud-ui.css">
+<link rel="stylesheet" type="text/css" href="css/3p-filters.css">
+</head>
+
+<body>
+
+<div class="body">
+
+<div id="cloudWidget" class="hide" data-cloud-entry="tpFiltersPane"></div>
+<p id="actions">
+    <button id="buttonApply" class="preferred disabled iconified dontshrink" type="button" data-i18n-title="3pApplyChanges"><span class="fa-icon">check</span><span data-i18n="3pApplyChanges">_</span><span class="hover"></span></button>
+    <button id="buttonUpdate" class="preferred disabled iconified" type="button" data-i18n-title="3pUpdateNow"><span class="fa-icon">refresh</span><span data-i18n="3pUpdateNow">_</span><span class="hover"></span></button>
+</p>
+
+<div>
+    <div class="li">
+        <label><span class="input checkbox"><input type="checkbox" id="autoUpdate"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span data-i18n="3pAutoUpdatePrompt1"></span></label>
+    </div>
+    <div class="li">
+        <label><span class="input checkbox"><input type="checkbox" id="suspendUntilListsAreLoaded"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span data-i18n="3pSuspendUntilListsAreLoaded"></span></label>
+    </div>
+    <div class="li">
+        <label><span class="input checkbox"><input type="checkbox" id="parseCosmeticFilters"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span><span data-i18n="3pParseAllABPHideFiltersPrompt1"></span>&nbsp;<span class="fa-icon info" data-i18n-title="3pParseAllABPHideFiltersInfo">question-circle</span></span></label>
+    </div>
+    <div class="li">
+        <label><span class="input checkbox"><input type="checkbox" id="ignoreGenericCosmeticFilters"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span><span data-i18n="3pIgnoreGenericCosmeticFilters"></span>&nbsp;<span class="fa-icon info" data-i18n-title="3pIgnoreGenericCosmeticFiltersInfo">question-circle</span></span></label>
+    </div>
+</div>
+
+<div>
+</div>
+
+<div id="lists">
+    <div class="rootstats expandable" data-key="*">
+        <span class="fa-icon listExpander">angle-up</span><span id="listsOfBlockedHostsPrompt"></span>
+    </div>
+    <div class="searchfield"><input type="search" spellcheck="false" placeholder="" /><span class="fa-icon">search</span></div>
+    <div class="listEntries"></div>
+    <div class="li listEntry expandable" data-role="import">
+        <span class="detailbar">
+            <label><span class="fa-icon listExpander">angle-up</span><span class="listname" data-i18n="3pImport"></span></label>
+            <a class="fa-icon info towiki" href="https://github.com/gorhill/uBlock/wiki/Filter-lists-from-around-the-web" target="_blank">info-circle</a>
+        </span>
+        <textarea dir="ltr" spellcheck="false" placeholder="3pExternalListsHint"></textarea>
+    </div>
+</div>
+
+</div>
+
+<div id="templates" style="display: none;">
+    <div class="listEntries"></div>
+    <div class="li listEntry" data-role="leaf">
+        <span class="detailbar">
+            <label><span class="input checkbox"><input type="checkbox"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span><span class="listname forinput"></span>
+            </span></label>
+            <span class="iconbar"><!--
+             --><a class="fa-icon content" href="#" type="text/plain" target="_blank" data-i18n-title="3pViewContent">eye-open</a><!--
+             --><a class="fa-icon support" href="#" target="_blank">home</a><!--
+             --><span class="fa-icon remove">trash-o</span><!--
+             --><a class="fa-icon mustread" href="#" target="_blank">info-circle</a><!--
+             --><span class="fa-icon status unsecure" title="http">unlock-alt</span><!--
+             --><span class="fa-icon status obsolete" data-i18n-title="3pExternalListObsolete">exclamation-triangle</span><!--
+             --><span class="fa-icon status cache">clock-o</span><!--
+             --><span class="fa-icon status updating" data-i18n-title="3pUpdating">spinner</span><!--
+             --><span class="fa-icon status failed" data-i18n-title="3pNetworkError">unlink</span>
+            </span>
+            <span class="leafstats"></span>
+        </span>
+    </div>
+    <div class="li listEntry expandable" data-role="node">
+        <span class="detailbar">
+            <label><span class="input checkbox"><input type="checkbox"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span class="listname forinput"></span></label>
+            <span class="nodestats"></span>
+            <span class="fa-icon listExpander">angle-up</span>
+            <span class="iconbar"><!--
+             --><a class="fa-icon support" href="#" target="_blank">home</a><!--
+             --><a class="fa-icon mustread" href="#" target="_blank">info-circle</a><!--
+             --><span class="fa-icon status obsolete" data-i18n-title="3pExternalListObsolete">exclamation-triangle</span><!--
+             --><span class="fa-icon status cache">clock-o</span><!--
+             --><span class="fa-icon status updating" data-i18n-title="3pUpdating">spinner</span><!--
+             --><span class="fa-icon status failed" data-i18n-title="3pNetworkError">unlink</span>
+            </span>
+            <span class="leafstats"></span>
+        </span>
+    </div>
+    <div class="li listEntry expandable" data-parent="root" data-role="node">
+        <span class="detailbar">
+            <label><span class="fa-icon listExpander">angle-up</span><span class="listname"></span></label>
+            <span class="nodestats"></span>
+        </span>
+    </div>
+</div>
+
+<script src="lib/hsluv/hsluv-0.1.0.min.js"></script>
+
+<script src="js/fa-icons.js" type="module"></script>
+<script src="js/vapi.js"></script>
+<script src="js/vapi-common.js"></script>
+<script src="js/vapi-client.js"></script>
+<script src="js/theme.js" type="module"></script>
+<script src="js/i18n.js" type="module"></script>
+<script src="js/dashboard-common.js" type="module"></script>
+<script src="js/cloud-ui.js" type="module"></script>
+<script src="js/3p-filters.js" type="module"></script>
+
+</body>
+</html>

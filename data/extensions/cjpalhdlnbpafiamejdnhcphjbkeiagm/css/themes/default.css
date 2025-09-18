@@ -1,0 +1,534 @@
+/**
+
+    References:
+      https://protocol.mozilla.org/
+      https://material.io/
+
+    Color names from:
+      https://protocol.mozilla.org/docs/fundamentals/color.html
+
+    Tools:
+      Lightness validator: https://www.hsluv.org/
+      Contrast validator: https://bernaferrari.github.io/color-studio/#/
+*/
+:root {
+    --blue-5: 170 242 255;
+    --blue-10: 128 235 255;
+    --blue-20: 0 221 255;
+    --blue-30: 0 179 244;
+    --blue-40: 0 144 237;
+    --blue-50: 0 96 223;
+    --blue-60: 2 80 187;
+    --blue-70: 5 64 150;
+    --blue-80: 7 48 114;
+    --blue-90: 9 32 77;
+    --dark-gray-10: 82 82 94;
+    --dark-gray-20: 74 74 85;
+    --dark-gray-30: 66 65 77;
+    --dark-gray-40: 58 57 68;
+    --dark-gray-50: 50 49 60;
+    --dark-gray-60: 43 42 51;
+    --dark-gray-70: 35 34 43;
+    --dark-gray-80: 28 27 34;
+    --dark-gray-90: 21 20 26;
+    --green-30: 136 255 209;
+    --green-40: 84 255 189;
+    --green-50: 63 225 176;
+    --green-60: 42 195 162;
+    --green-65: 21 165 149;
+    --green-70: 0 135 135;
+    --green-80: 0 94 94;
+    --ink-10: 57 52 115;
+    --ink-80: 32 18 58;
+    --light-gray-10: 249 249 251;
+    --light-gray-20: 240 240 244;
+    --light-gray-30: 224 224 230;
+    --light-gray-40: 207 207 216;
+    --light-gray-50: 191 191 201;
+    --light-gray-60: 175 175 186;
+    --light-gray-70: 159 159 173;
+    --light-gray-80: 143 143 158;
+    --light-gray-90: 128 128 143;
+    --orange-5: 255 244 222;
+    --orange-10: 255 213 178;
+    --orange-20: 255 181 135;
+    --orange-30: 255 162 102;
+    --orange-40: 255 138 80;
+    --orange-50: 255 113 57;
+    --orange-60: 226 89 32;
+    --orange-70: 204 61 0;
+    --orange-80: 158 40 11;
+    --orange-90: 124 21 4;
+    --purple-5: 247 226 255;
+    --purple-10: 246 184 255;
+    --purple-20: 246 143 255;
+    --purple-30: 247 112 255;
+    --purple-40: 215 76 240;
+    --purple-50: 184 51 225;
+    --purple-60: 149 43 185;
+    --purple-70: 114 34 145;
+    --purple-80: 78 26 105;
+    --purple-90: 43 17 65;
+    --red-20: 255 154 162;
+    --red-30: 255 132 139;
+    --red-40: 255 106 117;
+    --red-50: 255 79 94;
+    --red-60: 226 40 80;
+    --red-70: 197 0 66;
+    --violet-5: 231 223 255;
+    --violet-10: 217 191 255;
+    --violet-20: 203 158 255;
+    --violet-30: 198 137 255;
+    --violet-40: 171 113 255;
+    --violet-50: 144 89 255;
+    --violet-60: 117 66 229;
+    --violet-70: 89 42 203;
+    --violet-80: 69 39 141;
+    --violet-90: 50 28 100;
+    --yellow-5: 255 255 204;
+    --yellow-10: 255 255 152;
+    --yellow-20: 255 234 128;
+    --yellow-30: 255 213 103;
+    --yellow-40: 255 189 79;
+    --yellow-50: 255 164 54;
+    --yellow-60: 226 127 46;
+    --yellow-70: 196 90 39;
+    --yellow-80: 167 52 31;
+    --yellow-90: 150 14 24;
+
+    /*
+     * Reference gray: -light-gray-90, then calibrated with hsluv.org, where
+     * the number is Luv.
+     * 
+     * */
+    --gray-5: 16 16 22;
+    --gray-10: 27 27 35;
+    --gray-15: 37 37 47;
+    --gray-20: 47 47 59;
+    --gray-25: 58 58 72;
+    --gray-30: 69 69 85;
+    --gray-35: 81 81 98;
+    --gray-40: 93 93 110;
+    --gray-45: 105 105 121;
+    --gray-50: 118 118 133;
+    --gray-55: 131 131 145;
+    --gray-60: 144 144 156;
+    --gray-65: 157 157 168;
+    --gray-70: 170 170 180;
+    --gray-75: 184 184 192;
+    --gray-80: 198 198 204;
+    --gray-85: 212 212 217;
+    --gray-90: 226 226 229;
+    --gray-95: 240 240 242;
+}
+
+/*
+ * Font
+ * 
+ * */
+:root {
+    --font-size: 14px;
+    --font-size-smaller: calc(var(--font-size) - 1px);
+    --font-size-xsmall: calc(var(--font-size) - 3px);
+    --font-size-larger: 15px;
+    --font-family: Inter, sans-serif;
+    --monospace-size: 12px;
+}
+
+:root.mobile {
+    --font-size: 16px;
+    --font-size-smaller: 14px;
+    --monospace-size: 13px;
+}
+
+/*
+ * Default color theme
+ * 
+ * Tool: hsluv.org
+ * 
+ * */
+:root /* h255 */ {
+    --primary-5:   3  16  40; /* S:90 Luv:5 */
+   --primary-10:   5  27  59; /* S:90 Luv:10 */
+   --primary-20:  14  47  95; /* S:90 Luv:20 */
+   --primary-30:  24  69 134; /* S:90 Luv:30 */
+   --primary-40:  34  93 176; /* S:90 Luv:40 */
+   --primary-50:  45 117 219; /* S:90 Luv:50 */
+   --primary-60:  86 143 244; /* S:90 Luv:60 */
+   --primary-70: 137 170 247; /* S:90 Luv:70 */
+   --primary-80: 179 198 250; /* S:90 Luv:80 */
+   --primary-90: 218 226 252; /* S:90 Luv:90 */
+   --primary-95: 236 240 254; /* S:90 Luv:95 */
+    }
+
+/*
+ * Default dark theme starts here
+ * 
+ * https://github.com/uBlockOrigin/uBlock-issues/issues/1027#issuecomment-629641072
+ *   Assign a default background color if dark mode is enabled -- hopefully
+ *   this will avoid flashes of white background until the document's own CSS
+ *   overrides the default color value below.
+ * 
+ * */
+@media (prefers-color-scheme: light) {
+    :root {
+        --surface-0-rgb: 255 255 255;
+        --surface-1: rgb(var(--gray-95));
+        --surface-2: rgb(var(--gray-90));
+        --surface-3: rgb(var(--gray-80));
+    }
+}
+@media (prefers-color-scheme: dark) {
+    :root {
+        --surface-0-rgb: 0 0 0;
+        --surface-1: rgb(var(--gray-10));
+        --surface-2: rgb(var(--gray-20));
+        --surface-3: rgb(var(--gray-30));
+    }
+}
+
+:root.light {
+    --surface-0-rgb: 255 255 255;
+    --surface-1: rgb(var(--gray-95));
+    --surface-2: rgb(var(--gray-90));
+    --surface-3: rgb(var(--gray-80));
+}
+
+:root.dark {
+    --surface-0-rgb: 0 0 0;
+    --surface-1: rgb(var(--gray-10));
+    --surface-2: rgb(var(--gray-20));
+    --surface-3: rgb(var(--gray-30));
+}
+
+/*
+ * Components
+ * 
+ * */
+:root {
+    --font-size: 14px;
+
+    --ubo-red: #800000;
+
+    --elevation-up-surface: black;
+    --elevation-up1-opacity: 4%;
+    --elevation-up2-opacity: 8%;
+    --elevation-down-surface: white;
+    --elevation-down1-opacity: 16%;
+    --elevation-down2-opacity: 32%;
+
+    /* https://material.io/design/color/text-legibility.html#text-backgrounds */
+    --ink-rgb: var(--ink-80);
+    --ink-0: black;
+    --ink-100: white;
+
+    --border-1: rgb(var(--gray-75));
+    --border-2: rgb(var(--gray-70));
+    --border-3: rgb(var(--gray-65));
+    --border-4: rgb(var(--gray-60));
+
+    --accent-ink-3: var(--ink-1);
+    --accent-surface-1: rgb(var(--primary-40));
+
+    --link-ink: rgb(var(--primary-40));
+    --link-hover-ink: rgb(var(--primary-30));
+
+    /* buttons */
+    --button-surface-rgb: var(--gray-80);
+
+    --dashboard-tab-active-ink-rgb: var(--primary-40);
+    --dashboard-tab-focus-surface-rgb: var(--primary-90);
+    --dashboard-highlight-surface-rgb: var(--primary-90);
+
+    --dashboard-happy-green: rgb(var(--green-65));
+
+    /* popup panel */
+    --popup-cell-cname-ink: #0054d7; /* h260 S:100 Luv:40 */;
+    --popup-cell-label-mixed-surface: #c29100; /* TODO: fix */
+    --popup-icon-x-ink: rgb(var(--red-60));
+    --popup-power-ink-rgb: var(--primary-50);
+
+    /* horizontal line separator */
+    --hr-ink: var(--surface-2);
+
+    /* cloud widget */
+    --cloud-total-used-surface: rgb(var(--violet-60) / 25%);
+    --cloud-used-surface: rgb(var(--violet-60));
+
+    /* misc */
+    --error-surface: #c00004; /* h:12 S:100 Luv:40 */
+
+    /* codemirror */
+    --cm-active-line: rgb(var(--gray-90));
+    --cm-cursor: var(--ink-0);
+    --cm-foldmarker-ink: rgb(var(--blue-40));
+    --cm-gutter-border: var(--surface-1);
+    --cm-gutter-ink: var(--ink-3);
+    --cm-gutter-surface: var(--surface-2);
+    --cm-matchingbracket: rgb(var(--green-30));
+    --cm-merge-copy-ink: rgb(var(--blue-50));
+    --cm-merge-chunk-border: rgb(var(--surface-0-rgb) / 40%);
+    --cm-merge-chunk-surface: rgb(var(--surface-0-rgb) / 40%);
+    --cm-negative: #e32f00; /* h:15 S:100 Luv:50 */
+    --cm-positive: #008a21; /* h:130 S:100 Luv:50 */
+    --cm-selection-surface: rgb(var(--gray-80));
+    --cm-selection-focused-surface: rgb(var(--primary-80));
+    --cm-searching-ink: black;
+    --cm-searching-surface: #fee300cc /* h75 S:100 Luv:90 a:80% */;
+    --cm-search-match-surface: rgb(var(--yellow-40) / 50%);
+
+    /* syntax highlight: static filtering */
+    --sf-comment-ink: var(--ink-3);
+    --sf-def-ink: #3c3aff; /* h:266 S:100 Luv:40 */
+    --sf-directive-ink: var(--ink-1);
+    --sf-error-ink: #ff8981; /* h15 S:100 Luv:70 */
+    --sf-error-surface: #ff898133; /* h15 S:100 Luv:70 @ 20% */
+    --sf-keyword-ink: #9b00ca; /* h:290 S:100 Luv:40 */
+    --sf-notice-ink: var(--ink-4);
+    --sf-readonly-ink: var(--ink-3);
+    --sf-tag-ink: #006e2e /* h:135 S:100 Luv:40 */;
+    --sf-unicode-ink: var(--ink-1);
+    --sf-value-ink: #974900 /* h:30 S:100 Luv:40 */;
+    --sf-variable-ink: var(--ink-1);
+    --sf-warning-ink: #e49d00; /* h:50 S:100 Luv:70 */
+    --sf-warning-surface: #e49d0033; /* h:50 S:100 Luv:70 @ 20% */
+
+    /* syntax highlight: dynamic filtering */
+    --df-allow-ink: var(--cm-positive);
+    --df-block-ink: var(--cm-negative);
+    --df-noop-ink: rgb(var(--dark-gray-10));
+
+    /* logger */
+    --logger-modified-surface: #0000c010;
+    --logger-modified-em-surface: #0000c028;
+    --logger-redirected-surface: rgb(var(--yellow-5) / 50%);
+    --logger-scriptlet-surface: rgb(var(--yellow-30) / 50%);
+}
+
+/* https://material.io/design/color/dark-theme.html */
+:root.dark {
+    --elevation-down-surface: black;
+    --elevation-down1-opacity: 16%;
+    --elevation-down2-opacity: 32%;
+    --elevation-up-surface: white;
+    --elevation-up1-opacity: 12%;
+    --elevation-up2-opacity: 24%;
+
+    --ink-rgb: var(--gray-95);
+    --ink-0: white;
+    --ink-100: black;
+
+    --border-1: rgb(var(--gray-35));
+    --border-2: rgb(var(--gray-40));
+    --border-3: rgb(var(--gray-45));
+    --border-4: rgb(var(--gray-50));
+
+    --accent-surface-1: rgb(var(--primary-70));
+
+    --link-ink: rgb(var(--primary-70));
+    --link-hover-ink: rgb(var(--primary-80));
+
+    /* buttons */
+    --button-surface-rgb: var(--gray-30);
+
+    --dashboard-tab-active-ink-rgb: var(--primary-70);
+    --dashboard-tab-focus-surface-rgb: var(--primary-20);
+    --dashboard-highlight-surface-rgb: var(--primary-20);
+
+    /* popup panel */
+    --popup-cell-cname-ink: #93a6ff; /* h260 S:100 Luv:70 */;
+    --popup-cell-label-mixed-surface: hsla(45, 100%, 38%, 1); /* TODO: fix */
+    --popup-icon-x-ink: rgb(var(--red-50));
+    --popup-power-ink-rgb: var(--primary-60);
+
+    /* cloud widget */
+    --cloud-total-used-surface: rgb(var(--violet-20) / 25%);
+    --cloud-used-surface: rgb(var(--violet-20));
+
+    /* misc */
+    --error-surface: #ff5354; /* h:12 S:100 Luv:60 */
+
+    /* codemirror */
+    --cm-active-line: rgb(var(--gray-20));
+    --cm-merge-copy-ink: rgb(var(--blue-30));
+    --cm-foldmarker-ink: rgb(var(--blue-20));
+    --cm-matchingbracket: rgb(var(--green-30) / 50%);
+    --cm-negative: #ff8982; /* h:15 S:100 Luv:70 */
+    --cm-positive: #00c634; /* h:130 S:100 Luv:70 */
+    --cm-selection-surface: rgb(var(--gray-40));
+    --cm-selection-focused-surface: rgb(var(--primary-40));
+    --cm-searching-ink: black;
+    --cm-searching-surface: #fee300cc /* h75 S:100 Luv:90 a:80% */;
+
+    /* syntax highlight: static filtering */
+    --sf-comment-ink: var(--ink-3);
+    --sf-def-ink: #a2a2ff; /* h:266 S:100 Luv:70 */
+    --sf-error-ink: #ff8981; /* h15 S:100 Luv:70 */
+    --sf-error-surface: #ff898166; /* h15 S:100 Luv:70 @ 40% */
+    --sf-keyword-ink: #d78dff; /* h:290 S:100 Luv:70 */
+    --sf-tag-ink: #00c559 /* h:135 S:100 Luv:70 */;
+    --sf-value-ink: #ff8d48 /* h:30 S:100 Luv:70 */;
+    --sf-variable-ink: var(--ink-1);
+    --sf-warning-ink: #e49d00; /* h:50 S:100 Luv:70 */
+    --sf-warning-surface: #e49d0066; /* h:50 S:100 Luv:50 @ 40% */
+
+    /* syntax highlight: dynamic filtering */
+    --df-noop-ink: var(--ink-3);
+
+    /* logger */
+    --logger-modified-surface: #663efd60;
+    --logger-redirected-surface: rgb(var(--yellow-5) / 40%);
+    --logger-scriptlet-surface: rgb(var(--yellow-30) / 40%);
+}
+
+:root.dark {
+    color-scheme: dark light;
+}
+
+/*
+ * Shared declarations
+ * */
+:root {
+    --high-em: 87%;
+    --medium-em: 60%;
+    --low-em: 38%;
+
+    --surface-0: rgb(var(--surface-0-rgb));
+
+    --ink-1: rgb(var(--ink-rgb));
+    --ink-2: rgb(var(--ink-rgb) / var(--high-em));
+    --ink-3: rgb(var(--ink-rgb) / var(--medium-em));
+    --ink-4: rgb(var(--ink-rgb) / var(--low-em));
+
+    --accent-ink-1: var(--surface-0);
+    --accent-ink-3: var(--ink-1);
+
+    --subtil-ink: var(--accent-surface-1);
+
+    --fieldset-header-surface: transparent;
+    --fieldset-header-ink: var(--ink-2);
+
+    --native-control-opacity: 0;
+
+    --button-ink: var(--ink-1);
+    --button-surface: rgb(var(--button-surface-rgb));
+    --button-border-size: 0;
+    --button-border-radius: 5px;
+    --button-preferred-ink: var(--accent-ink-1);
+    --button-preferred-surface: var(--accent-surface-1);
+    --button-disabled-surface: var(--surface-3);
+    --button-disabled-filter: opacity(50%);
+
+    --checkbox-size: calc(var(--font-size) + 2px);
+    --checkbox-ink: var(--ink-3);
+    --checkbox-checked-ink: var(--accent-surface-1);
+    --checkbox-disabled-filter: opacity(50%);
+    --checkbox-margin-end: calc(var(--font-size) * 0.75);
+
+    --notice-ink: var(--accent-ink-1);
+    --notice-surface: var(--accent-surface-1);
+    --notice-surface-shadow: #000 0 2px 8px;
+
+    --dashboard-tab-ink: var(--ink-1);
+    --dashboard-tab-active-ink: rgb(var(--dashboard-tab-active-ink-rgb));
+    --dashboard-tab-active-surface: transparent;
+    --dashboard-tab-focus-surface: rgb(var(--dashboard-tab-focus-surface-rgb));
+    --dashboard-tab-hover-surface: var(--surface-2);
+    --dashboard-tab-hover-border: var(--surface-3);
+
+    /* info levels: normal, fyi, warn, error -- we want same Luv */
+    --info0-ink-rgb: 119 119 119; /* h:  0 S:  0 Luv:60 */
+    --info1-ink-rgb:  72 143 255; /* h:255 S:100 Luv:60 */
+    --info2-ink-rgb: 208 125   0; /* h: 40 S:100 Luv:60 */
+    --info3-ink-rgb: 255  82  94; /* h: 10 S:100 Luv:60 */
+    --info0-ink: rgb(var(--info0-ink-rgb));
+    --info1-ink: rgb(var(--info1-ink-rgb));
+    --info2-ink: rgb(var(--info2-ink-rgb));
+    --info3-ink: rgb(var(--info3-ink-rgb));
+
+    --popup-cell-surface: var(--surface-2);
+    --popup-cell-label-filter: opacity(40%);
+    --popup-cell-allow-own-surface: rgb(var(--popup-cell-allow-own-surface-rgb));
+    --popup-cell-allow-surface: rgb(var(--popup-cell-allow-surface-rgb));
+    --popup-cell-noop-own-surface: rgb(var(--popup-cell-noop-own-surface-rgb));
+    --popup-cell-noop-surface: rgb(var(--popup-cell-noop-surface-rgb));
+    --popup-cell-block-own-surface: rgb(var(--popup-cell-block-own-surface-rgb));
+    --popup-cell-block-surface: rgb(var(--popup-cell-block-surface-rgb));
+    --popup-power-ink: rgb(var(--popup-power-ink-rgb));
+    --popup-toolbar-surface: rgb(var(--primary-80) / 15%);
+    --popup-toolbar-surface-hover: rgb(var(--primary-80) / 30%);
+    --popup-ruleset-tool-ink: var(--ink-1);
+    --popup-ruleset-tool-surface: rgb(var(--primary-80) / 15%);
+    --popup-ruleset-tool-surface-hover: rgb(var(--primary-80) / 20%);
+    --popup-ruleset-tool-shadow: transparent;
+}
+
+@media (prefers-contrast: more) {
+    :root {
+        --native-control-opacity: 1;
+        --button-border-size: 1px;
+    }
+}
+
+/*
+ * Rule colors
+ * */
+:root:not(.dark):not(.colorBlind) {
+    --popup-cell-allow-own-surface-rgb:   0 127   0; /* h:127.7 S:100 Luv:45 */
+    --popup-cell-allow-surface-rgb:     129 202 129; /* h:127.7 S:50  Luv:75 */
+    --popup-cell-block-own-surface-rgb: 216   0   0; /* h:12.2  S:100 Luv:45 */
+    --popup-cell-block-surface-rgb:     224 172 172; /* h:12.2  S:50  Luv:75 */
+    --popup-cell-noop-own-surface-rgb:  107 107 107; /* h:0     S:0   Luv:45 */
+    --popup-cell-noop-surface-rgb:      185 185 185; /* h:0     S:0   Luv:75 */
+}
+
+:root.dark:not(.colorBlind) {
+    --popup-cell-allow-own-surface-rgb:   0 153   0; /* h:127.7 S:100 Luv:55 */
+    --popup-cell-allow-surface-rgb:      73 117  73; /* h:127.7 S:50  Luv:45 */
+    --popup-cell-block-own-surface-rgb: 255  40  40; /* h:12.2  S:100 Luv:55 */
+    --popup-cell-block-surface-rgb:     175  74  74; /* h:12.2  S:50  Luv:45 */
+    --popup-cell-noop-own-surface-rgb:  132 132 132; /* h:0     S:0   Luv:55 */
+    --popup-cell-noop-surface-rgb:       94  94  94; /* h:0     S:0   Luv:40 */
+}
+
+/*
+ * Source for color-blind color scheme:
+ * https://davidmathlogic.com/colorblind/
+ * First pair in "Accessible palettes"
+ * 
+ * */
+:root.colorBlind {
+    --popup-cell-allow-own-surface-rgb: 151 113   0; /* h:58.5 S:100 Luv:50 */
+    --popup-cell-block-own-surface-rgb:   0 120 216; /* h:252  S:100 Luv:50 */
+    --popup-cell-noop-own-surface-rgb:  119 119 119; /* h:0    S:0   Luv:50 */
+    --popup-cell-label-mixed-surface: #ff6a00;  /* TODO: fix */
+}
+:root.colorBlind:not(.dark) {
+    --popup-cell-allow-surface-rgb:     223 178  92; /* h:58.5 S:75  Luv:75 */
+    --popup-cell-block-surface-rgb:     159 185 238; /* h:252  S:75  Luv:75 */
+    --popup-cell-noop-surface-rgb:      185 185 185; /* h:0    S:0   Luv:75 */
+}
+:root.dark.colorBlind {
+    --popup-cell-allow-surface-rgb:     115  91  44; /* h:58.5 S:75  Luv:40 */
+    --popup-cell-block-surface-rgb:      53  95 154; /* h:252  S:75  Luv:40 */
+    --popup-cell-noop-surface-rgb:       94  94  94; /* h:0    S:0   Luv:40 */
+}
+
+:root.classic:not(.dark) {
+    --notice-ink: rgb(var(--ink-80));
+    --notice-surface: rgb(var(--yellow-5));
+    --popup-power-ink-rgb: 0 110 254;
+    --popup-ruleset-tool-ink: var(--ink-1);
+    --popup-ruleset-tool-surface: rgb(var(--yellow-5) / 50%);
+    --popup-ruleset-tool-surface-hover: rgb(var(--yellow-5) / 75%);
+    --popup-ruleset-tool-shadow: rgb(var(--gray-85));
+}
+
+/*
+ * Experiment: use Firefox for Android dark theme colors
+:root.mobile.dark {
+    --gray-10: 43 42 51;
+    --gray-20: 66 65 77;
+    --ink-rgb: 251 251 254;
+}
+*/

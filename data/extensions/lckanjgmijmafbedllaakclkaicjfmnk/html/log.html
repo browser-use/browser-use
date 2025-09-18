@@ -1,0 +1,120 @@
+<!--
+ClearURLs
+Copyright (c) 2017-2020 Kevin Röbert
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Lesser General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Log from ClearURLs</title>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <link rel="icon" sizes="any" type="image/svg+xml" href="/img/clearurls.svg">
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="../css/bootstrap.min.css">
+    <link rel="stylesheet" href="../css/dataTables.min.css">
+    <link rel="stylesheet" type="text/css" href="../css/core.css">
+    <style>
+        td {
+            word-wrap: break-word;
+            max-width: 200px;
+        }
+
+        .fileinput-button {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+        }
+
+        .fileinput-button input {
+            position: absolute;
+            top: 0;
+            right: 0;
+            margin: 0;
+            opacity: 0;
+            -ms-filter: 'alpha(opacity=0)';
+            direction: ltr;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar-margin navbar navbar-dark bg-dark">
+        <div class="container">
+                <span class="navbar-brand">
+                    <span class="float-left"><img src="../img/clearurls.svg"
+                        width="30" height="30" alt=""></span>
+                    <span style="color: #FF7800;" class="float-right" id="page_title"></span><br />
+                    <span class="badge badge-warning float-left small-version"
+                    id="version"></span>
+                </span>
+        </div>
+    </nav>
+
+    <div class="row">
+        <div class="col-lg-10 offset-lg-1">
+            <p class="text-center">
+                <button type="button" id="reset_log_btn"
+                class="btn btn-danger" title="Reset the global log">
+                </button>
+
+                <button type="button" id="export_log_btn"
+                                 class="btn btn-success" title="Export the global log">
+                    <i class="fas fa-download"></i>
+                    <span id="export_log_btn_text"></span>
+                </button>
+
+                <span id="import_log_btn"
+                            class="btn btn-success fileinput-button" title="Import the global log">
+                    <i class="fas fa-upload"></i>
+                    <span id="import_log_btn_text"></span>
+                    <input type="file" name="file" id="importLog"/>
+                </span>
+
+
+            </p>
+            <div class="table-responsive">
+                <table class="table table-striped table-bordered"
+                width="100%" id="logTable" cellspacing="0">
+                    <thead>
+                        <tr>
+                            <th data-orderable="false" id="head_1"></th>
+                            <th data-orderable="false" id="head_2"></th>
+                            <th data-orderable="false" id="head_3"></th>
+                            <th data-orderable="true" id="head_4"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="tbody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Optional JavaScript -->
+    <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+    <script src="../browser-polyfill.js"></script>
+    <script src="../external_js/jquery-3.6.0.min.js"></script>
+    <script src="../external_js/datatables.min.js"></script>
+    <script src="../core_js/log.js"></script>
+    <script src="../core_js/write_version.js"></script>
+</body>
+</html>

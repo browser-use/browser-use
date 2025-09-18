@@ -1,0 +1,110 @@
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+    }
+
+body {
+    margin-bottom: 6rem;
+    }
+
+.body > div {
+    max-width: 800px;
+    }
+h3 {
+    color: var(--fieldset-header-ink);
+    margin-bottom: 0;
+    }
+.supportEntry {
+    display: flex;
+    margin-block: 1em;
+    }
+:root.mobile .supportEntry {
+    flex-direction: column;
+    }
+.supportEntry > * {
+    min-width: 6em;
+    }
+.supportEntry > div:first-of-type {
+    flex-grow: 1;
+    }
+:root:not(.mobile) .supportEntry > div:first-of-type {
+    margin-inline-end: 2em;
+    }
+.supportEntry h3 {
+    margin: 1em 0;
+    }
+
+.e > .supportEntry {
+    flex-direction: column;
+    }
+.e > .supportEntry > div:not(:first-of-type) {
+    margin-top: 1em;
+    }
+.e > .supportEntry select {
+    min-width: 50%;
+    max-width: calc(100% - 1em);
+    }
+body:not(.filterIssue) .body > div.e {
+    display: none;
+}
+body.filterIssue .body > div:not(.e) {
+    display: none;
+}
+body.filterIssue #moreButton {
+    display: none;
+}
+
+body[data-should-update-lists]:not(.updated) .e .createEntry {
+    opacity: 0.25;
+    pointer-events: none;
+}
+
+body:not([data-should-update-lists]) .shouldUpdate {
+    display: none;
+    }
+body.updating {
+    pointer-events: none;
+    }
+body.updating button {
+    filter: grayscale(1);
+    opacity: 0.5;
+    }
+body.updated .shouldUpdate button {
+    display: none;
+    }
+body.updating .shouldUpdate button .fa-icon svg {
+    animation: spin 1s linear infinite;
+    transform-origin: 50%;
+    }
+body .shouldUpdate .updated {
+    align-self: center;
+    }
+body:not(.updated) .shouldUpdate .updated {
+    display: none;
+    }
+
+button {
+    align-self: center;
+    }
+span[data-url] {
+    color: var(--link-ink);
+    cursor: pointer;
+    }
+
+#showSupportInfo {
+    cursor: pointer;
+    }
+
+body.redacted #redactButton {
+    display: none;
+    }
+#unredactButton {
+    display: none;
+    }
+body.redacted #unredactButton {
+    display: inline;
+    }
+
+.cm-string.cm-property {
+    color: black;
+    }

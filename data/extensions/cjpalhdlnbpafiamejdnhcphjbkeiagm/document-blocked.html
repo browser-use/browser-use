@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1 user-scalable=yes">
+<meta name="color-scheme" content="light dark" />
+<title data-i18n="docblockedTitle"></title>
+<link rel="stylesheet" href="css/themes/default.css">
+<link rel="stylesheet" href="css/common.css">
+<link rel="stylesheet" href="css/fa-icons.css">
+<link rel="stylesheet" href="css/document-blocked.css">
+<link rel="icon" type="image/png" href="img/icon_64.png">
+</head>
+<body class="loading">
+<div id="rootContainer">
+    <div id="warningSign">
+        <a class="fa-icon" href="https://github.com/gorhill/uBlock/wiki/Strict-blocking" target="_blank" rel="noopener noreferrer">exclamation-triangle</a>
+    </div>
+
+    <div>
+        <p data-i18n="docblockedPrompt1">_</p>
+        <div id="theURL" class="collapsed">
+            <p class="code"><span>&nbsp;</span><span id="toggleParse" class="hidden"><span class="fa-icon">zoom-in</span><span class="fa-icon">zoom-out</span></span></p>
+            <ul id="parsed"></ul>
+        </div>
+    </div>
+
+    <div id="why"></div>
+
+    <div id="urlskip" hidden>
+    </div>
+
+    <div class="li">
+        <label><span class="input checkbox"><input type="checkbox" id="disableWarning"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span data-i18n="docblockedDontWarn">_</span></label>
+    </div>
+
+    <div id="actionContainer">
+        <button id="back" data-i18n="docblockedBack" type="button">_<span class="hover"></span></button>
+        <button id="bye" data-i18n="docblockedClose" type="button">_<span class="hover"></span></button>
+        <button id="proceed" class="preferred" data-i18n="docblockedDisable" type="button"><span class="hover"></span></button>
+    </div>
+</div>
+
+<template class="why">
+    <p data-i18n="docblockedPrompt2">_</p>
+    <p class="why code">&nbsp;</p>
+</template>
+<template class="why-reason">
+    <details><summary><span data-i18n="docBlockedReasonLabel"></span> <span></span></summary>
+    <p data-i18n="docblockedPrompt2">_</p>
+    <p class="why code">&nbsp;</p>
+    </details>
+</template>
+<template class="why-extra">
+    <div class="why-extra">
+        <span data-i18n="docblockedFoundIn">_</span>&nbsp;
+    </div>
+</template>
+<template class="filterList">
+    <span class="filterList">
+        <a class="filterListSource" href="asset-viewer.html?url=" target="_blank"></a><!--
+     --><a class="fa-icon filterListSupport hidden" href="#" target="_blank" rel="noopener noreferrer">home</a>
+    </span>
+</template>
+
+<script src="lib/hsluv/hsluv-0.1.0.min.js"></script>
+
+<script src="js/fa-icons.js" type="module"></script>
+<script src="js/vapi.js"></script>
+<script src="js/vapi-common.js"></script>
+<script src="js/vapi-client.js"></script>
+<script src="js/theme.js" type="module"></script>
+<script src="js/i18n.js" type="module"></script>
+<script src="js/document-blocked.js" type="module"></script>
+</body>
+</html>

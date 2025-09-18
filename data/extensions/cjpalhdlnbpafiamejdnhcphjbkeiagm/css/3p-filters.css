@@ -1,0 +1,237 @@
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+    }
+body {
+    margin-bottom: 6rem;
+    }
+#actions {
+    background-color: var(--surface-1);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    }
+#buttonUpdate.active {
+    pointer-events: none;
+    }
+#buttonUpdate.active .fa-icon svg,
+body.working #buttonUpdate:not(.disabled) .fa-icon svg {
+    animation: spin 1s linear infinite;
+    transform-origin: 50%;
+    }
+
+body.updating #actions,
+body.working #actions {
+    cursor: progress;
+    }
+body.updating #actions #buttonUpdate,
+body.working #actions button {
+    pointer-events: none;
+    }
+
+.listExpander {
+    font-size: 18px;
+    padding: 0;
+    }
+.listExpander:first-child {
+    justify-content: flex-start;
+    min-width: 20px;
+    }
+.listExpander:not(:first-child) {
+    color: var(--checkbox-checked-ink);
+        fill: var(--checkbox-checked-ink);
+    }
+.listExpander svg {
+    transform: rotate(90deg);
+    transform-origin: 50%;
+    }
+
+#lists .fa-icon:hover {
+    transform: scale(1.25);
+    }
+
+#lists .rootstats.expanded .listExpander svg {
+    transform: rotate(180deg);
+    }
+
+#lists .searchfield {
+    margin-block-start: calc(var(--font-size) * 0.75);
+    margin-inline-start: var(--checkbox-size);
+    }
+#lists.searchMode > .listEntries .listEntries,
+#lists.searchMode > .listEntries .listEntry.searchMatch {
+    display: flex !important;
+    }
+#lists.searchMode > .listEntries .listEntry {
+    display: none;
+    }
+#lists.searchMode > .listEntries .listExpander {
+    visibility: hidden;
+    }
+
+#listsOfBlockedHostsPrompt {
+    cursor: pointer;
+    }
+
+#lists .listEntries {
+    display: flex;
+    flex-direction: column;
+    margin-inline-start: var(--checkbox-size);
+    }
+#lists > .listEntries {
+    margin-inline-start: 0;
+    }
+#lists .listEntry {
+    align-items: flex-start;
+    flex-direction: column;
+    margin-bottom: 0;
+    margin-inline-start: 0;
+    white-space: nowrap;
+    }
+#lists .listEntry[data-key="user"] {
+    margin-top: 0;
+    }
+#lists .listEntry > .detailbar {
+    column-gap: calc(var(--default-gap-xxsmall) + 2px);
+    display: inline-flex;
+    }
+#lists .listEntry[data-key="user"] > .detailbar {
+    display: none;
+    }
+#lists .listEntry[data-role="node"].expanded > .detailbar .listExpander svg {
+    transform: rotate(180deg);
+    }
+#lists .listEntry[data-parent="root"]:not(.expanded) > .listEntries > .listEntry:not(.checked):not(.isDefault):not(.stickied) {
+    display: none;
+    }
+#lists .listEntry:not([data-parent="root"]):not(.expanded) > .listEntries > .listEntry {
+    display: none;
+    }
+#lists .nodestats {
+    align-self: flex-end;
+    color: var(--info0-ink);
+        fill: var(--info0-ink);
+    cursor: default;
+    font-size: var(--font-size-smaller);
+}
+#lists .iconbar {
+    column-gap: var(--default-gap-xxsmall);
+    color: var(--info0-ink);
+        fill: var(--info0-ink);
+    display: inline-flex;
+    flex-direction: row;
+    font-size: 120%;
+    }
+#lists .iconbar a {
+    color: var(--info0-ink);
+        fill: var(--info0-ink);
+    }
+#lists .iconbar .fa-icon {
+    display: none;
+    }
+#lists .iconbar .content {
+    display: inline-flex;
+    }
+#lists .iconbar a.towiki {
+    display: inline-flex;
+    }
+#lists .listEntry > .detailbar .iconbar a.support {
+    display: inline-flex;
+    }
+#lists .listEntry > .detailbar .iconbar a.support[href="#"] {
+    display: none;
+    }
+#lists .iconbar .remove,
+#lists .iconbar .unsecure,
+#lists .iconbar .failed {
+    color: var(--info3-ink);
+        fill: var(--info3-ink);
+    cursor: pointer;
+    }
+#lists .listEntry.external > .detailbar .iconbar .remove {
+    display: inline-flex;
+    }
+#lists .listEntry > .detailbar .iconbar a.mustread {
+    color: var(--info1-ink);
+        fill: var(--info1-ink);
+    display: inline-flex;
+    }
+#lists .listEntry > .detailbar .iconbar a.mustread[href="#"] {
+    display: none;
+    }
+#lists .listEntry .leafstats {
+    align-items: flex-end;
+    color: var(--info0-ink);
+        fill: var(--info0-ink);
+    display: none;
+    font-size: var(--font-size-xsmall);
+    margin-inline-start: calc(var(--checkbox-size) + var(--checkbox-margin-end));
+}
+#lists .listEntry > .detailbar .leafstats {
+    margin-inline-start: 0;
+    }
+#lists .listEntry.checked > .leafstats,
+#lists .listEntry.checked > .detailbar .leafstats {
+    display: inline-flex;
+}
+#lists .iconbar .status {
+    cursor: default;
+    display: none;
+}
+#lists .listEntry.checked.unsecure > .detailbar .iconbar .unsecure {
+    display: inline-flex;
+    }
+#lists .listEntry.failed > .detailbar .iconbar .failed {
+    display: inline-flex;
+    }
+#lists .iconbar .cache {
+    cursor: pointer;
+    }
+#lists .listEntry.checked.cached:not(.obsolete) > .detailbar .iconbar .cache {
+    display: inline-flex;
+    }
+#lists .listEntry.cached.recent:not(.obsolete) > .detailbar .iconbar .cache {
+    color: var(--dashboard-happy-green);
+        fill: var(--dashboard-happy-green);
+    }
+#lists .iconbar .obsolete {
+    color: var(--info2-ink);
+        fill: var(--info2-ink);
+    }
+body:not(.updating,.working) #lists .listEntry.checked.obsolete > .detailbar .iconbar .obsolete {
+    display: inline-flex;
+    }
+#lists .iconbar .updating {
+    transform-origin: 50%;
+    }
+body.updating #lists .listEntry.checked.obsolete > .detailbar .iconbar .updating,
+body.working #lists .listEntry.checked.obsolete:not(.cached) > .detailbar .iconbar .updating {
+    animation: spin 1s steps(8) infinite;
+    display: inline-flex;
+    }
+
+#lists .listEntry.toRemove .checkbox {
+    visibility: hidden;
+    }
+#lists .listEntry.toRemove .listname {
+    text-decoration: line-through;
+    }
+
+#lists .listEntry[data-role="import"].expanded .listExpander svg {
+    transform: rotate(180deg);
+    }
+#lists .listEntry[data-role="import"].expanded textarea {
+    visibility: visible;
+    }
+#lists .listEntry[data-role="import"] textarea {
+    border: 1px solid #ccc;
+    box-sizing: border-box;
+    display: block;
+    font-size: smaller;
+    height: 6em;
+    margin: 0;
+    resize: vertical;
+    visibility: hidden;
+    white-space: pre;
+    width: 100%;
+    }

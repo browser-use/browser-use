@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1">
+<meta name="color-scheme" content="light dark" />
+<title>uBlock — Settings</title>
+<link rel="stylesheet" type="text/css" href="css/themes/default.css">
+<link rel="stylesheet" type="text/css" href="css/common.css">
+<link rel="stylesheet" type="text/css" href="css/fa-icons.css">
+<link rel="stylesheet" type="text/css" href="css/dashboard-common.css">
+<link rel="stylesheet" type="text/css" href="css/settings.css">
+</head>
+
+<body>
+<div class="fieldset">
+    <div class="li"><label><span class="input checkbox"><input type="checkbox" data-setting-name="collapseBlocked" data-setting-type="bool"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span data-i18n="settingsCollapseBlockedPrompt">_</span></label></div>
+    <div class="li"><label><span class="input checkbox"><input type="checkbox" data-setting-name="showIconBadge" data-setting-type="bool"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span data-i18n="settingsIconBadgePrompt">_</span></label></div>
+    <div class="li"><label><span class="input checkbox"><input type="checkbox" data-setting-name="contextMenuEnabled" data-setting-type="bool"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span data-i18n="settingsContextMenuPrompt">_</span></label></div>
+    <div class="li"><label><span class="input checkbox"><input type="checkbox" data-setting-name="cloudStorageEnabled" data-setting-type="bool"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span><span data-i18n="settingsCloudStorageEnabledPrompt">_</span>&nbsp;<a class="fa-icon info" href="https://github.com/gorhill/uBlock/wiki/Cloud-storage" target="_blank">info-circle</a></span></label></div>
+</div>
+<hr>
+<div class="fieldset">
+    <div class="fieldset-header" data-i18n="3pGroupPrivacy"></div>
+    <div class="li"><label><span class="input checkbox"><input type="checkbox" data-setting-name="prefetchingDisabled" data-setting-type="bool"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span><span data-i18n="settingsPrefetchingDisabledPrompt"></span>&nbsp;<a class="fa-icon info" href="https://github.com/gorhill/uBlock/wiki/Dashboard:-Settings#disable-prefetching" target="_blank">info-circle</a></span></label></div>
+    <div class="li"><label><span class="input checkbox"><input type="checkbox" data-setting-name="hyperlinkAuditingDisabled" data-setting-type="bool"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span><span data-i18n="settingsHyperlinkAuditingDisabledPrompt"></span>&nbsp;<a class="fa-icon info" href="https://github.com/gorhill/uBlock/wiki/Dashboard:-Settings#disable-hyperlink-auditing" target="_blank">info-circle</a></span></label></div>
+    <div class="li" style="display:none"><label><span class="input checkbox"><input type="checkbox" data-setting-name="webrtcIPAddressHidden" data-setting-type="bool"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span><span data-i18n="settingsWebRTCIPAddressHiddenPrompt"></span>&nbsp;<a class="fa-icon info important" href="https://github.com/gorhill/uBlock/wiki/Prevent-WebRTC-from-leaking-local-IP-address" target="_blank">info-circle</a></span></label></div>
+    <div class="li"><label><span class="input checkbox"><input type="checkbox" data-setting-name="noCSPReports" data-setting-type="bool"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span><span data-i18n="settingsNoCSPReportsPrompt"></span>&nbsp;<a class="fa-icon info" href="https://github.com/gorhill/uBlock/wiki/Dashboard:-Settings#block-csp-reports" target="_blank">info-circle</a></span></label></div>
+    <div class="li"><label><span class="input checkbox"><input type="checkbox" data-setting-name="cnameUncloakEnabled" data-setting-type="bool"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span><span data-i18n="settingsUncloakCnamePrompt"></span>&nbsp;<a class="fa-icon info" href="https://github.com/gorhill/uBlock/wiki/Dashboard:-Settings#uncloak-canonical-names" target="_blank">info-circle</a></span></label></div>
+</div>
+<hr>
+<div class="fieldset">
+    <div class="fieldset-header" data-i18n="settingsAppearance"></div>
+    <div class="li"><label><span data-i18n="settingsThemeLabel">_</span>&emsp;<select data-setting-name="uiTheme" data-setting-type="value"><option value="auto">Auto<option value="light">Light<option value="dark">Dark</select></label></div>
+    <div class="li">
+        <label><span class="input checkbox"><input type="checkbox" data-setting-name="uiAccentCustom" data-setting-type="bool"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span data-i18n="settingsThemeAccent0Label">_</span></label>&emsp;
+        <input type="color" list="preset-accent-colors" data-setting-name="uiAccentCustom0" data-setting-type="value">
+        <datalist id="preset-accent-colors">
+            <option value="#f75782"><!-- h:0...360 step 40 S:90 Luv:60 -->
+            <option value="#cc7f2b">
+            <option value="#9c932b">
+            <option value="#56a22b">
+            <option value="#2ea283">
+            <option value="#309fa6">
+            <option value="#3498d6">
+            <option value="#ad75f4">
+            <option value="#f542d6">
+            <option value="#919191"><!-- h:0 S:0 Luv:60 -->
+        </datalist>
+    </div>
+    <div class="li"><label><span class="input checkbox"><input type="checkbox" data-setting-name="colorBlindFriendly" data-setting-type="bool"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span data-i18n="settingsColorBlindPrompt">_</span></label></div>
+    <div class="li"><label><span class="input checkbox"><input type="checkbox" data-setting-name="tooltipsDisabled" data-setting-type="bool"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span data-i18n="settingsTooltipsPrompt">_</span></label></div>
+</div>
+<hr>
+<div class="fieldset">
+    <div class="fieldset-header" data-i18n="settingPerSiteSwitchGroup"></div>
+    <div class="li synopsis"><legend><span data-i18n="settingPerSiteSwitchGroupSynopsis"></span>&nbsp;<a class="fa-icon info" href="https://github.com/gorhill/uBlock/wiki/Per-site-switches" target="_blank">info-circle</a></legend></div>
+    <div class="li"><label><span class="input checkbox"><input type="checkbox" data-setting-name="noCosmeticFiltering" data-setting-type="bool"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span><span data-i18n="settingsNoCosmeticFilteringPrompt"></span>&nbsp;<a class="fa-icon info" href="https://github.com/gorhill/uBlock/wiki/Per-site-switches#no-cosmetic-filtering" target="_blank">info-circle</a></span></label></div>
+    <div class="li"><label><span class="input checkbox"><input type="checkbox" data-setting-name="noLargeMedia" data-setting-type="bool"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span><span data-i18n="settingsNoLargeMediaPrompt"><input type="number" min="0" data-setting-name="largeMediaSize" data-setting-type="value"></span>&nbsp;<a class="fa-icon info" href="https://github.com/gorhill/uBlock/wiki/Per-site-switches#no-large-media-elements" target="_blank">info-circle</a></span></label></div>
+    <div class="li"><label><span class="input checkbox"><input type="checkbox" data-setting-name="noRemoteFonts" data-setting-type="bool"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span><span data-i18n="settingsNoRemoteFontsPrompt"></span>&nbsp;<a class="fa-icon info" href="https://github.com/gorhill/uBlock/wiki/Per-site-switches#no-remote-fonts" target="_blank">info-circle</a></span></label></div>
+    <div class="li"><label><span class="input checkbox"><input type="checkbox" data-setting-name="noScripting" data-setting-type="bool"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span><span data-i18n="settingsNoScriptingPrompt"></span>&nbsp;<a class="fa-icon info" href="https://github.com/gorhill/uBlock/wiki/Per-site-switches#no-scripting" target="_blank">info-circle</a></span></label></div>
+</div>
+<hr>
+<div class="fieldset">
+    <div class="fieldset-header" data-i18n="settingsAdvanced"></div>
+    <div class="li synopsis"><legend><span data-i18n="settingsAdvancedSynopsis"></span>&nbsp;<a class="fa-icon info very-important" href="https://github.com/gorhill/uBlock/wiki/Advanced-user-features" target="_blank">info-circle</a></legend></div>
+    <div class="li"><label><span class="input checkbox"><input type="checkbox" data-setting-name="advancedUserEnabled" data-setting-type="bool"><svg viewBox="0 0 24 24"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg></span><span><span data-i18n="settingsAdvancedUserPrompt"></span>&nbsp;<a class="fa-icon info" href="advanced-settings.html" data-i18n-title="settingsAdvancedUserSettings">cogs</a></span></label></div>
+</div>
+<hr>
+<div id="localData" class="fieldset">
+    <div>
+        <div class="li" id="storageUsed"></div>
+        <div class="li" id="settingsLastBackupPrompt" style="display:none;"></div>
+        <div class="li" id="settingsLastRestorePrompt" style="display:none;"></div>
+    </div>
+    <div>
+        <button type="button" id="export" data-i18n="aboutBackupDataButton">_<span class="hover"></span></button>
+        <button type="button" id="import" data-i18n="aboutRestoreDataButton">_<span class="hover"></span></button>
+        <button type="button" id="reset" data-i18n="aboutResetDataButton">_<span class="hover"></span></button>
+    </div>
+</div>
+
+<div class="hidden">
+    <input id="restoreFilePicker" type="file" accept="text/plain,application/json">
+</div>
+
+<script src="lib/hsluv/hsluv-0.1.0.min.js"></script>
+
+<script src="js/fa-icons.js" type="module"></script>
+<script src="js/vapi.js"></script>
+<script src="js/vapi-common.js"></script>
+<script src="js/vapi-client.js"></script>
+<script src="js/theme.js" type="module"></script>
+<script src="js/i18n.js" type="module"></script>
+<script src="js/dashboard-common.js" type="module"></script>
+<script src="js/settings.js" type="module"></script>
+
+</body>
+</html>

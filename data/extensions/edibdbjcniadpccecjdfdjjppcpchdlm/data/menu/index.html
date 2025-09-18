@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div style="width: 220px; padding: 10px 10px 0; text-align: center">
+      <img src="../../icons/32.png" />
+
+      <div id="menu_main" class="menu">
+        <a id="toggle"></a>
+        <a id="refresh">&#x21bb;</a>
+        <a id="report" data-translate="menuReport"></a>
+        <a id="options" data-translate="optionsTitle"></a>
+      </div>
+
+      <div id="menu_report" class="menu menu-hidden">
+        <a id="report_github" data-translate="reportGithub"></a>
+        <a id="report_anon" data-translate="reportAnon"></a>
+      </div>
+
+      <div id="menu_report_anon" class="menu menu-hidden">
+        <h3>
+          <span data-translate="reportAnonTitle"></span>
+          <span id="hostname">example.com</span>
+        </h3>
+        <select id="report_issue_type">
+          <option value="general" data-translate="generalIssueOption"></option>
+          <option
+            value="scrollbar"
+            data-translate="scrollbarIssueOption"
+          ></option>
+          <option value="modal" data-translate="modalIssueOption"></option>
+        </select>
+        <label
+          id="general_issue_description"
+          data-translate="reportAnonNotes"
+        ></label>
+        <label
+          id="scrollbar_issue_description"
+          data-translate="scrollbarIssueDescription"
+        ></label>
+        <label
+          id="modal_issue_description"
+          data-translate="modalIssueDescription"
+        ></label>
+        <textarea id="report-notes"></textarea>
+        <button id="report_anon_send" data-translate="reportAnonSend"></button>
+        <button
+          id="report_anon_cancel"
+          data-translate="reportAnonCancel"
+        ></button>
+      </div>
+    </div>
+
+    <div id="menu_error" class="menu menu-hidden">
+      <div style="text-align: center">
+        <h2 data-translate="genericErrorTitle"></h2>
+        <p data-translate="genericErrorTryAgain"></p>
+        <a
+          id="error_back_button"
+          data-translate="genericErrorBack"
+          class="menu-item"
+        ></a>
+      </div>
+    </div>
+
+    <div id="menu_loading" class="menu menu-hidden">
+      <div style="text-align: center">
+        <img src="spinner.svg" width="60" fill="#fff" alt="" />
+        <p data-translate="menuLoadingText"></p>
+      </div>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+</html>

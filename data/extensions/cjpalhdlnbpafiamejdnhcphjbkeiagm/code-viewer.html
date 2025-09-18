@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark" />
+<title>Code viewer</title>
+<link rel="stylesheet" href="lib/codemirror/lib/codemirror.css">
+<link rel="stylesheet" href="lib/codemirror/theme/night.css">
+<link rel="stylesheet" href="lib/codemirror/addon/search/matchesonscrollbar.css">
+<link rel="stylesheet" href="css/themes/default.css">
+<link rel="stylesheet" href="css/common.css">
+<link rel="stylesheet" href="css/fa-icons.css">
+<link rel="stylesheet" href="css/codemirror.css">
+<link rel="stylesheet" href="css/code-viewer.css">
+</head>
+<body class="loading">
+
+<div id="header">
+    <div id="currentURL">
+        <input type="url" value="" spellcheck="false" autofocus="false">
+        <span id="reloadURL" class="fa-icon">refresh</span>
+        <span id="removeURL" class="fa-icon">trash-o</span>
+    </div>
+    <div id="pastURLs"></div>
+</div>
+<div id="content" class="codeMirrorContainer codeMirrorBreakAll"></div>
+
+<script src="lib/codemirror/lib/codemirror.js"></script>
+<script src="lib/codemirror/addon/display/panel.js"></script>
+<script src="lib/codemirror/addon/edit/matchbrackets.js"></script>
+<script src="lib/codemirror/addon/scroll/annotatescrollbar.js"></script>
+<script src="lib/codemirror/addon/search/searchcursor.js"></script>
+<script src="lib/codemirror/addon/selection/active-line.js"></script>
+<script src="lib/codemirror/mode/javascript/javascript.js"></script>
+<script src="lib/codemirror/mode/css/css.js"></script>
+<script src="lib/codemirror/mode/xml/xml.js"></script>
+<script src="lib/codemirror/mode/htmlmixed/htmlmixed.js"></script>
+
+<script src="js/vapi.js"></script>
+<script src="js/vapi-common.js"></script>
+<script src="js/vapi-client.js"></script>
+
+<script src="js/codemirror/search.js" type="module"></script>
+<script src="js/codemirror/search-thread.js"></script>
+
+<script src="lib/js-beautify/beautifier.min.js"></script>
+<script src="js/fa-icons.js" type="module"></script>
+<script src="js/theme.js" type="module"></script>
+<script src="js/i18n.js" type="module"></script>
+<script src="js/dashboard-common.js" type="module"></script>
+<script src="js/code-viewer.js" type="module"></script>
+</body>
+</html>

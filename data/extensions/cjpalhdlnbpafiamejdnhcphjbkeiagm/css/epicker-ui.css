@@ -1,0 +1,297 @@
+:root {
+    --quit-button-size: max(4em, min(6em, calc(100vw / 8), calc(100vh / 8)));
+}
+
+html#ublock0-epicker,
+#ublock0-epicker body {
+    background: transparent;
+    cursor: not-allowed;
+    height: 100vh;
+        height: 100svh;
+    margin: 0;
+    overflow: hidden;
+    width: 100vw;
+}
+#ublock0-epicker :focus {
+    outline: none;
+}
+#ublock0-epicker aside {
+    background-color: var(--surface-1);
+    border: 1px solid var(--border-2);
+    box-sizing: border-box;
+    cursor: default;
+    display: flex;
+    flex-direction: column;
+    max-width: min(32rem, 100vw - 4px);
+    min-width: min(24rem, 100vw - 4px);
+    overflow-y: auto;
+    position: fixed;
+    width: min(32rem, 100vw - 4px);
+    z-index: 100;
+}
+#ublock0-epicker.zap aside {
+    bottom: unset !important;
+    min-width: unset !important;
+    top: 50%;
+    transform: translateY(-50%);
+    width: unset !important;
+}
+#ublock0-epicker.zap aside > section,
+#ublock0-epicker.zap aside > ul,
+#ublock0-epicker.zap aside > #windowbar > div:not(#quit) {
+    display: none;
+}
+#ublock0-epicker.zap aside > #windowbar > #quit {
+    width: var(--quit-button-size);
+    height: var(--quit-button-size);
+}
+#ublock0-epicker:not(.paused) aside,
+#ublock0-epicker.minimized aside {
+    min-width: min(16rem, 100vw - 4px);
+    overflow: hidden;
+    width: min(16rem, 100vw - 4px);
+}
+#ublock0-epicker:not(.paused) aside > *:not(#windowbar),
+#ublock0-epicker.minimized aside > *:not(#windowbar) {
+    display: none;
+}
+#ublock0-epicker aside > *:not(:first-child) {
+    padding: 0 2px;
+}
+
+#ublock0-epicker #toolbar {
+    display: flex;
+    justify-content: space-between;
+}
+#ublock0-epicker #toolbar button {
+    min-width: 5em;
+    }
+#ublock0-epicker ul {
+    margin: 0.25em 0 0 0;
+}
+#ublock0-epicker.preview #preview {
+    background-color: var(--button-preferred-surface);
+    color: var(--button-preferred-ink);
+}
+#ublock0-epicker section {
+    border: 0;
+    box-sizing: border-box;
+    display: inline-block;
+    width: 100%;
+}
+#ublock0-epicker section > div:first-child {
+    border: 1px solid var(--surface-3);
+    margin: 0;
+    position: relative;
+}
+#ublock0-epicker section.invalidFilter > div:first-child {
+    border-color: var(--error-surface);
+}
+#ublock0-epicker section .codeMirrorContainer {
+    border: none;
+    box-sizing: border-box;
+    height: 10em;
+    max-height: min(10em, 10vh);
+    min-height: 1em;
+    padding: 2px;
+    width: 100%;
+    }
+.CodeMirror-lines,
+.CodeMirror pre {
+    padding: 0;
+    }
+
+#ublock0-epicker section .resultsetWidgets {
+    display: flex;
+    font-size: var(--font-size-smaller);
+    }
+#resultsetModifiers {
+    align-items: flex-end;
+    display: inline-flex;
+    flex-grow: 1;
+    justify-content: space-evenly;
+    }
+#resultsetModifiers.hide > * {
+    visibility: hidden;
+    }
+.resultsetModifier {
+    border: 0;
+    pointer-events: auto;
+    position: relative;
+    width: 40%;
+    }
+.resultsetModifier > span {
+    align-items: flex-end;
+    display: flex;
+    height: 100%;
+    pointer-events: none;
+    width: 100%;
+    }
+.resultsetModifier > span > span {
+    margin: 2px 0;
+    }
+.resultsetModifier  > span > span:nth-of-type(1) {
+    background-color: var(--checkbox-checked-ink);
+    border-inline-end: 1px solid var(--surface-3);
+    display: inline-block;
+    flex-shrink: 0;
+    height: 6px;
+    }
+.resultsetModifier  > span > span:nth-of-type(2) {
+    background-color: var(--checkbox-checked-ink);
+    clip-path: polygon(
+        calc(50% - 2px) 0%,
+        0% calc(100% - 6px),
+        0% 100%,
+        100% 100%,
+        100% calc(100% - 6px),
+        calc(50% + 2px) 0%
+    );
+    display: inline-block;
+    flex-shrink: 0;
+    height: 20px;
+    width: 20px;
+    }
+.resultsetModifier  > span > span:nth-of-type(3) {
+    background-color: var(--surface-3);
+    border-inline-start: 1px solid var(--surface-3);
+    display: inline-block;
+    flex-grow: 1;
+    height: 6px;
+    }
+.resultsetModifier input {
+    border: 0;
+    height: 100%;
+    left: 0;
+    margin: 0;
+    opacity: 0;
+    padding: 0;
+    position: absolute;
+    top: 0;
+    width: 100%;
+    }
+#resultsetCount {
+    align-items: center;
+    background-color: var(--surface-3);
+    color: var(--ink-1);
+    display: inline-flex;
+    justify-content: center;
+    min-width: 2.2em;
+    }
+#ublock0-epicker section.invalidFilter #resultsetCount {
+    background-color: var(--error-surface);
+    color: var(--ink-100);
+}
+#ublock0-epicker section > div:first-child + div {
+    direction: ltr;
+    margin: 2px 0;
+    text-align: right;
+}
+#ublock0-epicker ul {
+    padding: 0;
+    list-style-type: none;
+    text-align: left;
+    overflow: hidden;
+}
+#ublock0-epicker #candidateFilters {
+    max-height: min(18em, 18vh);
+    overflow-y: auto;
+}
+#ublock0-epicker .changeFilter > li > span:nth-of-type(1) {
+    font-weight: bold;
+}
+#ublock0-epicker .changeFilter > li > span:nth-of-type(2) {
+    font-size: smaller;
+    color: gray;
+}
+#ublock0-epicker #candidateFilters [data-i18n] {
+    font-size: 90%;
+}
+#ublock0-epicker #candidateFilters .changeFilter {
+    list-style-type: none;
+    margin: 0 0 0 1em;
+    overflow: hidden;
+    text-align: left;
+}
+#ublock0-epicker #candidateFilters .changeFilter li {
+    border: 1px solid transparent;
+    cursor: pointer;
+    direction: ltr;
+    font: 12px monospace;
+    white-space: nowrap;
+}
+#ublock0-epicker #candidateFilters .changeFilter li.active {
+    border: 1px dotted rgb(var(--blue-50));
+    }
+#ublock0-epicker #candidateFilters .changeFilter li:hover {
+    background-color: var(--surface-2);
+}
+
+#ublock0-epicker svg#sea {
+    cursor: crosshair;
+    box-sizing: border-box;
+    height: 100%;
+    left: 0;
+    position: absolute;
+    top: 0;
+    width: 100%;
+}
+#ublock0-epicker.paused svg#sea {
+    cursor: not-allowed;
+}
+#ublock0-epicker svg#sea > path:first-child {
+    fill: rgba(0,0,0,0.5);
+    fill-rule: evenodd;
+}
+#ublock0-epicker svg#sea > path + path {
+    stroke: #F00;
+    stroke-width: 0.5px;
+    fill: rgba(255,63,63,0.20);
+}
+#ublock0-epicker.zap svg#sea > path + path {
+    stroke: #FF0;
+    stroke-width: 0.5px;
+    fill: rgba(255,255,63,0.20);
+}
+#ublock0-epicker.preview svg#sea > path {
+    fill: rgba(0,0,0,0.10);
+}
+#ublock0-epicker.preview svg#sea > path + path {
+    stroke: none;
+}
+
+
+#ublock0-epicker #windowbar {
+    display: flex;
+}
+#ublock0-epicker #windowbar svg {
+    fill: none;
+    pointer-events: none;
+    stroke: var(--ink-1);
+    stroke-width: 3px;
+}
+#ublock0-epicker #windowbar #move {
+    background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAYAAAAECAYAAACtBE5DAAAAFElEQVQI12NgwAfKy8v/M5ANYLoBshgEyQo6H9UAAAAASUVORK5CYII=');
+    cursor: grab;
+    flex-grow: 1;
+    opacity: 0.8;
+}
+#ublock0-epicker aside.moving #windowbar #move {
+    cursor: grabbing;
+}
+#windowbar #quit,
+#windowbar #minimize {
+    height: 2em;
+    width: 2em;
+}
+#windowbar #quit:hover,
+#windowbar #minimize:hover {
+    background-color: var(--surface-2)
+}
+#ublock0-epicker.minimized #windowbar #minimize svg > path,
+#windowbar #minimize svg > rect {
+    display: none;
+}
+#ublock0-epicker.minimized #windowbar #minimize svg > rect {
+    display: initial;
+}

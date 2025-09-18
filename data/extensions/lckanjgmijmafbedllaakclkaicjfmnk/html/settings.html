@@ -1,0 +1,181 @@
+<!--
+ClearURLs
+Copyright (c) 2017-2020 Kevin Röbert
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Lesser General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Settings from ClearURLs</title>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <link rel="icon" sizes="any" type="image/svg+xml" href="/img/clearurls.svg">
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="../css/bootstrap.min.css">
+    <link rel="stylesheet" type="text/css" href="../css/switchButtons.css">
+    <link rel="stylesheet" type="text/css" href="../css/core.css">
+    <link rel="stylesheet" href="../css/pickr.nano.min.css">
+    <style>
+        td {
+            word-wrap: break-word;
+            max-width: 200px;
+        }
+
+        .fileinput-button {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+        }
+
+        .fileinput-button input {
+            position: absolute;
+            top: 0;
+            right: 0;
+            margin: 0;
+            opacity: 0;
+            -ms-filter: 'alpha(opacity=0)';
+            direction: ltr;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar-margin navbar navbar-dark bg-dark">
+        <div class="container">
+                <div class="navbar-brand">
+                    <span class="float-left"><img src="../img/clearurls.svg"
+                        width="30" height="30" alt=""></span>
+                        <span style="color: #FF7800;" class="float-right" id="page_title"></span><br/>
+                        <span class="badge badge-warning float-left small-version"
+                        id="version"></span>
+                </div>
+            </div>
+        </nav>
+
+        <div class="row">
+            <div class="col-lg-4 offset-lg-4">
+                <p class="text-center">
+                    <button type="button" id="reset_settings_btn"
+                    class="btn btn-danger" title="Reset everything settings"></button>
+
+                    <button type="button" id="export_settings_btn"
+                            class="btn btn-success" title="Export the settings">
+                        <i class="fas fa-download"></i>
+                        <span id="export_settings_btn_text"></span>
+                    </button>
+
+                    <span id="import_settings_btn"
+                          class="btn btn-success fileinput-button" title="Import the settings">
+                    <i class="fas fa-upload"></i>
+                    <span id="import_settings_btn_text"></span>
+                    <input type="file" name="file" id="importSettings"/>
+                </span>
+                </p>
+                <br />
+                <label id="badged_color_label"></label><br />
+                <div id="badged-color-picker" class="input-group">
+                </div>
+                <br />
+                <br />
+                <p>
+                    <label id="rule_url_label"></label><br />
+                    <input type="url" id="ruleURL" value="" name="ruleURL" class="form-control" />
+                </p>
+                <br />
+                <p>
+                    <label id="hash_url_label"></label><br />
+                    <input type="url" id="hashURL" value="" name="hashURL" class="form-control" />
+                </p>
+                <br />
+                <p>
+                    <label id="types_label"></label><br />
+                    <input type="text" id="types" value="" name="types" class="form-control" />
+                </p>
+                <br />
+                <p>
+                    <label id="logLimit_label"></label><br />
+                    <input type="number" id="logLimit" value="" name="logLimit" class="form-control" min="0" max="5000">
+                </p>
+                <br />
+                <p>
+                    <label id="domain_blocking_enabled" style="font-weight: bold;"></label><br />
+                    <label class="switch">
+                        <input type="checkbox" id="domainBlocking">
+                        <span class="slider round"></span>
+                    </label>
+                </p>
+                <p>
+                    <label id="local_hosts_skipping" style="font-weight: bold;"></label><br />
+                    <label class="switch">
+                        <input type="checkbox" id="localHostsSkipping">
+                        <span class="slider round"></span>
+                    </label>
+                </p>
+                <p>
+                    <label id="history_listener_enabled" style="font-weight: bold;"></label><br />
+                    <label class="switch">
+                        <input type="checkbox" id="historyListenerEnabled">
+                        <span class="slider round"></span>
+                    </label>
+                </p>
+                <p>
+                    <label id="context_menu_enabled" style="font-weight: bold;"></label><br />
+                    <label class="switch">
+                        <input type="checkbox" id="contextMenuEnabled">
+                        <span class="slider round"></span>
+                    </label>
+                </p>
+                <p>
+                    <label id="referral_marketing_enabled" style="font-weight: bold;"></label><br />
+                    <label class="switch">
+                        <input type="checkbox" id="referralMarketing">
+                        <span class="slider round"></span>
+                    </label>
+                </p>
+                <p>
+                    <label id="ping_blocking_enabled" style="font-weight: bold;"></label><br />
+                    <label class="switch">
+                        <input type="checkbox" id="pingBlocking">
+                        <span class="slider round"></span>
+                    </label>
+                </p>
+                <p>
+                    <label id="eTag_filtering_enabled" style="font-weight: bold;"></label><br />
+                    <label class="switch">
+                        <input type="checkbox" id="eTagFiltering">
+                        <span class="slider round"></span>
+                    </label>
+                </p>
+                <br />
+                <p class="text-center">
+                    <button type="button" id="save_settings_btn"
+                    class="btn btn-success" title="Save the settings"></button>
+                </p>
+            </div>
+        </div>
+
+        <!-- Optional JavaScript -->
+        <script src="../browser-polyfill.js"></script>
+        <script src="../external_js/pickr.min.js"></script>
+        <script src="../core_js/settings.js"></script>
+        <script src="../core_js/write_version.js"></script>
+    </body>
+    </html>

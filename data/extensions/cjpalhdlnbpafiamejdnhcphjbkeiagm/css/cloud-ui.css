@@ -1,0 +1,104 @@
+#cloudWidget {
+    background-color: var(--surface-2);
+    margin: 0.5em 0;
+    min-width: max-content;
+    position: relative;
+    }
+#cloudWidget.hide {
+    display: none;
+    }
+#cloudWidget div {
+    display: flex;
+    }
+#cloudToolbar {
+    align-items: flex-start;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    }
+#cloudToolbar > div:first-of-type {
+    margin: 0.5em;
+    }
+#cloudToolbar button {
+    padding: 0 0.25em;
+    position: relative;
+    }
+#cloudToolbar button .fa-icon {
+    font-size: 180%;
+    }
+#cloudToolbar button[disabled] {
+    visibility: hidden;
+    }
+#cloudToolbar button.error {
+    color: var(--info3-ink);
+    }
+#cloudPullAndMerge {
+    margin-left: 0.25em;
+    }
+#cloudPullAndMerge > span:nth-of-type(2) {
+    font-size: 90%;
+    position: absolute;
+    right: 0;
+    top: 0;
+    }
+#cloudInfo {
+    flex-shrink: 0;
+    font-size: 90%;
+    margin: 0 1em;
+    overflow: hidden;
+    padding: 0;
+    white-space: pre-line;
+    }
+#cloudCapacity {
+    background-color: var(--surface-3);
+    height: 4px;
+    }
+#cloudCapacity > div {
+    background-color: var(--cloud-total-used-surface);
+    }
+#cloudCapacity > div > div {
+    background-color: var(--cloud-used-surface);
+    }
+#cloudError {
+    color: var(--info3-ink);
+    flex-grow: 1;
+    flex-shrink: 2;
+    font-size: small;
+    margin: 0 0.5em 0.5em 0.5em;
+    }
+#cloudError:empty {
+    display: none;
+    }
+#cloudCog {
+    color: var(--ink-3);
+        fill: var(--ink-3);
+    cursor: pointer;
+    font-size: 110%;
+    justify-content: flex-end;
+    padding: 0.4em;
+    }
+#cloudCog:hover {
+    color: inherit;
+    fill: inherit;
+    }
+#cloudWidget #cloudOptions {
+    align-items: center;
+    background-color: var(--surface-1);
+    bottom: 2px;
+    display: none;
+    font-size: small;
+    padding: 0.5em;
+    position: absolute;
+    right: 2px;
+    text-align: center;
+    top: 2px;
+    z-index: 10;
+    }
+#cloudWidget #cloudOptions label {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    }
+#cloudWidget #cloudOptions.show {
+    display: flex;
+    white-space: nowrap;
+    }

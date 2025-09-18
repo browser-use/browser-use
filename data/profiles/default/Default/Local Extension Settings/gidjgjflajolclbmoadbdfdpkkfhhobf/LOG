@@ -1,0 +1,48 @@
+2025/09/12-17:55:51.978 5d Creating DB /data/profiles/default/Default/Local Extension Settings/gidjgjflajolclbmoadbdfdpkkfhhobf since it was missing.
+2025/09/12-17:55:51.984 5d Reusing MANIFEST /data/profiles/default/Default/Local Extension Settings/gidjgjflajolclbmoadbdfdpkkfhhobf/MANIFEST-000001
+2025/09/12-17:55:57.558 54 Level-0 table #5: started
+2025/09/12-17:55:57.577 54 Level-0 table #5: 4587008 bytes OK
+2025/09/12-17:55:57.578 54 Delete type=0 #3
+2025/09/12-17:56:03.501 54 Level-0 table #7: started
+2025/09/12-17:56:03.513 54 Level-0 table #7: 5284793 bytes OK
+2025/09/12-17:56:03.515 54 Delete type=0 #4
+2025/09/12-17:57:05.839 54 Level-0 table #9: started
+2025/09/12-17:57:05.849 54 Level-0 table #9: 4421140 bytes OK
+2025/09/12-17:57:05.850 54 Delete type=0 #6
+2025/09/12-17:57:09.175 55 Level-0 table #11: started
+2025/09/12-17:57:09.198 55 Level-0 table #11: 5453381 bytes OK
+2025/09/12-17:57:09.199 55 Delete type=0 #8
+2025/09/12-18:56:13.354 54 Level-0 table #13: started
+2025/09/12-18:56:13.372 54 Level-0 table #13: 4888704 bytes OK
+2025/09/12-18:56:13.374 54 Delete type=0 #10
+2025/09/12-18:57:09.861 55 Level-0 table #15: started
+2025/09/12-18:57:09.900 55 Level-0 table #15: 8102243 bytes OK
+2025/09/12-18:57:09.902 55 Delete type=0 #12
+2025/09/12-18:57:09.902 55 Compacting 4@0 + 1@1 files
+2025/09/12-18:57:09.910 55 Generated table #16@0: 6 keys, 2583113 bytes
+2025/09/12-18:57:09.919 55 Generated table #17@0: 8 keys, 3111400 bytes
+2025/09/12-18:57:09.924 55 Generated table #18@0: 5 keys, 2756263 bytes
+2025/09/12-18:57:09.948 55 Generated table #19@0: 2 keys, 5473158 bytes
+2025/09/12-18:57:09.951 55 Generated table #20@0: 9 keys, 1261724 bytes
+2025/09/12-18:57:09.951 55 Compacted 4@0 + 1@1 files => 15185658 bytes
+2025/09/12-18:57:09.951 55 compacted to: files[ 0 5 1 0 0 0 0 ]
+2025/09/12-18:57:09.952 55 Delete type=2 #15
+2025/09/12-18:57:09.952 55 Delete type=2 #7
+2025/09/12-18:57:09.952 55 Delete type=2 #13
+2025/09/12-18:57:09.952 55 Delete type=2 #11
+2025/09/12-18:57:09.952 55 Delete type=2 #9
+2025/09/12-18:57:09.954 55 Expanding@1 1+1 (2583113+4587008 bytes) to 5+1 (15185658+4587008 bytes)
+2025/09/12-18:57:09.954 55 Compacting 5@1 + 1@2 files
+2025/09/12-18:57:09.962 55 Generated table #21@1: 6 keys, 2583113 bytes
+2025/09/12-18:57:09.969 55 Generated table #22@1: 8 keys, 3111400 bytes
+2025/09/12-18:57:09.974 55 Generated table #23@1: 6 keys, 2879976 bytes
+2025/09/12-18:57:09.996 55 Generated table #24@1: 2 keys, 5473158 bytes
+2025/09/12-18:57:10.000 55 Generated table #25@1: 15 keys, 1261979 bytes
+2025/09/12-18:57:10.000 55 Compacted 5@1 + 1@2 files => 15309626 bytes
+2025/09/12-18:57:10.000 55 compacted to: files[ 0 0 5 0 0 0 0 ]
+2025/09/12-18:57:10.000 55 Delete type=2 #16
+2025/09/12-18:57:10.000 55 Delete type=2 #17
+2025/09/12-18:57:10.000 55 Delete type=2 #5
+2025/09/12-18:57:10.001 55 Delete type=2 #20
+2025/09/12-18:57:10.001 55 Delete type=2 #19
+2025/09/12-18:57:10.001 55 Delete type=2 #18

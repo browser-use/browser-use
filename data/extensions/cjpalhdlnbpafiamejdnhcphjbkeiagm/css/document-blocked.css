@@ -1,0 +1,183 @@
+/**
+    uBlock Origin - a browser extension to block requests.
+    Copyright (C) 2018-present Raymond Hill
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see {http://www.gnu.org/licenses/}.
+
+    Home: https://github.com/gorhill/uBlock
+*/
+
+body {
+    display: flex;
+    padding: var(--default-gap-xxlarge) var(--default-gap-small);
+    justify-content: center;
+    }
+body.loading {
+    opacity: 0;
+    }
+:root.mobile body {
+    padding: var(--default-gap-small);
+    }
+
+#rootContainer {
+    width: min(100%, 640px);
+    }
+#rootContainer > * {
+    margin: 0 0 var(--default-gap-xxlarge) 0;
+    }
+:root.mobile #rootContainer > * {
+    margin-bottom: var(--default-gap-xlarge);
+    }
+
+p {
+    margin: 0.5em 0;
+    }
+a {
+    text-decoration: none;
+    }
+.code {
+    font-size: 13px;
+    word-break: break-all;
+    }
+#warningSign {
+    color: var(--accent-surface-1);
+        fill: var(--accent-surface-1);
+    font-size: 96px;
+    line-height: 1;
+    width: 100%;
+    }
+:root.mobile #warningSign {
+    font-size: 64px;
+    }
+#theURL {
+    color: var(--ink-2);
+    padding: 0;
+    }
+#theURL > * {
+    margin: 0;
+    }
+#theURL > p {
+    position: relative;
+    z-index: 10;
+    }
+#theURL > p > span:first-of-type {
+    display: block;
+    max-height: 3lh;
+    overflow-y: auto;
+    }
+:root.mobile #theURL > p > span:first-of-type {
+    max-height: 3lh;
+    }
+#theURL #toggleParse {
+    background-color: transparent;
+    top: 100%;
+    box-sizing: border-box;
+    color: var(--ink-3);
+        fill: var(--ink-3);
+    cursor: pointer;
+    font-size: 1.2rem;
+    padding: var(--default-gap-xxsmall);
+    position: absolute;
+    transform: translate(0, -50%);
+    }
+#theURL:not(.collapsed) #toggleParse > span:first-of-type {
+    display: none;
+    }
+#theURL.collapsed #toggleParse > span:last-of-type {
+    display: none;
+    }
+body[dir="ltr"] #toggleParse {
+    right: 0;
+    }
+body[dir="rtl"] #toggleParse {
+    left: 0;
+    }
+#theURL > p:hover #toggleParse {
+    transform: translate(0, -50%) scale(1.15);
+    }
+#parsed {
+    background-color: var(--surface-1);
+    border: 4px solid var(--surface-2);
+    font-size: small;
+    overflow-x: auto;
+    padding: var(--default-gap-xxsmall);
+    text-align: initial;
+    text-overflow: ellipsis; 
+    }
+#theURL.collapsed > #parsed {
+    display: none;
+    }
+#parsed ul, #parsed li {
+    list-style-type: none;
+    }
+#parsed li {
+    white-space: nowrap;
+    }
+#parsed span {
+    display: inline-block;
+    }
+#parsed span:first-of-type {
+    font-weight: bold;
+    }
+
+.why-extra a {
+    white-space: nowrap;
+}
+.why-extra ul {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding-inline-start: var(--default-gap-xsmall);
+    }
+details > *:not(summary) {
+    margin-inline-start: 1em;
+    }
+
+#urlskip a {
+    display: block;
+    max-height: 3lh;
+    overflow-y: auto;
+    word-break: break-all;
+    }
+:root.mobile #urlskip a {
+    max-height: 3lh;
+    }
+
+#actionContainer {
+    display: flex;
+    justify-content: space-between;
+    }
+:root.mobile #actionContainer {
+    justify-content: center;
+    display: flex;
+    flex-direction: column;
+    }
+#actionContainer > button {
+    margin-bottom: 2rem
+    }
+
+.filterList {
+    white-space: nowrap;
+    }
+.filterList .filterListSupport[href="#"] {
+    display: none;
+    }
+.filterList .filterListSupport:not([href="#"]) {
+    margin-inline-start: 0.25em;
+    }
+
+/* Small-screen devices */
+:root.mobile button {
+    width: 100%;
+    }

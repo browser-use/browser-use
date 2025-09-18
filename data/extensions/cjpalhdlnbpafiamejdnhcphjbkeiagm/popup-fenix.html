@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html id="uBO-popup-panel">
+
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark" />
+<link rel="stylesheet" href="css/themes/default.css">
+<link rel="stylesheet" href="css/common.css">
+<link rel="stylesheet" href="css/fa-icons.css">
+<link rel="stylesheet" href="css/popup-fenix.css">
+<link rel="icon" type="image/png" href="img/icon_64.png">
+<title data-i18n="extName"></title>
+</head>
+
+<body class="loading" data-more="abcd">
+<div id="panes">
+    <div id="main">
+        <div id="sticky">
+            <div id="hostname"><span></span>&shy;<span>&nbsp;</span></div>
+            <div id="stickyTools">
+                <div class="rulesetTools">
+                    <span id="saveRules" class="fa-icon" data-i18n-title="popupTipSaveRules">lock</span>
+                    <span id="revertRules" class="fa-icon" data-i18n-title="popupTipRevertRules">eraser</span>
+                </div>
+                <div id="switch" role="button" aria-label tabindex="0" title>
+                    <span class="fa-icon"><!--
+                        Power button taken from Font Awesome v4.7.0 by Dave Gandy.
+                        Unlike other FA icons, the power button is inlined here so
+                        that we can use a clip-path in order to ensure that the stroke
+                        does not "bleed" outside the fill area.
+                        --><svg viewBox="0 0 1536 1664">
+                            <defs>
+                            <path id="power-off-path" d="m 1536,896 q 0,156 -61,298 -61,142 -164,245 -103,103 -245,164 -142,61 -298,61 -156,0 -298,-61 Q 328,1542 225,1439 122,1336 61,1194 0,1052 0,896 0,714 80.5,553 161,392 307,283 q 43,-32 95.5,-25 52.5,7 83.5,50 32,42 24.5,94.5 Q 503,455 461,487 363,561 309.5,668 256,775 256,896 q 0,104 40.5,198.5 40.5,94.5 109.5,163.5 69,69 163.5,109.5 94.5,40.5 198.5,40.5 104,0 198.5,-40.5 Q 1061,1327 1130,1258 1199,1189 1239.5,1094.5 1280,1000 1280,896 1280,775 1226.5,668 1173,561 1075,487 1033,455 1025.5,402.5 1018,350 1050,308 q 31,-43 84,-50 53,-7 95,25 146,109 226.5,270 80.5,161 80.5,343 z m -640,-768 0,640 q 0,52 -38,90 -38,38 -90,38 -52,0 -90,-38 -38,-38 -38,-90 l 0,-640 q 0,-52 38,-90 38,-38 90,-38 52,0 90,38 38,38 38,90 z"/>
+                            <clipPath id="power-off-clip"><use href="#power-off-path"/></clipPath>
+                            </defs>
+                            <use href="#power-off-path" clip-path="url(#power-off-clip)"/>
+                        </svg><!--
+                 --></span>
+                </div>
+                <div class="rulesetTools">
+                    <span id="refresh" class="fa-icon">refresh</span>
+                </div>
+            </div>
+        </div>
+        <div id="extraTools" class="toolRibbon" data-more="d">
+            <span id="no-popups" class="hnSwitch tool enabled" role="button" aria-label tabindex="0" title><span class="fa-icon fa-icon-badged">ph-popups<svg class="nope" viewBox="0 0 20 20"><path d="M1,1 19,19M1,19 19,1" /></svg></span><span class="caption" data-i18n="popupNoPopups_v2"></span></span>
+            <span id="no-large-media" class="hnSwitch tool enabled" role="button" aria-label tabindex="0" title><span class="fa-icon fa-icon-badged">film<svg class="nope" viewBox="0 0 20 20"><path d="M1,1 19,19M1,19 19,1" /></svg></span><span class="caption" data-i18n="popupNoLargeMedia_v2"></span></span>
+            <span id="no-cosmetic-filtering" class="hnSwitch tool enabled" role="button" aria-label tabindex="0" title><span class="fa-icon fa-icon-badged">eye-slash<svg class="nope" viewBox="0 0 20 20"><path d="M1,1 19,19M1,19 19,1" /></svg></span><span class="caption" data-i18n="popupNoCosmeticFiltering_v2"></span></span>
+            <span id="no-remote-fonts" class="hnSwitch tool enabled" role="button" aria-label tabindex="0" title><span class="fa-icon fa-icon-badged">ph-readermode-text-size<svg class="nope" viewBox="0 0 20 20"><path d="M1,1 19,19M1,19 19,1" /></svg></span><span class="caption" data-i18n="popupNoRemoteFonts_v2"></span></span>
+            <span id="no-scripting" class="hnSwitch tool enabled" role="button" aria-label tabindex="0" title><span class="fa-icon fa-icon-badged">code<svg class="nope" viewBox="0 0 20 20"><path d="M1,1 19,19M1,19 19,1" /></svg></span><span class="caption" data-i18n="popupNoScripting_v2"></span></span>
+        </div>
+        <hr data-more="a">
+        <div id="basicStats" data-more="a">
+            <span data-i18n="popupBlockedOnThisPage_v2">_</span><span>_</span>
+            <span data-i18n="popupDomainsConnected_v2">_</span><span>_</span>
+            <span data-i18n="popupBlockedSinceInstall_v2" data-more="b">_</span><span data-more="b">_</span>
+        </div>
+        <div id="basicTools" class="toolRibbon" data-more="c">
+            <span id="gotoZap" class="fa-icon tool enabled needPick" data-i18n-title="popupTipZapper">bolt<span class="caption" data-i18n="popupTipZapper"></span></span>
+            <span id="gotoPick" class="fa-icon tool enabled needPick" data-i18n-title="popupTipPicker">eye-dropper<span class="caption" data-i18n="popupTipPicker"></span></span>
+            <span id="gotoReport" class="fa-icon tool enabled needPick" data-i18n-title="popupTipReport">comment-alt<span class="caption" data-i18n="popupTipReport"></span></span>
+            <a href="logger-ui.html#_" class="fa-icon tool enabled" target="uBOLogger" tabindex="0" data-i18n-title="popupTipLog">list-alt<span class="caption" data-i18n="popupTipLog"></span></a>
+            <a href="dashboard.html" class="fa-icon tool enabled" target="uBODashboard" tabindex="0" data-i18n-title="popupTipDashboard">cogs<span class="caption" data-i18n="popupTipDashboard"></span></a>
+        </div>
+        <div id="unprocessedRequestWarning">
+            <span data-i18n="unprocessedRequestTooltip"></span><span class="dismiss"><svg viewBox="0 0 20 20"><path d="M0,0 20,20M0,20 20,0" /></svg></span>
+        </div>
+        <hr data-more="f">
+        <div class="itemRibbon" data-more="f">
+            <span data-i18n="popupVersion"></span><span id="version"></span>
+        </div>
+        <hr data-more="g">
+        <div id="moreOrLess" class="">
+            <span id="moreButton">
+                <span data-i18n="popupMoreButton_v2"></span>&emsp;<span class="fa-icon">angle-up</span>
+            </span>
+            <span id="lessButton">
+                <span class="fa-icon">angle-up</span>&emsp;<span data-i18n="popupLessButton_v2"></span>
+            </span>
+        </div>
+    </div>
+    <div id="firewall" data-more="e">
+        <section><span class="fa-icon">filter</span><div class="filterExpressions"><div><span data-i18n="loggerRowFiltererBuiltinNot" data-expr="not">_</span><span data-i18n="loggerRowFiltererBuiltinBlocked" data-expr="blocked">_</span><span data-i18n="loggerRowFiltererBuiltinAllowed" data-expr="allowed">_</span></div><div><span data-i18n="loggerRowFiltererBuiltinNot" data-expr="not">_</span><span data-expr="script" data-i18n="popup3pScriptFilter">_</span><span data-expr="frame" data-i18n="popup3pFrameFilter">_</span></div></div></section>
+        <div data-des="*" data-type="*"><span data-i18n="popupAnyRulePrompt">_</span><span data-src="/" data-i18n-title="popupTipGlobalRules"> </span><span data-src="." data-i18n-title="popupTipLocalRules"> </span></div>
+        <div data-des="*" data-type="image"><span data-i18n="popupImageRulePrompt"></span><span data-src="/"> </span><span data-src="."> </span></div>
+        <div data-des="*" data-type="3p"><span data-i18n="popup3pAnyRulePrompt"></span><span data-src="/"> </span><span data-src="."> </span></div>
+        <div data-des="*" data-type="inline-script"><span data-i18n="popupInlineScriptRulePrompt"></span><span data-src="/"> </span><span data-src="."> </span></div>
+        <div data-des="*" data-type="1p-script"><span data-i18n="popup1pScriptRulePrompt"></span><span data-src="/"> </span><span data-src="."> </span></div>
+        <div data-des="*" data-type="3p-script"><span data-i18n="popup3pScriptRulePrompt"></span><span data-src="/"> </span><span data-src="."> </span></div>
+        <div data-des="*" data-type="3p-frame"><span data-i18n="popup3pFrameRulePrompt"></span><span data-src="/"> </span><span data-src="."> </span></div>
+    </div>
+    <div id="firewall-vspacer"></div>
+</div>
+
+<div id="templates" style="display: none">
+    <div data-des="" data-type="*"><span><span><span></span></span><sub></sub></span><span data-src="/"></span><span data-src="."></span></div>
+    <div id="actionSelector"><span id="dynaAllow"></span><span id="dynaNoop"></span><span id="dynaBlock"></span><span id="dynaCounts"></span></div>
+    <div id="hotspotTip"></div>
+    <div id="tooltip"></div>
+</div>
+
+<script src="lib/hsluv/hsluv-0.1.0.min.js"></script>
+
+<script src="js/fa-icons.js" type="module"></script>
+<script src="js/vapi.js"></script>
+<script src="js/vapi-common.js"></script>
+<script src="js/vapi-client.js"></script>
+<script src="js/theme.js" type="module"></script>
+<script src="js/i18n.js" type="module"></script>
+<script src="js/popup-fenix.js" type="module"></script>
+
+</body>
+
+</html>

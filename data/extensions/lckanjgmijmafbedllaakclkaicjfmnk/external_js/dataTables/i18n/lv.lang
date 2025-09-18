@@ -1,0 +1,22 @@
+{
+	"processing": "Uzgaidiet ...",
+	"search": "Meklēt:",
+	"lengthMenu": "Rādīt _MENU_ ierakstus",
+	"info": "Parādīti _START_ līdz _END_ no _TOTAL_ ierakstiem",
+	"infoEmpty": "Nav ierakstu",
+	"infoFiltered": "(atlasīts no pavisam _MAX_ ierakstiem)",
+	"infoPostFix": "",
+	"loadingRecords": "Notiek ielāde ...",
+	"zeroRecords": "Nav atrasti vaicājumam atbilstoši ieraksti",
+	"emptyTable": "Tabulā nav datu",
+	"paginate": {
+		"first": "Pirmā",
+		"previous": "Iepriekšējā",
+		"next": "Nākošā",
+		"last": "Pēdējā"
+	},
+	"aria": {
+		"sortAscending": ": aktivizēt kolonnu, lai kārtotu augoši",
+		"sortDescending": ": aktivizēt kolonnu, lai kārtotu dilstoši"
+	}
+}

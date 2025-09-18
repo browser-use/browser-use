@@ -250,6 +250,7 @@ class BrowserProfileEntry(DBStyleEntry):
 class LLMEntry(DBStyleEntry):
 	"""LLM configuration entry."""
 
+	provider: str | None = None
 	api_key: str | None = None
 	model: str | None = None
 	temperature: float | None = None
@@ -287,7 +288,13 @@ def create_default_config() -> DBStyleConfigJSON:
 	new_config.browser_profile[profile_id] = BrowserProfileEntry(id=profile_id, default=True, headless=False, user_data_dir=None)
 
 	# Create default LLM entry
-	new_config.llm[llm_id] = LLMEntry(id=llm_id, default=True, model='gpt-4o', api_key='your-openai-api-key-here')
+	new_config.llm[llm_id] = LLMEntry(
+		id=llm_id,
+		default=True,
+		provider='openai',
+		model='gpt-4o',
+		api_key='your-openai-api-key-here',
+	)
 
 	# Create default agent entry
 	new_config.agent[agent_id] = AgentEntry(id=agent_id, default=True)

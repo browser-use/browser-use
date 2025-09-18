@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark" />
+<title>uBlock — Dynamic filtering rules</title>
+<link rel="stylesheet" href="lib/codemirror/lib/codemirror.css">
+<link rel="stylesheet" href="lib/codemirror/addon/merge/merge.css">
+
+<link rel="stylesheet" href="css/themes/default.css">
+<link rel="stylesheet" href="css/common.css">
+<link rel="stylesheet" href="css/fa-icons.css">
+<link rel="stylesheet" href="css/dashboard-common.css">
+<link rel="stylesheet" href="css/cloud-ui.css">
+<link rel="stylesheet" href="css/dyna-rules.css">
+<link rel="stylesheet" href="css/codemirror.css">
+</head>
+
+<body>
+
+<div class="body">
+    <div id="cloudWidget" class="hide" data-cloud-entry="myRulesPane"></div>
+    <p class="vverbose"><span data-i18n="rulesHint"></span></p>
+    <div id="diff">
+        <div class="tools">
+            <div class="ruleActions">
+                <div class="fieldset-header" data-i18n="rulesPermanentHeader"></div>
+                <button type="button" class="iconified" id="exportButton"><span class="fa-icon">upload-alt</span><span data-i18n="rulesExport">_</span><span class="hover"></span></button>
+                <button type="button" class="iconified disabled" id="revertButton"><span class="fa-icon">arrow-right</span><span data-i18n="rulesRevert">_</span><span class="hover"></span></button>
+            </div>
+            <div class="ruleActions">
+                <div class="fieldset-header" data-i18n="rulesTemporaryHeader"></div>
+                <button type="button" class="iconified disabled" id="commitButton"><span class="fa-icon fa-icon-hflipped">arrow-right</span><span data-i18n="rulesCommit">_</span><span class="hover"></span></button>
+                <button type="button" class="iconified" id="importButton"><span class="fa-icon">download-alt</span><span data-i18n="rulesImport">_</span><span class="hover"></span></button>
+                <button type="button" class="iconified preferred disabled" id="editSaveButton"><span class="fa-icon">save</span><span data-i18n="rulesEditSave">_</span><span class="hover"></span></button>
+            </div>
+        </div>
+    </div>
+</div>
+<div id="ruleFilter">
+    <span><span class="fa-icon">filter</span>&nbsp;<input type="search" size="16"></span>&emsp;<span data-i18n="rulesSort"></span>&nbsp;<select><option value="0" selected data-i18n="rulesSortByType"><option value="1" data-i18n="rulesSortBySource"><option value="2" data-i18n="rulesSortByDestination"></select>&emsp;<span id="diffCollapse" class="fa-icon">double-angle-up</span>
+</div>
+<div class="codeMirrorContainer codeMirrorMergeContainer cm-theme-override"></div>
+
+<div id="templates" style="display: none;">
+    <input class="hidden" id="importFilePicker" type="file" accept="text/plain">
+    <span class="hidden" data-i18n="rulesDefaultFileName"></span>
+</div>
+
+<script src="lib/diff/swatinem_diff.js"></script>
+<script src="lib/codemirror/lib/codemirror.js"></script>
+<script src="lib/codemirror/addon/merge/merge.js"></script>
+<script src="lib/codemirror/addon/selection/active-line.js"></script>
+<script src="lib/hsluv/hsluv-0.1.0.min.js"></script>
+
+<script src="js/fa-icons.js" type="module"></script>
+<script src="js/vapi.js"></script>
+<script src="js/vapi-common.js"></script>
+<script src="js/vapi-client.js"></script>
+<script src="js/theme.js" type="module"></script>
+<script src="js/i18n.js" type="module"></script>
+<script src="js/dashboard-common.js" type="module"></script>
+<script src="js/cloud-ui.js" type="module"></script>
+<script src="js/dyna-rules.js" type="module"></script>
+
+</body>
+</html>

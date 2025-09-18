@@ -1,0 +1,17 @@
+{
+	"sProcessing":   "प्रगति पे हैं ...",
+	"sLengthMenu":   " _MENU_ प्रविष्टियां दिखाएं ",
+	"sZeroRecords":  "रिकॉर्ड्स का मेल नहीं मिला",
+	"sInfo":         "_START_ to _END_ of _TOTAL_ प्रविष्टियां दिखा रहे हैं",
+	"sInfoEmpty":    "0 में से 0 से 0 प्रविष्टियां दिखा रहे हैं",
+	"sInfoFiltered": "(_MAX_ कुल प्रविष्टियों में से छठा हुआ)",
+	"sInfoPostFix":  "",
+	"sSearch":       "खोजें:",
+	"sUrl":          "",
+	"oPaginate": {
+		"sFirst":    "प्रथम",
+		"sPrevious": "पिछला",
+		"sNext":     "अगला",
+		"sLast":     "अंतिम"
+	}
+}

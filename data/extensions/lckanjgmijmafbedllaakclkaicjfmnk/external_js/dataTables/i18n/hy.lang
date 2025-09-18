@@ -1,0 +1,23 @@
+{
+  "sEmptyTable": "Տվյալները բացակայում են",
+  "sProcessing": "Կատարվում է...",
+  "sInfoThousands":  ",",
+  "sLengthMenu": "Ցուցադրել _MENU_ արդյունքներ մեկ էջում",
+  "sLoadingRecords": "Բեռնվում է ...",
+  "sZeroRecords": "Հարցմանը համապատասխանող արդյունքներ չկան",
+  "sInfo": "Ցուցադրված են _START_-ից _END_ արդյունքները ընդհանուր _TOTAL_-ից",
+  "sInfoEmpty": "Արդյունքներ գտնված չեն",
+  "sInfoFiltered": "(ֆիլտրվել է ընդհանուր _MAX_ արդյունքներից)",
+  "sInfoPostFix":  "",
+  "sSearch": "Փնտրել",
+  "oPaginate": {
+      "sFirst": "Առաջին էջ",
+      "sPrevious": "Նախորդ էջ",
+      "sNext": "Հաջորդ էջ",
+      "sLast": "Վերջին էջ"
+  },
+  "oAria": {
+      "sSortAscending":  ": ակտիվացրեք աճման կարգով դասավորելու համար",
+      "sSortDescending": ": ակտիվացրեք նվազման կարգով դասավորելու համար"
+  }
+}

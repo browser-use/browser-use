@@ -1,0 +1,23 @@
+{
+	"sEmptyTable":     "වගුවේ දත්ත කිසිවක් නොමැත",
+	"sInfo":           "_TOTAL_ න් _START_ සිට _END_ දක්වා",
+	"sInfoEmpty":      "0 න් 0 සිට 0 දක්වා",
+	"sInfoFiltered":   "(_MAX_ න් තෝරාගත් )",
+	"sInfoPostFix":    "",
+	"sInfoThousands":  ",",
+	"sLengthMenu":     "_MENU_ ක් පෙන්වන්න",
+	"sLoadingRecords": "පූරණය වෙමින් පවතී...",
+	"sProcessing":     "සැකසෙමින් පවතී...",
+	"sSearch":         "සොයන්න :",
+	"sZeroRecords":    "ගැලපෙන වාර්තා නොමැත.",
+	"oPaginate": {
+		"sFirst":    "පළමු",
+		"sLast":     "අන්තිම",
+		"sNext":     "ඊළග",
+		"sPrevious": "පසුගිය"
+	},
+	"oAria": {
+		"sSortAscending":  ": තීරුව ආරෝහනව තෝරන්න",
+		"sSortDescending": ": තීරුව අවරෝහනව තෝරන්න"
+	}
+}

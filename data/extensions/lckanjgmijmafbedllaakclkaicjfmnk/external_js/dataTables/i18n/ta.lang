@@ -1,0 +1,23 @@
+{
+	"sEmptyTable":     "அட்டவணையில் தரவு கிடைக்கவில்லை",
+	"sInfo":           "உள்ளீடுகளை் _START_ முதல _END_ உள்ள _TOTAL_ காட்டும்",
+	"sInfoEmpty":      "0 உள்ளீடுகளை 0 0 காட்டும்",
+	"sInfoFiltered":   "(_MAX_ மொத்த உள்ளீடுகளை இருந்து வடிகட்டி)",
+	"sInfoPostFix":    "",
+	"sInfoThousands":  ",",
+	"sLengthMenu":     "_MENU_ காண்பி",
+	"sLoadingRecords": "ஏற்றுகிறது ...",
+	"sProcessing":     "செயலாக்க ...",
+	"sSearch":         "தேடல்:",
+	"sZeroRecords":    "பொருத்தமான பதிவுகள் இல்லை",
+	"oPaginate": {
+		"sFirst":    "முதல்",
+		"sLast":     "இறுதி",
+		"sNext":     "அடுத்து",
+		"sPrevious": "முந்தைய"
+	},
+	"oAria": {
+		"sSortAscending":  ": நிரலை ஏறுவரிசையில் வரிசைப்படுத்த செயல்படுத்த",
+		"sSortDescending": ": நிரலை இறங்கு வரிசைப்படுத்த செயல்படுத்த"
+	}
+}

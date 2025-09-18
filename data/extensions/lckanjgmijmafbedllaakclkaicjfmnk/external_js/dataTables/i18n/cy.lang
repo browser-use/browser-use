@@ -1,0 +1,23 @@
+{
+	"sEmptyTable":     "Dim data ar gael yn y tabl",
+	"sInfo":           "Dangos _START_ i _END_ o _TOTAL_ cofnod",
+	"sInfoEmpty":      "Dangos 0 i 0 o 0 cofnod",
+	"sInfoFiltered":   "(wedi hidlo o gyfanswm o _MAX_ cofnod)",
+	"sInfoPostFix":    "",
+	"sInfoThousands":  ",",
+	"sLengthMenu":     "Dangos _MENU_ cofnod",
+	"sLoadingRecords": "Wrthi'n llwytho...",
+	"sProcessing":     "Wrthi'n prosesu...",
+	"sSearch":         "Chwilio:",
+	"sZeroRecords":    "Heb ddod o hyd i gofnodion sy'n cyfateb",
+	"oPaginate": {
+		"sFirst":    "Cyntaf",
+		"sLast":     "Olaf",
+		"sNext":     "Nesaf",
+		"sPrevious": "Blaenorol"
+	},
+	"oAria": {
+		"sSortAscending":  ": rhoi ar waith i drefnu colofnau o'r lleiaf i'r mwyaf",
+		"sSortDescending": ": rhoi ar waith i drefnu colofnau o'r mwyaf i'r lleiaf"
+	}
+}

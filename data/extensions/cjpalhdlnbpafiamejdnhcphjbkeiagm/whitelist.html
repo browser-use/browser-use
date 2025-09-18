@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark" />
+<title>uBlock — Whitelist</title>
+
+<link rel="stylesheet" href="lib/codemirror/lib/codemirror.css">
+<link rel="stylesheet" href="lib/codemirror/addon/search/matchesonscrollbar.css">
+
+<link rel="stylesheet" href="css/themes/default.css">
+<link rel="stylesheet" href="css/common.css">
+<link rel="stylesheet" href="css/fa-icons.css">
+<link rel="stylesheet" href="css/dashboard-common.css">
+<link rel="stylesheet" href="css/cloud-ui.css">
+<link rel="stylesheet" href="css/whitelist.css">
+<link rel="stylesheet" href="css/codemirror.css">
+</head>
+
+<body>
+
+<div class="body">
+    <div id="cloudWidget" class="hide" data-cloud-entry="whitelistPane"></div>
+    <p>
+        <button id="whitelistApply" class="preferred iconified" type="button" disabled><span class="fa-icon">check</span><span data-i18n="whitelistApply">_</span><span class="hover"></span></button>
+        <button id="whitelistRevert" class="iconified" type="button" disabled><span class="fa-icon">undo</span><span data-i18n="genericRevert">_</span><span class="hover"></span></button>
+        &emsp;
+        <button id="importWhitelistFromFile" class="iconified" type="button"><span class="fa-icon">download-alt</span><span data-i18n="whitelistImport">_</span><span class="hover"></span></button>
+        <button id="exportWhitelistToFile" class="iconified" type="button"><span class="fa-icon">upload-alt</span><span data-i18n="whitelistExport">_</span><span class="hover"></span></button>
+    </p>
+    <p class="vverbose" data-i18n="whitelistPrompt">
+    </p>
+</div>
+<div id="whitelist" class="codeMirrorContainer cm-theme-override"></div>
+
+<div class="hidden">
+    <input id="importFilePicker" type="file" accept="text/plain">
+</div>
+
+<script src="lib/codemirror/lib/codemirror.js"></script>
+<script src="lib/codemirror/addon/display/panel.js"></script>
+<script src="lib/codemirror/addon/scroll/annotatescrollbar.js"></script>
+<script src="lib/codemirror/addon/search/searchcursor.js"></script>
+<script src="lib/codemirror/addon/selection/active-line.js"></script>
+<script src="lib/hsluv/hsluv-0.1.0.min.js"></script>
+
+<script src="js/vapi.js"></script>
+<script src="js/vapi-common.js"></script>
+<script src="js/vapi-client.js"></script>
+
+<script src="js/codemirror/search.js" type="module"></script>
+<script src="js/codemirror/search-thread.js"></script>
+
+<script src="js/fa-icons.js" type="module"></script>
+<script src="js/theme.js" type="module"></script>
+<script src="js/i18n.js" type="module"></script>
+<script src="js/dashboard-common.js" type="module"></script>
+<script src="js/cloud-ui.js" type="module"></script>
+<script src="js/whitelist.js" type="module"></script>
+
+</body>
+</html>

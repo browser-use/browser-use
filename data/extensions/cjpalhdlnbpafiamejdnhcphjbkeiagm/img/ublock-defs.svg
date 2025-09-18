@@ -1,0 +1,27 @@
+<!--
+
+    uBlock Origin - a browser extension to block requests.
+    Copyright (C) 2018-present Raymond Hill
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see {http://www.gnu.org/licenses/}.
+
+    Home: https://github.com/gorhill/uBlock
+
+-->
+
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="display: none;">
+    <defs>
+    <symbol id="ubo-solid" viewBox="0 0 128 128"><path d="M 64,0 C 40,16 32,16 8,16 c 0,80 0,80 56,112 56,-32 56,-32 56,-112 -24,0 -32,0 -56,-16 z m -32,40 8,0 0,24 c 0,7 1,8 8,8 7,0 8,-1 8,-8 l 0,-4 0,-20 8,0 0,4.054688 C 67.350916,41.522675 71.50202,40 76,40 86.998316,40 96,49.001684 96,60 96,70.998316 86.998316,80 76,80 70.442478,80 65.399719,77.696984 61.765625,74.003906 59.318213,78.076852 54.812381,80 48,80 37,80 32,75 32,64 l 0,-24 z m 44,8 c -6.674796,0 -12,5.325204 -12,12 0,6.674796 5.325204,12 12,12 6.674796,0 12,-5.325204 12,-12 0,-6.674796 -5.325204,-12 -12,-12 z"/></symbol>
+    </defs>
+</svg>

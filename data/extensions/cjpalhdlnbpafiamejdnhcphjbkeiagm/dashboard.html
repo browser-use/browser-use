@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1">
+<meta name="color-scheme" content="light dark" />
+<title data-i18n="dashboardName"></title>
+<link rel="stylesheet" href="css/themes/default.css">
+<link rel="stylesheet" href="css/fa-icons.css">
+<link rel="stylesheet" href="css/common.css">
+<link rel="stylesheet" href="css/dashboard.css">
+<link rel="icon" type="image/png" href="img/icon_64.png">
+</head>
+
+<body class="notReady">
+    
+<div id="dashboard-nav">
+    <span>
+        <span class="logo"><img data-i18n-title="extName" src="img/ublock.svg" alt="uBlock Origin"></span><!--
+     --><button class="tabButton" type="button" data-pane="settings.html" data-i18n="settingsPageName" tabindex="0"></button><!--
+     --><button class="tabButton" type="button" data-pane="3p-filters.html" data-i18n="3pPageName" tabindex="0"></button><!--
+     --><button class="tabButton" type="button" data-pane="1p-filters.html" data-i18n="1pPageName" tabindex="0"></button><!--
+     --><button class="tabButton" type="button" data-pane="dyna-rules.html" data-i18n="rulesPageName" tabindex="0"></button><!--
+     --><button class="tabButton" type="button" data-pane="whitelist.html" data-i18n="whitelistPageName" tabindex="0"></button><!--
+     --><button class="tabButton" type="button" data-pane="support.html" data-i18n="supportPageName" tabindex="0"></button><!--
+     --><button class="tabButton" type="button" data-pane="about.html" data-i18n="aboutPageName" tabindex="0"></button><!--
+     --><button class="tabButton" type="button" data-pane="no-dashboard.html"></button>
+    </span>
+    <a class="wikilink fa-icon" href="https://github.com/gorhill/uBlock/wiki/Dashboard:-My-filters">book</a>
+</div>
+<section id="unsavedWarning" class="notice">
+    <div>
+        <span data-i18n="dashboardUnsavedWarning"></span>&emsp;
+        <button type="button" data-i18n="dashboardUnsavedWarningStay">_<span class="hover"></span></button>&ensp;
+        <button type="button" data-i18n="dashboardUnsavedWarningIgnore">_<span class="hover"></span></button>
+    </div>
+    <div></div>
+</section>
+
+<iframe id="iframe" src="blank.html"></iframe>
+
+<script src="lib/hsluv/hsluv-0.1.0.min.js"></script>
+
+<script src="js/vapi.js"></script>
+<script src="js/vapi-common.js"></script>
+<script src="js/vapi-client.js"></script>
+
+<script src="js/fa-icons.js" type="module"></script>
+<script src="js/theme.js" type="module"></script>
+<script src="js/i18n.js" type="module"></script>
+<script src="js/dashboard.js" type="module"></script>
+<script src="js/dashboard-common.js" type="module"></script>
+
+</body>
+</html>

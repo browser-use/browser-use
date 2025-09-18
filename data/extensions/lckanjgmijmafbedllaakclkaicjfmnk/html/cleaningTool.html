@@ -1,0 +1,82 @@
+<!--
+ClearURLs
+Copyright (c) 2017-2020 Kevin Röbert
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Lesser General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Cleaning tool from ClearURLs</title>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <link rel="icon" sizes="any" type="image/svg+xml" href="/img/clearurls.svg">
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="../css/bootstrap.min.css">
+    <link rel="stylesheet" type="text/css" href="../css/core.css">
+    <style>
+        td {
+            word-wrap: break-word;
+            max-width: 200px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar-margin navbar navbar-dark bg-dark">
+        <div class="container">
+                <span class="navbar-brand">
+                    <span class="float-left"><img src="../img/clearurls.svg"
+                        width="30" height="30" alt=""></span>
+                        <span style="color: #FF7800;" class="float-right" id="page_title"></span><br />
+                        <span class="badge badge-warning float-left small-version"
+                        id="version"></span>
+                    </span>
+                </div>
+        </nav>
+
+        <div class="row">
+            <div class="col-lg-4 offset-lg-4 text-center">
+                <h4 id="cleaning_tool_description"></h4>
+
+                <br />
+
+                <div class="form-group">
+                    <label for="dirtyURLs" id="cleaning_tool_dirty_urls_label"></label>
+                    <textarea id="dirtyURLs" name="dirtyURLs" class="form-control" rows="8" cols="60"></textarea>
+                </div>
+                <br />
+                <p class="text-center">
+                    <button type="button" id="cleaning_tool_btn"
+                    class="btn btn-success" title="Clean the URLs"></button>
+                </p>
+                <br />
+                <div class="form-group">
+                    <label for="cleanURLs" id="cleaning_tool_clean_urls_label"></label>
+                    <textarea id="cleanURLs" name="cleanURLs" class="form-control" rows="8" cols="60" readonly></textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- Optional JavaScript -->
+        <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+        <script src="../browser-polyfill.js"></script>
+        <script src="../core_js/cleaning_tool.js"></script>
+        <script src="../core_js/write_version.js"></script>
+    </body>
+    </html>

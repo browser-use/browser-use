@@ -1,0 +1,24 @@
+{
+	"sEmptyTable":	 "टेबलमा डाटा उपलब्ध भएन",
+	"sInfo":         "_TOTAL_ रेकर्ड मध्य _START_ देखि _END_ रेकर्ड देखाउंदै",
+	"sInfoEmpty":    "0 मध्य 0 देखि 0 रेकर्ड देखाउंदै",
+	"sInfoFiltered": "(_MAX_ कुल रेकर्डबाट छनौट गरिएको)",
+	"sInfoPostFix":  "",
+	"sInfoThousands": ",",
+	"sLengthMenu":   " _MENU_ रेकर्ड देखाउने ",
+	"sLoadingRecords": "लोड हुँदैछ...",
+	"sProcessing":   "प्रगति हुदैंछ ...",
+	"sSearch":       "खोजी:",
+	"sUrl":          "",
+	"sZeroRecords":  "कुनै मिल्ने रेकर्ड फेला परेन",
+	"oPaginate": {
+		"sFirst":    "प्रथम",
+		"sPrevious": "पछिल्लो",
+		"sNext":     "अघिल्लो",
+		"sLast":     "अन्तिम"
+	},
+	"oAria": {
+		"sSortAscending": ": अगाडिबाट अक्षरात्मक रूपमा क्रमबद्ध गराउने",
+		"sSortDescending": ": पछाडिबाट अक्षरात्मक रूपमा क्रमबद्ध गराउने"
+	}
+}

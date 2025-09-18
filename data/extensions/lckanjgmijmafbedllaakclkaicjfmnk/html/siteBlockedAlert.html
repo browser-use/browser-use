@@ -1,0 +1,75 @@
+<!--
+ClearURLs
+Copyright (c) 2017-2020 Kevin Röbert
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Lesser General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>This site was blocked by ClearURLs Add-on</title>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <link rel="icon" sizes="any" type="image/svg+xml" href="/img/clearurls.svg">
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="../css/bootstrap.min.css">
+
+    <style>
+        body {
+            background-color: #333;
+            color: white;
+            text-shadow: 0 1px 3px rgba(0,0,0,.5);
+        }
+
+        h1 {
+            color: #f72d04;
+        }
+
+        .content {
+          position: absolute;
+          top: 40%;
+          left: 50%;
+          transform: translate(-50%,-50%);
+          }
+    </style>
+</head>
+<body>
+    <div class="container content">
+        <div class="row">
+            <div class="col-md-10 offset-md-1">
+                <h1 class="text-center" id="title"></h1>
+                <p class="text-center" id="body"></p>
+                <p class="text-center">
+                    <a class="btn btn-warning" id="page"></a>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <footer class="navbar navbar-dark bg-dark fixed-bottom">
+        <small class="text-muted">ClearURLs v.<span id="version"></span></small>
+    </footer>
+
+    <!-- Optional JavaScript -->
+    <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+    <script src="../browser-polyfill.js"></script>
+    <script src="../core_js/siteBlockedAlert.js"></script>
+    <script src="../core_js/write_version.js"></script>
+</body>
+</html>

@@ -1,0 +1,1 @@
+<VAST version="2.0"></VAST>
