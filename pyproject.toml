@@ -84,12 +84,11 @@ eval = [
     "hyperbrowser==0.47.0",
     "browserbase==1.4.0",
 ]
-all = [
-    "browser-use[cli,examples,aws]",
-]
+all = ["browser-use[cli,examples,aws]"]
 
 # will prefer to use local source code checked out in ../../browser-use (if present) instead of pypi browser-use package
-# [tool.uv.sources]
+[tool.uv.sources]
+cdp-use = { path = "../cdp-use", editable = true }
 # bubus = { path = "../bubus", editable = true }
 
 
@@ -115,7 +114,15 @@ fix = true
 
 [tool.ruff.lint]
 select = ["ASYNC", "E", "F", "FAST", "I", "PLE"]
-ignore = ["ASYNC109", "E101", "E402", "E501", "F841", "E731", "W291"]  # TODO: determine if adding timeouts to all the unbounded async functions is needed / worth-it so we can un-ignore ASYNC109
+ignore = [
+    "ASYNC109",
+    "E101",
+    "E402",
+    "E501",
+    "F841",
+    "E731",
+    "W291",
+] # TODO: determine if adding timeouts to all the unbounded async functions is needed / worth-it so we can un-ignore ASYNC109
 unfixable = ["E101", "E402", "E501", "F841", "E731"]
 
 [tool.ruff.format]
@@ -128,7 +135,18 @@ skip-magic-trailing-comma = false
 
 [tool.pyright]
 typeCheckingMode = "basic"
-exclude = [".venv/", ".git/", "__pycache__/", "./test_*.py", "./debug_*.py", "private_example/", "debug/*", "tests/scripts/*", "tests/old/*", "browser_use/dom/playground/*"]
+exclude = [
+    ".venv/",
+    ".git/",
+    "__pycache__/",
+    "./test_*.py",
+    "./debug_*.py",
+    "private_example/",
+    "debug/*",
+    "tests/scripts/*",
+    "tests/old/*",
+    "browser_use/dom/playground/*",
+]
 venvPath = "."
 venv = ".venv"
 
@@ -158,9 +176,7 @@ markers = [
     "unit: marks tests as unit tests",
     "asyncio: mark tests as async tests",
 ]
-testpaths = [
-    "tests"
-]
+testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 addopts = "-svx --strict-markers --tb=short --dist=loadscope"
 log_cli = true
