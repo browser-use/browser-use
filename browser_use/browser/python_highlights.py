@@ -183,8 +183,13 @@ def draw_enhanced_bounding_box_with_text(
 			bg_x1 = x1 + (element_width - container_width) // 2
 
 			# Simple rule: if element is small, place index further up to avoid blocking icons
-			if element_width < 60 or element_height < 30:
-				# Small element: place well above to avoid blocking content
+			# Calculate ratio of text container to element size for smart positioning
+			width_ratio = container_width / element_width if element_width > 0 else 1.0
+			height_ratio = container_height / element_height if element_height > 0 else 1.0
+
+			# If text container takes up too much space relative to element, place it outside
+			if width_ratio > 0.3 or height_ratio > 0.3:
+				# Text container is too large relative to element: place above to avoid blocking content
 				bg_y1 = max(0, y1 - container_height - 5)
 			else:
 				# Regular element: place inside with small offset
