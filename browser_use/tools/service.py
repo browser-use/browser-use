@@ -30,7 +30,6 @@ from browser_use.browser.views import BrowserError
 from browser_use.dom.service import EnhancedDOMTreeNode
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
-from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.views import (
@@ -578,144 +577,6 @@ class Tools(Generic[Context]):
 				logger.error(f'Failed to close tab: {e}')
 				return ActionResult(error=f'Failed to close tab {params.tab_id}.')
 
-		# Content Actions
-
-		# TODO: Refactor to use events instead of direct page access
-		# This action is temporarily disabled as it needs refactoring to use events
-
-		@self.registry.action(
-			"""This tool sends the markdown of the current page with the query to an LLM to extract structured, semantic data (e.g. product description, price, all information about XYZ) from the markdown of the current webpage based on a query.
-Only use when:
-- You are sure that you are on the right page for the query
-- You know exactly the information you need to extract from the page
-- You did not previously call this tool on the same page
-You can not use this tool to:
-- Get interactive elements like buttons, links, dropdowns, menus, etc.
-- If you previously asked extract_structured_data on the same page with the same query, you should not call it again.
-
-Set extract_links=True only if your query requires extracting links/URLs from the page.
-Use start_from_char to start extraction from a specific character position (use if extraction was previously truncated and you want more content).
-
-If this tool does not return the desired outcome, do not call it again, use scroll_to_text or scroll to find the desired information.
-""",
-		)
-		async def extract_structured_data(
-			query: str,
-			extract_links: bool,
-			browser_session: BrowserSession,
-			page_extraction_llm: BaseChatModel,
-			file_system: FileSystem,
-			start_from_char: int = 0,
-		):
-			# Constants
-			MAX_CHAR_LIMIT = 30000
-
-			# Extract clean markdown using the new method
-			try:
-				content, content_stats = await self.extract_clean_markdown(browser_session, extract_links)
-			except Exception as e:
-				raise RuntimeError(f'Could not extract clean markdown: {type(e).__name__}')
-
-			# Original content length for processing
-			final_filtered_length = content_stats['final_filtered_chars']
-
-			if start_from_char > 0:
-				if start_from_char >= len(content):
-					return ActionResult(
-						error=f'start_from_char ({start_from_char}) exceeds content length ({len(content)}). Content has {final_filtered_length} characters after filtering.'
-					)
-				content = content[start_from_char:]
-				content_stats['started_from_char'] = start_from_char
-
-			# Smart truncation with context preservation
-			truncated = False
-			if len(content) > MAX_CHAR_LIMIT:
-				# Try to truncate at a natural break point (paragraph, sentence)
-				truncate_at = MAX_CHAR_LIMIT
-
-				# Look for paragraph break within last 500 chars of limit
-				paragraph_break = content.rfind('\n\n', MAX_CHAR_LIMIT - 500, MAX_CHAR_LIMIT)
-				if paragraph_break > 0:
-					truncate_at = paragraph_break
-				else:
-					# Look for sentence break within last 200 chars of limit
-					sentence_break = content.rfind('.', MAX_CHAR_LIMIT - 200, MAX_CHAR_LIMIT)
-					if sentence_break > 0:
-						truncate_at = sentence_break + 1
-
-				content = content[:truncate_at]
-				truncated = True
-				next_start = (start_from_char or 0) + truncate_at
-				content_stats['truncated_at_char'] = truncate_at
-				content_stats['next_start_char'] = next_start
-
-			# Add content statistics to the result
-			original_html_length = content_stats['original_html_chars']
-			initial_markdown_length = content_stats['initial_markdown_chars']
-			chars_filtered = content_stats['filtered_chars_removed']
-
-			stats_summary = f"""Content processed: {original_html_length:,} HTML chars → {initial_markdown_length:,} initial markdown → {final_filtered_length:,} filtered markdown"""
-			if start_from_char > 0:
-				stats_summary += f' (started from char {start_from_char:,})'
-			if truncated:
-				stats_summary += f' → {len(content):,} final chars (truncated, use start_from_char={content_stats["next_start_char"]} to continue)'
-			elif chars_filtered > 0:
-				stats_summary += f' (filtered {chars_filtered:,} chars of noise)'
-
-			system_prompt = """
-You are an expert at extracting data from the markdown of a webpage.
-
-<input>
-You will be given a query and the markdown of a webpage that has been filtered to remove noise and advertising content.
-</input>
-
-<instructions>
-- You are tasked to extract information from the webpage that is relevant to the query.
-- You should ONLY use the information available in the webpage to answer the query. Do not make up information or provide guess from your own knowledge. 
-- If the information relevant to the query is not available in the page, your response should mention that.
-- If the query asks for all items, products, etc., make sure to directly list all of them.
-- If the content was truncated and you need more information, note that the user can use start_from_char parameter to continue from where truncation occurred.
-</instructions>
-
-<output>
-- Your output should present ALL the information relevant to the query in a concise way.
-- Do not answer in conversational format - directly output the relevant information or that the information is unavailable.
-</output>
-""".strip()
-
-			prompt = f'<query>\n{query}\n</query>\n\n<content_stats>\n{stats_summary}\n</content_stats>\n\n<webpage_content>\n{content}\n</webpage_content>'
-
-			try:
-				response = await asyncio.wait_for(
-					page_extraction_llm.ainvoke([SystemMessage(content=system_prompt), UserMessage(content=prompt)]),
-					timeout=120.0,
-				)
-
-				current_url = await browser_session.get_current_page_url()
-				extracted_content = (
-					f'<url>\n{current_url}\n</url>\n<query>\n{query}\n</query>\n<result>\n{response.completion}\n</result>'
-				)
-
-				# Simple memory handling
-				MAX_MEMORY_LENGTH = 1000
-				if len(extracted_content) < MAX_MEMORY_LENGTH:
-					memory = extracted_content
-					include_extracted_content_only_once = False
-				else:
-					save_result = await file_system.save_extracted_content(extracted_content)
-					memory = f'Extracted content from {current_url} for query: {query}\nContent saved to file system: {save_result} and displayed in <read_state>.'
-					include_extracted_content_only_once = True
-
-				logger.info(f'📄 {memory}')
-				return ActionResult(
-					extracted_content=extracted_content,
-					include_extracted_content_only_once=include_extracted_content_only_once,
-					long_term_memory=memory,
-				)
-			except Exception as e:
-				logger.debug(f'Error extracting content: {e}')
-				raise RuntimeError(str(e))
-
 		@self.registry.action(
 			"""Scroll the page by specified number of pages (set down=True to scroll down, down=False to scroll up, num_pages=number of pages to scroll like 0.5 for half page, 10.0 for ten pages, etc.). 
 			Default behavior is to scroll the entire page. This is enough for most cases.
@@ -948,16 +809,73 @@ SYNTAX RULES - FAILURE TO FOLLOW CAUSES "Uncaught at line 0" ERRORS:
 - ALWAYS add try-catch blocks to prevent execution errors
 - ALWAYS use proper semicolons and valid JavaScript syntax
 - NEVER write multiline code without proper IIFE wrapping
+- NEVER use inline comments (//) - they cause parsing errors in single-line execution
 - ALWAYS validate elements exist before accessing them
+
+INDEXED ELEMENT ACCESS:
+You have access to getElement(index) and getElements([indices]) functions that map browser_state 
+indices to actual DOM elements using reliable selectors.
+
+EXTRACTION STRATEGY - USE IN THIS ORDER:
+1. Try getElement(index) for interactive elements visible in browser_state
+2. If getElement returns null, use semantic selectors for non-interactive content  
+3. If JavaScript extraction fails 2+ times, read browser_state text directly
+4. NEVER repeat the same failing selector more than twice
+
+// ✅ CORRECT: Access elements by their browser_state index
+const signInButton = getElement(7);  // Gets [7] from browser_state
+if (signInButton) {
+  return signInButton.textContent.trim();
+}
+
+// ✅ CORRECT: Get multiple elements efficiently with validation
+const indices = [6, 7, 11, 13];
+const elements = getElements(indices);
+return elements.map((el, i) => ({
+  index: indices[i],
+  text: el.textContent.trim(),
+  tag: el.tagName.toLowerCase()
+}));
+
+// ✅ CORRECT: Check element exists before extraction
+const available = getAvailableIndices();
+const validElements = getElements(available.slice(0, 5));
+return validElements.map(el => el.textContent.trim());
+
+// ✅ CORRECT: Get full element info including coordinates, attributes, visibility, etc.
+const elementInfo = getElementInfo(7);
+return elementInfo; // Returns complete node.__json__(): coordinates, attributes, visibility, scrollable, etc.
+
+// ✅ CORRECT: Fallback to semantic selectors if getElement fails
+const element = getElement(6);
+if (element) {
+  return element.textContent.trim();
+} else {
+  // Fallback for non-interactive content
+  const articles = document.querySelectorAll('article h1, .headline, [data-testid*="title"]');
+  return Array.from(articles).slice(0, 3).map(el => el.textContent.trim());
+}
+
+// ✅ CORRECT: Extract non-interactive elements with semantic selectors
+const articles = document.querySelectorAll('article, .article, [data-testid*="post"]');
+return Array.from(articles).slice(0, 3).map(el => el.textContent.trim());
+
+// ✅ CORRECT: Click on element by index (alternative to click_element_by_index tool)
+const element = getElement(7);
+if (element) {
+  element.click();
+  return 'Clicked element';
+} else {
+  return 'Element not found';
+}
 
 EXAMPLES:
 Use this tool when other tools do not work on the first try as expected or when a more general tool is needed, e.g. for filling a form all at once, hovering, dragging, extracting only links, extracting content from the page, press and hold, hovering, clicking on coordinates, zooming, use this if the user provides custom selectors which you can otherwise not interact with ....
 You can also use it to explore the website.
 - Write code to solve problems you could not solve with other tools.
-- Don't write comments in here, no human reads that.
+- Don't write inline comments (//) - they cause execution errors.
 - Write only valid js code.
 - use this to e.g. extract + filter links, convert the page to json into the format you need etc...
-
 
 - limit the output otherwise your context will explode
 - think if you deal with special elements like iframes / shadow roots etc
@@ -965,12 +883,36 @@ You can also use it to explore the website.
 - e.g. with  synthetic events, keyboard simulation, shadow DOM, etc.
 
 PROPER SYNTAX EXAMPLES:
-CORRECT: (function(){ try { const el = document.querySelector('#id'); return el ? el.value : 'not found'; } catch(e) { return 'Error: ' + e.message; } })()
+CORRECT: (function(){ try { const el = getElement(7); return el ? el.value : 'not found'; } catch(e) { return 'Error: ' + e.message; } })()
 CORRECT: (async function(){ try { await new Promise(r => setTimeout(r, 100)); return 'done'; } catch(e) { return 'Error: ' + e.message; } })()
 
+CRITICAL STOP CONDITIONS - WHEN TO ABANDON JAVASCRIPT:
+- If getElement(index) returns null 2+ times → Read browser_state text directly
+- If extraction returns empty arrays 3+ times → Switch to manual reading
+- If you're repeating similar selectors → Stop and use different approach
+- If over 5 failed attempts → The data is visible in browser_state, read it manually
+
+// ✅ CORRECT: Stop trying JavaScript if it fails repeatedly
+let attempts = 0;
+const maxAttempts = 2;
+while (attempts < maxAttempts) {
+  const element = getElement(7);
+  if (element && element.textContent.trim()) {
+    return element.textContent.trim();
+  }
+  attempts++;
+}
+// After failures, advise: "Read browser_state directly - text is visible there"
+return 'JavaScript failed - read browser_state text manually';
+
+// ✅ CORRECT: Use semantic selectors for non-interactive content
+const articles = document.querySelectorAll('article h1, .headline, [data-testid*="title"]');
+return Array.from(articles).slice(0, 3).map(el => el.textContent.trim());
+
 WRONG: const el = document.querySelector('#id'); el ? el.value : '';
-WRONG: document.querySelector('#id').value
-WRONG: Multiline code without IIFE wrapping
+WRONG: document.querySelector('#id').value  
+WRONG: Repeating the same failing selector 10+ times
+WRONG: (function(){ // This comment causes parsing errors
 
 SHADOW DOM ACCESS EXAMPLE:
 (function(){
@@ -988,6 +930,18 @@ SHADOW DOM ACCESS EXAMPLE:
     }
 })()
 
+WHEN JAVASCRIPT FAILS - READ BROWSER_STATE DIRECTLY:
+If your JavaScript extraction returns empty/null repeatedly, the data is visible in browser_state.
+Stop trying JavaScript and advise: "Data visible in browser_state - read it manually"
+
+Example browser_state content you can read directly:
+[61]<a />
+  Climate change demands more blood (April 18th 2025, 10:31:46 pm)
+[65]<a />  
+  Are cyclones worsening with climate change? (April 12th 2025, 9:31:11 pm)
+
+When you see this, immediately tell the agent to read these titles and dates directly.
+
 ## Return values:
 - Async functions (with await, promises, timeouts) are automatically handled
 - Returns strings, numbers, booleans, and serialized objects/arrays
@@ -1001,6 +955,119 @@ SHADOW DOM ACCESS EXAMPLE:
 			cdp_session = await browser_session.get_or_create_cdp_session()
 
 			try:
+				# Get the selector map from browser session
+				selector_map_data = {}
+				element_info_data = {}
+				try:
+					selector_map = await browser_session.get_selector_map()
+					for index, node in selector_map.items():
+						# Generate specific CSS selector for getElement()
+						css_selector = node.tag_name
+
+						# Build specific selector to target exact element
+						if 'id' in node.attributes and node.attributes['id']:
+							css_selector += f'#{node.attributes["id"]}'
+						else:
+							# Use multiple attributes to make selector more specific
+							if 'class' in node.attributes and node.attributes['class']:
+								css_selector += f'.{node.attributes["class"].split()[0]}'
+
+							# Add additional specificity with common attributes
+							for attr in ['role', 'type', 'href', 'aria-label']:
+								if attr in node.attributes and node.attributes[attr]:
+									css_selector += f'[{attr}="{node.attributes[attr]}"]'
+									break
+
+							# As last resort, use xpath-style nth-child selector
+							if node.element_index is not None:
+								css_selector += f':nth-of-type({node.element_index + 1})'
+
+						selector_map_data[str(index)] = css_selector
+						# Store full node info for getElementInfo()
+						element_info_data[str(index)] = node
+				except Exception as e:
+					logger.debug(f'Could not get selector map: {e}')
+					selector_map_data = {}
+					element_info_data = {}
+
+				# Store element info for getElementInfo() - use the node's __json__ method
+				element_info_json = {}
+				for index, node in element_info_data.items():
+					try:
+						# Use the node's built-in serialization method
+						element_info_json[index] = node.__json__()
+					except Exception as e:
+						logger.debug(f'Could not serialize node info for index {index}: {e}')
+						element_info_json[index] = {'error': f'Could not serialize: {e}'}
+
+				# Inject helper functions and maps into the execution context
+				helper_code = f"""
+				// Inject simple selector map and full element info
+				window.__ELEMENT_MAP__ = {json.dumps(selector_map_data)};
+				window.__ELEMENT_INFO__ = {json.dumps(element_info_json)};
+				
+				// Helper function to get element by index
+				function getElement(index) {{
+					try {{
+						const selectorMap = window.__ELEMENT_MAP__ || {{}};
+						const elementData = selectorMap[String(index)];
+						
+						if (!elementData) {{
+							return null;
+						}}
+						
+						const element = document.querySelector(elementData);
+						if (!element) {{
+							console.warn('Element not found for selector: ' + elementData);
+							return null;
+						}}
+						
+						return element;
+					}} catch(e) {{
+						console.error('Error getting element ' + index + ':', e.message);
+						return null;
+					}}
+				}}
+				
+				// Helper function to get multiple elements
+				function getElements(indices) {{
+					if (!Array.isArray(indices)) {{
+						console.error('getElements expects an array of indices');
+						return [];
+					}}
+					return indices.map(i => getElement(i)).filter(Boolean);
+				}}
+				
+				// Helper function to get full element info including coordinates, attributes, etc.
+				function getElementInfo(index) {{
+					try {{
+						const elementInfo = window.__ELEMENT_INFO__ || {{}};
+						const info = elementInfo[String(index)];
+						
+						if (!info) {{
+							return {{ error: 'No data found for index ' + index }};
+						}}
+						
+						return {{ index: index, ...info }};
+					}} catch(e) {{
+						return {{ error: 'Error getting element info: ' + e.message }};
+					}}
+				}}
+				
+				// Helper function to get all available element indices
+				function getAvailableIndices() {{
+					const selectorMap = window.__ELEMENT_MAP__ || {{}};
+					return Object.keys(selectorMap).map(k => parseInt(k)).sort((a, b) => a - b);
+				}}
+				"""
+
+				# Execute helper code first
+				await cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': helper_code, 'returnByValue': False},
+					session_id=cdp_session.session_id,
+				)
+
+				# Now execute the user's code
 				# Always use awaitPromise=True - it's ignored for non-promises
 				result = await cdp_session.cdp_client.send.Runtime.evaluate(
 					params={'expression': code, 'returnByValue': True, 'awaitPromise': True},
@@ -1053,7 +1120,7 @@ SHADOW DOM ACCESS EXAMPLE:
 
 			except Exception as e:
 				# CDP communication or other system errors
-				error_msg = f'Code: {code}\n\nError: {error_msg} Failed to execute JavaScript: {type(e).__name__}: {e}'
+				error_msg = f'Code: {code}\n\nError: Failed to execute JavaScript: {type(e).__name__}: {e}'
 				logger.info(error_msg)
 				return ActionResult(error=error_msg)
 

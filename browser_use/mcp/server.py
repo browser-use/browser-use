@@ -88,7 +88,7 @@ _configure_mcp_server_logging()
 logging.disable(logging.CRITICAL)
 
 # Import browser_use modules
-from browser_use import ActionModel, Agent
+from browser_use import Agent
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.config import get_default_llm, get_default_profile, load_browser_use_config
 from browser_use.filesystem.file_system import FileSystem
@@ -277,19 +277,17 @@ class BrowserUseServer:
 					},
 				),
 				types.Tool(
-					name='browser_extract_content',
-					description='Extract structured content from the current page based on a query',
+					name='browser_execute_js',
+					description='Execute JavaScript code on the current page and return the result',
 					inputSchema={
 						'type': 'object',
 						'properties': {
-							'query': {'type': 'string', 'description': 'What information to extract from the page'},
-							'extract_links': {
-								'type': 'boolean',
-								'description': 'Whether to include links in the extraction',
-								'default': False,
-							},
+							'code': {
+								'type': 'string',
+								'description': 'JavaScript code to execute. Can return strings, numbers, booleans, or JSON serializable objects. Use JSON.stringify() for complex objects.',
+							}
 						},
-						'required': ['query'],
+						'required': ['code'],
 					},
 				),
 				types.Tool(
@@ -480,8 +478,8 @@ class BrowserUseServer:
 			elif tool_name == 'browser_get_state':
 				return await self._get_browser_state(arguments.get('include_screenshot', False))
 
-			elif tool_name == 'browser_extract_content':
-				return await self._extract_content(arguments['query'], arguments.get('extract_links', False))
+			elif tool_name == 'browser_execute_js':
+				return await self._execute_js(arguments['code'])
 
 			elif tool_name == 'browser_scroll':
 				return await self._scroll(arguments.get('direction', 'down'))
@@ -795,42 +793,59 @@ class BrowserUseServer:
 
 		return json.dumps(result, indent=2)
 
-	async def _extract_content(self, query: str, extract_links: bool = False) -> str:
-		"""Extract content from current page."""
-		if not self.llm:
-			return 'Error: LLM not initialized (set OPENAI_API_KEY)'
-
-		if not self.file_system:
-			return 'Error: FileSystem not initialized'
-
+	async def _execute_js(self, code: str) -> str:
+		"""Execute JavaScript code on the current page."""
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
-		if not self.tools:
-			return 'Error: Tools not initialized'
+		# Update session activity
+		self._update_session_activity(self.browser_session.id)
 
-		state = await self.browser_session.get_browser_state_summary()
+		try:
+			# Get CDP session for JavaScript execution
+			cdp_session = await self.browser_session.get_or_create_cdp_session()
 
-		# Use the extract_structured_data action
-		# Create a dynamic action model that matches the tools's expectations
-		from pydantic import create_model
+			# Execute JavaScript with proper error handling and promise support
+			result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': code, 'returnByValue': True, 'awaitPromise': True},
+				session_id=cdp_session.session_id,
+			)
 
-		# Create action model dynamically
-		ExtractAction = create_model(
-			'ExtractAction',
-			__base__=ActionModel,
-			extract_structured_data=(dict[str, Any], {'query': query, 'extract_links': extract_links}),
-		)
+			# Check for JavaScript execution errors
+			if result.get('exceptionDetails'):
+				exception = result['exceptionDetails']
+				error_msg = f'JavaScript execution error: {exception.get("text", "Unknown error")}'
+				if 'lineNumber' in exception:
+					error_msg += f' at line {exception["lineNumber"]}'
+				return f'Error executing JavaScript:\n{error_msg}\n\nCode:\n{code}'
 
-		action = ExtractAction()
-		action_result = await self.tools.act(
-			action=action,
-			browser_session=self.browser_session,
-			page_extraction_llm=self.llm,
-			file_system=self.file_system,
-		)
+			# Get the result data
+			result_data = result.get('result', {})
 
-		return action_result.extracted_content or 'No content extracted'
+			# Check for wasThrown flag (backup error detection)
+			if result_data.get('wasThrown'):
+				return f'Error: JavaScript execution failed (wasThrown=true)\n\nCode:\n{code}'
+
+			# Get the actual value
+			value = result_data.get('value')
+
+			# Handle different value types
+			if value is None:
+				# Could be legitimate null/undefined result
+				result_text = str(value) if 'value' in result_data else 'undefined'
+			elif isinstance(value, (dict, list)):
+				# Complex objects - should be serialized by returnByValue
+				try:
+					result_text = json.dumps(value, indent=2)
+				except (TypeError, ValueError):
+					result_text = str(value)
+			else:
+				result_text = str(value)
+
+			return f'JavaScript execution result:\n{result_text}'
+
+		except Exception as e:
+			return f'Error executing JavaScript: {str(e)}\n\nCode:\n{code}'
 
 	async def _scroll(self, direction: str = 'down') -> str:
 		"""Scroll the page."""

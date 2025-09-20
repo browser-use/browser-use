@@ -265,7 +265,7 @@ class AgentMessagePrompt:
 		# Check if current page is a PDF viewer and add appropriate message
 		pdf_message = ''
 		if self.browser_state.is_pdf_viewer:
-			pdf_message = 'PDF viewer cannot be rendered. In this page, DO NOT use the extract_structured_data action as PDF content cannot be rendered. Use the read_file action on the downloaded PDF in available_file_paths to read the full content.\n\n'
+			pdf_message = 'PDF viewer cannot be rendered. Use the read_file action on the downloaded PDF in available_file_paths to read the full content.\n\n'
 
 		# Add recent events if available and requested
 		recent_events_text = ''
