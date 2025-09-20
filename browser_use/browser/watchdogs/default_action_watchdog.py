@@ -1752,6 +1752,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 		]
 
 		found = False
+		js_result = None
 		for query in search_queries:
 			try:
 				# Perform search
@@ -1808,18 +1809,18 @@ class DefaultActionWatchdog(BaseWatchdog):
 				session_id=session_id,
 			)
 
-		if js_result.get('result', {}).get('value'):
-			self.logger.debug(f'📜 Scrolled to text: "{event.text}" (via JS)')
-			return None
-		else:
-			self.logger.warning(f'⚠️ Text not found: "{event.text}"')
-			raise BrowserError(f'Text not found: "{event.text}"', details={'text': event.text})
-
-		# If we got here and found is True, return None (success)
+		# Check if text was found via XPath search
 		if found:
 			return None
-		else:
-			raise BrowserError(f'Text not found: "{event.text}"', details={'text': event.text})
+		
+		# Check if JavaScript fallback found the text
+		if js_result and js_result.get('result', {}).get('value'):
+			self.logger.debug(f'📜 Scrolled to text: "{event.text}" (via JS)')
+			return None
+		
+		# Text not found by either method
+		self.logger.warning(f'⚠️ Text not found: "{event.text}"')
+		raise BrowserError(f'Text not found: "{event.text}"', details={'text': event.text})
 
 	async def on_GetDropdownOptionsEvent(self, event: GetDropdownOptionsEvent) -> dict[str, str]:
 		"""Handle get dropdown options request with CDP."""
