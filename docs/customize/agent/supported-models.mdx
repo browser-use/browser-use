@@ -243,6 +243,33 @@ Required environment variables:
 ALIBABA_CLOUD=
 ```
 
+## ModelScope [example](https://github.com/browser-use/browser-use/blob/main/examples/models/modelscope_example.py)
+
+```python
+from browser_use import Agent, ChatOpenAI
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+# Get API key from https://www.modelscope.cn/docs/model-service/API-Inference/intro
+api_key = os.getenv('MODELSCOPE_API_KEY')
+base_url = 'https://api-inference.modelscope.cn/v1/'
+
+llm = ChatOpenAI(model='Qwen/Qwen2.5-VL-72B-Instruct', api_key=api_key, base_url=base_url)
+
+agent = Agent(
+    task="Your task here",
+    llm=llm,
+    use_vision=True
+)
+```
+
+Required environment variables:
+
+```bash .env
+MODELSCOPE_API_KEY=
+```
 
 ## Other models (DeepSeek, Novita, X...)
 
