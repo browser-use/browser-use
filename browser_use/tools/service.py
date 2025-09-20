@@ -30,7 +30,6 @@ from browser_use.browser.views import BrowserError
 from browser_use.dom.service import EnhancedDOMTreeNode
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
-from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.views import (
@@ -578,144 +577,6 @@ class Tools(Generic[Context]):
 				logger.error(f'Failed to close tab: {e}')
 				return ActionResult(error=f'Failed to close tab {params.tab_id}.')
 
-		# Content Actions
-
-		# TODO: Refactor to use events instead of direct page access
-		# This action is temporarily disabled as it needs refactoring to use events
-
-		@self.registry.action(
-			"""This tool sends the markdown of the current page with the query to an LLM to extract structured, semantic data (e.g. product description, price, all information about XYZ) from the markdown of the current webpage based on a query.
-Only use when:
-- You are sure that you are on the right page for the query
-- You know exactly the information you need to extract from the page
-- You did not previously call this tool on the same page
-You can not use this tool to:
-- Get interactive elements like buttons, links, dropdowns, menus, etc.
-- If you previously asked extract_structured_data on the same page with the same query, you should not call it again.
-
-Set extract_links=True only if your query requires extracting links/URLs from the page.
-Use start_from_char to start extraction from a specific character position (use if extraction was previously truncated and you want more content).
-
-If this tool does not return the desired outcome, do not call it again, use scroll_to_text or scroll to find the desired information.
-""",
-		)
-		async def extract_structured_data(
-			query: str,
-			extract_links: bool,
-			browser_session: BrowserSession,
-			page_extraction_llm: BaseChatModel,
-			file_system: FileSystem,
-			start_from_char: int = 0,
-		):
-			# Constants
-			MAX_CHAR_LIMIT = 30000
-
-			# Extract clean markdown using the new method
-			try:
-				content, content_stats = await self.extract_clean_markdown(browser_session, extract_links)
-			except Exception as e:
-				raise RuntimeError(f'Could not extract clean markdown: {type(e).__name__}')
-
-			# Original content length for processing
-			final_filtered_length = content_stats['final_filtered_chars']
-
-			if start_from_char > 0:
-				if start_from_char >= len(content):
-					return ActionResult(
-						error=f'start_from_char ({start_from_char}) exceeds content length ({len(content)}). Content has {final_filtered_length} characters after filtering.'
-					)
-				content = content[start_from_char:]
-				content_stats['started_from_char'] = start_from_char
-
-			# Smart truncation with context preservation
-			truncated = False
-			if len(content) > MAX_CHAR_LIMIT:
-				# Try to truncate at a natural break point (paragraph, sentence)
-				truncate_at = MAX_CHAR_LIMIT
-
-				# Look for paragraph break within last 500 chars of limit
-				paragraph_break = content.rfind('\n\n', MAX_CHAR_LIMIT - 500, MAX_CHAR_LIMIT)
-				if paragraph_break > 0:
-					truncate_at = paragraph_break
-				else:
-					# Look for sentence break within last 200 chars of limit
-					sentence_break = content.rfind('.', MAX_CHAR_LIMIT - 200, MAX_CHAR_LIMIT)
-					if sentence_break > 0:
-						truncate_at = sentence_break + 1
-
-				content = content[:truncate_at]
-				truncated = True
-				next_start = (start_from_char or 0) + truncate_at
-				content_stats['truncated_at_char'] = truncate_at
-				content_stats['next_start_char'] = next_start
-
-			# Add content statistics to the result
-			original_html_length = content_stats['original_html_chars']
-			initial_markdown_length = content_stats['initial_markdown_chars']
-			chars_filtered = content_stats['filtered_chars_removed']
-
-			stats_summary = f"""Content processed: {original_html_length:,} HTML chars → {initial_markdown_length:,} initial markdown → {final_filtered_length:,} filtered markdown"""
-			if start_from_char > 0:
-				stats_summary += f' (started from char {start_from_char:,})'
-			if truncated:
-				stats_summary += f' → {len(content):,} final chars (truncated, use start_from_char={content_stats["next_start_char"]} to continue)'
-			elif chars_filtered > 0:
-				stats_summary += f' (filtered {chars_filtered:,} chars of noise)'
-
-			system_prompt = """
-You are an expert at extracting data from the markdown of a webpage.
-
-<input>
-You will be given a query and the markdown of a webpage that has been filtered to remove noise and advertising content.
-</input>
-
-<instructions>
-- You are tasked to extract information from the webpage that is relevant to the query.
-- You should ONLY use the information available in the webpage to answer the query. Do not make up information or provide guess from your own knowledge. 
-- If the information relevant to the query is not available in the page, your response should mention that.
-- If the query asks for all items, products, etc., make sure to directly list all of them.
-- If the content was truncated and you need more information, note that the user can use start_from_char parameter to continue from where truncation occurred.
-</instructions>
-
-<output>
-- Your output should present ALL the information relevant to the query in a concise way.
-- Do not answer in conversational format - directly output the relevant information or that the information is unavailable.
-</output>
-""".strip()
-
-			prompt = f'<query>\n{query}\n</query>\n\n<content_stats>\n{stats_summary}\n</content_stats>\n\n<webpage_content>\n{content}\n</webpage_content>'
-
-			try:
-				response = await asyncio.wait_for(
-					page_extraction_llm.ainvoke([SystemMessage(content=system_prompt), UserMessage(content=prompt)]),
-					timeout=120.0,
-				)
-
-				current_url = await browser_session.get_current_page_url()
-				extracted_content = (
-					f'<url>\n{current_url}\n</url>\n<query>\n{query}\n</query>\n<result>\n{response.completion}\n</result>'
-				)
-
-				# Simple memory handling
-				MAX_MEMORY_LENGTH = 1000
-				if len(extracted_content) < MAX_MEMORY_LENGTH:
-					memory = extracted_content
-					include_extracted_content_only_once = False
-				else:
-					save_result = await file_system.save_extracted_content(extracted_content)
-					memory = f'Extracted content from {current_url} for query: {query}\nContent saved to file system: {save_result} and displayed in <read_state>.'
-					include_extracted_content_only_once = True
-
-				logger.info(f'📄 {memory}')
-				return ActionResult(
-					extracted_content=extracted_content,
-					include_extracted_content_only_once=include_extracted_content_only_once,
-					long_term_memory=memory,
-				)
-			except Exception as e:
-				logger.debug(f'Error extracting content: {e}')
-				raise RuntimeError(str(e))
-
 		@self.registry.action(
 			"""Scroll the page by specified number of pages (set down=True to scroll down, down=False to scroll up, num_pages=number of pages to scroll like 0.5 for half page, 10.0 for ten pages, etc.). 
 			Default behavior is to scroll the entire page. This is enough for most cases.
@@ -948,13 +809,14 @@ SYNTAX RULES - FAILURE TO FOLLOW CAUSES "Uncaught at line 0" ERRORS:
 - ALWAYS add try-catch blocks to prevent execution errors
 - ALWAYS use proper semicolons and valid JavaScript syntax
 - NEVER write multiline code without proper IIFE wrapping
+- NEVER use inline comments (//) - they cause parsing errors in single-line execution
 - ALWAYS validate elements exist before accessing them
 
 EXAMPLES:
 Use this tool when other tools do not work on the first try as expected or when a more general tool is needed, e.g. for filling a form all at once, hovering, dragging, extracting only links, extracting content from the page, press and hold, hovering, clicking on coordinates, zooming, use this if the user provides custom selectors which you can otherwise not interact with ....
 You can also use it to explore the website.
 - Write code to solve problems you could not solve with other tools.
-- Don't write comments in here, no human reads that.
+- Don't write inline comments (//) - they cause execution errors.
 - Write only valid js code.
 - use this to e.g. extract + filter links, convert the page to json into the format you need etc...
 
@@ -971,6 +833,8 @@ CORRECT: (async function(){ try { await new Promise(r => setTimeout(r, 100)); re
 WRONG: const el = document.querySelector('#id'); el ? el.value : '';
 WRONG: document.querySelector('#id').value
 WRONG: Multiline code without IIFE wrapping
+WRONG: (function(){ // This comment causes parsing errors
+
 
 SHADOW DOM ACCESS EXAMPLE:
 (function(){
@@ -987,6 +851,16 @@ SHADOW DOM ACCESS EXAMPLE:
         return 'Error: ' + e.message;
     }
 })()
+
+TEXT EXTRACTION:
+(function(){ try { return document.querySelector('#id').innerHTML.substring(100, 900); } catch(e) { return 'Error: ' + e.message; } })()
+
+LINKEDIN LINKS:
+(function(){ try { return JSON.stringify(Array.from(document.querySelectorAll('a[href*="linkedin.com"]')).map(l => l.href)); } catch(e) { return 'Error: ' + e.message; } })()
+
+REGEX USAGE:
+(function(){ try { const text = document.body.textContent; return /Jan|Feb|Mar/.test(text) ? 'found month' : 'no month'; } catch(e) { return 'Error: ' + e.message; } })()
+(function(){ try { const links = Array.from(document.querySelectorAll('a')); return links.filter(a => /\d{4}/.test(a.textContent)).length; } catch(e) { return 'Error: ' + e.message; } })()
 
 ## Return values:
 - Async functions (with await, promises, timeouts) are automatically handled
