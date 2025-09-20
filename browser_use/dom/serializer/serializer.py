@@ -43,6 +43,7 @@ class DOMTreeSerializer:
 		enable_bbox_filtering: bool = True,
 		containment_threshold: float | None = None,
 		paint_order_filtering: bool = True,
+		custom_interactive_selectors: list[str] | None = None,
 	):
 		self.root_node = root_node
 		self._interactive_counter = 1
@@ -57,6 +58,9 @@ class DOMTreeSerializer:
 		self.containment_threshold = containment_threshold or self.DEFAULT_CONTAINMENT_THRESHOLD
 		# Paint order filtering configuration
 		self.paint_order_filtering = paint_order_filtering
+		
+		# Custom interactive selectors configuration
+		self.custom_interactive_selectors = custom_interactive_selectors or []
 
 	def _safe_parse_number(self, value_str: str, default: float) -> float:
 		"""Parse string to float, handling negatives and decimals."""
@@ -410,7 +414,7 @@ class DOMTreeSerializer:
 			import time
 
 			start_time = time.time()
-			result = ClickableElementDetector.is_interactive(node)
+			result = ClickableElementDetector.is_interactive(node, self.custom_interactive_selectors)
 			end_time = time.time()
 
 			if 'clickable_detection_time' not in self.timing_info:
