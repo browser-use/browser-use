@@ -819,10 +819,15 @@ class BrowserUseServer:
 		ExtractAction = create_model(
 			'ExtractAction',
 			__base__=ActionModel,
-			extract_structured_data=(dict[str, Any], {'query': query, 'extract_links': extract_links}),
+			extract_structured_data=dict[str, Any],
 		)
 
-		action = ExtractAction()
+		# Use model_validate because Pyright does not understand the dynamic model
+		action = ExtractAction.model_validate(
+			{
+				'extract_structured_data': {'query': query, 'extract_links': extract_links},
+			}
+		)
 		action_result = await self.tools.act(
 			action=action,
 			browser_session=self.browser_session,
