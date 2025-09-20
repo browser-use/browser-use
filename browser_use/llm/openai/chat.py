@@ -49,12 +49,12 @@ class ChatOpenAI(BaseChatModel):
 	base_url: str | httpx.URL | None = None
 	websocket_base_url: str | httpx.URL | None = None
 	timeout: float | httpx.Timeout | None = None
-	max_retries: int = 5  # Increase default retries for automation reliability
+	max_retries: int = 10
 	default_headers: Mapping[str, str] | None = None
 	default_query: Mapping[str, object] | None = None
 	http_client: httpx.AsyncClient | None = None
 	_strict_response_validation: bool = False
-	max_completion_tokens: int | None = 4096
+	max_completion_tokens: int | None = 8192
 	reasoning_models: list[ChatModel | str] | None = field(
 		default_factory=lambda: [
 			'o4-mini',
