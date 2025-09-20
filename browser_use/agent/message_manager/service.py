@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Mapping
 from typing import Literal
 
 from browser_use.agent.message_manager.views import (
@@ -104,7 +105,7 @@ class MessageManager:
 		state: MessageManagerState = MessageManagerState(),
 		use_thinking: bool = True,
 		include_attributes: list[str] | None = None,
-		sensitive_data: dict[str, str | dict[str, str]] | None = None,
+		sensitive_data: Mapping[str, str | Callable[[], str] | Mapping[str, str | Callable[[], str]]] | None = None,
 		max_history_items: int | None = None,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		include_tool_call_examples: bool = False,
@@ -121,6 +122,9 @@ class MessageManager:
 		self.vision_detail_level = vision_detail_level
 		self.include_tool_call_examples = include_tool_call_examples
 		self.include_recent_events = include_recent_events
+
+		# Map of placeholder key -> resolved secret value from last action execution
+		self.resolved_sensitive_values: dict[str, str] = {}
 		self.sample_images = sample_images
 
 		assert max_history_items is None or max_history_items > 5, 'max_history_items must be None or greater than 5'
@@ -387,18 +391,19 @@ class MessageManager:
 			if not self.sensitive_data:
 				return value
 
-			# Collect all sensitive values, immediately converting old format to new format
+			# Collect sensitive values to mask, without evaluating callables during logging
 			sensitive_values: dict[str, str] = {}
 
-			# Process all sensitive data entries
+			# Include resolved dynamic secrets from the last action execution
+			sensitive_values.update(self.resolved_sensitive_values)
+
+			# Include static string values from sensitive_data (old and new formats)
 			for key_or_domain, content in self.sensitive_data.items():
 				if isinstance(content, dict):
-					# Already in new format: {domain: {key: value}}
 					for key, val in content.items():
-						if val:  # Skip empty values
+						if isinstance(val, str) and val:
 							sensitive_values[key] = val
-				elif content:  # Old format: {key: value} - convert to new format internally
-					# We treat this as if it was {'http*://*': {key_or_domain: content}}
+				elif isinstance(content, str) and content:
 					sensitive_values[key_or_domain] = content
 
 			# If there are no valid sensitive data entries, just return the original value

@@ -6,7 +6,7 @@ import logging
 import re
 import tempfile
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Generic, Literal, TypeVar
@@ -137,7 +137,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		tools: Tools[Context] | None = None,
 		controller: Tools[Context] | None = None,  # Alias for tools
 		# Initial agent run parameters
-		sensitive_data: dict[str, str | dict[str, str]] | None = None,
+		sensitive_data: Mapping[str, str | Callable[[], str] | Mapping[str, str | Callable[[], str]]] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
 		# Cloud Callbacks
 		register_new_step_callback: (
@@ -703,6 +703,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Page-specific actions will be included directly in the browser_state message
 		self.logger.debug(f'💬 Step {self.state.n_steps}: Creating state messages for context...')
+		# Provide resolved dynamic secrets from the previous step to the message manager for masking
+		try:
+			self._message_manager.resolved_sensitive_values = getattr(self.tools.registry, 'last_resolved_secrets', {}) or {}
+		except Exception:
+			self._message_manager.resolved_sensitive_values = {}
 		self._message_manager.create_state_messages(
 			browser_state_summary=browser_state_summary,
 			model_output=self.state.last_model_output,

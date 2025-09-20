@@ -269,3 +269,69 @@ def test_is_new_tab_page():
 	assert is_new_tab_page('http://google.com') is False
 	assert is_new_tab_page('') is False
 	assert is_new_tab_page('chrome://settings') is False
+
+
+def test_callable_sensitive_data_domain_scoped(registry):
+	"""Domain-scoped callables are only used when URL matches."""
+
+	params = SensitiveParams(text='Code: <secret>otp</secret>')
+
+	call_count = {'n': 0}
+
+	def otp_provider():
+		call_count['n'] += 1
+		return '654321'
+
+	sensitive_data = {
+		'example.com': {'otp': otp_provider},
+	}
+
+	# Without URL, should not replace
+	res_no_url = registry._replace_sensitive_data(params, sensitive_data)
+	assert res_no_url.text == 'Code: <secret>otp</secret>'
+	assert call_count['n'] == 0
+
+	# With matching URL, should replace and evaluate once
+	res_with_url = registry._replace_sensitive_data(params, sensitive_data, 'https://example.com/login')
+	assert res_with_url.text == 'Code: 654321'
+	assert call_count['n'] == 1
+
+
+def test_callable_evaluated_once_per_placeholder(registry):
+	"""Same placeholder appearing twice is resolved once per call."""
+
+	params = SensitiveParams(text='OTP1: <secret>otp</secret>, OTP2: <secret>otp</secret>')
+
+	call_count = {'n': 0}
+
+	def otp_provider():
+		call_count['n'] += 1
+		return '999000'
+
+	sensitive_data = {'otp': otp_provider}
+
+	res = registry._replace_sensitive_data(params, sensitive_data)
+	assert res.text == 'OTP1: 999000, OTP2: 999000'
+	assert call_count['n'] == 1
+
+
+def test_sanitization_uses_resolved_values_without_evaluating(message_manager):
+	"""MessageManager uses resolved secrets snapshot and does not evaluate callables during sanitization."""
+
+	called = {'flag': False}
+
+	def raising_provider():
+		called['flag'] = True
+		raise RuntimeError('Should not be called during sanitization')
+
+	# Sensitive data contains a callable that would raise if evaluated
+	message_manager.sensitive_data = {
+		'otp': raising_provider,
+	}
+	# Snapshot from previous action execution
+	message_manager.resolved_sensitive_values = {'otp': 'MASKME'}
+
+	message = UserMessage(content='Code is MASKME')
+	res = message_manager._filter_sensitive_data(message)
+	assert '<secret>otp</secret>' in res.content
+	assert called['flag'] is False
