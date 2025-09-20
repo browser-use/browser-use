@@ -91,3 +91,16 @@ class GetDropdownOptionsAction(BaseModel):
 class SelectDropdownOptionAction(BaseModel):
 	index: int = Field(ge=1, description='index of the dropdown element to select an option for')
 	text: str = Field(description='the text or exact value of the option to select')
+
+
+class GeneralCDPAction(BaseModel):
+	"""General CDP action for executing arbitrary selectors and actions"""
+	action_type: str = Field(description='Type of action: "click", "type", "extract", "evaluate", "scroll_to", "hover", "select"')
+	selector: str = Field(description='CSS selector or XPath to target element(s)')
+	text: str | None = Field(default=None, description='Text to type (for type action) or text to select (for select action)')
+	script: str | None = Field(default=None, description='JavaScript code to evaluate (for evaluate action)')
+	extract_attribute: str | None = Field(default=None, description='Attribute to extract (for extract action), e.g. "textContent", "href", "value"')
+	multiple: bool = Field(default=False, description='Whether to target multiple elements (for extract action)')
+	scroll_offset: int = Field(default=0, description='Offset in pixels for scroll_to action')
+	wait_for_selector: bool = Field(default=True, description='Whether to wait for selector to appear before acting')
+	timeout: float = Field(default=5.0, description='Timeout in seconds for waiting')
