@@ -25,6 +25,16 @@ from browser_use.llm.anthropic.chat import ChatAnthropic
 from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.openai.chat import ChatOpenAI
 
+try:
+	from browser_use.llm.deepseek.chat import ChatDeepSeek
+except ImportError:
+	ChatDeepSeek = None
+
+try:
+	from browser_use.llm.groq.chat import ChatGroq
+except ImportError:
+	ChatGroq = None
+
 load_dotenv()
 
 from browser_use import Agent, Controller
@@ -226,25 +236,59 @@ def get_llm(config: dict[str, Any]):
 	model_name = model_config.get('name')
 	temperature = model_config.get('temperature', 0.0)
 
+	# Load additional config from ~/.config/browseruse/config.json if it exists
+	user_config_file = Path.home() / '.config' / 'browseruse' / 'config.json'
+	if user_config_file.exists() and not model_name:
+		try:
+			with open(user_config_file) as f:
+				user_config = json.load(f)
+				if 'llm' in user_config and 'model' in user_config['llm']:
+					model_name = user_config['llm']['model']
+		except (json.JSONDecodeError, KeyError):
+			pass
+
 	# Get API key from config or environment
-	api_key = model_config.get('api_keys', {}).get('OPENAI_API_KEY') or CONFIG.OPENAI_API_KEY
+	api_key = model_config.get('api_keys', {}).get('OPENAI_API_KEY')
 
 	if model_name:
 		if model_name.startswith('gpt'):
-			if not api_key and not CONFIG.OPENAI_API_KEY:
+			effective_api_key = api_key or os.environ.get('OPENAI_API_KEY') or CONFIG.OPENAI_API_KEY
+			if not effective_api_key:
 				print('⚠️  OpenAI API key not found. Please update your config or set OPENAI_API_KEY environment variable.')
 				sys.exit(1)
-			return ChatOpenAI(model=model_name, temperature=temperature, api_key=api_key or CONFIG.OPENAI_API_KEY)
+			return ChatOpenAI(model=model_name, temperature=temperature, api_key=effective_api_key)
 		elif model_name.startswith('claude'):
-			if not CONFIG.ANTHROPIC_API_KEY:
+			effective_api_key = os.environ.get('ANTHROPIC_API_KEY') or CONFIG.ANTHROPIC_API_KEY
+			if not effective_api_key:
 				print('⚠️  Anthropic API key not found. Please update your config or set ANTHROPIC_API_KEY environment variable.')
 				sys.exit(1)
 			return ChatAnthropic(model=model_name, temperature=temperature)
 		elif model_name.startswith('gemini'):
-			if not CONFIG.GOOGLE_API_KEY:
+			effective_api_key = os.environ.get('GOOGLE_API_KEY') or CONFIG.GOOGLE_API_KEY
+			if not effective_api_key:
 				print('⚠️  Google API key not found. Please update your config or set GOOGLE_API_KEY environment variable.')
 				sys.exit(1)
 			return ChatGoogle(model=model_name, temperature=temperature)
+
+
+	# Auto-detect based on available API keys (check environment variables)
+	# Priority order: OpenAI, Anthropic, Google, Deepseek, Groq
+	openai_key = api_key or os.environ.get('OPENAI_API_KEY') or CONFIG.OPENAI_API_KEY
+	anthropic_key = os.environ.get('ANTHROPIC_API_KEY') or CONFIG.ANTHROPIC_API_KEY
+	google_key = os.environ.get('GOOGLE_API_KEY') or CONFIG.GOOGLE_API_KEY
+	deepseek_key = os.environ.get('DEEPSEEK_API_KEY') or CONFIG.DEEPSEEK_API_KEY
+	groq_key = os.environ.get('GROQ_API_KEY') or CONFIG.GROK_API_KEY
+
+	if openai_key:
+		return ChatOpenAI(model='gpt-4o', temperature=temperature, api_key=openai_key)
+	elif anthropic_key:
+		return ChatAnthropic(model='claude-3-5-sonnet-20241022', temperature=temperature)
+	elif google_key:
+		return ChatGoogle(model='gemini-2.0-flash-exp', temperature=temperature)
+	elif deepseek_key and ChatDeepSeek:
+		return ChatDeepSeek(model='deepseek-chat', temperature=temperature)
+	elif groq_key and ChatGroq:
+		return ChatGroq(model='llama-3.3-70b-versatile', temperature=temperature)
 
 	# Auto-detect based on available API keys
 	if api_key or CONFIG.OPENAI_API_KEY:
@@ -253,9 +297,10 @@ def get_llm(config: dict[str, Any]):
 		return ChatAnthropic(model='claude-4-sonnet', temperature=temperature)
 	elif CONFIG.GOOGLE_API_KEY:
 		return ChatGoogle(model='gemini-2.5-pro', temperature=temperature)
+
 	else:
 		print(
-			'⚠️  No API keys found. Please update your config or set one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY.'
+			'⚠️  No API keys found. Please update your config or set one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, DEEPSEEK_API_KEY, or GROQ_API_KEY.'
 		)
 		sys.exit(1)
 
@@ -453,11 +498,12 @@ class BrowserUseApp(App):
 	"""
 
 	BINDINGS = [
-		Binding('ctrl+c', 'quit', 'Quit', priority=True, show=True),
+		Binding('ctrl+c', 'pause_agent', 'Pause Agent', priority=True, show=True),
 		Binding('ctrl+q', 'quit', 'Quit', priority=True),
 		Binding('ctrl+d', 'quit', 'Quit', priority=True),
 		Binding('up', 'input_history_prev', 'Previous command', show=False),
 		Binding('down', 'input_history_next', 'Next command', show=False),
+		Binding('enter', 'resume_agent', 'Resume Agent', show=False),
 	]
 
 	def __init__(self, config: dict[str, Any], *args, **kwargs):
@@ -680,12 +726,15 @@ class BrowserUseApp(App):
 		event.stop()
 
 	async def on_key(self, event: events.Key) -> None:
-		"""Handle key events at the app level to ensure graceful exit."""
-		# Handle Ctrl+C, Ctrl+D, and Ctrl+Q for app exit
-		if event.key == 'ctrl+c' or event.key == 'ctrl+d' or event.key == 'ctrl+q':
-			await self.action_quit()
-			event.stop()
-			event.prevent_default()
+		"""Handle key events at the app level."""
+		# Handle Enter key for resume when agent is paused
+		if event.key == 'enter':
+			# Only handle Enter for resume if input field doesn't have focus
+			input_field = self.query_one('#task-input', Input)
+			if not input_field.has_focus and self.agent and hasattr(self.agent.state, 'paused') and self.agent.state.paused:
+				await self.action_resume_agent()
+				event.stop()
+				event.prevent_default()
 
 	def on_input_submitted(self, event: Input.Submitted) -> None:
 		"""Handle task input submission."""
@@ -1035,6 +1084,13 @@ class BrowserUseApp(App):
 						classes='link-green link-url',
 					)
 
+
+		# Only scroll to bottom if the agent is actively running
+		# This allows users to scroll and read while the agent is paused or finished
+		if hasattr(self.agent, 'running') and getattr(self.agent, 'running', False):
+			tasks_panel = self.query_one('#tasks-panel')
+			tasks_panel.scroll_end(animate=False)
+
 			# Paths panel
 			yield Static(
 				f' ⚙️  Settings saved to:              {str(CONFIG.BROWSER_USE_CONFIG_FILE.resolve()).replace(str(Path.home()), "~")}\n'
@@ -1042,6 +1098,7 @@ class BrowserUseApp(App):
 				id='paths-panel',
 				markup=True,
 			)
+
 
 			# Info panels (hidden by default, shown when task starts)
 			with Container(id='info-panels'):
@@ -1241,10 +1298,66 @@ class BrowserUseApp(App):
 		tasks_info = self.query_one('#tasks-info', RichLog)
 		tasks_info.clear()
 
+
+	def action_pause_agent(self) -> None:
+		"""Pause the agent when Ctrl+C is pressed."""
+		# Check if agent is already paused (second Ctrl+C)
+		if self.agent and hasattr(self.agent.state, 'paused') and self.agent.state.paused:
+			# Second Ctrl+C while paused - quit the application
+			self.call_after_refresh(self.action_quit)
+		elif self.agent and hasattr(self.agent, 'running') and getattr(self.agent, 'running', False):
+			# First Ctrl+C while running - pause the agent
+			if hasattr(self.agent, 'pause'):
+				self.agent.pause()
+				# Update the UI to show paused state
+				self.update_info_panels()
+				# Log the pause action
+				logger = logging.getLogger('browser_use.app')
+				logger.info('Agent paused. Press Enter to resume or Ctrl+C again to quit.')
+		else:
+			# If no agent is running, treat as quit
+			self.call_after_refresh(self.action_quit)
+
+	async def action_resume_agent(self) -> None:
+		"""Resume the agent when Enter is pressed."""
+		# Only handle Enter for resume if the agent is paused
+		if self.agent and hasattr(self.agent.state, 'paused') and self.agent.state.paused:
+			# Focus on the input field if it's currently focused
+			input_field = self.query_one('#task-input', Input)
+
+			# Check if the input field has focus and has text
+			if input_field.has_focus and input_field.value.strip():
+				# Let the normal input submission handle this
+				return
+
+			# Otherwise, resume the agent
+			if hasattr(self.agent, 'resume'):
+				# Check if resume is async
+				resume_method = getattr(self.agent, 'resume')
+				if asyncio.iscoroutinefunction(resume_method):
+					await resume_method()
+				else:
+					resume_method()
+
+				# Update the UI
+				self.update_info_panels()
+
+				# Log the resume action
+				logger = logging.getLogger('browser_use.app')
+				logger.info('Agent resumed.')
+
+	async def action_quit(self) -> None:
+		"""Quit the application and clean up resources."""
+		# Note: We don't need to close the browser session here because:
+		# 1. If an agent exists, it already called browser_session.stop() in its run() method
+		# 2. If keep_alive=True (default), we want to leave the browser running anyway
+		# This prevents the duplicate "stop() called" messages in the logs
+
 		if self.agent:
 			# Check if agent has tasks
 			task_history = []
 			message_history = []
+
 
 			# Try to extract tasks by looking at message history
 			if hasattr(self.agent, '_message_manager') and self.agent._message_manager:
@@ -1278,9 +1391,15 @@ class BrowserUseApp(App):
 				if history_items:
 					tasks_info.write('[bold yellow]STEPS:[/]')
 
+
+				# Tasks panel (full width, below browser and model)
+				with VerticalScroll(id='tasks-panel'):
+					yield RichLog(id='tasks-info', markup=True, highlight=True, wrap=True, auto_scroll=False)
+
 					for idx, item in enumerate(history_items, 1):
 						# Determine step status
 						step_style = '[green]✓[/]'
+
 
 						# For the current step, show it as in progress
 						if idx == current_step:
