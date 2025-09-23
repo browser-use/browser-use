@@ -134,7 +134,7 @@ class DeviceAuthClient:
 				data={
 					'client_id': self.client_id,
 					'scope': self.scope,
-					'agent_session_id': agent_session_id,
+					'agent_session_id': agent_session_id or '',
 					'device_id': self.device_id,
 				},
 			)
@@ -147,7 +147,7 @@ class DeviceAuthClient:
 					data={
 						'client_id': self.client_id,
 						'scope': self.scope,
-						'agent_session_id': agent_session_id,
+						'agent_session_id': agent_session_id or '',
 						'device_id': self.device_id,
 					},
 				)
@@ -297,7 +297,7 @@ class DeviceAuthClient:
 			verification_uri_complete = device_auth['verification_uri_complete'].replace(self.base_url, frontend_url)
 
 			terminal_width, _terminal_height = shutil.get_terminal_size((80, 20))
-			if show_instructions:
+			if show_instructions and CONFIG.BROWSER_USE_CLOUD_SYNC:
 				logger.info('─' * max(terminal_width - 40, 20))
 				logger.info('🌐  View the details of this run in Browser Use Cloud:')
 				logger.info(f'    👉  {verification_uri_complete}')
@@ -351,4 +351,7 @@ class DeviceAuthClient:
 	def clear_auth(self) -> None:
 		"""Clear stored authentication"""
 		self.auth_config = CloudAuthConfig()
-		self.auth_config.save_to_file()
+
+		# Remove the config file entirely instead of saving empty values
+		config_path = CONFIG.BROWSER_USE_CONFIG_DIR / 'cloud_auth.json'
+		config_path.unlink(missing_ok=True)

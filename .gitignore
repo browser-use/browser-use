@@ -53,3 +53,13 @@ credentials.json
 token.json
 
 !docs/docs.json
+
+
+temp-profile-*
+
+screenshot.png
+
+# *.md
+
+all_github_issues_progress.md
+all_github_issues.md

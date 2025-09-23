@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import aiofiles
+import anyio
 import httpx
 from dotenv import load_dotenv
 
@@ -113,9 +113,7 @@ class TokenCost:
 				return False
 
 			# Read the cached data
-			async with aiofiles.open(cache_file, 'r') as f:
-				content = await f.read()
-				cached = CachedPricingData.model_validate_json(content)
+			cached = CachedPricingData.model_validate_json(await anyio.Path(cache_file).read_text())
 
 			# Check if cache is still valid
 			return datetime.now() - cached.timestamp < self.CACHE_DURATION
@@ -125,10 +123,9 @@ class TokenCost:
 	async def _load_from_cache(self, cache_file: Path) -> None:
 		"""Load pricing data from a specific cache file"""
 		try:
-			async with aiofiles.open(cache_file, 'r') as f:
-				content = await f.read()
-				cached = CachedPricingData.model_validate_json(content)
-				self._pricing_data = cached.data
+			content = await anyio.Path(cache_file).read_text()
+			cached = CachedPricingData.model_validate_json(content)
+			self._pricing_data = cached.data
 		except Exception as e:
 			logger.debug(f'Error loading cached pricing data from {cache_file}: {e}')
 			# Fall back to fetching
@@ -153,9 +150,7 @@ class TokenCost:
 			timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
 			cache_file = self._cache_dir / f'pricing_{timestamp_str}.json'
 
-			async with aiofiles.open(cache_file, 'w') as f:
-				await f.write(cached.model_dump_json(indent=2))
-
+			await anyio.Path(cache_file).write_text(cached.model_dump_json(indent=2))
 		except Exception as e:
 			logger.debug(f'Error fetching pricing data: {e}')
 			# Fall back to empty pricing data

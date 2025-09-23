@@ -30,6 +30,7 @@ class ChatAWSBedrock(BaseChatModel):
 	1. Set the following environment variables:
 	   - AWS_ACCESS_KEY_ID
 	   - AWS_SECRET_ACCESS_KEY
+	   - AWS_SESSION_TOKEN (only required when using temporary credentials)
 	   - AWS_REGION
 	2. Or provide a boto3 Session object
 	3. Or use AWS SSO authentication
@@ -46,6 +47,7 @@ class ChatAWSBedrock(BaseChatModel):
 	# AWS credentials and configuration
 	aws_access_key_id: str | None = None
 	aws_secret_access_key: str | None = None
+	aws_session_token: str | None = None
 	aws_region: str | None = None
 	aws_sso_auth: bool = False
 	session: 'Session | None' = None
@@ -73,6 +75,7 @@ class ChatAWSBedrock(BaseChatModel):
 		# Get credentials from environment or instance parameters
 		access_key = self.aws_access_key_id or getenv('AWS_ACCESS_KEY_ID')
 		secret_key = self.aws_secret_access_key or getenv('AWS_SECRET_ACCESS_KEY')
+		session_token = self.aws_session_token or getenv('AWS_SESSION_TOKEN')
 		region = self.aws_region or getenv('AWS_REGION') or getenv('AWS_DEFAULT_REGION')
 
 		if self.aws_sso_auth:
@@ -80,7 +83,7 @@ class ChatAWSBedrock(BaseChatModel):
 		else:
 			if not access_key or not secret_key:
 				raise ModelProviderError(
-					message='AWS credentials not found. Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables or provide a boto3 session.',
+					message='AWS credentials not found. Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables (and AWS_SESSION_TOKEN if using temporary credentials) or provide a boto3 session.',
 					model=self.name,
 				)
 
@@ -89,6 +92,7 @@ class ChatAWSBedrock(BaseChatModel):
 				region_name=region,
 				aws_access_key_id=access_key,
 				aws_secret_access_key=secret_key,
+				aws_session_token=session_token,
 			)
 
 	@property

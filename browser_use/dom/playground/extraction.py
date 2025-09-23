@@ -11,7 +11,6 @@ from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.browser.events import ClickElementEvent, TypeTextEvent
 from browser_use.browser.profile import ViewportSize
-from browser_use.dom.debug.highlights import inject_highlighting_script, remove_highlighting_script
 from browser_use.dom.service import DomService
 from browser_use.dom.views import DEFAULT_INCLUDE_ATTRIBUTES
 from browser_use.filesystem.file_system import FileSystem
@@ -20,7 +19,6 @@ TIMEOUT = 60
 
 
 async def test_focus_vs_all_elements():
-	# async with async_patchright() as patchright:
 	browser_session = BrowserSession(
 		browser_profile=BrowserProfile(
 			# executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -29,11 +27,15 @@ async def test_focus_vs_all_elements():
 			wait_for_network_idle_page_load_time=1,
 			headless=False,
 			args=['--incognito'],
+			paint_order_filtering=True,
 		),
 	)
 
 	# 10 Sample websites with various interactive elements
 	sample_websites = [
+		'https://browser-use.github.io/stress-tests/challenges/iframe-inception-level2.html',
+		'https://www.google.com/travel/flights',
+		'https://v0-simple-ui-test-site.vercel.app',
 		'https://browser-use.github.io/stress-tests/challenges/iframe-inception-level1.html',
 		'https://browser-use.github.io/stress-tests/challenges/angular-form.html',
 		'https://www.google.com/travel/flights',
@@ -116,11 +118,7 @@ async def test_focus_vs_all_elements():
 		last_clicked_index = None  # Track the index for text input
 		while True:
 			try:
-				await remove_highlighting_script(dom_service)
-
 				# 	all_elements_state = await dom_service.get_serialized_dom_tree()
-
-				# 	await inject_highlighting_script(dom_service, all_elements_state.selector_map)
 
 				website_type = 'DIFFICULT' if website in difficult_websites else 'SAMPLE'
 				print(f'\n{"=" * 60}')
@@ -144,8 +142,6 @@ async def test_focus_vs_all_elements():
 
 				# Combine all timing info
 				all_timing = {'get_state_summary_total': get_state_time, **timing_info}
-
-				await inject_highlighting_script(dom_service, all_elements_state.dom_state.selector_map)
 
 				selector_map = all_elements_state.dom_state.selector_map
 				total_elements = len(selector_map.keys())
@@ -180,7 +176,7 @@ async def test_focus_vs_all_elements():
 				# copy the user message to the clipboard
 				# pyperclip.copy(text_to_save)
 
-				encoding = tiktoken.encoding_for_model('gpt-4o')
+				encoding = tiktoken.encoding_for_model('gpt-4.1-mini')
 				token_count = len(encoding.encode(text_to_save))
 				print(f'Token count: {token_count}')
 
@@ -202,7 +198,7 @@ async def test_focus_vs_all_elements():
 
 				# Calculate percentages
 				total_time = all_timing.get('get_state_summary_total', 0)
-				if total_time > 0:
+				if total_time > 0 and total_elements > 0:
 					timing_text += '\n📈 PERCENTAGE BREAKDOWN:\n'
 					timing_text += f'{"─" * 30}\n'
 					for key, value in all_timing.items():
@@ -213,7 +209,7 @@ async def test_focus_vs_all_elements():
 				timing_text += '\n🎯 CLICKABLE DETECTION ANALYSIS:\n'
 				timing_text += f'{"─" * 35}\n'
 				clickable_time = all_timing.get('clickable_detection_time', 0)
-				if clickable_time > 0:
+				if clickable_time > 0 and total_elements > 0:
 					avg_per_element = (clickable_time / total_elements) * 1000000  # microseconds
 					timing_text += f'Total clickable detection time: {clickable_time * 1000:.2f} ms\n'
 					timing_text += f'Average per element: {avg_per_element:.2f} μs\n'

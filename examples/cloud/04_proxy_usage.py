@@ -25,7 +25,9 @@ from requests.exceptions import RequestException
 # Configuration
 API_KEY = os.getenv('BROWSER_USE_API_KEY')
 if not API_KEY:
-	raise ValueError('Please set BROWSER_USE_API_KEY environment variable')
+	raise ValueError(
+		'Please set BROWSER_USE_API_KEY environment variable. You can also create an API key at https://cloud.browser-use.com'
+	)
 
 BASE_URL = os.getenv('BROWSER_USE_BASE_URL', 'https://api.browser-use.com/api/v1')
 TIMEOUT = int(os.getenv('BROWSER_USE_TIMEOUT', '30'))
@@ -94,7 +96,7 @@ def test_ip_location(country_code: str) -> dict[str, Any]:
     2. The detected country/location
     3. The ISP/organization
     4. Any other location details shown
-    
+
     Please be specific about what you see on the page.
     """
 
@@ -106,11 +108,11 @@ def test_geo_restricted_content(country_code: str) -> dict[str, Any]:
 	"""Test access to geo-restricted content."""
 	task = """
     Go to a major news website (like BBC, CNN, or local news) and check:
-    1. What content is available 
+    1. What content is available
     2. Any geo-restriction messages
     3. Local/regional content differences
     4. Language or currency preferences shown
-    
+
     Note any differences from what you might expect.
     """
 
@@ -121,15 +123,15 @@ def test_geo_restricted_content(country_code: str) -> dict[str, Any]:
 def test_streaming_service_access(country_code: str) -> dict[str, Any]:
 	"""Test access to region-specific streaming content."""
 	task = """
-    Go to a major streaming service website (like Netflix, YouTube, or BBC iPlayer) 
+    Go to a major streaming service website (like Netflix, YouTube, or BBC iPlayer)
     and check what content or messaging appears.
-    
+
     Report:
     1. What homepage content is shown
     2. Any geo-restriction messages or content differences
     3. Available content regions or language options
     4. Any pricing or availability differences
-    
+
     Note: Don't try to log in, just observe the publicly available content.
     """
 
@@ -141,13 +143,13 @@ def test_search_results_by_location(country_code: str) -> dict[str, Any]:
 	"""Test how search results vary by location."""
 	task = """
     Go to Google and search for "best restaurants near me" or "local news".
-    
+
     Report:
     1. What local results appear
     2. The detected location in search results
     3. Any location-specific content or ads
     4. Language preferences
-    
+
     This will show how search results change based on proxy location.
     """
 

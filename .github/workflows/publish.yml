@@ -8,6 +8,11 @@
 
 name: publish
 
+# Cancel in-progress runs when a new commit is pushed to the same branch/PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 on:
   release:
     types: [published]     # publish full release to PyPI when a release is created on Github
@@ -93,7 +98,7 @@ jobs:
       - run: uvx playwright install chromium
 
       # TODO: just depend on the other test.yml action for this instead of re-running the tests here
-      # - run: uv run pytest tests/ci/test_controller.py   # final sanity check: run a few of the tests before release
+      # - run: uv run pytest tests/ci/test_tools.py   # final sanity check: run a few of the tests before release
       
       # publish to PyPI
       - run: uv publish --trusted-publishing always

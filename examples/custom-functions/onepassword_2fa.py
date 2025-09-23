@@ -11,7 +11,7 @@ load_dotenv()
 
 from onepassword.client import Client  # type: ignore  # pip install onepassword-sdk
 
-from browser_use import ActionResult, Agent, ChatOpenAI, Controller
+from browser_use import ActionResult, Agent, ChatOpenAI, Tools
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -21,10 +21,10 @@ OP_SERVICE_ACCOUNT_TOKEN = os.getenv('OP_SERVICE_ACCOUNT_TOKEN')
 OP_ITEM_ID = os.getenv('OP_ITEM_ID')  # Go to 1Password, right click on the item, click "Copy Secret Reference"
 
 
-controller = Controller()
+tools = Tools()
 
 
-@controller.registry.action('Get 2FA code from 1Password for Google Account', domains=['*.google.com', 'google.com'])
+@tools.registry.action('Get 2FA code from 1Password for Google Account', domains=['*.google.com', 'google.com'])
 async def get_1password_2fa() -> ActionResult:
 	"""
 	Custom action to retrieve 2FA/MFA code from 1Password using onepassword.client SDK.
@@ -46,7 +46,7 @@ async def main():
 	task = 'Go to account.google.com, enter username and password, then if prompted for 2FA code, get 2FA code from 1Password for and enter it'
 
 	model = ChatOpenAI(model='gpt-4.1-mini')
-	agent = Agent(task=task, llm=model, controller=controller)
+	agent = Agent(task=task, llm=model, tools=tools)
 
 	result = await agent.run()
 	print(f'Task completed with result: {result}')

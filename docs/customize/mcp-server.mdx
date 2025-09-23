@@ -1,435 +1,191 @@
 ---
 title: "MCP Server"
-description: "Expose browser-use capabilities as an MCP server for AI assistants like Claude Desktop"
+description: "Expose browser-use capabilities via Model Context Protocol for AI assistants like Claude Desktop"
 icon: "server"
+mode: "wide"
 ---
-
-The MCP server exposes browser-use's browser automation capabilities as tools that can be used by AI assistants like Claude Desktop. This allows external MCP clients to control browsers, navigate websites, extract content, and perform automated tasks.
-
-<Note>
-  This is the opposite of the [MCP Client](/customize/mcp-client). The MCP client lets browser-use connect to external MCP servers, while this MCP server lets external AI assistants connect to browser-use.
-</Note>
 
 ## Overview
 
-The MCP server acts as a bridge between MCP-compatible AI assistants and browser-use:
-
-```mermaid
-graph LR
-    A[Claude Desktop] -->|MCP Protocol| B[Browser-use MCP Server]
-    B --> C[BrowserSession]
-    B --> D[Controller]
-    B --> E[FileSystem]
-    C --> F[Playwright Browser]
-    
-    style B fill:#f9f,stroke:#333,stroke-width:2px
-```
-
-## Installation
-
-```bash
-uv pip install "browser-use[cli]"
-```
+The MCP (Model Context Protocol) Server allows you to expose browser-use's browser automation capabilities to AI assistants like Claude Desktop, Cline, and other MCP-compatible clients. This enables AI assistants to perform web automation tasks directly through browser-use.
 
 ## Quick Start
 
-### 1. Configure Claude Desktop
+### Start MCP Server
 
-Add browser-use to your Claude Desktop configuration:
-
-<Tabs>
-  <Tab title="macOS">
-    Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
-    ```json
-    {
-      "mcpServers": {
-        "browser-use": {
-          "command": "uvx",
-          "args": ["browser-use[cli]", "--mcp"],
-          "env": {
-            "OPENAI_API_KEY": "sk-..."  // Optional: for content extraction
-          }
-        }
-      }
-    }
-    ```
-  </Tab>
-  <Tab title="Windows">
-    Edit `%APPDATA%\Claude\claude_desktop_config.json`:
-    ```json
-    {
-      "mcpServers": {
-        "browser-use": {
-          "command": "uvx",
-          "args": ["browser-use[cli]", "--mcp"],
-          "env": {
-            "OPENAI_API_KEY": "sk-..."  // Optional: for content extraction
-          }
-        }
-      }
-    }
-    ```
-  </Tab>
-</Tabs>
-
-### 2. Restart Claude Desktop
-
-The browser-use tools will appear in Claude's tools menu (🔌 icon).
-
-### 3. Use Browser Automation
-
-Ask Claude to perform browser tasks:
-- "Navigate to example.com and describe what you see"
-- "Search for 'browser automation' on Google"
-- "Fill out the contact form on this website"
-
-## API Reference
-
-### Available Tools
-
-The MCP server exposes the following tools to MCP clients:
-
-#### Navigation Tools
-
-##### `browser_navigate`
-
-Navigate to a URL.
-
-```typescript
-browser_navigate(url: string, new_tab?: boolean): string
+```bash
+uvx browser-use --mcp
 ```
 
-**Parameters:**
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `url` | `string` | Yes | URL to navigate to |
-| `new_tab` | `boolean` | No | Open in new tab (default: false) |
+The server will start in stdio mode, ready to accept MCP connections.
 
-**Returns:** Success message with URL
+## Claude Desktop Integration
 
-##### `browser_go_back`
+The most common use case is integrating with Claude Desktop. Add this configuration to your Claude Desktop config file:
 
-Navigate back in browser history.
-
-```typescript
-browser_go_back(): string
-```
-
-**Returns:** "Navigated back"
-
-#### Interaction Tools
-
-##### `browser_click`
-
-Click an element by index.
-
-```typescript
-browser_click(index: number, new_tab?: boolean): string
-```
-
-**Parameters:**
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `index` | `number` | Yes | Element index from browser state |
-| `new_tab` | `boolean` | No | Open link in new tab (default: false) |
-
-**Returns:** Success message indicating click action
-
-**Note:** When `new_tab` is true:
-- For links: Extracts href and opens in new tab
-- For other elements: Uses Cmd/Ctrl+Click
-
-##### `browser_type`
-
-Type text into an input field.
-
-```typescript
-browser_type(index: number, text: string): string
-```
-
-**Parameters:**
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `index` | `number` | Yes | Element index from browser state |
-| `text` | `string` | Yes | Text to type |
-
-**Returns:** Success message with typed text
-
-##### `browser_scroll`
-
-Scroll the page.
-
-```typescript
-browser_scroll(direction?: "up" | "down"): string
-```
-
-**Parameters:**
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `direction` | `"up" \| "down"` | No | Scroll direction (default: "down") |
-
-**Returns:** "Scrolled {direction}"
-
-#### State & Content Tools
-
-##### `browser_get_state`
-
-Get current browser state with all interactive elements.
-
-```typescript
-browser_get_state(include_screenshot?: boolean): string
-```
-
-**Parameters:**
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `include_screenshot` | `boolean` | No | Include base64 screenshot (default: false) |
-
-**Returns:** JSON string containing:
-```json
-{
-  "url": "current page URL",
-  "title": "page title",
-  "tabs": [{"url": "...", "title": "..."}],
-  "interactive_elements": [
-    {
-      "index": 0,
-      "tag": "button",
-      "text": "element text (max 100 chars)",
-      "placeholder": "if present",
-      "href": "if link"
-    }
-  ],
-  "screenshot": "base64 if requested"
-}
-```
-
-The interactive elements include all clickable and interactive elements on the page, with their:
-- `index`: Used to reference the element in other commands (click, type)
-- `tag`: HTML tag name (button, input, a, etc.)
-- `text`: Visible text content, truncated to 100 characters
-- `placeholder`: For input fields (if present)
-- `href`: For links (if present)
-
-##### `browser_extract_content`
-
-Extract structured content from the current page using AI.
-
-```typescript
-browser_extract_content(query: string, extract_links?: boolean): string
-```
-
-**Parameters:**
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `query` | `string` | Yes | What to extract (e.g., "all product prices") |
-| `extract_links` | `boolean` | No | Include links in extraction (default: false) |
-
-**Returns:** Extracted content based on query
-
-**Note:** Requires `OPENAI_API_KEY` environment variable for AI extraction.
-
-#### Tab Management Tools
-
-##### `browser_list_tabs`
-
-List all open browser tabs.
-
-```typescript
-browser_list_tabs(): string
-```
-
-**Returns:** JSON array of tab information:
-```json
-[
-  {
-    "tab_id": 'AE21',
-    "url": "https://example.com",
-    "title": "Page Title"
-  }
-]
-```
-
-##### `browser_switch_tab`
-
-Switch to a specific tab.
-
-```typescript
-browser_switch_tab(tab_id: string): string
-```
-
-**Parameters:**
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `tab_id` | `string` | Yes | ID of tab to switch to (last 4 characters of TargetID) |
-
-**Returns:** Success message with tab URL
-
-##### `browser_close_tab`
-
-Close a specific tab.
-
-```typescript
-browser_close_tab(tab_id: string): string
-```
-
-**Parameters:**
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `tab_id` | `string` | Yes | ID of the Tab to close (last 4 characters of TargetID) |
-
-**Returns:** Success message with closed tab URL
-
-### Tool Response Format
-
-All tools return text content. Errors are returned as strings starting with "Error:".
-
-## Configuration
-
-### Environment Variables
-
-Configure the MCP server behavior through environment variables in Claude Desktop config:
+### macOS
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "browser-use": {
-      "command": "python",
-      "args": ["-m", "browser_use.mcp.server"],
+      "command": "uvx",
+      "args": ["browser-use", "--mcp"],
       "env": {
-        "OPENAI_API_KEY": "sk-..."  // For AI content extraction
+        "OPENAI_API_KEY": "your-openai-api-key-here"
       }
     }
   }
 }
 ```
 
-### Browser Profile Settings
+### Windows
+Edit `%APPDATA%\Claude\claude_desktop_config.json`:
 
-The MCP server creates a browser session with these default settings:
-- **Downloads Path**: `~/Downloads/browser-use-mcp/`
-- **Wait Between Actions**: 0.5 seconds
-- **Keep Alive**: True (browser stays open between commands)
-- **Allowed Domains**: None by default (all domains allowed)
-
-## Advanced Usage
-
-### Running Standalone
-
-Test the MCP server without Claude Desktop:
-
-```bash
-# Run server (reads from stdin, writes to stdout)
-uvx 'browser-use[cli]' --mcp
-
-# The server communicates via JSON-RPC on stdio
+```json
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "uvx",
+      "args": ["browser-use", "--mcp"],
+      "env": {
+        "OPENAI_API_KEY": "your-openai-api-key-here"
+      }
+    }
+  }
+}
 ```
 
-### Security Considerations
+### Environment Variables
 
-<Warning>
-  The MCP server provides full browser control to connected AI assistants. Consider these security measures:
-</Warning>
+You can configure browser-use through environment variables:
 
-1. **Domain Restrictions**: Currently not configurable via environment variables, but the server creates sessions with no domain restrictions by default
-2. **File System Access**: The server creates a FileSystem instance at `~/.browser-use-mcp` for extraction operations
-3. **Downloads**: Files download to `~/Downloads/browser-use-mcp/`
+- `OPENAI_API_KEY` - Your OpenAI API key (required)
+- `ANTHROPIC_API_KEY` - Your Anthropic API key (alternative to OpenAI)
+- `BROWSER_USE_HEADLESS` - Set to `false` to show browser window
+- `BROWSER_USE_DISABLE_SECURITY` - Set to `true` to disable browser security features
 
-## Implementation Details
+## Available Tools
 
-### Browser Session Management
+The MCP server exposes these browser automation tools:
 
-- **Lazy Initialization**: Browser session is created on first browser tool use
-- **Persistent Session**: Session remains active across multiple tool calls
-- **Single Session**: Currently maintains one browser session per server instance
+### Autonomous Agent Tools
+- **`retry_with_browser_use_agent`** - Run a complete browser automation task with an AI agent (use as last resort when direct control fails)
 
-### Tool Categories
+### Direct Browser Control
+- **`browser_navigate`** - Navigate to a URL
+- **`browser_click`** - Click on an element by index
+- **`browser_type`** - Type text into an element
+- **`browser_get_state`** - Get current page state and interactive elements
+- **`browser_scroll`** - Scroll the page
+- **`browser_go_back`** - Go back in browser history
 
-1. **Direct Browser Control**: Tools starting with `browser_` that directly interact with the browser
-2. **Agent Tasks**: Currently commented out in implementation (`browser_use_run_task`)
+### Tab Management
+- **`browser_list_tabs`** - List all open browser tabs
+- **`browser_switch_tab`** - Switch to a specific tab
+- **`browser_close_tab`** - Close a tab
 
-### Error Handling
+### Content Extraction
+- **`browser_extract_content`** - Extract structured content from the current page
 
-- All exceptions are caught and returned as text: `"Error: {message}"`
-- Browser session initialization errors are returned to the client
-- Missing dependencies (e.g., OPENAI_API_KEY) return descriptive error messages
+### Session Management
+- **`browser_list_sessions`** - List all active browser sessions with details
+- **`browser_close_session`** - Close a specific browser session by ID
+- **`browser_close_all`** - Close all active browser sessions
+
+## Example Usage
+
+Once configured with Claude Desktop, you can ask Claude to perform browser automation tasks:
+
+```
+"Please navigate to example.com and take a screenshot"
+
+"Search for 'browser automation' on Google and summarize the first 3 results"
+
+"Go to GitHub, find the browser-use repository, and tell me about the latest release"
+```
+
+Claude will use the MCP server to execute these tasks through browser-use.
+
+## Programmatic Usage
+
+You can also connect to the MCP server programmatically:
+
+```python
+import asyncio
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+async def use_browser_mcp():
+    # Connect to browser-use MCP server
+    server_params = StdioServerParameters(
+        command="uvx", 
+        args=["browser-use", "--mcp"]
+    )
+    
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            
+            # Navigate to a website
+            result = await session.call_tool(
+                "browser_navigate", 
+                arguments={"url": "https://example.com"}
+            )
+            print(result.content[0].text)
+            
+            # Get page state
+            result = await session.call_tool(
+                "browser_get_state", 
+                arguments={"include_screenshot": True}
+            )
+            print("Page state retrieved!")
+
+asyncio.run(use_browser_mcp())
+```
 
 ## Troubleshooting
 
-### Server Not Appearing in Claude
+### Common Issues
 
-1. **Check configuration path:**
-   - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-   - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-
-2. **Verify Python installation:**
-   ```bash
-   uvx 'browser-use[cli]' --version
-   uvx 'browser-use[cli]' --mcp --help
-   ```
-
-3. **Check Claude logs:**
-   - macOS: `~/Library/Logs/Claude/mcp.log`
-   - Windows: `%APPDATA%\Claude\logs\mcp.log`
-
-### Browser Not Launching
-
+**"MCP SDK is required" Error**
 ```bash
-# Install Playwright browsers
-playwright install chromium
-
-# Test browser launch
-python -c "from browser_use import BrowserSession; import asyncio; asyncio.run(BrowserSession().start())"
+uv pip install 'browser-use'
 ```
 
-### Connection Errors
+**Browser doesn't start**
+- Check that you have Chrome/Chromium installed
+- Try setting `BROWSER_USE_HEADLESS=false` to see browser window
+- Ensure no other browser instances are using the same profile
 
-If you see "MCP server connection failed":
+**API Key Issues**
+- Verify your `OPENAI_API_KEY` is set correctly
+- Check API key permissions and billing status
+- Try using `ANTHROPIC_API_KEY` as an alternative
 
-1. Test the server directly:
-   ```bash
-   uvx 'browser-use[cli]' --mcp
-   ```
+**Connection Issues in Claude Desktop**
+- Restart Claude Desktop after config changes
+- Check the config file syntax is valid JSON
+- Verify the file path is correct for your OS
 
-2. Check all dependencies:
-   ```bash
-   uv pip install "browser-use[cli]"
-   ```
+### Debug Mode
 
-### Content Extraction Not Working
+Enable debug logging by setting:
+```bash
+export BROWSER_USE_LOG_LEVEL=DEBUG
+uvx browser-use --mcp
+```
 
-If `browser_extract_content` returns errors:
-1. Ensure `OPENAI_API_KEY` is set in the environment configuration
-2. Verify the API key is valid
-3. Check that you have credits/access to the OpenAI API
+## Security Considerations
 
-## Limitations
+- The MCP server has access to your browser and file system
+- Only connect trusted MCP clients
+- Be cautious with sensitive websites and data
+- Consider running in a sandboxed environment for untrusted automation
 
-| Limitation | Description | Workaround |
-|------------|-------------|------------|
-| Single Browser Session | One browser instance per server | Restart server for new session |
-| No Domain Restrictions Config | Cannot configure allowed domains via env vars | Modify server code if needed |
-| No Agent Mode | `browser_use_run_task` is commented out | Use direct browser control tools |
-| Text-Only Responses | All responses are text strings | Parse JSON responses client-side |
+## Next Steps
 
-## Comparison with MCP Client
-
-| Feature | MCP Server (this) | [MCP Client](/customize/mcp-client) |
-|---------|-------------------|-------------------------------------|
-| **Purpose** | Expose browser to AI | Connect agent to tools |
-| **User** | Claude Desktop, etc. | Browser-use agents |
-| **Direction** | External → Browser | Agent → External |
-| **Configuration** | JSON config file | Python code |
-| **Tools** | Fixed browser tools | Dynamic from server |
-| **Use Case** | Interactive assistance | Automated workflows |
-
-## Code Examples
-
-- [Simple MCP client example](https://github.com/browser-use/browser-use/tree/main/examples/mcp/simple_server.py) - Basic MCP client connecting to browser-use server
-- [Advanced MCP client example](https://github.com/browser-use/browser-use/tree/main/examples/mcp/advanced_server.py) - Multi-server orchestration and complex workflows
-
-## See Also
-
-- [MCP Client](/customize/mcp-client) - Connect browser-use to external MCP servers
-- [Model Context Protocol](https://modelcontextprotocol.io) - MCP specification
-- [Claude Desktop](https://claude.ai/download) - Primary MCP client
+- Explore the [examples directory](https://github.com/browser-use/browser-use/tree/main/examples/mcp) for more usage patterns
+- Check out [MCP documentation](https://modelcontextprotocol.io/) to learn more about the protocol
+- Join our [Discord](https://link.browser-use.com/discord) for support and discussions

@@ -27,7 +27,9 @@ from requests.exceptions import RequestException
 # Configuration
 API_KEY = os.getenv('BROWSER_USE_API_KEY')
 if not API_KEY:
-	raise ValueError('Please set BROWSER_USE_API_KEY environment variable')
+	raise ValueError(
+		'Please set BROWSER_USE_API_KEY environment variable. You can also create an API key at https://cloud.browser-use.com'
+	)
 
 BASE_URL = os.getenv('BROWSER_USE_BASE_URL', 'https://api.browser-use.com/api/v1')
 TIMEOUT = int(os.getenv('BROWSER_USE_TIMEOUT', '30'))
@@ -220,15 +222,15 @@ def main():
 
 		task = """
         Go to Hacker News (news.ycombinator.com) and get the top 3 articles from the front page.
-        
+
         Then, write a funny tech news segment in the style of Fireship YouTube channel:
         - Be sarcastic and witty about tech trends
-        - Use developer humor and memes  
+        - Use developer humor and memes
         - Make fun of common programming struggles
         - Include phrases like "And yes, it runs on JavaScript" or "Plot twist: it's written in Rust"
         - Keep it under 250 words but make it entertaining
         - Structure it like a news anchor delivering breaking tech news
-        
+
         Make each story sound dramatic but also hilarious, like you're reporting on the most important events in human history.
         """
 		task_id = create_fast_task(task)

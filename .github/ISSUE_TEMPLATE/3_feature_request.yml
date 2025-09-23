@@ -36,7 +36,7 @@ body:
         A description of any troubleshooting, alternative approaches, workarounds, or other ideas you've considered to fix the problem.
       placeholder: |
         e.g. I tried upgrading to the latest version and telling it to hover in the prompt. I also tried 
-        telling the agent to ask for human help (using a custom controller action) when it gets to this 
+        telling the agent to ask for human help (using a custom tools action) when it gets to this 
         step, then I manually click a browser extension in the navbar that automates the mouse movevement.
     validations:
       required: false

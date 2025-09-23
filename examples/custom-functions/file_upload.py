@@ -9,7 +9,7 @@ import logging
 import os
 import sys
 
-import aiofiles
+import anyio
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -18,18 +18,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from browser_use import ChatOpenAI
-from browser_use.agent.service import Agent, Controller
+from browser_use.agent.service import Agent, Tools
 from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.events import UploadFileEvent
 
 logger = logging.getLogger(__name__)
 
-# Initialize controller
-controller = Controller()
+# Initialize tools
+tools = Tools()
 
 
-@controller.action('Upload file to interactive element with file path')
+@tools.action('Upload file to interactive element with file path')
 async def upload_file(index: int, path: str, browser_session: BrowserSession, available_file_paths: list[str]):
 	if path not in available_file_paths:
 		return ActionResult(error=f'File path {path} is not available')
@@ -83,8 +83,7 @@ async def main():
 	# Create test files if they don't exist
 	for file_path in available_file_paths:
 		if not os.path.exists(file_path):
-			async with aiofiles.open(file_path, 'w') as f:
-				await f.write('Test file content for upload example')
+			await anyio.Path(file_path).write_text('Test file content for upload example')
 
 	# Create the agent with file upload capability
 	agent = Agent(
@@ -93,8 +92,8 @@ async def main():
         """,
 		llm=llm,
 		browser_session=browser_session,
-		controller=controller,
-		# Pass the available file paths to the controller context
+		tools=tools,
+		# Pass the available file paths to the tools context
 		custom_context={'available_file_paths': available_file_paths},
 	)
 

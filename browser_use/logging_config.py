@@ -61,13 +61,15 @@ def addLoggingLevel(levelName, levelNum, methodName=None):
 	setattr(logging, methodName, logToRoot)
 
 
-def setup_logging(stream=None, log_level=None, force_setup=False):
+def setup_logging(stream=None, log_level=None, force_setup=False, debug_log_file=None, info_log_file=None):
 	"""Setup logging configuration for browser-use.
 
 	Args:
 		stream: Output stream for logs (default: sys.stdout). Can be sys.stderr for MCP mode.
 		log_level: Override log level (default: uses CONFIG.BROWSER_USE_LOGGING_LEVEL)
 		force_setup: Force reconfiguration even if handlers already exist
+		debug_log_file: Path to log file for debug level logs only
+		info_log_file: Path to log file for info level logs only
 	"""
 	# Try to add RESULT level, but ignore if it already exists
 	try:
@@ -94,12 +96,12 @@ def setup_logging(stream=None, log_level=None, force_setup=False):
 			# Only clean up names in INFO mode, keep everything in DEBUG mode
 			if self.log_level > logging.DEBUG and isinstance(record.name, str) and record.name.startswith('browser_use.'):
 				# Extract clean component names from logger names
-				if 'Agent🅰' in record.name:
+				if 'Agent' in record.name:
 					record.name = 'Agent'
-				elif 'BrowserSession🆂' in record.name:
+				elif 'BrowserSession' in record.name:
 					record.name = 'BrowserSession'
-				elif 'controller' in record.name:
-					record.name = 'controller'
+				elif 'tools' in record.name:
+					record.name = 'tools'
 				elif 'dom' in record.name:
 					record.name = 'dom'
 				elif record.name.startswith('browser_use.'):
@@ -125,49 +127,63 @@ def setup_logging(stream=None, log_level=None, force_setup=False):
 		console.setLevel('RESULT')
 		console.setFormatter(BrowserUseFormatter('%(message)s', log_level))
 	else:
+		console.setLevel(log_level)  # Keep console at original log level (e.g., INFO)
 		console.setFormatter(BrowserUseFormatter('%(levelname)-8s [%(name)s] %(message)s', log_level))
 
 	# Configure root logger only
 	root.addHandler(console)
 
-	# Configure root logger
-	root.setLevel(log_level)
+	# Add file handlers if specified
+	file_handlers = []
+
+	# Create debug log file handler
+	if debug_log_file:
+		debug_handler = logging.FileHandler(debug_log_file, encoding='utf-8')
+		debug_handler.setLevel(logging.DEBUG)
+		debug_handler.setFormatter(BrowserUseFormatter('%(asctime)s - %(levelname)-8s [%(name)s] %(message)s', logging.DEBUG))
+		file_handlers.append(debug_handler)
+		root.addHandler(debug_handler)
+
+	# Create info log file handler
+	if info_log_file:
+		info_handler = logging.FileHandler(info_log_file, encoding='utf-8')
+		info_handler.setLevel(logging.INFO)
+		info_handler.setFormatter(BrowserUseFormatter('%(asctime)s - %(levelname)-8s [%(name)s] %(message)s', logging.INFO))
+		file_handlers.append(info_handler)
+		root.addHandler(info_handler)
+
+	# Configure root logger - use DEBUG if debug file logging is enabled
+	effective_log_level = logging.DEBUG if debug_log_file else log_level
+	root.setLevel(effective_log_level)
 
 	# Configure browser_use logger
 	browser_use_logger = logging.getLogger('browser_use')
 	browser_use_logger.propagate = False  # Don't propagate to root logger
 	browser_use_logger.addHandler(console)
-	browser_use_logger.setLevel(log_level)
+	for handler in file_handlers:
+		browser_use_logger.addHandler(handler)
+	browser_use_logger.setLevel(effective_log_level)
 
 	# Configure bubus logger to allow INFO level logs
 	bubus_logger = logging.getLogger('bubus')
 	bubus_logger.propagate = False  # Don't propagate to root logger
 	bubus_logger.addHandler(console)
-	bubus_logger.setLevel(logging.INFO if log_type == 'result' else log_level)
+	for handler in file_handlers:
+		bubus_logger.addHandler(handler)
+	bubus_logger.setLevel(logging.INFO if log_type == 'result' else effective_log_level)
 
-	# Configure CDP logging using separate CDP_LOGGING_LEVEL
-	cdp_log_type = CONFIG.CDP_LOGGING_LEVEL.lower()
-
-	# Determine the CDP log level to use
-	if cdp_log_type == 'result':
-		cdp_log_level = 35  # RESULT level value
-	elif cdp_log_type == 'debug':
-		cdp_log_level = logging.DEBUG
-	elif cdp_log_type == 'info':
-		cdp_log_level = logging.INFO
-	elif cdp_log_type == 'warning':
-		cdp_log_level = logging.WARNING
-	elif cdp_log_type == 'error':
-		cdp_log_level = logging.ERROR
-	else:
-		cdp_log_level = logging.ERROR  # Default to ERROR
+	# Configure CDP logging using cdp_use's setup function
+	# This enables the formatted CDP output using CDP_LOGGING_LEVEL environment variable
+	# Convert CDP_LOGGING_LEVEL string to logging level
+	cdp_level_str = CONFIG.CDP_LOGGING_LEVEL.upper()
+	cdp_level = getattr(logging, cdp_level_str, logging.WARNING)
 
 	try:
 		from cdp_use.logging import setup_cdp_logging  # type: ignore
 
-		# Use CDP-specific level instead of browser_use level
+		# Use the CDP-specific logging level
 		setup_cdp_logging(
-			level=cdp_log_level,
+			level=cdp_level,
 			stream=stream or sys.stdout,
 			format_string='%(levelname)-8s [%(name)s] %(message)s' if log_type != 'result' else '%(message)s',
 		)
@@ -182,7 +198,7 @@ def setup_logging(stream=None, log_level=None, force_setup=False):
 		]
 		for logger_name in cdp_loggers:
 			cdp_logger = logging.getLogger(logger_name)
-			cdp_logger.setLevel(cdp_log_level)
+			cdp_logger.setLevel(cdp_level)
 			cdp_logger.addHandler(console)
 			cdp_logger.propagate = False
 
@@ -208,6 +224,7 @@ def setup_logging(stream=None, log_level=None, force_setup=False):
 		'trafilatura',
 		'groq',
 		'portalocker',
+		'google_genai',
 		'portalocker.utils',
 		'websockets',  # General websockets (but not websockets.client which we need)
 	]
@@ -286,7 +303,7 @@ def setup_log_pipes(session_id: str, base_dir: str | None = None):
 	agent_handler = FIFOHandler(str(pipe_dir / 'agent.pipe'))
 	agent_handler.setLevel(logging.DEBUG)
 	agent_handler.setFormatter(logging.Formatter('%(levelname)-8s [%(name)s] %(message)s'))
-	for name in ['browser_use.agent', 'browser_use.controller']:
+	for name in ['browser_use.agent', 'browser_use.tools']:
 		logger = logging.getLogger(name)
 		logger.addHandler(agent_handler)
 		logger.setLevel(logging.DEBUG)

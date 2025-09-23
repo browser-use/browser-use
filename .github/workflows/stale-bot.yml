@@ -1,0 +1,108 @@
+name: 'Manage stale issues and PRs'
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Run daily at 2:00 AM UTC
+  workflow_dispatch:  # Allow manual triggering
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          # General settings
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          
+          # Days before marking as stale (more lenient for AI/browser automation project)
+          days-before-stale: 60
+          days-before-close: 14
+          
+          # Different timing for PRs vs issues
+          days-before-pr-stale: 45
+          days-before-pr-close: 14
+          
+          # Stale labels
+          stale-issue-label: 'stale'
+          stale-pr-label: 'stale'
+          
+          # Remove stale label when there's activity
+          remove-stale-when-updated: true
+          remove-issue-stale-when-updated: true
+          remove-pr-stale-when-updated: true
+          
+          # Messages
+          stale-issue-message: |
+            👋 This issue has been automatically marked as stale because it hasn't had activity for 60 days.
+            
+            **⚡ We've made significant progress recently!** Please test with the latest version of browser-use to see if this issue has been resolved. If the issue persists, please let us know by commenting below.
+            
+            **To keep this issue open:**
+            - Add a comment explaining why this is still relevant after testing the latest version
+            - Add the `pinned` label if this is an important long-term issue
+            - Reference it in a PR if you're working on a fix
+            
+            **This will be automatically closed in 14 days** if no further activity occurs.
+            
+            Thanks for contributing to browser-use! 🤖 If you have questions, join our [Discord](https://discord.gg/uC9hDSbt).
+          
+          stale-pr-message: |
+            👋 This PR has been automatically marked as stale because it hasn't had activity for 45 days.
+            
+            **To keep this PR open:**
+            - Rebase against the latest main branch
+            - Address any review feedback or merge conflicts
+            - Add a comment explaining the current status
+            - Add the `work-in-progress` label if you're still actively working on this
+            
+            **This will be automatically closed in 14 days** if no further activity occurs.
+            
+            Thanks for contributing to browser-use! 🤖
+          
+          close-issue-message: |
+            🔒 This issue was automatically closed because it was stale for 14 days with no activity.
+            
+            **Don't worry!** If this issue is still relevant:
+            - **First, test with the latest version** - we've made tons of improvements recently!
+            - **Reopen it** if you have permissions and the issue persists
+            - **Create a fresh issue** with updated information if the problem still exists after testing the latest version
+            - **Join our [Discord](https://discord.gg/uC9hDSbt)** to discuss
+            
+            We appreciate your contribution to browser-use! 🤖
+          
+          close-pr-message: |
+            🔒 This PR was automatically closed because it was stale for 14 days with no activity.
+            
+            **Don't worry!** If you'd like to continue this work:
+            - **Reopen this PR** and rebase against main
+            - **Create a fresh PR** with updated changes
+            - **Join our [Discord](https://discord.gg/uC9hDSbt)** if you need help
+            
+            Thanks for contributing to browser-use! 🤖
+          
+          # Comprehensive exemptions for AI/browser automation project
+          exempt-issue-labels: 'pinned,security,bug,enhancement,good-first-issue,help-wanted,documentation,ci,breaking-change,feature-request,roadmap'
+          exempt-pr-labels: 'pinned,work-in-progress,wip,breaking-change,security,dependencies,ci'
+          exempt-milestones: true
+          exempt-all-assignees: true
+          exempt-all-pr-assignees: true
+          
+          # Don't mark issues/PRs stale if they have recent PR references
+          exempt-pr-author: true
+          
+          # Advanced settings
+          operations-per-run: 200  # More conservative to avoid rate limits
+          ascending: true  # Process oldest issues first
+          
+          # Enable debug output
+          debug-only: false
+          
+          # Only process issues/PRs, not drafts
+          include-only-assigned: false
+          
+          # Additional safety: don't close issues with many reactions (community interest)
+          ignore-issue-updates: false
+          ignore-pr-updates: false

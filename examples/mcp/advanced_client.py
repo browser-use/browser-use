@@ -12,7 +12,7 @@ This example demonstrates how to:
 import asyncio
 import os
 
-from browser_use import Agent, Controller
+from browser_use import Agent, Tools
 from browser_use.llm.openai.chat import ChatOpenAI
 from browser_use.mcp.client import MCPClient
 
@@ -20,8 +20,8 @@ from browser_use.mcp.client import MCPClient
 async def main():
 	"""Sign up for account, save details, and verify via Gmail."""
 
-	# Initialize controller
-	controller = Controller()
+	# Initialize tools
+	tools = Tools()
 
 	# Connect to Gmail MCP Server
 	# Requires Gmail API credentials - see: https://github.com/GongRzhe/Gmail-MCP-Server#setup
@@ -45,17 +45,17 @@ async def main():
 	# Connect and register tools from both servers
 	print('Connecting to Gmail MCP server...')
 	await gmail_client.connect()
-	await gmail_client.register_to_controller(controller)
+	await gmail_client.register_to_tools(tools)
 
 	print('Connecting to Filesystem MCP server...')
 	await filesystem_client.connect()
-	await filesystem_client.register_to_controller(controller)
+	await filesystem_client.register_to_tools(tools)
 
 	# Create agent with extended system prompt for using multiple MCP servers
 	agent = Agent(
 		task='Sign up for a new Anthropic account using the email example@gmail.com, save the registration details to a file',
 		llm=ChatOpenAI(model='gpt-4.1-mini'),
-		controller=controller,
+		tools=tools,
 		extend_system_message="""
 You have access to both Gmail and Filesystem tools through MCP servers. When signing up for accounts:
 

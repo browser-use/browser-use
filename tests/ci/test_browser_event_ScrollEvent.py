@@ -6,8 +6,8 @@ from pytest_httpserver import HTTPServer
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
-from browser_use.controller.service import Controller
-from browser_use.controller.views import (
+from browser_use.tools.service import Tools
+from browser_use.tools.views import (
 	GoToUrlAction,
 	ScrollAction,
 )
@@ -71,15 +71,15 @@ async def browser_session():
 
 
 @pytest.fixture
-def controller():
-	"""Create and provide a Controller instance."""
-	return Controller()
+def tools():
+	"""Create and provide a Tools instance."""
+	return Tools()
 
 
 class TestScrollActions:
 	"""Test scroll-related actions and events."""
 
-	async def test_scroll_actions(self, controller, browser_session, base_url, http_server):
+	async def test_scroll_actions(self, tools, browser_session, base_url, http_server):
 		"""Test basic scroll action functionality."""
 
 		# Navigate to scrollable page
@@ -88,7 +88,7 @@ class TestScrollActions:
 		class GoToUrlActionModel(ActionModel):
 			go_to_url: GoToUrlAction | None = None
 
-		await controller.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
 
 		# Test 1: Basic page scroll down
 		scroll_action = {'scroll': ScrollAction(down=True, num_pages=1.0)}
@@ -96,7 +96,7 @@ class TestScrollActions:
 		class ScrollActionModel(ActionModel):
 			scroll: ScrollAction | None = None
 
-		result = await controller.act(ScrollActionModel(**scroll_action), browser_session)
+		result = await tools.act(ScrollActionModel(**scroll_action), browser_session)
 
 		# Verify scroll down succeeded
 		assert isinstance(result, ActionResult)
@@ -104,11 +104,10 @@ class TestScrollActions:
 		assert result.extracted_content is not None
 		assert 'Scrolled down' in result.extracted_content
 		assert 'the page' in result.extracted_content
-		assert result.include_in_memory is True
 
 		# Test 2: Basic page scroll up
 		scroll_up_action = {'scroll': ScrollAction(down=False, num_pages=0.5)}
-		result = await controller.act(ScrollActionModel(**scroll_up_action), browser_session)
+		result = await tools.act(ScrollActionModel(**scroll_up_action), browser_session)
 
 		assert isinstance(result, ActionResult)
 		assert result.error is None, f'Scroll up failed: {result.error}'
@@ -118,12 +117,12 @@ class TestScrollActions:
 
 		# Test 3: Test with invalid element index (should error)
 		invalid_scroll_action = {'scroll': ScrollAction(down=True, num_pages=1.0, frame_element_index=999)}
-		result = await controller.act(ScrollActionModel(**invalid_scroll_action), browser_session)
+		result = await tools.act(ScrollActionModel(**invalid_scroll_action), browser_session)
 
 		# This should fail with error about element not found
 		assert isinstance(result, ActionResult)
 		assert result.error is not None, 'Expected error for invalid element index'
-		assert 'Element index 999 not found' in result.error or 'Failed to scroll' in result.error
+		assert 'Element index 999 not found' in result.error or 'Failed to execute scroll' in result.error
 
 		# Test 4: Model parameter validation
 		scroll_with_index = ScrollAction(down=True, num_pages=1.0, frame_element_index=5)
@@ -153,17 +152,6 @@ class TestScrollActions:
 		event = browser_session.event_bus.dispatch(ScrollEvent(direction='up', amount=200))
 		result = await asyncio.wait_for(event, timeout=3.0)
 		assert result is not None
-
-	async def test_scroll_event_directly(self, browser_session):
-		"""Test ScrollEvent directly through the event bus."""
-		from browser_use.browser.events import ScrollEvent
-
-		# Test scroll on about:blank (should work)
-		event = browser_session.event_bus.dispatch(ScrollEvent(direction='down', amount=100))
-		result = await asyncio.wait_for(event, timeout=2.0)
-		event_result = await result.event_result()
-		assert event_result is not None
-		assert event_result.get('success') is True
 
 	async def test_scroll_non_scrollable_page(self, browser_session, base_url, http_server):
 		"""Test scrolling a page that's only 100px tall (not scrollable)."""
@@ -203,10 +191,9 @@ class TestScrollActions:
 
 		# Try to scroll down - should succeed but not actually move
 		event = browser_session.event_bus.dispatch(ScrollEvent(direction='down', amount=500))
-		result = await asyncio.wait_for(event, timeout=3.0)
-		event_result = await result.event_result()
-		assert event_result is not None
-		assert event_result.get('success') is True
+		await event
+		result = await event.event_result(raise_if_any=True, raise_if_none=False)
+		assert result is None
 
 		# Check scroll position didn't change (page isn't scrollable)
 		final_scroll = await browser_session.cdp_client.send.Runtime.evaluate(
@@ -264,10 +251,9 @@ class TestScrollActions:
 
 		# Scroll down by 8000px
 		event = browser_session.event_bus.dispatch(ScrollEvent(direction='down', amount=8000))
-		result = await asyncio.wait_for(event, timeout=3.0)
-		event_result = await result.event_result()
-		assert event_result is not None
-		assert event_result.get('success') is True
+		await event
+		result = await event.event_result(raise_if_any=True, raise_if_none=False)
+		assert result is None  # ScrollEvent does not return a result
 
 		# Wait a bit for scroll to take effect
 		await asyncio.sleep(0.5)

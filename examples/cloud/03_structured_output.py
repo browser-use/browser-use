@@ -26,7 +26,9 @@ from requests.exceptions import RequestException
 # Configuration
 API_KEY = os.getenv('BROWSER_USE_API_KEY')
 if not API_KEY:
-	raise ValueError('Please set BROWSER_USE_API_KEY environment variable')
+	raise ValueError(
+		'Please set BROWSER_USE_API_KEY environment variable. You can also create an API key at https://cloud.browser-use.com'
+	)
 
 BASE_URL = os.getenv('BROWSER_USE_BASE_URL', 'https://api.browser-use.com/api/v1')
 TIMEOUT = int(os.getenv('BROWSER_USE_TIMEOUT', '30'))
@@ -233,8 +235,8 @@ def demo_news_extraction():
 	print('-' * 40)
 
 	task = """
-    Go to a major news website (like BBC, CNN, or Reuters) and extract information 
-    about the top 3 news articles. For each article, get the title, summary, URL, 
+    Go to a major news website (like BBC, CNN, or Reuters) and extract information
+    about the top 3 news articles. For each article, get the title, summary, URL,
     and any other available metadata.
     """
 
@@ -264,8 +266,8 @@ def demo_product_extraction():
 	print('-' * 40)
 
 	task = """
-    Go to Amazon and search for 'wireless headphones'. Find the first product result 
-    and extract detailed information including name, price, rating, availability, 
+    Go to Amazon and search for 'wireless headphones'. Find the first product result
+    and extract detailed information including name, price, rating, availability,
     and description.
     """
 
@@ -295,8 +297,8 @@ def demo_company_extraction():
 	print('-' * 40)
 
 	task = """
-    Go to a financial website and look up information about Apple Inc. 
-    Extract company details including name, stock symbol, market cap, 
+    Go to a financial website and look up information about Apple Inc.
+    Extract company details including name, stock symbol, market cap,
     industry, headquarters, and founding year.
     """
 

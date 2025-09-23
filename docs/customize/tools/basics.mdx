@@ -1,0 +1,31 @@
+---
+title: "Basics"
+description: "Tools are the functions that the agent has to interact with the world."
+icon: "play"
+mode: "wide"
+---
+
+
+## Quick Example
+
+
+```python
+from browser_use import Tools, ActionResult, Browser
+
+tools = Tools()
+
+@tools.action('Ask human for help with a question')
+def ask_human(question: str, browser: Browser) -> ActionResult:
+    answer = input(f'{question} > ')
+    return f'The human responded with: {answer}'
+
+agent = Agent(
+    task='Ask human for help',
+    llm=llm,
+    tools=tools,
+)
+```
+
+<Note>
+Use `browser` parameter in tools for deterministic [Actor](/customize/actor/basics) actions.
+</Note>

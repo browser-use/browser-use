@@ -9,7 +9,7 @@ import logging
 from pydantic import BaseModel, Field
 
 from browser_use.agent.views import ActionResult
-from browser_use.controller.service import Controller
+from browser_use.tools.service import Tools
 
 from .service import GmailService
 
@@ -26,13 +26,11 @@ class GetRecentEmailsParams(BaseModel):
 	max_results: int = Field(default=3, ge=1, le=50, description='Maximum number of emails to retrieve (1-50, default: 3)')
 
 
-def register_gmail_actions(
-	controller: Controller, gmail_service: GmailService | None = None, access_token: str | None = None
-) -> Controller:
+def register_gmail_actions(tools: Tools, gmail_service: GmailService | None = None, access_token: str | None = None) -> Tools:
 	"""
-	Register Gmail actions with the provided controller
+	Register Gmail actions with the provided tools
 	Args:
-	    controller: The browser-use controller to register actions with
+	    tools: The browser-use tools to register actions with
 	    gmail_service: Optional pre-configured Gmail service instance
 	    access_token: Optional direct access token (alternative to file-based auth)
 	"""
@@ -46,7 +44,7 @@ def register_gmail_actions(
 	else:
 		_gmail_service = GmailService()
 
-	@controller.registry.action(
+	@tools.registry.action(
 		description='Get recent emails from the mailbox with a keyword to retrieve verification codes, OTP, 2FA tokens, magic links, or any recent email content. Keep your query a single keyword.',
 		param_model=GetRecentEmailsParams,
 	)
@@ -114,4 +112,4 @@ def register_gmail_actions(
 				long_term_memory='Failed to get recent emails due to error',
 			)
 
-	return controller
+	return tools

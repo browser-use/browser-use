@@ -1,29 +1,12 @@
-import asyncio
-import os
-import sys
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from dotenv import load_dotenv
+
+from browser_use import Agent, ChatGoogle
 
 load_dotenv()
 
-from browser_use import Agent, ChatOpenAI
-
-
-async def main():
-	# Choose your model
-	llm = ChatOpenAI(model='gpt-4.1-mini')
-
-	# Define your task
-	task = 'Go and find the founders of browser-use'
-
-	# Create the agent
-	agent = Agent(task=task, llm=llm)
-
-	# Start
-	await agent.run(max_steps=2)
-
-
-if __name__ == '__main__':
-	asyncio.run(main())
+agent = Agent(
+	task='Find the number of stars of the browser-use repo',
+	llm=ChatGoogle(model='gemini-2.5-flash'),
+	# browser=Browser(use_cloud=True),  # Uses Browser-Use cloud for the browser
+)
+agent.run_sync()

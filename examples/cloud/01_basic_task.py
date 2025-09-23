@@ -23,7 +23,9 @@ from requests.exceptions import RequestException
 # Configuration
 API_KEY = os.getenv('BROWSER_USE_API_KEY')
 if not API_KEY:
-	raise ValueError('Please set BROWSER_USE_API_KEY environment variable')
+	raise ValueError(
+		'Please set BROWSER_USE_API_KEY environment variable. You can also create an API key at https://cloud.browser-use.com'
+	)
 
 BASE_URL = os.getenv('BROWSER_USE_BASE_URL', 'https://api.browser-use.com/api/v1')
 TIMEOUT = int(os.getenv('BROWSER_USE_TIMEOUT', '30'))

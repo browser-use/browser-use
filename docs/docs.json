@@ -9,12 +9,113 @@
   },
   "favicon": "/favicon.ico",
   "contextual": {
-    "options": ["copy", "view"]
+    "options": [
+      "copy",
+      "view"
+    ]
   },
   "fonts": {
     "family": "Geist"
   },
-
+  "integrations": {
+    "posthog": {
+      "apiKey": "phc_F8JMNjW1i2KbGUTaW1unnDdLSPCoyc52SGRU0JecaUh"
+    }
+  },
+  "redirects": [
+    {
+      "source": "/customize/supported-models",
+      "destination": "/customize/agent/supported-models"
+    },
+    {
+      "source": "/customize/agent-settings",
+      "destination": "/customize/agent/all-parameters"
+    },
+    {
+      "source": "/customize/browser-settings",
+      "destination": "/customize/browser/all-parameters"
+    },
+    {
+      "source": "/customize/custom-functions",
+      "destination": "/customize/tools/add"
+    },
+    {
+      "source": "/customize/system-prompt",
+      "destination": "/customize/agent/all-parameters#system-messages"
+    },
+    {
+      "source": "/development/evaluations",
+      "destination": "/development/setup/contribution-guide"
+    },
+    {
+      "source": "/cli",
+      "destination": "/quickstart"
+    },
+    {
+      "source": "/development/local-setup",
+      "destination": "/development/setup/local-setup"
+    },
+    {
+      "source": "/development/contribution-guide",
+      "destination": "/development/setup/contribution-guide"
+    },
+    {
+      "source": "/development/telemetry",
+      "destination": "/development/monitoring/telemetry"
+    },
+    {
+      "source": "/development/observability",
+      "destination": "/development/monitoring/observability"
+    },
+    {
+      "source": "/development/hooks",
+      "destination": "/customize/hooks"
+    },
+    {
+      "source": "/customize/examples/chain-agents",
+      "destination": "/customize/examples/follow-up-tasks"
+    },
+    {
+      "source": "/customize/examples/fast-agent",
+      "destination": "/examples/templates/fast-agent"
+    },
+    {
+      "source": "/customize/examples/follow-up-tasks",
+      "destination": "/examples/templates/follow-up-tasks"
+    },
+    {
+      "source": "/customize/examples/parallel-browser",
+      "destination": "/examples/templates/parallel-browser"
+    },
+    {
+      "source": "/customize/examples/playwright-integration",
+      "destination": "/examples/templates/playwright-integration"
+    },
+    {
+      "source": "/customize/examples/sensitive-data",
+      "destination": "/examples/templates/sensitive-data"
+    },
+    {
+      "source": "/customize/examples/secure",
+      "destination": "/examples/templates/secure"
+    },
+    {
+      "source": "/customize/examples/more-examples",
+      "destination": "/examples/templates/more-examples"
+    },
+    {
+      "source": "/customize/examples/ad-use",
+      "destination": "/examples/apps/ad-use"
+    },
+    {
+      "source": "/customize/examples/vibetest-use",
+      "destination": "/examples/apps/vibetest-use"
+    },
+    {
+      "source": "/customize/examples/prompting-guide",
+      "destination": "/customize/agent/prompting-guide"
+    }
+  ],
   "navigation": {
     "tabs": [
       {
@@ -22,104 +123,162 @@
         "groups": [
           {
             "group": "Get Started",
-            "pages": ["introduction", "quickstart", "cli"]
+            "pages": [
+              "introduction",
+              "quickstart",
+              "quickstart_llm"
+            ]
           },
           {
             "group": "Customize",
             "pages": [
-              "customize/supported-models",
-              "customize/agent-settings",
-              "customize/browser-settings",
-              "customize/real-browser",
-              "customize/output-format",
-              "customize/system-prompt",
-              "customize/sensitive-data",
-              "customize/custom-functions",
-              "customize/mcp-client",
-              "customize/mcp-server",
-              "customize/hooks"
+              {
+                "group": "Agent",
+                "icon": "robot",
+                "isDefaultOpen": true,
+                "pages": [
+                  "customize/agent/basics",
+                  "customize/agent/supported-models",
+                  "customize/agent/prompting-guide",
+                  "customize/agent/output-format",
+                  "customize/agent/all-parameters"
+                ]
+              },
+              {
+                "group": "Browser",
+                "icon": "window",
+                "isDefaultOpen": false,
+                "pages": [
+                  "customize/browser/basics",
+                  "customize/browser/real-browser",
+                  "customize/browser/remote",
+                  "customize/browser/all-parameters"
+                ]
+              },
+              {
+                "group": "Tools",
+                "icon": "wrench",
+                "isDefaultOpen": false,
+                "pages": [
+                  "customize/tools/basics",
+                  "customize/tools/available",
+                  "customize/tools/add",
+                  "customize/tools/remove",
+                  "customize/tools/response"
+                ]
+              },
+              {
+                "group": "Actor",
+                "icon": "terminal",
+                "isDefaultOpen": false,
+                "pages": [
+                  "customize/actor/basics",
+                  "customize/actor/examples",
+                  "customize/actor/all-parameters"
+                ]
+              },
+              {
+                "group": "Integration",
+                "icon": "plug",
+                "isDefaultOpen": false,
+                "pages": [
+                  "customize/mcp-server"
+                ]
+              }
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              {
+                "group": "Templates",
+                "icon": "folder",
+                "pages": [
+                  "examples/templates/fast-agent",
+                  "examples/templates/follow-up-tasks",
+                  "examples/templates/parallel-browser",
+                  "examples/templates/playwright-integration",
+                  "examples/templates/sensitive-data",
+                  "examples/templates/secure",
+                  "examples/templates/more-examples"
+                ]
+              },
+              {
+                "group": "Apps",
+                "icon": "box-open",
+                "pages": [
+                  "examples/apps/ad-use",
+                  "examples/apps/vibetest-use",
+                  "examples/apps/news-use",
+                  "examples/apps/msg-use"
+                ]
+              }
             ]
           },
           {
             "group": "Development",
             "pages": [
-              "development/contribution-guide",
-              "development/local-setup",
-              "development/telemetry",
-              "development/observability",
-              "development/evaluations",
-              "development/roadmap"
+              {
+                "group": "Contribution",
+                "icon": "github",
+                "isDefaultOpen": true,
+                "pages": [
+                  "development/setup/local-setup",
+                  "development/setup/contribution-guide"
+                ]
+              },
+              {
+                "group": "Advanced",
+                "icon": "gear",
+                "isDefaultOpen": false,
+                "pages": [
+                  "customize/hooks"
+                ]
+              },
+              {
+                "group": "Monitoring",
+                "icon": "chart-mixed",
+                "isDefaultOpen": false,
+                "pages": [
+                  "development/monitoring/observability",
+                  "development/monitoring/telemetry"
+                ]
+              },
+              "development/get-help"
             ]
           }
         ]
       },
       {
-        "tab": "Cloud API",
-        "groups": [
+        "tab": "Cloud",
+        "hidden": true,
+        "versions": [
           {
-            "group": "Get Started",
-            "pages": ["cloud/quickstart", "cloud/search", "cloud/pricing"]
-          },
-          {
-            "group": "Guides",
-            "pages": [
-              "cloud/implementation",
-              "cloud/custom-sdk",
-              "cloud/webhooks",
-              "cloud/authentication",
-              "cloud/n8n-browser-use-integration"
+            "version": "v1",
+            "groups": [
+              {
+                "group": "Get Started",
+                "pages": [
+                  "cloud/v1/quickstart",
+                  "cloud/v1/search",
+                  "cloud/v1/pricing"
+                ]
+              },
+              {
+                "group": "Guides",
+                "pages": [
+                  "cloud/v1/implementation",
+                  "cloud/v1/custom-sdk",
+                  "cloud/v1/webhooks",
+                  "cloud/v1/authentication",
+                  "cloud/v1/n8n-browser-use-integration"
+                ]
+              },
+              {
+                "group": "REST API reference",
+                "openapi": "https://api.browser-use.com/api/v1/openapi.json"
+              }
             ]
-          },
-          {
-            "group": "Search API",
-            "pages": ["api-reference/simple-search", "api-reference/search-url"]
-          },
-          {
-            "group": "Tasks API",
-            "pages": [
-              "api-reference/run-task",
-              "api-reference/stop-task",
-              "api-reference/pause-task",
-              "api-reference/resume-task",
-              "api-reference/get-task",
-              "api-reference/get-task-status",
-              "api-reference/list-tasks",
-              "api-reference/get-task-media",
-              "api-reference/get-task-screenshots",
-              "api-reference/get-task-output-file"
-            ]
-          },
-          {
-            "group": "Scheduled Tasks API",
-            "pages": [
-              "api-reference/list-scheduled-tasks",
-              "api-reference/create-scheduled-task",
-              "api-reference/get-scheduled-task",
-              "api-reference/update-scheduled-task",
-              "api-reference/delete-scheduled-task"
-            ]
-          },
-          {
-            "group": "Browser Profiles API",
-            "pages": [
-              "api-reference/list-browser-profiles",
-              "api-reference/create-browser-profile",
-              "api-reference/get-browser-profile",
-              "api-reference/update-browser-profile",
-              "api-reference/delete-browser-profile"
-            ]
-          },
-          {
-            "group": "Files API",
-            "pages": ["api-reference/upload-file-presigned-url"]
-          },
-          {
-            "group": "User API",
-            "pages": ["api-reference/check-balance", "api-reference/user"]
-          },
-          {
-            "group": "Health Check API",
-            "pages": ["api-reference/ping"]
           }
         ]
       }
@@ -135,7 +294,11 @@
       "display": "interactive"
     },
     "examples": {
-      "languages": ["javascript", "curl", "python"],
+      "languages": [
+        "javascript",
+        "curl",
+        "python"
+      ],
       "required": true
     }
   },

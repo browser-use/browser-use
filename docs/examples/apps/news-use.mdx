@@ -1,0 +1,133 @@
+---
+title: "News-Use (News Monitor)"
+description: "Monitor news websites and extract articles with sentiment analysis using browser agents and Google Gemini."
+icon: "newspaper"
+mode: "wide"
+---
+
+<Note>
+This demo requires browser-use v0.7.7+.
+</Note>
+
+<video
+  controls
+  className="w-full aspect-video rounded-xl"
+  src="https://browser-use.github.io/media/demos/news_use.mp4">
+</video>
+
+## Features
+
+1. Agent visits any news website automatically
+2. Finds and clicks the most recent headline article
+3. Extracts title, URL, posting time, and full content
+4. Generates short/long summaries with sentiment analysis
+5. Persistent deduplication across monitoring sessions
+
+## Setup
+
+Make sure the newest version of browser-use is installed:
+```bash
+pip install -U browser-use
+```
+
+Export your Gemini API key, get it from: [Google AI Studio](https://makersuite.google.com/app/apikey) 
+```bash
+export GOOGLE_API_KEY='your-google-api-key-here'
+```
+
+Clone the repo, cd to the app
+```bash
+git clone https://github.com/browser-use/browser-use.git
+cd browser-use/examples/apps/news-use
+```
+
+## Usage Examples
+
+```bash
+# One-time extraction - Get the latest article and exit
+python news_monitor.py --once
+
+# Monitor Bloomberg continuously (default)
+python news_monitor.py
+
+# Monitor TechCrunch every 60 seconds
+python news_monitor.py --url https://techcrunch.com --interval 60
+
+# Debug mode - See browser in action
+python news_monitor.py --once --debug
+```
+
+## Output Format
+
+Articles are displayed with timestamp, sentiment emoji, and summary:
+
+```
+[2025-09-11 02:49:21] - 🟢 - Klarna's IPO raises $1.4B, benefiting existing investors
+[2025-09-11 02:54:15] - 🔴 - Tech layoffs continue as major firms cut workforce
+[2025-09-11 02:59:33] - 🟡 - Federal Reserve maintains interest rates unchanged
+```
+
+**Sentiment Indicators:**
+- 🟢 **Positive** - Good news, growth, success stories
+- 🟡 **Neutral** - Factual reporting, announcements, updates
+- 🔴 **Negative** - Challenges, losses, negative events
+
+## Data Persistence
+
+All extracted articles are saved to `news_data.json` with complete metadata:
+
+```json
+{
+  "hash": "a1b2c3d4...",
+  "pulled_at": "2025-09-11T02:49:21Z",
+  "data": {
+    "title": "Klarna's IPO pops, raising $1.4B",
+    "url": "https://techcrunch.com/2025/09/11/klarna-ipo/",
+    "posting_time": "12:11 PM PDT · September 10, 2025",
+    "short_summary": "Klarna's IPO raises $1.4B, benefiting existing investors like Sequoia.",
+    "long_summary": "Fintech Klarna successfully IPO'd on the NYSE...",
+    "sentiment": "positive"
+  }
+}
+```
+
+## Programmatic Usage
+
+```python
+import asyncio
+from news_monitor import extract_latest_article
+
+async def main():
+    # Extract latest article from any news site
+    result = await extract_latest_article(
+        site_url="https://techcrunch.com",
+        debug=False
+    )
+    
+    if result["status"] == "success":
+        article = result["data"]
+        print(f"📰 {article['title']}")
+        print(f"😊 Sentiment: {article['sentiment']}")
+        print(f"📝 Summary: {article['short_summary']}")
+
+asyncio.run(main())
+```
+
+## Advanced Configuration
+
+```python
+# Custom monitoring with filters
+async def monitor_with_filters():
+    while True:
+        result = await extract_latest_article("https://bloomberg.com")
+        if result["status"] == "success":
+            article = result["data"]
+            # Only alert on negative market news
+            if article["sentiment"] == "negative" and "market" in article["title"].lower():
+                send_alert(article)
+        await asyncio.sleep(300)  # Check every 5 minutes
+```
+
+## Source Code
+
+Full implementation: [https://github.com/browser-use/browser-use/tree/main/examples/apps/news-use](https://github.com/browser-use/browser-use/tree/main/examples/apps/news-use)

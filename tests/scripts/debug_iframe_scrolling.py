@@ -131,9 +131,7 @@ async def debug_iframe_scrolling():
 			"""Capture DOM state and return analysis"""
 			print(f'\n📸 Capturing DOM state: {label}')
 			state_event = browser_session.event_bus.dispatch(
-				BrowserStateRequestEvent(
-					include_dom=True, include_screenshot=False, cache_clickable_elements_hashes=True, include_recent_events=False
-				)
+				BrowserStateRequestEvent(include_dom=True, include_screenshot=False, include_recent_events=False)
 			)
 			browser_state = await state_event.event_result()
 
@@ -173,13 +171,13 @@ async def debug_iframe_scrolling():
 		print('=' * 80)
 
 		# Navigate to the page first
-		from browser_use.controller.service import Controller
+		from browser_use.tools.service import Tools
 
-		controller = Controller()
+		tools = Tools()
 
 		# Create the action model for navigation
 		goto_action = ActionModel.model_validate_json(actions[0])
-		await controller.act(goto_action, browser_session)
+		await tools.act(goto_action, browser_session)
 		await asyncio.sleep(2)  # Wait for page to fully load
 
 		initial_state = await capture_dom_state('INITIAL (after page load)')
@@ -200,7 +198,7 @@ async def debug_iframe_scrolling():
 
 		# Hook into agent actions to capture state after each one
 		states = []
-		original_act = controller.act
+		original_act = tools.act
 
 		async def wrapped_act(action, session):
 			result = await original_act(action, session)
@@ -218,7 +216,7 @@ async def debug_iframe_scrolling():
 				states.append(state)
 			return result
 
-		controller.act = wrapped_act
+		tools.act = wrapped_act
 
 		# Run the agent with remaining actions
 		result = await agent.run()

@@ -14,7 +14,7 @@ body:
         ---
         > [!IMPORTANT]
         > 🙏 Please **go check *right now before filling this out* that you are *actually* on the [⬆️ LATEST VERSION](https://github.com/browser-use/browser-use/releases)**.
-        > 🚀 We ship changes every hour and we might've already fixed your issue today!  
+        > 🚀 We ship changes every hour and we might've already fixed your issue today!
         > <a href="https://github.com/browser-use/browser-use/releases"><img src="https://github.com/user-attachments/assets/4cd34ee6-bafb-4f24-87e2-27a31dc5b9a4" width="500px"/></a>
         > If you are running an old version, the **first thing we will ask you to do is *upgrade to the latest version* and try again**:
         > - 🆕 [`beta`](https://docs.browser-use.com/development/local-setup):   `uv pip install --upgrade git+https://github.com/browser-use/browser-use.git@main`
@@ -25,7 +25,7 @@ body:
     attributes:
       label: Browser Use Version
       description: |
-        What exact version of `browser-use` are you using? (Run `uv pip show browser-use` or `git log -n 1`)  
+        What exact version of `browser-use` are you using? (Run `uv pip show browser-use` or `git log -n 1`)
         **DO NOT WRITE `latest release` or `main` or a very old version or we will close your issue!**
       placeholder: "e.g. 0.4.45 or 62760baaefd"
     validations:
@@ -53,12 +53,12 @@ body:
       placeholder: |
         from dotenv import load_dotenv
         load_dotenv()  # tip: always load_dotenv() before other imports
-        from browser_use import Agent, BrowserSession, Controller
+        from browser_use import Agent, BrowserSession, Tools
         from browser_use.llm import ChatOpenAI
 
         agent = Agent(
             task='...',
-            llm=ChatOpenAI(model="gpt-4o"),
+            llm=ChatOpenAI(model="gpt-4.1-mini"),
             browser_session=BrowserSession(headless=False),
         )
         ...
@@ -70,8 +70,6 @@ body:
       description: Which LLM model(s) are you using?
       multiple: true
       options:
-        - gpt-4o
-        - gpt-4o-mini
         - gpt-4
         - gpt-4.1
         - gpt-4.1-mini
@@ -107,9 +105,3 @@ body:
       placeholder: |
         $ python /app/browser-use/examples/browser/real_browser.py
         DEBUG    [browser] 🌎  Initializing new browser
-        DEBUG    [agent] Version: 0.1.46-9-g62760ba, Source: git
-        INFO     [agent] 🧠 Starting an agent with main_model=gpt-4o +tools +vision +memory, planner_model=None, extraction_model=gpt-4o
-        DEBUG    [agent] Verifying the ChatOpenAI LLM knows the capital of France...
-        DEBUG    [langsmith.client] Sending multipart request with context: trace=91282a01-6667-48a1-8cd7-21aa9337a580,id=91282a01-6667-48a1-8cd7-21aa9337a580
-        DEBUG    [agent] 🪪 LLM API keys OPENAI_API_KEY work, ChatOpenAI model is connected & responding correctly.
-        ...

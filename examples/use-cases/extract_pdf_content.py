@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 async def main():
 	agent = Agent(
 		task="""
-        Objective: Navigate to the following URL whats on page 3?
+        Objective: Navigate to the following UR, what is on page 3?
 
         URL: https://docs.house.gov/meetings/GO/GO00/20220929/115171/HHRG-117-GO00-20220929-SD010.pdf
         """,

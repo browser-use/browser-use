@@ -1,0 +1,93 @@
+---
+title: "Add Tools"
+description: ""
+icon: "plus"
+mode: "wide"
+---
+
+
+Examples:
+- deterministic clicks
+- file handling
+- calling APIs
+- human-in-the-loop
+- browser interactions
+- calling LLMs
+- get 2fa codes
+- send emails
+- Playwright integration (see [GitHub example](https://github.com/browser-use/browser-use/blob/main/examples/browser/playwright_integration.py))
+- ...
+
+Simply add `@tools.action(...)` to your function.
+
+```python
+from browser_use import Tools, Agent
+
+tools = Tools()
+
+@tools.action(description='Ask human for help with a question')
+def ask_human(question: str) -> ActionResult:
+    answer = input(f'{question} > ')
+    return f'The human responded with: {answer}'
+```
+
+```python
+agent = Agent(task='...', llm=llm, tools=tools)
+```
+
+- **`description`** *(required)* - What the tool does, the LLM uses this to decide when to call it.
+- **`allowed_domains`** - List of domains where tool can run (e.g. `['*.example.com']`), defaults to all domains
+
+The Agent fills your function parameters based on their names, type hints, & defaults.
+
+
+## Available Objects
+
+Your function has access to these objects:
+
+- **`browser_session: BrowserSession`** - Current browser session for CDP access
+- **`cdp_client`** - Direct Chrome DevTools Protocol client
+- **`page_extraction_llm: BaseChatModel`** - The LLM you pass into agent. This can be used to do a custom llm call here.
+- **`file_system: FileSystem`** - File system access
+- **`available_file_paths: list[str]`** - Available files for upload/processing
+- **`has_sensitive_data: bool`** - Whether action contains sensitive data
+
+## Pydantic Input
+
+You can use Pydantic for the tool parameters:
+
+```python
+from pydantic import BaseModel
+
+class Cars(BaseModel):
+    name: str = Field(description='The name of the car, e.g. "Toyota Camry"')
+    price: int = Field(description='The price of the car as int in USD, e.g. 25000')
+
+@tools.action(description='Save cars to file')
+def save_cars(cars: list[Cars]) -> str:
+    with open('cars.json', 'w') as f:
+        json.dump(cars, f)
+    return f'Saved {len(cars)} cars to file'
+
+task = "find cars and save them to file"
+```
+## Domain Restrictions
+
+Limit tools to specific domains:
+
+```python
+@tools.action(
+    description='Fill out banking forms',
+    allowed_domains=['https://mybank.com']
+)
+def fill_bank_form(account_number: str) -> str:
+    # Only works on mybank.com
+    return f'Filled form for account {account_number}'
+```
+
+## Advanced Example
+
+For a comprehensive example of custom tools with Playwright integration, see:
+**[Playwright Integration Example](https://github.com/browser-use/browser-use/blob/main/examples/browser/playwright_integration.py)**
+
+This shows how to create custom actions that use Playwright's precise browser automation alongside Browser-Use.

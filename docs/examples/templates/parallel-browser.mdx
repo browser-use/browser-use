@@ -1,0 +1,47 @@
+---
+title: "Parallel Agents"
+description: "Run multiple agents in parallel with separate browser instances"
+icon: "copy"
+---
+
+```python
+import asyncio
+from browser_use import Agent, Browser, ChatOpenAI
+
+async def main():
+	# Create 3 separate browser instances
+	browsers = [
+		Browser(
+			user_data_dir=f'./temp-profile-{i}',
+			headless=False,
+		)
+		for i in range(3)
+	]
+
+	# Create 3 agents with different tasks
+	agents = [
+		Agent(
+			task='Search for "browser automation" on Google',
+			browser=browsers[0],
+			llm=ChatOpenAI(model='gpt-4.1-mini'),
+		),
+		Agent(
+			task='Search for "AI agents" on DuckDuckGo',
+			browser=browsers[1],
+			llm=ChatOpenAI(model='gpt-4.1-mini'),
+		),
+		Agent(
+			task='Visit Wikipedia and search for "web scraping"',
+			browser=browsers[2],
+			llm=ChatOpenAI(model='gpt-4.1-mini'),
+		),
+	]
+
+	# Run all agents in parallel
+	tasks = [agent.run() for agent in agents]
+	results = await asyncio.gather(*tasks, return_exceptions=True)
+
+	print('🎉 All agents completed!')
+```
+
+> **Note:** This is experimental, and agents might conflict each other.

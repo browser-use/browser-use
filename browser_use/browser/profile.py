@@ -4,15 +4,12 @@ from collections.abc import Iterable
 from enum import Enum
 from functools import cache
 from pathlib import Path
-from re import Pattern
 from typing import Annotated, Any, Literal, Self
 from urllib.parse import urlparse
 
 from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
-from uuid_extensions import uuid7str
 
 from browser_use.config import CONFIG
-from browser_use.observability import observe_debug
 from browser_use.utils import _log_pretty_path, logger
 
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
@@ -196,7 +193,9 @@ def get_display_size() -> ViewportSize | None:
 		from AppKit import NSScreen  # type: ignore[import]
 
 		screen = NSScreen.mainScreen().frame()
-		return ViewportSize(width=int(screen.size.width), height=int(screen.size.height))
+		size = ViewportSize(width=int(screen.size.width), height=int(screen.size.height))
+		logger.debug(f'Display size: {size}')
+		return size
 	except Exception:
 		pass
 
@@ -206,10 +205,13 @@ def get_display_size() -> ViewportSize | None:
 
 		monitors = get_monitors()
 		monitor = monitors[0]
-		return ViewportSize(width=int(monitor.width), height=int(monitor.height))
+		size = ViewportSize(width=int(monitor.width), height=int(monitor.height))
+		logger.debug(f'Display size: {size}')
+		return size
 	except Exception:
 		pass
 
+	logger.debug('No display size found')
 	return None
 
 
@@ -249,36 +251,6 @@ def validate_cli_arg(arg: str) -> str:
 
 
 # ===== Enum definitions =====
-
-
-class ColorScheme(str, Enum):
-	LIGHT = 'light'
-	DARK = 'dark'
-	NO_PREFERENCE = 'no-preference'
-	NULL = 'null'
-
-
-class Contrast(str, Enum):
-	NO_PREFERENCE = 'no-preference'
-	MORE = 'more'
-	NULL = 'null'
-
-
-class ReducedMotion(str, Enum):
-	REDUCE = 'reduce'
-	NO_PREFERENCE = 'no-preference'
-	NULL = 'null'
-
-
-class ForcedColors(str, Enum):
-	ACTIVE = 'active'
-	NONE = 'none'
-	NULL = 'null'
-
-
-class ServiceWorkers(str, Enum):
-	ALLOW = 'allow'
-	BLOCK = 'block'
 
 
 class RecordHarContent(str, Enum):
@@ -330,8 +302,6 @@ class BrowserContextArgs(BaseModel):
 
 	# Browser context parameters
 	accept_downloads: bool = True
-	offline: bool = False
-	strict_selectors: bool = False
 
 	# Security options
 	# proxy: ProxySettings | None = None
@@ -341,14 +311,8 @@ class BrowserContextArgs(BaseModel):
 		# clipboardReadWrite is for google sheets and pyperclip automations
 		# notifications are to avoid browser fingerprinting
 	)
-	bypass_csp: bool = False
 	# client_certificates: list[ClientCertificate] = Field(default_factory=list)
-	extra_http_headers: dict[str, str] = Field(default_factory=dict)
 	# http_credentials: HttpCredentials | None = None
-	ignore_https_errors: bool = False
-	java_script_enabled: bool = True
-	base_url: UrlStr | None = None
-	service_workers: ServiceWorkers = ServiceWorkers.ALLOW
 
 	# Viewport options
 	user_agent: str | None = None
@@ -356,26 +320,15 @@ class BrowserContextArgs(BaseModel):
 	viewport: ViewportSize | None = Field(default=None)
 	no_viewport: bool | None = None
 	device_scale_factor: NonNegativeFloat | None = None
-	is_mobile: bool = False
-	has_touch: bool = False
-	locale: str | None = None
 	# geolocation: Geolocation | None = None
-	timezone_id: str | None = None
-	color_scheme: ColorScheme = ColorScheme.LIGHT
-	contrast: Contrast = Contrast.NO_PREFERENCE
-	reduced_motion: ReducedMotion = ReducedMotion.NO_PREFERENCE
-	forced_colors: ForcedColors = ForcedColors.NONE
 
 	# Recording Options
 	record_har_content: RecordHarContent = RecordHarContent.EMBED
 	record_har_mode: RecordHarMode = RecordHarMode.FULL
-	record_har_omit_content: bool = False
 	record_har_path: str | Path | None = Field(default=None, validation_alias=AliasChoices('save_har_path', 'record_har_path'))
-	record_har_url_filter: str | Pattern | None = None
 	record_video_dir: str | Path | None = Field(
 		default=None, validation_alias=AliasChoices('save_recording_path', 'record_video_dir')
 	)
-	record_video_size: ViewportSize | None = None
 
 
 class BrowserConnectArgs(BaseModel):
@@ -390,8 +343,6 @@ class BrowserConnectArgs(BaseModel):
 	model_config = ConfigDict(extra='ignore', validate_assignment=True, revalidate_instances='always', populate_by_name=True)
 
 	headers: dict[str, str] | None = Field(default=None, description='Additional HTTP headers to be sent with connect request')
-	slow_mo: float = 0.0
-	timeout: float = 30_000
 
 
 class BrowserLaunchArgs(BaseModel):
@@ -441,8 +392,7 @@ class BrowserLaunchArgs(BaseModel):
 	devtools: bool = Field(
 		default=False, description='Whether to open DevTools panel automatically for every page, only works when headless=False.'
 	)
-	slow_mo: float = Field(default=0, description='Slow down actions by this many milliseconds.')
-	timeout: float = Field(default=30000, description='Default timeout in milliseconds for connecting to a remote browser.')
+
 	# proxy: ProxySettings | None = Field(default=None, description='Proxy settings to use to connect to the browser.')
 	downloads_path: str | Path | None = Field(
 		default=None,
@@ -454,15 +404,7 @@ class BrowserLaunchArgs(BaseModel):
 		description='Directory for saving playwright trace.zip files (playwright actions, screenshots, DOM snapshots, HAR traces).',
 		validation_alias=AliasChoices('trace_path', 'traces_dir'),
 	)
-	handle_sighup: bool = Field(
-		default=True, description='Whether playwright should swallow SIGHUP signals and kill the browser.'
-	)
-	handle_sigint: bool = Field(
-		default=False, description='Whether playwright should swallow SIGINT signals and kill the browser.'
-	)
-	handle_sigterm: bool = Field(
-		default=False, description='Whether playwright should swallow SIGTERM signals and kill the browser.'
-	)
+
 	# firefox_user_prefs: dict[str, str | float | bool] = Field(default_factory=dict)
 
 	@model_validator(mode='after')
@@ -475,10 +417,19 @@ class BrowserLaunchArgs(BaseModel):
 	def set_default_downloads_path(self) -> Self:
 		"""Set a unique default downloads path if none is provided."""
 		if self.downloads_path is None:
-			import tempfile
+			import uuid
 
-			# Create unique temporary directory for downloads
-			self.downloads_path = Path(tempfile.mkdtemp(prefix='browser-use-downloads-'))
+			# Create unique directory in /tmp for downloads
+			unique_id = str(uuid.uuid4())[:8]  # 8 characters
+			downloads_path = Path(f'/tmp/browser-use-downloads-{unique_id}')
+
+			# Ensure path doesn't already exist (extremely unlikely but possible)
+			while downloads_path.exists():
+				unique_id = str(uuid.uuid4())[:8]
+				downloads_path = Path(f'/tmp/browser-use-downloads-{unique_id}')
+
+			self.downloads_path = downloads_path
+			self.downloads_path.mkdir(parents=True, exist_ok=True)
 		return self
 
 	@staticmethod
@@ -556,6 +507,23 @@ class BrowserLaunchPersistentContextArgs(BrowserLaunchArgs, BrowserContextArgs):
 		return Path(v).expanduser().resolve()
 
 
+class ProxySettings(BaseModel):
+	"""Typed proxy settings for Chromium traffic.
+
+	- server: Full proxy URL, e.g. "http://host:8080" or "socks5://host:1080"
+	- bypass: Comma-separated hosts to bypass (e.g. "localhost,127.0.0.1,*.internal")
+	- username/password: Optional credentials for authenticated proxies
+	"""
+
+	server: str | None = Field(default=None, description='Proxy URL, e.g. http://host:8080 or socks5://host:1080')
+	bypass: str | None = Field(default=None, description='Comma-separated hosts to bypass, e.g. localhost,127.0.0.1,*.internal')
+	username: str | None = Field(default=None, description='Proxy auth username')
+	password: str | None = Field(default=None, description='Proxy auth password')
+
+	def __getitem__(self, key: str) -> str | None:
+		return getattr(self, key)
+
+
 class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, BrowserLaunchArgs, BrowserNewContextArgs):
 	"""
 	A BrowserProfile is a static template collection of kwargs that can be passed to:
@@ -579,23 +547,47 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	# ... extends options defined in:
 	# BrowserLaunchPersistentContextArgs, BrowserLaunchArgs, BrowserNewContextArgs, BrowserConnectArgs
 
-	# Unique identifier for this browser profile
-	id: str = Field(default_factory=uuid7str)
-	# label: str = 'default'
+	# Session/connection configuration
+	cdp_url: str | None = Field(default=None, description='CDP URL for connecting to existing browser instance')
+	is_local: bool = Field(default=False, description='Whether this is a local browser instance')
+	use_cloud: bool = Field(
+		default=False,
+		description='Use browser-use cloud browser service instead of local browser',
+	)
+
+	@property
+	def cloud_browser(self) -> bool:
+		"""Alias for use_cloud field for compatibility."""
+		return self.use_cloud
 
 	# custom options we provide that aren't native playwright kwargs
-	stealth: bool = Field(default=False, description='Use stealth mode to avoid detection by anti-bot systems.')
 	disable_security: bool = Field(default=False, description='Disable browser security features.')
 	deterministic_rendering: bool = Field(default=False, description='Enable deterministic rendering flags.')
 	allowed_domains: list[str] | None = Field(
 		default=None,
 		description='List of allowed domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]',
 	)
+	prohibited_domains: list[str] | None = Field(
+		default=None,
+		description='List of prohibited domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]. Allowed domains take precedence over prohibited domains.',
+	)
 	keep_alive: bool | None = Field(default=None, description='Keep browser alive after agent run.')
+
+	# --- Proxy settings ---
+	# New consolidated proxy config (typed)
+	proxy: ProxySettings | None = Field(
+		default=None,
+		description='Proxy settings. Use browser_use.browser.profile.ProxySettings(server, bypass, username, password)',
+	)
 	enable_default_extensions: bool = Field(
 		default=True,
 		description="Enable automation-optimized extensions: ad blocking (uBlock Origin), cookie handling (I still don't care about cookies), and URL cleaning (ClearURLs). All extensions work automatically without manual intervention. Extensions are automatically downloaded and loaded when enabled.",
 	)
+	cookie_whitelist_domains: list[str] = Field(
+		default_factory=lambda: ['nature.com', 'qatarairways.com'],
+		description='List of domains to whitelist in the "I still don\'t care about cookies" extension, preventing automatic cookie banner handling on these sites.',
+	)
+
 	window_size: ViewportSize | None = Field(
 		default=None,
 		description='Browser window size to use when headless=False.',
@@ -607,22 +599,33 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		description='Window position to use for the browser x,y from the top left when headless=False.',
 	)
 	cross_origin_iframes: bool = Field(
-		default=False,
-		description='Enable cross-origin iframe support (OOPIF/Out-of-Process iframes). When False (default), only same-origin frames are processed to avoid complexity and hanging.',
+		default=True,
+		description='Enable cross-origin iframe support (OOPIF/Out-of-Process iframes). When False, only same-origin frames are processed to avoid complexity and hanging.',
+	)
+	max_iframes: int = Field(
+		default=100,
+		description='Maximum number of iframe documents to process to prevent crashes.',
+	)
+	max_iframe_depth: int = Field(
+		ge=0,
+		default=5,
+		description='Maximum depth for cross-origin iframe recursion (default: 5 levels deep).',
 	)
 
 	# --- Page load/wait timings ---
-	default_navigation_timeout: float | None = Field(default=None, description='Default page navigation timeout.')
-	default_timeout: float | None = Field(default=None, description='Default playwright call timeout.')
+
 	minimum_wait_page_load_time: float = Field(default=0.25, description='Minimum time to wait before capturing page state.')
 	wait_for_network_idle_page_load_time: float = Field(default=0.5, description='Time to wait for network idle.')
-	maximum_wait_page_load_time: float = Field(default=5.0, description='Maximum time to wait for page load.')
+
 	wait_between_actions: float = Field(default=0.5, description='Time to wait between actions.')
 
 	# --- UI/viewport/DOM ---
-	include_dynamic_attributes: bool = Field(default=True, description='Include dynamic attributes in selectors.')
+
 	highlight_elements: bool = Field(default=True, description='Highlight interactive elements on the page.')
-	viewport_expansion: int = Field(default=500, description='Viewport expansion in pixels for LLM context.')
+	filter_highlight_ids: bool = Field(
+		default=True, description='Only show element IDs in highlights if llm_representation is less than 10 characters.'
+	)
+	paint_order_filtering: bool = Field(default=True, description='Enable paint order filtering. Slightly experimental.')
 
 	# --- Downloads ---
 	auto_download_pdfs: bool = Field(default=True, description='Automatically download PDFs when navigating to PDF viewer pages.')
@@ -634,9 +637,17 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	# save_har_path: alias of record_har_path
 	# trace_path: alias of traces_dir
 
-	cookies_file: Path | None = Field(
-		default=None, description='File to save cookies to. DEPRECATED, use `storage_state` instead.'
+	# these shadow the old playwright args on BrowserContextArgs, but it's ok
+	# because we handle them ourselves in a watchdog and we no longer use playwright, so they should live in the scope for our own config in BrowserProfile long-term
+	record_video_dir: Path | None = Field(
+		default=None,
+		description='Directory to save video recordings. If set, a video of the session will be recorded.',
+		validation_alias=AliasChoices('save_recording_path', 'record_video_dir'),
 	)
+	record_video_size: ViewportSize | None = Field(
+		default=None, description='Video frame size. If not set, it will use the viewport size.'
+	)
+	record_video_framerate: int = Field(default=30, description='The framerate to use for the video recording.')
 
 	# TODO: finish implementing extension support in extensions.py
 	# extension_ids_to_preinstall: list[str] = Field(
@@ -649,21 +660,21 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	def __repr__(self) -> str:
 		short_dir = _log_pretty_path(self.user_data_dir) if self.user_data_dir else '<incognito>'
-		return f'BrowserProfile#{self.id[-4:]}(user_data_dir= {short_dir}, headless={self.headless})'
+		return f'BrowserProfile(user_data_dir= {short_dir}, headless={self.headless})'
 
 	def __str__(self) -> str:
-		return f'BrowserProfile#{self.id[-4:]}'
+		return 'BrowserProfile'
 
 	@model_validator(mode='after')
 	def copy_old_config_names_to_new(self) -> Self:
 		"""Copy old config window_width & window_height to window_size."""
 		if self.window_width or self.window_height:
 			logger.warning(
-				f'⚠️ BrowserProfile(window_width=..., window_height=...) are deprecated, use BrowserProfile(window_size={"width": 1280, "height": 1100}) instead.'
+				f'⚠️ BrowserProfile(window_width=..., window_height=...) are deprecated, use BrowserProfile(window_size={"width": 1920, "height": 1080}) instead.'
 			)
 			window_size = self.window_size or ViewportSize(width=0, height=0)
-			window_size['width'] = window_size['width'] or self.window_width or 1280
-			window_size['height'] = window_size['height'] or self.window_height or 1100
+			window_size['width'] = window_size['width'] or self.window_width or 1920
+			window_size['height'] = window_size['height'] or self.window_height or 1080
 			self.window_size = window_size
 
 		return self
@@ -673,12 +684,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		"""Warn when both storage_state and user_data_dir are set, as this can cause conflicts."""
 		has_storage_state = self.storage_state is not None
 		has_user_data_dir = (self.user_data_dir is not None) and ('tmp' not in str(self.user_data_dir).lower())
-		has_cookies_file = self.cookies_file is not None
-		static_source = 'cookies_file' if has_cookies_file else 'storage_state' if has_storage_state else None
 
-		if static_source and has_user_data_dir:
+		if has_storage_state and has_user_data_dir:
 			logger.warning(
-				f'⚠️ BrowserSession(...) was passed both {static_source} AND user_data_dir. {static_source}={self.storage_state or self.cookies_file} will forcibly overwrite '
+				f'⚠️ BrowserSession(...) was passed both storage_state AND user_data_dir. storage_state={self.storage_state} will forcibly overwrite '
 				f'cookies/localStorage/sessionStorage in user_data_dir={self.user_data_dir}. '
 				f'For multiple browsers in parallel, use only storage_state with user_data_dir=None, '
 				f'or use a separate user_data_dir for each browser and set storage_state=None.'
@@ -716,6 +725,17 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			)
 		return self
 
+	@model_validator(mode='after')
+	def validate_proxy_settings(self) -> Self:
+		"""Ensure proxy configuration is consistent."""
+		if self.proxy and (self.proxy.bypass and not self.proxy.server):
+			logger.warning('BrowserProfile.proxy.bypass provided but proxy has no server; bypass will be ignored.')
+		return self
+
+	def model_post_init(self, __context: Any) -> None:
+		"""Called after model initialization to set up display configuration."""
+		self.detect_display_configuration()
+
 	def get_args(self) -> list[str]:
 		"""Get the list of all Chrome CLI launch args for this profile (compiled from defaults, user-provided, and system-specific)."""
 
@@ -751,8 +771,49 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			*(self._get_extension_args() if self.enable_default_extensions else []),
 		]
 
-		# convert to dict and back to dedupe and merge duplicate args
-		final_args_list = BrowserLaunchArgs.args_as_list(BrowserLaunchArgs.args_as_dict(pre_conversion_args))
+		# Proxy flags
+		proxy_server = self.proxy.server if self.proxy else None
+		proxy_bypass = self.proxy.bypass if self.proxy else None
+
+		if proxy_server:
+			pre_conversion_args.append(f'--proxy-server={proxy_server}')
+			if proxy_bypass:
+				pre_conversion_args.append(f'--proxy-bypass-list={proxy_bypass}')
+
+		# User agent flag
+		if self.user_agent:
+			pre_conversion_args.append(f'--user-agent={self.user_agent}')
+
+		# Special handling for --disable-features to merge values instead of overwriting
+		# This prevents disable_security=True from breaking extensions by ensuring
+		# both default features (including extension-related) and security features are preserved
+		disable_features_values = []
+		non_disable_features_args = []
+
+		# Extract and merge all --disable-features values
+		for arg in pre_conversion_args:
+			if arg.startswith('--disable-features='):
+				features = arg.split('=', 1)[1]
+				disable_features_values.extend(features.split(','))
+			else:
+				non_disable_features_args.append(arg)
+
+		# Remove duplicates while preserving order
+		if disable_features_values:
+			unique_features = []
+			seen = set()
+			for feature in disable_features_values:
+				feature = feature.strip()
+				if feature and feature not in seen:
+					unique_features.append(feature)
+					seen.add(feature)
+
+			# Add merged disable-features back
+			non_disable_features_args.append(f'--disable-features={",".join(unique_features)}')
+
+		# convert to dict and back to dedupe and merge other duplicate args
+		final_args_list = BrowserLaunchArgs.args_as_list(BrowserLaunchArgs.args_as_dict(non_disable_features_args))
+
 		return final_args_list
 
 	def _get_extension_args(self) -> list[str]:
@@ -778,27 +839,29 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		"""
 
 		# Extension definitions - optimized for automation and content extraction
+		# Combines uBlock Origin (ad blocking) + "I still don't care about cookies" (cookie banner handling)
 		extensions = [
 			{
 				'name': 'uBlock Origin',
 				'id': 'cjpalhdlnbpafiamejdnhcphjbkeiagm',
-				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dcjpalhdlnbpafiamejdnhcphjbkeiagm%26uc',
+				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=133&acceptformat=crx3&x=id%3Dcjpalhdlnbpafiamejdnhcphjbkeiagm%26uc',
 			},
 			{
 				'name': "I still don't care about cookies",
 				'id': 'edibdbjcniadpccecjdfdjjppcpchdlm',
-				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dedibdbjcniadpccecjdfdjjppcpchdlm%26uc',
+				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=133&acceptformat=crx3&x=id%3Dedibdbjcniadpccecjdfdjjppcpchdlm%26uc',
 			},
 			{
 				'name': 'ClearURLs',
 				'id': 'lckanjgmijmafbedllaakclkaicjfmnk',
-				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dlckanjgmijmafbedllaakclkaicjfmnk%26uc',
+				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=133&acceptformat=crx3&x=id%3Dlckanjgmijmafbedllaakclkaicjfmnk%26uc',
 			},
 			# {
 			# 	'name': 'Captcha Solver: Auto captcha solving service',
 			# 	'id': 'pgojnojmmhpofjgdmaebadhbocahppod',
 			# 	'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=130&acceptformat=crx3&x=id%3Dpgojnojmmhpofjgdmaebadhbocahppod%26uc',
 			# },
+			# Consent-O-Matic disabled - using uBlock Origin's cookie lists instead for simplicity
 			# {
 			# 	'name': 'Consent-O-Matic',
 			# 	'id': 'mdjildafknihdffpkfmmpnpoiajfjnjd',
@@ -841,6 +904,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				# Extract extension
 				logger.info(f'📂 Extracting {ext["name"]} extension...')
 				self._extract_extension(crx_file, ext_dir)
+
 				extension_paths.append(str(ext_dir))
 				loaded_extension_names.append(ext['name'])
 
@@ -848,12 +912,81 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				logger.warning(f'⚠️ Failed to setup {ext["name"]} extension: {e}')
 				continue
 
+		# Apply minimal patch to cookie extension with configurable whitelist
+		for i, path in enumerate(extension_paths):
+			if loaded_extension_names[i] == "I still don't care about cookies":
+				self._apply_minimal_extension_patch(Path(path), self.cookie_whitelist_domains)
+
 		if extension_paths:
 			logger.debug(f'[BrowserProfile] 🧩 Extensions loaded ({len(extension_paths)}): [{", ".join(loaded_extension_names)}]')
 		else:
 			logger.warning('[BrowserProfile] ⚠️ No default extensions could be loaded')
 
 		return extension_paths
+
+	def _apply_minimal_extension_patch(self, ext_dir: Path, whitelist_domains: list[str]) -> None:
+		"""Minimal patch: pre-populate chrome.storage.local with configurable domain whitelist."""
+		try:
+			bg_path = ext_dir / 'data' / 'background.js'
+			if not bg_path.exists():
+				return
+
+			with open(bg_path, encoding='utf-8') as f:
+				content = f.read()
+
+			# Create the whitelisted domains object for JavaScript with proper indentation
+			whitelist_entries = [f'        "{domain}": true' for domain in whitelist_domains]
+			whitelist_js = '{\n' + ',\n'.join(whitelist_entries) + '\n      }'
+
+			# Find the initialize() function and inject storage setup before updateSettings()
+			# The actual function uses 2-space indentation, not tabs
+			old_init = """async function initialize(checkInitialized, magic) {
+  if (checkInitialized && initialized) {
+    return;
+  }
+  loadCachedRules();
+  await updateSettings();
+  await recreateTabList(magic);
+  initialized = true;
+}"""
+
+			# New function with configurable whitelist initialization
+			new_init = f"""// Pre-populate storage with configurable domain whitelist if empty
+async function ensureWhitelistStorage() {{
+  const result = await chrome.storage.local.get({{ settings: null }});
+  if (!result.settings) {{
+    const defaultSettings = {{
+      statusIndicators: true,
+      whitelistedDomains: {whitelist_js}
+    }};
+    await chrome.storage.local.set({{ settings: defaultSettings }});
+  }}
+}}
+
+async function initialize(checkInitialized, magic) {{
+  if (checkInitialized && initialized) {{
+    return;
+  }}
+  loadCachedRules();
+  await ensureWhitelistStorage(); // Add storage initialization
+  await updateSettings();
+  await recreateTabList(magic);
+  initialized = true;
+}}"""
+
+			if old_init in content:
+				content = content.replace(old_init, new_init)
+
+				with open(bg_path, 'w', encoding='utf-8') as f:
+					f.write(content)
+
+				domain_list = ', '.join(whitelist_domains)
+				logger.info(f'[BrowserProfile] ✅ Cookie extension: {domain_list} pre-populated in storage')
+			else:
+				logger.debug('[BrowserProfile] Initialize function not found for patching')
+
+		except Exception as e:
+			logger.debug(f'[BrowserProfile] Could not patch extension storage: {e}')
 
 	def _download_extension(self, url: str, output_path: Path) -> None:
 		"""Download extension .crx file."""
@@ -921,23 +1054,6 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 				os.unlink(temp_zip.name)
 
-	def kwargs_for_launch_persistent_context(self) -> BrowserLaunchPersistentContextArgs:
-		"""Return the kwargs for BrowserType.launch()."""
-		return BrowserLaunchPersistentContextArgs(**self.model_dump(exclude={'args'}), args=self.get_args())
-
-	def kwargs_for_new_context(self) -> BrowserNewContextArgs:
-		"""Return the kwargs for BrowserContext.new_context()."""
-		return BrowserNewContextArgs(**self.model_dump(exclude={'args'}))
-
-	def kwargs_for_connect(self) -> BrowserConnectArgs:
-		"""Return the kwargs for BrowserType.connect()."""
-		return BrowserConnectArgs(**self.model_dump(exclude={'args'}))
-
-	def kwargs_for_launch(self) -> BrowserLaunchArgs:
-		"""Return the kwargs for BrowserType.connect_over_cdp()."""
-		return BrowserLaunchArgs(**self.model_dump(exclude={'args'}), args=self.get_args())
-
-	@observe_debug(ignore_input=True, ignore_output=True, name='detect_display_configuration')
 	def detect_display_configuration(self) -> None:
 		"""
 		Detect the system display size and initialize the display-related config defaults:
@@ -946,42 +1062,49 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 		display_size = get_display_size()
 		has_screen_available = bool(display_size)
-		self.screen = self.screen or display_size or ViewportSize(width=1280, height=1100)
+		self.screen = self.screen or display_size or ViewportSize(width=1920, height=1080)
 
 		# if no headless preference specified, prefer headful if there is a display available
 		if self.headless is None:
 			self.headless = not has_screen_available
 
-		# set up window size and position if headful
+		# Determine viewport behavior based on mode and user preferences
+		user_provided_viewport = self.viewport is not None
+
 		if self.headless:
-			# headless mode: no window available, use viewport instead to constrain content size
+			# Headless mode: always use viewport for content size control
 			self.viewport = self.viewport or self.window_size or self.screen
-			self.window_position = None  # no windows to position in headless mode
+			self.window_position = None
 			self.window_size = None
-			self.no_viewport = False  # viewport is always enabled in headless mode
+			self.no_viewport = False
 		else:
-			# headful mode: use window, disable viewport by default, content fits to size of window
+			# Headful mode: respect user's viewport preference
 			self.window_size = self.window_size or self.screen
-			self.no_viewport = True if self.no_viewport is None else self.no_viewport
-			self.viewport = None if self.no_viewport else self.viewport
 
-		# automatically setup viewport if any config requires it
-		use_viewport = self.headless or self.viewport or self.device_scale_factor
-		self.no_viewport = not use_viewport if self.no_viewport is None else self.no_viewport
-		use_viewport = not self.no_viewport
+			if user_provided_viewport:
+				# User explicitly set viewport - enable viewport mode
+				self.no_viewport = False
+			else:
+				# Default headful: content fits to window (no viewport)
+				self.no_viewport = True if self.no_viewport is None else self.no_viewport
 
-		if use_viewport:
-			# if we are using viewport, make device_scale_factor and screen are set to real values to avoid easy fingerprinting
+		# Handle special requirements (device_scale_factor forces viewport mode)
+		if self.device_scale_factor and self.no_viewport is None:
+			self.no_viewport = False
+
+		# Finalize configuration
+		if self.no_viewport:
+			# No viewport mode: content adapts to window
+			self.viewport = None
+			self.device_scale_factor = None
+			self.screen = None
+			assert self.viewport is None
+			assert self.no_viewport is True
+		else:
+			# Viewport mode: ensure viewport is set
 			self.viewport = self.viewport or self.screen
 			self.device_scale_factor = self.device_scale_factor or 1.0
 			assert self.viewport is not None
 			assert self.no_viewport is False
-		else:
-			# device_scale_factor and screen are not supported non-viewport mode, the system monitor determines these
-			self.viewport = None
-			self.device_scale_factor = None  # only supported in viewport mode
-			self.screen = None  # only supported in viewport mode
-			assert self.viewport is None
-			assert self.no_viewport is True
 
 		assert not (self.headless and self.no_viewport), 'headless=True and no_viewport=True cannot both be set at the same time'

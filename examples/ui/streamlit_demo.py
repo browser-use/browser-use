@@ -19,7 +19,7 @@ import streamlit as st  # type: ignore
 
 from browser_use import Agent
 from browser_use.browser import BrowserSession
-from browser_use.controller.service import Controller
+from browser_use.tools.service import Tools
 
 if os.name == 'nt':
 	asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -54,13 +54,13 @@ def get_llm(provider: str):
 # Function to initialize the agent
 def initialize_agent(query: str, provider: str):
 	llm = get_llm(provider)
-	controller = Controller()
+	tools = Tools()
 	browser_session = BrowserSession()
 
 	return Agent(
 		task=query,
 		llm=llm,  # type: ignore
-		controller=controller,
+		tools=tools,
 		browser_session=browser_session,
 		use_vision=True,
 		max_actions_per_step=1,
