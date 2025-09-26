@@ -75,7 +75,10 @@ if TYPE_CHECKING:
 # Lazy imports mapping for heavy chat models
 _LAZY_IMPORTS = {
 	'ChatAnthropic': ('browser_use.llm.anthropic.chat', 'ChatAnthropic'),
-	'ChatAnthropicBedrock': ('browser_use.llm.aws.chat_anthropic', 'ChatAnthropicBedrock'),
+	'ChatAnthropicBedrock': (
+		'browser_use.llm.aws.chat_anthropic',
+		'ChatAnthropicBedrock',
+	),
 	'ChatAWSBedrock': ('browser_use.llm.aws.chat_bedrock', 'ChatAWSBedrock'),
 	'ChatAzureOpenAI': ('browser_use.llm.azure.chat', 'ChatAzureOpenAI'),
 	'ChatDeepSeek': ('browser_use.llm.deepseek.chat', 'ChatDeepSeek'),
@@ -83,7 +86,14 @@ _LAZY_IMPORTS = {
 	'ChatGroq': ('browser_use.llm.groq.chat', 'ChatGroq'),
 	'ChatOllama': ('browser_use.llm.ollama.chat', 'ChatOllama'),
 	'ChatOpenAI': ('browser_use.llm.openai.chat', 'ChatOpenAI'),
-	'ChatOpenRouter': ('browser_use.llm.openrouter.chat', 'ChatOpenRouter'),
+	'ChatOpenRouter': (
+		'browser_use.llm.openrouter.chat',
+		'ChatOpenRouter',
+	),
+	'ChatHuggingFace': (
+		'browser_use.llm.huggingface.chat',
+		'ChatHuggingFace',
+	),
 }
 
 # Cache for model instances - only created when accessed
@@ -143,4 +153,5 @@ __all__ = [
 	'ChatAzureOpenAI',
 	'ChatOllama',
 	'ChatOpenRouter',
+	'ChatHuggingFace',
 ]
