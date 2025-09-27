@@ -17,6 +17,15 @@ from browser_use.llm.azure.chat import ChatAzureOpenAI
 from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.openai.chat import ChatOpenAI
 
+# Optional OCI import
+try:
+	from browser_use.llm.oci_raw.chat import ChatOCIRaw
+
+	OCI_AVAILABLE = True
+except ImportError:
+	ChatOCIRaw = None
+	OCI_AVAILABLE = False
+
 if TYPE_CHECKING:
 	from browser_use.llm.base import BaseChatModel
 
@@ -108,8 +117,14 @@ def get_llm_by_name(model_name: str):
 		api_key = os.getenv('GOOGLE_API_KEY')
 		return ChatGoogle(model=model, api_key=api_key)
 
+	# OCI Models
+	elif provider == 'oci':
+		# OCI requires more complex configuration that can't be easily inferred from env vars
+		# Users should use ChatOCIRaw directly with proper configuration
+		raise ValueError('OCI models require manual configuration. Use ChatOCIRaw directly with your OCI credentials.')
+
 	else:
-		available_providers = ['openai', 'azure', 'google']
+		available_providers = ['openai', 'azure', 'google', 'oci']
 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
 
 
@@ -123,6 +138,10 @@ def __getattr__(name: str) -> 'BaseChatModel':
 		return ChatAzureOpenAI  # type: ignore
 	elif name == 'ChatGoogle':
 		return ChatGoogle  # type: ignore
+	elif name == 'ChatOCIRaw':
+		if not OCI_AVAILABLE:
+			raise ImportError('OCI integration not available. Install with: pip install "browser-use[oci]"')
+		return ChatOCIRaw  # type: ignore
 
 	# Handle model instances - these are the main use case
 	try:
@@ -131,41 +150,83 @@ def __getattr__(name: str) -> 'BaseChatModel':
 		raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 
-__all__ = [
-	'ChatOpenAI',
-	'ChatAzureOpenAI',
-	'ChatGoogle',
-	'get_llm_by_name',
-	# OpenAI instances - created on demand
-	'openai_gpt_4o',
-	'openai_gpt_4o_mini',
-	'openai_gpt_4_1_mini',
-	'openai_o1',
-	'openai_o1_mini',
-	'openai_o1_pro',
-	'openai_o3',
-	'openai_o3_mini',
-	'openai_o3_pro',
-	'openai_o4_mini',
-	'openai_gpt_5',
-	'openai_gpt_5_mini',
-	'openai_gpt_5_nano',
-	# Azure instances - created on demand
-	'azure_gpt_4o',
-	'azure_gpt_4o_mini',
-	'azure_gpt_4_1_mini',
-	'azure_o1',
-	'azure_o1_mini',
-	'azure_o1_pro',
-	'azure_o3',
-	'azure_o3_mini',
-	'azure_o3_pro',
-	'azure_gpt_5',
-	'azure_gpt_5_mini',
-	# Google instances - created on demand
-	'google_gemini_2_0_flash',
-	'google_gemini_2_0_pro',
-	'google_gemini_2_5_pro',
-	'google_gemini_2_5_flash',
-	'google_gemini_2_5_flash_lite',
-]
+# Define __all__ conditionally based on OCI availability
+if OCI_AVAILABLE:
+	__all__ = [
+		'ChatOpenAI',
+		'ChatAzureOpenAI',
+		'ChatGoogle',
+		'ChatOCIRaw',
+		'get_llm_by_name',
+		# OpenAI instances - created on demand
+		'openai_gpt_4o',
+		'openai_gpt_4o_mini',
+		'openai_gpt_4_1_mini',
+		'openai_o1',
+		'openai_o1_mini',
+		'openai_o1_pro',
+		'openai_o3',
+		'openai_o3_mini',
+		'openai_o3_pro',
+		'openai_o4_mini',
+		'openai_gpt_5',
+		'openai_gpt_5_mini',
+		'openai_gpt_5_nano',
+		# Azure instances - created on demand
+		'azure_gpt_4o',
+		'azure_gpt_4o_mini',
+		'azure_gpt_4_1_mini',
+		'azure_o1',
+		'azure_o1_mini',
+		'azure_o1_pro',
+		'azure_o3',
+		'azure_o3_mini',
+		'azure_o3_pro',
+		'azure_gpt_5',
+		'azure_gpt_5_mini',
+		# Google instances - created on demand
+		'google_gemini_2_0_flash',
+		'google_gemini_2_0_pro',
+		'google_gemini_2_5_pro',
+		'google_gemini_2_5_flash',
+		'google_gemini_2_5_flash_lite',
+	]
+else:
+	__all__ = [
+		'ChatOpenAI',
+		'ChatAzureOpenAI',
+		'ChatGoogle',
+		'get_llm_by_name',
+		# OpenAI instances - created on demand
+		'openai_gpt_4o',
+		'openai_gpt_4o_mini',
+		'openai_gpt_4_1_mini',
+		'openai_o1',
+		'openai_o1_mini',
+		'openai_o1_pro',
+		'openai_o3',
+		'openai_o3_mini',
+		'openai_o3_pro',
+		'openai_o4_mini',
+		'openai_gpt_5',
+		'openai_gpt_5_mini',
+		'openai_gpt_5_nano',
+		# Azure instances - created on demand
+		'azure_gpt_4o',
+		'azure_gpt_4o_mini',
+		'azure_gpt_4_1_mini',
+		'azure_o1',
+		'azure_o1_mini',
+		'azure_o1_pro',
+		'azure_o3',
+		'azure_o3_mini',
+		'azure_o3_pro',
+		'azure_gpt_5',
+		'azure_gpt_5_mini',
+		# Google instances - created on demand
+		'google_gemini_2_0_flash',
+		'google_gemini_2_0_pro',
+		'google_gemini_2_5_pro',
+		'google_gemini_2_5_flash',
+		'google_gemini_2_5_flash_lite',
+	]
