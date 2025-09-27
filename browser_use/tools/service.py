@@ -102,7 +102,7 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 class Tools(Generic[Context]):
 	def __init__(
 		self,
-		exclude_actions: list[str] = [],
+		exclude_actions: list[str] = ['extract_structured_data', 'scroll_to_text', 'scroll', 'wait'],
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
 	):
@@ -977,121 +977,82 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			)
 
 		@self.registry.action(
-			"""This JavaScript code gets executed with Runtime.evaluate and 'returnByValue': True, 'awaitPromise': True
-
-SYNTAX RULES - FAILURE TO FOLLOW CAUSES "Uncaught at line 0" ERRORS:
-- ALWAYS wrap your code in IIFE: (function(){ ... })() or (async function(){ ... })() for async code
-- ALWAYS add try-catch blocks to prevent execution errors
-- ALWAYS use proper semicolons and valid JavaScript syntax
-- NEVER write multiline code without proper IIFE wrapping
-- ALWAYS validate elements exist before accessing them
-
+			"""This JavaScript code gets executed with Runtime.evaluate
 EXAMPLES:
-Use this tool when other tools do not work on the first try as expected or when a more general tool is needed, e.g. for filling a form all at once, hovering, dragging, extracting only links, extracting content from the page, press and hold, hovering, clicking on coordinates, zooming, use this if the user provides custom selectors which you can otherwise not interact with ....
+Using when other tools fail, filling a form all at once, hovering, dragging, extracting only links, extracting content from the page, Clicking on coordinates, zooming ....
 You can also use it to explore the website.
 - Write code to solve problems you could not solve with other tools.
 - Don't write comments in here, no human reads that.
-- Write only valid js code.
-- use this to e.g. extract + filter links, convert the page to json into the format you need etc...
-
-
+- Write only valid code. 
+- juse this to e.g. extract + filter links, convert the page to json into the format you need etc...
+- wrap your code in a function(){{ ... }})() 
+- wrap your code in a try catch block
 - limit the output otherwise your context will explode
-- think if you deal with special elements like iframes / shadow roots etc
-- Adopt your strategy for React Native Web, React, Angular, Vue, MUI pages etc.
-- e.g. with  synthetic events, keyboard simulation, shadow DOM, etc.
 
-PROPER SYNTAX EXAMPLES:
-CORRECT: (function(){ try { const el = document.querySelector('#id'); return el ? el.value : 'not found'; } catch(e) { return 'Error: ' + e.message; } })()
-CORRECT: (async function(){ try { await new Promise(r => setTimeout(r, 100)); return 'done'; } catch(e) { return 'Error: ' + e.message; } })()
+## Basic DOM interaction (single line preferred):
+Return: 
+JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.textContent.trim()))
+- execute_js can only return strings/numbers/booleans that are readable
+- Objects return "Executed successfully (returned object)" - useless!
+- If you get `{}` or `[]` results, your selectors are WRONG. Use shadow DOM detection (#5) first.
+- NEVER repeat the same failing selector more than 2 times. Switch strategies immediately.
+- After 2 failed attempts: 1) Check shadow DOM, 2) Wait for content loading, 3) Use coordinates.
 
-WRONG: const el = document.querySelector('#id'); el ? el.value : '';
-WRONG: document.querySelector('#id').value
-WRONG: Multiline code without IIFE wrapping
+## React/Modern Framework Components:
+Adopt your strategy for React Native Web, React, Angular, Vue, MUI pages etc.
 
-SHADOW DOM ACCESS EXAMPLE:
-(function(){
-    try {
-        const hosts = document.querySelectorAll('*');
-        for (let host of hosts) {
-            if (host.shadowRoot) {
-                const el = host.shadowRoot.querySelector('#target');
-                if (el) return el.textContent;
-            }
-        }
-        return 'Not found';
-    } catch(e) {
-        return 'Error: ' + e.message;
-    }
-})()
+1. **React synthetic events** 
+(function(){{ const el = document.querySelector('selector'); el.dispatchEvent(new MouseEvent('click', {{bubbles: true, cancelable: true}})); el.dispatchEvent(new Event('change', {{bubbles: true}})); return 'clicked'; }})()
 
-## Return values:
-- Async functions (with await, promises, timeouts) are automatically handled
-- Returns strings, numbers, booleans, and serialized objects/arrays
-- Use JSON.stringify() for complex objects: JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.textContent.trim()))
+2. **React input handling** (for form inputs that ignore value assignment):
+```javascript
+(function(){{ const input = document.querySelector('input'); const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; nativeInputValueSetter.call(input, 'new value'); input.dispatchEvent(new Event('input', {{bubbles: true}})); return 'input set'; }})()
+
+3. **Detect shadow DOM components, iframes, etc
+(function(){{ const host = document.querySelector('my-component'); if(host && host.shadowRoot) {{ const input = host.shadowRoot.querySelector('input'); return input ? 'found' : 'not found'; }} return 'no shadow'; }})()
+
+4. **Real keyboard simulation** (for protected inputs):
+(function(){{ const input = document.querySelector('input'); if(input) {{ input.focus(); 'text'.split('').forEach(char => {{ ['keydown','keypress','input','keyup'].forEach(type => input.dispatchEvent(new KeyboardEvent(type, {{key: char, bubbles: true}}))) }}); }} return 'typed'; }})()
+
+5. **Shadow DOM & SPA Content** (when main DOM is empty):
+- Check total elements: `document.querySelectorAll('*').length` (if < 10, page not loaded)
+- Find shadow hosts: Check `element.shadowRoot` on all elements
+- Extract from shadow: Use `element.shadowRoot.querySelectorAll(selector)` instead
+- Wait for loading: Many SPAs load content asynchronously, try scrolling or waiting
+
+## When stuck explore new options:
+Inspect React components: `document.querySelector('selector').getAttribute('class')`
+Check for modals or overlays: `document.querySelector('.modal, [role="dialog"]')`
+Explore page structure: `document.body.innerHTML.substring(100, 400)`
+
+**Coordinate-based fallbacks:**
+Use coordinates interaction only if execute_js fails twice.
+In the browser state, you see `x=150 y=75` - these are center coordinates of elements.
+(function(){{ const x = 150, y = 75; const el = document.elementFromPoint(x, y); if(el) {{ el.focus(); document.execCommand('insertText', false, 'your text'); return 'input at coordinates'; }} return 'no element at coordinates'; }})()
+(function(){{ const x = 150, y = 75; const el = document.elementFromPoint(x, y); if(el) {{ el.dispatchEvent(new MouseEvent('click', {{bubbles: true, cancelable: true}})); return 'clicked at coordinates'; }} return 'no element at coordinates'; }})()
 
 """,
 		)
 		async def execute_js(code: str, browser_session: BrowserSession):
-			# Execute JavaScript with proper error handling and promise support
+			# Pre-process JavaScript to fix common issues and add error handling
 
 			cdp_session = await browser_session.get_or_create_cdp_session()
-
+			result_text = ''
 			try:
 				# Always use awaitPromise=True - it's ignored for non-promises
 				result = await cdp_session.cdp_client.send.Runtime.evaluate(
-					params={'expression': code, 'returnByValue': True, 'awaitPromise': True},
-					session_id=cdp_session.session_id,
+					params={'expression': code, 'returnByValue': True}, session_id=cdp_session.session_id
 				)
-
-				# Check for JavaScript execution errors
-				if result.get('exceptionDetails'):
-					exception = result['exceptionDetails']
-					error_msg = f'JavaScript execution error: {exception.get("text", "Unknown error")}'
-					if 'lineNumber' in exception:
-						error_msg += f' at line {exception["lineNumber"]}'
-					msg = f'Code: {code}\n\nError: {error_msg}'
-					logger.info(msg)
-					return ActionResult(error=msg)
-
-				# Get the result data
-				result_data = result.get('result', {})
-
-				# Check for wasThrown flag (backup error detection)
-				if result_data.get('wasThrown'):
-					msg = f'Code: {code}\n\nError: JavaScript execution failed (wasThrown=true)'
-					logger.info(msg)
-					return ActionResult(error=msg)
-
-				# Get the actual value
-				value = result_data.get('value')
-
-				# Handle different value types
-				if value is None:
-					# Could be legitimate null/undefined result
-					result_text = str(value) if 'value' in result_data else 'undefined'
-				elif isinstance(value, (dict, list)):
-					# Complex objects - should be serialized by returnByValue
-					try:
-						result_text = json.dumps(value, ensure_ascii=False)
-					except (TypeError, ValueError):
-						# Fallback for non-serializable objects
-						result_text = str(value)
-				else:
-					# Primitive values (string, number, boolean)
-					result_text = str(value)
-
-				# Apply length limit with better truncation
+				result_text = result.get('result', {}).get('value', '')
+				description = result.get('result', {}).get('description', '')
 				if len(result_text) > 20000:
-					result_text = result_text[:19950] + '\n... [Truncated after 20000 characters]'
-				msg = f'Code: {code}\n\nResult: {result_text}'
-				logger.info(msg)
+					result_text = result_text[:20000] + ' Truncated after 20000 characters ...'
+				# Return the result (could be empty string, which is valid)
 				return ActionResult(extracted_content=f'Code: {code}\n\nResult: {result_text}')
 
 			except Exception as e:
-				# CDP communication or other system errors
-				error_msg = f'Code: {code}\n\nError: {error_msg} Failed to execute JavaScript: {type(e).__name__}: {e}'
-				logger.info(error_msg)
-				return ActionResult(error=error_msg)
+				result = f'Failed to execute JavaScript {code}: {e} '
+				return ActionResult(error=result)
 
 	# Custom done action for structured output
 	@observe_debug(ignore_input=True, ignore_output=True, name='extract_clean_markdown')

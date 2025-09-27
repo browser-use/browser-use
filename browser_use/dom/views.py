@@ -20,7 +20,7 @@ DEFAULT_INCLUDE_ATTRIBUTES = [
 	'type',
 	'checked',
 	# 'class',
-	'id',
+	# 'id',
 	'name',
 	'role',
 	'value',

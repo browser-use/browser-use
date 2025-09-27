@@ -36,6 +36,7 @@ class ChatOpenAI(BaseChatModel):
 	# Model params
 	temperature: float | None = 0.2
 	frequency_penalty: float | None = 0.3  # this avoids infinite generation of \t for models like 4.1-mini
+	presence_penalty: float | None = 0.0
 	reasoning_effort: ReasoningEffort = 'low'
 	seed: int | None = None
 	service_tier: Literal['auto', 'default', 'flex', 'priority', 'scale'] | None = None
@@ -169,6 +170,9 @@ class ChatOpenAI(BaseChatModel):
 			if self.frequency_penalty is not None:
 				model_params['frequency_penalty'] = self.frequency_penalty
 
+			if self.presence_penalty is not None:
+				model_params['presence_penalty'] = self.presence_penalty
+
 			if self.max_completion_tokens is not None:
 				model_params['max_completion_tokens'] = self.max_completion_tokens
 
@@ -185,6 +189,7 @@ class ChatOpenAI(BaseChatModel):
 				model_params['reasoning_effort'] = self.reasoning_effort
 				del model_params['temperature']
 				del model_params['frequency_penalty']
+				del model_params['presence_penalty']
 
 			if output_format is None:
 				# Return string response
