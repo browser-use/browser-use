@@ -96,7 +96,7 @@ import asyncio
 load_dotenv()
 
 async def main():
-    llm = ChatGoogle(model="gemini-2.5-flash")
+    llm = ChatGoogle(model="gemini-flash-latest")
     task = "Find the number 1 post on Show HN"
     agent = Agent(task=task, llm=llm)
     await agent.run()

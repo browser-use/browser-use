@@ -9,7 +9,7 @@ icon: "robot"
 
 - Best accuracy: `O3`
 - Fastest: `llama4` on groq
-- Balanced: fast + cheap + clever: `gemini-2.5-flash` or `gpt-4.1-mini`
+- Balanced: fast + cheap + clever: `gemini-flash-latest` or `gpt-4.1-mini`
 
 
 ### OpenAI [example](https://github.com/browser-use/browser-use/blob/main/examples/models/gpt-4.1.py)
@@ -104,7 +104,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Initialize the model
-llm = ChatGoogle(model='gemini-2.5-flash')
+llm = ChatGoogle(model='gemini-flash-latest')
 
 # Create agent with the model
 agent = Agent(

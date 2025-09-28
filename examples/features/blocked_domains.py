@@ -17,13 +17,13 @@ llm = ChatOpenAI(model='gpt-4o-mini')
 task = 'Navigate to example.com, then try to go to x.com, then facebook.com, and finally visit google.com. Tell me which sites you were able to access.'
 
 prohibited_domains = [
-	'x.com',                         # Block X (formerly Twitter) - "locked the f in" 
-	'twitter.com',                   # Block Twitter (redirects to x.com anyway)
-	'facebook.com',                  # Lock the F in Facebook too
-	'*.meta.com',                    # Block all Meta properties
-	'*.adult-site.com',              # Block all subdomains of adult sites
+	'x.com',  # Block X (formerly Twitter) - "locked the f in"
+	'twitter.com',  # Block Twitter (redirects to x.com anyway)
+	'facebook.com',  # Lock the F in Facebook too
+	'*.meta.com',  # Block all Meta properties
+	'*.adult-site.com',  # Block all subdomains of adult sites
 	'https://explicit-content.org',  # Block specific protocol/domain
-	'gambling-site.net',             # Block gambling sites
+	'gambling-site.net',  # Block gambling sites
 ]
 
 browser_session = BrowserSession(
@@ -43,7 +43,7 @@ agent = Agent(
 
 async def main():
 	print('Demo: Blocked Domains Feature - "Lock the F in" Edition')
-	print('We\'re literally locking the F in Facebook and X!')
+	print("We're literally locking the F in Facebook and X!")
 	print(f'Prohibited domains: {prohibited_domains}')
 	print('The agent will try to visit various sites, but blocked domains will be prevented.')
 	print()
