@@ -732,7 +732,10 @@ class DomService:
 
 		start = time.time()
 		serialized_dom_state, serializer_timing = DOMTreeSerializer(
-			enhanced_dom_tree, previous_cached_state, paint_order_filtering=self.paint_order_filtering, element_detector=self.element_detector
+			enhanced_dom_tree,
+			previous_cached_state,
+			paint_order_filtering=self.paint_order_filtering,
+			element_detector=self.element_detector,
 		).serialize_accessible_elements()
 
 		end = time.time()

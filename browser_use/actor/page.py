@@ -375,7 +375,10 @@ class Page:
 		enhanced_dom_tree = await dom_service.get_dom_tree(target_id=self._target_id)
 
 		serialized_dom_state, _ = DOMTreeSerializer(
-			enhanced_dom_tree, None, paint_order_filtering=True, element_detector=self._browser_session.browser_profile.element_detector
+			enhanced_dom_tree,
+			None,
+			paint_order_filtering=True,
+			element_detector=self._browser_session.browser_profile.element_detector,
 		).serialize_accessible_elements()
 
 		llm_representation = serialized_dom_state.llm_representation()

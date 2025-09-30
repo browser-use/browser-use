@@ -5,7 +5,7 @@ from browser_use.dom.views import EnhancedDOMTreeNode, NodeType
 
 class ElementDetector(ABC):
 	"""Abstract base class for element detection strategies."""
-	
+
 	@abstractmethod
 	def is_interactive(self, node: EnhancedDOMTreeNode) -> bool:
 		"""Check if this node is interactive/clickable."""

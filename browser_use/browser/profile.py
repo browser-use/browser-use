@@ -629,7 +629,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		default=True, description='Only show element IDs in highlights if llm_representation is less than 10 characters.'
 	)
 	paint_order_filtering: bool = Field(default=True, description='Enable paint order filtering. Slightly experimental.')
-	element_detector: 'ElementDetector | None' = Field(default=None, description='Custom element detector for interactive element detection.')
+	element_detector: 'ElementDetector | None' = Field(
+		default=None, description='Custom element detector for interactive element detection.'
+	)
 
 	# --- Downloads ---
 	auto_download_pdfs: bool = Field(default=True, description='Automatically download PDFs when navigating to PDF viewer pages.')
