@@ -360,7 +360,7 @@ class Page:
 	@property
 	def dom_service(self) -> 'DomService':
 		"""Get the DOM service for this target."""
-		return DomService(self._browser_session)
+		return DomService(self._browser_session, element_detector=self._browser_session.browser_profile.element_detector)
 
 	async def get_element_by_prompt(self, prompt: str, llm: 'BaseChatModel | None' = None) -> 'Element | None':
 		"""Get an element by a prompt."""
@@ -375,7 +375,7 @@ class Page:
 		enhanced_dom_tree = await dom_service.get_dom_tree(target_id=self._target_id)
 
 		serialized_dom_state, _ = DOMTreeSerializer(
-			enhanced_dom_tree, None, paint_order_filtering=True
+			enhanced_dom_tree, None, paint_order_filtering=True, element_detector=self._browser_session.browser_profile.element_detector
 		).serialize_accessible_elements()
 
 		llm_representation = serialized_dom_state.llm_representation()

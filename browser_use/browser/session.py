@@ -46,6 +46,7 @@ from browser_use.utils import _log_pretty_url, is_new_tab_page
 
 if TYPE_CHECKING:
 	from browser_use.actor.page import Page
+	from browser_use.dom.serializer.clickable_elements import ElementDetector
 
 DEFAULT_BROWSER_PROFILE = BrowserProfile()
 
@@ -277,6 +278,7 @@ class BrowserSession(BaseModel):
 		cross_origin_iframes: bool | None = None,
 		highlight_elements: bool | None = None,
 		paint_order_filtering: bool | None = None,
+		element_detector: 'ElementDetector | None' = None,
 		# Iframe processing limits
 		max_iframes: int | None = None,
 		max_iframe_depth: int | None = None,

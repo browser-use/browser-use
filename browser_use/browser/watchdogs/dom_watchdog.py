@@ -362,6 +362,7 @@ class DOMWatchdog(BaseWatchdog):
 					logger=self.logger,
 					cross_origin_iframes=self.browser_session.browser_profile.cross_origin_iframes,
 					paint_order_filtering=self.browser_session.browser_profile.paint_order_filtering,
+					element_detector=self.browser_session.browser_profile.element_detector,
 					max_iframes=self.browser_session.browser_profile.max_iframes,
 					max_iframe_depth=self.browser_session.browser_profile.max_iframe_depth,
 				)

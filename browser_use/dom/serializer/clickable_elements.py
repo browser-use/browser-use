@@ -1,9 +1,19 @@
+from abc import ABC, abstractmethod
+
 from browser_use.dom.views import EnhancedDOMTreeNode, NodeType
 
 
-class ClickableElementDetector:
-	@staticmethod
-	def is_interactive(node: EnhancedDOMTreeNode) -> bool:
+class ElementDetector(ABC):
+	"""Abstract base class for element detection strategies."""
+	
+	@abstractmethod
+	def is_interactive(self, node: EnhancedDOMTreeNode) -> bool:
+		"""Check if this node is interactive/clickable."""
+		pass
+
+
+class ClickableElementDetector(ElementDetector):
+	def is_interactive(self, node: EnhancedDOMTreeNode) -> bool:
 		"""Check if this node is clickable/interactive using enhanced scoring."""
 
 		# Skip non-element nodes

@@ -27,6 +27,7 @@ from browser_use.observability import observe_debug
 
 if TYPE_CHECKING:
 	from browser_use.browser.session import BrowserSession
+	from browser_use.dom.serializer.clickable_elements import ElementDetector
 
 # Note: iframe limits are now configurable via BrowserProfile.max_iframes and BrowserProfile.max_iframe_depth
 
@@ -48,6 +49,7 @@ class DomService:
 		logger: logging.Logger | None = None,
 		cross_origin_iframes: bool = False,
 		paint_order_filtering: bool = True,
+		element_detector: 'ElementDetector | None' = None,
 		max_iframes: int = 100,
 		max_iframe_depth: int = 5,
 	):
@@ -55,6 +57,7 @@ class DomService:
 		self.logger = logger or browser_session.logger
 		self.cross_origin_iframes = cross_origin_iframes
 		self.paint_order_filtering = paint_order_filtering
+		self.element_detector = element_detector
 		self.max_iframes = max_iframes
 		self.max_iframe_depth = max_iframe_depth
 
@@ -729,7 +732,7 @@ class DomService:
 
 		start = time.time()
 		serialized_dom_state, serializer_timing = DOMTreeSerializer(
-			enhanced_dom_tree, previous_cached_state, paint_order_filtering=self.paint_order_filtering
+			enhanced_dom_tree, previous_cached_state, paint_order_filtering=self.paint_order_filtering, element_detector=self.element_detector
 		).serialize_accessible_elements()
 
 		end = time.time()
