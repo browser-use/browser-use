@@ -12,8 +12,7 @@ from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field,
 from browser_use.config import CONFIG
 from browser_use.utils import _log_pretty_path, logger
 
-if TYPE_CHECKING:
-	from browser_use.dom.serializer.clickable_elements import ElementDetector
+from browser_use.dom.serializer.clickable_elements import ElementDetector
 
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
 CHROME_DISABLED_COMPONENTS = [
