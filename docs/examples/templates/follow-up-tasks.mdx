@@ -26,9 +26,9 @@ async def main():
 	await browser.start()
 
 	agent = Agent(task='search for browser-use.', browser_session=browser)
-	await agent.run(max_steps=2)
+	await agent.run(max_steps=2, close_after_run=False)
 	agent.add_new_task('return the title of first result')
-	await agent.run()
+	await agent.run(close_after_run=False)
 
 	await browser.kill()
 
@@ -37,12 +37,13 @@ asyncio.run(main())
 
 ## How It Works
 
-1. **Persistent Browser**: `BrowserProfile(keep_alive=True)` prevents browser from closing between tasks
+1. **Persistent Browser**: `Browser(keep_alive=True)` prevents browser from closing between tasks
 2. **Task Chaining**: Use `agent.add_new_task()` to add follow-up tasks
-3. **Context Preservation**: Agent maintains memory and browser state across tasks
-4. **Interactive Flow**: Perfect for conversational interfaces 
-5. **Break down long flows**: If you have very long flows, you can keep the browser alive and send new agents to it.
+3. **Browser Lifecycle Control**: Use `close_after_run=False` to prevent the agent from closing the browser after each run
+4. **Context Preservation**: Agent maintains memory and browser state across tasks
+5. **Interactive Flow**: Perfect for conversational interfaces 
+6. **Break down long flows**: If you have very long flows, you can keep the browser alive and send new agents to it.
 
 <Note>
-The browser session remains active throughout the entire chain, preserving all cookies, local storage, and page state.
+When using `keep_alive=True` browsers, always set `close_after_run=False` in your `agent.run()` calls to prevent premature browser closure.
 </Note>

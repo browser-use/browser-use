@@ -49,6 +49,15 @@ mode: "wide"
 - `calculate_cost` (default: `False`): Calculate and track API costs
 - `display_files_in_done_text` (default: `True`): Show file information in completion messages
 
+### Run Method Parameters
+
+The `run()` method accepts the following parameters:
+
+- `max_steps` (default: `100`): Maximum number of steps the agent can take
+- `close_after_run` (default: `True`): Whether to close the browser after the agent completes. Set to `False` when using `keep_alive=True` browsers or when manually managing browser lifecycle
+- `on_step_start`: Hook function called at the beginning of each step. See [Lifecycle Hooks](/customize/hooks)
+- `on_step_end`: Hook function called at the end of each step. See [Lifecycle Hooks](/customize/hooks)
+
 ### Backwards Compatibility
 - `controller`: Alias for `tools` for backwards compatibility.
 - `browser_session`: Alias for `browser` for backwards compatibility.

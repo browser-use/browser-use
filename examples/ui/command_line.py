@@ -88,7 +88,7 @@ async def main():
 	args = parse_arguments()
 	agent, browser_session = initialize_agent(args.query, args.provider)
 
-	await agent.run(max_steps=25)
+	await agent.run(max_steps=25, close_after_run=False)
 
 	input('Press Enter to close the browser...')
 	await browser_session.kill()
