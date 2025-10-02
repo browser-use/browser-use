@@ -203,7 +203,7 @@ class TestBrowserSessionReusePatterns:
 				browser_session=reused_session,
 				# Disable memory for tests
 			)
-			await agent1.run()
+			await agent1.run(close_after_run=False)
 
 			# Verify session is still alive
 			assert reused_session._cdp_client_root is not None
@@ -215,7 +215,7 @@ class TestBrowserSessionReusePatterns:
 				browser_session=reused_session,
 				# Disable memory for tests
 			)
-			await agent2.run()
+			await agent2.run(close_after_run=False)
 
 			# Verify same browser was used (using __eq__ to check browser_pid, cdp_url)
 			assert agent1.browser_session == agent2.browser_session

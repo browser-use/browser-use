@@ -1406,6 +1406,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_steps: int = 100,
 		on_step_start: AgentHookFunc | None = None,
 		on_step_end: AgentHookFunc | None = None,
+		close_after_run: bool = True,
 	) -> AgentHistoryList[AgentStructuredOutput]:
 		"""Execute the task with maximum number of steps"""
 
@@ -1623,7 +1624,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Use longer timeout to avoid deadlocks in tests with multiple agents
 			await self.eventbus.stop(timeout=3.0)
 
-			await self.close()
+			if close_after_run:
+				await self.close()
 
 	@observe_debug(ignore_input=True, ignore_output=True)
 	@time_execution_async('--multi_act')
@@ -2178,8 +2180,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_steps: int = 100,
 		on_step_start: AgentHookFunc | None = None,
 		on_step_end: AgentHookFunc | None = None,
+		close_after_run: bool = True,
 	) -> AgentHistoryList[AgentStructuredOutput]:
 		"""Synchronous wrapper around the async run method for easier usage without asyncio."""
 		import asyncio
 
-		return asyncio.run(self.run(max_steps=max_steps, on_step_start=on_step_start, on_step_end=on_step_end))
+		return asyncio.run(self.run(max_steps=max_steps, on_step_start=on_step_start, on_step_end=on_step_end, close_after_run=close_after_run))

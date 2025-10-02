@@ -24,4 +24,7 @@ async def main():
 
 The agent is executed using the async `run()` method:
 
-- `max_steps` (default: `100`): Maximum number of steps an agent can take.
+- `max_steps` (default: `100`): Maximum number of steps an agent can take
+- `close_after_run` (default: `True`): Whether to close the browser after the agent completes
+- `on_step_start`: Hook function called at the beginning of each step
+- `on_step_end`: Hook function called at the end of each step
