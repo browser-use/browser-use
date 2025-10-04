@@ -91,3 +91,32 @@ class CLITelemetryEvent(BaseTelemetryEvent):
 	error_message: str | None = None
 
 	name: str = 'cli_event'
+
+
+@dataclass
+class LLMCallTelemetryEvent(BaseTelemetryEvent):
+	"""Telemetry event for individual LLM calls"""
+
+	# Session context
+	session_id: str  # Links to agent.session_id
+	task_id: str
+	step_number: int  # Which step in the agent flow
+
+	# LLM details
+	model: str
+	model_provider: str
+
+	# Call data (serialized for transmission)
+	input_messages: str  # JSON serialized messages
+	output_response: str  # JSON serialized response
+
+	# Metrics
+	prompt_tokens: int
+	completion_tokens: int
+	total_tokens: int
+	duration_ms: float
+
+	# Optional
+	error_message: str | None = None
+
+	name: str = 'llm_call_event'

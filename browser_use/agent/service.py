@@ -62,7 +62,7 @@ from browser_use.filesystem.file_system import FileSystem
 from browser_use.observability import observe, observe_debug
 from browser_use.sync import CloudSync
 from browser_use.telemetry.service import ProductTelemetry
-from browser_use.telemetry.views import AgentTelemetryEvent
+from browser_use.telemetry.views import AgentTelemetryEvent, LLMCallTelemetryEvent
 from browser_use.tools.registry.views import ActionModel
 from browser_use.tools.service import Tools
 from browser_use.utils import (
@@ -1183,8 +1183,41 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
 
 		try:
+			# Capture start time for duration measurement
+			start_time = time.time()
+
 			response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
 			parsed = response.completion
+
+			try:
+				# Calculate duration
+				duration_ms = (time.time() - start_time) * 1000
+				# Serialize messages (only text content, no truncation)
+				serialized_messages = json.dumps(
+					[{'role': msg.__class__.__name__, 'content': msg.text} for msg in input_messages]
+				)
+				# Serialize response (full content)
+				serialized_response = json.dumps(parsed.model_dump(exclude_none=True))
+
+				# Send telemetry event (async but non-blocking)
+				self.telemetry.capture(
+					LLMCallTelemetryEvent(
+						session_id=self.session_id,
+						task_id=self.task_id,
+						step_number=self.state.n_steps,
+						model=self.llm.model,
+						model_provider=self.llm.provider,
+						input_messages=serialized_messages,
+						output_response=serialized_response,
+						prompt_tokens=response.usage.prompt_tokens if response.usage else 0,
+						completion_tokens=response.usage.completion_tokens if response.usage else 0,
+						total_tokens=response.usage.total_tokens if response.usage else 0,
+						duration_ms=duration_ms,
+					)
+				)
+			except Exception as e:
+				# Log error but don't fail the main flow
+				self.logger.debug(f'Failed to capture LLM call telemetry: {e}')
 
 			# Replace any shortened URLs in the LLM response back to original URLs
 			if urls_replaced:

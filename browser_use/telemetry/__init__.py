@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 	from browser_use.telemetry.views import (
 		BaseTelemetryEvent,
 		CLITelemetryEvent,
+		LLMCallTelemetryEvent,
 		MCPClientTelemetryEvent,
 		MCPServerTelemetryEvent,
 	)
@@ -19,6 +20,7 @@ _LAZY_IMPORTS = {
 	'ProductTelemetry': ('browser_use.telemetry.service', 'ProductTelemetry'),
 	'BaseTelemetryEvent': ('browser_use.telemetry.views', 'BaseTelemetryEvent'),
 	'CLITelemetryEvent': ('browser_use.telemetry.views', 'CLITelemetryEvent'),
+	'LLMCallTelemetryEvent': ('browser_use.telemetry.views', 'LLMCallTelemetryEvent'),
 	'MCPClientTelemetryEvent': ('browser_use.telemetry.views', 'MCPClientTelemetryEvent'),
 	'MCPServerTelemetryEvent': ('browser_use.telemetry.views', 'MCPServerTelemetryEvent'),
 }
@@ -46,6 +48,7 @@ __all__ = [
 	'BaseTelemetryEvent',
 	'ProductTelemetry',
 	'CLITelemetryEvent',
+	'LLMCallTelemetryEvent',
 	'MCPClientTelemetryEvent',
 	'MCPServerTelemetryEvent',
 ]
