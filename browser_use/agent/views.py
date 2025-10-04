@@ -149,15 +149,15 @@ class AgentBrain(BaseModel):
 class AgentOutput(BaseModel):
 	model_config = ConfigDict(arbitrary_types_allowed=True, extra='forbid')
 
-	thinking: str | None = None
-	evaluation_previous_goal: str | None = None
-	memory: str | None = None
-	next_goal: str | None = None
 	action: list[ActionModel] = Field(
 		...,
 		description='List of actions to execute',
 		json_schema_extra={'min_items': 1},  # Ensure at least one action is provided
 	)
+	thinking: str | None = None
+	evaluation_previous_goal: str | None = None
+	memory: str | None = None
+	next_goal: str | None = None
 
 	@classmethod
 	def model_json_schema(cls, **kwargs):
