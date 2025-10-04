@@ -92,7 +92,8 @@ from browser_use import ActionModel, Agent
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.config import get_default_llm, get_default_profile, load_browser_use_config
 from browser_use.filesystem.file_system import FileSystem
-from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use.llm.base import BaseChatModel
+from browser_use.llm.registry import create_chat_model_from_string
 from browser_use.tools.service import Tools
 
 logger = logging.getLogger(__name__)
@@ -194,7 +195,7 @@ class BrowserUseServer:
 		self.agent: Agent | None = None
 		self.browser_session: BrowserSession | None = None
 		self.tools: Tools | None = None
-		self.llm: ChatOpenAI | None = None
+		self.llm: BaseChatModel | None = None
 		self.file_system: FileSystem | None = None
 		self._telemetry = ProductTelemetry()
 		self._start_time = time.time()
@@ -551,12 +552,11 @@ class BrowserUseServer:
 
 		# Initialize LLM from config
 		llm_config = get_default_llm(self.config)
-		if api_key := llm_config.get('api_key'):
-			self.llm = ChatOpenAI(
-				model=llm_config.get('model', 'gpt-4o-mini'),
-				api_key=api_key,
+		if model_name := llm_config.get('model'):
+			self.llm = create_chat_model_from_string(
+				model=model_name,
+				config=llm_config,
 				temperature=llm_config.get('temperature', 0.7),
-				# max_tokens=llm_config.get('max_tokens'),
 			)
 
 		# Initialize FileSystem for extraction actions
@@ -578,21 +578,18 @@ class BrowserUseServer:
 
 		# Get LLM config
 		llm_config = get_default_llm(self.config)
-		api_key = llm_config.get('api_key') or os.getenv('OPENAI_API_KEY')
-		if not api_key:
-			return 'Error: OPENAI_API_KEY not set in config or environment'
 
-		# Override model if provided in tool call
-		if model != llm_config.get('model', 'gpt-4o'):
-			llm_model = model
-		else:
-			llm_model = llm_config.get('model', 'gpt-4o')
+		# Use model from tool parameter if provided, otherwise use config model
+		llm_model = model if model != 'gpt-4o' else llm_config.get('model', 'gpt-4o')
 
-		llm = ChatOpenAI(
-			model=llm_model,
-			api_key=api_key,
-			temperature=llm_config.get('temperature', 0.7),
-		)
+		try:
+			llm = create_chat_model_from_string(
+				model=llm_model,
+				config=llm_config,
+				temperature=llm_config.get('temperature', 0.7),
+			)
+		except ValueError as e:
+			return f'Error creating LLM: {str(e)}'
 
 		# Get profile config and merge with tool parameters
 		profile_config = get_default_profile(self.config)
