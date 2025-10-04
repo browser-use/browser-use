@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from browser_use.dom.serializer.clickable_elements import ClickableElementDetector
+from browser_use.dom.serializer.clickable_elements import ClickableElementDetector, ElementDetector
 from browser_use.dom.serializer.paint_order import PaintOrderRemover
 from browser_use.dom.utils import cap_text_length
 from browser_use.dom.views import (
@@ -22,7 +22,7 @@ class DOMTreeSerializer:
 	"""Serializes enhanced DOM trees to string format."""
 
 	# Configuration - elements that propagate bounds to their children
-	PROPAGATING_ELEMENTS = [
+	PROPAGATING_ELEMENTS: list[dict[str, str | None]] = [
 		{'tag': 'a', 'role': None},  # Any <a> tag
 		{'tag': 'button', 'role': None},  # Any <button> tag
 		{'tag': 'div', 'role': 'button'},  # <div role="button">
@@ -43,6 +43,7 @@ class DOMTreeSerializer:
 		enable_bbox_filtering: bool = True,
 		containment_threshold: float | None = None,
 		paint_order_filtering: bool = True,
+		element_detector: ElementDetector | None = None,
 	):
 		self.root_node = root_node
 		self._interactive_counter = 1
@@ -57,6 +58,8 @@ class DOMTreeSerializer:
 		self.containment_threshold = containment_threshold or self.DEFAULT_CONTAINMENT_THRESHOLD
 		# Paint order filtering configuration
 		self.paint_order_filtering = paint_order_filtering
+		# Element detector configuration
+		self.element_detector: ElementDetector = element_detector or ClickableElementDetector()
 
 	def _safe_parse_number(self, value_str: str, default: float) -> float:
 		"""Parse string to float, handling negatives and decimals."""
@@ -410,7 +413,7 @@ class DOMTreeSerializer:
 			import time
 
 			start_time = time.time()
-			result = ClickableElementDetector.is_interactive(node)
+			result = self.element_detector.is_interactive(node)
 			end_time = time.time()
 
 			if 'clickable_detection_time' not in self.timing_info:
