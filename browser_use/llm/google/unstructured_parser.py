@@ -51,15 +51,20 @@ class UnstructuredOutputParser:
 		action_text = action_match.group(1).strip()
 
 		# Parse actions
-		actions = UnstructuredOutputParser._parse_actions(action_text, output_format)
+		actions, debug_info = UnstructuredOutputParser._parse_actions(action_text, output_format)
 
 		if not actions:
-			raise ValueError('No valid actions parsed from action section')
+			# Provide helpful debug info
+			action_preview = action_text[:200] + ('...' if len(action_text) > 200 else '')
+			error_msg = f'No valid actions parsed from action section. Action text preview: {action_preview}'
+			if debug_info:
+				error_msg += f'. Debug: {debug_info}'
+			raise ValueError(error_msg)
 
 		return {'memory': memory, 'action': actions}
 
 	@staticmethod
-	def _parse_actions(action_text: str, output_format: type[BaseModel]) -> list[BaseModel]:
+	def _parse_actions(action_text: str, output_format: type[BaseModel]) -> tuple[list[BaseModel], str]:
 		"""
 		Parse action function calls from text.
 
@@ -73,7 +78,7 @@ class UnstructuredOutputParser:
 			output_format: The AgentOutput class (not ActionModel)
 
 		Returns:
-			List of action model instances
+			Tuple of (list of action model instances, debug info string)
 		"""
 		actions = []
 
@@ -116,6 +121,7 @@ class UnstructuredOutputParser:
 		# Parse function calls by finding action_name( and then matching parentheses
 		# This approach handles nested parentheses and multiline strings properly
 		actions_parsed = []
+		skipped_actions = []  # Track what we skip for debugging
 		i = 0
 		while i < len(action_text):
 			# Skip whitespace
@@ -133,7 +139,9 @@ class UnstructuredOutputParser:
 			action_name = match.group(1)
 			# Check if this is a valid action
 			if action_name not in action_schemas:
-				i += 1
+				skipped_actions.append(action_name)
+				# Skip past the entire action name to avoid re-matching substrings
+				i += match.end()
 				continue
 
 			# Find the opening parenthesis position
@@ -181,6 +189,7 @@ class UnstructuredOutputParser:
 				# No matching parenthesis found, skip this
 				i += 1
 
+		failed_actions = []  # Track parse/validation failures
 		for action_name, args_str in actions_parsed:
 			try:
 
@@ -200,12 +209,21 @@ class UnstructuredOutputParser:
 				action_instance = action_model.model_validate(action_data)
 				actions.append(action_instance)
 
-			except (ValueError, ValidationError):
+			except (ValueError, ValidationError) as e:
 				# Log but don't fail on individual action parsing errors
 				# The LLM might have included invalid actions
+				failed_actions.append((action_name, str(e)[:100]))
 				continue
 
-		return actions
+		# Build debug info about what failed
+		debug_parts = []
+		if skipped_actions:
+			debug_parts.append(f'Skipped (not in schema): {", ".join(set(skipped_actions))}')
+		if failed_actions:
+			debug_parts.append(f'Failed to parse: {", ".join(f"{name}({err})" for name, err in failed_actions[:3])}')
+		debug_info = '; '.join(debug_parts) if debug_parts else ''
+
+		return actions, debug_info
 
 	@staticmethod
 	def _parse_args_for_action(args_str: str, _action_name: str, param_type: Any) -> dict[str, Any] | None:
