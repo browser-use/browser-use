@@ -100,12 +100,19 @@ class UnstructuredOutputParser:
 			raise ValueError('Python version does not support typing.get_args')
 
 		# Get all available action fields from the ActionModel
-		# The ActionModel uses a discriminated union with anyOf structure
-		# Each action is defined in $defs and referenced via anyOf
-		# We need to extract action names from the $defs
+		# The ActionModel can have two structures:
+		# 1. Full model: actions in $defs with names ending in 'ActionModel'
+		# 2. Filtered model (include_actions): actions in root 'properties' with params in $defs
 		schema = action_model.model_json_schema()
 		action_schemas = {}
 
+		# First, check root-level properties (for filtered models like DoneActionModel)
+		if 'properties' in schema:
+			for prop_name, prop_schema in schema['properties'].items():
+				# Store the action name and its parameter structure
+				action_schemas[prop_name] = prop_schema
+
+		# Then, check $defs for full action models (for complete models)
 		if '$defs' in schema:
 			# Extract action names and their schemas from $defs
 			# Only process definitions ending with 'ActionModel' (e.g., 'DoneActionModel', 'ClickActionModel')
@@ -116,6 +123,7 @@ class UnstructuredOutputParser:
 				if def_name.endswith('ActionModel') and 'properties' in def_schema:
 					for prop_name, prop_schema in def_schema['properties'].items():
 						# Store the action name and its parameter structure
+						# This will override any root-level definition if present
 						action_schemas[prop_name] = prop_schema
 
 		# Parse function calls by finding action_name( and then matching parentheses
