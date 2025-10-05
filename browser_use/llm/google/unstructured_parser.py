@@ -103,10 +103,12 @@ class UnstructuredOutputParser:
 
 		if '$defs' in schema:
 			# Extract action names and their schemas from $defs
+			# Only process definitions ending with 'ActionModel' (e.g., 'DoneActionModel', 'ClickActionModel')
+			# to avoid extracting parameter models as actions
 			for def_name, def_schema in schema['$defs'].items():
 				# Each def like 'DoneActionModel' has properties that contain the action
 				# e.g., {'properties': {'done': {...}}}
-				if 'properties' in def_schema:
+				if def_name.endswith('ActionModel') and 'properties' in def_schema:
 					for prop_name, prop_schema in def_schema['properties'].items():
 						# Store the action name and its parameter structure
 						action_schemas[prop_name] = prop_schema
