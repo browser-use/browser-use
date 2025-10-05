@@ -113,19 +113,76 @@ class UnstructuredOutputParser:
 						# Store the action name and its parameter structure
 						action_schemas[prop_name] = prop_schema
 
-		# Pattern to match function calls: name(args)
-		# This matches function_name(...) including nested parentheses
-		pattern = r'(\w+)\s*\(((?:[^()]|\([^()]*\))*)\)'
+		# Parse function calls by finding action_name( and then matching parentheses
+		# This approach handles nested parentheses and multiline strings properly
+		actions_parsed = []
+		i = 0
+		while i < len(action_text):
+			# Skip whitespace
+			while i < len(action_text) and action_text[i].isspace():
+				i += 1
+			if i >= len(action_text):
+				break
 
-		for match in re.finditer(pattern, action_text):
+			# Try to match an action name
+			match = re.match(r'(\w+)\s*\(', action_text[i:])
+			if not match:
+				i += 1
+				continue
+
 			action_name = match.group(1)
-			args_str = match.group(2).strip()
+			# Check if this is a valid action
+			if action_name not in action_schemas:
+				i += 1
+				continue
 
-			try:
-				# Check if this action exists in the model
-				if action_name not in action_schemas:
-					# Try to find it with common variations
+			# Find the opening parenthesis position
+			paren_start = i + match.end() - 1  # Position of '('
+
+			# Count parentheses to find the matching closing parenthesis
+			depth = 1
+			j = paren_start + 1
+			in_string = False
+			string_char = None
+			escape_next = False
+
+			while j < len(action_text) and depth > 0:
+				char = action_text[j]
+
+				if escape_next:
+					escape_next = False
+					j += 1
 					continue
+
+				if char == '\\':
+					escape_next = True
+					j += 1
+					continue
+
+				if char in ('"', "'") and not in_string:
+					in_string = True
+					string_char = char
+				elif char == string_char and in_string:
+					in_string = False
+					string_char = None
+				elif char == '(' and not in_string:
+					depth += 1
+				elif char == ')' and not in_string:
+					depth -= 1
+
+				j += 1
+
+			if depth == 0:
+				# Found matching closing parenthesis
+				args_str = action_text[paren_start + 1:j - 1].strip()
+				actions_parsed.append((action_name, args_str))
+				i = j
+			else:
+				# No matching parenthesis found, skip this
+				i += 1
+
+		for action_name, args_str in actions_parsed:
+			try:
 
 				# Get the schema for this action
 				action_schema = action_schemas[action_name]
