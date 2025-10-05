@@ -34,7 +34,11 @@ class SystemPrompt:
 			prompt = override_system_message
 		else:
 			self._load_prompt_template()
-			prompt = self.prompt_template.format(max_actions=self.max_actions_per_step)
+			# Format template with available parameters
+			# Not all templates use all parameters - that's ok, format will ignore unused ones
+			prompt = self.prompt_template.format(
+				max_actions=self.max_actions_per_step, action_description=self.default_action_description
+			)
 
 		if extend_system_message:
 			prompt += f'\n{extend_system_message}'
@@ -45,9 +49,8 @@ class SystemPrompt:
 		"""Load the prompt template from the markdown file."""
 		try:
 			# Choose the appropriate template based on flash_mode and use_thinking settings
-			if self.flash_mode and self.use_unstructured_output:
-				template_filename = 'system_prompt_flash_unstructured.md'
-			elif self.flash_mode:
+			# Flash mode always uses unstructured output for token efficiency
+			if self.flash_mode:
 				template_filename = 'system_prompt_flash.md'
 			elif self.use_thinking:
 				template_filename = 'system_prompt.md'

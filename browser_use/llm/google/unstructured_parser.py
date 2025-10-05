@@ -149,7 +149,7 @@ class UnstructuredOutputParser:
 		return actions
 
 	@staticmethod
-	def _parse_args_for_action(args_str: str, action_name: str, param_type: Any) -> dict[str, Any] | None:
+	def _parse_args_for_action(args_str: str, _action_name: str, param_type: Any) -> dict[str, Any] | None:
 		"""
 		Parse function arguments for a specific action.
 
@@ -216,33 +216,20 @@ class UnstructuredOutputParser:
 		# Otherwise parse as positional args and map to known param names
 		args_list = UnstructuredOutputParser._split_args(args_str)
 
-		# Map common action names to their parameter schemas
-		param_schemas = {
-			'done': ['text', 'success'],
-			'search': ['query', 'engine'],
-			'navigate': ['url', 'new_tab'],
-			'go_back': [],
-			'wait': ['seconds'],
-			'click': ['index', 'ctrl'],
-			'input': ['index', 'text', 'clear'],
-			'upload_file': ['index', 'path'],
-			'switch': ['tab_id'],
-			'close': ['tab_id'],
-			'extract': ['query', 'extract_links', 'start_from_char'],
-			'scroll': ['down', 'pages', 'index'],
-			'send_keys': ['keys'],
-			'find_text': ['text'],
-			'screenshot': [],
-			'dropdown_options': ['index'],
-			'select_dropdown': ['index', 'text'],
-			'write_file': ['file_name', 'content', 'append', 'trailing_newline', 'leading_newline'],
-			'replace_file': ['file_name', 'old_str', 'new_str'],
-			'read_file': ['file_name'],
-			'evaluate': ['code'],
-		}
+		# Extract parameter names from the schema
+		param_names: list[str] = []
+		if isinstance(param_type, dict):
+			# param_type is a schema dict with 'properties'
+			if 'properties' in param_type:
+				param_names = list(param_type['properties'].keys())
+			elif 'anyOf' in param_type:
+				# Handle anyOf schemas by taking the first option's properties
+				for option in param_type['anyOf']:
+					if isinstance(option, dict) and 'properties' in option:
+						param_names = list(option['properties'].keys())
+						break
 
 		params: dict[str, Any] = {}
-		param_names = param_schemas.get(action_name, [])
 
 		# Map positional arguments to parameter names
 		for i, arg in enumerate(args_list):
@@ -252,100 +239,6 @@ class UnstructuredOutputParser:
 			else:
 				# Extra args beyond expected - try to include them
 				params[f'arg_{i}'] = UnstructuredOutputParser._parse_value(arg.strip())
-
-		return params if params else None
-
-	@staticmethod
-	def _parse_args(args_str: str) -> dict[str, Any] | None:
-		"""
-		Parse function arguments from string.
-
-		Handles various formats:
-		- Empty: "" -> {}
-		- Single value: "url" -> first positional param
-		- Named params: url="value", index=5
-		- Positional: "value1", 5, true
-
-		Args:
-			args_str: String containing arguments
-
-		Returns:
-			Dictionary of parsed arguments or None for no-param actions
-		"""
-		if not args_str:
-			return None
-
-		params: dict[str, Any] = {}
-
-		# Try to parse as JSON-like format first (most common)
-		# Example: {"url": "value", "index": 5}
-		if args_str.strip().startswith('{'):
-			try:
-				import json
-
-				return json.loads(args_str)
-			except json.JSONDecodeError:
-				pass
-
-		# Split by commas, but respect quotes and nested structures
-		args_list = UnstructuredOutputParser._split_args(args_str)
-
-		# Determine if we have named or positional arguments
-		if '=' in args_str:
-			# Named arguments: name=value
-			for arg in args_list:
-				if '=' in arg:
-					key, value = arg.split('=', 1)
-					params[key.strip()] = UnstructuredOutputParser._parse_value(value.strip())
-		else:
-			# Positional arguments - we need to map to param names
-			# Common patterns for tool actions
-			param_names_map = {
-				'navigate': ['url'],
-				'click': ['index'],
-				'input': ['index', 'text', 'clear'],
-				'scroll': ['down', 'pages', 'index'],
-				'search': ['query', 'engine'],
-				'extract': ['query', 'extract_links', 'start_from_char'],
-				'done': ['text', 'success'],
-				'switch': ['tab_id'],
-				'close': ['tab_id'],
-				'upload_file': ['index', 'path'],
-				'send_keys': ['keys'],
-				'find_text': ['text'],
-				'screenshot': [],
-				'dropdown_options': ['index'],
-				'select_dropdown': ['index', 'text'],
-				'write_file': ['file_name', 'content', 'append', 'trailing_newline', 'leading_newline'],
-				'replace_file': ['file_name', 'old_str', 'new_str'],
-				'read_file': ['file_name'],
-				'evaluate': ['code'],
-				'go_back': [],
-				'wait': ['seconds'],
-			}
-
-			# Try to infer action name from context (not available here, so use generic mapping)
-			# For now, we'll use index-based mapping
-			for i, arg in enumerate(args_list):
-				value = UnstructuredOutputParser._parse_value(arg.strip())
-				# Use generic param names
-				if i == 0:
-					# First param could be index, url, query, text, etc.
-					# Try to infer from value type
-					if isinstance(value, str) and (value.startswith('http') or '://' in value):
-						params['url'] = value
-					elif isinstance(value, int):
-						params['index'] = value
-					elif isinstance(value, str):
-						# Could be text, query, file_name, etc.
-						# Use generic 'text' for now
-						params['text'] = value
-					else:
-						params[f'param_{i}'] = value
-				elif i == 1:
-					params['text'] = value if isinstance(value, str) else f'param_{i}'
-				else:
-					params[f'param_{i}'] = value
 
 		return params if params else None
 

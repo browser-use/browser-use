@@ -342,10 +342,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.warning('⚠️ XAI models do not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
 
-		# Enable unstructured output for Gemini models in flash mode
-		if flash_mode and isinstance(self.llm, ChatGoogle):
-			self.logger.info('📝 Enabling unstructured output mode for Gemini in flash mode')
-			self.llm.use_unstructured_output = True
+		# Enable unstructured output for all models in flash mode
+		if flash_mode:
+			self.logger.info('📝 Enabling unstructured output mode for flash mode')
+			if hasattr(self.llm, 'use_unstructured_output'):
+				self.llm.use_unstructured_output = True
 
 		logger.debug(
 			f'{" +vision" if self.settings.use_vision else ""}'
@@ -357,8 +358,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# These will be used for the system prompt to maintain caching
 		self.unfiltered_actions = self.tools.registry.get_prompt_description()
 
-		# Determine if unstructured output is being used
-		use_unstructured_output = flash_mode and isinstance(self.llm, ChatGoogle) and self.llm.use_unstructured_output
+		# Flash mode always uses unstructured output
+		use_unstructured_output = flash_mode
 
 		# Initialize message manager with state
 		# Initial system prompt with all actions - will be updated during each step
