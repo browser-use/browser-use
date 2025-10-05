@@ -342,6 +342,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.warning('⚠️ XAI models do not support use_vision=True yet. Setting use_vision=False for now...')
 			self.settings.use_vision = False
 
+		# Enable unstructured output for Gemini models in flash mode
+		if flash_mode and isinstance(self.llm, ChatGoogle):
+			self.logger.info('📝 Enabling unstructured output mode for Gemini in flash mode')
+			self.llm.use_unstructured_output = True
+
 		logger.debug(
 			f'{" +vision" if self.settings.use_vision else ""}'
 			f' extraction_model={self.settings.page_extraction_llm.model if self.settings.page_extraction_llm else "Unknown"}'
@@ -351,6 +356,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Initialize available actions for system prompt (only non-filtered actions)
 		# These will be used for the system prompt to maintain caching
 		self.unfiltered_actions = self.tools.registry.get_prompt_description()
+
+		# Determine if unstructured output is being used
+		use_unstructured_output = flash_mode and isinstance(self.llm, ChatGoogle) and self.llm.use_unstructured_output
 
 		# Initialize message manager with state
 		# Initial system prompt with all actions - will be updated during each step
@@ -363,6 +371,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				extend_system_message=extend_system_message,
 				use_thinking=self.settings.use_thinking,
 				flash_mode=self.settings.flash_mode,
+				use_unstructured_output=use_unstructured_output,
 			).get_system_message(),
 			file_system=self.file_system,
 			state=self.state.message_manager_state,
