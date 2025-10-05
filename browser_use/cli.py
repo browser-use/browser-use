@@ -22,7 +22,11 @@ from typing import Any
 from dotenv import load_dotenv
 
 from browser_use.llm.anthropic.chat import ChatAnthropic
+from browser_use.llm.azure.chat import ChatAzureOpenAI
+from browser_use.llm.deepseek.chat import ChatDeepSeek
 from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.groq.chat import ChatGroq
+from browser_use.llm.ollama.chat import ChatOllama
 from browser_use.llm.openai.chat import ChatOpenAI
 
 load_dotenv()
@@ -119,6 +123,8 @@ def get_default_config() -> dict[str, Any]:
 				'GOOGLE_API_KEY': CONFIG.GOOGLE_API_KEY,
 				'DEEPSEEK_API_KEY': CONFIG.DEEPSEEK_API_KEY,
 				'GROK_API_KEY': CONFIG.GROK_API_KEY,
+				'AZURE_OPENAI_KEY': CONFIG.AZURE_OPENAI_KEY,
+				'NOVITA_API_KEY': CONFIG.NOVITA_API_KEY,
 			},
 		},
 		'agent': agent_config,
@@ -226,51 +232,90 @@ def get_llm(config: dict[str, Any]):
 	model_name = model_config.get('name')
 	temperature = model_config.get('temperature', 0.0)
 
-	# Get API key from config or environment
-	api_key = model_config.get('api_keys', {}).get('OPENAI_API_KEY') or CONFIG.OPENAI_API_KEY
+	api_keys = model_config.get('api_keys', {})
+	openai_key = api_keys.get('OPENAI_API_KEY') or CONFIG.OPENAI_API_KEY
+	anthropic_key = api_keys.get('ANTHROPIC_API_KEY') or CONFIG.ANTHROPIC_API_KEY
+	google_key = api_keys.get('GOOGLE_API_KEY') or CONFIG.GOOGLE_API_KEY
+	deepseek_key = api_keys.get('DEEPSEEK_API_KEY') or CONFIG.DEEPSEEK_API_KEY
+	grok_key = api_keys.get('GROK_API_KEY') or CONFIG.GROK_API_KEY
+	azure_key = api_keys.get('AZURE_OPENAI_KEY') or CONFIG.AZURE_OPENAI_KEY
+	azure_endpoint = CONFIG.AZURE_OPENAI_ENDPOINT
 
 	if model_name:
-		if model_name.startswith('gpt'):
-			if not api_key and not CONFIG.OPENAI_API_KEY:
+		# OpenAI models
+		if model_name.startswith('gpt') or model_name.startswith('o1'):
+			if not openai_key:
 				print('⚠️  OpenAI API key not found. Please update your config or set OPENAI_API_KEY environment variable.')
 				sys.exit(1)
-			return ChatOpenAI(model=model_name, temperature=temperature, api_key=api_key or CONFIG.OPENAI_API_KEY)
+			return ChatOpenAI(model=model_name, temperature=temperature, api_key=openai_key)
+		# Anthropic models
 		elif model_name.startswith('claude'):
-			if not CONFIG.ANTHROPIC_API_KEY:
+			if not anthropic_key:
 				print('⚠️  Anthropic API key not found. Please update your config or set ANTHROPIC_API_KEY environment variable.')
 				sys.exit(1)
 			return ChatAnthropic(model=model_name, temperature=temperature)
+		# Google models
 		elif model_name.startswith('gemini'):
-			if not CONFIG.GOOGLE_API_KEY:
+			if not google_key:
 				print('⚠️  Google API key not found. Please update your config or set GOOGLE_API_KEY environment variable.')
 				sys.exit(1)
 			return ChatGoogle(model=model_name, temperature=temperature)
+		# DeepSeek models
+		elif model_name.startswith('deepseek'):
+			if not deepseek_key:
+				print('⚠️  DeepSeek API key not found. Please update your config or set DEEPSEEK_API_KEY environment variable.')
+				sys.exit(1)
+			return ChatDeepSeek(model=model_name, temperature=temperature, api_key=deepseek_key)
+		# Groq models
+		elif model_name.startswith('llama') or model_name.startswith('mixtral') or model_name.startswith('groq'):
+			if not grok_key:
+				print('⚠️  Groq API key not found. Please update your config or set GROK_API_KEY environment variable.')
+				sys.exit(1)
+			return ChatGroq(model=model_name, temperature=temperature, api_key=grok_key)
+		# Azure OpenAI models
+		elif azure_key and azure_endpoint:
+			return ChatAzureOpenAI(model=model_name, temperature=temperature, api_key=azure_key, azure_endpoint=azure_endpoint)
+		# Ollama models (local)
+		elif 'ollama' in model_name.lower() or model_name.startswith('llama3') or model_name.startswith('mistral'):
+			return ChatOllama(model=model_name)
 
-	# Auto-detect based on available API keys
-	if api_key or CONFIG.OPENAI_API_KEY:
-		return ChatOpenAI(model='gpt-5-mini', temperature=temperature, api_key=api_key or CONFIG.OPENAI_API_KEY)
-	elif CONFIG.ANTHROPIC_API_KEY:
-		return ChatAnthropic(model='claude-4-sonnet', temperature=temperature)
-	elif CONFIG.GOOGLE_API_KEY:
-		return ChatGoogle(model='gemini-2.5-pro', temperature=temperature)
+	if openai_key:
+		return ChatOpenAI(model='gpt-4o-mini', temperature=temperature, api_key=openai_key)
+	elif anthropic_key:
+		return ChatAnthropic(model='claude-3-5-sonnet-20241022', temperature=temperature)
+	elif google_key:
+		return ChatGoogle(model='gemini-1.5-flash', temperature=temperature)
+	elif deepseek_key:
+		return ChatDeepSeek(model='deepseek-chat', temperature=temperature, api_key=deepseek_key)
+	elif grok_key:
+		return ChatGroq(model='llama-3.1-70b-versatile', temperature=temperature, api_key=grok_key)
+	elif azure_key and azure_endpoint:
+		return ChatAzureOpenAI(model='gpt-4o-mini', temperature=temperature, api_key=azure_key, azure_endpoint=azure_endpoint)
 	else:
-		print(
-			'⚠️  No API keys found. Please update your config or set one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY.'
-		)
-		sys.exit(1)
+		# Try local Ollama as a fallback
+		try:
+			return ChatOllama(model='llama3.2')
+		except Exception:
+			print(
+				'⚠️  No API keys found and Ollama not available. Please update your config or set one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY, DEEPSEEK_API_KEY, GROK_API_KEY, or install Ollama locally.'
+			)
+			sys.exit(1)
 
 
 class RichLogHandler(logging.Handler):
-	"""Custom logging handler that redirects logs to a RichLog widget."""
+	"""Custom logging handler that redirects logs to a RichLog widget with smart scrolling."""
 
-	def __init__(self, rich_log: RichLog):
+	def __init__(self, rich_log: RichLog, app_instance=None):
 		super().__init__()
 		self.rich_log = rich_log
+		self.app_instance = app_instance
 
 	def emit(self, record):
 		try:
 			msg = self.format(record)
 			self.rich_log.write(msg)
+			# Note: We removed auto_scroll=True from RichLog widgets to prevent glitchy scrolling
+			# Users can now manually scroll without getting stuck at the bottom
 		except Exception:
 			self.handleError(record)
 
@@ -453,9 +498,10 @@ class BrowserUseApp(App):
 	"""
 
 	BINDINGS = [
-		Binding('ctrl+c', 'quit', 'Quit', priority=True, show=True),
+		Binding('ctrl+c', 'pause_or_quit', 'Pause/Quit', priority=True, show=True),
 		Binding('ctrl+q', 'quit', 'Quit', priority=True),
 		Binding('ctrl+d', 'quit', 'Quit', priority=True),
+		Binding('enter', 'resume_agent', 'Resume', priority=False, show=False),
 		Binding('up', 'input_history_prev', 'Previous command', show=False),
 		Binding('down', 'input_history_next', 'Next command', show=False),
 	]
@@ -477,6 +523,8 @@ class BrowserUseApp(App):
 		self._event_bus_handler_func = None
 		# Timer for info panel updates
 		self._info_panel_timer = None
+		# Track agent running state for Ctrl+C behavior
+		self._agent_is_running = False
 
 	def setup_richlog_logging(self) -> None:
 		"""Set up logging to redirect to RichLog widget instead of stdout."""
@@ -490,7 +538,7 @@ class BrowserUseApp(App):
 		rich_log = self.query_one('#main-output-log', RichLog)
 
 		# Create and set up the custom handler
-		log_handler = RichLogHandler(rich_log)
+		log_handler = RichLogHandler(rich_log, self)
 		log_type = os.getenv('BROWSER_USE_LOGGING_LEVEL', 'result').lower()
 
 		class BrowserUseFormatter(logging.Formatter):
@@ -680,12 +728,30 @@ class BrowserUseApp(App):
 		event.stop()
 
 	async def on_key(self, event: events.Key) -> None:
-		"""Handle key events at the app level to ensure graceful exit."""
-		# Handle Ctrl+C, Ctrl+D, and Ctrl+Q for app exit
-		if event.key == 'ctrl+c' or event.key == 'ctrl+d' or event.key == 'ctrl+q':
+		"""Handle key events at the app level."""
+		# Handle Ctrl+C for pause/quit behavior
+		if event.key == 'ctrl+c':
+			await self.action_pause_or_quit()
+			event.stop()
+			event.prevent_default()
+		# Handle Ctrl+D and Ctrl+Q for app exit
+		elif event.key == 'ctrl+d' or event.key == 'ctrl+q':
 			await self.action_quit()
 			event.stop()
 			event.prevent_default()
+		# Handle Enter for resume
+		elif event.key == 'enter':
+			# Only handle enter for resume if agent is paused and input is not focused
+			input_field = self.query_one('#task-input', Input)
+			if (
+				not input_field.has_focus
+				and self.agent
+				and hasattr(self.agent, 'state')
+				and getattr(self.agent.state, 'paused', False)
+			):
+				await self.action_resume_agent()
+				event.stop()
+				event.prevent_default()
 
 	def on_input_submitted(self, event: Input.Submitted) -> None:
 		"""Handle task input submission."""
@@ -891,6 +957,7 @@ class BrowserUseApp(App):
 			if self.agent:
 				self.agent.running = True  # type: ignore
 				self.agent.last_response_time = 0  # type: ignore
+				self._agent_is_running = True
 
 			# Panel updates are already happening via the timer in update_info_panels
 
@@ -919,6 +986,7 @@ class BrowserUseApp(App):
 				# Clear the running flag
 				if self.agent:
 					self.agent.running = False  # type: ignore
+				self._agent_is_running = False
 
 				# Capture telemetry for task completion
 				duration = time.time() - task_start_time
@@ -981,6 +1049,25 @@ class BrowserUseApp(App):
 			# At the end of history, go to "new line" state
 			self.history_index += 1
 			input_field.value = ''
+
+	async def action_pause_or_quit(self) -> None:
+		"""Pause agent if running, otherwise quit the application."""
+		# If agent is running, pause it instead of quitting
+		if self._agent_is_running and self.agent and not getattr(self.agent.state, 'paused', False):
+			# Pause the agent
+			self.agent.pause()
+			# Update the status message in tasks panel
+			self.update_tasks_panel()
+		else:
+			# Agent is not running or already paused, quit the application
+			await self.action_quit()
+
+	async def action_resume_agent(self) -> None:
+		"""Resume the paused agent."""
+		if self.agent and hasattr(self.agent, 'state') and getattr(self.agent.state, 'paused', False):
+			self.agent.resume()
+			# Update the status message in tasks panel
+			self.update_tasks_panel()
 
 	async def action_quit(self) -> None:
 		"""Quit the application and clean up resources."""
@@ -1063,15 +1150,15 @@ class BrowserUseApp(App):
 			with Container(id='three-column-container'):
 				# Column 1: Main output
 				with VerticalScroll(id='main-output-column'):
-					yield RichLog(highlight=True, markup=True, id='main-output-log', wrap=True, auto_scroll=True)
+					yield RichLog(highlight=True, markup=True, id='main-output-log', wrap=True, auto_scroll=False)
 
 				# Column 2: Event bus events
 				with VerticalScroll(id='events-column'):
-					yield RichLog(highlight=True, markup=True, id='events-log', wrap=True, auto_scroll=True)
+					yield RichLog(highlight=True, markup=True, id='events-log', wrap=True, auto_scroll=False)
 
 				# Column 3: CDP messages
 				with VerticalScroll(id='cdp-column'):
-					yield RichLog(highlight=True, markup=True, id='cdp-log', wrap=True, auto_scroll=True)
+					yield RichLog(highlight=True, markup=True, id='cdp-log', wrap=True, auto_scroll=False)
 
 			# Task input container (now at the bottom)
 			with Container(id='task-input-container'):
