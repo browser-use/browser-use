@@ -278,6 +278,33 @@ class UnstructuredOutputParser:
 		"""Parse a single value from string."""
 		value_str = value_str.strip()
 
+		# Handle arrays [...]
+		if value_str.startswith('[') and value_str.endswith(']'):
+			try:
+				import json
+
+				return json.loads(value_str)
+			except json.JSONDecodeError:
+				# Try parsing as simple list
+				inner = value_str[1:-1].strip()
+				if not inner:
+					return []
+				# Split by comma and parse each element
+				items = []
+				for item in UnstructuredOutputParser._split_args(inner):
+					items.append(UnstructuredOutputParser._parse_value(item))
+				return items
+
+		# Handle objects {...}
+		if value_str.startswith('{') and value_str.endswith('}'):
+			try:
+				import json
+
+				return json.loads(value_str)
+			except json.JSONDecodeError:
+				# Could try to parse as dict, but for now return as string
+				return value_str
+
 		# Handle quoted strings
 		if (value_str.startswith('"') and value_str.endswith('"')) or (
 			value_str.startswith("'") and value_str.endswith("'")
