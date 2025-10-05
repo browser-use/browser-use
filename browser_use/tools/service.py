@@ -105,9 +105,11 @@ class Tools(Generic[Context]):
 		exclude_actions: list[str] = [],
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
+		flash_mode: bool = False,
 	):
 		self.registry = Registry[Context](exclude_actions)
 		self.display_files_in_done_text = display_files_in_done_text
+		self.flash_mode = flash_mode
 
 		"""Register all default browser actions"""
 
@@ -115,7 +117,7 @@ class Tools(Generic[Context]):
 
 		# Basic Navigation Actions
 		@self.registry.action(
-			'Search a query with search engine which defaults to DuckDuckGo. Dont specify search_engine unless user asks for different search engine. Available search engines: duckduckgo, google, bing.',
+			'Search query',
 			param_model=SearchAction,
 		)
 		async def search(params: SearchAction, browser_session: BrowserSession):
@@ -158,7 +160,7 @@ class Tools(Generic[Context]):
 				return ActionResult(error=f'Failed to search {params.search_engine} for "{params.query}": {str(e)}')
 
 		@self.registry.action(
-			'Navigate to URL, optionally set new_tab=True to open in new tab, otherwise default is False.',
+			'Navigate to URL',
 			param_model=GoToUrlAction,
 		)
 		async def go_to_url(params: GoToUrlAction, browser_session: BrowserSession):
@@ -218,9 +220,7 @@ class Tools(Generic[Context]):
 				error_msg = f'Failed to go back: {str(e)}'
 				return ActionResult(error=error_msg)
 
-		@self.registry.action(
-			'Wait for x seconds (default 3) (max 30 seconds). This can be used to wait until the page is fully loaded.'
-		)
+		@self.registry.action('Wait for seconds')
 		async def wait(seconds: int = 3):
 			# Cap wait time at maximum 30 seconds
 			# Reduce the wait time by 3 seconds to account for the llm call which takes at least 3 seconds
@@ -236,7 +236,7 @@ class Tools(Generic[Context]):
 		# Element Interaction Actions
 
 		@self.registry.action(
-			'Click an element by index. Only indices from your browser_state are allowed. Never use an index that is not inside your current browser_state. Optionally set ctrl=True to open any resulting navigation in a new tab.',
+			'Click element by index',
 			param_model=ClickElementAction,
 		)
 		async def click(params: ClickElementAction, browser_session: BrowserSession):
@@ -290,7 +290,7 @@ class Tools(Generic[Context]):
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			'Input text into an input interactive element. Only input text into indices that are inside your current browser_state and are valid input fields.',
+			'Input text into element',
 			param_model=InputTextAction,
 		)
 		async def input_text(
@@ -352,7 +352,7 @@ class Tools(Generic[Context]):
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			'Upload file to interactive element with file path. Only upload files to indices that are inside your current browser_state and are valid file upload fields.',
+			'Upload file',
 			param_model=UploadFileAction,
 		)
 		async def upload_file(
@@ -503,7 +503,7 @@ class Tools(Generic[Context]):
 
 		# Tab Management Actions
 
-		@self.registry.action('Switch to tab with tab_id.', param_model=SwitchTabAction)
+		@self.registry.action('Switch tab', param_model=SwitchTabAction)
 		async def switch_tab(params: SwitchTabAction, browser_session: BrowserSession):
 			# Simple switch tab logic
 			try:
@@ -525,7 +525,7 @@ class Tools(Generic[Context]):
 				memory = f'Attempted to switch to tab #{params.tab_id}'
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
 
-		@self.registry.action('Close an existing tab', param_model=CloseTabAction)
+		@self.registry.action('Close tab', param_model=CloseTabAction)
 		async def close_tab(params: CloseTabAction, browser_session: BrowserSession):
 			# Simple close tab logic
 			try:
@@ -557,20 +557,7 @@ class Tools(Generic[Context]):
 		# This action is temporarily disabled as it needs refactoring to use events
 
 		@self.registry.action(
-			"""This tool sends the markdown of the current page with the query to an LLM to extract structured, semantic data (e.g. product description, price, all information about XYZ) from the markdown of the current webpage based on a query.
-Only use when:
-- You are sure that you are on the right page for the query
-- You know exactly the information you need to extract from the page
-- You did not previously call this tool on the same page
-You can not use this tool to:
-- Get interactive elements like buttons, links, dropdowns, menus, etc.
-- If you previously asked extract_structured_data on the same page with the same query, you should not call it again.
-
-Set extract_links=True only if your query requires extracting links/URLs from the page.
-Use start_from_char to start extraction from a specific character position (use if extraction was previously truncated and you want more content).
-
-If this tool does not return the desired outcome, do not call it again, use scroll_to_text or scroll to find the desired information.
-""",
+			'Extract data from page',
 		)
 		async def extract_structured_data(
 			query: str,
@@ -690,11 +677,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				raise RuntimeError(str(e))
 
 		@self.registry.action(
-			"""Scroll the page by specified number of pages (set down=True to scroll down, down=False to scroll up, num_pages=number of pages to scroll like 0.5 for half page, 10.0 for ten pages, etc.). 
-Default behavior is to scroll by one page. This is enough for most cases.
-Optionally, if there are multiple scroll containers, use frame_element_index parameter with an element inside the container you want to scroll in. For that you must use indices that exist in your browser_state (works well for dropdowns and custom UI components). 
-If you need to get to the bottom of the page, use a high number of pages at once like 10 to get to the bottom of the page.
-Note: For multiple pages (>=1.0), scrolls are performed one page at a time to ensure reliability. Page height is detected from viewport, fallback is 1000px per page.""",
+			'Scroll page up/down',
 			param_model=ScrollAction,
 		)
 		async def scroll(params: ScrollAction, browser_session: BrowserSession):
@@ -803,7 +786,7 @@ Note: For multiple pages (>=1.0), scrolls are performed one page at a time to en
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			'Send strings of special keys to use e.g. Escape, Backspace, Insert, PageDown, Delete, Enter, or Shortcuts such as `Control+o`, `Control+Shift+T`',
+			'Send keys',
 			param_model=SendKeysAction,
 		)
 		async def send_keys(params: SendKeysAction, browser_session: BrowserSession):
@@ -822,7 +805,7 @@ Note: For multiple pages (>=1.0), scrolls are performed one page at a time to en
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			description='Scroll to a text in the current page. This helps you to be efficient. Prefer this tool over scrolling step by step if you know what to scroll to.',
+			'Scroll to text',
 		)
 		async def scroll_to_text(text: str, browser_session: BrowserSession):  # type: ignore
 			# Dispatch scroll to text event
@@ -844,9 +827,7 @@ Note: For multiple pages (>=1.0), scrolls are performed one page at a time to en
 					long_term_memory=f"Tried scrolling to text '{text}' but it was not found",
 				)
 
-		@self.registry.action(
-			'Request to include a screenshot in your next browser state. Use this when you need visual confirmation or when the page contains complex visual information that is hard to understand from the DOM alone.'
-		)
+		@self.registry.action('Take screenshot')
 		async def take_screenshot():
 			"""Request that a screenshot be included in the next observation"""
 			memory = 'Requested screenshot for next observation'
@@ -862,7 +843,7 @@ Note: For multiple pages (>=1.0), scrolls are performed one page at a time to en
 		# Dropdown Actions
 
 		@self.registry.action(
-			'Get list of values for a dropdown input field. Only works on dropdown-style form elements (<select>, Semantic UI/aria-labeled select, etc.). Do not use this tool for none dropdown elements.',
+			'Get dropdown options',
 			param_model=GetDropdownOptionsAction,
 		)
 		async def get_dropdown_options(params: GetDropdownOptionsAction, browser_session: BrowserSession):
@@ -888,7 +869,7 @@ Note: For multiple pages (>=1.0), scrolls are performed one page at a time to en
 			)
 
 		@self.registry.action(
-			'Select dropdown option by exact text from any dropdown type (native <select>, ARIA menus, or custom dropdowns). Searches target element and children to find selectable options.',
+			'Select dropdown option',
 			param_model=SelectDropdownOptionAction,
 		)
 		async def select_dropdown_option(params: SelectDropdownOptionAction, browser_session: BrowserSession):
@@ -931,9 +912,7 @@ Note: For multiple pages (>=1.0), scrolls are performed one page at a time to en
 					return ActionResult(error=error_msg)
 
 		# File System Actions
-		@self.registry.action(
-			'Write or append content to file_name in file system. Allowed extensions are .md, .txt, .json, .csv, .pdf. For .pdf files, write the content in markdown format and it will automatically be converted to a properly formatted PDF document.'
-		)
+		@self.registry.action('Write file')
 		async def write_file(
 			file_name: str,
 			content: str,
@@ -953,15 +932,13 @@ Note: For multiple pages (>=1.0), scrolls are performed one page at a time to en
 			logger.info(f'💾 {result}')
 			return ActionResult(extracted_content=result, long_term_memory=result)
 
-		@self.registry.action(
-			'Replace old_str with new_str in file_name. old_str must exactly match the string to replace in original text. Recommended tool to mark completed items in todo.md or change specific contents in a file.'
-		)
+		@self.registry.action('Replace text in file')
 		async def replace_file_str(file_name: str, old_str: str, new_str: str, file_system: FileSystem):
 			result = await file_system.replace_file_str(file_name, old_str, new_str)
 			logger.info(f'💾 {result}')
 			return ActionResult(extracted_content=result, long_term_memory=result)
 
-		@self.registry.action('Read file_name from file system')
+		@self.registry.action('Read file')
 		async def read_file(file_name: str, available_file_paths: list[str], file_system: FileSystem):
 			if available_file_paths and file_name in available_file_paths:
 				result = await file_system.read_file(file_name, external_file=True)
@@ -991,58 +968,7 @@ Note: For multiple pages (>=1.0), scrolls are performed one page at a time to en
 			)
 
 		@self.registry.action(
-			"""This JavaScript code gets executed with Runtime.evaluate and 'returnByValue': True, 'awaitPromise': True
-
-SYNTAX RULES - FAILURE TO FOLLOW CAUSES "Uncaught at line 0" ERRORS:
-- ALWAYS wrap your code in IIFE: (function(){ ... })() or (async function(){ ... })() for async code
-- ALWAYS add try-catch blocks to prevent execution errors
-- ALWAYS use proper semicolons and valid JavaScript syntax
-- NEVER write multiline code without proper IIFE wrapping
-- ALWAYS validate elements exist before accessing them
-
-EXAMPLES:
-Use this tool when other tools do not work on the first try as expected or when a more general tool is needed, e.g. for filling a form all at once, hovering, dragging, extracting only links, extracting content from the page, press and hold, hovering, clicking on coordinates, zooming, use this if the user provides custom selectors which you can otherwise not interact with ....
-You can also use it to explore the website.
-- Write code to solve problems you could not solve with other tools.
-- Don't write comments in here, no human reads that.
-- Write only valid js code.
-- use this to e.g. extract + filter links, convert the page to json into the format you need etc...
-
-
-- limit the output otherwise your context will explode
-- think if you deal with special elements like iframes / shadow roots etc
-- Adopt your strategy for React Native Web, React, Angular, Vue, MUI pages etc.
-- e.g. with  synthetic events, keyboard simulation, shadow DOM, etc.
-
-PROPER SYNTAX EXAMPLES:
-CORRECT: (function(){ try { const el = document.querySelector('#id'); return el ? el.value : 'not found'; } catch(e) { return 'Error: ' + e.message; } })()
-CORRECT: (async function(){ try { await new Promise(r => setTimeout(r, 100)); return 'done'; } catch(e) { return 'Error: ' + e.message; } })()
-
-WRONG: const el = document.querySelector('#id'); el ? el.value : '';
-WRONG: document.querySelector('#id').value
-WRONG: Multiline code without IIFE wrapping
-
-SHADOW DOM ACCESS EXAMPLE:
-(function(){
-    try {
-        const hosts = document.querySelectorAll('*');
-        for (let host of hosts) {
-            if (host.shadowRoot) {
-                const el = host.shadowRoot.querySelector('#target');
-                if (el) return el.textContent;
-            }
-        }
-        return 'Not found';
-    } catch(e) {
-        return 'Error: ' + e.message;
-    }
-})()
-
-## Return values:
-- Async functions (with await, promises, timeouts) are automatically handled
-- Returns strings, numbers, booleans, and serialized objects/arrays
-- Use JSON.stringify() for complex objects: JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.textContent.trim()))
-""",
+			'Execute JavaScript',
 		)
 		async def execute_js(code: str, browser_session: BrowserSession):
 			# Execute JavaScript with proper error handling and promise support
@@ -1207,7 +1133,7 @@ SHADOW DOM ACCESS EXAMPLE:
 			self.display_files_in_done_text = display_files_in_done_text
 
 			@self.registry.action(
-				'Complete task - with return text and if the task is finished (success=True) or not yet completely finished (success=False), because last step is reached',
+				'Complete task',
 				param_model=StructuredOutputAction[output_model],
 			)
 			async def done(params: StructuredOutputAction):
@@ -1229,7 +1155,7 @@ SHADOW DOM ACCESS EXAMPLE:
 		else:
 
 			@self.registry.action(
-				'Complete task - provide a summary of results for the user. Set success=True if task completed successfully, false otherwise. Text should be your response to the user summarizing results. Include files you would like to display to the user in files_to_display.',
+				'Complete task',
 				param_model=DoneAction,
 			)
 			async def done(params: DoneAction, file_system: FileSystem):

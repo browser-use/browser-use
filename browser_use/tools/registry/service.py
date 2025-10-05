@@ -565,10 +565,10 @@ class Registry(Generic[Context]):
 
 		return result_model  # type:ignore
 
-	def get_prompt_description(self, page_url: str | None = None) -> str:
+	def get_prompt_description(self, page_url: str | None = None, flash_mode: bool = False) -> str:
 		"""Get a description of all actions for the prompt
 
 		If page_url is provided, only include actions that are available for that URL
 		based on their domain filters
 		"""
-		return self.registry.get_prompt_description(page_url=page_url)
+		return self.registry.get_prompt_description(page_url=page_url, flash_mode=flash_mode)

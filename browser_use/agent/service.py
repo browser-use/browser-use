@@ -257,7 +257,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		else:
 			# Exclude take_screenshot tool when use_vision=False
 			exclude_actions = ['take_screenshot'] if use_vision is False else []
-			self.tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text)
+			self.tools = Tools(
+				exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text, flash_mode=flash_mode
+			)
 
 		# Structured output
 		self.output_model_schema = output_model_schema
@@ -350,7 +352,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Initialize available actions for system prompt (only non-filtered actions)
 		# These will be used for the system prompt to maintain caching
-		self.unfiltered_actions = self.tools.registry.get_prompt_description()
+		self.unfiltered_actions = self.tools.registry.get_prompt_description(flash_mode=self.settings.flash_mode)
 
 		# Initialize message manager with state
 		# Initial system prompt with all actions - will be updated during each step
@@ -375,6 +377,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			include_tool_call_examples=self.settings.include_tool_call_examples,
 			include_recent_events=self.include_recent_events,
 			sample_images=self.sample_images,
+			flash_mode=self.settings.flash_mode,
 		)
 
 		if self.sensitive_data:
@@ -714,7 +717,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._update_action_models_for_page(browser_state_summary.url)
 
 		# Get page-specific filtered actions
-		page_filtered_actions = self.tools.registry.get_prompt_description(browser_state_summary.url)
+		page_filtered_actions = self.tools.registry.get_prompt_description(
+			browser_state_summary.url, flash_mode=self.settings.flash_mode
+		)
 
 		# Page-specific actions will be included directly in the browser_state message
 		self.logger.debug(f'💬 Step {self.state.n_steps}: Creating state messages for context...')

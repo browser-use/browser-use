@@ -32,7 +32,11 @@ class SystemPrompt:
 			prompt = override_system_message
 		else:
 			self._load_prompt_template()
-			prompt = self.prompt_template.format(max_actions=self.max_actions_per_step)
+			# Flash mode templates don't use template variables
+			if self.flash_mode:
+				prompt = self.prompt_template
+			else:
+				prompt = self.prompt_template.format(max_actions=self.max_actions_per_step)
 
 		if extend_system_message:
 			prompt += f'\n{extend_system_message}'
@@ -52,7 +56,10 @@ class SystemPrompt:
 
 			# This works both in development and when installed as a package
 			with importlib.resources.files('browser_use.agent').joinpath(template_filename).open('r', encoding='utf-8') as f:
-				self.prompt_template = f.read()
+				base_template = f.read()
+
+			# Flash mode templates are minimal and don't need action descriptions
+			self.prompt_template = base_template
 		except Exception as e:
 			raise RuntimeError(f'Failed to load system prompt template: {e}')
 
@@ -95,6 +102,7 @@ class AgentMessagePrompt:
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		include_recent_events: bool = False,
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
+		flash_mode: bool = False,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
@@ -111,6 +119,7 @@ class AgentMessagePrompt:
 		self.vision_detail_level = vision_detail_level
 		self.include_recent_events = include_recent_events
 		self.sample_images = sample_images or []
+		self.flash_mode = flash_mode
 		assert self.browser_state
 
 	def _extract_page_statistics(self) -> dict[str, int]:
@@ -187,18 +196,26 @@ class AgentMessagePrompt:
 		# Extract page statistics first
 		page_stats = self._extract_page_statistics()
 
-		# Format statistics for LLM
-		stats_text = '<page_stats>'
-		if page_stats['total_elements'] < 10:
-			stats_text += 'Page appears empty (SPA not loaded?) - '
-		stats_text += f'{page_stats["links"]} links, {page_stats["interactive_elements"]} interactive, '
-		stats_text += f'{page_stats["iframes"]} iframes, {page_stats["scroll_containers"]} scroll containers'
-		if page_stats['shadow_open'] > 0 or page_stats['shadow_closed'] > 0:
-			stats_text += f', {page_stats["shadow_open"]} shadow(open), {page_stats["shadow_closed"]} shadow(closed)'
-		if page_stats['images'] > 0:
-			stats_text += f', {page_stats["images"]} images'
-		stats_text += f', {page_stats["total_elements"]} total elements'
-		stats_text += '</page_stats>\n\n'
+		# Format statistics for LLM - minimal for flash mode
+		if self.flash_mode:
+			stats_text = f'<page_stats>{page_stats["links"]} links, {page_stats["interactive_elements"]} interactive, {page_stats["iframes"]} iframes, {page_stats["scroll_containers"]} scroll containers'
+			if page_stats['shadow_open'] > 0 or page_stats['shadow_closed'] > 0:
+				stats_text += f', {page_stats["shadow_open"]} shadow(open), {page_stats["shadow_closed"]} shadow(closed)'
+			if page_stats['images'] > 0:
+				stats_text += f', {page_stats["images"]} images'
+			stats_text += f', {page_stats["total_elements"]} total elements</page_stats>\n\n'
+		else:
+			stats_text = '<page_stats>'
+			if page_stats['total_elements'] < 10:
+				stats_text += 'Page appears empty (SPA not loaded?) - '
+			stats_text += f'{page_stats["links"]} links, {page_stats["interactive_elements"]} interactive, '
+			stats_text += f'{page_stats["iframes"]} iframes, {page_stats["scroll_containers"]} scroll containers'
+			if page_stats['shadow_open'] > 0 or page_stats['shadow_closed'] > 0:
+				stats_text += f', {page_stats["shadow_open"]} shadow(open), {page_stats["shadow_closed"]} shadow(closed)'
+			if page_stats['images'] > 0:
+				stats_text += f', {page_stats["images"]} images'
+			stats_text += f', {page_stats["total_elements"]} total elements'
+			stats_text += '</page_stats>\n\n'
 
 		elements_text = self.browser_state.dom_state.llm_representation(include_attributes=self.include_attributes)
 
@@ -271,9 +288,23 @@ class AgentMessagePrompt:
 		# Add recent events if available and requested
 		recent_events_text = ''
 		if self.include_recent_events and self.browser_state.recent_events:
-			recent_events_text = f'Recent browser events: {self.browser_state.recent_events}\n'
+			recent_events_text = (
+				f'Recent browser events: {self.browser_state.recent_events}\n'
+				if not self.flash_mode
+				else f'Events: {self.browser_state.recent_events}\n'
+			)
 
-		browser_state = f"""{stats_text}{current_tab_text}
+		if self.flash_mode:
+			# Ultra-minimal format for flash mode
+			browser_state = f"""{stats_text}{current_tab_text}
+Available tabs:
+{tabs_text}
+{page_info_text}
+{recent_events_text}{pdf_message}Elements you can interact with inside the viewport{truncated_text}:
+{elements_text}
+"""
+		else:
+			browser_state = f"""{stats_text}{current_tab_text}
 Available tabs:
 {tabs_text}
 {page_info_text}
@@ -283,19 +314,49 @@ Available tabs:
 		return browser_state
 
 	def _get_agent_state_description(self) -> str:
-		if self.step_info:
-			step_info_description = f'Step {self.step_info.step_number + 1}. Maximum steps: {self.step_info.max_steps}\n'
+		if self.flash_mode:
+			# Ultra-minimal format for flash mode
+			step_info_description = f'Step {self.step_info.step_number + 1}/{self.step_info.max_steps}' if self.step_info else ''
+			time_str = datetime.now().strftime('%Y-%m-%d')
+			step_info_description += f'. Date: {time_str}'
+
+			_todo_contents = self.file_system.get_todo_contents() if self.file_system else ''
+			if not len(_todo_contents):
+				_todo_contents = '[Current todo.md is empty, fill it with your plan when applicable]'
+
+			agent_state = f"""<user_request>
+{self.task}
+</user_request>
+<file_system>
+{self.file_system.describe() if self.file_system else ''}
+</file_system>
+<todo_contents>
+{_todo_contents}
+</todo_contents>
+"""
+			if self.sensitive_data:
+				agent_state += f'<sensitive_data>\n{self.sensitive_data}\n</sensitive_data>\n'
+
+			agent_state += f'<step_info>\n{step_info_description}\n</step_info>\n'
+			if self.available_file_paths:
+				available_file_paths_text = '\n'.join(self.available_file_paths)
+				agent_state += f'<available_file_paths>\n{available_file_paths_text}\n</available_file_paths>\n'
+			return agent_state
 		else:
-			step_info_description = ''
+			# Standard format
+			if self.step_info:
+				step_info_description = f'Step {self.step_info.step_number + 1}. Maximum steps: {self.step_info.max_steps}\n'
+			else:
+				step_info_description = ''
 
-		time_str = datetime.now().strftime('%Y-%m-%d')
-		step_info_description += f'Current date: {time_str}'
+			time_str = datetime.now().strftime('%Y-%m-%d')
+			step_info_description += f'Current date: {time_str}'
 
-		_todo_contents = self.file_system.get_todo_contents() if self.file_system else ''
-		if not len(_todo_contents):
-			_todo_contents = '[Current todo.md is empty, fill it with your plan when applicable]'
+			_todo_contents = self.file_system.get_todo_contents() if self.file_system else ''
+			if not len(_todo_contents):
+				_todo_contents = '[Current todo.md is empty, fill it with your plan when applicable]'
 
-		agent_state = f"""
+			agent_state = f"""
 <user_request>
 {self.task}
 </user_request>
@@ -306,14 +367,14 @@ Available tabs:
 {_todo_contents}
 </todo_contents>
 """
-		if self.sensitive_data:
-			agent_state += f'<sensitive_data>\n{self.sensitive_data}\n</sensitive_data>\n'
+			if self.sensitive_data:
+				agent_state += f'<sensitive_data>\n{self.sensitive_data}\n</sensitive_data>\n'
 
-		agent_state += f'<step_info>\n{step_info_description}\n</step_info>\n'
-		if self.available_file_paths:
-			available_file_paths_text = '\n'.join(self.available_file_paths)
-			agent_state += f'<available_file_paths>\n{available_file_paths_text}\nUse absolute full paths when referencing these files.\n</available_file_paths>\n'
-		return agent_state
+			agent_state += f'<step_info>\n{step_info_description}\n</step_info>\n'
+			if self.available_file_paths:
+				available_file_paths_text = '\n'.join(self.available_file_paths)
+				agent_state += f'<available_file_paths>\n{available_file_paths_text}\nUse absolute full paths when referencing these files.\n</available_file_paths>\n'
+			return agent_state
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='get_user_message')
 	def get_user_message(self, use_vision: bool = True) -> UserMessage:

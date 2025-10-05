@@ -24,8 +24,19 @@ class RegisteredAction(BaseModel):
 
 	model_config = ConfigDict(arbitrary_types_allowed=True)
 
-	def prompt_description(self) -> str:
+	def prompt_description(self, flash_mode: bool = False) -> str:
 		"""Get a description of the action for the prompt"""
+		if flash_mode:
+			# Ultra-minimal format for flash mode: just action name and required params
+			schema = self.param_model.model_json_schema()
+			required = schema.get('required', [])
+			if required:
+				params = ', '.join(required)
+				return f'{{{self.name}: {params}}}'
+			else:
+				return f'{{{self.name}}}'
+		
+		# Standard format
 		skip_keys = ['title']
 		s = f'{self.description}: \n'
 		s += '{' + str(self.name) + ': '
@@ -100,20 +111,23 @@ class ActionRegistry(BaseModel):
 				return True
 		return False
 
-	def get_prompt_description(self, page_url: str | None = None) -> str:
+	def get_prompt_description(self, page_url: str | None = None, flash_mode: bool = False) -> str:
 		"""Get a description of all actions for the prompt
 
 		Args:
 			page_url: If provided, filter actions by URL using domain filters.
+			flash_mode: If True, use minimal format for action descriptions.
 
 		Returns:
 			A string description of available actions.
 			- If page is None: return only actions with no page_filter and no domains (for system prompt)
 			- If page is provided: return only filtered actions that match the current page (excluding unfiltered actions)
 		"""
+		separator = ', ' if flash_mode else '\n'
+		
 		if page_url is None:
 			# For system prompt (no URL provided), include only actions with no filters
-			return '\n'.join(action.prompt_description() for action in self.actions.values() if action.domains is None)
+			return separator.join(action.prompt_description(flash_mode=flash_mode) for action in self.actions.values() if action.domains is None)
 
 		# only include filtered actions for the current page URL
 		filtered_actions = []
@@ -126,7 +140,10 @@ class ActionRegistry(BaseModel):
 			if self._match_domains(action.domains, page_url):
 				filtered_actions.append(action)
 
-		return '\n'.join(action.prompt_description() for action in filtered_actions)
+		if len(filtered_actions) == 0:
+			return ''
+
+		return separator.join(action.prompt_description(flash_mode=flash_mode) for action in filtered_actions)
 
 
 class SpecialActionParameters(BaseModel):

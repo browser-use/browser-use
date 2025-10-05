@@ -110,6 +110,7 @@ class MessageManager:
 		include_tool_call_examples: bool = False,
 		include_recent_events: bool = False,
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
+		flash_mode: bool = False,
 	):
 		self.task = task
 		self.state = state
@@ -122,6 +123,7 @@ class MessageManager:
 		self.include_tool_call_examples = include_tool_call_examples
 		self.include_recent_events = include_recent_events
 		self.sample_images = sample_images
+		self.flash_mode = flash_mode
 
 		assert max_history_items is None or max_history_items > 5, 'max_history_items must be None or greater than 5'
 
@@ -353,6 +355,7 @@ class MessageManager:
 			vision_detail_level=self.vision_detail_level,
 			include_recent_events=self.include_recent_events,
 			sample_images=self.sample_images,
+			flash_mode=self.flash_mode,
 		).get_user_message(effective_use_vision)
 
 		# Set the state message with caching enabled
