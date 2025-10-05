@@ -243,7 +243,7 @@ def get_llm(config: dict[str, Any]):
 
 	if model_name:
 		# OpenAI models
-		if model_name.startswith('gpt') or model_name.startswith('o1'):
+		if (model_name.startswith('gpt') or model_name.startswith('o1')) and (openai_key or not (azure_key and azure_endpoint)):
 			if not openai_key:
 				print('⚠️  OpenAI API key not found. Please update your config or set OPENAI_API_KEY environment variable.')
 				sys.exit(1)
