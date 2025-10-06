@@ -271,6 +271,32 @@ Required environment variables:
 MODELSCOPE_API_KEY=
 ```
 
+## Mistral [example](https://github.com/browser-use/browser-use/blob/main/examples/models/mistral.py)
+
+```python
+from browser_use import Agent, ChatMistral
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+# Get API key from https://console.mistral.ai/api-keys
+api_key = os.getenv('MISTRAL_API_KEY')
+
+llm = ChatMistral(model="mistral-large-latest")
+
+agent = Agent(
+    task="Your task here",
+    llm=llm
+)
+```
+
+Required environment variables:
+
+```bash .env
+MISTRAL_API_KEY=
+```
+
 ## Other models (DeepSeek, Novita, X...)
 
 We support all other models that can be called via OpenAI compatible API. We are open to PRs for more providers.
