@@ -61,8 +61,24 @@ Edit `%APPDATA%\Claude\claude_desktop_config.json`:
 
 You can configure browser-use through environment variables:
 
-- `OPENAI_API_KEY` - Your OpenAI API key (required)
-- `ANTHROPIC_API_KEY` - Your Anthropic API key (alternative to OpenAI)
+#### LLM Configuration
+- `BROWSER_USE_LLM_MODEL` - Model name with optional `provider/model` prefix (default: `gpt-4.1-mini`)
+  - Examples: `gpt-4.1-mini`, `anthropic/claude-sonnet-4-0`, `groq/meta-llama/llama-4-maverick-17b-128e-instruct`
+- `BROWSER_USE_LLM_PROVIDER` - Explicit provider override
+  - Examples: `openai`, `anthropic`, `azure`, `groq`
+
+**Provider-specific keys** (only set what you need):
+- `OPENAI_API_KEY` - OpenAI and OpenAI-compatible APIs
+- `ANTHROPIC_API_KEY` - Anthropic Claude
+- `AZURE_OPENAI_KEY` + `AZURE_OPENAI_ENDPOINT` - Azure OpenAI
+- `GROQ_API_KEY` - Groq
+- `GOOGLE_API_KEY` - Google Gemini
+- `DEEPSEEK_API_KEY` - DeepSeek
+- `OPENROUTER_API_KEY` - OpenRouter
+- `OLLAMA_BASE_URL` - Ollama (default: `http://localhost:11434`)
+- `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` + `AWS_DEFAULT_REGION` - AWS Bedrock
+
+#### Browser Configuration
 - `BROWSER_USE_HEADLESS` - Set to `false` to show browser window
 - `BROWSER_USE_DISABLE_SECURITY` - Set to `true` to disable browser security features
 
@@ -93,6 +109,110 @@ The MCP server exposes these browser automation tools:
 - **`browser_list_sessions`** - List all active browser sessions with details
 - **`browser_close_session`** - Close a specific browser session by ID
 - **`browser_close_all`** - Close all active browser sessions
+
+## Multi-Provider LLM Support
+
+The MCP server supports multiple LLM providers for internal operations (`browser_extract_content` and `retry_with_browser_use_agent` tools).
+
+### Provider Syntax
+
+Specify provider using `provider/model` format:
+
+```json
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "uvx",
+      "args": ["browser-use", "--mcp"],
+      "env": {
+        "BROWSER_USE_LLM_MODEL": "anthropic/claude-sonnet-4-0",
+        "ANTHROPIC_API_KEY": "your-api-key"
+      }
+    }
+  }
+}
+```
+
+### Supported Providers
+
+- `openai` - OpenAI models (default) and OpenAI-compatible APIs
+- `anthropic` - Anthropic Claude models
+- `azure` - Azure OpenAI (requires `AZURE_OPENAI_ENDPOINT`)
+- `groq` - Groq models
+- `google` - Google Gemini models
+- `deepseek` - DeepSeek models
+- `openrouter` - OpenRouter models
+- `ollama` - Ollama local models
+- `aws_bedrock`, `aws_bedrock_anthropic` - AWS Bedrock models
+
+### Examples
+
+**Using explicit provider override:**
+```json
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "uvx",
+      "args": ["browser-use", "--mcp"],
+      "env": {
+        "BROWSER_USE_LLM_MODEL": "gpt-4o-mini",
+        "BROWSER_USE_LLM_PROVIDER": "azure",
+        "AZURE_OPENAI_KEY": "your-azure-key",
+        "AZURE_OPENAI_ENDPOINT": "https://your-resource.openai.azure.com"
+      }
+    }
+  }
+}
+```
+
+**OpenAI-compatible (e.g., Qwen):**
+```json
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "uvx",
+      "args": ["browser-use", "--mcp"],
+      "env": {
+        "BROWSER_USE_LLM_MODEL": "openai/qwen-vl-max",
+        "OPENAI_API_KEY": "your-qwen-api-key",
+        "OPENAI_BASE_URL": "your-qwen-base-url"
+      }
+    }
+  }
+}
+```
+
+**Groq (fast inference):**
+```json
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "uvx",
+      "args": ["browser-use", "--mcp"],
+      "env": {
+        "BROWSER_USE_LLM_MODEL": "groq/llama-3.3-70b-versatile",
+        "GROQ_API_KEY": "your-groq-api-key"
+      }
+    }
+  }
+}
+```
+
+**Ollama (local/private):**
+```json
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "uvx",
+      "args": ["browser-use", "--mcp"],
+      "env": {
+        "BROWSER_USE_LLM_MODEL": "ollama/llama3.1:8b",
+        "OLLAMA_BASE_URL": "http://localhost:11434"
+      }
+    }
+  }
+}
+```
 
 ## Example Usage
 

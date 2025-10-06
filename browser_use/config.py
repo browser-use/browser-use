@@ -219,6 +219,7 @@ class FlatEnvConfig(BaseSettings):
 	BROWSER_USE_HEADLESS: bool | None = Field(default=None)
 	BROWSER_USE_ALLOWED_DOMAINS: str | None = Field(default=None)
 	BROWSER_USE_LLM_MODEL: str | None = Field(default=None)
+	BROWSER_USE_LLM_PROVIDER: str | None = Field(default=None)
 
 	# Proxy env vars
 	BROWSER_USE_PROXY_URL: str | None = Field(default=None)
@@ -248,10 +249,24 @@ class BrowserProfileEntry(DBStyleEntry):
 
 
 class LLMEntry(DBStyleEntry):
-	"""LLM configuration entry."""
+	"""LLM configuration entry.
 
-	api_key: str | None = None
+	The 'model' field can include an optional provider prefix using the format:
+		"provider/model"
+
+	Examples:
+		- "gpt-4.1-mini"  # Uses OpenAI by default
+		- "azure/gpt-4.1-mini"  # Explicitly uses Azure
+		- "groq/meta-llama/llama-4-maverick"  # Uses Groq
+
+	Alternatively, specify provider separately:
+		model: "gpt-4.1-mini"
+		provider: "azure"
+	"""
+
 	model: str | None = None
+	provider: str | None = None
+	api_key: str | None = None
 	temperature: float | None = None
 	max_tokens: int | None = None
 
@@ -479,8 +494,23 @@ class Config:
 		if env_config.OPENAI_API_KEY:
 			config['llm']['api_key'] = env_config.OPENAI_API_KEY
 
+		# Handle LLM model and provider overrides
 		if env_config.BROWSER_USE_LLM_MODEL:
-			config['llm']['model'] = env_config.BROWSER_USE_LLM_MODEL
+			# Parse provider/model format and extract bare model name
+			from browser_use.llm.registry import parse_model_string
+
+			provider_from_string, bare_model = parse_model_string(env_config.BROWSER_USE_LLM_MODEL)
+
+			# Set bare model name (without provider prefix)
+			config['llm']['model'] = bare_model
+
+			# Set provider if present in model string (BROWSER_USE_LLM_PROVIDER takes precedence below)
+			if provider_from_string:
+				config['llm']['provider'] = provider_from_string
+
+		# Explicit provider override (highest priority)
+		if env_config.BROWSER_USE_LLM_PROVIDER:
+			config['llm']['provider'] = env_config.BROWSER_USE_LLM_PROVIDER
 
 		return config
 
