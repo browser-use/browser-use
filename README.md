@@ -71,7 +71,7 @@ Check out the [library docs](https://docs.browser-use.com) and [cloud docs](http
 
 ## Stealth Browser Infrastructure
 
-Want to bypass Cloudflare, or any other anti-bot protection?
+Want to bypass anti-bot protection?
 
 Simply go to [Browser Use Cloud](https://docs.cloud.browser-use.com) grab a `BROWSER_USE_API_KEY` and use the `use_cloud` parameter.
 
