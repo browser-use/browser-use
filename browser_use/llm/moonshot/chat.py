@@ -32,7 +32,7 @@ T = TypeVar('T', bound=BaseModel)
 class ChatMoonshot(BaseChatModel):
     """Moonshot AI (Kimi) /chat/completions wrapper (OpenAI-compatible)."""
 
-    model: str = 'moonshot-v1-8k'
+    model: str = 'kimi-k2-0905-preview'
 
     # Generation parameters
     max_tokens: int | None = None
