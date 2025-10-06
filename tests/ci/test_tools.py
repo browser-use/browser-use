@@ -98,7 +98,7 @@ class TestToolsIntegration:
 		common_actions = [
 			'go_to_url',
 			'search',
-			'click_element_by_index',
+			'click',
 			'input_text',
 			'scroll',
 			'go_back',
@@ -294,7 +294,7 @@ class TestToolsIntegration:
 
 		# But other actions are still there
 		assert 'go_to_url' in excluded_tools.registry.registry.actions
-		assert 'click_element_by_index' in excluded_tools.registry.registry.actions
+		assert 'click' in excluded_tools.registry.registry.actions
 
 	async def test_search_action(self, tools, browser_session, base_url):
 		"""Test the search action."""

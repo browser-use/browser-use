@@ -23,8 +23,8 @@ from browser_use.agent.cloud_events import (
 )
 from browser_use.agent.message_manager.utils import save_conversation
 from browser_use.llm.base import BaseChatModel
+from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.messages import BaseMessage, ContentPartImageParam, ContentPartTextParam, UserMessage
-from browser_use.llm.openai.chat import ChatOpenAI
 from browser_use.tokens.service import TokenCost
 
 load_dotenv()
@@ -151,9 +151,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			| None
 		) = None,
 		register_external_agent_status_raise_error_callback: Callable[[], Awaitable[bool]] | None = None,
+		register_should_stop_callback: Callable[[], Awaitable[bool]] | None = None,
 		# Agent settings
 		output_model_schema: type[AgentStructuredOutput] | None = None,
-		use_vision: bool = True,
+		use_vision: bool | Literal['auto'] = 'auto',
 		save_conversation_path: str | Path | None = None,
 		save_conversation_path_encoding: str | None = 'utf-8',
 		max_failures: int = 3,
@@ -195,12 +196,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				except (ImportError, ValueError) as e:
 					# Use the logger that's already imported at the top of the module
 					logger.warning(
-						f'Failed to create default LLM "{default_llm_name}": {e}. Falling back to ChatOpenAI(model="gpt-4.1-mini")'
+						f'Failed to create default LLM "{default_llm_name}": {e}. Falling back to ChatGoogle(model="gemini-flash-latest")'
 					)
-					llm = ChatOpenAI(model='gpt-4.1-mini')
+					llm = ChatGoogle(model='gemini-flash-latest')
 			else:
 				# No default LLM specified, use the original default
-				llm = ChatOpenAI(model='gpt-4.1-mini')
+				llm = ChatGoogle(model='gemini-flash-latest')
 
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
@@ -254,7 +255,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		elif controller is not None:
 			self.tools = controller
 		else:
-			self.tools = Tools(display_files_in_done_text=display_files_in_done_text)
+			# Exclude take_screenshot tool when use_vision=False
+			exclude_actions = ['take_screenshot'] if use_vision is False else []
+			self.tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text)
 
 		# Structured output
 		self.output_model_schema = output_model_schema
@@ -426,6 +429,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Callbacks
 		self.register_new_step_callback = register_new_step_callback
 		self.register_done_callback = register_done_callback
+		self.register_should_stop_callback = register_should_stop_callback
 		self.register_external_agent_status_raise_error_callback = register_external_agent_status_raise_error_callback
 
 		# Telemetry
@@ -633,8 +637,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if hasattr(self, 'cloud_sync') and self.cloud_sync and self.enable_cloud_sync:
 			self.eventbus.on('*', self.cloud_sync.handle_event)
 
-	async def _raise_if_stopped_or_paused(self) -> None:
-		"""Utility function that raises an InterruptedError if the agent is stopped or paused."""
+	async def _check_stop_or_pause(self) -> None:
+		"""Check if the agent should stop or pause, and handle accordingly."""
+
+		# Check new should_stop_callback - sets stopped state cleanly without raising
+		if self.register_should_stop_callback:
+			if await self.register_should_stop_callback():
+				self.logger.info('External callback requested stop')
+				self.state.stopped = True
+				raise InterruptedError
 
 		if self.register_external_agent_status_raise_error_callback:
 			if await self.register_external_agent_status_raise_error_callback():
@@ -696,7 +707,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._check_and_update_downloads(f'Step {self.state.n_steps}: after getting browser state')
 
 		self._log_step_context(browser_state_summary)
-		await self._raise_if_stopped_or_paused()
+		await self._check_stop_or_pause()
 
 		# Update action models with page-specific actions
 		self.logger.debug(f'📝 Step {self.state.n_steps}: Updating action models...')
@@ -751,13 +762,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.state.last_model_output = model_output
 
 		# Check again for paused/stopped state after getting model output
-		await self._raise_if_stopped_or_paused()
+		await self._check_stop_or_pause()
 
 		# Handle callbacks and conversation saving
 		await self._handle_post_llm_processing(browser_state_summary, input_messages)
 
 		# check again if Ctrl+C was pressed before we commit the output to history
-		await self._raise_if_stopped_or_paused()
+		await self._check_stop_or_pause()
 
 	async def _execute_actions(self) -> None:
 		"""Execute the actions from model output"""
@@ -803,24 +814,22 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def _handle_step_error(self, error: Exception) -> None:
 		"""Handle all types of errors that can occur during a step"""
 
+		# Handle InterruptedError specially
+		if isinstance(error, InterruptedError):
+			error_msg = 'The agent was interrupted mid-step' + (f' - {str(error)}' if str(error) else '')
+			self.logger.error(f'{error_msg}')
+			return
+
 		# Handle all other exceptions
 		include_trace = self.logger.isEnabledFor(logging.DEBUG)
 		error_msg = AgentError.format_error(error, include_trace=include_trace)
 		prefix = f'❌ Result failed {self.state.consecutive_failures + 1}/{self.settings.max_failures + int(self.settings.final_response_after_failure)} times:\n '
 		self.state.consecutive_failures += 1
 
-		# Handle InterruptedError specially
-		if isinstance(error, InterruptedError):
-			error_msg = 'The agent was interrupted mid-step' + (f' - {error}' if error else '')
-			self.logger.error(f'{prefix}{error_msg}')
-		elif 'Could not parse response' in error_msg or 'tool_use_failed' in error_msg:
+		if 'Could not parse response' in error_msg or 'tool_use_failed' in error_msg:
 			# give model a hint how output should look like
-			logger.debug(f'Model: {self.llm.model} failed')
-			error_msg += '\n\nReturn a valid JSON object with the required fields.'
+			logger.error(f'Model: {self.llm.model} failed')
 			logger.error(f'{prefix}{error_msg}')
-			# Add context message to help model fix parsing errors
-			parse_hint = 'Your response could not be parsed. Return a valid JSON object with the required fields.'
-			# self._message_manager._add_context_message(UserMessage(content=parse_hint))
 		else:
 			self.logger.error(f'{prefix}{error_msg}')
 
@@ -1213,7 +1222,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	def _log_first_step_startup(self) -> None:
 		"""Log startup message only on the first step"""
 		if len(self.history.history) == 0:
-			self.logger.info(f'🧠 Starting a browser-use version {self.version} with model={self.llm.model}')
+			self.logger.info(f'🧠 Starting a browser-use agent with version {self.version} and model={self.llm.model}')
 
 	def _log_step_context(self, browser_state_summary: BrowserStateSummary) -> None:
 		"""Log step context information"""
@@ -1346,7 +1355,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if step_info is not None and step_info.step_number == 0:
 			# First step
 			self._log_first_step_startup()
-			await self._execute_initial_actions()
+			# Normally there was no try catch here but the callback can raise an InterruptedError which we skip
+			try:
+				await self._execute_initial_actions()
+			except InterruptedError:
+				pass
+			except Exception as e:
+				raise e
 
 		await self.step(step_info)
 
@@ -1461,12 +1476,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# Emit CreateAgentTaskEvent at the START of run()
 				self.eventbus.dispatch(CreateAgentTaskEvent.from_agent(self))
 
+			# Log startup message on first step (only if we haven't already done steps)
+			self._log_first_step_startup()
 			# Start browser session and attach watchdogs
 			await self.browser_session.start()
 
-			await self._execute_initial_actions()
-			# Log startup message on first step (only if we haven't already done steps)
-			self._log_first_step_startup()
+			# Normally there was no try catch here but the callback can raise an InterruptedError
+			try:
+				await self._execute_initial_actions()
+			except InterruptedError:
+				pass
+			except Exception as e:
+				raise e
 
 			self.logger.debug(f'🔄 Starting main execution loop with max {max_steps} steps...')
 			for step in range(max_steps):
@@ -1727,7 +1748,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			reset = '\033[0m'
 
 			try:
-				await self._raise_if_stopped_or_paused()
+				await self._check_stop_or_pause()
 				# Get action name from the action model
 				action_data = action.model_dump(exclude_unset=True)
 				action_name = next(iter(action_data.keys())) if action_data else 'unknown'
@@ -1762,9 +1783,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			except Exception as e:
 				# Handle any exceptions during action execution
-				self.logger.error(
-					f'❌ Executing action {i + 1} failed in {time_elapsed:.2f}s {red}({action_params}) -> {type(e).__name__}: {e}{reset}'
-				)
+				self.logger.error(f'❌ Executing action {i + 1} failed -> {type(e).__name__}: {e}')
 				raise e
 
 		return results

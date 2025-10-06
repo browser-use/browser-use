@@ -1271,10 +1271,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 			)
 
 			success = result.get('result', {}).get('value', False)
-			if success:
-				self.logger.debug('✅ Framework events triggered successfully')
-			else:
-				self.logger.warning('⚠️ Some framework events may have failed to trigger')
 
 		except Exception as e:
 			self.logger.warning(f'⚠️ Failed to trigger framework events: {type(e).__name__}: {e}')

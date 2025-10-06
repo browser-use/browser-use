@@ -677,7 +677,7 @@ class DOMTreeSerializer:
 		# 5. Keep if has role suggesting interactivity
 		if node.original_node.attributes:
 			role = node.original_node.attributes.get('role')
-			if role in ['button', 'link', 'checkbox', 'radio', 'tab', 'menuitem']:
+			if role in ['button', 'link', 'checkbox', 'radio', 'tab', 'menuitem', 'option']:
 				return False
 
 		# Default: exclude this child

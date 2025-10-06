@@ -32,9 +32,11 @@ The `Browser` instance also provides all [Actor](/customize/actor/all-parameters
   - `'chrome-extension://*'` - Matches any Chrome extension URL
   - **Security**: Wildcards in TLD (e.g., `example.*`) are **not allowed** for security
   - Use list like `['*.google.com', 'https://example.com', 'chrome-extension://*']`
+  - **Performance**: Lists with 100+ domains are automatically optimized to sets for O(1) lookup. Pattern matching is disabled for optimized lists. Both `www.example.com` and `example.com` variants are checked automatically.
 - `prohibited_domains`: Block navigation to specific domains. Uses same pattern formats as `allowed_domains`. When both `allowed_domains` and `prohibited_domains` are set, `allowed_domains` takes precedence. Examples:
   - `['pornhub.com', '*.gambling-site.net']` - Block specific sites and all subdomains
   - `['https://explicit-content.org']` - Block specific protocol/domain combination
+  - **Performance**: Lists with 100+ domains are automatically optimized to sets for O(1) lookup (same as `allowed_domains`)
 - `enable_default_extensions` (default: `True`): Load automation extensions (uBlock Origin, cookie handlers, ClearURLs)
 - `cross_origin_iframes` (default: `False`): Enable cross-origin iframe support (may cause complexity)
 - `is_local` (default: `True`): Whether this is a local browser instance. Set to `False` for remote browsers. If we have a `executable_path` set, it will be automatically set to `True`. This can effect your download behavior.

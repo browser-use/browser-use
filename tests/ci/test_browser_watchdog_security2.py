@@ -433,3 +433,137 @@ class TestUrlProhibitlistSecurity:
 		assert watchdog._is_url_allowed('https://example.com') is False
 		assert watchdog._is_url_allowed('https://WWW.EXAMPLE.COM') is False
 		assert watchdog._is_url_allowed('https://mail.example.com') is True
+
+
+class TestDomainListOptimization:
+	"""Tests for domain list optimization (set conversion for large lists)."""
+
+	def test_small_list_keeps_pattern_support(self):
+		"""Test that lists < 100 items keep pattern matching support."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		browser_profile = BrowserProfile(
+			prohibited_domains=['*.google.com', 'x.com', 'facebook.com'], headless=True, user_data_dir=None
+		)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# Should still be a list
+		assert isinstance(browser_session.browser_profile.prohibited_domains, list)
+
+		# Pattern matching should work
+		assert watchdog._is_url_allowed('https://www.google.com') is False
+		assert watchdog._is_url_allowed('https://mail.google.com') is False
+		assert watchdog._is_url_allowed('https://google.com') is False
+
+		# Exact matches should work
+		assert watchdog._is_url_allowed('https://x.com') is False
+		assert watchdog._is_url_allowed('https://facebook.com') is False
+
+		# Other domains should be allowed
+		assert watchdog._is_url_allowed('https://example.com') is True
+
+	def test_large_list_converts_to_set(self):
+		"""Test that lists >= 100 items are converted to sets."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		# Create a list of 100 domains
+		large_list = [f'blocked{i}.com' for i in range(100)]
+
+		browser_profile = BrowserProfile(prohibited_domains=large_list, headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# Should be converted to set
+		assert isinstance(browser_session.browser_profile.prohibited_domains, set)
+		assert len(browser_session.browser_profile.prohibited_domains) == 100
+
+		# Exact matches should work
+		assert watchdog._is_url_allowed('https://blocked0.com') is False
+		assert watchdog._is_url_allowed('https://blocked50.com') is False
+		assert watchdog._is_url_allowed('https://blocked99.com') is False
+
+		# Other domains should be allowed
+		assert watchdog._is_url_allowed('https://example.com') is True
+		assert watchdog._is_url_allowed('https://blocked100.com') is True  # Not in list
+
+	def test_www_variant_matching_with_sets(self):
+		"""Test that www variants are checked in set-based lookups."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		# Create a list with 100 domains (some with www, some without)
+		large_list = [f'site{i}.com' for i in range(50)] + [f'www.domain{i}.org' for i in range(50)]
+
+		browser_profile = BrowserProfile(prohibited_domains=large_list, headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# Should be converted to set
+		assert isinstance(browser_session.browser_profile.prohibited_domains, set)
+
+		# Test www variant matching for domains without www prefix
+		assert watchdog._is_url_allowed('https://site0.com') is False
+		assert watchdog._is_url_allowed('https://www.site0.com') is False  # Should also be blocked
+
+		# Test www variant matching for domains with www prefix
+		assert watchdog._is_url_allowed('https://www.domain0.org') is False
+		assert watchdog._is_url_allowed('https://domain0.org') is False  # Should also be blocked
+
+		# Test that unrelated domains are allowed
+		assert watchdog._is_url_allowed('https://example.com') is True
+		assert watchdog._is_url_allowed('https://www.example.com') is True
+
+	def test_allowed_domains_with_sets(self):
+		"""Test that allowed_domains also works with set optimization."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		# Create a large allowlist
+		large_list = [f'allowed{i}.com' for i in range(100)]
+
+		browser_profile = BrowserProfile(allowed_domains=large_list, headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# Should be converted to set
+		assert isinstance(browser_session.browser_profile.allowed_domains, set)
+
+		# Allowed domains should work
+		assert watchdog._is_url_allowed('https://allowed0.com') is True
+		assert watchdog._is_url_allowed('https://www.allowed0.com') is True
+		assert watchdog._is_url_allowed('https://allowed99.com') is True
+
+		# Other domains should be blocked
+		assert watchdog._is_url_allowed('https://example.com') is False
+		assert watchdog._is_url_allowed('https://notallowed.com') is False
+
+	def test_manual_set_input(self):
+		"""Test that users can directly provide a set."""
+		from bubus import EventBus
+
+		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
+
+		blocked_set = {f'blocked{i}.com' for i in range(50)}
+
+		browser_profile = BrowserProfile(prohibited_domains=blocked_set, headless=True, user_data_dir=None)
+		browser_session = BrowserSession(browser_profile=browser_profile)
+		event_bus = EventBus()
+		watchdog = SecurityWatchdog(browser_session=browser_session, event_bus=event_bus)
+
+		# Should remain a set
+		assert isinstance(browser_session.browser_profile.prohibited_domains, set)
+
+		# Should work correctly
+		assert watchdog._is_url_allowed('https://blocked0.com') is False
+		assert watchdog._is_url_allowed('https://example.com') is True

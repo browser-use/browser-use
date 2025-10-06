@@ -189,12 +189,10 @@ class TestDownloadUploadFullCircle:
 
 				# Step 2: Click download link and wait for download
 				class ClickActionModel(ActionModel):
-					click_element_by_index: ClickElementAction | None = None
+					click: ClickElementAction | None = None
 
 				# Click the download link
-				result = await tools.act(
-					ClickActionModel(click_element_by_index=ClickElementAction(index=download_link_index)), browser_session
-				)
+				result = await tools.act(ClickActionModel(click=ClickElementAction(index=download_link_index)), browser_session)
 				assert result.error is None, f'Click on download link failed: {result.error}'
 
 				# Wait for the download event
@@ -272,11 +270,11 @@ class TestDownloadUploadFullCircle:
 
 				# Step 4: Upload the downloaded file
 				class UploadActionModel(ActionModel):
-					upload_file_to_element: UploadFileAction | None = None
+					upload_file: UploadFileAction | None = None
 
 				# The downloaded file should be automatically available for upload
 				result = await tools.act(
-					UploadActionModel(upload_file_to_element=UploadFileAction(index=file_input_index, path=downloaded_file_path)),
+					UploadActionModel(upload_file=UploadFileAction(index=file_input_index, path=downloaded_file_path)),
 					browser_session,
 					available_file_paths=[],  # Empty, but file is in downloaded_files
 					file_system=file_system,
@@ -304,9 +302,7 @@ class TestDownloadUploadFullCircle:
 				assert submit_button_index is not None, 'Submit button not found'
 
 				# Click the submit button
-				result = await tools.act(
-					ClickActionModel(click_element_by_index=ClickElementAction(index=submit_button_index)), browser_session
-				)
+				result = await tools.act(ClickActionModel(click=ClickElementAction(index=submit_button_index)), browser_session)
 				assert result.error is None, f'Click on submit button failed: {result.error}'
 
 				# Wait for JavaScript to process the upload

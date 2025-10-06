@@ -138,6 +138,9 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 				# Launch browser subprocess directly
 				self.logger.debug(f'[LocalBrowserWatchdog] 🚀 Launching browser subprocess with {len(launch_args)} args...')
+				self.logger.debug(
+					f'[LocalBrowserWatchdog] 📂 user_data_dir={profile.user_data_dir}, profile_directory={profile.profile_directory}'
+				)
 				subprocess = await asyncio.create_subprocess_exec(
 					browser_path,
 					*launch_args,

@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from browser_use import Agent, Browser, ChatGoogle
+from browser_use import Browser
 
 # Connect to your existing Chrome browser
 browser = Browser(
@@ -19,14 +19,8 @@ browser = Browser(
 
 
 async def main():
-	# save storage state
-	agent = Agent(
-		llm=ChatGoogle(model='gemini-flash-latest'),
-		# Google blocks this approach, so we use a different search engine
-		task='go to amazon.com and buy pens to draw on the whiteboard',
-		browser=browser,
-	)
-	await agent.run()
+	await browser.start()
+	await browser.export_storage_state('storage_state3.json')
 
 
 if __name__ == '__main__':

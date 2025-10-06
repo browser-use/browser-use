@@ -115,7 +115,7 @@ class Tools(Generic[Context]):
 
 		# Basic Navigation Actions
 		@self.registry.action(
-			'Search the query using the specified search engine. Defaults to DuckDuckGo (recommended) to avoid reCAPTCHA. Options: duckduckgo, google, bing. Query should be concrete and not vague or super long.',
+			'Search a query with search engine which defaults to DuckDuckGo. Dont specify search_engine unless user asks for different search engine. Available search engines: duckduckgo, google, bing.',
 			param_model=SearchAction,
 		)
 		async def search(params: SearchAction, browser_session: BrowserSession):
@@ -158,7 +158,8 @@ class Tools(Generic[Context]):
 				return ActionResult(error=f'Failed to search {params.search_engine} for "{params.query}": {str(e)}')
 
 		@self.registry.action(
-			'Navigate to URL, set new_tab=True to open in new tab, False to navigate in current tab', param_model=GoToUrlAction
+			'Navigate to URL, optionally set new_tab=True to open in new tab, otherwise default is False.',
+			param_model=GoToUrlAction,
 		)
 		async def go_to_url(params: GoToUrlAction, browser_session: BrowserSession):
 			try:
@@ -235,10 +236,10 @@ class Tools(Generic[Context]):
 		# Element Interaction Actions
 
 		@self.registry.action(
-			'Click element by index. Only indices from your browser_state are allowed. Never use an index that is not inside your current browser_state. Set while_holding_ctrl=True to open any resulting navigation in a new tab.',
+			'Click an element by index. Only indices from your browser_state are allowed. Never use an index that is not inside your current browser_state. Optionally set ctrl=True to open any resulting navigation in a new tab.',
 			param_model=ClickElementAction,
 		)
-		async def click_element_by_index(params: ClickElementAction, browser_session: BrowserSession):
+		async def click(params: ClickElementAction, browser_session: BrowserSession):
 			# Dispatch click event with node
 			try:
 				assert params.index != 0, (
@@ -250,15 +251,13 @@ class Tools(Generic[Context]):
 				if node is None:
 					raise ValueError(f'Element index {params.index} not found in browser state')
 
-				event = browser_session.event_bus.dispatch(
-					ClickElementEvent(node=node, while_holding_ctrl=params.while_holding_ctrl or False)
-				)
+				event = browser_session.event_bus.dispatch(ClickElementEvent(node=node, while_holding_ctrl=params.ctrl or False))
 				await event
 				# Wait for handler to complete and get any exception or metadata
 				click_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
 				memory = 'Clicked element'
 
-				if params.while_holding_ctrl:
+				if params.ctrl:
 					memory += ' and opened in new tab'
 
 				# Check if a new tab was opened (from watchdog metadata)
@@ -291,7 +290,7 @@ class Tools(Generic[Context]):
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			'Input text into an input interactive element. Only input text into indices that are inside your current browser_state. Never input text into indices that are not inside your current browser_state.',
+			'Input text into an input interactive element. Only input text into indices that are inside your current browser_state and are valid input fields.',
 			param_model=InputTextAction,
 		)
 		async def input_text(
@@ -352,8 +351,11 @@ class Tools(Generic[Context]):
 				error_msg = f'Failed to input text into element {params.index}: {e}'
 				return ActionResult(error=error_msg)
 
-		@self.registry.action('Upload file to interactive element with file path', param_model=UploadFileAction)
-		async def upload_file_to_element(
+		@self.registry.action(
+			'Upload file to interactive element with file path. Only upload files to indices that are inside your current browser_state and are valid file upload fields.',
+			param_model=UploadFileAction,
+		)
+		async def upload_file(
 			params: UploadFileAction, browser_session: BrowserSession, available_file_paths: list[str], file_system: FileSystem
 		):
 			# Check if file is in available_file_paths (user-provided or downloaded files)
@@ -501,7 +503,7 @@ class Tools(Generic[Context]):
 
 		# Tab Management Actions
 
-		@self.registry.action('Switch tab', param_model=SwitchTabAction)
+		@self.registry.action('Switch to tab with tab_id.', param_model=SwitchTabAction)
 		async def switch_tab(params: SwitchTabAction, browser_session: BrowserSession):
 			# Simple switch tab logic
 			try:
@@ -689,13 +691,10 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		@self.registry.action(
 			"""Scroll the page by specified number of pages (set down=True to scroll down, down=False to scroll up, num_pages=number of pages to scroll like 0.5 for half page, 10.0 for ten pages, etc.). 
-			Default behavior is to scroll the entire page. This is enough for most cases.
-			Optional if there are multiple scroll containers, use frame_element_index parameter with an element inside the container you want to scroll in. For that you must use indices that exist in your browser_state (works well for dropdowns and custom UI components). 
-			Instead of scrolling step after step, use a high number of pages at once like 10 to get to the bottom of the page.
-			If you know where you want to scroll to, use scroll_to_text instead of this tool.
-			
-			Note: For multiple pages (>=1.0), scrolls are performed one page at a time to ensure reliability. Page height is detected from viewport, fallback is 1000px per page.
-			""",
+Default behavior is to scroll by one page. This is enough for most cases.
+Optionally, if there are multiple scroll containers, use frame_element_index parameter with an element inside the container you want to scroll in. For that you must use indices that exist in your browser_state (works well for dropdowns and custom UI components). 
+If you need to get to the bottom of the page, use a high number of pages at once like 10 to get to the bottom of the page.
+Note: For multiple pages (>=1.0), scrolls are performed one page at a time to ensure reliability. Page height is detected from viewport, fallback is 1000px per page.""",
 			param_model=ScrollAction,
 		)
 		async def scroll(params: ScrollAction, browser_session: BrowserSession):
@@ -823,7 +822,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			description='Scroll to a text in the current page. This helps you to be efficient. Prefer this tool over scrolling step by step.',
+			description='Scroll to a text in the current page. This helps you to be efficient. Prefer this tool over scrolling step by step if you know what to scroll to.',
 		)
 		async def scroll_to_text(text: str, browser_session: BrowserSession):  # type: ignore
 			# Dispatch scroll to text event
@@ -844,6 +843,21 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					extracted_content=msg,
 					long_term_memory=f"Tried scrolling to text '{text}' but it was not found",
 				)
+
+		@self.registry.action(
+			'Request to include a screenshot in your next browser state. Use this when you need visual confirmation or when the page contains complex visual information that is hard to understand from the DOM alone.'
+		)
+		async def take_screenshot():
+			"""Request that a screenshot be included in the next observation"""
+			memory = 'Requested screenshot for next observation'
+			msg = f'📸 {memory}'
+			logger.info(msg)
+
+			# Return flag in metadata to signal that screenshot should be included
+			return ActionResult(
+				extracted_content=memory,
+				metadata={'include_screenshot': True},
+			)
 
 		# Dropdown Actions
 
@@ -1028,7 +1042,6 @@ SHADOW DOM ACCESS EXAMPLE:
 - Async functions (with await, promises, timeouts) are automatically handled
 - Returns strings, numbers, booleans, and serialized objects/arrays
 - Use JSON.stringify() for complex objects: JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.textContent.trim()))
-
 """,
 		)
 		async def execute_js(code: str, browser_session: BrowserSession):

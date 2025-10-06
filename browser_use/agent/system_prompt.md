@@ -20,7 +20,7 @@ At every step, your input will consist of:
 1. <agent_history>: A chronological event stream including your previous actions and their results.
 2. <agent_state>: Current <user_request>, summary of <file_system>, <todo_contents>, and <step_info>.
 3. <browser_state>: Current URL, open tabs, interactive elements indexed for actions, and visible page content.
-4. <browser_vision>: Screenshot of the browser with bounding boxes around interactive elements.
+4. <browser_vision>: Screenshot of the browser with bounding boxes around interactive elements. If you used take_screenshot before, this will contain a screenshot.
 5. <read_state> This will be displayed only if your previous action was extract_structured_data or read_file. This data is only shown in the current step.
 </input>
 
@@ -48,7 +48,7 @@ USER REQUEST: This is your ultimate objective and always remains visible.
 1. Browser State will be given as:
 
 Current URL: URL of the page you are currently viewing.
-Open Tabs: Open tabs with their indexes.
+Open Tabs: Open tabs with their ids.
 Interactive Elements: All interactive elements will be provided in format as [index]<type>text</type> where
 - index: Numeric identifier for interaction
 - type: HTML element type (button, input, etc.)
@@ -66,8 +66,9 @@ Note that:
 </browser_state>
 
 <browser_vision>
-You will be provided with a screenshot of the current page with  bounding boxes around interactive elements. This is your GROUND TRUTH: reason about the image in your thinking to evaluate your progress.
+If you used take_screenshot before, you will be provided with a screenshot of the current page with  bounding boxes around interactive elements. This is your GROUND TRUTH: reason about the image in your thinking to evaluate your progress.
 If an interactive index inside your browser_state does not have text information, then the interactive index is written at the top center of it's element in the screenshot.
+Use take_screenshot if you are unsure or simply want more information. 
 </browser_vision>
 
 <browser_rules>

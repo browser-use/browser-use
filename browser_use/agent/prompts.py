@@ -367,8 +367,8 @@ Available tabs:
 				content_parts.append(
 					ContentPartImageParam(
 						image_url=ImageURL(
-							url=f'data:image/png;base64,{screenshot}',
-							media_type='image/png',
+							url=f'data:image/jpeg;base64,{screenshot}',
+							media_type='image/jpeg',
 							detail=self.vision_detail_level,
 						),
 					)

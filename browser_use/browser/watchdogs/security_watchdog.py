@@ -48,7 +48,7 @@ class SecurityWatchdog(BaseWatchdog):
 			raise ValueError(f'Navigation to {event.url} blocked by security policy')
 
 	async def on_NavigationCompleteEvent(self, event: NavigationCompleteEvent) -> None:
-		"""Check if navigated URL is allowed and close tab if not."""
+		"""Check if navigated URL is allowed (catches redirects to blocked domains)."""
 		# Check if the navigated URL is allowed (in case of redirects)
 		if not self._is_url_allowed(event.url):
 			self.logger.warning(f'⛔️ Navigation to non-allowed URL detected: {event.url}')
@@ -57,17 +57,19 @@ class SecurityWatchdog(BaseWatchdog):
 			self.event_bus.dispatch(
 				BrowserErrorEvent(
 					error_type='NavigationBlocked',
-					message=f'Navigation to non-allowed URL: {event.url}',
+					message=f'Navigation blocked to non-allowed URL: {event.url} - redirecting to about:blank',
 					details={'url': event.url, 'target_id': event.target_id},
 				)
 			)
-
-			# Close the target that navigated to the disallowed URL
+			# Navigate to about:blank to keep session alive
+			# Agent will see the error and can continue with other tasks
 			try:
-				await self.browser_session._cdp_close_page(event.target_id)
-				self.logger.info(f'⛔️ Closed target with non-allowed URL: {event.url}')
+				session = await self.browser_session.get_or_create_cdp_session(target_id=event.target_id)
+				await session.cdp_client.send.Page.navigate(params={'url': 'about:blank'}, session_id=session.session_id)
+				self.logger.info(f'⛔️ Navigated to about:blank after blocked URL: {event.url}')
 			except Exception as e:
-				self.logger.error(f'⛔️ Failed to close target with non-allowed URL: {type(e).__name__} {e}')
+				pass
+				self.logger.error(f'⛔️ Failed to navigate to about:blank: {type(e).__name__} {e}')
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
 		"""Check if new tab URL is allowed."""
@@ -118,6 +120,42 @@ class SecurityWatchdog(BaseWatchdog):
 				'Note: Patterns like "*.example.com" will match both subdomains AND the main domain.'
 			)
 
+	def _get_domain_variants(self, host: str) -> tuple[str, str]:
+		"""Get both variants of a domain (with and without www prefix).
+
+		Args:
+			host: The hostname to process
+
+		Returns:
+			Tuple of (original_host, variant_host)
+			- If host starts with www., variant is without www.
+			- Otherwise, variant is with www. prefix
+		"""
+		if host.startswith('www.'):
+			return (host, host[4:])  # ('www.example.com', 'example.com')
+		else:
+			return (host, f'www.{host}')  # ('example.com', 'www.example.com')
+
+	def _is_ip_address(self, host: str) -> bool:
+		"""Check if a hostname is an IP address (IPv4 or IPv6).
+
+		Args:
+			host: The hostname to check
+
+		Returns:
+			True if the host is an IP address, False otherwise
+		"""
+		import ipaddress
+
+		try:
+			# Try to parse as IP address (handles both IPv4 and IPv6)
+			ipaddress.ip_address(host)
+			return True
+		except ValueError:
+			return False
+		except Exception:
+			return False
+
 	def _is_url_allowed(self, url: str) -> bool:
 		"""Check if a URL is allowed based on the allowed_domains configuration.
 
@@ -128,14 +166,7 @@ class SecurityWatchdog(BaseWatchdog):
 			True if the URL is allowed, False otherwise
 		"""
 
-		# If no allowed_domains specified, allow all URLs
-		if (
-			not self.browser_session.browser_profile.allowed_domains
-			and not self.browser_session.browser_profile.prohibited_domains
-		):
-			return True
-
-		# Always allow internal browser targets
+		# Always allow internal browser targets (before any other checks)
 		if url in ['about:blank', 'chrome://new-tab-page/', 'chrome://new-tab-page', 'chrome://newtab/']:
 			return True
 
@@ -148,26 +179,56 @@ class SecurityWatchdog(BaseWatchdog):
 			# Invalid URL
 			return False
 
+		# Allow data: and blob: URLs (they don't have hostnames)
+		if parsed.scheme in ['data', 'blob']:
+			return True
+
 		# Get the actual host (domain)
 		host = parsed.hostname
 		if not host:
 			return False
 
-		# Check each allowed domain pattern
-		if self.browser_session.browser_profile.allowed_domains:
-			for pattern in self.browser_session.browser_profile.allowed_domains:
-				if self._is_url_match(url, host, parsed.scheme, pattern):
-					return True
+		# Check if IP addresses should be blocked (before domain checks)
+		if self.browser_session.browser_profile.block_ip_addresses:
+			if self._is_ip_address(host):
+				return False
 
-			return False
-
-		# Check each prohibited domain pattern
-		if self.browser_session.browser_profile.prohibited_domains:
-			for pattern in self.browser_session.browser_profile.prohibited_domains:
-				if self._is_url_match(url, host, parsed.scheme, pattern):
-					return False
-
+		# If no allowed_domains specified, allow all URLs
+		if (
+			not self.browser_session.browser_profile.allowed_domains
+			and not self.browser_session.browser_profile.prohibited_domains
+		):
 			return True
+
+		# Check allowed domains (fast path for sets, slow path for lists with patterns)
+		if self.browser_session.browser_profile.allowed_domains:
+			allowed_domains = self.browser_session.browser_profile.allowed_domains
+
+			if isinstance(allowed_domains, set):
+				# Fast path: O(1) exact hostname match - check both www and non-www variants
+				host_variant, host_alt = self._get_domain_variants(host)
+				return host_variant in allowed_domains or host_alt in allowed_domains
+			else:
+				# Slow path: O(n) pattern matching for lists
+				for pattern in allowed_domains:
+					if self._is_url_match(url, host, parsed.scheme, pattern):
+						return True
+				return False
+
+		# Check prohibited domains (fast path for sets, slow path for lists with patterns)
+		if self.browser_session.browser_profile.prohibited_domains:
+			prohibited_domains = self.browser_session.browser_profile.prohibited_domains
+
+			if isinstance(prohibited_domains, set):
+				# Fast path: O(1) exact hostname match - check both www and non-www variants
+				host_variant, host_alt = self._get_domain_variants(host)
+				return host_variant not in prohibited_domains and host_alt not in prohibited_domains
+			else:
+				# Slow path: O(n) pattern matching for lists
+				for pattern in prohibited_domains:
+					if self._is_url_match(url, host, parsed.scheme, pattern):
+						return False
+				return True
 
 		return True
 

@@ -45,8 +45,8 @@ class AnthropicMessageSerializer:
 		# Ensure it's a supported media type
 		supported_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 		if media_type not in supported_types:
-			# Default to png if not recognized
-			media_type = 'image/png'
+			# Default to jpeg if not recognized
+			media_type = 'image/jpeg'
 
 		return media_type, data  # type: ignore
 

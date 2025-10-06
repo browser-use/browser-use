@@ -70,17 +70,17 @@ def tools():
 
 
 class TestClickElementEvent:
-	"""Test cases for ClickElementEvent and click_element_by_index action."""
+	"""Test cases for ClickElementEvent and click action."""
 
 	async def test_error_handling(self, tools, browser_session):
 		"""Test error handling when an action fails."""
 		# Create an action with an invalid index
-		invalid_action = {'click_element_by_index': ClickElementAction(index=999)}  # doesn't exist on page
+		invalid_action = {'click': ClickElementAction(index=999)}  # doesn't exist on page
 
 		from browser_use.agent.views import ActionModel
 
 		class ClickActionModel(ActionModel):
-			click_element_by_index: ClickElementAction | None = None
+			click: ClickElementAction | None = None
 
 		# This should fail since the element doesn't exist
 		result: ActionResult = await tools.act(ClickActionModel(**invalid_action), browser_session)
@@ -88,7 +88,7 @@ class TestClickElementEvent:
 		assert result.error is not None
 
 	async def test_click_element_by_index(self, tools, browser_session, base_url, http_server):
-		"""Test that click_element_by_index correctly clicks an element and handles different outcomes."""
+		"""Test that click correctly clicks an element and handles different outcomes."""
 		# Add route for clickable elements test page
 		http_server.expect_request('/clickable').respond_with_data(
 			"""
@@ -173,14 +173,12 @@ class TestClickElementEvent:
 			f"Expected button text '{expected_button_text}' not found in '{button_text}'"
 		)
 
-		# Create a model for the click_element_by_index action
+		# Create a model for the click action
 		class ClickElementActionModel(ActionModel):
-			click_element_by_index: ClickElementAction | None = None
+			click: ClickElementAction | None = None
 
 		# Execute the action with the button index
-		result = await tools.act(
-			ClickElementActionModel(click_element_by_index=ClickElementAction(index=button_index)), browser_session
-		)
+		result = await tools.act(ClickElementActionModel(click=ClickElementAction(index=button_index)), browser_session)
 
 		# Verify the result structure
 		assert isinstance(result, ActionResult), 'Result should be an ActionResult instance'
@@ -201,7 +199,7 @@ class TestClickElementEvent:
 		assert result_text == expected_result_text, f"Expected result text '{expected_result_text}', got '{result_text}'"
 
 	async def test_click_element_new_tab(self, tools, browser_session, base_url, http_server):
-		"""Test that click_element_by_index with while_holding_ctrl=True opens links in new tabs."""
+		"""Test that click with ctrl=True opens links in new tabs."""
 		# Add route for new tab test page
 		http_server.expect_request('/newTab').respond_with_data(
 			"""
@@ -247,11 +245,11 @@ class TestClickElementEvent:
 
 		assert link_index is not None, 'Could not find link element'
 
-		# Click the link with while_holding_ctrl=True
-		click_action = {'click_element_by_index': ClickElementAction(index=link_index, while_holding_ctrl=True)}
+		# Click the link with ctrl=True
+		click_action = {'click': ClickElementAction(index=link_index, ctrl=True)}
 
 		class ClickActionModel(ActionModel):
-			click_element_by_index: ClickElementAction | None = None
+			click: ClickElementAction | None = None
 
 		result = await tools.act(ClickActionModel(**click_action), browser_session)
 		await asyncio.sleep(1)  # Wait for new tab to open
@@ -288,7 +286,7 @@ class TestClickElementEvent:
 
 	@pytest.mark.skip(reason='Tab count assertion failures - tab management logic changed')
 	async def test_click_element_normal_vs_new_tab(self, tools, browser_session, base_url, http_server):
-		"""Test that click_element_by_index behaves differently with while_holding_ctrl=False vs while_holding_ctrl=True."""
+		"""Test that click behaves differently with ctrl=False vs ctrl=True."""
 		# Add route for comparison test page
 		http_server.expect_request('/comparison').respond_with_data(
 			"""
@@ -330,11 +328,11 @@ class TestClickElementEvent:
 
 		assert len(link_indices) >= 2, 'Need at least 2 links for comparison test'
 
-		# Test normal click (while_holding_ctrl=False) - should navigate in current tab
-		click_action_normal = {'click_element_by_index': ClickElementAction(index=link_indices[0], while_holding_ctrl=False)}
+		# Test normal click (ctrl=False) - should navigate in current tab
+		click_action_normal = {'click': ClickElementAction(index=link_indices[0], ctrl=False)}
 
 		class ClickActionModel(ActionModel):
-			click_element_by_index: ClickElementAction | None = None
+			click: ClickElementAction | None = None
 
 		result = await tools.act(ClickActionModel(**click_action_normal), browser_session)
 		await asyncio.sleep(1)
@@ -347,8 +345,8 @@ class TestClickElementEvent:
 		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
 		await asyncio.sleep(1)
 
-		# Test new tab click (while_holding_ctrl=True) - should open in new background tab
-		click_action_new_tab = {'click_element_by_index': ClickElementAction(index=link_indices[1], while_holding_ctrl=True)}
+		# Test new tab click (ctrl=True) - should open in new background tab
+		click_action_new_tab = {'click': ClickElementAction(index=link_indices[1], ctrl=True)}
 		result = await tools.act(ClickActionModel(**click_action_new_tab), browser_session)
 		await asyncio.sleep(1)
 
@@ -420,9 +418,9 @@ class TestClickElementEvent:
 
 		# Click the element - should click the visible portion
 		class ClickActionModel(ActionModel):
-			click_element_by_index: ClickElementAction | None = None
+			click: ClickElementAction | None = None
 
-		result = await tools.act(ClickActionModel(click_element_by_index=ClickElementAction(index=inline_index)), browser_session)
+		result = await tools.act(ClickActionModel(click=ClickElementAction(index=inline_index)), browser_session)
 
 		assert result.error is None, f'Click failed: {result.error}'
 
@@ -502,9 +500,9 @@ class TestClickElementEvent:
 
 		# Click the block element
 		class ClickActionModel(ActionModel):
-			click_element_by_index: ClickElementAction | None = None
+			click: ClickElementAction | None = None
 
-		result = await tools.act(ClickActionModel(click_element_by_index=ClickElementAction(index=block_index)), browser_session)
+		result = await tools.act(ClickActionModel(click=ClickElementAction(index=block_index)), browser_session)
 
 		assert result.error is None, f'Click failed: {result.error}'
 
@@ -590,9 +588,9 @@ class TestClickElementEvent:
 
 		# Click should still work on the visible portion
 		class ClickActionModel(ActionModel):
-			click_element_by_index: ClickElementAction | None = None
+			click: ClickElementAction | None = None
 
-		result = await tools.act(ClickActionModel(click_element_by_index=ClickElementAction(index=target_index)), browser_session)
+		result = await tools.act(ClickActionModel(click=ClickElementAction(index=target_index)), browser_session)
 
 		assert result.error is None, f'Click failed: {result.error}'
 
@@ -651,11 +649,9 @@ class TestClickElementEvent:
 
 		# Attempt to click should raise an exception
 		class ClickActionModel(ActionModel):
-			click_element_by_index: ClickElementAction | None = None
+			click: ClickElementAction | None = None
 
-		result = await tools.act(
-			ClickActionModel(click_element_by_index=ClickElementAction(index=file_input_index)), browser_session
-		)
+		result = await tools.act(ClickActionModel(click=ClickElementAction(index=file_input_index)), browser_session)
 
 		# Should have an error about file inputs
 		assert result.error is not None, 'Expected error for file input click'
@@ -713,9 +709,9 @@ class TestClickElementEvent:
 
 		# Attempt to click should raise an exception
 		class ClickActionModel(ActionModel):
-			click_element_by_index: ClickElementAction | None = None
+			click: ClickElementAction | None = None
 
-		result = await tools.act(ClickActionModel(click_element_by_index=ClickElementAction(index=select_index)), browser_session)
+		result = await tools.act(ClickActionModel(click=ClickElementAction(index=select_index)), browser_session)
 
 		# Should automatically provide dropdown options instead of an error
 		assert result.error is None, 'Should not have error - should provide dropdown options automatically'
@@ -1114,7 +1110,7 @@ class TestClickElementEvent:
 
 			# Create action model for file upload
 			class UploadFileActionModel(ActionModel):
-				upload_file_to_element: UploadFileAction | None = None
+				upload_file: UploadFileAction | None = None
 
 			# Create a temporary FileSystem for the test
 			import tempfile
@@ -1126,7 +1122,7 @@ class TestClickElementEvent:
 
 				# Upload the file using the label index (should find the associated file input)
 				result = await tools.act(
-					UploadFileActionModel(upload_file_to_element=UploadFileAction(index=label_index, path=temp_file_path)),
+					UploadFileActionModel(upload_file=UploadFileAction(index=label_index, path=temp_file_path)),
 					browser_session,
 					available_file_paths=[temp_file_path],  # Pass the file path as available
 					file_system=file_system,  # Pass the required file_system parameter
@@ -1248,9 +1244,9 @@ class TestClickElementEvent:
 
 			# Test 1: Try to upload a file that's not in available_file_paths - should fail
 			class UploadActionModel(ActionModel):
-				upload_file_to_element: UploadFileAction | None = None
+				upload_file: UploadFileAction | None = None
 
-			upload_action = UploadActionModel(upload_file_to_element=UploadFileAction(index=1, path=test_file_path))
+			upload_action = UploadActionModel(upload_file=UploadFileAction(index=1, path=test_file_path))
 
 			# Create a temporary FileSystem for all tests
 			with tempfile.TemporaryDirectory() as temp_dir:
@@ -1283,7 +1279,7 @@ class TestClickElementEvent:
 				fs_file_path = str(file_system.get_dir() / 'test.txt')
 
 				# Try to upload using just the filename (should check FileSystem)
-				upload_action_fs = UploadActionModel(upload_file_to_element=UploadFileAction(index=1, path='test.txt'))
+				upload_action_fs = UploadActionModel(upload_file=UploadFileAction(index=1, path='test.txt'))
 
 				result = await tools.act(
 					upload_action_fs,

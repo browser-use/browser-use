@@ -20,7 +20,7 @@ class GoToUrlAction(BaseModel):
 
 class ClickElementAction(BaseModel):
 	index: int = Field(ge=1, description='index of the element to click')
-	while_holding_ctrl: bool | None = Field(
+	ctrl: bool | None = Field(
 		default=None,
 		description='Set to True to open the navigation in a new background tab (Ctrl+Click behavior). Optional.',
 	)
@@ -52,17 +52,19 @@ class SwitchTabAction(BaseModel):
 	tab_id: str = Field(
 		min_length=4,
 		max_length=4,
-		description='Last 4 chars of TargetID',
+		description="tab_id to switch to which is displayed as 'Tab <tab_id>' in the browser_state.",
 	)  # last 4 chars of TargetID
 
 
 class CloseTabAction(BaseModel):
-	tab_id: str = Field(min_length=4, max_length=4, description='4 character Tab ID')  # last 4 chars of TargetID
+	tab_id: str = Field(
+		min_length=4, max_length=4, description="tab_id to close which is displayed as 'Tab <tab_id>' in the browser_state."
+	)  # last 4 chars of TargetID
 
 
 class ScrollAction(BaseModel):
 	down: bool  # True to scroll down, False to scroll up
-	num_pages: float  # Number of pages to scroll (0.5 = half page, 1.0 = one page, etc.)
+	num_pages: float = 1.0  # Number of pages to scroll (0.5 = half page, 1.0 = one page, etc.)
 	frame_element_index: int | None = None  # Optional element index to find scroll container for
 
 

@@ -285,7 +285,7 @@ class MessageManager:
 		model_output: AgentOutput | None = None,
 		result: list[ActionResult] | None = None,
 		step_info: AgentStepInfo | None = None,
-		use_vision=True,
+		use_vision: bool | Literal['auto'] = 'auto',
 		page_filtered_actions: str | None = None,
 		sensitive_data=None,
 		available_file_paths: list[str] | None = None,  # Always pass current available_file_paths
@@ -305,10 +305,36 @@ class MessageManager:
 			self.sensitive_data = effective_sensitive_data
 			self.sensitive_data_description = self._get_sensitive_data_description(browser_state_summary.url)
 
-		# Use only the current screenshot
+		# Use only the current screenshot, but check if action results request screenshot inclusion
 		screenshots = []
-		if browser_state_summary.screenshot:
+		include_screenshot_requested = False
+
+		# Check if any action results request screenshot inclusion
+		if result:
+			for action_result in result:
+				if action_result.metadata and action_result.metadata.get('include_screenshot'):
+					include_screenshot_requested = True
+					logger.debug('Screenshot inclusion requested by action result')
+					break
+
+		# Handle different use_vision modes:
+		# - "auto": Only include screenshot if explicitly requested by action (e.g., take_screenshot)
+		# - True: Always include screenshot
+		# - False: Never include screenshot
+		include_screenshot = False
+		if use_vision is True:
+			# Always include screenshot when use_vision=True
+			include_screenshot = True
+		elif use_vision == 'auto':
+			# Only include screenshot if explicitly requested by action when use_vision="auto"
+			include_screenshot = include_screenshot_requested
+		# else: use_vision is False, never include screenshot (include_screenshot stays False)
+
+		if include_screenshot and browser_state_summary.screenshot:
 			screenshots.append(browser_state_summary.screenshot)
+
+		# Use vision in the user message if screenshots are included
+		effective_use_vision = len(screenshots) > 0
 
 		# Create single state message with all content
 		assert browser_state_summary
@@ -327,7 +353,7 @@ class MessageManager:
 			vision_detail_level=self.vision_detail_level,
 			include_recent_events=self.include_recent_events,
 			sample_images=self.sample_images,
-		).get_user_message(use_vision)
+		).get_user_message(effective_use_vision)
 
 		# Set the state message with caching enabled
 		self._set_message_with_type(state_message, 'state')

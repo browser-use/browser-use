@@ -114,6 +114,14 @@
     {
       "source": "/customize/examples/prompting-guide",
       "destination": "/customize/agent/prompting-guide"
+    },
+    {
+      "source":"/api-reference/browser-profiles/get-browser-profile",
+      "destination":"https://docs.cloud.browser-use.com/api-reference/v-2-api-current/profiles/get-profile-profiles-profile-id-get"
+    },
+    {
+      "source": "/cloud/v2/quickstart",
+      "destination": "https://docs.cloud.browser-use.com/get-started/quickstart"
     }
   ],
   "navigation": {
