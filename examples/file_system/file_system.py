@@ -24,7 +24,7 @@ Then, use append_file to add the first sentence of the article to "data.md"
 Then, read the file to see its content and make sure it's correct.
 Finally, share the file with me.
 
-NOTE: DO NOT USE extract_structured_data action - everything is visible in browser state.
+NOTE: DO NOT USE extract action - everything is visible in browser state.
 """.strip('\n')
 
 llm = ChatOpenAI(model='gpt-4.1-mini')

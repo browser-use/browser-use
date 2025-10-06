@@ -15,9 +15,13 @@ class SearchAction(BaseModel):
 SearchAction = SearchAction
 
 
-class GoToUrlAction(BaseModel):
+class NavigateAction(BaseModel):
 	url: str
 	new_tab: bool = Field(default=False)
+
+
+# Backward compatibility alias
+GoToUrlAction = NavigateAction
 
 
 class ClickElementAction(BaseModel):
@@ -31,7 +35,7 @@ class ClickElementAction(BaseModel):
 
 
 class InputTextAction(BaseModel):
-	index: int = Field(ge=1, description='from browser_state')
+	index: int = Field(ge=0, description='from browser_state')
 	text: str
 	clear: bool = Field(default=True, description='1=clear, 0=append')
 
@@ -86,5 +90,5 @@ class GetDropdownOptionsAction(BaseModel):
 
 
 class SelectDropdownOptionAction(BaseModel):
-	index: int = Field(ge=1, description='index')
+	index: int
 	text: str = Field(description='exact text/value')

@@ -318,7 +318,7 @@ class MessageManager:
 					break
 
 		# Handle different use_vision modes:
-		# - "auto": Only include screenshot if explicitly requested by action (e.g., take_screenshot)
+		# - "auto": Only include screenshot if explicitly requested by action (e.g., screenshot)
 		# - True: Always include screenshot
 		# - False: Never include screenshot
 		include_screenshot = False

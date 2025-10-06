@@ -66,10 +66,10 @@ class TestNavigateToUrlEvent:
 		# Test successful navigation to a valid page
 		action_data = {'navigate': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
 
-		class GoToUrlActionModel(ActionModel):
+		class NavigateActionModel(ActionModel):
 			navigate: GoToUrlAction | None = None
 
-		action_model = GoToUrlActionModel(**action_data)
+		action_model = NavigateActionModel(**action_data)
 		result = await tools.act(action_model, browser_session)
 
 		# Verify the successful navigation result
@@ -83,10 +83,10 @@ class TestNavigateToUrlEvent:
 		action_data = {'navigate': GoToUrlAction(url='https://www.nonexistentdndbeyond.com/', new_tab=False)}
 
 		# Create the ActionModel instance
-		class GoToUrlActionModel(ActionModel):
+		class NavigateActionModel(ActionModel):
 			navigate: GoToUrlAction | None = None
 
-		action_model = GoToUrlActionModel(**action_data)
+		action_model = NavigateActionModel(**action_data)
 
 		# Execute the action - should return soft error instead of throwing
 		result = await tools.act(action_model, browser_session)
@@ -132,10 +132,10 @@ class TestNavigateToUrlEvent:
 		# Navigate to URL in new tab
 		action_data = {'navigate': GoToUrlAction(url=f'{base_url}/page2', new_tab=True)}
 
-		class GoToUrlActionModel(ActionModel):
+		class NavigateActionModel(ActionModel):
 			navigate: GoToUrlAction | None = None
 
-		result = await tools.act(GoToUrlActionModel(**action_data), browser_session)
+		result = await tools.act(NavigateActionModel(**action_data), browser_session)
 		await asyncio.sleep(0.5)
 
 		# Verify result
@@ -157,14 +157,14 @@ class TestNavigateToUrlEvent:
 		# Navigate to a normal page first
 		action_data = {'navigate': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
 
-		class GoToUrlActionModel(ActionModel):
+		class NavigateActionModel(ActionModel):
 			navigate: GoToUrlAction | None = None
 
-		await tools.act(GoToUrlActionModel(**action_data), browser_session)
+		await tools.act(NavigateActionModel(**action_data), browser_session)
 
 		# Try to navigate to javascript: URL (should be handled gracefully)
 		js_action = {'navigate': GoToUrlAction(url='javascript:alert("test")', new_tab=False)}
-		result = await tools.act(GoToUrlActionModel(**js_action), browser_session)
+		result = await tools.act(NavigateActionModel(**js_action), browser_session)
 
 		# Should either succeed or fail gracefully
 		assert isinstance(result, ActionResult)
@@ -176,10 +176,10 @@ class TestNavigateToUrlEvent:
 
 		action_data = {'navigate': GoToUrlAction(url=data_url, new_tab=False)}
 
-		class GoToUrlActionModel(ActionModel):
+		class NavigateActionModel(ActionModel):
 			navigate: GoToUrlAction | None = None
 
-		result = await tools.act(GoToUrlActionModel(**action_data), browser_session)
+		result = await tools.act(NavigateActionModel(**action_data), browser_session)
 
 		# Verify navigation
 		assert isinstance(result, ActionResult)
@@ -212,10 +212,10 @@ class TestNavigateToUrlEvent:
 		# Navigate to page with hash
 		action_data = {'navigate': GoToUrlAction(url=f'{base_url}/page-with-anchors#section1', new_tab=False)}
 
-		class GoToUrlActionModel(ActionModel):
+		class NavigateActionModel(ActionModel):
 			navigate: GoToUrlAction | None = None
 
-		result = await tools.act(GoToUrlActionModel(**action_data), browser_session)
+		result = await tools.act(NavigateActionModel(**action_data), browser_session)
 
 		# Verify navigation
 		assert isinstance(result, ActionResult)
@@ -249,10 +249,10 @@ class TestNavigateToUrlEvent:
 		# Navigate with query parameters
 		action_data = {'navigate': GoToUrlAction(url=f'{base_url}/search?q=test+query&page=1', new_tab=False)}
 
-		class GoToUrlActionModel(ActionModel):
+		class NavigateActionModel(ActionModel):
 			navigate: GoToUrlAction | None = None
 
-		result = await tools.act(GoToUrlActionModel(**action_data), browser_session)
+		result = await tools.act(NavigateActionModel(**action_data), browser_session)
 
 		# Verify navigation
 		assert isinstance(result, ActionResult)
@@ -269,18 +269,18 @@ class TestNavigateToUrlEvent:
 		# Navigate to first page in current tab
 		action1 = {'navigate': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
 
-		class GoToUrlActionModel(ActionModel):
+		class NavigateActionModel(ActionModel):
 			navigate: GoToUrlAction | None = None
 
-		await tools.act(GoToUrlActionModel(**action1), browser_session)
+		await tools.act(NavigateActionModel(**action1), browser_session)
 
 		# Open second page in new tab
 		action2 = {'navigate': GoToUrlAction(url=f'{base_url}/page2', new_tab=True)}
-		await tools.act(GoToUrlActionModel(**action2), browser_session)
+		await tools.act(NavigateActionModel(**action2), browser_session)
 
 		# Open home page in yet another new tab
 		action3 = {'navigate': GoToUrlAction(url=base_url, new_tab=True)}
-		await tools.act(GoToUrlActionModel(**action3), browser_session)
+		await tools.act(NavigateActionModel(**action3), browser_session)
 
 		# Should have 3 tabs now
 		tabs = await browser_session.get_tabs()
@@ -298,11 +298,11 @@ class TestNavigateToUrlEvent:
 
 		action_data = {'navigate': GoToUrlAction(url=timeout_url, new_tab=False)}
 
-		class GoToUrlActionModel(ActionModel):
+		class NavigateActionModel(ActionModel):
 			navigate: GoToUrlAction | None = None
 
 		# This should complete without hanging indefinitely
-		result = await tools.act(GoToUrlActionModel(**action_data), browser_session)
+		result = await tools.act(NavigateActionModel(**action_data), browser_session)
 
 		# Should get a result (possibly with error)
 		assert isinstance(result, ActionResult)
@@ -319,10 +319,10 @@ class TestNavigateToUrlEvent:
 		# Navigate to redirect URL
 		action_data = {'navigate': GoToUrlAction(url=f'{base_url}/redirect', new_tab=False)}
 
-		class GoToUrlActionModel(ActionModel):
+		class NavigateActionModel(ActionModel):
 			navigate: GoToUrlAction | None = None
 
-		result = await tools.act(GoToUrlActionModel(**action_data), browser_session)
+		result = await tools.act(NavigateActionModel(**action_data), browser_session)
 
 		# Verify navigation succeeded
 		assert isinstance(result, ActionResult)

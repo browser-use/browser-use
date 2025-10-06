@@ -134,10 +134,10 @@ class TestClickElementEvent:
 
 		from browser_use.agent.views import ActionModel
 
-		class GoToUrlActionModel(ActionModel):
+		class NavigateActionModel(ActionModel):
 			navigate: GoToUrlAction | None = None
 
-		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(NavigateActionModel(**goto_action), browser_session)
 
 		# Wait for the page to load
 		await asyncio.sleep(0.5)  # Give page time to load
@@ -222,10 +222,10 @@ class TestClickElementEvent:
 
 		from browser_use.agent.views import ActionModel
 
-		class GoToUrlActionModel(ActionModel):
+		class NavigateActionModel(ActionModel):
 			navigate: GoToUrlAction | None = None
 
-		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(NavigateActionModel(**goto_action), browser_session)
 		await asyncio.sleep(1)  # Wait for page to load
 
 		# Count initial tabs
@@ -310,10 +310,10 @@ class TestClickElementEvent:
 
 		from browser_use.agent.views import ActionModel
 
-		class GoToUrlActionModel(ActionModel):
+		class NavigateActionModel(ActionModel):
 			navigate: GoToUrlAction | None = None
 
-		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(NavigateActionModel(**goto_action), browser_session)
 		await asyncio.sleep(1)
 
 		tabs = await browser_session.get_tabs()
@@ -342,7 +342,7 @@ class TestClickElementEvent:
 		assert len(tabs) == initial_tab_count
 
 		# Navigate back to comparison page for second test
-		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(NavigateActionModel(**goto_action), browser_session)
 		await asyncio.sleep(1)
 
 		# Test new tab click (ctrl=True) - should open in new background tab
@@ -397,10 +397,10 @@ class TestClickElementEvent:
 
 		from browser_use.agent.views import ActionModel
 
-		class GoToUrlActionModel(ActionModel):
+		class NavigateActionModel(ActionModel):
 			navigate: GoToUrlAction | None = None
 
-		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(NavigateActionModel(**goto_action), browser_session)
 		await asyncio.sleep(0.5)
 
 		# Get the clickable elements
@@ -479,10 +479,10 @@ class TestClickElementEvent:
 
 		from browser_use.agent.views import ActionModel
 
-		class GoToUrlActionModel(ActionModel):
+		class NavigateActionModel(ActionModel):
 			navigate: GoToUrlAction | None = None
 
-		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(NavigateActionModel(**goto_action), browser_session)
 		await asyncio.sleep(0.5)
 
 		# Get the clickable elements
@@ -567,10 +567,10 @@ class TestClickElementEvent:
 
 		from browser_use.agent.views import ActionModel
 
-		class GoToUrlActionModel(ActionModel):
+		class NavigateActionModel(ActionModel):
 			navigate: GoToUrlAction | None = None
 
-		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(NavigateActionModel(**goto_action), browser_session)
 		await asyncio.sleep(0.5)
 
 		# Get the clickable elements
@@ -627,10 +627,10 @@ class TestClickElementEvent:
 
 		from browser_use.agent.views import ActionModel
 
-		class GoToUrlActionModel(ActionModel):
+		class NavigateActionModel(ActionModel):
 			navigate: GoToUrlAction | None = None
 
-		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(NavigateActionModel(**goto_action), browser_session)
 		await asyncio.sleep(0.5)
 
 		# Get the clickable elements
@@ -688,10 +688,10 @@ class TestClickElementEvent:
 
 		from browser_use.agent.views import ActionModel
 
-		class GoToUrlActionModel(ActionModel):
+		class NavigateActionModel(ActionModel):
 			navigate: GoToUrlAction | None = None
 
-		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(NavigateActionModel(**goto_action), browser_session)
 		await asyncio.sleep(0.5)
 
 		# Get the clickable elements
@@ -1085,10 +1085,10 @@ class TestClickElementEvent:
 
 			from browser_use.agent.views import ActionModel
 
-			class GoToUrlActionModel(ActionModel):
+			class NavigateActionModel(ActionModel):
 				navigate: GoToUrlAction | None = None
 
-			await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+			await tools.act(NavigateActionModel(**goto_action), browser_session)
 
 			# Wait for the page to load
 			await asyncio.sleep(0.5)
@@ -1230,10 +1230,10 @@ class TestClickElementEvent:
 			goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/upload-test', new_tab=False)}
 			from browser_use.agent.views import ActionModel
 
-			class GoToUrlActionModel(ActionModel):
+			class NavigateActionModel(ActionModel):
 				navigate: GoToUrlAction | None = None
 
-			await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+			await tools.act(NavigateActionModel(**goto_action), browser_session)
 			await asyncio.sleep(0.5)
 
 			# Get browser state to populate selector map

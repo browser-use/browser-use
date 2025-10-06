@@ -38,8 +38,8 @@ from browser_use.tools.views import (
 	CloseTabAction,
 	DoneAction,
 	GetDropdownOptionsAction,
-	GoToUrlAction,
 	InputTextAction,
+	NavigateAction,
 	NoParamsAction,
 	ScrollAction,
 	SearchAction,
@@ -159,9 +159,9 @@ class Tools(Generic[Context]):
 
 		@self.registry.action(
 			'',
-			param_model=GoToUrlAction,
+			param_model=NavigateAction,
 		)
-		async def navigate(params: GoToUrlAction, browser_session: BrowserSession):
+		async def navigate(params: NavigateAction, browser_session: BrowserSession):
 			try:
 				# Dispatch navigation event
 				event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=params.url, new_tab=params.new_tab))
@@ -273,7 +273,7 @@ class Tools(Generic[Context]):
 			except BrowserError as e:
 				if 'Cannot click on <select> elements.' in str(e):
 					try:
-						return await get_dropdown_options(
+						return await dropdown_options(
 							params=GetDropdownOptionsAction(index=params.index), browser_session=browser_session
 						)
 					except Exception as dropdown_error:
@@ -313,7 +313,7 @@ class Tools(Generic[Context]):
 					TypeTextEvent(
 						node=node,
 						text=params.text,
-						clear_existing=params.clear,
+						clear=params.clear,
 						is_sensitive=has_sensitive_data,
 						sensitive_key_name=sensitive_key_name,
 					)
@@ -555,7 +555,7 @@ class Tools(Generic[Context]):
 		# This action is temporarily disabled as it needs refactoring to use events
 
 		@self.registry.action(
-			"""Extract page data via LLM. Use when on right page, know what to extract. Can't get interactive elements. Don't call again on same page with same query.""",
+			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Use start_from_char if truncated. If fails, use find_text/scroll instead.""",
 		)
 		async def extract(
 			query: str,
@@ -675,7 +675,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				raise RuntimeError(str(e))
 
 		@self.registry.action(
-			'Scroll page. Multiple pages scroll sequentially.',
+			"""Scroll by pages (down=True/False, pages=0.5-10.0, default 1.0). Use index for scroll containers (dropdowns/custom UI). High pages (10) reaches bottom. Multi-page scrolls sequentially. Viewport-based height, fallback 1000px/page.""",
 			param_model=ScrollAction,
 		)
 		async def scroll(params: ScrollAction, browser_session: BrowserSession):
@@ -960,7 +960,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			)
 
 		@self.registry.action(
-			'JS eval. Wrap in IIFE: (function(){...})(). Use try/catch. JSON.stringify() for objects.',
+			"""Execute JS. MUST: wrap in IIFE (function(){...})() or (async function(){...})(), add try-catch, validate elements exist. Check null before accessing properties. Use for: hover, drag, custom selectors, forms, extract/filter links, iframes, shadow DOM, React/Vue/Angular. Limit output. Examples: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() ✓ | document.querySelector('#id').value ✗. Shadow: iterate hosts, check shadowRoot. Return JSON.stringify() for objects. Do not use comments""",
 		)
 		async def evaluate(code: str, browser_session: BrowserSession):
 			# Execute JavaScript with proper error handling and promise support

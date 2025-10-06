@@ -161,11 +161,11 @@ class TestDownloadUploadFullCircle:
 				base_url = f'http://{download_upload_server.host}:{download_upload_server.port}'
 
 				# Step 1: Navigate to download page
-				class GoToUrlActionModel(ActionModel):
+				class NavigateActionModel(ActionModel):
 					navigate: GoToUrlAction | None = None
 
 				result = await tools.act(
-					GoToUrlActionModel(navigate=GoToUrlAction(url=f'{base_url}/download-page', new_tab=False)), browser_session
+					NavigateActionModel(navigate=GoToUrlAction(url=f'{base_url}/download-page', new_tab=False)), browser_session
 				)
 				assert result.error is None, f'Navigation to download page failed: {result.error}'
 
@@ -228,7 +228,7 @@ class TestDownloadUploadFullCircle:
 				for i, tab in enumerate(tabs_before):
 					print(f'  Tab {i}: {tab.url}')
 				result = await tools.act(
-					GoToUrlActionModel(navigate=GoToUrlAction(url=f'{base_url}/upload-page', new_tab=True)), browser_session
+					NavigateActionModel(navigate=GoToUrlAction(url=f'{base_url}/upload-page', new_tab=True)), browser_session
 				)
 				assert result.error is None, f'Navigation to upload page failed: {result.error}'
 				print(f'✅ Navigation result: {result.extracted_content}')

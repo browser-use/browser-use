@@ -12,7 +12,7 @@ Prompting can trasticly improve performance and solve existing limitations of th
 ```python
 task = """
 1. Go to https://quotes.toscrape.com/
-2. Use extract_structured_data action with the query "first 3 quotes with their authors"
+2. Use extract action with the query "first 3 quotes with their authors"
 3. Save results to quotes.csv using write_file action
 4. Do a google search for the first quote and find when it was written
 """
@@ -30,11 +30,11 @@ When you know exactly what the agent should do, reference actions by name:
 ```python
 task = """
 1. Use search action to find "Python tutorials"
-2. Use click_element_by_index to open first result in a new tab   
+2. Use click to open first result in a new tab
 3. Use scroll action to scroll down 2 pages
-4. Use extract_structured_data to extract the names of the first 5 items 
+4. Use extract to extract the names of the first 5 items
 5. Wait for 2 seconds if the page is not loaded, refresh it and wait 10 sec
-6. Use send_keys action with "Tab Tab ArrowDown Enter" 
+6. Use send_keys action with "Tab Tab ArrowDown Enter"
 """
 ```
 
