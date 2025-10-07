@@ -9,7 +9,7 @@ from google import genai
 from google.auth.credentials import Credentials
 from google.genai import types
 from google.genai.types import MediaModality
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError
@@ -82,7 +82,6 @@ class ChatGoogle(BaseChatModel):
 	config: types.GenerateContentConfigDict | None = None
 	include_system_in_user: bool = False
 	supports_structured_output: bool = True  # New flag
-	use_unstructured_output: bool = False  # If True, uses plain text format instead of JSON schema
 
 	# Client initialization parameters
 	api_key: str | None = None
@@ -251,48 +250,7 @@ class ChatGoogle(BaseChatModel):
 
 				else:
 					# Handle structured output
-					if self.use_unstructured_output:
-						# Use plain text output format without structured schema
-						self.logger.debug(f'📝 Using unstructured output mode for {output_format.__name__}')
-
-						response = await self.get_client().aio.models.generate_content(
-							model=self.model,
-							contents=contents,  # type: ignore
-							config=config,
-						)
-
-						elapsed = time.time() - start_time
-						self.logger.debug(f'✅ Got unstructured response in {elapsed:.2f}s')
-
-						usage = self._get_usage(response)
-
-						# Parse the unstructured text response
-						if response.text:
-							try:
-								from browser_use.llm.google.unstructured_parser import UnstructuredOutputParser
-
-								self.logger.debug(f'📄 Raw model response:\n{response.text}')
-								parsed_dict = UnstructuredOutputParser.parse(response.text, output_format)
-								return ChatInvokeCompletion(
-									completion=output_format.model_validate(parsed_dict),
-									usage=usage,
-								)
-							except (ValueError, ValidationError) as e:
-								self.logger.error(f'❌ Failed to parse unstructured response: {str(e)}')
-								self.logger.error(f'📄 Raw response text:\n{response.text}')
-								raise ModelProviderError(
-									message=f'Failed to parse unstructured output: {str(e)}',
-									status_code=500,
-									model=self.model,
-								) from e
-						else:
-							self.logger.error('❌ No response text received')
-							raise ModelProviderError(
-								message='No response from model',
-								status_code=500,
-								model=self.model,
-							)
-					elif self.supports_structured_output:
+					if self.supports_structured_output:
 						# Use native JSON mode
 						self.logger.debug(f'🔧 Requesting structured output for {output_format.__name__}')
 						config['response_mime_type'] = 'application/json'
