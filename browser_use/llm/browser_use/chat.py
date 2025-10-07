@@ -129,9 +129,12 @@ class ChatBrowserUse(BaseChatModel):
 			except Exception as e:
 				raise ValueError(f'Failed to connect to browser-use API: {e}')
 
-		# Parse response
+		# Parse response - server returns structured data as dict
 		if output_format is not None:
-			completion = output_format.model_validate(result['completion'])
+			# Server returns structured output as a dict, validate it
+			completion_data = result['completion']
+			logger.debug(f'📥 Got structured data from service: {list(completion_data.keys()) if isinstance(completion_data, dict) else type(completion_data)}')
+			completion = output_format.model_validate(completion_data)
 		else:
 			completion = result['completion']
 
