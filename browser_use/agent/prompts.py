@@ -16,29 +16,21 @@ if TYPE_CHECKING:
 class SystemPrompt:
 	def __init__(
 		self,
-		action_description: str,
 		max_actions_per_step: int = 10,
 		override_system_message: str | None = None,
 		extend_system_message: str | None = None,
 		use_thinking: bool = True,
 		flash_mode: bool = False,
-		use_unstructured_output: bool = False,
 	):
-		self.default_action_description = action_description
 		self.max_actions_per_step = max_actions_per_step
 		self.use_thinking = use_thinking
 		self.flash_mode = flash_mode
-		self.use_unstructured_output = use_unstructured_output
 		prompt = ''
 		if override_system_message is not None:
 			prompt = override_system_message
 		else:
 			self._load_prompt_template()
-			# Format template with available parameters
-			# Not all templates use all parameters - that's ok, format will ignore unused ones
-			prompt = self.prompt_template.format(
-				max_actions=self.max_actions_per_step, action_description=self.default_action_description
-			)
+			prompt = self.prompt_template.format(max_actions=self.max_actions_per_step)
 
 		if extend_system_message:
 			prompt += f'\n{extend_system_message}'
@@ -49,7 +41,6 @@ class SystemPrompt:
 		"""Load the prompt template from the markdown file."""
 		try:
 			# Choose the appropriate template based on flash_mode and use_thinking settings
-			# Flash mode always uses unstructured output for token efficiency
 			if self.flash_mode:
 				template_filename = 'system_prompt_flash.md'
 			elif self.use_thinking:
@@ -71,15 +62,6 @@ class SystemPrompt:
 		    SystemMessage: Formatted system prompt
 		"""
 		return self.system_message
-
-
-# Functions:
-# {self.default_action_description}
-
-# Example:
-# {self.example_response()}
-# Your AVAILABLE ACTIONS:
-# {self.default_action_description}
 
 
 class AgentMessagePrompt:
