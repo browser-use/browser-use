@@ -357,7 +357,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._message_manager = MessageManager(
 			task=task,
 			system_message=SystemPrompt(
-				action_description=self.unfiltered_actions,
 				max_actions_per_step=self.settings.max_actions_per_step,
 				override_system_message=override_system_message,
 				extend_system_message=extend_system_message,
