@@ -90,6 +90,7 @@ class UnstructuredOutputParser:
 		action_field = output_fields['action']
 		# Extract the item type from list[ActionModel]
 		import typing
+
 		if hasattr(typing, 'get_args'):
 			action_types = typing.get_args(action_field.annotation)
 			if action_types and len(action_types) > 0:
@@ -190,7 +191,7 @@ class UnstructuredOutputParser:
 
 			if depth == 0:
 				# Found matching closing parenthesis
-				args_str = action_text[paren_start + 1:j - 1].strip()
+				args_str = action_text[paren_start + 1 : j - 1].strip()
 				actions_parsed.append((action_name, args_str))
 				i = j
 			else:
@@ -200,7 +201,6 @@ class UnstructuredOutputParser:
 		failed_actions = []  # Track parse/validation failures
 		for action_name, args_str in actions_parsed:
 			try:
-
 				# Get the schema for this action
 				action_schema = action_schemas[action_name]
 
@@ -391,9 +391,7 @@ class UnstructuredOutputParser:
 				return value_str
 
 		# Handle quoted strings
-		if (value_str.startswith('"') and value_str.endswith('"')) or (
-			value_str.startswith("'") and value_str.endswith("'")
-		):
+		if (value_str.startswith('"') and value_str.endswith('"')) or (value_str.startswith("'") and value_str.endswith("'")):
 			return value_str[1:-1]
 
 		# Handle booleans
