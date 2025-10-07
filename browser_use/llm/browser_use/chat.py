@@ -31,13 +31,13 @@ class ChatBrowserUse(BaseChatModel):
 	Usage:
 		agent = Agent(
 			task="Find the number of stars of the browser-use repo",
-			llm=ChatBrowserUse(super_fast=True),
+			llm=ChatBrowserUse(fast=True),
 		)
 	"""
 
 	def __init__(
 		self,
-		super_fast: bool = True,
+		fast: bool = True,
 		api_key: str | None = None,
 		base_url: str | None = None,
 		timeout: float = 120.0,
@@ -46,16 +46,16 @@ class ChatBrowserUse(BaseChatModel):
 		Initialize ChatBrowserUse client.
 
 		Args:
-			super_fast: If True, uses fastest model. If False, uses balanced model.
+			fast: If True, uses fast model. If False, uses smart model.
 			api_key: API key for browser-use cloud. Defaults to BROWSER_USE_API_KEY env var.
 			base_url: Base URL for the API. Defaults to BROWSER_USE_API_URL env var or production URL.
 			timeout: Request timeout in seconds.
 		"""
-		self.super_fast = super_fast
+		self.fast = fast
 		self.api_key = api_key or os.getenv('BROWSER_USE_API_KEY', '12345678')
 		self.base_url = base_url or os.getenv('BROWSER_USE_API_URL', 'https://api.browser-use.com')
 		self.timeout = timeout
-		self.model = 'gemini-flash-lite-latest' if super_fast else 'gemini-flash-latest'
+		self.model = 'fast' if fast else 'smart'
 
 	@property
 	def provider(self) -> str:
@@ -87,7 +87,7 @@ class ChatBrowserUse(BaseChatModel):
 		# Prepare request payload
 		payload = {
 			'messages': [self._serialize_message(msg) for msg in messages],
-			'super_fast': self.super_fast,
+			'fast': self.fast,
 		}
 
 		# Add output format schema if provided
@@ -133,7 +133,9 @@ class ChatBrowserUse(BaseChatModel):
 		if output_format is not None:
 			# Server returns structured output as a dict, validate it
 			completion_data = result['completion']
-			logger.debug(f'📥 Got structured data from service: {list(completion_data.keys()) if isinstance(completion_data, dict) else type(completion_data)}')
+			logger.debug(
+				f'📥 Got structured data from service: {list(completion_data.keys()) if isinstance(completion_data, dict) else type(completion_data)}'
+			)
 			completion = output_format.model_validate(completion_data)
 		else:
 			completion = result['completion']

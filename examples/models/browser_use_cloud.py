@@ -24,15 +24,14 @@ async def main():
 	api_key = os.getenv('BROWSER_USE_API_KEY')
 	if not api_key:
 		raise ValueError(
-			'BROWSER_USE_API_KEY environment variable not set. '
-			'Get your key at https://cloud.browser-use.com/dashboard/api'
+			'BROWSER_USE_API_KEY environment variable not set. Get your key at https://cloud.browser-use.com/dashboard/api'
 		)
 
 	# Create agent with ChatBrowserUse cloud service
 	agent = Agent(
 		task='Find the number of stars of the browser-use repo',
 		llm=ChatBrowserUse(
-			super_fast=True,  # Use gemini-flash-lite-latest for speed
+			fast=True,  # Use fast model (gemini-flash-lite-latest). Set to False for smart model.
 			base_url=os.getenv('BROWSER_USE_API_URL', 'https://llm-use-production.up.railway.app'),
 			api_key=api_key,
 		),
