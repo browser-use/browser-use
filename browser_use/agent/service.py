@@ -203,6 +203,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# No default LLM specified, use the original default
 				llm = ChatGoogle(model='gemini-flash-latest')
 
+		# set flashmode = True if llm is ChatBrowserUse
+		if llm.provider == 'browser-use':
+			flash_mode = True
+
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
 		if available_file_paths is None:
