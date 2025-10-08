@@ -38,7 +38,7 @@ async def debug_iframe_scrolling():
 			"next_goal": "Navigate to the iframe test page",
 			"action": [
 				{
-					"go_to_url": {
+					"navigate": {
 						"url": "https://browser-use.github.io/stress-tests/challenges/iframe-inception-level1.html",
 						"new_tab": false
 					}

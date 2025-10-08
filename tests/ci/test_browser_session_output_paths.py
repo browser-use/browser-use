@@ -60,7 +60,7 @@ def interactive_llm(httpserver_url):
 			"next_goal": "Navigate to the URL",
 			"action": [
 				{{
-					"go_to_url": {{
+					"navigate": {{
 						"url": "{httpserver_url}",
 						"new_tab": false
 					}}
@@ -72,16 +72,16 @@ def interactive_llm(httpserver_url):
 		"""
 		{
 			"thinking": "null",
-			"evaluation_previous_goal": "Successfully navigated to the page",
-			"memory": "Page loaded, can see search box and submit button",
-			"next_goal": "Click on the search box to focus it",
-			"action": [
-				{
-					"click_element_by_index": {
-						"index": 0
-					}
+		"evaluation_previous_goal": "Successfully navigated to the page",
+		"memory": "Page loaded, can see search box and submit button",
+		"next_goal": "Click on the search box to focus it",
+		"action": [
+			{
+				"click": {
+					"index": 0
 				}
-			]
+			}
+		]
 		}
 		""",
 		# Third action: Type text in the search box
@@ -105,16 +105,16 @@ def interactive_llm(httpserver_url):
 		"""
 		{
 			"thinking": "null",
-			"evaluation_previous_goal": "Typed 'test' in search box",
-			"memory": "Text 'test' has been entered successfully",
-			"next_goal": "Click the submit button to complete the task",
-			"action": [
-				{
-					"click_element_by_index": {
-						"index": 1
-					}
+		"evaluation_previous_goal": "Typed 'test' in search box",
+		"memory": "Text 'test' has been entered successfully",
+		"next_goal": "Click the submit button to complete the task",
+		"action": [
+			{
+				"click": {
+					"index": 1
 				}
-			]
+			}
+		]
 		}
 		""",
 		# Fifth action: Done - task completed

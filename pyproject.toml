@@ -29,7 +29,7 @@ dependencies = [
     "authlib>=1.6.0",
     "google-genai>=1.29.0,<2.0.0",
     "openai>=1.99.2,<2.0.0",
-    "anthropic>=0.58.2,<1.0.0",
+    "anthropic>=0.68.1,<1.0.0",
     "groq>=0.30.0",
     "ollama>=0.5.1",
     "google-api-python-client>=2.174.0",
@@ -67,7 +67,7 @@ video = [
     "numpy>=2.3.2",
 ]
 examples = [
-    "agentmail>=0.0.53",
+    "agentmail==0.0.59",
     # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
     "botocore>=1.37.23",
     "imgcat>=0.6.0",

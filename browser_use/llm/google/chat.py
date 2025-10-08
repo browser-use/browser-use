@@ -255,7 +255,7 @@ class ChatGoogle(BaseChatModel):
 						self.logger.debug(f'🔧 Requesting structured output for {output_format.__name__}')
 						config['response_mime_type'] = 'application/json'
 						# Convert Pydantic model to Gemini-compatible schema
-						optimized_schema = SchemaOptimizer.create_optimized_json_schema(output_format)
+						optimized_schema = SchemaOptimizer.create_gemini_optimized_schema(output_format)
 
 						gemini_schema = self._fix_gemini_schema(optimized_schema)
 						config['response_schema'] = gemini_schema

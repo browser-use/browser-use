@@ -93,7 +93,7 @@ class TestUrlShorteningOutputProcessing:
 			'evaluation_previous_goal': 'Successfully processed the request',
 			'memory': f'Found useful info at {shortened_url}',
 			'next_goal': 'Complete the documentation review',
-			'action': [{'go_to_url': {'url': shortened_url, 'new_tab': False}}],
+			'action': [{'navigate': {'url': shortened_url, 'new_tab': False}}],
 		}
 
 		# Create properly typed AgentOutput with custom actions
@@ -109,7 +109,7 @@ class TestUrlShorteningOutputProcessing:
 		assert SUPER_LONG_URL in (agent_output.thinking or '')
 		assert SUPER_LONG_URL in (agent_output.memory or '')
 		action_data = agent_output.action[0].model_dump()
-		assert action_data['go_to_url']['url'] == SUPER_LONG_URL
+		assert action_data['navigate']['url'] == SUPER_LONG_URL
 
 
 class TestUrlShorteningEndToEnd:
@@ -137,7 +137,7 @@ class TestUrlShorteningEndToEnd:
 			'evaluation_previous_goal': 'Starting documentation extraction',
 			'memory': f'Target URL: {shortened_url}',
 			'next_goal': 'Extract API documentation',
-			'action': [{'go_to_url': {'url': shortened_url, 'new_tab': True}}],
+			'action': [{'navigate': {'url': shortened_url, 'new_tab': True}}],
 		}
 
 		# Create AgentOutput with custom actions
@@ -153,8 +153,8 @@ class TestUrlShorteningEndToEnd:
 		assert SUPER_LONG_URL in (agent_output.thinking or '')
 		assert SUPER_LONG_URL in (agent_output.memory or '')
 		action_data = agent_output.action[0].model_dump()
-		assert action_data['go_to_url']['url'] == SUPER_LONG_URL
-		assert action_data['go_to_url']['new_tab'] is True
+		assert action_data['navigate']['url'] == SUPER_LONG_URL
+		assert action_data['navigate']['new_tab'] is True
 
 		# Verify original shortened content is no longer present
 		assert shortened_url not in (agent_output.thinking or '')

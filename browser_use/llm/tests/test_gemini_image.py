@@ -42,10 +42,10 @@ def create_random_text_image(text: str = 'hello world', width: int = 4000, heigh
 
 	# Convert to base64
 	buffer = io.BytesIO()
-	image.save(buffer, format='PNG')
+	image.save(buffer, format='JPEG')
 	img_data = base64.b64encode(buffer.getvalue()).decode()
 
-	return f'data:image/png;base64,{img_data}'
+	return f'data:image/jpeg;base64,{img_data}'
 
 
 async def test_gemini_image_vision():

@@ -986,6 +986,51 @@ class BrowserSession(BaseModel):
 		"""Clear all cookies."""
 		await self.cdp_client.send.Network.clearBrowserCookies()
 
+	async def export_storage_state(self, output_path: str | Path | None = None) -> dict[str, Any]:
+		"""Export all browser cookies and storage to storage_state format.
+
+		Extracts decrypted cookies via CDP, bypassing keychain encryption.
+
+		Args:
+			output_path: Optional path to save storage_state.json. If None, returns dict only.
+
+		Returns:
+			Storage state dict with cookies in Playwright format.
+
+		"""
+		from pathlib import Path
+
+		# Get all cookies using Storage.getCookies (returns decrypted cookies from all domains)
+		cookies = await self._cdp_get_cookies()
+
+		# Convert CDP cookie format to Playwright storage_state format
+		storage_state = {
+			'cookies': [
+				{
+					'name': c['name'],
+					'value': c['value'],
+					'domain': c['domain'],
+					'path': c['path'],
+					'expires': c.get('expires', -1),
+					'httpOnly': c.get('httpOnly', False),
+					'secure': c.get('secure', False),
+					'sameSite': c.get('sameSite', 'Lax'),
+				}
+				for c in cookies
+			],
+			'origins': [],  # Could add localStorage/sessionStorage extraction if needed
+		}
+
+		if output_path:
+			import json
+
+			output_file = Path(output_path).expanduser().resolve()
+			output_file.parent.mkdir(parents=True, exist_ok=True)
+			output_file.write_text(json.dumps(storage_state, indent=2))
+			self.logger.info(f'💾 Exported {len(cookies)} cookies to {output_file}')
+
+		return storage_state
+
 	async def get_or_create_cdp_session(
 		self, target_id: TargetID | None = None, focus: bool = True, new_socket: bool | None = None
 	) -> CDPSession:
@@ -1563,7 +1608,7 @@ class BrowserSession(BaseModel):
 				if is_new_tab_page(url) or url.startswith('chrome://'):
 					# Use URL as title for chrome pages, or mark new tabs as unusable
 					if is_new_tab_page(url):
-						title = 'ignore this tab and do not use it'
+						title = ''
 					elif not title:
 						# For chrome:// pages without a title, use the URL itself
 						title = url
@@ -1585,7 +1630,7 @@ class BrowserSession(BaseModel):
 				self.logger.debug(f'⚠️ Failed to get target info for tab #{i}: {_log_pretty_url(url)} - {type(e).__name__}')
 
 				if is_new_tab_page(url):
-					title = 'ignore this tab and do not use it'
+					title = ''
 				elif url.startswith('chrome://'):
 					title = url
 				else:

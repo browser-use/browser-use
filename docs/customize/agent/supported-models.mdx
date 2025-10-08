@@ -215,7 +215,7 @@ llm = ChatOllama(model="llama3.1:8b")
 ## Qwen [example](https://github.com/browser-use/browser-use/blob/main/examples/models/qwen.py)
 
 Currently, only `qwen-vl-max` is recommended for Browser Use. Other Qwen models, including `qwen-max`, have issues with the action schema format.
-Smaller Qwen models may return incorrect action schema formats (e.g., `actions: [{"go_to_url": "google.com"}]` instead of `[{"go_to_url": {"url": "google.com"}}]`). If you want to use other models, add concrete examples of the correct action format to your prompt.
+Smaller Qwen models may return incorrect action schema formats (e.g., `actions: [{"navigate": "google.com"}]` instead of `[{"navigate": {"url": "google.com"}}]`). If you want to use other models, add concrete examples of the correct action format to your prompt.
 
 ```python
 from browser_use import Agent, ChatOpenAI

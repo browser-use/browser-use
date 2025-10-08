@@ -350,12 +350,12 @@ class Registry(Generic[Context]):
 				'browser_session': browser_session,
 				'page_extraction_llm': page_extraction_llm,
 				'available_file_paths': available_file_paths,
-				'has_sensitive_data': action_name == 'input_text' and bool(sensitive_data),
+				'has_sensitive_data': action_name == 'input' and bool(sensitive_data),
 				'file_system': file_system,
 			}
 
-			# Only pass sensitive_data to actions that explicitly need it (input_text)
-			if action_name == 'input_text':
+			# Only pass sensitive_data to actions that explicitly need it (input)
+			if action_name == 'input':
 				special_context['sensitive_data'] = sensitive_data
 
 			# Add CDP-related parameters if browser_session is available
@@ -538,8 +538,6 @@ class Registry(Generic[Context]):
 			union_type = Union[tuple(individual_action_models)]  # type: ignore : Typing doesn't understand that the length is >= 2 (by design)
 
 			class ActionModelUnion(RootModel[union_type]):  # type: ignore
-				"""Union of all available action models that maintains ActionModel interface"""
-
 				def get_index(self) -> int | None:
 					"""Delegate get_index to the underlying action model"""
 					if hasattr(self.root, 'get_index'):

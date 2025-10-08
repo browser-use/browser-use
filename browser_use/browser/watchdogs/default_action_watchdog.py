@@ -103,7 +103,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					# so we need to switch to the new tab to make the agent aware of the surprise new tab that was opened.
 					# when while_holding_ctrl=True we dont actually want to switch to it,
 					# we should match human expectations of ctrl+click which opens in the background,
-					# so in multi_act it usually already sends [click_element_by_index(123, while_holding_ctrl=True), switch_tab(tab_id=None)] anyway
+					# so in multi_act it usually already sends [click_element_by_index(123, while_holding_ctrl=True), switch(tab_id=None)] anyway
 					from browser_use.browser.events import SwitchTabEvent
 
 					new_target_id = new_target_ids.pop()
@@ -144,7 +144,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					input_metadata = await self._input_text_element_node_impl(
 						element_node,
 						event.text,
-						clear_existing=event.clear_existing or (not event.text),
+						clear=event.clear or (not event.text),
 						is_sensitive=event.is_sensitive,
 					)
 					# Log with sensitive data protection
@@ -258,7 +258,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 			element_type = element_node.attributes.get('type', '').lower() if element_node.attributes else ''
 
 			if tag_name == 'select':
-				msg = f'Cannot click on <select> elements. Use get_dropdown_options(index={element_node.element_index}) action instead.'
+				msg = (
+					f'Cannot click on <select> elements. Use dropdown_options(index={element_node.element_index}) action instead.'
+				)
 				self.logger.warning(msg)
 				raise BrowserError(
 					message=msg,
@@ -992,7 +994,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 		return False
 
 	async def _input_text_element_node_impl(
-		self, element_node: EnhancedDOMTreeNode, text: str, clear_existing: bool = True, is_sensitive: bool = False
+		self, element_node: EnhancedDOMTreeNode, text: str, clear: bool = True, is_sensitive: bool = False
 	) -> dict | None:
 		"""
 		Input text into an element using pure CDP with improved focus fallbacks.
@@ -1055,7 +1057,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			)
 
 			# Step 2: Clear existing text if requested
-			if clear_existing and focused_successfully:
+			if clear and focused_successfully:
 				cleared_successfully = await self._clear_text_field(object_id=object_id, cdp_session=cdp_session)
 				if not cleared_successfully:
 					self.logger.warning('⚠️ Text field clearing failed, typing may append to existing text')
@@ -1271,10 +1273,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 			)
 
 			success = result.get('result', {}).get('value', False)
-			if success:
-				self.logger.debug('✅ Framework events triggered successfully')
-			else:
-				self.logger.warning('⚠️ Some framework events may have failed to trigger')
 
 		except Exception as e:
 			self.logger.warning(f'⚠️ Failed to trigger framework events: {type(e).__name__}: {e}')
@@ -2005,7 +2003,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 				msg = f'Found {dropdown_type} dropdown ({element_info}):\n' + '\n'.join(formatted_options)
 			else:
 				msg = f'Found {dropdown_type} dropdown in {source_info} ({element_info}):\n' + '\n'.join(formatted_options)
-			msg += f'\n\nUse the exact text or value string (without quotes) in select_dropdown_option(index={index_for_logging}, text=...)'
+			msg += (
+				f'\n\nUse the exact text or value string (without quotes) in select_dropdown(index={index_for_logging}, text=...)'
+			)
 
 			if source_info == 'target':
 				self.logger.info(f'📋 Found {len(dropdown_data["options"])} dropdown options for index {index_for_logging}')

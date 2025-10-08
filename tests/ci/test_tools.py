@@ -96,14 +96,14 @@ class TestToolsIntegration:
 		"""Test that the registry contains the expected default actions."""
 		# Check that common actions are registered
 		common_actions = [
-			'go_to_url',
+			'navigate',
 			'search',
-			'click_element_by_index',
-			'input_text',
+			'click',
+			'input',
 			'scroll',
 			'go_back',
-			'switch_tab',
-			'close_tab',
+			'switch',
+			'close',
 			'wait',
 		]
 
@@ -125,12 +125,12 @@ class TestToolsIntegration:
 			return ActionResult(extracted_content=f'Custom action executed with: {params.text} on {current_url}')
 
 		# Navigate to a page first
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
+		goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
 
-		class GoToUrlActionModel(ActionModel):
-			go_to_url: GoToUrlAction | None = None
+		class NavigateActionModel(ActionModel):
+			navigate: GoToUrlAction | None = None
 
-		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(NavigateActionModel(**goto_action), browser_session)
 
 		# Create the custom action model
 		custom_action_data = {'custom_action': CustomParams(text='test_value')}
@@ -209,20 +209,20 @@ class TestToolsIntegration:
 	async def test_go_back_action(self, tools, browser_session, base_url):
 		"""Test that go_back action navigates to the previous page."""
 		# Navigate to first page
-		goto_action1 = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
+		goto_action1 = {'navigate': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
 
-		class GoToUrlActionModel(ActionModel):
-			go_to_url: GoToUrlAction | None = None
+		class NavigateActionModel(ActionModel):
+			navigate: GoToUrlAction | None = None
 
-		await tools.act(GoToUrlActionModel(**goto_action1), browser_session)
+		await tools.act(NavigateActionModel(**goto_action1), browser_session)
 
 		# Store the first page URL
 		first_url = await browser_session.get_current_page_url()
 		print(f'First page URL: {first_url}')
 
 		# Navigate to second page
-		goto_action2 = {'go_to_url': GoToUrlAction(url=f'{base_url}/page2', new_tab=False)}
-		await tools.act(GoToUrlActionModel(**goto_action2), browser_session)
+		goto_action2 = {'navigate': GoToUrlAction(url=f'{base_url}/page2', new_tab=False)}
+		await tools.act(NavigateActionModel(**goto_action2), browser_session)
 
 		# Verify we're on the second page
 		second_url = await browser_session.get_current_page_url()
@@ -259,12 +259,12 @@ class TestToolsIntegration:
 
 		# Navigate to each page in sequence
 		for url in urls:
-			action_data = {'go_to_url': GoToUrlAction(url=url, new_tab=False)}
+			action_data = {'navigate': GoToUrlAction(url=url, new_tab=False)}
 
-			class GoToUrlActionModel(ActionModel):
-				go_to_url: GoToUrlAction | None = None
+			class NavigateActionModel(ActionModel):
+				navigate: GoToUrlAction | None = None
 
-			await tools.act(GoToUrlActionModel(**action_data), browser_session)
+			await tools.act(NavigateActionModel(**action_data), browser_session)
 
 			# Verify current page
 			current_url = await browser_session.get_current_page_url()
@@ -293,8 +293,8 @@ class TestToolsIntegration:
 		assert 'scroll' not in excluded_tools.registry.registry.actions
 
 		# But other actions are still there
-		assert 'go_to_url' in excluded_tools.registry.registry.actions
-		assert 'click_element_by_index' in excluded_tools.registry.registry.actions
+		assert 'navigate' in excluded_tools.registry.registry.actions
+		assert 'click' in excluded_tools.registry.registry.actions
 
 	async def test_search_action(self, tools, browser_session, base_url):
 		"""Test the search action."""
@@ -325,12 +325,12 @@ class TestToolsIntegration:
 			file_system = FileSystem(temp_dir)
 
 			# First navigate to a page
-			goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
+			goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
 
-			class GoToUrlActionModel(ActionModel):
-				go_to_url: GoToUrlAction | None = None
+			class NavigateActionModel(ActionModel):
+				navigate: GoToUrlAction | None = None
 
-			await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+			await tools.act(NavigateActionModel(**goto_action), browser_session)
 
 			success_done_message = 'Successfully completed task'
 
@@ -392,12 +392,12 @@ class TestToolsIntegration:
 		)
 
 		# Navigate to the dropdown test page
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/dropdown1', new_tab=False)}
+		goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/dropdown1', new_tab=False)}
 
-		class GoToUrlActionModel(ActionModel):
-			go_to_url: GoToUrlAction | None = None
+		class NavigateActionModel(ActionModel):
+			navigate: GoToUrlAction | None = None
 
-		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(NavigateActionModel(**goto_action), browser_session)
 
 		# Wait for the page to load using CDP
 		cdp_session = browser_session.agent_focus
@@ -429,13 +429,13 @@ class TestToolsIntegration:
 			f'Could not find select element in selector map. Available elements: {[f"{idx}: {element.tag_name}" for idx, element in selector_map.items()]}'
 		)
 
-		# Create a model for the standard get_dropdown_options action
-		class GetDropdownOptionsModel(ActionModel):
-			get_dropdown_options: dict[str, int]
+		# Create a model for the standard dropdown_options action
+		class DropdownOptionsModel(ActionModel):
+			dropdown_options: dict[str, int]
 
 		# Execute the action with the dropdown index
 		result = await tools.act(
-			action=GetDropdownOptionsModel(get_dropdown_options={'index': dropdown_index}),
+			action=DropdownOptionsModel(dropdown_options={'index': dropdown_index}),
 			browser_session=browser_session,
 		)
 
@@ -454,11 +454,8 @@ class TestToolsIntegration:
 		for option in expected_options[1:]:  # Skip the placeholder option
 			assert option['text'] in result.extracted_content, f"Option '{option['text']}' not found in result content"
 
-		# Verify the instruction for using the text in select_dropdown_option is included
-		assert (
-			'Use the exact text or value string' in result.extracted_content
-			and 'select_dropdown_option' in result.extracted_content
-		)
+		# Verify the instruction for using the text in select_dropdown is included
+		assert 'Use the exact text or value string' in result.extracted_content and 'select_dropdown' in result.extracted_content
 
 		# Verify the actual dropdown options in the DOM using CDP
 		dropdown_options_result = await cdp_session.cdp_client.send.Runtime.evaluate(
@@ -519,12 +516,12 @@ class TestToolsIntegration:
 		)
 
 		# Navigate to the dropdown test page
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/dropdown2', new_tab=False)}
+		goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/dropdown2', new_tab=False)}
 
-		class GoToUrlActionModel(ActionModel):
-			go_to_url: GoToUrlAction | None = None
+		class NavigateActionModel(ActionModel):
+			navigate: GoToUrlAction | None = None
 
-		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(NavigateActionModel(**goto_action), browser_session)
 
 		# Wait for the page to load using CDP
 		cdp_session = browser_session.agent_focus
@@ -556,13 +553,13 @@ class TestToolsIntegration:
 			f'Could not find select element in selector map. Available elements: {[f"{idx}: {element.tag_name}" for idx, element in selector_map.items()]}'
 		)
 
-		# Create a model for the standard select_dropdown_option action
-		class SelectDropdownOptionModel(ActionModel):
-			select_dropdown_option: dict
+		# Create a model for the standard select_dropdown action
+		class SelectDropdownModel(ActionModel):
+			select_dropdown: dict
 
 		# Execute the action with the dropdown index
 		result = await tools.act(
-			SelectDropdownOptionModel(select_dropdown_option={'index': dropdown_index, 'text': 'Second Option'}),
+			SelectDropdownModel(select_dropdown={'index': dropdown_index, 'text': 'Second Option'}),
 			browser_session,
 		)
 

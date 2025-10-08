@@ -9,34 +9,40 @@ mode: "wide"
 
 
 ### Navigation & Browser Control
-- **`search`** - Search queries in Google
-- **`go_to_url`** - Navigate to URLs  
+- **`search`** - Search queries (DuckDuckGo, Google, Bing)
+- **`navigate`** - Navigate to URLs
 - **`go_back`** - Go back in browser history
 - **`wait`** - Wait for specified seconds
 
 ### Page Interaction
-- **`click_element_by_index`** - Click elements by their index
-- **`input_text`** - Input text into form fields
-- **`upload_file_to_element`** - Upload files to file inputs
+- **`click`** - Click elements by their index
+- **`input`** - Input text into form fields
+- **`upload_file`** - Upload files to file inputs
 - **`scroll`** - Scroll the page up/down
-- **`scroll_to_text`** - Scroll to specific text on page
+- **`find_text`** - Scroll to specific text on page
 - **`send_keys`** - Send special keys (Enter, Escape, etc.)
 
-### Tab Management  
-- **`switch_tab`** - Switch between browser tabs
-- **`close_tab`** - Close browser tabs
+### JavaScript Execution
+- **`evaluate`** - Execute custom JavaScript code on the page (for advanced interactions, shadow DOM, custom selectors, data extraction)
+
+### Tab Management
+- **`switch`** - Switch between browser tabs
+- **`close`** - Close browser tabs
 
 ### Content Extraction
-- **`extract_structured_data`** - Extract data from webpages using LLM
+- **`extract`** - Extract data from webpages using LLM
+
+### Visual Analysis
+- **`screenshot`** - Request a screenshot in your next browser state for visual confirmation
 
 ### Form Controls
-- **`get_dropdown_options`** - Get dropdown option values
-- **`select_dropdown_option`** - Select dropdown options
+- **`dropdown_options`** - Get dropdown option values
+- **`select_dropdown`** - Select dropdown options
 
 ### File Operations
 - **`write_file`** - Write content to files
-- **`read_file`** - Read file contents  
-- **`replace_file_str`** - Replace text in files
+- **`read_file`** - Read file contents
+- **`replace_file`** - Replace text in files
 
 ### Task Completion
 - **`done`** - Complete the task (always available)

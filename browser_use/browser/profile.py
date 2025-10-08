@@ -13,6 +13,7 @@ from browser_use.config import CONFIG
 from browser_use.utils import _log_pretty_path, logger
 
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
+DOMAIN_OPTIMIZATION_THRESHOLD = 100  # Convert domain lists to sets for O(1) lookup when >= this size
 CHROME_DISABLED_COMPONENTS = [
 	# Playwright defaults: https://github.com/microsoft/playwright/blob/41008eeddd020e2dee1c540f7c0cdfa337e99637/packages/playwright-core/src/server/chromium/chromiumSwitches.ts#L76
 	# AcceptCHFrame,AutoExpandDetailsElement,AvoidUnnecessaryBeforeUnloadCheckSync,CertificateTransparencyComponentUpdater,DeferRendererTasksAfterInput,DestroyProfileOnBrowserClose,DialMediaRouteProvider,ExtensionManifestV2Disabled,GlobalMediaControls,HttpsUpgrades,ImprovedCookieControls,LazyFrameLoading,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate
@@ -127,8 +128,6 @@ CHROME_DEFAULT_ARGS = [
 	# '--force-color-profile=srgb',  # moved to CHROME_DETERMINISTIC_RENDERING_ARGS
 	'--metrics-recording-only',
 	'--no-first-run',
-	'--password-store=basic',
-	'--use-mock-keychain',
 	# // See https://chromium-review.googlesource.com/c/chromium/src/+/2436773
 	'--no-service-autorun',
 	'--export-tagged-pdf',
@@ -563,13 +562,17 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	# custom options we provide that aren't native playwright kwargs
 	disable_security: bool = Field(default=False, description='Disable browser security features.')
 	deterministic_rendering: bool = Field(default=False, description='Enable deterministic rendering flags.')
-	allowed_domains: list[str] | None = Field(
+	allowed_domains: list[str] | set[str] | None = Field(
 		default=None,
-		description='List of allowed domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]',
+		description='List of allowed domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]. Lists with 100+ items are auto-optimized to sets (no pattern matching).',
 	)
-	prohibited_domains: list[str] | None = Field(
+	prohibited_domains: list[str] | set[str] | None = Field(
 		default=None,
-		description='List of prohibited domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]. Allowed domains take precedence over prohibited domains.',
+		description='List of prohibited domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]. Allowed domains take precedence over prohibited domains. Lists with 100+ items are auto-optimized to sets (no pattern matching).',
+	)
+	block_ip_addresses: bool = Field(
+		default=False,
+		description='Block navigation to URLs containing IP addresses (both IPv4 and IPv6). When True, blocks all IP-based URLs including localhost and private networks.',
 	)
 	keep_alive: bool | None = Field(default=None, description='Keep browser alive after agent run.')
 
@@ -664,6 +667,23 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	def __str__(self) -> str:
 		return 'BrowserProfile'
+
+	@field_validator('allowed_domains', 'prohibited_domains', mode='after')
+	@classmethod
+	def optimize_large_domain_lists(cls, v: list[str] | set[str] | None) -> list[str] | set[str] | None:
+		"""Convert large domain lists (>=100 items) to sets for O(1) lookup performance."""
+		if v is None or isinstance(v, set):
+			return v
+
+		if len(v) >= DOMAIN_OPTIMIZATION_THRESHOLD:
+			logger.warning(
+				f'🔧 Optimizing domain list with {len(v)} items to set for O(1) lookup. '
+				f'Note: Pattern matching (*.domain.com, etc.) is not supported for lists >= {DOMAIN_OPTIMIZATION_THRESHOLD} items. '
+				f'Use exact domains only or keep list size < {DOMAIN_OPTIMIZATION_THRESHOLD} for pattern support.'
+			)
+			return set(v)
+
+		return v
 
 	@model_validator(mode='after')
 	def copy_old_config_names_to_new(self) -> Self:

@@ -155,7 +155,7 @@ class CreateAgentStepEvent(BaseEvent):
 		# Capture screenshot as base64 data URL if available
 		screenshot_url = None
 		if browser_state_summary.screenshot:
-			screenshot_url = f'data:image/png;base64,{browser_state_summary.screenshot}'
+			screenshot_url = f'data:image/jpeg;base64,{browser_state_summary.screenshot}'
 			import logging
 
 			logger = logging.getLogger(__name__)

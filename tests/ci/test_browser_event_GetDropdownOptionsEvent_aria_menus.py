@@ -152,12 +152,12 @@ class TestARIAMenuDropdown:
 	async def test_get_dropdown_options_with_aria_menu(self, tools, browser_session: BrowserSession, base_url):
 		"""Test that get_dropdown_options can retrieve options from ARIA menus."""
 		# Navigate to the ARIA menu test page
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/aria-menu', new_tab=False)}
+		goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/aria-menu', new_tab=False)}
 
-		class GoToUrlActionModel(ActionModel):
-			go_to_url: GoToUrlAction | None = None
+		class NavigateActionModel(ActionModel):
+			navigate: GoToUrlAction | None = None
 
-		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(NavigateActionModel(**goto_action), browser_session)
 
 		# Wait for the page to load
 		from browser_use.browser.events import NavigationCompleteEvent
@@ -212,19 +212,19 @@ class TestARIAMenuDropdown:
 		for option in expected_options:
 			assert option in result.extracted_content, f"Option '{option}' not found in result content"
 
-		# Verify the instruction for using the text in select_dropdown_option is included
-		assert 'Use the exact text string in select_dropdown_option' in result.extracted_content
+		# Verify the instruction for using the text in select_dropdown is included
+		assert 'Use the exact text string in select_dropdown' in result.extracted_content
 
 	@pytest.mark.skip(reason='TODO: fix')
 	async def test_select_dropdown_option_with_aria_menu(self, tools, browser_session: BrowserSession, base_url):
 		"""Test that select_dropdown_option can select an option from ARIA menus."""
 		# Navigate to the ARIA menu test page
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/aria-menu', new_tab=False)}
+		goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/aria-menu', new_tab=False)}
 
-		class GoToUrlActionModel(ActionModel):
-			go_to_url: GoToUrlAction | None = None
+		class NavigateActionModel(ActionModel):
+			navigate: GoToUrlAction | None = None
 
-		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(NavigateActionModel(**goto_action), browser_session)
 
 		# Wait for the page to load
 		from browser_use.browser.events import NavigationCompleteEvent
@@ -289,12 +289,12 @@ class TestARIAMenuDropdown:
 	async def test_get_dropdown_options_with_nested_aria_menu(self, tools, browser_session: BrowserSession, base_url):
 		"""Test that get_dropdown_options can handle nested ARIA menus (like Sort submenu)."""
 		# Navigate to the ARIA menu test page
-		goto_action = {'go_to_url': GoToUrlAction(url=f'{base_url}/aria-menu', new_tab=False)}
+		goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/aria-menu', new_tab=False)}
 
-		class GoToUrlActionModel(ActionModel):
-			go_to_url: GoToUrlAction | None = None
+		class NavigateActionModel(ActionModel):
+			navigate: GoToUrlAction | None = None
 
-		await tools.act(GoToUrlActionModel(**goto_action), browser_session)
+		await tools.act(NavigateActionModel(**goto_action), browser_session)
 
 		# Wait for the page to load
 		from browser_use.browser.events import NavigationCompleteEvent
@@ -347,4 +347,4 @@ class TestARIAMenuDropdown:
 		assert result.extracted_content is not None
 
 		# The action should return some menu options
-		assert 'Use the exact text string in select_dropdown_option' in result.extracted_content
+		assert 'Use the exact text string in select_dropdown' in result.extracted_content

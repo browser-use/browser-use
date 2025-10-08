@@ -38,8 +38,8 @@ from browser_use.tools.views import (
 	CloseTabAction,
 	DoneAction,
 	GetDropdownOptionsAction,
-	GoToUrlAction,
 	InputTextAction,
+	NavigateAction,
 	NoParamsAction,
 	ScrollAction,
 	SearchAction,
@@ -115,7 +115,7 @@ class Tools(Generic[Context]):
 
 		# Basic Navigation Actions
 		@self.registry.action(
-			'Search the query using the specified search engine. Defaults to DuckDuckGo (recommended) to avoid reCAPTCHA. Options: duckduckgo, google, bing. Query should be concrete and not vague or super long.',
+			'',
 			param_model=SearchAction,
 		)
 		async def search(params: SearchAction, browser_session: BrowserSession):
@@ -131,10 +131,10 @@ class Tools(Generic[Context]):
 				'bing': f'https://www.bing.com/search?q={encoded_query}',
 			}
 
-			if params.search_engine.lower() not in search_engines:
-				return ActionResult(error=f'Unsupported search engine: {params.search_engine}. Options: duckduckgo, google, bing')
+			if params.engine.lower() not in search_engines:
+				return ActionResult(error=f'Unsupported search engine: {params.engine}. Options: duckduckgo, google, bing')
 
-			search_url = search_engines[params.search_engine.lower()]
+			search_url = search_engines[params.engine.lower()]
 
 			# Simple tab logic: use current tab by default
 			use_new_tab = False
@@ -149,18 +149,19 @@ class Tools(Generic[Context]):
 				)
 				await event
 				await event.event_result(raise_if_any=True, raise_if_none=False)
-				memory = f"Searched {params.search_engine.title()} for '{params.query}'"
+				memory = f"Searched {params.engine.title()} for '{params.query}'"
 				msg = f'🔍  {memory}'
 				logger.info(msg)
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
 			except Exception as e:
-				logger.error(f'Failed to search {params.search_engine}: {e}')
-				return ActionResult(error=f'Failed to search {params.search_engine} for "{params.query}": {str(e)}')
+				logger.error(f'Failed to search {params.engine}: {e}')
+				return ActionResult(error=f'Failed to search {params.engine} for "{params.query}": {str(e)}')
 
 		@self.registry.action(
-			'Navigate to URL, set new_tab=True to open in new tab, False to navigate in current tab', param_model=GoToUrlAction
+			'',
+			param_model=NavigateAction,
 		)
-		async def go_to_url(params: GoToUrlAction, browser_session: BrowserSession):
+		async def navigate(params: NavigateAction, browser_session: BrowserSession):
 			try:
 				# Dispatch navigation event
 				event = browser_session.event_bus.dispatch(NavigateToUrlEvent(url=params.url, new_tab=params.new_tab))
@@ -203,7 +204,7 @@ class Tools(Generic[Context]):
 					# Return error in ActionResult instead of re-raising
 					return ActionResult(error=f'Navigation failed: {str(e)}')
 
-		@self.registry.action('Go back', param_model=NoParamsAction)
+		@self.registry.action('', param_model=NoParamsAction)
 		async def go_back(_: NoParamsAction, browser_session: BrowserSession):
 			try:
 				event = browser_session.event_bus.dispatch(GoBackEvent())
@@ -217,9 +218,7 @@ class Tools(Generic[Context]):
 				error_msg = f'Failed to go back: {str(e)}'
 				return ActionResult(error=error_msg)
 
-		@self.registry.action(
-			'Wait for x seconds (default 3) (max 30 seconds). This can be used to wait until the page is fully loaded.'
-		)
+		@self.registry.action('')
 		async def wait(seconds: int = 3):
 			# Cap wait time at maximum 30 seconds
 			# Reduce the wait time by 3 seconds to account for the llm call which takes at least 3 seconds
@@ -235,10 +234,10 @@ class Tools(Generic[Context]):
 		# Element Interaction Actions
 
 		@self.registry.action(
-			'Click element by index. Only indices from your browser_state are allowed. Never use an index that is not inside your current browser_state. Set while_holding_ctrl=True to open any resulting navigation in a new tab.',
+			'',
 			param_model=ClickElementAction,
 		)
-		async def click_element_by_index(params: ClickElementAction, browser_session: BrowserSession):
+		async def click(params: ClickElementAction, browser_session: BrowserSession):
 			# Dispatch click event with node
 			try:
 				assert params.index != 0, (
@@ -250,15 +249,13 @@ class Tools(Generic[Context]):
 				if node is None:
 					raise ValueError(f'Element index {params.index} not found in browser state')
 
-				event = browser_session.event_bus.dispatch(
-					ClickElementEvent(node=node, while_holding_ctrl=params.while_holding_ctrl or False)
-				)
+				event = browser_session.event_bus.dispatch(ClickElementEvent(node=node, while_holding_ctrl=params.ctrl or False))
 				await event
 				# Wait for handler to complete and get any exception or metadata
 				click_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
 				memory = 'Clicked element'
 
-				if params.while_holding_ctrl:
+				if params.ctrl:
 					memory += ' and opened in new tab'
 
 				# Check if a new tab was opened (from watchdog metadata)
@@ -276,7 +273,7 @@ class Tools(Generic[Context]):
 			except BrowserError as e:
 				if 'Cannot click on <select> elements.' in str(e):
 					try:
-						return await get_dropdown_options(
+						return await dropdown_options(
 							params=GetDropdownOptionsAction(index=params.index), browser_session=browser_session
 						)
 					except Exception as dropdown_error:
@@ -291,10 +288,10 @@ class Tools(Generic[Context]):
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			'Input text into an input interactive element. Only input text into indices that are inside your current browser_state. Never input text into indices that are not inside your current browser_state.',
+			'',
 			param_model=InputTextAction,
 		)
-		async def input_text(
+		async def input(
 			params: InputTextAction,
 			browser_session: BrowserSession,
 			has_sensitive_data: bool = False,
@@ -316,7 +313,7 @@ class Tools(Generic[Context]):
 					TypeTextEvent(
 						node=node,
 						text=params.text,
-						clear_existing=params.clear_existing,
+						clear=params.clear,
 						is_sensitive=has_sensitive_data,
 						sensitive_key_name=sensitive_key_name,
 					)
@@ -352,8 +349,11 @@ class Tools(Generic[Context]):
 				error_msg = f'Failed to input text into element {params.index}: {e}'
 				return ActionResult(error=error_msg)
 
-		@self.registry.action('Upload file to interactive element with file path', param_model=UploadFileAction)
-		async def upload_file_to_element(
+		@self.registry.action(
+			'',
+			param_model=UploadFileAction,
+		)
+		async def upload_file(
 			params: UploadFileAction, browser_session: BrowserSession, available_file_paths: list[str], file_system: FileSystem
 		):
 			# Check if file is in available_file_paths (user-provided or downloaded files)
@@ -501,8 +501,8 @@ class Tools(Generic[Context]):
 
 		# Tab Management Actions
 
-		@self.registry.action('Switch tab', param_model=SwitchTabAction)
-		async def switch_tab(params: SwitchTabAction, browser_session: BrowserSession):
+		@self.registry.action('', param_model=SwitchTabAction)
+		async def switch(params: SwitchTabAction, browser_session: BrowserSession):
 			# Simple switch tab logic
 			try:
 				target_id = await browser_session.get_target_id_from_tab_id(params.tab_id)
@@ -523,8 +523,8 @@ class Tools(Generic[Context]):
 				memory = f'Attempted to switch to tab #{params.tab_id}'
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
 
-		@self.registry.action('Close an existing tab', param_model=CloseTabAction)
-		async def close_tab(params: CloseTabAction, browser_session: BrowserSession):
+		@self.registry.action('', param_model=CloseTabAction)
+		async def close(params: CloseTabAction, browser_session: BrowserSession):
 			# Simple close tab logic
 			try:
 				target_id = await browser_session.get_target_id_from_tab_id(params.tab_id)
@@ -555,27 +555,14 @@ class Tools(Generic[Context]):
 		# This action is temporarily disabled as it needs refactoring to use events
 
 		@self.registry.action(
-			"""This tool sends the markdown of the current page with the query to an LLM to extract structured, semantic data (e.g. product description, price, all information about XYZ) from the markdown of the current webpage based on a query.
-Only use when:
-- You are sure that you are on the right page for the query
-- You know exactly the information you need to extract from the page
-- You did not previously call this tool on the same page
-You can not use this tool to:
-- Get interactive elements like buttons, links, dropdowns, menus, etc.
-- If you previously asked extract_structured_data on the same page with the same query, you should not call it again.
-
-Set extract_links=True only if your query requires extracting links/URLs from the page.
-Use start_from_char to start extraction from a specific character position (use if extraction was previously truncated and you want more content).
-
-If this tool does not return the desired outcome, do not call it again, use scroll_to_text or scroll to find the desired information.
-""",
+			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Use start_from_char if truncated. If fails, use find_text/scroll instead.""",
 		)
-		async def extract_structured_data(
+		async def extract(
 			query: str,
-			extract_links: bool,
 			browser_session: BrowserSession,
 			page_extraction_llm: BaseChatModel,
 			file_system: FileSystem,
+			extract_links: bool = False,
 			start_from_char: int = 0,
 		):
 			# Constants
@@ -688,14 +675,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				raise RuntimeError(str(e))
 
 		@self.registry.action(
-			"""Scroll the page by specified number of pages (set down=True to scroll down, down=False to scroll up, num_pages=number of pages to scroll like 0.5 for half page, 10.0 for ten pages, etc.). 
-			Default behavior is to scroll the entire page. This is enough for most cases.
-			Optional if there are multiple scroll containers, use frame_element_index parameter with an element inside the container you want to scroll in. For that you must use indices that exist in your browser_state (works well for dropdowns and custom UI components). 
-			Instead of scrolling step after step, use a high number of pages at once like 10 to get to the bottom of the page.
-			If you know where you want to scroll to, use scroll_to_text instead of this tool.
-			
-			Note: For multiple pages (>=1.0), scrolls are performed one page at a time to ensure reliability. Page height is detected from viewport, fallback is 1000px per page.
-			""",
+			"""Scroll by pages (down=True/False, pages=0.5-10.0, default 1.0). Use index for scroll containers (dropdowns/custom UI). High pages (10) reaches bottom. Multi-page scrolls sequentially. Viewport-based height, fallback 1000px/page.""",
 			param_model=ScrollAction,
 		)
 		async def scroll(params: ScrollAction, browser_session: BrowserSession):
@@ -703,19 +683,15 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				# Look up the node from the selector map if index is provided
 				# Special case: index 0 means scroll the whole page (root/body element)
 				node = None
-				if params.frame_element_index is not None and params.frame_element_index != 0:
-					node = await browser_session.get_element_by_index(params.frame_element_index)
+				if params.index is not None and params.index != 0:
+					node = await browser_session.get_element_by_index(params.index)
 					if node is None:
 						# Element does not exist
-						msg = f'Element index {params.frame_element_index} not found in browser state'
+						msg = f'Element index {params.index} not found in browser state'
 						return ActionResult(error=msg)
 
 				direction = 'down' if params.down else 'up'
-				target = (
-					'the page'
-					if params.frame_element_index is None or params.frame_element_index == 0
-					else f'element {params.frame_element_index}'
-				)
+				target = 'the page' if params.index is None or params.index == 0 else f'element {params.index}'
 
 				# Get actual viewport height for more accurate scrolling
 				try:
@@ -735,11 +711,11 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					logger.debug(f'Failed to get viewport height, using fallback 1000px: {e}')
 
 				# For multiple pages (>=1.0), scroll one page at a time to ensure each scroll completes
-				if params.num_pages >= 1.0:
+				if params.pages >= 1.0:
 					import asyncio
 
-					num_full_pages = int(params.num_pages)
-					remaining_fraction = params.num_pages - num_full_pages
+					num_full_pages = int(params.pages)
+					remaining_fraction = params.pages - num_full_pages
 
 					completed_scrolls = 0
 
@@ -781,19 +757,19 @@ You will be given a query and the markdown of a webpage that has been filtered t
 						except Exception as e:
 							logger.warning(f'Fractional scroll failed: {e}')
 
-					if params.num_pages == 1.0:
+					if params.pages == 1.0:
 						long_term_memory = f'Scrolled {direction} {target} by one page ({viewport_height}px)'
 					else:
-						long_term_memory = f'Scrolled {direction} {target} by {completed_scrolls:.1f} pages (requested: {params.num_pages}, {viewport_height}px per page)'
+						long_term_memory = f'Scrolled {direction} {target} by {completed_scrolls:.1f} pages (requested: {params.pages}, {viewport_height}px per page)'
 				else:
 					# For fractional pages <1.0, do single scroll
-					pixels = int(params.num_pages * viewport_height)
+					pixels = int(params.pages * viewport_height)
 					event = browser_session.event_bus.dispatch(
 						ScrollEvent(direction='down' if params.down else 'up', amount=pixels, node=node)
 					)
 					await event
 					await event.event_result(raise_if_any=True, raise_if_none=False)
-					long_term_memory = f'Scrolled {direction} {target} by {params.num_pages} pages ({viewport_height}px per page)'
+					long_term_memory = f'Scrolled {direction} {target} by {params.pages} pages ({viewport_height}px per page)'
 
 				msg = f'🔍 {long_term_memory}'
 				logger.info(msg)
@@ -804,7 +780,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			'Send strings of special keys to use e.g. Escape, Backspace, Insert, PageDown, Delete, Enter, or Shortcuts such as `Control+o`, `Control+Shift+T`',
+			'',
 			param_model=SendKeysAction,
 		)
 		async def send_keys(params: SendKeysAction, browser_session: BrowserSession):
@@ -822,10 +798,8 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				error_msg = f'Failed to send keys: {str(e)}'
 				return ActionResult(error=error_msg)
 
-		@self.registry.action(
-			description='Scroll to a text in the current page. This helps you to be efficient. Prefer this tool over scrolling step by step.',
-		)
-		async def scroll_to_text(text: str, browser_session: BrowserSession):  # type: ignore
+		@self.registry.action('')
+		async def find_text(text: str, browser_session: BrowserSession):  # type: ignore
 			# Dispatch scroll to text event
 			event = browser_session.event_bus.dispatch(ScrollToTextEvent(text=text))
 
@@ -845,13 +819,26 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					long_term_memory=f"Tried scrolling to text '{text}' but it was not found",
 				)
 
+		@self.registry.action('')
+		async def screenshot():
+			"""Request that a screenshot be included in the next observation"""
+			memory = 'Requested screenshot for next observation'
+			msg = f'📸 {memory}'
+			logger.info(msg)
+
+			# Return flag in metadata to signal that screenshot should be included
+			return ActionResult(
+				extracted_content=memory,
+				metadata={'include_screenshot': True},
+			)
+
 		# Dropdown Actions
 
 		@self.registry.action(
-			'Get list of values for a dropdown input field. Only works on dropdown-style form elements (<select>, Semantic UI/aria-labeled select, etc.). Do not use this tool for none dropdown elements.',
+			'',
 			param_model=GetDropdownOptionsAction,
 		)
-		async def get_dropdown_options(params: GetDropdownOptionsAction, browser_session: BrowserSession):
+		async def dropdown_options(params: GetDropdownOptionsAction, browser_session: BrowserSession):
 			"""Get all options from a native dropdown or ARIA menu"""
 			# Look up the node from the selector map
 			node = await browser_session.get_element_by_index(params.index)
@@ -874,10 +861,10 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			)
 
 		@self.registry.action(
-			'Select dropdown option by exact text from any dropdown type (native <select>, ARIA menus, or custom dropdowns). Searches target element and children to find selectable options.',
+			'',
 			param_model=SelectDropdownOptionAction,
 		)
-		async def select_dropdown_option(params: SelectDropdownOptionAction, browser_session: BrowserSession):
+		async def select_dropdown(params: SelectDropdownOptionAction, browser_session: BrowserSession):
 			"""Select dropdown option by the text of the option you want to select"""
 			# Look up the node from the selector map
 			node = await browser_session.get_element_by_index(params.index)
@@ -917,9 +904,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					return ActionResult(error=error_msg)
 
 		# File System Actions
-		@self.registry.action(
-			'Write or append content to file_name in file system. Allowed extensions are .md, .txt, .json, .csv, .pdf. For .pdf files, write the content in markdown format and it will automatically be converted to a properly formatted PDF document.'
-		)
+		@self.registry.action('')
 		async def write_file(
 			file_name: str,
 			content: str,
@@ -939,15 +924,13 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			logger.info(f'💾 {result}')
 			return ActionResult(extracted_content=result, long_term_memory=result)
 
-		@self.registry.action(
-			'Replace old_str with new_str in file_name. old_str must exactly match the string to replace in original text. Recommended tool to mark completed items in todo.md or change specific contents in a file.'
-		)
-		async def replace_file_str(file_name: str, old_str: str, new_str: str, file_system: FileSystem):
+		@self.registry.action('')
+		async def replace_file(file_name: str, old_str: str, new_str: str, file_system: FileSystem):
 			result = await file_system.replace_file_str(file_name, old_str, new_str)
 			logger.info(f'💾 {result}')
 			return ActionResult(extracted_content=result, long_term_memory=result)
 
-		@self.registry.action('Read file_name from file system')
+		@self.registry.action('')
 		async def read_file(file_name: str, available_file_paths: list[str], file_system: FileSystem):
 			if available_file_paths and file_name in available_file_paths:
 				result = await file_system.read_file(file_name, external_file=True)
@@ -977,61 +960,9 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			)
 
 		@self.registry.action(
-			"""This JavaScript code gets executed with Runtime.evaluate and 'returnByValue': True, 'awaitPromise': True
-
-SYNTAX RULES - FAILURE TO FOLLOW CAUSES "Uncaught at line 0" ERRORS:
-- ALWAYS wrap your code in IIFE: (function(){ ... })() or (async function(){ ... })() for async code
-- ALWAYS add try-catch blocks to prevent execution errors
-- ALWAYS use proper semicolons and valid JavaScript syntax
-- NEVER write multiline code without proper IIFE wrapping
-- ALWAYS validate elements exist before accessing them
-
-EXAMPLES:
-Use this tool when other tools do not work on the first try as expected or when a more general tool is needed, e.g. for filling a form all at once, hovering, dragging, extracting only links, extracting content from the page, press and hold, hovering, clicking on coordinates, zooming, use this if the user provides custom selectors which you can otherwise not interact with ....
-You can also use it to explore the website.
-- Write code to solve problems you could not solve with other tools.
-- Don't write comments in here, no human reads that.
-- Write only valid js code.
-- use this to e.g. extract + filter links, convert the page to json into the format you need etc...
-
-
-- limit the output otherwise your context will explode
-- think if you deal with special elements like iframes / shadow roots etc
-- Adopt your strategy for React Native Web, React, Angular, Vue, MUI pages etc.
-- e.g. with  synthetic events, keyboard simulation, shadow DOM, etc.
-
-PROPER SYNTAX EXAMPLES:
-CORRECT: (function(){ try { const el = document.querySelector('#id'); return el ? el.value : 'not found'; } catch(e) { return 'Error: ' + e.message; } })()
-CORRECT: (async function(){ try { await new Promise(r => setTimeout(r, 100)); return 'done'; } catch(e) { return 'Error: ' + e.message; } })()
-
-WRONG: const el = document.querySelector('#id'); el ? el.value : '';
-WRONG: document.querySelector('#id').value
-WRONG: Multiline code without IIFE wrapping
-
-SHADOW DOM ACCESS EXAMPLE:
-(function(){
-    try {
-        const hosts = document.querySelectorAll('*');
-        for (let host of hosts) {
-            if (host.shadowRoot) {
-                const el = host.shadowRoot.querySelector('#target');
-                if (el) return el.textContent;
-            }
-        }
-        return 'Not found';
-    } catch(e) {
-        return 'Error: ' + e.message;
-    }
-})()
-
-## Return values:
-- Async functions (with await, promises, timeouts) are automatically handled
-- Returns strings, numbers, booleans, and serialized objects/arrays
-- Use JSON.stringify() for complex objects: JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.textContent.trim()))
-
-""",
+			"""Execute JS. MUST: wrap in IIFE (function(){...})() or (async function(){...})(), add try-catch, validate elements exist. Check null before accessing properties. Use for: hover, drag, custom selectors, forms, extract/filter links, iframes, shadow DOM, React/Vue/Angular. Limit output. Examples: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() ✓ | document.querySelector('#id').value ✗. Shadow: iterate hosts, check shadowRoot. Return JSON.stringify() for objects. Do not use comments""",
 		)
-		async def execute_js(code: str, browser_session: BrowserSession):
+		async def evaluate(code: str, browser_session: BrowserSession):
 			# Execute JavaScript with proper error handling and promise support
 
 			cdp_session = await browser_session.get_or_create_cdp_session()
@@ -1194,7 +1125,7 @@ SHADOW DOM ACCESS EXAMPLE:
 			self.display_files_in_done_text = display_files_in_done_text
 
 			@self.registry.action(
-				'Complete task - with return text and if the task is finished (success=True) or not yet completely finished (success=False), because last step is reached',
+				'Complete task with structured output.',
 				param_model=StructuredOutputAction[output_model],
 			)
 			async def done(params: StructuredOutputAction):
@@ -1216,7 +1147,7 @@ SHADOW DOM ACCESS EXAMPLE:
 		else:
 
 			@self.registry.action(
-				'Complete task - provide a summary of results for the user. Set success=True if task completed successfully, false otherwise. Text should be your response to the user summarizing results. Include files you would like to display to the user in files_to_display.',
+				'Complete task.',
 				param_model=DoneAction,
 			)
 			async def done(params: DoneAction, file_system: FileSystem):
