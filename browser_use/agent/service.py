@@ -1183,8 +1183,31 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
 
+		# Generate prompt description for llm-use cloud service
+		prompt_description = None
+		# Check the underlying LLM, unwrapping any decorators like TokenCost
+		actual_llm = self.llm
+		if hasattr(actual_llm, '__wrapped__'):
+			actual_llm = actual_llm.__wrapped__
+
+		if hasattr(actual_llm, 'provider') and actual_llm.provider == 'browser-use':
+			# Generate action descriptions for the current tools
+			prompt_description = self.tools.registry.get_prompt_description()
+			logger.info(f"🔍 Generated prompt_description for browser-use cloud: {len(prompt_description)} chars")
+
 		try:
-			response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
+			# Pass prompt_description if using browser-use cloud
+			# The LLM may be wrapped (e.g., by TokenCost), so we need to pass kwargs through
+			if prompt_description:
+				logger.info(f"🔍 Passing prompt_description ({len(prompt_description)} chars) to LLM")
+				response = await self.llm.ainvoke(
+					input_messages,
+					output_format=self.AgentOutput,
+					prompt_description=prompt_description
+				)
+				logger.info(f"✅ Successfully passed prompt_description to LLM")
+			else:
+				response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
 			parsed = response.completion
 
 			# Replace any shortened URLs in the LLM response back to original URLs

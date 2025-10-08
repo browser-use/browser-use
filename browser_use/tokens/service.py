@@ -317,9 +317,9 @@ class TokenCost:
 		token_cost_service = self
 
 		# Create a wrapped version that tracks usage
-		async def tracked_ainvoke(messages, output_format=None):
-			# Call the original method
-			result = await original_ainvoke(messages, output_format)
+		async def tracked_ainvoke(messages, output_format=None, **kwargs):
+			# Call the original method, passing through any additional kwargs
+			result = await original_ainvoke(messages, output_format, **kwargs)
 
 			# Track usage if available (no await needed since add_usage is now sync)
 			if result.usage:
