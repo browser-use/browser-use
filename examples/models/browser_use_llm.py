@@ -35,7 +35,7 @@ async def main():
 	# - BROWSER_USE_LLM_URL (optional, defaults to production)
 	agent = Agent(
 		task='Find the number of stars of the browser-use repo',
-		llm=ChatBrowserUse(base_url='http://0.0.0.0:8000'),
+		llm=ChatBrowserUse(),
 		flash_mode=True,
 	)
 

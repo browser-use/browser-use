@@ -60,7 +60,7 @@ class ChatBrowserUse(BaseChatModel):
 
 		if not self.api_key:
 			raise ValueError(
-				'BROWSER_USE_API_KEY environment variable not set or api_key parameter not provided. '
+				'You need to set the BROWSER_USE_API_KEY environment variable. '
 				'Get your key at https://cloud.browser-use.com/dashboard/api'
 			)
 
