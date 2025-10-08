@@ -54,7 +54,7 @@ class ChatBrowserUse(BaseChatModel):
 		"""
 		self.fast = fast
 		self.api_key = api_key or os.getenv('BROWSER_USE_API_KEY')
-		self.base_url = base_url or os.getenv('BROWSER_USE_LLM_URL', 'https://llm-use-production.up.railway.app')
+		self.base_url = base_url or os.getenv('BROWSER_USE_LLM_URL', 'https://llm.api.browser-use.com')
 		self.timeout = timeout
 		self.model = 'fast' if fast else 'smart'
 
