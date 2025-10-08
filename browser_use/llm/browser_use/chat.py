@@ -164,11 +164,41 @@ class ChatBrowserUse(BaseChatModel):
 
 			# Parse response - server returns structured data as dict
 			if output_format is not None:
-				# Server returns structured output as a dict, validate it
+				# Server returns structured data as a dict, validate it
 				completion_data = result['completion']
 				logger.debug(
 					f'📥 Got structured data from service: {list(completion_data.keys()) if isinstance(completion_data, dict) else type(completion_data)}'
 				)
+
+				# Handle actions returned as dicts from llm-use parser
+				# The parser returns dicts when using client_schema to avoid validation issues
+				if isinstance(completion_data, dict) and 'action' in completion_data:
+					actions = completion_data['action']
+					if actions and isinstance(actions[0], dict):
+						logger.debug(f'🔄 Converting {len(actions)} action dicts to ActionModel instances')
+						# Actions are dicts like [{"search": {"query": "...", "engine": "..."}}, ...]
+						# We need to convert them to ActionModel instances
+						# The output_format has the correct ActionModel type in its 'action' field
+						from typing import get_args
+
+						action_field = output_format.model_fields['action']
+						action_types = get_args(action_field.annotation)
+						if action_types and len(action_types) > 0:
+							action_model_type = action_types[0]
+
+							# Convert each dict to ActionModel instance
+							converted_actions = []
+							for action_dict in actions:
+								try:
+									action_instance = action_model_type.model_validate(action_dict)
+									converted_actions.append(action_instance)
+								except Exception as e:
+									logger.warning(f'⚠️ Failed to convert action dict {action_dict}: {e}')
+									continue
+
+							completion_data['action'] = converted_actions
+							logger.debug(f'✅ Converted {len(converted_actions)} actions successfully')
+
 				completion = output_format.model_validate(completion_data)
 			else:
 				completion = result['completion']
