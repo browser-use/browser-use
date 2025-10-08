@@ -32,7 +32,7 @@ class ChatBrowserUse(BaseChatModel):
 	Usage:
 		agent = Agent(
 			task="Find the number of stars of the browser-use repo",
-			llm=ChatBrowserUse(fast=True),
+			llm=ChatBrowserUse(),
 		)
 	"""
 
