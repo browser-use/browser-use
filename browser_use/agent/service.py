@@ -853,7 +853,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			)
 
 			# Use _make_history_item like main branch
-			await self._make_history_item(self.state.last_model_output, browser_state_summary, self.state.last_result, metadata)
+			await self._make_history_item(
+				self.state.last_model_output,
+				browser_state_summary,
+				self.state.last_result,
+				metadata,
+				state_message=self._message_manager.last_state_message_text,
+			)
 
 		# Log step completion summary
 		self._log_step_completion_summary(self.step_start_time, self.state.last_result)
@@ -983,6 +989,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		browser_state_summary: BrowserStateSummary,
 		result: list[ActionResult],
 		metadata: StepMetadata | None = None,
+		state_message: str | None = None,
 	) -> None:
 		"""Create and store history item"""
 
@@ -1015,6 +1022,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			result=result,
 			state=state_history,
 			metadata=metadata,
+			state_message=state_message,
 		)
 
 		self.history.add_item(history_item)

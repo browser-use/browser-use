@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.aws.chat_bedrock import ChatAWSBedrock
 	from browser_use.llm.azure.chat import ChatAzureOpenAI
 	from browser_use.llm.browser_use.chat import ChatBrowserUse
+	from browser_use.llm.cerebras.chat import ChatCerebras
 	from browser_use.llm.deepseek.chat import ChatDeepSeek
 	from browser_use.llm.google.chat import ChatGoogle
 	from browser_use.llm.groq.chat import ChatGroq
@@ -80,6 +81,7 @@ _LAZY_IMPORTS = {
 	'ChatAWSBedrock': ('browser_use.llm.aws.chat_bedrock', 'ChatAWSBedrock'),
 	'ChatAzureOpenAI': ('browser_use.llm.azure.chat', 'ChatAzureOpenAI'),
 	'ChatBrowserUse': ('browser_use.llm.browser_use.chat', 'ChatBrowserUse'),
+	'ChatCerebras': ('browser_use.llm.cerebras.chat', 'ChatCerebras'),
 	'ChatDeepSeek': ('browser_use.llm.deepseek.chat', 'ChatDeepSeek'),
 	'ChatGoogle': ('browser_use.llm.google.chat', 'ChatGoogle'),
 	'ChatGroq': ('browser_use.llm.groq.chat', 'ChatGroq'),
@@ -146,4 +148,5 @@ __all__ = [
 	'ChatAzureOpenAI',
 	'ChatOllama',
 	'ChatOpenRouter',
+	'ChatCerebras',
 ]
