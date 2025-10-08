@@ -38,7 +38,7 @@ class ChatBrowserUse(BaseChatModel):
 
 	def __init__(
 		self,
-		fast: bool = True,
+		fast: bool = False,
 		api_key: str | None = None,
 		base_url: str | None = None,
 		timeout: float = 120.0,
@@ -73,10 +73,14 @@ class ChatBrowserUse(BaseChatModel):
 		return f'browser-use/{self.model}'
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None, prompt_description: str | None = None) -> ChatInvokeCompletion[str]: ...
+	async def ainvoke(
+		self, messages: list[BaseMessage], output_format: None = None, prompt_description: str | None = None
+	) -> ChatInvokeCompletion[str]: ...
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T], prompt_description: str | None = None) -> ChatInvokeCompletion[T]: ...
+	async def ainvoke(
+		self, messages: list[BaseMessage], output_format: type[T], prompt_description: str | None = None
+	) -> ChatInvokeCompletion[T]: ...
 
 	@observe_debug(name='chat_browser_use_ainvoke')
 	async def ainvoke(
@@ -104,10 +108,12 @@ class ChatBrowserUse(BaseChatModel):
 			payload['output_format'] = output_format.model_json_schema()
 
 		# Add prompt description if provided
-		logger.debug(f"🔍 ChatBrowserUse received prompt_description: {prompt_description is not None}, length: {len(prompt_description) if prompt_description else 0}")
+		logger.debug(
+			f'🔍 ChatBrowserUse received prompt_description: {prompt_description is not None}, length: {len(prompt_description) if prompt_description else 0}'
+		)
 		if prompt_description is not None:
 			payload['prompt_description'] = prompt_description
-			logger.debug("Added prompt_description to payload")
+			logger.debug('Added prompt_description to payload')
 
 		# Make API request
 		async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -168,10 +174,7 @@ class ChatBrowserUse(BaseChatModel):
 						action_model_type = get_args(output_format.model_fields['action'].annotation)[0]
 
 						# Convert dicts to ActionModel instances
-						completion_data['action'] = [
-							action_model_type.model_validate(action_dict)
-							for action_dict in actions
-						]
+						completion_data['action'] = [action_model_type.model_validate(action_dict) for action_dict in actions]
 
 				completion = output_format.model_validate(completion_data)
 			else:
