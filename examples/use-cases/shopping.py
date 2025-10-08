@@ -2,13 +2,22 @@ import asyncio
 import os
 import sys
 
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from dotenv import load_dotenv
 
+from browser_use import Agent, ChatGoogle
+
 load_dotenv()
 
-from browser_use import Agent, ChatOpenAI
+api_key = os.getenv('GOOGLE_API_KEY')
+if not api_key:
+	raise ValueError('GOOGLE_API_KEY is not set')
+
+llm = ChatGoogle(model='gemini-2.5-flash', api_key=api_key)
+
+
 
 task = """
    ### Prompt for Shopping Agent – Migros Online Grocery Order
@@ -108,7 +117,7 @@ At this stage, check the basket on the top right (indicates the price) and check
 **Important:** Ensure efficiency and accuracy throughout the process."""
 
 
-agent = Agent(task=task, llm=ChatOpenAI(model='gpt-4.1-mini'))
+agent = Agent(task=task, llm=llm)
 
 
 async def main():

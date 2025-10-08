@@ -17,6 +17,9 @@ from typing import Literal
 from dateutil import parser as dtparser
 from pydantic import BaseModel
 
+from dotenv import load_dotenv
+load_dotenv()
+
 
 def setup_environment(debug: bool):
 	if not debug:

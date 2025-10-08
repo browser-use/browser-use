@@ -27,7 +27,8 @@ load_dotenv()
 
 from browser_use import Agent, Tools
 from browser_use.browser import BrowserProfile, BrowserSession
-from browser_use.llm import ChatOpenAI
+from browser_use.llm import ChatOpenRouter
+
 
 browser_session = BrowserSession(browser_profile=BrowserProfile(cdp_url='http://localhost:9222', is_local=True))
 tools = Tools()
@@ -35,11 +36,15 @@ tools = Tools()
 
 async def main():
 	agent = Agent(
-		task='Visit https://duckduckgo.com and search for "browser-use founders"',
-		lllm=ChatOpenAI(model='gpt-4.1-mini'),
-		tools=tools,
-		browser_session=browser_session,
-	)
+    task='Visit https://duckduckgo.com and search for "browser-use founders"',
+    llm=ChatOpenRouter(
+        model='deepseek/deepseek-chat',
+        api_key=os.getenv("OPENROUTER_API_KEY"),
+    ),
+    tools=tools,
+    browser_session=browser_session,
+)
+
 
 	await agent.run()
 	await browser_session.kill()
