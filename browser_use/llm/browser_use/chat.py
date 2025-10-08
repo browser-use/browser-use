@@ -10,12 +10,12 @@ import os
 from typing import TypeVar, overload
 
 import httpx
-from lmnr import Laminar
 from pydantic import BaseModel
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.views import ChatInvokeCompletion
+from browser_use.observability import observe_debug
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -78,6 +78,7 @@ class ChatBrowserUse(BaseChatModel):
 	@overload
 	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T], prompt_description: str | None = None) -> ChatInvokeCompletion[T]: ...
 
+	@observe_debug(name='chat_browser_use_ainvoke')
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: type[T] | None = None, prompt_description: str | None = None
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
@@ -92,75 +93,61 @@ class ChatBrowserUse(BaseChatModel):
 		Returns:
 			ChatInvokeCompletion with structured response and usage info
 		"""
-		# Start Laminar span for tracing
-		with Laminar.start_as_current_span(
-			name='chat_browser_use_ainvoke',
-			input={
-				'model': self.model,
-				'fast': self.fast,
-				'message_count': len(messages),
-				'has_output_format': output_format is not None,
-			},
-		):
-			# Prepare request payload
-			payload = {
-				'messages': [self._serialize_message(msg) for msg in messages],
-				'fast': self.fast,
-			}
+		# Prepare request payload
+		payload = {
+			'messages': [self._serialize_message(msg) for msg in messages],
+			'fast': self.fast,
+		}
 
-			# Add output format schema if provided
-			if output_format is not None:
-				payload['output_format'] = output_format.model_json_schema()
+		# Add output format schema if provided
+		if output_format is not None:
+			payload['output_format'] = output_format.model_json_schema()
 
-			# Add prompt description if provided
-			logger.debug(f"🔍 ChatBrowserUse received prompt_description: {prompt_description is not None}, length: {len(prompt_description) if prompt_description else 0}")
-			if prompt_description is not None:
-				payload['prompt_description'] = prompt_description
-				logger.debug(f"🔍 Added prompt_description to payload")
+		# Add prompt description if provided
+		logger.debug(f"🔍 ChatBrowserUse received prompt_description: {prompt_description is not None}, length: {len(prompt_description) if prompt_description else 0}")
+		if prompt_description is not None:
+			payload['prompt_description'] = prompt_description
+			logger.debug("Added prompt_description to payload")
 
-			# Make API request
-			async with httpx.AsyncClient(timeout=self.timeout) as client:
+		# Make API request
+		async with httpx.AsyncClient(timeout=self.timeout) as client:
+			try:
+				response = await client.post(
+					f'{self.base_url}/v1/chat/completions',
+					json=payload,
+					headers={
+						'Authorization': f'Bearer {self.api_key}',
+						'Content-Type': 'application/json',
+					},
+				)
+				response.raise_for_status()
+				result = response.json()
+
+			except httpx.HTTPStatusError as e:
+				error_detail = ''
 				try:
-					response = await client.post(
-						f'{self.base_url}/v1/chat/completions',
-						json=payload,
-						headers={
-							'Authorization': f'Bearer {self.api_key}',
-							'Content-Type': 'application/json',
-						},
-					)
-					response.raise_for_status()
-					result = response.json()
+					error_data = e.response.json()
+					error_detail = error_data.get('detail', str(e))
+				except Exception:
+					error_detail = str(e)
 
-				except httpx.HTTPStatusError as e:
-					error_detail = ''
-					try:
-						error_data = e.response.json()
-						error_detail = error_data.get('detail', str(e))
-					except Exception:
-						error_detail = str(e)
+				error_msg = ''
+				if e.response.status_code == 401:
+					error_msg = f'Invalid API key. {error_detail}'
+				elif e.response.status_code == 402:
+					error_msg = f'Insufficient credits. {error_detail}'
+				else:
+					error_msg = f'API request failed: {error_detail}'
 
-					error_msg = ''
-					if e.response.status_code == 401:
-						error_msg = f'Invalid API key. {error_detail}'
-					elif e.response.status_code == 402:
-						error_msg = f'Insufficient credits. {error_detail}'
-					else:
-						error_msg = f'API request failed: {error_detail}'
+				raise ValueError(error_msg)
 
-					# Record error in span
-					Laminar.set_span_output({'error': error_msg, 'status_code': e.response.status_code})
-					raise ValueError(error_msg)
+			except httpx.TimeoutException:
+				error_msg = f'Request timed out after {self.timeout}s'
+				raise ValueError(error_msg)
 
-				except httpx.TimeoutException:
-					error_msg = f'Request timed out after {self.timeout}s'
-					Laminar.set_span_output({'error': error_msg})
-					raise ValueError(error_msg)
-
-				except Exception as e:
-					error_msg = f'Failed to connect to browser-use API: {e}'
-					Laminar.set_span_output({'error': error_msg})
-					raise ValueError(error_msg)
+			except Exception as e:
+				error_msg = f'Failed to connect to browser-use API: {e}'
+				raise ValueError(error_msg)
 
 			# Parse response - server returns structured data as dict
 			if output_format is not None:
@@ -170,34 +157,21 @@ class ChatBrowserUse(BaseChatModel):
 					f'📥 Got structured data from service: {list(completion_data.keys()) if isinstance(completion_data, dict) else type(completion_data)}'
 				)
 
-				# Handle actions returned as dicts from llm-use parser
-				# The parser returns dicts when using client_schema to avoid validation issues
+				# Convert action dicts to ActionModel instances if needed
+				# llm-use returns dicts to avoid validation with empty ActionModel
 				if isinstance(completion_data, dict) and 'action' in completion_data:
 					actions = completion_data['action']
 					if actions and isinstance(actions[0], dict):
-						logger.debug(f'🔄 Converting {len(actions)} action dicts to ActionModel instances')
-						# Actions are dicts like [{"search": {"query": "...", "engine": "..."}}, ...]
-						# We need to convert them to ActionModel instances
-						# The output_format has the correct ActionModel type in its 'action' field
 						from typing import get_args
 
-						action_field = output_format.model_fields['action']
-						action_types = get_args(action_field.annotation)
-						if action_types and len(action_types) > 0:
-							action_model_type = action_types[0]
+						# Get ActionModel type from output_format
+						action_model_type = get_args(output_format.model_fields['action'].annotation)[0]
 
-							# Convert each dict to ActionModel instance
-							converted_actions = []
-							for action_dict in actions:
-								try:
-									action_instance = action_model_type.model_validate(action_dict)
-									converted_actions.append(action_instance)
-								except Exception as e:
-									logger.warning(f'⚠️ Failed to convert action dict {action_dict}: {e}')
-									continue
-
-							completion_data['action'] = converted_actions
-							logger.debug(f'✅ Converted {len(converted_actions)} actions successfully')
+						# Convert dicts to ActionModel instances
+						completion_data['action'] = [
+							action_model_type.model_validate(action_dict)
+							for action_dict in actions
+						]
 
 				completion = output_format.model_validate(completion_data)
 			else:
@@ -210,26 +184,10 @@ class ChatBrowserUse(BaseChatModel):
 
 				usage = ChatInvokeUsage(**result['usage'])
 
-			# Record successful output with usage stats in span
-			span_output: dict[str, bool | dict] = {
-				'success': True,
-				'has_structured_output': output_format is not None,
-			}
-			if usage:
-				span_output['usage'] = {
-					'prompt_tokens': usage.prompt_tokens,
-					'completion_tokens': usage.completion_tokens,
-					'total_tokens': usage.total_tokens,
-				}
-			if 'cost' in result:
-				span_output['cost'] = result['cost']
-
-			Laminar.set_span_output(span_output)
-
-			return ChatInvokeCompletion(
-				completion=completion,
-				usage=usage,
-			)
+		return ChatInvokeCompletion(
+			completion=completion,
+			usage=usage,
+		)
 
 	def _serialize_message(self, message: BaseMessage) -> dict:
 		"""Serialize a message to JSON format."""
