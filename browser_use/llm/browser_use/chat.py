@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.views import ChatInvokeCompletion
-from browser_use.observability import observe_debug
+from browser_use.observability import observe
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -82,7 +82,7 @@ class ChatBrowserUse(BaseChatModel):
 		self, messages: list[BaseMessage], output_format: type[T], prompt_description: str | None = None
 	) -> ChatInvokeCompletion[T]: ...
 
-	@observe_debug(name='chat_browser_use_ainvoke')
+	@observe(name='chat_browser_use_ainvoke')
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: type[T] | None = None, prompt_description: str | None = None
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
