@@ -1,10 +1,5 @@
 """
-Example usage of ChatBrowserUse with the llm-use cloud service.
-
-This demonstrates how to use the ChatBrowserUse client to connect to the
-llm-use cloud service deployed on Railway.
-
-Production URL: https://llm-use-production.up.railway.app
+Example of the fastest + smartest LLM for browser automation.
 
 Setup:
 1. Get your API key from https://cloud.browser-use.com/dashboard/api
@@ -29,10 +24,6 @@ Laminar.initialize()
 
 
 async def main():
-	# Create agent with ChatBrowserUse cloud service
-	# API key and base URL are loaded from environment variables:
-	# - BROWSER_USE_API_KEY (required)
-	# - BROWSER_USE_LLM_URL (optional, defaults to production)
 	agent = Agent(
 		task='Find the number of stars of the browser-use repo',
 		llm=ChatBrowserUse(),
