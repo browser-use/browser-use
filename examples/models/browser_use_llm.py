@@ -13,28 +13,19 @@ Setup:
 """
 
 import asyncio
-import os
 
 from browser_use import Agent
 from browser_use.llm import ChatBrowserUse
 
 
 async def main():
-	# Get API key from environment
-	api_key = os.getenv('BROWSER_USE_API_KEY')
-	if not api_key:
-		raise ValueError(
-			'BROWSER_USE_API_KEY environment variable not set. Get your key at https://cloud.browser-use.com/dashboard/api'
-		)
-
 	# Create agent with ChatBrowserUse cloud service
+	# API key and base URL are loaded from environment variables:
+	# - BROWSER_USE_API_KEY (required)
+	# - BROWSER_USE_API_URL (optional, defaults to production)
 	agent = Agent(
 		task='Find the number of stars of the browser-use repo',
-		llm=ChatBrowserUse(
-			fast=True,  # Use fast model (gemini-flash-lite-latest). Set to False for smart model.
-			base_url=os.getenv('BROWSER_USE_API_URL', 'https://llm-use-production.up.railway.app'),
-			api_key=api_key,
-		),
+		llm=ChatBrowserUse(fast=True),  # fast=True uses gemini-flash-lite, fast=False uses gemini-flash
 		flash_mode=True,
 	)
 

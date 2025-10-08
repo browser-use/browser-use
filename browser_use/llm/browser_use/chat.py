@@ -52,10 +52,16 @@ class ChatBrowserUse(BaseChatModel):
 			timeout: Request timeout in seconds.
 		"""
 		self.fast = fast
-		self.api_key = api_key or os.getenv('BROWSER_USE_API_KEY', '12345678')
-		self.base_url = base_url or os.getenv('BROWSER_USE_API_URL', 'https://api.browser-use.com')
+		self.api_key = api_key or os.getenv('BROWSER_USE_API_KEY')
+		self.base_url = base_url or os.getenv('BROWSER_USE_API_URL', 'https://llm-use-production.up.railway.app')
 		self.timeout = timeout
 		self.model = 'fast' if fast else 'smart'
+
+		if not self.api_key:
+			raise ValueError(
+				'BROWSER_USE_API_KEY environment variable not set or api_key parameter not provided. '
+				'Get your key at https://cloud.browser-use.com/dashboard/api'
+			)
 
 	@property
 	def provider(self) -> str:
