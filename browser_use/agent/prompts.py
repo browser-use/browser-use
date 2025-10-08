@@ -16,14 +16,12 @@ if TYPE_CHECKING:
 class SystemPrompt:
 	def __init__(
 		self,
-		action_description: str,
 		max_actions_per_step: int = 10,
 		override_system_message: str | None = None,
 		extend_system_message: str | None = None,
 		use_thinking: bool = True,
 		flash_mode: bool = False,
 	):
-		self.default_action_description = action_description
 		self.max_actions_per_step = max_actions_per_step
 		self.use_thinking = use_thinking
 		self.flash_mode = flash_mode
@@ -64,15 +62,6 @@ class SystemPrompt:
 		    SystemMessage: Formatted system prompt
 		"""
 		return self.system_message
-
-
-# Functions:
-# {self.default_action_description}
-
-# Example:
-# {self.example_response()}
-# Your AVAILABLE ACTIONS:
-# {self.default_action_description}
 
 
 class AgentMessagePrompt:

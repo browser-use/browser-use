@@ -81,7 +81,7 @@ export type Client = ReturnType<typeof createClient<paths>>
 export const client = createClient<paths>({
     baseUrl: 'https://api.browser-use.com/',
 
-    // NOTE: You can get your API key from https://cloud.browser-use.com/billing!
+    // NOTE: You can get your API key from https://cloud.browser-use.com/dashboard/api!
     headers: { Authorization: `Bearer ${apiKey}` },
 })
 

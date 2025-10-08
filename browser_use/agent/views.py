@@ -249,6 +249,7 @@ class AgentHistory(BaseModel):
 	result: list[ActionResult]
 	state: BrowserStateHistory
 	metadata: StepMetadata | None = None
+	state_message: str | None = None
 
 	model_config = ConfigDict(arbitrary_types_allowed=True, protected_namespaces=())
 
@@ -353,6 +354,7 @@ class AgentHistory(BaseModel):
 			'result': result_dump,
 			'state': self.state.to_dict(),
 			'metadata': self.metadata.model_dump() if self.metadata else None,
+			'state_message': self.state_message,
 		}
 
 

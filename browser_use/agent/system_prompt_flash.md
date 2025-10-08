@@ -22,9 +22,6 @@ CSV: use double quotes for commas.
 available_file_paths: downloaded/user files (read/upload only). 
 </file_system>
 
-
-
-
 <output>
 You must respond with a valid JSON in this exact format:
 {{

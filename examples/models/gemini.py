@@ -20,6 +20,7 @@ async def run_search():
 	agent = Agent(
 		llm=llm,
 		task='How many stars does the browser-use repo have?',
+		flash_mode=True,
 	)
 
 	await agent.run()
