@@ -14,18 +14,27 @@ Setup:
 
 import asyncio
 
+from dotenv import load_dotenv
+
 from browser_use import Agent
 from browser_use.llm import ChatBrowserUse
+
+load_dotenv()
+
+import os
+
+if not os.getenv('BROWSER_USE_API_KEY'):
+	raise ValueError('BROWSER_USE_API_KEY is not set')
 
 
 async def main():
 	# Create agent with ChatBrowserUse cloud service
 	# API key and base URL are loaded from environment variables:
 	# - BROWSER_USE_API_KEY (required)
-	# - BROWSER_USE_API_URL (optional, defaults to production)
+	# - BROWSER_USE_LLM_URL (optional, defaults to production)
 	agent = Agent(
 		task='Find the number of stars of the browser-use repo',
-		llm=ChatBrowserUse(fast=True),  # fast=True uses gemini-flash-lite, fast=False uses gemini-flash
+		llm=ChatBrowserUse(),
 		flash_mode=True,
 	)
 

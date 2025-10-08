@@ -48,12 +48,12 @@ class ChatBrowserUse(BaseChatModel):
 		Args:
 			fast: If True, uses fast model. If False, uses smart model.
 			api_key: API key for browser-use cloud. Defaults to BROWSER_USE_API_KEY env var.
-			base_url: Base URL for the API. Defaults to BROWSER_USE_API_URL env var or production URL.
+			base_url: Base URL for the API. Defaults to BROWSER_USE_LLM_URL env var or production URL.
 			timeout: Request timeout in seconds.
 		"""
 		self.fast = fast
 		self.api_key = api_key or os.getenv('BROWSER_USE_API_KEY')
-		self.base_url = base_url or os.getenv('BROWSER_USE_API_URL', 'https://llm-use-production.up.railway.app')
+		self.base_url = base_url or os.getenv('BROWSER_USE_LLM_URL', 'https://llm-use-production.up.railway.app')
 		self.timeout = timeout
 		self.model = 'fast' if fast else 'smart'
 
