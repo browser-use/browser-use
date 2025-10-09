@@ -459,18 +459,107 @@ class DefaultActionWatchdog(BaseWatchdog):
 			except Exception as e:
 				self.logger.debug(f'Failed to scroll element into view: {e}')
 
-			# Perform the click using CDP
+			# Resolve node to get an objectId for further JS-based checks
+			object_id = None
+			try:
+				resolve_result = await cdp_session.cdp_client.send.DOM.resolveNode(
+					params={'backendNodeId': backend_node_id}, session_id=session_id
+				)
+				if 'object' in resolve_result and 'objectId' in resolve_result['object']:
+					object_id = resolve_result['object']['objectId']
+			except Exception:
+				object_id = None
+
+			# Wait until element appears clickable (attempts/retries help headless mode differences)
+			clickable = False
+			clickability_reason = None
+			for attempt in range(3):
+				if object_id:
+					# If we have an objectId, run a small JS predicate to check visibility and occlusion
+					try:
+						check_script = '''
+						(function() {
+							const el = this;
+							if (!el) return { visible: false, clickable: false, reason: 'no-element' };
+							const rect = el.getBoundingClientRect();
+							if (!rect || rect.width === 0 || rect.height === 0) return { visible: false, clickable: false, reason: 'zero-size' };
+							const style = window.getComputedStyle(el);
+							if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return { visible: false, clickable: false, reason: 'css-hidden' };
+							const cx = rect.left + rect.width / 2;
+							const cy = rect.top + rect.height / 2;
+							const topEl = document.elementFromPoint(cx, cy);
+							if (!topEl) return { visible: true, clickable: false, reason: 'no-top-element' };
+							if (el === topEl || el.contains(topEl)) return { visible: true, clickable: true, reason: 'ok' };
+							return { visible: true, clickable: false, reason: 'occluded', topTag: topEl.tagName };
+						})();
+						'''
+						check_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+							params={'functionDeclaration': check_script, 'objectId': object_id, 'returnByValue': True},
+							session_id=session_id,
+						)
+						val = check_result.get('result', {}).get('value', {})
+						clickable = bool(val.get('clickable'))
+						clickability_reason = val.get('reason')
+					except Exception as e:
+						self.logger.debug(f'Clickable JS predicate failed: {e}')
+						clickable = False
+						clickability_reason = 'js-error'
+
+				# If not clickable, give it another chance: scroll to center and small delay
+				if not clickable:
+					try:
+						if object_id:
+							await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+								params={'functionDeclaration': 'function() { this.scrollIntoView({block: "center", inline: "center"}); }', 'objectId': object_id},
+								session_id=session_id,
+							)
+						# small backoff
+						await asyncio.sleep(0.08 * (attempt + 1))
+					except Exception:
+						pass
+				else:
+					break
+
+			if not clickable:
+				self.logger.warning(f'Element not clickable after retries (reason={clickability_reason}), will attempt best-effort click/fallbacks')
+
+			# Perform the click using CDP if we deem it clickable, otherwise try JS click fallback
 			# TODO: do occlusion detection first, if element is not on the top, fire JS-based
 			# click event instead using xpath of x,y coordinate clicking, because we wont be able to click *through* occluding elements using x,y clicks
 			try:
+				# capture URL before click for verification
+				url_before = None
+				try:
+					url_eval = await cdp_session.cdp_client.send.Runtime.evaluate(
+						params={'expression': 'location.href', 'returnByValue': True},
+						session_id=session_id,
+					)
+					url_before = url_eval.get('result', {}).get('value')
+				except Exception:
+					url_before = None
+
+				# If we think it's not clickable via coordinates, try JS click fallback first
+				if not clickable and object_id:
+					self.logger.debug('Skipping CDP coordinate click and using JS click fallback due to occlusion')
+					try:
+						await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+							params={
+								'functionDeclaration': 'function() { this.scrollIntoView({block: "center"}); this.click(); return true; }',
+								'objectId': object_id,
+							},
+							session_id=session_id,
+						)
+						await asyncio.sleep(0.12)
+						# verification handled below
+					except Exception as e:
+						self.logger.warning(f'JS click fallback failed: {e}')
+						# fall through to coordinate click attempt below
+
+				# Proceed with coordinate-based click (either because JS fallback wasn't attempted or it failed)
 				self.logger.debug(f'👆 Dragging mouse over element before clicking x: {center_x}px y: {center_y}px ...')
 				# Move mouse to element
 				await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
-					params={
-						'type': 'mouseMoved',
-						'x': center_x,
-						'y': center_y,
-					},
+					params={'type': 'mouseMoved', 'x': center_x, 'y': center_y},
 					session_id=session_id,
 				)
 				await asyncio.sleep(0.05)
@@ -523,14 +612,31 @@ class DefaultActionWatchdog(BaseWatchdog):
 							},
 							session_id=session_id,
 						),
-						timeout=3.0,  # 1 second timeout for mouseReleased
+						timeout=3.0,  # 3 second timeout for mouseReleased
 					)
 				except TimeoutError:
 					self.logger.debug('⏱️ Mouse up timed out (possibly due to lag or dialog popup), continuing...')
 
 				self.logger.debug('🖱️ Clicked successfully using x,y coordinates')
 				# Return coordinates as dict for metadata
-				return {'click_x': center_x, 'click_y': center_y}
+				# Verify navigation or DOM change: check URL or new tab
+				try:
+					url_after = None
+					try:
+						url_eval2 = await cdp_session.cdp_client.send.Runtime.evaluate(
+							params={'expression': 'location.href', 'returnByValue': True},
+							session_id=session_id,
+						)
+						url_after = url_eval2.get('result', {}).get('value')
+					except Exception:
+						url_after = None
+
+					if url_before and url_after and url_before != url_after:
+						self.logger.debug(f'🔎 URL changed after click: {url_before} -> {url_after}')
+					# Return coordinates in metadata regardless
+					return {'click_x': center_x, 'click_y': center_y}
+				except Exception:
+					return {'click_x': center_x, 'click_y': center_y}
 
 			except Exception as e:
 				self.logger.warning(f'CDP click failed: {type(e).__name__}: {e}')
@@ -558,11 +664,11 @@ class DefaultActionWatchdog(BaseWatchdog):
 				except Exception as js_e:
 					self.logger.error(f'CDP JavaScript click also failed: {js_e}')
 					raise Exception(f'Failed to click element: {e}')
-			finally:
-				# always re-focus back to original top-level page session context in case click opened a new tab/popup/window/dialog/etc.
-				cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
-				await cdp_session.cdp_client.send.Target.activateTarget(params={'targetId': cdp_session.target_id})
-				await cdp_session.cdp_client.send.Runtime.runIfWaitingForDebugger(session_id=cdp_session.session_id)
+				finally:
+					# always re-focus back to original top-level page session context in case click opened a new tab/popup/window/dialog/etc.
+					cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
+					await cdp_session.cdp_client.send.Target.activateTarget(params={'targetId': cdp_session.target_id})
+					await cdp_session.cdp_client.send.Runtime.runIfWaitingForDebugger(session_id=cdp_session.session_id)
 
 		except URLNotAllowedError as e:
 			raise e
