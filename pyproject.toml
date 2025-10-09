@@ -31,6 +31,7 @@ dependencies = [
     "openai>=1.99.2,<2.0.0",
     "anthropic>=0.68.1,<1.0.0",
     "groq>=0.30.0",
+    "mistralai>=1.2.5",
     "ollama>=0.5.1",
     "google-api-python-client>=2.174.0",
     "google-auth>=2.40.3",

@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from browser_use.llm.azure.chat import ChatAzureOpenAI
 from browser_use.llm.cerebras.chat import ChatCerebras
 from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.mistral.chat import ChatMistral
 from browser_use.llm.openai.chat import ChatOpenAI
 
 if TYPE_CHECKING:
@@ -63,6 +64,10 @@ cerebras_qwen_3_32b: 'BaseChatModel'
 cerebras_qwen_3_235b_a22b_instruct_2507: 'BaseChatModel'
 cerebras_qwen_3_235b_a22b_thinking_2507: 'BaseChatModel'
 cerebras_qwen_3_coder_480b: 'BaseChatModel'
+
+mistral_large_latest: 'BaseChatModel'
+mistral_small_latest: 'BaseChatModel'
+mistral_codestral_latest: 'BaseChatModel'
 
 
 def get_llm_by_name(model_name: str):
@@ -148,8 +153,13 @@ def get_llm_by_name(model_name: str):
 		api_key = os.getenv('CEREBRAS_API_KEY')
 		return ChatCerebras(model=model, api_key=api_key)
 
+	# Mistral Models
+	elif provider == 'mistral':
+		api_key = os.getenv('MISTRAL_API_KEY')
+		return ChatMistral(model=model, api_key=api_key)
+
 	else:
-		available_providers = ['openai', 'azure', 'google', 'cerebras']
+		available_providers = ['openai', 'azure', 'google', 'cerebras', 'mistral']
 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
 
 
@@ -165,6 +175,8 @@ def __getattr__(name: str) -> 'BaseChatModel':
 		return ChatGoogle  # type: ignore
 	elif name == 'ChatCerebras':
 		return ChatCerebras  # type: ignore
+	elif name == 'ChatMistral':
+		return ChatMistral  # type: ignore
 
 	# Handle model instances - these are the main use case
 	try:
@@ -178,6 +190,7 @@ __all__ = [
 	'ChatAzureOpenAI',
 	'ChatGoogle',
 	'ChatCerebras',
+	'ChatMistral',
 	'get_llm_by_name',
 	# OpenAI instances - created on demand
 	'openai_gpt_4o',
@@ -221,4 +234,8 @@ __all__ = [
 	'cerebras_qwen_3_235b_a22b_instruct_2507',
 	'cerebras_qwen_3_235b_a22b_thinking_2507',
 	'cerebras_qwen_3_coder_480b',
+	# Mistral instances - created on demand
+	'mistral_large_latest',
+	'mistral_small_latest',
+	'mistral_codestral_latest',
 ]
