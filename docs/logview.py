@@ -59,10 +59,10 @@ try:
         time.sleep(0.2)
 
 except EOFError:
-    print("\n⚠️ No input stream available (non-interactive mode). Exiting safely.")
+    print("\n No input stream available (non-interactive mode). Exiting safely.")
 except KeyboardInterrupt:
-    print("\n🛑 Interrupted by user. Exiting safely.")
+    print("\n Interrupted by user. Exiting safely.")
 except Exception as e:
-    print(f"\n❌ Unexpected error: {e}")
+    print(f"\n Unexpected error: {e}")
 finally:
-    print("✅ Process completed successfully (no crash).")
+    print("Process completed successfully (no crash).")
