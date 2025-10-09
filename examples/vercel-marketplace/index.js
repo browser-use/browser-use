@@ -4,16 +4,19 @@
  * This file exports a simple API handler that runs on Vercel.
  * When deployed, visiting the URL will return a JSON response.
  *
- * Example:
- *   https://your-project.vercel.app/
+ * File location: pages/api/browser-use.js
+ * Access at: https://browser-use.vercel.app/api/browser-use
  */
-
-import { NextResponse } from 'next/server'; // works with Next.js API routes (optional)
 
 // Uncomment this if browser-use is installed as a dependency
 // import { Browser } from 'browser-use';
 
 export default async function handler(req, res) {
+  // Only allow GET requests
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   try {
     // Example placeholder logic (replace with browser-use demo if needed)
     const data = {
@@ -34,9 +37,9 @@ export default async function handler(req, res) {
     data.browserUseExample = `Visited example.com → ${title}`;
     */
 
-    res.status(200).json(data);
+    return res.status(200).json(data);
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       error: "Something went wrong while processing the request.",
       details: error.message,
     });
