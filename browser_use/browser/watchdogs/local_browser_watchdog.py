@@ -1,12 +1,16 @@
 """Local browser watchdog for managing browser subprocess lifecycle."""
 
 import asyncio
+import glob
 import os
+import platform
 import shutil
+import socket
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
+import aiohttp
 import psutil
 from bubus import BaseEvent
 from pydantic import PrivateAttr
@@ -147,6 +151,15 @@ class LocalBrowserWatchdog(BaseWatchdog):
 				# Clone authentication data
 				self._clone_profile(source_profile_subdir, dest_profile_subdir)
 
+				# **FIX:** Copy the 'Local State' file from the root user_data_dir for decryption keys.
+				local_state_source = source_user_data_path / 'Local State'
+				if local_state_source.exists():
+					try:
+						shutil.copy2(local_state_source, self._temp_user_data_dir / 'Local State')
+						self.logger.debug('✓ Copied Local State file for decryption.')
+					except Exception as e:
+						self.logger.warning(f'Could not copy Local State file: {e}')
+
 				# Use the temporary directory for this browser session
 				profile.user_data_dir = str(self._temp_user_data_dir)
 				self.logger.debug(f'📂 Using temporary profile: {self._temp_user_data_dir}')
@@ -218,8 +231,6 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		Returns:
 			Path to browser executable or None if not found
 		"""
-		import glob
-		import platform
 
 		system = platform.system()
 		patterns = []
@@ -347,7 +358,6 @@ class LocalBrowserWatchdog(BaseWatchdog):
 	@staticmethod
 	def _find_free_port() -> int:
 		"""Find a free port for the debugging interface."""
-		import socket
 
 		with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 			s.bind(('127.0.0.1', 0))
@@ -358,7 +368,6 @@ class LocalBrowserWatchdog(BaseWatchdog):
 	@staticmethod
 	async def _wait_for_cdp_url(port: int, timeout: float = 30) -> str:
 		"""Wait for the browser to start and return the CDP URL."""
-		import aiohttp
 
 		start_time = asyncio.get_event_loop().time()
 
@@ -380,63 +389,50 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 		raise TimeoutError(f'Browser did not start within {timeout} seconds')
 
-	@staticmethod
-	async def _cleanup_process(process: psutil.Process) -> None:
-		"""Clean up browser process.
-
-		Args:
-			process: psutil.Process to terminate
-		"""
-		if not process:
+	async def _cleanup_process(self, process: psutil.Process) -> None:
+		"""Gracefully terminate a process and its entire process tree."""
+		if not process or not process.is_running():
 			return
-
 		try:
-			# Try graceful shutdown first
+			# Terminate children first
+			children = process.children(recursive=True)
+			for child in children:
+				try:
+					child.terminate()
+				except psutil.NoSuchProcess:
+					pass
+
+			# Wait for children to terminate
+			gone, alive = psutil.wait_procs(children, timeout=3)
+			# Force kill any remaining children
+			for p in alive:
+				p.kill()
+
+			# Terminate the main process
 			process.terminate()
-
-			# Use async wait instead of blocking wait
-			for _ in range(50):  # Wait up to 5 seconds (50 * 0.1)
-				if not process.is_running():
-					return
-				await asyncio.sleep(0.1)
-
-			# If still running after 5 seconds, force kill
+			await asyncio.sleep(0.5)
 			if process.is_running():
 				process.kill()
-				# Give it a moment to die
-				await asyncio.sleep(0.1)
-
 		except psutil.NoSuchProcess:
 			# Process already gone
 			pass
-		except Exception:
-			# Ignore any other errors during cleanup
-			pass
+		except Exception as e:
+			self.logger.warning(f'Error during process cleanup: {e}')
 
 	def _cleanup_temp_dir(self, temp_dir: Path | str) -> None:
-		"""Clean up temporary directory.
-
-		Args:
-			temp_dir: Path to temporary directory to remove
-		"""
+		"""Clean up the temporary profile directory."""
 		if not temp_dir:
 			return
-
 		try:
-			temp_path = Path(temp_dir)
-			# Only remove if it's actually a temp directory we created
-			if 'browseruse-cdp-' in str(temp_path):
-				self.logger.info(f'🧹 Cleaning up temporary profile: {temp_path}')
-				shutil.rmtree(temp_path, ignore_errors=True)
+			self.logger.info(f'🧹 Cleaning up temporary profile directory: {temp_dir}')
+			shutil.rmtree(temp_dir, ignore_errors=True)
 		except Exception as e:
-			self.logger.debug(f'Failed to cleanup temp dir {temp_dir}: {e}')
+			self.logger.warning(f'Failed to cleanup temp dir {temp_dir}: {e}')
 
 	@property
 	def browser_pid(self) -> int | None:
 		"""Get the browser process ID."""
-		if self._subprocess:
-			return self._subprocess.pid
-		return None
+		return self._subprocess.pid if self._subprocess else None
 
 	@staticmethod
 	async def get_browser_pid_via_cdp(browser) -> int | None:
