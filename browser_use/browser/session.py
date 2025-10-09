@@ -162,7 +162,7 @@ class CDPSession(BaseModel):
 		if any(isinstance(result, Exception) for result in results):
 			raise RuntimeError(f'Failed to enable requested CDP domain: {results}')
 
-		# in case 'Debugger' domain is enabled, disable breakpoints on the page so it does'nt pause on crashes / debugger statements
+		# in case 'Debugger' domain is enabled, disable breakpoints on the page so it doesn't pause on crashes / debugger statements
 		# also covered by Runtime.runIfWaitingForDebugger() calls in get_or_create_cdp_session()
 		try:
 			await self.cdp_client.send.Debugger.setSkipAllPauses(params={'skip': True}, session_id=self.session_id)
