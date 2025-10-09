@@ -62,6 +62,9 @@ cli = [
 aws = [
     "boto3>=1.38.45"
 ]
+oci = [
+    "oci>=2.126.4",
+]
 video = [
     "imageio[ffmpeg]>=2.37.0",
     "numpy>=2.3.2",
@@ -83,8 +86,11 @@ eval = [
     "hyperbrowser==0.47.0",
     "browserbase==1.4.0",
 ]
+cli-oci = [
+    "browser-use[cli,oci]",
+]
 all = [
-    "browser-use[cli,examples,aws]",
+    "browser-use[cli,examples,aws,oci]",
 ]
 
 # will prefer to use local source code checked out in ../../browser-use (if present) instead of pypi browser-use package
