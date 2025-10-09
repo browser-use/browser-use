@@ -623,8 +623,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	wait_between_actions: float = Field(default=0.5, description='Time to wait between actions.')
 
 	# --- UI/viewport/DOM ---
-
 	highlight_elements: bool = Field(default=True, description='Highlight interactive elements on the page.')
+	dom_highlight_elements: bool = Field(
+		default=False, description='Highlight interactive elements in the DOM (only for debugging purposes).'
+	)
 	filter_highlight_ids: bool = Field(
 		default=True, description='Only show element IDs in highlights if llm_representation is less than 10 characters.'
 	)
@@ -750,6 +752,17 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		"""Ensure proxy configuration is consistent."""
 		if self.proxy and (self.proxy.bypass and not self.proxy.server):
 			logger.warning('BrowserProfile.proxy.bypass provided but proxy has no server; bypass will be ignored.')
+		return self
+
+	@model_validator(mode='after')
+	def validate_highlight_elements_conflict(self) -> Self:
+		"""Ensure highlight_elements and dom_highlight_elements are not both enabled, with dom_highlight_elements taking priority."""
+		if self.highlight_elements and self.dom_highlight_elements:
+			logger.warning(
+				'⚠️ Both highlight_elements and dom_highlight_elements are enabled. '
+				'dom_highlight_elements takes priority. Setting highlight_elements=False.'
+			)
+			self.highlight_elements = False
 		return self
 
 	def model_post_init(self, __context: Any) -> None:

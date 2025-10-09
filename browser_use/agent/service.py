@@ -352,10 +352,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			f'{" +file_system" if self.file_system else ""}'
 		)
 
-		# Initialize available actions for system prompt (only non-filtered actions)
-		# These will be used for the system prompt to maintain caching
-		self.unfiltered_actions = self.tools.registry.get_prompt_description()
-
 		# Initialize message manager with state
 		# Initial system prompt with all actions - will be updated during each step
 		self._message_manager = MessageManager(
@@ -1195,11 +1191,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
 
-		# Build kwargs for ainvoke, including prompt_description for browser-use cloud
+		# Build kwargs for ainvoke
+		# Note: ChatBrowserUse will automatically generate action descriptions from output_format schema
 		kwargs: dict = {'output_format': self.AgentOutput}
-		actual_llm = getattr(self.llm, '__wrapped__', self.llm)
-		if getattr(actual_llm, 'provider', None) == 'browser-use':
-			kwargs['prompt_description'] = self.tools.registry.get_prompt_description()
 
 		try:
 			response = await self.llm.ainvoke(input_messages, **kwargs)

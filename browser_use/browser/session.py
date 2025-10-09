@@ -276,6 +276,7 @@ class BrowserSession(BaseModel):
 		# DOM extraction layer configuration
 		cross_origin_iframes: bool | None = None,
 		highlight_elements: bool | None = None,
+		dom_highlight_elements: bool | None = None,
 		paint_order_filtering: bool | None = None,
 		# Iframe processing limits
 		max_iframes: int | None = None,
@@ -1858,6 +1859,192 @@ class BrowserSession(BaseModel):
 
 		except Exception as e:
 			self.logger.warning(f'Failed to remove highlights: {e}')
+
+	async def add_highlights(self, selector_map: dict[int, 'EnhancedDOMTreeNode']) -> None:
+		"""Add visual highlights to the browser DOM for user visibility."""
+		if not self.browser_profile.dom_highlight_elements or not selector_map:
+			return
+
+		try:
+			import json
+
+			# Convert selector_map to the format expected by the highlighting script
+			elements_data = []
+			for interactive_index, node in selector_map.items():
+				# Get bounding box using absolute position (includes iframe translations) if available
+				if node.absolute_position:
+					# Use absolute position which includes iframe coordinate translations
+					rect = node.absolute_position
+					bbox = {'x': rect.x, 'y': rect.y, 'width': rect.width, 'height': rect.height}
+
+					# Only include elements with valid bounding boxes
+					if bbox and bbox.get('width', 0) > 0 and bbox.get('height', 0) > 0:
+						element = {
+							'x': bbox['x'],
+							'y': bbox['y'],
+							'width': bbox['width'],
+							'height': bbox['height'],
+							'interactive_index': interactive_index,
+							'element_name': node.node_name,
+							'is_clickable': node.snapshot_node.is_clickable if node.snapshot_node else True,
+							'is_scrollable': getattr(node, 'is_scrollable', False),
+							'attributes': node.attributes or {},
+							'frame_id': getattr(node, 'frame_id', None),
+							'node_id': node.node_id,
+							'backend_node_id': node.backend_node_id,
+							'xpath': node.xpath,
+							'text_content': node.get_all_children_text()[:50]
+							if hasattr(node, 'get_all_children_text')
+							else node.node_value[:50],
+						}
+						elements_data.append(element)
+
+			if not elements_data:
+				self.logger.debug('⚠️ No valid elements to highlight')
+				return
+
+			self.logger.debug(f'📍 Creating highlights for {len(elements_data)} elements')
+
+			# Always remove existing highlights first
+			await self.remove_highlights()
+
+			# Add a small delay to ensure removal completes
+			import asyncio
+
+			await asyncio.sleep(0.05)
+
+			# Get CDP session
+			cdp_session = await self.get_or_create_cdp_session()
+
+			# Create the proven highlighting script from v0.6.0 with fixed positioning
+			script = f"""
+			(function() {{
+				// Interactive elements data
+				const interactiveElements = {json.dumps(elements_data)};
+				
+				console.log('=== BROWSER-USE HIGHLIGHTING ===');
+				console.log('Highlighting', interactiveElements.length, 'interactive elements');
+				
+				// Double-check: Remove any existing highlight container first
+				const existingContainer = document.getElementById('browser-use-debug-highlights');
+				if (existingContainer) {{
+					console.log('⚠️ Found existing highlight container, removing it first');
+					existingContainer.remove();
+				}}
+				
+				// Also remove any stray highlight elements
+				const strayHighlights = document.querySelectorAll('[data-browser-use-highlight]');
+				if (strayHighlights.length > 0) {{
+					console.log('⚠️ Found', strayHighlights.length, 'stray highlight elements, removing them');
+					strayHighlights.forEach(el => el.remove());
+				}}
+				
+				// Use maximum z-index for visibility
+				const HIGHLIGHT_Z_INDEX = 2147483647;
+				
+				// Create container for all highlights - use FIXED positioning (key insight from v0.6.0)
+				const container = document.createElement('div');
+				container.id = 'browser-use-debug-highlights';
+				container.setAttribute('data-browser-use-highlight', 'container');
+				
+				container.style.cssText = `
+					position: fixed;
+					top: 0;
+					left: 0;
+					width: 100vw;
+					height: 100vh;
+					pointer-events: none;
+					z-index: ${{HIGHLIGHT_Z_INDEX}};
+					overflow: visible;
+					margin: 0;
+					padding: 0;
+					border: none;
+					outline: none;
+					box-shadow: none;
+					background: none;
+					font-family: inherit;
+				`;
+				
+				// Helper function to create text elements safely
+				function createTextElement(tag, text, styles) {{
+					const element = document.createElement(tag);
+					element.textContent = text;
+					if (styles) element.style.cssText = styles;
+					return element;
+				}}
+				
+				// Add highlights for each element
+				interactiveElements.forEach((element, index) => {{
+					const highlight = document.createElement('div');
+					highlight.setAttribute('data-browser-use-highlight', 'element');
+					highlight.setAttribute('data-element-id', element.interactive_index);
+					highlight.style.cssText = `
+						position: absolute;
+						left: ${{element.x}}px;
+						top: ${{element.y}}px;
+						width: ${{element.width}}px;
+						height: ${{element.height}}px;
+						outline: 2px dashed #4a90e2;
+						outline-offset: -2px;
+						background: transparent;
+						pointer-events: none;
+						box-sizing: content-box;
+						transition: outline 0.2s ease;
+						margin: 0;
+						padding: 0;
+						border: none;
+					`;
+					
+					// Enhanced label with interactive index
+					const label = createTextElement('div', element.interactive_index, `
+						position: absolute;
+						top: -20px;
+						left: 0;
+						background-color: #4a90e2;
+						color: white;
+						padding: 2px 6px;
+						font-size: 11px;
+						font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+						font-weight: bold;
+						border-radius: 3px;
+						white-space: nowrap;
+						z-index: ${{HIGHLIGHT_Z_INDEX + 1}};
+						box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+						border: none;
+						outline: none;
+						margin: 0;
+						line-height: 1.2;
+					`);
+					
+					highlight.appendChild(label);
+					container.appendChild(highlight);
+				}});
+				
+				// Add container to document
+				document.body.appendChild(container);
+				
+				console.log('Highlighting complete - added', interactiveElements.length, 'highlights');
+				return {{ added: interactiveElements.length }};
+			}})();
+			"""
+
+			# Execute the script
+			result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': script, 'returnByValue': True}, session_id=cdp_session.session_id
+			)
+
+			# Log the result
+			if result and 'result' in result and 'value' in result['result']:
+				added_count = result['result']['value'].get('added', 0)
+				self.logger.debug(f'Successfully added {added_count} highlight elements to browser DOM')
+			else:
+				self.logger.debug('Browser highlight injection completed')
+
+		except Exception as e:
+			self.logger.warning(f'Failed to add browser highlights: {e}')
+			import traceback
+
+			self.logger.debug(f'Browser highlight traceback: {traceback.format_exc()}')
 
 	async def _close_extension_options_pages(self) -> None:
 		"""Close any extension options/welcome pages that have opened."""

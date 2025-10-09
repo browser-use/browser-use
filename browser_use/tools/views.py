@@ -63,9 +63,9 @@ class CloseTabAction(BaseModel):
 
 
 class ScrollAction(BaseModel):
-	down: bool = Field(description='1=down, 0=up')
-	pages: float = Field(default=1.0, description='0.5=half, 1=pg, 10=bottom')
-	index: int | None = Field(default=None, description='Use to scroll in specific container with that element')
+	down: bool = Field(description='down=True=scroll down, down=False scroll up')
+	pages: float = Field(default=1.0, description='0.5=half page, 1=full page, 10=to bottom/top')
+	index: int | None = Field(default=None, description='Optional element index to scroll within specific container')
 
 
 class SendKeysAction(BaseModel):
