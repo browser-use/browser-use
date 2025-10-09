@@ -14,6 +14,18 @@ from cdp_use.cdp.network import Cookie
 from cdp_use.cdp.target import AttachedToTargetEvent, SessionID, TargetID
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from uuid_extensions import uuid7str
+import importlib
+import importlib.util
+
+# Dynamically import psutil to keep it optional at runtime and avoid static analysis errors
+# in environments where psutil is not installed (prevents "could not be resolved from source").
+_psutil_spec = importlib.util.find_spec("psutil")
+if _psutil_spec is not None:
+	psutil = importlib.import_module("psutil")
+else:
+	psutil = None
+
+import re
 
 from browser_use.browser.cloud import CloudBrowserAuthError, CloudBrowserError, get_cloud_browser_cdp_url
 
@@ -150,7 +162,7 @@ class CDPSession(BaseModel):
 		if any(isinstance(result, Exception) for result in results):
 			raise RuntimeError(f'Failed to enable requested CDP domain: {results}')
 
-		# in case 'Debugger' domain is enabled, disable breakpoints on the page so it doesnt pause on crashes / debugger statements
+		# in case 'Debugger' domain is enabled, disable breakpoints on the page so it does'nt pause on crashes / debugger statements
 		# also covered by Runtime.runIfWaitingForDebugger() calls in get_or_create_cdp_session()
 		try:
 			await self.cdp_client.send.Debugger.setSkipAllPauses(params={'skip': True}, session_id=self.session_id)
@@ -351,7 +363,7 @@ class BrowserSession(BaseModel):
 	# Watchdogs
 	_crash_watchdog: Any | None = PrivateAttr(default=None)
 	_downloads_watchdog: Any | None = PrivateAttr(default=None)
-	_aboutblank_watchdog: Any | None = PrivateAttr(default=None)
+	_about_blank_watchdog: Any | None = PrivateAttr(default=None)
 	_security_watchdog: Any | None = PrivateAttr(default=None)
 	_storage_state_watchdog: Any | None = PrivateAttr(default=None)
 	_local_browser_watchdog: Any | None = PrivateAttr(default=None)
@@ -390,9 +402,44 @@ class BrowserSession(BaseModel):
 
 	def __repr__(self) -> str:
 		return f'BrowserSession🅑 {self._id_for_logs} 🅣 {self._tab_id_for_logs} (cdp_url={self.cdp_url}, profile={self.browser_profile})'
+	def _find_running_chrome_cdp(self) -> str | None:
+		"""Try to detect a running Chrome/Chromium process exposing a --remote-debugging-port.
 
-	def __str__(self) -> str:
-		return f'BrowserSession🅑 {self._id_for_logs} 🅣 {self._tab_id_for_logs}'
+		Returns an http://localhost:port/ URL if found, otherwise None.
+		"""
+		# If psutil is not available, skip auto-detection gracefully
+		if psutil is None:
+			try:
+				self.logger.debug('psutil not available; skipping auto-detect of running Chrome')
+			except Exception:
+				# logger may not be initialized in some contexts; ignore
+				pass
+			return None
+
+		try:
+			for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+				cmd = proc.info.get('cmdline') or []
+				if not cmd:
+					continue
+				# Look for common chrome binary names
+				name = proc.info.get('name') or ''
+				if any(n in name.lower() for n in ('chrome', 'chromium', 'brave', 'msedge')) or any(
+					'chrome' in (c.lower() if isinstance(c, str) else '') for c in cmd
+				):
+					# look for --remote-debugging-port=NNNN
+					for part in cmd:
+						if isinstance(part, str):
+							m = re.search(r'--remote-debugging-port=(\d+)', part)
+							if m:
+								port = int(m.group(1))
+								return f'http://localhost:{port}/'
+			# nothing found
+			return None
+		except Exception:
+			return None
+			# nothing found
+			
+		
 
 	async def reset(self) -> None:
 		"""Clear all cached CDP sessions with proper cleanup."""
@@ -418,7 +465,7 @@ class BrowserSession(BaseModel):
 
 		self._crash_watchdog = None
 		self._downloads_watchdog = None
-		self._aboutblank_watchdog = None
+		self._about_blank_watchdog = None
 		self._security_watchdog = None
 		self._storage_state_watchdog = None
 		self._local_browser_watchdog = None
@@ -515,6 +562,19 @@ class BrowserSession(BaseModel):
 		await self.attach_all_watchdogs()
 
 		try:
+			# If user provided a user_data_dir (or executable_path), try to auto-detect a
+			# running Chrome instance using that profile and a --remote-debugging-port flag.
+			# This helps users who manually started Chrome and want the agent to attach to it.
+			try:
+				if not self.cdp_url and self.browser_profile and self.browser_profile.user_data_dir:
+					detected = self._find_running_chrome_cdp()
+					if detected:
+						self.logger.info(f'🔎 Found running Chrome with remote debugging at {detected}, attempting to attach')
+						self.browser_profile.cdp_url = detected
+						# keep is_local True (it's a local browser) but set cdp_url so connect() will be used
+						self.browser_profile.is_local = True
+			except Exception as e:
+				self.logger.debug(f'Auto-detect running Chrome failed: {e}')
 			# If no CDP URL, launch local browser or cloud browser
 			if not self.cdp_url:
 				if self.browser_profile.use_cloud:
@@ -1161,7 +1221,7 @@ class BrowserSession(BaseModel):
 			self.logger.debug('Watchdogs already attached, skipping duplicate attachment')
 			return
 
-		from browser_use.browser.watchdogs.aboutblank_watchdog import AboutBlankWatchdog
+		from browser_use.browser.watchdogs._about_blank_watchdog import AboutBlankWatchdog
 
 		# from browser_use.browser.crash_watchdog import CrashWatchdog
 		from browser_use.browser.watchdogs.default_action_watchdog import DefaultActionWatchdog
@@ -1233,12 +1293,12 @@ class BrowserSession(BaseModel):
 
 		# Initialize AboutBlankWatchdog (handles about:blank pages and DVD loading animation on first load)
 		AboutBlankWatchdog.model_rebuild()
-		self._aboutblank_watchdog = AboutBlankWatchdog(event_bus=self.event_bus, browser_session=self)
-		# self.event_bus.on(BrowserStopEvent, self._aboutblank_watchdog.on_BrowserStopEvent)
-		# self.event_bus.on(BrowserStoppedEvent, self._aboutblank_watchdog.on_BrowserStoppedEvent)
-		# self.event_bus.on(TabCreatedEvent, self._aboutblank_watchdog.on_TabCreatedEvent)
-		# self.event_bus.on(TabClosedEvent, self._aboutblank_watchdog.on_TabClosedEvent)
-		self._aboutblank_watchdog.attach_to_session()
+		self._about_blank_watchdog = AboutBlankWatchdog(event_bus=self.event_bus, browser_session=self)
+		# self.event_bus.on(BrowserStopEvent, self._about_blank_watchdog.on_BrowserStopEvent)
+		# self.event_bus.on(BrowserStoppedEvent, self._about_blank_watchdog.on_BrowserStoppedEvent)
+		# self.event_bus.on(TabCreatedEvent, self._about_blank_watchdog.on_TabCreatedEvent)
+		# self.event_bus.on(TabClosedEvent, self._about_blank_watchdog.on_TabClosedEvent)
+		self._about_blank_watchdog.attach_to_session()
 
 		# Initialize PopupsWatchdog (handles accepting and dismissing JS dialogs, alerts, confirm, onbeforeunload, etc.)
 		PopupsWatchdog.model_rebuild()
@@ -2004,7 +2064,7 @@ class BrowserSession(BaseModel):
 						color: white;
 						padding: 2px 6px;
 						font-size: 11px;
-						font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+						font-family: 'Monaco',  'Ubuntu Mono', monospace;
 						font-weight: bold;
 						border-radius: 3px;
 						white-space: nowrap;

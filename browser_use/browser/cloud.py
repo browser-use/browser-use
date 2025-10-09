@@ -7,8 +7,8 @@ and returns the CDP URL for connection.
 
 import logging
 import os
-
 import httpx
+
 from pydantic import BaseModel, Field
 
 from browser_use.sync.auth import CloudAuthConfig
