@@ -819,7 +819,9 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					long_term_memory=f"Tried scrolling to text '{text}' but it was not found",
 				)
 
-		@self.registry.action('')
+		@self.registry.action(
+			'Request screenshot of current viewport. Use when: visual inspection needed, layout unclear, element positions uncertain, debugging UI issues, or verifying page state. Screenshot included in next observation.',
+		)
 		async def screenshot():
 			"""Request that a screenshot be included in the next observation"""
 			memory = 'Requested screenshot for next observation'
