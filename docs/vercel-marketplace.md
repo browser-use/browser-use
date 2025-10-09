@@ -38,11 +38,12 @@ The Vercel integration handler needs credentials to communicate with the Marketp
 
     # Set the Client Secret
     vercel env add INTEGRATION_CLIENT_SECRET
+    # ---INSERT THE CLOSING FENCE HERE ---
 3. **Deploy:** Deploy the integration handler project to Vercel.
     ```bash
     vercel --prod
     ```    ```
-### 2.3 Configure Marketplace Settings
+###  Configure Marketplace Settings
 
 1.  **Update Marketplace Settings:** Go back to your integration's page in the Vercel Integration Console.
 2.  **Set URLs:** Update the **Base URL** and **Redirect URL** to point to your newly deployed Vercel project URL.
