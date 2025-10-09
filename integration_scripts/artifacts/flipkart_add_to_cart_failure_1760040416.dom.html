@@ -1,0 +1,41 @@
+<html><head><title>Online Shopping India Mobile, Cameras, Lifestyle &amp; more Online @ Flipkart.com</title><meta http-equiv="X-UA-Compatible" content="IE=edge"><style>html,
+		body {
+			font-family: Roboto, arial, tahoma, verdana, sans-serif;
+			height: 100%;
+			margin: 0;
+		}
+
+		.btn {
+			border-radius: 4px;
+			margin-top: 16px;
+			display: inline-block;
+			color: #fff;
+			font-family: inter_semi_bold, Arial, sans-serif;
+			border: none;
+			font-size: inherit;
+			cursor: pointer;
+			width: 328px;
+			height: 40px;
+		}
+
+		.disable_btn {
+			background-color: #808080;
+			cursor: not-allowed;
+		}
+
+		#retry_btn {
+			background-color: #2A55E5;
+			display: none;
+		}</style></head><body><div style="background-color:#2874f0;height:78px;*text-align:center;"><div style="width: 978px;margin: 0 auto;padding-top: 2px;*text-align:left;"><div style="margin-top: 15px; text-align: center"><img width="149" src="http://img1a.flixcart.com/www/linchpin/fk-cp-zion/img/fk-logo_9fddff.png" style="border: none;"></div></div></div><script nonce="">let seconds = 3;
+		const timerText = document.getElementById("timer_text")
+		const retryBtn = document.getElementById("retry_btn")
+		// Update the count down every 1 second
+		var timerId = setInterval(function () {
+			timerText.innerHTML = `Retry in ${seconds--} sec`;
+			if (seconds < 0) {
+				clearInterval(timerId);
+				timerText.remove()
+				retryBtn.style.display = "inline"
+			}
+		}, 1000);
+		retryBtn.addEventListener('click', function () { window.location.reload() })</script></body></html>

@@ -1863,6 +1863,7 @@ async def run_auth_command():
 @click.option('--proxy-password', type=str, help='Proxy auth password')
 @click.option('-p', '--prompt', type=str, help='Run a single task without the TUI (headless mode)')
 @click.option('--mcp', is_flag=True, help='Run as MCP server (exposes JSON RPC via stdin/stdout)')
+@click.option('--log-ui', 'log_ui', is_flag=True, help='Open interactive log viewer TUI (textual)')
 @click.pass_context
 def main(ctx: click.Context, debug: bool = False, **kwargs):
 	"""Browser Use - AI Agent for Web Automation
@@ -1921,6 +1922,27 @@ def run_main_interface(ctx: click.Context, debug: bool = False, **kwargs):
 	root_logger = logging.getLogger()
 	root_logger.setLevel(logging.INFO if not debug else logging.DEBUG)
 	root_logger.addHandler(console_handler)
+
+	# If requested, start the textual log UI in a background thread and attach handler
+	if kwargs.get('log_ui'):
+		try:
+			import threading
+			# local imports for optional dependency
+			from browser_use.logging_tui import TextualLogHandler
+			from browser_use.ui.log_viewer import run_log_viewer
+
+			# create a simple asyncio queue and attach handler
+			q = asyncio.Queue()
+			handler = TextualLogHandler(q)
+			handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s'))
+			root_logger.addHandler(handler)
+
+			# start TUI in background thread
+			t = threading.Thread(target=run_log_viewer, args=(q,), daemon=True)
+			t.start()
+		except Exception as e:
+			logger = logging.getLogger('browser_use.startup')
+			logger.error('Failed to start log UI: %s', e)
 
 	logger = logging.getLogger('browser_use.startup')
 	logger.info('Starting Browser-Use initialization')
