@@ -1,9 +1,9 @@
-# logview.py
 import asyncio
 import random
 from textual.app import App, ComposeResult
 from textual.widgets import DataTable, Input
 from textual import events
+
 
 class LogViewerApp(App):
     CSS = """
@@ -19,17 +19,14 @@ class LogViewerApp(App):
     """
 
     def compose(self) -> ComposeResult:
-        # DataTable for logs
         self.table = DataTable(zebra_stripes=True)
         self.table.add_columns("Level", "Message")
         yield self.table
 
-        # Input for search
-        self.search_input = Input(placeholder="Type / to search...", visible=False)
+        self.search_input = Input(placeholder="Type / to search...")
+        self.search_input.display = False  # Hide the input initially
         yield self.search_input
-
     async def add_log(self, level: str, message: str):
-        """Add a log row and scroll to bottom."""
         color = {
             "INFO": "green",
             "WARNING": "yellow",
@@ -37,15 +34,11 @@ class LogViewerApp(App):
             "DEBUG": "cyan"
         }.get(level, "white")
 
-        # Add the row
         self.table.add_row(f"[{color}]{level}[/{color}]", message)
-
-        # Move cursor to last row
         self.table.cursor_row = len(self.table.rows) - 1
         self.table.scroll_cursor_into_view()
 
     async def generate_test_logs(self):
-        """Generate random logs every 1 second."""
         levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR']
         messages = [
             'System initialized',
@@ -63,7 +56,6 @@ class LogViewerApp(App):
     async def on_key(self, event: events.Key):
         key = event.key
 
-        # Vim-like scrolling
         if key == "j":
             self.table.move_cursor_down()
         elif key == "k":
@@ -75,12 +67,12 @@ class LogViewerApp(App):
             self.table.cursor_row = len(self.table.rows) - 1
             self.table.scroll_cursor_into_view()
         elif key == "/":
-            self.search_input.visible = True
+            self.search_input.display = True
             self.search_input.focus()
 
     async def on_mount(self):
-        """Start generating logs after app mounts."""
-        self.set_interval(0, self.generate_test_logs)  # Non-blocking
+        asyncio.create_task(self.generate_test_logs())
+
 
 if __name__ == "__main__":
     app = LogViewerApp()
