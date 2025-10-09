@@ -9,9 +9,7 @@ LOG_MESSAGES = [
     "User logged in successfully",
     "Fetching data from API",
     "Data parsing completed",
-    "Error connecting to database",
-    "Cache cleared",
-    "Unhandled exception occurred"
+    "Error connecting to database"
 ]
 
 logs = []
