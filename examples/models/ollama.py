@@ -12,7 +12,7 @@ import os
 
 # Set the OLLAMA_HOST environment variable to ensure the client connects correctly
 # This addresses the original timeout/port issue by forcing the default host.
-os.environ['OLLAMA_HOST'] = 'http://127.0.0.1:11434'
+os.environ.setdefault('OLLAMA_HOST', 'http://127.0.0.1:11434')
 
 llm = ChatOllama(model='llama3.1:8b')
 
