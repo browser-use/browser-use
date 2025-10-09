@@ -97,7 +97,7 @@ async def test_host_configuration():
         raise
     finally:
         # Clean up environment variable
-        del os.environ['OLLAMA_HOST']
+        del os.environ[&#39;OLLAMA_HOST&#39;]
     
     print("\n" + "=" * 60)
     print("✅ All configuration tests passed!")
