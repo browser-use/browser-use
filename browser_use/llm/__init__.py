@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.deepseek.chat import ChatDeepSeek
 	from browser_use.llm.google.chat import ChatGoogle
 	from browser_use.llm.groq.chat import ChatGroq
+	from browser_use.llm.mistral.chat import ChatMistral
 	from browser_use.llm.ollama.chat import ChatOllama
 	from browser_use.llm.openai.chat import ChatOpenAI
 	from browser_use.llm.openrouter.chat import ChatOpenRouter
@@ -72,6 +73,10 @@ if TYPE_CHECKING:
 	google_gemini_2_5_flash: ChatGoogle
 	google_gemini_2_5_flash_lite: ChatGoogle
 
+	mistral_large_latest: ChatMistral
+	mistral_small_latest: ChatMistral
+	mistral_codestral_latest: ChatMistral
+
 # Models are imported on-demand via __getattr__
 
 # Lazy imports mapping for heavy chat models
@@ -85,6 +90,7 @@ _LAZY_IMPORTS = {
 	'ChatDeepSeek': ('browser_use.llm.deepseek.chat', 'ChatDeepSeek'),
 	'ChatGoogle': ('browser_use.llm.google.chat', 'ChatGoogle'),
 	'ChatGroq': ('browser_use.llm.groq.chat', 'ChatGroq'),
+	'ChatMistral': ('browser_use.llm.mistral.chat', 'ChatMistral'),
 	'ChatOllama': ('browser_use.llm.ollama.chat', 'ChatOllama'),
 	'ChatOpenAI': ('browser_use.llm.openai.chat', 'ChatOpenAI'),
 	'ChatOpenRouter': ('browser_use.llm.openrouter.chat', 'ChatOpenRouter'),
@@ -146,6 +152,7 @@ __all__ = [
 	'ChatAWSBedrock',
 	'ChatGroq',
 	'ChatAzureOpenAI',
+	'ChatMistral',
 	'ChatOllama',
 	'ChatOpenRouter',
 	'ChatCerebras',
