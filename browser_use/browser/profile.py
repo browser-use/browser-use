@@ -4,13 +4,15 @@ from collections.abc import Iterable
 from enum import Enum
 from functools import cache
 from pathlib import Path
-from typing import Annotated, Any, Literal, Self
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Self
 from urllib.parse import urlparse
 
 from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from browser_use.config import CONFIG
 from browser_use.utils import _log_pretty_path, logger
+
+from browser_use.dom.serializer.clickable_elements import ElementDetector
 
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
 DOMAIN_OPTIMIZATION_THRESHOLD = 100  # Convert domain lists to sets for O(1) lookup when >= this size
@@ -629,6 +631,9 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		default=True, description='Only show element IDs in highlights if llm_representation is less than 10 characters.'
 	)
 	paint_order_filtering: bool = Field(default=True, description='Enable paint order filtering. Slightly experimental.')
+	element_detector: 'ElementDetector | None' = Field(
+		default=None, description='Custom element detector for interactive element detection.'
+	)
 
 	# --- Downloads ---
 	auto_download_pdfs: bool = Field(default=True, description='Automatically download PDFs when navigating to PDF viewer pages.')
