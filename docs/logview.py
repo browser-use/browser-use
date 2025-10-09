@@ -1,79 +1,54 @@
-import asyncio
+# filename: log_viewer_simple.py
+import os
 import random
-from textual.app import App, ComposeResult
-from textual.widgets import DataTable, Input
-from textual import events
+import time
 
+LOG_LEVELS = ["INFO", "DEBUG", "WARNING", "ERROR", "CRITICAL"]
+LOG_MESSAGES = [
+    "Initializing application...",
+    "User logged in successfully",
+    "Fetching data from API",
+    "Data parsing completed",
+    "Error connecting to database",
+    "Cache cleared",
+    "Unhandled exception occurred"
+]
 
-class LogViewerApp(App):
-    CSS = """
-    DataTable {
-        height: 90%;
-        width: 100%;
-        border: round yellow;
-    }
-    Input {
-        width: 100%;
-        height: 3;
-    }
-    """
+logs = []
+current_line = 0
 
-    def compose(self) -> ComposeResult:
-        self.table = DataTable(zebra_stripes=True)
-        self.table.add_columns("Level", "Message")
-        yield self.table
+def clear_screen():
+    os.system('cls' if os.name == 'nt' else 'clear')
 
-        self.search_input = Input(placeholder="Type / to search...")
-        self.search_input.display = False  # Hide the input initially
-        yield self.search_input
-    async def add_log(self, level: str, message: str):
-        color = {
-            "INFO": "green",
-            "WARNING": "yellow",
-            "ERROR": "red",
-            "DEBUG": "cyan"
-        }.get(level, "white")
+def print_logs():
+    clear_screen()
+    print("Level".ljust(10) + "Message")
+    print("-" * 50)
+    start = max(0, current_line - 10)
+    end = min(len(logs), start + 20)
+    for log in logs[start:end]:
+        print(log[0].ljust(10) + log[1])
 
-        self.table.add_row(f"[{color}]{level}[/{color}]", message)
-        self.table.cursor_row = len(self.table.rows) - 1
-        self.table.scroll_cursor_into_view()
+while True:
+    # Add new log
+    if len(logs) < 100:
+        logs.append((random.choice(LOG_LEVELS), random.choice(LOG_MESSAGES)))
 
-    async def generate_test_logs(self):
-        levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR']
-        messages = [
-            'System initialized',
-            'Connection established',
-            'Warning: high memory usage',
-            'Error: failed to load module',
-            'User logged in'
-        ]
-        while True:
-            level = random.choice(levels)
-            message = random.choice(messages)
-            await self.add_log(level, message)
-            await asyncio.sleep(1)
+    print_logs()
 
-    async def on_key(self, event: events.Key):
-        key = event.key
+    # Read input
+    print("\nControls: j=down, k=up, g=top, G=bottom, q=quit")
+    cmd = input("Command: ").strip()
 
-        if key == "j":
-            self.table.move_cursor_down()
-        elif key == "k":
-            self.table.move_cursor_up()
-        elif key == "g":
-            self.table.cursor_row = 0
-            self.table.scroll_cursor_into_view()
-        elif key == "G":
-            self.table.cursor_row = len(self.table.rows) - 1
-            self.table.scroll_cursor_into_view()
-        elif key == "/":
-            self.search_input.display = True
-            self.search_input.focus()
+    if cmd == "q":
+        break
+    elif cmd == "j" and current_line < len(logs)-1:
+        current_line += 1
+    elif cmd == "k" and current_line > 0:
+        current_line -= 1
+    elif cmd == "g":
+        current_line = 0
+    elif cmd == "G":
+        current_line = len(logs)-1
 
-    async def on_mount(self):
-        asyncio.create_task(self.generate_test_logs())
-
-
-if __name__ == "__main__":
-    app = LogViewerApp()
-    app.run()
+    time.sleep(0.2)
