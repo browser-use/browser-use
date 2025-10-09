@@ -126,7 +126,7 @@ AWS Bedrock provides access to multiple model providers through a single API. We
 #### General AWS Bedrock (supports all providers)
 
 ```python
-from browser_use import Agent, ChatAWSBedrock
+from browser_use.llm import Agent, ChatAWSBedrock
 
 # Works with any Bedrock model (Anthropic, Meta, AI21, etc.)
 llm = ChatAWSBedrock(
@@ -144,7 +144,7 @@ agent = Agent(
 #### Anthropic Claude via AWS Bedrock (convenience class)
 
 ```python
-from browser_use import Agent, ChatAnthropicBedrock
+from browser_use.llm import Agent, ChatAnthropicBedrock
 
 # Anthropic-specific class with Claude defaults
 llm = ChatAnthropicBedrock(
@@ -180,7 +180,7 @@ You can also use AWS profiles or IAM roles instead of environment variables. The
 ## Groq [example](https://github.com/browser-use/browser-use/blob/main/examples/models/llama4-groq.py)
 
 ```python
-from browser_use import Agent, ChatGroq
+from browser_use.llm import Agent, ChatGroq
 
 llm = ChatGroq(model="meta-llama/llama-4-maverick-17b-128e-instruct")
 
@@ -203,7 +203,7 @@ GROQ_API_KEY=
 3. In a new terminal, install the model you want to use: `ollama pull llama3.1:8b` (this has 4.9GB)
 
 ```python
-from browser_use import Agent, ChatOllama
+from browser_use.llm import Agent, ChatOllama
 
 llm = ChatOllama(model="llama3.1:8b")
 ```
@@ -218,7 +218,7 @@ Currently, only `qwen-vl-max` is recommended for Browser Use. Other Qwen models,
 Smaller Qwen models may return incorrect action schema formats (e.g., `actions: [{"navigate": "google.com"}]` instead of `[{"navigate": {"url": "google.com"}}]`). If you want to use other models, add concrete examples of the correct action format to your prompt.
 
 ```python
-from browser_use import Agent, ChatOpenAI
+from browser_use.llm import Agent, ChatOpenAI
 from dotenv import load_dotenv
 import os
 
@@ -246,7 +246,7 @@ ALIBABA_CLOUD=
 ## ModelScope [example](https://github.com/browser-use/browser-use/blob/main/examples/models/modelscope_example.py)
 
 ```python
-from browser_use import Agent, ChatOpenAI
+from browser_use.llm import Agent, ChatOpenAI
 from dotenv import load_dotenv
 import os
 
