@@ -17,7 +17,7 @@ icon: "robot"
 `O3` model is recommended for best performance.
 
 ```python
-from browser_use import Agent, ChatOpenAI
+from browser_use.llm import Agent, ChatOpenAI
 
 # Initialize the model
 llm = ChatOpenAI(
@@ -46,7 +46,7 @@ OPENAI_API_KEY=
 ### Anthropic [example](https://github.com/browser-use/browser-use/blob/main/examples/models/claude-4-sonnet.py)
 
 ```python
-from browser_use import Agent, ChatAnthropic
+from browser_use.llm import Agent, ChatAnthropic
 
 # Initialize the model
 llm = ChatAnthropic(
@@ -69,7 +69,7 @@ ANTHROPIC_API_KEY=
 ### Azure OpenAI [example](https://github.com/browser-use/browser-use/blob/main/examples/models/azure_openai.py)
 
 ```python
-from browser_use import Agent, ChatAzureOpenAI
+from browser_use.llm import Agent, ChatAzureOpenAI
 from pydantic import SecretStr
 import os
 
@@ -97,7 +97,7 @@ AZURE_OPENAI_API_KEY=
 > [!IMPORTANT] `GEMINI_API_KEY` was the old environment var name, it should be called `GOOGLE_API_KEY` as of 2025-05.
 
 ```python
-from browser_use import Agent, ChatGoogle
+from browser_use.llm import Agent, ChatGoogle
 from dotenv import load_dotenv
 
 # Read GOOGLE_API_KEY into env
