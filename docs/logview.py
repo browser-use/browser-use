@@ -1,4 +1,5 @@
 # filename: log_viewer_simple.py
+
 import os
 import random
 import time
@@ -9,16 +10,20 @@ LOG_MESSAGES = [
     "User logged in successfully",
     "Fetching data from API",
     "Data parsing completed",
-    "Error connecting to database"
+    "Error connecting to database",
 ]
 
 logs = []
 current_line = 0
 
-def clear_screen():
-    os.system('cls' if os.name == 'nt' else 'clear')
 
-def print_logs():
+def clear_screen() -> None:
+    """Clear the console screen."""
+    os.system("cls" if os.name == "nt" else "clear")
+
+
+def print_logs() -> None:
+    """Display logs in a two-column format."""
     clear_screen()
     print("Level".ljust(10) + "Message")
     print("-" * 50)
@@ -27,26 +32,27 @@ def print_logs():
     for log in logs[start:end]:
         print(log[0].ljust(10) + log[1])
 
+
 while True:
-    # Add new log
+    # Add a new random log
     if len(logs) < 100:
         logs.append((random.choice(LOG_LEVELS), random.choice(LOG_MESSAGES)))
 
     print_logs()
 
-    # Read input
+    # Read user input for navigation
     print("\nControls: j=down, k=up, g=top, G=bottom, q=quit")
     cmd = input("Command: ").strip()
 
     if cmd == "q":
         break
-    elif cmd == "j" and current_line < len(logs)-1:
+    elif cmd == "j" and current_line < len(logs) - 1:
         current_line += 1
     elif cmd == "k" and current_line > 0:
         current_line -= 1
     elif cmd == "g":
         current_line = 0
     elif cmd == "G":
-        current_line = len(logs)-1
+        current_line = len(logs) - 1
 
     time.sleep(0.2)
