@@ -1860,6 +1860,140 @@ class BrowserSession(BaseModel):
 		except Exception as e:
 			self.logger.warning(f'Failed to remove highlights: {e}')
 
+	async def highlight_interaction_element(self, node: 'EnhancedDOMTreeNode') -> None:
+		"""Temporarily highlight an element during interaction for user visibility.
+
+		This creates a visual highlight on the browser that shows the user which element
+		is being interacted with. The highlight automatically fades after the configured duration.
+
+		Args:
+			node: The DOM node to highlight with absolute_position coordinates
+		"""
+		if not self.browser_profile.highlight_elements or not node.absolute_position:
+			return
+
+		try:
+			import asyncio
+			import json
+
+			cdp_session = await self.get_or_create_cdp_session()
+
+			rect = node.absolute_position
+			color = self.browser_profile.interaction_highlight_color
+			duration_ms = int(self.browser_profile.interaction_highlight_duration * 1000)
+
+			# Create animated corner brackets that start offset and animate inward
+			script = f"""
+			(function() {{
+				const rect = {json.dumps({'x': rect.x, 'y': rect.y, 'width': rect.width, 'height': rect.height})};
+				const color = {json.dumps(color)};
+				const duration = {duration_ms};
+
+				// Scale corner size based on element dimensions to ensure gaps between corners
+				const maxCornerSize = 20;
+				const minCornerSize = 8;
+				const cornerSize = Math.max(
+					minCornerSize,
+					Math.min(maxCornerSize, Math.min(rect.width, rect.height) * 0.35)
+				);
+				const borderWidth = 3;
+				const startOffset = 10; // Starting offset in pixels
+				const finalOffset = -3; // Final position slightly outside the element
+
+				// Get current scroll position
+				const scrollX = window.pageXOffset || document.documentElement.scrollLeft || 0;
+				const scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
+
+				// Create container for all corners
+				const container = document.createElement('div');
+				container.setAttribute('data-browser-use-interaction-highlight', 'true');
+				container.style.cssText = `
+					position: absolute;
+					left: ${{rect.x + scrollX}}px;
+					top: ${{rect.y + scrollY}}px;
+					width: ${{rect.width}}px;
+					height: ${{rect.height}}px;
+					pointer-events: none;
+					z-index: 2147483647;
+				`;
+
+				// Create 4 corner brackets
+				const corners = [
+					{{ pos: 'top-left', startX: -startOffset, startY: -startOffset, finalX: finalOffset, finalY: finalOffset }},
+					{{ pos: 'top-right', startX: startOffset, startY: -startOffset, finalX: -finalOffset, finalY: finalOffset }},
+					{{ pos: 'bottom-left', startX: -startOffset, startY: startOffset, finalX: finalOffset, finalY: -finalOffset }},
+					{{ pos: 'bottom-right', startX: startOffset, startY: startOffset, finalX: -finalOffset, finalY: -finalOffset }}
+				];
+
+				corners.forEach(corner => {{
+					const bracket = document.createElement('div');
+					bracket.style.cssText = `
+						position: absolute;
+						width: ${{cornerSize}}px;
+						height: ${{cornerSize}}px;
+						pointer-events: none;
+						transition: all 0.15s ease-out;
+					`;
+
+					// Position corners
+					if (corner.pos === 'top-left') {{
+						bracket.style.top = '0';
+						bracket.style.left = '0';
+						bracket.style.borderTop = `${{borderWidth}}px solid ${{color}}`;
+						bracket.style.borderLeft = `${{borderWidth}}px solid ${{color}}`;
+						bracket.style.transform = `translate(${{corner.startX}}px, ${{corner.startY}}px)`;
+					}} else if (corner.pos === 'top-right') {{
+						bracket.style.top = '0';
+						bracket.style.right = '0';
+						bracket.style.borderTop = `${{borderWidth}}px solid ${{color}}`;
+						bracket.style.borderRight = `${{borderWidth}}px solid ${{color}}`;
+						bracket.style.transform = `translate(${{corner.startX}}px, ${{corner.startY}}px)`;
+					}} else if (corner.pos === 'bottom-left') {{
+						bracket.style.bottom = '0';
+						bracket.style.left = '0';
+						bracket.style.borderBottom = `${{borderWidth}}px solid ${{color}}`;
+						bracket.style.borderLeft = `${{borderWidth}}px solid ${{color}}`;
+						bracket.style.transform = `translate(${{corner.startX}}px, ${{corner.startY}}px)`;
+					}} else if (corner.pos === 'bottom-right') {{
+						bracket.style.bottom = '0';
+						bracket.style.right = '0';
+						bracket.style.borderBottom = `${{borderWidth}}px solid ${{color}}`;
+						bracket.style.borderRight = `${{borderWidth}}px solid ${{color}}`;
+						bracket.style.transform = `translate(${{corner.startX}}px, ${{corner.startY}}px)`;
+					}}
+
+					container.appendChild(bracket);
+
+					// Animate to final position slightly outside the element
+					setTimeout(() => {{
+						bracket.style.transform = `translate(${{corner.finalX}}px, ${{corner.finalY}}px)`;
+					}}, 10);
+				}});
+
+				document.body.appendChild(container);
+
+				// Auto-remove after duration
+				setTimeout(() => {{
+					container.style.opacity = '0';
+					container.style.transition = 'opacity 0.3s ease-out';
+					setTimeout(() => container.remove(), 300);
+				}}, duration);
+
+				return {{ created: true }};
+			}})();
+			"""
+
+			# Fire and forget - don't wait for completion
+			asyncio.create_task(
+				cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': script, 'returnByValue': True}, session_id=cdp_session.session_id
+				)
+			)
+
+		except Exception as e:
+			# Don't fail the action if highlighting fails
+			self.logger.debug(f'Failed to highlight interaction element: {e}')
+
 	async def add_highlights(self, selector_map: dict[int, 'EnhancedDOMTreeNode']) -> None:
 		"""Add visual highlights to the browser DOM for user visibility."""
 		if not self.browser_profile.dom_highlight_elements or not selector_map:
@@ -1948,7 +2082,7 @@ class BrowserSession(BaseModel):
 				container.setAttribute('data-browser-use-highlight', 'container');
 				
 				container.style.cssText = `
-					position: fixed;
+					position: absolute;
 					top: 0;
 					left: 0;
 					width: 100vw;

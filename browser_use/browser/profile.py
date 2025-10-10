@@ -631,6 +631,11 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		default=True, description='Only show element IDs in highlights if llm_representation is less than 10 characters.'
 	)
 	paint_order_filtering: bool = Field(default=True, description='Enable paint order filtering. Slightly experimental.')
+	interaction_highlight_color: str = Field(
+		default='rgb(255, 127, 39)',
+		description='Color to use for highlighting elements during interactions (CSS color string).',
+	)
+	interaction_highlight_duration: float = Field(default=1.0, description='Duration in seconds to show interaction highlights.')
 
 	# --- Downloads ---
 	auto_download_pdfs: bool = Field(default=True, description='Automatically download PDFs when navigating to PDF viewer pages.')

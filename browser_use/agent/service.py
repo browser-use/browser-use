@@ -60,7 +60,6 @@ from browser_use.config import CONFIG
 from browser_use.dom.views import DOMInteractedElement
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.observability import observe, observe_debug
-from browser_use.sync import CloudSync
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import AgentTelemetryEvent
 from browser_use.tools.registry.views import ActionModel
@@ -172,7 +171,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		source: str | None = None,
 		file_system_path: str | None = None,
 		task_id: str | None = None,
-		cloud_sync: CloudSync | None = None,
 		calculate_cost: bool = False,
 		display_files_in_done_text: bool = True,
 		include_tool_call_examples: bool = False,
@@ -439,15 +437,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# wal_path = CONFIG.BROWSER_USE_CONFIG_DIR / 'events' / f'{self.session_id}.jsonl'
 		self.eventbus = EventBus(name=f'Agent_{str(self.id)[-4:]}')
 
-		# Cloud sync service
-		self.enable_cloud_sync = CONFIG.BROWSER_USE_CLOUD_SYNC
-		if self.enable_cloud_sync or cloud_sync is not None:
-			self.cloud_sync = cloud_sync or CloudSync()
-			# Register cloud sync handler
-			self.eventbus.on('*', self.cloud_sync.handle_event)
-		else:
-			self.cloud_sync = None
-
 		if self.settings.save_conversation_path:
 			self.settings.save_conversation_path = Path(self.settings.save_conversation_path).expanduser().resolve()
 			self.logger.info(f'💬 Saving conversation to {_log_pretty_path(self.settings.save_conversation_path)}')
@@ -631,10 +620,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if agent_id_suffix and agent_id_suffix[0].isdigit():
 			agent_id_suffix = 'a' + agent_id_suffix
 		self.eventbus = EventBus(name=f'Agent_{agent_id_suffix}')
-
-		# Re-register cloud sync handler if it exists (if not disabled)
-		if hasattr(self, 'cloud_sync') and self.cloud_sync and self.enable_cloud_sync:
-			self.eventbus.on('*', self.cloud_sync.handle_event)
 
 	async def _check_stop_or_pause(self) -> None:
 		"""Check if the agent should stop or pause, and handle accordingly."""
@@ -872,16 +857,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					action_dict = action.model_dump() if hasattr(action, 'model_dump') else {}
 					actions_data.append(action_dict)
 
-			# Emit CreateAgentStepEvent only if cloud sync is enabled
-			if self.enable_cloud_sync:
-				step_event = CreateAgentStepEvent.from_agent_step(
-					self,
-					self.state.last_model_output,
-					self.state.last_result,
-					actions_data,
-					browser_state_summary,
-				)
-				self.eventbus.dispatch(step_event)
+			# Emit CreateAgentStepEvent
+			step_event = CreateAgentStepEvent.from_agent_step(
+				self,
+				self.state.last_model_output,
+				self.state.last_result,
+				actions_data,
+				browser_state_summary,
+			)
+			self.eventbus.dispatch(step_event)
 
 		# Increment step counter after step is fully completed
 		self.state.n_steps += 1
@@ -1472,20 +1456,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			# Only dispatch session events if this is the first run
 			if not self.state.session_initialized:
-				if self.enable_cloud_sync:
-					self.logger.debug('📡 Dispatching CreateAgentSessionEvent...')
-					# Emit CreateAgentSessionEvent at the START of run()
-					self.eventbus.dispatch(CreateAgentSessionEvent.from_agent(self))
+				self.logger.debug('📡 Dispatching CreateAgentSessionEvent...')
+				# Emit CreateAgentSessionEvent at the START of run()
+				self.eventbus.dispatch(CreateAgentSessionEvent.from_agent(self))
 
-					# Brief delay to ensure session is created in backend before sending task
-					await asyncio.sleep(0.2)
+				# Brief delay to ensure session is created in backend before sending task
+				await asyncio.sleep(0.2)
 
 				self.state.session_initialized = True
 
-			if self.enable_cloud_sync:
-				self.logger.debug('📡 Dispatching CreateAgentTaskEvent...')
-				# Emit CreateAgentTaskEvent at the START of run()
-				self.eventbus.dispatch(CreateAgentTaskEvent.from_agent(self))
+			self.logger.debug('📡 Dispatching CreateAgentTaskEvent...')
+			# Emit CreateAgentTaskEvent at the START of run()
+			self.eventbus.dispatch(CreateAgentTaskEvent.from_agent(self))
 
 			# Log startup message on first step (only if we haven't already done steps)
 			self._log_first_step_startup()
@@ -1621,8 +1603,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# not when they are completed
 
 			# Emit UpdateAgentTaskEvent at the END of run() with final task state
-			if self.enable_cloud_sync:
-				self.eventbus.dispatch(UpdateAgentTaskEvent.from_agent(self))
+			self.eventbus.dispatch(UpdateAgentTaskEvent.from_agent(self))
 
 			# Generate GIF if needed before stopping event bus
 			if self.settings.generate_gif:
@@ -1639,17 +1620,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				if Path(output_path).exists():
 					output_event = await CreateAgentOutputFileEvent.from_agent_and_file(self, output_path)
 					self.eventbus.dispatch(output_event)
-
-			# Wait briefly for cloud auth to start and print the URL, but don't block for completion
-			if self.enable_cloud_sync and hasattr(self, 'cloud_sync') and self.cloud_sync is not None:
-				if self.cloud_sync.auth_task and not self.cloud_sync.auth_task.done():
-					try:
-						# Wait up to 1 second for auth to start and print URL
-						await asyncio.wait_for(self.cloud_sync.auth_task, timeout=1.0)
-					except TimeoutError:
-						logger.debug('Cloud authentication started - continuing in background')
-					except Exception as e:
-						logger.debug(f'Cloud authentication error: {e}')
 
 			# Stop the event bus gracefully, waiting for all events to be processed
 			# Use longer timeout to avoid deadlocks in tests with multiple agents
@@ -2197,11 +2167,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		Returns:
 			bool: True if authentication was successful
 		"""
-		if not hasattr(self, 'cloud_sync') or self.cloud_sync is None:
-			self.logger.warning('Cloud sync is not available for this agent')
-			return False
-
-		return await self.cloud_sync.authenticate(show_instructions=show_instructions)
+		self.logger.warning('Cloud sync has been removed and is no longer available')
+		return False
 
 	def run_sync(
 		self,
