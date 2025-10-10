@@ -1,176 +1,107 @@
-"""
-Flipkart Add-to-Cart Integration Script (Enhanced)
---------------------------------------------------
-This script:
-- Opens a Flipkart product page
-- Handles popups and interstitials
-- Selects the first variant if required
-- Clicks Add to Cart (with Playwright + JS + coordinate fallback)
-- Detects cart update or login modal
-- Saves artifacts on failure
-"""
-
-import time
+import asyncio
+from playwright.async_api import async_playwright
 import os
-from playwright.sync_api import sync_playwright
 
-ARTIFACTS_DIR = os.path.join(os.path.dirname(__file__), "artifacts")
-os.makedirs(ARTIFACTS_DIR, exist_ok=True)
+async def run_flipkart_add_to_cart():
+    """
+    Integration test for Flipkart Add to Cart.
+    Handles interstitials and retries safely without closing browser prematurely.
+    """
 
-# ✅ Use a real product URL
-PRODUCT_URL = "https://www.flipkart.com/google-pixel-9-obsidian-256-gb/p/itm330ed8ebeefe1"
+    product_url = "https://www.flipkart.com/google-pixel-9-obsidian-256-gb/p/itm330ed8ebeefe1"
+    artifacts_dir = os.path.join(os.path.dirname(__file__), "artifacts")
+    os.makedirs(artifacts_dir, exist_ok=True)
 
-# Common selectors for Add to Cart buttons
-SELECTORS = [
-    "button[data-testid='add-to-cart-button']",
-    "button[aria-label*='Add to cart']",
-    "button:has-text('Add to Cart')",
-    "._2KpZ6l._2U9uOA._3v1-ww",  # Common Flipkart button class
-]
+    print(f"Attempting host variant www.flipkart.com: {product_url}")
 
-def remove_interstitials(page):
-    """Remove Flipkart popups or interstitial elements."""
-    try:
-        removed = page.evaluate(
-            """
-            () => {
-                const elements = Array.from(document.querySelectorAll('._2MlkI1, ._2QfC02, ._3dsJAO'));
-                elements.forEach(e => e.remove());
-                return elements.length;
-            }
-            """
-        )
-        if removed:
-            print(f"Removed interstitial elements via JS ({removed} elements)")
-        return removed
-    except Exception:
-        return 0
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=False)
+        context = await browser.new_context()
+        page = await context.new_page()
 
+        try:
+            await page.goto(product_url, timeout=60000)
 
-def select_first_variant(page):
-    """Select the first available product variant (size, color, etc.)."""
-    try:
-        variants = page.query_selector_all("._1fGeJ5, ._3aPjap, ._2YxCDZ")
-        if variants:
-            variants[0].click()
-            print("Selected first available variant")
-            time.sleep(1)
-    except Exception:
-        pass
+            # Try removing interstitial popups ("Try now" or "✕" close buttons)
+            for attempt in range(1, 4):
+                try:
+                    print(f"Clicking interstitial Try now button (attempt {attempt})")
+                    await page.click("button:has-text('Try now')", timeout=3000)
+                    await asyncio.sleep(2)
+                except Exception:
+                    print(f"No 'Try now' button found in attempt {attempt}")
 
+                try:
+                    await page.click("button:has-text('✕')", timeout=2000)
+                    print("Closed popup via '✕' button.")
+                except Exception:
+                    pass
 
-def click_with_fallback(page, selector):
-    """Try Playwright click, JS click, coordinate click, and wait for cart reaction."""
-    try:
-        with page.expect_navigation(wait_until="domcontentloaded", timeout=5000):
-            page.click(selector, timeout=5000)
-        print("Clicked via Playwright + navigation wait")
-        return True
-    except Exception:
-        pass
+                await asyncio.sleep(attempt + 1)
 
-    try:
-        res = page.evaluate(
-            "(sel)=>{const e=document.querySelector(sel); if(!e) return false;"
-            "e.scrollIntoView({block:'center'}); e.click(); return true;}", selector
-        )
-        if res:
-            print("Clicked via JS fallback")
-            return True
-    except Exception:
-        pass
+                # If page closed, reopen
+                if page.is_closed():
+                    print("⚠️ Page closed unexpectedly, reopening...")
+                    page = await context.new_page()
+                    await page.goto(product_url)
 
-    try:
-        rect = page.eval_on_selector(selector, "el => el.getBoundingClientRect()")
-        x = rect["x"] + rect["width"] / 2
-        y = rect["y"] + rect["height"] / 2
-        page.mouse.click(x, y)
-        print("Clicked via coordinate fallback")
-        return True
-    except Exception:
-        pass
-
-    return False
-
-
-def check_cart(page):
-    """Check if cart or login popup appeared."""
-    try:
-        url = page.url.lower()
-        if "viewcart" in url or "cart" in url:
-            print("✅ Redirected to cart page")
-            return True
-
-        # Detect Flipkart login modal
-        if page.query_selector("form._36yFo0") or page.query_selector("input._2IX_2-"):
-            print("⚠️  Login modal detected — item not yet added")
-            return False
-
-        # Check cart badge count
-        cart_el = page.query_selector("span._2d0we9") or page.query_selector("span._3zBRUB")
-        if cart_el:
-            count_text = cart_el.inner_text().strip() or "0"
-            count = int(''.join(filter(str.isdigit, count_text)) or "0")
-            if count > 0:
-                print(f"✅ Cart count updated: {count}")
-                return True
-    except Exception as e:
-        print("Cart check error:", e)
-
-    # Fallback: text-based detection
-    try:
-        body = page.evaluate("() => document.body.innerText.toLowerCase()")
-        if "added to cart" in body or "added successfully" in body:
-            print("✅ Add-to-cart success text detected")
-            return True
-    except Exception:
-        pass
-
-    return False
-
-
-def save_artifacts(page, prefix="flipkart_failure"):
-    """Save screenshot and HTML for debugging."""
-    ts = int(time.time())
-    base = os.path.join(ARTIFACTS_DIR, f"{prefix}_{ts}")
-    page.screenshot(path=f"{base}.png", full_page=True)
-    with open(f"{base}.html", "w", encoding="utf-8") as f:
-        f.write(page.content())
-    with open(f"{base}.dom.html", "w", encoding="utf-8") as f:
-        f.write(page.evaluate("() => document.documentElement.outerHTML"))
-    print(f"Saved artifacts: {base}.png {base}.html {base}.dom.html")
-
-
-def run_flipkart_add_to_cart():
-    """Main function."""
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False, args=["--start-maximized"])
-        page = browser.new_page()
-        page.goto(PRODUCT_URL, wait_until="domcontentloaded")
-        print(f"Trying host variant: www.flipkart.com {PRODUCT_URL}")
-
-        remove_interstitials(page)
-        select_first_variant(page)
-
-        success = False
-        for selector in SELECTORS:
+            # Attempt Add to Cart
             try:
-                remove_interstitials(page)
-                page.wait_for_selector(selector, timeout=5000)
-                if click_with_fallback(page, selector):
-                    time.sleep(5)
-                    if check_cart(page):
-                        success = True
+                selectors = [
+                    "button[data-testid='add-to-cart-button']",
+                    "button[aria-label*='Add to cart']",
+                    "button:has-text('Add to cart')",
+                    "._2KpZ6l._2U9uOA._3v1-ww",
+                ]
+
+                clicked = False
+                for selector in selectors:
+                    try:
+                        await page.wait_for_selector(selector, timeout=5000)
+                        await page.click(selector)
+                        print(f"✅ Clicked selector: {selector}")
+                        clicked = True
                         break
-            except Exception:
-                continue
+                    except Exception:
+                        continue
 
-        if not success:
-            print("❌ Add to cart failed; saving artifacts")
-            save_artifacts(page)
+                if not clicked:
+                    print("❌ No valid selector clicked; trying JS fallback...")
+                    await page.evaluate("""
+                        const btn = [...document.querySelectorAll('button')].find(b =>
+                            b.textContent.toLowerCase().includes('add to cart')
+                        );
+                        if (btn) { btn.scrollIntoView(); btn.click(); return true; }
+                        return false;
+                    """)
+                    print("✅ JS fallback executed.")
 
-        browser.close()
+            except Exception as e:
+                print(f"❌ Add to cart failed: {e}")
+
+            # Wait and verify cart update
+            await asyncio.sleep(5)
+            current_url = page.url
+            if "cart" in current_url.lower():
+                print("✅ Redirected to cart page")
+            else:
+                print("❌ Add to cart not detected; saving artifacts...")
+                try:
+                    png_path = os.path.join(artifacts_dir, "flipkart_failure.png")
+                    html_path = os.path.join(artifacts_dir, "flipkart_failure.html")
+                    await page.screenshot(path=png_path, full_page=True)
+                    html_content = await page.content()
+                    with open(html_path, "w", encoding="utf-8") as f:
+                        f.write(html_content)
+                    print(f"🧩 Saved artifacts: {png_path}, {html_path}")
+                except Exception as e:
+                    print(f"⚠️ Failed to save artifacts: {e}")
+
+        finally:
+            print("🕓 Keeping browser open for inspection...")
+            await asyncio.sleep(5)
+            await browser.close()
 
 
 if __name__ == "__main__":
-    run_flipkart_add_to_cart()
+    asyncio.run(run_flipkart_add_to_cart())
