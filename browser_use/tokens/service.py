@@ -162,12 +162,29 @@ class TokenCost:
 		if not self._initialized:
 			await self.initialize()
 
-		if not self._pricing_data or model_name not in self._pricing_data:
+		if not self._pricing_data:
 			return None
 
-		data = self._pricing_data[model_name]
+		# Try to find the model pricing data with various naming conventions
+		data = None
+		pricing_key = None
+		
+		# First try exact match
+		if model_name in self._pricing_data:
+			data = self._pricing_data[model_name]
+			pricing_key = model_name
+		# For Gemini models, try with 'gemini/' prefix (litellm uses this format)
+		elif model_name.startswith('gemini-'):
+			prefixed_name = f'gemini/{model_name}'
+			if prefixed_name in self._pricing_data:
+				data = self._pricing_data[prefixed_name]
+				pricing_key = prefixed_name
+		
+		if data is None:
+			return None
+
 		return ModelPricing(
-			model=model_name,
+			model=pricing_key,
 			input_cost_per_token=data.get('input_cost_per_token'),
 			output_cost_per_token=data.get('output_cost_per_token'),
 			max_tokens=data.get('max_tokens'),
