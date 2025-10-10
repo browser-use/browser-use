@@ -10,7 +10,7 @@ import sys
 # 1. Ensure the necessary imports are accessible
 # Note: Assuming browser_use is installed or the tests run with proper path
 from browser_use import Agent 
-from browser_use.llm.ollama import ChatOllama
+from browser_use import ChatOllama  # Try importing directly from 'browser_use'
 from ollama import AsyncClient as OllamaAsyncClient # Needed to inspect client host
 
 # --- Helper Function to Get Client Host ---
