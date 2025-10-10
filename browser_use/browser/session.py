@@ -15,6 +15,7 @@ from cdp_use.cdp.target import AttachedToTargetEvent, SessionID, TargetID
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from uuid_extensions import uuid7str
 
+from browser_use import __version__
 from browser_use.browser.cloud import CloudBrowserAuthError, CloudBrowserError, get_cloud_browser_cdp_url
 
 # CDP logging is now handled by setup_logging() in logging_config.py
@@ -2106,9 +2107,19 @@ class BrowserSession(BaseModel):
 					if (styles) element.style.cssText = styles;
 					return element;
 				}}
-				
+
+				const colors = [
+					'#4a90e2', '#e24a4a', '#4ae290', '#e2d44a', '#9b4ae2',
+					'#4ae2d4', '#e2904a', '#4a52e2', '#e24ad4', '#90e24a',
+					'#e24a90', '#4ad4e2', '#d44ae2', '#52e24a', '#e2524a'
+				];
+
 				// Add highlights for each element
 				interactiveElements.forEach((element, index) => {{
+					
+					// Assign color based on index
+					const color = colors[index % colors.length];
+
 					const highlight = document.createElement('div');
 					highlight.setAttribute('data-browser-use-highlight', 'element');
 					highlight.setAttribute('data-element-id', element.interactive_index);
@@ -2118,7 +2129,7 @@ class BrowserSession(BaseModel):
 						top: ${{element.y}}px;
 						width: ${{element.width}}px;
 						height: ${{element.height}}px;
-						outline: 2px dashed #4a90e2;
+						outline: 2px dashed ${{color}};
 						outline-offset: -2px;
 						background: transparent;
 						pointer-events: none;
@@ -2128,13 +2139,13 @@ class BrowserSession(BaseModel):
 						padding: 0;
 						border: none;
 					`;
-					
+
 					// Enhanced label with interactive index
 					const label = createTextElement('div', element.interactive_index, `
 						position: absolute;
 						top: -20px;
 						left: 0;
-						background-color: #4a90e2;
+						background-color: ${{color}};
 						color: white;
 						padding: 2px 6px;
 						font-size: 11px;
@@ -2149,11 +2160,35 @@ class BrowserSession(BaseModel):
 						margin: 0;
 						line-height: 1.2;
 					`);
-					
+
 					highlight.appendChild(label);
 					container.appendChild(highlight);
 				}});
-				
+
+				const v = document.createElement('div');
+				v.setAttribute('data-browser-use-highlight', 'v');
+				v.style.cssText = `
+					position: fixed;
+					bottom: 10px;
+					right: 10px;
+					font-size: 9px;
+					font-family: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+					color: #666;
+					opacity: 0.5;
+					pointer-events: none;
+					z-index: ${{HIGHLIGHT_Z_INDEX + 2}};
+					background: rgba(255, 255, 255, 0.8);
+					border: 1px solid rgba(0, 0, 0, 0.1);
+					padding: 3px 6px;
+					margin: 0;
+					line-height: 1.2;
+					letter-spacing: 0.3px;
+					border-radius: 3px;
+					box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+				`;
+				v.textContent = 'v{__version__}';
+				container.appendChild(v);
+
 				// Add container to document
 				document.body.appendChild(container);
 				
