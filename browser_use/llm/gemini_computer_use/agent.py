@@ -97,8 +97,8 @@ class ComputerUseAgent(Agent):
 			with (
 				importlib.resources.files('browser_use.llm.gemini_computer_use')
 				.joinpath('computer_use_system_prompt.md')
-				.open('r', encoding='utf-8') as f
-			):
+				.open('r', encoding='utf-8')
+			) as f:
 				prompt_template = f.read()
 
 			# Replace {task} placeholder with actual task

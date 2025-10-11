@@ -13,8 +13,8 @@ from dotenv import load_dotenv
 
 from browser_use.llm.gemini_computer_use import ChatGeminiComputerUse, ComputerUseAgent
 
-# Load environment variables
-load_dotenv('/Users/reagan/Documents/GitHub/browser-use/browser_use/llm/gemini_computer_use/.env')
+# Load environment variables from project root or current directory
+load_dotenv()  # Searches for .env in current dir and parent dirs automatically
 
 
 async def main():

@@ -49,7 +49,7 @@ You have access to these Computer Use functions:
 1. **Coordinates**: All x/y coordinates are normalized 0-999
    - x: 0 is left edge, 999 is right edge
    - y: 0 is top edge, 999 is bottom edge
-   - The screenshot shows the actual browser at 1440x900 resolution
+   - The screenshot shows the browser viewport at its configured dimensions
 
 2. **Workflow**: Always follow this pattern:
    - Start by calling `open_web_browser()` if browser not already open
@@ -66,9 +66,9 @@ You have access to these Computer Use functions:
 4. **Clicking Elements**:
    - Look at the screenshot to find where elements are located
    - Convert visual position to 0-999 coordinates
-   - Example: If button is in center of 1440x900 screen at (720, 450):
-     - Normalized x = 720/1440 * 1000 = 500
-     - Normalized y = 450/900 * 1000 = 500
+   - Example: If an element is at the center of the viewport:
+     - Normalized x = 500 (center horizontally)
+     - Normalized y = 500 (center vertically)
      - Call: `click_at(x=500, y=500)`
 
 5. **Multi-step Tasks**: Break complex tasks into steps:

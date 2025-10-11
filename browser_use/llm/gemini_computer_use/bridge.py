@@ -99,9 +99,18 @@ class ComputerUseBridge:
 			True if response contains function calls
 
 		"""
-		# This is a placeholder - actual implementation depends on response structure
-		# You'd check if the response has function_calls attribute or similar
-		return hasattr(response, 'function_calls') and bool(response.function_calls)
+		# For text responses, there are no function calls
+		if isinstance(response, str):
+			return False
+
+		# Check if it's a Gemini response with candidates
+		# The SDK surfaces function calls under candidates[0].content.parts
+		if hasattr(response, 'candidates') and response.candidates:
+			candidate = response.candidates[0]
+			if candidate.content and candidate.content.parts:
+				return any(hasattr(part, 'function_call') and part.function_call for part in candidate.content.parts)
+
+		return False
 
 	@staticmethod
 	def extract_function_calls(response: Any) -> list[Any]:
@@ -114,10 +123,17 @@ class ComputerUseBridge:
 			List of function call objects
 
 		"""
-		# This is a placeholder - actual implementation depends on response structure
-		if hasattr(response, 'function_calls'):
-			return response.function_calls
-		return []
+		function_calls = []
+
+		# The SDK surfaces function calls under candidates[0].content.parts
+		if hasattr(response, 'candidates') and response.candidates:
+			candidate = response.candidates[0]
+			if candidate.content and candidate.content.parts:
+				for part in candidate.content.parts:
+					if hasattr(part, 'function_call') and part.function_call:
+						function_calls.append(part.function_call)
+
+		return function_calls
 
 
 def create_computer_use_action_handler(screen_width: int = 1440, screen_height: int = 900) -> ComputerUseBridge:

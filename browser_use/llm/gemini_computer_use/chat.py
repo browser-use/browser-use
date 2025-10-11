@@ -652,11 +652,12 @@ class GeminiComputerUseMessageSerializer:
 						system_parts.append(message.content)
 					else:
 						system_message = message.content
-				elif message.content is not None:
+				elif message.content is not None and not isinstance(message.content, str):
 					# Handle Iterable of content parts
 					parts = []
 					for part in message.content:
-						if part.type == 'text':
+						# Type guard: ensure part has the expected attributes
+						if hasattr(part, 'type') and part.type == 'text' and hasattr(part, 'text'):
 							parts.append(part.text)
 					combined_text = '\n'.join(parts)
 					if include_system_in_user:
@@ -686,38 +687,42 @@ class GeminiComputerUseMessageSerializer:
 					# Add system text as the first part
 					message_parts.append(Part.from_text(text=system_text))
 				system_parts = []  # Clear after using
-			else:
-				# Extract content and create parts normally
-				if isinstance(message.content, str):
-					# Regular text content
-					message_parts = [Part.from_text(text=message.content)]
-				elif message.content is not None:
-					# Handle Iterable of content parts
-					for part in message.content:
-						if part.type == 'text':
-							message_parts.append(Part.from_text(text=part.text))
-						elif part.type == 'refusal':
-							message_parts.append(Part.from_text(text=f'[Refusal] {part.refusal}'))
-						elif part.type == 'image_url':
-							# Handle images - crucial for Computer Use which relies on screenshots
-							url = part.image_url.url
 
-							# Format: data:image/jpeg;base64,<data>
-							header, data = url.split(',', 1)
-							# Decode base64 to bytes
-							image_bytes = base64.b64decode(data)
+			# Extract content and create parts (skip string content if already combined with system text)
+			if isinstance(message.content, str) and not message_parts:
+				# Regular text content
+				message_parts = [Part.from_text(text=message.content)]
+			elif message.content is not None and not isinstance(message.content, str):
+				# Handle Iterable of content parts
+				for part in message.content:
+					# Type guard: ensure part has the expected attributes
+					if not hasattr(part, 'type'):
+						continue
 
-							# Determine mime type from header
-							mime_type = 'image/jpeg'  # default
-							if 'image/png' in header:
-								mime_type = 'image/png'
-							elif 'image/webp' in header:
-								mime_type = 'image/webp'
+					if part.type == 'text' and hasattr(part, 'text'):
+						message_parts.append(Part.from_text(text=part.text))
+					elif part.type == 'refusal' and hasattr(part, 'refusal'):
+						message_parts.append(Part.from_text(text=f'[Refusal] {part.refusal}'))
+					elif part.type == 'image_url' and hasattr(part, 'image_url'):
+						# Handle images - crucial for Computer Use which relies on screenshots
+						url = part.image_url.url
 
-							# Add image part
-							image_part = Part.from_bytes(data=image_bytes, mime_type=mime_type)
+						# Format: data:image/jpeg;base64,<data>
+						header, data = url.split(',', 1)
+						# Decode base64 to bytes
+						image_bytes = base64.b64decode(data)
 
-							message_parts.append(image_part)
+						# Determine mime type from header
+						mime_type = 'image/jpeg'  # default
+						if 'image/png' in header:
+							mime_type = 'image/png'
+						elif 'image/webp' in header:
+							mime_type = 'image/webp'
+
+						# Add image part
+						image_part = Part.from_bytes(data=image_bytes, mime_type=mime_type)
+
+						message_parts.append(image_part)
 
 			# Create the Content object
 			if message_parts:
