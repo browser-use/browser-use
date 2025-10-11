@@ -167,6 +167,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		flash_mode: bool = False,
 		max_history_items: int | None = None,
 		page_extraction_llm: BaseChatModel | None = None,
+		fallback_llm: list[BaseChatModel] | None = None,
 		injected_agent_state: AgentState | None = None,
 		source: str | None = None,
 		file_system_path: str | None = None,
@@ -285,6 +286,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			flash_mode=flash_mode,
 			max_history_items=max_history_items,
 			page_extraction_llm=page_extraction_llm,
+			fallback_llm=fallback_llm,
 			calculate_cost=calculate_cost,
 			include_tool_call_examples=include_tool_call_examples,
 			llm_timeout=llm_timeout,
@@ -296,6 +298,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.token_cost_service = TokenCost(include_cost=calculate_cost)
 		self.token_cost_service.register_llm(llm)
 		self.token_cost_service.register_llm(page_extraction_llm)
+		
+		# Register fallback LLMs with token cost service
+		if fallback_llm:
+			for fb_llm in fallback_llm:
+				self.token_cost_service.register_llm(fb_llm)
+		
+		# Track active LLM and fallback state
+		self._main_llm = llm
+		self._fallback_llm_index = 0  # Current index in fallback_llm list
 
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
@@ -1199,6 +1210,50 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		except ValidationError:
 			# Just re-raise - Pydantic's validation errors are already descriptive
 			raise
+		except Exception as e:
+			# Handle LLM errors with fallback if available
+			if self.settings.fallback_llm and len(self.settings.fallback_llm) > 0:
+				self.logger.warning(f'LLM error with {self.llm.model}: {str(e)}. Trying fallback LLM...')
+				
+				# Switch to fallback LLM
+				fallback_llm = self.settings.fallback_llm[self._fallback_llm_index]
+				previous_llm = self.llm
+				self.llm = fallback_llm
+				
+				try:
+					response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
+					parsed = response.completion
+					
+					# Replace any shortened URLs in the LLM response back to original URLs
+					if urls_replaced:
+						self._recursive_process_all_strings_inside_pydantic_model(parsed, urls_replaced)
+					
+					# cut the number of actions to max_actions_per_step if needed
+					if len(parsed.action) > self.settings.max_actions_per_step:
+						parsed.action = parsed.action[: self.settings.max_actions_per_step]
+					
+					if not (hasattr(self.state, 'paused') and (self.state.paused or self.state.stopped)):
+						log_response(parsed, self.tools.registry.registry, self.logger)
+					
+					self._log_next_action_summary(parsed)
+					
+					self.logger.info(f'✅ Fallback LLM {self.llm.model} succeeded')
+					
+					# Move to next fallback for next time
+					self._fallback_llm_index = (self._fallback_llm_index + 1) % len(self.settings.fallback_llm)
+					
+					return parsed
+				except Exception as fallback_error:
+					# Fallback failed, switch back to main LLM
+					self.logger.warning(f'Fallback LLM {self.llm.model} also failed: {str(fallback_error)}. Switching back to main LLM.')
+					self.llm = self._main_llm
+					# Move to next fallback for next time
+					self._fallback_llm_index = (self._fallback_llm_index + 1) % len(self.settings.fallback_llm)
+					# Re-raise original error
+					raise e
+			else:
+				# No fallback available, just re-raise
+				raise
 
 	async def _log_agent_run(self) -> None:
 		"""Log the agent run"""
