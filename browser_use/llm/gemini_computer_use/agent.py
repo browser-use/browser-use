@@ -1,5 +1,4 @@
-"""
-Computer Use Agent - Full Mode 2 Implementation
+"""Computer Use Agent - Full Mode 2 Implementation
 
 This agent integrates Gemini Computer Use function calls with Browser Use Agent infrastructure.
 It executes Computer Use actions via Actor API while maintaining full Browser Use features.
@@ -19,8 +18,7 @@ from browser_use.llm.gemini_computer_use.chat import ChatGeminiComputerUse
 
 
 class ComputerUseAgent(Agent):
-	"""
-	Agent that uses Gemini Computer Use function calls with Browser Use infrastructure.
+	"""Agent that uses Gemini Computer Use function calls with Browser Use infrastructure.
 
 	This is Mode 2: Gemini's native Computer Use actions executed via Actor API,
 	with full Browser Use Agent features (tools, state management, etc.).
@@ -34,7 +32,7 @@ class ComputerUseAgent(Agent):
 		screen_height: int = 900,
 		screenshot_size_threshold: int = 200000,
 		screenshot_resize_ratio: float = 0.5,
-		**kwargs
+		**kwargs,
 	):
 		"""Initialize ComputerUseAgent
 
@@ -44,6 +42,7 @@ class ComputerUseAgent(Agent):
 			screen_height: Browser viewport height for coordinate normalization (default: 900)
 			screenshot_size_threshold: Max screenshot size in bytes before resizing (default: 200000 = 200KB)
 			screenshot_resize_ratio: Ratio to resize screenshots if too large (default: 0.5 = 50%)
+
 		"""
 		# Store configuration
 		self.max_function_iterations = max_function_iterations
@@ -59,6 +58,16 @@ class ComputerUseAgent(Agent):
 		kwargs['override_system_message'] = computer_use_prompt
 
 		super().__init__(*args, **kwargs)
+
+		# Set default output schema if none provided for automatic structured_output support
+		if self.output_model_schema is None:
+			from pydantic import BaseModel
+
+			class ComputerUseResult(BaseModel):
+				result: str
+
+			self.output_model_schema = ComputerUseResult
+			# Don't add to tools - just use for structured_output parsing
 
 		# Verify we're using ChatGeminiComputerUse with enable_computer_use=True
 		if not isinstance(self.llm, ChatGeminiComputerUse):
@@ -85,7 +94,11 @@ class ComputerUseAgent(Agent):
 
 		try:
 			# Load the prompt template from the markdown file
-			with importlib.resources.files('browser_use.llm.gemini_computer_use').joinpath('computer_use_system_prompt.md').open('r', encoding='utf-8') as f:
+			with (
+				importlib.resources.files('browser_use.llm.gemini_computer_use')
+				.joinpath('computer_use_system_prompt.md')
+				.open('r', encoding='utf-8') as f
+			):
 				prompt_template = f.read()
 
 			# Replace {task} placeholder with actual task
@@ -107,22 +120,20 @@ DO NOT return JSON - only call functions."""
 		return logging.getLogger('browser_use.computer_use_agent')
 
 	async def _execute_actions(self) -> None:
-		"""
-		Override to skip action execution - we already executed via Computer Use bridge.
+		"""Override to skip action execution - we already executed via Computer Use bridge.
 
 		In Mode 2, actions are executed immediately via Actor API during the function calling loop,
 		so we don't need the base agent to execute them again.
 		"""
 		# Actions were already executed via Computer Use bridge in _get_next_action
-		# Just set empty result if needed
+		# Set empty result if needed
 		if self.state.last_result is None:
 			self.state.last_result = []
 
 		self.logger.debug('✅ Skipping _execute_actions (already executed via Computer Use bridge)')
 
 	async def _get_next_action(self, browser_state_summary: BrowserStateSummary) -> None:
-		"""
-		Override to handle Computer Use function calls.
+		"""Override to handle Computer Use function calls.
 
 		Instead of requesting structured output (which blocks function calls),
 		we request text responses and handle function calls directly.
@@ -176,7 +187,7 @@ DO NOT return JSON - only call functions."""
 				self.logger.info(f'🔍 DEBUG - Response type: {type(raw_response)}')
 
 				# Check if we have function calls
-				self.logger.info(f'🔍 DEBUG - Checking for function calls...')
+				self.logger.info('🔍 DEBUG - Checking for function calls...')
 				has_function_calls = self._has_function_calls(raw_response)
 				self.logger.info(f'🔍 DEBUG - has_function_calls: {has_function_calls}')
 
@@ -211,7 +222,9 @@ DO NOT return JSON - only call functions."""
 							'evaluation_previous_goal': 'Processing Computer Use results',
 							'memory': f'Computer Use actions executed: {len(action_results)} actions',
 							'next_goal': 'Continue task',
-							'action': [{'done': {'text': f'Executed {len(action_results)} Computer Use actions', 'success': True}}],
+							'action': [
+								{'done': {'text': f'Executed {len(action_results)} Computer Use actions', 'success': True}}
+							],
 						}
 
 						model_output = agent_output_model.model_validate(output_data)
@@ -225,7 +238,7 @@ DO NOT return JSON - only call functions."""
 				function_calls = self._extract_function_calls(raw_response)
 				self.logger.info(f'📋 Found {len(function_calls)} function call(s)')
 				for i, fc in enumerate(function_calls):
-					self.logger.info(f'  Function call {i+1}: {fc.name}({fc.args})')
+					self.logger.info(f'  Function call {i + 1}: {fc.name}({fc.args})')
 
 				# Get current page
 				assert self.browser_session is not None, 'BrowserSession is not set up'
@@ -274,11 +287,13 @@ DO NOT return JSON - only call functions."""
 						self.state.last_model_output = model_output
 
 						# Create final ActionResult with extracted_content for structured_output
-						# This allows result.structured_output to contain the done message
+						# Format as JSON so structured_output works automatically
+						done_message_json = json.dumps({'result': done_message})
+
 						final_result = ActionResult(
 							is_done=True,
 							success=True,
-							extracted_content=done_message,  # This gets parsed by structured_output
+							extracted_content=done_message_json,  # JSON for structured_output
 							long_term_memory=f'Task completed: {done_message[:100]}',
 						)
 						self.state.last_result = [final_result]
@@ -296,8 +311,9 @@ DO NOT return JSON - only call functions."""
 
 				# Resize to reduce size if too large
 				if len(screenshot_bytes) > self.screenshot_size_threshold:
-					from PIL import Image
 					import io
+
+					from PIL import Image
 
 					img = Image.open(io.BytesIO(screenshot_bytes))
 					# Resize by configured ratio if too large
@@ -327,8 +343,12 @@ DO NOT return JSON - only call functions."""
 				# The raw_response already contains the assistant's message with function calls
 				if hasattr(raw_response, 'candidates') and getattr(raw_response, 'candidates', None):
 					assistant_content = raw_response.candidates[0].content  # type: ignore
-					self.logger.info(f'🔍 DEBUG - Assistant content role: {assistant_content.role if hasattr(assistant_content, "role") else "NO ROLE"}')
-					self.logger.info(f'🔍 DEBUG - Assistant content parts: {len(assistant_content.parts) if hasattr(assistant_content, "parts") else 0}')
+					self.logger.info(
+						f'🔍 DEBUG - Assistant content role: {assistant_content.role if hasattr(assistant_content, "role") else "NO ROLE"}'
+					)
+					self.logger.info(
+						f'🔍 DEBUG - Assistant content parts: {len(assistant_content.parts) if hasattr(assistant_content, "parts") else 0}'
+					)
 					current_messages.append(assistant_content)  # type: ignore
 					self.logger.info(f'✅ Added assistant message with function calls, now have {len(current_messages)} messages')
 				response_parts = []
@@ -351,7 +371,7 @@ DO NOT return JSON - only call functions."""
 					screenshot_response_part = types.FunctionResponsePart(
 						inline_data=types.FunctionResponseBlob(  # type: ignore
 							mime_type='image/png',  # Computer Use requires PNG
-							data=screenshot_bytes
+							data=screenshot_bytes,
 						)
 					)
 
@@ -359,7 +379,7 @@ DO NOT return JSON - only call functions."""
 					fr = types.FunctionResponse(
 						name=fc.name,
 						response=response_data,
-						parts=[screenshot_response_part]  # Screenshot goes here!
+						parts=[screenshot_response_part],  # Screenshot goes here!
 					)
 					response_parts.append(Part(function_response=fr))
 
@@ -368,7 +388,7 @@ DO NOT return JSON - only call functions."""
 				# Create Content with all parts
 				function_response_message = Content(
 					role='user',  # Function responses are sent as user messages in Gemini
-					parts=response_parts
+					parts=response_parts,
 				)
 
 				# Add to input messages
@@ -427,8 +447,7 @@ DO NOT return JSON - only call functions."""
 		return function_calls
 
 	async def _parse_text_to_agent_output(self, response: str | Any, browser_state: BrowserStateSummary) -> AgentOutput:  # noqa: ARG002
-		"""
-		Parse text response into AgentOutput format.
+		"""Parse text response into AgentOutput format.
 
 		This tries to extract JSON from the text, or creates a reasonable AgentOutput.
 		"""

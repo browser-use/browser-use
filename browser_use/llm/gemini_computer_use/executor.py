@@ -10,8 +10,7 @@ if TYPE_CHECKING:
 
 
 class ComputerUseActionExecutor:
-	"""
-	Executes Gemini Computer Use function calls within Browser Use using Actor API.
+	"""Executes Gemini Computer Use function calls within Browser Use using Actor API.
 
 	Computer Use actions are coordinate-based (click_at x=500, y=300) while Browser Use
 	actions are element-based (click index=123). This executor bridges the gap by:
@@ -20,12 +19,12 @@ class ComputerUseActionExecutor:
 	"""
 
 	def __init__(self, screen_width: int = 1440, screen_height: int = 900):
-		"""
-		Initialize the executor.
+		"""Initialize the executor.
 
 		Args:
 			screen_width: Browser viewport width (default 1440, matching Computer Use docs)
 			screen_height: Browser viewport height (default 900, matching Computer Use docs)
+
 		"""
 		self.screen_width = screen_width
 		self.screen_height = screen_height
@@ -41,8 +40,7 @@ class ComputerUseActionExecutor:
 		return int(y / 1000 * self.screen_height)
 
 	async def execute_function_call(self, function_call: Any, page: 'Page') -> dict[str, Any]:
-		"""
-		Execute a single Computer Use function call using Actor API.
+		"""Execute a single Computer Use function call using Actor API.
 
 		Args:
 			function_call: The function call object from Gemini response
@@ -50,6 +48,7 @@ class ComputerUseActionExecutor:
 
 		Returns:
 			Result dictionary with status and any error info
+
 		"""
 		fname = function_call.name
 		args = function_call.args
@@ -128,7 +127,7 @@ class ComputerUseActionExecutor:
 				# Type text using JavaScript
 				# This properly handles all special characters
 				escaped_text = text.replace('\\', '\\\\').replace("'", "\\'").replace('\n', '\\n').replace('\r', '\\r')
-				await page.evaluate(f'''() => {{
+				await page.evaluate(f"""() => {{
 					const el = document.activeElement;
 					if (el) {{
 						if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {{
@@ -137,10 +136,10 @@ class ComputerUseActionExecutor:
 							el.dispatchEvent(new Event('change', {{ bubbles: true }}));
 						}} else if (el.isContentEditable) {{
 							el.textContent = '{escaped_text}';
-							so riel.dispatchEvent(new Event('input', {{ bubbles: true }}));
+							el.dispatchEvent(new Event('input', {{ bubbles: true }}));
 						}}
 					}}
-				}}''')
+				}}""")
 
 				# Press enter if requested
 				if press_enter:
@@ -208,7 +207,7 @@ class ComputerUseActionExecutor:
 					'status': 'success',
 					'url': url,
 					'text_content': text_content,
-					'message': f'URL: {url}\n\nPage text:\n{text_content}'
+					'message': f'URL: {url}\n\nPage text:\n{text_content}',
 				}
 
 			else:

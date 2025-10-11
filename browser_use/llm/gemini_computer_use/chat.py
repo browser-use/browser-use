@@ -26,15 +26,12 @@ from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 T = TypeVar('T', bound=BaseModel)
 
 
-VerifiedGeminiModels = Literal[
-	'gemini-2.5-computer-use-preview-10-2025',
-]
+VerifiedGeminiModels = Literal['gemini-2.5-computer-use-preview-10-2025',]
 
 
 @dataclass
 class ChatGeminiComputerUse(BaseChatModel):
-	"""
-	A wrapper for using Gemini Computer Use models with Browser Use.
+	"""A wrapper for using Gemini Computer Use models with Browser Use.
 
 	This integration leverages the Computer Use model's vision capabilities while using
 	Browser Use's element-based action system. Computer Use tools are temporarily disabled
@@ -68,6 +65,7 @@ class ChatGeminiComputerUse(BaseChatModel):
 		# 2. Enables Computer Use tools for text responses (vision processing)
 		# 3. Disables Computer Use tools for structured output (to avoid action conflicts)
 		# 4. Returns Browser Use actions (element-based: click index 123, not click x/y)
+
 	"""
 
 	# Model configuration
@@ -122,11 +120,11 @@ class ChatGeminiComputerUse(BaseChatModel):
 		return client_params
 
 	def get_client(self) -> genai.Client:
-		"""
-		Returns a genai.Client instance.
+		"""Returns a genai.Client instance.
 
 		Returns:
 			genai.Client: An instance of the Google genai client.
+
 		"""
 		if self._client is not None:
 			return self._client
@@ -164,14 +162,14 @@ class ChatGeminiComputerUse(BaseChatModel):
 		return usage
 
 	def _configure_computer_use(self, config: types.GenerateContentConfigDict) -> types.GenerateContentConfigDict:
-		"""
-		Configure computer use tools if enabled and not already configured.
+		"""Configure computer use tools if enabled and not already configured.
 
 		Args:
 			config: The existing config dictionary
 
 		Returns:
 			Updated config with computer use tools if needed
+
 		"""
 		if not self.enable_computer_use:
 			self.logger.debug('🔧 Computer Use disabled, using Browser Use actions with vision support')
@@ -180,8 +178,7 @@ class ChatGeminiComputerUse(BaseChatModel):
 		# Computer Use enabled - force structured output off (incompatible with function calling)
 		if self.supports_structured_output:
 			self.logger.warning(
-				'⚠️ Computer Use does not support structured output (JSON mode). '
-				'Forcing supports_structured_output=False.'
+				'⚠️ Computer Use does not support structured output (JSON mode). Forcing supports_structured_output=False.'
 			)
 			self.supports_structured_output = False
 
@@ -214,8 +211,7 @@ class ChatGeminiComputerUse(BaseChatModel):
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: type[T] | None = None
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
-		"""
-		Invoke the model with the given messages.
+		"""Invoke the model with the given messages.
 
 		Args:
 			messages: List of chat messages
@@ -223,8 +219,8 @@ class ChatGeminiComputerUse(BaseChatModel):
 
 		Returns:
 			Either a string response or an instance of output_format
-		"""
 
+		"""
 		# Serialize messages to Google format with Computer Use optimizations
 		contents, system_instruction = GeminiComputerUseMessageSerializer.serialize_messages(
 			messages, include_system_in_user=self.include_system_in_user
@@ -290,8 +286,7 @@ class ChatGeminiComputerUse(BaseChatModel):
 							candidate = response.candidates[0]
 							if candidate.content and candidate.content.parts:
 								has_function_calls = any(
-									hasattr(part, 'function_call') and part.function_call
-									for part in candidate.content.parts
+									hasattr(part, 'function_call') and part.function_call for part in candidate.content.parts
 								)
 
 						if has_function_calls:
@@ -540,13 +535,11 @@ class ChatGeminiComputerUse(BaseChatModel):
 			) from e
 
 	def _fix_gemini_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
-		"""
-		Convert a Pydantic model to a Gemini-compatible schema.
+		"""Convert a Pydantic model to a Gemini-compatible schema.
 
 		This function removes unsupported properties like 'additionalProperties' and resolves
 		$ref references that Gemini doesn't support.
 		"""
-
 		# Handle $defs and $ref resolution
 		if '$defs' in schema:
 			defs = schema.pop('$defs')
@@ -624,8 +617,7 @@ class GeminiComputerUseMessageSerializer:
 	def serialize_messages(
 		messages: list[BaseMessage], include_system_in_user: bool = True
 	) -> tuple[ContentListUnion, str | None]:
-		"""
-		Convert a list of BaseMessages to Gemini Computer Use format.
+		"""Convert a list of BaseMessages to Gemini Computer Use format.
 
 		Args:
 			messages: List of messages to convert
@@ -635,8 +627,8 @@ class GeminiComputerUseMessageSerializer:
 			A tuple of (formatted_messages, system_message) where:
 			- formatted_messages: List of Content objects for the conversation
 			- system_message: System instruction string or None
-		"""
 
+		"""
 		messages = [m.model_copy(deep=True) for m in messages]
 
 		formatted_messages: ContentListUnion = []
@@ -734,5 +726,6 @@ class GeminiComputerUseMessageSerializer:
 				formatted_messages.append(final_message)  # type: ignore
 
 		return formatted_messages, system_message
+
 
 # Serializer class added from serializer.py

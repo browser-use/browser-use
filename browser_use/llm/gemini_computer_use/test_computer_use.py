@@ -1,5 +1,4 @@
-"""
-Test ComputerUseAgent (Mode 2) - Full Computer Use integration with function calling loop.
+"""Test ComputerUseAgent (Mode 2) - Full Computer Use integration with function calling loop.
 
 This implements the proper protocol:
 1. Model returns function calls
@@ -19,8 +18,7 @@ load_dotenv('/Users/reagan/Documents/GitHub/browser-use/browser_use/llm/gemini_c
 
 
 async def main():
-	"""
-	Mode 2: Full Computer Use integration with function calling loop.
+	"""Mode 2: Full Computer Use integration with function calling loop.
 
 	This example uses the proper Computer Use protocol:
 	- Model returns function calls
@@ -44,8 +42,7 @@ async def main():
 	# Create ComputerUseAgent
 	# IMPORTANT: Don't pass URL in task - let Computer Use handle navigation
 	agent = ComputerUseAgent(
-		task=("Find the founders of the Browser Use startup"
-		),
+		task=('Find the founders of the Browser Use startup'),
 		llm=llm,
 		use_vision=True,
 		max_actions_per_step=20,  # Allow multiple actions
