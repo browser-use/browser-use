@@ -1,45 +1,58 @@
 ---
-title: "Real Browser"
-description: ""
+title: "Using Your Real Browser Profile"
+description: "Run automation with your existing logins and cookies, without conflicts."
 icon: "arrow-right-to-bracket"
 ---
 
-Connect your existing Chrome browser to preserve authentication.
+You can run `browser-use` with your existing Chrome profile to access sites where you are already logged in. The library automatically handles potential conflicts, allowing you to run your agent **even while your main browser is open.**
 
 ## Basic Example
 
+Simply provide the path to your Chrome installation and your user data directory. `browser-use` handles the rest.
+
 ```python
+import asyncio
 from browser_use import Agent, Browser, ChatOpenAI
 
-# Connect to your existing Chrome browser
+# Connect to your existing Chrome profile.
 browser = Browser(
     executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     user_data_dir='~/Library/Application Support/Google/Chrome',
-    profile_directory='Default',
+    profile_directory='Default', # Or 'Profile 1', 'Profile 2', etc.
 )
 
+# The agent can now access sites where you are already logged in.
 agent = Agent(
-    task='Visit https://duckduckgo.com and search for "browser-use founders"',
+    task='Visit gmail.com and summarize my latest unread email',
     browser=browser,
-    llm=ChatOpenAI(model='gpt-4.1-mini'),
+    llm=ChatOpenAI(model='gpt-4o-mini'),
 )
+
 async def main():
-	await agent.run()
+    await agent.run()
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
-> **Note:** You need to fully close chrome before running this example. Also, Google blocks this approach currently so we use DuckDuckGo instead.
+## How It Works
 
+You no longer need to close your main browser. When you provide a `user_data_dir`, browser-use automatically creates a safe, temporary copy of your profile's session data. This lets the agent use your existing logins in an isolated session, preventing any conflicts with your open browser. Everything is cleaned up automatically when the task is done.
 
+## Finding Your Profile Paths
 
+To find the correct paths for `user_data_dir` and `profile_directory`, open Chrome and navigate to the URL `chrome://version`.
 
-## How it Works
+Look for the "Profile Path" field.
 
-1. **`executable_path`** - Path to your Chrome installation
-2. **`user_data_dir`** - Your Chrome profile folder (keeps cookies, extensions, bookmarks)
-3. **`profile_directory`** - Specific profile name (Default, Profile 1, etc.)
+**Example Profile Path**: `/Users/sanket/Library/Application Support/Google/Chrome/Profile 2`
 
+From this, you can determine your settings:
 
-## Platform Paths
+- `user_data_dir`: `~/Library/Application Support/Google/Chrome`
+- `profile_directory`: `Profile 2`
+
+## Common Paths by Operating System
 
 ```python
 # macOS
