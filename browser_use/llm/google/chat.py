@@ -160,6 +160,13 @@ class ChatGoogle(BaseChatModel):
 				prompt_cache_creation_tokens=None,
 				prompt_image_tokens=image_tokens,
 			)
+		else:
+			# Log when usage metadata is missing to help identify edge cases
+			self.logger.warning(
+				f'⚠️  No usage_metadata in response from {self.model}. '
+				f'Usage tracking will be skipped for this request. '
+				f'This may occur with certain API errors or rate limits.'
+			)
 
 		return usage
 
