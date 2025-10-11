@@ -74,7 +74,7 @@ class ChatGoogle(BaseChatModel):
 
 	# Model configuration
 	model: VerifiedGeminiModels | str
-	temperature: float | None = 0.2
+	temperature: float | None = 0.4
 	top_p: float | None = None
 	seed: int | None = None
 	thinking_budget: int | None = None  # for gemini-2.5 flash and flash-lite models, default will be set to 0
