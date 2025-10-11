@@ -446,7 +446,7 @@ DO NOT return JSON - only call functions."""
 
 		return function_calls
 
-	async def _parse_text_to_agent_output(self, response: str | Any, browser_state: BrowserStateSummary) -> AgentOutput:  # noqa: ARG002
+	async def _parse_text_to_agent_output(self, response: str | Any, browser_state: BrowserStateSummary) -> AgentOutput:
 		"""Parse text response into AgentOutput format.
 
 		This tries to extract JSON from the text, or creates a reasonable AgentOutput.
