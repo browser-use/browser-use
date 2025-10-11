@@ -26,8 +26,32 @@ class ComputerUseAgent(Agent):
 	with full Browser Use Agent features (tools, state management, etc.).
 	"""
 
-	def __init__(self, *args, **kwargs):
-		"""Initialize ComputerUseAgent"""
+	def __init__(
+		self,
+		*args,
+		max_function_iterations: int = 20,
+		screen_width: int = 1440,
+		screen_height: int = 900,
+		screenshot_size_threshold: int = 200000,
+		screenshot_resize_ratio: float = 0.5,
+		**kwargs
+	):
+		"""Initialize ComputerUseAgent
+
+		Args:
+			max_function_iterations: Maximum number of function calling iterations per step (default: 20)
+			screen_width: Browser viewport width for coordinate normalization (default: 1440)
+			screen_height: Browser viewport height for coordinate normalization (default: 900)
+			screenshot_size_threshold: Max screenshot size in bytes before resizing (default: 200000 = 200KB)
+			screenshot_resize_ratio: Ratio to resize screenshots if too large (default: 0.5 = 50%)
+		"""
+		# Store configuration
+		self.max_function_iterations = max_function_iterations
+		self.screen_width = screen_width
+		self.screen_height = screen_height
+		self.screenshot_size_threshold = screenshot_size_threshold
+		self.screenshot_resize_ratio = screenshot_resize_ratio
+
 		# Load Computer Use system prompt before calling super().__init__
 		computer_use_prompt = self._load_computer_use_system_prompt(kwargs.get('task', 'Complete the task'))
 
@@ -46,11 +70,14 @@ class ComputerUseAgent(Agent):
 
 		# Initialize Computer Use bridge for executing function calls
 		self.computer_use_bridge = ComputerUseBridge(
-			screen_width=1440,  # TODO: Get from browser session
-			screen_height=900,
+			screen_width=self.screen_width,
+			screen_height=self.screen_height,
 		)
 
-		self.logger.info('🖱️  ComputerUseAgent initialized with Computer Use function calling')
+		self.logger.info(
+			f'🖱️  ComputerUseAgent initialized with Computer Use function calling '
+			f'(max_iterations={self.max_function_iterations}, screen={self.screen_width}x{self.screen_height})'
+		)
 
 	def _load_computer_use_system_prompt(self, task: str) -> str:
 		"""Load Computer Use-specific system prompt"""
@@ -125,14 +152,11 @@ DO NOT return JSON - only call functions."""
 
 		try:
 			# Computer Use function calling loop
-			# Allow more iterations for complex tasks
-			max_function_iterations = 20  # Allow model to complete multi-step tasks
-
 			# Use initial_messages for first call, then we'll maintain our own history
 			current_messages = initial_messages
 
-			for iteration in range(max_function_iterations):
-				self.logger.debug(f'🔄 Computer Use iteration {iteration + 1}/{max_function_iterations}')
+			for iteration in range(self.max_function_iterations):
+				self.logger.debug(f'🔄 Computer Use iteration {iteration + 1}/{self.max_function_iterations}')
 				self.logger.info(f'📋 Sending {len(current_messages)} messages to LLM')
 
 				# Call LLM without output_format to allow function calls
@@ -270,14 +294,14 @@ DO NOT return JSON - only call functions."""
 				screenshot_b64 = await current_page.screenshot(format='png')
 				screenshot_bytes = base64.b64decode(screenshot_b64)
 
-				# Resize to reduce size if too large (> 200KB)
-				if len(screenshot_bytes) > 200000:
+				# Resize to reduce size if too large
+				if len(screenshot_bytes) > self.screenshot_size_threshold:
 					from PIL import Image
 					import io
 
 					img = Image.open(io.BytesIO(screenshot_bytes))
-					# Resize to 50% if too large
-					new_size = (img.width // 2, img.height // 2)
+					# Resize by configured ratio if too large
+					new_size = (int(img.width * self.screenshot_resize_ratio), int(img.height * self.screenshot_resize_ratio))
 					img = img.resize(new_size, Image.Resampling.LANCZOS)
 
 					# Save back to bytes
@@ -354,7 +378,7 @@ DO NOT return JSON - only call functions."""
 				self.logger.info(f'✅ Executed {len(results)} action(s), continuing conversation...')
 
 			# If we hit max iterations, stop
-			self.logger.warning(f'⚠️  Reached maximum Computer Use iterations ({max_function_iterations})')
+			self.logger.warning(f'⚠️  Reached maximum Computer Use iterations ({self.max_function_iterations})')
 
 			# Create a final model output from what we have
 			custom_actions = self.tools.registry.create_action_model()

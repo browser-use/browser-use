@@ -125,7 +125,7 @@ class ComputerUseActionExecutor:
 					await page.press('Backspace')
 					await asyncio.sleep(0.05)
 
-				# Type text using JavaScript evaluation (more reliable than key presses)
+				# Type text using JavaScript
 				# This properly handles all special characters
 				escaped_text = text.replace('\\', '\\\\').replace("'", "\\'").replace('\n', '\\n').replace('\r', '\\r')
 				await page.evaluate(f'''() => {{
@@ -137,7 +137,7 @@ class ComputerUseActionExecutor:
 							el.dispatchEvent(new Event('change', {{ bubbles: true }}));
 						}} else if (el.isContentEditable) {{
 							el.textContent = '{escaped_text}';
-							el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+							so riel.dispatchEvent(new Event('input', {{ bubbles: true }}));
 						}}
 					}}
 				}}''')
