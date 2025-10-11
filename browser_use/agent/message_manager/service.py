@@ -280,7 +280,7 @@ class MessageManager:
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='create_state_messages')
 	@time_execution_sync('--create_state_messages')
-	def create_state_messages(
+	async def create_state_messages(
 		self,
 		browser_state_summary: BrowserStateSummary,
 		model_output: AgentOutput | None = None,
@@ -331,8 +331,11 @@ class MessageManager:
 			include_screenshot = include_screenshot_requested
 		# else: use_vision is False, never include screenshot (include_screenshot stays False)
 
-		if include_screenshot and browser_state_summary.screenshot:
-			screenshots.append(browser_state_summary.screenshot)
+		if include_screenshot:
+			# Get screenshot, awaiting deferred event if needed
+			screenshot_b64 = await browser_state_summary.get_screenshot()
+			if screenshot_b64:
+				screenshots.append(screenshot_b64)
 
 		# Use vision in the user message if screenshots are included
 		effective_use_vision = len(screenshots) > 0

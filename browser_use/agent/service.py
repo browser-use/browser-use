@@ -703,7 +703,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Page-specific actions will be included directly in the browser_state message
 		self.logger.debug(f'💬 Step {self.state.n_steps}: Creating state messages for context...')
 
-		self._message_manager.create_state_messages(
+		await self._message_manager.create_state_messages(
 			browser_state_summary=browser_state_summary,
 			model_output=self.state.last_model_output,
 			result=self.state.last_result,
@@ -978,16 +978,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		else:
 			interacted_elements = [None]
 
-		# Store screenshot and get path
+		# Store screenshot and get path - await deferred screenshot if needed
 		screenshot_path = None
-		if browser_state_summary.screenshot:
-			self.logger.debug(
-				f'📸 Storing screenshot for step {self.state.n_steps}, screenshot length: {len(browser_state_summary.screenshot)}'
-			)
-			screenshot_path = await self.screenshot_service.store_screenshot(browser_state_summary.screenshot, self.state.n_steps)
+		screenshot_b64 = await browser_state_summary.get_screenshot()
+		if screenshot_b64:
+			self.logger.debug(f'📸 Storing screenshot for step {self.state.n_steps}, screenshot length: {len(screenshot_b64)}')
+			screenshot_path = await self.screenshot_service.store_screenshot(screenshot_b64, self.state.n_steps)
 			self.logger.debug(f'📸 Screenshot stored at: {screenshot_path}')
 		else:
-			self.logger.debug(f'📸 No screenshot in browser_state_summary for step {self.state.n_steps}')
+			self.logger.debug(f'📸 No screenshot available for step {self.state.n_steps}')
 
 		state_history = BrowserStateHistory(
 			url=browser_state_summary.url,
