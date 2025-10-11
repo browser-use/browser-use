@@ -54,6 +54,7 @@ if TYPE_CHECKING:
 	from browser_use.llm import models
 	from browser_use.llm.anthropic.chat import ChatAnthropic
 	from browser_use.llm.azure.chat import ChatAzureOpenAI
+	from browser_use.llm.browser_use.chat import ChatBrowserUse
 	from browser_use.llm.google.chat import ChatGoogle
 	from browser_use.llm.groq.chat import ChatGroq
 	from browser_use.llm.oci_raw.chat import ChatOCIRaw
@@ -88,6 +89,7 @@ _LAZY_IMPORTS = {
 	'ChatAzureOpenAI': ('browser_use.llm.azure.chat', 'ChatAzureOpenAI'),
 	'ChatOCIRaw': ('browser_use.llm.oci_raw.chat', 'ChatOCIRaw'),
 	'ChatOllama': ('browser_use.llm.ollama.chat', 'ChatOllama'),
+	'ChatBrowserUse': ('browser_use.llm.browser_use.chat', 'ChatBrowserUse'),
 	# LLM models module
 	'models': ('browser_use.llm.models', None),
 }
@@ -134,6 +136,7 @@ __all__ = [
 	'ChatAzureOpenAI',
 	'ChatOCIRaw',
 	'ChatOllama',
+	'ChatBrowserUse',
 	'Tools',
 	'Controller',
 	# LLM models module
