@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.7.10"
+version = "0.8.0"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -29,7 +29,7 @@ dependencies = [
     "authlib>=1.6.0",
     "google-genai>=1.29.0,<2.0.0",
     "openai>=1.99.2,<2.0.0",
-    "anthropic>=0.58.2,<1.0.0",
+    "anthropic>=0.68.1,<1.0.0",
     "groq>=0.30.0",
     "mistralai>=1.9.3",
     "ollama>=0.5.1",
@@ -63,12 +63,15 @@ cli = [
 aws = [
     "boto3>=1.38.45"
 ]
+oci = [
+    "oci>=2.126.4",
+]
 video = [
     "imageio[ffmpeg]>=2.37.0",
     "numpy>=2.3.2",
 ]
 examples = [
-    "agentmail>=0.0.53",
+    "agentmail==0.0.59",
     # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
     "botocore>=1.37.23",
     "imgcat>=0.6.0",
@@ -77,15 +80,18 @@ examples = [
     "langchain-openai>=0.3.26",
 ]
 eval = [
-    "lmnr[all]==0.7.10",
+    "lmnr[all]==0.7.17",
     "anyio>=4.9.0",
     "psutil>=7.0.0",
     "datamodel-code-generator>=0.26.0",
     "hyperbrowser==0.47.0",
     "browserbase==1.4.0",
 ]
+cli-oci = [
+    "browser-use[cli,oci]",
+]
 all = [
-    "browser-use[cli,examples,aws]",
+    "browser-use[cli,examples,aws,oci]",
 ]
 
 # will prefer to use local source code checked out in ../../browser-use (if present) instead of pypi browser-use package
@@ -106,7 +112,7 @@ build-backend = "hatchling.build"
 
 
 [tool.codespell]
-ignore-words-list = "bu,wit,dont,cant,wont,re-use,re-used,re-using,re-usable,thats,doesnt,doubleclick"
+ignore-words-list = "bu,wit,dont,cant,wont,re-use,re-used,re-using,re-usable,thats,doesnt,doubleclick,finaly,finalY"
 skip = "*.json"
 
 [tool.ruff]
@@ -201,7 +207,7 @@ dev-dependencies = [
     "pyright>=1.1.403",
     "ty>=0.0.1a1",
     "pytest-xdist>=3.7.0",
-    "lmnr[all]==0.7.10",
+    "lmnr[all]==0.7.17",
     # "pytest-playwright-asyncio>=0.7.0",  # not actually needed I think
     "pytest-timeout>=2.4.0",
     "pydantic_settings>=2.10.1"

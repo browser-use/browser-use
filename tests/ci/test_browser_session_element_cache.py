@@ -165,7 +165,7 @@ async def test_assumption_3_action_gets_same_selector_map(browser_session, tools
 
 @pytest.mark.asyncio
 async def test_assumption_4_click_action_specific_issue(browser_session, tools, httpserver):
-	"""Test assumption 4: Specific issue with click_element_by_index action."""
+	"""Test assumption 4: Specific issue with click action."""
 	# Go to a simple page using CDP events
 	from browser_use.browser.events import NavigateToUrlEvent
 
@@ -181,12 +181,12 @@ async def test_assumption_4_click_action_specific_issue(browser_session, tools, 
 	print(f'  - Cached elements: {len(cached_selector_map)}')
 	print(f'  - Element 0 exists: {0 in cached_selector_map}')
 
-	# Create a test action that replicates click_element_by_index logic
+	# Create a test action that replicates click logic
 	@tools.registry.action('Test: Debug click logic')
 	async def test_debug_click_logic(index: int, browser_session: BrowserSession):
 		from browser_use import ActionResult
 
-		# This is the exact logic from click_element_by_index
+		# This is the exact logic from click
 		selector_map = await browser_session.get_selector_map()
 
 		print(f'  - Action selector map size: {len(selector_map)}')

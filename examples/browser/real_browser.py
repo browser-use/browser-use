@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from browser_use import Agent, Browser, ChatOpenAI
+from browser_use import Agent, Browser, ChatGoogle
 
 # Connect to your existing Chrome browser
 browser = Browser(
@@ -19,10 +19,11 @@ browser = Browser(
 
 
 async def main():
+	# save storage state
 	agent = Agent(
-		llm=ChatOpenAI(model='gpt-4.1-mini'),
+		llm=ChatGoogle(model='gemini-flash-latest'),
 		# Google blocks this approach, so we use a different search engine
-		task='Visit https://duckduckgo.com and search for "browser-use founders"',
+		task='go to amazon.com and buy pens to draw on the whiteboard',
 		browser=browser,
 	)
 	await agent.run()

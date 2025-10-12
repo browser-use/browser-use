@@ -161,11 +161,11 @@ class TestDownloadUploadFullCircle:
 				base_url = f'http://{download_upload_server.host}:{download_upload_server.port}'
 
 				# Step 1: Navigate to download page
-				class GoToUrlActionModel(ActionModel):
-					go_to_url: GoToUrlAction | None = None
+				class NavigateActionModel(ActionModel):
+					navigate: GoToUrlAction | None = None
 
 				result = await tools.act(
-					GoToUrlActionModel(go_to_url=GoToUrlAction(url=f'{base_url}/download-page', new_tab=False)), browser_session
+					NavigateActionModel(navigate=GoToUrlAction(url=f'{base_url}/download-page', new_tab=False)), browser_session
 				)
 				assert result.error is None, f'Navigation to download page failed: {result.error}'
 
@@ -189,12 +189,10 @@ class TestDownloadUploadFullCircle:
 
 				# Step 2: Click download link and wait for download
 				class ClickActionModel(ActionModel):
-					click_element_by_index: ClickElementAction | None = None
+					click: ClickElementAction | None = None
 
 				# Click the download link
-				result = await tools.act(
-					ClickActionModel(click_element_by_index=ClickElementAction(index=download_link_index)), browser_session
-				)
+				result = await tools.act(ClickActionModel(click=ClickElementAction(index=download_link_index)), browser_session)
 				assert result.error is None, f'Click on download link failed: {result.error}'
 
 				# Wait for the download event
@@ -230,7 +228,7 @@ class TestDownloadUploadFullCircle:
 				for i, tab in enumerate(tabs_before):
 					print(f'  Tab {i}: {tab.url}')
 				result = await tools.act(
-					GoToUrlActionModel(go_to_url=GoToUrlAction(url=f'{base_url}/upload-page', new_tab=True)), browser_session
+					NavigateActionModel(navigate=GoToUrlAction(url=f'{base_url}/upload-page', new_tab=True)), browser_session
 				)
 				assert result.error is None, f'Navigation to upload page failed: {result.error}'
 				print(f'✅ Navigation result: {result.extracted_content}')
@@ -272,11 +270,11 @@ class TestDownloadUploadFullCircle:
 
 				# Step 4: Upload the downloaded file
 				class UploadActionModel(ActionModel):
-					upload_file_to_element: UploadFileAction | None = None
+					upload_file: UploadFileAction | None = None
 
 				# The downloaded file should be automatically available for upload
 				result = await tools.act(
-					UploadActionModel(upload_file_to_element=UploadFileAction(index=file_input_index, path=downloaded_file_path)),
+					UploadActionModel(upload_file=UploadFileAction(index=file_input_index, path=downloaded_file_path)),
 					browser_session,
 					available_file_paths=[],  # Empty, but file is in downloaded_files
 					file_system=file_system,
@@ -304,9 +302,7 @@ class TestDownloadUploadFullCircle:
 				assert submit_button_index is not None, 'Submit button not found'
 
 				# Click the submit button
-				result = await tools.act(
-					ClickActionModel(click_element_by_index=ClickElementAction(index=submit_button_index)), browser_session
-				)
+				result = await tools.act(ClickActionModel(click=ClickElementAction(index=submit_button_index)), browser_session)
 				assert result.error is None, f'Click on submit button failed: {result.error}'
 
 				# Wait for JavaScript to process the upload

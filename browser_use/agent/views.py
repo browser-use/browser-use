@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 class AgentSettings(BaseModel):
 	"""Configuration options for the Agent"""
 
-	use_vision: bool = True
+	use_vision: bool | Literal['auto'] = 'auto'
 	vision_detail_level: Literal['auto', 'low', 'high'] = 'auto'
 	save_conversation_path: str | Path | None = None
 	save_conversation_path_encoding: str | None = 'utf-8'
@@ -155,7 +155,6 @@ class AgentOutput(BaseModel):
 	next_goal: str | None = None
 	action: list[ActionModel] = Field(
 		...,
-		description='List of actions to execute',
 		json_schema_extra={'min_items': 1},  # Ensure at least one action is provided
 	)
 
@@ -188,7 +187,6 @@ class AgentOutput(BaseModel):
 			),
 			__module__=AgentOutput.__module__,
 		)
-		model_.__doc__ = 'AgentOutput model with custom actions'
 		return model_
 
 	@staticmethod
@@ -208,12 +206,11 @@ class AgentOutput(BaseModel):
 			__base__=AgentOutputNoThinking,
 			action=(
 				list[custom_actions],  # type: ignore
-				Field(..., description='List of actions to execute', json_schema_extra={'min_items': 1}),
+				Field(..., json_schema_extra={'min_items': 1}),
 			),
 			__module__=AgentOutputNoThinking.__module__,
 		)
 
-		model.__doc__ = 'AgentOutput model with custom actions'
 		return model
 
 	@staticmethod
@@ -237,12 +234,11 @@ class AgentOutput(BaseModel):
 			__base__=AgentOutputFlashMode,
 			action=(
 				list[custom_actions],  # type: ignore
-				Field(..., description='List of actions to execute', json_schema_extra={'min_items': 1}),
+				Field(..., json_schema_extra={'min_items': 1}),
 			),
 			__module__=AgentOutputFlashMode.__module__,
 		)
 
-		model.__doc__ = 'AgentOutput model with custom actions'
 		return model
 
 
@@ -253,6 +249,7 @@ class AgentHistory(BaseModel):
 	result: list[ActionResult]
 	state: BrowserStateHistory
 	metadata: StepMetadata | None = None
+	state_message: str | None = None
 
 	model_config = ConfigDict(arbitrary_types_allowed=True, protected_namespaces=())
 
@@ -331,12 +328,10 @@ class AgentHistory(BaseModel):
 		if self.model_output:
 			action_dump = [action.model_dump(exclude_none=True) for action in self.model_output.action]
 
-			# Filter sensitive data only from input_text action parameters if sensitive_data is provided
+			# Filter sensitive data only from input action parameters if sensitive_data is provided
 			if sensitive_data:
 				action_dump = [
-					self._filter_sensitive_data_from_dict(action, sensitive_data)
-					if action.get('name') == 'input_text'
-					else action
+					self._filter_sensitive_data_from_dict(action, sensitive_data) if 'input' in action else action
 					for action in action_dump
 				]
 
@@ -359,6 +354,7 @@ class AgentHistory(BaseModel):
 			'result': result_dump,
 			'state': self.state.to_dict(),
 			'metadata': self.metadata.model_dump() if self.metadata else None,
+			'state_message': self.state_message,
 		}
 
 

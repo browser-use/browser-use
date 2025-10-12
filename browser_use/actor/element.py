@@ -349,7 +349,7 @@ class Element:
 			# Extract key element info for error message
 			raise RuntimeError(f'Failed to click element: {e}')
 
-	async def fill(self, value: str, clear_existing: bool = True) -> None:
+	async def fill(self, value: str, clear: bool = True) -> None:
 		"""Fill the input element using proper CDP methods with improved focus handling."""
 		try:
 			# Use the existing CDP client and session
@@ -409,7 +409,7 @@ class Element:
 			)
 
 			# Step 2: Clear existing text if requested
-			if clear_existing and focused_successfully:
+			if clear and focused_successfully:
 				cleared_successfully = await self._clear_text_field(
 					object_id=object_id, cdp_client=cdp_client, session_id=session_id
 				)

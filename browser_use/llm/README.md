@@ -9,6 +9,7 @@ We officially support the following LLMs:
 - Ollama
 - DeepSeek
 - Mistral
+- Cerebras
 
 ## Migrating from LangChain
 

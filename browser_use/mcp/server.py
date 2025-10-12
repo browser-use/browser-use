@@ -811,7 +811,7 @@ class BrowserUseServer:
 
 		state = await self.browser_session.get_browser_state_summary()
 
-		# Use the extract_structured_data action
+		# Use the extract action
 		# Create a dynamic action model that matches the tools's expectations
 		from pydantic import create_model
 
@@ -819,13 +819,13 @@ class BrowserUseServer:
 		ExtractAction = create_model(
 			'ExtractAction',
 			__base__=ActionModel,
-			extract_structured_data=dict[str, Any],
+			extract=dict[str, Any],
 		)
 
 		# Use model_validate because Pyright does not understand the dynamic model
 		action = ExtractAction.model_validate(
 			{
-				'extract_structured_data': {'query': query, 'extract_links': extract_links},
+				'extract': {'query': query, 'extract_links': extract_links},
 			}
 		)
 		action_result = await self.tools.act(

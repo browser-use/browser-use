@@ -167,7 +167,7 @@ products = await page.extract_content(
 
 ### Element Methods (DOM Interactions)
 - `click(button='left', click_count=1, modifiers=None)` - Click element with advanced fallbacks
-- `fill(text: str, clear_existing=True)` - Fill input with text (clears first by default)
+- `fill(text: str, clear=True)` - Fill input with text (clears first by default)
 - `hover()` - Hover over element
 - `focus()` - Focus the element
 - `check()` - Toggle checkbox/radio button (clicks to change state)

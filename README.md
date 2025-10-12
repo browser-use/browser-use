@@ -45,23 +45,21 @@ Download chromium using playwright's shortcut:
 uvx playwright install chromium --with-deps --no-shell
 ```
 
-Create a `.env` file and add your API key. Don't have one? Start with a [free Gemini key](https://aistudio.google.com/app/u/1/apikey?pli=1).
+Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/dashboard/api) and add it to your `.env` file:
 
 ```bash
-GEMINI_API_KEY=
+BROWSER_USE_API_KEY=your-key
 ```
 
 Run your first agent:
 
 ```python
-from browser_use import Agent, ChatGoogle
-from dotenv import load_dotenv
-load_dotenv()
+from browser_use import Agent
+from browser_use.llm import ChatBrowserUse
 
 agent = Agent(
     task="Find the number of stars of the browser-use repo",
-    llm=ChatGoogle(model="gemini-flash-latest"),
-    # browser=Browser(use_cloud=True),  # Uses Browser-Use cloud for the browser
+    llm=ChatBrowserUse(),
 )
 agent.run_sync()
 ```
@@ -76,7 +74,8 @@ Want to bypass Cloudflare, or any other anti-bot protection?
 Simply go to [Browser Use Cloud](https://docs.cloud.browser-use.com) grab a `BROWSER_USE_API_KEY` and use the `use_cloud` parameter.
 
 ```python
-from browser_use import Agent, Browser, ChatOpenAI
+from browser_use import Agent, Browser
+from browser_use.llm import ChatBrowserUse
 
 # Use Browser-Use cloud browser service
 browser = Browser(
@@ -85,7 +84,7 @@ browser = Browser(
 
 agent = Agent(
     task="Your task here",
-    llm=ChatOpenAI(model='gpt-4.1-mini'),
+    llm=ChatBrowserUse(),
     browser=browser,
 )
 ```

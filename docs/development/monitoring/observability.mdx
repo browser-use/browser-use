@@ -31,7 +31,7 @@ import asyncio
 
 from lmnr import Laminar, Instruments
 # this line auto-instruments Browser Use and any browser you use (local or remote)
-Laminar.initialize(project_api_key="...", disabled_instruments={Instruments.BROWSER_USE})
+Laminar.initialize(project_api_key="...", disabled_instruments={Instruments.BROWSER_USE_SESSION})
 
 async def main():
     agent = Agent(

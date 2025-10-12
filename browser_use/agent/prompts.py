@@ -16,14 +16,12 @@ if TYPE_CHECKING:
 class SystemPrompt:
 	def __init__(
 		self,
-		action_description: str,
 		max_actions_per_step: int = 10,
 		override_system_message: str | None = None,
 		extend_system_message: str | None = None,
 		use_thinking: bool = True,
 		flash_mode: bool = False,
 	):
-		self.default_action_description = action_description
 		self.max_actions_per_step = max_actions_per_step
 		self.use_thinking = use_thinking
 		self.flash_mode = flash_mode
@@ -64,15 +62,6 @@ class SystemPrompt:
 		    SystemMessage: Formatted system prompt
 		"""
 		return self.system_message
-
-
-# Functions:
-# {self.default_action_description}
-
-# Example:
-# {self.example_response()}
-# Your AVAILABLE ACTIONS:
-# {self.default_action_description}
 
 
 class AgentMessagePrompt:
@@ -265,7 +254,9 @@ class AgentMessagePrompt:
 		# Check if current page is a PDF viewer and add appropriate message
 		pdf_message = ''
 		if self.browser_state.is_pdf_viewer:
-			pdf_message = 'PDF viewer cannot be rendered. In this page, DO NOT use the extract_structured_data action as PDF content cannot be rendered. '
+			pdf_message = (
+				'PDF viewer cannot be rendered. In this page, DO NOT use the extract action as PDF content cannot be rendered. '
+			)
 			pdf_message += 'Use the read_file action on the downloaded PDF in available_file_paths to read the full text content or scroll in the page to see images/figures if needed.\n\n'
 
 		# Add recent events if available and requested
@@ -367,8 +358,8 @@ Available tabs:
 				content_parts.append(
 					ContentPartImageParam(
 						image_url=ImageURL(
-							url=f'data:image/png;base64,{screenshot}',
-							media_type='image/png',
+							url=f'data:image/jpeg;base64,{screenshot}',
+							media_type='image/jpeg',
 							detail=self.vision_detail_level,
 						),
 					)

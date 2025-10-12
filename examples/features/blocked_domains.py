@@ -20,11 +20,17 @@ prohibited_domains = [
 	'x.com',  # Block X (formerly Twitter) - "locked the f in"
 	'twitter.com',  # Block Twitter (redirects to x.com anyway)
 	'facebook.com',  # Lock the F in Facebook too
-	'*.meta.com',  # Block all Meta properties
+	'*.meta.com',  # Block all Meta properties (wildcard pattern)
 	'*.adult-site.com',  # Block all subdomains of adult sites
 	'https://explicit-content.org',  # Block specific protocol/domain
 	'gambling-site.net',  # Block gambling sites
 ]
+
+# Note: For lists with 100+ domains, automatic optimization kicks in:
+# - Converts list to set for O(1) lookup (blazingly fast!)
+# - Pattern matching (*.domain) is disabled for large lists
+# - Both www.example.com and example.com variants are checked automatically
+# Perfect for ad blockers or large malware domain lists (e.g., 400k+ domains)
 
 browser_session = BrowserSession(
 	browser_profile=BrowserProfile(

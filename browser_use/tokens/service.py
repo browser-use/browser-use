@@ -18,6 +18,8 @@ from dotenv import load_dotenv
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.views import ChatInvokeUsage
+from browser_use.tokens.custom_pricing import CUSTOM_MODEL_PRICING
+from browser_use.tokens.mappings import MODEL_TO_LITELLM
 from browser_use.tokens.views import (
 	CachedPricingData,
 	ModelPricing,
@@ -162,10 +164,27 @@ class TokenCost:
 		if not self._initialized:
 			await self.initialize()
 
-		if not self._pricing_data or model_name not in self._pricing_data:
+		# Check custom pricing first
+		if model_name in CUSTOM_MODEL_PRICING:
+			data = CUSTOM_MODEL_PRICING[model_name]
+			return ModelPricing(
+				model=model_name,
+				input_cost_per_token=data.get('input_cost_per_token'),
+				output_cost_per_token=data.get('output_cost_per_token'),
+				max_tokens=data.get('max_tokens'),
+				max_input_tokens=data.get('max_input_tokens'),
+				max_output_tokens=data.get('max_output_tokens'),
+				cache_read_input_token_cost=data.get('cache_read_input_token_cost'),
+				cache_creation_input_token_cost=data.get('cache_creation_input_token_cost'),
+			)
+
+		# Map model name to LiteLLM model name if needed
+		litellm_model_name = MODEL_TO_LITELLM.get(model_name, model_name)
+
+		if not self._pricing_data or litellm_model_name not in self._pricing_data:
 			return None
 
-		data = self._pricing_data[model_name]
+		data = self._pricing_data[litellm_model_name]
 		return ModelPricing(
 			model=model_name,
 			input_cost_per_token=data.get('input_cost_per_token'),
@@ -317,17 +336,17 @@ class TokenCost:
 		token_cost_service = self
 
 		# Create a wrapped version that tracks usage
-		async def tracked_ainvoke(messages, output_format=None):
-			# Call the original method
-			result = await original_ainvoke(messages, output_format)
+		async def tracked_ainvoke(messages, output_format=None, **kwargs):
+			# Call the original method, passing through any additional kwargs
+			result = await original_ainvoke(messages, output_format, **kwargs)
 
 			# Track usage if available (no await needed since add_usage is now sync)
 			if result.usage:
-				usage = token_cost_service.add_usage(llm.model, result.usage)
+				usage = token_cost_service.add_usage(llm.name, result.usage)
 
 				logger.debug(f'Token cost service: {usage}')
 
-				asyncio.create_task(token_cost_service._log_usage(llm.model, usage))
+				asyncio.create_task(token_cost_service._log_usage(llm.name, usage))
 
 			# else:
 			# 	await token_cost_service._log_non_usage_llm(llm)
@@ -474,9 +493,6 @@ class TokenCost:
 				f'💲 {C_BOLD}Total Usage Summary{C_RESET}: {C_BLUE}{total_tokens_fmt} tokens{C_RESET}{total_cost_part} | '
 				f'⬅️ {C_YELLOW}{prompt_tokens_fmt}{prompt_cost_part}{C_RESET} | ➡️ {C_GREEN}{completion_tokens_fmt}{completion_cost_part}{C_RESET}'
 			)
-
-		# Log per-model breakdown
-		cost_logger.debug(f'📊 {C_BOLD}Per-Model Usage Breakdown{C_RESET}:')
 
 		for model, stats in summary.by_model.items():
 			# Format tokens

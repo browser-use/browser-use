@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, Literal
 
 from browser_use.config import is_running_in_docker
 
@@ -29,7 +29,7 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	model_provider: str
 	max_steps: int
 	max_actions_per_step: int
-	use_vision: bool
+	use_vision: bool | Literal['auto']
 	version: str
 	source: str
 	cdp_url: str | None

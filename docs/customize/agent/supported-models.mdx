@@ -196,6 +196,43 @@ Required environment variables:
 GROQ_API_KEY=
 ```
 
+## Oracle Cloud Infrastructure (OCI) [example](https://github.com/browser-use/browser-use/blob/main/examples/models/oci_models.py)
+
+OCI provides access to various generative AI models including Meta Llama, Cohere, and other providers through their Generative AI service.
+
+```python
+from browser_use import Agent, ChatOCIRaw
+
+# Initialize the OCI model
+llm = ChatOCIRaw(
+    model_id="ocid1.generativeaimodel.oc1.us-chicago-1.amaaaaaask7dceya...",
+    service_endpoint="https://inference.generativeai.us-chicago-1.oci.oraclecloud.com",
+    compartment_id="ocid1.tenancy.oc1..aaaaaaaayeiis5uk2nuubznrekd...",
+    provider="meta",  # or "cohere"
+    temperature=0.7,
+    max_tokens=800,
+    top_p=0.9,
+    auth_type="API_KEY",
+    auth_profile="DEFAULT"
+)
+
+# Create agent with the model
+agent = Agent(
+    task="Your task here",
+    llm=llm
+)
+```
+
+Required setup:
+1. Set up OCI configuration file at `~/.oci/config`
+2. Have access to OCI Generative AI models in your tenancy
+3. Install the OCI Python SDK: `uv add oci` or `pip install oci`
+
+Authentication methods supported:
+- `API_KEY`: Uses API key authentication (default)
+- `INSTANCE_PRINCIPAL`: Uses instance principal authentication
+- `RESOURCE_PRINCIPAL`: Uses resource principal authentication
+
 ## Ollama
 
 1. Install Ollama: https://github.com/ollama/ollama
@@ -215,7 +252,7 @@ llm = ChatOllama(model="llama3.1:8b")
 ## Qwen [example](https://github.com/browser-use/browser-use/blob/main/examples/models/qwen.py)
 
 Currently, only `qwen-vl-max` is recommended for Browser Use. Other Qwen models, including `qwen-max`, have issues with the action schema format.
-Smaller Qwen models may return incorrect action schema formats (e.g., `actions: [{"go_to_url": "google.com"}]` instead of `[{"go_to_url": {"url": "google.com"}}]`). If you want to use other models, add concrete examples of the correct action format to your prompt.
+Smaller Qwen models may return incorrect action schema formats (e.g., `actions: [{"navigate": "google.com"}]` instead of `[{"navigate": {"url": "google.com"}}]`). If you want to use other models, add concrete examples of the correct action format to your prompt.
 
 ```python
 from browser_use import Agent, ChatOpenAI
