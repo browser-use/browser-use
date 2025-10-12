@@ -227,7 +227,7 @@ class Tools(Generic[Context]):
 			# so I revert this.
 			actual_seconds = min(max(seconds - 3, 0), 30)
 			memory = f'Waited for {seconds} seconds'
-			logger.info(f'🕒 waited for {actual_seconds} seconds + 3 seconds for LLM call')
+			logger.info(f'🕒 waited for {seconds} second{"" if seconds == 1 else "s"}')
 			await asyncio.sleep(actual_seconds)
 			return ActionResult(extracted_content=memory, long_term_memory=memory)
 
@@ -249,8 +249,8 @@ class Tools(Generic[Context]):
 				if node is None:
 					raise ValueError(f'Element index {params.index} not found in browser state')
 
-				# Highlight the element being clicked (async, non-blocking)
-				await browser_session.highlight_interaction_element(node)
+				# Highlight the element being clicked (truly non-blocking)
+				asyncio.create_task(browser_session.highlight_interaction_element(node))
 
 				event = browser_session.event_bus.dispatch(ClickElementEvent(node=node, while_holding_ctrl=params.ctrl or False))
 				await event
@@ -305,8 +305,8 @@ class Tools(Generic[Context]):
 			if node is None:
 				raise ValueError(f'Element index {params.index} not found in browser state')
 
-			# Highlight the element being typed into (async, non-blocking)
-			await browser_session.highlight_interaction_element(node)
+			# Highlight the element being typed into (truly non-blocking)
+			asyncio.create_task(browser_session.highlight_interaction_element(node))
 
 			# Dispatch type text event with node
 			try:
@@ -451,9 +451,9 @@ class Tools(Generic[Context]):
 			# Try to find a file input element near the selected element
 			file_input_node = find_file_input_near_element(node)
 
-			# Highlight the file input element if found
+			# Highlight the file input element if found (truly non-blocking)
 			if file_input_node:
-				await browser_session.highlight_interaction_element(file_input_node)
+				asyncio.create_task(browser_session.highlight_interaction_element(file_input_node))
 
 			# If not found near the selected element, fallback to finding the closest file input to current scroll position
 			if file_input_node is None:
@@ -488,8 +488,8 @@ class Tools(Generic[Context]):
 				if closest_file_input:
 					file_input_node = closest_file_input
 					logger.info(f'Found file input closest to scroll position (distance: {min_distance}px)')
-					# Highlight the fallback file input element
-					await browser_session.highlight_interaction_element(file_input_node)
+					# Highlight the fallback file input element (truly non-blocking)
+					asyncio.create_task(browser_session.highlight_interaction_element(file_input_node))
 				else:
 					msg = 'No file upload element found on the page'
 					logger.error(msg)
@@ -1178,8 +1178,6 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					if self.display_files_in_done_text:
 						file_msg = ''
 						for file_name in params.files_to_display:
-							if file_name == 'todo.md':
-								continue
 							file_content = file_system.display_file(file_name)
 							if file_content:
 								file_msg += f'\n\n{file_name}:\n{file_content}'
@@ -1191,8 +1189,6 @@ You will be given a query and the markdown of a webpage that has been filtered t
 							logger.warning('Agent wanted to display files but none were found')
 					else:
 						for file_name in params.files_to_display:
-							if file_name == 'todo.md':
-								continue
 							file_content = file_system.display_file(file_name)
 							if file_content:
 								attachments.append(file_name)

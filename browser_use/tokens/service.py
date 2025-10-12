@@ -494,9 +494,6 @@ class TokenCost:
 				f'⬅️ {C_YELLOW}{prompt_tokens_fmt}{prompt_cost_part}{C_RESET} | ➡️ {C_GREEN}{completion_tokens_fmt}{completion_cost_part}{C_RESET}'
 			)
 
-		# Log per-model breakdown
-		cost_logger.debug(f'📊 {C_BOLD}Per-Model Usage Breakdown{C_RESET}:')
-
 		for model, stats in summary.by_model.items():
 			# Format tokens
 			model_total_fmt = self._format_tokens(stats.total_tokens)

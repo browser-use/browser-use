@@ -620,7 +620,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	minimum_wait_page_load_time: float = Field(default=0.25, description='Minimum time to wait before capturing page state.')
 	wait_for_network_idle_page_load_time: float = Field(default=0.5, description='Time to wait for network idle.')
 
-	wait_between_actions: float = Field(default=0.5, description='Time to wait between actions.')
+	wait_between_actions: float = Field(default=0.25, description='Time to wait between actions.')
 
 	# --- UI/viewport/DOM ---
 	highlight_elements: bool = Field(default=True, description='Highlight interactive elements on the page.')
