@@ -59,10 +59,6 @@ temp-profile-*
 
 screenshot.png
 
-# Manta IDE Agents
-.claude/agents/code-builder.md
-.claude/agents/graph-editor.md
-
 # *.md
 
 all_github_issues_progress.md
