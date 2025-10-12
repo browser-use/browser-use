@@ -209,5 +209,6 @@ dev-dependencies = [
     "lmnr[all]==0.7.17",
     # "pytest-playwright-asyncio>=0.7.0",  # not actually needed I think
     "pytest-timeout>=2.4.0",
-    "pydantic_settings>=2.10.1"
+    "pydantic_settings>=2.10.1",
+    "browser-use-sdk>=2.0.4",
 ]
