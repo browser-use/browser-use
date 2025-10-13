@@ -54,8 +54,7 @@ BROWSER_USE_API_KEY=your-key
 Run your first agent:
 
 ```python
-from browser_use import Agent
-from browser_use.llm import ChatBrowserUse
+from browser_use import Agent, ChatBrowserUse
 
 agent = Agent(
     task="Find the number of stars of the browser-use repo",
@@ -75,7 +74,7 @@ Simply go to [Browser Use Cloud](https://docs.cloud.browser-use.com) grab a `BRO
 
 ```python
 from browser_use import Agent, Browser
-from browser_use.llm import ChatBrowserUse
+from browser_use import ChatBrowserUse
 
 # Use Browser-Use cloud browser service
 browser = Browser(

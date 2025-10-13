@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import platform
 
 from browser_use.browser.events import (
 	ClickElementEvent,
@@ -51,9 +50,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 			index_for_logging = element_node.element_index or 'unknown'
 			starting_target_id = self.browser_session.agent_focus.target_id
 
-			# Track initial number of tabs to detect new tab opening
-			initial_target_ids = await self.browser_session._cdp_get_all_pages()
-
 			# Check if element is a file input (should not be clicked)
 			if self.browser_session.is_file_input(element_node):
 				msg = f'Index {index_for_logging} - has an element which opens file upload dialog. To upload files please use a specific function to upload files'
@@ -65,7 +61,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Perform the actual click using internal implementation
 			click_metadata = None
-			click_metadata = await self._click_element_node_impl(element_node, while_holding_ctrl=event.while_holding_ctrl)
+			click_metadata = await self._click_element_node_impl(element_node)
 			download_path = None  # moved to downloads_watchdog.py
 
 			# Build success message
@@ -77,44 +73,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				self.logger.debug(f'🖱️ {msg}')
 			self.logger.debug(f'Element xpath: {element_node.xpath}')
 
-			# Wait a bit for potential new tab to be created
-			# This is necessary because tab creation is async and might not be immediate
-			await asyncio.sleep(0.1)
-
-			# Note: We don't clear cached state here - let multi_act handle DOM change detection
-			# by explicitly rebuilding and comparing when needed
-			# Successfully clicked, always reset session back to parent page session context
-			self.browser_session.agent_focus = await self.browser_session.get_or_create_cdp_session(
-				target_id=starting_target_id, focus=True
-			)
-
-			# Check if a new tab was opened
-			after_target_ids = await self.browser_session._cdp_get_all_pages()
-			new_target_ids = {t['targetId'] for t in after_target_ids} - {t['targetId'] for t in initial_target_ids}
-			new_tab_opened = len(new_target_ids) > 0
-
-			if new_target_ids:
-				new_tab_msg = 'New tab opened - switching to it'
-				msg += f' - {new_tab_msg}'
-				self.logger.info(f'🔗 {new_tab_msg}')
-
-				if not event.while_holding_ctrl:
-					# if while_holding_ctrl=False it means agent was not expecting a new tab to be opened
-					# so we need to switch to the new tab to make the agent aware of the surprise new tab that was opened.
-					# when while_holding_ctrl=True we dont actually want to switch to it,
-					# we should match human expectations of ctrl+click which opens in the background,
-					# so in multi_act it usually already sends [click_element_by_index(123, while_holding_ctrl=True), switch(tab_id=None)] anyway
-					from browser_use.browser.events import SwitchTabEvent
-
-					new_target_id = new_target_ids.pop()
-					switch_event = await self.event_bus.dispatch(SwitchTabEvent(target_id=new_target_id))
-					await switch_event
-
-			# Return click metadata including new tab information
-			result_metadata = click_metadata if isinstance(click_metadata, dict) else {}
-			result_metadata['new_tab_opened'] = new_tab_opened
-
-			return result_metadata
+			return click_metadata if isinstance(click_metadata, dict) else None
 		except Exception as e:
 			raise
 
@@ -161,7 +120,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					# Element not found or error - fall back to typing to the page
 					self.logger.warning(f'Failed to type to element {index_for_logging}: {e}. Falling back to page typing.')
 					try:
-						await asyncio.wait_for(self._click_element_node_impl(element_node, while_holding_ctrl=False), timeout=3.0)
+						await asyncio.wait_for(self._click_element_node_impl(element_node), timeout=3.0)
 					except Exception as e:
 						pass
 					await self._type_to_page(event.text)
@@ -192,11 +151,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Positive pixels = scroll down, negative = scroll up
 			pixels = event.amount if event.direction == 'down' else -event.amount
 
-			# CRITICAL: CDP calls time out without this, even if the target is already active
-			await self.browser_session.agent_focus.cdp_client.send.Target.activateTarget(
-				params={'targetId': self.browser_session.agent_focus.target_id}
-			)
-
 			# Element-specific scrolling if node is provided
 			if event.node is not None:
 				element_node = event.node
@@ -212,7 +166,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 						f'📜 Scrolled element {index_for_logging} container {event.direction} by {event.amount} pixels'
 					)
 
-					# CRITICAL: For iframe scrolling, we need to force a full DOM refresh
+					# For iframe scrolling, we need to force a full DOM refresh
 					# because the iframe's content has changed position
 					if is_iframe:
 						self.logger.debug('🔄 Forcing DOM refresh after iframe scroll')
@@ -227,11 +181,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Perform target-level scroll
 			await self._scroll_with_cdp_gesture(pixels)
 
-			# CRITICAL: CDP calls time out without this, even if the target is already active
-			await self.browser_session.agent_focus.cdp_client.send.Target.activateTarget(
-				params={'targetId': self.browser_session.agent_focus.target_id}
-			)
-
 			# Note: We don't clear cached state here - let multi_act handle DOM change detection
 			# by explicitly rebuilding and comparing when needed
 
@@ -243,13 +192,101 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 	# ========== Implementation Methods ==========
 
-	async def _click_element_node_impl(self, element_node, while_holding_ctrl: bool = False) -> dict | None:
+	async def _check_element_occlusion(self, backend_node_id: int, x: float, y: float, cdp_session) -> bool:
+		"""Check if an element is occluded by other elements at the given coordinates.
+
+		Args:
+			backend_node_id: The backend node ID of the target element
+			x: X coordinate to check
+			y: Y coordinate to check
+			cdp_session: CDP session to use
+
+		Returns:
+			True if element is occluded, False if clickable
+		"""
+		try:
+			session_id = cdp_session.session_id
+
+			# Get target element info for comparison
+			target_result = await cdp_session.cdp_client.send.DOM.resolveNode(
+				params={'backendNodeId': backend_node_id}, session_id=session_id
+			)
+
+			if 'object' not in target_result:
+				self.logger.debug('Could not resolve target element, assuming occluded')
+				return True
+
+			object_id = target_result['object']['objectId']
+
+			# Get target element info
+			target_info_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'objectId': object_id,
+					'functionDeclaration': """
+					function() {
+						const getElementInfo = (el) => {
+							return {
+								tagName: el.tagName,
+								id: el.id || '',
+								className: el.className || '',
+								textContent: (el.textContent || '').substring(0, 100)
+							};
+						};
+						
+						const elementAtPoint = document.elementFromPoint(arguments[0], arguments[1]);
+						if (!elementAtPoint) {
+							return { targetInfo: getElementInfo(this), isClickable: false };
+						}
+						
+						// Simple containment-based clickability logic
+						const isClickable = this === elementAtPoint || 
+							this.contains(elementAtPoint) ||
+							elementAtPoint.contains(this);
+							
+						return {
+							targetInfo: getElementInfo(this),
+							elementAtPointInfo: getElementInfo(elementAtPoint), 
+							isClickable: isClickable
+						};
+					}
+					""",
+					'arguments': [{'value': x}, {'value': y}],
+					'returnByValue': True,
+				},
+				session_id=session_id,
+			)
+
+			if 'result' not in target_info_result or 'value' not in target_info_result['result']:
+				self.logger.debug('Could not get target element info, assuming occluded')
+				return True
+
+			target_data = target_info_result['result']['value']
+			is_clickable = target_data.get('isClickable', False)
+
+			if is_clickable:
+				self.logger.debug('Element is clickable (target, contained, or semantically related)')
+				return False
+			else:
+				target_info = target_data.get('targetInfo', {})
+				element_at_point_info = target_data.get('elementAtPointInfo', {})
+				self.logger.debug(
+					f'Element is occluded. Target: {target_info.get("tagName", "unknown")} '
+					f'(id={target_info.get("id", "none")}), '
+					f'ElementAtPoint: {element_at_point_info.get("tagName", "unknown")} '
+					f'(id={element_at_point_info.get("id", "none")})'
+				)
+				return True
+
+		except Exception as e:
+			self.logger.debug(f'Occlusion check failed: {e}, assuming not occluded')
+			return False
+
+	async def _click_element_node_impl(self, element_node) -> dict | None:
 		"""
 		Click an element using pure CDP with multiple fallback methods for getting element geometry.
 
 		Args:
 			element_node: The DOM element to click
-			new_tab: If True, open any resulting navigation in a new tab
 		"""
 
 		try:
@@ -288,99 +325,43 @@ class DefaultActionWatchdog(BaseWatchdog):
 			viewport_width = layout_metrics['layoutViewport']['clientWidth']
 			viewport_height = layout_metrics['layoutViewport']['clientHeight']
 
-			# Try multiple methods to get element geometry
-			quads = []
-
-			# Method 1: Try DOM.getContentQuads first (best for inline elements and complex layouts)
+			# Scroll element into view FIRST before getting coordinates
 			try:
-				content_quads_result = await cdp_session.cdp_client.send.DOM.getContentQuads(
+				await cdp_session.cdp_client.send.DOM.scrollIntoViewIfNeeded(
 					params={'backendNodeId': backend_node_id}, session_id=session_id
 				)
-				if 'quads' in content_quads_result and content_quads_result['quads']:
-					quads = content_quads_result['quads']
-					self.logger.debug(f'Got {len(quads)} quads from DOM.getContentQuads')
+				await asyncio.sleep(0.05)  # Wait for scroll to complete
+				self.logger.debug('Scrolled element into view before getting coordinates')
 			except Exception as e:
-				self.logger.debug(f'DOM.getContentQuads failed: {e}')
+				self.logger.debug(f'Failed to scroll element into view: {e}')
 
-			# Method 2: Fall back to DOM.getBoxModel
-			if not quads:
-				try:
-					box_model = await cdp_session.cdp_client.send.DOM.getBoxModel(
-						params={'backendNodeId': backend_node_id}, session_id=session_id
-					)
-					if 'model' in box_model and 'content' in box_model['model']:
-						content_quad = box_model['model']['content']
-						if len(content_quad) >= 8:
-							# Convert box model format to quad format
-							quads = [
-								[
-									content_quad[0],
-									content_quad[1],  # x1, y1
-									content_quad[2],
-									content_quad[3],  # x2, y2
-									content_quad[4],
-									content_quad[5],  # x3, y3
-									content_quad[6],
-									content_quad[7],  # x4, y4
-								]
-							]
-							self.logger.debug('Got quad from DOM.getBoxModel')
-				except Exception as e:
-					self.logger.debug(f'DOM.getBoxModel failed: {e}')
+			# Get element coordinates using the unified method AFTER scrolling
+			element_rect = await self.browser_session.get_element_coordinates(backend_node_id, cdp_session)
 
-			# Method 3: Fall back to JavaScript getBoundingClientRect
-			if not quads:
-				try:
-					result = await cdp_session.cdp_client.send.DOM.resolveNode(
-						params={'backendNodeId': backend_node_id},
-						session_id=session_id,
-					)
-					if 'object' in result and 'objectId' in result['object']:
-						object_id = result['object']['objectId']
-
-						# Get bounding rect via JavaScript
-						bounds_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
-							params={
-								'functionDeclaration': """
-									function() {
-										const rect = this.getBoundingClientRect();
-										return {
-											x: rect.left,
-											y: rect.top,
-											width: rect.width,
-											height: rect.height
-										};
-									}
-								""",
-								'objectId': object_id,
-								'returnByValue': True,
-							},
-							session_id=session_id,
-						)
-
-						if 'result' in bounds_result and 'value' in bounds_result['result']:
-							rect = bounds_result['result']['value']
-							# Convert rect to quad format
-							x, y, w, h = rect['x'], rect['y'], rect['width'], rect['height']
-							quads = [
-								[
-									x,
-									y,  # top-left
-									x + w,
-									y,  # top-right
-									x + w,
-									y + h,  # bottom-right
-									x,
-									y + h,  # bottom-left
-								]
-							]
-							self.logger.debug('Got quad from getBoundingClientRect')
-				except Exception as e:
-					self.logger.debug(f'JavaScript getBoundingClientRect failed: {e}')
+			# Convert rect to quads format if we got coordinates
+			quads = []
+			if element_rect:
+				# Convert DOMRect to quad format
+				x, y, w, h = element_rect.x, element_rect.y, element_rect.width, element_rect.height
+				quads = [
+					[
+						x,
+						y,  # top-left
+						x + w,
+						y,  # top-right
+						x + w,
+						y + h,  # bottom-right
+						x,
+						y + h,  # bottom-left
+					]
+				]
+				self.logger.debug(
+					f'Got coordinates from unified method: {element_rect.x}, {element_rect.y}, {element_rect.width}x{element_rect.height}'
+				)
 
 			# If we still don't have quads, fall back to JS click
 			if not quads:
-				self.logger.warning('⚠️ Could not get element geometry from any method, falling back to JavaScript click')
+				self.logger.warning('Could not get element geometry from any method, falling back to JavaScript click')
 				try:
 					result = await cdp_session.cdp_client.send.DOM.resolveNode(
 						params={'backendNodeId': backend_node_id},
@@ -403,7 +384,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 					return None
 				except Exception as js_e:
 					self.logger.error(f'CDP JavaScript click also failed: {js_e}')
-					raise Exception(f'Failed to click element: {js_e}')
+					if 'No node with given id found' in str(js_e):
+						raise Exception('Element with given id not found')
+					else:
+						raise Exception(f'Failed to click element: {js_e}')
 
 			# Find the largest visible quad within the viewport
 			best_quad = None
@@ -450,18 +434,35 @@ class DefaultActionWatchdog(BaseWatchdog):
 			center_x = max(0, min(viewport_width - 1, center_x))
 			center_y = max(0, min(viewport_height - 1, center_y))
 
-			# Scroll element into view
-			try:
-				await cdp_session.cdp_client.send.DOM.scrollIntoViewIfNeeded(
-					params={'backendNodeId': backend_node_id}, session_id=session_id
-				)
-				await asyncio.sleep(0.05)  # Wait for scroll to complete
-			except Exception as e:
-				self.logger.debug(f'Failed to scroll element into view: {e}')
+			# Check for occlusion before attempting CDP click
+			is_occluded = await self._check_element_occlusion(backend_node_id, center_x, center_y, cdp_session)
 
-			# Perform the click using CDP
-			# TODO: do occlusion detection first, if element is not on the top, fire JS-based
-			# click event instead using xpath of x,y coordinate clicking, because we wont be able to click *through* occluding elements using x,y clicks
+			if is_occluded:
+				self.logger.debug('🚫 Element is occluded, falling back to JavaScript click')
+				try:
+					result = await cdp_session.cdp_client.send.DOM.resolveNode(
+						params={'backendNodeId': backend_node_id},
+						session_id=session_id,
+					)
+					assert 'object' in result and 'objectId' in result['object'], (
+						'Failed to find DOM element based on backendNodeId'
+					)
+					object_id = result['object']['objectId']
+
+					await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+						params={
+							'functionDeclaration': 'function() { this.click(); }',
+							'objectId': object_id,
+						},
+						session_id=session_id,
+					)
+					await asyncio.sleep(0.05)
+					return None
+				except Exception as js_e:
+					self.logger.error(f'JavaScript click fallback failed: {js_e}')
+					raise Exception(f'Failed to click occluded element: {js_e}')
+
+			# Perform the click using CDP (element is not occluded)
 			try:
 				self.logger.debug(f'👆 Dragging mouse over element before clicking x: {center_x}px y: {center_y}px ...')
 				# Move mouse to element
@@ -475,20 +476,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 				)
 				await asyncio.sleep(0.05)
 
-				# Calculate modifier bitmask for CDP
-				# CDP Modifier bits: Alt=1, Control=2, Meta/Command=4, Shift=8
-				modifiers = 0
-				if while_holding_ctrl:
-					# Use platform-appropriate modifier for "open in new tab"
-					if platform.system() == 'Darwin':
-						modifiers = 4  # Meta/Cmd key
-						self.logger.debug('⌘ Using Cmd modifier for new tab click...')
-					else:
-						modifiers = 2  # Control key
-						self.logger.debug('⌃ Using Ctrl modifier for new tab click...')
-
 				# Mouse down
-				self.logger.debug(f'👆🏾 Clicking x: {center_x}px y: {center_y}px with modifiers: {modifiers} ...')
+				self.logger.debug(f'👆🏾 Clicking x: {center_x}px y: {center_y}px ...')
 				try:
 					await asyncio.wait_for(
 						cdp_session.cdp_client.send.Input.dispatchMouseEvent(
@@ -498,7 +487,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 								'y': center_y,
 								'button': 'left',
 								'clickCount': 1,
-								'modifiers': modifiers,
 							},
 							session_id=session_id,
 						),
@@ -519,7 +507,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 								'y': center_y,
 								'button': 'left',
 								'clickCount': 1,
-								'modifiers': modifiers,
 							},
 							session_id=session_id,
 						),
@@ -552,8 +539,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 						},
 						session_id=session_id,
 					)
-					await asyncio.sleep(0.1)
-					# Navigation is handled by BrowserSession via events
 					return None
 				except Exception as js_e:
 					self.logger.error(f'CDP JavaScript click also failed: {js_e}')
@@ -561,7 +546,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 			finally:
 				# always re-focus back to original top-level page session context in case click opened a new tab/popup/window/dialog/etc.
 				cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
-				await cdp_session.cdp_client.send.Target.activateTarget(params={'targetId': cdp_session.target_id})
 				await cdp_session.cdp_client.send.Runtime.runIfWaitingForDebugger(session_id=cdp_session.session_id)
 
 		except URLNotAllowedError as e:
@@ -587,7 +571,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 		try:
 			# Get CDP client and session
 			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=True)
-			await cdp_session.cdp_client.send.Target.activateTarget(params={'targetId': cdp_session.target_id})
 
 			# Type the text character by character to the focused element
 			for char in text:
@@ -1037,15 +1020,24 @@ class DefaultActionWatchdog(BaseWatchdog):
 			)
 			object_id = result['object']['objectId']
 
-			# Use element_node absolute_position coordinates (correct coordinates including iframe offsets)
-			if element_node.absolute_position:
-				center_x = element_node.absolute_position.x + element_node.absolute_position.width / 2
-				center_y = element_node.absolute_position.y + element_node.absolute_position.height / 2
-				input_coordinates = {'input_x': center_x, 'input_y': center_y}
-				self.logger.debug(f'Using absolute_position coordinates: x={center_x:.1f}, y={center_y:.1f}')
+			# Get current coordinates using unified method
+			coords = await self.browser_session.get_element_coordinates(backend_node_id, cdp_session)
+			if coords:
+				center_x = coords.x + coords.width / 2
+				center_y = coords.y + coords.height / 2
+
+				# Check for occlusion before using coordinates for focus
+				is_occluded = await self._check_element_occlusion(backend_node_id, center_x, center_y, cdp_session)
+
+				if is_occluded:
+					self.logger.debug('🚫 Input element is occluded, skipping coordinate-based focus')
+					input_coordinates = None  # Force fallback to CDP-only focus
+				else:
+					input_coordinates = {'input_x': center_x, 'input_y': center_y}
+					self.logger.debug(f'Using unified coordinates: x={center_x:.1f}, y={center_y:.1f}')
 			else:
 				input_coordinates = None
-				self.logger.warning('⚠️ No absolute_position available for element')
+				self.logger.debug('No coordinates found for element')
 
 			# Ensure we have a valid object_id before proceeding
 			if not object_id:

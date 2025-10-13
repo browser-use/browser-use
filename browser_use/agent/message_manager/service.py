@@ -223,7 +223,7 @@ class MessageManager:
 		self.state.read_state_description = self.state.read_state_description.strip('\n')
 
 		if action_results:
-			action_results = f'Result:\n{action_results}'
+			action_results = f'Result\n{action_results}'
 		action_results = action_results.strip('\n') if action_results else None
 
 		# Simple 60k character limit for action_results

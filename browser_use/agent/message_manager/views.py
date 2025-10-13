@@ -36,8 +36,7 @@ class HistoryItem(BaseModel):
 
 		if self.error:
 			return f"""<{step_str}>
-{self.error}
-</{step_str}>"""
+{self.error}"""
 		elif self.system_message:
 			return self.system_message
 		else:
@@ -61,8 +60,7 @@ class HistoryItem(BaseModel):
 			content = '\n'.join(content_parts)
 
 			return f"""<{step_str}>
-{content}
-</{step_str}>"""
+{content}"""
 
 
 class MessageHistory(BaseModel):

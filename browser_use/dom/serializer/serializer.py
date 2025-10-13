@@ -823,7 +823,7 @@ class DOMTreeSerializer:
 				elif node.interactive_index is not None:
 					# Clickable (and possibly scrollable)
 					new_prefix = '*' if node.is_new else ''
-					scroll_prefix = '|SCROLL+' if should_show_scroll else '['
+					scroll_prefix = '|SCROLL[' if should_show_scroll else '['
 					line = f'{depth_str}{shadow_prefix}{new_prefix}{scroll_prefix}{node.interactive_index}]<{node.original_node.tag_name}'
 				elif node.original_node.tag_name.upper() == 'IFRAME':
 					# Iframe element (not interactive)
@@ -850,9 +850,9 @@ class DOMTreeSerializer:
 		elif node.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
 			# Shadow DOM representation - show clearly to LLM
 			if node.original_node.shadow_root_type and node.original_node.shadow_root_type.lower() == 'closed':
-				formatted_text.append(f'{depth_str}▼ Shadow Content (Closed)')
+				formatted_text.append(f'{depth_str}Closed Shadow')
 			else:
-				formatted_text.append(f'{depth_str}▼ Shadow Content (Open)')
+				formatted_text.append(f'{depth_str}Open Shadow')
 
 			next_depth += 1
 
@@ -864,7 +864,7 @@ class DOMTreeSerializer:
 
 			# Close shadow DOM indicator
 			if node.children:  # Only show close if we had content
-				formatted_text.append(f'{depth_str}▲ Shadow Content End')
+				formatted_text.append(f'{depth_str}Shadow End')
 
 		elif node.original_node.node_type == NodeType.TEXT_NODE:
 			# Include visible text
@@ -942,6 +942,18 @@ class DOMTreeSerializer:
 		role = node.ax_node.role if node.ax_node else None
 		if role and node.node_name == role:
 			attributes_to_include.pop('role', None)
+
+		# Remove type attribute if it matches the tag name (e.g. <button type="button">)
+		if 'type' in attributes_to_include and attributes_to_include['type'].lower() == node.node_name.lower():
+			del attributes_to_include['type']
+
+		# Remove invalid attribute if it's false (only show when true)
+		if 'invalid' in attributes_to_include and attributes_to_include['invalid'].lower() == 'false':
+			del attributes_to_include['invalid']
+
+		# Remove aria-expanded if we have expanded (prefer AX tree over HTML attribute)
+		if 'expanded' in attributes_to_include and 'aria-expanded' in attributes_to_include:
+			del attributes_to_include['aria-expanded']
 
 		attrs_to_remove_if_text_matches = ['aria-label', 'placeholder', 'title']
 		for attr in attrs_to_remove_if_text_matches:

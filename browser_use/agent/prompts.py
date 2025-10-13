@@ -187,7 +187,7 @@ class AgentMessagePrompt:
 		if page_stats['images'] > 0:
 			stats_text += f', {page_stats["images"]} images'
 		stats_text += f', {page_stats["total_elements"]} total elements'
-		stats_text += '</page_stats>\n\n'
+		stats_text += '</page_stats>\n'
 
 		elements_text = self.browser_state.dom_state.llm_representation(include_attributes=self.include_attributes)
 
@@ -268,23 +268,23 @@ class AgentMessagePrompt:
 Available tabs:
 {tabs_text}
 {page_info_text}
-{recent_events_text}{pdf_message}Elements you can interact with inside the viewport{truncated_text}:
+{recent_events_text}{pdf_message}Interactive elements{truncated_text}:
 {elements_text}
 """
 		return browser_state
 
 	def _get_agent_state_description(self) -> str:
 		if self.step_info:
-			step_info_description = f'Step {self.step_info.step_number + 1}. Maximum steps: {self.step_info.max_steps}\n'
+			step_info_description = f'Step{self.step_info.step_number + 1} maximum:{self.step_info.max_steps}\n'
 		else:
 			step_info_description = ''
 
 		time_str = datetime.now().strftime('%Y-%m-%d')
-		step_info_description += f'Current date: {time_str}'
+		step_info_description += f'Today:{time_str}'
 
 		_todo_contents = self.file_system.get_todo_contents() if self.file_system else ''
 		if not len(_todo_contents):
-			_todo_contents = '[Current todo.md is empty, fill it with your plan when applicable]'
+			_todo_contents = '[empty todo.md, fill it when applicable]'
 
 		agent_state = f"""
 <user_request>
@@ -298,12 +298,12 @@ Available tabs:
 </todo_contents>
 """
 		if self.sensitive_data:
-			agent_state += f'<sensitive_data>\n{self.sensitive_data}\n</sensitive_data>\n'
+			agent_state += f'<sensitive_data>{self.sensitive_data}</sensitive_data>\n'
 
-		agent_state += f'<step_info>\n{step_info_description}\n</step_info>\n'
+		agent_state += f'<step_info>{step_info_description}</step_info>\n'
 		if self.available_file_paths:
 			available_file_paths_text = '\n'.join(self.available_file_paths)
-			agent_state += f'<available_file_paths>\n{available_file_paths_text}\nUse absolute full paths when referencing these files.\n</available_file_paths>\n'
+			agent_state += f'<available_file_paths>{available_file_paths_text}\nUse with absolute paths</available_file_paths>\n'
 		return agent_state
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='get_user_message')
