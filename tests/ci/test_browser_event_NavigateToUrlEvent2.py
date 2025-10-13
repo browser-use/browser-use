@@ -250,7 +250,7 @@ async def test_navigation_events_link_clicks(httpserver):
 				new_tab_link_found = True
 				click_element = await session.get_dom_element_by_index(idx)
 				if click_element is not None:
-					session.event_bus.dispatch(ClickElementEvent(node=click_element, while_holding_ctrl=True))
+					session.event_bus.dispatch(ClickElementEvent(node=click_element))
 				break
 
 		if new_tab_link_found:

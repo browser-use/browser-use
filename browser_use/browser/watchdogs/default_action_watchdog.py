@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import platform
 
 from browser_use.browser.events import (
 	ClickElementEvent,
@@ -51,9 +50,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 			index_for_logging = element_node.element_index or 'unknown'
 			starting_target_id = self.browser_session.agent_focus.target_id
 
-			# Track initial number of tabs to detect new tab opening
-			initial_target_ids = await self.browser_session._cdp_get_all_pages()
-
 			# Check if element is a file input (should not be clicked)
 			if self.browser_session.is_file_input(element_node):
 				msg = f'Index {index_for_logging} - has an element which opens file upload dialog. To upload files please use a specific function to upload files'
@@ -65,7 +61,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Perform the actual click using internal implementation
 			click_metadata = None
-			click_metadata = await self._click_element_node_impl(element_node, while_holding_ctrl=event.while_holding_ctrl)
+			click_metadata = await self._click_element_node_impl(element_node)
 			download_path = None  # moved to downloads_watchdog.py
 
 			# Build success message
@@ -77,44 +73,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				self.logger.debug(f'🖱️ {msg}')
 			self.logger.debug(f'Element xpath: {element_node.xpath}')
 
-			# Wait a bit for potential new tab to be created
-			# This is necessary because tab creation is async and might not be immediate
-			await asyncio.sleep(0.1)
-
-			# Note: We don't clear cached state here - let multi_act handle DOM change detection
-			# by explicitly rebuilding and comparing when needed
-			# Successfully clicked, always reset session back to parent page session context
-			self.browser_session.agent_focus = await self.browser_session.get_or_create_cdp_session(
-				target_id=starting_target_id, focus=True
-			)
-
-			# Check if a new tab was opened
-			after_target_ids = await self.browser_session._cdp_get_all_pages()
-			new_target_ids = {t['targetId'] for t in after_target_ids} - {t['targetId'] for t in initial_target_ids}
-			new_tab_opened = len(new_target_ids) > 0
-
-			if new_target_ids:
-				new_tab_msg = 'New tab opened - switching to it'
-				msg += f' - {new_tab_msg}'
-				self.logger.info(f'🔗 {new_tab_msg}')
-
-				if not event.while_holding_ctrl:
-					# if while_holding_ctrl=False it means agent was not expecting a new tab to be opened
-					# so we need to switch to the new tab to make the agent aware of the surprise new tab that was opened.
-					# when while_holding_ctrl=True we dont actually want to switch to it,
-					# we should match human expectations of ctrl+click which opens in the background,
-					# so in multi_act it usually already sends [click_element_by_index(123, while_holding_ctrl=True), switch(tab_id=None)] anyway
-					from browser_use.browser.events import SwitchTabEvent
-
-					new_target_id = new_target_ids.pop()
-					switch_event = await self.event_bus.dispatch(SwitchTabEvent(target_id=new_target_id))
-					await switch_event
-
-			# Return click metadata including new tab information
-			result_metadata = click_metadata if isinstance(click_metadata, dict) else {}
-			result_metadata['new_tab_opened'] = new_tab_opened
-
-			return result_metadata
+			return click_metadata if isinstance(click_metadata, dict) else None
 		except Exception as e:
 			raise
 
@@ -161,7 +120,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					# Element not found or error - fall back to typing to the page
 					self.logger.warning(f'Failed to type to element {index_for_logging}: {e}. Falling back to page typing.')
 					try:
-						await asyncio.wait_for(self._click_element_node_impl(element_node, while_holding_ctrl=False), timeout=3.0)
+						await asyncio.wait_for(self._click_element_node_impl(element_node), timeout=3.0)
 					except Exception as e:
 						pass
 					await self._type_to_page(event.text)
@@ -192,11 +151,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Positive pixels = scroll down, negative = scroll up
 			pixels = event.amount if event.direction == 'down' else -event.amount
 
-			# CRITICAL: CDP calls time out without this, even if the target is already active
-			await self.browser_session.agent_focus.cdp_client.send.Target.activateTarget(
-				params={'targetId': self.browser_session.agent_focus.target_id}
-			)
-
 			# Element-specific scrolling if node is provided
 			if event.node is not None:
 				element_node = event.node
@@ -212,7 +166,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 						f'📜 Scrolled element {index_for_logging} container {event.direction} by {event.amount} pixels'
 					)
 
-					# CRITICAL: For iframe scrolling, we need to force a full DOM refresh
+					# For iframe scrolling, we need to force a full DOM refresh
 					# because the iframe's content has changed position
 					if is_iframe:
 						self.logger.debug('🔄 Forcing DOM refresh after iframe scroll')
@@ -226,11 +180,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Perform target-level scroll
 			await self._scroll_with_cdp_gesture(pixels)
-
-			# CRITICAL: CDP calls time out without this, even if the target is already active
-			await self.browser_session.agent_focus.cdp_client.send.Target.activateTarget(
-				params={'targetId': self.browser_session.agent_focus.target_id}
-			)
 
 			# Note: We don't clear cached state here - let multi_act handle DOM change detection
 			# by explicitly rebuilding and comparing when needed
@@ -332,13 +281,12 @@ class DefaultActionWatchdog(BaseWatchdog):
 			self.logger.debug(f'Occlusion check failed: {e}, assuming not occluded')
 			return False
 
-	async def _click_element_node_impl(self, element_node, while_holding_ctrl: bool = False) -> dict | None:
+	async def _click_element_node_impl(self, element_node) -> dict | None:
 		"""
 		Click an element using pure CDP with multiple fallback methods for getting element geometry.
 
 		Args:
 			element_node: The DOM element to click
-			new_tab: If True, open any resulting navigation in a new tab
 		"""
 
 		try:
@@ -528,20 +476,8 @@ class DefaultActionWatchdog(BaseWatchdog):
 				)
 				await asyncio.sleep(0.05)
 
-				# Calculate modifier bitmask for CDP
-				# CDP Modifier bits: Alt=1, Control=2, Meta/Command=4, Shift=8
-				modifiers = 0
-				if while_holding_ctrl:
-					# Use platform-appropriate modifier for "open in new tab"
-					if platform.system() == 'Darwin':
-						modifiers = 4  # Meta/Cmd key
-						self.logger.debug('⌘ Using Cmd modifier for new tab click...')
-					else:
-						modifiers = 2  # Control key
-						self.logger.debug('⌃ Using Ctrl modifier for new tab click...')
-
 				# Mouse down
-				self.logger.debug(f'👆🏾 Clicking x: {center_x}px y: {center_y}px with modifiers: {modifiers} ...')
+				self.logger.debug(f'👆🏾 Clicking x: {center_x}px y: {center_y}px ...')
 				try:
 					await asyncio.wait_for(
 						cdp_session.cdp_client.send.Input.dispatchMouseEvent(
@@ -551,7 +487,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 								'y': center_y,
 								'button': 'left',
 								'clickCount': 1,
-								'modifiers': modifiers,
 							},
 							session_id=session_id,
 						),
@@ -572,7 +507,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 								'y': center_y,
 								'button': 'left',
 								'clickCount': 1,
-								'modifiers': modifiers,
 							},
 							session_id=session_id,
 						),
@@ -605,8 +539,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 						},
 						session_id=session_id,
 					)
-					await asyncio.sleep(0.1)
-					# Navigation is handled by BrowserSession via events
 					return None
 				except Exception as js_e:
 					self.logger.error(f'CDP JavaScript click also failed: {js_e}')
@@ -614,7 +546,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 			finally:
 				# always re-focus back to original top-level page session context in case click opened a new tab/popup/window/dialog/etc.
 				cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
-				await cdp_session.cdp_client.send.Target.activateTarget(params={'targetId': cdp_session.target_id})
 				await cdp_session.cdp_client.send.Runtime.runIfWaitingForDebugger(session_id=cdp_session.session_id)
 
 		except URLNotAllowedError as e:
@@ -640,7 +571,6 @@ class DefaultActionWatchdog(BaseWatchdog):
 		try:
 			# Get CDP client and session
 			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=True)
-			await cdp_session.cdp_client.send.Target.activateTarget(params={'targetId': cdp_session.target_id})
 
 			# Type the text character by character to the focused element
 			for char in text:

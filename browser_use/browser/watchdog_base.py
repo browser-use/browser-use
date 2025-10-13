@@ -118,7 +118,7 @@ class BaseWatchdog(BaseModel):
 						'👈 by Agent', '👉 returned to  Agent'
 					)
 					browser_session.logger.debug(
-						f'🚌 {watchdog_and_handler_str} ✅ Succeeded ({time_elapsed:.2f}s){result_summary}{parents_summary}'
+						f'🚌 {watchdog_and_handler_str} Succeeded ({time_elapsed:.2f}s){result_summary}{parents_summary}'
 					)
 					return result
 				except Exception as e:
@@ -131,18 +131,16 @@ class BaseWatchdog(BaseModel):
 
 					# attempt to repair potentially crashed CDP session
 					try:
+						target_id_to_restore = None
 						if browser_session.agent_focus and browser_session.agent_focus.target_id:
-							# Common issue with CDP, some calls need the target to be active/foreground to succeed:
-							#   screenshot, scroll, Page.handleJavaScriptDialog, and some others
+							# Common issue with CDP, recreate session with new socket to recover
+							target_id_to_restore = browser_session.agent_focus.target_id
 							browser_session.logger.debug(
-								f'🚌 {watchdog_and_handler_str} ⚠️ Re-foregrounding target to try and recover crashed CDP session\n\t{browser_session.agent_focus}'
+								f'🚌 {watchdog_and_handler_str} ⚠️ Recreating session to try and recover crashed CDP session\n\t{browser_session.agent_focus}'
 							)
 							del browser_session._cdp_session_pool[browser_session.agent_focus.target_id]
 							browser_session.agent_focus = await browser_session.get_or_create_cdp_session(
-								target_id=browser_session.agent_focus.target_id, new_socket=True
-							)
-							await browser_session.agent_focus.cdp_client.send.Target.activateTarget(
-								params={'targetId': browser_session.agent_focus.target_id}
+								target_id=target_id_to_restore, new_socket=True
 							)
 						else:
 							await browser_session.get_or_create_cdp_session(target_id=None, new_socket=True, focus=True)

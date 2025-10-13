@@ -252,18 +252,11 @@ class Tools(Generic[Context]):
 				# Highlight the element being clicked (truly non-blocking)
 				asyncio.create_task(browser_session.highlight_interaction_element(node))
 
-				event = browser_session.event_bus.dispatch(ClickElementEvent(node=node, while_holding_ctrl=params.ctrl or False))
+				event = browser_session.event_bus.dispatch(ClickElementEvent(node=node))
 				await event
 				# Wait for handler to complete and get any exception or metadata
 				click_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
 				memory = 'Clicked element'
-
-				if params.ctrl:
-					memory += ' and opened in new tab'
-
-				# Check if a new tab was opened (from watchdog metadata)
-				elif isinstance(click_metadata, dict) and click_metadata.get('new_tab_opened'):
-					memory += ' - which opened a new tab'
 
 				msg = f'🖱️ {memory}'
 				logger.info(msg)
@@ -672,8 +665,8 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					memory = extracted_content
 					include_extracted_content_only_once = False
 				else:
-					save_result = await file_system.save_extracted_content(extracted_content)
-					memory = f'Extracted content from {current_url} for query: {query}\nContent saved to file system: {save_result} and displayed in <read_state>.'
+					file_name = await file_system.save_extracted_content(extracted_content)
+					memory = f'Query: {query}\nContent in {file_name} and once in <read_state>.'
 					include_extracted_content_only_once = True
 
 				logger.info(f'📄 {memory}')
@@ -703,7 +696,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 						return ActionResult(error=msg)
 
 				direction = 'down' if params.down else 'up'
-				target = 'the page' if params.index is None or params.index == 0 else f'element {params.index}'
+				target = f'element {params.index}' if params.index is not None and params.index != 0 else ''
 
 				# Get actual viewport height for more accurate scrolling
 				try:
@@ -770,9 +763,9 @@ You will be given a query and the markdown of a webpage that has been filtered t
 							logger.warning(f'Fractional scroll failed: {e}')
 
 					if params.pages == 1.0:
-						long_term_memory = f'Scrolled {direction} {target} by one page ({viewport_height}px)'
+						long_term_memory = f'Scrolled {direction} {target} {viewport_height}px'.replace('  ', ' ')
 					else:
-						long_term_memory = f'Scrolled {direction} {target} by {completed_scrolls:.1f} pages (requested: {params.pages}, {viewport_height}px per page)'
+						long_term_memory = f'Scrolled {direction} {target} {completed_scrolls:.1f} pages'.replace('  ', ' ')
 				else:
 					# For fractional pages <1.0, do single scroll
 					pixels = int(params.pages * viewport_height)
@@ -781,7 +774,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					)
 					await event
 					await event.event_result(raise_if_any=True, raise_if_none=False)
-					long_term_memory = f'Scrolled {direction} {target} by {params.pages} pages ({viewport_height}px per page)'
+					long_term_memory = f'Scrolled {direction} {target} {params.pages} pages'.replace('  ', ' ')
 
 				msg = f'🔍 {long_term_memory}'
 				logger.info(msg)

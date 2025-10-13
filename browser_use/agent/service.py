@@ -189,7 +189,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				llm = get_llm_by_name(default_llm_name)
 			else:
 				# No default LLM specified, use the original default
-				from browser_use.llm import ChatBrowserUse
+				from browser_use import ChatBrowserUse
 
 				llm = ChatBrowserUse()
 
@@ -239,7 +239,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.available_file_paths = available_file_paths
 
 		# Core components
-		self.task = task
+		self.task = self._enhance_task_with_schema(task, output_model_schema)
 		self.llm = llm
 		self.directly_open_url = directly_open_url
 		self.include_recent_events = include_recent_events
@@ -443,6 +443,24 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Event-based pause control (kept out of AgentState for serialization)
 		self._external_pause_event = asyncio.Event()
 		self._external_pause_event.set()
+
+	def _enhance_task_with_schema(self, task: str, output_model_schema: type[AgentStructuredOutput] | None) -> str:
+		"""Enhance task description with output schema information if provided."""
+		if output_model_schema is None:
+			return task
+
+		try:
+			schema = output_model_schema.model_json_schema()
+			import json
+
+			schema_json = json.dumps(schema, indent=2)
+
+			enhancement = f'\nExpected output format: {output_model_schema.__name__}\n{schema_json}'
+			return task + enhancement
+		except Exception as e:
+			self.logger.debug(f'Could not parse output schema: {e}')
+
+		return task
 
 	@property
 	def logger(self) -> logging.Logger:
@@ -1443,9 +1461,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# Emit CreateAgentSessionEvent at the START of run()
 				self.eventbus.dispatch(CreateAgentSessionEvent.from_agent(self))
 
-				# Brief delay to ensure session is created in backend before sending task
-				await asyncio.sleep(0.2)
-
 				self.state.session_initialized = True
 
 			self.logger.debug('📡 Dispatching CreateAgentTaskEvent...')
@@ -1609,11 +1624,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	@observe_debug(ignore_input=True, ignore_output=True)
 	@time_execution_async('--multi_act')
-	async def multi_act(
-		self,
-		actions: list[ActionModel],
-		check_for_new_elements: bool = True,
-	) -> list[ActionResult]:
+	async def multi_act(self, actions: list[ActionModel]) -> list[ActionResult]:
 		"""Execute multiple actions"""
 		results: list[ActionResult] = []
 		time_elapsed = 0
@@ -1645,6 +1656,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			# wait between actions (only after first action)
 			if i > 0:
+				self.logger.debug(f'Waiting {self.browser_profile.wait_between_actions} seconds between actions')
 				await asyncio.sleep(self.browser_profile.wait_between_actions)
 
 			try:
@@ -1798,7 +1810,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Execute initial actions if provided
 		if self.initial_actions and not self.state.follow_up_task:
 			self.logger.debug(f'⚡ Executing {len(self.initial_actions)} initial actions...')
-			result = await self.multi_act(self.initial_actions, check_for_new_elements=False)
+			result = await self.multi_act(self.initial_actions)
 			# update result 1 to mention that its was automatically loaded
 			if result and self.initial_url and result[0].long_term_memory:
 				result[0].long_term_memory = f'Found initial url and automatically loaded it. {result[0].long_term_memory}'
