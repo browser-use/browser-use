@@ -613,7 +613,16 @@ class DomService:
 
 			if 'children' in node and node['children']:
 				dom_tree_node.children_nodes = []
+				# Build set of shadow root node IDs to filter them out from children
+				shadow_root_node_ids = set()
+				if 'shadowRoots' in node and node['shadowRoots']:
+					for shadow_root in node['shadowRoots']:
+						shadow_root_node_ids.add(shadow_root['nodeId'])
+
 				for child in node['children']:
+					# Skip shadow roots - they should only be in shadow_roots list
+					if child['nodeId'] in shadow_root_node_ids:
+						continue
 					dom_tree_node.children_nodes.append(
 						await _construct_enhanced_node(child, updated_html_frames, total_frame_offset)
 					)

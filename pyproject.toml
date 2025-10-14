@@ -40,8 +40,8 @@ dependencies = [
     "reportlab>=4.0.0",
     "cdp-use>=1.4.0",
     "pyotp>=2.9.0",
-    "html2text>=2025.4.15",
     "pillow>=11.2.1",
+    "markdownify>=1.2.0",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -133,7 +133,7 @@ skip-magic-trailing-comma = false
 
 [tool.pyright]
 typeCheckingMode = "basic"
-exclude = [".venv/", ".git/", "__pycache__/", "./test_*.py", "./debug_*.py", "private_example/", "debug/*", "tests/scripts/*", "tests/old/*", "browser_use/dom/playground/*"]
+exclude = [".venv/", ".git/", "__pycache__/", "./test_*.py", "./debug_*.py", "private_example/", "debug/*", "tests/scripts/*", "tests/old/*", "browser_use/dom/playground/*", "examples/use-cases/onepassword.py", "browser_use/llm/oci_raw/*"]
 venvPath = "."
 venv = ".venv"
 

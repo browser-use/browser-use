@@ -470,47 +470,11 @@ Before you return the element index, reason about the state and elements for a s
 		if not llm:
 			raise ValueError('LLM not provided')
 
-		# Extract clean markdown from the page
-		session_id = await self._ensure_session()
+		# Extract clean markdown using the same method as in tools/service.py
 		try:
-			body_id = await self._client.send.DOM.getDocument(session_id=session_id)
-			page_html_result = await self._client.send.DOM.getOuterHTML(
-				params={'backendNodeId': body_id['root']['backendNodeId']}, session_id=session_id
-			)
-			page_html = page_html_result['outerHTML']
+			content, content_stats = await self._extract_clean_markdown()
 		except Exception as e:
-			raise RuntimeError(f"Couldn't extract page content: {e}")
-
-		# Convert HTML to clean markdown
-		import html2text
-
-		h = html2text.HTML2Text()
-		h.ignore_links = False
-		h.ignore_images = True
-		h.ignore_emphasis = False
-		h.body_width = 0  # Don't wrap lines
-		h.unicode_snob = True
-		h.skip_internal_links = True
-		markdown_content = h.handle(page_html)
-
-		# Clean up the markdown
-		import re
-
-		# Remove URL encoding artifacts
-		markdown_content = re.sub(r'%[0-9A-Fa-f]{2}', '', markdown_content)
-
-		# Compress excessive newlines
-		markdown_content = re.sub(r'\n{4,}', '\n\n\n', markdown_content)
-
-		# Remove very short lines (likely artifacts)
-		lines = markdown_content.split('\n')
-		filtered_lines = []
-		for line in lines:
-			stripped = line.strip()
-			if len(stripped) > 2:  # Keep lines with substantial content
-				filtered_lines.append(line)
-
-		markdown_content = '\n'.join(filtered_lines).strip()
+			raise RuntimeError(f'Could not extract clean markdown: {type(e).__name__}')
 
 		# System prompt for structured extraction
 		system_prompt = """
@@ -535,7 +499,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 """.strip()
 
 		# Build prompt with just query and content
-		prompt_content = f'<query>\n{prompt}\n</query>\n\n<webpage_content>\n{markdown_content}\n</webpage_content>'
+		prompt_content = f'<query>\n{prompt}\n</query>\n\n<webpage_content>\n{content}\n</webpage_content>'
 
 		# Send to LLM with structured output
 		import asyncio
@@ -552,3 +516,13 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			return response.completion
 		except Exception as e:
 			raise RuntimeError(str(e))
+
+	async def _extract_clean_markdown(self, extract_links: bool = False) -> tuple[str, dict]:
+		"""Extract clean markdown from the current page using enhanced DOM tree.
+
+		Uses the shared markdown extractor for consistency with tools/service.py.
+		"""
+		from browser_use.dom.markdown_extractor import extract_clean_markdown
+
+		dom_service = self.dom_service
+		return await extract_clean_markdown(dom_service=dom_service, target_id=self._target_id, extract_links=extract_links)
