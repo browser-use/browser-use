@@ -8,6 +8,10 @@ This example demonstrates how to:
 - Handle a realistic end-to-end scenario
 
 This is the most advanced getting started example, combining all previous concepts.
+
+Setup:
+1. Get your API key from https://cloud.browser-use.com/dashboard/api
+2. Set environment variable: export BROWSER_USE_API_KEY="your-key"
 """
 
 import asyncio
@@ -21,12 +25,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from browser_use import Agent, ChatOpenAI
+from browser_use import Agent, ChatBrowserUse
 
 
 async def main():
 	# Initialize the model
-	llm = ChatOpenAI(model='gpt-4.1-mini')
+	llm = ChatBrowserUse()
 
 	# Define a multi-step task
 	task = """

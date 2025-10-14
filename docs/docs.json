@@ -116,186 +116,152 @@
       "destination": "/customize/agent/prompting-guide"
     },
     {
-      "source":"/api-reference/browser-profiles/get-browser-profile",
-      "destination":"https://docs.cloud.browser-use.com/api-reference/v-2-api-current/profiles/get-profile-profiles-profile-id-get"
+      "source": "/api-reference/browser-profiles/get-browser-profile",
+      "destination": "https://docs.cloud.browser-use.com/api-reference/v-2-api-current/profiles/get-profile-profiles-profile-id-get"
     },
     {
       "source": "/cloud/v2/quickstart",
       "destination": "https://docs.cloud.browser-use.com/get-started/quickstart"
+    },
+    {
+      "source": "/cloud/v1/*",
+      "destination": "https://docs.cloud.browser-use.com"
     }
   ],
   "navigation": {
-    "tabs": [
+    "groups": [
       {
-        "tab": "Library",
-        "groups": [
+        "group": "Get Started",
+        "pages": [
+          "introduction",
+          "quickstart",
+          "quickstart_llm"
+        ]
+      },
+      {
+        "group": "Customize",
+        "pages": [
           {
-            "group": "Get Started",
+            "group": "Agent",
+            "icon": "robot",
+            "isDefaultOpen": true,
             "pages": [
-              "introduction",
-              "quickstart",
-              "quickstart_llm"
+              "customize/agent/basics",
+              "customize/agent/supported-models",
+              "customize/agent/prompting-guide",
+              "customize/agent/output-format",
+              "customize/agent/all-parameters"
             ]
           },
           {
-            "group": "Customize",
+            "group": "Browser",
+            "icon": "window",
+            "isDefaultOpen": false,
             "pages": [
-              {
-                "group": "Agent",
-                "icon": "robot",
-                "isDefaultOpen": true,
-                "pages": [
-                  "customize/agent/basics",
-                  "customize/agent/supported-models",
-                  "customize/agent/prompting-guide",
-                  "customize/agent/output-format",
-                  "customize/agent/all-parameters"
-                ]
-              },
-              {
-                "group": "Browser",
-                "icon": "window",
-                "isDefaultOpen": false,
-                "pages": [
-                  "customize/browser/basics",
-                  "customize/browser/real-browser",
-                  "customize/browser/remote",
-                  "customize/browser/all-parameters"
-                ]
-              },
-              {
-                "group": "Tools",
-                "icon": "wrench",
-                "isDefaultOpen": false,
-                "pages": [
-                  "customize/tools/basics",
-                  "customize/tools/available",
-                  "customize/tools/add",
-                  "customize/tools/remove",
-                  "customize/tools/response"
-                ]
-              },
-              {
-                "group": "Actor",
-                "icon": "terminal",
-                "isDefaultOpen": false,
-                "pages": [
-                  "customize/actor/basics",
-                  "customize/actor/examples",
-                  "customize/actor/all-parameters"
-                ]
-              },
-              {
-                "group": "Integration",
-                "icon": "plug",
-                "isDefaultOpen": false,
-                "pages": [
-                  "customize/mcp-server"
-                ]
-              }
+              "customize/browser/basics",
+              "customize/browser/real-browser",
+              "customize/browser/remote",
+              "customize/browser/all-parameters"
             ]
           },
           {
-            "group": "Examples",
+            "group": "Tools",
+            "icon": "wrench",
+            "isDefaultOpen": false,
             "pages": [
-              {
-                "group": "Templates",
-                "icon": "folder",
-                "pages": [
-                  "examples/templates/fast-agent",
-                  "examples/templates/follow-up-tasks",
-                  "examples/templates/parallel-browser",
-                  "examples/templates/playwright-integration",
-                  "examples/templates/sensitive-data",
-                  "examples/templates/secure",
-                  "examples/templates/more-examples"
-                ]
-              },
-              {
-                "group": "Apps",
-                "icon": "box-open",
-                "pages": [
-                  "examples/apps/ad-use",
-                  "examples/apps/vibetest-use",
-                  "examples/apps/news-use",
-                  "examples/apps/msg-use"
-                ]
-              }
+              "customize/tools/basics",
+              "customize/tools/available",
+              "customize/tools/add",
+              "customize/tools/remove",
+              "customize/tools/response"
             ]
           },
           {
-            "group": "Development",
+            "group": "Actor",
+            "icon": "terminal",
+            "isDefaultOpen": false,
             "pages": [
-              {
-                "group": "Contribution",
-                "icon": "github",
-                "isDefaultOpen": true,
-                "pages": [
-                  "development/setup/local-setup",
-                  "development/setup/contribution-guide"
-                ]
-              },
-              {
-                "group": "Advanced",
-                "icon": "gear",
-                "isDefaultOpen": false,
-                "pages": [
-                  "customize/hooks"
-                ]
-              },
-              {
-                "group": "Monitoring",
-                "icon": "chart-mixed",
-                "isDefaultOpen": false,
-                "pages": [
-                  "development/monitoring/observability",
-                  "development/monitoring/telemetry"
-                ]
-              },
-              "development/get-help"
+              "customize/actor/basics",
+              "customize/actor/examples",
+              "customize/actor/all-parameters"
+            ]
+          },
+          {
+            "group": "Integration",
+            "icon": "plug",
+            "isDefaultOpen": false,
+            "pages": [
+              "customize/mcp-server"
             ]
           }
         ]
       },
       {
-        "tab": "Cloud",
-        "hidden": true,
-        "versions": [
+        "group": "Examples",
+        "pages": [
           {
-            "version": "v1",
-            "groups": [
-              {
-                "group": "Get Started",
-                "pages": [
-                  "cloud/v1/quickstart",
-                  "cloud/v1/search",
-                  "cloud/v1/pricing"
-                ]
-              },
-              {
-                "group": "Guides",
-                "pages": [
-                  "cloud/v1/implementation",
-                  "cloud/v1/custom-sdk",
-                  "cloud/v1/webhooks",
-                  "cloud/v1/authentication",
-                  "cloud/v1/n8n-browser-use-integration"
-                ]
-              },
-              {
-                "group": "REST API reference",
-                "openapi": "https://api.browser-use.com/api/v1/openapi.json"
-              }
+            "group": "Templates",
+            "icon": "folder",
+            "pages": [
+              "examples/templates/fast-agent",
+              "examples/templates/follow-up-tasks",
+              "examples/templates/parallel-browser",
+              "examples/templates/playwright-integration",
+              "examples/templates/sensitive-data",
+              "examples/templates/secure",
+              "examples/templates/more-examples"
+            ]
+          },
+          {
+            "group": "Apps",
+            "icon": "box-open",
+            "pages": [
+              "examples/apps/ad-use",
+              "examples/apps/vibetest-use",
+              "examples/apps/news-use",
+              "examples/apps/msg-use"
             ]
           }
+        ]
+      },
+      {
+        "group": "Development",
+        "pages": [
+          {
+            "group": "Contribution",
+            "icon": "github",
+            "isDefaultOpen": true,
+            "pages": [
+              "development/setup/local-setup",
+              "development/setup/contribution-guide"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "icon": "gear",
+            "isDefaultOpen": false,
+            "pages": [
+              "customize/hooks"
+            ]
+          },
+          {
+            "group": "Monitoring",
+            "icon": "chart-mixed",
+            "isDefaultOpen": false,
+            "pages": [
+              "development/monitoring/observability",
+              "development/monitoring/telemetry",
+              "development/monitoring/costs"
+            ]
+          },
+          "development/get-help"
         ]
       }
     ]
   },
   "logo": {
     "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg",
-    "href": "https://browser-use.com"
+    "dark": "/logo/dark.svg"
   },
   "api": {
     "playground": {

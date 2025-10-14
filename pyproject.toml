@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.7.12"
+version = "0.8.0"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -40,8 +40,8 @@ dependencies = [
     "reportlab>=4.0.0",
     "cdp-use>=1.4.0",
     "pyotp>=2.9.0",
-    "html2text>=2025.4.15",
     "pillow>=11.2.1",
+    "markdownify>=1.2.0",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -61,6 +61,9 @@ cli = [
 ]
 aws = [
     "boto3>=1.38.45"
+]
+oci = [
+    "oci>=2.126.4",
 ]
 video = [
     "imageio[ffmpeg]>=2.37.0",
@@ -83,8 +86,11 @@ eval = [
     "hyperbrowser==0.47.0",
     "browserbase==1.4.0",
 ]
+cli-oci = [
+    "browser-use[cli,oci]",
+]
 all = [
-    "browser-use[cli,examples,aws]",
+    "browser-use[cli,examples,aws,oci]",
 ]
 
 # will prefer to use local source code checked out in ../../browser-use (if present) instead of pypi browser-use package
@@ -105,7 +111,7 @@ build-backend = "hatchling.build"
 
 
 [tool.codespell]
-ignore-words-list = "bu,wit,dont,cant,wont,re-use,re-used,re-using,re-usable,thats,doesnt,doubleclick"
+ignore-words-list = "bu,wit,dont,cant,wont,re-use,re-used,re-using,re-usable,thats,doesnt,doubleclick,finaly,finalY"
 skip = "*.json"
 
 [tool.ruff]
@@ -127,7 +133,7 @@ skip-magic-trailing-comma = false
 
 [tool.pyright]
 typeCheckingMode = "basic"
-exclude = [".venv/", ".git/", "__pycache__/", "./test_*.py", "./debug_*.py", "private_example/", "debug/*", "tests/scripts/*", "tests/old/*", "browser_use/dom/playground/*"]
+exclude = [".venv/", ".git/", "__pycache__/", "./test_*.py", "./debug_*.py", "private_example/", "debug/*", "tests/scripts/*", "tests/old/*", "browser_use/dom/playground/*", "examples/use-cases/onepassword.py", "browser_use/llm/oci_raw/*"]
 venvPath = "."
 venv = ".venv"
 

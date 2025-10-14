@@ -23,7 +23,6 @@ from browser_use.agent.cloud_events import (
 )
 from browser_use.agent.message_manager.utils import save_conversation
 from browser_use.llm.base import BaseChatModel
-from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.messages import BaseMessage, ContentPartImageParam, ContentPartTextParam, UserMessage
 from browser_use.tokens.service import TokenCost
 
@@ -60,7 +59,6 @@ from browser_use.config import CONFIG
 from browser_use.dom.views import DOMInteractedElement
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.observability import observe, observe_debug
-from browser_use.sync import CloudSync
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import AgentTelemetryEvent
 from browser_use.tools.registry.views import ActionModel
@@ -107,15 +105,13 @@ def log_response(response: AgentOutput, registry=None, logger=None) -> None:
 
 	# Always log memory if present
 	if response.current_state.memory:
-		logger.debug(f'🧠 Memory: {response.current_state.memory}')
+		logger.info(f'  🧠 Memory: {response.current_state.memory}')
 
 	# Only log next goal if it's not empty
 	next_goal = response.current_state.next_goal
 	if next_goal:
 		# Blue color for next goal
 		logger.info(f'  \033[34m🎯 Next goal: {next_goal}\033[0m')
-	else:
-		logger.info('')  # Add empty line for spacing
 
 
 Context = TypeVar('Context')
@@ -172,7 +168,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		source: str | None = None,
 		file_system_path: str | None = None,
 		task_id: str | None = None,
-		cloud_sync: CloudSync | None = None,
 		calculate_cost: bool = False,
 		display_files_in_done_text: bool = True,
 		include_tool_call_examples: bool = False,
@@ -189,19 +184,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if llm is None:
 			default_llm_name = CONFIG.DEFAULT_LLM
 			if default_llm_name:
-				try:
-					from browser_use.llm.models import get_llm_by_name
+				from browser_use.llm.models import get_llm_by_name
 
-					llm = get_llm_by_name(default_llm_name)
-				except (ImportError, ValueError) as e:
-					# Use the logger that's already imported at the top of the module
-					logger.warning(
-						f'Failed to create default LLM "{default_llm_name}": {e}. Falling back to ChatGoogle(model="gemini-flash-latest")'
-					)
-					llm = ChatGoogle(model='gemini-flash-latest')
+				llm = get_llm_by_name(default_llm_name)
 			else:
 				# No default LLM specified, use the original default
-				llm = ChatGoogle(model='gemini-flash-latest')
+				from browser_use import ChatBrowserUse
+
+				llm = ChatBrowserUse()
 
 		# set flashmode = True if llm is ChatBrowserUse
 		if llm.provider == 'browser-use':
@@ -249,7 +239,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.available_file_paths = available_file_paths
 
 		# Core components
-		self.task = task
+		self.task = self._enhance_task_with_schema(task, output_model_schema)
 		self.llm = llm
 		self.directly_open_url = directly_open_url
 		self.include_recent_events = include_recent_events
@@ -439,15 +429,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# wal_path = CONFIG.BROWSER_USE_CONFIG_DIR / 'events' / f'{self.session_id}.jsonl'
 		self.eventbus = EventBus(name=f'Agent_{str(self.id)[-4:]}')
 
-		# Cloud sync service
-		self.enable_cloud_sync = CONFIG.BROWSER_USE_CLOUD_SYNC
-		if self.enable_cloud_sync or cloud_sync is not None:
-			self.cloud_sync = cloud_sync or CloudSync()
-			# Register cloud sync handler
-			self.eventbus.on('*', self.cloud_sync.handle_event)
-		else:
-			self.cloud_sync = None
-
 		if self.settings.save_conversation_path:
 			self.settings.save_conversation_path = Path(self.settings.save_conversation_path).expanduser().resolve()
 			self.logger.info(f'💬 Saving conversation to {_log_pretty_path(self.settings.save_conversation_path)}')
@@ -462,6 +443,24 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Event-based pause control (kept out of AgentState for serialization)
 		self._external_pause_event = asyncio.Event()
 		self._external_pause_event.set()
+
+	def _enhance_task_with_schema(self, task: str, output_model_schema: type[AgentStructuredOutput] | None) -> str:
+		"""Enhance task description with output schema information if provided."""
+		if output_model_schema is None:
+			return task
+
+		try:
+			schema = output_model_schema.model_json_schema()
+			import json
+
+			schema_json = json.dumps(schema, indent=2)
+
+			enhancement = f'\nExpected output format: {output_model_schema.__name__}\n{schema_json}'
+			return task + enhancement
+		except Exception as e:
+			self.logger.debug(f'Could not parse output schema: {e}')
+
+		return task
 
 	@property
 	def logger(self) -> logging.Logger:
@@ -632,10 +631,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			agent_id_suffix = 'a' + agent_id_suffix
 		self.eventbus = EventBus(name=f'Agent_{agent_id_suffix}')
 
-		# Re-register cloud sync handler if it exists (if not disabled)
-		if hasattr(self, 'cloud_sync') and self.cloud_sync and self.enable_cloud_sync:
-			self.eventbus.on('*', self.cloud_sync.handle_event)
-
 	async def _check_stop_or_pause(self) -> None:
 		"""Check if the agent should stop or pause, and handle accordingly."""
 
@@ -774,10 +769,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if self.state.last_model_output is None:
 			raise ValueError('No model output to execute actions from')
 
-		self.logger.debug(f'⚡ Step {self.state.n_steps}: Executing {len(self.state.last_model_output.action)} actions...')
 		result = await self.multi_act(self.state.last_model_output.action)
-		self.logger.debug(f'✅ Step {self.state.n_steps}: Actions completed')
-
 		self.state.last_result = result
 
 	async def _post_process(self) -> None:
@@ -793,8 +785,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.debug(f'🔄 Step {self.state.n_steps}: Consecutive failures: {self.state.consecutive_failures}')
 			return
 
-		self.state.consecutive_failures = 0
-		self.logger.debug(f'🔄 Step {self.state.n_steps}: Consecutive failures reset to: {self.state.consecutive_failures}')
+		if self.state.consecutive_failures > 0:
+			self.state.consecutive_failures = 0
+			self.logger.debug(f'🔄 Step {self.state.n_steps}: Consecutive failures reset to: {self.state.consecutive_failures}')
 
 		# Log completion results
 		if self.state.last_result and len(self.state.last_result) > 0 and self.state.last_result[-1].is_done:
@@ -872,16 +865,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					action_dict = action.model_dump() if hasattr(action, 'model_dump') else {}
 					actions_data.append(action_dict)
 
-			# Emit CreateAgentStepEvent only if cloud sync is enabled
-			if self.enable_cloud_sync:
-				step_event = CreateAgentStepEvent.from_agent_step(
-					self,
-					self.state.last_model_output,
-					self.state.last_result,
-					actions_data,
-					browser_state_summary,
-				)
-				self.eventbus.dispatch(step_event)
+			# Emit CreateAgentStepEvent
+			step_event = CreateAgentStepEvent.from_agent_step(
+				self,
+				self.state.last_model_output,
+				self.state.last_result,
+				actions_data,
+				browser_state_summary,
+			)
+			self.eventbus.dispatch(step_event)
 
 		# Increment step counter after step is fully completed
 		self.state.n_steps += 1
@@ -890,9 +882,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Handle special processing for the last step"""
 		if step_info and step_info.is_last_step():
 			# Add last step warning if needed
-			msg = 'Now comes your last step. Use only the "done" action now. No other actions - so here your action sequence must have length 1.'
-			msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false! E.g. if not all steps are fully completed.'
-			msg += '\nIf the task is fully finished, set success in "done" to true.'
+			msg = 'You reached max_steps - this is your last step. Your only tool available is the "done" tool. No other tool is available. All other tools which you see in history or examples are not available.'
+			msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false! E.g. if not all steps are fully completed. Else success to true.'
 			msg += '\nInclude everything you found out for the ultimate task in the done text.'
 			self.logger.debug('Last step finishing up')
 			self._message_manager._add_context_message(UserMessage(content=msg))
@@ -902,10 +893,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Force done after failure"""
 		# Create recovery message
 		if self.state.consecutive_failures >= self.settings.max_failures and self.settings.final_response_after_failure:
-			msg = f'You have failed {self.settings.max_failures} consecutive times. This is your final step to complete the task or provide what you found. '
-			msg += 'Use only the "done" action now. No other actions - so here your action sequence must have length 1.'
-			msg += '\nIf the task could not be completed due to the failures, set success in "done" to false!'
-			msg += '\nInclude everything you found out for the task in the done text.'
+			msg = f'You failed {self.settings.max_failures} times. Therefore we terminate the agent.'
+			msg += '\nYour only tool available is the "done" tool. No other tool is available. All other tools which you see in history or examples are not available.'
+			msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false! E.g. if not all steps are fully completed. Else success to true.'
+			msg += '\nInclude everything you found out for the ultimate task in the done text.'
 
 			self.logger.debug('Force done action, because we reached max_failures.')
 			self._message_manager._add_context_message(UserMessage(content=msg))
@@ -1219,7 +1210,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def _log_agent_run(self) -> None:
 		"""Log the agent run"""
 		# Blue color for task
-		self.logger.info(f'\033[34m🚀 Task: {self.task}\033[0m')
+		self.logger.info(f'\033[34m🎯 Task: {self.task}\033[0m')
 
 		self.logger.debug(f'🤖 Browser-Use Library Version {self.version} ({self.source})')
 
@@ -1233,7 +1224,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	def _log_first_step_startup(self) -> None:
 		"""Log startup message only on the first step"""
 		if len(self.history.history) == 0:
-			self.logger.info(f'🧠 Starting a browser-use agent with version {self.version} and model={self.llm.model}')
+			self.logger.info(
+				f'Starting a browser-use agent with version {self.version}, with provider={self.llm.provider} and model={self.llm.model}'
+			)
 
 	def _log_step_context(self, browser_state_summary: BrowserStateSummary) -> None:
 		"""Log step context information"""
@@ -1277,15 +1270,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			param_str = f'({", ".join(param_summary)})' if param_summary else ''
 			action_details.append(f'{action_name}{param_str}')
-
-		# Create summary based on single vs multi-action
-		if action_count == 1:
-			self.logger.info(f'☝️ Decided next action: {action_name}{param_str}')
-		else:
-			summary_lines = [f'✌️ Decided next {action_count} multi-actions:']
-			for i, detail in enumerate(action_details):
-				summary_lines.append(f'          {i + 1}. {detail}')
-			self.logger.info('\n'.join(summary_lines))
 
 	def _log_step_completion_summary(self, step_start_time: float, result: list[ActionResult]) -> None:
 		"""Log step completion summary with action count, timing, and success/failure stats"""
@@ -1472,20 +1456,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			# Only dispatch session events if this is the first run
 			if not self.state.session_initialized:
-				if self.enable_cloud_sync:
-					self.logger.debug('📡 Dispatching CreateAgentSessionEvent...')
-					# Emit CreateAgentSessionEvent at the START of run()
-					self.eventbus.dispatch(CreateAgentSessionEvent.from_agent(self))
-
-					# Brief delay to ensure session is created in backend before sending task
-					await asyncio.sleep(0.2)
+				self.logger.debug('📡 Dispatching CreateAgentSessionEvent...')
+				# Emit CreateAgentSessionEvent at the START of run()
+				self.eventbus.dispatch(CreateAgentSessionEvent.from_agent(self))
 
 				self.state.session_initialized = True
 
-			if self.enable_cloud_sync:
-				self.logger.debug('📡 Dispatching CreateAgentTaskEvent...')
-				# Emit CreateAgentTaskEvent at the START of run()
-				self.eventbus.dispatch(CreateAgentTaskEvent.from_agent(self))
+			self.logger.debug('📡 Dispatching CreateAgentTaskEvent...')
+			# Emit CreateAgentTaskEvent at the START of run()
+			self.eventbus.dispatch(CreateAgentTaskEvent.from_agent(self))
 
 			# Log startup message on first step (only if we haven't already done steps)
 			self._log_first_step_startup()
@@ -1545,7 +1524,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					await on_step_end(self)
 
 				if self.history.is_done():
-					self.logger.debug(f'🎯 Task completed after {step + 1} steps!')
 					await self.log_completion()
 
 					if self.register_done_callback:
@@ -1576,14 +1554,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 				self.logger.info(f'❌ {agent_run_error}')
 
-			self.logger.debug('📊 Collecting usage summary...')
 			self.history.usage = await self.token_cost_service.get_usage_summary()
 
 			# set the model output schema and call it on the fly
 			if self.history._output_model_schema is None and self.output_model_schema is not None:
 				self.history._output_model_schema = self.output_model_schema
 
-			self.logger.debug('🏁 Agent.run() completed successfully')
 			return self.history
 
 		except KeyboardInterrupt:
@@ -1621,8 +1597,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# not when they are completed
 
 			# Emit UpdateAgentTaskEvent at the END of run() with final task state
-			if self.enable_cloud_sync:
-				self.eventbus.dispatch(UpdateAgentTaskEvent.from_agent(self))
+			self.eventbus.dispatch(UpdateAgentTaskEvent.from_agent(self))
 
 			# Generate GIF if needed before stopping event bus
 			if self.settings.generate_gif:
@@ -1640,17 +1615,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					output_event = await CreateAgentOutputFileEvent.from_agent_and_file(self, output_path)
 					self.eventbus.dispatch(output_event)
 
-			# Wait briefly for cloud auth to start and print the URL, but don't block for completion
-			if self.enable_cloud_sync and hasattr(self, 'cloud_sync') and self.cloud_sync is not None:
-				if self.cloud_sync.auth_task and not self.cloud_sync.auth_task.done():
-					try:
-						# Wait up to 1 second for auth to start and print URL
-						await asyncio.wait_for(self.cloud_sync.auth_task, timeout=1.0)
-					except TimeoutError:
-						logger.debug('Cloud authentication started - continuing in background')
-					except Exception as e:
-						logger.debug(f'Cloud authentication error: {e}')
-
 			# Stop the event bus gracefully, waiting for all events to be processed
 			# Use longer timeout to avoid deadlocks in tests with multiple agents
 			await self.eventbus.stop(timeout=3.0)
@@ -1659,11 +1623,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	@observe_debug(ignore_input=True, ignore_output=True)
 	@time_execution_async('--multi_act')
-	async def multi_act(
-		self,
-		actions: list[ActionModel],
-		check_for_new_elements: bool = True,
-	) -> list[ActionResult]:
+	async def multi_act(self, actions: list[ActionModel]) -> list[ActionResult]:
 		"""Execute multiple actions"""
 		results: list[ActionResult] = []
 		time_elapsed = 0
@@ -1693,84 +1653,21 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					self.logger.debug(msg)
 					break
 
-			# DOM synchronization check - verify element indexes are still valid AFTER first action
-			# This prevents stale element detection but doesn't refresh before execution
-			if action.get_index() is not None and i != 0:
-				new_browser_state_summary = await self.browser_session.get_browser_state_summary(
-					include_screenshot=False,
-				)
-				new_selector_map = new_browser_state_summary.dom_state.selector_map
-
-				# Detect index change after previous action
-				orig_target = cached_selector_map.get(action.get_index())
-				orig_target_hash = orig_target.parent_branch_hash() if orig_target else None
-
-				new_target = new_selector_map.get(action.get_index())  # type: ignore
-				new_target_hash = new_target.parent_branch_hash() if new_target else None
-
-				def get_remaining_actions_str(actions: list[ActionModel], index: int) -> str:
-					remaining_actions = []
-					for remaining_action in actions[index:]:
-						action_data = remaining_action.model_dump(exclude_unset=True)
-						action_name = next(iter(action_data.keys())) if action_data else 'unknown'
-						remaining_actions.append(action_name)
-					return ', '.join(remaining_actions)
-
-				if orig_target_hash != new_target_hash:
-					# Get names of remaining actions that won't be executed
-					remaining_actions_str = get_remaining_actions_str(actions, i)
-					msg = f'Page changed after action: actions {remaining_actions_str} are not yet executed'
-					logger.info(msg)
-					results.append(
-						ActionResult(
-							extracted_content=msg,
-							include_in_memory=True,
-							long_term_memory=msg,
-						)
-					)
-					break
-
-				# Check for new elements that appeared
-				new_element_hashes = {e.parent_branch_hash() for e in new_selector_map.values()}
-				if check_for_new_elements and not new_element_hashes.issubset(cached_element_hashes):
-					# next action requires index but there are new elements on the page
-					# log difference in len debug
-					self.logger.debug(f'New elements: {abs(len(new_element_hashes) - len(cached_element_hashes))}')
-					remaining_actions_str = get_remaining_actions_str(actions, i)
-					msg = f'Something new appeared after action {i} / {total_actions}: actions {remaining_actions_str} were not executed'
-					logger.info(msg)
-					results.append(
-						ActionResult(
-							extracted_content=msg,
-							include_in_memory=True,
-							long_term_memory=msg,
-						)
-					)
-					break
-
 			# wait between actions (only after first action)
 			if i > 0:
+				self.logger.debug(f'Waiting {self.browser_profile.wait_between_actions} seconds between actions')
 				await asyncio.sleep(self.browser_profile.wait_between_actions)
-
-			red = '\033[91m'
-			green = '\033[92m'
-			cyan = '\033[96m'
-			blue = '\033[34m'
-			reset = '\033[0m'
 
 			try:
 				await self._check_stop_or_pause()
 				# Get action name from the action model
 				action_data = action.model_dump(exclude_unset=True)
 				action_name = next(iter(action_data.keys())) if action_data else 'unknown'
-				action_params = getattr(action, action_name, '') or str(action.model_dump(mode='json'))[:140].replace(
-					'"', ''
-				).replace('{', '').replace('}', '').replace("'", '').strip().strip(',')
-				# Ensure action_params is always a string before checking length
-				action_params = str(action_params)
-				action_params = f'{action_params[:522]}...' if len(action_params) > 528 else action_params
+
+				# Log action before execution
+				self._log_action(action, action_name, i + 1, total_actions)
+
 				time_start = time.time()
-				self.logger.info(f'  🦾 {blue}[ACTION {i + 1}/{total_actions}]{reset} {action_params}')
 
 				result = await self.tools.act(
 					action=action,
@@ -1783,11 +1680,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 				time_end = time.time()
 				time_elapsed = time_end - time_start
-				results.append(result)
 
-				self.logger.debug(
-					f'☑️ Executed action {i + 1}/{total_actions}: {green}{action_params}{reset} in {time_elapsed:.2f}s'
-				)
+				results.append(result)
 
 				if results[-1].is_done or results[-1].error or i == total_actions - 1:
 					break
@@ -1798,6 +1692,45 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				raise e
 
 		return results
+
+	def _log_action(self, action, action_name: str, action_num: int, total_actions: int) -> None:
+		"""Log the action before execution with colored formatting"""
+		# Color definitions
+		blue = '\033[34m'  # Action name
+		magenta = '\033[35m'  # Parameter names
+		reset = '\033[0m'
+
+		# Format action number and name
+		if total_actions > 1:
+			action_header = f'▶️  [{action_num}/{total_actions}] {blue}{action_name}{reset}:'
+		else:
+			action_header = f'▶️   {blue}{action_name}{reset}:'
+
+		# Get action parameters
+		action_data = action.model_dump(exclude_unset=True)
+		params = action_data.get(action_name, {})
+
+		# Build parameter parts with colored formatting
+		param_parts = []
+
+		if params and isinstance(params, dict):
+			for param_name, value in params.items():
+				# Truncate long values for readability
+				if isinstance(value, str) and len(value) > 150:
+					display_value = value[:150] + '...'
+				elif isinstance(value, list) and len(str(value)) > 200:
+					display_value = str(value)[:200] + '...'
+				else:
+					display_value = value
+
+				param_parts.append(f'{magenta}{param_name}{reset}: {display_value}')
+
+		# Join all parts
+		if param_parts:
+			params_string = ', '.join(param_parts)
+			self.logger.info(f'  {action_header} {params_string}')
+		else:
+			self.logger.info(f'  {action_header}')
 
 	async def log_completion(self) -> None:
 		"""Log the completion of the task"""
@@ -1876,7 +1809,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Execute initial actions if provided
 		if self.initial_actions and not self.state.follow_up_task:
 			self.logger.debug(f'⚡ Executing {len(self.initial_actions)} initial actions...')
-			result = await self.multi_act(self.initial_actions, check_for_new_elements=False)
+			result = await self.multi_act(self.initial_actions)
 			# update result 1 to mention that its was automatically loaded
 			if result and self.initial_url and result[0].long_term_memory:
 				result[0].long_term_memory = f'Found initial url and automatically loaded it. {result[0].long_term_memory}'
@@ -1884,12 +1817,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			# Save initial actions to history as step 0 for rerun capability
 			# Skip browser state capture for initial actions (usually just URL navigation)
-			model_output = self.AgentOutput(
-				evaluation_previous_goal='Starting agent with initial actions',
-				memory='',
-				next_goal='Execute initial navigation or setup actions',
-				action=self.initial_actions,
-			)
+			if self.settings.flash_mode:
+				model_output = self.AgentOutput(
+					evaluation_previous_goal=None,
+					memory='Initial navigation',
+					next_goal=None,
+					action=self.initial_actions,
+				)
+			else:
+				model_output = self.AgentOutput(
+					evaluation_previous_goal='Start',
+					memory=None,
+					next_goal='Initial navigation',
+					action=self.initial_actions,
+				)
 
 			metadata = StepMetadata(
 				step_number=0,
@@ -2081,8 +2022,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.logger.debug(f'⚡ Remaining asyncio tasks ({len(other_tasks)}):')
 				for task in other_tasks[:10]:  # Limit to first 10 to avoid spam
 					self.logger.debug(f'  - {task.get_name()}: {task}')
-			else:
-				self.logger.debug('⚡ No remaining asyncio tasks')
 
 		except Exception as e:
 			self.logger.error(f'Error during cleanup: {e}')
@@ -2197,11 +2136,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		Returns:
 			bool: True if authentication was successful
 		"""
-		if not hasattr(self, 'cloud_sync') or self.cloud_sync is None:
-			self.logger.warning('Cloud sync is not available for this agent')
-			return False
-
-		return await self.cloud_sync.authenticate(show_instructions=show_instructions)
+		self.logger.warning('Cloud sync has been removed and is no longer available')
+		return False
 
 	def run_sync(
 		self,

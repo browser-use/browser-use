@@ -103,7 +103,7 @@ class TestScrollActions:
 		assert result.error is None, f'Scroll down failed: {result.error}'
 		assert result.extracted_content is not None
 		assert 'Scrolled down' in result.extracted_content
-		assert 'the page' in result.extracted_content
+		assert 'px' in result.extracted_content
 
 		# Test 2: Basic page scroll up
 		scroll_up_action = {'scroll': ScrollAction(down=False, pages=0.5)}

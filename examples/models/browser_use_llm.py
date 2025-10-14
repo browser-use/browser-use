@@ -11,8 +11,7 @@ import os
 
 from dotenv import load_dotenv
 
-from browser_use import Agent
-from browser_use.llm import ChatBrowserUse
+from browser_use import Agent, ChatBrowserUse
 
 load_dotenv()
 

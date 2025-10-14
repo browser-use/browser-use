@@ -1,3 +1,9 @@
+"""
+Setup:
+1. Get your API key from https://cloud.browser-use.com/dashboard/api
+2. Set environment variable: export BROWSER_USE_API_KEY="your-key"
+"""
+
 import asyncio
 import os
 import sys
@@ -9,11 +15,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from browser_use import Agent, ChatOpenAI
+from browser_use import Agent, ChatBrowserUse
 
 
 async def main():
-	llm = ChatOpenAI(model='gpt-4.1-mini')
+	llm = ChatBrowserUse()
 	task = "Search Google for 'what is browser automation' and tell me the top 3 results"
 	agent = Agent(task=task, llm=llm)
 	await agent.run()

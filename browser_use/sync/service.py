@@ -2,9 +2,7 @@
 Cloud sync service for sending events to the Browser Use cloud.
 """
 
-import asyncio
 import logging
-import shutil
 
 import httpx
 from bubus import BaseEvent
@@ -22,7 +20,6 @@ class CloudSync:
 		# Backend API URL for all API requests - can be passed directly or defaults to env var
 		self.base_url = base_url or CONFIG.BROWSER_USE_CLOUD_API_URL
 		self.auth_client = DeviceAuthClient(base_url=self.base_url)
-		self.auth_task = None
 		self.session_id: str | None = None
 		self.allow_session_events_for_auth = allow_session_events_for_auth
 		self.auth_flow_active = False  # Flag to indicate auth flow is running
@@ -40,14 +37,6 @@ class CloudSync:
 			if event.event_type == 'CreateAgentSessionEvent' and hasattr(event, 'id'):
 				self.session_id = str(event.id)  # type: ignore
 
-				# Start authentication immediately when session is created
-				if not hasattr(self, 'auth_task') or self.auth_task is None:
-					if self.session_id:
-						# Start auth in background immediately
-						self.auth_task = asyncio.create_task(self._background_auth(agent_session_id=self.session_id))
-					else:
-						logger.warning('Cannot start auth - session_id not set yet')
-
 			# Send events based on authentication status and context
 			if self.auth_client.is_authenticated:
 				# User is authenticated - send all events
@@ -58,13 +47,6 @@ class CloudSync:
 				# Mark auth flow as active when we see a session event
 				if event.event_type == 'CreateAgentSessionEvent':
 					self.auth_flow_active = True
-			elif self.auth_task and not self.auth_task.done():
-				# Authentication is in progress - only send session creation events
-				# to preserve session context, but don't leak other data
-				if event.event_type in ['CreateAgentSessionEvent']:
-					await self._send_event(event)
-				else:
-					logger.debug(f'Skipping event {event.event_type} during auth - not authenticated yet')
 			else:
 				# User is not authenticated and no auth in progress - don't send anything
 				logger.debug(f'Skipping event {event.event_type} - user not authenticated')
@@ -122,37 +104,6 @@ class CloudSync:
 		except Exception as e:
 			logger.debug(f'Unexpected error sending event {event}: {type(e).__name__}: {e}')
 
-	async def _background_auth(self, agent_session_id: str) -> None:
-		"""Run authentication in background or show cloud URL if already authenticated"""
-		assert self.auth_client, 'auth_client must exist before calling CloudSync._background_auth()'
-		assert self.session_id, 'session_id must be set before calling CloudSync._background_auth() can fire'
-		try:
-			# Only show cloud URLs if cloud sync is enabled
-			if not self.enabled:
-				return
-
-			# Always show the cloud URL (auth happens immediately when session starts now)
-			frontend_url = CONFIG.BROWSER_USE_CLOUD_UI_URL or self.base_url.replace('//api.', '//cloud.')
-			session_url = f'{frontend_url.rstrip("/")}/agent/{agent_session_id}'
-			terminal_width, _terminal_height = shutil.get_terminal_size((80, 20))
-
-			if self.auth_client.is_authenticated:
-				# User is authenticated - show direct link
-				logger.info('─' * max(terminal_width - 40, 20))
-				logger.info('🌐  View the details of this run in Browser Use Cloud:')
-				logger.info(f'    👉  {session_url}')
-				logger.info('─' * max(terminal_width - 40, 20) + '\n')
-			else:
-				# User not authenticated - show auth prompt
-				logger.info('─' * max(terminal_width - 40, 20))
-				logger.info('🔐 To view this run in Browser Use Cloud, authenticate with:')
-				logger.info('    👉  browser-use auth')
-				logger.info('    or: python -m browser_use.cli auth')
-				logger.info('─' * max(terminal_width - 40, 20) + '\n')
-
-		except Exception as e:
-			logger.debug(f'Cloud sync authentication failed: {e}')
-
 	# async def _update_wal_user_ids(self, session_id: str) -> None:
 	# 	"""Update user IDs in WAL file after authentication"""
 	# 	try:
@@ -186,11 +137,6 @@ class CloudSync:
 
 	# 	except Exception as e:
 	# 		logger.warning(f'Failed to update WAL user IDs: {e}')
-
-	async def wait_for_auth(self) -> None:
-		"""Wait for authentication to complete if in progress"""
-		if self.auth_task and not self.auth_task.done():
-			await self.auth_task
 
 	def set_auth_flow_active(self) -> None:
 		"""Mark auth flow as active to allow all events"""

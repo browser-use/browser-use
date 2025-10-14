@@ -26,10 +26,6 @@ GoToUrlAction = NavigateAction
 
 class ClickElementAction(BaseModel):
 	index: int = Field(ge=1, description='from browser_state')
-	ctrl: bool | None = Field(
-		default=None,
-		description='True=New background tab (Ctrl+Click)',
-	)
 	# expect_download: bool = Field(default=False, description='set True if expecting a download, False otherwise')  # moved to downloads_watchdog.py
 	# click_count: int = 1  # TODO
 

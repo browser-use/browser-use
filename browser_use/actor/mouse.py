@@ -87,13 +87,6 @@ class Mouse:
 		if not self._session_id:
 			raise RuntimeError('Session ID is required for scroll operations')
 
-		# Activate the target first (critical for CDP calls to work)
-		if self._target_id:
-			try:
-				await self._client.send.Target.activateTarget(params={'targetId': self._target_id})
-			except Exception:
-				pass
-
 		# Method 1: Try mouse wheel event (most reliable)
 		try:
 			# Get viewport dimensions

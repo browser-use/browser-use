@@ -482,13 +482,13 @@ class TestFileSystem:
 
 		# Save first extracted content
 		result = await fs.save_extracted_content('First extracted content')
-		assert result == 'Extracted content saved to file extracted_content_0.md successfully.'
+		assert result == 'extracted_content_0.md'
 		assert 'extracted_content_0.md' in fs.files
 		assert fs.extracted_content_count == 1
 
 		# Save second extracted content
 		result = await fs.save_extracted_content('Second extracted content')
-		assert result == 'Extracted content saved to file extracted_content_1.md successfully.'
+		assert result == 'extracted_content_1.md'
 		assert 'extracted_content_1.md' in fs.files
 		assert fs.extracted_content_count == 2
 
