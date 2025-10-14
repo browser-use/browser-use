@@ -9,6 +9,11 @@ This implements an Expectimax algorithm for 2048:
 Expectimax achieves ~90% win rate for 2048 tile with depth 4-5.
 """
 
+"""
+Make sure you have a BROWSER_USE_API_KEY=... in your .env file :)
+"""
+
+
 import asyncio
 import math
 from typing import Literal
