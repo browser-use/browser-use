@@ -26,6 +26,8 @@ Or as an MCP server in Claude Desktop or other MCP clients:
 import os
 import sys
 
+from browser_use.llm import ChatAWSBedrock
+
 # Set environment variables BEFORE any browser_use imports to prevent early logging
 os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'critical'
 os.environ['BROWSER_USE_SETUP_LOGGING'] = 'false'
@@ -578,21 +580,37 @@ class BrowserUseServer:
 
 		# Get LLM config
 		llm_config = get_default_llm(self.config)
-		api_key = llm_config.get('api_key') or os.getenv('OPENAI_API_KEY')
-		if not api_key:
-			return 'Error: OPENAI_API_KEY not set in config or environment'
 
-		# Override model if provided in tool call
-		if model != llm_config.get('model', 'gpt-4o'):
-			llm_model = model
+		# Get LLM provider
+		model_provider = llm_config.get('model_provider') or os.getenv('MODEL_PROVIDER')
+
+		# 如果model_provider不等于空，且等Bedrock
+		if model_provider and model_provider.lower() == 'bedrock':
+			llm_model = llm_config.get('model') or os.getenv('MODEL') or 'us.anthropic.claude-sonnet-4-20250514-v1:0'
+			aws_region = llm_config.get('region') or os.getenv('REGION')
+			if not aws_region:
+				aws_region = 'us-east-1'
+			llm = ChatAWSBedrock(
+				model=llm_model,  # or any Bedrock model
+				aws_region=aws_region,
+				aws_sso_auth=True,
+			)
 		else:
-			llm_model = llm_config.get('model', 'gpt-4o')
+			api_key = llm_config.get('api_key') or os.getenv('OPENAI_API_KEY')
+			if not api_key:
+				return 'Error: OPENAI_API_KEY not set in config or environment'
 
-		llm = ChatOpenAI(
-			model=llm_model,
-			api_key=api_key,
-			temperature=llm_config.get('temperature', 0.7),
-		)
+			# Override model if provided in tool call
+			if model != llm_config.get('model', 'gpt-4o'):
+				llm_model = model
+			else:
+				llm_model = llm_config.get('model', 'gpt-4o')
+
+			llm = ChatOpenAI(
+				model=llm_model,
+				api_key=api_key,
+				temperature=llm_config.get('temperature', 0.7),
+			)
 
 		# Get profile config and merge with tool parameters
 		profile_config = get_default_profile(self.config)

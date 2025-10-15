@@ -1,0 +1,29 @@
+---
+title: "Costs"
+description: "Track token usage and API costs for your browser automation tasks"
+icon: "dollar-sign"
+mode: "wide"
+---
+
+## Cost Tracking
+
+To track token usage and costs, enable cost calculation:
+
+```python
+from browser_use import Agent, ChatOpenAI
+
+agent = Agent(
+    task="Search for latest news about AI",
+    llm=ChatOpenAI(model="gpt-4.1-mini"),
+    calculate_cost=True  # Enable cost tracking
+)
+
+history = await agent.run()
+
+# Get usage from history
+print(f"Token usage: {history.usage}")
+
+# Or get from usage summary
+usage_summary = await agent.token_cost_service.get_usage_summary()
+print(f"Usage summary: {usage_summary}")
+```

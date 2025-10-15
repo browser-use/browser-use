@@ -345,7 +345,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Initialize message manager with state
 		# Initial system prompt with all actions - will be updated during each step
 		self._message_manager = MessageManager(
-			task=task,
+			task=self.task,
 			system_message=SystemPrompt(
 				max_actions_per_step=self.settings.max_actions_per_step,
 				override_system_message=override_system_message,
@@ -882,9 +882,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Handle special processing for the last step"""
 		if step_info and step_info.is_last_step():
 			# Add last step warning if needed
-			msg = 'Now comes your last step. Use only the "done" action now. No other actions - so here your action sequence must have length 1.'
-			msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false! E.g. if not all steps are fully completed.'
-			msg += '\nIf the task is fully finished, set success in "done" to true.'
+			msg = 'You reached max_steps - this is your last step. Your only tool available is the "done" tool. No other tool is available. All other tools which you see in history or examples are not available.'
+			msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false! E.g. if not all steps are fully completed. Else success to true.'
 			msg += '\nInclude everything you found out for the ultimate task in the done text.'
 			self.logger.debug('Last step finishing up')
 			self._message_manager._add_context_message(UserMessage(content=msg))
@@ -894,10 +893,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Force done after failure"""
 		# Create recovery message
 		if self.state.consecutive_failures >= self.settings.max_failures and self.settings.final_response_after_failure:
-			msg = f'You have failed {self.settings.max_failures} consecutive times. This is your final step to complete the task or provide what you found. '
-			msg += 'Use only the "done" action now. No other actions - so here your action sequence must have length 1.'
-			msg += '\nIf the task could not be completed due to the failures, set success in "done" to false!'
-			msg += '\nInclude everything you found out for the task in the done text.'
+			msg = f'You failed {self.settings.max_failures} times. Therefore we terminate the agent.'
+			msg += '\nYour only tool available is the "done" tool. No other tool is available. All other tools which you see in history or examples are not available.'
+			msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false! E.g. if not all steps are fully completed. Else success to true.'
+			msg += '\nInclude everything you found out for the ultimate task in the done text.'
 
 			self.logger.debug('Force done action, because we reached max_failures.')
 			self._message_manager._add_context_message(UserMessage(content=msg))
@@ -1818,12 +1817,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			# Save initial actions to history as step 0 for rerun capability
 			# Skip browser state capture for initial actions (usually just URL navigation)
-			model_output = self.AgentOutput(
-				evaluation_previous_goal='Starting agent with initial actions',
-				memory='',
-				next_goal='Execute initial navigation or setup actions',
-				action=self.initial_actions,
-			)
+			if self.settings.flash_mode:
+				model_output = self.AgentOutput(
+					evaluation_previous_goal=None,
+					memory='Initial navigation',
+					next_goal=None,
+					action=self.initial_actions,
+				)
+			else:
+				model_output = self.AgentOutput(
+					evaluation_previous_goal='Start',
+					memory=None,
+					next_goal='Initial navigation',
+					action=self.initial_actions,
+				)
 
 			metadata = StepMetadata(
 				step_number=0,
