@@ -476,6 +476,11 @@ class DefaultActionWatchdog(BaseWatchdog):
 				)
 				await asyncio.sleep(0.05)
 
+				# Check for occlusion again, as the mouse move may have opened a popover
+				is_occluded = await self._check_element_occlusion(backend_node_id, center_x, center_y, cdp_session)
+				if is_occluded:
+					raise Exception('Click target is occluded by another element after mouse move, must use JS-based click')
+
 				# Mouse down
 				self.logger.debug(f'👆🏾 Clicking x: {center_x}px y: {center_y}px ...')
 				try:
