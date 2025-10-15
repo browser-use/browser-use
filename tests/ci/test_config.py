@@ -2,6 +2,8 @@
 
 import os
 
+import pytest
+
 from browser_use.config import CONFIG
 
 
@@ -30,24 +32,25 @@ class TestLazyConfig:
 			else:
 				os.environ.pop('BROWSER_USE_LOGGING_LEVEL', None)
 
-	def test_boolean_env_vars(self):
+	@pytest.mark.parametrize('env_var', ['ANONYMIZED_TELEMETRY', 'BROWSER_USE_VERSION_CHECK'])
+	def test_boolean_env_vars(self, env_var):
 		"""Test boolean environment variables are parsed correctly."""
-		original_value = os.environ.get('ANONYMIZED_TELEMETRY', '')
+		original_value = os.environ.get(env_var, '')
 		try:
 			# Test true values
 			for true_val in ['true', 'True', 'TRUE', 'yes', 'Yes', '1']:
-				os.environ['ANONYMIZED_TELEMETRY'] = true_val
-				assert CONFIG.ANONYMIZED_TELEMETRY is True, f'Failed for value: {true_val}'
+				os.environ[env_var] = true_val
+				assert getattr(CONFIG, env_var) is True, f'Failed for value: {true_val}'
 
 			# Test false values
 			for false_val in ['false', 'False', 'FALSE', 'no', 'No', '0']:
-				os.environ['ANONYMIZED_TELEMETRY'] = false_val
+				os.environ[env_var] = false_val
 				assert CONFIG.ANONYMIZED_TELEMETRY is False, f'Failed for value: {false_val}'
 		finally:
 			if original_value:
-				os.environ['ANONYMIZED_TELEMETRY'] = original_value
+				os.environ[env_var] = original_value
 			else:
-				os.environ.pop('ANONYMIZED_TELEMETRY', None)
+				os.environ.pop(env_var, None)
 
 	def test_api_keys_lazy_loading(self):
 		"""Test API keys are loaded lazily."""
