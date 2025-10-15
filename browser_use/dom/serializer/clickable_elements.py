@@ -3,12 +3,18 @@ from browser_use.dom.views import EnhancedDOMTreeNode, NodeType
 
 class ClickableElementDetector:
 	@staticmethod
-	def is_interactive(node: EnhancedDOMTreeNode) -> bool:
+	def is_interactive(node: EnhancedDOMTreeNode, custom_selectors: list[str] | None = None) -> bool:
 		"""Check if this node is clickable/interactive using enhanced scoring."""
 
 		# Skip non-element nodes
 		if node.node_type != NodeType.ELEMENT_NODE:
 			return False
+
+		# Check custom selectors first - if any match, mark as interactive
+		if custom_selectors:
+			for selector in custom_selectors:
+				if ClickableElementDetector._matches_selector(node, selector):
+					return True
 
 		# # if ax ignored skip
 		# if node.ax_node and node.ax_node.ignored:
@@ -197,3 +203,98 @@ class ClickableElementDetector:
 			return True
 
 		return False
+
+	@staticmethod
+	def _matches_selector(node: EnhancedDOMTreeNode, selector: str) -> bool:
+		"""Check if a node matches a CSS selector.
+		
+		Currently supports basic selectors:
+		- Tag selectors: 'div', 'span', etc.
+		- Class selectors: '.my-class'
+		- ID selectors: '#my-id' 
+		- Attribute selectors: '[data-action]', '[data-action="click"]'
+		- Simple combinations: 'div.my-class', 'span#my-id'
+		"""
+		selector = selector.strip()
+		
+		# Handle compound selectors (e.g., 'div.my-class')
+		parts = []
+		current_part = ""
+		
+		i = 0
+		while i < len(selector):
+			char = selector[i]
+			if char in '.#[':
+				if current_part:
+					parts.append(('tag', current_part))
+					current_part = ""
+				
+				if char == '.':
+					# Class selector
+					i += 1
+					class_name = ""
+					while i < len(selector) and selector[i] not in '.#[':
+						class_name += selector[i]
+						i += 1
+					if class_name:
+						parts.append(('class', class_name))
+					continue
+				elif char == '#':
+					# ID selector
+					i += 1
+					id_name = ""
+					while i < len(selector) and selector[i] not in '.#[':
+						id_name += selector[i]
+						i += 1
+					if id_name:
+						parts.append(('id', id_name))
+					continue
+				elif char == '[':
+					# Attribute selector
+					i += 1
+					attr_selector = ""
+					while i < len(selector) and selector[i] != ']':
+						attr_selector += selector[i]
+						i += 1
+					if i < len(selector) and selector[i] == ']':
+						i += 1
+						if '=' in attr_selector:
+							attr_name, attr_value = attr_selector.split('=', 1)
+							attr_value = attr_value.strip('\'"')
+							parts.append(('attr_value', attr_name.strip(), attr_value))
+						else:
+							parts.append(('attr_exists', attr_selector.strip()))
+					continue
+			else:
+				current_part += char
+				i += 1
+		
+		if current_part:
+			parts.append(('tag', current_part))
+		
+		# If no parts were parsed, treat as tag selector
+		if not parts:
+			parts = [('tag', selector)]
+		
+		# Check if all parts match
+		for part in parts:
+			if part[0] == 'tag':
+				if not node.tag_name or node.tag_name.lower() != part[1].lower():
+					return False
+			elif part[0] == 'class':
+				if not node.attributes or 'class' not in node.attributes:
+					return False
+				classes = node.attributes['class'].split()
+				if part[1] not in classes:
+					return False
+			elif part[0] == 'id':
+				if not node.attributes or node.attributes.get('id') != part[1]:
+					return False
+			elif part[0] == 'attr_exists':
+				if not node.attributes or part[1] not in node.attributes:
+					return False
+			elif part[0] == 'attr_value':
+				if not node.attributes or node.attributes.get(part[1]) != part[2]:
+					return False
+		
+		return True
