@@ -25,13 +25,13 @@ class ScreenshotWatchdog(BaseWatchdog):
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='screenshot_event_handler')
 	async def on_ScreenshotEvent(self, event: ScreenshotEvent) -> str:
-		"""Handle screenshot request using CDP.
+		"""Handle screenshot request using CDP with automatic highlighting.
 
 		Args:
 			event: ScreenshotEvent with optional full_page and clip parameters
 
 		Returns:
-			Dict with 'screenshot' key containing base64-encoded screenshot or None
+			Base64-encoded screenshot data, with highlights applied if elements are available
 		"""
 		self.logger.debug('[ScreenshotWatchdog] Handler START - on_ScreenshotEvent called')
 		try:
@@ -45,12 +45,18 @@ class ScreenshotWatchdog(BaseWatchdog):
 			self.logger.debug(f'[ScreenshotWatchdog] Taking screenshot with params: {params}')
 			result = await cdp_session.cdp_client.send.Page.captureScreenshot(params=params, session_id=cdp_session.session_id)
 
-			# Return base64-encoded screenshot data
-			if result and 'data' in result:
-				self.logger.debug('[ScreenshotWatchdog] Screenshot captured successfully')
-				return result['data']
+			# Get base64-encoded screenshot data
+			if not result or 'data' not in result:
+				raise BrowserError('[ScreenshotWatchdog] Screenshot result missing data')
 
-			raise BrowserError('[ScreenshotWatchdog] Screenshot result missing data')
+			screenshot_b64 = result['data']
+			self.logger.debug('[ScreenshotWatchdog] Screenshot captured successfully')
+
+			# Highlighting is now handled in the new task-based approach (_capture_screenshot_with_highlighting)
+			# This old event-based highlighting is no longer used
+
+			return screenshot_b64
+
 		except Exception as e:
 			self.logger.error(f'[ScreenshotWatchdog] Screenshot failed: {e}')
 			raise
