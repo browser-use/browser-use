@@ -3,6 +3,13 @@ from typing import TYPE_CHECKING
 
 from browser_use.logging_config import setup_logging
 
+try:
+	from importlib.metadata import version
+
+	__version__ = version('browser-use')
+except Exception:
+	__version__ = '0.8.0'
+
 # Only set up logging if not in MCP mode or if explicitly requested
 if os.environ.get('BROWSER_USE_SETUP_LOGGING', 'true').lower() != 'false':
 	from browser_use.config import CONFIG
