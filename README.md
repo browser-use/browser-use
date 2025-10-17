@@ -45,7 +45,7 @@ Download chromium using playwright's shortcut:
 uvx playwright install chromium --with-deps --no-shell
 ```
 
-Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/dashboard/api) and add it to your `.env` file:
+Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/dashboard/api) and add it to your `.env` file (new signups get $10 free credits via OAuth or $1 via email):
 
 ```bash
 BROWSER_USE_API_KEY=your-key
@@ -101,7 +101,7 @@ agent = Agent(
 
 [Task](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/find_and_apply_to_jobs.py): Read my CV & find ML jobs, save them to a file, and then start applying for them in new tabs, if you need help, ask me.
 
-https://github.com/user-attachments/assets/171fb4d6-0355-46f2-863e-edb04a828d04
+![Job Application Demo](https://github.com/user-attachments/assets/57865ee6-6004-49d5-b2c2-6dff39ec2ba9)
 
 <br/><br/>
 

@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import BaseModel
 
+from browser_use.actor.utils import get_key_info
 from browser_use.dom.serializer.serializer import DOMTreeSerializer
 from browser_use.dom.service import DomService
 from browser_use.llm.messages import SystemMessage, UserMessage
@@ -218,28 +219,60 @@ class Page:
 			modifiers = parts[:-1]
 			main_key = parts[-1]
 
+			# Calculate modifier bitmask
+			modifier_value = 0
+			modifier_map = {'Alt': 1, 'Control': 2, 'Meta': 4, 'Shift': 8}
+			for mod in modifiers:
+				modifier_value |= modifier_map.get(mod, 0)
+
 			# Press modifier keys
 			for mod in modifiers:
-				params: 'DispatchKeyEventParameters' = {'type': 'keyDown', 'key': mod}
+				code, vk_code = get_key_info(mod)
+				params: 'DispatchKeyEventParameters' = {'type': 'keyDown', 'key': mod, 'code': code}
+				if vk_code is not None:
+					params['windowsVirtualKeyCode'] = vk_code
 				await self._client.send.Input.dispatchKeyEvent(params, session_id=session_id)
 
-			# Press main key
-			main_down_params: 'DispatchKeyEventParameters' = {'type': 'keyDown', 'key': main_key}
+			# Press main key with modifiers bitmask
+			main_code, main_vk_code = get_key_info(main_key)
+			main_down_params: 'DispatchKeyEventParameters' = {
+				'type': 'keyDown',
+				'key': main_key,
+				'code': main_code,
+				'modifiers': modifier_value,
+			}
+			if main_vk_code is not None:
+				main_down_params['windowsVirtualKeyCode'] = main_vk_code
 			await self._client.send.Input.dispatchKeyEvent(main_down_params, session_id=session_id)
 
-			main_up_params: 'DispatchKeyEventParameters' = {'type': 'keyUp', 'key': main_key}
+			main_up_params: 'DispatchKeyEventParameters' = {
+				'type': 'keyUp',
+				'key': main_key,
+				'code': main_code,
+				'modifiers': modifier_value,
+			}
+			if main_vk_code is not None:
+				main_up_params['windowsVirtualKeyCode'] = main_vk_code
 			await self._client.send.Input.dispatchKeyEvent(main_up_params, session_id=session_id)
 
 			# Release modifier keys
 			for mod in reversed(modifiers):
-				release_params: 'DispatchKeyEventParameters' = {'type': 'keyUp', 'key': mod}
+				code, vk_code = get_key_info(mod)
+				release_params: 'DispatchKeyEventParameters' = {'type': 'keyUp', 'key': mod, 'code': code}
+				if vk_code is not None:
+					release_params['windowsVirtualKeyCode'] = vk_code
 				await self._client.send.Input.dispatchKeyEvent(release_params, session_id=session_id)
 		else:
 			# Simple key press
-			key_down_params: 'DispatchKeyEventParameters' = {'type': 'keyDown', 'key': key}
+			code, vk_code = get_key_info(key)
+			key_down_params: 'DispatchKeyEventParameters' = {'type': 'keyDown', 'key': key, 'code': code}
+			if vk_code is not None:
+				key_down_params['windowsVirtualKeyCode'] = vk_code
 			await self._client.send.Input.dispatchKeyEvent(key_down_params, session_id=session_id)
 
-			key_up_params: 'DispatchKeyEventParameters' = {'type': 'keyUp', 'key': key}
+			key_up_params: 'DispatchKeyEventParameters' = {'type': 'keyUp', 'key': key, 'code': code}
+			if vk_code is not None:
+				key_up_params['windowsVirtualKeyCode'] = vk_code
 			await self._client.send.Input.dispatchKeyEvent(key_up_params, session_id=session_id)
 
 	async def set_viewport_size(self, width: int, height: int) -> None:
@@ -470,47 +503,11 @@ Before you return the element index, reason about the state and elements for a s
 		if not llm:
 			raise ValueError('LLM not provided')
 
-		# Extract clean markdown from the page
-		session_id = await self._ensure_session()
+		# Extract clean markdown using the same method as in tools/service.py
 		try:
-			body_id = await self._client.send.DOM.getDocument(session_id=session_id)
-			page_html_result = await self._client.send.DOM.getOuterHTML(
-				params={'backendNodeId': body_id['root']['backendNodeId']}, session_id=session_id
-			)
-			page_html = page_html_result['outerHTML']
+			content, content_stats = await self._extract_clean_markdown()
 		except Exception as e:
-			raise RuntimeError(f"Couldn't extract page content: {e}")
-
-		# Convert HTML to clean markdown
-		import html2text
-
-		h = html2text.HTML2Text()
-		h.ignore_links = False
-		h.ignore_images = True
-		h.ignore_emphasis = False
-		h.body_width = 0  # Don't wrap lines
-		h.unicode_snob = True
-		h.skip_internal_links = True
-		markdown_content = h.handle(page_html)
-
-		# Clean up the markdown
-		import re
-
-		# Remove URL encoding artifacts
-		markdown_content = re.sub(r'%[0-9A-Fa-f]{2}', '', markdown_content)
-
-		# Compress excessive newlines
-		markdown_content = re.sub(r'\n{4,}', '\n\n\n', markdown_content)
-
-		# Remove very short lines (likely artifacts)
-		lines = markdown_content.split('\n')
-		filtered_lines = []
-		for line in lines:
-			stripped = line.strip()
-			if len(stripped) > 2:  # Keep lines with substantial content
-				filtered_lines.append(line)
-
-		markdown_content = '\n'.join(filtered_lines).strip()
+			raise RuntimeError(f'Could not extract clean markdown: {type(e).__name__}')
 
 		# System prompt for structured extraction
 		system_prompt = """
@@ -535,7 +532,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 """.strip()
 
 		# Build prompt with just query and content
-		prompt_content = f'<query>\n{prompt}\n</query>\n\n<webpage_content>\n{markdown_content}\n</webpage_content>'
+		prompt_content = f'<query>\n{prompt}\n</query>\n\n<webpage_content>\n{content}\n</webpage_content>'
 
 		# Send to LLM with structured output
 		import asyncio
@@ -552,3 +549,13 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			return response.completion
 		except Exception as e:
 			raise RuntimeError(str(e))
+
+	async def _extract_clean_markdown(self, extract_links: bool = False) -> tuple[str, dict]:
+		"""Extract clean markdown from the current page using enhanced DOM tree.
+
+		Uses the shared markdown extractor for consistency with tools/service.py.
+		"""
+		from browser_use.dom.markdown_extractor import extract_clean_markdown
+
+		dom_service = self.dom_service
+		return await extract_clean_markdown(dom_service=dom_service, target_id=self._target_id, extract_links=extract_links)

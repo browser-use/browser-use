@@ -122,11 +122,7 @@ class CDPSession(BaseModel):
 		result = await self.cdp_client.send.Target.attachToTarget(
 			params={
 				'targetId': self.target_id,
-				'flatten': True,
-				'filter': [  # type: ignore
-					{'type': 'page', 'exclude': False},
-					{'type': 'iframe', 'exclude': False},
-				],
+				'flatten': True,  # removed filter as a param because it doesn't exist at https://chromedevtools.github.io/devtools-protocol/tot/Target/#method-attachToTarget
 			}
 		)
 		self.session_id = result['sessionId']
@@ -1159,6 +1155,13 @@ class BrowserSession(BaseModel):
 		result = await event.event_result(raise_if_none=True, raise_if_any=True)
 		assert result is not None and result.dom_state is not None
 		return result
+
+	async def get_state_as_text(self) -> str:
+		"""Get the browser state as text."""
+		state = await self.get_browser_state_summary()
+		assert state.dom_state is not None
+		dom_state = state.dom_state
+		return dom_state.llm_representation()
 
 	async def attach_all_watchdogs(self) -> None:
 		"""Initialize and attach all watchdogs with explicit handler registration."""

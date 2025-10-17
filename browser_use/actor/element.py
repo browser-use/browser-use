@@ -409,7 +409,7 @@ class Element:
 			)
 
 			# Step 2: Clear existing text if requested
-			if clear and focused_successfully:
+			if clear:
 				cleared_successfully = await self._clear_text_field(
 					object_id=object_id, cdp_client=cdp_client, session_id=session_id
 				)
@@ -837,7 +837,17 @@ class Element:
 				params={
 					'functionDeclaration': """
 						function() {
+							// Try to select all text first (only works on text-like inputs)
+							// This handles cases where cursor is in the middle of text
+							try {
+								this.select();
+							} catch (e) {
+								// Some input types (date, color, number, etc.) don't support select()
+								// That's fine, we'll just clear the value directly
+							}
+							// Set value to empty
 							this.value = "";
+							// Dispatch events to notify frameworks like React
 							this.dispatchEvent(new Event("input", { bubbles: true }));
 							this.dispatchEvent(new Event("change", { bubbles: true }));
 							return this.value;
