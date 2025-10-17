@@ -32,7 +32,7 @@ async def run_search():
 		),
 		llm=ChatOpenAI(
 			base_url='https://api.cometapi.com/v1/',
-			model='gpt-4o-mini',
+			model='gpt-5-mini',
 			api_key=api_key,
 		),
 		use_vision=False,
