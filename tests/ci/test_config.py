@@ -34,7 +34,7 @@ class TestLazyConfig:
 		"""Test boolean environment variables are parsed correctly."""
 		# Clear any value from .env file
 		monkeypatch.delenv('ANONYMIZED_TELEMETRY', raising=False)
-		
+
 		# Test true values
 		for true_val in ['true', 'True', 'TRUE', 'yes', 'Yes', '1']:
 			monkeypatch.setenv('ANONYMIZED_TELEMETRY', true_val)
