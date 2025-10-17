@@ -30,24 +30,20 @@ class TestLazyConfig:
 			else:
 				os.environ.pop('BROWSER_USE_LOGGING_LEVEL', None)
 
-	def test_boolean_env_vars(self):
+	def test_boolean_env_vars(self, monkeypatch):
 		"""Test boolean environment variables are parsed correctly."""
-		original_value = os.environ.get('ANONYMIZED_TELEMETRY', '')
-		try:
-			# Test true values
-			for true_val in ['true', 'True', 'TRUE', 'yes', 'Yes', '1']:
-				os.environ['ANONYMIZED_TELEMETRY'] = true_val
-				assert CONFIG.ANONYMIZED_TELEMETRY is True, f'Failed for value: {true_val}'
+		# Clear any value from .env file
+		monkeypatch.delenv('ANONYMIZED_TELEMETRY', raising=False)
+		
+		# Test true values
+		for true_val in ['true', 'True', 'TRUE', 'yes', 'Yes', '1']:
+			monkeypatch.setenv('ANONYMIZED_TELEMETRY', true_val)
+			assert CONFIG.ANONYMIZED_TELEMETRY is True, f'Failed for value: {true_val}'
 
-			# Test false values
-			for false_val in ['false', 'False', 'FALSE', 'no', 'No', '0']:
-				os.environ['ANONYMIZED_TELEMETRY'] = false_val
-				assert CONFIG.ANONYMIZED_TELEMETRY is False, f'Failed for value: {false_val}'
-		finally:
-			if original_value:
-				os.environ['ANONYMIZED_TELEMETRY'] = original_value
-			else:
-				os.environ.pop('ANONYMIZED_TELEMETRY', None)
+		# Test false values
+		for false_val in ['false', 'False', 'FALSE', 'no', 'No', '0']:
+			monkeypatch.setenv('ANONYMIZED_TELEMETRY', false_val)
+			assert CONFIG.ANONYMIZED_TELEMETRY is False, f'Failed for value: {false_val}'
 
 	def test_api_keys_lazy_loading(self):
 		"""Test API keys are loaded lazily."""
