@@ -219,7 +219,7 @@ async def debug_iframe_scrolling():
 		tools.act = wrapped_act
 
 		# Run the agent with remaining actions
-		result = await agent.run()
+		result = await agent.run(close_after_run=False)
 		print(f'\nAgent completed with result: {result}')
 
 		# Analyze all captured states
