@@ -42,6 +42,7 @@ class ChatOpenRouter(BaseChatModel):
 	api_key: str | None = None
 	http_referer: str | None = None  # OpenRouter specific parameter for tracking
 	base_url: str | httpx.URL = 'https://openrouter.ai/api/v1'
+	extra_body: Mapping[str, Any] | None = None
 	timeout: float | httpx.Timeout | None = None
 	max_retries: int = 10
 	default_headers: Mapping[str, str] | None = None
@@ -148,6 +149,7 @@ class ChatOpenRouter(BaseChatModel):
 					top_p=self.top_p,
 					seed=self.seed,
 					extra_headers=extra_headers,
+					extra_body=self.extra_body,
 				)
 
 				usage = self._get_usage(response)
@@ -178,6 +180,7 @@ class ChatOpenRouter(BaseChatModel):
 						type='json_schema',
 					),
 					extra_headers=extra_headers,
+					extra_body=self.extra_body,
 				)
 
 				if response.choices[0].message.content is None:
