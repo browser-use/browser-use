@@ -32,8 +32,11 @@ def temp_config_dir(monkeypatch):
 
 
 @pytest.fixture
-def mock_auth_config(temp_config_dir):
+def mock_auth_config(temp_config_dir, monkeypatch):
 	"""Create a mock auth config with valid token."""
+	# CRITICAL: Clear environment variable to prevent .env interference
+	monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
+
 	auth_config = CloudAuthConfig(api_token='test-token', user_id='test-user-id', authorized_at=None)
 	auth_config.save_to_file()
 	return auth_config
@@ -82,10 +85,11 @@ class TestCloudBrowserClient:
 			assert 'X-Browser-Use-API-Key' in call_args.kwargs['headers']
 			assert call_args.kwargs['headers']['X-Browser-Use-API-Key'] == 'test-token'
 
-	async def test_create_browser_auth_error(self, temp_config_dir):
+	async def test_create_browser_auth_error(self, temp_config_dir, monkeypatch):
 		"""Test cloud browser creation with auth error."""
 
-		# Don't create auth config - should trigger auth error
+		# Clear environment variable to trigger auth error
+		monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
 
 		with patch('httpx.AsyncClient') as mock_client_class:
 			mock_client = AsyncMock()
@@ -122,7 +126,10 @@ class TestCloudBrowserClient:
 	async def test_create_browser_with_env_var(self, temp_config_dir, monkeypatch):
 		"""Test cloud browser creation using BROWSER_USE_API_KEY environment variable."""
 
-		# Set environment variable
+		# First clear any existing value from .env
+		monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
+
+		# Then set the test value
 		monkeypatch.setenv('BROWSER_USE_API_KEY', 'env-test-token')
 
 		# Mock response data matching the API
@@ -283,8 +290,11 @@ async def test_get_cloud_browser_cdp_url_function(mock_auth_config):
 		assert cdp_url == 'wss://test.proxy.daytona.works'
 
 
-async def test_cloud_browser_auth_error_no_fallback(temp_config_dir):
+async def test_cloud_browser_auth_error_no_fallback(temp_config_dir, monkeypatch):
 	"""Test that cloud browser throws error when auth fails (no fallback)."""
+
+	# Clear environment variable to trigger auth error
+	monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
 
 	# Don't create auth config to trigger auth error
 	profile = BrowserProfile(use_cloud=True)
