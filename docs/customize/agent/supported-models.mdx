@@ -308,7 +308,37 @@ Required environment variables:
 MODELSCOPE_API_KEY=
 ```
 
-## Other models (DeepSeek, Novita, X...)
+## CometAPI [example](https://github.com/browser-use/browser-use/blob/main/examples/models/cometapi.py)
+
+[CometAPI](https://www.cometapi.com/?utm_source=browser-use&utm_campaign=integration&utm_medium=integration&utm_content=integration) is an LLM API provider offering 500+ AI models in one unified API. Choose any model that supports function calling.
+
+```python
+from browser_use import Agent, ChatOpenAI
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+# Get API key from https://api.cometapi.com/console/token
+api_key = os.getenv('COMETAPI_KEY')
+base_url = 'https://api.cometapi.com/v1/'
+
+llm = ChatOpenAI(model='gpt-4o-mini', api_key=api_key, base_url=base_url)
+
+agent = Agent(
+    task="Your task here",
+    llm=llm,
+    use_vision=False
+)
+```
+
+Required environment variables:
+
+```bash .env
+COMETAPI_KEY=
+```
+
+## Other models (DeepSeek, Novita, OpenRouter, X...)
 
 We support all other models that can be called via OpenAI compatible API. We are open to PRs for more providers.
 
