@@ -1560,6 +1560,34 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			if self.history._output_model_schema is None and self.output_model_schema is not None:
 				self.history._output_model_schema = self.output_model_schema
 
+			# Validate output with LLM (only once)
+			if not getattr(self.state, 'validation_attempted', False):
+				self.state.validation_attempted = True
+				should_continue = await self._validate_output_satisfaction()
+				if should_continue:
+					self.logger.info('Validation step determined user may not be satisfied, continuing for one more iteration...')
+					# Continue for one more step
+					try:
+						step_info = AgentStepInfo(step_number=self.state.n_steps, max_steps=max_steps + 1)
+						await asyncio.wait_for(
+							self.step(step_info),
+							timeout=self.settings.step_timeout,
+						)
+						if self.history.is_done():
+							await self.log_completion()
+							if self.register_done_callback:
+								if inspect.iscoroutinefunction(self.register_done_callback):
+									await self.register_done_callback(self.history)
+								else:
+									self.register_done_callback(self.history)
+					except TimeoutError:
+						error_msg = f'Validation step timed out after {self.settings.step_timeout} seconds'
+						self.logger.error(f'⏰ {error_msg}')
+						self.state.consecutive_failures += 1
+						self.state.last_result = [ActionResult(error=error_msg)]
+					except Exception as e:
+						self.logger.error(f'Validation step failed with exception: {e}', exc_info=True)
+
 			return self.history
 
 		except KeyboardInterrupt:
@@ -1731,6 +1759,70 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.info(f'  {action_header} {params_string}')
 		else:
 			self.logger.info(f'  {action_header}')
+
+	async def _validate_output_satisfaction(self) -> bool:
+		"""
+		Validate if the output would satisfy the user by asking the LLM.
+		Returns True if the agent should continue (user likely not satisfied), False otherwise.
+		"""
+		final_result = self.history.final_result()
+		is_successful = self.history.is_successful()
+		
+		# If agent already reported failure, definitely continue
+		if is_successful is False:
+			self.logger.debug('Agent reported failure, skipping validation check')
+			return False
+		
+		# If no final result, can't validate
+		if not final_result:
+			self.logger.debug('No final result to validate')
+			return False
+		
+		self.logger.info('Running output validation to check user satisfaction...')
+		
+		validation_prompt = f"""You are validating an AI agent's output for a user task.
+
+Original task: {self.task}
+
+Agent's output: {final_result}
+
+Agent reported success: {is_successful}
+
+Based on the original task and the agent's output, would the user be satisfied with this result?
+Consider:
+- Does the output actually complete what was asked in the task?
+- Is the output complete and thorough?
+- Are there obvious missing pieces or incomplete actions?
+
+Respond with a JSON object containing:
+- "satisfied": boolean (true if user would likely be satisfied, false if not)
+- "reason": string (brief explanation of your assessment)
+"""
+		
+		try:
+			from browser_use.llm.messages import UserMessage
+			from pydantic import BaseModel, Field
+			
+			class ValidationResponse(BaseModel):
+				satisfied: bool = Field(description="Whether the user would be satisfied with the output")
+				reason: str = Field(description="Brief explanation of the assessment")
+			
+			response = await self.llm.ainvoke(
+				[UserMessage(content=validation_prompt)],
+				output_format=ValidationResponse,
+			)
+			
+			validation_result: ValidationResponse = response.completion  # type: ignore
+			
+			self.logger.info(f'Validation result: satisfied={validation_result.satisfied}, reason={validation_result.reason}')
+			
+			# Return True if we should continue (user not satisfied)
+			return not validation_result.satisfied
+			
+		except Exception as e:
+			self.logger.error(f'Output validation failed: {e}')
+			# On error, don't continue
+			return False
 
 	async def log_completion(self) -> None:
 		"""Log the completion of the task"""
