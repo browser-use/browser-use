@@ -1853,6 +1853,13 @@ async def run_auth_command():
 
 @click.group(invoke_without_command=True)
 @click.option('--version', is_flag=True, help='Print version and exit')
+@click.option(
+	'--template',
+	type=click.Choice(['quickstart', 'advanced', 'tools'], case_sensitive=False),
+	help='Generate a template file (quickstart, advanced, or tools)',
+)
+@click.option('--output', '-o', type=click.Path(), help='Output file path for template (default: browser_use_<template>.py)')
+@click.option('--force', '-f', is_flag=True, help='Overwrite existing files without asking')
 @click.option('--model', type=str, help='Model to use (e.g., gpt-5-mini, claude-4-sonnet, gemini-2.5-flash)')
 @click.option('--debug', is_flag=True, help='Enable verbose startup logging')
 @click.option('--headless', is_flag=True, help='Run browser in headless mode', default=None)
@@ -1874,7 +1881,16 @@ def main(ctx: click.Context, debug: bool = False, **kwargs):
 	"""Browser Use - AI Agent for Web Automation
 
 	Run without arguments to start the interactive TUI.
+
+	Examples:
+	  uvx browser-use --template quickstart
+	  uvx browser-use --template advanced --output my_script.py
 	"""
+
+	# Handle template generation
+	if kwargs.get('template'):
+		_run_template_generation(kwargs['template'], kwargs.get('output'), kwargs.get('force', False))
+		return
 
 	if ctx.invoked_subcommand is None:
 		# No subcommand, run the main interface
@@ -2002,6 +2018,189 @@ def run_main_interface(ctx: click.Context, debug: bool = False, **kwargs):
 def auth():
 	"""Authenticate with Browser Use Cloud to sync your runs"""
 	asyncio.run(run_auth_command())
+
+
+# ============================================================================
+# Template Generation - Generate template files
+# ============================================================================
+
+# Template metadata
+INIT_TEMPLATES = {
+	'quickstart': {
+		'file': 'quickstart_template.py',
+		'description': 'Simplest setup - capable of any web task with minimal configuration',
+	},
+	'advanced': {
+		'file': 'advanced_template.py',
+		'description': 'All configuration options shown with defaults',
+	},
+	'tools': {
+		'file': 'tools_template.py',
+		'description': 'Custom action examples - extend the agent with your own functions',
+	},
+}
+
+
+def _run_template_generation(template: str, output: str | None, force: bool):
+	"""Generate a template file (called from main CLI)."""
+	# Determine output path
+	if output:
+		output_path = Path(output)
+	else:
+		output_path = Path.cwd() / f'browser_use_{template}.py'
+
+	# Read template file
+	try:
+		templates_dir = Path(__file__).parent / 'cli_templates'
+		template_file = INIT_TEMPLATES[template]['file']
+		template_path = templates_dir / template_file
+		content = template_path.read_text(encoding='utf-8')
+	except Exception as e:
+		click.echo(f'❌ Error reading template: {e}', err=True)
+		sys.exit(1)
+
+	# Write file
+	if _write_init_file(output_path, content, force):
+		click.echo(f'✅ Created {output_path}')
+		click.echo('\nNext steps:')
+		click.echo('  1. Install browser-use:')
+		click.echo('     uv pip install browser-use')
+		click.echo('  2. Set up your API key in .env file or environment:')
+		click.echo('     BROWSER_USE_API_KEY=your-key')
+		click.echo('     (Get your key at https://cloud.browser-use.com/dashboard/api)')
+		click.echo('  3. Run your script:')
+		click.echo(f'     python {output_path.name}')
+	else:
+		sys.exit(1)
+
+
+def _write_init_file(output_path: Path, content: str, force: bool = False) -> bool:
+	"""Write content to a file, with safety checks."""
+	# Check if file already exists
+	if output_path.exists() and not force:
+		click.echo(f'⚠️  File already exists: {output_path}')
+		if not click.confirm('Overwrite?', default=False):
+			click.echo('❌ Cancelled')
+			return False
+
+	# Ensure parent directory exists
+	output_path.parent.mkdir(parents=True, exist_ok=True)
+
+	# Write file
+	try:
+		output_path.write_text(content, encoding='utf-8')
+		return True
+	except Exception as e:
+		click.echo(f'❌ Error writing file: {e}', err=True)
+		return False
+
+
+@main.command('init')
+@click.option(
+	'--template',
+	'-t',
+	type=click.Choice(['quickstart', 'advanced', 'tools'], case_sensitive=False),
+	help='Template to use',
+)
+@click.option(
+	'--output',
+	'-o',
+	type=click.Path(),
+	help='Output file path (default: browser_use_<template>.py)',
+)
+@click.option(
+	'--force',
+	'-f',
+	is_flag=True,
+	help='Overwrite existing files without asking',
+)
+@click.option(
+	'--list',
+	'-l',
+	'list_templates',
+	is_flag=True,
+	help='List available templates',
+)
+def init(
+	template: str | None,
+	output: str | None,
+	force: bool,
+	list_templates: bool,
+):
+	"""
+	Generate a browser-use template file to get started quickly.
+
+	Examples:
+
+	\b
+	# Interactive mode - prompts for template selection
+	uvx browser-use init
+
+	\b
+	# Generate quickstart template
+	uvx browser-use init --template quickstart
+
+	\b
+	# Generate advanced template with custom filename
+	uvx browser-use init --template advanced --output my_script.py
+
+	\b
+	# List available templates
+	uvx browser-use init --list
+	"""
+
+	# Handle --list flag
+	if list_templates:
+		click.echo('Available templates:\n')
+		for name, info in INIT_TEMPLATES.items():
+			click.echo(f'  {name:12} - {info["description"]}')
+		return
+
+	# Interactive template selection if not provided
+	if not template:
+		click.echo('Available templates:\n')
+		for name, info in INIT_TEMPLATES.items():
+			click.echo(f'  {name:12} - {info["description"]}')
+		click.echo()
+
+		template = click.prompt(
+			'Which template would you like to use?',
+			type=click.Choice(['quickstart', 'advanced', 'tools'], case_sensitive=False),
+			default='quickstart',
+		)
+
+	# Template is guaranteed to be set at this point (either from option or prompt)
+	assert template is not None
+
+	# Determine output path
+	if output:
+		output_path = Path(output)
+	else:
+		output_path = Path.cwd() / f'browser_use_{template}.py'
+
+	# Read template file
+	try:
+		templates_dir = Path(__file__).parent / 'cli_templates'
+		template_file = INIT_TEMPLATES[template]['file']
+		template_path = templates_dir / template_file
+		content = template_path.read_text(encoding='utf-8')
+	except Exception as e:
+		click.echo(f'❌ Error reading template: {e}', err=True)
+		sys.exit(1)
+
+	# Write file
+	if _write_init_file(output_path, content, force):
+		click.echo(f'✅ Created {output_path}')
+		click.echo('\nNext steps:')
+		click.echo('  1. Install browser-use:')
+		click.echo('     uv pip install browser-use')
+		click.echo('  2. Set up your API key in .env file or environment:')
+		click.echo('     BROWSER_USE_API_KEY=your-key')
+		click.echo('     (Get your key at https://cloud.browser-use.com/dashboard/api)')
+		click.echo('  3. Run your script:')
+		click.echo(f'     python {output_path.name}')
+	else:
+		sys.exit(1)
 
 
 if __name__ == '__main__':
