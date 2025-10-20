@@ -329,7 +329,7 @@ Source: (go to or request this content to learn more) https://docs.browser-use.c
 
 Tips and tricks 
 
-Prompting can trasticly improve performance and solve existing limitations of the library.
+Prompting can drastically improve performance and solve existing limitations of the library.
 
 ### 1. Be Specific vs Open-Ended
 
