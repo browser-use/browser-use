@@ -74,6 +74,10 @@ class ClickableElementDetector:
 					if prop.name == 'hidden' and prop.value:
 						return False
 
+					# inert true
+					if prop.name == 'inert' and prop.value:
+						return False
+
 					# Direct interactiveness indicators
 					if prop.name in ['focusable', 'editable', 'settable'] and prop.value:
 						return True
