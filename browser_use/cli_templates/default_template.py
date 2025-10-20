@@ -1,7 +1,7 @@
 """
-Quickstart Example
+Default browser-use example using ChatBrowserUse
 
-This is the simplest way to use Browser Use- capable of any web task,
+The simplest way to use browser-use - capable of any web task
 with minimal configuration.
 """
 

@@ -1855,8 +1855,8 @@ async def run_auth_command():
 @click.option('--version', is_flag=True, help='Print version and exit')
 @click.option(
 	'--template',
-	type=click.Choice(['quickstart', 'advanced', 'tools'], case_sensitive=False),
-	help='Generate a template file (quickstart, advanced, or tools)',
+	type=click.Choice(['default', 'advanced', 'tools'], case_sensitive=False),
+	help='Generate a template file (default, advanced, or tools)',
 )
 @click.option('--output', '-o', type=click.Path(), help='Output file path for template (default: browser_use_<template>.py)')
 @click.option('--force', '-f', is_flag=True, help='Overwrite existing files without asking')
@@ -1883,7 +1883,7 @@ def main(ctx: click.Context, debug: bool = False, **kwargs):
 	Run without arguments to start the interactive TUI.
 
 	Examples:
-	  uvx browser-use --template quickstart
+	  uvx browser-use --template default
 	  uvx browser-use --template advanced --output my_script.py
 	"""
 
@@ -2026,8 +2026,8 @@ def auth():
 
 # Template metadata
 INIT_TEMPLATES = {
-	'quickstart': {
-		'file': 'quickstart_template.py',
+	'default': {
+		'file': 'default_template.py',
 		'description': 'Simplest setup - capable of any web task with minimal configuration',
 	},
 	'advanced': {
@@ -2099,7 +2099,7 @@ def _write_init_file(output_path: Path, content: str, force: bool = False) -> bo
 @click.option(
 	'--template',
 	'-t',
-	type=click.Choice(['quickstart', 'advanced', 'tools'], case_sensitive=False),
+	type=click.Choice(['default', 'advanced', 'tools'], case_sensitive=False),
 	help='Template to use',
 )
 @click.option(
@@ -2137,8 +2137,8 @@ def init(
 	uvx browser-use init
 
 	\b
-	# Generate quickstart template
-	uvx browser-use init --template quickstart
+	# Generate default template
+	uvx browser-use init --template default
 
 	\b
 	# Generate advanced template with custom filename
@@ -2165,8 +2165,8 @@ def init(
 
 		template = click.prompt(
 			'Which template would you like to use?',
-			type=click.Choice(['quickstart', 'advanced', 'tools'], case_sensitive=False),
-			default='quickstart',
+			type=click.Choice(['default', 'advanced', 'tools'], case_sensitive=False),
+			default='default',
 		)
 
 	# Template is guaranteed to be set at this point (either from option or prompt)

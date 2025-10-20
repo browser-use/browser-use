@@ -33,7 +33,7 @@ async def main():
 		task='Find the number of stars of the browser-use repository on GitHub',
 		llm=llm,
 		browser=browser,
-		# use_vision='auto', 
+		# use_vision='auto',
 		# save_conversation_path=None,
 		# max_failures=3,
 		# generate_gif=False,
