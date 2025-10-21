@@ -9,6 +9,12 @@ import sys
 from pathlib import Path
 
 import click
+from InquirerPy.base.control import Choice
+from InquirerPy.prompts.list import ListPrompt
+from InquirerPy.utils import InquirerPyStyle
+from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
 
 # Template metadata
 INIT_TEMPLATES = {
@@ -26,14 +32,28 @@ INIT_TEMPLATES = {
 	},
 }
 
+# Rich console for styled output
+console = Console()
+
+# InquirerPy style for template selection (browser-use orange theme)
+inquirer_style = InquirerPyStyle(
+	{
+		'pointer': '#fe750e bold',
+		'highlighted': '#fe750e bold',
+		'question': 'bold',
+		'answer': '#fe750e bold',
+		'questionmark': '#fe750e bold',
+	}
+)
+
 
 def _write_init_file(output_path: Path, content: str, force: bool = False) -> bool:
 	"""Write content to a file, with safety checks."""
 	# Check if file already exists
 	if output_path.exists() and not force:
-		click.echo(f'⚠️  File already exists: {output_path}')
+		console.print(f'[yellow]⚠[/yellow]  File already exists: [cyan]{output_path}[/cyan]')
 		if not click.confirm('Overwrite?', default=False):
-			click.echo('❌ Cancelled')
+			console.print('[red]✗[/red] Cancelled')
 			return False
 
 	# Ensure parent directory exists
@@ -44,7 +64,7 @@ def _write_init_file(output_path: Path, content: str, force: bool = False) -> bo
 		output_path.write_text(content, encoding='utf-8')
 		return True
 	except Exception as e:
-		click.echo(f'❌ Error writing file: {e}', err=True)
+		console.print(f'[red]✗[/red] Error writing file: {e}')
 		return False
 
 
@@ -111,16 +131,28 @@ def main(
 
 	# Interactive template selection if not provided
 	if not template:
-		click.echo('Available templates:\n')
-		for name, info in INIT_TEMPLATES.items():
-			click.echo(f'  {name:12} - {info["description"]}')
-		click.echo()
+		# Create choices with descriptions
+		choices = [
+			Choice(
+				name=f'{name:12} - {info["description"]}',
+				value=name,
+			)
+			for name, info in INIT_TEMPLATES.items()
+		]
 
-		template = click.prompt(
-			'Which template would you like to use?',
-			type=click.Choice(['default', 'advanced', 'tools'], case_sensitive=False),
+		template = ListPrompt(
+			message='Select a template:',
+			choices=choices,
 			default='default',
-		)
+			pointer='❯',
+			style=inquirer_style,
+			instruction='(Use arrow keys)',
+		).execute()
+
+		# Handle user cancellation (Ctrl+C)
+		if template is None:
+			console.print('\n[red]✗[/red] Cancelled')
+			sys.exit(1)
 
 	# Template is guaranteed to be set at this point (either from option or prompt)
 	assert template is not None
@@ -138,20 +170,31 @@ def main(
 		template_path = templates_dir / template_file
 		content = template_path.read_text(encoding='utf-8')
 	except Exception as e:
-		click.echo(f'❌ Error reading template: {e}', err=True)
+		console.print(f'[red]✗[/red] Error reading template: {e}')
 		sys.exit(1)
 
 	# Write file
 	if _write_init_file(output_path, content, force):
-		click.echo(f'✅ Created {output_path}')
-		click.echo('\nNext steps:')
-		click.echo('  1. Install browser-use:')
-		click.echo('     uv pip install browser-use')
-		click.echo('  2. Set up your API key in .env file or environment:')
-		click.echo('     BROWSER_USE_API_KEY=your-key')
-		click.echo('     (Get your key at https://cloud.browser-use.com/dashboard/api)')
-		click.echo('  3. Run your script:')
-		click.echo(f'     python {output_path.name}')
+		console.print(f'\n[green]✓[/green] Created [cyan]{output_path}[/cyan]')
+
+		# Create a nice panel for next steps
+		next_steps = Text()
+		next_steps.append('\n1. Install browser-use:\n', style='bold')
+		next_steps.append('   uv pip install browser-use\n\n', style='dim')
+		next_steps.append('2. Set up your API key in .env file or environment:\n', style='bold')
+		next_steps.append('   BROWSER_USE_API_KEY=your-key\n', style='dim')
+		next_steps.append('   (Get your key at https://cloud.browser-use.com/dashboard/api)\n\n', style='dim italic')
+		next_steps.append('3. Run your script:\n', style='bold')
+		next_steps.append(f'   python {output_path.name}\n', style='dim')
+
+		console.print(
+			Panel(
+				next_steps,
+				title='[bold]Next steps[/bold]',
+				border_style='#fe750e',
+				padding=(1, 2),
+			)
+		)
 	else:
 		sys.exit(1)
 
