@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from typing import Generic, TypeVar
-from browser_use.llm.messages import SystemMessage, UserMessage
+
 try:
 	from lmnr import Laminar  # type: ignore
 except ImportError:
@@ -30,6 +30,7 @@ from browser_use.browser.views import BrowserError
 from browser_use.dom.service import EnhancedDOMTreeNode
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
+from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.views import (
@@ -101,22 +102,7 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 class Tools(Generic[Context]):
 	def __init__(
 		self,
-		exclude_actions: list[str] = [
-			# 'scroll',
-			'extract',
-			'find_text',
-			# 'select_dropdown',
-			# 'dropdown_options',
-			'screenshot',
-			'search',
-			# 'click',
-			# 'input',
-			# 'switch',  # ENABLED: switch tab action now available
-			# 'send_keys',
-			# 'close',  # ENABLED: close tab action now available
-			# 'go_back',
-			# 'upload_file',
-		],
+		exclude_actions: list[str] = [],
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
 	):
@@ -951,7 +937,62 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					error_msg = selection_data.get('error', f'Failed to select option: {params.text}')
 					return ActionResult(error=error_msg)
 
-		# File System Actions removed - use normal Python file operations instead
+		# File System Actions
+
+		@self.registry.action('')
+		async def write_file(
+			file_name: str,
+			content: str,
+			file_system: FileSystem,
+			append: bool = False,
+			trailing_newline: bool = True,
+			leading_newline: bool = False,
+		):
+			if trailing_newline:
+				content += '\n'
+			if leading_newline:
+				content = '\n' + content
+			if append:
+				result = await file_system.append_file(file_name, content)
+			else:
+				result = await file_system.write_file(file_name, content)
+			logger.info(f'💾 {result}')
+			return ActionResult(extracted_content=result, long_term_memory=result)
+
+		@self.registry.action('')
+		async def replace_file(file_name: str, old_str: str, new_str: str, file_system: FileSystem):
+			result = await file_system.replace_file_str(file_name, old_str, new_str)
+			logger.info(f'💾 {result}')
+			return ActionResult(extracted_content=result, long_term_memory=result)
+
+		@self.registry.action('')
+		async def read_file(file_name: str, available_file_paths: list[str], file_system: FileSystem):
+			if available_file_paths and file_name in available_file_paths:
+				result = await file_system.read_file(file_name, external_file=True)
+			else:
+				result = await file_system.read_file(file_name)
+
+			MAX_MEMORY_SIZE = 1000
+			if len(result) > MAX_MEMORY_SIZE:
+				lines = result.splitlines()
+				display = ''
+				lines_count = 0
+				for line in lines:
+					if len(display) + len(line) < MAX_MEMORY_SIZE:
+						display += line + '\n'
+						lines_count += 1
+					else:
+						break
+				remaining_lines = len(lines) - lines_count
+				memory = f'{display}{remaining_lines} more lines...' if remaining_lines > 0 else display
+			else:
+				memory = result
+			logger.info(f'💾 {memory}')
+			return ActionResult(
+				extracted_content=result,
+				long_term_memory=memory,
+				include_extracted_content_only_once=True,
+			)
 
 		@self.registry.action(
 			"""Execute browser JavaScript. Best practice: wrap in IIFE (function(){...})() with try-catch for safety. Use ONLY browser APIs (document, window, DOM). NO Node.js APIs (fs, require, process). Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() Avoid comments. Use for hover, drag, zoom, custom selectors, extract/filter links, shadow DOM, or analysing page structure. Limit output size.""",
@@ -1141,15 +1182,6 @@ Validated Code (after quote fixing):
 							if file_content:
 								file_msg += f'\n\n{file_name}:\n{file_content}'
 								attachments.append(file_name)
-							elif os.path.exists(file_name):
-								# File exists on disk but not in FileSystem - read it directly
-								try:
-									with open(file_name, encoding='utf-8') as f:
-										file_content = f.read()
-									file_msg += f'\n\n{file_name}:\n{file_content}'
-									attachments.append(file_name)
-								except Exception as e:
-									logger.warning(f'Failed to read file {file_name}: {e}')
 						if file_msg:
 							user_message += '\n\nAttachments:'
 							user_message += file_msg
@@ -1160,25 +1192,8 @@ Validated Code (after quote fixing):
 							file_content = file_system.display_file(file_name)
 							if file_content:
 								attachments.append(file_name)
-							elif os.path.exists(file_name):
-								attachments.append(file_name)
 
-				# Convert relative paths to absolute paths - handle both FileSystem-managed and regular files
-				resolved_attachments = []
-				for file_name in attachments:
-					if os.path.isabs(file_name):
-						# Already absolute
-						resolved_attachments.append(file_name)
-					elif file_system.get_file(file_name):
-						# Managed by FileSystem
-						resolved_attachments.append(str(file_system.get_dir() / file_name))
-					elif os.path.exists(file_name):
-						# Regular file in current directory
-						resolved_attachments.append(os.path.abspath(file_name))
-					else:
-						# File doesn't exist, but include the path anyway for error visibility
-						resolved_attachments.append(str(file_system.get_dir() / file_name))
-				attachments = resolved_attachments
+				attachments = [str(file_system.get_dir() / file_name) for file_name in attachments]
 
 				return ActionResult(
 					is_done=True,
@@ -1271,3 +1286,131 @@ Validated Code (after quote fixing):
 
 # Alias for backwards compatibility
 Controller = Tools
+
+
+class CodeUseTools(Tools[Context]):
+	"""Specialized Tools for CodeUse agent optimized for Python-based browser automation.
+
+	Includes:
+	- All browser interaction tools (click, input, scroll, navigate, etc.)
+	- JavaScript evaluation
+	- Tab management (switch, close)
+	- Navigation actions (go_back)
+	- Upload file support
+	- Dropdown interactions
+
+	Excludes (optimized for code-use mode):
+	- extract: Use Python + evaluate() instead
+	- find_text: Use Python string operations
+	- screenshot: Not needed in code-use mode
+	- search: Use navigate() directly
+	- File system actions (write_file, read_file, replace_file): Use Python file operations instead
+	"""
+
+	def __init__(
+		self,
+		exclude_actions: list[str] | None = None,
+		output_model: type[T] | None = None,
+		display_files_in_done_text: bool = True,
+	):
+		# Default exclusions for CodeUse agent
+		if exclude_actions is None:
+			exclude_actions = [
+				# 'scroll',  # Keep for code-use
+				'extract',  # Exclude - use Python + evaluate()
+				'find_text',  # Exclude - use Python string ops
+				# 'select_dropdown',  # Keep for code-use
+				# 'dropdown_options',  # Keep for code-use
+				'screenshot',  # Exclude - not needed
+				'search',  # Exclude - use navigate() directly
+				# 'click',  # Keep for code-use
+				# 'input',  # Keep for code-use
+				# 'switch',  # Keep for code-use
+				# 'send_keys',  # Keep for code-use
+				# 'close',  # Keep for code-use
+				# 'go_back',  # Keep for code-use
+				# 'upload_file',  # Keep for code-use
+				# Exclude file system actions - CodeUse should use Python file operations
+				'write_file',
+				'read_file',
+				'replace_file',
+			]
+
+		super().__init__(
+			exclude_actions=exclude_actions,
+			output_model=output_model,
+			display_files_in_done_text=display_files_in_done_text,
+		)
+
+		# Override done action for CodeUse with enhanced file handling
+		self._register_code_use_done_action(output_model, display_files_in_done_text)
+
+	def _register_code_use_done_action(self, output_model: type[T] | None, display_files_in_done_text: bool = True):
+		"""Register enhanced done action for CodeUse that can read files from disk."""
+		if output_model is not None:
+			# Structured output done - use parent's implementation
+			return
+
+		# Override the done action with enhanced version
+		@self.registry.action(
+			'Complete task.',
+			param_model=DoneAction,
+		)
+		async def done(params: DoneAction, file_system: FileSystem):
+			user_message = params.text
+
+			len_text = len(params.text)
+			len_max_memory = 100
+			memory = f'Task completed: {params.success} - {params.text[:len_max_memory]}'
+			if len_text > len_max_memory:
+				memory += f' - {len_text - len_max_memory} more characters'
+
+			attachments = []
+			if params.files_to_display:
+				if self.display_files_in_done_text:
+					file_msg = ''
+					for file_name in params.files_to_display:
+						file_content = file_system.display_file(file_name)
+						if file_content:
+							file_msg += f'\n\n{file_name}:\n{file_content}'
+							attachments.append(file_name)
+						elif os.path.exists(file_name):
+							# File exists on disk but not in FileSystem - just add to attachments
+							attachments.append(file_name)
+					if file_msg:
+						user_message += '\n\nAttachments:'
+						user_message += file_msg
+					else:
+						logger.warning('Agent wanted to display files but none were found')
+				else:
+					for file_name in params.files_to_display:
+						file_content = file_system.display_file(file_name)
+						if file_content:
+							attachments.append(file_name)
+						elif os.path.exists(file_name):
+							attachments.append(file_name)
+
+			# Convert relative paths to absolute paths - handle both FileSystem-managed and regular files
+			resolved_attachments = []
+			for file_name in attachments:
+				if os.path.isabs(file_name):
+					# Already absolute
+					resolved_attachments.append(file_name)
+				elif file_system.get_file(file_name):
+					# Managed by FileSystem
+					resolved_attachments.append(str(file_system.get_dir() / file_name))
+				elif os.path.exists(file_name):
+					# Regular file in current directory
+					resolved_attachments.append(os.path.abspath(file_name))
+				else:
+					# File doesn't exist, but include the path anyway for error visibility
+					resolved_attachments.append(str(file_system.get_dir() / file_name))
+			attachments = resolved_attachments
+
+			return ActionResult(
+				is_done=True,
+				success=params.success,
+				extracted_content=user_message,
+				long_term_memory=memory,
+				attachments=attachments,
+			)
