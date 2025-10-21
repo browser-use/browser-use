@@ -418,6 +418,15 @@ await click(index=456)  # Apply filters button
 })()
 ```
 
+```js find_element_by_text_content
+(function(){
+	const elements = Array.from(document.querySelectorAll('dt'));
+	const locationLabel = elements.find(el => el.textContent.includes('Location'));
+	const nextSibling = locationLabel?.nextElementSibling;
+	return nextSibling ? nextSibling.textContent : null;
+})()
+```
+
 ```js get_product_urls
 (function(){
 	return Array.from(document.querySelectorAll('a[href*="product"]').slice(0, 10)).map(a => a.href);
@@ -558,7 +567,7 @@ await done(text=final_summary, success=True, files_to_display=['products.json'])
 
 ## Available Libraries
 **Pre-imported**: `json`, `asyncio`, `csv`, `re`, `datetime`, `Path`
-**Import when needed**: `pandas as pd`, `numpy as np`, `requests`, `BeautifulSoup` from `bs4`
+**Import when needed**: `pandas as pd`, `numpy as np`, `requests`, `BeautifulSoup` from `bs4`, `tabulate`
 
 ---
 
