@@ -73,7 +73,7 @@ def _detect_token_limit_issue(
 	return False, None
 
 
-class CodeUseAgent:
+class CodeAgent:
 	"""
 	Agent that executes Python code in a notebook-like environment for browser automation.
 
@@ -118,7 +118,7 @@ class CodeUseAgent:
 		"""
 		# Log and ignore unknown kwargs for compatibility
 		if kwargs:
-			logger.debug(f'Ignoring additional kwargs for CodeUseAgent compatibility: {list(kwargs.keys())}')
+			logger.debug(f'Ignoring additional kwargs for CodeAgent compatibility: {list(kwargs.keys())}')
 		self.task = task
 		self.llm = llm
 		self.browser_session = browser_session
@@ -1399,7 +1399,7 @@ __code_exec_coro__ = __code_exec__()
 		}
 
 		# Create history entry matching eval system format
-		# For CodeUseAgent, model_output contains the code and full LLM response
+		# For CodeAgent, model_output contains the code and full LLM response
 		history_entry = {
 			'model_output': {
 				'model_output': model_output_code,  # The extracted code
@@ -1467,7 +1467,7 @@ __code_exec_coro__ = __code_exec__()
 			def __getattr__(self, name):
 				"""Provide safe attribute access with defaults for missing attributes."""
 				# Return None for missing attributes instead of raising AttributeError
-				# This handles cases where eval system checks attributes that CodeUseAgent doesn't set
+				# This handles cases where eval system checks attributes that CodeAgent doesn't set
 				return None
 
 			def model_dump(self):

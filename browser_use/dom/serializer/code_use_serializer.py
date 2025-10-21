@@ -55,7 +55,7 @@ SEMANTIC_STRUCTURE = {
 }
 
 
-class DOMCodeUseSerializer:
+class DOMCodeAgentSerializer:
 	"""Optimized DOM serializer for code-use agents - balances token efficiency with context."""
 
 	@staticmethod
@@ -74,10 +74,10 @@ class DOMCodeUseSerializer:
 
 		# Skip excluded/hidden nodes
 		if hasattr(node, 'excluded_by_parent') and node.excluded_by_parent:
-			return DOMCodeUseSerializer._serialize_children(node, include_attributes, depth)
+			return DOMCodeAgentSerializer._serialize_children(node, include_attributes, depth)
 
 		if not node.should_display:
-			return DOMCodeUseSerializer._serialize_children(node, include_attributes, depth)
+			return DOMCodeAgentSerializer._serialize_children(node, include_attributes, depth)
 
 		formatted_text = []
 		depth_str = '  ' * depth  # Use 2 spaces instead of tabs for compactness
@@ -88,28 +88,28 @@ class DOMCodeUseSerializer:
 
 			# Skip invisible (except iframes)
 			if not is_visible and tag not in ['iframe', 'frame']:
-				return DOMCodeUseSerializer._serialize_children(node, include_attributes, depth)
+				return DOMCodeAgentSerializer._serialize_children(node, include_attributes, depth)
 
 			# Special handling for iframes
 			if tag in ['iframe', 'frame']:
-				return DOMCodeUseSerializer._serialize_iframe(node, include_attributes, depth)
+				return DOMCodeAgentSerializer._serialize_iframe(node, include_attributes, depth)
 
 			# Build minimal attributes
-			attributes_str = DOMCodeUseSerializer._build_minimal_attributes(node.original_node)
+			attributes_str = DOMCodeAgentSerializer._build_minimal_attributes(node.original_node)
 
 			# Decide if element should be shown
 			is_interactive = tag in INTERACTIVE_ELEMENTS
 			is_semantic = tag in SEMANTIC_STRUCTURE
 			has_useful_attrs = bool(attributes_str)
-			has_text = DOMCodeUseSerializer._has_direct_text(node)
+			has_text = DOMCodeAgentSerializer._has_direct_text(node)
 
 			# Skip non-semantic, non-interactive containers without attributes
 			if not is_interactive and not is_semantic and not has_useful_attrs and not has_text:
-				return DOMCodeUseSerializer._serialize_children(node, include_attributes, depth)
+				return DOMCodeAgentSerializer._serialize_children(node, include_attributes, depth)
 
 			# Collapse pointless wrappers
 			if tag in {'div', 'span'} and not has_useful_attrs and not has_text and len(node.children) == 1:
-				return DOMCodeUseSerializer._serialize_children(node, include_attributes, depth)
+				return DOMCodeAgentSerializer._serialize_children(node, include_attributes, depth)
 
 			# Build element
 			line = f'{depth_str}<{tag}'
@@ -118,7 +118,7 @@ class DOMCodeUseSerializer:
 				line += f' {attributes_str}'
 
 			# Inline text
-			inline_text = DOMCodeUseSerializer._get_inline_text(node)
+			inline_text = DOMCodeAgentSerializer._get_inline_text(node)
 			if inline_text:
 				line += f'>{inline_text}'
 			else:
@@ -128,7 +128,7 @@ class DOMCodeUseSerializer:
 
 			# Children (only if no inline text)
 			if node.children and not inline_text:
-				children_text = DOMCodeUseSerializer._serialize_children(node, include_attributes, depth + 1)
+				children_text = DOMCodeAgentSerializer._serialize_children(node, include_attributes, depth + 1)
 				if children_text:
 					formatted_text.append(children_text)
 
@@ -140,7 +140,7 @@ class DOMCodeUseSerializer:
 			# Shadow DOM - minimal marker
 			if node.children:
 				formatted_text.append(f'{depth_str}#shadow')
-				children_text = DOMCodeUseSerializer._serialize_children(node, include_attributes, depth + 1)
+				children_text = DOMCodeAgentSerializer._serialize_children(node, include_attributes, depth + 1)
 				if children_text:
 					formatted_text.append(children_text)
 
@@ -151,7 +151,7 @@ class DOMCodeUseSerializer:
 		"""Serialize children."""
 		children_output = []
 		for child in node.children:
-			child_text = DOMCodeUseSerializer.serialize_tree(child, include_attributes, depth)
+			child_text = DOMCodeAgentSerializer.serialize_tree(child, include_attributes, depth)
 			if child_text:
 				children_output.append(child_text)
 		return '\n'.join(children_output)
@@ -210,7 +210,7 @@ class DOMCodeUseSerializer:
 		tag = node.original_node.tag_name.lower()
 
 		# Minimal iframe marker
-		attributes_str = DOMCodeUseSerializer._build_minimal_attributes(node.original_node)
+		attributes_str = DOMCodeAgentSerializer._build_minimal_attributes(node.original_node)
 		line = f'{depth_str}<{tag}'
 		if attributes_str:
 			line += f' {attributes_str}'
@@ -227,7 +227,7 @@ class DOMCodeUseSerializer:
 					for html_child in child_node.children:
 						if html_child.tag_name.lower() == 'body':
 							for body_child in html_child.children:
-								DOMCodeUseSerializer._serialize_document_node(
+								DOMCodeAgentSerializer._serialize_document_node(
 									body_child, formatted_text, include_attributes, depth + 2
 								)
 							break
@@ -252,12 +252,12 @@ class DOMCodeUseSerializer:
 			# Check if worth showing
 			is_interactive = tag in INTERACTIVE_ELEMENTS
 			is_semantic = tag in SEMANTIC_STRUCTURE
-			attributes_str = DOMCodeUseSerializer._build_minimal_attributes(dom_node)
+			attributes_str = DOMCodeAgentSerializer._build_minimal_attributes(dom_node)
 
 			if not is_interactive and not is_semantic and not attributes_str:
 				# Skip but process children
 				for child in dom_node.children:
-					DOMCodeUseSerializer._serialize_document_node(child, output, include_attributes, depth)
+					DOMCodeAgentSerializer._serialize_document_node(child, output, include_attributes, depth)
 				return
 
 			# Build element
@@ -284,4 +284,4 @@ class DOMCodeUseSerializer:
 			# Process non-text children
 			for child in dom_node.children:
 				if child.node_type != NodeType.TEXT_NODE:
-					DOMCodeUseSerializer._serialize_document_node(child, output, include_attributes, depth + 1)
+					DOMCodeAgentSerializer._serialize_document_node(child, output, include_attributes, depth + 1)

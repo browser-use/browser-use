@@ -18,7 +18,7 @@ import requests
 from browser_use.browser import BrowserSession
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
-from browser_use.tools.service import CodeUseTools, Tools
+from browser_use.tools.service import CodeAgentTools, Tools
 
 logger = logging.getLogger(__name__)
 
@@ -284,10 +284,10 @@ def create_namespace(
 		result = await namespace['evaluate']('document.title')
 	"""
 	if tools is None:
-		# Use CodeUseTools with default exclusions optimized for code-use mode
+		# Use CodeAgentTools with default exclusions optimized for code-use mode
 		# For code-use, we keep: navigate, evaluate, wait, done
 		# and exclude: most browser interaction, file system actions (use Python instead)
-		tools = CodeUseTools()
+		tools = CodeAgentTools()
 
 	if available_file_paths is None:
 		available_file_paths = []

@@ -21,7 +21,7 @@ import asyncio
 from lmnr import Laminar
 
 from browser_use import ChatGoogle
-from browser_use.code_use import CodeUseAgent, export_to_ipynb, session_to_python_script
+from browser_use.code_use import CodeAgent, export_to_ipynb, session_to_python_script
 
 Laminar.initialize()
 llm = ChatGoogle(model='gemini-flash-latest')
@@ -44,10 +44,10 @@ async def main():
 Go to https://www.flipkart.com. Continue collecting products from Flipkart in the following categories. I need approximately 50 products from:\n\n1. Books & Media (books, stationery) - 15 products\n2. Sports & Fitness (equipment, clothing, accessories) - 15 products  \n3. Beauty & Personal Care (cosmetics, skincare, grooming) - 10 products\nAnd 2 other categories you find interesting.\nNavigate to these categories and collect products with:\n- Product URL (working link)\n- Product name/description\n- Actual price (MRP)\n- Deal price (current selling price)  \n- Discount percentage\n\nFocus on products with good discounts and clear pricing. Target around 40 products total from these three categories.
 
 	"""
-	task = "Use requests to get GitHub's API for trending Python repos, then visit the top 3 repos in the browser and extract their README"
+	task = "Usec requests to get GitHub's API for trending Python repos, then visit the top 3 repos in the browser and extract their README"
 
 	# Create code-use agent
-	agent = CodeUseAgent(
+	agent = CodeAgent(
 		task=task,
 		llm=llm,
 		max_steps=30,

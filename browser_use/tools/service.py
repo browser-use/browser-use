@@ -1288,8 +1288,8 @@ Validated Code (after quote fixing):
 Controller = Tools
 
 
-class CodeUseTools(Tools[Context]):
-	"""Specialized Tools for CodeUse agent optimized for Python-based browser automation.
+class CodeAgentTools(Tools[Context]):
+	"""Specialized Tools for CodeAgent agent optimized for Python-based browser automation.
 
 	Includes:
 	- All browser interaction tools (click, input, scroll, navigate, etc.)
@@ -1313,7 +1313,7 @@ class CodeUseTools(Tools[Context]):
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
 	):
-		# Default exclusions for CodeUse agent
+		# Default exclusions for CodeAgent agent
 		if exclude_actions is None:
 			exclude_actions = [
 				# 'scroll',  # Keep for code-use
@@ -1330,7 +1330,7 @@ class CodeUseTools(Tools[Context]):
 				# 'close',  # Keep for code-use
 				# 'go_back',  # Keep for code-use
 				# 'upload_file',  # Keep for code-use
-				# Exclude file system actions - CodeUse should use Python file operations
+				# Exclude file system actions - CodeAgent should use Python file operations
 				'write_file',
 				'read_file',
 				'replace_file',
@@ -1342,11 +1342,11 @@ class CodeUseTools(Tools[Context]):
 			display_files_in_done_text=display_files_in_done_text,
 		)
 
-		# Override done action for CodeUse with enhanced file handling
+		# Override done action for CodeAgent with enhanced file handling
 		self._register_code_use_done_action(output_model, display_files_in_done_text)
 
 	def _register_code_use_done_action(self, output_model: type[T] | None, display_files_in_done_text: bool = True):
-		"""Register enhanced done action for CodeUse that can read files from disk."""
+		"""Register enhanced done action for CodeAgent that can read files from disk."""
 		if output_model is not None:
 			# Structured output done - use parent's implementation
 			return
