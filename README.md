@@ -61,14 +61,14 @@
 
 **1. Create environment with [uv](https://docs.astral.sh/uv/) (Python>=3.11):**
 ```bash
-uv venv --python 3.12
-source .venv/bin/activate
+uv init
 ```
 
 **2. Install Browser-Use package:**
 ```bash
 #  We ship every day - use the latest version!
-uv pip install browser-use
+uv add browser-use
+uv sync
 ```
 
 **3. Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/dashboard/api) and add it to your `.env` file (new signups get $10 free credits):**
@@ -84,41 +84,30 @@ uvx playwright install chromium --with-deps --no-shell
 
 **5. Run your first agent:**
 ```python
-from browser_use import Agent, ChatBrowserUse
-
-agent = Agent(
-    task="Find the number of stars of the browser-use repo",
-    llm=ChatBrowserUse(),
-)
-agent.run_sync()
-```
-
-Check out the [library docs](https://docs.browser-use.com) for more!
-
-<br/>
-
-# Stealth Browser Infrastructure
-
-Want to bypass anti-bot detection or run a fleet of agents on the cloud? Use our hosted stealth browsers.
-
-**Follow steps 1-3 above, and pass in a Browser made with the `use_cloud` parameter.**
-```python
 from browser_use import Agent, Browser, ChatBrowserUse
+import asyncio
 
-browser = Browser(
-    use_cloud=True,  # Automatically provisions a cloud browser
-)
-agent = Agent(
-    task="Find the number of stars of the browser-use repo",
-    llm=ChatBrowserUse(),
-    browser=browser,
-)
-agent.run_sync()
+async def example():
+    browser = Browser(
+        # use_cloud=True,  # Uncomment to use a stealth browser on Browser Use Cloud
+    )
+
+    llm = ChatBrowserUse()
+
+    agent = Agent(
+        task="Find the number of stars of the browser-use repo",
+        llm=llm,
+        browser=browser,
+    )
+
+    history = await agent.run()
+    return history
+
+if __name__ == "__main__":
+    history = asyncio.run(example())
 ```
 
-**Optional: Follow the link in the console to watch the remote browser.**
-
-Check out the [cloud docs](https://docs.cloud.browser-use.com) for more!
+Check out the [library docs](https://docs.browser-use.com) and the [cloud docs](https://docs.cloud.browser-use.com) for more!
 
 <br/>
 
