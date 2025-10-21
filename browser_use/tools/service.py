@@ -974,21 +974,7 @@ class Tools(Generic[Context]):
 				# Check for JavaScript execution errors
 				if result.get('exceptionDetails'):
 					exception = result['exceptionDetails']
-					error_text = exception.get('text', 'Unknown error')
-
-					# Try to get more details from the exception
-					error_details = []
-					if 'exception' in exception:
-						exc_obj = exception['exception']
-						if 'description' in exc_obj:
-							error_details.append(exc_obj['description'])
-						elif 'value' in exc_obj:
-							error_details.append(str(exc_obj['value']))
-
-					# Build comprehensive error message
-					error_msg = f'JavaScript execution error: {error_text}'
-					if error_details:
-						error_msg += f'\nDetails: {" | ".join(error_details)}'
+					error_msg = f'JavaScript execution error: {exception.get("text", "Unknown error")}'
 
 					# Enhanced error message with debugging info
 					enhanced_msg = f"""JavaScript Execution Failed:
