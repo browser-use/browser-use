@@ -245,6 +245,24 @@ class CodeUseAgent:
 				self._llm_messages.append(UserMessage(content=warning_message))
 
 			try:
+				# Fetch fresh browser state right before LLM call (only if not already set)
+				if not self._last_browser_state_text and self.browser_session and self.dom_service:
+					try:
+						logger.debug('🔍 Fetching browser state before LLM call...')
+						browser_state_text, screenshot = await self._get_browser_state()
+						self._last_browser_state_text = browser_state_text
+						self._last_screenshot = screenshot
+
+						# Log browser state
+						if len(browser_state_text) > 2000:
+							logger.info(
+								f'Browser state (before LLM):\n{browser_state_text[:2000]}...\n[Truncated, full state {len(browser_state_text)} chars sent to LLM]'
+							)
+						else:
+							logger.info(f'Browser state (before LLM):\n{browser_state_text}')
+					except Exception as e:
+						logger.warning(f'Failed to get browser state before LLM call: {e}')
+
 				# Get code from LLM (this also adds to self._llm_messages)
 				try:
 					code, full_llm_response = await self._get_code_from_llm()
@@ -286,12 +304,11 @@ class CodeUseAgent:
 					# Multiple Python blocks - execute each sequentially
 					output = None
 					error = None
-					browser_state = None
 
 					for i, block_key in enumerate(python_blocks):
 						logger.info(f'Executing Python block {i+1}/{len(python_blocks)}')
 						block_code = all_blocks[block_key]
-						block_output, block_error, block_browser_state = await self._execute_code(block_code)
+						block_output, block_error, _ = await self._execute_code(block_code)
 
 						# Accumulate outputs
 						if block_output:
@@ -300,12 +317,9 @@ class CodeUseAgent:
 							error = block_error
 							# Stop on first error
 							break
-						# Keep last browser state
-						if block_browser_state:
-							browser_state = block_browser_state
 				else:
 					# Single Python block - execute normally
-					output, error, browser_state = await self._execute_code(code)
+					output, error, _ = await self._execute_code(code)
 
 				# Track consecutive errors
 				if error:
@@ -402,14 +416,8 @@ class CodeUseAgent:
 							logger.info(f'Files displayed: {", ".join(attachments)}')
 					else:
 						logger.info(f'Code output:\n{output}')
-				if browser_state:
-					# Cap browser state logging to 1000 chars
-					if len(browser_state) > 2000:
-						logger.info(
-							f'Browser state:\n{browser_state[:2000]}...\n[Truncated, full state sent to LLM {len(browser_state)} chars]'
-						)
-					else:
-						logger.info(f'Browser state:\n{browser_state}')
+
+				# Browser state is now only logged when fetched before LLM call (not after execution)
 
 				# Take screenshot for eval tracking
 				screenshot_path = await self._capture_screenshot(step + 1)
@@ -834,20 +842,12 @@ __code_exec_coro__ = __code_exec__()
 			# Wait 2 seconds for page to stabilize after code execution
 			await asyncio.sleep(0.5)
 
-			# Get browser state after execution
-			if self.browser_session and self.dom_service:
-				try:
-					browser_state_text, screenshot = await self._get_browser_state()
-					# Store as last browser state for use in next message
-					self._last_browser_state_text = browser_state_text
-					self._last_screenshot = screenshot
-					browser_state = browser_state_text  # For logging and cell storage
-				except Exception as e:
-					logger.warning(f'Failed to get browser state: {e}')
+			# Note: Browser state is now fetched right before LLM call instead of after each execution
+			# This reduces unnecessary state fetches for operations that don't affect the browser
 
 			cell.status = ExecutionStatus.SUCCESS
 			cell.output = output
-			cell.browser_state = browser_state
+			cell.browser_state = None  # Will be captured in next iteration before LLM call
 
 		except Exception as e:
 			# Handle EvaluateError specially - JavaScript execution failed
@@ -859,18 +859,9 @@ __code_exec_coro__ = __code_exec__()
 
 				await asyncio.sleep(1)
 
-				# Get browser state after error
-				if self.browser_session and self.dom_service:
-					try:
-						browser_state_text, screenshot = await self._get_browser_state()
-						self._last_browser_state_text = browser_state_text
-						self._last_screenshot = screenshot
-						browser_state = browser_state_text
-					except Exception as browser_state_error:
-						logger.warning(f'Failed to get browser state after error: {browser_state_error}')
-
+				# Browser state will be fetched before next LLM call
 				# Return immediately - do not continue executing code
-				return output, error, browser_state
+				return output, error, None
 
 			# Handle NameError specially - check for code block variable confusion
 			if isinstance(e, NameError):
@@ -878,18 +869,9 @@ __code_exec_coro__ = __code_exec__()
 				cell.status = ExecutionStatus.ERROR
 				cell.error = error
 
-				# Get browser state after error
+				# Browser state will be fetched before next LLM call
 				await asyncio.sleep(0.5)
-				if self.browser_session and self.dom_service:
-					try:
-						browser_state_text, screenshot = await self._get_browser_state()
-						self._last_browser_state_text = browser_state_text
-						self._last_screenshot = screenshot
-						browser_state = browser_state_text
-					except Exception as browser_state_error:
-						logger.warning(f'Failed to get browser state after error: {browser_state_error}')
-
-				return output, error, browser_state
+				return output, error, None
 
 			# For syntax errors and common parsing errors, show just the error message
 			# without the full traceback to keep output clean
@@ -984,18 +966,9 @@ __code_exec_coro__ = __code_exec__()
 
 			await asyncio.sleep(1)
 
-			# Get browser state after error (important for LLM to see state after failure)
-			if self.browser_session and self.dom_service:
-				try:
-					browser_state_text, screenshot = await self._get_browser_state()
-					# Store as last browser state for use in next message
-					self._last_browser_state_text = browser_state_text
-					self._last_screenshot = screenshot
-					browser_state = browser_state_text  # For logging and cell storage
-				except Exception as browser_state_error:
-					logger.warning(f'Failed to get browser state after error: {browser_state_error}')
+			# Browser state will be fetched before next LLM call
 
-		return output, error, browser_state
+		return output, error, None
 
 	async def _get_browser_state(self) -> tuple[str, str | None]:
 		"""Get the current browser state as text with ultra-minimal DOM structure for code agents.
