@@ -8,12 +8,14 @@ Usage:
     model = llm.azure_gpt_4_1_mini
     model = llm.openai_gpt_4o
     model = llm.google_gemini_2_5_pro
+    model = llm.bu_latest
 """
 
 import os
 from typing import TYPE_CHECKING
 
 from browser_use.llm.azure.chat import ChatAzureOpenAI
+from browser_use.llm.browser_use.chat import ChatBrowserUse
 from browser_use.llm.cerebras.chat import ChatCerebras
 from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.openai.chat import ChatOpenAI
@@ -72,6 +74,9 @@ cerebras_qwen_3_32b: 'BaseChatModel'
 cerebras_qwen_3_235b_a22b_instruct_2507: 'BaseChatModel'
 cerebras_qwen_3_235b_a22b_thinking_2507: 'BaseChatModel'
 cerebras_qwen_3_coder_480b: 'BaseChatModel'
+
+bu_latest: 'BaseChatModel'
+bu_1_0: 'BaseChatModel'
 
 
 def get_llm_by_name(model_name: str):
@@ -163,8 +168,15 @@ def get_llm_by_name(model_name: str):
 		api_key = os.getenv('CEREBRAS_API_KEY')
 		return ChatCerebras(model=model, api_key=api_key)
 
+	# Browser Use Models
+	elif provider == 'bu':
+		# Handle bu_latest -> bu-latest conversion (need to prepend 'bu-' back)
+		model = f'bu-{model_part.replace("_", "-")}'
+		api_key = os.getenv('BROWSER_USE_API_KEY')
+		return ChatBrowserUse(model=model, api_key=api_key)
+
 	else:
-		available_providers = ['openai', 'azure', 'google', 'oci', 'cerebras']
+		available_providers = ['openai', 'azure', 'google', 'oci', 'cerebras', 'bu']
 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
 
 
@@ -184,6 +196,8 @@ def __getattr__(name: str) -> 'BaseChatModel':
 		return ChatOCIRaw  # type: ignore
 	elif name == 'ChatCerebras':
 		return ChatCerebras  # type: ignore
+	elif name == 'ChatBrowserUse':
+		return ChatBrowserUse  # type: ignore
 
 	# Handle model instances - these are the main use case
 	try:
@@ -198,6 +212,7 @@ __all__ = [
 	'ChatAzureOpenAI',
 	'ChatGoogle',
 	'ChatCerebras',
+	'ChatBrowserUse',
 ]
 
 if OCI_AVAILABLE:
@@ -247,6 +262,9 @@ __all__ += [
 	'cerebras_qwen_3_235b_a22b_instruct_2507',
 	'cerebras_qwen_3_235b_a22b_thinking_2507',
 	'cerebras_qwen_3_coder_480b',
+	# Browser Use instances - created on demand
+	'bu_latest',
+	'bu_1_0',
 ]
 
 # NOTE: OCI backend is optional. The try/except ImportError and conditional __all__ are required

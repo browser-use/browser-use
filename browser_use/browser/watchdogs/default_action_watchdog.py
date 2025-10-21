@@ -3,6 +3,9 @@
 import asyncio
 import json
 
+from cdp_use.cdp.input.commands import DispatchKeyEventParameters
+
+from browser_use.actor.utils import get_key_info
 from browser_use.browser.events import (
 	ClickElementEvent,
 	GetDropdownOptionsEvent,
@@ -233,19 +236,21 @@ class DefaultActionWatchdog(BaseWatchdog):
 							};
 						};
 						
+
 						const elementAtPoint = document.elementFromPoint(arguments[0], arguments[1]);
 						if (!elementAtPoint) {
 							return { targetInfo: getElementInfo(this), isClickable: false };
 						}
 						
+
 						// Simple containment-based clickability logic
-						const isClickable = this === elementAtPoint || 
+						const isClickable = this === elementAtPoint ||
 							this.contains(elementAtPoint) ||
 							elementAtPoint.contains(this);
-							
+
 						return {
 							targetInfo: getElementInfo(this),
-							elementAtPointInfo: getElementInfo(elementAtPoint), 
+							elementAtPointInfo: getElementInfo(elementAtPoint),
 							isClickable: isClickable
 						};
 					}
@@ -774,10 +779,20 @@ class DefaultActionWatchdog(BaseWatchdog):
 			await cdp_session.cdp_client.send.Runtime.callFunctionOn(
 				params={
 					'functionDeclaration': """
-						function() { 
-							this.value = ""; 
-							this.dispatchEvent(new Event("input", { bubbles: true })); 
-							this.dispatchEvent(new Event("change", { bubbles: true })); 
+						function() {
+							// Try to select all text first (only works on text-like inputs)
+							// This handles cases where cursor is in the middle of text
+							try {
+								this.select();
+							} catch (e) {
+								// Some input types (date, color, number, etc.) don't support select()
+								// That's fine, we'll just clear the value directly
+							}
+							// Set value to empty
+							this.value = "";
+							// Dispatch events to notify frameworks like React
+							this.dispatchEvent(new Event("input", { bubbles: true }));
+							this.dispatchEvent(new Event("change", { bubbles: true }));
 							return this.value;
 						}
 					""",
@@ -1057,7 +1072,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			)
 
 			# Step 2: Clear existing text if requested
-			if clear and focused_successfully:
+			if clear:
 				cleared_successfully = await self._clear_text_field(object_id=object_id, cdp_session=cdp_session)
 				if not cleared_successfully:
 					self.logger.warning('⚠️ Text field clearing failed, typing may append to existing text')
@@ -1531,159 +1546,96 @@ class DefaultActionWatchdog(BaseWatchdog):
 		except Exception as e:
 			raise
 
+	async def _dispatch_key_event(self, cdp_session, event_type: str, key: str, modifiers: int = 0) -> None:
+		"""Helper to dispatch a keyboard event with proper key codes."""
+		code, vk_code = get_key_info(key)
+		params: DispatchKeyEventParameters = {
+			'type': event_type,
+			'key': key,
+			'code': code,
+		}
+		if modifiers:
+			params['modifiers'] = modifiers
+		if vk_code is not None:
+			params['windowsVirtualKeyCode'] = vk_code
+		await cdp_session.cdp_client.send.Input.dispatchKeyEvent(params=params, session_id=cdp_session.session_id)
+
 	async def on_SendKeysEvent(self, event: SendKeysEvent) -> None:
 		"""Handle send keys request with CDP."""
 		cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
 		try:
-			# Parse key combination
-			keys = event.keys.lower()
+			# Normalize key names from common aliases
+			key_aliases = {
+				'ctrl': 'Control',
+				'control': 'Control',
+				'alt': 'Alt',
+				'option': 'Alt',
+				'meta': 'Meta',
+				'cmd': 'Meta',
+				'command': 'Meta',
+				'shift': 'Shift',
+				'enter': 'Enter',
+				'return': 'Enter',
+				'tab': 'Tab',
+				'delete': 'Delete',
+				'backspace': 'Backspace',
+				'escape': 'Escape',
+				'esc': 'Escape',
+				'space': ' ',
+				'up': 'ArrowUp',
+				'down': 'ArrowDown',
+				'left': 'ArrowLeft',
+				'right': 'ArrowRight',
+				'pageup': 'PageUp',
+				'pagedown': 'PageDown',
+				'home': 'Home',
+				'end': 'End',
+			}
 
-			# Handle special key combinations
+			# Parse and normalize the key string
+			keys = event.keys
 			if '+' in keys:
-				# Handle modifier keys
+				# Handle key combinations like "ctrl+a"
 				parts = keys.split('+')
-				key = parts[-1]
-
-				# Calculate modifier bits inline
-				# CDP Modifier bits: Alt=1, Control=2, Meta/Command=4, Shift=8
-				modifiers = 0
-				for part in parts[:-1]:
-					part_lower = part.lower()
-					if part_lower in ['alt', 'option']:
-						modifiers |= 1  # Alt
-					elif part_lower in ['ctrl', 'control']:
-						modifiers |= 2  # Control
-					elif part_lower in ['meta', 'cmd', 'command']:
-						modifiers |= 4  # Meta/Command
-					elif part_lower in ['shift']:
-						modifiers |= 8  # Shift
-
-				# Send key with modifiers
-				# Use rawKeyDown for non-text keys (like shortcuts)
-				await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-					params={
-						'type': 'rawKeyDown',
-						'key': key.capitalize() if len(key) == 1 else key,
-						'modifiers': modifiers,
-					},
-					session_id=cdp_session.session_id,
-				)
-				await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-					params={
-						'type': 'keyUp',
-						'key': key.capitalize() if len(key) == 1 else key,
-						'modifiers': modifiers,
-					},
-					session_id=cdp_session.session_id,
-				)
+				normalized_parts = []
+				for part in parts:
+					part_lower = part.strip().lower()
+					normalized = key_aliases.get(part_lower, part)
+					normalized_parts.append(normalized)
+				normalized_keys = '+'.join(normalized_parts)
 			else:
 				# Single key
-				key_map = {
-					'enter': 'Enter',
-					'return': 'Enter',
-					'tab': 'Tab',
-					'delete': 'Delete',
-					'backspace': 'Backspace',
-					'escape': 'Escape',
-					'esc': 'Escape',
-					'space': ' ',
-					'up': 'ArrowUp',
-					'down': 'ArrowDown',
-					'left': 'ArrowLeft',
-					'right': 'ArrowRight',
-					'pageup': 'PageUp',
-					'pagedown': 'PageDown',
-					'home': 'Home',
-					'end': 'End',
-				}
+				keys_lower = keys.strip().lower()
+				normalized_keys = key_aliases.get(keys_lower, keys)
 
-				key = key_map.get(keys, keys)
+			# Handle key combinations like "Control+A"
+			if '+' in normalized_keys:
+				parts = normalized_keys.split('+')
+				modifiers = parts[:-1]
+				main_key = parts[-1]
 
-				# Keys that need 3-step sequence (produce characters)
-				keys_needing_char_event = ['enter', 'return', 'space']
+				# Calculate modifier bitmask
+				modifier_value = 0
+				modifier_map = {'Alt': 1, 'Control': 2, 'Meta': 4, 'Shift': 8}
+				for mod in modifiers:
+					modifier_value |= modifier_map.get(mod, 0)
 
-				# Virtual key codes for proper key identification
-				virtual_key_codes = {
-					'enter': 13,
-					'return': 13,
-					'tab': 9,
-					'escape': 27,
-					'esc': 27,
-					'space': 32,
-					'backspace': 8,
-					'delete': 46,
-					'up': 38,
-					'down': 40,
-					'left': 37,
-					'right': 39,
-					'home': 36,
-					'end': 35,
-					'pageup': 33,
-					'pagedown': 34,
-				}
+				# Press modifier keys
+				for mod in modifiers:
+					await self._dispatch_key_event(cdp_session, 'keyDown', mod)
 
-				if keys in keys_needing_char_event:
-					# 3-step sequence for keys that produce characters
-					vk_code = virtual_key_codes.get(keys, 0)
-					char_text = '\r' if keys in ['enter', 'return'] else ' ' if keys == 'space' else ''
+				# Press main key with modifiers bitmask
+				await self._dispatch_key_event(cdp_session, 'keyDown', main_key, modifier_value)
 
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'rawKeyDown',
-							'windowsVirtualKeyCode': vk_code,
-							'code': key_map.get(keys, keys),
-							'key': key_map.get(keys, keys),
-						},
-						session_id=cdp_session.session_id,
-					)
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={'type': 'char', 'text': char_text, 'unmodifiedText': char_text},
-						session_id=cdp_session.session_id,
-					)
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'keyUp',
-							'windowsVirtualKeyCode': vk_code,
-							'code': key_map.get(keys, keys),
-							'key': key_map.get(keys, keys),
-						},
-						session_id=cdp_session.session_id,
-					)
-				else:
-					# 2-step sequence for other keys
-					key_type = 'rawKeyDown' if keys in key_map else 'keyDown'
-					vk_code = virtual_key_codes.get(keys)
+				await self._dispatch_key_event(cdp_session, 'keyUp', main_key, modifier_value)
 
-					if vk_code:
-						# Special keys with virtual key codes
-						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-							params={
-								'type': key_type,
-								'key': key,
-								'windowsVirtualKeyCode': vk_code,
-								'code': key_map.get(keys, keys),
-							},
-							session_id=cdp_session.session_id,
-						)
-						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-							params={
-								'type': 'keyUp',
-								'key': key,
-								'windowsVirtualKeyCode': vk_code,
-								'code': key_map.get(keys, keys),
-							},
-							session_id=cdp_session.session_id,
-						)
-					else:
-						# Regular characters without virtual key codes
-						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-							params={'type': key_type, 'key': key},
-							session_id=cdp_session.session_id,
-						)
-						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-							params={'type': 'keyUp', 'key': key},
-							session_id=cdp_session.session_id,
-						)
+				# Release modifier keys
+				for mod in reversed(modifiers):
+					await self._dispatch_key_event(cdp_session, 'keyUp', mod)
+			else:
+				# Simple key press
+				await self._dispatch_key_event(cdp_session, 'keyDown', normalized_keys)
+				await self._dispatch_key_event(cdp_session, 'keyUp', normalized_keys)
 
 			self.logger.info(f'⌨️ Sent keys: {event.keys}')
 
@@ -1845,7 +1797,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			options_script = """
 			function() {
 				const startElement = this;
-				
+
 				// Function to check if an element is a dropdown and extract options
 				function checkDropdownElement(element) {
 					// Check if it's a native select element
@@ -1863,14 +1815,14 @@ class DefaultActionWatchdog(BaseWatchdog):
 							source: 'target'
 						};
 					}
-					
+
 					// Check if it's an ARIA dropdown/menu
 					const role = element.getAttribute('role');
 					if (role === 'menu' || role === 'listbox' || role === 'combobox') {
 						// Find all menu items/options
 						const menuItems = element.querySelectorAll('[role="menuitem"], [role="option"]');
 						const options = [];
-						
+
 						menuItems.forEach((item, idx) => {
 							const text = item.textContent ? item.textContent.trim() : '';
 							if (text) {
@@ -1882,7 +1834,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 								});
 							}
 						});
-						
+
 						return {
 							type: 'aria',
 							options: options,
@@ -1891,12 +1843,12 @@ class DefaultActionWatchdog(BaseWatchdog):
 							source: 'target'
 						};
 					}
-					
+
 					// Check if it's a Semantic UI dropdown or similar
 					if (element.classList.contains('dropdown') || element.classList.contains('ui')) {
 						const menuItems = element.querySelectorAll('.item, .option, [data-value]');
 						const options = [];
-						
+
 						menuItems.forEach((item, idx) => {
 							const text = item.textContent ? item.textContent.trim() : '';
 							if (text) {
@@ -1908,7 +1860,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 								});
 							}
 						});
-						
+
 						if (options.length > 0) {
 							return {
 								type: 'custom',
@@ -1919,14 +1871,14 @@ class DefaultActionWatchdog(BaseWatchdog):
 							};
 						}
 					}
-					
+
 					return null;
 				}
-				
+
 				// Function to recursively search children up to specified depth
 				function searchChildrenForDropdowns(element, maxDepth, currentDepth = 0) {
 					if (currentDepth >= maxDepth) return null;
-					
+
 					// Check all direct children
 					for (let child of element.children) {
 						// Check if this child is a dropdown
@@ -1935,29 +1887,29 @@ class DefaultActionWatchdog(BaseWatchdog):
 							result.source = `child-depth-${currentDepth + 1}`;
 							return result;
 						}
-						
+
 						// Recursively check this child's children
 						const childResult = searchChildrenForDropdowns(child, maxDepth, currentDepth + 1);
 						if (childResult) {
 							return childResult;
 						}
 					}
-					
+
 					return null;
 				}
-				
+
 				// First check the target element itself
 				let dropdownResult = checkDropdownElement(startElement);
 				if (dropdownResult) {
 					return dropdownResult;
 				}
-				
+
 				// If target element is not a dropdown, search children up to depth 4
 				dropdownResult = searchChildrenForDropdowns(startElement, 4);
 				if (dropdownResult) {
 					return dropdownResult;
 				}
-				
+
 				return {
 					error: `Element and its children (depth 4) are not recognizable dropdown types (tag: ${startElement.tagName}, role: ${startElement.getAttribute('role')}, classes: ${startElement.className})`
 				};
@@ -2074,27 +2026,27 @@ class DefaultActionWatchdog(BaseWatchdog):
 				selection_script = """
 				function(targetText) {
 					const startElement = this;
-					
+
 					// Function to attempt selection on a dropdown element
 					function attemptSelection(element) {
 						// Handle native select elements
 						if (element.tagName.toLowerCase() === 'select') {
 							const options = Array.from(element.options);
 							const targetTextLower = targetText.toLowerCase();
-							
+
 							for (const option of options) {
 								const optionTextLower = option.text.trim().toLowerCase();
 								const optionValueLower = option.value.toLowerCase();
-								
+
 								// Match against both text and value (case-insensitive)
 								if (optionTextLower === targetTextLower || optionValueLower === targetTextLower) {
 									element.value = option.value;
 									option.selected = true;
-									
+
 									// Trigger change events
 									const changeEvent = new Event('change', { bubbles: true });
 									element.dispatchEvent(changeEvent);
-									
+
 									return {
 										success: true,
 										message: `Selected option: ${option.text.trim()} (value: ${option.value})`,
@@ -2102,31 +2054,31 @@ class DefaultActionWatchdog(BaseWatchdog):
 									};
 								}
 							}
-							
+
 							// Return available options as separate field
 							const availableOptions = options.map(opt => ({
 								text: opt.text.trim(),
 								value: opt.value
 							}));
-							
+
 							return {
 								success: false,
 								error: `Option with text or value '${targetText}' not found in select element`,
 								availableOptions: availableOptions
 							};
 						}
-						
+
 						// Handle ARIA dropdowns/menus
 						const role = element.getAttribute('role');
 						if (role === 'menu' || role === 'listbox' || role === 'combobox') {
 							const menuItems = element.querySelectorAll('[role="menuitem"], [role="option"]');
 							const targetTextLower = targetText.toLowerCase();
-							
+
 							for (const item of menuItems) {
 								if (item.textContent) {
 									const itemTextLower = item.textContent.trim().toLowerCase();
 									const itemValueLower = (item.getAttribute('data-value') || '').toLowerCase();
-									
+
 									// Match against both text and data-value (case-insensitive)
 									if (itemTextLower === targetTextLower || itemValueLower === targetTextLower) {
 										// Clear previous selections
@@ -2134,16 +2086,16 @@ class DefaultActionWatchdog(BaseWatchdog):
 											mi.setAttribute('aria-selected', 'false');
 											mi.classList.remove('selected');
 										});
-										
+
 										// Select this item
 										item.setAttribute('aria-selected', 'true');
 										item.classList.add('selected');
-										
+
 										// Trigger click and change events
 										item.click();
 										const clickEvent = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
 										item.dispatchEvent(clickEvent);
-										
+
 										return {
 											success: true,
 											message: `Selected ARIA menu item: ${item.textContent.trim()}`
@@ -2151,55 +2103,55 @@ class DefaultActionWatchdog(BaseWatchdog):
 									}
 								}
 							}
-							
+
 							// Return available options as separate field
 							const availableOptions = Array.from(menuItems).map(item => ({
 								text: item.textContent ? item.textContent.trim() : '',
 								value: item.getAttribute('data-value') || ''
 							})).filter(opt => opt.text || opt.value);
-							
+
 							return {
 								success: false,
 								error: `Menu item with text or value '${targetText}' not found`,
 								availableOptions: availableOptions
 							};
 						}
-						
+
 						// Handle Semantic UI or custom dropdowns
 						if (element.classList.contains('dropdown') || element.classList.contains('ui')) {
 							const menuItems = element.querySelectorAll('.item, .option, [data-value]');
 							const targetTextLower = targetText.toLowerCase();
-							
+
 							for (const item of menuItems) {
 								if (item.textContent) {
 									const itemTextLower = item.textContent.trim().toLowerCase();
 									const itemValueLower = (item.getAttribute('data-value') || '').toLowerCase();
-									
+
 									// Match against both text and data-value (case-insensitive)
 									if (itemTextLower === targetTextLower || itemValueLower === targetTextLower) {
 										// Clear previous selections
 										menuItems.forEach(mi => {
 											mi.classList.remove('selected', 'active');
 										});
-										
+
 										// Select this item
 										item.classList.add('selected', 'active');
-										
+
 										// Update dropdown text if there's a text element
 										const textElement = element.querySelector('.text');
 										if (textElement) {
 											textElement.textContent = item.textContent.trim();
 										}
-										
+
 										// Trigger click and change events
 										item.click();
 										const clickEvent = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
 										item.dispatchEvent(clickEvent);
-										
+
 										// Also dispatch on the main dropdown element
 										const dropdownChangeEvent = new Event('change', { bubbles: true });
 										element.dispatchEvent(dropdownChangeEvent);
-										
+
 										return {
 											success: true,
 											message: `Selected custom dropdown item: ${item.textContent.trim()}`
@@ -2207,27 +2159,27 @@ class DefaultActionWatchdog(BaseWatchdog):
 									}
 								}
 							}
-							
+
 							// Return available options as separate field
 							const availableOptions = Array.from(menuItems).map(item => ({
 								text: item.textContent ? item.textContent.trim() : '',
 								value: item.getAttribute('data-value') || ''
 							})).filter(opt => opt.text || opt.value);
-							
+
 							return {
 								success: false,
 								error: `Custom dropdown item with text or value '${targetText}' not found`,
 								availableOptions: availableOptions
 							};
 						}
-						
+
 						return null; // Not a dropdown element
 					}
-					
+
 					// Function to recursively search children for dropdowns
 					function searchChildrenForSelection(element, maxDepth, currentDepth = 0) {
 						if (currentDepth >= maxDepth) return null;
-						
+
 						// Check all direct children
 						for (let child of element.children) {
 							// Try selection on this child
@@ -2235,17 +2187,17 @@ class DefaultActionWatchdog(BaseWatchdog):
 							if (result && result.success) {
 								return result;
 							}
-							
+
 							// Recursively check this child's children
 							const childResult = searchChildrenForSelection(child, maxDepth, currentDepth + 1);
 							if (childResult && childResult.success) {
 								return childResult;
 							}
 						}
-						
+
 						return null;
 					}
-					
+
 					// First try the target element itself
 					let selectionResult = attemptSelection(startElement);
 					if (selectionResult) {
@@ -2253,13 +2205,13 @@ class DefaultActionWatchdog(BaseWatchdog):
 						// Don't search children if we found a dropdown element but selection failed
 						return selectionResult;
 					}
-					
+
 					// Only search children if target element is not a dropdown element
 					selectionResult = searchChildrenForSelection(startElement, 4);
 					if (selectionResult && selectionResult.success) {
 						return selectionResult;
 					}
-					
+
 					return {
 						success: false,
 						error: `Element and its children (depth 4) do not contain a dropdown with option '${targetText}' (tag: ${startElement.tagName}, role: ${startElement.getAttribute('role')}, classes: ${startElement.className})`
