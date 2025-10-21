@@ -214,7 +214,7 @@ class DOMWatchdog(BaseWatchdog):
 					all_domains_str += f' +{len(all_domains) - 5} more'
 
 				# Debug logging
-				self.logger.info(
+				self.logger.debug(
 					f'🔍 Network check: document.readyState={doc_state}, loading={doc_loading}, '
 					f'total_resources={debug_info.get("total_resources", 0)}, '
 					f'responseEnd=0: {debug_info.get("with_response_end_zero", 0)}, '
