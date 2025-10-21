@@ -10,7 +10,7 @@ from pathlib import Path
 
 import click
 from InquirerPy.base.control import Choice
-from InquirerPy.prompts.list import ListPrompt
+from InquirerPy.prompts.rawlist import RawlistPrompt
 from InquirerPy.utils import InquirerPyStyle
 from rich.console import Console
 from rich.panel import Panel
@@ -28,7 +28,7 @@ INIT_TEMPLATES = {
 	},
 	'tools': {
 		'file': 'tools_template.py',
-		'description': 'Custom action examples - extend the agent with your own functions',
+		'description': 'Custom tool example - extend agent capabilities with your own functions',
 	},
 }
 
@@ -140,13 +140,11 @@ def main(
 			for name, info in INIT_TEMPLATES.items()
 		]
 
-		template = ListPrompt(
+		template = RawlistPrompt(
 			message='Select a template:',
 			choices=choices,
 			default='default',
-			pointer='❯',
 			style=inquirer_style,
-			instruction='(Use arrow keys)',
 		).execute()
 
 		# Handle user cancellation (Ctrl+C)
