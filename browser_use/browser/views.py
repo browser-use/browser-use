@@ -85,6 +85,29 @@ class BrowserStateSummary:
 	is_pdf_viewer: bool = False  # Whether the current page is a PDF viewer
 	recent_events: str | None = None  # Text summary of recent browser events
 
+	# New field for deferred screenshot loading - asyncio.Task for true parallelism
+	_deferred_screenshot_task: Any | None = field(default=None, repr=False)
+
+	async def get_screenshot(self) -> str | None:
+		"""Get the screenshot, awaiting deferred task if needed."""
+		if self.screenshot is not None:
+			return self.screenshot
+
+		if self._deferred_screenshot_task is not None:
+			try:
+				# Await the deferred screenshot task
+				screenshot_b64 = await self._deferred_screenshot_task
+				# Cache the result for future calls
+				self.screenshot = screenshot_b64
+				self._deferred_screenshot_task = None
+				return screenshot_b64
+			except Exception:
+				# If screenshot fails, return None and clear the task
+				self._deferred_screenshot_task = None
+				return None
+
+		return None
+
 
 @dataclass
 class BrowserStateHistory:

@@ -106,13 +106,14 @@ class TestHeadlessScreenshots:
 			# Get state summary
 			state = await browser_session.get_browser_state_summary()
 
-			# Verify screenshot is included
-			assert state.screenshot is not None
-			assert isinstance(state.screenshot, str)
-			assert len(state.screenshot) > 0
+			# Verify screenshot is available via new async API
+			screenshot_b64 = await state.get_screenshot()
+			assert screenshot_b64 is not None
+			assert isinstance(screenshot_b64, str)
+			assert len(screenshot_b64) > 0
 
 			# Decode and validate
-			screenshot_bytes = base64.b64decode(state.screenshot)
+			screenshot_bytes = base64.b64decode(screenshot_b64)
 			assert screenshot_bytes.startswith(b'\x89PNG\r\n\x1a\n')
 			assert len(screenshot_bytes) > 1000
 
@@ -144,7 +145,8 @@ class TestHeadlessScreenshots:
 			# Browser should auto-create a new page on about:blank with animation
 			# With AboutBlankWatchdog, about:blank pages now have animated content, so they should have screenshots
 			state = await browser_session.get_browser_state_summary()
-			assert state.screenshot is not None, 'Screenshot should not be None for animated about:blank pages'
+			screenshot_b64 = await state.get_screenshot()
+			assert screenshot_b64 is not None, 'Screenshot should not be None for animated about:blank pages'
 			assert state.url == 'about:blank' or state.url.startswith('chrome://'), f'Expected empty page but got {state.url}'
 
 			# Now navigate to a real page and verify screenshot works
@@ -155,9 +157,10 @@ class TestHeadlessScreenshots:
 			# Get state with screenshot
 			state = await browser_session.get_browser_state_summary()
 			# Should have a screenshot now
-			assert state.screenshot is not None, 'Screenshot should not be None for real pages'
-			assert isinstance(state.screenshot, str)
-			assert len(state.screenshot) > 100, 'Screenshot should have substantial content'
+			screenshot_b64 = await state.get_screenshot()
+			assert screenshot_b64 is not None, 'Screenshot should not be None for real pages'
+			assert isinstance(screenshot_b64, str)
+			assert len(screenshot_b64) > 100, 'Screenshot should have substantial content'
 			assert 'test' in state.url.lower()
 
 		finally:
