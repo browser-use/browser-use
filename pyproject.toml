@@ -14,6 +14,7 @@ dependencies = [
     "aiohttp==3.12.15",
     "anyio>=4.9.0",
     "bubus>=1.5.6",
+    "click>=8.1.8",
     "google-api-core>=2.25.0",
     "httpx>=0.28.1",
     "portalocker>=2.7.0,<3.0.0",
@@ -58,7 +59,6 @@ dependencies = [
 [project.optional-dependencies]
 cli = [
     "rich>=14.0.0",
-    "click>=8.1.8",
     "textual>=3.2.0",
 ]
 code = [

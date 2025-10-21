@@ -11,6 +11,15 @@ if '--mcp' in sys.argv:
 	os.environ['BROWSER_USE_SETUP_LOGGING'] = 'false'
 	logging.disable(logging.CRITICAL)
 
+# Check for init subcommand early to avoid loading TUI dependencies
+if 'init' in sys.argv:
+	from browser_use.init_cmd import main as init_main
+
+	# Remove 'init' from sys.argv so click doesn't see it as an unexpected argument
+	sys.argv.remove('init')
+	init_main()
+	sys.exit(0)
+
 import asyncio
 import json
 import logging
