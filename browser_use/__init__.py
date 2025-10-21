@@ -46,13 +46,13 @@ base_subprocess.BaseSubprocessTransport.__del__ = _patched_del
 # Type stubs for lazy imports - fixes linter warnings
 if TYPE_CHECKING:
 	from browser_use.agent.prompts import SystemPrompt
+	from browser_use.agent.service import Agent
 
 	# from browser_use.agent.service import Agent
 	from browser_use.agent.views import ActionModel, ActionResult, AgentHistoryList
 	from browser_use.browser import BrowserProfile, BrowserSession
 	from browser_use.browser import BrowserSession as Browser
-	from browser_use.code_use.service import CodeUseAgent 
-	from browser_use.agent.service import Agent 
+	from browser_use.code_use.service import CodeUseAgent
 	from browser_use.dom.service import DomService
 	from browser_use.llm import models
 	from browser_use.llm.anthropic.chat import ChatAnthropic
