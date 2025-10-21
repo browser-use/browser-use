@@ -475,25 +475,7 @@ class DOMWatchdog(BaseWatchdog):
 			# Detect pagination buttons from the DOM
 			pagination_buttons_data = []
 			if content and content.selector_map:
-				try:
-					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: Detecting pagination buttons...')
-					pagination_buttons_raw = DomService.detect_pagination_buttons(content.selector_map)
-					# Convert to PaginationButton instances
-					from browser_use.browser.views import PaginationButton
-					pagination_buttons_data = [
-						PaginationButton(
-							button_type=btn['button_type'],  # type: ignore
-							element_index=btn['element_index'],  # type: ignore
-							text=btn['text'],  # type: ignore
-							selector=btn['selector'],  # type: ignore
-							is_disabled=btn['is_disabled'],  # type: ignore
-						)
-						for btn in pagination_buttons_raw
-					]
-					if pagination_buttons_data:
-						self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Found {len(pagination_buttons_data)} pagination buttons')
-				except Exception as e:
-					self.logger.warning(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Pagination detection failed: {e}')
+				pagination_buttons_data = self._detect_pagination_buttons(content.selector_map)
 
 			# Build and cache the browser state summary
 			if screenshot_b64:
@@ -668,6 +650,39 @@ class DOMWatchdog(BaseWatchdog):
 
 		elapsed = time.time() - start_time
 		self.logger.debug(f'✅ Page stability wait completed in {elapsed:.2f}s')
+
+	def _detect_pagination_buttons(self, selector_map: dict[int, EnhancedDOMTreeNode]) -> list['PaginationButton']:
+		"""Detect pagination buttons from the DOM selector map.
+
+		Args:
+			selector_map: Dictionary mapping element indices to DOM tree nodes
+
+		Returns:
+			List of PaginationButton instances found in the DOM
+		"""
+		from browser_use.browser.views import PaginationButton
+
+		pagination_buttons_data = []
+		try:
+			self.logger.debug('🔍 DOMWatchdog._detect_pagination_buttons: Detecting pagination buttons...')
+			pagination_buttons_raw = DomService.detect_pagination_buttons(selector_map)
+			# Convert to PaginationButton instances
+			pagination_buttons_data = [
+				PaginationButton(
+					button_type=btn['button_type'],  # type: ignore
+					element_index=btn['element_index'],  # type: ignore
+					text=btn['text'],  # type: ignore
+					selector=btn['selector'],  # type: ignore
+					is_disabled=btn['is_disabled'],  # type: ignore
+				)
+				for btn in pagination_buttons_raw
+			]
+			if pagination_buttons_data:
+				self.logger.debug(f'🔍 DOMWatchdog._detect_pagination_buttons: Found {len(pagination_buttons_data)} pagination buttons')
+		except Exception as e:
+			self.logger.warning(f'🔍 DOMWatchdog._detect_pagination_buttons: Pagination detection failed: {e}')
+
+		return pagination_buttons_data
 
 	async def _get_page_info(self) -> 'PageInfo':
 		"""Get comprehensive page information using a single CDP call.
