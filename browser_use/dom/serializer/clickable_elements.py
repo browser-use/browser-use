@@ -19,7 +19,7 @@ class ClickableElementDetector:
 			return False
 
 		# inert true
-		if node.attributes.get('inert', '') == 'true':
+		if 'inert' in node.attributes:
 			return False
 
 		# IFRAME elements should be interactive if they're large enough to potentially need scrolling
