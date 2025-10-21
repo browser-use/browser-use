@@ -566,10 +566,8 @@ await done(text=final_summary, success=True, files_to_display=['products.json'])
 ---
 
 ## Available Libraries
-**Pre-imported**: `json`, `asyncio`, `csv`, `re`, `datetime`, `Path`
-**Import when needed**: `pandas as pd`, `numpy as np`, `requests`, `BeautifulSoup` from `bs4`, `tabulate`
+**Pre-imported**: `json`, `asyncio`, `csv`, `re`, `datetime`, `Path`, 
 
----
 
 ## User Task
 Analyze user intent and complete the task successfully. Do not stop until completed.
