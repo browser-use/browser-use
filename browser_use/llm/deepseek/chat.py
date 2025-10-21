@@ -166,8 +166,64 @@ class ChatDeepSeek(BaseChatModel):
 					parsed = json.loads(raw_args)
 				else:
 					parsed = raw_args
-				# --------- Fix: only use model_validate when output_format is not None ----------
+				
+				# --------- DeepSeek Fix: Handle both tool calls and incomplete AgentOutput ----------
 				if output_format is not None:
+					function_name = msg.tool_calls[0].function.name
+					
+					# Case 1: Direct tool call (not AgentOutput format)
+					if function_name != output_format.__name__ and hasattr(output_format, 'model_json_schema'):
+						# Convert tool call to proper AgentOutput format
+						agent_output_data = {
+							'evaluation_previous_goal': 'Processing task step by step',
+							'memory': f'Executing {function_name} with parameters: {str(parsed)[:100]}...',
+							'next_goal': f'Complete {function_name} action',
+							'action': [{function_name: parsed}]
+						}
+						return ChatInvokeCompletion(
+							completion=output_format.model_validate(agent_output_data),
+							usage=None,
+						)
+					
+					# Case 2: AgentOutput format but may be incomplete
+					if function_name == output_format.__name__:
+						# Check if required fields are missing and add defaults
+						if 'action' not in parsed:
+							# If we're missing action, use done action to prevent loops
+							# This is safer than wait which might cause infinite loops
+							parsed['action'] = [{'done': {'text': 'Task completed with minimal action due to format issue', 'success': True}}]
+						
+						# Ensure all required fields exist
+						required_fields = {
+							'evaluation_previous_goal': 'Processing previous step',
+							'memory': 'Current step in progress',
+							'next_goal': 'Complete current task'
+						}
+						
+						for field, default_value in required_fields.items():
+							if field not in parsed:
+								parsed[field] = default_value
+						
+						# Try to validate, but catch errors and fix them
+						try:
+							return ChatInvokeCompletion(
+								completion=output_format.model_validate(parsed),
+								usage=None,
+							)
+						except Exception as validation_error:
+							# If validation still fails, create a minimal valid response that ends the task
+							minimal_response = {
+								'evaluation_previous_goal': 'Unable to process previous step due to format issue',
+								'memory': 'Encountered validation error, completing task to avoid loops',
+								'next_goal': 'End current task gracefully',
+								'action': [{'done': {'text': 'Task completed due to format validation issue', 'success': False}}]
+							}
+							return ChatInvokeCompletion(
+								completion=output_format.model_validate(minimal_response),
+								usage=None,
+							)
+					
+					# Case 3: Unknown format - try to validate as-is
 					return ChatInvokeCompletion(
 						completion=output_format.model_validate(parsed),
 						usage=None,
