@@ -140,12 +140,26 @@ def main(
 			for name, info in INIT_TEMPLATES.items()
 		]
 
-		template = RawlistPrompt(
+		# Create the prompt
+		prompt = RawlistPrompt(
 			message='Select a template:',
 			choices=choices,
 			default='default',
 			style=inquirer_style,
-		).execute()
+		)
+
+		# Add custom keybindings for instant selection with number keys
+		template_list = list(INIT_TEMPLATES.keys())
+
+		# Register number keys 1-3 for instant selection
+		for i, template_name in enumerate(template_list, 1):
+
+			@prompt.register_kb(str(i))
+			def _(event, name=template_name):
+				"""Instantly select template when number key is pressed"""
+				event.app.exit(result=name)
+
+		template = prompt.execute()
 
 		# Handle user cancellation (Ctrl+C)
 		if template is None:
