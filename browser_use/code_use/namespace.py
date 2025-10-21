@@ -538,12 +538,12 @@ def create_namespace(
 						python_blocks = [k for k in sorted(all_blocks.keys()) if k.startswith('python_')]
 
 						if len(python_blocks) > 1:
-							error_msg = (
-								'done() must be the ONLY code block in the response.\n'
-								'You have multiple Python blocks in this response. Please call done() in a separate response '
-								'with only one Python block after verifying results.'
+							msg = (
+								'done() should be the ONLY code block in the response.\n'
+								'You have multiple Python blocks in this response. Consider calling done() in a separate response '
+								'Now verfiy the last output and if it satisfies the task, call done(), else continue working.'
 							)
-							raise RuntimeError(error_msg) from None
+							print(msg)
 
 						# Get the current cell code from namespace (injected by service.py before execution)
 						current_code = namespace.get('_current_cell_code')
@@ -568,11 +568,12 @@ def create_namespace(
 								has_else_above = line_above.strip().startswith('else:')
 								has_elif_above = line_above.strip().startswith('elif ')
 							if has_if_above or has_else_above or has_elif_above:
-								error_msg = (
-									'done() must be called individually after verifying the result from any logic.\n'
-									'Please validate your output first, THEN call done() in a final step without if/else/elif blocks.'
+								msg = (
+									'done() should be called individually after verifying the result from any logic.\n'
+									'Consider validating your output first, THEN call done() in a final step without if/else/elif blocks only if the task is truly complete.'
 								)
-								raise RuntimeError(error_msg) from None
+								logger.warning(msg)
+								print(msg)
 
 				# Build special context
 				special_context = {
