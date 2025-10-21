@@ -417,11 +417,30 @@ def create_namespace(
 			result = await evaluate(code, browser_session)
 
 			# Print result structure for debugging
-			if isinstance(result, (list, dict)):
+			if isinstance(result, (list[dict])):
+				result_preview = "list of dicts - len={len(result)}, example 1:\n"
+				if len(result) > 1:
+					sample_result = result[0]
+					for key, value in sample_result.items()[:10]:
+						result_preview += f"{key}: {value[:10]}..."
+					if len(sample_result.keys()) > 10:
+						result_preview += f"... {len(sample_result.keys()) - 10} more keys"
+				else:
+					result_preview = "type=list, len=0"
+				print(result_preview)
+
+			elif isinstance(result, (list)):
 				result_preview = str(result)[:100]
-				print(f"→ type={type(result).__name__}, len={len(result)}, preview={result_preview}...")
+				print(f"type={type(result).__name__}, len={len(result)}, preview={result_preview}...")
+			elif isinstance(result, (dict)):
+				# show for each 10 key - value pairs the first 10 characters
+				result_preview = "type=dict, len={len(result)}, example 1:\n"
+				for i, (key, value) in enumerate(result.items()[:10]):
+					result_preview += f"{key}: {value[:10]}..."
+				print(result_preview)
+					
 			else:
-				print(f"→ type={type(result).__name__}, value={repr(result)[:50]}")
+				print(f"type={type(result).__name__}, value={repr(result)[:50]}")
 
 			return result
 		except Exception as e:
