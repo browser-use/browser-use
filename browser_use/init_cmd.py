@@ -10,7 +10,7 @@ from pathlib import Path
 
 import click
 from InquirerPy.base.control import Choice
-from InquirerPy.prompts.rawlist import RawlistPrompt
+from InquirerPy.prompts.list import ListPrompt
 from InquirerPy.utils import InquirerPyStyle
 from rich.console import Console
 from rich.panel import Panel
@@ -131,33 +131,36 @@ def main(
 
 	# Interactive template selection if not provided
 	if not template:
-		# Create choices with descriptions
+		# Create choices with numbered display
+		template_list = list(INIT_TEMPLATES.keys())
 		choices = [
 			Choice(
-				name=f'{name:12} - {info["description"]}',
+				name=f'{i}. {name:12} - {info["description"]}',
 				value=name,
 			)
-			for name, info in INIT_TEMPLATES.items()
+			for i, (name, info) in enumerate(INIT_TEMPLATES.items(), 1)
 		]
 
 		# Create the prompt
-		prompt = RawlistPrompt(
+		prompt = ListPrompt(
 			message='Select a template:',
 			choices=choices,
 			default='default',
 			style=inquirer_style,
 		)
 
-		# Add custom keybindings for instant selection with number keys
-		template_list = list(INIT_TEMPLATES.keys())
+		# Register custom keybindings for instant selection with number keys
+		@prompt.register_kb('1')
+		def _(event):
+			event.app.exit(result=template_list[0])
 
-		# Register number keys 1-3 for instant selection
-		for i, template_name in enumerate(template_list, 1):
+		@prompt.register_kb('2')
+		def _(event):
+			event.app.exit(result=template_list[1])
 
-			@prompt.register_kb(str(i))
-			def _(event, name=template_name):
-				"""Instantly select template when number key is pressed"""
-				event.app.exit(result=name)
+		@prompt.register_kb('3')
+		def _(event):
+			event.app.exit(result=template_list[2])
 
 		template = prompt.execute()
 
