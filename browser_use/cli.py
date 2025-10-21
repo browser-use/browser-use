@@ -20,6 +20,72 @@ if 'init' in sys.argv:
 	init_main()
 	sys.exit(0)
 
+# Check for --template flag early to avoid loading TUI dependencies
+if '--template' in sys.argv:
+	from pathlib import Path
+
+	import click
+
+	from browser_use.init_cmd import INIT_TEMPLATES
+
+	# Parse template and output from sys.argv
+	try:
+		template_idx = sys.argv.index('--template')
+		template = sys.argv[template_idx + 1] if template_idx + 1 < len(sys.argv) else None
+	except (ValueError, IndexError):
+		template = None
+
+	if not template or template not in INIT_TEMPLATES:
+		click.echo(f'❌ Invalid template. Choose from: {", ".join(INIT_TEMPLATES.keys())}', err=True)
+		sys.exit(1)
+
+	# Check for --output flag
+	output = None
+	if '--output' in sys.argv or '-o' in sys.argv:
+		try:
+			output_idx = sys.argv.index('--output') if '--output' in sys.argv else sys.argv.index('-o')
+			output = sys.argv[output_idx + 1] if output_idx + 1 < len(sys.argv) else None
+		except (ValueError, IndexError):
+			pass
+
+	# Check for --force flag
+	force = '--force' in sys.argv or '-f' in sys.argv
+
+	# Determine output path
+	output_path = Path(output) if output else Path.cwd() / f'browser_use_{template}.py'
+
+	# Read and write template
+	try:
+		templates_dir = Path(__file__).parent / 'cli_templates'
+		template_file = INIT_TEMPLATES[template]['file']
+		template_path = templates_dir / template_file
+		content = template_path.read_text(encoding='utf-8')
+
+		# Write file with safety checks
+		if output_path.exists() and not force:
+			click.echo(f'⚠️  File already exists: {output_path}')
+			if not click.confirm('Overwrite?', default=False):
+				click.echo('❌ Cancelled')
+				sys.exit(1)
+
+		output_path.parent.mkdir(parents=True, exist_ok=True)
+		output_path.write_text(content, encoding='utf-8')
+
+		click.echo(f'✅ Created {output_path}')
+		click.echo('\nNext steps:')
+		click.echo('  1. Install browser-use:')
+		click.echo('     uv pip install browser-use')
+		click.echo('  2. Set up your API key in .env file or environment:')
+		click.echo('     BROWSER_USE_API_KEY=your-key')
+		click.echo('     (Get your key at https://cloud.browser-use.com/dashboard/api)')
+		click.echo('  3. Run your script:')
+		click.echo(f'     python {output_path.name}')
+	except Exception as e:
+		click.echo(f'❌ Error: {e}', err=True)
+		sys.exit(1)
+
+	sys.exit(0)
+
 import asyncio
 import json
 import logging
