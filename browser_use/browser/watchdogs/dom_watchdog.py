@@ -136,8 +136,17 @@ class DOMWatchdog(BaseWatchdog):
 	// Get resources that are still loading (responseEnd is 0)
 	let totalResourcesChecked = 0;
 	let filteredByResponseEnd = 0;
+	const allDomains = new Set();
+
 	for (const entry of resources) {
 		totalResourcesChecked++;
+
+		// Track all domains from recent resources (for logging)
+		try {
+			const hostname = new URL(entry.name).hostname;
+			if (hostname) allDomains.add(hostname);
+		} catch (e) {}
+
 		if (entry.responseEnd === 0) {
 			filteredByResponseEnd++;
 			const url = entry.name;
@@ -180,7 +189,8 @@ class DOMWatchdog(BaseWatchdog):
 		debug: {
 			total_resources: totalResourcesChecked,
 			with_response_end_zero: filteredByResponseEnd,
-			after_all_filters: pending.length
+			after_all_filters: pending.length,
+			all_domains: Array.from(allDomains)
 		}
 	};
 })()
@@ -197,27 +207,18 @@ class DOMWatchdog(BaseWatchdog):
 				doc_loading = data.get('document_loading', False)
 				debug_info = data.get('debug', {})
 
-				# Extract unique domains from pending requests
-				from urllib.parse import urlparse
-				domains = set()
-				for req in pending:
-					try:
-						url = req.get('url', '')
-						if url:
-							parsed = urlparse(url)
-							if parsed.netloc:
-								domains.add(parsed.netloc)
-					except Exception as e:
-						self.logger.debug(f'Failed to parse domain from request: {e}')
-
-				domains_str = ', '.join(sorted(domains)) if domains else 'none'
+				# Get all domains that had recent activity (from JS)
+				all_domains = debug_info.get('all_domains', [])
+				all_domains_str = ', '.join(sorted(all_domains)[:5]) if all_domains else 'none'
+				if len(all_domains) > 5:
+					all_domains_str += f' +{len(all_domains) - 5} more'
 
 				# Debug logging
 				self.logger.info(
 					f'🔍 Network check: document.readyState={doc_state}, loading={doc_loading}, '
 					f'total_resources={debug_info.get("total_resources", 0)}, '
 					f'responseEnd=0: {debug_info.get("with_response_end_zero", 0)}, '
-					f'after_filters={len(pending)}, domains=[{domains_str}]'
+					f'after_filters={len(pending)}, domains=[{all_domains_str}]'
 				)
 
 				# Convert to NetworkRequest objects
