@@ -8,16 +8,17 @@ icon: "play"
 ---
 
 ```python
-from browser_use import Agent, Browser, ChatOpenAI
+from browser_use import Agent, BrowserProfile, ChatOpenAI
 
-browser = Browser(
+browser_profile = BrowserProfile(
 	headless=False,  # Show browser window
 	window_size={'width': 1000, 'height': 700},  # Set window size
+	dom_highlight_elements=True  # Enable colored element highlighting
 )
 
 agent = Agent(
 	task='Search for Browser Use',
-	browser=browser,
+	browser_profile=browser_profile,
 	llm=ChatOpenAI(model='gpt-4.1-mini'),
 )
 
