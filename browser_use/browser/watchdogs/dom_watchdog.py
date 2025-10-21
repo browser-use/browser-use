@@ -20,7 +20,7 @@ from browser_use.observability import observe_debug
 from browser_use.utils import time_execution_async
 
 if TYPE_CHECKING:
-	from browser_use.browser.views import BrowserStateSummary, NetworkRequest, PageInfo
+	from browser_use.browser.views import BrowserStateSummary, NetworkRequest, PageInfo, PaginationButton
 
 
 class DOMWatchdog(BaseWatchdog):
@@ -350,6 +350,7 @@ class DOMWatchdog(BaseWatchdog):
 					is_pdf_viewer=False,
 					recent_events=self._get_recent_events_str() if event.include_recent_events else None,
 					pending_network_requests=[],  # Empty page has no pending requests
+					pagination_buttons=[],  # Empty page has no pagination
 				)
 
 			# Execute DOM building and screenshot capture in parallel
@@ -467,9 +468,32 @@ class DOMWatchdog(BaseWatchdog):
 					pixels_right=0,
 				)
 
-			
+
 			# Check for PDF viewer
 			is_pdf_viewer = page_url.endswith('.pdf') or '/pdf/' in page_url
+
+			# Detect pagination buttons from the DOM
+			pagination_buttons_data = []
+			if content and content.selector_map:
+				try:
+					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: Detecting pagination buttons...')
+					pagination_buttons_raw = DomService.detect_pagination_buttons(content.selector_map)
+					# Convert to PaginationButton instances
+					from browser_use.browser.views import PaginationButton
+					pagination_buttons_data = [
+						PaginationButton(
+							button_type=btn['button_type'],  # type: ignore
+							element_index=btn['element_index'],  # type: ignore
+							text=btn['text'],  # type: ignore
+							selector=btn['selector'],  # type: ignore
+							is_disabled=btn['is_disabled'],  # type: ignore
+						)
+						for btn in pagination_buttons_raw
+					]
+					if pagination_buttons_data:
+						self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Found {len(pagination_buttons_data)} pagination buttons')
+				except Exception as e:
+					self.logger.warning(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Pagination detection failed: {e}')
 
 			# Build and cache the browser state summary
 			if screenshot_b64:
@@ -494,6 +518,7 @@ class DOMWatchdog(BaseWatchdog):
 				is_pdf_viewer=is_pdf_viewer,
 				recent_events=self._get_recent_events_str() if event.include_recent_events else None,
 				pending_network_requests=pending_requests,
+				pagination_buttons=pagination_buttons_data,
 			)
 
 			# Cache the state
@@ -530,6 +555,7 @@ class DOMWatchdog(BaseWatchdog):
 				is_pdf_viewer=False,
 				recent_events=None,
 				pending_network_requests=[],  # Error state has no pending requests
+				pagination_buttons=[],  # Error state has no pagination
 			)
 
 	@time_execution_async('build_dom_tree_without_highlights')
