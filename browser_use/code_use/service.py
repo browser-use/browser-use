@@ -284,13 +284,13 @@ class CodeUseAgent:
 						self._last_browser_state_text = browser_state_text
 						self._last_screenshot = screenshot
 
-						# Log browser state
-						if len(browser_state_text) > 2000:
-							logger.info(
-								f'Browser state (before LLM):\n{browser_state_text[:2000]}...\n[Truncated, full state {len(browser_state_text)} chars sent to LLM]'
-							)
-						else:
-							logger.info(f'Browser state (before LLM):\n{browser_state_text}')
+						# # Log browser state
+						# if len(browser_state_text) > 2000:
+						# 	logger.info(
+						# 		f'Browser state (before LLM):\n{browser_state_text[:2000]}...\n[Truncated, full state {len(browser_state_text)} chars sent to LLM]'
+						# 	)
+						# else:
+						# 	logger.info(f'Browser state (before LLM):\n{browser_state_text}')
 					except Exception as e:
 						logger.warning(f'Failed to get browser state before LLM call: {e}')
 
