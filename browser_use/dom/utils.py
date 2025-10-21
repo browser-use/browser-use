@@ -5,23 +5,6 @@ def cap_text_length(text: str, max_length: int) -> str:
 	return text[:max_length] + '...'
 
 
-def convert_simple_xpath_to_css_selector(xpath: str) -> str:
-	"""Convert a simple XPath to CSS selector (from version 0.5.0)."""
-	if not xpath:
-		return 'html'
-
-	# Handle simple XPaths like //div, /html/body/div, etc.
-	# This is a simplified version for basic element selection
-	parts = xpath.strip('/').split('/')
-	if parts:
-		last_element = parts[-1]
-		# Handle indexed elements like div[1], div[2], etc.
-		if '[' in last_element and ']' in last_element:
-			element_name = last_element.split('[')[0]
-			return element_name.lower()
-		return last_element.lower()
-	return 'html'
-
 
 def generate_css_selector_for_element(enhanced_node) -> str | None:
 	"""Generate a CSS selector using node properties from version 0.5.0 approach."""
