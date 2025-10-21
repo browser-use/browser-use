@@ -26,6 +26,7 @@ from browser_use.llm.messages import (
 )
 from browser_use.screenshots.service import ScreenshotService
 from browser_use.tokens.service import TokenCost
+from browser_use.tokens.views import UsageSummary
 from browser_use.tools.service import Tools
 
 from .namespace import EvaluateError, create_namespace
@@ -135,7 +136,7 @@ class CodeAgent:
 		self.session = NotebookSession()
 		self.namespace: dict[str, Any] = {}
 		self._llm_messages: list[BaseMessage] = []  # Internal LLM conversation history
-		self.complete_history: list[dict] = []  # Eval system history with model_output and result
+		self.complete_history: list[dict[str, Any]] = []  # Eval system history with model_output and result
 		self.dom_service: DomService | None = None
 		self._last_browser_state_text: str | None = None  # Track last browser state text
 		self._last_screenshot: str | None = None  # Track last screenshot (base64)
@@ -143,8 +144,8 @@ class CodeAgent:
 		self._max_consecutive_errors = 8  # Maximum consecutive errors before termination
 		self._validation_count = 0  # Track number of validator runs
 		self._last_llm_usage: Any | None = None  # Track last LLM call usage stats
-		self._step_start_time: float = 0.0  # Track step start time for duration calculation
-		self.usage_summary = None  # Track usage summary across run for history property
+		self._step_start_time = 0.0  # Track step start time for duration calculation
+		self.usage_summary: UsageSummary | None = None  # Track usage summary across run for history property
 
 		# Initialize screenshot service for eval tracking
 		self.id = uuid7str()
@@ -1346,7 +1347,12 @@ __code_exec_coro__ = __code_exec__()
 			return None
 
 	async def _add_step_to_complete_history(
-		self, model_output_code: str, full_llm_response: str, output: str | None, error: str | None, screenshot_path: str | None
+		self,
+		model_output_code: str,
+		full_llm_response: str,
+		output: str | None,
+		error: str | None,
+		screenshot_path: str | None,
 	) -> None:
 		"""Add a step to complete_history in eval system format."""
 		# Get current browser URL and title for state
@@ -1431,21 +1437,21 @@ __code_exec_coro__ = __code_exec__()
 		return paths
 
 	@property
-	def message_manager(self):
+	def message_manager(self) -> Any:
 		"""
 		Compatibility property for eval system.
 		Returns a mock object with last_input_messages attribute.
 		"""
 
 		class MockMessageManager:
-			def __init__(self, llm_messages):
+			def __init__(self, llm_messages: list[BaseMessage]) -> None:
 				# Convert code-use LLM messages to format expected by eval system
 				self.last_input_messages = llm_messages
 
 		return MockMessageManager(self._llm_messages)
 
 	@property
-	def history(self):
+	def history(self) -> Any:
 		"""
 		Compatibility property for eval system.
 		Returns a mock AgentHistoryList object with history attribute containing complete_history.
@@ -1455,7 +1461,7 @@ __code_exec_coro__ = __code_exec__()
 		class DictToObject:
 			"""Convert dict to object with attribute access for eval compatibility."""
 
-			def __init__(self, data):
+			def __init__(self, data: dict[str, Any]) -> None:
 				for key, value in data.items():
 					if isinstance(value, dict):
 						setattr(self, key, DictToObject(value))
@@ -1464,13 +1470,13 @@ __code_exec_coro__ = __code_exec__()
 					else:
 						setattr(self, key, value)
 
-			def __getattr__(self, name):
+			def __getattr__(self, name: str) -> None:
 				"""Provide safe attribute access with defaults for missing attributes."""
 				# Return None for missing attributes instead of raising AttributeError
 				# This handles cases where eval system checks attributes that CodeAgent doesn't set
 				return None
 
-			def model_dump(self):
+			def model_dump(self) -> dict[str, Any]:
 				"""Support model_dump() calls from eval system."""
 				result = {}
 				for key, value in self.__dict__.items():
@@ -1482,7 +1488,7 @@ __code_exec_coro__ = __code_exec__()
 						result[key] = value
 				return result
 
-			def get_screenshot(self):
+			def get_screenshot(self) -> str | None:
 				"""Support get_screenshot() calls for state objects."""
 				# Load screenshot from disk and return as base64 string (matching BrowserStateHistory implementation)
 				if not hasattr(self, 'screenshot_path') or not self.screenshot_path:
@@ -1503,7 +1509,7 @@ __code_exec_coro__ = __code_exec__()
 					return None
 
 		class MockAgentHistoryList:
-			def __init__(self, complete_history, usage_summary):
+			def __init__(self, complete_history: list[dict[str, Any]], usage_summary: UsageSummary | None) -> None:
 				# Convert each dict in complete_history to objects with attribute access
 				self.history = [DictToObject(item) for item in complete_history]
 				# Use the provided usage summary
@@ -1511,7 +1517,7 @@ __code_exec_coro__ = __code_exec__()
 
 		return MockAgentHistoryList(self.complete_history, self.usage_summary)
 
-	async def close(self):
+	async def close(self) -> None:
 		"""Close the browser session."""
 		if self.browser_session:
 			# Check if we should close the browser based on keep_alive setting
@@ -1520,10 +1526,10 @@ __code_exec_coro__ = __code_exec__()
 			else:
 				logger.debug('Browser keep_alive is True, not closing browser session')
 
-	async def __aenter__(self):
+	async def __aenter__(self) -> 'CodeAgent':
 		"""Async context manager entry."""
 		return self
 
-	async def __aexit__(self, exc_type, exc_val, exc_tb):
+	async def __aexit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: Any) -> None:
 		"""Async context manager exit."""
 		await self.close()
