@@ -1144,7 +1144,7 @@ Validated Code (after quote fixing):
 							elif os.path.exists(file_name):
 								# File exists on disk but not in FileSystem - read it directly
 								try:
-									with open(file_name, 'r', encoding='utf-8') as f:
+									with open(file_name, encoding='utf-8') as f:
 										file_content = f.read()
 									file_msg += f'\n\n{file_name}:\n{file_content}'
 									attachments.append(file_name)

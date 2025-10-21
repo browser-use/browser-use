@@ -813,12 +813,14 @@ class DomService:
 				button_type = 'page_number'
 
 			if button_type:
-				pagination_buttons.append({
-					'button_type': button_type,
-					'element_index': index,
-					'text': node.get_all_children_text().strip() or aria_label or title,
-					'selector': node.xpath,
-					'is_disabled': is_disabled,
-				})
+				pagination_buttons.append(
+					{
+						'button_type': button_type,
+						'element_index': index,
+						'text': node.get_all_children_text().strip() or aria_label or title,
+						'selector': node.xpath,
+						'is_disabled': is_disabled,
+					}
+				)
 
 		return pagination_buttons

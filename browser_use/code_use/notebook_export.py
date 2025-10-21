@@ -19,9 +19,9 @@ def export_to_ipynb(session: NotebookSession, output_path: str | Path) -> Path:
 
 	Example:
 		```python
-		session = await agent.run()
-		notebook_path = export_to_ipynb(session, 'my_automation.ipynb')
-		print(f'Notebook saved to {notebook_path}')
+	        session = await agent.run()
+	        notebook_path = export_to_ipynb(session, 'my_automation.ipynb')
+	        print(f'Notebook saved to {notebook_path}')
 		```
 	"""
 	output_path = Path(output_path)
@@ -138,9 +138,9 @@ def session_to_python_script(session: NotebookSession) -> str:
 
 	Example:
 		```python
-		session = await agent.run()
-		script = session_to_python_script(session)
-		print(script)
+	        session = await agent.run()
+	        script = session_to_python_script(session)
+	        print(script)
 		```
 	"""
 	lines = []

@@ -89,6 +89,7 @@ def _strip_js_comments(js_code: str) -> str:
 
 class EvaluateError(Exception):
 	"""Special exception raised by evaluate() to stop Python execution immediately."""
+
 	pass
 
 
@@ -117,7 +118,7 @@ async def validate_task_completion(
 {task}
 
 **Agent's Output:**
-{output[:100000] if output else "(No output provided)"}
+{output[:100000] if output else '(No output provided)'}
 
 **Your Task:**
 Determine if the agent has successfully completed the user's task. Consider:
@@ -139,8 +140,8 @@ NO = Agent should continue working"""
 		response_text = response.completion
 
 		# Parse the response
-		reasoning = ""
-		verdict = "NO"
+		reasoning = ''
+		verdict = 'NO'
 
 		# Extract reasoning and verdict
 		lines = response_text.split('\n')
@@ -150,25 +151,25 @@ NO = Agent should continue working"""
 			elif line.strip().lower().startswith('verdict:'):
 				verdict_text = line.split(':', 1)[1].strip().upper()
 				if 'YES' in verdict_text:
-					verdict = "YES"
+					verdict = 'YES'
 				elif 'NO' in verdict_text:
-					verdict = "NO"
+					verdict = 'NO'
 
 		# If we couldn't parse, try to find YES/NO in the response
 		if not reasoning:
 			reasoning = response_text
 
-		is_complete = verdict == "YES"
+		is_complete = verdict == 'YES'
 
-		logger.info(f"Task validation: {verdict}")
-		logger.debug(f"Validation reasoning: {reasoning}")
+		logger.info(f'Task validation: {verdict}')
+		logger.debug(f'Validation reasoning: {reasoning}')
 
 		return is_complete, reasoning
 
 	except Exception as e:
-		logger.warning(f"Failed to validate task completion: {e}")
+		logger.warning(f'Failed to validate task completion: {e}')
 		# On error, assume the agent knows what they're doing
-		return True, f"Validation failed: {e}"
+		return True, f'Validation failed: {e}'
 
 
 async def evaluate(code: str, browser_session: BrowserSession) -> Any:
@@ -346,10 +347,7 @@ def create_namespace(
 
 	# Add custom evaluate function that returns values directly
 	async def evaluate_wrapper(
-		code: str | None = None,
-		variables: dict[str, Any] | None = None,
-		*_args: Any,
-		**kwargs: Any
+		code: str | None = None, variables: dict[str, Any] | None = None, *_args: Any, **kwargs: Any
 	) -> Any:
 		# Handle both positional and keyword argument styles
 		if code is None:
@@ -375,9 +373,8 @@ def create_namespace(
 			else:
 				# Not a parameterized function, inject params in scope
 				# Check if already wrapped in IIFE
-				is_wrapped = (
-					(stripped.startswith('(function()') and '})()' in stripped[-10:])
-					or (stripped.startswith('(async function()') and '})()' in stripped[-10:])
+				is_wrapped = (stripped.startswith('(function()') and '})()' in stripped[-10:]) or (
+					stripped.startswith('(async function()') and '})()' in stripped[-10:]
 				)
 				if is_wrapped:
 					# Already wrapped, inject params at the start
@@ -385,7 +382,7 @@ def create_namespace(
 					match = re.match(r'(\((?:async\s+)?function\s*\(\s*\)\s*\{)', stripped)
 					if match:
 						prefix = match.group(1)
-						rest = stripped[len(prefix):]
+						rest = stripped[len(prefix) :]
 						code = f'{prefix} const params = {vars_json}; {rest}'
 					else:
 						# Fallback: wrap in outer function
@@ -399,9 +396,8 @@ def create_namespace(
 		# Auto-wrap in IIFE if not already wrapped (and no variables were injected)
 		if not variables:
 			stripped = code.strip()
-			is_wrapped = (
-				(stripped.startswith('(function()') and '})()' in stripped[-10:])
-				or (stripped.startswith('(async function()') and '})()' in stripped[-10:])
+			is_wrapped = (stripped.startswith('(function()') and '})()' in stripped[-10:]) or (
+				stripped.startswith('(async function()') and '})()' in stripped[-10:]
 			)
 			if not is_wrapped:
 				code = f'(function(){{{code}}})()'
@@ -412,40 +408,37 @@ def create_namespace(
 
 			# Print result structure for debugging
 			if isinstance(result, list) and result and isinstance(result[0], dict):
-				result_preview = f"list of dicts - len={len(result)}, example 1:\n"
+				result_preview = f'list of dicts - len={len(result)}, example 1:\n'
 				sample_result = result[0]
 				for key, value in list(sample_result.items())[:10]:
 					value_str = str(value)[:10] if not isinstance(value, (int, float, bool, type(None))) else str(value)
-					result_preview += f"  {key}: {value_str}...\n"
+					result_preview += f'  {key}: {value_str}...\n'
 				if len(sample_result) > 10:
-					result_preview += f"  ... {len(sample_result) - 10} more keys"
+					result_preview += f'  ... {len(sample_result) - 10} more keys'
 				print(result_preview)
 
 			elif isinstance(result, list):
 				if len(result) == 0:
-					print("type=list, len=0")
+					print('type=list, len=0')
 				else:
 					result_preview = str(result)[:100]
-					print(f"type=list, len={len(result)}, preview={result_preview}...")
+					print(f'type=list, len={len(result)}, preview={result_preview}...')
 			elif isinstance(result, dict):
-				result_preview = f"type=dict, len={len(result)}, sample keys:\n"
+				result_preview = f'type=dict, len={len(result)}, sample keys:\n'
 				for key, value in list(result.items())[:10]:
 					value_str = str(value)[:10] if not isinstance(value, (int, float, bool, type(None))) else str(value)
-					result_preview += f"  {key}: {value_str}...\n"
+					result_preview += f'  {key}: {value_str}...\n'
 				if len(result) > 10:
-					result_preview += f"  ... {len(result) - 10} more keys"
+					result_preview += f'  ... {len(result) - 10} more keys'
 				print(result_preview)
 
 			else:
-				print(f"type={type(result).__name__}, value={repr(result)[:50]}")
+				print(f'type={type(result).__name__}, value={repr(result)[:50]}')
 
 			return result
 		except Exception as e:
 			# Track errors for pattern detection
-			namespace['_evaluate_failures'].append({
-				'error': str(e),
-				'type': 'exception'
-			})
+			namespace['_evaluate_failures'].append({'error': str(e), 'type': 'exception'})
 			raise
 
 	namespace['evaluate'] = evaluate_wrapper
@@ -511,9 +504,11 @@ def create_namespace(
 			shadow_path = ' > '.join(shadow_hosts)
 			logger.info(f'Element [{index}] is inside Shadow DOM. Path: {shadow_path}')
 			logger.info(f'    Selector: {selector}')
-			logger.info(f'    To access: document.querySelector("{shadow_hosts[0].split("#")[0]}").shadowRoot.querySelector("{selector}")')
+			logger.info(
+				f'    To access: document.querySelector("{shadow_hosts[0].split("#")[0]}").shadowRoot.querySelector("{selector}")'
+			)
 		if in_iframe:
-			logger.info(f'Element [{index}] is inside an iframe. Regular querySelector won\'t work.')
+			logger.info(f"Element [{index}] is inside an iframe. Regular querySelector won't work.")
 
 		if selector:
 			return selector

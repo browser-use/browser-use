@@ -350,7 +350,7 @@ class CodeUseAgent:
 					error = None
 
 					for i, block_key in enumerate(python_blocks):
-						logger.info(f'Executing Python block {i+1}/{len(python_blocks)}')
+						logger.info(f'Executing Python block {i + 1}/{len(python_blocks)}')
 						block_code = all_blocks[block_key]
 						block_output, block_error, _ = await self._execute_code(block_code)
 
@@ -441,7 +441,9 @@ class CodeUseAgent:
 					else:
 						# At limits - skip validation and accept done()
 						if self._validation_count >= self.max_validations:
-							logger.info(f'Reached max validations ({self.max_validations}) - skipping validation and accepting done()')
+							logger.info(
+								f'Reached max validations ({self.max_validations}) - skipping validation and accepting done()'
+							)
 						else:
 							logger.info('At step/error limits - skipping validation')
 						if final_result:
@@ -661,7 +663,6 @@ class CodeUseAgent:
 		# This prevents treating plain text explanations as code
 		code = code_blocks.get('python', response.completion)
 
-
 		# Add to LLM messages (truncate for history to save context)
 		truncated_completion = _truncate_message_content(response.completion)
 		self._llm_messages.append(AssistantMessage(content=truncated_completion))
@@ -671,7 +672,22 @@ class CodeUseAgent:
 	def _print_variable_info(self, var_name: str, value: Any) -> None:
 		"""Print compact info about a variable assignment."""
 		# Skip built-in modules and known imports
-		skip_names = {'json', 'asyncio', 'csv', 're', 'datetime', 'Path', 'pd', 'np', 'plt', 'requests', 'BeautifulSoup', 'PdfReader', 'browser', 'file_system'}
+		skip_names = {
+			'json',
+			'asyncio',
+			'csv',
+			're',
+			'datetime',
+			'Path',
+			'pd',
+			'np',
+			'plt',
+			'requests',
+			'BeautifulSoup',
+			'PdfReader',
+			'browser',
+			'file_system',
+		}
 		if var_name in skip_names:
 			return
 
@@ -1116,7 +1132,9 @@ __code_exec_coro__ = __code_exec__()
 					lines.append(f'  - [{duration_sec:.1f}s] {url_display}')
 				if len(unique_requests) > 20:
 					lines.append(f'  - ... and {len(unique_requests) - 20} more')
-				lines.append('**Tip:** Content may still be loading. Consider waiting with `await asyncio.sleep(1)` if data is missing.')
+				lines.append(
+					'**Tip:** Content may still be loading. Consider waiting with `await asyncio.sleep(1)` if data is missing.'
+				)
 				lines.append('')
 
 			# Check if jQuery is available on the page
@@ -1170,7 +1188,6 @@ __code_exec_coro__ = __code_exec__()
 			code_block_vars_sorted = sorted(code_block_vars)
 
 			# Add jQuery availability info alongside variables
-
 
 			# Build available line with code blocks and variables
 			parts = []

@@ -89,7 +89,24 @@ SEMANTIC_ELEMENTS = {
 COLLAPSIBLE_CONTAINERS = {'div', 'span', 'section', 'article'}
 
 # SVG child elements to skip (decorative only, no interaction value)
-SVG_ELEMENTS = {'path', 'rect', 'g', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'use', 'defs', 'clipPath', 'mask', 'pattern', 'image', 'text', 'tspan'}
+SVG_ELEMENTS = {
+	'path',
+	'rect',
+	'g',
+	'circle',
+	'ellipse',
+	'line',
+	'polyline',
+	'polygon',
+	'use',
+	'defs',
+	'clipPath',
+	'mask',
+	'pattern',
+	'image',
+	'text',
+	'tspan',
+}
 
 
 class DOMEvalSerializer:
@@ -162,7 +179,6 @@ class DOMEvalSerializer:
 			has_text_content = DOMEvalSerializer._has_direct_text(node)
 			has_children = len(node.children) > 0
 
-
 			# Build compact element representation
 			line = f'{depth_str}'
 			# Add backend node ID notation - [i_X] for interactive elements only
@@ -173,7 +189,6 @@ class DOMEvalSerializer:
 
 			if attributes_str:
 				line += f' {attributes_str}'
-
 
 			# Add scroll info if element is scrollable
 			if node.original_node.should_show_scroll_info:
@@ -221,10 +236,10 @@ class DOMEvalSerializer:
 		children_output = []
 
 		# Check if parent is a list container (ul, ol)
-		is_list_container = (
-			node.original_node.node_type == NodeType.ELEMENT_NODE
-			and node.original_node.tag_name.lower() in ['ul', 'ol']
-		)
+		is_list_container = node.original_node.node_type == NodeType.ELEMENT_NODE and node.original_node.tag_name.lower() in [
+			'ul',
+			'ol',
+		]
 
 		# Track list items and consecutive links
 		li_count = 0
@@ -269,12 +284,16 @@ class DOMEvalSerializer:
 		# Add truncation message if we skipped items at the end
 		if is_list_container and li_count > max_list_items:
 			depth_str = depth * '\t'
-			children_output.append(f'{depth_str}... ({li_count - max_list_items} more items in this list (truncated) use evaluate to get more.')
+			children_output.append(
+				f'{depth_str}... ({li_count - max_list_items} more items in this list (truncated) use evaluate to get more.'
+			)
 
 		# Add truncation message for links if we skipped any at the end
 		if total_links_skipped > 0:
 			depth_str = depth * '\t'
-			children_output.append(f'{depth_str}... ({total_links_skipped} more links in this list) (truncated) use evaluate to get more.')
+			children_output.append(
+				f'{depth_str}... ({total_links_skipped} more links in this list) (truncated) use evaluate to get more.'
+			)
 
 		return '\n'.join(children_output)
 
@@ -374,17 +393,25 @@ class DOMEvalSerializer:
 						if html_child.tag_name.lower() == 'body':
 							for body_child in html_child.children:
 								# Recursively process body children (iframe content)
-								DOMEvalSerializer._serialize_document_node(body_child, formatted_text, include_attributes, depth + 2, is_iframe_content=True)
+								DOMEvalSerializer._serialize_document_node(
+									body_child, formatted_text, include_attributes, depth + 2, is_iframe_content=True
+								)
 							break  # Stop after processing body
 				else:
 					# Not an html element - serialize directly
-					DOMEvalSerializer._serialize_document_node(child_node, formatted_text, include_attributes, depth + 1, is_iframe_content=True)
+					DOMEvalSerializer._serialize_document_node(
+						child_node, formatted_text, include_attributes, depth + 1, is_iframe_content=True
+					)
 
 		return '\n'.join(formatted_text)
 
 	@staticmethod
 	def _serialize_document_node(
-		dom_node: EnhancedDOMTreeNode, output: list[str], include_attributes: list[str], depth: int, is_iframe_content: bool = True
+		dom_node: EnhancedDOMTreeNode,
+		output: list[str],
+		include_attributes: list[str],
+		depth: int,
+		is_iframe_content: bool = True,
 	) -> None:
 		"""Helper to serialize a document node without SimplifiedNode wrapper.
 
@@ -417,7 +444,9 @@ class DOMEvalSerializer:
 			if not is_semantic and not attributes_str:
 				# Skip but process children
 				for child in dom_node.children:
-					DOMEvalSerializer._serialize_document_node(child, output, include_attributes, depth, is_iframe_content=is_iframe_content)
+					DOMEvalSerializer._serialize_document_node(
+						child, output, include_attributes, depth, is_iframe_content=is_iframe_content
+					)
 				return
 
 			# Build element line
@@ -444,4 +473,6 @@ class DOMEvalSerializer:
 			# Process non-text children
 			for child in dom_node.children:
 				if child.node_type != NodeType.TEXT_NODE:
-					DOMEvalSerializer._serialize_document_node(child, output, include_attributes, depth + 1, is_iframe_content=is_iframe_content)
+					DOMEvalSerializer._serialize_document_node(
+						child, output, include_attributes, depth + 1, is_iframe_content=is_iframe_content
+					)

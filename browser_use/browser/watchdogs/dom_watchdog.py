@@ -273,9 +273,7 @@ class DOMWatchdog(BaseWatchdog):
 			try:
 				pending_requests_before_wait = await self._get_pending_network_requests()
 				if pending_requests_before_wait:
-					self.logger.debug(
-						f'🔍 Found {len(pending_requests_before_wait)} pending requests before stability wait'
-					)
+					self.logger.debug(f'🔍 Found {len(pending_requests_before_wait)} pending requests before stability wait')
 			except Exception as e:
 				self.logger.debug(f'Failed to get pending requests before wait: {e}')
 		pending_requests = pending_requests_before_wait
@@ -398,7 +396,13 @@ class DOMWatchdog(BaseWatchdog):
 
 			# Apply Python-based highlighting if both DOM and screenshot are available
 			# COMMENTED OUT: Removes highlight numbers from screenshots for code-use mode
-			if False and screenshot_b64 and content and content.selector_map and self.browser_session.browser_profile.highlight_elements:
+			if (
+				False
+				and screenshot_b64
+				and content
+				and content.selector_map
+				and self.browser_session.browser_profile.highlight_elements
+			):
 				try:
 					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: 🎨 Applying Python-based highlighting...')
 					from browser_use.browser.python_highlights import create_highlighted_screenshot_async
@@ -467,7 +471,6 @@ class DOMWatchdog(BaseWatchdog):
 					pixels_left=0,
 					pixels_right=0,
 				)
-
 
 			# Check for PDF viewer
 			is_pdf_viewer = page_url.endswith('.pdf') or '/pdf/' in page_url
@@ -678,7 +681,9 @@ class DOMWatchdog(BaseWatchdog):
 				for btn in pagination_buttons_raw
 			]
 			if pagination_buttons_data:
-				self.logger.debug(f'🔍 DOMWatchdog._detect_pagination_buttons: Found {len(pagination_buttons_data)} pagination buttons')
+				self.logger.debug(
+					f'🔍 DOMWatchdog._detect_pagination_buttons: Found {len(pagination_buttons_data)} pagination buttons'
+				)
 		except Exception as e:
 			self.logger.warning(f'🔍 DOMWatchdog._detect_pagination_buttons: Pagination detection failed: {e}')
 

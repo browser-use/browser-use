@@ -5,7 +5,6 @@ def cap_text_length(text: str, max_length: int) -> str:
 	return text[:max_length] + '...'
 
 
-
 def generate_css_selector_for_element(enhanced_node) -> str | None:
 	"""Generate a CSS selector using node properties from version 0.5.0 approach."""
 	import re

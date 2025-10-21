@@ -82,4 +82,3 @@ with open('products.json', 'w') as f:
 print(f'Total: {len(all_products)} products saved to products.json')
 await done(text='Extracted all products', success=True, files_to_display=['products.json'])
 ```
-
