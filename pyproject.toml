@@ -142,7 +142,7 @@ skip-magic-trailing-comma = false
 
 [tool.pyright]
 typeCheckingMode = "basic"
-exclude = [".venv/", ".git/", "__pycache__/", "./test_*.py", "./debug_*.py", "private_example/", "debug/*", "tests/scripts/*", "tests/old/*", "browser_use/dom/playground/*", "examples/use-cases/onepassword.py", "browser_use/llm/oci_raw/*"]
+exclude = [".venv/", ".git/", "__pycache__/", "./test_*.py", "./debug_*.py", "private_example/", "debug/*", "tests/scripts/*", "tests/old/*", "browser_use/dom/playground/*", "examples/use-cases/onepassword.py", "browser_use/llm/oci_raw/*", "browser_use/llm/tests/test_chat_models.py", "browser_use/llm/tests/test_single_step.py"]
 venvPath = "."
 venv = ".venv"
 

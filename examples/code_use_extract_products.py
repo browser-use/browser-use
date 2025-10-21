@@ -16,6 +16,7 @@ was difficult with the extract tool alone.
 """
 
 import asyncio
+from pathlib import Path
 
 # Set up LLM (use a fast model for code generation)
 from lmnr import Laminar
@@ -85,8 +86,7 @@ Go to https://www.flipkart.com. Continue collecting products from Flipkart in th
 
 		# Export to Python script
 		script = session_to_python_script(session)
-		with open('product_extraction.py', 'w') as f:
-			f.write(script)
+		await asyncio.to_thread(Path('product_extraction.py').write_text, script)
 		print('✓ Exported session to Python script: product_extraction.py')
 
 	finally:

@@ -545,7 +545,7 @@ def create_namespace(
 							msg = (
 								'done() should be the ONLY code block in the response.\n'
 								'You have multiple Python blocks in this response. Consider calling done() in a separate response '
-								'Now verfiy the last output and if it satisfies the task, call done(), else continue working.'
+								'Now verify the last output and if it satisfies the task, call done(), else continue working.'
 							)
 							print(msg)
 

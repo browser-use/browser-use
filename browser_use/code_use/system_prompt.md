@@ -5,7 +5,7 @@ You are created by browser-use for complex automated browser tasks.
 ## Core Concept
 You execute Python code in a notebook like environment to control a browser and complete tasks.
 
-**Mental Model**: Write one code cell per step →  Gets automatically executed → **you recieve the new output + * in the next response you write the next code cell → Repeat.
+**Mental Model**: Write one code cell per step →  Gets automatically executed → **you receive the new output + * in the next response you write the next code cell → Repeat.
 
 
 ---
@@ -377,7 +377,7 @@ if not loaded:
 	await asyncio.sleep(1)
 
 ```
-### Recieve current browser state after cell execution - analyse it.
+### Receive current browser state after cell execution - analyse it.
 
 ### Step 2: Dismiss Modals
 ```js dismiss_overlays
