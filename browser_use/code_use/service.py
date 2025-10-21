@@ -42,6 +42,37 @@ def _truncate_message_content(content: str, max_length: int = 10000) -> str:
 	return content[:max_length] + f'\n\n[... truncated {len(content) - max_length} characters for history]'
 
 
+def _detect_token_limit_issue(
+	completion: str,
+	completion_tokens: int | None,
+	max_tokens: int | None,
+	stop_reason: str | None,
+) -> tuple[bool, str | None]:
+	"""
+	Detect if the LLM response hit token limits or is repetitive garbage.
+
+	Returns: (is_problematic, error_message)
+	"""
+	# Check 1: Stop reason indicates max_tokens
+	if stop_reason == 'max_tokens':
+		return True, f'Response terminated due to max_tokens limit (stop_reason: {stop_reason})'
+
+	# Check 2: Used 90%+ of max_tokens (if we have both values)
+	if completion_tokens is not None and max_tokens is not None and max_tokens > 0:
+		usage_ratio = completion_tokens / max_tokens
+		if usage_ratio >= 0.9:
+			return True, f'Response used {usage_ratio:.1%} of max_tokens ({completion_tokens}/{max_tokens})'
+
+	# Check 3: Last 6 characters repeat 40+ times (repetitive garbage)
+	if len(completion) >= 6:
+		last_6 = completion[-6:]
+		repetition_count = completion.count(last_6)
+		if repetition_count >= 40:
+			return True, f'Repetitive output detected: last 6 chars "{last_6}" appears {repetition_count} times'
+
+	return False, None
+
+
 class CodeUseAgent:
 	"""
 	Agent that executes Python code in a notebook-like environment for browser automation.
@@ -282,6 +313,19 @@ class CodeUseAgent:
 					continue
 
 				if not code or code.strip() == '':
+					# If task is already done, empty code is fine (LLM explaining completion)
+					if self._is_task_done():
+						logger.info('Task already marked as done, LLM provided explanation without code')
+						# Add the text response to history as a non-code step
+						await self._add_step_to_complete_history(
+							model_output_code='',
+							full_llm_response=full_llm_response,
+							output=full_llm_response,  # Treat the explanation as output
+							error=None,
+							screenshot_path=await self._capture_screenshot(step + 1),
+						)
+						break  # Exit the loop since task is done
+
 					logger.warning('LLM returned empty code')
 					self._consecutive_errors += 1
 
@@ -567,6 +611,28 @@ class CodeUseAgent:
 		# Log the LLM's raw output for debugging
 		logger.info(f'LLM Response:\n{response.completion}')
 
+		# Check for token limit or repetition issues
+		max_tokens = getattr(self.llm, 'max_tokens', None)
+		completion_tokens = response.usage.completion_tokens if response.usage else None
+		is_problematic, issue_message = _detect_token_limit_issue(
+			completion=response.completion,
+			completion_tokens=completion_tokens,
+			max_tokens=max_tokens,
+			stop_reason=response.stop_reason,
+		)
+
+		if is_problematic:
+			logger.warning(f'Token limit issue detected: {issue_message}')
+			# Don't add the bad response to history
+			# Instead, inject a system message prompting recovery
+			recovery_prompt = (
+				f'Your previous response hit a token limit or became repetitive: {issue_message}\n\n'
+				'Please write a SHORT plan (2 sentences) for what to do next, then execute ONE simple action.'
+			)
+			self._llm_messages.append(UserMessage(content=recovery_prompt))
+			# Return a controlled error message instead of corrupted code
+			return '', f'[Token limit error: {issue_message}]'
+
 		# Store the full response
 		full_response = response.completion
 
@@ -590,9 +656,11 @@ class CodeUseAgent:
 		# Store all code blocks for sequential execution
 		self.namespace['_all_code_blocks'] = code_blocks
 
-		# Get Python code (or fallback to raw completion)
-		# For backward compatibility, still return 'python' block if it exists
+		# Get Python code if it exists
+		# If no python block exists and no other code blocks exist, return empty string to skip execution
+		# This prevents treating plain text explanations as code
 		code = code_blocks.get('python', response.completion)
+
 
 		# Add to LLM messages (truncate for history to save context)
 		truncated_completion = _truncate_message_content(response.completion)
