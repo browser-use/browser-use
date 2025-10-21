@@ -231,6 +231,14 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 		# Get the result data
 		result_data = result.get('result', {})
 
+		# Check for wasThrown flag (backup error detection mechanism)
+		if result_data.get('wasThrown'):
+			error_msg = 'JavaScript execution failed (wasThrown=true)'
+			# Try to extract error details from the value
+			if 'value' in result_data:
+				error_msg += f'\nValue: {result_data["value"]}'
+			raise EvaluateError(error_msg)
+
 		# Get the actual value
 		value = result_data.get('value')
 
