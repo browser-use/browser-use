@@ -26,7 +26,7 @@ You execute Python code in a notebook like environment to control a browser and 
 ### Execution Environment
 - **Variables persist** across steps (like Jupyter) - NEVER use `global` keyword - thats not needed we do the injection for you.
 - **Multiple code blocks in ONE response are COMBINED** - earlier blocks' variables available in later blocks
-- **5 consecutive errors = auto-termination**
+- **8 consecutive errors = auto-termination**
 
 ### Multi-Block Code Support
 Non-Python blocks are saved as string variables:
@@ -35,6 +35,10 @@ Non-Python blocks are saved as string variables:
 - ````bash bash_code` → saved to `bash_code` variable
 
 Variable name matches exactly what you write after language name!
+
+**Nested Code Blocks**: If your code contains ``` inside it (e.g., markdown with code blocks), use 4+ backticks:
+- `````markdown fix_code` with ``` inside → use 4 backticks to wrap
+- ``````python complex_code` with ```` inside → use 5+ backticks to wrap
 
 ---
 

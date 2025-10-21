@@ -109,7 +109,7 @@ class CodeUseAgent:
 		self._last_browser_state_text: str | None = None  # Track last browser state text
 		self._last_screenshot: str | None = None  # Track last screenshot (base64)
 		self._consecutive_errors = 0  # Track consecutive errors for auto-termination
-		self._max_consecutive_errors = 5  # Maximum consecutive errors before termination
+		self._max_consecutive_errors = 8  # Maximum consecutive errors before termination
 		self._validation_count = 0  # Track number of validator runs
 		self._last_llm_usage: Any | None = None  # Track last LLM call usage stats
 		self._step_start_time: float = 0.0  # Track step start time for duration calculation
@@ -355,7 +355,7 @@ class CodeUseAgent:
 					should_validate = (
 						self._validation_count < self.max_validations  # Haven't exceeded max validations
 						and steps_remaining >= 4  # At least 4 steps away from limit
-						and self._consecutive_errors < 3  # Not close to error limit (5 consecutive)
+						and self._consecutive_errors < 3  # Not close to error limit (8 consecutive)
 					)
 
 					if should_validate:
@@ -628,6 +628,7 @@ class CodeUseAgent:
 		Supports:
 		- ```python, ```js, ```javascript, ```bash, ```markdown, ```md
 		- Named blocks: ```js variable_name → saved as 'variable_name' in namespace
+		- Nested blocks: Use 4+ backticks for outer block when inner content has 3 backticks
 
 		Returns dict mapping block_name -> content
 
@@ -637,14 +638,15 @@ class CodeUseAgent:
 		import re
 
 		# Pattern to match code blocks with language identifier and optional variable name
-		# Matches: ```lang\n or ```lang varname\n
-		pattern = r'```(\w+)(?:\s+(\w+))?\n(.*?)```'
+		# Matches: ```lang\n or ```lang varname\n or ````+lang\n (4+ backticks for nested blocks)
+		# Uses non-greedy matching and backreferences to match opening/closing backticks
+		pattern = r'(`{3,})(\w+)(?:\s+(\w+))?\n(.*?)\1(?:\n|$)'
 		matches = re.findall(pattern, text, re.DOTALL)
 
 		blocks: dict[str, str] = {}
 		python_block_counter = 0
 
-		for lang, var_name, content in matches:
+		for backticks, lang, var_name, content in matches:
 			lang = lang.lower()
 
 			# Normalize language names
@@ -889,7 +891,8 @@ __code_exec_coro__ = __code_exec__()
 					if has_fstring and (has_json_pattern or has_js_pattern):
 						error += (
 							'\n\n💡 TIP: Detected f-string with JSON/JavaScript code containing {}.\n'
-							'   Use separate ```js or ```markdown blocks instead of f-strings to avoid escaping issues:\n'
+							'   Use separate ```js or ```markdown blocks instead of f-strings to avoid escaping issues.\n'
+							'   If your code block needs ``` inside it, wrap with 4+ backticks: ````markdown code`\n'
 						)
 
 				# Detect and provide helpful hints for common string literal errors
@@ -924,6 +927,7 @@ __code_exec_coro__ = __code_exec__()
 							hint = f"Hint: Unterminated {prefix}'''...''' or {prefix}\"\"\"...\"\" ({desc}). Check for missing closing quotes or unescaped quotes inside."
 						else:
 							hint = "Hint: Unterminated '''...''' or \"\"\"...\"\" detected. Check for missing closing quotes or unescaped quotes inside."
+						hint += '\n      If you need ``` inside your string, use a ````markdown varname` code block with 4+ backticks instead.'
 					else:
 						if prefix:
 							hint = f'Hint: Unterminated {prefix}\'...\' or {prefix}"..." ({desc}). Check for missing closing quote or unescaped quotes inside.'
