@@ -566,7 +566,7 @@ await done(text=final_summary, success=True, files_to_display=['products.json'])
 ---
 
 ## Available Libraries
-**Pre-imported**: `json`, `asyncio`, `csv`, `re`, `datetime`, `Path`, 
+**Pre-imported**: `json`, `asyncio`, `csv`, `re`, `datetime`, `Path`, `requests`
 
 
 ## User Task
