@@ -13,6 +13,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+import requests
+
 from browser_use.browser import BrowserSession
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
@@ -41,13 +43,6 @@ try:
 	MATPLOTLIB_AVAILABLE = True
 except ImportError:
 	MATPLOTLIB_AVAILABLE = False
-
-try:
-	import requests
-
-	REQUESTS_AVAILABLE = True
-except ImportError:
-	REQUESTS_AVAILABLE = False
 
 try:
 	from bs4 import BeautifulSoup
@@ -323,6 +318,7 @@ def create_namespace(
 		'csv': csv,
 		're': re,
 		'datetime': datetime,
+		'requests': requests,
 	}
 
 	# Add optional data science libraries if available
@@ -335,8 +331,6 @@ def create_namespace(
 	if MATPLOTLIB_AVAILABLE:
 		namespace['plt'] = plt
 		namespace['matplotlib'] = plt
-	if REQUESTS_AVAILABLE:
-		namespace['requests'] = requests
 	if BS4_AVAILABLE:
 		namespace['BeautifulSoup'] = BeautifulSoup
 		namespace['bs4'] = BeautifulSoup
