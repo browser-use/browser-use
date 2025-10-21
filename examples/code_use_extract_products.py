@@ -39,20 +39,14 @@ async def main():
 	4. Combine all results
 	5. Save to a JSON file
 	"""
-	task = "go here https://docs.google.com/spreadsheets/d/1r35O8nBft06AVOEap_qQjGJAkUHTmVsGYNvMWWvgsYA/edit?usp=sharing - and write todays date behind the names in the next columns then find out for which companies each works and write it in column c"
 
 	task="""
 
-Read webpage https://www.flipkart.com and follow the prompt: Continue collecting products from Flipkart in the following categories. I need approximately 60 products from:\n\n1. Books & Media (books, stationery) - 15 products\n2. Sports & Fitness (equipment, clothing, accessories) - 15 products  \n3. Beauty & Personal Care (cosmetics, skincare, grooming) - 10 products\nAnd 2 other categories you find interesting.\nNavigate to these categories and collect products with:\n- Product URL (working link)\n- Product name/description\n- Actual price (MRP)\n- Deal price (current selling price)  \n- Discount percentage\n\nFocus on products with good discounts and clear pricing. Target around 40 products total from these three categories.
+Go to https://www.flipkart.com. Continue collecting products from Flipkart in the following categories. I need approximately 50 products from:\n\n1. Books & Media (books, stationery) - 15 products\n2. Sports & Fitness (equipment, clothing, accessories) - 15 products  \n3. Beauty & Personal Care (cosmetics, skincare, grooming) - 10 products\nAnd 2 other categories you find interesting.\nNavigate to these categories and collect products with:\n- Product URL (working link)\n- Product name/description\n- Actual price (MRP)\n- Deal price (current selling price)  \n- Discount percentage\n\nFocus on products with good discounts and clear pricing. Target around 40 products total from these three categories.
 
-Strategy: First use normal interaction methods to come to the right page. then start with evaluate to explor the page structure, use try catch, try multiple selecotrs and print the sub steps so that you can quickly find the right selector. Print important information about the page to understand it. 
-
-Once found write a js function which you can reuse with parameters, then loop through the pages and collect the products. Be aware to wait / pagination / scroll / save to file in the end. 
 	"""
 
 
-
-	task = "create a dummy csv file and return it in files_to_display"
 	# Create code-use agent
 	agent = CodeUseAgent(
 		task=task,
