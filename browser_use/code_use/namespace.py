@@ -63,6 +63,13 @@ try:
 except ImportError:
 	PYPDF_AVAILABLE = False
 
+try:
+	from tabulate import tabulate
+
+	TABULATE_AVAILABLE = True
+except ImportError:
+	TABULATE_AVAILABLE = False
+
 
 def _strip_js_comments(js_code: str) -> str:
 	"""
@@ -336,6 +343,8 @@ def create_namespace(
 	if PYPDF_AVAILABLE:
 		namespace['PdfReader'] = PdfReader
 		namespace['pypdf'] = PdfReader
+	if TABULATE_AVAILABLE:
+		namespace['tabulate'] = tabulate
 
 	# Track failed evaluate() calls to detect repeated failed approaches
 	if '_evaluate_failures' not in namespace:
