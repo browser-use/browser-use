@@ -1329,11 +1329,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				cdp_url=urlparse(self.browser_session.cdp_url).hostname
 				if self.browser_session and self.browser_session.cdp_url
 				else None,
+				agent_type=None,  # Regular Agent (not code-use)
 				action_errors=self.history.errors(),
 				action_history=action_history_data,
 				urls_visited=self.history.urls(),
 				steps=self.state.n_steps,
 				total_input_tokens=token_summary.prompt_tokens,
+				total_output_tokens=token_summary.completion_tokens,
+				prompt_cached_tokens=token_summary.prompt_cached_tokens,
+				total_tokens=token_summary.total_tokens,
 				total_duration_seconds=self.history.total_duration_seconds(),
 				success=self.history.is_successful(),
 				final_result_response=final_result_str,
@@ -1408,6 +1412,54 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			return unique_urls[0]
 
 		return None
+
+	async def _execute_step(
+		self,
+		step: int,
+		max_steps: int,
+		step_info: AgentStepInfo,
+		on_step_start: AgentHookFunc | None = None,
+		on_step_end: AgentHookFunc | None = None,
+	) -> bool:
+		"""
+		Execute a single step with timeout.
+
+		Returns:
+			bool: True if task is done, False otherwise
+		"""
+		if on_step_start is not None:
+			await on_step_start(self)
+
+		self.logger.debug(f'🚶 Starting step {step + 1}/{max_steps}...')
+
+		try:
+			await asyncio.wait_for(
+				self.step(step_info),
+				timeout=180,  # 3 minute timeout
+			)
+			self.logger.debug(f'✅ Completed step {step + 1}/{max_steps}')
+		except TimeoutError:
+			# Handle step timeout gracefully
+			error_msg = f'Step {step + 1} timed out after 180 seconds'
+			self.logger.error(f'⏰ {error_msg}')
+			self.state.consecutive_failures += 1
+			self.state.last_result = [ActionResult(error=error_msg)]
+
+		if on_step_end is not None:
+			await on_step_end(self)
+
+		if self.history.is_done():
+			await self.log_completion()
+
+			if self.register_done_callback:
+				if inspect.iscoroutinefunction(self.register_done_callback):
+					await self.register_done_callback(self.history)
+				else:
+					self.register_done_callback(self.history)
+
+			return True
+
+		return False
 
 	@observe(name='agent.run', metadata={'task': '{{task}}', 'debug': '{{debug}}'})
 	@time_execution_async('--run')
@@ -1501,37 +1553,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					agent_run_error = 'Agent stopped programmatically'
 					break
 
-				if on_step_start is not None:
-					await on_step_start(self)
-
-				self.logger.debug(f'🚶 Starting step {step + 1}/{max_steps}...')
 				step_info = AgentStepInfo(step_number=step, max_steps=max_steps)
+				is_done = await self._execute_step(step, max_steps, step_info, on_step_start, on_step_end)
 
-				try:
-					await asyncio.wait_for(
-						self.step(step_info),
-						timeout=self.settings.step_timeout,
-					)
-					self.logger.debug(f'✅ Completed step {step + 1}/{max_steps}')
-				except TimeoutError:
-					# Handle step timeout gracefully
-					error_msg = f'Step {step + 1} timed out after {self.settings.step_timeout} seconds'
-					self.logger.error(f'⏰ {error_msg}')
-					self.state.consecutive_failures += 1
-					self.state.last_result = [ActionResult(error=error_msg)]
-
-				if on_step_end is not None:
-					await on_step_end(self)
-
-				if self.history.is_done():
-					await self.log_completion()
-
-					if self.register_done_callback:
-						if inspect.iscoroutinefunction(self.register_done_callback):
-							await self.register_done_callback(self.history)
-						else:
-							self.register_done_callback(self.history)
-
+				if is_done:
 					# Task completed
 					break
 			else:

@@ -100,9 +100,9 @@ def get_element_color(tag_name: str, element_type: str | None = None) -> str:
 	return ELEMENT_COLORS.get(tag_name.lower(), ELEMENT_COLORS['default'])
 
 
-def should_show_index_overlay(element_index: int | None) -> bool:
+def should_show_index_overlay(backend_node_id: int | None) -> bool:
 	"""Determine if index overlay should be shown."""
-	return element_index is not None
+	return backend_node_id is not None
 
 
 def draw_enhanced_bounding_box_with_text(
@@ -381,19 +381,19 @@ def process_element_highlight(
 		color = get_element_color(tag_name, element_type)
 
 		# Get element index for overlay and apply filtering
-		element_index = getattr(element, 'element_index', None)
+		backend_node_id = getattr(element, 'backend_node_id', None)
 		index_text = None
 
-		if element_index is not None:
+		if backend_node_id is not None:
 			if filter_highlight_ids:
 				# Use the meaningful text that matches what the LLM sees
 				meaningful_text = element.get_meaningful_text_for_llm()
 				# Show ID only if meaningful text is less than 5 characters
 				if len(meaningful_text) < 3:
-					index_text = str(element_index)
+					index_text = str(backend_node_id)
 			else:
 				# Always show ID when filter is disabled
-				index_text = str(element_index)
+				index_text = str(backend_node_id)
 
 		# Draw enhanced bounding box with bigger index
 		draw_enhanced_bounding_box_with_text(

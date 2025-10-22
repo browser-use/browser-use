@@ -341,12 +341,13 @@ class TokenCost:
 			result = await original_ainvoke(messages, output_format, **kwargs)
 
 			# Track usage if available (no await needed since add_usage is now sync)
+			# Use llm.model instead of llm.name for consistency with get_usage_tokens_for_model()
 			if result.usage:
-				usage = token_cost_service.add_usage(llm.name, result.usage)
+				usage = token_cost_service.add_usage(llm.model, result.usage)
 
 				logger.debug(f'Token cost service: {usage}')
 
-				asyncio.create_task(token_cost_service._log_usage(llm.name, usage))
+				asyncio.create_task(token_cost_service._log_usage(llm.model, usage))
 
 			# else:
 			# 	await token_cost_service._log_non_usage_llm(llm)

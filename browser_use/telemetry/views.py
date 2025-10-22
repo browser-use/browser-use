@@ -33,6 +33,7 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	version: str
 	source: str
 	cdp_url: str | None
+	agent_type: str | None  # 'code' for CodeAgent, None for regular Agent
 	# step details
 	action_errors: Sequence[str | None]
 	action_history: Sequence[list[dict] | None]
@@ -40,6 +41,9 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	# end details
 	steps: int
 	total_input_tokens: int
+	total_output_tokens: int
+	prompt_cached_tokens: int
+	total_tokens: int
 	total_duration_seconds: float
 	success: bool | None
 	final_result_response: str | None
