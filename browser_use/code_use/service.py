@@ -358,8 +358,7 @@ class CodeAgent:
 					# Check if we've hit the consecutive error limit
 					if self._consecutive_errors >= self.max_failures:
 						logger.error(
-							f'Terminating: {self.max_failures} consecutive errors reached. '
-							f'The agent is unable to make progress.'
+							f'Terminating: {self.max_failures} consecutive errors reached. The agent is unable to make progress.'
 						)
 						# Add termination message to complete history before breaking
 						await self._add_step_to_complete_history(
@@ -690,7 +689,6 @@ class CodeAgent:
 			print(f'→ Variable: {var_name} (function)')
 		else:
 			print(f'→ Variable: {var_name} ({type(value).__name__}, value={repr(value)[:50]})')
-
 
 	async def _execute_code(self, code: str) -> tuple[str | None, str | None, str | None]:
 		"""
@@ -1025,7 +1023,6 @@ __code_exec_coro__ = __code_exec__()
 		"""Check if the task is marked as done in the namespace."""
 		# Check if 'done' was called by looking for a special marker in namespace
 		return self.namespace.get('_task_done', False)
-
 
 	async def _capture_screenshot(self, step_number: int) -> str | None:
 		"""Capture and store screenshot for eval tracking."""
