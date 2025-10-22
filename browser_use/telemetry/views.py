@@ -33,6 +33,7 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	version: str
 	source: str
 	cdp_url: str | None
+	agent_type: str | None  # 'code' for CodeAgent, None for regular Agent
 	# step details
 	action_errors: Sequence[str | None]
 	action_history: Sequence[list[dict] | None]

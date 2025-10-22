@@ -1329,6 +1329,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				cdp_url=urlparse(self.browser_session.cdp_url).hostname
 				if self.browser_session and self.browser_session.cdp_url
 				else None,
+				agent_type=None,  # Regular Agent (not code-use)
 				action_errors=self.history.errors(),
 				action_history=action_history_data,
 				urls_visited=self.history.urls(),

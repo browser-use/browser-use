@@ -397,7 +397,7 @@ class CodeAgent:
 				# Check if task is done - validate completion first if not at limits
 				if self._is_task_done():
 					# Get the final result from namespace (from done() call)
-					final_result = self.namespace.get('_task_result')
+					final_result: str | None = self.namespace.get('_task_result')  # type: ignore[assignment]
 
 					# Check if we should validate (not at step/error limits and under max validations)
 					steps_remaining = self.max_steps - step - 1
@@ -462,7 +462,7 @@ class CodeAgent:
 							f'✓ Task completed - Final output from done():\n{output[:300] if len(output) > 300 else output}'
 						)
 						# Also show files_to_display if they exist in namespace
-						attachments = self.namespace.get('_task_attachments')
+						attachments: list[str] | None = self.namespace.get('_task_attachments')  # type: ignore[assignment]
 						if attachments:
 							logger.info(f'Files displayed: {", ".join(attachments)}')
 					else:
@@ -485,7 +485,7 @@ class CodeAgent:
 				# Check if task is done (after validation)
 				if self._is_task_done():
 					# Get the final result from namespace
-					final_result = self.namespace.get('_task_result', output)
+					final_result: str | None = self.namespace.get('_task_result', output)  # type: ignore[assignment]
 					logger.info('Task completed successfully')
 					if final_result:
 						logger.info(f'Final result: {final_result}')
@@ -551,11 +551,11 @@ class CodeAgent:
 			logger.info('\n' + '=' * 60)
 			logger.info('TASK COMPLETED SUCCESSFULLY')
 			logger.info('=' * 60)
-			final_result = self.namespace.get('_task_result')
+			final_result: str | None = self.namespace.get('_task_result')  # type: ignore[assignment]
 			if final_result:
 				logger.info(f'\nFinal Output:\n{final_result}')
 
-			attachments = self.namespace.get('_task_attachments')
+			attachments: list[str] | None = self.namespace.get('_task_attachments')  # type: ignore[assignment]
 			if attachments:
 				logger.info(f'\nFiles Attached:\n{chr(10).join(attachments)}')
 			logger.info('=' * 60 + '\n')
@@ -1097,9 +1097,9 @@ __code_exec_coro__ = __code_exec__()
 		is_done = self._is_task_done()
 
 		# Get self-reported success from done() call if task is done
-		self_reported_success = None
+		self_reported_success: bool | None = None
 		if is_done:
-			self_reported_success = self.namespace.get('_task_success')
+			self_reported_success = self.namespace.get('_task_success')  # type: ignore[assignment]
 
 		result_entry = {
 			'extracted_content': output if output else None,
@@ -1148,40 +1148,43 @@ __code_exec_coro__ = __code_exec__()
 
 		# For CodeAgent, we don't have action history like Agent does
 		# Instead we track the code execution cells
-		action_history_data = []
+		action_history_data: list[list[dict[str, Any]] | None] = []
 		for step in self.complete_history:
 			# Extract code from model_output if available
 			model_output = step.get('model_output', {})
 			code = model_output.get('model_output') if isinstance(model_output, dict) else None
-			if code:
+			if code and isinstance(code, str):
 				# Represent each code cell as a simple action entry
 				action_history_data.append([{'code_cell': True, 'code_length': len(code)}])
 			else:
 				action_history_data.append(None)
 
-		# Get final result from the last step or namespace
-		final_result = self.namespace.get('_task_result')
-		final_result_str = final_result if isinstance(final_result, str) else None
+		# Get final result from the last step or namespace (type-safe)
+		final_result: Any = self.namespace.get('_task_result')
+		final_result_str: str | None = final_result if isinstance(final_result, str) else None
 
 		# Get URLs visited from complete_history
-		urls_visited = []
+		urls_visited: list[str] = []
 		for step in self.complete_history:
 			state = step.get('state', {})
 			url = state.get('url') if isinstance(state, dict) else None
-			if url and url not in urls_visited:
+			if url and isinstance(url, str) and url not in urls_visited:
 				urls_visited.append(url)
 
 		# Get errors from complete_history
-		errors = []
+		errors: list[str] = []
 		for step in self.complete_history:
 			results = step.get('result', [])
 			for result in results:
-				if isinstance(result, dict) and result.get('error'):
-					errors.append(result['error'])
+				if isinstance(result, dict):
+					error = result.get('error')
+					if error and isinstance(error, str):
+						errors.append(error)
 
-		# Determine success from task completion status
+		# Determine success from task completion status (type-safe)
 		is_done = self._is_task_done()
-		self_reported_success = self.namespace.get('_task_success') if is_done else False
+		task_success: Any = self.namespace.get('_task_success')
+		self_reported_success: bool | None = task_success if isinstance(task_success, bool) else (False if is_done else None)
 
 		self.telemetry.capture(
 			AgentTelemetryEvent(
@@ -1196,6 +1199,7 @@ __code_exec_coro__ = __code_exec__()
 				cdp_url=urlparse(self.browser_session.cdp_url).hostname
 				if self.browser_session and self.browser_session.cdp_url
 				else None,
+				agent_type='code',  # CodeAgent identifier
 				action_errors=errors,
 				action_history=action_history_data,
 				urls_visited=urls_visited,
