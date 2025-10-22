@@ -18,14 +18,11 @@ was difficult with the extract tool alone.
 import asyncio
 from pathlib import Path
 
-# Set up LLM (use a fast model for code generation)
 from lmnr import Laminar
 
-from browser_use import ChatGoogle
 from browser_use.code_use import CodeAgent, export_to_ipynb, session_to_python_script
 
 Laminar.initialize()
-llm = ChatGoogle(model='gemini-flash-latest')
 
 
 async def main():
@@ -47,10 +44,9 @@ Go to https://www.flipkart.com. Continue collecting products from Flipkart in th
 	"""
 	task = "Usec requests to get GitHub's API for trending Python repos, then visit the top 3 repos in the browser and extract their README"
 
-	# Create code-use agent
+	# Create code-use agent (uses ChatBrowserUse automatically)
 	agent = CodeAgent(
 		task=task,
-		llm=llm,
 		max_steps=30,
 	)
 
