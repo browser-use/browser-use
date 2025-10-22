@@ -13,7 +13,24 @@ if '--mcp' in sys.argv:
 
 # Check for init subcommand early to avoid loading TUI dependencies
 if 'init' in sys.argv:
+	from browser_use.init_cmd import INIT_TEMPLATES
 	from browser_use.init_cmd import main as init_main
+
+	# Check if --template or -t flag is present without a value
+	# If so, just remove it and let init_main handle interactive mode
+	if '--template' in sys.argv or '-t' in sys.argv:
+		try:
+			template_idx = sys.argv.index('--template') if '--template' in sys.argv else sys.argv.index('-t')
+			template = sys.argv[template_idx + 1] if template_idx + 1 < len(sys.argv) else None
+
+			# If template is not provided or is another flag, remove the flag and use interactive mode
+			if not template or template.startswith('-'):
+				if '--template' in sys.argv:
+					sys.argv.remove('--template')
+				else:
+					sys.argv.remove('-t')
+		except (ValueError, IndexError):
+			pass
 
 	# Remove 'init' from sys.argv so click doesn't see it as an unexpected argument
 	sys.argv.remove('init')
@@ -35,7 +52,18 @@ if '--template' in sys.argv:
 	except (ValueError, IndexError):
 		template = None
 
-	if not template or template not in INIT_TEMPLATES:
+	# If template is not provided or is another flag, use interactive mode
+	if not template or template.startswith('-'):
+		# Redirect to init command with interactive template selection
+		from browser_use.init_cmd import main as init_main
+
+		# Remove --template from sys.argv
+		sys.argv.remove('--template')
+		init_main()
+		sys.exit(0)
+
+	# Validate template name
+	if template not in INIT_TEMPLATES:
 		click.echo(f'❌ Invalid template. Choose from: {", ".join(INIT_TEMPLATES.keys())}', err=True)
 		sys.exit(1)
 

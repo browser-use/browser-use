@@ -108,6 +108,7 @@ def main(
 	\b
 	# Interactive mode - prompts for template selection
 	uvx browser-use init
+	uvx browser-use init --template
 
 	\b
 	# Generate default template
@@ -124,9 +125,10 @@ def main(
 
 	# Handle --list flag
 	if list_templates:
-		click.echo('Available templates:\n')
+		console.print('\n[bold]Available templates:[/bold]\n')
 		for name, info in INIT_TEMPLATES.items():
-			click.echo(f'  {name:12} - {info["description"]}')
+			console.print(f'  [#fe750e]{name:12}[/#fe750e] - {info["description"]}')
+		console.print()
 		return
 
 	# Interactive template selection if not provided
