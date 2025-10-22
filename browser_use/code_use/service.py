@@ -21,7 +21,6 @@ from browser_use.llm.messages import (
 	ContentPartImageParam,
 	ContentPartTextParam,
 	ImageURL,
-	SystemMessage,
 	UserMessage,
 )
 from browser_use.screenshots.service import ScreenshotService
