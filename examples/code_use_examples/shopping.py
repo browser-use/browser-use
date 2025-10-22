@@ -16,11 +16,9 @@ from pathlib import Path
 
 from lmnr import Laminar
 
-from browser_use import ChatGoogle
 from browser_use.code_use import CodeAgent, export_to_ipynb, session_to_python_script
 
 Laminar.initialize()
-llm = ChatGoogle(model='gemini-flash-latest')
 
 
 async def main():
@@ -43,10 +41,9 @@ For each product, collect:
 Save the results to a JSON file called 'simple_products.json'.
 """
 
-	# Create code-use agent
+	# Create code-use agent (uses ChatBrowserUse automatically)
 	agent = CodeAgent(
 		task=task,
-		llm=llm,
 		max_steps=20,
 	)
 
