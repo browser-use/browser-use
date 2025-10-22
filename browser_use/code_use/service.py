@@ -25,9 +25,12 @@ from browser_use.llm.messages import (
 	UserMessage,
 )
 from browser_use.screenshots.service import ScreenshotService
+from browser_use.telemetry.service import ProductTelemetry
+from browser_use.telemetry.views import AgentTelemetryEvent
 from browser_use.tokens.service import TokenCost
 from browser_use.tokens.views import UsageSummary
 from browser_use.tools.service import Tools
+from browser_use.utils import get_browser_use_version
 
 from .formatting import format_browser_state_for_llm
 from .namespace import EvaluateError, create_namespace
@@ -143,6 +146,21 @@ class CodeAgent:
 		if page_extraction_llm:
 			self.token_cost_service.register_llm(page_extraction_llm)
 
+		# Set version and source for telemetry
+		self.version = get_browser_use_version()
+		try:
+			package_root = Path(__file__).parent.parent.parent
+			repo_files = ['.git', 'README.md', 'docs', 'examples']
+			if all(Path(package_root / file).exists() for file in repo_files):
+				self.source = 'git'
+			else:
+				self.source = 'pip'
+		except Exception:
+			self.source = 'unknown'
+
+		# Telemetry
+		self.telemetry = ProductTelemetry()
+
 	async def run(self, max_steps: int | None = None) -> NotebookSession:
 		"""
 		Run the agent to complete the task.
@@ -185,6 +203,9 @@ class CodeAgent:
 		# Initialize conversation with task
 		self._llm_messages.append(SystemMessage(content=system_prompt))
 		self._llm_messages.append(UserMessage(content=f'Task: {self.task}'))
+
+		# Track agent run error for telemetry
+		agent_run_error: str | None = None
 
 		# Extract URL from task and navigate if found
 		initial_url = extract_url_from_task(self.task)
@@ -547,6 +568,12 @@ class CodeAgent:
 
 		# Log token usage summary
 		await self.token_cost_service.log_usage_summary()
+
+		# Log telemetry event
+		try:
+			self._log_agent_event(max_steps=self.max_steps, agent_run_error=agent_run_error)
+		except Exception as log_e:
+			logger.error(f'Failed to log telemetry event: {log_e}', exc_info=True)
 
 		return self.session
 
@@ -1112,6 +1139,78 @@ __code_exec_coro__ = __code_exec__()
 		}
 
 		self.complete_history.append(history_entry)
+
+	def _log_agent_event(self, max_steps: int, agent_run_error: str | None = None) -> None:
+		"""Send the agent event for this run to telemetry."""
+		from urllib.parse import urlparse
+
+		token_summary = self.token_cost_service.get_usage_tokens_for_model(self.llm.model)
+
+		# For CodeAgent, we don't have action history like Agent does
+		# Instead we track the code execution cells
+		action_history_data = []
+		for step in self.complete_history:
+			# Extract code from model_output if available
+			model_output = step.get('model_output', {})
+			code = model_output.get('model_output') if isinstance(model_output, dict) else None
+			if code:
+				# Represent each code cell as a simple action entry
+				action_history_data.append([{'code_cell': True, 'code_length': len(code)}])
+			else:
+				action_history_data.append(None)
+
+		# Get final result from the last step or namespace
+		final_result = self.namespace.get('_task_result')
+		final_result_str = final_result if isinstance(final_result, str) else None
+
+		# Get URLs visited from complete_history
+		urls_visited = []
+		for step in self.complete_history:
+			state = step.get('state', {})
+			url = state.get('url') if isinstance(state, dict) else None
+			if url and url not in urls_visited:
+				urls_visited.append(url)
+
+		# Get errors from complete_history
+		errors = []
+		for step in self.complete_history:
+			results = step.get('result', [])
+			for result in results:
+				if isinstance(result, dict) and result.get('error'):
+					errors.append(result['error'])
+
+		# Determine success from task completion status
+		is_done = self._is_task_done()
+		self_reported_success = self.namespace.get('_task_success') if is_done else False
+
+		self.telemetry.capture(
+			AgentTelemetryEvent(
+				task=self.task,
+				model=self.llm.model,
+				model_provider=self.llm.provider,
+				max_steps=max_steps,
+				max_actions_per_step=1,  # CodeAgent executes one code cell per step
+				use_vision=self.use_vision,
+				version=self.version,
+				source=self.source,
+				cdp_url=urlparse(self.browser_session.cdp_url).hostname
+				if self.browser_session and self.browser_session.cdp_url
+				else None,
+				action_errors=errors,
+				action_history=action_history_data,
+				urls_visited=urls_visited,
+				steps=len(self.complete_history),
+				total_input_tokens=token_summary.prompt_tokens,
+				total_duration_seconds=sum(
+					(step.get('metadata', {}).get('step_end_time', 0) - step.get('metadata', {}).get('step_start_time', 0))
+					for step in self.complete_history
+					if isinstance(step.get('metadata'), dict)
+				),
+				success=self_reported_success,
+				final_result_response=final_result_str,
+				error_message=agent_run_error,
+			)
+		)
 
 	def screenshot_paths(self, n_last: int | None = None) -> list[str | None]:
 		"""
