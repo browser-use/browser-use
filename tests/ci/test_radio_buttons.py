@@ -11,7 +11,9 @@ The serialization shows radio buttons as:
 Usage:
     uv run pytest tests/ci/test_radio_buttons.py -v -s
 
-Note: This test requires a real LLM API key and is skipped in CI environments.
+Notes:
+- This test requires a real LLM API key (BROWSER_USE_API_KEY).
+- It is automatically skipped in CI environments or if the key is not set.
 """
 
 import os
@@ -24,6 +26,10 @@ from browser_use.agent.service import Agent
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
 
+# ======================================================================
+# FIXTURE SETUP
+# ======================================================================
+
 
 @pytest.fixture(scope='session')
 def http_server():
@@ -31,12 +37,10 @@ def http_server():
 	server = HTTPServer()
 	server.start()
 
-	# Read the HTML file content
 	html_file = Path(__file__).parent / 'test_radio_buttons.html'
-	with open(html_file) as f:
+	with open(html_file, encoding='utf-8') as f:
 		html_content = f.read()
 
-	# Add route for radio buttons test page
 	server.expect_request('/radio-test').respond_with_data(
 		html_content,
 		content_type='text/html',
@@ -54,31 +58,43 @@ def base_url(http_server):
 
 @pytest.fixture(scope='module')
 async def browser_session():
-	"""Create and provide a Browser instance with security disabled."""
-	browser_session = BrowserSession(
+	"""Create and provide a headless Browser session."""
+	session = BrowserSession(
 		browser_profile=BrowserProfile(
 			headless=True,
 			user_data_dir=None,
 			keep_alive=True,
 		)
 	)
-	await browser_session.start()
-	yield browser_session
-	await browser_session.kill()
+	await session.start()
+	yield session
+	await session.kill()
+
+
+# ======================================================================
+# TEST CLASS
+# ======================================================================
 
 
 @pytest.mark.skipif(
-	os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true',
-	reason='Skipped in CI: requires real LLM API key which blocks other tests',
+	os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true' or not os.getenv('BROWSER_USE_API_KEY'),
+	reason='Requires a real BROWSER_USE_API_KEY, skipped in CI or missing key.',
 )
 class TestRadioButtons:
 	"""Test cases for radio button interactions."""
 
 	async def test_radio_button_clicking(self, browser_session, base_url):
-		"""Test that agent can click radio buttons by checking for secret message."""
+		"""
+		Test that the agent can click radio buttons by verifying the secret message.
+		"""
 
-		task = f"Go to {base_url}/radio-test and click on the 'Blue' radio button and the 'Dog' radio button. After clicking both buttons, look for any text message that appears on the page and report exactly what you see."
+		task = (
+			f"Go to {base_url}/radio-test and click on the 'Blue' radio button and "
+			f"the 'Dog' radio button. After clicking both, find any text message "
+			f'that appears and report exactly what you see.'
+		)
 
+		# Initialize the Agent with the current browser session
 		agent = Agent(
 			task=task,
 			browser_session=browser_session,
@@ -88,18 +104,15 @@ class TestRadioButtons:
 
 		# Run the agent
 		history = await agent.run(max_steps=8)
-
-		# Check if the secret message appears in the final response
-		secret_found = False
 		final_response = history.final_result()
 
+		# Validate the expected success message
 		if final_response and 'SECRET_SUCCESS_12345' in final_response:
-			secret_found = True
 			print('\n✅ SUCCESS: Secret message found! Radio buttons were clicked correctly.')
+			success = True
+		else:
+			success = False
 
-		assert secret_found, (
-			"Secret message 'SECRET_SUCCESS_12345' should be present, indicating both Blue and Dog radio buttons were clicked. Actual response: "
-			+ str(final_response)
-		)
+		assert success, f"Expected secret message 'SECRET_SUCCESS_12345' was not found. Actual final response: {final_response}"
 
-		print(f'\n🎉 Test completed successfully! Agent completed {len(history)} steps and found the secret message.')
+		print(f'\n🎉 Test completed successfully! Agent took {len(history)} steps and found the secret message.')
