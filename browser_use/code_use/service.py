@@ -59,6 +59,7 @@ class CodeAgent:
 		self,
 		task: str,
 		# Optional parameters
+		llm: BaseChatModel | None = None,
 		browser_session: BrowserSession | None = None,
 		browser: BrowserSession | None = None,  # Alias for browser_session
 		tools: Tools | None = None,
@@ -82,8 +83,8 @@ class CodeAgent:
 			task: The task description for the agent
 			browser_session: Optional browser session (will be created if not provided) [DEPRECATED: use browser]
 			browser: Optional browser session (cleaner API)
-			tools: Optional Tools instance (will create default if not provided) [DEPRECATED: use controller]
-			controller: Optional Tools instance (cleaner API)
+			tools: Optional Tools instance (will create default if not provided) 
+			controller: Optional Tools instance
 			page_extraction_llm: Optional LLM for page extraction
 			file_system: Optional file system for file operations
 			available_file_paths: Optional list of available file paths
@@ -93,20 +94,24 @@ class CodeAgent:
 			max_validations: Maximum number of times to run the validator agent (default: 0)
 			use_vision: Whether to include screenshots in LLM messages (default: True)
 			calculate_cost: Whether to calculate token costs (default: False)
+			llm: Optional ChatBrowserUse LLM instance (will create default if not provided)
 			**kwargs: Additional keyword arguments for compatibility (ignored)
 		"""
 		# Log and ignore unknown kwargs for compatibility
 		if kwargs:
 			logger.debug(f'Ignoring additional kwargs for CodeAgent compatibility: {list(kwargs.keys())}')
 
-		# Create ChatBrowserUse LLM (used internally by CodeAgent)
-		try:
-			from browser_use import ChatBrowserUse
+		if llm is None:
+			try:
+				from browser_use import ChatBrowserUse
 
-			llm = ChatBrowserUse()
-			logger.debug('CodeAgent using ChatBrowserUse')
-		except Exception as e:
-			raise RuntimeError(f'Failed to initialize CodeAgent LLM: {e}')
+				llm = ChatBrowserUse()
+				logger.debug('CodeAgent using ChatBrowserUse')
+			except Exception as e:
+				raise RuntimeError(f'Failed to initialize CodeAgent LLM: {e}')
+		
+		if "ChatBrowserUse" not in llm.__class__.__name__:
+			raise ValueError('This agent works only with ChatBrowserUse.')
 
 		# Handle browser vs browser_session parameter (browser takes precedence)
 		if browser and browser_session:
