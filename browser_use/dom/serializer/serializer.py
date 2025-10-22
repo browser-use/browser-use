@@ -554,9 +554,10 @@ class DOMTreeSerializer:
 
 			# Only add to selector map if element is both interactive AND visible
 			if is_interactive_assign and is_visible:
-				node.interactive_index = self._interactive_counter
-				node.original_node.element_index = self._interactive_counter
-				self._selector_map[self._interactive_counter] = node.original_node
+				# Mark node as interactive
+				node.is_interactive = True
+				# Store backend_node_id in selector map (model outputs backend_node_id)
+				self._selector_map[node.original_node.backend_node_id] = node.original_node
 				self._interactive_counter += 1
 
 				# Mark compound components as new for visibility
@@ -753,11 +754,11 @@ class DOMTreeSerializer:
 						formatted_text.append(child_text)
 				return '\n'.join(formatted_text)
 
-			# Add element with interactive_index if clickable, scrollable, or iframe
+			# Add element if clickable, scrollable, or iframe
 			is_any_scrollable = node.original_node.is_actually_scrollable or node.original_node.is_scrollable
 			should_show_scroll = node.original_node.should_show_scroll_info
 			if (
-				node.interactive_index is not None
+				node.is_interactive
 				or is_any_scrollable
 				or node.original_node.tag_name.upper() == 'IFRAME'
 				or node.original_node.tag_name.upper() == 'FRAME'
@@ -817,14 +818,14 @@ class DOMTreeSerializer:
 					)
 					shadow_prefix = '|SHADOW(closed)|' if has_closed_shadow else '|SHADOW(open)|'
 
-				if should_show_scroll and node.interactive_index is None:
+				if should_show_scroll and not node.is_interactive:
 					# Scrollable container but not clickable
 					line = f'{depth_str}{shadow_prefix}|SCROLL|<{node.original_node.tag_name}'
-				elif node.interactive_index is not None:
-					# Clickable (and possibly scrollable)
+				elif node.is_interactive:
+					# Clickable (and possibly scrollable) - show backend_node_id
 					new_prefix = '*' if node.is_new else ''
 					scroll_prefix = '|SCROLL[' if should_show_scroll else '['
-					line = f'{depth_str}{shadow_prefix}{new_prefix}{scroll_prefix}{node.interactive_index}]<{node.original_node.tag_name}'
+					line = f'{depth_str}{shadow_prefix}{new_prefix}{scroll_prefix}{node.original_node.backend_node_id}]<{node.original_node.tag_name}'
 				elif node.original_node.tag_name.upper() == 'IFRAME':
 					# Iframe element (not interactive)
 					line = f'{depth_str}{shadow_prefix}|IFRAME|<{node.original_node.tag_name}'

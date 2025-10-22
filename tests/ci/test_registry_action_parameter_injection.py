@@ -116,11 +116,7 @@ class TestBrowserContext:
 		# urlparse will return an empty netloc for some malformed URLs.
 		assert watchdog2._is_url_allowed('notaurl') is False
 
-	def test_convert_simple_xpath_to_css_selector(self):
-		"""
-		Test removed: _convert_simple_xpath_to_css_selector method no longer exists.
-		"""
-		pass  # Method was removed from BrowserSession
+	# Method was removed from BrowserSession
 
 	def test_enhanced_css_selector_for_element(self):
 		"""

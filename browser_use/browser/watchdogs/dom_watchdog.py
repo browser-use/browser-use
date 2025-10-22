@@ -20,7 +20,7 @@ from browser_use.observability import observe_debug
 from browser_use.utils import time_execution_async
 
 if TYPE_CHECKING:
-	from browser_use.browser.views import BrowserStateSummary, PageInfo
+	from browser_use.browser.views import BrowserStateSummary, NetworkRequest, PageInfo, PaginationButton
 
 
 class DOMWatchdog(BaseWatchdog):
@@ -41,6 +41,9 @@ class DOMWatchdog(BaseWatchdog):
 
 	# Internal DOM service
 	_dom_service: DomService | None = None
+
+	# Network tracking - maps request_id to (url, start_time, method, resource_type)
+	_pending_requests: dict[str, tuple[str, float, str, str | None]] = {}
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
 		# self.logger.debug('Setting up init scripts in browser')
@@ -85,6 +88,158 @@ class DOMWatchdog(BaseWatchdog):
 
 		return json.dumps([])  # Return empty JSON array on error
 
+	async def _get_pending_network_requests(self) -> list['NetworkRequest']:
+		"""Get list of currently pending network requests.
+
+		Uses document.readyState and performance API to detect pending requests.
+		Filters out ads, tracking, and other noise.
+
+		Returns:
+			List of NetworkRequest objects representing currently loading resources
+		"""
+		from browser_use.browser.views import NetworkRequest
+
+		try:
+			if not self.browser_session.agent_focus:
+				return []
+
+			cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
+
+			# Use performance API to get pending requests
+			js_code = """
+(function() {
+	const now = performance.now();
+	const resources = performance.getEntriesByType('resource');
+	const pending = [];
+
+	// Check document readyState
+	const docLoading = document.readyState !== 'complete';
+
+	// Common ad/tracking domains and patterns to filter out
+	const adDomains = [
+		// Standard ad/tracking networks
+		'doubleclick.net', 'googlesyndication.com', 'googletagmanager.com',
+		'facebook.net', 'analytics', 'ads', 'tracking', 'pixel',
+		'hotjar.com', 'clarity.ms', 'mixpanel.com', 'segment.com',
+		// Analytics platforms
+		'demdex.net', 'omtrdc.net', 'adobedtm.com', 'ensighten.com',
+		'newrelic.com', 'nr-data.net', 'google-analytics.com',
+		// Social media trackers
+		'connect.facebook.net', 'platform.twitter.com', 'platform.linkedin.com',
+		// CDN/image hosts (usually not critical for functionality)
+		'.cloudfront.net/image/', '.akamaized.net/image/',
+		// Common tracking paths
+		'/tracker/', '/collector/', '/beacon/', '/telemetry/', '/log/',
+		'/events/', '/eventBatch', '/track.', '/metrics/'
+	];
+
+	// Get resources that are still loading (responseEnd is 0)
+	let totalResourcesChecked = 0;
+	let filteredByResponseEnd = 0;
+	const allDomains = new Set();
+
+	for (const entry of resources) {
+		totalResourcesChecked++;
+
+		// Track all domains from recent resources (for logging)
+		try {
+			const hostname = new URL(entry.name).hostname;
+			if (hostname) allDomains.add(hostname);
+		} catch (e) {}
+
+		if (entry.responseEnd === 0) {
+			filteredByResponseEnd++;
+			const url = entry.name;
+
+			// Filter out ads and tracking
+			const isAd = adDomains.some(domain => url.includes(domain));
+			if (isAd) continue;
+
+			// Filter out data: URLs and very long URLs (often inline resources)
+			if (url.startsWith('data:') || url.length > 500) continue;
+
+			const loadingDuration = now - entry.startTime;
+
+			// Skip requests that have been loading for >10 seconds (likely stuck/polling)
+			if (loadingDuration > 10000) continue;
+
+			const resourceType = entry.initiatorType || 'unknown';
+
+			// Filter out non-critical resources (images, fonts, icons) if loading >3 seconds
+			const nonCriticalTypes = ['img', 'image', 'icon', 'font'];
+			if (nonCriticalTypes.includes(resourceType) && loadingDuration > 3000) continue;
+
+			// Filter out image URLs even if type is unknown
+			const isImageUrl = /\\.(jpg|jpeg|png|gif|webp|svg|ico)(\\?|$)/i.test(url);
+			if (isImageUrl && loadingDuration > 3000) continue;
+
+			pending.push({
+				url: url,
+				method: 'GET',
+				loading_duration_ms: Math.round(loadingDuration),
+				resource_type: resourceType
+			});
+		}
+	}
+
+	return {
+		pending_requests: pending,
+		document_loading: docLoading,
+		document_ready_state: document.readyState,
+		debug: {
+			total_resources: totalResourcesChecked,
+			with_response_end_zero: filteredByResponseEnd,
+			after_all_filters: pending.length,
+			all_domains: Array.from(allDomains)
+		}
+	};
+})()
+"""
+
+			result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': js_code, 'returnByValue': True}, session_id=cdp_session.session_id
+			)
+
+			if result.get('result', {}).get('type') == 'object':
+				data = result['result'].get('value', {})
+				pending = data.get('pending_requests', [])
+				doc_state = data.get('document_ready_state', 'unknown')
+				doc_loading = data.get('document_loading', False)
+				debug_info = data.get('debug', {})
+
+				# Get all domains that had recent activity (from JS)
+				all_domains = debug_info.get('all_domains', [])
+				all_domains_str = ', '.join(sorted(all_domains)[:5]) if all_domains else 'none'
+				if len(all_domains) > 5:
+					all_domains_str += f' +{len(all_domains) - 5} more'
+
+				# Debug logging
+				self.logger.debug(
+					f'🔍 Network check: document.readyState={doc_state}, loading={doc_loading}, '
+					f'total_resources={debug_info.get("total_resources", 0)}, '
+					f'responseEnd=0: {debug_info.get("with_response_end_zero", 0)}, '
+					f'after_filters={len(pending)}, domains=[{all_domains_str}]'
+				)
+
+				# Convert to NetworkRequest objects
+				network_requests = []
+				for req in pending[:20]:  # Limit to 20 to avoid overwhelming the context
+					network_requests.append(
+						NetworkRequest(
+							url=req['url'],
+							method=req.get('method', 'GET'),
+							loading_duration_ms=req.get('loading_duration_ms', 0.0),
+							resource_type=req.get('resource_type'),
+						)
+					)
+
+				return network_requests
+
+		except Exception as e:
+			self.logger.debug(f'Failed to get pending network requests: {e}')
+
+		return []
+
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_state_request_event')
 	async def on_BrowserStateRequestEvent(self, event: BrowserStateRequestEvent) -> 'BrowserStateSummary':
 		"""Handle browser state request by coordinating DOM building and screenshot capture.
@@ -112,11 +267,22 @@ class DOMWatchdog(BaseWatchdog):
 		# check if we should skip DOM tree build for pointless pages
 		not_a_meaningful_website = page_url.lower().split(':', 1)[0] not in ('http', 'https')
 
+		# Check for pending network requests BEFORE waiting (so we can see what's loading)
+		pending_requests_before_wait = []
+		if not not_a_meaningful_website:
+			try:
+				pending_requests_before_wait = await self._get_pending_network_requests()
+				if pending_requests_before_wait:
+					self.logger.debug(f'🔍 Found {len(pending_requests_before_wait)} pending requests before stability wait')
+			except Exception as e:
+				self.logger.debug(f'Failed to get pending requests before wait: {e}')
+		pending_requests = pending_requests_before_wait
 		# Wait for page stability using browser profile settings (main branch pattern)
 		if not not_a_meaningful_website:
 			self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ⏳ Waiting for page stability...')
 			try:
-				await self._wait_for_stable_network()
+				if pending_requests_before_wait:
+					await asyncio.sleep(1)
 				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ Page stability complete')
 			except Exception as e:
 				self.logger.warning(
@@ -181,6 +347,8 @@ class DOMWatchdog(BaseWatchdog):
 					browser_errors=[],
 					is_pdf_viewer=False,
 					recent_events=self._get_recent_events_str() if event.include_recent_events else None,
+					pending_network_requests=[],  # Empty page has no pending requests
+					pagination_buttons=[],  # Empty page has no pagination
 				)
 
 			# Execute DOM building and screenshot capture in parallel
@@ -227,7 +395,14 @@ class DOMWatchdog(BaseWatchdog):
 					screenshot_b64 = None
 
 			# Apply Python-based highlighting if both DOM and screenshot are available
-			if screenshot_b64 and content and content.selector_map and self.browser_session.browser_profile.highlight_elements:
+			# COMMENTED OUT: Removes highlight numbers from screenshots for code-use mode
+			if (
+				False
+				and screenshot_b64
+				and content
+				and content.selector_map
+				and self.browser_session.browser_profile.highlight_elements
+			):
 				try:
 					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: 🎨 Applying Python-based highlighting...')
 					from browser_use.browser.python_highlights import create_highlighted_screenshot_async
@@ -300,6 +475,11 @@ class DOMWatchdog(BaseWatchdog):
 			# Check for PDF viewer
 			is_pdf_viewer = page_url.endswith('.pdf') or '/pdf/' in page_url
 
+			# Detect pagination buttons from the DOM
+			pagination_buttons_data = []
+			if content and content.selector_map:
+				pagination_buttons_data = self._detect_pagination_buttons(content.selector_map)
+
 			# Build and cache the browser state summary
 			if screenshot_b64:
 				self.logger.debug(
@@ -322,6 +502,8 @@ class DOMWatchdog(BaseWatchdog):
 				browser_errors=[],
 				is_pdf_viewer=is_pdf_viewer,
 				recent_events=self._get_recent_events_str() if event.include_recent_events else None,
+				pending_network_requests=pending_requests,
+				pagination_buttons=pagination_buttons_data,
 			)
 
 			# Cache the state
@@ -357,6 +539,8 @@ class DOMWatchdog(BaseWatchdog):
 				browser_errors=[str(e)],
 				is_pdf_viewer=False,
 				recent_events=None,
+				pending_network_requests=[],  # Error state has no pending requests
+				pagination_buttons=[],  # Error state has no pagination
 			)
 
 	@time_execution_async('build_dom_tree_without_highlights')
@@ -469,6 +653,41 @@ class DOMWatchdog(BaseWatchdog):
 
 		elapsed = time.time() - start_time
 		self.logger.debug(f'✅ Page stability wait completed in {elapsed:.2f}s')
+
+	def _detect_pagination_buttons(self, selector_map: dict[int, EnhancedDOMTreeNode]) -> list['PaginationButton']:
+		"""Detect pagination buttons from the DOM selector map.
+
+		Args:
+			selector_map: Dictionary mapping element indices to DOM tree nodes
+
+		Returns:
+			List of PaginationButton instances found in the DOM
+		"""
+		from browser_use.browser.views import PaginationButton
+
+		pagination_buttons_data = []
+		try:
+			self.logger.debug('🔍 DOMWatchdog._detect_pagination_buttons: Detecting pagination buttons...')
+			pagination_buttons_raw = DomService.detect_pagination_buttons(selector_map)
+			# Convert to PaginationButton instances
+			pagination_buttons_data = [
+				PaginationButton(
+					button_type=btn['button_type'],  # type: ignore
+					backend_node_id=btn['backend_node_id'],  # type: ignore
+					text=btn['text'],  # type: ignore
+					selector=btn['selector'],  # type: ignore
+					is_disabled=btn['is_disabled'],  # type: ignore
+				)
+				for btn in pagination_buttons_raw
+			]
+			if pagination_buttons_data:
+				self.logger.debug(
+					f'🔍 DOMWatchdog._detect_pagination_buttons: Found {len(pagination_buttons_data)} pagination buttons'
+				)
+		except Exception as e:
+			self.logger.warning(f'🔍 DOMWatchdog._detect_pagination_buttons: Pagination detection failed: {e}')
+
+		return pagination_buttons_data
 
 	async def _get_page_info(self) -> 'PageInfo':
 		"""Get comprehensive page information using a single CDP call.

@@ -76,6 +76,11 @@ value = await element.get_attribute("value")
 box = await element.get_bounding_box()  # Returns BoundingBox or None
 info = await element.get_basic_info()  # Comprehensive element info
 screenshot_b64 = await element.screenshot(format='jpeg')
+
+# Execute JavaScript on element (this context is the element)
+text = await element.evaluate("() => this.textContent")
+await element.evaluate("(color) => this.style.backgroundColor = color", "yellow")
+classes = await element.evaluate("() => Array.from(this.classList)")
 ```
 
 ## Mouse Operations
@@ -173,6 +178,7 @@ products = await page.extract_content(
 - `check()` - Toggle checkbox/radio button (clicks to change state)
 - `select_option(values: str | list[str])` - Select dropdown options
 - `drag_to(target_element: Element | Position, source_position=None, target_position=None)` - Drag to target element
+- `evaluate(page_function: str, *args)` → `str` - Execute JavaScript on element (this = element)
 - `get_attribute(name: str)` → `str | None` - Get attribute value
 - `get_bounding_box()` → `BoundingBox | None` - Get element position/size
 - `screenshot(format='jpeg', quality=None)` → `str` - Take element screenshot, return base64
@@ -221,10 +227,11 @@ class ElementInfo(TypedDict):
 **This is browser-use actor, NOT Playwright or Selenium.** Only use the methods documented above.
 
 ### Critical JavaScript Rules
-- `page.evaluate()` MUST use `(...args) => {}` arrow function format
+- `page.evaluate()` and `element.evaluate()` MUST use `(...args) => {}` arrow function format
 - Always returns string (objects are JSON-stringified automatically)
 - Use single quotes around the function: `page.evaluate('() => document.title')`
 - For complex selectors in JS: `'() => document.querySelector("input[name=\\"email\\"]")'`
+- `element.evaluate()`: `this` context is bound to the element automatically
 
 ### Method Restrictions
 - `get_elements_by_css_selector()` returns immediately (no automatic waiting)

@@ -560,7 +560,6 @@ class DomService:
 				snapshot_node=snapshot_data,
 				is_visible=None,
 				absolute_position=absolute_position,
-				element_index=None,
 			)
 
 			enhanced_dom_tree_node_lookup[node['nodeId']] = dom_tree_node
@@ -660,7 +659,7 @@ class DomService:
 						f'Skipping iframe at depth {iframe_depth} to prevent infinite recursion (max depth: {self.max_iframe_depth})'
 					)
 				else:
-					# Check if iframe is visible and large enough (>= 200px in both dimensions)
+					# Check if iframe is visible and large enough (>= 50px in both dimensions)
 					should_process_iframe = False
 
 					# First check if the iframe element itself is visible
@@ -671,13 +670,13 @@ class DomService:
 							width = bounds.width
 							height = bounds.height
 
-							# Only process if iframe is at least 200px in both dimensions
-							if width >= 200 and height >= 200:
+							# Only process if iframe is at least 50px in both dimensions
+							if width >= 50 and height >= 50:
 								should_process_iframe = True
 								self.logger.debug(f'Processing cross-origin iframe: visible=True, width={width}, height={height}')
 							else:
 								self.logger.debug(
-									f'Skipping small cross-origin iframe: width={width}, height={height} (needs >= 200px)'
+									f'Skipping small cross-origin iframe: width={width}, height={height} (needs >= 50px)'
 								)
 						else:
 							self.logger.debug('Skipping cross-origin iframe: no bounds available')
@@ -748,3 +747,79 @@ class DomService:
 		all_timing = {**serializer_timing, **serialize_total_timing}
 
 		return serialized_dom_state, enhanced_dom_tree, all_timing
+
+	@staticmethod
+	def detect_pagination_buttons(selector_map: dict[int, EnhancedDOMTreeNode]) -> list[dict[str, str | int | bool]]:
+		"""Detect pagination buttons from the selector map.
+
+		Args:
+			selector_map: Map of element indices to EnhancedDOMTreeNode
+
+		Returns:
+			List of pagination button information dicts with:
+			- button_type: 'next', 'prev', 'first', 'last', 'page_number'
+			- backend_node_id: Backend node ID for clicking
+			- text: Button text/label
+			- selector: XPath selector
+			- is_disabled: Whether the button appears disabled
+		"""
+		pagination_buttons: list[dict[str, str | int | bool]] = []
+
+		# Common pagination patterns to look for
+		next_patterns = ['next', '>', '»', '→', 'siguiente', 'suivant', 'weiter', 'volgende']
+		prev_patterns = ['prev', 'previous', '<', '«', '←', 'anterior', 'précédent', 'zurück', 'vorige']
+		first_patterns = ['first', '⇤', '«', 'primera', 'première', 'erste', 'eerste']
+		last_patterns = ['last', '⇥', '»', 'última', 'dernier', 'letzte', 'laatste']
+
+		for index, node in selector_map.items():
+			# Skip non-clickable elements
+			if not node.snapshot_node or not node.snapshot_node.is_clickable:
+				continue
+
+			# Get element text and attributes
+			text = node.get_all_children_text().lower().strip()
+			aria_label = node.attributes.get('aria-label', '').lower()
+			title = node.attributes.get('title', '').lower()
+			class_name = node.attributes.get('class', '').lower()
+			role = node.attributes.get('role', '').lower()
+
+			# Combine all text sources for pattern matching
+			all_text = f'{text} {aria_label} {title} {class_name}'.strip()
+
+			# Check if it's disabled
+			is_disabled = (
+				node.attributes.get('disabled') == 'true'
+				or node.attributes.get('aria-disabled') == 'true'
+				or 'disabled' in class_name
+			)
+
+			button_type: str | None = None
+
+			# Check for next button
+			if any(pattern in all_text for pattern in next_patterns):
+				button_type = 'next'
+			# Check for previous button
+			elif any(pattern in all_text for pattern in prev_patterns):
+				button_type = 'prev'
+			# Check for first button
+			elif any(pattern in all_text for pattern in first_patterns):
+				button_type = 'first'
+			# Check for last button
+			elif any(pattern in all_text for pattern in last_patterns):
+				button_type = 'last'
+			# Check for numeric page buttons (single or double digit)
+			elif text.isdigit() and len(text) <= 2 and role in ['button', 'link', '']:
+				button_type = 'page_number'
+
+			if button_type:
+				pagination_buttons.append(
+					{
+						'button_type': button_type,
+						'backend_node_id': index,
+						'text': node.get_all_children_text().strip() or aria_label or title,
+						'selector': node.xpath,
+						'is_disabled': is_disabled,
+					}
+				)
+
+		return pagination_buttons

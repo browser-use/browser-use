@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.8.1"
+version = "0.8.2"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -42,6 +42,8 @@ dependencies = [
     "pyotp>=2.9.0",
     "pillow>=11.2.1",
     "markdownify>=1.2.0",
+
+
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -58,6 +60,13 @@ cli = [
     "rich>=14.0.0",
     "click>=8.1.8",
     "textual>=3.2.0",
+]
+code = [
+    "matplotlib>=3.9.0",
+    "numpy>=2.3.2",
+    "pandas>=2.2.0",
+    "tabulate>=0.9.0",
+
 ]
 aws = [
     "boto3>=1.38.45"
@@ -82,9 +91,9 @@ eval = [
     "lmnr[all]==0.7.17",
     "anyio>=4.9.0",
     "psutil>=7.0.0",
-    "datamodel-code-generator>=0.26.0",
-    "hyperbrowser==0.47.0",
-    "browserbase==1.4.0",
+    "datamodel-code-generator>=0.26.0"
+   # "hyperbrowser==0.47.0",
+   # "browserbase==1.4.0",
 ]
 cli-oci = [
     "browser-use[cli,oci]",
@@ -133,7 +142,7 @@ skip-magic-trailing-comma = false
 
 [tool.pyright]
 typeCheckingMode = "basic"
-exclude = [".venv/", ".git/", "__pycache__/", "./test_*.py", "./debug_*.py", "private_example/", "debug/*", "tests/scripts/*", "tests/old/*", "browser_use/dom/playground/*", "examples/use-cases/onepassword.py", "browser_use/llm/oci_raw/*"]
+exclude = [".venv/", ".git/", "__pycache__/", "./test_*.py", "./debug_*.py", "private_example/", "debug/*", "tests/scripts/*", "tests/old/*", "browser_use/dom/playground/*", "examples/use-cases/onepassword.py", "browser_use/llm/oci_raw/*", "browser_use/llm/tests/test_chat_models.py", "browser_use/llm/tests/test_single_step.py"]
 venvPath = "."
 venv = ".venv"
 
@@ -146,6 +155,7 @@ include = [
     "browser_use/agent/system_prompt.md",
     "browser_use/agent/system_prompt_no_thinking.md",
     "browser_use/agent/system_prompt_flash.md",
+    "browser_use/code_use/system_prompt.md",
     "browser_use/py.typed",
     "browser_use/dom/**/*.js",
     "!tests/**/*.py",

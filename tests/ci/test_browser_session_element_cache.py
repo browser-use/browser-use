@@ -183,28 +183,36 @@ async def test_assumption_4_click_action_specific_issue(browser_session, tools, 
 
 	# Create a test action that replicates click logic
 	@tools.registry.action('Test: Debug click logic')
-	async def test_debug_click_logic(index: int, browser_session: BrowserSession):
+	async def test_debug_click_logic(browser_session: BrowserSession):
 		from browser_use import ActionResult
 
-		# This is the exact logic from click
+		# Get the selector map and inspect its structure
 		selector_map = await browser_session.get_selector_map()
 
 		print(f'  - Action selector map size: {len(selector_map)}')
-		print(f'  - Action selector map keys: {list(selector_map.keys())[:10]}')  # First 10
-		print(f'  - Index {index} in selector map: {index in selector_map}')
+		print(f'  - Action selector map keys (first 10): {list(selector_map.keys())[:10]}')
 
-		if index not in selector_map:
+		if len(selector_map) == 0:
 			return ActionResult(
-				error=f'Debug: Element with index {index} does not exist in map of size {len(selector_map)}',
+				error='Debug: Selector map is empty',
 				include_in_memory=False,
 			)
 
+		# Get the first element from the map (by iterating, not indexing by 0)
+		first_key = next(iter(selector_map.keys()))
+		first_element = selector_map[first_key]
+
+		print(f'  - First element key: {first_key}')
+		print(f'  - First element backend_node_id: {first_element.backend_node_id}')
+		print(f'  - First element in map: {first_key in selector_map}')
+
 		return ActionResult(
-			extracted_content=f'Debug: Element {index} found in map of size {len(selector_map)}', include_in_memory=False
+			extracted_content=f'Debug: Found element with key {first_key} in map of size {len(selector_map)}',
+			include_in_memory=False,
 		)
 
 	# Test with index 1 (elements start at 1, not 0)
-	result = await tools.registry.execute_action('test_debug_click_logic', {'index': 1}, browser_session=browser_session)
+	result = await tools.registry.execute_action('test_debug_click_logic', params={}, browser_session=browser_session)
 
 	print(f'Debug click result: {result.extracted_content or result.error}')
 
