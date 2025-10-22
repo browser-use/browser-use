@@ -59,7 +59,6 @@ class CodeAgent:
 	def __init__(
 		self,
 		task: str,
-		llm: BaseChatModel,
 		# Optional parameters
 		browser_session: BrowserSession | None = None,
 		browser: BrowserSession | None = None,  # Alias for browser_session
@@ -82,7 +81,6 @@ class CodeAgent:
 
 		Args:
 			task: The task description for the agent
-			llm: The LLM to use for generating code
 			browser_session: Optional browser session (will be created if not provided) [DEPRECATED: use browser]
 			browser: Optional browser session (cleaner API)
 			tools: Optional Tools instance (will create default if not provided) [DEPRECATED: use controller]
@@ -101,6 +99,15 @@ class CodeAgent:
 		# Log and ignore unknown kwargs for compatibility
 		if kwargs:
 			logger.debug(f'Ignoring additional kwargs for CodeAgent compatibility: {list(kwargs.keys())}')
+
+		# Create ChatBrowserUse LLM (used internally by CodeAgent)
+		try:
+			from browser_use import ChatBrowserUse
+
+			llm = ChatBrowserUse()
+			logger.debug('CodeAgent using ChatBrowserUse')
+		except Exception as e:
+			raise RuntimeError(f'Failed to initialize CodeAgent LLM: {e}')
 
 		# Handle browser vs browser_session parameter (browser takes precedence)
 		if browser and browser_session:
@@ -204,12 +211,7 @@ class CodeAgent:
 			sensitive_data=self.sensitive_data,
 		)
 
-		# Load system prompt
-		system_prompt_path = Path(__file__).parent / 'system_prompt.md'
-		system_prompt = system_prompt_path.read_text()
-
 		# Initialize conversation with task
-		self._llm_messages.append(SystemMessage(content=system_prompt))
 		self._llm_messages.append(UserMessage(content=f'Task: {self.task}'))
 
 		# Track agent run error for telemetry
