@@ -35,7 +35,15 @@ from browser_use.utils import get_browser_use_version
 from .formatting import format_browser_state_for_llm
 from .namespace import EvaluateError, create_namespace
 from .utils import detect_token_limit_issue, extract_code_blocks, extract_url_from_task, truncate_message_content
-from .views import ExecutionStatus, NotebookSession
+from .views import (
+	CodeAgentHistory,
+	CodeAgentModelOutput,
+	CodeAgentResult,
+	CodeAgentState,
+	CodeAgentStepMetadata,
+	ExecutionStatus,
+	NotebookSession,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +131,7 @@ class CodeAgent:
 		self.session = NotebookSession()
 		self.namespace: dict[str, Any] = {}
 		self._llm_messages: list[BaseMessage] = []  # Internal LLM conversation history
-		self.complete_history: list[dict[str, Any]] = []  # Eval system history with model_output and result
+		self.complete_history: list[CodeAgentHistory] = []  # Type-safe history with model_output and result
 		self.dom_service: DomService | None = None
 		self._last_browser_state_text: str | None = None  # Track last browser state text
 		self._last_screenshot: str | None = None  # Track last screenshot (base64)
@@ -510,9 +518,9 @@ class CodeAgent:
 		if not self._is_task_done() and self.complete_history:
 			# Get the last step's output/error and use it as final extracted_content
 			last_step = self.complete_history[-1]
-			last_result = last_step['result'][0] if last_step.get('result') else {}
-			last_output = last_result.get('extracted_content')
-			last_error = last_result.get('error')
+			last_result = last_step.result[0] if last_step.result else None
+			last_output = last_result.extracted_content if last_result else None
+			last_error = last_result.error if last_result else None
 
 			# Build a partial result message from the last step
 			partial_result_parts = []
@@ -540,9 +548,10 @@ class CodeAgent:
 			partial_result = '\n'.join(partial_result_parts)
 
 			# Update the last step's extracted_content with this partial result
-			last_step['result'][0]['extracted_content'] = partial_result
-			last_step['result'][0]['is_done'] = False
-			last_step['result'][0]['success'] = False
+			if last_result:
+				last_result.extracted_content = partial_result
+				last_result.is_done = False
+				last_result.success = False
 
 			logger.info(f'\nPartial result captured from last step:\n{partial_result}')
 
@@ -1075,10 +1084,10 @@ __code_exec_coro__ = __code_exec__()
 		error: str | None,
 		screenshot_path: str | None,
 	) -> None:
-		"""Add a step to complete_history in eval system format."""
+		"""Add a step to complete_history using type-safe models."""
 		# Get current browser URL and title for state
-		url = None
-		title = None
+		url: str | None = None
+		title: str | None = None
 		if self.browser_session:
 			try:
 				url = await self.browser_session.get_current_page_url()
@@ -1092,51 +1101,51 @@ __code_exec_coro__ = __code_exec__()
 			except Exception as e:
 				logger.debug(f'Failed to get browser URL/title for history: {e}')
 
-		# Create result entry matching eval system expectations
 		# Check if this is a done result
 		is_done = self._is_task_done()
 
 		# Get self-reported success from done() call if task is done
 		self_reported_success: bool | None = None
 		if is_done:
-			self_reported_success = self.namespace.get('_task_success')  # type: ignore[assignment]
+			task_success = self.namespace.get('_task_success')
+			self_reported_success = task_success if isinstance(task_success, bool) else None
 
-		result_entry = {
-			'extracted_content': output if output else None,
-			'error': error if error else None,
-			'is_done': is_done,  # Add is_done flag for eval system
-			'success': self_reported_success,  # Use self-reported success from done() call
-		}
+		# Create result entry using typed model
+		result_entry = CodeAgentResult(
+			extracted_content=output if output else None,
+			error=error if error else None,
+			is_done=is_done,
+			success=self_reported_success,
+		)
 
-		# Create state entry (will be converted to object with get_screenshot() method by DictToObject)
-		# The eval system expects state to have url, title, and get_screenshot() method
-		state_entry = {
-			'url': url,
-			'title': title,
-			'screenshot_path': screenshot_path,  # Store path here for get_screenshot() to use
-		}
+		# Create state entry using typed model
+		state_entry = CodeAgentState(url=url, title=title, screenshot_path=screenshot_path)
 
-		# Create metadata entry (eval system uses this for token counting and timing)
+		# Create metadata entry using typed model
 		step_end_time = datetime.datetime.now().timestamp()
-		metadata_entry = {
-			'input_tokens': self._last_llm_usage.prompt_tokens if self._last_llm_usage else None,
-			'output_tokens': self._last_llm_usage.completion_tokens if self._last_llm_usage else None,
-			'step_start_time': self._step_start_time,
-			'step_end_time': step_end_time,
-		}
+		metadata_entry = CodeAgentStepMetadata(
+			input_tokens=self._last_llm_usage.prompt_tokens if self._last_llm_usage else None,
+			output_tokens=self._last_llm_usage.completion_tokens if self._last_llm_usage else None,
+			step_start_time=self._step_start_time,
+			step_end_time=step_end_time,
+		)
 
-		# Create history entry matching eval system format
-		# For CodeAgent, model_output contains the code and full LLM response
-		history_entry = {
-			'model_output': {
-				'model_output': model_output_code,  # The extracted code
-				'full_response': full_llm_response,  # The complete LLM response including any text/reasoning
-			},
-			'result': [result_entry],  # Always a list
-			'state': state_entry,  # Add state entry for eval system
-			'metadata': metadata_entry,  # Add metadata for eval system
-			'screenshot_path': screenshot_path,  # Keep this for backward compatibility
-		}
+		# Create model output entry using typed model (if there's code to track)
+		model_output_entry: CodeAgentModelOutput | None = None
+		if model_output_code or full_llm_response:
+			model_output_entry = CodeAgentModelOutput(
+				model_output=model_output_code if model_output_code else '',
+				full_response=full_llm_response if full_llm_response else '',
+			)
+
+		# Create history entry using typed model
+		history_entry = CodeAgentHistory(
+			model_output=model_output_entry,
+			result=[result_entry],
+			state=state_entry,
+			metadata=metadata_entry,
+			screenshot_path=screenshot_path,  # Keep for backward compatibility
+		)
 
 		self.complete_history.append(history_entry)
 
@@ -1150,10 +1159,9 @@ __code_exec_coro__ = __code_exec__()
 		# Instead we track the code execution cells
 		action_history_data: list[list[dict[str, Any]] | None] = []
 		for step in self.complete_history:
-			# Extract code from model_output if available
-			model_output = step.get('model_output', {})
-			code = model_output.get('model_output') if isinstance(model_output, dict) else None
-			if code and isinstance(code, str):
+			# Extract code from model_output if available (type-safe access)
+			if step.model_output and step.model_output.model_output:
+				code = step.model_output.model_output
 				# Represent each code cell as a simple action entry
 				action_history_data.append([{'code_cell': True, 'code_length': len(code)}])
 			else:
@@ -1163,23 +1171,18 @@ __code_exec_coro__ = __code_exec__()
 		final_result: Any = self.namespace.get('_task_result')
 		final_result_str: str | None = final_result if isinstance(final_result, str) else None
 
-		# Get URLs visited from complete_history
+		# Get URLs visited from complete_history (type-safe access)
 		urls_visited: list[str] = []
 		for step in self.complete_history:
-			state = step.get('state', {})
-			url = state.get('url') if isinstance(state, dict) else None
-			if url and isinstance(url, str) and url not in urls_visited:
-				urls_visited.append(url)
+			if step.state.url and step.state.url not in urls_visited:
+				urls_visited.append(step.state.url)
 
-		# Get errors from complete_history
+		# Get errors from complete_history (type-safe access)
 		errors: list[str] = []
 		for step in self.complete_history:
-			results = step.get('result', [])
-			for result in results:
-				if isinstance(result, dict):
-					error = result.get('error')
-					if error and isinstance(error, str):
-						errors.append(error)
+			for result in step.result:
+				if result.error:
+					errors.append(result.error)
 
 		# Determine success from task completion status (type-safe)
 		is_done = self._is_task_done()
@@ -1205,11 +1208,7 @@ __code_exec_coro__ = __code_exec__()
 				urls_visited=urls_visited,
 				steps=len(self.complete_history),
 				total_input_tokens=token_summary.prompt_tokens,
-				total_duration_seconds=sum(
-					(step.get('metadata', {}).get('step_end_time', 0) - step.get('metadata', {}).get('step_start_time', 0))
-					for step in self.complete_history
-					if isinstance(step.get('metadata'), dict)
-				),
+				total_duration_seconds=sum(step.metadata.duration_seconds for step in self.complete_history if step.metadata),
 				success=self_reported_success,
 				final_result_response=final_result_str,
 				error_message=agent_run_error,
@@ -1226,7 +1225,7 @@ __code_exec_coro__ = __code_exec__()
 		Returns:
 			List of screenshot file paths (or None for missing screenshots)
 		"""
-		paths = [step.get('screenshot_path') for step in self.complete_history]
+		paths = [step.screenshot_path for step in self.complete_history]
 
 		if n_last is not None:
 			return paths[-n_last:] if len(paths) > n_last else paths
@@ -1306,9 +1305,9 @@ __code_exec_coro__ = __code_exec__()
 					return None
 
 		class MockAgentHistoryList:
-			def __init__(self, complete_history: list[dict[str, Any]], usage_summary: UsageSummary | None) -> None:
-				# Convert each dict in complete_history to objects with attribute access
-				self.history = [DictToObject(item) for item in complete_history]
+			def __init__(self, complete_history: list[CodeAgentHistory], usage_summary: UsageSummary | None) -> None:
+				# Convert each CodeAgentHistory to dict, then to object with attribute access
+				self.history = [DictToObject(item.model_dump()) for item in complete_history]
 				# Use the provided usage summary
 				self.usage = usage_summary
 
