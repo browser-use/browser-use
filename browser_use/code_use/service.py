@@ -86,14 +86,18 @@ class CodeAgent:
 		self,
 		task: str,
 		llm: BaseChatModel,
+		# Optional parameters
 		browser_session: BrowserSession | None = None,
-		browser_profile: BrowserProfile | None = None,
+		browser: BrowserSession | None = None,  # Alias for browser_session
 		tools: Tools | None = None,
+		controller: Tools | None = None,  # Alias for tools
+		# Agent settings
 		page_extraction_llm: BaseChatModel | None = None,
 		file_system: FileSystem | None = None,
 		available_file_paths: list[str] | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		max_steps: int = 100,
+		max_failures: int = 3,
 		max_validations: int = 0,
 		use_vision: bool = True,
 		calculate_cost: bool = False,
@@ -105,31 +109,48 @@ class CodeAgent:
 		Args:
 			task: The task description for the agent
 			llm: The LLM to use for generating code
-			browser_session: Optional browser session (will be created if not provided)
-			browser_profile: Optional browser profile for creating a new session
-			tools: Optional Tools instance (will create default if not provided)
+			browser_session: Optional browser session (will be created if not provided) [DEPRECATED: use browser]
+			browser: Optional browser session (cleaner API)
+			tools: Optional Tools instance (will create default if not provided) [DEPRECATED: use controller]
+			controller: Optional Tools instance (cleaner API)
 			page_extraction_llm: Optional LLM for page extraction
 			file_system: Optional file system for file operations
 			available_file_paths: Optional list of available file paths
 			sensitive_data: Optional sensitive data dictionary
 			max_steps: Maximum number of execution steps
-			max_validations: Maximum number of times to run the validator agent (default: 1)
+			max_failures: Maximum consecutive errors before termination (default: 3)
+			max_validations: Maximum number of times to run the validator agent (default: 0)
 			use_vision: Whether to include screenshots in LLM messages (default: True)
+			calculate_cost: Whether to calculate token costs (default: False)
 			**kwargs: Additional keyword arguments for compatibility (ignored)
 		"""
 		# Log and ignore unknown kwargs for compatibility
 		if kwargs:
 			logger.debug(f'Ignoring additional kwargs for CodeAgent compatibility: {list(kwargs.keys())}')
+
+		# Handle browser vs browser_session parameter (browser takes precedence)
+		if browser and browser_session:
+			raise ValueError('Cannot specify both "browser" and "browser_session" parameters. Use "browser" for the cleaner API.')
+		browser_session = browser or browser_session
+
+		# Handle controller vs tools parameter (controller takes precedence)
+		if controller and tools:
+			raise ValueError('Cannot specify both "controller" and "tools" parameters. Use "controller" for the cleaner API.')
+		tools = controller or tools
+
+		# Store browser_profile for creating browser session if needed
+		self._browser_profile_for_init = BrowserProfile() if browser_session is None else None
+
 		self.task = task
 		self.llm = llm
 		self.browser_session = browser_session
-		self.browser_profile = browser_profile or BrowserProfile()
 		self.tools = tools or Tools()
 		self.page_extraction_llm = page_extraction_llm
 		self.file_system = file_system if file_system is not None else FileSystem(base_dir='./')
 		self.available_file_paths = available_file_paths or []
 		self.sensitive_data = sensitive_data
 		self.max_steps = max_steps
+		self.max_failures = max_failures
 		self.max_validations = max_validations
 		self.use_vision = use_vision
 
@@ -141,7 +162,6 @@ class CodeAgent:
 		self._last_browser_state_text: str | None = None  # Track last browser state text
 		self._last_screenshot: str | None = None  # Track last screenshot (base64)
 		self._consecutive_errors = 0  # Track consecutive errors for auto-termination
-		self._max_consecutive_errors = 8  # Maximum consecutive errors before termination
 		self._validation_count = 0  # Track number of validator runs
 		self._last_llm_usage: Any | None = None  # Track last LLM call usage stats
 		self._step_start_time = 0.0  # Track step start time for duration calculation
@@ -175,7 +195,8 @@ class CodeAgent:
 		self.max_steps = steps_to_run
 		# Start browser if not provided
 		if self.browser_session is None:
-			self.browser_session = BrowserSession(browser_profile=self.browser_profile)
+			assert self._browser_profile_for_init is not None
+			self.browser_session = BrowserSession(browser_profile=self._browser_profile_for_init)
 			await self.browser_session.start()
 
 		# Initialize DOM service with cross-origin iframe support enabled
@@ -254,7 +275,7 @@ class CodeAgent:
 
 			# Check if we're approaching the step limit or error limit and inject warning
 			steps_remaining = self.max_steps - step - 1
-			errors_remaining = self._max_consecutive_errors - self._consecutive_errors
+			errors_remaining = self.max_failures - self._consecutive_errors
 
 			should_warn = (
 				steps_remaining <= 1  # Last step or next to last
@@ -266,7 +287,7 @@ class CodeAgent:
 				warning_message = (
 					f'\n\n⚠️ CRITICAL WARNING: You are approaching execution limits!\n'
 					f'- Steps remaining: {steps_remaining + 1}\n'
-					f'- Consecutive errors: {self._consecutive_errors}/{self._max_consecutive_errors}\n\n'
+					f'- Consecutive errors: {self._consecutive_errors}/{self.max_failures}\n\n'
 					f'YOU MUST call done() in your NEXT response, even if the task is incomplete:\n'
 					f"- Set success=False if you couldn't complete the task\n"
 					f'- Return EVERYTHING you found so far (partial data is better than nothing)\n'
@@ -302,12 +323,12 @@ class CodeAgent:
 					# LLM call failed - count as consecutive error and retry
 					self._consecutive_errors += 1
 					logger.warning(
-						f'LLM call failed (consecutive errors: {self._consecutive_errors}/{self._max_consecutive_errors}), retrying: {llm_error}'
+						f'LLM call failed (consecutive errors: {self._consecutive_errors}/{self.max_failures}), retrying: {llm_error}'
 					)
 
 					# Check if we've hit the consecutive error limit
-					if self._consecutive_errors >= self._max_consecutive_errors:
-						logger.error(f'Terminating: {self._max_consecutive_errors} consecutive LLM failures')
+					if self._consecutive_errors >= self.max_failures:
+						logger.error(f'Terminating: {self.max_failures} consecutive LLM failures')
 						break
 
 					await asyncio.sleep(1)  # Brief pause before retry
@@ -369,20 +390,20 @@ class CodeAgent:
 				# Track consecutive errors
 				if error:
 					self._consecutive_errors += 1
-					logger.warning(f'Consecutive errors: {self._consecutive_errors}/{self._max_consecutive_errors}')
+					logger.warning(f'Consecutive errors: {self._consecutive_errors}/{self.max_failures}')
 
 					# Check if we've hit the consecutive error limit
-					if self._consecutive_errors >= self._max_consecutive_errors:
+					if self._consecutive_errors >= self.max_failures:
 						logger.error(
-							f'Terminating: {self._max_consecutive_errors} consecutive errors reached. '
+							f'Terminating: {self.max_failures} consecutive errors reached. '
 							f'The agent is unable to make progress.'
 						)
 						# Add termination message to complete history before breaking
 						await self._add_step_to_complete_history(
 							model_output_code=code,
-							full_llm_response=f'[Terminated after {self._max_consecutive_errors} consecutive errors]',
+							full_llm_response=f'[Terminated after {self.max_failures} consecutive errors]',
 							output=None,
-							error=f'Auto-terminated: {self._max_consecutive_errors} consecutive errors without progress',
+							error=f'Auto-terminated: {self.max_failures} consecutive errors without progress',
 							screenshot_path=None,
 						)
 						break
@@ -1272,7 +1293,7 @@ __code_exec_coro__ = __code_exec__()
 			progress_header = f'Step {current_step}/{self.max_steps} executed'
 			# Add consecutive failure tracking if there are errors
 			if error and self._consecutive_errors > 0:
-				progress_header += f' | Consecutive failures: {self._consecutive_errors}/{self._max_consecutive_errors}'
+				progress_header += f' | Consecutive failures: {self._consecutive_errors}/{self.max_failures}'
 			result.append(progress_header)
 
 		if error:
