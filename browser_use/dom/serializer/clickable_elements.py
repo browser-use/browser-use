@@ -12,12 +12,16 @@ class ClickableElementDetector:
 			if node.attributes.get('aria-hidden', '').lower() == 'true':
 				return False
 
-		# Skip elements with bounding box off-screen or size = 0
+		# Skip elements with bounding box size = 0 or fully offscreen
 		if node.snapshot_node and node.snapshot_node.bounds:
 			rect = node.snapshot_node.bounds
 			if rect.width <= 0 or rect.height <= 0:
 				return False
-			if rect.x < 0:
+
+			# Only filter out if the element is fully outside the viewport (not just x < 0)
+			# Assume viewport starts at (0,0) and has size at least 1x1
+			# If the right edge is left of 0, or the bottom edge is above 0, it's fully offscreen
+			if (rect.x + rect.width) <= 0 or (rect.y + rect.height) <= 0:
 				return False
 
 		# Skip non-element nodes
