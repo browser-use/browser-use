@@ -25,7 +25,7 @@ def test_clickable_element_filtering(attrs, snapshot, expected):
         is_scrollable=None,
         is_visible=True,
         absolute_position=None,
-        target_id=None,
+        target_id="dummy-id",
         frame_id=None,
         session_id=None,
         content_document=None,
