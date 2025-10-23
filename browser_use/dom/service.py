@@ -178,7 +178,7 @@ class DomService:
 		display = computed_styles.get('display', '').lower()
 		visibility = computed_styles.get('visibility', '').lower()
 		opacity = computed_styles.get('opacity', '1')
-		interactivity = computed_styles.get('interactivity', 'auto').lower() 
+		interactivity = computed_styles.get('interactivity', 'auto').lower()
 
 		if display == 'none' or visibility == 'hidden' or interactivity == 'inert':
 			return False

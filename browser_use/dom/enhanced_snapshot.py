@@ -20,7 +20,7 @@ REQUIRED_COMPUTED_STYLES = [
 	'display',  # Used in service.py visibility detection
 	'visibility',  # Used in service.py visibility detection
 	'opacity',  # Used in service.py visibility detection
-	'interactivity', # Used in service.py interactivity detection
+	'interactivity',  # Used in service.py interactivity detection
 	'overflow',  # Used in views.py scrollability detection
 	'overflow-x',  # Used in views.py scrollability detection
 	'overflow-y',  # Used in views.py scrollability detection
