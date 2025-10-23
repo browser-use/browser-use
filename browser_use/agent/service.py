@@ -1461,7 +1461,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		return False
 
-	@observe(name='agent.run', metadata={'task': '{{task}}', 'debug': '{{debug}}'})
+	@observe(name='agent.run', ignore_input=True, ignore_output=True)
 	@time_execution_async('--run')
 	async def run(
 		self,
