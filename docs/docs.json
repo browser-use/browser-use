@@ -25,7 +25,11 @@
   "redirects": [
     {
       "source": "/customize/supported-models",
-      "destination": "/customize/agent/supported-models"
+      "destination": "/supported-models"
+    },
+    {
+      "source": "/customize/agent/supported-models",
+      "destination": "/supported-models"
     },
     {
       "source": "/customize/agent-settings",
@@ -70,6 +74,10 @@
     {
       "source": "/development/hooks",
       "destination": "/customize/hooks"
+    },
+    {
+      "source": "/customize/mcp-server",
+      "destination": "/customize/integrations/mcp-server"
     },
     {
       "source": "/customize/examples/chain-agents",
@@ -135,7 +143,8 @@
         "pages": [
           "introduction",
           "quickstart",
-          "quickstart_llm"
+          "quickstart_llm",
+          "supported-models"
         ]
       },
       {
@@ -147,7 +156,6 @@
             "isDefaultOpen": true,
             "pages": [
               "customize/agent/basics",
-              "customize/agent/supported-models",
               "customize/agent/prompting-guide",
               "customize/agent/output-format",
               "customize/agent/all-parameters"
@@ -191,7 +199,8 @@
             "icon": "plug",
             "isDefaultOpen": false,
             "pages": [
-              "customize/mcp-server"
+              "customize/integrations/docs-mcp",
+              "customize/integrations/mcp-server"
             ]
           }
         ]

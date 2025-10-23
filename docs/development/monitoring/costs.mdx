@@ -10,11 +10,11 @@ mode: "wide"
 To track token usage and costs, enable cost calculation:
 
 ```python
-from browser_use import Agent, ChatOpenAI
+from browser_use import Agent, ChatBrowserUse
 
 agent = Agent(
     task="Search for latest news about AI",
-    llm=ChatOpenAI(model="gpt-4.1-mini"),
+    llm=ChatBrowserUse(),
     calculate_cost=True  # Enable cost tracking
 )
 

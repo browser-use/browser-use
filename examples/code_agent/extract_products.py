@@ -19,7 +19,7 @@ import asyncio
 
 from lmnr import Laminar
 
-from browser_use.code_use import CodeAgent, export_to_ipynb
+from browser_use.code_use import CodeAgent
 
 Laminar.initialize()
 
@@ -40,31 +40,6 @@ Go to https://www.flipkart.com. Continue collecting products from Flipkart in th
 		# Run the agent
 		print('Running code-use agent...')
 		session = await agent.run()
-
-		# Print summary
-		print(f'\n{"=" * 60}')
-		print('Session Summary')
-		print(f'{"=" * 60}')
-		print(f'Total cells executed: {len(session.cells)}')
-		print(f'Total execution count: {session.current_execution_count}')
-
-		# Print each cell
-		for i, cell in enumerate(session.cells):
-			print(f'\n{"-" * 60}')
-			print(f'Cell {i + 1} (Status: {cell.status.value})')
-			print(f'{"-" * 60}')
-			print('Code:')
-			print(cell.source)
-			if cell.output:
-				print('\nOutput:')
-				print(cell.output)
-			if cell.error:
-				print('\nError:')
-				print(cell.error)
-
-		# Export to Jupyter notebook
-		notebook_path = export_to_ipynb(session, 'product_extraction.ipynb')
-		print(f'\n✓ Exported session to Jupyter notebook: {notebook_path}')
 
 	finally:
 		await agent.close()

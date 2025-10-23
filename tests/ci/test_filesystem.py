@@ -13,6 +13,7 @@ from browser_use.filesystem.file_system import (
 	FileSystem,
 	FileSystemState,
 	JsonFile,
+	JsonlFile,
 	MarkdownFile,
 	TxtFile,
 )
@@ -66,6 +67,18 @@ class TestBaseFile:
 		assert csv_file.full_name == 'users.csv'
 		assert csv_file.get_size == len(csv_content)
 		assert csv_file.get_line_count == 3
+
+	def test_jsonl_file_creation(self):
+		"""Test JsonlFile creation and basic properties."""
+		jsonl_content = '{"id": 1, "name": "John"}\n{"id": 2, "name": "Jane"}'
+		jsonl_file = JsonlFile(name='data', content=jsonl_content)
+
+		assert jsonl_file.name == 'data'
+		assert jsonl_file.content == jsonl_content
+		assert jsonl_file.extension == 'jsonl'
+		assert jsonl_file.full_name == 'data.jsonl'
+		assert jsonl_file.get_size == len(jsonl_content)
+		assert jsonl_file.get_line_count == 2
 
 	def test_file_content_operations(self):
 		"""Test content update and append operations."""
@@ -241,6 +254,7 @@ class TestFileSystem:
 		assert 'md' in extensions
 		assert 'txt' in extensions
 		assert 'json' in extensions
+		assert 'jsonl' in extensions
 		assert 'csv' in extensions
 
 	def test_filename_validation(self, temp_filesystem):
@@ -253,7 +267,9 @@ class TestFileSystem:
 		assert fs._is_valid_filename('file-name.md') is True
 		assert fs._is_valid_filename('file123.txt') is True
 		assert fs._is_valid_filename('data.json') is True
+		assert fs._is_valid_filename('data.jsonl') is True
 		assert fs._is_valid_filename('users.csv') is True
+		assert fs._is_valid_filename('WebVoyager_data.jsonl') is True  # with underscores
 
 		# Invalid filenames
 		assert fs._is_valid_filename('test.doc') is False  # wrong extension
@@ -263,6 +279,7 @@ class TestFileSystem:
 		assert fs._is_valid_filename('test@file.md') is False  # special chars
 		assert fs._is_valid_filename('.md') is False  # no name
 		assert fs._is_valid_filename('.json') is False  # no name
+		assert fs._is_valid_filename('.jsonl') is False  # no name
 		assert fs._is_valid_filename('.csv') is False  # no name
 
 	def test_filename_parsing(self, temp_filesystem):
@@ -474,6 +491,55 @@ class TestFileSystem:
 		# Append another row
 		await fs.append_file('users.csv', '\nBob,35,Paris')
 		expected_content = 'name,age,city\nJohn,30,New York\nJane,25,London\nBob,35,Paris'
+		assert file_obj.content == expected_content
+
+	async def test_write_jsonl_file(self, temp_filesystem):
+		"""Test writing JSONL (JSON Lines) files."""
+		fs = temp_filesystem
+
+		# Write valid JSONL content
+		jsonl_content = '{"id": 1, "name": "John", "age": 30}\n{"id": 2, "name": "Jane", "age": 25}'
+		result = await fs.write_file('data.jsonl', jsonl_content)
+		assert result == 'Data written to file data.jsonl successfully.'
+
+		# Verify content was written
+		content = await fs.read_file('data.jsonl')
+		assert jsonl_content in content
+
+		# Verify file object was created
+		assert 'data.jsonl' in fs.files
+		file_obj = fs.get_file('data.jsonl')
+		assert file_obj is not None
+		assert isinstance(file_obj, JsonlFile)
+		assert file_obj.content == jsonl_content
+
+		# Write to new JSONL file
+		result = await fs.write_file('WebVoyager_data.jsonl', '{"task": "test", "url": "https://example.com"}')
+		assert result == 'Data written to file WebVoyager_data.jsonl successfully.'
+		assert 'WebVoyager_data.jsonl' in fs.files
+
+	async def test_append_jsonl_file(self, temp_filesystem):
+		"""Test appending content to JSONL files."""
+		fs = temp_filesystem
+
+		# First write some JSONL content
+		await fs.write_file('data.jsonl', '{"id": 1, "name": "John", "age": 30}')
+
+		# Append additional JSONL record
+		result = await fs.append_file('data.jsonl', '\n{"id": 2, "name": "Jane", "age": 25}')
+		assert result == 'Data appended to file data.jsonl successfully.'
+
+		# Verify content was appended
+		file_obj = fs.get_file('data.jsonl')
+		assert file_obj is not None
+		expected_content = '{"id": 1, "name": "John", "age": 30}\n{"id": 2, "name": "Jane", "age": 25}'
+		assert file_obj.content == expected_content
+
+		# Append another record
+		await fs.append_file('data.jsonl', '\n{"id": 3, "name": "Bob", "age": 35}')
+		expected_content = (
+			'{"id": 1, "name": "John", "age": 30}\n{"id": 2, "name": "Jane", "age": 25}\n{"id": 3, "name": "Bob", "age": 35}'
+		)
 		assert file_obj.content == expected_content
 
 	async def test_save_extracted_content(self, temp_filesystem):

@@ -592,8 +592,9 @@ def create_namespace(
 									'done() should be called individually after verifying the result from any logic.\n'
 									'Consider validating your output first, THEN call done() in a final step without if/else/elif blocks only if the task is truly complete.'
 								)
-								logger.warning(msg)
+								logger.error(msg)
 								print(msg)
+								raise RuntimeError(msg)
 
 				# Build special context
 				special_context = {
