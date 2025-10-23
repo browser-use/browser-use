@@ -144,6 +144,79 @@ https://github.com/user-attachments/assets/ac34f75c-057a-43ef-ad06-5b2c9d42bf06
 
 <br/>
 
+# FAQ
+
+<details>
+<summary><b>What's the best model to use?</b></summary>
+
+We optimized **ChatBrowserUse()** specifically for browser automation tasks. On avg it completes tasks 3-5x faster than other models with SOTA accuracy.
+
+For other LLM providers, see our [supported models documentation](https://docs.browser-use.com/category/llm-integration).
+</details>
+
+
+<details>
+<summary><b>Can I use custom tools with the agent?</b></summary>
+
+Yes! You can add custom tools to extend the agent's capabilities:
+
+```python
+from browser_use.tools import Tool
+
+@Tool()
+def custom_tool(param: str) -> str:
+    """Description of what this tool does."""
+    return f"Result: {param}"
+
+agent = Agent(
+    task="Your task",
+    llm=llm,
+    browser=browser,
+    use_custom_tools=[custom_tool],
+)
+```
+
+See our [Custom Tools documentation](https://docs.browser-use.com/custom-tools) for more examples.
+</details>
+
+<details>
+<summary><b>Can I use this for free?</b></summary>
+
+Yes! Browser-Use is open source and free to use. You only need to choose an LLM provider (like OpenAI, Google, ChatBrowserUse, or run local models with Ollama).
+</details>
+
+<details>
+<summary><b>How do I handle authentication?</b></summary>
+
+Check out our authentication examples:
+- [Using real browser profiles](https://github.com/browser-use/browser-use/blob/main/examples/browser/real_browser.py) - Reuse your existing Chrome profile with saved logins
+- If you want to use temporary accounts with inbox, choose AgentMail
+- To sync your auth profile with the remote browser, run `curl -fsSL https://browser-use.com/profile.sh | BROWSER_USE_API_KEY=XXXX sh` (replace XXXX with your API key)
+
+These examples show how to maintain sessions and handle authentication seamlessly.
+</details>
+
+<details>
+<summary><b>How do I solve CAPTCHAs?</b></summary>
+
+For CAPTCHA handling, you need better browser fingerprinting and proxies. Use [Browser Use Cloud](https://cloud.browser-use.com) which provides stealth browsers designed to avoid detection and CAPTCHA challenges.
+</details>
+
+<details>
+<summary><b>How do I go into production?</b></summary>
+
+Chrome can consume a lot of memory, and running many agents in parallel can be tricky to manage.
+
+For production use cases, use our [Browser Use Cloud API](https://cloud.browser-use.com) which handles:
+- Scalable browser infrastructure
+- Memory management
+- Proxy rotation
+- Stealth browser fingerprinting
+- High-performance parallel execution
+</details>
+
+<br/>
+
 <div align="center">
   
 **Tell your computer what to do, and it gets it done.**
