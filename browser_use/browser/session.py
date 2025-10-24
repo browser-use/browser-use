@@ -815,6 +815,20 @@ class BrowserSession(BaseModel):
 		if event.target_id:
 			self.agent_focus = await self.get_or_create_cdp_session(target_id=event.target_id, focus=True)
 			self.logger.debug(f'🔄 Updated agent focus to tab target_id=...{event.target_id[-4:]}')
+
+			# Apply viewport settings to the newly focused tab
+			if self.browser_profile.viewport and not self.browser_profile.no_viewport:
+				try:
+					viewport_width = self.browser_profile.viewport.width
+					viewport_height = self.browser_profile.viewport.height
+					device_scale_factor = self.browser_profile.device_scale_factor or 1.0
+
+					# Use the helper method with the current tab's target_id
+					await self._cdp_set_viewport(viewport_width, viewport_height, device_scale_factor, target_id=event.target_id)
+
+					self.logger.debug(f'Applied viewport {viewport_width}x{viewport_height} to tab {event.target_id[-8:]}')
+				except Exception as e:
+					self.logger.warning(f'Failed to set viewport for tab {event.target_id[-8:]}: {e}')
 		else:
 			raise RuntimeError('AgentFocusChangedEvent received with no target_id for newly focused tab')
 
