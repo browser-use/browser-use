@@ -1195,7 +1195,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 		try:
 			# Execute JavaScript to trigger comprehensive event sequence
 			framework_events_script = """
-			(function() {
+			function() {
 				// Find the target element (available as 'this' when using objectId)
 				const element = this;
 				if (!element) return false;
@@ -1272,7 +1272,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				}
 
 				return success;
-			})();
+			}
 			"""
 
 			# Execute the framework events script
@@ -1286,6 +1286,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 			)
 
 			success = result.get('result', {}).get('value', False)
+			if success:
+				self.logger.debug('✅ Framework events triggered successfully')
+			else:
+				self.logger.warning('⚠️ Failed to trigger framework events')
 
 		except Exception as e:
 			self.logger.warning(f'⚠️ Failed to trigger framework events: {type(e).__name__}: {e}')
