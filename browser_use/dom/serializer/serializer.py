@@ -17,6 +17,26 @@ from browser_use.dom.views import (
 
 DISABLED_ELEMENTS = {'style', 'script', 'head', 'meta', 'link', 'title'}
 
+# SVG child elements to skip (decorative only, no interaction value)
+SVG_ELEMENTS = {
+	'path',
+	'rect',
+	'g',
+	'circle',
+	'ellipse',
+	'line',
+	'polyline',
+	'polygon',
+	'use',
+	'defs',
+	'clipPath',
+	'mask',
+	'pattern',
+	'image',
+	'text',
+	'tspan',
+}
+
 
 class DOMTreeSerializer:
 	"""Serializes enhanced DOM trees to string format."""
@@ -450,6 +470,10 @@ class DOMTreeSerializer:
 			if node.node_name.lower() in DISABLED_ELEMENTS:
 				return None
 
+			# Skip SVG child elements entirely (path, rect, g, circle, etc.)
+			if node.node_name.lower() in SVG_ELEMENTS:
+				return None
+
 			if node.node_name == 'IFRAME' or node.node_name == 'FRAME':
 				if node.content_document:
 					simplified = SimplifiedNode(original_node=node, children=[])
@@ -752,6 +776,32 @@ class DOMTreeSerializer:
 					child_text = DOMTreeSerializer.serialize_tree(child, include_attributes, depth)
 					if child_text:
 						formatted_text.append(child_text)
+				return '\n'.join(formatted_text)
+
+			# Special handling for SVG elements - show the tag but collapse children
+			if node.original_node.tag_name.lower() == 'svg':
+				shadow_prefix = ''
+				if node.is_shadow_host:
+					has_closed_shadow = any(
+						child.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE
+						and child.original_node.shadow_root_type
+						and child.original_node.shadow_root_type.lower() == 'closed'
+						for child in node.children
+					)
+					shadow_prefix = '|SHADOW(closed)|' if has_closed_shadow else '|SHADOW(open)|'
+
+				line = f'{depth_str}{shadow_prefix}'
+				# Add interactive marker if clickable
+				if node.is_interactive:
+					new_prefix = '*' if node.is_new else ''
+					line += f'{new_prefix}[{node.original_node.backend_node_id}]'
+				line += '<svg'
+				attributes_html_str = DOMTreeSerializer._build_attributes_string(node.original_node, include_attributes, '')
+				if attributes_html_str:
+					line += f' {attributes_html_str}'
+				line += ' /> <!-- SVG content collapsed -->'
+				formatted_text.append(line)
+				# Don't process children for SVG
 				return '\n'.join(formatted_text)
 
 			# Add element if clickable, scrollable, or iframe

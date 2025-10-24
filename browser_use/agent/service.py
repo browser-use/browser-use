@@ -314,7 +314,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# only load url if no initial actions are provided
 		if self.directly_open_url and not self.state.follow_up_task and not initial_actions:
-			initial_url = self._extract_url_from_task(self.task)
+			initial_url = self._extract_start_url(self.task)
 			if initial_url:
 				self.logger.info(f'🔗 Found URL in task: {initial_url}, adding as initial action...')
 				initial_actions = [{'navigate': {'url': initial_url, 'new_tab': False}}]
@@ -626,6 +626,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self._message_manager.add_new_task(new_task)
 		# Mark as follow-up task and recreate eventbus (gets shut down after each run)
 		self.state.follow_up_task = True
+		# Reset control flags so agent can continue
+		self.state.stopped = False
+		self.state.paused = False
 		agent_id_suffix = str(self.id)[-4:].replace('-', '_')
 		if agent_id_suffix and agent_id_suffix[0].isdigit():
 			agent_id_suffix = 'a' + agent_id_suffix
@@ -1375,8 +1378,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		return False, False
 
-	def _extract_url_from_task(self, task: str) -> str | None:
+	def _extract_start_url(self, task: str) -> str | None:
 		"""Extract URL from task string using naive pattern matching."""
+
 		import re
 
 		# Remove email addresses from task before looking for URLs
@@ -1388,17 +1392,119 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			r'(?:www\.)?[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,}(?:/[^\s<>"\']*)?',  # Domain names with subdomains and optional paths
 		]
 
+		# File extensions that should be excluded from URL detection
+		# These are likely files rather than web pages to navigate to
+		excluded_extensions = {
+			# Documents
+			'pdf',
+			'doc',
+			'docx',
+			'xls',
+			'xlsx',
+			'ppt',
+			'pptx',
+			'odt',
+			'ods',
+			'odp',
+			# Text files
+			'txt',
+			'md',
+			'csv',
+			'json',
+			'xml',
+			'yaml',
+			'yml',
+			# Archives
+			'zip',
+			'rar',
+			'7z',
+			'tar',
+			'gz',
+			'bz2',
+			'xz',
+			# Images
+			'jpg',
+			'jpeg',
+			'png',
+			'gif',
+			'bmp',
+			'svg',
+			'webp',
+			'ico',
+			# Audio/Video
+			'mp3',
+			'mp4',
+			'avi',
+			'mkv',
+			'mov',
+			'wav',
+			'flac',
+			'ogg',
+			# Code/Data
+			'py',
+			'js',
+			'css',
+			'java',
+			'cpp',
+			# Academic/Research
+			'bib',
+			'bibtex',
+			'tex',
+			'latex',
+			'cls',
+			'sty',
+			# Other common file types
+			'exe',
+			'msi',
+			'dmg',
+			'pkg',
+			'deb',
+			'rpm',
+			'iso',
+		}
+
+		excluded_words = {
+			'never',
+			'dont',
+			'not',
+			"don't",
+		}
+
 		found_urls = []
 		for pattern in patterns:
 			matches = re.finditer(pattern, task_without_emails)
 			for match in matches:
 				url = match.group(0)
+				original_position = match.start()  # Store original position before URL modification
 
 				# Remove trailing punctuation that's not part of URLs
 				url = re.sub(r'[.,;:!?()\[\]]+$', '', url)
-				# Add https:// if missing
+
+				# Check if URL ends with a file extension that should be excluded
+				url_lower = url.lower()
+				should_exclude = False
+				for ext in excluded_extensions:
+					if f'.{ext}' in url_lower:
+						should_exclude = True
+						break
+
+				if should_exclude:
+					self.logger.debug(f'Excluding URL with file extension from auto-navigation: {url}')
+					continue
+
+				# If in the 20 characters before the url position is a word in excluded_words skip to avoid "Never go to this url"
+				context_start = max(0, original_position - 20)
+				context_text = task_without_emails[context_start:original_position]
+				if any(word.lower() in context_text.lower() for word in excluded_words):
+					self.logger.debug(
+						f'Excluding URL with word in excluded words from auto-navigation: {url} (context: "{context_text.strip()}")'
+					)
+					continue
+
+				# Add https:// if missing (after excluded words check to avoid position calculation issues)
 				if not url.startswith(('http://', 'https://')):
 					url = 'https://' + url
+
 				found_urls.append(url)
 
 		unique_urls = list(set(found_urls))
@@ -1461,7 +1567,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		return False
 
-	@observe(name='agent.run', metadata={'task': '{{task}}', 'debug': '{{debug}}'})
+	@observe(name='agent.run', ignore_input=True, ignore_output=True)
 	@time_execution_async('--run')
 	async def run(
 		self,

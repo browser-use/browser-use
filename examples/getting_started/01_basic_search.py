@@ -20,7 +20,7 @@ from browser_use import Agent, ChatBrowserUse
 
 async def main():
 	llm = ChatBrowserUse()
-	task = "Search Google for 'what is browser automation' and tell me the top 3 results"
+	task = "We are testing the send_keys function. Go to https://inputtypes.com/ and focus the input box and type 'hello world'. DO NOT use the input_text action. Only use the send_keys action. Mark the task as done right after using the send_keys action."
 	agent = Agent(task=task, llm=llm)
 	await agent.run()
 

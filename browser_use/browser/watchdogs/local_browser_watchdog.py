@@ -96,6 +96,21 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		Returns:
 			Tuple of (psutil.Process, cdp_url)
 		"""
+		# Check if Chrome is already running before attempting launch
+		running_chrome = self._check_for_running_chrome_instances()
+		if running_chrome:
+			raise RuntimeError(
+				f'Cannot launch browser - detected {len(running_chrome)} Chrome/Chromium instance(s) already running:\n'
+				+ '\n'.join(f'  • PID {pid}: {" ".join(cmd[:3])}...' for pid, cmd in running_chrome)
+				+ '\n\n'
+				'⚠️  browser-use requires exclusive control over Chrome to enable CDP debugging.\n\n'
+				'Please close ALL Chrome/Chromium windows and try again:\n'
+				'  • macOS: Cmd+Q to quit Chrome completely (or run: killall "Google Chrome" "Chromium")\n'
+				'  • Linux: File → Exit (or run: killall chrome chromium-browser)\n'
+				'  • Windows: File → Exit (or run: taskkill /F /IM chrome.exe)\n\n'
+				'Make sure to fully quit Chrome, not just close the windows!'
+			)
+
 		# Keep track of original user_data_dir to restore if needed
 		profile = self.browser_session.browser_profile
 		self._original_user_data_dir = str(profile.user_data_dir) if profile.user_data_dir else None
@@ -358,6 +373,56 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		return port
 
 	@staticmethod
+	def _check_for_running_chrome_instances() -> list[tuple[int, list[str]]]:
+		"""Check for running Chrome/Chromium processes.
+
+		Returns:
+			List of tuples (pid, cmdline) for each running Chrome process
+		"""
+		running_chrome: list[tuple[int, list[str]]] = []
+		chrome_names = {'chrome', 'chromium', 'google chrome', 'chromium-browser'}
+		# Electron apps to exclude (they use Chrome's engine but aren't Chrome)
+		electron_apps = {
+			'electron',
+			'slack',
+			'discord',
+			'cursor',
+			'vscode',
+			'vs code',
+			'visual studio code',
+			'superhuman',
+			'screen studio',
+			'spotify',
+			'drive',
+			'adobe',
+		}
+
+		try:
+			for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'exe']):
+				try:
+					name = proc.info.get('name', '').lower()
+					cmdline = proc.info.get('cmdline', [])
+					exe = (proc.info.get('exe') or '').lower()
+
+					# Skip if it's an Electron app or other non-Chrome browser
+					if any(app in name or app in exe for app in electron_apps):
+						continue
+
+					# Check if process name or exe path contains chrome/chromium
+					if any(chrome_name in name or chrome_name in exe for chrome_name in chrome_names):
+						# Exclude helper processes (they'll die with main process)
+						# Also exclude crash handlers and other supporting processes
+						if cmdline and '--type=' not in ' '.join(cmdline) and 'chrome_crashpad_handler' not in ' '.join(cmdline):
+							running_chrome.append((proc.info['pid'], cmdline))
+				except (psutil.NoSuchProcess, psutil.AccessDenied):
+					continue
+		except Exception:
+			# If we can't check for processes, don't fail - just return empty list
+			pass
+
+		return running_chrome
+
+	@staticmethod
 	async def _wait_for_cdp_url(port: int, timeout: float = 30) -> str:
 		"""Wait for the browser to start and return the CDP URL."""
 		import aiohttp
@@ -377,6 +442,24 @@ class LocalBrowserWatchdog(BaseWatchdog):
 			except Exception:
 				# Connection error - Chrome might not be ready yet
 				await asyncio.sleep(0.1)
+
+		# Check if Chrome is already running with debugging enabled before raising
+		running_chrome = LocalBrowserWatchdog._check_for_running_chrome_instances()
+		if running_chrome:
+			raise RuntimeError(
+				f'Browser failed to start on port {port} within {timeout} seconds.\n\n'
+				f'⚠️  IMPORTANT: Detected {len(running_chrome)} Chrome/Chromium instance(s) already running:\n'
+				+ '\n'.join(f'  • PID {pid}: {" ".join(cmd[:3])}...' for pid, cmd in running_chrome)
+				+ '\n\n'
+				'browser-use requires exclusive control over Chrome to enable CDP debugging.\n'
+				'Please close ALL Chrome/Chromium windows and try again:\n'
+				'  • macOS: Cmd+Q to quit Chrome completely\n'
+				'  • Linux/Windows: File → Exit or killall chrome\n\n'
+				'If Chrome is stuck, force quit with:\n'
+				'  • macOS: killall "Google Chrome" "Chromium"\n'
+				'  • Linux: killall chrome chromium-browser\n'
+				'  • Windows: taskkill /F /IM chrome.exe'
+			)
 
 		raise TimeoutError(f'Browser did not start within {timeout} seconds')
 

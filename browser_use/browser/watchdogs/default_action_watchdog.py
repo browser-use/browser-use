@@ -1631,9 +1631,93 @@ class DefaultActionWatchdog(BaseWatchdog):
 				for mod in reversed(modifiers):
 					await self._dispatch_key_event(cdp_session, 'keyUp', mod)
 			else:
-				# Simple key press
-				await self._dispatch_key_event(cdp_session, 'keyDown', normalized_keys)
-				await self._dispatch_key_event(cdp_session, 'keyUp', normalized_keys)
+				# Check if this is a text string or special key
+				special_keys = {
+					'Enter',
+					'Tab',
+					'Delete',
+					'Backspace',
+					'Escape',
+					'ArrowUp',
+					'ArrowDown',
+					'ArrowLeft',
+					'ArrowRight',
+					'PageUp',
+					'PageDown',
+					'Home',
+					'End',
+					'Control',
+					'Alt',
+					'Meta',
+					'Shift',
+					'F1',
+					'F2',
+					'F3',
+					'F4',
+					'F5',
+					'F6',
+					'F7',
+					'F8',
+					'F9',
+					'F10',
+					'F11',
+					'F12',
+				}
+
+				# If it's a special key, use original logic
+				if normalized_keys in special_keys:
+					await self._dispatch_key_event(cdp_session, 'keyDown', normalized_keys)
+					await self._dispatch_key_event(cdp_session, 'keyUp', normalized_keys)
+				else:
+					# It's text (single character or string) - send each character as text input
+					# This is crucial for text to appear in focused input fields
+					for char in normalized_keys:
+						# Special-case newline characters to dispatch as Enter
+						if char in ('\n', '\r'):
+							await self._dispatch_key_event(cdp_session, 'keyDown', 'Enter')
+							await self._dispatch_key_event(cdp_session, 'keyUp', 'Enter')
+							continue
+
+						# Get proper modifiers and key info for the character
+						modifiers, vk_code, base_key = self._get_char_modifiers_and_vk(char)
+						key_code = self._get_key_code_for_char(base_key)
+
+						# Send keyDown
+						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'keyDown',
+								'key': base_key,
+								'code': key_code,
+								'modifiers': modifiers,
+								'windowsVirtualKeyCode': vk_code,
+							},
+							session_id=cdp_session.session_id,
+						)
+
+						# Send char event with text - this is what makes text appear in input fields
+						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'char',
+								'text': char,
+								'key': char,
+							},
+							session_id=cdp_session.session_id,
+						)
+
+						# Send keyUp
+						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'keyUp',
+								'key': base_key,
+								'code': key_code,
+								'modifiers': modifiers,
+								'windowsVirtualKeyCode': vk_code,
+							},
+							session_id=cdp_session.session_id,
+						)
+
+						# Small delay between characters (18ms like _type_to_page)
+						await asyncio.sleep(0.018)
 
 			self.logger.info(f'⌨️ Sent keys: {event.keys}')
 
