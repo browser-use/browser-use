@@ -129,9 +129,6 @@ class Page:
 		else:
 			expression = f'({page_function})()'
 
-		# Debug: print the actual expression being evaluated
-		print(f'DEBUG: Evaluating JavaScript: {repr(expression)}')
-
 		params: 'EvaluateParameters' = {'expression': expression, 'returnByValue': True, 'awaitPromise': True}
 		result = await self._client.send.Runtime.evaluate(
 			params,
