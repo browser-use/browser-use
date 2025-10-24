@@ -1,12 +1,16 @@
 """Local browser watchdog for managing browser subprocess lifecycle."""
 
 import asyncio
+import glob
 import os
+import platform
 import shutil
+import socket
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
+import aiohttp
 import psutil
 from bubus import BaseEvent
 from pydantic import PrivateAttr
@@ -40,40 +44,35 @@ class LocalBrowserWatchdog(BaseWatchdog):
 	# Private state for subprocess management
 	_subprocess: psutil.Process | None = PrivateAttr(default=None)
 	_owns_browser_resources: bool = PrivateAttr(default=True)
-	_temp_dirs_to_cleanup: list[Path] = PrivateAttr(default_factory=list)
+	_temp_user_data_dir: Path | None = PrivateAttr(default=None)
 	_original_user_data_dir: str | None = PrivateAttr(default=None)
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_launch_event')
 	async def on_BrowserLaunchEvent(self, event: BrowserLaunchEvent) -> BrowserLaunchResult:
 		"""Launch a local browser process."""
-
 		try:
 			self.logger.debug('[LocalBrowserWatchdog] Received BrowserLaunchEvent, launching local browser...')
-
-			# self.logger.debug('[LocalBrowserWatchdog] Calling _launch_browser...')
 			process, cdp_url = await self._launch_browser()
 			self._subprocess = process
-			# self.logger.debug(f'[LocalBrowserWatchdog] _launch_browser returned: process={process}, cdp_url={cdp_url}')
-
 			return BrowserLaunchResult(cdp_url=cdp_url)
 		except Exception as e:
 			self.logger.error(f'[LocalBrowserWatchdog] Exception in on_BrowserLaunchEvent: {e}', exc_info=True)
 			raise
 
 	async def on_BrowserKillEvent(self, event: BrowserKillEvent) -> None:
-		"""Kill the local browser subprocess."""
+		"""Kill the local browser subprocess and clean up temporary profiles."""
 		self.logger.debug('[LocalBrowserWatchdog] Killing local browser process')
 
 		if self._subprocess:
 			await self._cleanup_process(self._subprocess)
 			self._subprocess = None
 
-		# Clean up temp directories if any were created
-		for temp_dir in self._temp_dirs_to_cleanup:
-			self._cleanup_temp_dir(temp_dir)
-		self._temp_dirs_to_cleanup.clear()
+		# Clean up temporary cloned profile directory
+		if self._temp_user_data_dir:
+			self._cleanup_temp_dir(self._temp_user_data_dir)
+			self._temp_user_data_dir = None
 
-		# Restore original user_data_dir if it was modified
+		# Restore original user_data_dir
 		if self._original_user_data_dir is not None:
 			self.browser_session.browser_profile.user_data_dir = self._original_user_data_dir
 			self._original_user_data_dir = None
@@ -81,144 +80,143 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		self.logger.debug('[LocalBrowserWatchdog] Browser cleanup completed')
 
 	async def on_BrowserStopEvent(self, event: BrowserStopEvent) -> None:
-		"""Listen for BrowserStopEvent and dispatch BrowserKillEvent without awaiting it."""
+		"""Listen for BrowserStopEvent and dispatch BrowserKillEvent."""
 		if self.browser_session.is_local and self._subprocess:
 			self.logger.debug('[LocalBrowserWatchdog] BrowserStopEvent received, dispatching BrowserKillEvent')
-			# Dispatch BrowserKillEvent without awaiting so it gets processed after all BrowserStopEvent handlers
 			self.event_bus.dispatch(BrowserKillEvent())
 
+	def _clone_profile(self, source_dir: Path, dest_dir: Path) -> None:
+		"""Copy essential authentication data from a source profile to a destination.
+
+		This copies cookies, login data, preferences, and other session data to allow
+		the browser to start authenticated even when the source profile is locked.
+
+		Args:
+			source_dir: Source profile directory (e.g., ~/Library/Application Support/Google/Chrome/Default)
+			dest_dir: Destination directory for the cloned profile
+		"""
+		self.logger.info(f'📋 Cloning profile data from {source_dir} to {dest_dir}')
+		dest_dir.mkdir(parents=True, exist_ok=True)
+
+		# Essential files for authentication and session persistence
+		auth_files = ['Cookies', 'Login Data', 'Web Data', 'Preferences', 'Secure Preferences']
+
+		# Copy files
+		for filename in auth_files:
+			source_file = source_dir / filename
+			if source_file.exists():
+				try:
+					shutil.copy2(source_file, dest_dir / filename)
+					self.logger.debug(f'✓ Copied {filename}')
+				except Exception as e:
+					self.logger.warning(f'Could not copy {filename}: {e}')
+
+		# Copy essential directories for session storage
+		dirs_to_copy = ['Local Storage', 'Session Storage']
+		for dirname in dirs_to_copy:
+			source_subdir = source_dir / dirname
+			if source_subdir.is_dir():
+				try:
+					shutil.copytree(source_subdir, dest_dir / dirname, dirs_exist_ok=True)
+					self.logger.debug(f'✓ Copied directory {dirname}')
+				except Exception as e:
+					self.logger.warning(f'Could not copy directory {dirname}: {e}')
+
 	@observe_debug(ignore_input=True, ignore_output=True, name='launch_browser_process')
-	async def _launch_browser(self, max_retries: int = 3) -> tuple[psutil.Process, str]:
+	async def _launch_browser(self) -> tuple[psutil.Process, str]:
 		"""Launch browser process and return (process, cdp_url).
 
-		Handles launch errors by falling back to temporary directories if needed.
+		If a user_data_dir is specified, this method will automatically create a temporary
+		clone of the profile to avoid conflicts with running Chrome instances. This allows
+		browser-use to work with authenticated sessions even when the main browser is open.
 
 		Returns:
 			Tuple of (psutil.Process, cdp_url)
 		"""
-		# Check if Chrome is already running before attempting launch
-		running_chrome = self._check_for_running_chrome_instances()
-		if running_chrome:
-			raise RuntimeError(
-				f'Cannot launch browser - detected {len(running_chrome)} Chrome/Chromium instance(s) already running:\n'
-				+ '\n'.join(f'  • PID {pid}: {" ".join(cmd[:3])}...' for pid, cmd in running_chrome)
-				+ '\n\n'
-				'⚠️  browser-use requires exclusive control over Chrome to enable CDP debugging.\n\n'
-				'Please close ALL Chrome/Chromium windows and try again:\n'
-				'  • macOS: Cmd+Q to quit Chrome completely (or run: killall "Google Chrome" "Chromium")\n'
-				'  • Linux: File → Exit (or run: killall chrome chromium-browser)\n'
-				'  • Windows: File → Exit (or run: taskkill /F /IM chrome.exe)\n\n'
-				'Make sure to fully quit Chrome, not just close the windows!'
-			)
-
-		# Keep track of original user_data_dir to restore if needed
 		profile = self.browser_session.browser_profile
 		self._original_user_data_dir = str(profile.user_data_dir) if profile.user_data_dir else None
-		self._temp_dirs_to_cleanup = []
 
-		for attempt in range(max_retries):
-			try:
-				# Get launch args from profile
-				launch_args = profile.get_args()
+		# If user_data_dir is specified, always clone to temporary directory to avoid conflicts
+		if profile.user_data_dir:
+			source_user_data_path = Path(profile.user_data_dir).expanduser().resolve()
+			source_profile_subdir = source_user_data_path / profile.profile_directory
 
-				# Add debugging port
-				debug_port = self._find_free_port()
-				launch_args.extend(
-					[
-						f'--remote-debugging-port={debug_port}',
-					]
-				)
-				assert '--user-data-dir' in str(launch_args), (
-					'User data dir must be set somewhere in launch args to a non-default path, otherwise Chrome will not let us attach via CDP'
-				)
+			if source_profile_subdir.exists():
+				self.logger.info(f'🔄 Creating temporary authenticated session from {source_profile_subdir}')
 
-				# Get browser executable
-				# Priority: custom executable > fallback paths > playwright subprocess
-				if profile.executable_path:
-					browser_path = profile.executable_path
-					self.logger.debug(f'[LocalBrowserWatchdog] 📦 Using custom local browser executable_path= {browser_path}')
-				else:
-					# self.logger.debug('[LocalBrowserWatchdog] 🔍 Looking for local browser binary path...')
-					# Try fallback paths first (system browsers preferred)
-					browser_path = self._find_installed_browser_path()
-					if not browser_path:
-						self.logger.error(
-							'[LocalBrowserWatchdog] ⚠️ No local browser binary found, installing browser using playwright subprocess...'
-						)
-						browser_path = await self._install_browser_with_playwright()
+				# Create temporary directory for this session
+				self._temp_user_data_dir = Path(tempfile.mkdtemp(prefix='browseruse-cdp-'))
+				dest_profile_subdir = self._temp_user_data_dir / profile.profile_directory
 
-				self.logger.debug(f'[LocalBrowserWatchdog] 📦 Found local browser installed at executable_path= {browser_path}')
-				if not browser_path:
-					raise RuntimeError('No local Chrome/Chromium install found, and failed to install with playwright')
+				# Clone authentication data
+				self._clone_profile(source_profile_subdir, dest_profile_subdir)
 
-				# Launch browser subprocess directly
-				self.logger.debug(f'[LocalBrowserWatchdog] 🚀 Launching browser subprocess with {len(launch_args)} args...')
-				self.logger.debug(
-					f'[LocalBrowserWatchdog] 📂 user_data_dir={profile.user_data_dir}, profile_directory={profile.profile_directory}'
-				)
-				subprocess = await asyncio.create_subprocess_exec(
-					browser_path,
-					*launch_args,
-					stdout=asyncio.subprocess.PIPE,
-					stderr=asyncio.subprocess.PIPE,
-				)
-				self.logger.debug(
-					f'[LocalBrowserWatchdog] 🎭 Browser running with browser_pid= {subprocess.pid} 🔗 listening on CDP port :{debug_port}'
-				)
-
-				# Convert to psutil.Process
-				process = psutil.Process(subprocess.pid)
-
-				# Wait for CDP to be ready and get the URL
-				cdp_url = await self._wait_for_cdp_url(debug_port)
-
-				# Success! Clean up any temp dirs we created but didn't use
-				for tmp_dir in self._temp_dirs_to_cleanup:
+				# **FIX:** Copy the 'Local State' file from the root user_data_dir for decryption keys.
+				local_state_source = source_user_data_path / 'Local State'
+				if local_state_source.exists():
 					try:
-						shutil.rmtree(tmp_dir, ignore_errors=True)
-					except Exception:
-						pass
+						shutil.copy2(local_state_source, self._temp_user_data_dir / 'Local State')
+						self.logger.debug('✓ Copied Local State file for decryption.')
+					except Exception as e:
+						self.logger.warning(f'Could not copy Local State file: {e}')
 
-				return process, cdp_url
+				# Use the temporary directory for this browser session
+				profile.user_data_dir = str(self._temp_user_data_dir)
+				self.logger.debug(f'📂 Using temporary profile: {self._temp_user_data_dir}')
+			else:
+				self.logger.warning(
+					f'⚠️  Source profile {source_profile_subdir} does not exist. Proceeding with specified user_data_dir as-is.'
+				)
 
-			except Exception as e:
-				error_str = str(e).lower()
+		# Get launch args from profile
+		launch_args = profile.get_args()
 
-				# Check if this is a user_data_dir related error
-				if any(err in error_str for err in ['singletonlock', 'user data directory', 'cannot create', 'already in use']):
-					self.logger.warning(f'Browser launch failed (attempt {attempt + 1}/{max_retries}): {e}')
+		# Add debugging port
+		debug_port = self._find_free_port()
+		launch_args.extend([f'--remote-debugging-port={debug_port}'])
 
-					if attempt < max_retries - 1:
-						# Create a temporary directory for next attempt
-						tmp_dir = Path(tempfile.mkdtemp(prefix='browseruse-tmp-'))
-						self._temp_dirs_to_cleanup.append(tmp_dir)
+		assert '--user-data-dir' in str(launch_args), (
+			'User data dir must be set somewhere in launch args to a non-default path, '
+			'otherwise Chrome will not let us attach via CDP'
+		)
 
-						# Update profile to use temp directory
-						profile.user_data_dir = str(tmp_dir)
-						self.logger.debug(f'Retrying with temporary user_data_dir: {tmp_dir}')
+		# Get browser executable
+		if profile.executable_path:
+			browser_path = profile.executable_path
+			self.logger.debug(f'📦 Using custom browser executable: {browser_path}')
+		else:
+			browser_path = self._find_installed_browser_path()
+			if not browser_path:
+				self.logger.error('⚠️  No local browser found, installing via Playwright...')
+				browser_path = await self._install_browser_with_playwright()
 
-						# Small delay before retry
-						await asyncio.sleep(0.5)
-						continue
+		if not browser_path:
+			raise RuntimeError('No local Chrome/Chromium install found, and failed to install with playwright')
 
-				# Not a recoverable error or last attempt failed
-				# Restore original user_data_dir before raising
-				if self._original_user_data_dir is not None:
-					profile.user_data_dir = self._original_user_data_dir
+		self.logger.debug(f'🚀 Launching browser: {browser_path}')
 
-				# Clean up any temp dirs we created
-				for tmp_dir in self._temp_dirs_to_cleanup:
-					try:
-						shutil.rmtree(tmp_dir, ignore_errors=True)
-					except Exception:
-						pass
+		# Launch browser subprocess
+		subprocess = await asyncio.create_subprocess_exec(
+			browser_path,
+			*launch_args,
+			stdout=asyncio.subprocess.PIPE,
+			stderr=asyncio.subprocess.PIPE,
+		)
 
-				raise
+		self.logger.debug(f'🎭 Browser process started (PID: {subprocess.pid}) on CDP port: {debug_port}')
 
-		# Should not reach here, but just in case
-		if self._original_user_data_dir is not None:
+		# Convert to psutil.Process
+		process = psutil.Process(subprocess.pid)
+
+		# Wait for CDP to be ready
+		cdp_url = await self._wait_for_cdp_url(debug_port)
+
+		# Restore original user_data_dir in profile object for reference
+		# (but keep temp dir for cleanup)
+		if self._original_user_data_dir:
 			profile.user_data_dir = self._original_user_data_dir
-		raise RuntimeError(f'Failed to launch browser after {max_retries} attempts')
+
+		return process, cdp_url
 
 	@staticmethod
 	def _find_installed_browser_path() -> str | None:
@@ -226,16 +224,13 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 		Prioritizes:
 		1. System Chrome Stable
-		1. Playwright chromium
-		2. Other system native browsers (Chromium -> Chrome Canary/Dev -> Brave)
-		3. Playwright headless-shell fallback
+		2. Playwright chromium
+		3. Other system native browsers (Chromium -> Chrome Canary/Dev -> Brave)
+		4. Playwright headless-shell fallback
 
 		Returns:
 			Path to browser executable or None if not found
 		"""
-		import glob
-		import platform
-		from pathlib import Path
 
 		system = platform.system()
 		patterns = []
@@ -329,7 +324,6 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 	async def _install_browser_with_playwright(self) -> str:
 		"""Get browser executable path from playwright in a subprocess to avoid thread issues."""
-
 		# Run in subprocess with timeout
 		process = await asyncio.create_subprocess_exec(
 			'uvx',
@@ -343,11 +337,11 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 		try:
 			stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)
-			self.logger.debug(f'[LocalBrowserWatchdog] 📦 Playwright install output: {stdout}')
+			self.logger.debug(f'📦 Playwright install output: {stdout}')
 			browser_path = self._find_installed_browser_path()
 			if browser_path:
 				return browser_path
-			self.logger.error(f'[LocalBrowserWatchdog] ❌ Playwright local browser installation error: \n{stdout}\n{stderr}')
+			self.logger.error(f'❌ Playwright installation error:\n{stdout}\n{stderr}')
 			raise RuntimeError('No local browser path found after: uvx playwright install chrome --with-deps')
 		except TimeoutError:
 			# Kill the subprocess if it times out
@@ -364,7 +358,6 @@ class LocalBrowserWatchdog(BaseWatchdog):
 	@staticmethod
 	def _find_free_port() -> int:
 		"""Find a free port for the debugging interface."""
-		import socket
 
 		with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 			s.bind(('127.0.0.1', 0))
@@ -425,17 +418,18 @@ class LocalBrowserWatchdog(BaseWatchdog):
 	@staticmethod
 	async def _wait_for_cdp_url(port: int, timeout: float = 30) -> str:
 		"""Wait for the browser to start and return the CDP URL."""
-		import aiohttp
 
 		start_time = asyncio.get_event_loop().time()
 
 		while asyncio.get_event_loop().time() - start_time < timeout:
 			try:
 				async with aiohttp.ClientSession() as session:
-					async with session.get(f'http://localhost:{port}/json/version') as resp:
+					async with session.get(
+						f'http://127.0.0.1:{port}/json/version', timeout=aiohttp.ClientTimeout(total=2)
+					) as resp:
 						if resp.status == 200:
 							# Chrome is ready
-							return f'http://localhost:{port}/'
+							return f'http://127.0.0.1:{port}/'
 						else:
 							# Chrome is starting up and returning 502/500 errors
 							await asyncio.sleep(0.1)
@@ -463,62 +457,50 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 		raise TimeoutError(f'Browser did not start within {timeout} seconds')
 
-	@staticmethod
-	async def _cleanup_process(process: psutil.Process) -> None:
-		"""Clean up browser process.
-
-		Args:
-			process: psutil.Process to terminate
-		"""
-		if not process:
+	async def _cleanup_process(self, process: psutil.Process) -> None:
+		"""Gracefully terminate a process and its entire process tree."""
+		if not process or not process.is_running():
 			return
-
 		try:
-			# Try graceful shutdown first
+			# Terminate children first
+			children = process.children(recursive=True)
+			for child in children:
+				try:
+					child.terminate()
+				except psutil.NoSuchProcess:
+					pass
+
+			# Wait for children to terminate
+			gone, alive = psutil.wait_procs(children, timeout=3)
+			# Force kill any remaining children
+			for p in alive:
+				p.kill()
+
+			# Terminate the main process
 			process.terminate()
-
-			# Use async wait instead of blocking wait
-			for _ in range(50):  # Wait up to 5 seconds (50 * 0.1)
-				if not process.is_running():
-					return
-				await asyncio.sleep(0.1)
-
-			# If still running after 5 seconds, force kill
+			await asyncio.sleep(0.5)
 			if process.is_running():
 				process.kill()
-				# Give it a moment to die
-				await asyncio.sleep(0.1)
-
 		except psutil.NoSuchProcess:
 			# Process already gone
 			pass
-		except Exception:
-			# Ignore any other errors during cleanup
-			pass
+		except Exception as e:
+			self.logger.warning(f'Error during process cleanup: {e}')
 
 	def _cleanup_temp_dir(self, temp_dir: Path | str) -> None:
-		"""Clean up temporary directory.
-
-		Args:
-			temp_dir: Path to temporary directory to remove
-		"""
+		"""Clean up the temporary profile directory."""
 		if not temp_dir:
 			return
-
 		try:
-			temp_path = Path(temp_dir)
-			# Only remove if it's actually a temp directory we created
-			if 'browseruse-tmp-' in str(temp_path):
-				shutil.rmtree(temp_path, ignore_errors=True)
+			self.logger.info(f'🧹 Cleaning up temporary profile directory: {temp_dir}')
+			shutil.rmtree(temp_dir, ignore_errors=True)
 		except Exception as e:
-			self.logger.debug(f'Failed to cleanup temp dir {temp_dir}: {e}')
+			self.logger.warning(f'Failed to cleanup temp dir {temp_dir}: {e}')
 
 	@property
 	def browser_pid(self) -> int | None:
 		"""Get the browser process ID."""
-		if self._subprocess:
-			return self._subprocess.pid
-		return None
+		return self._subprocess.pid if self._subprocess else None
 
 	@staticmethod
 	async def get_browser_pid_via_cdp(browser) -> int | None:
