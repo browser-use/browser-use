@@ -26,7 +26,7 @@ export LMNR_PROJECT_API_KEY=<your-project-api-key>
 Then, you simply initialize the Laminar at the top of your project and both Browser Use and session recordings will be automatically traced.
 
 ```python {5-8}
-from browser_use import Agent, ChatOpenAI
+from browser_use import Agent, ChatBrowserUse
 import asyncio
 
 from lmnr import Laminar, Instruments
@@ -36,7 +36,7 @@ Laminar.initialize(project_api_key="...", disabled_instruments={Instruments.BROW
 async def main():
     agent = Agent(
         task="open google, search Laminar AI",
-        llm=ChatOpenAI(model="gpt-4.1-mini"),
+        llm=ChatBrowserUse(),
     )
     await agent.run()
 

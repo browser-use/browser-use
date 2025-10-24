@@ -142,7 +142,7 @@ class AgentMessagePrompt:
 					stats['scroll_containers'] += 1
 
 				# Check if interactive
-				if node.interactive_index is not None:
+				if node.is_interactive:
 					stats['interactive_elements'] += 1
 
 				# Check if this element hosts shadow DOM

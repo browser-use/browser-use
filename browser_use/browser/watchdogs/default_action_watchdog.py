@@ -50,7 +50,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Use the provided node
 			element_node = event.node
-			index_for_logging = element_node.element_index or 'unknown'
+			index_for_logging = element_node.backend_node_id or 'unknown'
 			starting_target_id = self.browser_session.agent_focus.target_id
 
 			# Check if element is a file input (should not be clicked)
@@ -85,10 +85,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 		try:
 			# Use the provided node
 			element_node = event.node
-			index_for_logging = element_node.element_index or 'unknown'
+			index_for_logging = element_node.backend_node_id or 'unknown'
 
 			# Check if this is index 0 or a falsy index - type to the page (whatever has focus)
-			if not element_node.element_index or element_node.element_index == 0:
+			if not element_node.backend_node_id or element_node.backend_node_id == 0:
 				# Type to the page without focusing any specific element
 				await self._type_to_page(event.text)
 				# Log with sensitive data protection
@@ -300,9 +300,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			element_type = element_node.attributes.get('type', '').lower() if element_node.attributes else ''
 
 			if tag_name == 'select':
-				msg = (
-					f'Cannot click on <select> elements. Use dropdown_options(index={element_node.element_index}) action instead.'
-				)
+				msg = f'Cannot click on <select> elements. Use dropdown_options(index={element_node.backend_node_id}) action instead.'
 				self.logger.warning(msg)
 				raise BrowserError(
 					message=msg,
@@ -310,7 +308,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				)
 
 			if tag_name == 'input' and element_type == 'file':
-				msg = f'Cannot click on file input element (index={element_node.element_index}). File uploads must be handled using upload_file_to_element action.'
+				msg = f'Cannot click on file input element (index={element_node.backend_node_id}). File uploads must be handled using upload_file_to_element action.'
 				raise BrowserError(
 					message=msg,
 					long_term_memory=msg,
@@ -560,12 +558,20 @@ class DefaultActionWatchdog(BaseWatchdog):
 		except Exception as e:
 			# Extract key element info for error message
 			element_info = f'<{element_node.tag_name or "unknown"}'
-			if element_node.element_index:
-				element_info += f' index={element_node.element_index}'
+			if element_node.backend_node_id:
+				element_info += f' index={element_node.backend_node_id}'
 			element_info += '>'
+
+			# Create helpful error message based on context
+			error_detail = f'Failed to click element {element_info}. The element may not be interactable or visible.'
+
+			# Add hint if element has index (common in code-use mode)
+			if element_node.backend_node_id:
+				error_detail += f' If the page changed after navigation/interaction, the index [{element_node.backend_node_id}] may be stale. Get fresh browser state before retrying.'
+
 			raise BrowserError(
 				message=f'Failed to click element: {e}',
-				long_term_memory=f'Failed to click element {element_info}. The element may not be interactable or visible.',
+				long_term_memory=error_detail,
 			)
 
 	async def _type_to_page(self, text: str):
@@ -1625,9 +1631,93 @@ class DefaultActionWatchdog(BaseWatchdog):
 				for mod in reversed(modifiers):
 					await self._dispatch_key_event(cdp_session, 'keyUp', mod)
 			else:
-				# Simple key press
-				await self._dispatch_key_event(cdp_session, 'keyDown', normalized_keys)
-				await self._dispatch_key_event(cdp_session, 'keyUp', normalized_keys)
+				# Check if this is a text string or special key
+				special_keys = {
+					'Enter',
+					'Tab',
+					'Delete',
+					'Backspace',
+					'Escape',
+					'ArrowUp',
+					'ArrowDown',
+					'ArrowLeft',
+					'ArrowRight',
+					'PageUp',
+					'PageDown',
+					'Home',
+					'End',
+					'Control',
+					'Alt',
+					'Meta',
+					'Shift',
+					'F1',
+					'F2',
+					'F3',
+					'F4',
+					'F5',
+					'F6',
+					'F7',
+					'F8',
+					'F9',
+					'F10',
+					'F11',
+					'F12',
+				}
+
+				# If it's a special key, use original logic
+				if normalized_keys in special_keys:
+					await self._dispatch_key_event(cdp_session, 'keyDown', normalized_keys)
+					await self._dispatch_key_event(cdp_session, 'keyUp', normalized_keys)
+				else:
+					# It's text (single character or string) - send each character as text input
+					# This is crucial for text to appear in focused input fields
+					for char in normalized_keys:
+						# Special-case newline characters to dispatch as Enter
+						if char in ('\n', '\r'):
+							await self._dispatch_key_event(cdp_session, 'keyDown', 'Enter')
+							await self._dispatch_key_event(cdp_session, 'keyUp', 'Enter')
+							continue
+
+						# Get proper modifiers and key info for the character
+						modifiers, vk_code, base_key = self._get_char_modifiers_and_vk(char)
+						key_code = self._get_key_code_for_char(base_key)
+
+						# Send keyDown
+						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'keyDown',
+								'key': base_key,
+								'code': key_code,
+								'modifiers': modifiers,
+								'windowsVirtualKeyCode': vk_code,
+							},
+							session_id=cdp_session.session_id,
+						)
+
+						# Send char event with text - this is what makes text appear in input fields
+						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'char',
+								'text': char,
+								'key': char,
+							},
+							session_id=cdp_session.session_id,
+						)
+
+						# Send keyUp
+						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'keyUp',
+								'key': base_key,
+								'code': key_code,
+								'modifiers': modifiers,
+								'windowsVirtualKeyCode': vk_code,
+							},
+							session_id=cdp_session.session_id,
+						)
+
+						# Small delay between characters (18ms like _type_to_page)
+						await asyncio.sleep(0.018)
 
 			self.logger.info(f'⌨️ Sent keys: {event.keys}')
 
@@ -1643,7 +1733,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 		try:
 			# Use the provided node
 			element_node = event.node
-			index_for_logging = element_node.element_index or 'unknown'
+			index_for_logging = element_node.backend_node_id or 'unknown'
 
 			# Check if it's a file input
 			if not self.browser_session.is_file_input(element_node):
@@ -1768,7 +1858,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 		try:
 			# Use the provided node
 			element_node = event.node
-			index_for_logging = element_node.element_index or 'unknown'
+			index_for_logging = element_node.backend_node_id or 'unknown'
 
 			# Get CDP session for this node
 			cdp_session = await self.browser_session.cdp_client_for_node(element_node)
@@ -1928,7 +2018,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					'error': msg,
 					'short_term_memory': msg,
 					'long_term_memory': msg,
-					'element_index': str(index_for_logging),
+					'backend_node_id': str(index_for_logging),
 				}
 
 			# Format options for display
@@ -1972,7 +2062,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				'message': msg,
 				'short_term_memory': short_term_memory,
 				'long_term_memory': long_term_memory,
-				'element_index': str(index_for_logging),
+				'backend_node_id': str(index_for_logging),
 			}
 
 		except BrowserError:
@@ -1995,7 +2085,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 		try:
 			# Use the provided node
 			element_node = event.node
-			index_for_logging = element_node.element_index or 'unknown'
+			index_for_logging = element_node.backend_node_id or 'unknown'
 			target_text = event.text
 
 			# Get CDP session for this node
@@ -2232,7 +2322,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 						'success': 'true',
 						'message': msg,
 						'value': selection_result.get('value', target_text),
-						'element_index': str(index_for_logging),
+						'backend_node_id': str(index_for_logging),
 					}
 				else:
 					error_msg = selection_result.get('error', f'Failed to select option: {target_text}')
@@ -2267,14 +2357,14 @@ class DefaultActionWatchdog(BaseWatchdog):
 								'error': error_msg,
 								'short_term_memory': short_term_memory,
 								'long_term_memory': long_term_memory,
-								'element_index': str(index_for_logging),
+								'backend_node_id': str(index_for_logging),
 							}
 
 					# Fallback to regular error result if no available options
 					return {
 						'success': 'false',
 						'error': error_msg,
-						'element_index': str(index_for_logging),
+						'backend_node_id': str(index_for_logging),
 					}
 
 			except Exception as e:

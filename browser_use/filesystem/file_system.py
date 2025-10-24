@@ -112,6 +112,14 @@ class CsvFile(BaseFile):
 		return 'csv'
 
 
+class JsonlFile(BaseFile):
+	"""JSONL (JSON Lines) file implementation"""
+
+	@property
+	def extension(self) -> str:
+		return 'jsonl'
+
+
 class PdfFile(BaseFile):
 	"""PDF file implementation"""
 
@@ -183,6 +191,7 @@ class FileSystem:
 			'md': MarkdownFile,
 			'txt': TxtFile,
 			'json': JsonFile,
+			'jsonl': JsonlFile,
 			'csv': CsvFile,
 			'pdf': PdfFile,
 		}
@@ -261,7 +270,7 @@ class FileSystem:
 					_, extension = self._parse_filename(full_filename)
 				except Exception:
 					return f'Error: Invalid filename format {full_filename}. Must be alphanumeric with a supported extension.'
-				if extension in ['md', 'txt', 'json', 'csv']:
+				if extension in ['md', 'txt', 'json', 'jsonl', 'csv']:
 					import anyio
 
 					async with await anyio.open_file(full_filename, 'r') as f:
@@ -489,6 +498,8 @@ class FileSystem:
 				file_obj = TxtFile(**file_info)
 			elif file_type == 'JsonFile':
 				file_obj = JsonFile(**file_info)
+			elif file_type == 'JsonlFile':
+				file_obj = JsonlFile(**file_info)
 			elif file_type == 'CsvFile':
 				file_obj = CsvFile(**file_info)
 			elif file_type == 'PdfFile':

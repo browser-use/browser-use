@@ -32,31 +32,37 @@ class ChatBrowserUse(BaseChatModel):
 	Usage:
 		agent = Agent(
 			task="Find the number of stars of the browser-use repo",
-			llm=ChatBrowserUse(),
+			llm=ChatBrowserUse(model='bu-latest'),
 		)
 	"""
 
 	def __init__(
 		self,
-		fast: bool = False,
+		model: str = 'bu-latest',
 		api_key: str | None = None,
 		base_url: str | None = None,
 		timeout: float = 120.0,
+		**kwargs,
 	):
 		"""
 		Initialize ChatBrowserUse client.
 
 		Args:
-			fast: If True, uses fast model. If False, uses smart model.
+			model: Model name to use. Options: 'bu-latest', 'bu-1-0'. Defaults to 'bu-latest'.
 			api_key: API key for browser-use cloud. Defaults to BROWSER_USE_API_KEY env var.
 			base_url: Base URL for the API. Defaults to BROWSER_USE_LLM_URL env var or production URL.
 			timeout: Request timeout in seconds.
 		"""
-		self.fast = fast
+		# Validate model name
+		valid_models = ['bu-latest', 'bu-1-0']
+		if model not in valid_models:
+			raise ValueError(f"Invalid model: '{model}'. Must be one of {valid_models}")
+
+		self.model = 'bu-1-0' if model == 'bu-latest' else model  # must update on new model releases
+		self.fast = False
 		self.api_key = api_key or os.getenv('BROWSER_USE_API_KEY')
 		self.base_url = base_url or os.getenv('BROWSER_USE_LLM_URL', 'https://llm.api.browser-use.com')
 		self.timeout = timeout
-		self.model = 'fast' if fast else 'smart'
 
 		if not self.api_key:
 			raise ValueError(
@@ -70,7 +76,7 @@ class ChatBrowserUse(BaseChatModel):
 
 	@property
 	def name(self) -> str:
-		return f'browser-use/{self.model}'
+		return self.model
 
 	@overload
 	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> ChatInvokeCompletion[str]: ...

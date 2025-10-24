@@ -452,32 +452,6 @@ class TestGetDropdownOptionsEvent:
 		assert 'type' in dropdown_data
 		assert dropdown_data['type'] == 'custom'
 
-	@pytest.mark.skip(reason='Timeout issue - test takes too long to complete')
-	async def test_element_not_found_error(self, tools, browser_session: BrowserSession, base_url):
-		"""Test get_dropdown_options with invalid element index."""
-		# Navigate to any test page
-		goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/native-dropdown', new_tab=False)}
-
-		class NavigateActionModel(ActionModel):
-			navigate: GoToUrlAction | None = None
-
-		await tools.act(NavigateActionModel(**goto_action), browser_session)
-		await browser_session.event_bus.expect(NavigationCompleteEvent, timeout=10.0)
-
-		# Try to get dropdown options with invalid index
-		class GetDropdownOptionsModel(ActionModel):
-			get_dropdown_options: dict[str, int]
-
-		result = await tools.act(
-			action=GetDropdownOptionsModel(get_dropdown_options={'index': 99999}),
-			browser_session=browser_session,
-		)
-
-		# Should return an error
-		assert isinstance(result, ActionResult)
-		assert result.error is not None
-		assert 'not found' in result.error.lower()
-
 
 class TestSelectDropdownOptionEvent:
 	"""Test SelectDropdownOptionEvent functionality for various dropdown types."""

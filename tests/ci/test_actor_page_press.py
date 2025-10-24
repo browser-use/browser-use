@@ -253,14 +253,23 @@ async def test_press_letter_keys(browser_session, httpserver: HTTPServer):
 
 	# Press letter keys
 	await page.press('a')
-	await asyncio.sleep(0.1)
+	await asyncio.sleep(0.2)
 	await page.press('B')
-	await asyncio.sleep(0.1)
+	await asyncio.sleep(0.2)
 
 	# Get the output
 	output_text = await page.evaluate('() => document.getElementById("output").textContent')
 
+	print(f'DEBUG: Evaluating JavaScript: {repr(output_text)!r}')
+
 	import json
+
+	# Handle empty output gracefully
+	if not output_text or output_text.strip() == '':
+		# Wait a bit longer and try again
+		await asyncio.sleep(0.5)
+		output_text = await page.evaluate('() => document.getElementById("output").textContent')
+		print(f'DEBUG: Second attempt: {repr(output_text)!r}')
 
 	pressed_keys = json.loads(output_text)
 

@@ -7,11 +7,11 @@ mode: "wide"
 
 
 ```python
-from browser_use import Agent, ChatOpenAI
+from browser_use import Agent, ChatBrowserUse
 
 agent = Agent(
     task="Search for latest news about AI",
-    llm=ChatOpenAI(model="gpt-4.1-mini"),
+    llm=ChatBrowserUse(),
 )
 
 async def main():
@@ -25,3 +25,5 @@ async def main():
 The agent is executed using the async `run()` method:
 
 - `max_steps` (default: `100`): Maximum number of steps an agent can take.
+
+Check out all customizable parameters <a href = "/customize/agent/all-parameters"> here</a>. 
