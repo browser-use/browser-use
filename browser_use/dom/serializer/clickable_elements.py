@@ -5,6 +5,24 @@ class ClickableElementDetector:
 	@staticmethod
 	def is_interactive(node: EnhancedDOMTreeNode) -> bool:
 		"""Check if this node is clickable/interactive using enhanced scoring."""
+		# Skip elements with inert attribute or aria-hidden="true"
+		if node.attributes:
+			if 'inert' in node.attributes:
+				return False
+			if node.attributes.get('aria-hidden', '').lower() == 'true':
+				return False
+
+		# Skip elements with bounding box size = 0 or fully offscreen
+		if node.snapshot_node and node.snapshot_node.bounds:
+			rect = node.snapshot_node.bounds
+			if rect.width <= 0 or rect.height <= 0:
+				return False
+
+			# Only filter out if the element is fully outside the viewport (not just x < 0)
+			# Assume viewport starts at (0,0) and has size at least 1x1
+			# If the right edge is left of 0, or the bottom edge is above 0, it's fully offscreen
+			if (rect.x + rect.width) <= 0 or (rect.y + rect.height) <= 0:
+				return False
 
 		# Skip non-element nodes
 		if node.node_type != NodeType.ELEMENT_NODE:
