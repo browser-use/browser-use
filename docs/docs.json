@@ -270,6 +270,7 @@
             "isDefaultOpen": false,
             "pages": [
               "development/monitoring/observability",
+              "development/monitoring/openlit",
               "development/monitoring/telemetry",
               "development/monitoring/costs"
             ]
