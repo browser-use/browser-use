@@ -1,7 +1,7 @@
 """
 Runs all agent tasks in parallel (up to 10 at a time) using separate subprocesses.
 Each task gets its own Python process, preventing browser session interference.
-Does not fail on partial failures (always exits 0).
+Fails with exit code 1 if 0% of tasks pass.
 """
 
 import argparse
@@ -15,9 +15,12 @@ import warnings
 
 import anyio
 import yaml
+from dotenv import load_dotenv
 from pydantic import BaseModel
 
-from browser_use import Agent, AgentHistoryList, BrowserProfile, BrowserSession, ChatGoogle
+load_dotenv()
+from browser_use import Agent, AgentHistoryList, BrowserProfile, BrowserSession, ChatBrowserUse
+from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.messages import UserMessage
 
 # --- CONFIG ---
@@ -55,9 +58,12 @@ async def run_single_task(task_file):
 
 		print(f'[DEBUG] Task: {task[:100]}...', file=sys.stderr)
 		print(f'[DEBUG] Max steps: {max_steps}', file=sys.stderr)
+		api_key = os.getenv('BROWSER_USE_API_KEY')
+		if not api_key:
+			raise ValueError('BROWSER_USE_API_KEY is not set')
 
-		agent_llm = ChatGoogle(model='gemini-flash-latest')
-		judge_llm = ChatGoogle(model='gemini-flash-latest')
+		agent_llm = ChatBrowserUse(api_key=api_key)
+		judge_llm = ChatGoogle(model='gemini-flash-lite-latest')
 		print('[DEBUG] LLMs initialized', file=sys.stderr)
 
 		# Each subprocess gets its own profile and session
@@ -343,3 +349,8 @@ if __name__ == '__main__':
 		# Parent process mode: run all tasks in parallel subprocesses
 		passed, total = asyncio.run(main())
 		# Results already printed by main() function
+
+		# Fail if 0% pass rate (all tasks failed)
+		if total > 0 and passed == 0:
+			print('\n❌ CRITICAL: 0% pass rate - all tasks failed!')
+			sys.exit(1)

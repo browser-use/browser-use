@@ -1,18 +1,23 @@
 """Export code-use session to Jupyter notebook format."""
 
 import json
+import re
 from pathlib import Path
 
-from .views import CellType, NotebookExport, NotebookSession
+from browser_use.code_use.service import CodeAgent
+
+from .views import CellType, NotebookExport
 
 
-def export_to_ipynb(session: NotebookSession, output_path: str | Path) -> Path:
+def export_to_ipynb(agent: CodeAgent, output_path: str | Path) -> Path:
 	"""
 	Export a NotebookSession to a Jupyter notebook (.ipynb) file.
+	Now includes JavaScript code blocks that were stored in the namespace.
 
 	Args:
 		session: The NotebookSession to export
 		output_path: Path where to save the notebook file
+		agent: Optional CodeAgent instance to access namespace for JavaScript blocks
 
 	Returns:
 		Path to the saved notebook file
@@ -20,7 +25,7 @@ def export_to_ipynb(session: NotebookSession, output_path: str | Path) -> Path:
 	Example:
 		```python
 	        session = await agent.run()
-	        notebook_path = export_to_ipynb(session, 'my_automation.ipynb')
+	        notebook_path = export_to_ipynb(agent, 'my_automation.ipynb')
 	        print(f'Notebook saved to {notebook_path}')
 		```
 	"""
@@ -44,6 +49,7 @@ def export_to_ipynb(session: NotebookSession, output_path: str | Path) -> Path:
 
 	# Add setup cell at the beginning with proper type hints
 	setup_code = """import asyncio
+import json
 from typing import Any
 from browser_use import BrowserSession
 from browser_use.code_use import create_namespace
@@ -73,8 +79,49 @@ print("Available functions: navigate, click, input, evaluate, search, extract, d
 	}
 	notebook.cells.append(setup_cell)
 
+	# Add JavaScript code blocks as variables FIRST
+	if hasattr(agent, 'namespace') and agent.namespace:
+		# Look for JavaScript variables in the namespace
+		code_block_vars = agent.namespace.get('_code_block_vars', set())
+
+		for var_name in sorted(code_block_vars):
+			var_value = agent.namespace.get(var_name)
+			if isinstance(var_value, str) and var_value.strip():
+				# Check if this looks like JavaScript code
+				# Look for common JS patterns
+				js_patterns = [
+					r'function\s+\w+\s*\(',
+					r'\(\s*function\s*\(\)',
+					r'=>\s*{',
+					r'document\.',
+					r'Array\.from\(',
+					r'\.querySelector',
+					r'\.textContent',
+					r'\.innerHTML',
+					r'return\s+',
+					r'console\.log',
+					r'window\.',
+					r'\.map\(',
+					r'\.filter\(',
+					r'\.forEach\(',
+				]
+
+				is_js = any(re.search(pattern, var_value, re.IGNORECASE) for pattern in js_patterns)
+
+				if is_js:
+					# Create a code cell with the JavaScript variable
+					js_cell = {
+						'cell_type': 'code',
+						'metadata': {},
+						'source': [f'# JavaScript Code Block: {var_name}\n', f'{var_name} = """{var_value}"""'],
+						'execution_count': None,
+						'outputs': [],
+					}
+					notebook.cells.append(js_cell)
+
 	# Convert cells
-	for cell in session.cells:
+	python_cell_count = 0
+	for cell in agent.session.cells:
 		notebook_cell: dict = {
 			'cell_type': cell.cell_type.value,
 			'metadata': {},
@@ -82,6 +129,7 @@ print("Available functions: navigate, click, input, evaluate, search, extract, d
 		}
 
 		if cell.cell_type == CellType.CODE:
+			python_cell_count += 1
 			notebook_cell['execution_count'] = cell.execution_count
 			notebook_cell['outputs'] = []
 
@@ -126,20 +174,21 @@ print("Available functions: navigate, click, input, evaluate, search, extract, d
 	return output_path
 
 
-def session_to_python_script(session: NotebookSession) -> str:
+def session_to_python_script(agent: CodeAgent) -> str:
 	"""
-	Convert a NotebookSession to a Python script.
+	Convert a CodeAgent session to a Python script.
+	Now includes JavaScript code blocks that were stored in the namespace.
 
 	Args:
-		session: The NotebookSession to convert
+		agent: The CodeAgent instance to convert
 
 	Returns:
 		Python script as a string
 
 	Example:
 		```python
-	        session = await agent.run()
-	        script = session_to_python_script(session)
+	        await agent.run()
+	        script = session_to_python_script(agent)
 	        print(script)
 		```
 	"""
@@ -147,6 +196,7 @@ def session_to_python_script(session: NotebookSession) -> str:
 
 	lines.append('# Generated from browser-use code-use session\n')
 	lines.append('import asyncio\n')
+	lines.append('import json\n')
 	lines.append('from browser_use import BrowserSession\n')
 	lines.append('from browser_use.code_use import create_namespace\n\n')
 
@@ -176,7 +226,38 @@ def session_to_python_script(session: NotebookSession) -> str:
 	lines.append('\tupload_file = namespace["upload_file"]\n')
 	lines.append('\tsend_keys = namespace["send_keys"]\n\n')
 
-	for i, cell in enumerate(session.cells):
+	# Add JavaScript code blocks as variables FIRST
+	if hasattr(agent, 'namespace') and agent.namespace:
+		code_block_vars = agent.namespace.get('_code_block_vars', set())
+
+		for var_name in sorted(code_block_vars):
+			var_value = agent.namespace.get(var_name)
+			if isinstance(var_value, str) and var_value.strip():
+				# Check if this looks like JavaScript code
+				js_patterns = [
+					r'function\s+\w+\s*\(',
+					r'\(\s*function\s*\(\)',
+					r'=>\s*{',
+					r'document\.',
+					r'Array\.from\(',
+					r'\.querySelector',
+					r'\.textContent',
+					r'\.innerHTML',
+					r'return\s+',
+					r'console\.log',
+					r'window\.',
+					r'\.map\(',
+					r'\.filter\(',
+					r'\.forEach\(',
+				]
+
+				is_js = any(re.search(pattern, var_value, re.IGNORECASE) for pattern in js_patterns)
+
+				if is_js:
+					lines.append(f'\t# JavaScript Code Block: {var_name}\n')
+					lines.append(f'\t{var_name} = """{var_value}"""\n\n')
+
+	for i, cell in enumerate(agent.session.cells):
 		if cell.cell_type == CellType.CODE:
 			lines.append(f'\t# Cell {i + 1}\n')
 

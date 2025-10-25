@@ -10,7 +10,7 @@ This example demonstrates how to:
 This is the most advanced getting started example, combining all previous concepts.
 
 Setup:
-1. Get your API key from https://cloud.browser-use.com/dashboard/api
+1. Get your API key from https://cloud.browser-use.com/new-api-key
 2. Set environment variable: export BROWSER_USE_API_KEY="your-key"
 """
 

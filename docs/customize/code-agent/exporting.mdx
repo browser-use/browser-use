@@ -1,0 +1,129 @@
+---
+title: "Exporting Sessions"
+description: "Save and share your CodeAgent sessions as Jupyter notebooks or Python scripts"
+icon: "download"
+---
+
+CodeAgent automatically saves all executed code and JavaScript blocks during your session. You can export your complete automation workflow in multiple formats for sharing, version control, or re-running later.
+
+## Quick Start
+
+```python
+import asyncio
+from browser_use import CodeAgent, ChatBrowserUse
+from browser_use.code_use.notebook_export import export_to_ipynb, session_to_python_script
+
+async def main():
+    agent = CodeAgent(
+        task="Extract product data from https://example.com",
+        llm=ChatBrowserUse(),
+        max_steps=10
+    )
+    
+    # Run your automation
+    await agent.run()
+    
+    # Export to Jupyter notebook
+    notebook_path = export_to_ipynb(agent, "product_scraping.ipynb")
+    
+    # Export to Python script
+    python_script = session_to_python_script(agent)
+    with open("product_scraping.py", "w") as f:
+        f.write(python_script)
+
+if __name__ == '__main__':
+    asyncio.run(main())
+```
+
+## Export Formats
+
+### Jupyter Notebook (.ipynb)
+
+**Contains:**
+- Setup cell with browser initialization and imports
+- JavaScript code blocks as Python string variables
+- All executed Python cells with outputs and errors
+- Browser state snapshots
+
+**Structure:**
+```python
+# Cell 1: Setup
+import asyncio
+import json
+from browser_use import BrowserSession
+from browser_use.code_use import create_namespace
+
+browser = BrowserSession()
+await browser.start()
+namespace = create_namespace(browser)
+globals().update(namespace)
+
+# Cell 2: JavaScript variables
+extract_products = """(function(){
+    return Array.from(document.querySelectorAll('.product')).map(product => ({
+        name: product.querySelector('.name')?.textContent,
+        price: product.querySelector('.price')?.textContent
+    }));
+})()"""
+
+# Remaining cells: Python execution
+await navigate('https://example.com')
+
+...
+
+products = await evaluate(extract_products)
+print(f"Found {len(products)} products")
+```
+
+### Python Script (.py)
+
+**Best for:** Production deployment, version control, automation
+
+**Contains:**
+- Complete runnable script with all imports
+- JavaScript code blocks as Python string variables
+- All executed code with proper indentation
+- Ready to run with `python script.py`
+
+**Structure:**
+```python
+# Generated from browser-use code-use session
+import asyncio
+import json
+from browser_use import BrowserSession
+from browser_use.code_use import create_namespace
+
+async def main():
+    # Initialize browser and namespace
+    browser = BrowserSession()
+    await browser.start()
+    
+    # Create namespace with all browser control functions
+    namespace = create_namespace(browser)
+    
+    # Extract functions from namespace for direct access
+    navigate = namespace["navigate"]
+    click = namespace["click"]
+    evaluate = namespace["evaluate"]
+    # ... other functions
+    
+    # JavaScript Code Block: extract_products
+    extract_products = """(function(){
+        return Array.from(document.querySelectorAll('.product')).map(product => ({
+            name: product.querySelector('.name')?.textContent,
+            price: product.querySelector('.price')?.textContent
+        }));
+    })()"""
+    
+    # Cell 1
+    await navigate('https://example.com')
+    
+    # Cell 2
+    products = await evaluate(extract_products)
+    print(f"Found {len(products)} products")
+    
+    await browser.stop()
+
+if __name__ == '__main__':
+    asyncio.run(main())
+```

@@ -1,0 +1,31 @@
+---
+title: "All Parameters"
+description: "Complete reference for all CodeAgent configuration options"
+icon: "sliders"
+mode: "wide"
+---
+
+## CodeAgent Parameters
+
+### Core Settings
+- `task`: Task description string that defines what the agent should accomplish
+- `llm`: LLM instance for code generation (required: ChatBrowserUse)
+- `browser`: Browser session object for automation
+- `tools`: Registry of tools the agent can call
+- `max_steps` (default: `20`): Maximum number of execution steps before termination
+- `max_failures` (default: `8`): Maximum consecutive errors before termination
+- `max_validations` (default: `0`): Maximum number of times to run the validator agent (default: 0)
+
+### Vision & Processing
+- `use_vision` (default: `"auto"`): Vision mode - `"auto"` includes screenshot tool but only uses vision when requested, `True` always includes screenshots, `False` never includes screenshots and excludes screenshot tool
+- `page_extraction_llm`: Separate LLM model for page content extraction. You can choose a small & fast model because it only needs to extract text from the page (default: same as `llm`)
+
+### Actions & Behavior
+- `use_thinking` (default: `True`): Controls whether the agent uses its internal "thinking" field for explicit reasoning steps
+
+### File & Data Management
+- `available_file_paths`: List of file paths the agent can access
+- `sensitive_data`: Dictionary of sensitive data to handle carefully
+
+### Advanced Options
+- `calculate_cost` (default: `False`): Calculate and track API costs (see ... to track costs)

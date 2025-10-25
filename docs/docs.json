@@ -162,6 +162,17 @@
             ]
           },
           {
+            "group": "Code Agent",
+            "icon": "code",
+            "isDefaultOpen": false,
+            "pages": [
+              "customize/code-agent/basics",
+              "customize/code-agent/exporting",
+              "customize/code-agent/all-parameters",
+              "customize/code-agent/example-products"
+            ]
+          },
+          {
             "group": "Browser",
             "icon": "window",
             "isDefaultOpen": false,
