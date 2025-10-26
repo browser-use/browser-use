@@ -198,6 +198,11 @@ class CodeAgent:
 			assert self._browser_profile_for_init is not None
 			self.browser_session = BrowserSession(browser_profile=self._browser_profile_for_init)
 			await self.browser_session.start()
+		else:
+			# If browser_session was provided, ensure it's started (attaches watchdogs)
+			# Check if watchdogs are already attached to avoid duplicate calls
+			if not getattr(self.browser_session, '_watchdogs_attached', False):
+				await self.browser_session.start()
 
 		# Initialize DOM service with cross-origin iframe support enabled
 		self.dom_service = DomService(
