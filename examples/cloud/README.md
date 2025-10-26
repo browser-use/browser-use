@@ -4,7 +4,7 @@ Welcome to the Browser Use Cloud examples! This folder contains progressively co
 
 ## 📋 Prerequisites
 
-1. **API Key**: Get your API key from [cloud.browser-use.com/dashboard/api](https://cloud.browser-use.com/dashboard/api)
+1. **API Key**: Get your API key from [cloud.browser-use.com](https://cloud.browser-use.com/new-api-key)
 2. **Python Environment**: Python 3.11+ with dependencies
 3. **Environment Variables**: Configure your API settings
 

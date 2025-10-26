@@ -42,8 +42,11 @@ def mock_auth_config(temp_config_dir):
 class TestCloudBrowserClient:
 	"""Test CloudBrowserClient class."""
 
-	async def test_create_browser_success(self, mock_auth_config):
+	async def test_create_browser_success(self, mock_auth_config, monkeypatch):
 		"""Test successful cloud browser creation."""
+
+		# Clear environment variable so test uses mock_auth_config
+		monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
 
 		# Mock response data matching the API
 		mock_response_data = {
@@ -82,25 +85,24 @@ class TestCloudBrowserClient:
 			assert 'X-Browser-Use-API-Key' in call_args.kwargs['headers']
 			assert call_args.kwargs['headers']['X-Browser-Use-API-Key'] == 'test-token'
 
-	async def test_create_browser_auth_error(self, temp_config_dir):
+	async def test_create_browser_auth_error(self, temp_config_dir, monkeypatch):
 		"""Test cloud browser creation with auth error."""
 
-		# Don't create auth config - should trigger auth error
+		# Clear environment variable and don't create auth config - should trigger auth error
+		monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
 
-		with patch('httpx.AsyncClient') as mock_client_class:
-			mock_client = AsyncMock()
-			mock_client_class.return_value = mock_client
+		client = CloudBrowserClient()
 
-			client = CloudBrowserClient()
-			client.client = mock_client
+		with pytest.raises(CloudBrowserAuthError) as exc_info:
+			await client.create_browser()
 
-			with pytest.raises(CloudBrowserAuthError) as exc_info:
-				await client.create_browser()
+		assert 'BROWSER_USE_API_KEY environment variable' in str(exc_info.value)
 
-			assert 'BROWSER_USE_API_KEY environment variable' in str(exc_info.value)
-
-	async def test_create_browser_http_401(self, mock_auth_config):
+	async def test_create_browser_http_401(self, mock_auth_config, monkeypatch):
 		"""Test cloud browser creation with HTTP 401 response."""
+
+		# Clear environment variable so test uses mock_auth_config
+		monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
 
 		with patch('httpx.AsyncClient') as mock_client_class:
 			mock_response = AsyncMock()
@@ -161,8 +163,11 @@ class TestCloudBrowserClient:
 			assert 'X-Browser-Use-API-Key' in call_args.kwargs['headers']
 			assert call_args.kwargs['headers']['X-Browser-Use-API-Key'] == 'env-test-token'
 
-	async def test_stop_browser_success(self, mock_auth_config):
+	async def test_stop_browser_success(self, mock_auth_config, monkeypatch):
 		"""Test successful cloud browser session stop."""
+
+		# Clear environment variable so test uses mock_auth_config
+		monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
 
 		# Mock response data for stop
 		mock_response_data = {
@@ -202,8 +207,11 @@ class TestCloudBrowserClient:
 			assert call_args.kwargs['json'] == {'action': 'stop'}
 			assert 'X-Browser-Use-API-Key' in call_args.kwargs['headers']
 
-	async def test_stop_browser_session_not_found(self, mock_auth_config):
+	async def test_stop_browser_session_not_found(self, mock_auth_config, monkeypatch):
 		"""Test stopping a browser session that doesn't exist."""
+
+		# Clear environment variable so test uses mock_auth_config
+		monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
 
 		with patch('httpx.AsyncClient') as mock_client_class:
 			mock_response = AsyncMock()
@@ -235,8 +243,11 @@ class TestBrowserSessionCloudIntegration:
 		assert session.cloud_browser is True
 		assert session.browser_profile.use_cloud is True
 
-	async def test_browser_session_cloud_browser_logic(self, mock_auth_config):
+	async def test_browser_session_cloud_browser_logic(self, mock_auth_config, monkeypatch):
 		"""Test that cloud browser profile settings work correctly."""
+
+		# Clear environment variable so test uses mock_auth_config
+		monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
 
 		# Test cloud browser profile creation
 		profile = BrowserProfile(use_cloud=True)
@@ -255,8 +266,11 @@ class TestBrowserSessionCloudIntegration:
 			mock_get_cdp_url.assert_called_once()
 
 
-async def test_get_cloud_browser_cdp_url_function(mock_auth_config):
+async def test_get_cloud_browser_cdp_url_function(mock_auth_config, monkeypatch):
 	"""Test the get_cloud_browser_cdp_url convenience function."""
+
+	# Clear environment variable so test uses mock_auth_config
+	monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
 
 	mock_response_data = {
 		'id': 'test-browser-id',
@@ -283,29 +297,31 @@ async def test_get_cloud_browser_cdp_url_function(mock_auth_config):
 		assert cdp_url == 'wss://test.proxy.daytona.works'
 
 
-async def test_cloud_browser_auth_error_no_fallback(temp_config_dir):
+async def test_cloud_browser_auth_error_no_fallback(temp_config_dir, monkeypatch):
 	"""Test that cloud browser throws error when auth fails (no fallback)."""
+
+	# Clear environment variable and don't create auth config to trigger auth error
+	monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
 
 	# Don't create auth config to trigger auth error
 	profile = BrowserProfile(use_cloud=True)
 
-	# Test that cloud browser client raises error without fallback
-	with patch('browser_use.browser.cloud.get_cloud_browser_cdp_url') as mock_cloud_cdp:
-		mock_cloud_cdp.side_effect = CloudBrowserAuthError('No auth token')
+	# Verify that the cloud browser client raises the expected error
+	with pytest.raises(CloudBrowserAuthError) as exc_info:
+		await get_cloud_browser_cdp_url()
 
-		# Verify that the cloud browser client raises the expected error
-		with pytest.raises(CloudBrowserAuthError) as exc_info:
-			await get_cloud_browser_cdp_url()
+	assert 'BROWSER_USE_API_KEY environment variable' in str(exc_info.value)
 
-		assert 'BROWSER_USE_API_KEY environment variable' in str(exc_info.value)
-
-		# Verify profile state unchanged (no fallback)
-		assert profile.use_cloud is True
-		assert profile.is_local is False
+	# Verify profile state unchanged (no fallback)
+	assert profile.use_cloud is True
+	assert profile.is_local is False
 
 
-async def test_stop_cloud_browser_session_function(mock_auth_config):
+async def test_stop_cloud_browser_session_function(mock_auth_config, monkeypatch):
 	"""Test the stop_cloud_browser_session convenience function."""
+
+	# Clear environment variable so test uses mock_auth_config
+	monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
 
 	mock_response_data = {
 		'id': 'test-browser-id',

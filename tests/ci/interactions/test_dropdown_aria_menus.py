@@ -1,11 +1,10 @@
 import pytest
 from pytest_httpserver import HTTPServer
 
-from browser_use.agent.views import ActionModel, ActionResult
+from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
 from browser_use.tools.service import Tools
-from browser_use.tools.views import GoToUrlAction
 
 
 @pytest.fixture(scope='session')
@@ -152,12 +151,7 @@ class TestARIAMenuDropdown:
 	async def test_get_dropdown_options_with_aria_menu(self, tools, browser_session: BrowserSession, base_url):
 		"""Test that get_dropdown_options can retrieve options from ARIA menus."""
 		# Navigate to the ARIA menu test page
-		goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/aria-menu', new_tab=False)}
-
-		class NavigateActionModel(ActionModel):
-			navigate: GoToUrlAction | None = None
-
-		await tools.act(NavigateActionModel(**goto_action), browser_session)
+		await tools.navigate(url=f'{base_url}/aria-menu', new_tab=False, browser_session=browser_session)
 
 		# Wait for the page to load
 		from browser_use.browser.events import NavigationCompleteEvent
@@ -167,39 +161,13 @@ class TestARIAMenuDropdown:
 		# Initialize the DOM state to populate the selector map
 		await browser_session.get_browser_state_summary()
 
-		# Get the selector map
-		selector_map = await browser_session.get_selector_map()
+		# Find the ARIA menu element by ID
+		menu_index = await browser_session.get_index_by_id('pyNavigation1752753375773')
 
-		# Find the ARIA menu element in the selector map
-		menu_index = None
-		for idx, element in selector_map.items():
-			# Look for the main UL with role="menu" and id="pyNavigation1752753375773"
-			if (
-				element.tag_name.lower() == 'ul'
-				and element.attributes.get('role') == 'menu'
-				and element.attributes.get('id') == 'pyNavigation1752753375773'
-			):
-				menu_index = idx
-				break
-
-		available_elements = [
-			f'{idx}: {element.tag_name} id={element.attributes.get("id", "None")} role={element.attributes.get("role", "None")}'
-			for idx, element in selector_map.items()
-		]
-
-		assert menu_index is not None, (
-			f'Could not find ARIA menu element in selector map. Available elements: {available_elements}'
-		)
-
-		# Create a model for the get_dropdown_options action
-		class GetDropdownOptionsModel(ActionModel):
-			get_dropdown_options: dict[str, int]
+		assert menu_index is not None, 'Could not find ARIA menu element'
 
 		# Execute the action with the menu index
-		result = await tools.act(
-			action=GetDropdownOptionsModel(get_dropdown_options={'index': menu_index}),
-			browser_session=browser_session,
-		)
+		result = await tools.dropdown_options(index=menu_index, browser_session=browser_session)
 
 		# Verify the result structure
 		assert isinstance(result, ActionResult)
@@ -219,12 +187,7 @@ class TestARIAMenuDropdown:
 	async def test_select_dropdown_option_with_aria_menu(self, tools, browser_session: BrowserSession, base_url):
 		"""Test that select_dropdown_option can select an option from ARIA menus."""
 		# Navigate to the ARIA menu test page
-		goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/aria-menu', new_tab=False)}
-
-		class NavigateActionModel(ActionModel):
-			navigate: GoToUrlAction | None = None
-
-		await tools.act(NavigateActionModel(**goto_action), browser_session)
+		await tools.navigate(url=f'{base_url}/aria-menu', new_tab=False, browser_session=browser_session)
 
 		# Wait for the page to load
 		from browser_use.browser.events import NavigationCompleteEvent
@@ -234,39 +197,13 @@ class TestARIAMenuDropdown:
 		# Initialize the DOM state to populate the selector map
 		await browser_session.get_browser_state_summary()
 
-		# Get the selector map
-		selector_map = await browser_session.get_selector_map()
+		# Find the ARIA menu element by ID
+		menu_index = await browser_session.get_index_by_id('pyNavigation1752753375773')
 
-		# Find the ARIA menu element in the selector map
-		menu_index = None
-		for idx, element in selector_map.items():
-			# Look for the main UL with role="menu" and id="pyNavigation1752753375773"
-			if (
-				element.tag_name.lower() == 'ul'
-				and element.attributes.get('role') == 'menu'
-				and element.attributes.get('id') == 'pyNavigation1752753375773'
-			):
-				menu_index = idx
-				break
-
-		available_elements = [
-			f'{idx}: {element.tag_name} id={element.attributes.get("id", "None")} role={element.attributes.get("role", "None")}'
-			for idx, element in selector_map.items()
-		]
-
-		assert menu_index is not None, (
-			f'Could not find ARIA menu element in selector map. Available elements: {available_elements}'
-		)
-
-		# Create a model for the select_dropdown_option action
-		class SelectDropdownOptionModel(ActionModel):
-			select_dropdown_option: dict
+		assert menu_index is not None, 'Could not find ARIA menu element'
 
 		# Execute the action with the menu index to select "Filter"
-		result = await tools.act(
-			SelectDropdownOptionModel(select_dropdown_option={'index': menu_index, 'text': 'Filter'}),
-			browser_session,
-		)
+		result = await tools.select_dropdown(index=menu_index, text='Filter', browser_session=browser_session)
 
 		# Verify the result structure
 		assert isinstance(result, ActionResult)
@@ -289,12 +226,7 @@ class TestARIAMenuDropdown:
 	async def test_get_dropdown_options_with_nested_aria_menu(self, tools, browser_session: BrowserSession, base_url):
 		"""Test that get_dropdown_options can handle nested ARIA menus (like Sort submenu)."""
 		# Navigate to the ARIA menu test page
-		goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/aria-menu', new_tab=False)}
-
-		class NavigateActionModel(ActionModel):
-			navigate: GoToUrlAction | None = None
-
-		await tools.act(NavigateActionModel(**goto_action), browser_session)
+		await tools.navigate(url=f'{base_url}/aria-menu', new_tab=False, browser_session=browser_session)
 
 		# Wait for the page to load
 		from browser_use.browser.events import NavigationCompleteEvent
@@ -332,15 +264,8 @@ class TestARIAMenuDropdown:
 			f'Could not find any ARIA menu element in selector map. Available elements: {[f"{idx}: {element.tag_name}" for idx, element in selector_map.items()]}'
 		)
 
-		# Create a model for the get_dropdown_options action
-		class GetDropdownOptionsModel(ActionModel):
-			get_dropdown_options: dict[str, int]
-
 		# Execute the action with the menu index
-		result = await tools.act(
-			action=GetDropdownOptionsModel(get_dropdown_options={'index': nested_menu_index}),
-			browser_session=browser_session,
-		)
+		result = await tools.dropdown_options(index=nested_menu_index, browser_session=browser_session)
 
 		# Verify the result structure
 		assert isinstance(result, ActionResult)

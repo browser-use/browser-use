@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.9.0"
+version = "0.9.1"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -142,7 +142,7 @@ skip-magic-trailing-comma = false
 
 [tool.pyright]
 typeCheckingMode = "basic"
-exclude = [".venv/", ".git/", "__pycache__/", "./test_*.py", "./debug_*.py", "private_example/", "debug/*", "tests/scripts/*", "tests/old/*", "browser_use/dom/playground/*", "examples/use-cases/onepassword.py", "browser_use/llm/oci_raw/*", "browser_use/llm/tests/test_chat_models.py", "browser_use/llm/tests/test_single_step.py"]
+exclude = [".venv/", ".git/", "__pycache__/", "./test_*.py", "./debug_*.py", "private_example/", "debug/*", "tests/scripts/*", "tests/old/*", "browser_use/dom/playground/*", "examples/use-cases/onepassword.py", "browser_use/llm/oci_raw/*", "browser_use/llm/tests/test_chat_models.py", "browser_use/llm/tests/test_single_step.py", "product_extraction.py", "discover/", "list/"]
 venvPath = "."
 venv = ".venv"
 

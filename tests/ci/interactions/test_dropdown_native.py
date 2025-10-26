@@ -9,12 +9,11 @@ This file consolidates all tests related to dropdown functionality including:
 import pytest
 from pytest_httpserver import HTTPServer
 
-from browser_use.agent.views import ActionModel, ActionResult
+from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.events import GetDropdownOptionsEvent, NavigationCompleteEvent, SelectDropdownOptionEvent
 from browser_use.browser.profile import BrowserProfile
 from browser_use.tools.service import Tools
-from browser_use.tools.views import GoToUrlAction
 
 
 @pytest.fixture(scope='session')
@@ -278,36 +277,18 @@ class TestGetDropdownOptionsEvent:
 	async def test_native_select_dropdown(self, tools, browser_session: BrowserSession, base_url):
 		"""Test get_dropdown_options with native HTML select element."""
 		# Navigate to the native dropdown test page
-		goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/native-dropdown', new_tab=False)}
-
-		class NavigateActionModel(ActionModel):
-			navigate: GoToUrlAction | None = None
-
-		await tools.act(NavigateActionModel(**goto_action), browser_session)
+		await tools.navigate(url=f'{base_url}/native-dropdown', new_tab=False, browser_session=browser_session)
 
 		# Initialize the DOM state to populate the selector map
 		await browser_session.get_browser_state_summary()
 
-		# Get the selector map and find the select element
-		selector_map = await browser_session.get_selector_map()
-		dropdown_index = None
-		for idx, element in selector_map.items():
-			if element.tag_name.lower() == 'select' and element.attributes.get('id') == 'test-dropdown':
-				dropdown_index = idx
-				break
+		# Find the select element by ID
+		dropdown_index = await browser_session.get_index_by_id('test-dropdown')
 
-		assert dropdown_index is not None, (
-			f'Could not find select element in selector map. Available elements: {[f"{idx}: {element.tag_name}" for idx, element in selector_map.items()]}'
-		)
+		assert dropdown_index is not None, 'Could not find select element'
 
 		# Test via tools action
-		class GetDropdownOptionsModel(ActionModel):
-			get_dropdown_options: dict[str, int]
-
-		result = await tools.act(
-			action=GetDropdownOptionsModel(get_dropdown_options={'index': dropdown_index}),
-			browser_session=browser_session,
-		)
+		result = await tools.dropdown_options(index=dropdown_index, browser_session=browser_session)
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
@@ -336,43 +317,18 @@ class TestGetDropdownOptionsEvent:
 	async def test_aria_menu_dropdown(self, tools, browser_session: BrowserSession, base_url):
 		"""Test get_dropdown_options with ARIA role='menu' element."""
 		# Navigate to the ARIA menu test page
-		goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/aria-menu', new_tab=False)}
-
-		class NavigateActionModel(ActionModel):
-			navigate: GoToUrlAction | None = None
-
-		await tools.act(NavigateActionModel(**goto_action), browser_session)
+		await tools.navigate(url=f'{base_url}/aria-menu', new_tab=False, browser_session=browser_session)
 
 		# Initialize the DOM state
 		await browser_session.get_browser_state_summary()
 
-		# Get the selector map and find the ARIA menu
-		selector_map = await browser_session.get_selector_map()
-		menu_index = None
-		for idx, element in selector_map.items():
-			if (
-				element.tag_name.lower() == 'ul'
-				and element.attributes.get('role') == 'menu'
-				and element.attributes.get('id') == 'pyNavigation1752753375773'
-			):
-				menu_index = idx
-				break
+		# Find the ARIA menu by ID
+		menu_index = await browser_session.get_index_by_id('pyNavigation1752753375773')
 
-		assert menu_index is not None, 'Could not find ARIA menu element in selector map. Available elements: [%s]' % (
-			', '.join(
-				'{}: {} role={}'.format(idx, element.tag_name, element.attributes.get('role', 'None'))
-				for idx, element in selector_map.items()
-			)
-		)
+		assert menu_index is not None, 'Could not find ARIA menu element'
 
 		# Test via tools action
-		class GetDropdownOptionsModel(ActionModel):
-			get_dropdown_options: dict[str, int]
-
-		result = await tools.act(
-			action=GetDropdownOptionsModel(get_dropdown_options={'index': menu_index}),
-			browser_session=browser_session,
-		)
+		result = await tools.dropdown_options(index=menu_index, browser_session=browser_session)
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
@@ -398,39 +354,18 @@ class TestGetDropdownOptionsEvent:
 	async def test_custom_dropdown(self, tools, browser_session: BrowserSession, base_url):
 		"""Test get_dropdown_options with custom dropdown implementation."""
 		# Navigate to the custom dropdown test page
-		goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/custom-dropdown', new_tab=False)}
-
-		class NavigateActionModel(ActionModel):
-			navigate: GoToUrlAction | None = None
-
-		await tools.act(NavigateActionModel(**goto_action), browser_session)
+		await tools.navigate(url=f'{base_url}/custom-dropdown', new_tab=False, browser_session=browser_session)
 
 		# Initialize the DOM state
 		await browser_session.get_browser_state_summary()
 
-		# Get the selector map and find the custom dropdown
-		selector_map = await browser_session.get_selector_map()
-		dropdown_index = None
-		for idx, element in selector_map.items():
-			if element.attributes.get('id') == 'custom-dropdown' and 'dropdown' in element.attributes.get('class', ''):
-				dropdown_index = idx
-				break
+		# Find the custom dropdown by ID
+		dropdown_index = await browser_session.get_index_by_id('custom-dropdown')
 
-		assert dropdown_index is not None, 'Could not find custom dropdown element in selector map. Available elements: [%s]' % (
-			', '.join(
-				'{}: {} id={}'.format(idx, element.tag_name, element.attributes.get('id', 'None'))
-				for idx, element in selector_map.items()
-			)
-		)
+		assert dropdown_index is not None, 'Could not find custom dropdown element'
 
 		# Test via tools action
-		class GetDropdownOptionsModel(ActionModel):
-			get_dropdown_options: dict[str, int]
-
-		result = await tools.act(
-			action=GetDropdownOptionsModel(get_dropdown_options={'index': dropdown_index}),
-			browser_session=browser_session,
-		)
+		result = await tools.dropdown_options(index=dropdown_index, browser_session=browser_session)
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
@@ -460,35 +395,19 @@ class TestSelectDropdownOptionEvent:
 	async def test_select_native_dropdown_option(self, tools, browser_session: BrowserSession, base_url):
 		"""Test select_dropdown_option with native HTML select element."""
 		# Navigate to the native dropdown test page
-		goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/native-dropdown', new_tab=False)}
-
-		class NavigateActionModel(ActionModel):
-			navigate: GoToUrlAction | None = None
-
-		await tools.act(NavigateActionModel(**goto_action), browser_session)
+		await tools.navigate(url=f'{base_url}/native-dropdown', new_tab=False, browser_session=browser_session)
 		await browser_session.event_bus.expect(NavigationCompleteEvent, timeout=10.0)
 
 		# Initialize the DOM state
 		await browser_session.get_browser_state_summary()
 
-		# Get the selector map and find the select element
-		selector_map = await browser_session.get_selector_map()
-		dropdown_index = None
-		for idx, element in selector_map.items():
-			if element.tag_name.lower() == 'select' and element.attributes.get('id') == 'test-dropdown':
-				dropdown_index = idx
-				break
+		# Find the select element by ID
+		dropdown_index = await browser_session.get_index_by_id('test-dropdown')
 
 		assert dropdown_index is not None
 
 		# Test via tools action
-		class SelectDropdownOptionModel(ActionModel):
-			select_dropdown_option: dict
-
-		result = await tools.act(
-			SelectDropdownOptionModel(select_dropdown_option={'index': dropdown_index, 'text': 'Second Option'}),
-			browser_session,
-		)
+		result = await tools.select_dropdown(index=dropdown_index, text='Second Option', browser_session=browser_session)
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
@@ -508,39 +427,19 @@ class TestSelectDropdownOptionEvent:
 	async def test_select_aria_menu_option(self, tools, browser_session: BrowserSession, base_url):
 		"""Test select_dropdown_option with ARIA menu."""
 		# Navigate to the ARIA menu test page
-		goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/aria-menu', new_tab=False)}
-
-		class NavigateActionModel(ActionModel):
-			navigate: GoToUrlAction | None = None
-
-		await tools.act(NavigateActionModel(**goto_action), browser_session)
+		await tools.navigate(url=f'{base_url}/aria-menu', new_tab=False, browser_session=browser_session)
 		await browser_session.event_bus.expect(NavigationCompleteEvent, timeout=10.0)
 
 		# Initialize the DOM state
 		await browser_session.get_browser_state_summary()
 
-		# Get the selector map and find the ARIA menu
-		selector_map = await browser_session.get_selector_map()
-		menu_index = None
-		for idx, element in selector_map.items():
-			if (
-				element.tag_name.lower() == 'ul'
-				and element.attributes.get('role') == 'menu'
-				and element.attributes.get('id') == 'pyNavigation1752753375773'
-			):
-				menu_index = idx
-				break
+		# Find the ARIA menu by ID
+		menu_index = await browser_session.get_index_by_id('pyNavigation1752753375773')
 
 		assert menu_index is not None
 
 		# Test via tools action
-		class SelectDropdownOptionModel(ActionModel):
-			select_dropdown_option: dict
-
-		result = await tools.act(
-			SelectDropdownOptionModel(select_dropdown_option={'index': menu_index, 'text': 'Filter'}),
-			browser_session,
-		)
+		result = await tools.select_dropdown(index=menu_index, text='Filter', browser_session=browser_session)
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
@@ -560,35 +459,19 @@ class TestSelectDropdownOptionEvent:
 	async def test_select_custom_dropdown_option(self, tools, browser_session: BrowserSession, base_url):
 		"""Test select_dropdown_option with custom dropdown."""
 		# Navigate to the custom dropdown test page
-		goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/custom-dropdown', new_tab=False)}
-
-		class NavigateActionModel(ActionModel):
-			navigate: GoToUrlAction | None = None
-
-		await tools.act(NavigateActionModel(**goto_action), browser_session)
+		await tools.navigate(url=f'{base_url}/custom-dropdown', new_tab=False, browser_session=browser_session)
 		await browser_session.event_bus.expect(NavigationCompleteEvent, timeout=10.0)
 
 		# Initialize the DOM state
 		await browser_session.get_browser_state_summary()
 
-		# Get the selector map and find the custom dropdown
-		selector_map = await browser_session.get_selector_map()
-		dropdown_index = None
-		for idx, element in selector_map.items():
-			if element.attributes.get('id') == 'custom-dropdown' and 'dropdown' in element.attributes.get('class', ''):
-				dropdown_index = idx
-				break
+		# Find the custom dropdown by ID
+		dropdown_index = await browser_session.get_index_by_id('custom-dropdown')
 
 		assert dropdown_index is not None
 
 		# Test via tools action
-		class SelectDropdownOptionModel(ActionModel):
-			select_dropdown_option: dict
-
-		result = await tools.act(
-			SelectDropdownOptionModel(select_dropdown_option={'index': dropdown_index, 'text': 'Blue'}),
-			browser_session,
-		)
+		result = await tools.select_dropdown(index=dropdown_index, text='Blue', browser_session=browser_session)
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
@@ -608,24 +491,14 @@ class TestSelectDropdownOptionEvent:
 	async def test_select_invalid_option_error(self, tools, browser_session: BrowserSession, base_url):
 		"""Test select_dropdown_option with non-existent option text."""
 		# Navigate to the native dropdown test page
-		goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/native-dropdown', new_tab=False)}
-
-		class NavigateActionModel(ActionModel):
-			navigate: GoToUrlAction | None = None
-
-		await tools.act(NavigateActionModel(**goto_action), browser_session)
+		await tools.navigate(url=f'{base_url}/native-dropdown', new_tab=False, browser_session=browser_session)
 		await browser_session.event_bus.expect(NavigationCompleteEvent, timeout=10.0)
 
 		# Initialize the DOM state
 		await browser_session.get_browser_state_summary()
 
-		# Get the selector map and find the select element
-		selector_map = await browser_session.get_selector_map()
-		dropdown_index = None
-		for idx, element in selector_map.items():
-			if element.tag_name.lower() == 'select' and element.attributes.get('id') == 'test-dropdown':
-				dropdown_index = idx
-				break
+		# Find the select element by ID
+		dropdown_index = await browser_session.get_index_by_id('test-dropdown')
 
 		assert dropdown_index is not None
 

@@ -10,7 +10,7 @@ This example demonstrates how to:
 This builds on previous examples by showing how to get valuable data from websites.
 
 Setup:
-1. Get your API key from https://cloud.browser-use.com/dashboard/api
+1. Get your API key from https://cloud.browser-use.com/new-api-key
 2. Set environment variable: export BROWSER_USE_API_KEY="your-key"
 """
 

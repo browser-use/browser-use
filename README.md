@@ -57,7 +57,7 @@ uv add browser-use
 uv sync
 ```
 
-**3. Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/dashboard/api) and add it to your `.env` file (new signups get $10 free credits):**
+**3. Get your API key from [Browser Use Cloud](https://cloud.browser-use.com/new-api-key) and add it to your `.env` file (new signups get $10 free credits):**
 ```
 # .env
 BROWSER_USE_API_KEY=your-key

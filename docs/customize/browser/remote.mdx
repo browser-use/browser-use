@@ -27,7 +27,7 @@ agent = Agent(
 ```
 
 **Prerequisites:**
-1. Get an API key from [cloud.browser-use.com](https://cloud.browser-use.com)
+1. Get an API key from [cloud.browser-use.com](https://cloud.browser-use.com/new-api-key)
 2. Set BROWSER_USE_API_KEY environment variable
 
 **Benefits:**
@@ -45,7 +45,7 @@ Get a CDP URL from your favorite browser provider like Onkernel, AnchorBrowser, 
 
 ```python
 
-from browser_use import Agent, Browser, ChatOpenAI
+from browser_use import Agent, Browser, ChatBrowserUse
 from browser_use.browser import ProxySettings
 
 browser = Browser(
@@ -61,7 +61,7 @@ browser = Browser(
 
 agent = Agent(
     task="Your task here",
-    llm=ChatOpenAI(model='gpt-4.1-mini'),
+    llm=ChatBrowserUse(),
     browser=browser,
 )
 ```
