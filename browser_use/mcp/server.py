@@ -7,7 +7,7 @@ This server provides tools for:
 - File system operations
 
 Usage:
-    uvx browser-use --mcp
+    uvx 'browser-use[cli]' --mcp
 
 Or as an MCP server in Claude Desktop or other MCP clients:
     {

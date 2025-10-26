@@ -13,8 +13,10 @@ The MCP (Model Context Protocol) Server allows you to expose browser-use's brows
 
 ### Start MCP Server
 
+**Prerequisite:** `browser-use` requires Python 3.11 or newer. Please ensure your Python version is up to date before proceeding.
+
 ```bash
-uvx browser-use --mcp
+uvx 'browser-use[cli]' --mcp
 ```
 
 The server will start in stdio mode, ready to accept MCP connections.
@@ -174,7 +176,7 @@ uv pip install 'browser-use'
 Enable debug logging by setting:
 ```bash
 export BROWSER_USE_LOG_LEVEL=DEBUG
-uvx browser-use --mcp
+uvx 'browser-use[cli]' --mcp
 ```
 
 ## Security Considerations
