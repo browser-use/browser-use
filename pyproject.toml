@@ -83,8 +83,13 @@ eval = [
     "hyperbrowser==0.47.0",
     "browserbase==1.4.0",
 ]
+chatgpt-ui = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "websockets>=14.0",
+]
 all = [
-    "browser-use[cli,examples,aws]",
+    "browser-use[cli,examples,aws,chatgpt-ui]",
 ]
 
 # will prefer to use local source code checked out in ../../browser-use (if present) instead of pypi browser-use package

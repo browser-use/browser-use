@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-primary: #fff;
+  --bg-secondary: #f7f7f8;
+  --text-primary: #202123;
+  --text-secondary: #565869;
+  --border-color: #d9d9e3;
+}
+
+[data-theme='dark'] {
+  --bg-primary: #343541;
+  --bg-secondary: #444654;
+  --text-primary: #ececf1;
+  --text-secondary: #c5c5d2;
+  --border-color: #565869;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* Scrollbar customizado */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #565869;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6e6e80;
+}
+
+/* Animações */
+@keyframes pulse-subtle {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Markdown styles */
+.markdown-content {
+  @apply text-base leading-relaxed;
+}
+
+.markdown-content p {
+  @apply mb-4;
+}
+
+.markdown-content ul, .markdown-content ol {
+  @apply mb-4 ml-6;
+}
+
+.markdown-content li {
+  @apply mb-2;
+}
+
+.markdown-content code {
+  @apply bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-sm font-mono;
+}
+
+.markdown-content pre {
+  @apply bg-gray-900 text-gray-100 p-4 rounded-lg mb-4 overflow-x-auto;
+}
+
+.markdown-content pre code {
+  @apply bg-transparent p-0;
+}
