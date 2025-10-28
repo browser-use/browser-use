@@ -65,7 +65,7 @@ BROWSER_USE_API_KEY=your-key
 
 **4. Install Chromium browser:**
 ```bash
-browser-use install
+uvx browser-use install
 ```
 
 **5. Run your first agent:**

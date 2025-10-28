@@ -11,8 +11,9 @@ if '--mcp' in sys.argv:
 	os.environ['BROWSER_USE_SETUP_LOGGING'] = 'false'
 	logging.disable(logging.CRITICAL)
 
-# Special case: install command doesn't need CLI dependencies
-if len(sys.argv) > 1 and sys.argv[1] == 'install':
+
+def _run_install_command():
+	"""Shared install logic - no CLI dependencies needed"""
 	import platform
 	import subprocess
 
@@ -29,10 +30,14 @@ if len(sys.argv) > 1 and sys.argv[1] == 'install':
 
 	if result.returncode == 0:
 		print('\n✅ Installation complete!')
-		print('🚀 Ready to use! Run: uvx browser-use')
 	else:
 		print('\n❌ Installation failed')
 		sys.exit(1)
+
+
+# Special case: install command doesn't need CLI dependencies
+if len(sys.argv) > 1 and sys.argv[1] == 'install':
+	_run_install_command()
 	sys.exit(0)
 
 import asyncio
@@ -2031,26 +2036,7 @@ def auth():
 @main.command()
 def install():
 	"""Install Chromium browser with system dependencies"""
-	import platform
-	import subprocess
-
-	print('📦 Installing Chromium browser + system dependencies...')
-	print('⏳ This may take a few minutes...\n')
-
-	# Build command - only use --with-deps on Linux (it fails on Windows/macOS)
-	cmd = ['uvx', 'playwright', 'install', 'chromium']
-	if platform.system() == 'Linux':
-		cmd.append('--with-deps')
-	cmd.append('--no-shell')
-
-	result = subprocess.run(cmd)
-
-	if result.returncode == 0:
-		print('\n✅ Installation complete!')
-		print('🚀 Ready to use! Run: uvx browser-use')
-	else:
-		print('\n❌ Installation failed')
-		sys.exit(1)
+	_run_install_command()
 
 
 if __name__ == '__main__':
