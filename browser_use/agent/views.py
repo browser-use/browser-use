@@ -48,6 +48,7 @@ class AgentSettings(BaseModel):
 	max_history_items: int | None = None
 
 	page_extraction_llm: BaseChatModel | None = None
+	fallback_llm: list[BaseChatModel] | None = None  # List of fallback LLMs to use if main LLM fails
 	calculate_cost: bool = False
 	include_tool_call_examples: bool = False
 	llm_timeout: int = 60  # Timeout in seconds for LLM calls (auto-detected: 30s for gemini, 90s for o3, 60s default)
