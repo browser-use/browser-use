@@ -1296,6 +1296,32 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			f'📍 Step {self.state.n_steps}: Ran {action_count} action{"" if action_count == 1 else "s"} in {step_duration:.2f}s: {status_str}'
 		)
 
+	def _log_final_outcome_messages(self) -> None:
+		"""Log helpful messages to user based on agent run outcome"""
+		# Check if agent failed
+		is_successful = self.history.is_successful()
+
+		if is_successful is False or is_successful is None:
+			# Get final result to check for specific failure reasons
+			final_result = self.history.final_result()
+			final_result_str = str(final_result).lower() if final_result else ''
+
+			# Check for captcha/cloudflare related failures
+			captcha_keywords = ['captcha', 'cloudflare', 'recaptcha', 'challenge', 'bot detection', 'access denied']
+			has_captcha_issue = any(keyword in final_result_str for keyword in captcha_keywords)
+
+			if has_captcha_issue:
+				# Suggest use_cloud=True for captcha/cloudflare issues
+				task_preview = self.task[:10] if len(self.task) > 10 else self.task
+				self.logger.info('')
+				self.logger.info('Failed because of CAPTCHA? For better browser stealth, try:')
+				self.logger.info(f'   agent = Agent(task="{task_preview}...", browser=Browser(use_cloud=True))')
+
+			# General failure message
+			self.logger.info('')
+			self.logger.info('❌ Did the Agent not work as expected? Let us fix this!')
+			self.logger.info('   Please open a short issue here: https://github.com/browser-use/browser-use/issues')
+
 	def _log_agent_event(self, max_steps: int, agent_run_error: str | None = None) -> None:
 		"""Sent the agent event for this run to telemetry"""
 
@@ -1745,6 +1771,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				if Path(output_path).exists():
 					output_event = await CreateAgentOutputFileEvent.from_agent_and_file(self, output_path)
 					self.eventbus.dispatch(output_event)
+
+			# Log final messages to user based on outcome
+			self._log_final_outcome_messages()
 
 			# Stop the event bus gracefully, waiting for all events to be processed
 			# Use longer timeout to avoid deadlocks in tests with multiple agents

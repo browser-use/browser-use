@@ -13,7 +13,6 @@ on:
       - 'releases/**'
     tags:
       - '*'
-  pull_request:
   workflow_dispatch:
 
 jobs:

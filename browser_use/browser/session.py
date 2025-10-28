@@ -522,7 +522,7 @@ class BrowserSession(BaseModel):
 						self.logger.info('🌤️ Successfully connected to cloud browser service')
 					except CloudBrowserAuthError:
 						raise CloudBrowserAuthError(
-							'Authentication failed for cloud browser service. Set BROWSER_USE_API_KEY environment variable. You can also create an API key at https://cloud.browser-use.com'
+							'Authentication failed for cloud browser service. Set BROWSER_USE_API_KEY environment variable. You can also create an API key at https://cloud.browser-use.com/new-api-key'
 						)
 					except CloudBrowserError as e:
 						raise CloudBrowserError(f'Failed to create cloud browser: {e}')
@@ -1824,6 +1824,38 @@ class BrowserSession(BaseModel):
 		# Return empty dict if nothing available
 		return {}
 
+	async def get_index_by_id(self, element_id: str) -> int | None:
+		"""Find element index by its id attribute.
+
+		Args:
+			element_id: The id attribute value to search for
+
+		Returns:
+			Index of the element, or None if not found
+		"""
+		selector_map = await self.get_selector_map()
+		for idx, element in selector_map.items():
+			if element.attributes and element.attributes.get('id') == element_id:
+				return idx
+		return None
+
+	async def get_index_by_class(self, class_name: str) -> int | None:
+		"""Find element index by its class attribute (matches if class contains the given name).
+
+		Args:
+			class_name: The class name to search for
+
+		Returns:
+			Index of the first matching element, or None if not found
+		"""
+		selector_map = await self.get_selector_map()
+		for idx, element in selector_map.items():
+			if element.attributes:
+				element_class = element.attributes.get('class', '')
+				if class_name in element_class.split():
+					return idx
+		return None
+
 	async def remove_highlights(self) -> None:
 		"""Remove highlights from the page using CDP."""
 		if not self.browser_profile.highlight_elements:
@@ -2840,6 +2872,22 @@ class BrowserSession(BaseModel):
 	async def cdp_client_for_target(self, target_id: TargetID) -> CDPSession:
 		return await self.get_or_create_cdp_session(target_id, focus=False)
 
+	def get_target_id_from_session_id(self, session_id: SessionID | None) -> TargetID | None:
+		"""Look up target_id from a CDP session_id.
+
+		Args:
+			session_id: The CDP session ID to look up
+
+		Returns:
+			The target_id for this session, or None if not found
+		"""
+		if not session_id:
+			return None
+		for cdp_session in self._cdp_session_pool.values():
+			if cdp_session.session_id == session_id:
+				return cdp_session.target_id
+		return None
+
 	async def cdp_client_for_frame(self, frame_id: str) -> CDPSession:
 		"""Get a CDP client attached to the target containing the specified frame.
 
@@ -2910,8 +2958,12 @@ class BrowserSession(BaseModel):
 				object_id = result.get('object', {}).get('objectId')
 				if not object_id:
 					raise ValueError(f'Could not find backendNodeId={node.backend_node_id} in target_id={cdp_session.target_id}')
+				# SUCCESS - return the correct CDP session for this node's target
+				return cdp_session
 			except Exception as e:
-				self.logger.debug(f'Failed to get CDP client for target {node.target_id}: {e}, using main session')
+				self.logger.warning(
+					f'⚠️ Failed to get CDP client for target ...{node.target_id[-4:]}: {e}, falling back to main session'
+				)
 
 		return await self.get_or_create_cdp_session()
 

@@ -37,7 +37,7 @@ class InputTextAction(BaseModel):
 
 
 class DoneAction(BaseModel):
-	text: str = Field(description='summary for user')
+	text: str = Field(description='Final user message in the format the user requested')
 	success: bool = Field(default=True, description='True if user_request completed successfully')
 	files_to_display: list[str] | None = Field(default=[])
 
@@ -46,8 +46,8 @@ T = TypeVar('T', bound=BaseModel)
 
 
 class StructuredOutputAction(BaseModel, Generic[T]):
-	success: bool = Field(default=True, description='1=done')
-	data: T
+	success: bool = Field(default=True, description='True if user_request completed successfully')
+	data: T = Field(description='The actual output data matching the requested schema')
 
 
 class SwitchTabAction(BaseModel):

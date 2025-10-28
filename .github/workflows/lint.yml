@@ -36,7 +36,7 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --dev --all-extras  # install extras for examples to avoid pyright missing imports errors
-      - run: uv run pre-commit run --all-files --show-diff-on-failure
+      - run: uv run --no-sync pre-commit run --all-files --show-diff-on-failure
 
   lint-typecheck:
     name: type-checker
@@ -47,4 +47,4 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --dev --all-extras  # install extras for examples to avoid pyright missing imports errors-
-      - run: uv run pyright
+      - run: uv run --no-sync pyright

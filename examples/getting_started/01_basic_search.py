@@ -1,6 +1,6 @@
 """
 Setup:
-1. Get your API key from https://cloud.browser-use.com/dashboard/api
+1. Get your API key from https://cloud.browser-use.com/new-api-key
 2. Set environment variable: export BROWSER_USE_API_KEY="your-key"
 """
 
@@ -20,7 +20,7 @@ from browser_use import Agent, ChatBrowserUse
 
 async def main():
 	llm = ChatBrowserUse()
-	task = "We are testing the send_keys function. Go to https://inputtypes.com/ and focus the input box and type 'hello world'. DO NOT use the input_text action. Only use the send_keys action. Mark the task as done right after using the send_keys action."
+	task = "Search Google for 'what is browser automation' and tell me the top 3 results"
 	agent = Agent(task=task, llm=llm)
 	await agent.run()
 

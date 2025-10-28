@@ -6,17 +6,11 @@ import pytest
 from pydantic import BaseModel
 from pytest_httpserver import HTTPServer
 
-from browser_use.agent.views import ActionModel, ActionResult
+from browser_use.agent.views import ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.tools.service import Tools
-from browser_use.tools.views import (
-	DoneAction,
-	GoToUrlAction,
-	NoParamsAction,
-	SearchAction,
-)
 
 
 @pytest.fixture(scope='session')
@@ -125,21 +119,10 @@ class TestToolsIntegration:
 			return ActionResult(extracted_content=f'Custom action executed with: {params.text} on {current_url}')
 
 		# Navigate to a page first
-		goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
+		await tools.navigate(url=f'{base_url}/page1', new_tab=False, browser_session=browser_session)
 
-		class NavigateActionModel(ActionModel):
-			navigate: GoToUrlAction | None = None
-
-		await tools.act(NavigateActionModel(**goto_action), browser_session)
-
-		# Create the custom action model
-		custom_action_data = {'custom_action': CustomParams(text='test_value')}
-
-		class CustomActionModel(ActionModel):
-			custom_action: CustomParams | None = None
-
-		# Execute the custom action
-		result = await tools.act(CustomActionModel(**custom_action_data), browser_session)
+		# Execute the custom action directly
+		result = await tools.custom_action(text='test_value', browser_session=browser_session)
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
@@ -163,17 +146,11 @@ class TestToolsIntegration:
 		schema = wait_action.param_model.model_json_schema()
 		assert schema['properties']['seconds']['default'] == 3
 
-		# Create wait action for 1 second - fix to use a dictionary
-		wait_action = {'wait': {'seconds': 3}}  # Corrected format
-
-		class WaitActionModel(ActionModel):
-			wait: dict | None = None
-
 		# Record start time
 		start_time = time.time()
 
 		# Execute wait action
-		result = await tools.act(WaitActionModel(**wait_action), browser_session)
+		result = await tools.wait(seconds=3, browser_session=browser_session)
 
 		# Record end time
 		end_time = time.time()
@@ -187,14 +164,11 @@ class TestToolsIntegration:
 		assert end_time - start_time <= 0.5  # We wait 3-3 seconds for LLM call
 
 		# longer wait
-		# Create wait action for 1 second - fix to use a dictionary
-		wait_action = {'wait': {'seconds': 5}}  # Corrected format
-
 		# Record start time
 		start_time = time.time()
 
 		# Execute wait action
-		result = await tools.act(WaitActionModel(**wait_action), browser_session)
+		result = await tools.wait(seconds=5, browser_session=browser_session)
 
 		# Record end time
 		end_time = time.time()
@@ -209,20 +183,14 @@ class TestToolsIntegration:
 	async def test_go_back_action(self, tools, browser_session, base_url):
 		"""Test that go_back action navigates to the previous page."""
 		# Navigate to first page
-		goto_action1 = {'navigate': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
-
-		class NavigateActionModel(ActionModel):
-			navigate: GoToUrlAction | None = None
-
-		await tools.act(NavigateActionModel(**goto_action1), browser_session)
+		await tools.navigate(url=f'{base_url}/page1', new_tab=False, browser_session=browser_session)
 
 		# Store the first page URL
 		first_url = await browser_session.get_current_page_url()
 		print(f'First page URL: {first_url}')
 
 		# Navigate to second page
-		goto_action2 = {'navigate': GoToUrlAction(url=f'{base_url}/page2', new_tab=False)}
-		await tools.act(NavigateActionModel(**goto_action2), browser_session)
+		await tools.navigate(url=f'{base_url}/page2', new_tab=False, browser_session=browser_session)
 
 		# Verify we're on the second page
 		second_url = await browser_session.get_current_page_url()
@@ -230,12 +198,7 @@ class TestToolsIntegration:
 		assert f'{base_url}/page2' in second_url
 
 		# Execute go back action
-		go_back_action = {'go_back': NoParamsAction()}
-
-		class GoBackActionModel(ActionModel):
-			go_back: NoParamsAction | None = None
-
-		result = await tools.act(GoBackActionModel(**go_back_action), browser_session)
+		result = await tools.go_back(browser_session=browser_session)
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
@@ -259,12 +222,7 @@ class TestToolsIntegration:
 
 		# Navigate to each page in sequence
 		for url in urls:
-			action_data = {'navigate': GoToUrlAction(url=url, new_tab=False)}
-
-			class NavigateActionModel(ActionModel):
-				navigate: GoToUrlAction | None = None
-
-			await tools.act(NavigateActionModel(**action_data), browser_session)
+			await tools.navigate(url=url, new_tab=False, browser_session=browser_session)
 
 			# Verify current page
 			current_url = await browser_session.get_current_page_url()
@@ -272,12 +230,7 @@ class TestToolsIntegration:
 
 		# Go back twice and verify each step
 		for expected_url in reversed(urls[:-1]):
-			go_back_action = {'go_back': NoParamsAction()}
-
-			class GoBackActionModel(ActionModel):
-				go_back: NoParamsAction | None = None
-
-			await tools.act(GoBackActionModel(**go_back_action), browser_session)
+			await tools.go_back(browser_session=browser_session)
 			await asyncio.sleep(1)  # Wait for navigation to complete
 
 			current_url = await browser_session.get_current_page_url()
@@ -302,12 +255,7 @@ class TestToolsIntegration:
 		await browser_session.get_current_page_url()
 
 		# Execute search action - it will actually navigate to our search results page
-		search_action = {'search': SearchAction(query='Python web automation')}
-
-		class SearchActionModel(ActionModel):
-			search: SearchAction | None = None
-
-		result = await tools.act(SearchActionModel(**search_action), browser_session)
+		result = await tools.search(query='Python web automation', browser_session=browser_session)
 
 		# Verify the result
 		assert isinstance(result, ActionResult)
@@ -325,23 +273,14 @@ class TestToolsIntegration:
 			file_system = FileSystem(temp_dir)
 
 			# First navigate to a page
-			goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/page1', new_tab=False)}
-
-			class NavigateActionModel(ActionModel):
-				navigate: GoToUrlAction | None = None
-
-			await tools.act(NavigateActionModel(**goto_action), browser_session)
+			await tools.navigate(url=f'{base_url}/page1', new_tab=False, browser_session=browser_session)
 
 			success_done_message = 'Successfully completed task'
 
-			# Create done action with success
-			done_action = {'done': DoneAction(text=success_done_message, success=True)}
-
-			class DoneActionModel(ActionModel):
-				done: DoneAction | None = None
-
 			# Execute done action with file_system
-			result = await tools.act(DoneActionModel(**done_action), browser_session, file_system=file_system)
+			result = await tools.done(
+				text=success_done_message, success=True, browser_session=browser_session, file_system=file_system
+			)
 
 			# Verify the result
 			assert isinstance(result, ActionResult)
@@ -353,11 +292,10 @@ class TestToolsIntegration:
 
 			failed_done_message = 'Failed to complete task'
 
-			# Test with failure case
-			failed_done_action = {'done': DoneAction(text=failed_done_message, success=False)}
-
 			# Execute failed done action with file_system
-			result = await tools.act(DoneActionModel(**failed_done_action), browser_session, file_system=file_system)
+			result = await tools.done(
+				text=failed_done_message, success=False, browser_session=browser_session, file_system=file_system
+			)
 
 			# Verify the result
 			assert isinstance(result, ActionResult)
@@ -392,12 +330,7 @@ class TestToolsIntegration:
 		)
 
 		# Navigate to the dropdown test page
-		goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/dropdown1', new_tab=False)}
-
-		class NavigateActionModel(ActionModel):
-			navigate: GoToUrlAction | None = None
-
-		await tools.act(NavigateActionModel(**goto_action), browser_session)
+		await tools.navigate(url=f'{base_url}/dropdown1', new_tab=False, browser_session=browser_session)
 
 		# Wait for the page to load using CDP
 		cdp_session = browser_session.agent_focus
@@ -429,15 +362,8 @@ class TestToolsIntegration:
 			f'Could not find select element in selector map. Available elements: {[f"{idx}: {element.tag_name}" for idx, element in selector_map.items()]}'
 		)
 
-		# Create a model for the standard dropdown_options action
-		class DropdownOptionsModel(ActionModel):
-			dropdown_options: dict[str, int]
-
 		# Execute the action with the dropdown index
-		result = await tools.act(
-			action=DropdownOptionsModel(dropdown_options={'index': dropdown_index}),
-			browser_session=browser_session,
-		)
+		result = await tools.dropdown_options(index=dropdown_index, browser_session=browser_session)
 
 		expected_options = [
 			{'index': 0, 'text': 'Please select', 'value': ''},
@@ -516,12 +442,7 @@ class TestToolsIntegration:
 		)
 
 		# Navigate to the dropdown test page
-		goto_action = {'navigate': GoToUrlAction(url=f'{base_url}/dropdown2', new_tab=False)}
-
-		class NavigateActionModel(ActionModel):
-			navigate: GoToUrlAction | None = None
-
-		await tools.act(NavigateActionModel(**goto_action), browser_session)
+		await tools.navigate(url=f'{base_url}/dropdown2', new_tab=False, browser_session=browser_session)
 
 		# Wait for the page to load using CDP
 		cdp_session = browser_session.agent_focus
@@ -553,15 +474,8 @@ class TestToolsIntegration:
 			f'Could not find select element in selector map. Available elements: {[f"{idx}: {element.tag_name}" for idx, element in selector_map.items()]}'
 		)
 
-		# Create a model for the standard select_dropdown action
-		class SelectDropdownModel(ActionModel):
-			select_dropdown: dict
-
 		# Execute the action with the dropdown index
-		result = await tools.act(
-			SelectDropdownModel(select_dropdown={'index': dropdown_index, 'text': 'Second Option'}),
-			browser_session,
-		)
+		result = await tools.select_dropdown(index=dropdown_index, text='Second Option', browser_session=browser_session)
 
 		# Verify the result structure
 		assert isinstance(result, ActionResult)

@@ -7,7 +7,7 @@ icon: "rocket"
 To get started with Browser Use you need to install the package and create an `.env` file with your API key.
 
 <Note icon="key" color="#FFC107" iconType="regular">
-`ChatBrowserUse` offers the [fastest and most cost-effective models](https://browser-use.com/posts/speed-matters/), completing tasks 3-5x faster. Get started with $10 of [free LLM credits](https://cloud.browser-use.com/dashboard/api).
+`ChatBrowserUse` offers the [fastest and most cost-effective models](https://browser-use.com/posts/speed-matters/), completing tasks 3-5x faster. Get started with $10 of [free LLM credits](https://cloud.browser-use.com/new-api-key).
 </Note>
 
 ## 1. Installing Browser-Use
@@ -22,8 +22,7 @@ source .venv/bin/activate
 ```
 ```bash install browser-use & chromium
 uv pip install browser-use
-uvx playwright install chromium --with-deps
-# Note: this does NOT install playwright, only chromium
+uvx browser-use install
 ```
 </Tab>
 <Tab title="pip">
@@ -35,7 +34,7 @@ source .venv/bin/activate
 ```
 ```bash install browser-use & chromium
 pip install browser-use
-pip install playwright && playwright install chromium --with-deps
+browser-use install
 ```
 </Tab>
 </Tabs>
@@ -45,8 +44,8 @@ pip install playwright && playwright install chromium --with-deps
 ## 2. Choose your favorite LLM
 Create a `.env` file and add your API key. 
 
-<Callout icon="key" color="#FFC107" iconType="regular">
-Don't have one? Get **$10 free LLM credits** on [Browser Use Cloud 🔗](httpsL//cloud.browser-use.com/dashboard/api).
+<Callout icon="key" iconType="regular">
+We recommend using ChatBrowserUse which is optimized for browser automation tasks (highest accuracy + fastest speed + lowest token cost). Don't have one? We give you **$10** to try it out [here](https://cloud.browser-use.com/new-api-key).
 </Callout>
 
 ```bash .env
@@ -61,7 +60,7 @@ Then add your API key to the file.
 ```bash Browser Use
 # add your key to .env file
 BROWSER_USE_API_KEY=
-# Get 10$ of free credits at https://cloud.browser-use.com/dashboard/api
+# Get 10$ of free credits at https://cloud.browser-use.com/new-api-key
 ```
 ```bash Google
 # add your key to .env file

@@ -35,7 +35,7 @@ async def main():
 		print(f'❌ Error: {e}')
 		if 'Authentication' in str(e):
 			print(
-				'💡 Set BROWSER_USE_API_KEY environment variable. You can also create an API key at https://cloud.browser-use.com'
+				'💡 Set BROWSER_USE_API_KEY environment variable. You can also create an API key at https://cloud.browser-use.com/new-api-key'
 			)
 
 

@@ -107,7 +107,8 @@ class ClickableElementDetector:
 			'option',
 			'optgroup',
 		}
-		if node.tag_name in interactive_tags:
+		# Check with case-insensitive comparison
+		if node.tag_name and node.tag_name.lower() in interactive_tags:
 			return True
 
 		# SVG elements need special handling - only interactive if they have explicit handlers
