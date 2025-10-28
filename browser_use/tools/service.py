@@ -276,7 +276,7 @@ class Tools(Generic[Context]):
 						)
 					except Exception as dropdown_error:
 						logger.error(
-							f'Failed to get dropdown options as shortcut during click_element_by_index on dropdown: {type(dropdown_error).__name__}: {dropdown_error}'
+							f'Failed to get dropdown options as shortcut during click on dropdown: {type(dropdown_error).__name__}: {dropdown_error}'
 						)
 					return ActionResult(error='Can not click on select elements.')
 

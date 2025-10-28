@@ -123,7 +123,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					# Element not found or error - fall back to typing to the page
 					self.logger.warning(f'Failed to type to element {index_for_logging}: {e}. Falling back to page typing.')
 					try:
-						await asyncio.wait_for(self._click_element_node_impl(element_node), timeout=3.0)
+						await asyncio.wait_for(self._click_element_node_impl(element_node), timeout=10.0)
 					except Exception as e:
 						pass
 					await self._type_to_page(event.text)
@@ -493,7 +493,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 							},
 							session_id=session_id,
 						),
-						timeout=1.0,  # 1 second timeout for mousePressed
+						timeout=3.0,  # 3 second timeout for mousePressed
 					)
 					await asyncio.sleep(0.08)
 				except TimeoutError:
@@ -513,7 +513,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 							},
 							session_id=session_id,
 						),
-						timeout=3.0,  # 1 second timeout for mouseReleased
+						timeout=5.0,  # 5 second timeout for mouseReleased
 					)
 				except TimeoutError:
 					self.logger.debug('⏱️ Mouse up timed out (possibly due to lag or dialog popup), continuing...')

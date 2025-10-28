@@ -426,6 +426,7 @@ class DOMTreeSerializer:
 
 	def _is_interactive_cached(self, node: EnhancedDOMTreeNode) -> bool:
 		"""Cached version of clickable element detection to avoid redundant calls."""
+
 		if node.node_id not in self._clickable_cache:
 			import time
 
@@ -517,7 +518,6 @@ class DOMTreeSerializer:
 				# Return if meaningful or has meaningful children
 				if is_visible or is_scrollable or simplified.children:
 					return simplified
-
 		elif node.node_type == NodeType.TEXT_NODE:
 			# Include meaningful text nodes
 			is_visible = node.snapshot_node and node.is_visible

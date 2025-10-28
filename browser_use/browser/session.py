@@ -2942,8 +2942,12 @@ class BrowserSession(BaseModel):
 				object_id = result.get('object', {}).get('objectId')
 				if not object_id:
 					raise ValueError(f'Could not find backendNodeId={node.backend_node_id} in target_id={cdp_session.target_id}')
+				# SUCCESS - return the correct CDP session for this node's target
+				return cdp_session
 			except Exception as e:
-				self.logger.debug(f'Failed to get CDP client for target {node.target_id}: {e}, using main session')
+				self.logger.warning(
+					f'⚠️ Failed to get CDP client for target ...{node.target_id[-4:]}: {e}, falling back to main session'
+				)
 
 		return await self.get_or_create_cdp_session()
 

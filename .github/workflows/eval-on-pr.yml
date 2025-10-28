@@ -28,7 +28,7 @@ jobs:
           # You can customize the test here
           TEST_CASE="${{ vars.EVAL_TEST_CASE }}"
           if [ -z "$TEST_CASE" ]; then
-            TEST_CASE="InteractionTasks_v6"
+            TEST_CASE="InteractionTasks_v7"
           fi
 
           response=$(curl -X POST \

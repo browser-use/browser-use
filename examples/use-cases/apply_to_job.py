@@ -61,7 +61,7 @@ async def apply_to_rochester_regional_health(info: dict, resume_path: str):
                 - "Last name"
                 - "Email"
                 - "Phone number"
-            2) use the upload_file_to_element action to fill out the following: 
+            2) use the upload_file_to_element action to fill out the following:
                 - Resume upload field
             3) use input_text action to fill out the following:
                 - "Postal code"
@@ -70,14 +70,14 @@ async def apply_to_rochester_regional_health(info: dict, resume_path: str):
                 - "City"
                 - "Address"
                 - "Age"
-            4) use click_element_by_index action to select the following options:
+            4) use click action to select the following options:
                 - "Are you legally authorized to work in the country for which you are applying?"
                 - "Will you now or in the future require sponsorship for employment visa status (e.g., H-1B visa status, etc.) to work legally for Rochester Regional Health?"
                 - "Do you have, or are you in the process of obtaining, a professional license?"
                     - SELECT NO FOR THIS FIELD
             5) use input_text action to fill out the following:
                 - "What drew you to healthcare?"
-            6) use click_element_by_index action to select the following options:
+            6) use click action to select the following options:
                 - "How many years of experience do you have in a related role?"
                 - "Gender"
                 - "Race"
@@ -88,10 +88,10 @@ async def apply_to_rochester_regional_health(info: dict, resume_path: str):
                 - "Today's date"
             8) CLICK THE SUBMIT BUTTON AND CHECK FOR A SUCCESS SCREEN. Once there is a success screen, complete your end task of writing final_result and outputting it.
     - Before you start, create a step-by-step plan to complete the entire task. make sure the delegate a step for each field to be filled out.
-    *** IMPORTANT ***: 
+    *** IMPORTANT ***:
         - You are not done until you have filled out every field of the form.
         - When you have completed the entire form, press the submit button to submit the application and use the done action once you have confirmed that the application is submitted
-        - PLACE AN EMPHASIS ON STEP 4, the click_element_by_index action. That section should be filled out.
+        - PLACE AN EMPHASIS ON STEP 4, the click action. That section should be filled out.
         - At the end of the task, structure your final_result as 1) a human-readable summary of all detections and actions performed on the page with 2) a list with all questions encountered in the page. Do not say "see above." Include a fully written out, human-readable summary at the very end.
     """
 
