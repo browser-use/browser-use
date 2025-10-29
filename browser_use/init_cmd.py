@@ -255,9 +255,10 @@ def main(
 			)
 			next_steps.append('2. Install dependencies:\n', style='bold')
 			next_steps.append('   uv sync\n\n', style='dim')
-			next_steps.append('3. Launch Chrome with debugging:\n', style='bold')
-			next_steps.append('   python launch_chrome_debug.py\n\n', style='dim')
-			next_steps.append('4. Run your script (in another terminal):\n', style='bold')
+			next_steps.append('3. Launch Chrome with debugging (in a separate terminal):\n', style='bold')
+			next_steps.append('   python launch_chrome_debug.py\n', style='dim')
+			next_steps.append('   (Keep this terminal open!)\n\n', style='dim italic')
+			next_steps.append('4. Run your script (in a NEW terminal):\n', style='bold')
 			next_steps.append(f'   uv run {output_path.name}\n\n', style='dim')
 			next_steps.append('📖 See README.md for detailed instructions\n', style='dim italic')
 		else:
