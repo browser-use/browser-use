@@ -18,7 +18,6 @@ import platform
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 
@@ -43,22 +42,6 @@ def get_chrome_paths():
 	return chrome_exe, profile_base
 
 
-def close_chrome():
-	"""Close existing Chrome instances (cross-platform)"""
-	system = platform.system()
-
-	try:
-		if system == 'Darwin':
-			subprocess.run(['pkill', '-x', 'Google Chrome'], check=False, capture_output=True)
-		elif system == 'Windows':
-			subprocess.run(['taskkill', '/F', '/IM', 'chrome.exe'], check=False, capture_output=True)
-		else:  # Linux
-			subprocess.run(['pkill', 'chrome'], check=False, capture_output=True)
-			subprocess.run(['pkill', 'chromium'], check=False, capture_output=True)
-	except Exception:
-		pass  # Ignore errors if Chrome wasn't running
-
-
 def main():
 	# Parse command line arguments
 	parser = argparse.ArgumentParser(
@@ -80,10 +63,6 @@ Examples:
 	args = parser.parse_args()
 
 	profile_name = args.profile
-
-	print('🔄 Closing existing Chrome instances...')
-	close_chrome()
-	time.sleep(2)  # Wait for Chrome to fully shut down
 
 	# Get Chrome paths
 	chrome_exe, profile_base = get_chrome_paths()
@@ -126,8 +105,9 @@ Examples:
 	print(f'📂 Using profile: {profile_name} (from {automation_dir})')
 	print('🔗 CDP endpoint: http://localhost:9222')
 	print('')
+	print('ℹ️  Chrome will run alongside your existing browser instances')
 	print('⚠️  IMPORTANT: Keep this terminal window open - closing it will close Chrome')
-	print('💡 Open a NEW terminal window and run: uv run browser_use_shopping.py')
+	print('💡 Open a NEW terminal window and run: uv run main.py')
 	print('')
 	print(f'ℹ️  To reset and re-copy your profile, delete: {automation_dir}')
 	print('')
