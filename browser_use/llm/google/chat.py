@@ -74,11 +74,11 @@ class ChatGoogle(BaseChatModel):
 
 	# Model configuration
 	model: VerifiedGeminiModels | str
-	temperature: float | None = 0.2
+	temperature: float | None = 0.5
 	top_p: float | None = None
 	seed: int | None = None
 	thinking_budget: int | None = None  # for gemini-2.5 flash and flash-lite models, default will be set to 0
-	max_output_tokens: int | None = 8192
+	max_output_tokens: int | None = 8096
 	config: types.GenerateContentConfigDict | None = None
 	include_system_in_user: bool = False
 	supports_structured_output: bool = True  # New flag
@@ -138,6 +138,12 @@ class ChatGoogle(BaseChatModel):
 	@property
 	def name(self) -> str:
 		return str(self.model)
+
+	def _get_stop_reason(self, response: types.GenerateContentResponse) -> str | None:
+		"""Extract stop_reason from Google response."""
+		if hasattr(response, 'candidates') and response.candidates:
+			return str(response.candidates[0].finish_reason) if hasattr(response.candidates[0], 'finish_reason') else None
+		return None
 
 	def _get_usage(self, response: types.GenerateContentResponse) -> ChatInvokeUsage | None:
 		usage: ChatInvokeUsage | None = None
@@ -246,6 +252,7 @@ class ChatGoogle(BaseChatModel):
 					return ChatInvokeCompletion(
 						completion=text,
 						usage=usage,
+						stop_reason=self._get_stop_reason(response),
 					)
 
 				else:
@@ -291,6 +298,7 @@ class ChatGoogle(BaseChatModel):
 									return ChatInvokeCompletion(
 										completion=output_format.model_validate(parsed_data),
 										usage=usage,
+										stop_reason=self._get_stop_reason(response),
 									)
 								except (json.JSONDecodeError, ValueError) as e:
 									self.logger.error(f'❌ Failed to parse JSON response: {str(e)}')
@@ -313,12 +321,14 @@ class ChatGoogle(BaseChatModel):
 							return ChatInvokeCompletion(
 								completion=response.parsed,
 								usage=usage,
+								stop_reason=self._get_stop_reason(response),
 							)
 						else:
 							# If it's not the expected type, try to validate it
 							return ChatInvokeCompletion(
 								completion=output_format.model_validate(response.parsed),
 								usage=usage,
+								stop_reason=self._get_stop_reason(response),
 							)
 					else:
 						# Fallback: Request JSON in the prompt for models without native JSON mode
@@ -369,6 +379,7 @@ class ChatGoogle(BaseChatModel):
 								return ChatInvokeCompletion(
 									completion=output_format.model_validate(parsed_data),
 									usage=usage,
+									stop_reason=self._get_stop_reason(response),
 								)
 							except (json.JSONDecodeError, ValueError) as e:
 								self.logger.error(f'❌ Failed to parse fallback JSON: {str(e)}')

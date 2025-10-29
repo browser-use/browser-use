@@ -8,15 +8,26 @@ Usage:
     model = llm.azure_gpt_4_1_mini
     model = llm.openai_gpt_4o
     model = llm.google_gemini_2_5_pro
+    model = llm.bu_latest
 """
 
 import os
 from typing import TYPE_CHECKING
 
 from browser_use.llm.azure.chat import ChatAzureOpenAI
+from browser_use.llm.browser_use.chat import ChatBrowserUse
 from browser_use.llm.cerebras.chat import ChatCerebras
 from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.openai.chat import ChatOpenAI
+
+# Optional OCI import
+try:
+	from browser_use.llm.oci_raw.chat import ChatOCIRaw
+
+	OCI_AVAILABLE = True
+except ImportError:
+	ChatOCIRaw = None
+	OCI_AVAILABLE = False
 
 if TYPE_CHECKING:
 	from browser_use.llm.base import BaseChatModel
@@ -63,6 +74,9 @@ cerebras_qwen_3_32b: 'BaseChatModel'
 cerebras_qwen_3_235b_a22b_instruct_2507: 'BaseChatModel'
 cerebras_qwen_3_235b_a22b_thinking_2507: 'BaseChatModel'
 cerebras_qwen_3_coder_480b: 'BaseChatModel'
+
+bu_latest: 'BaseChatModel'
+bu_1_0: 'BaseChatModel'
 
 
 def get_llm_by_name(model_name: str):
@@ -143,13 +157,26 @@ def get_llm_by_name(model_name: str):
 		api_key = os.getenv('GOOGLE_API_KEY')
 		return ChatGoogle(model=model, api_key=api_key)
 
+	# OCI Models
+	elif provider == 'oci':
+		# OCI requires more complex configuration that can't be easily inferred from env vars
+		# Users should use ChatOCIRaw directly with proper configuration
+		raise ValueError('OCI models require manual configuration. Use ChatOCIRaw directly with your OCI credentials.')
+
 	# Cerebras Models
 	elif provider == 'cerebras':
 		api_key = os.getenv('CEREBRAS_API_KEY')
 		return ChatCerebras(model=model, api_key=api_key)
 
+	# Browser Use Models
+	elif provider == 'bu':
+		# Handle bu_latest -> bu-latest conversion (need to prepend 'bu-' back)
+		model = f'bu-{model_part.replace("_", "-")}'
+		api_key = os.getenv('BROWSER_USE_API_KEY')
+		return ChatBrowserUse(model=model, api_key=api_key)
+
 	else:
-		available_providers = ['openai', 'azure', 'google', 'cerebras']
+		available_providers = ['openai', 'azure', 'google', 'oci', 'cerebras', 'bu']
 		raise ValueError(f"Unknown provider: '{provider}'. Available providers: {', '.join(available_providers)}")
 
 
@@ -163,8 +190,14 @@ def __getattr__(name: str) -> 'BaseChatModel':
 		return ChatAzureOpenAI  # type: ignore
 	elif name == 'ChatGoogle':
 		return ChatGoogle  # type: ignore
+	elif name == 'ChatOCIRaw':
+		if not OCI_AVAILABLE:
+			raise ImportError('OCI integration not available. Install with: pip install "browser-use[oci]"')
+		return ChatOCIRaw  # type: ignore
 	elif name == 'ChatCerebras':
 		return ChatCerebras  # type: ignore
+	elif name == 'ChatBrowserUse':
+		return ChatBrowserUse  # type: ignore
 
 	# Handle model instances - these are the main use case
 	try:
@@ -173,11 +206,19 @@ def __getattr__(name: str) -> 'BaseChatModel':
 		raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 
+# Export all classes and preconfigured instances, conditionally including ChatOCIRaw
 __all__ = [
 	'ChatOpenAI',
 	'ChatAzureOpenAI',
 	'ChatGoogle',
 	'ChatCerebras',
+	'ChatBrowserUse',
+]
+
+if OCI_AVAILABLE:
+	__all__.append('ChatOCIRaw')
+
+__all__ += [
 	'get_llm_by_name',
 	# OpenAI instances - created on demand
 	'openai_gpt_4o',
@@ -221,4 +262,10 @@ __all__ = [
 	'cerebras_qwen_3_235b_a22b_instruct_2507',
 	'cerebras_qwen_3_235b_a22b_thinking_2507',
 	'cerebras_qwen_3_coder_480b',
+	# Browser Use instances - created on demand
+	'bu_latest',
+	'bu_1_0',
 ]
+
+# NOTE: OCI backend is optional. The try/except ImportError and conditional __all__ are required
+# so this module can be imported without browser-use[oci] installed.

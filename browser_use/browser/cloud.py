@@ -73,7 +73,7 @@ class CloudBrowserClient:
 
 		if not api_token:
 			raise CloudBrowserAuthError(
-				'No authentication token found. Please set BROWSER_USE_API_KEY environment variable to authenticate with the cloud service. You can also create an API key at https://cloud.browser-use.com'
+				'No authentication token found. Please set BROWSER_USE_API_KEY environment variable to authenticate with the cloud service. You can also create an API key at https://cloud.browser-use.com/new-api-key'
 			)
 
 		headers = {'X-Browser-Use-API-Key': api_token, 'Content-Type': 'application/json'}
@@ -88,7 +88,7 @@ class CloudBrowserClient:
 
 			if response.status_code == 401:
 				raise CloudBrowserAuthError(
-					'Authentication failed. Please make sure you have set BROWSER_USE_API_KEY environment variable to authenticate with the cloud service. You can also create an API key at https://cloud.browser-use.com'
+					'Authentication failed. Please make sure you have set BROWSER_USE_API_KEY environment variable to authenticate with the cloud service. You can also create an API key at https://cloud.browser-use.com/new-api-key'
 				)
 			elif response.status_code == 403:
 				raise CloudBrowserAuthError('Access forbidden. Please check your browser-use cloud subscription status.')
@@ -158,7 +158,7 @@ class CloudBrowserClient:
 
 		if not api_token:
 			raise CloudBrowserAuthError(
-				'No authentication token found. Please set BROWSER_USE_API_KEY environment variable to authenticate with the cloud service. You can also create an API key at https://cloud.browser-use.com'
+				'No authentication token found. Please set BROWSER_USE_API_KEY environment variable to authenticate with the cloud service. You can also create an API key at https://cloud.browser-use.com/new-api-key'
 			)
 
 		headers = {'X-Browser-Use-API-Key': api_token, 'Content-Type': 'application/json'}

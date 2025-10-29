@@ -4,91 +4,87 @@ description: ""
 icon: "rocket"
 ---
 
+To get started with Browser Use you need to install the package and create an `.env` file with your API key.
 
-## 1. Fast setup
+<Note icon="key" color="#FFC107" iconType="regular">
+`ChatBrowserUse` offers the [fastest and most cost-effective models](https://browser-use.com/posts/speed-matters/), completing tasks 3-5x faster. Get started with $10 of [free LLM credits](https://cloud.browser-use.com/new-api-key).
+</Note>
 
-<Tabs>
-<Tab title="uv">
-```bash create environment 
+## 1. Installing Browser-Use
+
+
+```bash create environment
+pip install uv
 uv venv --python 3.12
 ```
-</Tab>
-<Tab title="pip">
-```bash create environment with python >= 3.11 
-python3.12 -m venv .venv
-```
-</Tab>
-</Tabs>
-
-<Tabs>
-<Tab title="Mac/Linux">
 ```bash activate environment
 source .venv/bin/activate
+# On Windows use `.venv\Scripts\activate`
 ```
-</Tab>
-<Tab title="Windows">
-```bash activate environment
-.venv\Scripts\activate
-```
-</Tab>
-</Tabs>
-
-<Tabs>
-<Tab title="uv">
 ```bash install browser-use & chromium
 uv pip install browser-use
-uvx playwright install chromium --with-deps 
+uvx browser-use install
 ```
-</Tab>
-<Tab title="pip">
-```bash install browser-use & chromium
-pip install browser-use
-pip install playwright && playwright install chromium --with-deps
-```
-</Tab>
-</Tabs>
+
 
 ## 2. Choose your favorite LLM
-Create a `.env` file and add your API key. Don't have one? Start with a [free Gemini key](https://aistudio.google.com/app/u/1/apikey?pli=1).
+Create a `.env` file and add your API key. 
 
-<Tabs>
-<Tab title="Mac/Linux">
-```bash create .env file
+<Callout icon="key" iconType="regular">
+We recommend using ChatBrowserUse which is optimized for browser automation tasks (highest accuracy + fastest speed + lowest token cost). Don't have one? We give you **$10** to try it out [here](https://cloud.browser-use.com/new-api-key).
+</Callout>
+
+```bash .env
 touch .env
 ```
-</Tab>
-<Tab title="Windows">
-```cmd create .env file
-echo. > .env
-```
-</Tab>
-</Tabs>
 
-<Tabs>
-<Tab title="Google">
-```bash add your key to .env file
-GEMINI_API_KEY=
+<Info>On Windows, use `echo. > .env`</Info>
+
+Then add your API key to the file.
+
+<CodeGroup>
+```bash Browser Use
+# add your key to .env file
+BROWSER_USE_API_KEY=
+# Get 10$ of free credits at https://cloud.browser-use.com/new-api-key
 ```
-</Tab>
-<Tab title="OpenAI">
-```bash add your key to .env file
+```bash Google
+# add your key to .env file
+GOOGLE_API_KEY=
+# Get your free Gemini API key from https://aistudio.google.com/app/u/1/apikey?pli=1.
+```
+```bash OpenAI
+# add your key to .env file
 OPENAI_API_KEY=
 ```
-</Tab>
-<Tab title="Anthropic">
-```bash add your key to .env file
+```bash Anthropic
+# add your key to .env file
 ANTHROPIC_API_KEY=
 ```
-</Tab>
-</Tabs>
+</CodeGroup>
 
-See [Supported Models](/customize/supported-models) for more.
+See [Supported Models](/supported-models) for more.
 
 ## 3. Run your first agent
 
-<Tabs>
-<Tab title="Google">
-```python agent.py
+<CodeGroup>
+```python Browser Use
+from browser_use import Agent, ChatBrowserUse
+from dotenv import load_dotenv
+import asyncio
+
+load_dotenv()
+
+async def main():
+    llm = ChatBrowserUse()
+    task = "Find the number 1 post on Show HN"
+    agent = Agent(task=task, llm=llm)
+    await agent.run()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+```python Google
 from browser_use import Agent, ChatGoogle
 from dotenv import load_dotenv
 import asyncio
@@ -104,9 +100,7 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
-</Tab>
-<Tab title="OpenAI">
-```python agent.py
+```python OpenAI
 from browser_use import Agent, ChatOpenAI
 from dotenv import load_dotenv
 import asyncio
@@ -122,9 +116,7 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
-</Tab>
-<Tab title="Anthropic">
-```python agent.py
+```python Anthropic
 from browser_use import Agent, ChatAnthropic
 from dotenv import load_dotenv
 import asyncio
@@ -140,5 +132,6 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
-</Tab>
-</Tabs>
+</CodeGroup>
+
+<Note> Custom browsers can be configured in one line. Check out <a href = "customize/browser/basics">browsers</a> for more. </Note>

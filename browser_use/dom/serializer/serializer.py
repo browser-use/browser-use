@@ -17,6 +17,26 @@ from browser_use.dom.views import (
 
 DISABLED_ELEMENTS = {'style', 'script', 'head', 'meta', 'link', 'title'}
 
+# SVG child elements to skip (decorative only, no interaction value)
+SVG_ELEMENTS = {
+	'path',
+	'rect',
+	'g',
+	'circle',
+	'ellipse',
+	'line',
+	'polyline',
+	'polygon',
+	'use',
+	'defs',
+	'clipPath',
+	'mask',
+	'pattern',
+	'image',
+	'text',
+	'tspan',
+}
+
 
 class DOMTreeSerializer:
 	"""Serializes enhanced DOM trees to string format."""
@@ -406,6 +426,7 @@ class DOMTreeSerializer:
 
 	def _is_interactive_cached(self, node: EnhancedDOMTreeNode) -> bool:
 		"""Cached version of clickable element detection to avoid redundant calls."""
+
 		if node.node_id not in self._clickable_cache:
 			import time
 
@@ -448,6 +469,10 @@ class DOMTreeSerializer:
 		elif node.node_type == NodeType.ELEMENT_NODE:
 			# Skip non-content elements
 			if node.node_name.lower() in DISABLED_ELEMENTS:
+				return None
+
+			# Skip SVG child elements entirely (path, rect, g, circle, etc.)
+			if node.node_name.lower() in SVG_ELEMENTS:
 				return None
 
 			if node.node_name == 'IFRAME' or node.node_name == 'FRAME':
@@ -493,7 +518,6 @@ class DOMTreeSerializer:
 				# Return if meaningful or has meaningful children
 				if is_visible or is_scrollable or simplified.children:
 					return simplified
-
 		elif node.node_type == NodeType.TEXT_NODE:
 			# Include meaningful text nodes
 			is_visible = node.snapshot_node and node.is_visible
@@ -554,9 +578,10 @@ class DOMTreeSerializer:
 
 			# Only add to selector map if element is both interactive AND visible
 			if is_interactive_assign and is_visible:
-				node.interactive_index = self._interactive_counter
-				node.original_node.element_index = self._interactive_counter
-				self._selector_map[self._interactive_counter] = node.original_node
+				# Mark node as interactive
+				node.is_interactive = True
+				# Store backend_node_id in selector map (model outputs backend_node_id)
+				self._selector_map[node.original_node.backend_node_id] = node.original_node
 				self._interactive_counter += 1
 
 				# Mark compound components as new for visibility
@@ -753,11 +778,37 @@ class DOMTreeSerializer:
 						formatted_text.append(child_text)
 				return '\n'.join(formatted_text)
 
-			# Add element with interactive_index if clickable, scrollable, or iframe
+			# Special handling for SVG elements - show the tag but collapse children
+			if node.original_node.tag_name.lower() == 'svg':
+				shadow_prefix = ''
+				if node.is_shadow_host:
+					has_closed_shadow = any(
+						child.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE
+						and child.original_node.shadow_root_type
+						and child.original_node.shadow_root_type.lower() == 'closed'
+						for child in node.children
+					)
+					shadow_prefix = '|SHADOW(closed)|' if has_closed_shadow else '|SHADOW(open)|'
+
+				line = f'{depth_str}{shadow_prefix}'
+				# Add interactive marker if clickable
+				if node.is_interactive:
+					new_prefix = '*' if node.is_new else ''
+					line += f'{new_prefix}[{node.original_node.backend_node_id}]'
+				line += '<svg'
+				attributes_html_str = DOMTreeSerializer._build_attributes_string(node.original_node, include_attributes, '')
+				if attributes_html_str:
+					line += f' {attributes_html_str}'
+				line += ' /> <!-- SVG content collapsed -->'
+				formatted_text.append(line)
+				# Don't process children for SVG
+				return '\n'.join(formatted_text)
+
+			# Add element if clickable, scrollable, or iframe
 			is_any_scrollable = node.original_node.is_actually_scrollable or node.original_node.is_scrollable
 			should_show_scroll = node.original_node.should_show_scroll_info
 			if (
-				node.interactive_index is not None
+				node.is_interactive
 				or is_any_scrollable
 				or node.original_node.tag_name.upper() == 'IFRAME'
 				or node.original_node.tag_name.upper() == 'FRAME'
@@ -817,14 +868,14 @@ class DOMTreeSerializer:
 					)
 					shadow_prefix = '|SHADOW(closed)|' if has_closed_shadow else '|SHADOW(open)|'
 
-				if should_show_scroll and node.interactive_index is None:
+				if should_show_scroll and not node.is_interactive:
 					# Scrollable container but not clickable
 					line = f'{depth_str}{shadow_prefix}|SCROLL|<{node.original_node.tag_name}'
-				elif node.interactive_index is not None:
-					# Clickable (and possibly scrollable)
+				elif node.is_interactive:
+					# Clickable (and possibly scrollable) - show backend_node_id
 					new_prefix = '*' if node.is_new else ''
-					scroll_prefix = '|SCROLL+' if should_show_scroll else '['
-					line = f'{depth_str}{shadow_prefix}{new_prefix}{scroll_prefix}{node.interactive_index}]<{node.original_node.tag_name}'
+					scroll_prefix = '|SCROLL[' if should_show_scroll else '['
+					line = f'{depth_str}{shadow_prefix}{new_prefix}{scroll_prefix}{node.original_node.backend_node_id}]<{node.original_node.tag_name}'
 				elif node.original_node.tag_name.upper() == 'IFRAME':
 					# Iframe element (not interactive)
 					line = f'{depth_str}{shadow_prefix}|IFRAME|<{node.original_node.tag_name}'
@@ -850,9 +901,9 @@ class DOMTreeSerializer:
 		elif node.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
 			# Shadow DOM representation - show clearly to LLM
 			if node.original_node.shadow_root_type and node.original_node.shadow_root_type.lower() == 'closed':
-				formatted_text.append(f'{depth_str}▼ Shadow Content (Closed)')
+				formatted_text.append(f'{depth_str}Closed Shadow')
 			else:
-				formatted_text.append(f'{depth_str}▼ Shadow Content (Open)')
+				formatted_text.append(f'{depth_str}Open Shadow')
 
 			next_depth += 1
 
@@ -864,7 +915,7 @@ class DOMTreeSerializer:
 
 			# Close shadow DOM indicator
 			if node.children:  # Only show close if we had content
-				formatted_text.append(f'{depth_str}▲ Shadow Content End')
+				formatted_text.append(f'{depth_str}Shadow End')
 
 		elif node.original_node.node_type == NodeType.TEXT_NODE:
 			# Include visible text
@@ -942,6 +993,18 @@ class DOMTreeSerializer:
 		role = node.ax_node.role if node.ax_node else None
 		if role and node.node_name == role:
 			attributes_to_include.pop('role', None)
+
+		# Remove type attribute if it matches the tag name (e.g. <button type="button">)
+		if 'type' in attributes_to_include and attributes_to_include['type'].lower() == node.node_name.lower():
+			del attributes_to_include['type']
+
+		# Remove invalid attribute if it's false (only show when true)
+		if 'invalid' in attributes_to_include and attributes_to_include['invalid'].lower() == 'false':
+			del attributes_to_include['invalid']
+
+		# Remove aria-expanded if we have expanded (prefer AX tree over HTML attribute)
+		if 'expanded' in attributes_to_include and 'aria-expanded' in attributes_to_include:
+			del attributes_to_include['aria-expanded']
 
 		attrs_to_remove_if_text_matches = ['aria-label', 'placeholder', 'title']
 		for attr in attrs_to_remove_if_text_matches:

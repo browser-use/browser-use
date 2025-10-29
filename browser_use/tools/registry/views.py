@@ -25,18 +25,31 @@ class RegisteredAction(BaseModel):
 	model_config = ConfigDict(arbitrary_types_allowed=True)
 
 	def prompt_description(self) -> str:
-		"""Get a description of the action for the prompt"""
-		skip_keys = ['title']
-		s = f'{self.description}: \n'
-		s += '{' + str(self.name) + ': '
-		s += str(
-			{
-				k: {sub_k: sub_v for sub_k, sub_v in v.items() if sub_k not in skip_keys}
-				for k, v in self.param_model.model_json_schema()['properties'].items()
-			}
-		)
-		s += '}'
-		return s
+		"""Get a description of the action for the prompt in unstructured format"""
+		schema = self.param_model.model_json_schema()
+		params = []
+
+		if 'properties' in schema:
+			for param_name, param_info in schema['properties'].items():
+				# Build parameter description
+				param_desc = param_name
+
+				# Add type information if available
+				if 'type' in param_info:
+					param_type = param_info['type']
+					param_desc += f'={param_type}'
+
+				# Add description as comment if available
+				if 'description' in param_info:
+					param_desc += f' ({param_info["description"]})'
+
+				params.append(param_desc)
+
+		# Format: action_name: Description. (param1=type, param2=type, ...)
+		if params:
+			return f'{self.name}: {self.description}. ({", ".join(params)})'
+		else:
+			return f'{self.name}: {self.description}'
 
 
 class ActionModel(BaseModel):

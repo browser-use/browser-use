@@ -26,10 +26,6 @@ GoToUrlAction = NavigateAction
 
 class ClickElementAction(BaseModel):
 	index: int = Field(ge=1, description='from browser_state')
-	ctrl: bool | None = Field(
-		default=None,
-		description='True=New background tab (Ctrl+Click)',
-	)
 	# expect_download: bool = Field(default=False, description='set True if expecting a download, False otherwise')  # moved to downloads_watchdog.py
 	# click_count: int = 1  # TODO
 
@@ -41,8 +37,8 @@ class InputTextAction(BaseModel):
 
 
 class DoneAction(BaseModel):
-	text: str = Field(description='summary for user')
-	success: bool = Field(description='True if user_request completed successfully')
+	text: str = Field(description='Final user message in the format the user requested')
+	success: bool = Field(default=True, description='True if user_request completed successfully')
 	files_to_display: list[str] | None = Field(default=[])
 
 
@@ -50,8 +46,8 @@ T = TypeVar('T', bound=BaseModel)
 
 
 class StructuredOutputAction(BaseModel, Generic[T]):
-	success: bool = Field(default=True, description='1=done')
-	data: T
+	success: bool = Field(default=True, description='True if user_request completed successfully')
+	data: T = Field(description='The actual output data matching the requested schema')
 
 
 class SwitchTabAction(BaseModel):
@@ -63,9 +59,9 @@ class CloseTabAction(BaseModel):
 
 
 class ScrollAction(BaseModel):
-	down: bool = Field(description='1=down, 0=up')
-	pages: float = Field(default=1.0, description='0.5=half, 1=pg, 10=bottom')
-	index: int | None = Field(default=None, description='Use to scroll in specific container with that element')
+	down: bool = Field(description='down=True=scroll down, down=False scroll up')
+	pages: float = Field(default=1.0, description='0.5=half page, 1=full page, 10=to bottom/top')
+	index: int | None = Field(default=None, description='Optional element index to scroll within specific container')
 
 
 class SendKeysAction(BaseModel):

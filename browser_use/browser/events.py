@@ -59,7 +59,6 @@ class ElementSelectedEvent(BaseEvent[T_EventResultType]):
 		if data is None:
 			return None
 		return EnhancedDOMTreeNode(
-			element_index=data.element_index,
 			node_id=data.node_id,
 			backend_node_id=data.backend_node_id,
 			session_id=data.session_id,
@@ -128,10 +127,6 @@ class ClickElementEvent(ElementSelectedEvent[dict[str, Any] | None]):
 
 	node: 'EnhancedDOMTreeNode'
 	button: Literal['left', 'right', 'middle'] = 'left'
-	while_holding_ctrl: bool = Field(
-		default=False,
-		description='Set True to open any link clicked in a new tab in the background, can use switch(tab_id=None) after to focus it',
-	)
 	# click_count: int = 1           # TODO
 	# expect_download: bool = False  # moved to downloads_watchdog.py
 

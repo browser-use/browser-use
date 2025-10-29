@@ -8,6 +8,10 @@ This example demonstrates how to:
 - Handle basic form interactions
 
 This builds on the basic search example by showing more complex interactions.
+
+Setup:
+1. Get your API key from https://cloud.browser-use.com/new-api-key
+2. Set environment variable: export BROWSER_USE_API_KEY="your-key"
 """
 
 import asyncio
@@ -27,11 +31,13 @@ from browser_use import Agent, ChatGoogle
 api_key = os.getenv('GOOGLE_API_KEY')
 if not api_key:
 	raise ValueError('GOOGLE_API_KEY is not set')
+from browser_use import Agent, ChatBrowserUse
 
 
 async def main():
 	# Initialize the model
 	llm = ChatGoogle(model='gemini-flash-latest', api_key=api_key)
+	llm = ChatBrowserUse()
 
 	# Define a form filling task
 	task = """

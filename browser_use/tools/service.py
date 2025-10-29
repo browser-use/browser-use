@@ -3,7 +3,7 @@ import enum
 import json
 import logging
 import os
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeVar
 
 try:
 	from lmnr import Laminar  # type: ignore
@@ -227,7 +227,7 @@ class Tools(Generic[Context]):
 			# so I revert this.
 			actual_seconds = min(max(seconds - 3, 0), 30)
 			memory = f'Waited for {seconds} seconds'
-			logger.info(f'🕒 waited for {actual_seconds} seconds + 3 seconds for LLM call')
+			logger.info(f'🕒 waited for {seconds} second{"" if seconds == 1 else "s"}')
 			await asyncio.sleep(actual_seconds)
 			return ActionResult(extracted_content=memory, long_term_memory=memory)
 
@@ -247,20 +247,18 @@ class Tools(Generic[Context]):
 				# Look up the node from the selector map
 				node = await browser_session.get_element_by_index(params.index)
 				if node is None:
-					raise ValueError(f'Element index {params.index} not found in browser state')
+					msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+					logger.warning(f'⚠️ {msg}')
+					return ActionResult(extracted_content=msg)
 
-				event = browser_session.event_bus.dispatch(ClickElementEvent(node=node, while_holding_ctrl=params.ctrl or False))
+				# Highlight the element being clicked (truly non-blocking)
+				asyncio.create_task(browser_session.highlight_interaction_element(node))
+
+				event = browser_session.event_bus.dispatch(ClickElementEvent(node=node))
 				await event
 				# Wait for handler to complete and get any exception or metadata
 				click_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
 				memory = 'Clicked element'
-
-				if params.ctrl:
-					memory += ' and opened in new tab'
-
-				# Check if a new tab was opened (from watchdog metadata)
-				elif isinstance(click_metadata, dict) and click_metadata.get('new_tab_opened'):
-					memory += ' - which opened a new tab'
 
 				msg = f'🖱️ {memory}'
 				logger.info(msg)
@@ -278,7 +276,7 @@ class Tools(Generic[Context]):
 						)
 					except Exception as dropdown_error:
 						logger.error(
-							f'Failed to get dropdown options as shortcut during click_element_by_index on dropdown: {type(dropdown_error).__name__}: {dropdown_error}'
+							f'Failed to get dropdown options as shortcut during click on dropdown: {type(dropdown_error).__name__}: {dropdown_error}'
 						)
 					return ActionResult(error='Can not click on select elements.')
 
@@ -300,7 +298,12 @@ class Tools(Generic[Context]):
 			# Look up the node from the selector map
 			node = await browser_session.get_element_by_index(params.index)
 			if node is None:
-				raise ValueError(f'Element index {params.index} not found in browser state')
+				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+				logger.warning(f'⚠️ {msg}')
+				return ActionResult(extracted_content=msg)
+
+			# Highlight the element being typed into (truly non-blocking)
+			asyncio.create_task(browser_session.highlight_interaction_element(node))
 
 			# Dispatch type text event with node
 			try:
@@ -445,6 +448,10 @@ class Tools(Generic[Context]):
 			# Try to find a file input element near the selected element
 			file_input_node = find_file_input_near_element(node)
 
+			# Highlight the file input element if found (truly non-blocking)
+			if file_input_node:
+				asyncio.create_task(browser_session.highlight_interaction_element(file_input_node))
+
 			# If not found near the selected element, fallback to finding the closest file input to current scroll position
 			if file_input_node is None:
 				logger.info(
@@ -478,6 +485,8 @@ class Tools(Generic[Context]):
 				if closest_file_input:
 					file_input_node = closest_file_input
 					logger.info(f'Found file input closest to scroll position (distance: {min_distance}px)')
+					# Highlight the fallback file input element (truly non-blocking)
+					asyncio.create_task(browser_session.highlight_interaction_element(file_input_node))
 				else:
 					msg = 'No file upload element found on the page'
 					logger.error(msg)
@@ -501,7 +510,10 @@ class Tools(Generic[Context]):
 
 		# Tab Management Actions
 
-		@self.registry.action('', param_model=SwitchTabAction)
+		@self.registry.action(
+			'Switch to another open tab by tab_id. Tab IDs are shown in browser state tabs list (last 4 chars of target_id). Use when you need to work with content in a different tab.',
+			param_model=SwitchTabAction,
+		)
 		async def switch(params: SwitchTabAction, browser_session: BrowserSession):
 			# Simple switch tab logic
 			try:
@@ -523,7 +535,10 @@ class Tools(Generic[Context]):
 				memory = f'Attempted to switch to tab #{params.tab_id}'
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
 
-		@self.registry.action('', param_model=CloseTabAction)
+		@self.registry.action(
+			'Close a tab by tab_id. Tab IDs are shown in browser state tabs list (last 4 chars of target_id). Use to clean up tabs you no longer need.',
+			param_model=CloseTabAction,
+		)
 		async def close(params: CloseTabAction, browser_session: BrowserSession):
 			# Simple close tab logic
 			try:
@@ -568,9 +583,13 @@ class Tools(Generic[Context]):
 			# Constants
 			MAX_CHAR_LIMIT = 30000
 
-			# Extract clean markdown using the new method
+			# Extract clean markdown using the unified method
 			try:
-				content, content_stats = await self.extract_clean_markdown(browser_session, extract_links)
+				from browser_use.dom.markdown_extractor import extract_clean_markdown
+
+				content, content_stats = await extract_clean_markdown(
+					browser_session=browser_session, extract_links=extract_links
+				)
 			except Exception as e:
 				raise RuntimeError(f'Could not extract clean markdown: {type(e).__name__}')
 
@@ -629,7 +648,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 <instructions>
 - You are tasked to extract information from the webpage that is relevant to the query.
-- You should ONLY use the information available in the webpage to answer the query. Do not make up information or provide guess from your own knowledge. 
+- You should ONLY use the information available in the webpage to answer the query. Do not make up information or provide guess from your own knowledge.
 - If the information relevant to the query is not available in the page, your response should mention that.
 - If the query asks for all items, products, etc., make sure to directly list all of them.
 - If the content was truncated and you need more information, note that the user can use start_from_char parameter to continue from where truncation occurred.
@@ -660,8 +679,8 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					memory = extracted_content
 					include_extracted_content_only_once = False
 				else:
-					save_result = await file_system.save_extracted_content(extracted_content)
-					memory = f'Extracted content from {current_url} for query: {query}\nContent saved to file system: {save_result} and displayed in <read_state>.'
+					file_name = await file_system.save_extracted_content(extracted_content)
+					memory = f'Query: {query}\nContent in {file_name} and once in <read_state>.'
 					include_extracted_content_only_once = True
 
 				logger.info(f'📄 {memory}')
@@ -691,7 +710,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 						return ActionResult(error=msg)
 
 				direction = 'down' if params.down else 'up'
-				target = 'the page' if params.index is None or params.index == 0 else f'element {params.index}'
+				target = f'element {params.index}' if params.index is not None and params.index != 0 else ''
 
 				# Get actual viewport height for more accurate scrolling
 				try:
@@ -758,9 +777,9 @@ You will be given a query and the markdown of a webpage that has been filtered t
 							logger.warning(f'Fractional scroll failed: {e}')
 
 					if params.pages == 1.0:
-						long_term_memory = f'Scrolled {direction} {target} by one page ({viewport_height}px)'
+						long_term_memory = f'Scrolled {direction} {target} {viewport_height}px'.replace('  ', ' ')
 					else:
-						long_term_memory = f'Scrolled {direction} {target} by {completed_scrolls:.1f} pages (requested: {params.pages}, {viewport_height}px per page)'
+						long_term_memory = f'Scrolled {direction} {target} {completed_scrolls:.1f} pages'.replace('  ', ' ')
 				else:
 					# For fractional pages <1.0, do single scroll
 					pixels = int(params.pages * viewport_height)
@@ -769,7 +788,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					)
 					await event
 					await event.event_result(raise_if_any=True, raise_if_none=False)
-					long_term_memory = f'Scrolled {direction} {target} by {params.pages} pages ({viewport_height}px per page)'
+					long_term_memory = f'Scrolled {direction} {target} {params.pages} pages'.replace('  ', ' ')
 
 				msg = f'🔍 {long_term_memory}'
 				logger.info(msg)
@@ -819,7 +838,9 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					long_term_memory=f"Tried scrolling to text '{text}' but it was not found",
 				)
 
-		@self.registry.action('')
+		@self.registry.action(
+			'Request screenshot of current viewport. Use when: visual inspection needed, layout unclear, element positions uncertain, debugging UI issues, or verifying page state. Screenshot included in next observation.',
+		)
 		async def screenshot():
 			"""Request that a screenshot be included in the next observation"""
 			memory = 'Requested screenshot for next observation'
@@ -843,7 +864,9 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			# Look up the node from the selector map
 			node = await browser_session.get_element_by_index(params.index)
 			if node is None:
-				raise ValueError(f'Element index {params.index} not found in browser state')
+				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+				logger.warning(f'⚠️ {msg}')
+				return ActionResult(extracted_content=msg)
 
 			# Dispatch GetDropdownOptionsEvent to the event handler
 
@@ -869,7 +892,9 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			# Look up the node from the selector map
 			node = await browser_session.get_element_by_index(params.index)
 			if node is None:
-				raise ValueError(f'Element index {params.index} not found in browser state')
+				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+				logger.warning(f'⚠️ {msg}')
+				return ActionResult(extracted_content=msg)
 
 			# Dispatch SelectDropdownOptionEvent to the event handler
 			from browser_use.browser.events import SelectDropdownOptionEvent
@@ -904,7 +929,10 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					return ActionResult(error=error_msg)
 
 		# File System Actions
-		@self.registry.action('')
+
+		@self.registry.action(
+			'Supports formats: .txt, .md, .json, .jsonl, .csv, .pdf. For PDF files, write content in markdown format and it will be automatically converted to a properly formatted PDF document.'
+		)
 		async def write_file(
 			file_name: str,
 			content: str,
@@ -960,7 +988,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			)
 
 		@self.registry.action(
-			"""Execute JS. MUST: wrap in IIFE (function(){...})() or (async function(){...})(), add try-catch, validate elements exist. Check null before accessing properties. Use for: hover, drag, custom selectors, forms, extract/filter links, iframes, shadow DOM, React/Vue/Angular. Limit output. Examples: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() ✓ | document.querySelector('#id').value ✗. Shadow: iterate hosts, check shadowRoot. Return JSON.stringify() for objects. Do not use comments""",
+			"""Execute browser JavaScript. Best practice: wrap in IIFE (function(){...})() with try-catch for safety. Use ONLY browser APIs (document, window, DOM). NO Node.js APIs (fs, require, process). Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() Avoid comments. Use for hover, drag, zoom, custom selectors, extract/filter links, shadow DOM, or analysing page structure. Limit output size.""",
 		)
 		async def evaluate(code: str, browser_session: BrowserSession):
 			# Execute JavaScript with proper error handling and promise support
@@ -968,9 +996,12 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			cdp_session = await browser_session.get_or_create_cdp_session()
 
 			try:
+				# Validate and potentially fix JavaScript code before execution
+				validated_code = self._validate_and_fix_javascript(code)
+
 				# Always use awaitPromise=True - it's ignored for non-promises
 				result = await cdp_session.cdp_client.send.Runtime.evaluate(
-					params={'expression': code, 'returnByValue': True, 'awaitPromise': True},
+					params={'expression': validated_code, 'returnByValue': True, 'awaitPromise': True},
 					session_id=cdp_session.session_id,
 				)
 
@@ -978,19 +1009,25 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				if result.get('exceptionDetails'):
 					exception = result['exceptionDetails']
 					error_msg = f'JavaScript execution error: {exception.get("text", "Unknown error")}'
-					if 'lineNumber' in exception:
-						error_msg += f' at line {exception["lineNumber"]}'
-					msg = f'Code: {code}\n\nError: {error_msg}'
-					logger.info(msg)
-					return ActionResult(error=msg)
+
+					# Enhanced error message with debugging info
+					enhanced_msg = f"""JavaScript Execution Failed:
+{error_msg}
+
+Validated Code (after quote fixing):
+{validated_code[:500]}{'...' if len(validated_code) > 500 else ''}
+"""
+
+					logger.debug(enhanced_msg)
+					return ActionResult(error=enhanced_msg)
 
 				# Get the result data
 				result_data = result.get('result', {})
 
 				# Check for wasThrown flag (backup error detection)
 				if result_data.get('wasThrown'):
-					msg = f'Code: {code}\n\nError: JavaScript execution failed (wasThrown=true)'
-					logger.info(msg)
+					msg = f'JavaScript code: {code} execution failed (wasThrown=true)'
+					logger.debug(msg)
 					return ActionResult(error=msg)
 
 				# Get the actual value
@@ -1014,111 +1051,81 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				# Apply length limit with better truncation
 				if len(result_text) > 20000:
 					result_text = result_text[:19950] + '\n... [Truncated after 20000 characters]'
-				msg = f'Code: {code}\n\nResult: {result_text}'
-				logger.info(msg)
-				return ActionResult(extracted_content=f'Code: {code}\n\nResult: {result_text}')
+				# Don't log the code - it's already visible in the user's cell
+				logger.debug(f'JavaScript executed successfully, result length: {len(result_text)}')
+				# Return only the result, not the code (code is already in user's cell)
+				return ActionResult(extracted_content=result_text)
 
 			except Exception as e:
 				# CDP communication or other system errors
-				error_msg = f'Code: {code}\n\nError: {error_msg} Failed to execute JavaScript: {type(e).__name__}: {e}'
-				logger.info(error_msg)
+				error_msg = f'Failed to execute JavaScript: {type(e).__name__}: {e}'
+				logger.debug(f'JavaScript code that failed: {code[:200]}...')
 				return ActionResult(error=error_msg)
 
-	# Custom done action for structured output
-	@observe_debug(ignore_input=True, ignore_output=True, name='extract_clean_markdown')
-	async def extract_clean_markdown(
-		self, browser_session: BrowserSession, extract_links: bool = False
-	) -> tuple[str, dict[str, Any]]:
-		"""Extract clean markdown from the current page.
+	def _validate_and_fix_javascript(self, code: str) -> str:
+		"""Validate and fix common JavaScript issues before execution"""
 
-		Args:
-			browser_session: Browser session to extract content from
-			extract_links: Whether to preserve links in markdown
-
-		Returns:
-			tuple: (clean_markdown_content, content_statistics)
-		"""
 		import re
 
-		# Get HTML content from current page
-		cdp_session = await browser_session.get_or_create_cdp_session()
-		try:
-			body_id = await cdp_session.cdp_client.send.DOM.getDocument(session_id=cdp_session.session_id)
-			page_html_result = await cdp_session.cdp_client.send.DOM.getOuterHTML(
-				params={'backendNodeId': body_id['root']['backendNodeId']}, session_id=cdp_session.session_id
-			)
-			page_html = page_html_result['outerHTML']
-			current_url = await browser_session.get_current_page_url()
-		except Exception as e:
-			raise RuntimeError(f"Couldn't extract page content: {e}")
+		# Pattern 1: Fix double-escaped quotes (\\\" → \")
+		fixed_code = re.sub(r'\\"', '"', code)
 
-		original_html_length = len(page_html)
+		# Pattern 2: Fix over-escaped regex patterns (\\\\d → \\d)
+		# Common issue: regex gets double-escaped during parsing
+		fixed_code = re.sub(r'\\\\([dDsSwWbBnrtfv])', r'\\\1', fixed_code)
+		fixed_code = re.sub(r'\\\\([.*+?^${}()|[\]])', r'\\\1', fixed_code)
 
-		# Use html2text for clean markdown conversion
-		import html2text
+		# Pattern 3: Fix XPath expressions with mixed quotes
+		xpath_pattern = r'document\.evaluate\s*\(\s*"([^"]*\'[^"]*)"'
 
-		h = html2text.HTML2Text()
-		h.ignore_links = not extract_links
-		h.ignore_images = True
-		h.ignore_emphasis = False
-		h.body_width = 0  # Don't wrap lines
-		h.unicode_snob = True
-		h.skip_internal_links = True
-		content = h.handle(page_html)
+		def fix_xpath_quotes(match):
+			xpath_with_quotes = match.group(1)
+			return f'document.evaluate(`{xpath_with_quotes}`,'
 
-		initial_markdown_length = len(content)
+		fixed_code = re.sub(xpath_pattern, fix_xpath_quotes, fixed_code)
 
-		# Minimal cleanup - html2text already does most of the work
-		content = re.sub(r'%[0-9A-Fa-f]{2}', '', content)  # Remove any remaining URL encoding
+		# Pattern 4: Fix querySelector/querySelectorAll with mixed quotes
+		selector_pattern = r'(querySelector(?:All)?)\s*\(\s*"([^"]*\'[^"]*)"'
 
-		# Apply light preprocessing to clean up excessive whitespace
-		content, chars_filtered = self._preprocess_markdown_content(content)
+		def fix_selector_quotes(match):
+			method_name = match.group(1)
+			selector_with_quotes = match.group(2)
+			return f'{method_name}(`{selector_with_quotes}`)'
 
-		final_filtered_length = len(content)
+		fixed_code = re.sub(selector_pattern, fix_selector_quotes, fixed_code)
 
-		# Content statistics
-		stats = {
-			'url': current_url,
-			'original_html_chars': original_html_length,
-			'initial_markdown_chars': initial_markdown_length,
-			'filtered_chars_removed': chars_filtered,
-			'final_filtered_chars': final_filtered_length,
-		}
+		# Pattern 5: Fix closest() calls with mixed quotes
+		closest_pattern = r'\.closest\s*\(\s*"([^"]*\'[^"]*)"'
 
-		return content, stats
+		def fix_closest_quotes(match):
+			selector_with_quotes = match.group(1)
+			return f'.closest(`{selector_with_quotes}`)'
 
-	def _preprocess_markdown_content(self, content: str, max_newlines: int = 3) -> tuple[str, int]:
-		"""
-		Light preprocessing of html2text output - minimal cleanup since html2text is already clean.
+		fixed_code = re.sub(closest_pattern, fix_closest_quotes, fixed_code)
 
-		Args:
-			content: Markdown content from html2text to lightly filter
-			max_newlines: Maximum consecutive newlines to allow
+		# Pattern 6: Fix .matches() calls with mixed quotes (similar to closest)
+		matches_pattern = r'\.matches\s*\(\s*"([^"]*\'[^"]*)"'
 
-		Returns:
-			tuple: (filtered_content, chars_filtered)
-		"""
-		import re
+		def fix_matches_quotes(match):
+			selector_with_quotes = match.group(1)
+			return f'.matches(`{selector_with_quotes}`)'
 
-		original_length = len(content)
+		fixed_code = re.sub(matches_pattern, fix_matches_quotes, fixed_code)
 
-		# Compress consecutive newlines (4+ newlines become max_newlines)
-		content = re.sub(r'\n{4,}', '\n' * max_newlines, content)
+		# Note: Removed getAttribute fix - attribute names rarely have mixed quotes
+		# getAttribute typically uses simple names like "data-value", not complex selectors
 
-		# Remove lines that are only whitespace or very short (likely artifacts)
-		lines = content.split('\n')
-		filtered_lines = []
-		for line in lines:
-			stripped = line.strip()
-			# Keep lines with substantial content (html2text output is already clean)
-			if len(stripped) > 2:
-				filtered_lines.append(line)
+		# Log changes made
+		changes_made = []
+		if r'\"' in code and r'\"' not in fixed_code:
+			changes_made.append('fixed escaped quotes')
+		if '`' in fixed_code and '`' not in code:
+			changes_made.append('converted mixed quotes to template literals')
 
-		content = '\n'.join(filtered_lines)
-		content = content.strip()
+		if changes_made:
+			logger.debug(f'JavaScript fixes applied: {", ".join(changes_made)}')
 
-		chars_filtered = original_length - len(content)
-		return content, chars_filtered
+		return fixed_code
 
 	def _register_done_action(self, output_model: type[T] | None, display_files_in_done_text: bool = True):
 		if output_model is not None:
@@ -1164,8 +1171,6 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					if self.display_files_in_done_text:
 						file_msg = ''
 						for file_name in params.files_to_display:
-							if file_name == 'todo.md':
-								continue
 							file_content = file_system.display_file(file_name)
 							if file_content:
 								file_msg += f'\n\n{file_name}:\n{file_content}'
@@ -1177,8 +1182,6 @@ You will be given a query and the markdown of a webpage that has been filtered t
 							logger.warning('Agent wanted to display files but none were found')
 					else:
 						for file_name in params.files_to_display:
-							if file_name == 'todo.md':
-								continue
 							file_content = file_system.display_file(file_name)
 							if file_content:
 								attachments.append(file_name)
@@ -1273,6 +1276,356 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					raise ValueError(f'Invalid action result type: {type(result)} of {result}')
 		return ActionResult()
 
+	def __getattr__(self, name: str):
+		"""
+		Enable direct action calls like tools.navigate(url=..., browser_session=...).
+		This provides a simpler API for tests and direct usage while maintaining backward compatibility.
+		"""
+		# Check if this is a registered action
+		if name in self.registry.registry.actions:
+			from typing import Union
+
+			from pydantic import create_model
+
+			action = self.registry.registry.actions[name]
+
+			# Create a wrapper that calls act() to ensure consistent error handling and result normalization
+			async def action_wrapper(**kwargs):
+				# Extract browser_session (required positional argument for act())
+				browser_session = kwargs.get('browser_session')
+
+				# Separate action params from special params (injected dependencies)
+				special_param_names = {
+					'browser_session',
+					'page_extraction_llm',
+					'file_system',
+					'available_file_paths',
+					'sensitive_data',
+				}
+
+				# Extract action params (params for the action itself)
+				action_params = {k: v for k, v in kwargs.items() if k not in special_param_names}
+
+				# Extract special params (injected dependencies) - exclude browser_session as it's positional
+				special_kwargs = {k: v for k, v in kwargs.items() if k in special_param_names and k != 'browser_session'}
+
+				# Create the param instance
+				params_instance = action.param_model(**action_params)
+
+				# Dynamically create an ActionModel with this action
+				# Use Union for type compatibility with create_model
+				DynamicActionModel = create_model(
+					'DynamicActionModel',
+					__base__=ActionModel,
+					**{name: (Union[action.param_model, None], None)},  # type: ignore
+				)
+
+				# Create the action model instance
+				action_model = DynamicActionModel(**{name: params_instance})
+
+				# Call act() which has all the error handling, result normalization, and observability
+				# browser_session is passed as positional argument (required by act())
+				return await self.act(action=action_model, browser_session=browser_session, **special_kwargs)  # type: ignore
+
+			return action_wrapper
+
+		# If not an action, raise AttributeError for normal Python behavior
+		raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
 
 # Alias for backwards compatibility
 Controller = Tools
+
+
+class CodeAgentTools(Tools[Context]):
+	"""Specialized Tools for CodeAgent agent optimized for Python-based browser automation.
+
+	Includes:
+	- All browser interaction tools (click, input, scroll, navigate, etc.)
+	- JavaScript evaluation
+	- Tab management (switch, close)
+	- Navigation actions (go_back)
+	- Upload file support
+	- Dropdown interactions
+
+	Excludes (optimized for code-use mode):
+	- extract: Use Python + evaluate() instead
+	- find_text: Use Python string operations
+	- screenshot: Not needed in code-use mode
+	- search: Use navigate() directly
+	- File system actions (write_file, read_file, replace_file): Use Python file operations instead
+	"""
+
+	def __init__(
+		self,
+		exclude_actions: list[str] | None = None,
+		output_model: type[T] | None = None,
+		display_files_in_done_text: bool = True,
+	):
+		# Default exclusions for CodeAgent agent
+		if exclude_actions is None:
+			exclude_actions = [
+				# 'scroll',  # Keep for code-use
+				'extract',  # Exclude - use Python + evaluate()
+				'find_text',  # Exclude - use Python string ops
+				# 'select_dropdown',  # Keep for code-use
+				# 'dropdown_options',  # Keep for code-use
+				'screenshot',  # Exclude - not needed
+				'search',  # Exclude - use navigate() directly
+				# 'click',  # Keep for code-use
+				# 'input',  # Keep for code-use
+				# 'switch',  # Keep for code-use
+				# 'send_keys',  # Keep for code-use
+				# 'close',  # Keep for code-use
+				# 'go_back',  # Keep for code-use
+				# 'upload_file',  # Keep for code-use
+				# Exclude file system actions - CodeAgent should use Python file operations
+				'write_file',
+				'read_file',
+				'replace_file',
+			]
+
+		super().__init__(
+			exclude_actions=exclude_actions,
+			output_model=output_model,
+			display_files_in_done_text=display_files_in_done_text,
+		)
+
+		# Override done action for CodeAgent with enhanced file handling
+		self._register_code_use_done_action(output_model, display_files_in_done_text)
+
+	def _register_code_use_done_action(self, output_model: type[T] | None, display_files_in_done_text: bool = True):
+		"""Register enhanced done action for CodeAgent that can read files from disk."""
+		if output_model is not None:
+			# Structured output done - use parent's implementation
+			return
+
+		# Override the done action with enhanced version
+		@self.registry.action(
+			'Complete task.',
+			param_model=DoneAction,
+		)
+		async def done(params: DoneAction, file_system: FileSystem):
+			user_message = params.text
+
+			len_text = len(params.text)
+			len_max_memory = 100
+			memory = f'Task completed: {params.success} - {params.text[:len_max_memory]}'
+			if len_text > len_max_memory:
+				memory += f' - {len_text - len_max_memory} more characters'
+
+			attachments = []
+			if params.files_to_display:
+				if self.display_files_in_done_text:
+					file_msg = ''
+					for file_name in params.files_to_display:
+						file_content = file_system.display_file(file_name)
+						if file_content:
+							file_msg += f'\n\n{file_name}:\n{file_content}'
+							attachments.append(file_name)
+						elif os.path.exists(file_name):
+							# File exists on disk but not in FileSystem - just add to attachments
+							attachments.append(file_name)
+					if file_msg:
+						user_message += '\n\nAttachments:'
+						user_message += file_msg
+					else:
+						logger.warning('Agent wanted to display files but none were found')
+				else:
+					for file_name in params.files_to_display:
+						file_content = file_system.display_file(file_name)
+						if file_content:
+							attachments.append(file_name)
+						elif os.path.exists(file_name):
+							attachments.append(file_name)
+
+			# Convert relative paths to absolute paths - handle both FileSystem-managed and regular files
+			resolved_attachments = []
+			for file_name in attachments:
+				if os.path.isabs(file_name):
+					# Already absolute
+					resolved_attachments.append(file_name)
+				elif file_system.get_file(file_name):
+					# Managed by FileSystem
+					resolved_attachments.append(str(file_system.get_dir() / file_name))
+				elif os.path.exists(file_name):
+					# Regular file in current directory
+					resolved_attachments.append(os.path.abspath(file_name))
+				else:
+					# File doesn't exist, but include the path anyway for error visibility
+					resolved_attachments.append(str(file_system.get_dir() / file_name))
+			attachments = resolved_attachments
+
+			return ActionResult(
+				is_done=True,
+				success=params.success,
+				extracted_content=user_message,
+				long_term_memory=memory,
+				attachments=attachments,
+			)
+
+		# Override upload_file for code agent with relaxed path validation
+		@self.registry.action(
+			'Upload a file to a file input element. For code-use mode, any file accessible from the current directory can be uploaded.',
+			param_model=UploadFileAction,
+		)
+		async def upload_file(
+			params: UploadFileAction,
+			browser_session: BrowserSession,
+			available_file_paths: list[str],
+			file_system: FileSystem,
+		):
+			# Path validation logic for code-use mode:
+			# 1. If available_file_paths provided (security mode), enforce it as a whitelist
+			# 2. If no whitelist, for local browsers just check file exists
+			# 3. For remote browsers, allow any path (assume it exists remotely)
+
+			# If whitelist provided, validate path is in it
+			if available_file_paths:
+				if params.path not in available_file_paths:
+					# Also check if it's a recently downloaded file
+					downloaded_files = browser_session.downloaded_files
+					if params.path not in downloaded_files:
+						# Finally, check if it's a file in the FileSystem service (if provided)
+						if file_system is not None and file_system.get_dir():
+							# Check if the file is actually managed by the FileSystem service
+							# The path should be just the filename for FileSystem files
+							file_obj = file_system.get_file(params.path)
+							if file_obj:
+								# File is managed by FileSystem, construct the full path
+								file_system_path = str(file_system.get_dir() / params.path)
+								params = UploadFileAction(index=params.index, path=file_system_path)
+							else:
+								# If browser is remote, allow passing a remote-accessible absolute path
+								if not browser_session.is_local:
+									pass
+								else:
+									msg = f'File path {params.path} is not available. Upload files must be in available_file_paths, downloaded_files, or a file managed by file_system.'
+									logger.error(f'❌ {msg}')
+									return ActionResult(error=msg)
+						else:
+							# If browser is remote, allow passing a remote-accessible absolute path
+							if not browser_session.is_local:
+								pass
+							else:
+								msg = f'File path {params.path} is not available. Upload files must be in available_file_paths or downloaded_files.'
+								logger.error(f'❌ {msg}')
+								return ActionResult(error=msg)
+
+			# For local browsers, ensure the file exists on the local filesystem
+			if browser_session.is_local:
+				if not os.path.exists(params.path):
+					msg = f'File {params.path} does not exist'
+					return ActionResult(error=msg)
+
+			# Get the selector map to find the node
+			selector_map = await browser_session.get_selector_map()
+			if params.index not in selector_map:
+				msg = f'Element with index {params.index} does not exist.'
+				return ActionResult(error=msg)
+
+			node = selector_map[params.index]
+
+			# Helper function to find file input near the selected element
+			def find_file_input_near_element(
+				node: EnhancedDOMTreeNode, max_height: int = 3, max_descendant_depth: int = 3
+			) -> EnhancedDOMTreeNode | None:
+				"""Find the closest file input to the selected element."""
+
+				def find_file_input_in_descendants(n: EnhancedDOMTreeNode, depth: int) -> EnhancedDOMTreeNode | None:
+					if depth < 0:
+						return None
+					if browser_session.is_file_input(n):
+						return n
+					for child in n.children_nodes or []:
+						result = find_file_input_in_descendants(child, depth - 1)
+						if result:
+							return result
+					return None
+
+				current = node
+				for _ in range(max_height + 1):
+					# Check the current node itself
+					if browser_session.is_file_input(current):
+						return current
+					# Check all descendants of the current node
+					result = find_file_input_in_descendants(current, max_descendant_depth)
+					if result:
+						return result
+					# Check all siblings and their descendants
+					if current.parent_node:
+						for sibling in current.parent_node.children_nodes or []:
+							if sibling is current:
+								continue
+							if browser_session.is_file_input(sibling):
+								return sibling
+							result = find_file_input_in_descendants(sibling, max_descendant_depth)
+							if result:
+								return result
+					current = current.parent_node
+					if not current:
+						break
+				return None
+
+			# Try to find a file input element near the selected element
+			file_input_node = find_file_input_near_element(node)
+
+			# Highlight the file input element if found (truly non-blocking)
+			if file_input_node:
+				asyncio.create_task(browser_session.highlight_interaction_element(file_input_node))
+
+			# If not found near the selected element, fallback to finding the closest file input to current scroll position
+			if file_input_node is None:
+				logger.info(
+					f'No file upload element found near index {params.index}, searching for closest file input to scroll position'
+				)
+
+				# Get current scroll position
+				cdp_session = await browser_session.get_or_create_cdp_session()
+				try:
+					scroll_info = await cdp_session.cdp_client.send.Runtime.evaluate(
+						params={'expression': 'window.scrollY || window.pageYOffset || 0'}, session_id=cdp_session.session_id
+					)
+					current_scroll_y = scroll_info.get('result', {}).get('value', 0)
+				except Exception:
+					current_scroll_y = 0
+
+				# Find all file inputs in the selector map and pick the closest one to scroll position
+				closest_file_input = None
+				min_distance = float('inf')
+
+				for idx, element in selector_map.items():
+					if browser_session.is_file_input(element):
+						# Get element's Y position
+						if element.absolute_position:
+							element_y = element.absolute_position.y
+							distance = abs(element_y - current_scroll_y)
+							if distance < min_distance:
+								min_distance = distance
+								closest_file_input = element
+
+				if closest_file_input:
+					file_input_node = closest_file_input
+					logger.info(f'Found file input closest to scroll position (distance: {min_distance}px)')
+					# Highlight the fallback file input element (truly non-blocking)
+					asyncio.create_task(browser_session.highlight_interaction_element(file_input_node))
+				else:
+					msg = 'No file upload element found on the page'
+					logger.error(msg)
+					raise BrowserError(msg)
+					# TODO: figure out why this fails sometimes + add fallback hail mary, just look for any file input on page
+
+			# Dispatch upload file event with the file input node
+			try:
+				event = browser_session.event_bus.dispatch(UploadFileEvent(node=file_input_node, file_path=params.path))
+				await event
+				await event.event_result(raise_if_any=True, raise_if_none=False)
+				msg = f'Successfully uploaded file to index {params.index}'
+				logger.info(f'📁 {msg}')
+				return ActionResult(
+					extracted_content=msg,
+					long_term_memory=f'Uploaded file {params.path} to element {params.index}',
+				)
+			except Exception as e:
+				logger.error(f'Failed to upload file: {e}')
+				raise BrowserError(f'Failed to upload file: {e}')

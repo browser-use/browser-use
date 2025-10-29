@@ -620,15 +620,22 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	minimum_wait_page_load_time: float = Field(default=0.25, description='Minimum time to wait before capturing page state.')
 	wait_for_network_idle_page_load_time: float = Field(default=0.5, description='Time to wait for network idle.')
 
-	wait_between_actions: float = Field(default=0.5, description='Time to wait between actions.')
+	wait_between_actions: float = Field(default=0.1, description='Time to wait between actions.')
 
 	# --- UI/viewport/DOM ---
-
 	highlight_elements: bool = Field(default=True, description='Highlight interactive elements on the page.')
+	dom_highlight_elements: bool = Field(
+		default=False, description='Highlight interactive elements in the DOM (only for debugging purposes).'
+	)
 	filter_highlight_ids: bool = Field(
 		default=True, description='Only show element IDs in highlights if llm_representation is less than 10 characters.'
 	)
 	paint_order_filtering: bool = Field(default=True, description='Enable paint order filtering. Slightly experimental.')
+	interaction_highlight_color: str = Field(
+		default='rgb(255, 127, 39)',
+		description='Color to use for highlighting elements during interactions (CSS color string).',
+	)
+	interaction_highlight_duration: float = Field(default=1.0, description='Duration in seconds to show interaction highlights.')
 
 	# --- Downloads ---
 	auto_download_pdfs: bool = Field(default=True, description='Automatically download PDFs when navigating to PDF viewer pages.')
@@ -750,6 +757,17 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		"""Ensure proxy configuration is consistent."""
 		if self.proxy and (self.proxy.bypass and not self.proxy.server):
 			logger.warning('BrowserProfile.proxy.bypass provided but proxy has no server; bypass will be ignored.')
+		return self
+
+	@model_validator(mode='after')
+	def validate_highlight_elements_conflict(self) -> Self:
+		"""Ensure highlight_elements and dom_highlight_elements are not both enabled, with dom_highlight_elements taking priority."""
+		if self.highlight_elements and self.dom_highlight_elements:
+			logger.warning(
+				'⚠️ Both highlight_elements and dom_highlight_elements are enabled. '
+				'dom_highlight_elements takes priority. Setting highlight_elements=False.'
+			)
+			self.highlight_elements = False
 		return self
 
 	def model_post_init(self, __context: Any) -> None:
@@ -875,6 +893,11 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				'name': 'ClearURLs',
 				'id': 'lckanjgmijmafbedllaakclkaicjfmnk',
 				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=133&acceptformat=crx3&x=id%3Dlckanjgmijmafbedllaakclkaicjfmnk%26uc',
+			},
+			{
+				'name': 'Force Background Tab',
+				'id': 'gidlfommnbibbmegmgajdbikelkdcmcl',
+				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=133&acceptformat=crx3&x=id%3Dgidlfommnbibbmegmgajdbikelkdcmcl%26uc',
 			},
 			# {
 			# 	'name': 'Captcha Solver: Auto captcha solving service',
