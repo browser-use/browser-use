@@ -197,12 +197,12 @@ def main(
 		# Create a nice panel for next steps
 		next_steps = Text()
 		next_steps.append('\n1. Install browser-use:\n', style='bold')
-		next_steps.append('   uv pip install browser-use\n\n', style='dim')
+		next_steps.append('   uv add browser-use\n\n', style='dim')
 		next_steps.append('2. Set up your API key in .env file or environment:\n', style='bold')
 		next_steps.append('   BROWSER_USE_API_KEY=your-key\n', style='dim')
-		next_steps.append('   (Get your key at https://cloud.browser-use.com/dashboard/api)\n\n', style='dim italic')
+		next_steps.append('   (Get your key at https://cloud.browser-use.com/dashboard/settings?tab=api-keys&new)\n\n', style='dim italic')
 		next_steps.append('3. Run your script:\n', style='bold')
-		next_steps.append(f'   python {output_path.name}\n', style='dim')
+		next_steps.append(f'   uv run {output_path.name}\n', style='dim')
 
 		console.print(
 			Panel(
