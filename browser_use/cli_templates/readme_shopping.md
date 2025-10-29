@@ -60,12 +60,13 @@ python launch_chrome_debug.py --help
 ```
 
 This will:
-- Copy your Chrome profile to an automation directory (preserves logins)
+- Clean up any previous automation Chrome sessions on port 9222
+- Copy your Chrome profile to a temporary directory (preserves logins)
 - Launch Chrome with remote debugging on port 9222
-- Run alongside your existing browser instances (won't close them)
+- Auto-cleanup the temporary directory when you exit
 - Support custom profiles via `--profile` flag
 
-**Keep this terminal window open!** Closing it will close Chrome.
+**Keep this terminal window open!** Closing it will close Chrome and clean up temporary files.
 
 ## Usage
 

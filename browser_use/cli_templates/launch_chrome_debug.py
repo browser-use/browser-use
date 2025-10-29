@@ -2,11 +2,8 @@
 """
 Launch Chrome with Remote Debugging for browser-use
 
-WARNING: This script will close ALL existing Chrome instances before launching.
-Make sure to save any important work before running.
-
-This script then relaunches Chrome with your profile (copied to automation
-directory) and remote debugging enabled.
+This script launches Chrome with remote debugging enabled, using a temporary
+directory that is automatically cleaned up when the script exits.
 
 Cross-platform: Works on macOS, Windows, and Linux
 
@@ -16,12 +13,14 @@ Usage:
 """
 
 import argparse
+import atexit
 import os
 import platform
 import shutil
+import signal
 import subprocess
 import sys
-import time
+import tempfile
 from pathlib import Path
 
 
@@ -46,18 +45,66 @@ def get_chrome_paths():
 	return chrome_exe, profile_base
 
 
-def close_chrome():
-	"""Close existing Chrome instances (cross-platform)"""
+def cleanup_port_9222():
+	"""Kill only the process using port 9222 (previous automation Chrome)"""
 	system = platform.system()
+
 	try:
-		if system == 'Darwin':  # macOS
-			subprocess.run(['pkill', '-x', 'Google Chrome'], check=False, capture_output=True)
+		if system == 'Darwin':  # macOS/Linux
+			# Use lsof to find process using port 9222
+			result = subprocess.run(
+				['lsof', '-i', ':9222', '-t'],
+				capture_output=True,
+				text=True,
+				check=False
+			)
+			if result.stdout.strip():
+				pid = result.stdout.strip().split('\n')[0]  # Get first PID if multiple
+				print(f'⚠️  Found previous automation session (PID {pid}), stopping it...')
+				subprocess.run(['kill', pid], check=False, capture_output=True)
+				import time
+				time.sleep(2)  # Wait for port to be freed
+				print('✅ Port 9222 is now available')
+			else:
+				print('✅ Port 9222 is available')
 		elif system == 'Windows':
-			subprocess.run(['taskkill', '/F', '/IM', 'chrome.exe'], check=False, capture_output=True)
+			# Use netstat to find process using port 9222
+			result = subprocess.run(
+				['netstat', '-ano', '-p', 'TCP'],
+				capture_output=True,
+				text=True,
+				check=False
+			)
+			for line in result.stdout.split('\n'):
+				if ':9222' in line and 'LISTENING' in line:
+					pid = line.strip().split()[-1]
+					print(f'⚠️  Found previous automation session (PID {pid}), stopping it...')
+					subprocess.run(['taskkill', '/F', '/PID', pid], check=False, capture_output=True)
+					import time
+					time.sleep(2)
+					print('✅ Port 9222 is now available')
+					break
+			else:
+				print('✅ Port 9222 is available')
 		else:  # Linux
-			subprocess.run(['pkill', 'chrome'], check=False, capture_output=True)
-			subprocess.run(['pkill', 'chromium'], check=False, capture_output=True)
-	except Exception:
+			result = subprocess.run(
+				['lsof', '-i', ':9222', '-t'],
+				capture_output=True,
+				text=True,
+				check=False
+			)
+			if result.stdout.strip():
+				pid = result.stdout.strip().split('\n')[0]
+				print(f'⚠️  Found previous automation session (PID {pid}), stopping it...')
+				subprocess.run(['kill', pid], check=False, capture_output=True)
+				import time
+				time.sleep(2)
+				print('✅ Port 9222 is now available')
+			else:
+				print('✅ Port 9222 is available')
+	except Exception as e:
+		# If port checking fails, just continue (port is likely free)
+		print(f'ℹ️  Could not check port 9222 status: {e}')
 		pass
 
 
@@ -83,22 +130,10 @@ Examples:
 
 	profile_name = args.profile
 
-	# Warning before closing Chrome
+	# Check and cleanup port 9222
 	print('')
-	print('⚠️  WARNING: This will close ALL existing Chrome instances!')
-	print('⚠️  Make sure to save any important work in Chrome before continuing.')
-	print('')
-
-	response = input('Continue? [y/N]: ').strip().lower()
-	if response not in ['y', 'yes']:
-		print('❌ Cancelled')
-		sys.exit(0)
-
-	print('')
-	print('🔄 Closing existing Chrome instances...')
-	close_chrome()
-	print('⏳ Waiting for Chrome to shut down...')
-	time.sleep(2)
+	print('🔍 Checking port 9222...')
+	cleanup_port_9222()
 	print('')
 
 	# Get Chrome paths
@@ -110,42 +145,50 @@ Examples:
 		print('   Please install Google Chrome or update the path in this script.')
 		sys.exit(1)
 
-	# Set up automation directory
-	automation_dir = Path.home() / '.chrome-automation'
+	# Create temporary directory for this session
+	automation_dir = Path(tempfile.mkdtemp(prefix='chrome-automation-'))
 	source_profile = profile_base / profile_name
 	dest_profile = automation_dir / profile_name
 
-	# Create automation directory
-	if not automation_dir.exists():
-		print(f'📁 Creating automation directory: {automation_dir}')
-		automation_dir.mkdir(parents=True, exist_ok=True)
+	# Register cleanup handlers to delete temp directory on exit
+	def cleanup_temp_dir():
+		"""Delete the temporary automation directory"""
+		try:
+			if automation_dir.exists():
+				shutil.rmtree(automation_dir, ignore_errors=True)
+		except Exception:
+			pass
 
-	# Copy profile on first run
-	if not dest_profile.exists():
-		print(f'📋 First run detected - copying your {profile_name} profile to automation directory...')
-		print('   This includes all your logged-in sessions (GitHub, Google, etc.)')
-		print(f'   Source: {source_profile}')
-		print(f'   Destination: {dest_profile}')
+	atexit.register(cleanup_temp_dir)
 
-		if source_profile.exists():
-			shutil.copytree(source_profile, dest_profile)
-			print('✅ Profile copied successfully')
-		else:
-			print(f'⚠️  {profile_name} profile not found at: {source_profile}')
-			print('   Creating empty profile...')
-			dest_profile.mkdir(parents=True, exist_ok=True)
+	# Handle Ctrl+C gracefully
+	def signal_handler(sig, frame):
+		print('\n👋 Shutting down Chrome...')
+		cleanup_temp_dir()
+		sys.exit(0)
+
+	signal.signal(signal.SIGINT, signal_handler)
+	if hasattr(signal, 'SIGTERM'):
+		signal.signal(signal.SIGTERM, signal_handler)
+
+	# Copy profile from real Chrome profile to temp directory
+	print(f'📋 Copying {profile_name} profile to temporary directory...')
+	print('   This includes all your logged-in sessions (GitHub, Google, etc.)')
+
+	if source_profile.exists():
+		shutil.copytree(source_profile, dest_profile)
+		print('✅ Profile ready')
 	else:
-		print('📂 Using existing automation profile (sessions preserved from previous runs)')
+		print(f'⚠️  {profile_name} profile not found at: {source_profile}')
+		print('   Creating empty profile...')
+		dest_profile.mkdir(parents=True, exist_ok=True)
 
 	print('')
 	print('🚀 Launching Chrome with remote debugging on port 9222...')
-	print(f'📂 Using profile: {profile_name} (from {automation_dir})')
 	print('🔗 CDP endpoint: http://localhost:9222')
 	print('')
-	print('⚠️  IMPORTANT: Keep this terminal window open - closing it will close Chrome')
-	print('💡 Open a NEW terminal window and run: uv run main.py')
-	print('')
-	print(f'ℹ️  To reset and re-copy your profile, delete: {automation_dir}')
+	print('⚠️  Keep this terminal open - closing it will close Chrome')
+	print('💡 Open a NEW terminal and run: uv run main.py')
 	print('')
 
 	# Launch Chrome with remote debugging
