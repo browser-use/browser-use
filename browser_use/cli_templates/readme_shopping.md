@@ -12,7 +12,15 @@ This template demonstrates:
 
 ## Setup
 
-### 1. Set Up API Key
+### 1. Navigate to Project Directory
+
+```bash
+cd shopping
+```
+
+All commands below should be run from the `shopping/` directory.
+
+### 2. Set Up API Key
 
 Copy the example environment file and add your API key:
 
@@ -27,7 +35,7 @@ BROWSER_USE_API_KEY=your-key-here
 
 Get your key at: https://cloud.browser-use.com/dashboard/settings?tab=api-keys&new
 
-### 2. Install Dependencies
+### 3. Install Dependencies
 
 ```bash
 uv sync
@@ -35,7 +43,7 @@ uv sync
 
 This installs `browser-use` and all required dependencies (including `pydantic`, `python-dotenv`).
 
-### 3. Launch Chrome with Debugging
+### 4. Launch Chrome with Debugging
 
 The script requires Chrome running with remote debugging enabled on port 9222.
 
@@ -52,9 +60,9 @@ python launch_chrome_debug.py --help
 ```
 
 This will:
-- Close any existing Chrome instances
 - Copy your Chrome profile to an automation directory (preserves logins)
 - Launch Chrome with remote debugging on port 9222
+- Run alongside your existing browser instances (won't close them)
 - Support custom profiles via `--profile` flag
 
 **Keep this terminal window open!** Closing it will close Chrome.
@@ -64,7 +72,8 @@ This will:
 In a **separate terminal**, run the shopping script:
 
 ```bash
-uv run browser_use_shopping.py
+cd shopping
+uv run main.py
 ```
 
 You'll be prompted to enter items to add to your cart (comma-separated):
