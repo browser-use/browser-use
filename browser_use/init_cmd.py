@@ -182,11 +182,22 @@ def main(
 	# Template is guaranteed to be set at this point (either from option or prompt)
 	assert template is not None
 
+	# Create template directory
+	template_dir = Path.cwd() / template
+	if template_dir.exists() and not force:
+		console.print(f'[yellow]⚠[/yellow]  Directory already exists: [cyan]{template_dir}[/cyan]')
+		if not click.confirm('Continue and overwrite files?', default=False):
+			console.print('[red]✗[/red] Cancelled')
+			sys.exit(1)
+
+	# Create directory
+	template_dir.mkdir(parents=True, exist_ok=True)
+
 	# Determine output path
 	if output:
-		output_path = Path(output)
+		output_path = template_dir / Path(output).name
 	else:
-		output_path = Path.cwd() / f'browser_use_{template}.py'
+		output_path = template_dir / 'main.py'
 
 	# Read template file
 	try:
@@ -246,35 +257,39 @@ def main(
 
 		if template == 'shopping':
 			# Shopping template has different workflow (no uv init needed)
-			next_steps.append('\n1. Set up your API key:\n', style='bold')
+			next_steps.append('\n1. Navigate to project directory:\n', style='bold')
+			next_steps.append(f'   cd {template}\n\n', style='dim')
+			next_steps.append('2. Set up your API key:\n', style='bold')
 			next_steps.append('   cp .env.example .env\n', style='dim')
 			next_steps.append('   # Edit .env and add your BROWSER_USE_API_KEY\n', style='dim')
 			next_steps.append(
 				'   (Get your key at https://cloud.browser-use.com/dashboard/settings?tab=api-keys&new)\n\n',
 				style='dim italic',
 			)
-			next_steps.append('2. Install dependencies:\n', style='bold')
+			next_steps.append('3. Install dependencies:\n', style='bold')
 			next_steps.append('   uv sync\n\n', style='dim')
-			next_steps.append('3. Launch Chrome with debugging (in a separate terminal):\n', style='bold')
+			next_steps.append('4. Launch Chrome with debugging (in a separate terminal):\n', style='bold')
 			next_steps.append('   python launch_chrome_debug.py\n', style='dim')
 			next_steps.append('   (Run with --help to see options like --profile)\n', style='dim italic')
 			next_steps.append('   (Keep this terminal open!)\n\n', style='dim italic')
-			next_steps.append('4. Run your script (in a NEW terminal):\n', style='bold')
-			next_steps.append(f'   uv run {output_path.name}\n\n', style='dim')
+			next_steps.append('5. Run your script (in a NEW terminal):\n', style='bold')
+			next_steps.append(f'   cd {template} && uv run {output_path.name}\n\n', style='dim')
 			next_steps.append('📖 See README.md for detailed instructions\n', style='dim italic')
 		else:
 			# Default workflow for other templates
-			next_steps.append('\n1. Initialize uv project:\n', style='bold')
+			next_steps.append('\n1. Navigate to project directory:\n', style='bold')
+			next_steps.append(f'   cd {template}\n\n', style='dim')
+			next_steps.append('2. Initialize uv project:\n', style='bold')
 			next_steps.append('   uv init\n\n', style='dim')
-			next_steps.append('2. Install browser-use:\n', style='bold')
+			next_steps.append('3. Install browser-use:\n', style='bold')
 			next_steps.append('   uv add browser-use\n\n', style='dim')
-			next_steps.append('3. Set up your API key in .env file or environment:\n', style='bold')
+			next_steps.append('4. Set up your API key in .env file or environment:\n', style='bold')
 			next_steps.append('   BROWSER_USE_API_KEY=your-key\n', style='dim')
 			next_steps.append(
 				'   (Get your key at https://cloud.browser-use.com/dashboard/settings?tab=api-keys&new)\n\n',
 				style='dim italic',
 			)
-			next_steps.append('4. Run your script:\n', style='bold')
+			next_steps.append('5. Run your script:\n', style='bold')
 			next_steps.append(f'   uv run {output_path.name}\n', style='dim')
 
 		console.print(
