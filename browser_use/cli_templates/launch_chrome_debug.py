@@ -6,8 +6,13 @@ This script closes any existing Chrome instances and relaunches Chrome
 with your profile (copied to automation directory) and remote debugging enabled.
 
 Cross-platform: Works on macOS, Windows, and Linux
+
+Usage:
+    python launch_chrome_debug.py                    # Uses Default profile
+    python launch_chrome_debug.py --profile "Profile 6"  # Uses specific profile
 """
 
+import argparse
 import os
 import platform
 import shutil
@@ -55,6 +60,27 @@ def close_chrome():
 
 
 def main():
+	# Parse command line arguments
+	parser = argparse.ArgumentParser(
+		description='Launch Chrome with remote debugging for browser-use',
+		formatter_class=argparse.RawDescriptionHelpFormatter,
+		epilog="""
+Examples:
+  python launch_chrome_debug.py                    # Uses Default profile
+  python launch_chrome_debug.py --profile "Profile 6"  # Uses Profile 6
+		""",
+	)
+	parser.add_argument(
+		'--profile',
+		'-p',
+		type=str,
+		default='Default',
+		help='Chrome profile name to use (default: Default)',
+	)
+	args = parser.parse_args()
+
+	profile_name = args.profile
+
 	print('🔄 Closing existing Chrome instances...')
 	close_chrome()
 	time.sleep(2)  # Wait for Chrome to fully shut down
@@ -70,8 +96,8 @@ def main():
 
 	# Set up automation directory
 	automation_dir = Path.home() / '.chrome-automation'
-	source_profile = profile_base / 'Default'
-	dest_profile = automation_dir / 'Default'
+	source_profile = profile_base / profile_name
+	dest_profile = automation_dir / profile_name
 
 	# Create automation directory
 	if not automation_dir.exists():
@@ -80,7 +106,7 @@ def main():
 
 	# Copy profile on first run
 	if not dest_profile.exists():
-		print('📋 First run detected - copying your Default profile to automation directory...')
+		print(f'📋 First run detected - copying your {profile_name} profile to automation directory...')
 		print('   This includes all your logged-in sessions (GitHub, Google, etc.)')
 		print(f'   Source: {source_profile}')
 		print(f'   Destination: {dest_profile}')
@@ -89,7 +115,7 @@ def main():
 			shutil.copytree(source_profile, dest_profile)
 			print('✅ Profile copied successfully')
 		else:
-			print(f'⚠️  Default profile not found at: {source_profile}')
+			print(f'⚠️  {profile_name} profile not found at: {source_profile}')
 			print('   Creating empty profile...')
 			dest_profile.mkdir(parents=True, exist_ok=True)
 	else:
@@ -97,7 +123,7 @@ def main():
 
 	print('')
 	print('🚀 Launching Chrome with remote debugging on port 9222...')
-	print(f'📂 Using profile: Default (from {automation_dir})')
+	print(f'📂 Using profile: {profile_name} (from {automation_dir})')
 	print('🔗 CDP endpoint: http://localhost:9222')
 	print('')
 	print('⚠️  IMPORTANT: Keep this terminal window open - closing it will close Chrome')
@@ -111,7 +137,7 @@ def main():
 		chrome_exe,
 		'--remote-debugging-port=9222',
 		f'--user-data-dir={automation_dir}',
-		'--profile-directory=Default',
+		f'--profile-directory={profile_name}',
 	]
 
 	try:
