@@ -30,6 +30,10 @@ INIT_TEMPLATES = {
 		'file': 'tools_template.py',
 		'description': 'Custom tool example - extend agent capabilities with your own functions',
 	},
+	'shopping': {
+		'file': 'shopping_template.py',
+		'description': 'E-commerce automation with structured output (Pydantic models)',
+	},
 }
 
 # Rich console for styled output
@@ -72,7 +76,7 @@ def _write_init_file(output_path: Path, content: str, force: bool = False) -> bo
 @click.option(
 	'--template',
 	'-t',
-	type=click.Choice(['default', 'advanced', 'tools'], case_sensitive=False),
+	type=click.Choice(['default', 'advanced', 'tools', 'shopping'], case_sensitive=False),
 	help='Template to use',
 )
 @click.option(
@@ -164,6 +168,10 @@ def main(
 		def _(event):
 			event.app.exit(result=template_list[2])
 
+		@prompt.register_kb('4')
+		def _(event):
+			event.app.exit(result=template_list[3])
+
 		template = prompt.execute()
 
 		# Handle user cancellation (Ctrl+C)
@@ -194,19 +202,78 @@ def main(
 	if _write_init_file(output_path, content, force):
 		console.print(f'\n[green]✓[/green] Created [cyan]{output_path}[/cyan]')
 
+		# Generate additional files for shopping template
+		if template == 'shopping':
+			templates_dir = Path(__file__).parent / 'cli_templates'
+
+			# Generate launch_chrome_debug.py
+			launcher_path = output_path.parent / 'launch_chrome_debug.py'
+			launcher_content = (templates_dir / 'launch_chrome_debug.py').read_text(encoding='utf-8')
+			if _write_init_file(launcher_path, launcher_content, force):
+				console.print(f'[green]✓[/green] Created [cyan]{launcher_path.name}[/cyan]')
+				# Make executable on Unix systems
+				if sys.platform != 'win32':
+					import stat
+
+					launcher_path.chmod(launcher_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+			# Generate pyproject.toml
+			pyproject_path = output_path.parent / 'pyproject.toml'
+			pyproject_content = (templates_dir / 'pyproject_toml.template').read_text(encoding='utf-8')
+			if _write_init_file(pyproject_path, pyproject_content, force):
+				console.print(f'[green]✓[/green] Created [cyan]{pyproject_path.name}[/cyan]')
+
+			# Generate .gitignore
+			gitignore_path = output_path.parent / '.gitignore'
+			gitignore_content = (templates_dir / 'gitignore.template').read_text(encoding='utf-8')
+			if _write_init_file(gitignore_path, gitignore_content, force):
+				console.print(f'[green]✓[/green] Created [cyan]{gitignore_path.name}[/cyan]')
+
+			# Generate .env.example
+			env_example_path = output_path.parent / '.env.example'
+			env_example_content = (templates_dir / 'env_example.template').read_text(encoding='utf-8')
+			if _write_init_file(env_example_path, env_example_content, force):
+				console.print(f'[green]✓[/green] Created [cyan]{env_example_path.name}[/cyan]')
+
+			# Generate README.md
+			readme_path = output_path.parent / 'README.md'
+			readme_content = (templates_dir / 'readme_shopping.md').read_text(encoding='utf-8')
+			if _write_init_file(readme_path, readme_content, force):
+				console.print(f'[green]✓[/green] Created [cyan]{readme_path.name}[/cyan]')
+
 		# Create a nice panel for next steps
 		next_steps = Text()
-		next_steps.append('\n1. Initialize uv project:\n', style='bold')
-		next_steps.append('   uv init\n\n', style='dim')
-		next_steps.append('2. Install browser-use:\n', style='bold')
-		next_steps.append('   uv add browser-use\n\n', style='dim')
-		next_steps.append('3. Set up your API key in .env file or environment:\n', style='bold')
-		next_steps.append('   BROWSER_USE_API_KEY=your-key\n', style='dim')
-		next_steps.append(
-			'   (Get your key at https://cloud.browser-use.com/dashboard/settings?tab=api-keys&new)\n\n', style='dim italic'
-		)
-		next_steps.append('4. Run your script:\n', style='bold')
-		next_steps.append(f'   uv run {output_path.name}\n', style='dim')
+
+		if template == 'shopping':
+			# Shopping template has different workflow (no uv init needed)
+			next_steps.append('\n1. Set up your API key:\n', style='bold')
+			next_steps.append('   cp .env.example .env\n', style='dim')
+			next_steps.append('   # Edit .env and add your BROWSER_USE_API_KEY\n', style='dim')
+			next_steps.append(
+				'   (Get your key at https://cloud.browser-use.com/dashboard/settings?tab=api-keys&new)\n\n',
+				style='dim italic',
+			)
+			next_steps.append('2. Install dependencies:\n', style='bold')
+			next_steps.append('   uv sync\n\n', style='dim')
+			next_steps.append('3. Launch Chrome with debugging:\n', style='bold')
+			next_steps.append('   python launch_chrome_debug.py\n\n', style='dim')
+			next_steps.append('4. Run your script (in another terminal):\n', style='bold')
+			next_steps.append(f'   uv run {output_path.name}\n\n', style='dim')
+			next_steps.append('📖 See README.md for detailed instructions\n', style='dim italic')
+		else:
+			# Default workflow for other templates
+			next_steps.append('\n1. Initialize uv project:\n', style='bold')
+			next_steps.append('   uv init\n\n', style='dim')
+			next_steps.append('2. Install browser-use:\n', style='bold')
+			next_steps.append('   uv add browser-use\n\n', style='dim')
+			next_steps.append('3. Set up your API key in .env file or environment:\n', style='bold')
+			next_steps.append('   BROWSER_USE_API_KEY=your-key\n', style='dim')
+			next_steps.append(
+				'   (Get your key at https://cloud.browser-use.com/dashboard/settings?tab=api-keys&new)\n\n',
+				style='dim italic',
+			)
+			next_steps.append('4. Run your script:\n', style='bold')
+			next_steps.append(f'   uv run {output_path.name}\n', style='dim')
 
 		console.print(
 			Panel(

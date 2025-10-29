@@ -156,6 +156,8 @@ include = [
     "browser_use/agent/system_prompt_flash.md",
     "browser_use/code_use/system_prompt.md",
     "browser_use/cli_templates/*.py",
+    "browser_use/cli_templates/*.template",
+    "browser_use/cli_templates/*.md",
     "browser_use/py.typed",
     "browser_use/dom/**/*.js",
     "!tests/**/*.py",
