@@ -41,13 +41,21 @@ The script requires Chrome running with remote debugging enabled on port 9222.
 
 **Run the launcher script:**
 ```bash
+# Use Default Chrome profile
 python launch_chrome_debug.py
+
+# Use a specific Chrome profile (e.g., Profile 6)
+python launch_chrome_debug.py --profile "Profile 6"
+
+# See all available options
+python launch_chrome_debug.py --help
 ```
 
 This will:
 - Close any existing Chrome instances
 - Copy your Chrome profile to an automation directory (preserves logins)
 - Launch Chrome with remote debugging on port 9222
+- Support custom profiles via `--profile` flag
 
 **Keep this terminal window open!** Closing it will close Chrome.
 

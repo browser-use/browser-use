@@ -257,6 +257,7 @@ def main(
 			next_steps.append('   uv sync\n\n', style='dim')
 			next_steps.append('3. Launch Chrome with debugging (in a separate terminal):\n', style='bold')
 			next_steps.append('   python launch_chrome_debug.py\n', style='dim')
+			next_steps.append('   (Run with --help to see options like --profile)\n', style='dim italic')
 			next_steps.append('   (Keep this terminal open!)\n\n', style='dim italic')
 			next_steps.append('4. Run your script (in a NEW terminal):\n', style='bold')
 			next_steps.append(f'   uv run {output_path.name}\n\n', style='dim')
