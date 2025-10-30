@@ -569,6 +569,19 @@ class DOMTreeSerializer:
 		for child in node.children:
 			self._collect_interactive_elements(child, elements)
 
+	def _has_interactive_descendants(self, node: SimplifiedNode) -> bool:
+		"""Check if a node has any interactive descendants (not including the node itself)."""
+		# Check children for interactivity
+		for child in node.children:
+			# Check if child itself is interactive
+			if self._is_interactive_cached(child.original_node):
+				return True
+			# Recursively check child's descendants
+			if self._has_interactive_descendants(child):
+				return True
+
+		return False
+
 	def _assign_interactive_indices_and_mark_new_nodes(self, node: SimplifiedNode | None) -> None:
 		"""Assign interactive indices to clickable elements that are also visible."""
 		if not node:
@@ -579,6 +592,7 @@ class DOMTreeSerializer:
 			# Regular interactive element assignment (including enhanced compound controls)
 			is_interactive_assign = self._is_interactive_cached(node.original_node)
 			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
+			is_scrollable = node.original_node.is_actually_scrollable
 
 			# EXCEPTION: File inputs are often hidden with opacity:0 but are still functional
 			# Bootstrap and other frameworks use this pattern with custom-styled file pickers
@@ -589,9 +603,22 @@ class DOMTreeSerializer:
 				and node.original_node.attributes.get('type') == 'file'
 			)
 
-			# Only add to selector map if element is both interactive AND visible
-			# EXCEPT for file inputs which are often hidden but still functional
-			if is_interactive_assign and (is_visible or is_file_input):
+			# Check if scrollable container should be made interactive
+			# For scrollable elements, ONLY make them interactive if they have no interactive descendants
+			should_make_interactive = False
+			if is_scrollable:
+				# For scrollable elements, check if they have interactive children
+				has_interactive_desc = self._has_interactive_descendants(node)
+
+				# Only make scrollable container interactive if it has NO interactive descendants
+				if not has_interactive_desc:
+					should_make_interactive = True
+			elif is_interactive_assign and (is_visible or is_file_input):
+				# Non-scrollable interactive elements: make interactive if visible (or file input)
+				should_make_interactive = True
+
+			# Add to selector map if element should be interactive
+			if should_make_interactive:
 				# Mark node as interactive
 				node.is_interactive = True
 				# Store backend_node_id in selector map (model outputs backend_node_id)
@@ -1008,11 +1035,22 @@ class DOMTreeSerializer:
 				# Tel - suggest format if no pattern attribute
 				elif input_type == 'tel' and 'pattern' not in attributes_to_include:
 					attributes_to_include['placeholder'] = '123-456-7890'
-				# jQuery/Bootstrap datepickers (text inputs with datepicker classes/attributes)
+				# jQuery/Bootstrap/AngularJS datepickers (text inputs with datepicker classes/attributes)
 				elif input_type in {'text', ''}:
 					class_attr = node.attributes.get('class', '').lower()
+
+					# Check for AngularJS UI Bootstrap datepicker (uib-datepicker-popup attribute)
+					# This takes precedence as it's the most specific indicator
+					if 'uib-datepicker-popup' in node.attributes:
+						# Extract format from uib-datepicker-popup="MM/dd/yyyy"
+						date_format = node.attributes.get('uib-datepicker-popup', '')
+						if date_format:
+							# Use 'expected_format' for clarity - this is the required input format
+							attributes_to_include['expected_format'] = date_format
+							# Also keep format for consistency with HTML5 date inputs
+							attributes_to_include['format'] = date_format
 					# Detect jQuery/Bootstrap datepickers by class names
-					if any(indicator in class_attr for indicator in ['datepicker', 'datetimepicker', 'daterangepicker']):
+					elif any(indicator in class_attr for indicator in ['datepicker', 'datetimepicker', 'daterangepicker']):
 						# Try to get format from data-date-format attribute
 						date_format = node.attributes.get('data-date-format', '')
 						if date_format:
@@ -1076,10 +1114,13 @@ class DOMTreeSerializer:
 			keys_to_remove = set()
 			seen_values = {}
 
+			# Attributes that should never be removed as duplicates (they serve distinct purposes)
+			protected_attrs = {'format', 'expected_format', 'placeholder', 'value', 'aria-label', 'title'}
+
 			for key in ordered_keys:
 				value = attributes_to_include[key]
 				if len(value) > 5:
-					if value in seen_values:
+					if value in seen_values and key not in protected_attrs:
 						keys_to_remove.add(key)
 					else:
 						seen_values[value] = key
