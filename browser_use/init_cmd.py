@@ -325,22 +325,22 @@ def main(
 			next_steps.append('5. Run your script (in a NEW terminal):\n', style='bold')
 			next_steps.append(f'   cd {template} && uv run {output_path.name}\n\n', style='dim')
 			next_steps.append('📖 See README.md for detailed instructions\n', style='dim italic')
-	elif template == 'job-application':
-		# Job application template workflow
-		next_steps.append('\n1. Navigate to project directory:\n', style='bold')
-		next_steps.append(f'   cd {template}\n\n', style='dim')
-		next_steps.append('2. Set up your API key:\n', style='bold')
-		next_steps.append('   cp .env.example .env\n', style='dim')
-		next_steps.append('   # Edit .env and add your OPENAI_API_KEY\n', style='dim')
-		next_steps.append('   (Get your key at https://platform.openai.com/api-keys)\n\n', style='dim italic')
-		next_steps.append('3. Install dependencies:\n', style='bold')
-		next_steps.append('   uv sync\n\n', style='dim')
-		next_steps.append('4. Customize your data:\n', style='bold')
-		next_steps.append('   # Edit applicant_data.json with your information\n', style='dim')
-		next_steps.append('   # Replace example_resume.pdf with your resume\n\n', style='dim')
-		next_steps.append('5. Run the application:\n', style='bold')
-		next_steps.append(f'   uv run {output_path.name} --resume example_resume.pdf\n\n', style='dim')
-		next_steps.append('📖 See README.md for customization and troubleshooting\n', style='dim italic')
+		elif template == 'job-application':
+			# Job application template workflow
+			next_steps.append('\n1. Navigate to project directory:\n', style='bold')
+			next_steps.append(f'   cd {template}\n\n', style='dim')
+			next_steps.append('2. Set up your API key:\n', style='bold')
+			next_steps.append('   cp .env.example .env\n', style='dim')
+			next_steps.append('   # Edit .env and add your OPENAI_API_KEY\n', style='dim')
+			next_steps.append('   (Get your key at https://platform.openai.com/api-keys)\n\n', style='dim italic')
+			next_steps.append('3. Install dependencies:\n', style='bold')
+			next_steps.append('   uv sync\n\n', style='dim')
+			next_steps.append('4. Customize your data:\n', style='bold')
+			next_steps.append('   # Edit applicant_data.json with your information\n', style='dim')
+			next_steps.append('   # Replace example_resume.pdf with your resume\n\n', style='dim')
+			next_steps.append('5. Run the application:\n', style='bold')
+			next_steps.append(f'   uv run {output_path.name} --resume example_resume.pdf\n\n', style='dim')
+			next_steps.append('📖 See README.md for customization and troubleshooting\n', style='dim italic')
 	else:
 		# Default workflow for other templates
 		next_steps.append('\n1. Navigate to project directory:\n', style='bold')
