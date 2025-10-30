@@ -157,7 +157,12 @@ https://github.com/user-attachments/assets/ac34f75c-057a-43ef-ad06-5b2c9d42bf06
 
 We optimized **ChatBrowserUse()** specifically for browser automation tasks. On avg it completes tasks 3-5x faster than other models with SOTA accuracy.
 
-For other LLM providers, see our [supported models documentation](https://docs.browser-use.com/category/llm-integration).
+**Pricing (per 1M tokens):**
+- Input tokens: $0.50
+- Output tokens: $3.00  
+- Cached tokens: $0.10
+
+For other LLM providers, see our [supported models documentation](https://docs.browser-use.com/supported-models).
 </details>
 
 
@@ -182,7 +187,6 @@ agent = Agent(
 )
 ```
 
-See our [Custom Tools documentation](https://docs.browser-use.com/custom-tools) for more examples.
 </details>
 
 <details>

@@ -33,10 +33,12 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
+from browser_use.tools.utils import get_click_description
 from browser_use.tools.views import (
 	ClickElementAction,
 	CloseTabAction,
 	DoneAction,
+	ExtractAction,
 	GetDropdownOptionsAction,
 	InputTextAction,
 	NavigateAction,
@@ -241,7 +243,7 @@ class Tools(Generic[Context]):
 			# Dispatch click event with node
 			try:
 				assert params.index != 0, (
-					'Cannot click on element with index 0. If there are no interactive elements use scroll(), wait(), refresh(), etc. to troubleshoot'
+					'Cannot click on element with index 0. If there are no interactive elements use wait(), refresh(), etc. to troubleshoot'
 				)
 
 				# Look up the node from the selector map
@@ -251,6 +253,9 @@ class Tools(Generic[Context]):
 					logger.warning(f'⚠️ {msg}')
 					return ActionResult(extracted_content=msg)
 
+				# Get description of clicked element
+				element_desc = get_click_description(node)
+
 				# Highlight the element being clicked (truly non-blocking)
 				asyncio.create_task(browser_session.highlight_interaction_element(node))
 
@@ -258,10 +263,10 @@ class Tools(Generic[Context]):
 				await event
 				# Wait for handler to complete and get any exception or metadata
 				click_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
-				memory = 'Clicked element'
 
-				msg = f'🖱️ {memory}'
-				logger.info(msg)
+				# Build memory with element info
+				memory = f'Clicked {element_desc}'
+				logger.info(f'🖱️ {memory}')
 
 				# Include click coordinates in metadata if available
 				return ActionResult(
@@ -327,14 +332,14 @@ class Tools(Generic[Context]):
 				# Create message with sensitive data handling
 				if has_sensitive_data:
 					if sensitive_key_name:
-						msg = f'Input {sensitive_key_name} into element {params.index}.'
-						log_msg = f'Input <{sensitive_key_name}> into element {params.index}.'
+						msg = f'Typed {sensitive_key_name}'
+						log_msg = f'Typed <{sensitive_key_name}>'
 					else:
-						msg = f'Input sensitive data into element {params.index}.'
-						log_msg = f'Input <sensitive> into element {params.index}.'
+						msg = 'Typed sensitive data'
+						log_msg = 'Typed <sensitive>'
 				else:
-					msg = f"Input '{params.text}' into element {params.index}."
-					log_msg = msg
+					msg = f"Typed '{params.text}'"
+					log_msg = f"Typed '{params.text}'"
 
 				logger.debug(log_msg)
 
@@ -349,7 +354,7 @@ class Tools(Generic[Context]):
 			except Exception as e:
 				# Log the full error for debugging
 				logger.error(f'Failed to dispatch TypeTextEvent: {type(e).__name__}: {e}')
-				error_msg = f'Failed to input text into element {params.index}: {e}'
+				error_msg = f'Failed to type text into element {params.index}: {e}'
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
@@ -379,7 +384,7 @@ class Tools(Generic[Context]):
 							if not browser_session.is_local:
 								pass
 							else:
-								msg = f'File path {params.path} is not available. Upload files must be in available_file_paths, downloaded_files, or a file managed by file_system.'
+								msg = f'File path {params.path} is not available. To fix: The user must add this file path to the available_file_paths parameter when creating the Agent. Example: Agent(task="...", llm=llm, browser=browser, available_file_paths=["{params.path}"])'
 								logger.error(f'❌ {msg}')
 								return ActionResult(error=msg)
 					else:
@@ -387,7 +392,7 @@ class Tools(Generic[Context]):
 						if not browser_session.is_local:
 							pass
 						else:
-							msg = f'File path {params.path} is not available. Upload files must be in available_file_paths, downloaded_files, or a file managed by file_system.'
+							msg = f'File path {params.path} is not available. To fix: The user must add this file path to the available_file_paths parameter when creating the Agent. Example: Agent(task="...", llm=llm, browser=browser, available_file_paths=["{params.path}"])'
 							raise BrowserError(message=msg, long_term_memory=msg)
 
 			# For local browsers, ensure the file exists on the local filesystem
@@ -570,18 +575,19 @@ class Tools(Generic[Context]):
 		# This action is temporarily disabled as it needs refactoring to use events
 
 		@self.registry.action(
-			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Use start_from_char if truncated. If fails, use find_text/scroll instead.""",
+			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Use start_from_char if truncated. If fails, use find_text instead.""",
 		)
 		async def extract(
-			query: str,
+			params: ExtractAction,
 			browser_session: BrowserSession,
 			page_extraction_llm: BaseChatModel,
 			file_system: FileSystem,
-			extract_links: bool = False,
-			start_from_char: int = 0,
 		):
 			# Constants
 			MAX_CHAR_LIMIT = 30000
+			query = params['query'] if isinstance(params, dict) else params.query
+			extract_links = params['extract_links'] if isinstance(params, dict) else params.extract_links
+			start_from_char = params['start_from_char'] if isinstance(params, dict) else params.start_from_char
 
 			# Extract clean markdown using the unified method
 			try:
@@ -599,7 +605,7 @@ class Tools(Generic[Context]):
 			if start_from_char > 0:
 				if start_from_char >= len(content):
 					return ActionResult(
-						error=f'start_from_char ({start_from_char}) exceeds content length ({len(content)}). Content has {final_filtered_length} characters after filtering.'
+						error=f'start_from_char ({start_from_char}) exceeds content length {final_filtered_length} characters.'
 					)
 				content = content[start_from_char:]
 				content_stats['started_from_char'] = start_from_char
@@ -839,7 +845,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				)
 
 		@self.registry.action(
-			'Request screenshot of current viewport. Use when: visual inspection needed, layout unclear, element positions uncertain, debugging UI issues, or verifying page state. Screenshot included in next observation.',
+			'Request screenshot of current viewport. Use when: visual inspection needed, layout unclear, element positions uncertain, debugging UI issues, or verifying page state. Screenshot is included in the next browser_state.',
 		)
 		async def screenshot():
 			"""Request that a screenshot be included in the next observation"""
@@ -1048,13 +1054,32 @@ Validated Code (after quote fixing):
 					# Primitive values (string, number, boolean)
 					result_text = str(value)
 
-				# Apply length limit with better truncation
+				import re
+
+				image_pattern = r'(data:image/[^;]+;base64,[A-Za-z0-9+/=]+)'
+				found_images = re.findall(image_pattern, result_text)
+
+				metadata = None
+				if found_images:
+					# Store images in metadata so they can be added as ContentPartImageParam
+					metadata = {'images': found_images}
+
+					# Replace image data in result text with shorter placeholder
+					modified_text = result_text
+					for i, img_data in enumerate(found_images, 1):
+						placeholder = '[Image]'
+						modified_text = modified_text.replace(img_data, placeholder)
+					result_text = modified_text
+
+				# Apply length limit with better truncation (after image extraction)
 				if len(result_text) > 20000:
 					result_text = result_text[:19950] + '\n... [Truncated after 20000 characters]'
+
 				# Don't log the code - it's already visible in the user's cell
 				logger.debug(f'JavaScript executed successfully, result length: {len(result_text)}')
+
 				# Return only the result, not the code (code is already in user's cell)
-				return ActionResult(extracted_content=result_text)
+				return ActionResult(extracted_content=result_text, metadata=metadata)
 
 			except Exception as e:
 				# CDP communication or other system errors
@@ -1500,7 +1525,7 @@ class CodeAgentTools(Tools[Context]):
 								if not browser_session.is_local:
 									pass
 								else:
-									msg = f'File path {params.path} is not available. Upload files must be in available_file_paths, downloaded_files, or a file managed by file_system.'
+									msg = f'File path {params.path} is not available. To fix: add this file path to the available_file_paths parameter when creating the Agent. Example: Agent(task="...", llm=llm, browser=browser, available_file_paths=["{params.path}"])'
 									logger.error(f'❌ {msg}')
 									return ActionResult(error=msg)
 						else:
@@ -1508,7 +1533,7 @@ class CodeAgentTools(Tools[Context]):
 							if not browser_session.is_local:
 								pass
 							else:
-								msg = f'File path {params.path} is not available. Upload files must be in available_file_paths or downloaded_files.'
+								msg = f'File path {params.path} is not available. To fix: add this file path to the available_file_paths parameter when creating the Agent. Example: Agent(task="...", llm=llm, browser=browser, available_file_paths=["{params.path}"])'
 								logger.error(f'❌ {msg}')
 								return ActionResult(error=msg)
 

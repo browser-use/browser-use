@@ -240,7 +240,7 @@ class SessionManager:
 
 				# Only remove target when NO sessions remain
 				if remaining_sessions == 0:
-					self.logger.info(f'[SessionManager] No sessions remain for target {target_id[:8]}..., removing from pool')
+					self.logger.debug(f'[SessionManager] No sessions remain for target {target_id[:8]}..., removing from pool')
 
 					target_fully_removed = True
 
