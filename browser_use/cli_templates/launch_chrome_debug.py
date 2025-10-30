@@ -52,52 +52,40 @@ def cleanup_port_9222():
 	try:
 		if system == 'Darwin':  # macOS/Linux
 			# Use lsof to find process using port 9222
-			result = subprocess.run(
-				['lsof', '-i', ':9222', '-t'],
-				capture_output=True,
-				text=True,
-				check=False
-			)
+			result = subprocess.run(['lsof', '-i', ':9222', '-t'], capture_output=True, text=True, check=False)
 			if result.stdout.strip():
 				pid = result.stdout.strip().split('\n')[0]  # Get first PID if multiple
 				print(f'⚠️  Found previous automation session (PID {pid}), stopping it...')
 				subprocess.run(['kill', pid], check=False, capture_output=True)
 				import time
+
 				time.sleep(2)  # Wait for port to be freed
 				print('✅ Port 9222 is now available')
 			else:
 				print('✅ Port 9222 is available')
 		elif system == 'Windows':
 			# Use netstat to find process using port 9222
-			result = subprocess.run(
-				['netstat', '-ano', '-p', 'TCP'],
-				capture_output=True,
-				text=True,
-				check=False
-			)
+			result = subprocess.run(['netstat', '-ano', '-p', 'TCP'], capture_output=True, text=True, check=False)
 			for line in result.stdout.split('\n'):
 				if ':9222' in line and 'LISTENING' in line:
 					pid = line.strip().split()[-1]
 					print(f'⚠️  Found previous automation session (PID {pid}), stopping it...')
 					subprocess.run(['taskkill', '/F', '/PID', pid], check=False, capture_output=True)
 					import time
+
 					time.sleep(2)
 					print('✅ Port 9222 is now available')
 					break
 			else:
 				print('✅ Port 9222 is available')
 		else:  # Linux
-			result = subprocess.run(
-				['lsof', '-i', ':9222', '-t'],
-				capture_output=True,
-				text=True,
-				check=False
-			)
+			result = subprocess.run(['lsof', '-i', ':9222', '-t'], capture_output=True, text=True, check=False)
 			if result.stdout.strip():
 				pid = result.stdout.strip().split('\n')[0]
 				print(f'⚠️  Found previous automation session (PID {pid}), stopping it...')
 				subprocess.run(['kill', pid], check=False, capture_output=True)
 				import time
+
 				time.sleep(2)
 				print('✅ Port 9222 is now available')
 			else:
