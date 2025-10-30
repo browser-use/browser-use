@@ -341,22 +341,22 @@ def main(
 			next_steps.append('5. Run the application:\n', style='bold')
 			next_steps.append(f'   uv run {output_path.name} --resume example_resume.pdf\n\n', style='dim')
 			next_steps.append('📖 See README.md for customization and troubleshooting\n', style='dim italic')
-	else:
-		# Default workflow for other templates
-		next_steps.append('\n1. Navigate to project directory:\n', style='bold')
-		next_steps.append(f'   cd {template}\n\n', style='dim')
-		next_steps.append('2. Initialize uv project:\n', style='bold')
-		next_steps.append('   uv init\n\n', style='dim')
-		next_steps.append('3. Install browser-use:\n', style='bold')
-		next_steps.append('   uv add browser-use\n\n', style='dim')
-		next_steps.append('4. Set up your API key in .env file or environment:\n', style='bold')
-		next_steps.append('   BROWSER_USE_API_KEY=your-key\n', style='dim')
-		next_steps.append(
-			'   (Get your key at https://cloud.browser-use.com/dashboard/settings?tab=api-keys&new)\n\n',
-			style='dim italic',
-		)
-		next_steps.append('5. Run your script:\n', style='bold')
-		next_steps.append(f'   uv run {output_path.name}\n', style='dim')
+		else:
+			# Default workflow for other templates
+			next_steps.append('\n1. Navigate to project directory:\n', style='bold')
+			next_steps.append(f'   cd {template}\n\n', style='dim')
+			next_steps.append('2. Initialize uv project:\n', style='bold')
+			next_steps.append('   uv init\n\n', style='dim')
+			next_steps.append('3. Install browser-use:\n', style='bold')
+			next_steps.append('   uv add browser-use\n\n', style='dim')
+			next_steps.append('4. Set up your API key in .env file or environment:\n', style='bold')
+			next_steps.append('   BROWSER_USE_API_KEY=your-key\n', style='dim')
+			next_steps.append(
+				'   (Get your key at https://cloud.browser-use.com/dashboard/settings?tab=api-keys&new)\n\n',
+				style='dim italic',
+			)
+			next_steps.append('5. Run your script:\n', style='bold')
+			next_steps.append(f'   uv run {output_path.name}\n', style='dim')
 
 	console.print(
 		Panel(
