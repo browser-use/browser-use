@@ -38,6 +38,118 @@ UploadFileEvent.model_rebuild()
 class DefaultActionWatchdog(BaseWatchdog):
 	"""Handles default browser actions like click, type, and scroll using CDP."""
 
+	def _is_print_related_element(self, element_node: EnhancedDOMTreeNode) -> bool:
+		"""Check if an element is related to printing (print buttons, print dialogs, etc.).
+
+		Primary check: onclick attribute (most reliable for print detection)
+		Fallback: button text/value (for cases without onclick)
+		"""
+		# Primary: Check onclick attribute for print-related functions (most reliable)
+		onclick = element_node.attributes.get('onclick', '').lower() if element_node.attributes else ''
+		if onclick and 'print' in onclick:
+			# Matches: window.print(), PrintElem(), print(), etc.
+			return True
+
+		return False
+
+	async def _handle_print_button_click(self, element_node: EnhancedDOMTreeNode) -> dict | None:
+		"""Handle print button by directly generating PDF via CDP instead of opening dialog.
+
+		Returns:
+			Metadata dict with download path if successful, None otherwise
+		"""
+		try:
+			import base64
+			import os
+			from pathlib import Path
+
+			# Get CDP session
+			cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
+
+			# Generate PDF using CDP Page.printToPDF
+			result = await asyncio.wait_for(
+				cdp_session.cdp_client.send.Page.printToPDF(
+					params={
+						'printBackground': True,
+						'preferCSSPageSize': True,
+					},
+					session_id=cdp_session.session_id,
+				),
+				timeout=15.0,  # 15 second timeout for PDF generation
+			)
+
+			pdf_data = result.get('data')
+			if not pdf_data:
+				self.logger.warning('⚠️ PDF generation returned no data')
+				return None
+
+			# Decode base64 PDF data
+			pdf_bytes = base64.b64decode(pdf_data)
+
+			# Get downloads path
+			downloads_path = self.browser_session.browser_profile.downloads_path
+			if not downloads_path:
+				self.logger.warning('⚠️ No downloads path configured, cannot save PDF')
+				return None
+
+			# Generate filename from page title or URL
+			try:
+				page_title = await asyncio.wait_for(self.browser_session.get_current_page_title(), timeout=2.0)
+				# Sanitize title for filename
+				import re
+
+				safe_title = re.sub(r'[^\w\s-]', '', page_title)[:50]  # Max 50 chars
+				filename = f'{safe_title}.pdf' if safe_title else 'print.pdf'
+			except Exception:
+				filename = 'print.pdf'
+
+			# Ensure downloads directory exists
+			downloads_dir = Path(downloads_path).expanduser().resolve()
+			downloads_dir.mkdir(parents=True, exist_ok=True)
+
+			# Generate unique filename if file exists
+			final_path = downloads_dir / filename
+			if final_path.exists():
+				base, ext = os.path.splitext(filename)
+				counter = 1
+				while (downloads_dir / f'{base} ({counter}){ext}').exists():
+					counter += 1
+				final_path = downloads_dir / f'{base} ({counter}){ext}'
+
+			# Write PDF to file
+			import anyio
+
+			async with await anyio.open_file(final_path, 'wb') as f:
+				await f.write(pdf_bytes)
+
+			file_size = final_path.stat().st_size
+			self.logger.info(f'✅ Generated PDF via CDP: {final_path} ({file_size:,} bytes)')
+
+			# Dispatch FileDownloadedEvent
+			from browser_use.browser.events import FileDownloadedEvent
+
+			page_url = await self.browser_session.get_current_page_url()
+			self.browser_session.event_bus.dispatch(
+				FileDownloadedEvent(
+					url=page_url,
+					path=str(final_path),
+					file_name=final_path.name,
+					file_size=file_size,
+					file_type='pdf',
+					mime_type='application/pdf',
+					auto_download=False,  # This was intentional (user clicked print)
+				)
+			)
+
+			return {'pdf_generated': True, 'path': str(final_path)}
+
+		except TimeoutError:
+			self.logger.warning('⏱️ PDF generation timed out')
+			return None
+		except Exception as e:
+			self.logger.warning(f'⚠️ Failed to generate PDF via CDP: {type(e).__name__}: {e}')
+			return None
+
 	@observe_debug(ignore_input=True, ignore_output=True, name='click_element_event')
 	async def on_ClickElementEvent(self, event: ClickElementEvent) -> dict | None:
 		"""Handle click request with CDP."""
@@ -62,8 +174,25 @@ class DefaultActionWatchdog(BaseWatchdog):
 					long_term_memory=msg,
 				)
 
+			# Detect print-related elements and handle them specially
+			is_print_element = self._is_print_related_element(element_node)
+			if is_print_element:
+				self.logger.info(
+					f'🖨️ Detected print button (index {index_for_logging}), generating PDF directly instead of opening dialog...'
+				)
+
+				# Instead of clicking, directly generate PDF via CDP
+				click_metadata = await self._handle_print_button_click(element_node)
+
+				if click_metadata and click_metadata.get('pdf_generated'):
+					msg = f'Generated PDF: {click_metadata.get("path")}'
+					self.logger.info(f'💾 {msg}')
+					return click_metadata
+				else:
+					# Fallback to regular click if PDF generation failed
+					self.logger.warning('⚠️ PDF generation failed, falling back to regular click')
+
 			# Perform the actual click using internal implementation
-			click_metadata = None
 			click_metadata = await self._click_element_node_impl(element_node)
 			download_path = None  # moved to downloads_watchdog.py
 
@@ -235,13 +364,13 @@ class DefaultActionWatchdog(BaseWatchdog):
 								textContent: (el.textContent || '').substring(0, 100)
 							};
 						};
-						
+
 
 						const elementAtPoint = document.elementFromPoint(arguments[0], arguments[1]);
 						if (!elementAtPoint) {
 							return { targetInfo: getElementInfo(this), isClickable: false };
 						}
-						
+
 
 						// Simple containment-based clickability logic
 						const isClickable = this === elementAtPoint ||
@@ -519,6 +648,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					self.logger.debug('⏱️ Mouse up timed out (possibly due to lag or dialog popup), continuing...')
 
 				self.logger.debug('🖱️ Clicked successfully using x,y coordinates')
+
 				# Return coordinates as dict for metadata
 				return {'click_x': center_x, 'click_y': center_y}
 
@@ -542,14 +672,27 @@ class DefaultActionWatchdog(BaseWatchdog):
 						},
 						session_id=session_id,
 					)
+
+					# Small delay for dialog dismissal
+					await asyncio.sleep(0.1)
+
 					return None
 				except Exception as js_e:
 					self.logger.error(f'CDP JavaScript click also failed: {js_e}')
 					raise Exception(f'Failed to click element: {e}')
 			finally:
-				# always re-focus back to original top-level page session context in case click opened a new tab/popup/window/dialog/etc.
-				cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
-				await cdp_session.cdp_client.send.Runtime.runIfWaitingForDebugger(session_id=cdp_session.session_id)
+				# Always re-focus back to original top-level page session context in case click opened a new tab/popup/window/dialog/etc.
+				# Use timeout to prevent hanging if dialog is blocking
+				try:
+					cdp_session = await asyncio.wait_for(self.browser_session.get_or_create_cdp_session(focus=True), timeout=3.0)
+					await asyncio.wait_for(
+						cdp_session.cdp_client.send.Runtime.runIfWaitingForDebugger(session_id=cdp_session.session_id),
+						timeout=2.0,
+					)
+				except TimeoutError:
+					self.logger.debug('⏱️ Refocus after click timed out (page may be blocked by dialog). Continuing...')
+				except Exception as e:
+					self.logger.debug(f'⚠️ Refocus error (non-critical): {type(e).__name__}: {e}')
 
 		except URLNotAllowedError as e:
 			raise e
@@ -1667,6 +1810,16 @@ class DefaultActionWatchdog(BaseWatchdog):
 				# If it's a special key, use original logic
 				if normalized_keys in special_keys:
 					await self._dispatch_key_event(cdp_session, 'keyDown', normalized_keys)
+					# For Enter key, also dispatch a char event to trigger keypress listeners
+					if normalized_keys == 'Enter':
+						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'char',
+								'text': '\r',
+								'key': 'Enter',
+							},
+							session_id=cdp_session.session_id,
+						)
 					await self._dispatch_key_event(cdp_session, 'keyUp', normalized_keys)
 				else:
 					# It's text (single character or string) - send each character as text input
@@ -2136,7 +2289,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 									// 2. Trigger change events
 									const changeEvent = new Event('change', { bubbles: true });
 									element.dispatchEvent(changeEvent);
-									
+
 									// 3. blur event - helps with validation
 									element.blur();
 
@@ -2357,10 +2510,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 								short_term_options.append(f'- {opt}')
 
 						if short_term_options:
-							short_term_memory = f'Available dropdown options at index {index_for_logging} are:\n' + '\n'.join(
-								short_term_options
+							short_term_memory = 'Available dropdown options  are:\n' + '\n'.join(short_term_options)
+							long_term_memory = (
+								f"Couldn't select the dropdown option as '{target_text}' is not one of the available options."
 							)
-							long_term_memory = f"Couldn't select the dropdown option at index {index_for_logging} as '{target_text}' is not one of the available options."
 
 							# Return error result with structured memory instead of raising exception
 							return {
