@@ -43,6 +43,14 @@ DEFAULT_INCLUDE_ATTRIBUTES = [
 	'minlength',
 	'maxlength',
 	'step',
+	'accept',  # File input types (e.g., accept="image/*" or accept=".pdf")
+	'multiple',  # Whether multiple files/selections are allowed
+	'inputmode',  # Virtual keyboard hint (numeric, tel, email, url, etc.)
+	'autocomplete',  # Autocomplete behavior hint
+	'data-mask',  # Input mask format (e.g., phone numbers, credit cards)
+	'data-inputmask',  # Alternative input mask attribute
+	'data-datepicker',  # jQuery datepicker indicator
+	'contenteditable',  # Rich text editor detection
 	# Webkit shadow DOM identifiers
 	'pseudo',
 	# Accessibility properties from ax_node (ordered by importance for automation)
@@ -90,6 +98,7 @@ STATIC_ATTRIBUTES = {
 	'checked',
 	'selected',
 	'multiple',
+	'accept',
 	'href',
 	'target',
 	'rel',

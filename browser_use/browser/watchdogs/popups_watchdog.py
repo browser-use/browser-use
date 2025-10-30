@@ -46,7 +46,7 @@ class PopupsWatchdog(BaseWatchdog):
 				await cdp_session.cdp_client.send.Page.enable(session_id=cdp_session.session_id)
 				self.logger.debug(f'✅ Enabled Page domain for session {cdp_session.session_id[-8:]}')
 			except Exception as e:
-				self.logger.warning(f'Failed to enable Page domain: {e}')
+				self.logger.debug(f'Failed to enable Page domain: {e}')
 
 			# Also register for the root CDP client to catch dialogs from any frame
 			if self.browser_session._cdp_client_root:
@@ -56,7 +56,7 @@ class PopupsWatchdog(BaseWatchdog):
 					await self.browser_session._cdp_client_root.send.Page.enable()
 					self.logger.debug('✅ Enabled Page domain on root CDP client')
 				except Exception as e:
-					self.logger.warning(f'Failed to enable Page domain on root: {e}')
+					self.logger.debug(f'Failed to enable Page domain on root: {e}')
 
 			# Set up async handler for JavaScript dialogs - accept immediately without event dispatch
 			async def handle_dialog(event_data, session_id: str | None = None):
@@ -64,6 +64,12 @@ class PopupsWatchdog(BaseWatchdog):
 				try:
 					dialog_type = event_data.get('type', 'alert')
 					message = event_data.get('message', '')
+
+					# Store the popup message in browser session for inclusion in browser state
+					if message:
+						formatted_message = f'[{dialog_type}] {message}'
+						self.browser_session._closed_popup_messages.append(formatted_message)
+						self.logger.debug(f'📝 Stored popup message: {formatted_message[:100]}')
 
 					# Choose action based on dialog type:
 					# - alert: accept=true (click OK to dismiss)

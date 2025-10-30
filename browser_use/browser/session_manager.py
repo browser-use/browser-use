@@ -88,7 +88,7 @@ class SessionManager:
 		self.browser_session._cdp_client_root.register.Target.attachedToTarget(on_attached)
 		self.browser_session._cdp_client_root.register.Target.detachedFromTarget(on_detached)
 
-		self.logger.info('[SessionManager] Event monitoring started')
+		self.logger.debug('[SessionManager] Event monitoring started')
 
 	async def get_session_for_target(self, target_id: TargetID) -> 'CDPSession | None':
 		"""Get the current valid session for a target.
