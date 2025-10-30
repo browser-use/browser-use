@@ -1,0 +1,3 @@
+# OpenAI API Key (for o3 model)
+# Get your key at: https://platform.openai.com/api-keys
+OPENAI_API_KEY=your-openai-key-here

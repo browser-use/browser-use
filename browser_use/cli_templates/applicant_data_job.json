@@ -1,0 +1,17 @@
+{
+	"first_name": "Linda",
+	"last_name": "Harris",
+	"email": "linda.har494f4@gmail.com",
+	"phone": "12312312345",
+	"age": "21",
+	"US_citizen": true,
+	"sponsorship_needed": false,
+	"postal_code": "06238",
+	"country": "United States",
+	"city": "Coventry",
+	"address": "34 Made Up Street",
+	"gender": "Female",
+	"race": "Black or African American",
+	"Veteran_status": "I am not a veteran",
+	"disability_status": "No, I do not have a disability"
+}

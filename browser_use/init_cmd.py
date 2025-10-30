@@ -34,6 +34,10 @@ INIT_TEMPLATES = {
 		'file': 'shopping_template.py',
 		'description': 'E-commerce automation with structured output (Pydantic models)',
 	},
+	'job-application': {
+		'file': 'job_application_template.py',
+		'description': 'Automated job application form submission with resume upload',
+	},
 }
 
 # Rich console for styled output
@@ -76,7 +80,7 @@ def _write_init_file(output_path: Path, content: str, force: bool = False) -> bo
 @click.option(
 	'--template',
 	'-t',
-	type=click.Choice(['default', 'advanced', 'tools', 'shopping'], case_sensitive=False),
+	type=click.Choice(['default', 'advanced', 'tools', 'shopping', 'job-application'], case_sensitive=False),
 	help='Template to use',
 )
 @click.option(
@@ -172,6 +176,10 @@ def main(
 		def _(event):
 			event.app.exit(result=template_list[3])
 
+		@prompt.register_kb('5')
+		def _(event):
+			event.app.exit(result=template_list[4])
+
 		template = prompt.execute()
 
 		# Handle user cancellation (Ctrl+C)
@@ -252,6 +260,48 @@ def main(
 			if _write_init_file(readme_path, readme_content, force):
 				console.print(f'[green]✓[/green] Created [cyan]{readme_path.name}[/cyan]')
 
+		elif template == 'job-application':
+			templates_dir = Path(__file__).parent / 'cli_templates'
+
+			# Generate pyproject.toml
+			pyproject_path = output_path.parent / 'pyproject.toml'
+			pyproject_content = (templates_dir / 'pyproject_toml_job.template').read_text(encoding='utf-8')
+			if _write_init_file(pyproject_path, pyproject_content, force):
+				console.print(f'[green]✓[/green] Created [cyan]{pyproject_path.name}[/cyan]')
+
+			# Generate .gitignore
+			gitignore_path = output_path.parent / '.gitignore'
+			gitignore_content = (templates_dir / 'gitignore.template').read_text(encoding='utf-8')
+			if _write_init_file(gitignore_path, gitignore_content, force):
+				console.print(f'[green]✓[/green] Created [cyan]{gitignore_path.name}[/cyan]')
+
+			# Generate .env.example
+			env_example_path = output_path.parent / '.env.example'
+			env_example_content = (templates_dir / 'env_example_job.template').read_text(encoding='utf-8')
+			if _write_init_file(env_example_path, env_example_content, force):
+				console.print(f'[green]✓[/green] Created [cyan]{env_example_path.name}[/cyan]')
+
+			# Generate README.md
+			readme_path = output_path.parent / 'README.md'
+			readme_content = (templates_dir / 'readme_job.md').read_text(encoding='utf-8')
+			if _write_init_file(readme_path, readme_content, force):
+				console.print(f'[green]✓[/green] Created [cyan]{readme_path.name}[/cyan]')
+
+			# Copy applicant_data.json
+			applicant_data_path = output_path.parent / 'applicant_data.json'
+			applicant_data_content = (templates_dir / 'applicant_data_job.json').read_text(encoding='utf-8')
+			if _write_init_file(applicant_data_path, applicant_data_content, force):
+				console.print(f'[green]✓[/green] Created [cyan]{applicant_data_path.name}[/cyan]')
+
+			# Copy example resume PDF
+			import shutil
+
+			resume_src = templates_dir / 'example_resume_job.pdf'
+			resume_dst = output_path.parent / 'example_resume.pdf'
+			if not resume_dst.exists() or force:
+				shutil.copy2(resume_src, resume_dst)
+				console.print(f'[green]✓[/green] Created [cyan]{resume_dst.name}[/cyan]')
+
 		# Create a nice panel for next steps
 		next_steps = Text()
 
@@ -275,33 +325,47 @@ def main(
 			next_steps.append('5. Run your script (in a NEW terminal):\n', style='bold')
 			next_steps.append(f'   cd {template} && uv run {output_path.name}\n\n', style='dim')
 			next_steps.append('📖 See README.md for detailed instructions\n', style='dim italic')
-		else:
-			# Default workflow for other templates
-			next_steps.append('\n1. Navigate to project directory:\n', style='bold')
-			next_steps.append(f'   cd {template}\n\n', style='dim')
-			next_steps.append('2. Initialize uv project:\n', style='bold')
-			next_steps.append('   uv init\n\n', style='dim')
-			next_steps.append('3. Install browser-use:\n', style='bold')
-			next_steps.append('   uv add browser-use\n\n', style='dim')
-			next_steps.append('4. Set up your API key in .env file or environment:\n', style='bold')
-			next_steps.append('   BROWSER_USE_API_KEY=your-key\n', style='dim')
-			next_steps.append(
-				'   (Get your key at https://cloud.browser-use.com/dashboard/settings?tab=api-keys&new)\n\n',
-				style='dim italic',
-			)
-			next_steps.append('5. Run your script:\n', style='bold')
-			next_steps.append(f'   uv run {output_path.name}\n', style='dim')
-
-		console.print(
-			Panel(
-				next_steps,
-				title='[bold]Next steps[/bold]',
-				border_style='#fe750e',
-				padding=(1, 2),
-			)
-		)
+	elif template == 'job-application':
+		# Job application template workflow
+		next_steps.append('\n1. Navigate to project directory:\n', style='bold')
+		next_steps.append(f'   cd {template}\n\n', style='dim')
+		next_steps.append('2. Set up your API key:\n', style='bold')
+		next_steps.append('   cp .env.example .env\n', style='dim')
+		next_steps.append('   # Edit .env and add your OPENAI_API_KEY\n', style='dim')
+		next_steps.append('   (Get your key at https://platform.openai.com/api-keys)\n\n', style='dim italic')
+		next_steps.append('3. Install dependencies:\n', style='bold')
+		next_steps.append('   uv sync\n\n', style='dim')
+		next_steps.append('4. Customize your data:\n', style='bold')
+		next_steps.append('   # Edit applicant_data.json with your information\n', style='dim')
+		next_steps.append('   # Replace example_resume.pdf with your resume\n\n', style='dim')
+		next_steps.append('5. Run the application:\n', style='bold')
+		next_steps.append(f'   uv run {output_path.name} --resume example_resume.pdf\n\n', style='dim')
+		next_steps.append('📖 See README.md for customization and troubleshooting\n', style='dim italic')
 	else:
-		sys.exit(1)
+		# Default workflow for other templates
+		next_steps.append('\n1. Navigate to project directory:\n', style='bold')
+		next_steps.append(f'   cd {template}\n\n', style='dim')
+		next_steps.append('2. Initialize uv project:\n', style='bold')
+		next_steps.append('   uv init\n\n', style='dim')
+		next_steps.append('3. Install browser-use:\n', style='bold')
+		next_steps.append('   uv add browser-use\n\n', style='dim')
+		next_steps.append('4. Set up your API key in .env file or environment:\n', style='bold')
+		next_steps.append('   BROWSER_USE_API_KEY=your-key\n', style='dim')
+		next_steps.append(
+			'   (Get your key at https://cloud.browser-use.com/dashboard/settings?tab=api-keys&new)\n\n',
+			style='dim italic',
+		)
+		next_steps.append('5. Run your script:\n', style='bold')
+		next_steps.append(f'   uv run {output_path.name}\n', style='dim')
+
+	console.print(
+		Panel(
+			next_steps,
+			title='[bold]Next steps[/bold]',
+			border_style='#fe750e',
+			padding=(1, 2),
+		)
+	)
 
 
 if __name__ == '__main__':

@@ -1,0 +1,9 @@
+[project]
+name = "browser-use-job-application"
+version = "0.1.0"
+description = "Automated job application submission with browser-use"
+requires-python = ">=3.11"
+dependencies = [
+	"browser-use",
+	"python-dotenv",
+]
