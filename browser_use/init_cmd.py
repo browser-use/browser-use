@@ -203,7 +203,7 @@ def main(
 
 	# Determine output path
 	if output:
-		output_path = template_dir / Path(output)
+		output_path = template_dir / Path(output).name
 	else:
 		output_path = template_dir / 'main.py'
 
