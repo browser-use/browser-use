@@ -19,6 +19,8 @@ DEFAULT_INCLUDE_ATTRIBUTES = [
 	'title',
 	'type',
 	'checked',
+	# 'class',
+	'id',
 	'name',
 	'role',
 	'value',
@@ -29,13 +31,39 @@ DEFAULT_INCLUDE_ATTRIBUTES = [
 	'aria-expanded',
 	'data-state',
 	'aria-checked',
+	# ARIA value attributes for datetime/range inputs
+	'aria-valuemin',
+	'aria-valuemax',
+	'aria-valuenow',
+	'aria-placeholder',
+	# Validation attributes - help agents avoid brute force attempts
+	'pattern',
+	'min',
+	'max',
+	'minlength',
+	'maxlength',
+	'step',
+	'accept',  # File input types (e.g., accept="image/*" or accept=".pdf")
+	'multiple',  # Whether multiple files/selections are allowed
+	'inputmode',  # Virtual keyboard hint (numeric, tel, email, url, etc.)
+	'autocomplete',  # Autocomplete behavior hint
+	'data-mask',  # Input mask format (e.g., phone numbers, credit cards)
+	'data-inputmask',  # Alternative input mask attribute
+	'data-datepicker',  # jQuery datepicker indicator
+	'format',  # Synthetic attribute for date/time input format (e.g., MM/dd/yyyy)
+	'expected_format',  # Synthetic attribute for explicit expected format (e.g., AngularJS datepickers)
+	'contenteditable',  # Rich text editor detection
+	# Webkit shadow DOM identifiers
+	'pseudo',
 	# Accessibility properties from ax_node (ordered by importance for automation)
 	'checked',
 	'selected',
 	'expanded',
 	'pressed',
 	'disabled',
-	# 'invalid',
+	'invalid',  # Current validation state from AX node
+	'valuemin',  # Min value from AX node (for datetime/range)
+	'valuemax',  # Max value from AX node (for datetime/range)
 	'valuenow',
 	'keyshortcuts',
 	'haspopup',
@@ -50,6 +78,58 @@ DEFAULT_INCLUDE_ATTRIBUTES = [
 	# Accessibility name (contains text content for StaticText elements)
 	'ax_name',
 ]
+
+STATIC_ATTRIBUTES = {
+	'class',
+	'id',
+	'name',
+	'type',
+	'placeholder',
+	'aria-label',
+	'title',
+	# 'aria-expanded',
+	'role',
+	'data-testid',
+	'data-test',
+	'data-cy',
+	'data-selenium',
+	'for',
+	'required',
+	'disabled',
+	'readonly',
+	'checked',
+	'selected',
+	'multiple',
+	'accept',
+	'href',
+	'target',
+	'rel',
+	'aria-describedby',
+	'aria-labelledby',
+	'aria-controls',
+	'aria-owns',
+	'aria-live',
+	'aria-atomic',
+	'aria-busy',
+	'aria-disabled',
+	'aria-hidden',
+	'aria-pressed',
+	'aria-checked',
+	'aria-selected',
+	'tabindex',
+	'alt',
+	'src',
+	'lang',
+	'itemscope',
+	'itemtype',
+	'itemprop',
+	# Webkit shadow DOM attributes
+	'pseudo',
+	'aria-valuemin',
+	'aria-valuemax',
+	'aria-valuenow',
+	'aria-placeholder',
+}
 
 
 @dataclass
@@ -87,12 +167,14 @@ class SimplifiedNode:
 	original_node: 'EnhancedDOMTreeNode'
 	children: list['SimplifiedNode']
 	should_display: bool = True
-	interactive_index: int | None = None
+	is_interactive: bool = False  # True if element is in selector_map
 
 	is_new: bool = False
 
 	ignored_by_paint_order: bool = False  # More info in dom/serializer/paint_order.py
 	excluded_by_parent: bool = False  # New field for bbox filtering
+	is_shadow_host: bool = False  # New field for shadow DOM hosts
+	is_compound_component: bool = False  # True for virtual components of compound controls
 
 	def _clean_original_node_json(self, node_json: dict) -> dict:
 		"""Recursively remove children_nodes and shadow_roots from original_node JSON."""
@@ -114,7 +196,7 @@ class SimplifiedNode:
 		cleaned_original_node_json = self._clean_original_node_json(original_node_json)
 		return {
 			'should_display': self.should_display,
-			'interactive_index': self.interactive_index,
+			'is_interactive': self.is_interactive,
 			'ignored_by_paint_order': self.ignored_by_paint_order,
 			'excluded_by_parent': self.excluded_by_parent,
 			'original_node': cleaned_original_node_json,
@@ -146,6 +228,17 @@ class DOMRect:
 	width: float
 	height: float
 
+	def to_dict(self) -> dict[str, Any]:
+		return {
+			'x': self.x,
+			'y': self.y,
+			'width': self.width,
+			'height': self.height,
+		}
+
+	def __json__(self) -> dict:
+		return self.to_dict()
+
 
 @dataclass(slots=True)
 class EnhancedAXProperty:
@@ -170,6 +263,7 @@ class EnhancedAXNode:
 	description: str | None
 
 	properties: list[EnhancedAXProperty] | None
+	child_ids: list[str] | None
 
 
 @dataclass(slots=True)
@@ -292,8 +386,8 @@ class EnhancedDOMTreeNode:
 
 	# endregion - Snapshot Node data
 
-	# Interactive element index
-	element_index: int | None = None
+	# Compound control child components information
+	_compound_children: list[dict[str, Any]] = field(default_factory=list)
 
 	uuid: str = field(default_factory=uuid7str)
 
@@ -310,7 +404,8 @@ class EnhancedDOMTreeNode:
 		"""
 		Returns all children nodes, including shadow roots
 		"""
-		children = self.children_nodes or []
+		# IMPORTANT: Make a copy to avoid mutating the original children_nodes list!
+		children = list(self.children_nodes) if self.children_nodes else []
 		if self.shadow_roots:
 			children.extend(self.shadow_roots)
 		return children
@@ -659,7 +754,7 @@ class EnhancedDOMTreeNode:
 		return hash(self)
 
 	def __str__(self) -> str:
-		return f'[<{self.tag_name}>#{self.frame_id[-4:] if self.frame_id else "?"}:{self.element_index}]'
+		return f'[<{self.tag_name}>#{self.frame_id[-4:] if self.frame_id else "?"}:{self.backend_node_id}]'
 
 	def __hash__(self) -> int:
 		"""
@@ -672,8 +767,9 @@ class EnhancedDOMTreeNode:
 		parent_branch_path = self._get_parent_branch_path()
 		parent_branch_path_string = '/'.join(parent_branch_path)
 
-		# Get attributes hash
-		attributes_string = ''.join(f'{key}={value}' for key, value in self.attributes.items())
+		attributes_string = ''.join(
+			f'{k}={v}' for k, v in sorted((k, v) for k, v in self.attributes.items() if k in STATIC_ATTRIBUTES)
+		)
 
 		# Combine both for final hash
 		combined_string = f'{parent_branch_path_string}|{attributes_string}'
@@ -731,6 +827,29 @@ class SerializedDOMState:
 
 		return DOMTreeSerializer.serialize_tree(self._root, include_attributes)
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='eval_representation')
+	def eval_representation(
+		self,
+		include_attributes: list[str] | None = None,
+	) -> str:
+		"""
+		Evaluation-focused DOM representation without interactive indexes.
+
+		This serializer is designed for evaluation/judge contexts where:
+		- No interactive indexes are needed (we're not clicking)
+		- Full HTML structure should be preserved for context
+		- More attribute information is helpful
+		- Text content is important for understanding page structure
+		"""
+		from browser_use.dom.serializer.eval_serializer import DOMEvalSerializer
+
+		if not self._root:
+			return 'Empty DOM tree (you might have to wait for the page to load)'
+
+		include_attributes = include_attributes or DEFAULT_INCLUDE_ATTRIBUTES
+
+		return DOMEvalSerializer.serialize_tree(self._root, include_attributes)
+
 
 @dataclass
 class DOMInteractedElement:
@@ -758,11 +877,16 @@ class DOMInteractedElement:
 
 	def to_dict(self) -> dict[str, Any]:
 		return {
+			'node_id': self.node_id,
+			'backend_node_id': self.backend_node_id,
+			'frame_id': self.frame_id,
 			'node_type': self.node_type.value,
 			'node_value': self.node_value,
 			'node_name': self.node_name,
 			'attributes': self.attributes,
 			'x_path': self.x_path,
+			'element_hash': self.element_hash,
+			'bounds': self.bounds.to_dict() if self.bounds else None,
 		}
 
 	@classmethod

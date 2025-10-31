@@ -198,6 +198,7 @@ class ChatOpenAI(BaseChatModel):
 				return ChatInvokeCompletion(
 					completion=response.choices[0].message.content or '',
 					usage=usage,
+					stop_reason=response.choices[0].finish_reason if response.choices else None,
 				)
 
 			else:
@@ -239,6 +240,7 @@ class ChatOpenAI(BaseChatModel):
 				return ChatInvokeCompletion(
 					completion=parsed,
 					usage=usage,
+					stop_reason=response.choices[0].finish_reason if response.choices else None,
 				)
 
 		except RateLimitError as e:

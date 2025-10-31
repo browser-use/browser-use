@@ -10,10 +10,10 @@ from typing import Optional
 from browser_use.browser.profile import ViewportSize
 
 try:
-	import imageio.v2 as iio
-	import imageio_ffmpeg
-	import numpy as np
-	from imageio.core.format import Format
+	import imageio.v2 as iio  # type: ignore[import-not-found]
+	import imageio_ffmpeg  # type: ignore[import-not-found]
+	import numpy as np  # type: ignore[import-not-found]
+	from imageio.core.format import Format  # type: ignore[import-not-found]
 
 	IMAGEIO_AVAILABLE = True
 except ImportError:

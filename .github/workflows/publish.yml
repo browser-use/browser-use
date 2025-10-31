@@ -81,7 +81,7 @@ jobs:
           activate-environment: true
       - run: uv sync
 
-      - run: uv run ruff check --no-fix --select PLE # quick check for syntax errors to avoid waiting time doing the rest of the build
+      - run: uv run --no-sync ruff check --no-fix --select PLE # quick check for syntax errors to avoid waiting time doing the rest of the build
       - run: uv build
 
       # - name: Detect installed Playwright version

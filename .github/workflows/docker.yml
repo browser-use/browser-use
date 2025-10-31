@@ -7,8 +7,15 @@ concurrency:
 
 on:
   push:
+    branches:
+      - main
+      - stable
+      - 'releases/**'
+    tags:
+      - '*'
   release:
     types: [published]
+  workflow_dispatch:
 
 jobs:
   build_publish_image:

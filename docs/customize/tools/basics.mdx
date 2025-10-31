@@ -10,12 +10,12 @@ mode: "wide"
 
 
 ```python
-from browser_use import Tools, ActionResult
+from browser_use import Tools, ActionResult, Browser
 
 tools = Tools()
 
 @tools.action('Ask human for help with a question')
-def ask_human(question: str) -> ActionResult:
+def ask_human(question: str, browser: Browser) -> ActionResult:
     answer = input(f'{question} > ')
     return f'The human responded with: {answer}'
 
@@ -25,3 +25,7 @@ agent = Agent(
     tools=tools,
 )
 ```
+
+<Note>
+Use `browser` parameter in tools for deterministic [Actor](/customize/actor/basics) actions.
+</Note>

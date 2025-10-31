@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.7.7"
+version = "0.9.4"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -11,10 +11,12 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "aiofiles>=24.1.0",
     "aiohttp==3.12.15",
     "anyio>=4.9.0",
     "bubus>=1.5.6",
+    "click>=8.1.8",
+    "InquirerPy>=0.3.4",
+    "rich>=14.0.0",
     "google-api-core>=2.25.0",
     "httpx>=0.28.1",
     "portalocker>=2.7.0,<3.0.0",
@@ -30,7 +32,7 @@ dependencies = [
     "authlib>=1.6.0",
     "google-genai>=1.29.0,<2.0.0",
     "openai>=1.99.2,<2.0.0",
-    "anthropic>=0.58.2,<1.0.0",
+    "anthropic>=0.68.1,<1.0.0",
     "groq>=0.30.0",
     "ollama>=0.5.1",
     "google-api-python-client>=2.174.0",
@@ -41,8 +43,10 @@ dependencies = [
     "reportlab>=4.0.0",
     "cdp-use>=1.4.0",
     "pyotp>=2.9.0",
-    "html2text>=2025.4.15",
     "pillow>=11.2.1",
+    "markdownify>=1.2.0",
+
+
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -56,19 +60,27 @@ dependencies = [
 
 [project.optional-dependencies]
 cli = [
-    "rich>=14.0.0",
-    "click>=8.1.8",
     "textual>=3.2.0",
+]
+code = [
+    "matplotlib>=3.9.0",
+    "numpy>=2.3.2",
+    "pandas>=2.2.0",
+    "tabulate>=0.9.0",
+
 ]
 aws = [
     "boto3>=1.38.45"
+]
+oci = [
+    "oci>=2.126.4",
 ]
 video = [
     "imageio[ffmpeg]>=2.37.0",
     "numpy>=2.3.2",
 ]
 examples = [
-    "agentmail>=0.0.53",
+    "agentmail==0.0.59",
     # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
     "botocore>=1.37.23",
     "imgcat>=0.6.0",
@@ -77,15 +89,16 @@ examples = [
     "langchain-openai>=0.3.26",
 ]
 eval = [
-    "lmnr[all]==0.7.10",
+    "lmnr[all]==0.7.17",
     "anyio>=4.9.0",
     "psutil>=7.0.0",
-    "datamodel-code-generator>=0.26.0",
-    "hyperbrowser==0.47.0",
-    "browserbase==1.4.0",
+    "datamodel-code-generator>=0.26.0"
+]
+cli-oci = [
+    "browser-use[cli,oci]",
 ]
 all = [
-    "browser-use[cli,examples,aws]",
+    "browser-use[cli,examples,aws,oci]",
 ]
 
 # will prefer to use local source code checked out in ../../browser-use (if present) instead of pypi browser-use package
@@ -106,7 +119,7 @@ build-backend = "hatchling.build"
 
 
 [tool.codespell]
-ignore-words-list = "bu,wit,dont,cant,wont,re-use,re-used,re-using,re-usable,thats,doesnt,doubleclick"
+ignore-words-list = "bu,wit,dont,cant,wont,re-use,re-used,re-using,re-usable,thats,doesnt,doubleclick,finaly,finalY"
 skip = "*.json"
 
 [tool.ruff]
@@ -128,7 +141,7 @@ skip-magic-trailing-comma = false
 
 [tool.pyright]
 typeCheckingMode = "basic"
-exclude = [".venv/", ".git/", "__pycache__/", "./test_*.py", "./debug_*.py", "private_example/", "debug/*", "tests/scripts/*", "tests/old/*", "browser_use/dom/playground/*"]
+exclude = [".venv/", ".git/", "__pycache__/", "./test_*.py", "./debug_*.py", "private_example/", "debug/*", "tests/scripts/*", "tests/old/*", "browser_use/dom/playground/*", "examples/use-cases/onepassword.py", "browser_use/llm/oci_raw/*", "browser_use/llm/tests/test_chat_models.py", "browser_use/llm/tests/test_single_step.py", "product_extraction.py", "discover/", "list/"]
 venvPath = "."
 venv = ".venv"
 
@@ -141,6 +154,8 @@ include = [
     "browser_use/agent/system_prompt.md",
     "browser_use/agent/system_prompt_no_thinking.md",
     "browser_use/agent/system_prompt_flash.md",
+    "browser_use/code_use/system_prompt.md",
+    "browser_use/cli_templates/*.py",
     "browser_use/py.typed",
     "browser_use/dom/**/*.js",
     "!tests/**/*.py",
@@ -201,7 +216,7 @@ dev-dependencies = [
     "pyright>=1.1.403",
     "ty>=0.0.1a1",
     "pytest-xdist>=3.7.0",
-    "lmnr[all]==0.7.10",
+    "lmnr[all]==0.7.17",
     # "pytest-playwright-asyncio>=0.7.0",  # not actually needed I think
     "pytest-timeout>=2.4.0",
     "pydantic_settings>=2.10.1"

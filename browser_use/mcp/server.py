@@ -26,6 +26,8 @@ Or as an MCP server in Claude Desktop or other MCP clients:
 import os
 import sys
 
+from browser_use.llm import ChatAWSBedrock
+
 # Set environment variables BEFORE any browser_use imports to prevent early logging
 os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'critical'
 os.environ['BROWSER_USE_SETUP_LOGGING'] = 'false'
@@ -578,21 +580,37 @@ class BrowserUseServer:
 
 		# Get LLM config
 		llm_config = get_default_llm(self.config)
-		api_key = llm_config.get('api_key') or os.getenv('OPENAI_API_KEY')
-		if not api_key:
-			return 'Error: OPENAI_API_KEY not set in config or environment'
 
-		# Override model if provided in tool call
-		if model != llm_config.get('model', 'gpt-4o'):
-			llm_model = model
+		# Get LLM provider
+		model_provider = llm_config.get('model_provider') or os.getenv('MODEL_PROVIDER')
+
+		# 如果model_provider不等于空，且等Bedrock
+		if model_provider and model_provider.lower() == 'bedrock':
+			llm_model = llm_config.get('model') or os.getenv('MODEL') or 'us.anthropic.claude-sonnet-4-20250514-v1:0'
+			aws_region = llm_config.get('region') or os.getenv('REGION')
+			if not aws_region:
+				aws_region = 'us-east-1'
+			llm = ChatAWSBedrock(
+				model=llm_model,  # or any Bedrock model
+				aws_region=aws_region,
+				aws_sso_auth=True,
+			)
 		else:
-			llm_model = llm_config.get('model', 'gpt-4o')
+			api_key = llm_config.get('api_key') or os.getenv('OPENAI_API_KEY')
+			if not api_key:
+				return 'Error: OPENAI_API_KEY not set in config or environment'
 
-		llm = ChatOpenAI(
-			model=llm_model,
-			api_key=api_key,
-			temperature=llm_config.get('temperature', 0.7),
-		)
+			# Override model if provided in tool call
+			if model != llm_config.get('model', 'gpt-4o'):
+				llm_model = model
+			else:
+				llm_model = llm_config.get('model', 'gpt-4o')
+
+			llm = ChatOpenAI(
+				model=llm_model,
+				api_key=api_key,
+				temperature=llm_config.get('temperature', 0.7),
+			)
 
 		# Get profile config and merge with tool parameters
 		profile_config = get_default_profile(self.config)
@@ -728,16 +746,47 @@ class BrowserUseServer:
 
 		from browser_use.browser.events import TypeTextEvent
 
-		event = self.browser_session.event_bus.dispatch(TypeTextEvent(node=element, text=text))
+		# Conservative heuristic to detect potentially sensitive data
+		# Only flag very obvious patterns to minimize false positives
+		is_potentially_sensitive = len(text) >= 6 and (
+			# Email pattern: contains @ and a domain-like suffix
+			('@' in text and '.' in text.split('@')[-1] if '@' in text else False)
+			# Mixed alphanumeric with reasonable complexity (likely API keys/tokens)
+			or (
+				len(text) >= 16
+				and any(char.isdigit() for char in text)
+				and any(char.isalpha() for char in text)
+				and any(char in '.-_' for char in text)
+			)
+		)
+
+		# Use generic key names to avoid information leakage about detection patterns
+		sensitive_key_name = None
+		if is_potentially_sensitive:
+			if '@' in text and '.' in text.split('@')[-1]:
+				sensitive_key_name = 'email'
+			else:
+				sensitive_key_name = 'credential'
+
+		event = self.browser_session.event_bus.dispatch(
+			TypeTextEvent(node=element, text=text, is_sensitive=is_potentially_sensitive, sensitive_key_name=sensitive_key_name)
+		)
 		await event
-		return f"Typed '{text}' into element {index}"
+
+		if is_potentially_sensitive:
+			if sensitive_key_name:
+				return f'Typed <{sensitive_key_name}> into element {index}'
+			else:
+				return f'Typed <sensitive> into element {index}'
+		else:
+			return f"Typed '{text}' into element {index}"
 
 	async def _get_browser_state(self, include_screenshot: bool = False) -> str:
 		"""Get current browser state."""
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
-		state = await self.browser_session.get_browser_state_summary(cache_clickable_elements_hashes=False)
+		state = await self.browser_session.get_browser_state_summary()
 
 		result = {
 			'url': state.url,
@@ -780,7 +829,7 @@ class BrowserUseServer:
 
 		state = await self.browser_session.get_browser_state_summary()
 
-		# Use the extract_structured_data action
+		# Use the extract action
 		# Create a dynamic action model that matches the tools's expectations
 		from pydantic import create_model
 
@@ -788,10 +837,15 @@ class BrowserUseServer:
 		ExtractAction = create_model(
 			'ExtractAction',
 			__base__=ActionModel,
-			extract_structured_data=(dict[str, Any], {'query': query, 'extract_links': extract_links}),
+			extract=dict[str, Any],
 		)
 
-		action = ExtractAction()
+		# Use model_validate because Pyright does not understand the dynamic model
+		action = ExtractAction.model_validate(
+			{
+				'extract': {'query': query, 'extract_links': extract_links},
+			}
+		)
 		action_result = await self.tools.act(
 			action=action,
 			browser_session=self.browser_session,

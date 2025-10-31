@@ -155,7 +155,7 @@ class CreateAgentStepEvent(BaseEvent):
 		# Capture screenshot as base64 data URL if available
 		screenshot_url = None
 		if browser_state_summary.screenshot:
-			screenshot_url = f'data:image/png;base64,{browser_state_summary.screenshot}'
+			screenshot_url = f'data:image/jpeg;base64,{browser_state_summary.screenshot}'
 			import logging
 
 			logger = logging.getLogger(__name__)
@@ -188,7 +188,7 @@ class CreateAgentTaskEvent(BaseEvent):
 	user_id: str = Field(max_length=255)  # Added for authorization checks
 	device_id: str | None = Field(None, max_length=255)  # Device ID for auth lookup
 	agent_session_id: str
-	llm_model: str = Field(max_length=100)  # LLMModel enum value as string
+	llm_model: str = Field(max_length=200)  # LLMModel enum value as string
 	stopped: bool = False
 	paused: bool = False
 	task: str = Field(max_length=MAX_TASK_LENGTH)

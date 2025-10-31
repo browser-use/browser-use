@@ -7,6 +7,8 @@ from pathlib import Path
 
 import anyio
 
+from browser_use.observability import observe_debug
+
 
 class ScreenshotService:
 	"""Simple screenshot storage service that saves screenshots to disk"""
@@ -19,6 +21,7 @@ class ScreenshotService:
 		self.screenshots_dir = self.agent_directory / 'screenshots'
 		self.screenshots_dir.mkdir(parents=True, exist_ok=True)
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='store_screenshot')
 	async def store_screenshot(self, screenshot_b64: str, step_number: int) -> str:
 		"""Store screenshot to disk and return the full path as string"""
 		screenshot_filename = f'step_{step_number}.png'
@@ -32,6 +35,7 @@ class ScreenshotService:
 
 		return str(screenshot_path)
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='get_screenshot_from_disk')
 	async def get_screenshot(self, screenshot_path: str) -> str | None:
 		"""Load screenshot from disk path and return as base64"""
 		if not screenshot_path:

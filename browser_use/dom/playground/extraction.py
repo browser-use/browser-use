@@ -33,6 +33,7 @@ async def test_focus_vs_all_elements():
 
 	# 10 Sample websites with various interactive elements
 	sample_websites = [
+		'https://browser-use.github.io/stress-tests/challenges/iframe-inception-level2.html',
 		'https://www.google.com/travel/flights',
 		'https://v0-simple-ui-test-site.vercel.app',
 		'https://browser-use.github.io/stress-tests/challenges/iframe-inception-level1.html',
@@ -175,7 +176,7 @@ async def test_focus_vs_all_elements():
 				# copy the user message to the clipboard
 				# pyperclip.copy(text_to_save)
 
-				encoding = tiktoken.encoding_for_model('gpt-4o')
+				encoding = tiktoken.encoding_for_model('gpt-4.1-mini')
 				token_count = len(encoding.encode(text_to_save))
 				print(f'Token count: {token_count}')
 

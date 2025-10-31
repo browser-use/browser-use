@@ -66,6 +66,27 @@ class PageInfo(BaseModel):
 
 
 @dataclass
+class NetworkRequest:
+	"""Information about a pending network request"""
+
+	url: str
+	method: str = 'GET'
+	loading_duration_ms: float = 0.0  # How long this request has been loading (ms since request started, max 10s)
+	resource_type: str | None = None  # e.g., 'Document', 'Stylesheet', 'Image', 'Script', 'XHR', 'Fetch'
+
+
+@dataclass
+class PaginationButton:
+	"""Information about a pagination button detected on the page"""
+
+	button_type: str  # 'next', 'prev', 'first', 'last', 'page_number'
+	backend_node_id: int  # Backend node ID for clicking
+	text: str  # Button text/label
+	selector: str  # XPath or other selector to locate the element
+	is_disabled: bool = False  # Whether the button appears disabled
+
+
+@dataclass
 class BrowserStateSummary:
 	"""The summary of the browser's current state designed for an LLM to process"""
 
@@ -84,6 +105,9 @@ class BrowserStateSummary:
 	browser_errors: list[str] = field(default_factory=list)
 	is_pdf_viewer: bool = False  # Whether the current page is a PDF viewer
 	recent_events: str | None = None  # Text summary of recent browser events
+	pending_network_requests: list[NetworkRequest] = field(default_factory=list)  # Currently loading network requests
+	pagination_buttons: list[PaginationButton] = field(default_factory=list)  # Detected pagination buttons
+	closed_popup_messages: list[str] = field(default_factory=list)  # Messages from auto-closed JavaScript dialogs
 
 
 @dataclass

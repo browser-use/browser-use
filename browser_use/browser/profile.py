@@ -13,6 +13,7 @@ from browser_use.config import CONFIG
 from browser_use.utils import _log_pretty_path, logger
 
 CHROME_DEBUG_PORT = 9242  # use a non-default port to avoid conflicts with other tools / devs using 9222
+DOMAIN_OPTIMIZATION_THRESHOLD = 100  # Convert domain lists to sets for O(1) lookup when >= this size
 CHROME_DISABLED_COMPONENTS = [
 	# Playwright defaults: https://github.com/microsoft/playwright/blob/41008eeddd020e2dee1c540f7c0cdfa337e99637/packages/playwright-core/src/server/chromium/chromiumSwitches.ts#L76
 	# AcceptCHFrame,AutoExpandDetailsElement,AvoidUnnecessaryBeforeUnloadCheckSync,CertificateTransparencyComponentUpdater,DeferRendererTasksAfterInput,DestroyProfileOnBrowserClose,DialMediaRouteProvider,ExtensionManifestV2Disabled,GlobalMediaControls,HttpsUpgrades,ImprovedCookieControls,LazyFrameLoading,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate
@@ -127,8 +128,6 @@ CHROME_DEFAULT_ARGS = [
 	# '--force-color-profile=srgb',  # moved to CHROME_DETERMINISTIC_RENDERING_ARGS
 	'--metrics-recording-only',
 	'--no-first-run',
-	'--password-store=basic',
-	'--use-mock-keychain',
 	# // See https://chromium-review.googlesource.com/c/chromium/src/+/2436773
 	'--no-service-autorun',
 	'--export-tagged-pdf',
@@ -550,18 +549,30 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	# Session/connection configuration
 	cdp_url: str | None = Field(default=None, description='CDP URL for connecting to existing browser instance')
 	is_local: bool = Field(default=False, description='Whether this is a local browser instance')
-	# label: str = 'default'
+	use_cloud: bool = Field(
+		default=False,
+		description='Use browser-use cloud browser service instead of local browser',
+	)
+
+	@property
+	def cloud_browser(self) -> bool:
+		"""Alias for use_cloud field for compatibility."""
+		return self.use_cloud
 
 	# custom options we provide that aren't native playwright kwargs
 	disable_security: bool = Field(default=False, description='Disable browser security features.')
 	deterministic_rendering: bool = Field(default=False, description='Enable deterministic rendering flags.')
-	allowed_domains: list[str] | None = Field(
+	allowed_domains: list[str] | set[str] | None = Field(
 		default=None,
-		description='List of allowed domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]',
+		description='List of allowed domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]. Lists with 100+ items are auto-optimized to sets (no pattern matching).',
 	)
-	prohibited_domains: list[str] | None = Field(
+	prohibited_domains: list[str] | set[str] | None = Field(
 		default=None,
-		description='List of prohibited domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]. Allowed domains take precedence over prohibited domains.',
+		description='List of prohibited domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]. Allowed domains take precedence over prohibited domains. Lists with 100+ items are auto-optimized to sets (no pattern matching).',
+	)
+	block_ip_addresses: bool = Field(
+		default=False,
+		description='Block navigation to URLs containing IP addresses (both IPv4 and IPv6). When True, blocks all IP-based URLs including localhost and private networks.',
 	)
 	keep_alive: bool | None = Field(default=None, description='Keep browser alive after agent run.')
 
@@ -609,15 +620,22 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	minimum_wait_page_load_time: float = Field(default=0.25, description='Minimum time to wait before capturing page state.')
 	wait_for_network_idle_page_load_time: float = Field(default=0.5, description='Time to wait for network idle.')
 
-	wait_between_actions: float = Field(default=0.5, description='Time to wait between actions.')
+	wait_between_actions: float = Field(default=0.1, description='Time to wait between actions.')
 
 	# --- UI/viewport/DOM ---
-
 	highlight_elements: bool = Field(default=True, description='Highlight interactive elements on the page.')
+	dom_highlight_elements: bool = Field(
+		default=False, description='Highlight interactive elements in the DOM (only for debugging purposes).'
+	)
 	filter_highlight_ids: bool = Field(
 		default=True, description='Only show element IDs in highlights if llm_representation is less than 10 characters.'
 	)
 	paint_order_filtering: bool = Field(default=True, description='Enable paint order filtering. Slightly experimental.')
+	interaction_highlight_color: str = Field(
+		default='rgb(255, 127, 39)',
+		description='Color to use for highlighting elements during interactions (CSS color string).',
+	)
+	interaction_highlight_duration: float = Field(default=1.0, description='Duration in seconds to show interaction highlights.')
 
 	# --- Downloads ---
 	auto_download_pdfs: bool = Field(default=True, description='Automatically download PDFs when navigating to PDF viewer pages.')
@@ -656,6 +674,23 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 
 	def __str__(self) -> str:
 		return 'BrowserProfile'
+
+	@field_validator('allowed_domains', 'prohibited_domains', mode='after')
+	@classmethod
+	def optimize_large_domain_lists(cls, v: list[str] | set[str] | None) -> list[str] | set[str] | None:
+		"""Convert large domain lists (>=100 items) to sets for O(1) lookup performance."""
+		if v is None or isinstance(v, set):
+			return v
+
+		if len(v) >= DOMAIN_OPTIMIZATION_THRESHOLD:
+			logger.warning(
+				f'🔧 Optimizing domain list with {len(v)} items to set for O(1) lookup. '
+				f'Note: Pattern matching (*.domain.com, etc.) is not supported for lists >= {DOMAIN_OPTIMIZATION_THRESHOLD} items. '
+				f'Use exact domains only or keep list size < {DOMAIN_OPTIMIZATION_THRESHOLD} for pattern support.'
+			)
+			return set(v)
+
+		return v
 
 	@model_validator(mode='after')
 	def copy_old_config_names_to_new(self) -> Self:
@@ -722,6 +757,17 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		"""Ensure proxy configuration is consistent."""
 		if self.proxy and (self.proxy.bypass and not self.proxy.server):
 			logger.warning('BrowserProfile.proxy.bypass provided but proxy has no server; bypass will be ignored.')
+		return self
+
+	@model_validator(mode='after')
+	def validate_highlight_elements_conflict(self) -> Self:
+		"""Ensure highlight_elements and dom_highlight_elements are not both enabled, with dom_highlight_elements taking priority."""
+		if self.highlight_elements and self.dom_highlight_elements:
+			logger.warning(
+				'⚠️ Both highlight_elements and dom_highlight_elements are enabled. '
+				'dom_highlight_elements takes priority. Setting highlight_elements=False.'
+			)
+			self.highlight_elements = False
 		return self
 
 	def model_post_init(self, __context: Any) -> None:
@@ -847,6 +893,11 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 				'name': 'ClearURLs',
 				'id': 'lckanjgmijmafbedllaakclkaicjfmnk',
 				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=133&acceptformat=crx3&x=id%3Dlckanjgmijmafbedllaakclkaicjfmnk%26uc',
+			},
+			{
+				'name': 'Force Background Tab',
+				'id': 'gidlfommnbibbmegmgajdbikelkdcmcl',
+				'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=133&acceptformat=crx3&x=id%3Dgidlfommnbibbmegmgajdbikelkdcmcl%26uc',
 			},
 			# {
 			# 	'name': 'Captcha Solver: Auto captcha solving service',

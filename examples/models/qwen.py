@@ -13,7 +13,7 @@ base_url = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1'
 
 # so far we only had success with qwen-vl-max
 # other models, even qwen-max, do not return the right output format. They confuse the action schema.
-# E.g. they return actions: [{"go_to_url": "google.com"}] instead of [{"go_to_url": {"url": "google.com"}}]
+# E.g. they return actions: [{"navigate": "google.com"}] instead of [{"navigate": {"url": "google.com"}}]
 # If you want to use smaller models and you see they mix up the action schema, add concrete examples to your prompt of the right format.
 llm = ChatOpenAI(model='qwen-vl-max', api_key=api_key, base_url=base_url)
 

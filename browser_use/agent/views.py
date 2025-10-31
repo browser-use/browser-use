@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,11 +27,13 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.tokens.views import UsageSummary
 from browser_use.tools.registry.views import ActionModel
 
+logger = logging.getLogger(__name__)
+
 
 class AgentSettings(BaseModel):
 	"""Configuration options for the Agent"""
 
-	use_vision: bool = True
+	use_vision: bool | Literal['auto'] = 'auto'
 	vision_detail_level: Literal['auto', 'low', 'high'] = 'auto'
 	save_conversation_path: str | Path | None = None
 	save_conversation_path_encoding: str | None = 'utf-8'
@@ -47,7 +50,7 @@ class AgentSettings(BaseModel):
 	page_extraction_llm: BaseChatModel | None = None
 	calculate_cost: bool = False
 	include_tool_call_examples: bool = False
-	llm_timeout: int = 60  # Timeout in seconds for LLM calls
+	llm_timeout: int = 60  # Timeout in seconds for LLM calls (auto-detected: 30s for gemini, 90s for o3, 60s default)
 	step_timeout: int = 180  # Timeout in seconds for each step
 	final_response_after_failure: bool = True  # If True, attempt one final recovery call after max_failures
 
@@ -152,7 +155,6 @@ class AgentOutput(BaseModel):
 	next_goal: str | None = None
 	action: list[ActionModel] = Field(
 		...,
-		description='List of actions to execute',
 		json_schema_extra={'min_items': 1},  # Ensure at least one action is provided
 	)
 
@@ -185,7 +187,6 @@ class AgentOutput(BaseModel):
 			),
 			__module__=AgentOutput.__module__,
 		)
-		model_.__doc__ = 'AgentOutput model with custom actions'
 		return model_
 
 	@staticmethod
@@ -205,12 +206,11 @@ class AgentOutput(BaseModel):
 			__base__=AgentOutputNoThinking,
 			action=(
 				list[custom_actions],  # type: ignore
-				Field(..., description='List of actions to execute', json_schema_extra={'min_items': 1}),
+				Field(..., json_schema_extra={'min_items': 1}),
 			),
 			__module__=AgentOutputNoThinking.__module__,
 		)
 
-		model.__doc__ = 'AgentOutput model with custom actions'
 		return model
 
 	@staticmethod
@@ -234,12 +234,11 @@ class AgentOutput(BaseModel):
 			__base__=AgentOutputFlashMode,
 			action=(
 				list[custom_actions],  # type: ignore
-				Field(..., description='List of actions to execute', json_schema_extra={'min_items': 1}),
+				Field(..., json_schema_extra={'min_items': 1}),
 			),
 			__module__=AgentOutputFlashMode.__module__,
 		)
 
-		model.__doc__ = 'AgentOutput model with custom actions'
 		return model
 
 
@@ -250,6 +249,7 @@ class AgentHistory(BaseModel):
 	result: list[ActionResult]
 	state: BrowserStateHistory
 	metadata: StepMetadata | None = None
+	state_message: str | None = None
 
 	model_config = ConfigDict(arbitrary_types_allowed=True, protected_namespaces=())
 
@@ -265,13 +265,76 @@ class AgentHistory(BaseModel):
 				elements.append(None)
 		return elements
 
-	def model_dump(self, **kwargs) -> dict[str, Any]:
-		"""Custom serialization handling circular references"""
+	def _filter_sensitive_data_from_string(self, value: str, sensitive_data: dict[str, str | dict[str, str]] | None) -> str:
+		"""Filter out sensitive data from a string value"""
+		if not sensitive_data:
+			return value
+
+		# Collect all sensitive values, immediately converting old format to new format
+		sensitive_values: dict[str, str] = {}
+
+		# Process all sensitive data entries
+		for key_or_domain, content in sensitive_data.items():
+			if isinstance(content, dict):
+				# Already in new format: {domain: {key: value}}
+				for key, val in content.items():
+					if val:  # Skip empty values
+						sensitive_values[key] = val
+			elif content:  # Old format: {key: value} - convert to new format internally
+				# We treat this as if it was {'http*://*': {key_or_domain: content}}
+				sensitive_values[key_or_domain] = content
+
+		# If there are no valid sensitive data entries, just return the original value
+		if not sensitive_values:
+			return value
+
+		# Replace all valid sensitive data values with their placeholder tags
+		for key, val in sensitive_values.items():
+			value = value.replace(val, f'<secret>{key}</secret>')
+
+		return value
+
+	def _filter_sensitive_data_from_dict(
+		self, data: dict[str, Any], sensitive_data: dict[str, str | dict[str, str]] | None
+	) -> dict[str, Any]:
+		"""Recursively filter sensitive data from a dictionary"""
+		if not sensitive_data:
+			return data
+
+		filtered_data = {}
+		for key, value in data.items():
+			if isinstance(value, str):
+				filtered_data[key] = self._filter_sensitive_data_from_string(value, sensitive_data)
+			elif isinstance(value, dict):
+				filtered_data[key] = self._filter_sensitive_data_from_dict(value, sensitive_data)
+			elif isinstance(value, list):
+				filtered_data[key] = [
+					self._filter_sensitive_data_from_string(item, sensitive_data)
+					if isinstance(item, str)
+					else self._filter_sensitive_data_from_dict(item, sensitive_data)
+					if isinstance(item, dict)
+					else item
+					for item in value
+				]
+			else:
+				filtered_data[key] = value
+		return filtered_data
+
+	def model_dump(self, sensitive_data: dict[str, str | dict[str, str]] | None = None, **kwargs) -> dict[str, Any]:
+		"""Custom serialization handling circular references and filtering sensitive data"""
 
 		# Handle action serialization
 		model_output_dump = None
 		if self.model_output:
 			action_dump = [action.model_dump(exclude_none=True) for action in self.model_output.action]
+
+			# Filter sensitive data only from input action parameters if sensitive_data is provided
+			if sensitive_data:
+				action_dump = [
+					self._filter_sensitive_data_from_dict(action, sensitive_data) if 'input' in action else action
+					for action in action_dump
+				]
+
 			model_output_dump = {
 				'evaluation_previous_goal': self.model_output.evaluation_previous_goal,
 				'memory': self.model_output.memory,
@@ -282,11 +345,16 @@ class AgentHistory(BaseModel):
 			if self.model_output.thinking is not None:
 				model_output_dump['thinking'] = self.model_output.thinking
 
+		# Handle result serialization - don't filter ActionResult data
+		# as it should contain meaningful information for the agent
+		result_dump = [r.model_dump(exclude_none=True) for r in self.result]
+
 		return {
 			'model_output': model_output_dump,
-			'result': [r.model_dump(exclude_none=True) for r in self.result],
+			'result': result_dump,
 			'state': self.state.to_dict(),
 			'metadata': self.metadata.model_dump() if self.metadata else None,
+			'state_message': self.state_message,
 		}
 
 
@@ -325,11 +393,11 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		"""Representation of the AgentHistoryList object"""
 		return self.__str__()
 
-	def save_to_file(self, filepath: str | Path) -> None:
-		"""Save history to JSON file with proper serialization"""
+	def save_to_file(self, filepath: str | Path, sensitive_data: dict[str, str | dict[str, str]] | None = None) -> None:
+		"""Save history to JSON file with proper serialization and optional sensitive data filtering"""
 		try:
 			Path(filepath).parent.mkdir(parents=True, exist_ok=True)
-			data = self.model_dump()
+			data = self.model_dump(sensitive_data=sensitive_data)
 			with open(filepath, 'w', encoding='utf-8') as f:
 				json.dump(data, f, indent=2)
 		except Exception as e:
@@ -581,6 +649,22 @@ class AgentError:
 			return f'{AgentError.VALIDATION_ERROR}\nDetails: {str(error)}'
 		if isinstance(error, RateLimitError):
 			return AgentError.RATE_LIMIT_ERROR
+
+		# Handle LLM response validation errors from llm_use
+		error_str = str(error)
+		if 'LLM response missing required fields' in error_str or 'Expected format: AgentOutput' in error_str:
+			# Extract the main error message without the huge stacktrace
+			lines = error_str.split('\n')
+			main_error = lines[0] if lines else error_str
+
+			# Provide a clearer error message
+			helpful_msg = f'{main_error}\n\nThe previous response had an invalid output structure. Please stick to the required output format. \n\n'
+
+			if include_trace:
+				helpful_msg += f'\n\nFull stacktrace:\n{traceback.format_exc()}'
+
+			return helpful_msg
+
 		if include_trace:
 			return f'{str(error)}\nStacktrace:\n{traceback.format_exc()}'
 		return f'{str(error)}'

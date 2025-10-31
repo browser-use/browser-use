@@ -59,7 +59,6 @@ class ElementSelectedEvent(BaseEvent[T_EventResultType]):
 		if data is None:
 			return None
 		return EnhancedDOMTreeNode(
-			element_index=data.element_index,
 			node_id=data.node_id,
 			backend_node_id=data.backend_node_id,
 			session_id=data.session_id,
@@ -128,10 +127,6 @@ class ClickElementEvent(ElementSelectedEvent[dict[str, Any] | None]):
 
 	node: 'EnhancedDOMTreeNode'
 	button: Literal['left', 'right', 'middle'] = 'left'
-	while_holding_ctrl: bool = Field(
-		default=False,
-		description='Set True to open any link clicked in a new tab in the background, can use switch_tab(tab_id=None) after to focus it',
-	)
 	# click_count: int = 1           # TODO
 	# expect_download: bool = False  # moved to downloads_watchdog.py
 
@@ -143,7 +138,9 @@ class TypeTextEvent(ElementSelectedEvent[dict | None]):
 
 	node: 'EnhancedDOMTreeNode'
 	text: str
-	clear_existing: bool = True
+	clear: bool = True
+	is_sensitive: bool = False  # Flag to indicate if text contains sensitive data
+	sensitive_key_name: str | None = None  # Name of the sensitive key being typed (e.g., 'username', 'password')
 
 	event_timeout: float | None = _get_timeout('TIMEOUT_TypeTextEvent', 15.0)  # seconds
 
@@ -188,7 +185,6 @@ class BrowserStateRequestEvent(BaseEvent[BrowserStateSummary]):
 
 	include_dom: bool = True
 	include_screenshot: bool = True
-	cache_clickable_elements_hashes: bool = True
 	include_recent_events: bool = False
 
 	event_timeout: float | None = _get_timeout('TIMEOUT_BrowserStateRequestEvent', 30.0)  # seconds

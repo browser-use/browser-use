@@ -1,0 +1,353 @@
+---
+title: "Supported Models"
+description: "Choose your favorite LLM"
+icon: "microchip-ai"
+
+---
+
+### Browser Use [example](https://github.com/browser-use/browser-use/blob/main/examples/models/browser_use_llm.py)
+
+`ChatBrowserUse()` is our optimized in-house model, matching the accuracy of top models while completing tasks **3-5x** faster. [See our blog post→](https://browser-use.com/posts/speed-matters)
+
+```python
+from browser_use import Agent, ChatBrowserUse
+
+# Initialize the model
+llm = ChatBrowserUse()
+
+# Create agent with the model
+agent = Agent(
+    task="...", # Your task here
+    llm=llm
+)
+```
+
+Required environment variables:
+
+```bash .env
+BROWSER_USE_API_KEY=
+```
+
+Get your API key from the [Browser Use Cloud](https://cloud.browser-use.com/new-api-key). New signups get \$10 free credit via OAuth or \$1 via email.
+
+#### Pricing
+
+ChatBrowserUse offers competitive pricing per 1 million tokens:
+
+| Token Type | Price per 1M tokens |
+|------------|---------------------|
+| Input tokens | $0.50 |
+| Output tokens | $3.00 |
+| Cached tokens | $0.10 |
+
+<Note>
+  Cached tokens provide significant cost savings on repeated context, reducing input costs by 80%.
+</Note>
+
+### Google Gemini [example](https://github.com/browser-use/browser-use/blob/main/examples/models/gemini.py)
+
+<Warning>
+`GEMINI_API_KEY` is deprecated and should be named `GOOGLE_API_KEY` as of 2025-05.
+</Warning>
+
+```python
+from browser_use import Agent, ChatGoogle
+from dotenv import load_dotenv
+
+# Read GOOGLE_API_KEY into env
+load_dotenv()
+
+# Initialize the model
+llm = ChatGoogle(model='gemini-flash-latest')
+
+# Create agent with the model
+agent = Agent(
+    task="Your task here",
+    llm=llm
+)
+```
+
+Required environment variables:
+
+```bash .env
+GOOGLE_API_KEY=
+```
+
+
+### OpenAI [example](https://github.com/browser-use/browser-use/blob/main/examples/models/gpt-4.1.py)
+
+`O3` model is recommended for best accuracy.
+
+```python
+from browser_use import Agent, ChatOpenAI
+
+# Initialize the model
+llm = ChatOpenAI(
+    model="o3",
+)
+
+# Create agent with the model
+agent = Agent(
+    task="...", # Your task here
+    llm=llm
+)
+```
+
+Required environment variables:
+
+```bash .env
+OPENAI_API_KEY=
+```
+
+<Info>
+  You can use any OpenAI compatible model by passing the model name to the
+  `ChatOpenAI` class using a custom URL (or any other parameter that would go
+  into the normal OpenAI API call).
+</Info>
+
+### Anthropic [example](https://github.com/browser-use/browser-use/blob/main/examples/models/claude-4-sonnet.py)
+
+```python
+from browser_use import Agent, ChatAnthropic
+
+# Initialize the model
+llm = ChatAnthropic(
+    model="claude-sonnet-4-0",
+)
+
+# Create agent with the model
+agent = Agent(
+    task="...", # Your task here
+    llm=llm
+)
+```
+
+And add the variable:
+
+```bash .env
+ANTHROPIC_API_KEY=
+```
+
+### Azure OpenAI [example](https://github.com/browser-use/browser-use/blob/main/examples/models/azure_openai.py)
+
+```python
+from browser_use import Agent, ChatAzureOpenAI
+from pydantic import SecretStr
+import os
+
+# Initialize the model
+llm = ChatAzureOpenAI(
+    model="o4-mini",
+)
+
+# Create agent with the model
+agent = Agent(
+    task="...", # Your task here
+    llm=llm
+)
+```
+
+Required environment variables:
+
+```bash .env
+AZURE_OPENAI_ENDPOINT=https://your-endpoint.openai.azure.com/
+AZURE_OPENAI_API_KEY=
+```
+
+### AWS Bedrock [example](https://github.com/browser-use/browser-use/blob/main/examples/models/aws.py)
+
+AWS Bedrock provides access to multiple model providers through a single API. We support both a general AWS Bedrock client and provider-specific convenience classes.
+
+#### General AWS Bedrock (supports all providers)
+
+```python
+from browser_use import Agent, ChatAWSBedrock
+
+# Works with any Bedrock model (Anthropic, Meta, AI21, etc.)
+llm = ChatAWSBedrock(
+    model="anthropic.claude-3-5-sonnet-20240620-v1:0",  # or any Bedrock model
+    aws_region="us-east-1",
+)
+
+# Create agent with the model
+agent = Agent(
+    task="Your task here",
+    llm=llm
+)
+```
+
+#### Anthropic Claude via AWS Bedrock (convenience class)
+
+```python
+from browser_use import Agent, ChatAnthropicBedrock
+
+# Anthropic-specific class with Claude defaults
+llm = ChatAnthropicBedrock(
+    model="anthropic.claude-3-5-sonnet-20240620-v1:0",
+    aws_region="us-east-1",
+)
+
+# Create agent with the model
+agent = Agent(
+    task="Your task here",
+    llm=llm
+)
+```
+
+#### AWS Authentication
+
+Required environment variables:
+
+```bash .env
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+AWS_DEFAULT_REGION=us-east-1
+```
+
+You can also use AWS profiles or IAM roles instead of environment variables. The implementation supports:
+
+- Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`)
+- AWS profiles and credential files
+- IAM roles (when running on EC2)
+- Session tokens for temporary credentials
+- AWS SSO authentication (`aws_sso_auth=True`)
+
+## Groq [example](https://github.com/browser-use/browser-use/blob/main/examples/models/llama4-groq.py)
+
+```python
+from browser_use import Agent, ChatGroq
+
+llm = ChatGroq(model="meta-llama/llama-4-maverick-17b-128e-instruct")
+
+agent = Agent(
+    task="Your task here",
+    llm=llm
+)
+```
+
+Required environment variables:
+
+```bash .env
+GROQ_API_KEY=
+```
+
+## Oracle Cloud Infrastructure (OCI) [example](https://github.com/browser-use/browser-use/blob/main/examples/models/oci_models.py)
+
+OCI provides access to various generative AI models including Meta Llama, Cohere, and other providers through their Generative AI service.
+
+```python
+from browser_use import Agent, ChatOCIRaw
+
+# Initialize the OCI model
+llm = ChatOCIRaw(
+    model_id="ocid1.generativeaimodel.oc1.us-chicago-1.amaaaaaask7dceya...",
+    service_endpoint="https://inference.generativeai.us-chicago-1.oci.oraclecloud.com",
+    compartment_id="ocid1.tenancy.oc1..aaaaaaaayeiis5uk2nuubznrekd...",
+    provider="meta",  # or "cohere"
+    temperature=0.7,
+    max_tokens=800,
+    top_p=0.9,
+    auth_type="API_KEY",
+    auth_profile="DEFAULT"
+)
+
+# Create agent with the model
+agent = Agent(
+    task="Your task here",
+    llm=llm
+)
+```
+
+Required setup:
+1. Set up OCI configuration file at `~/.oci/config`
+2. Have access to OCI Generative AI models in your tenancy
+3. Install the OCI Python SDK: `uv add oci` or `pip install oci`
+
+Authentication methods supported:
+- `API_KEY`: Uses API key authentication (default)
+- `INSTANCE_PRINCIPAL`: Uses instance principal authentication
+- `RESOURCE_PRINCIPAL`: Uses resource principal authentication
+
+## Ollama
+
+1. Install Ollama: https://github.com/ollama/ollama
+2. Run `ollama serve` to start the server
+3. In a new terminal, install the model you want to use: `ollama pull llama3.1:8b` (this has 4.9GB)
+
+```python
+from browser_use import Agent, ChatOllama
+
+llm = ChatOllama(model="llama3.1:8b")
+```
+
+## Langchain
+
+[Example](https://github.com/browser-use/browser-use/blob/main/examples/models/langchain) on how to use Langchain with Browser Use.
+
+## Qwen [example](https://github.com/browser-use/browser-use/blob/main/examples/models/qwen.py)
+
+Currently, only `qwen-vl-max` is recommended for Browser Use. Other Qwen models, including `qwen-max`, have issues with the action schema format.
+Smaller Qwen models may return incorrect action schema formats (e.g., `actions: [{"navigate": "google.com"}]` instead of `[{"navigate": {"url": "google.com"}}]`). If you want to use other models, add concrete examples of the correct action format to your prompt.
+
+```python
+from browser_use import Agent, ChatOpenAI
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+# Get API key from https://modelstudio.console.alibabacloud.com/?tab=playground#/api-key
+api_key = os.getenv('ALIBABA_CLOUD')
+base_url = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1'
+
+llm = ChatOpenAI(model='qwen-vl-max', api_key=api_key, base_url=base_url)
+
+agent = Agent(
+    task="Your task here",
+    llm=llm,
+    use_vision=True
+)
+```
+
+Required environment variables:
+
+```bash .env
+ALIBABA_CLOUD=
+```
+
+## ModelScope [example](https://github.com/browser-use/browser-use/blob/main/examples/models/modelscope_example.py)
+
+```python
+from browser_use import Agent, ChatOpenAI
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+# Get API key from https://www.modelscope.cn/docs/model-service/API-Inference/intro
+api_key = os.getenv('MODELSCOPE_API_KEY')
+base_url = 'https://api-inference.modelscope.cn/v1/'
+
+llm = ChatOpenAI(model='Qwen/Qwen2.5-VL-72B-Instruct', api_key=api_key, base_url=base_url)
+
+agent = Agent(
+    task="Your task here",
+    llm=llm,
+    use_vision=True
+)
+```
+
+Required environment variables:
+
+```bash .env
+MODELSCOPE_API_KEY=
+```
+
+## Other models (DeepSeek, Novita, X...)
+
+We support all other models that can be called via OpenAI compatible API. We are open to PRs for more providers.
+
+**Examples available:**
+- [DeepSeek](https://github.com/browser-use/browser-use/blob/main/examples/models/deepseek-chat.py)
+- [Novita](https://github.com/browser-use/browser-use/blob/main/examples/models/novita.py)
+- [OpenRouter](https://github.com/browser-use/browser-use/blob/main/examples/models/openrouter.py)

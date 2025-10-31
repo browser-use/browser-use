@@ -48,9 +48,10 @@ class SchemaOptimizer:
 					if key == 'title' and not in_properties:
 						continue
 
-					# Preserve FULL descriptions without truncation
+					# Preserve FULL descriptions without truncation, skip empty ones
 					elif key == 'description':
-						optimized[key] = value
+						if value:  # Only include non-empty descriptions
+							optimized[key] = value
 
 					# Handle type field
 					elif key == 'type':
@@ -159,3 +160,31 @@ class SchemaOptimizer:
 		elif isinstance(schema, list):
 			for item in schema:
 				SchemaOptimizer._make_strict_compatible(item)
+
+	@staticmethod
+	def create_gemini_optimized_schema(model: type[BaseModel]) -> dict[str, Any]:
+		"""
+		Create Gemini-optimized schema that removes 'required' arrays to save tokens.
+		Gemini can infer required fields from context since all fields are required.
+
+		Args:
+			model: The Pydantic model to optimize
+
+		Returns:
+			Optimized schema without required arrays
+		"""
+		# Start with standard optimized schema
+		schema = SchemaOptimizer.create_optimized_json_schema(model)
+
+		def remove_required_arrays(obj: Any) -> Any:
+			"""Recursively remove 'required' arrays"""
+			if isinstance(obj, dict):
+				# Remove 'required' key
+				result = {k: v for k, v in obj.items() if k != 'required'}
+				# Recursively process nested structures
+				return {k: remove_required_arrays(v) for k, v in result.items()}
+			elif isinstance(obj, list):
+				return [remove_required_arrays(item) for item in obj]
+			return obj
+
+		return remove_required_arrays(schema)
