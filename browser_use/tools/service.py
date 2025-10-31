@@ -264,6 +264,21 @@ class Tools(Generic[Context]):
 				# Wait for handler to complete and get any exception or metadata
 				click_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
 
+				# Check if result contains validation error (e.g., trying to click <select> or file input)
+				if isinstance(click_metadata, dict) and 'validation_error' in click_metadata:
+					error_msg = click_metadata['validation_error']
+					# If it's a select element, try to get dropdown options as a helpful shortcut
+					if 'Cannot click on <select> elements.' in error_msg:
+						try:
+							return await dropdown_options(
+								params=GetDropdownOptionsAction(index=params.index), browser_session=browser_session
+							)
+						except Exception as dropdown_error:
+							logger.debug(
+								f'Failed to get dropdown options as shortcut during click on dropdown: {type(dropdown_error).__name__}: {dropdown_error}'
+							)
+					return ActionResult(error=error_msg)
+
 				# Build memory with element info
 				memory = f'Clicked {element_desc}'
 				logger.info(f'🖱️ {memory}')
@@ -274,17 +289,6 @@ class Tools(Generic[Context]):
 					metadata=click_metadata if isinstance(click_metadata, dict) else None,
 				)
 			except BrowserError as e:
-				if 'Cannot click on <select> elements.' in str(e):
-					try:
-						return await dropdown_options(
-							params=GetDropdownOptionsAction(index=params.index), browser_session=browser_session
-						)
-					except Exception as dropdown_error:
-						logger.error(
-							f'Failed to get dropdown options as shortcut during click on dropdown: {type(dropdown_error).__name__}: {dropdown_error}'
-						)
-					return ActionResult(error='Can not click on select elements.')
-
 				return handle_browser_error(e)
 			except Exception as e:
 				error_msg = f'Failed to click element {params.index}: {str(e)}'
@@ -823,7 +827,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				error_msg = f'Failed to send keys: {str(e)}'
 				return ActionResult(error=error_msg)
 
-		@self.registry.action('')
+		@self.registry.action('Scroll to text.')
 		async def find_text(text: str, browser_session: BrowserSession):  # type: ignore
 			# Dispatch scroll to text event
 			event = browser_session.event_bus.dispatch(ScrollToTextEvent(text=text))
@@ -845,9 +849,10 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				)
 
 		@self.registry.action(
-			'Request screenshot of current viewport. Use when: visual inspection needed, layout unclear, element positions uncertain, debugging UI issues, or verifying page state. Screenshot is included in the next browser_state.',
+			'Get a screenshot of the current viewport. Use when: visual inspection needed, layout unclear, element positions uncertain, debugging UI issues, or verifying page state. Screenshot is included in the next browser_state No parameters are needed.',
+			param_model=NoParamsAction,
 		)
-		async def screenshot():
+		async def screenshot(_: NoParamsAction):
 			"""Request that a screenshot be included in the next observation"""
 			memory = 'Requested screenshot for next observation'
 			msg = f'📸 {memory}'
@@ -890,7 +895,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			)
 
 		@self.registry.action(
-			'',
+			'Set the option of a <select> element.',
 			param_model=SelectDropdownOptionAction,
 		)
 		async def select_dropdown(params: SelectDropdownOptionAction, browser_session: BrowserSession):
@@ -937,7 +942,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		# File System Actions
 
 		@self.registry.action(
-			'Supports formats: .txt, .md, .json, .jsonl, .csv, .pdf. For PDF files, write content in markdown format and it will be automatically converted to a properly formatted PDF document.'
+			'Write content to a file in the local file system. Use this to create new files or overwrite entire file contents. For targeted edits within existing files, use replace_file instead. Supports alphanumeric filename and file extension formats: .txt, .md, .json, .jsonl, .csv, .pdf. For PDF files, write content in markdown format and it will be automatically converted to a properly formatted PDF document.'
 		)
 		async def write_file(
 			file_name: str,
@@ -958,13 +963,17 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			logger.info(f'💾 {result}')
 			return ActionResult(extracted_content=result, long_term_memory=result)
 
-		@self.registry.action('')
+		@self.registry.action(
+			'Replace specific text within a file by searching for old_str and replacing with new_str. Use this for targeted edits like updating todo checkboxes or modifying specific lines without rewriting the entire file.'
+		)
 		async def replace_file(file_name: str, old_str: str, new_str: str, file_system: FileSystem):
 			result = await file_system.replace_file_str(file_name, old_str, new_str)
 			logger.info(f'💾 {result}')
 			return ActionResult(extracted_content=result, long_term_memory=result)
 
-		@self.registry.action('')
+		@self.registry.action(
+			'Read the complete content of a file. Use this to view file contents before editing or to retrieve data from files.'
+		)
 		async def read_file(file_name: str, available_file_paths: list[str], file_system: FileSystem):
 			if available_file_paths and file_name in available_file_paths:
 				result = await file_system.read_file(file_name, external_file=True)

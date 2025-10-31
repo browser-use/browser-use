@@ -61,7 +61,7 @@ class ChatGoogle(BaseChatModel):
 		include_system_in_user: If True, system messages are included in the first user message
 		supports_structured_output: If True, uses native JSON mode; if False, uses prompt-based fallback
 		max_retries: Number of retries for retryable errors (default: 3)
-		retryable_status_codes: List of HTTP status codes to retry on (default: [403])
+		retryable_status_codes: List of HTTP status codes to retry on (default: [403,  503])
 		retry_delay: Delay in seconds between retries (default: 0.01)
 
 	Example:
@@ -73,7 +73,7 @@ class ChatGoogle(BaseChatModel):
 				'tools': [types.Tool(code_execution=types.ToolCodeExecution())]
 			},
 			max_retries=5,
-			retryable_status_codes=[403, 429],
+			retryable_status_codes=[403, 503],
 			retry_delay=0.02
 		)
 	"""
@@ -89,7 +89,7 @@ class ChatGoogle(BaseChatModel):
 	include_system_in_user: bool = False
 	supports_structured_output: bool = True  # New flag
 	max_retries: int = 3  # Number of retries for retryable errors
-	retryable_status_codes: list[int] = field(default_factory=lambda: [403])  # Status codes to retry on
+	retryable_status_codes: list[int] = field(default_factory=lambda: [403, 503])  # Status codes to retry on
 	retry_delay: float = 0.01  # Delay in seconds between retries
 
 	# Client initialization parameters

@@ -315,6 +315,7 @@ class BrowserSession(BaseModel):
 	_cached_browser_state_summary: Any = PrivateAttr(default=None)
 	_cached_selector_map: dict[int, EnhancedDOMTreeNode] = PrivateAttr(default_factory=dict)
 	_downloaded_files: list[str] = PrivateAttr(default_factory=list)  # Track files downloaded during this session
+	_closed_popup_messages: list[str] = PrivateAttr(default_factory=list)  # Store messages from auto-closed JavaScript dialogs
 
 	# Watchdogs
 	_crash_watchdog: Any | None = PrivateAttr(default=None)
@@ -638,7 +639,7 @@ class BrowserSession(BaseModel):
 			)
 
 			# # Wait a bit to ensure page starts loading
-			# await asyncio.sleep(0.5)
+			await asyncio.sleep(1)
 
 			# Close any extension options pages that might have opened
 			await self._close_extension_options_pages()
@@ -1310,14 +1311,14 @@ class BrowserSession(BaseModel):
 
 			self._session_manager = SessionManager(self)
 			await self._session_manager.start_monitoring()
-			self.logger.info('Event-driven session manager started')
+			self.logger.debug('Event-driven session manager started')
 
 			# Enable auto-attach so Chrome automatically notifies us when NEW targets attach/detach
 			# This is the foundation of event-driven session management
 			await self._cdp_client_root.send.Target.setAutoAttach(
 				params={'autoAttach': True, 'waitForDebuggerOnStart': False, 'flatten': True}
 			)
-			self.logger.info('CDP client connected with auto-attach enabled')
+			self.logger.debug('CDP client connected with auto-attach enabled')
 
 			# Get browser targets to find available contexts/pages
 			targets = await self._cdp_client_root.send.Target.getTargets()
@@ -2189,32 +2190,32 @@ class BrowserSession(BaseModel):
 			(function() {{
 				// Interactive elements data
 				const interactiveElements = {json.dumps(elements_data)};
-				
+
 				console.log('=== BROWSER-USE HIGHLIGHTING ===');
 				console.log('Highlighting', interactiveElements.length, 'interactive elements');
-				
+
 				// Double-check: Remove any existing highlight container first
 				const existingContainer = document.getElementById('browser-use-debug-highlights');
 				if (existingContainer) {{
 					console.log('⚠️ Found existing highlight container, removing it first');
 					existingContainer.remove();
 				}}
-				
+
 				// Also remove any stray highlight elements
 				const strayHighlights = document.querySelectorAll('[data-browser-use-highlight]');
 				if (strayHighlights.length > 0) {{
 					console.log('⚠️ Found', strayHighlights.length, 'stray highlight elements, removing them');
 					strayHighlights.forEach(el => el.remove());
 				}}
-				
+
 				// Use maximum z-index for visibility
 				const HIGHLIGHT_Z_INDEX = 2147483647;
-				
+
 				// Create container for all highlights - use FIXED positioning (key insight from v0.6.0)
 				const container = document.createElement('div');
 				container.id = 'browser-use-debug-highlights';
 				container.setAttribute('data-browser-use-highlight', 'container');
-				
+
 				container.style.cssText = `
 					position: absolute;
 					top: 0;
@@ -2232,7 +2233,7 @@ class BrowserSession(BaseModel):
 					background: none;
 					font-family: inherit;
 				`;
-				
+
 				// Helper function to create text elements safely
 				function createTextElement(tag, text, styles) {{
 					const element = document.createElement(tag);
@@ -2240,7 +2241,7 @@ class BrowserSession(BaseModel):
 					if (styles) element.style.cssText = styles;
 					return element;
 				}}
-				
+
 				// Add highlights for each element
 				interactiveElements.forEach((element, index) => {{
 					const highlight = document.createElement('div');
@@ -2262,7 +2263,7 @@ class BrowserSession(BaseModel):
 						padding: 0;
 						border: none;
 					`;
-					
+
 					// Enhanced label with backend node ID
 					const label = createTextElement('div', element.backend_node_id, `
 						position: absolute;
@@ -2283,14 +2284,14 @@ class BrowserSession(BaseModel):
 						margin: 0;
 						line-height: 1.2;
 					`);
-					
+
 					highlight.appendChild(label);
 					container.appendChild(highlight);
 				}});
-				
+
 				// Add container to document
 				document.body.appendChild(container);
-				
+
 				console.log('Highlighting complete - added', interactiveElements.length, 'highlights');
 				return {{ added: interactiveElements.length }};
 			}})();
@@ -2903,44 +2904,53 @@ class BrowserSession(BaseModel):
 		raise ValueError(f"Frame with ID '{frame_id}' not found in any target")
 
 	async def cdp_client_for_node(self, node: EnhancedDOMTreeNode) -> CDPSession:
-		"""Get CDP client for a specific DOM node based on its frame."""
+		"""Get CDP client for a specific DOM node based on its frame.
+
+		IMPORTANT: backend_node_id is only valid in the session where the DOM was captured.
+		We trust the node's session_id/frame_id/target_id instead of searching all sessions.
+		"""
+
+		# Strategy 1: If node has session_id, try to use that exact session (most specific)
+		if node.session_id:
+			try:
+				# Find the CDP session by session_id
+				for cdp_session in self._cdp_session_pool.values():
+					if cdp_session.session_id == node.session_id:
+						self.logger.debug(
+							f'✅ Using session from node.session_id for node {node.backend_node_id}: {cdp_session.url}'
+						)
+						return cdp_session
+			except Exception as e:
+				self.logger.debug(f'Failed to get session by session_id {node.session_id}: {e}')
+
+		# Strategy 2: If node has frame_id, use that frame's session
 		if node.frame_id:
-			# # If cross-origin iframes are disabled, always use the main session
-			# if not self.browser_profile.cross_origin_iframes:
-			# 	assert self.agent_focus is not None, 'No active CDP session'
-			# 	return self.agent_focus
-			# Otherwise, try to get the frame-specific session
 			try:
 				cdp_session = await self.cdp_client_for_frame(node.frame_id)
-				result = await cdp_session.cdp_client.send.DOM.resolveNode(
-					params={'backendNodeId': node.backend_node_id},
-					session_id=cdp_session.session_id,
-				)
-				object_id = result.get('object', {}).get('objectId')
-				if not object_id:
-					raise ValueError(f'Could not find backendNodeId={node.backend_node_id} in target_id={cdp_session.target_id}')
+				self.logger.debug(f'✅ Using session from node.frame_id for node {node.backend_node_id}: {cdp_session.url}')
 				return cdp_session
-			except (ValueError, Exception) as e:
-				# Fall back to main session if frame not found
-				self.logger.debug(f'Failed to get CDP client for frame {node.frame_id}: {e}, using main session')
+			except Exception as e:
+				self.logger.debug(f'Failed to get session for frame {node.frame_id}: {e}')
 
+		# Strategy 3: If node has target_id, use that target's session
 		if node.target_id:
 			try:
 				cdp_session = await self.get_or_create_cdp_session(target_id=node.target_id, focus=False)
-				result = await cdp_session.cdp_client.send.DOM.resolveNode(
-					params={'backendNodeId': node.backend_node_id},
-					session_id=cdp_session.session_id,
-				)
-				object_id = result.get('object', {}).get('objectId')
-				if not object_id:
-					raise ValueError(f'Could not find backendNodeId={node.backend_node_id} in target_id={cdp_session.target_id}')
-				# SUCCESS - return the correct CDP session for this node's target
+				self.logger.debug(f'✅ Using session from node.target_id for node {node.backend_node_id}: {cdp_session.url}')
 				return cdp_session
 			except Exception as e:
-				self.logger.warning(
-					f'⚠️ Failed to get CDP client for target ...{node.target_id[-4:]}: {e}, falling back to main session'
-				)
+				self.logger.debug(f'Failed to get session for target {node.target_id}: {e}')
 
+		# Strategy 4: Fallback to agent_focus (the page where agent is currently working)
+		if self.agent_focus:
+			self.logger.warning(
+				f'⚠️ Node {node.backend_node_id} has no session/frame/target info. '
+				f'Using agent_focus session: {self.agent_focus.url}'
+			)
+			return self.agent_focus
+
+		# Last resort: use main session
+		self.logger.error(f'❌ No session info for node {node.backend_node_id} and no agent_focus available. Using main session.')
 		return await self.get_or_create_cdp_session()
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='take_screenshot')

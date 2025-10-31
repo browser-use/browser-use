@@ -266,11 +266,19 @@ class AgentMessagePrompt:
 		if self.include_recent_events and self.browser_state.recent_events:
 			recent_events_text = f'Recent browser events: {self.browser_state.recent_events}\n'
 
+		# Add closed popup messages if any
+		closed_popups_text = ''
+		if self.browser_state.closed_popup_messages:
+			closed_popups_text = 'Auto-closed JavaScript dialogs:\n'
+			for popup_msg in self.browser_state.closed_popup_messages:
+				closed_popups_text += f'  - {popup_msg}\n'
+			closed_popups_text += '\n'
+
 		browser_state = f"""{stats_text}{current_tab_text}
 Available tabs:
 {tabs_text}
 {page_info_text}
-{recent_events_text}{pdf_message}Interactive elements{truncated_text}:
+{recent_events_text}{closed_popups_text}{pdf_message}Interactive elements{truncated_text}:
 {elements_text}
 """
 		return browser_state

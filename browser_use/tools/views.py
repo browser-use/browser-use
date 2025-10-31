@@ -35,7 +35,7 @@ GoToUrlAction = NavigateAction
 
 
 class ClickElementAction(BaseModel):
-	index: int = Field(ge=1, description='from browser_state')
+	index: int = Field(ge=1, description='from browser_state. All interactive elements work except <select> or file inputs.')
 	# expect_download: bool = Field(default=False, description='set True if expecting a download, False otherwise')  # moved to downloads_watchdog.py
 	# click_count: int = 1  # TODO
 
