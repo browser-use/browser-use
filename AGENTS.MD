@@ -40,9 +40,8 @@ To get started with Browser Use you need to install the package and create an `.
 
 ## 1. Installing Browser-Use
 
-<Tabs>
-<Tab title="uv">
 ```bash create environment
+pip install uv
 uv venv --python 3.12
 ```
 ```bash activate environment
@@ -50,25 +49,8 @@ source .venv/bin/activate
 ```
 ```bash install browser-use & chromium
 uv pip install browser-use
-uvx playwright install chromium --with-deps
-# Note: this does NOT install playwright, only chromium
+uvx browser-use install
 ```
-</Tab>
-<Tab title="pip">
-```bash create environment with python >= 3.11
-python3.12 -m venv .venv
-```
-```bash activate environment
-source .venv/bin/activate
-```
-```bash install browser-use & chromium
-pip install browser-use
-pip install playwright && playwright install chromium --with-deps
-```
-</Tab>
-</Tabs>
-
-<Info>On Windows, use `.venv\Scripts\activate` to activate the environment.</Info>
 
 ## 2. Choose your favorite LLM
 Create a `.env` file and add your API key. 
@@ -184,146 +166,6 @@ To get started with Browser Use you need to install the package and create an `.
 `ChatBrowserUse` offers the [fastest and most cost-effective models](https://browser-use.com/posts/speed-matters/), completing tasks 3-5x faster. Get started with $10 of [free LLM credits](https://cloud.browser-use.com/new-api-key).
 </Note>
 
-## 1. Installing Browser-Use
-
-<Tabs>
-<Tab title="uv">
-```bash create environment
-uv venv --python 3.12
-```
-```bash activate environment
-source .venv/bin/activate
-```
-```bash install browser-use & chromium
-uv pip install browser-use
-uvx playwright install chromium --with-deps
-# Note: this does NOT install playwright, only chromium
-```
-</Tab>
-<Tab title="pip">
-```bash create environment with python >= 3.11
-python3.12 -m venv .venv
-```
-```bash activate environment
-source .venv/bin/activate
-```
-```bash install browser-use & chromium
-pip install browser-use
-pip install playwright && playwright install chromium --with-deps
-```
-</Tab>
-</Tabs>
-
-<Info>On Windows, use `.venv\Scripts\activate` to activate the environment.</Info>
-
-## 2. Choose your favorite LLM
-Create a `.env` file and add your API key. 
-
-<Callout icon="key" iconType="regular">
-We recommend using ChatBrowserUse which is optimized for browser automation tasks (highest accuracy + fastest speed + lowest token cost). Don't have one? We give you **$10** to try it out [here](https://cloud.browser-use.com/new-api-key).
-</Callout>
-
-```bash .env
-touch .env
-```
-
-<Info>On Windows, use `echo. > .env`</Info>
-
-Then add your API key to the file.
-
-<CodeGroup>
-```bash Browser Use
-# add your key to .env file
-BROWSER_USE_API_KEY=
-# Get 10$ of free credits at https://cloud.browser-use.com/new-api-key
-```
-```bash Google
-# add your key to .env file
-GOOGLE_API_KEY=
-# Get your free Gemini API key from https://aistudio.google.com/app/u/1/apikey?pli=1.
-```
-```bash OpenAI
-# add your key to .env file
-OPENAI_API_KEY=
-```
-```bash Anthropic
-# add your key to .env file
-ANTHROPIC_API_KEY=
-```
-</CodeGroup>
-
-See [Supported Models](/supported-models) for more.
-
-## 3. Run your first agent
-
-<CodeGroup>
-```python Browser Use
-from browser_use import Agent, ChatBrowserUse
-from dotenv import load_dotenv
-import asyncio
-
-load_dotenv()
-
-async def main():
-    llm = ChatBrowserUse()
-    task = "Find the number 1 post on Show HN"
-    agent = Agent(task=task, llm=llm)
-    await agent.run()
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-```python Google
-from browser_use import Agent, ChatGoogle
-from dotenv import load_dotenv
-import asyncio
-
-load_dotenv()
-
-async def main():
-    llm = ChatGoogle(model="gemini-flash-latest")
-    task = "Find the number 1 post on Show HN"
-    agent = Agent(task=task, llm=llm)
-    await agent.run()
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-```python OpenAI
-from browser_use import Agent, ChatOpenAI
-from dotenv import load_dotenv
-import asyncio
-
-load_dotenv()
-
-async def main():
-    llm = ChatOpenAI(model="gpt-4.1-mini")
-    task = "Find the number 1 post on Show HN"
-    agent = Agent(task=task, llm=llm)
-    await agent.run()
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-```python Anthropic
-from browser_use import Agent, ChatAnthropic
-from dotenv import load_dotenv
-import asyncio
-
-load_dotenv()
-
-async def main():
-    llm = ChatAnthropic(model='claude-sonnet-4-0', temperature=0.0)
-    task = "Find the number 1 post on Show HN"
-    agent = Agent(task=task, llm=llm)
-    await agent.run()
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-</CodeGroup>
-
-<Note> Custom browsers can be configured in one line. Check out <a href = "customize/browser/basics">browsers</a> for more. </Note>
 
 # Actor All Parameters
 Source: (go to or request this content to learn more) https://docs.browser-use.com/customize/actor/all-parameters
@@ -580,7 +422,7 @@ Complete reference for all browser configuration options
 
 ## Core Settings
 
-* `cdp_url`: CDP URL for connecting to existing browser instance (e.g., `"http://localhost:9222"`)
+* `cdp_url`: CDP URL for connecting to existing browser instance (e.g., `"http://localhost:9222"`) obtained from our hosted cloud browsers https://docs.cloud.browser-use.com/concepts/browser
 
 ## Display & Appearance
 
@@ -713,7 +555,7 @@ from browser_use import Agent, Browser, ChatOpenAI
 # Use Browser-Use cloud browser service
 browser = Browser(
     use_cloud=True,  # Automatically provisions a cloud browser
-    # cdp_url="http://remote-server:9222" # CDP URL from your favorite browser provider like Onkernel, AnchorBrowser, HyperBrowser, BrowserBase, Steel.dev, etc.
+    # cdp_url="http://remote-server:9222" # Get a CDP URL from our hosted cloud browsers https://docs.cloud.browser-use.com/concepts/browser
 )
 
 agent = Agent(
@@ -735,7 +577,7 @@ agent = Agent(
 - ✅ Optimized for browser automation
 
 ### Third-Party Cloud Browsers
-Get a CDP URL from your favorite browser provider like Onkernel, AnchorBrowser, HyperBrowser, BrowserBase, Steel.dev, etc.
+You can pass in a CDP URL from any remote browser
 
 
 ### Proxy Connection

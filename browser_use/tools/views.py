@@ -4,6 +4,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 # Action Input Models
+class ExtractAction(BaseModel):
+	query: str
+	extract_links: bool = Field(
+		default=False, description='Set True to true if the query requires links, else false to safe tokens'
+	)
+	start_from_char: int = Field(
+		default=0, description='Use this for long markdowns to start from a specific character (not index in browser_state)'
+	)
+
+
 class SearchAction(BaseModel):
 	query: str
 	engine: str = Field(
@@ -25,7 +35,7 @@ GoToUrlAction = NavigateAction
 
 
 class ClickElementAction(BaseModel):
-	index: int = Field(ge=1, description='from browser_state')
+	index: int = Field(ge=1, description='from browser_state. All interactive elements work except <select> or file inputs.')
 	# expect_download: bool = Field(default=False, description='set True if expecting a download, False otherwise')  # moved to downloads_watchdog.py
 	# click_count: int = 1  # TODO
 
@@ -37,7 +47,7 @@ class InputTextAction(BaseModel):
 
 
 class DoneAction(BaseModel):
-	text: str = Field(description='summary for user')
+	text: str = Field(description='Final user message in the format the user requested')
 	success: bool = Field(default=True, description='True if user_request completed successfully')
 	files_to_display: list[str] | None = Field(default=[])
 
@@ -46,8 +56,8 @@ T = TypeVar('T', bound=BaseModel)
 
 
 class StructuredOutputAction(BaseModel, Generic[T]):
-	success: bool = Field(default=True, description='1=done')
-	data: T
+	success: bool = Field(default=True, description='True if user_request completed successfully')
+	data: T = Field(description='The actual output data matching the requested schema')
 
 
 class SwitchTabAction(BaseModel):

@@ -221,14 +221,14 @@ class AgentMessagePrompt:
 				if self.browser_state.page_info:
 					pi = self.browser_state.page_info
 					pages_above = pi.pixels_above / pi.viewport_height if pi.viewport_height > 0 else 0
-					elements_text = f'... {pages_above:.1f} pages above - scroll to see more or extract structured data if you are looking for specific information ...\n{elements_text}'
+					elements_text = f'... {pages_above:.1f} pages above ...\n{elements_text}'
 			else:
 				elements_text = f'[Start of page]\n{elements_text}'
 			if has_content_below:
 				if self.browser_state.page_info:
 					pi = self.browser_state.page_info
 					pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
-					elements_text = f'{elements_text}\n... {pages_below:.1f} pages below - scroll to see more or extract structured data if you are looking for specific information ...'
+					elements_text = f'{elements_text}\n... {pages_below:.1f} pages below ...'
 			else:
 				elements_text = f'{elements_text}\n[End of page]'
 		else:
@@ -257,18 +257,28 @@ class AgentMessagePrompt:
 			pdf_message = (
 				'PDF viewer cannot be rendered. In this page, DO NOT use the extract action as PDF content cannot be rendered. '
 			)
-			pdf_message += 'Use the read_file action on the downloaded PDF in available_file_paths to read the full text content or scroll in the page to see images/figures if needed.\n\n'
+			pdf_message += (
+				'Use the read_file action on the downloaded PDF in available_file_paths to read the full text content.\n\n'
+			)
 
 		# Add recent events if available and requested
 		recent_events_text = ''
 		if self.include_recent_events and self.browser_state.recent_events:
 			recent_events_text = f'Recent browser events: {self.browser_state.recent_events}\n'
 
+		# Add closed popup messages if any
+		closed_popups_text = ''
+		if self.browser_state.closed_popup_messages:
+			closed_popups_text = 'Auto-closed JavaScript dialogs:\n'
+			for popup_msg in self.browser_state.closed_popup_messages:
+				closed_popups_text += f'  - {popup_msg}\n'
+			closed_popups_text += '\n'
+
 		browser_state = f"""{stats_text}{current_tab_text}
 Available tabs:
 {tabs_text}
 {page_info_text}
-{recent_events_text}{pdf_message}Interactive elements{truncated_text}:
+{recent_events_text}{closed_popups_text}{pdf_message}Interactive elements{truncated_text}:
 {elements_text}
 """
 		return browser_state

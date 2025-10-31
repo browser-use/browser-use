@@ -1319,8 +1319,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			# General failure message
 			self.logger.info('')
-			self.logger.info('❌ Did the Agent not work as expected? Let us fix this!')
-			self.logger.info('   Please open a short issue here: https://github.com/browser-use/browser-use/issues')
+			self.logger.info('Did the Agent not work as expected? Let us fix this!')
+			self.logger.info('   Open a short issue on GitHub: https://github.com/browser-use/browser-use/issues')
 
 	def _log_agent_event(self, max_steps: int, agent_run_error: str | None = None) -> None:
 		"""Sent the agent event for this run to telemetry"""
@@ -1898,8 +1898,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# self._task_duration = self._task_end_time - self._task_start_time TODO: this is not working when using take_step
 		if self.history.is_successful():
 			self.logger.info('✅ Task completed successfully')
-		else:
-			self.logger.info('❌ Task completed without success')
 
 	async def rerun_history(
 		self,

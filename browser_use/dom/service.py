@@ -137,7 +137,7 @@ class DomService:
 
 	async def _get_viewport_ratio(self, target_id: TargetID) -> float:
 		"""Get viewport dimensions, device pixel ratio, and scroll position using CDP."""
-		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=True)
+		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
 
 		try:
 			# Get the layout metrics which includes the visual viewport
