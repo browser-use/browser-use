@@ -1,8 +1,0 @@
-[project]
-name = "browser-use-shopping"
-version = "0.1.0"
-description = "Shopping automation with browser-use"
-requires-python = ">=3.11"
-dependencies = [
-    "browser-use",
-]

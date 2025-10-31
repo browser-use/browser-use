@@ -5,8 +5,11 @@ This module provides a minimal command-line interface for generating
 browser-use templates without requiring heavy TUI dependencies.
 """
 
+import json
 import sys
 from pathlib import Path
+from urllib import request
+from urllib.error import URLError
 
 import click
 from InquirerPy.base.control import Choice
@@ -16,8 +19,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
-# Template metadata
-INIT_TEMPLATES = {
+# Hardcoded template metadata (fallback if GitHub fetch fails)
+FALLBACK_TEMPLATES = {
 	'default': {
 		'file': 'default_template.py',
 		'description': 'Simplest setup - capable of any web task with minimal configuration',
@@ -31,17 +34,91 @@ INIT_TEMPLATES = {
 		'description': 'Custom tool example - extend agent capabilities with your own functions',
 	},
 	'shopping': {
-		'file': 'shopping_template.py',
+		'file': 'shopping/main.py',
 		'description': 'E-commerce automation with structured output (Pydantic models)',
 	},
 	'job-application': {
-		'file': 'job_application_template.py',
+		'file': 'job-application/main.py',
 		'description': 'Automated job application form submission with resume upload',
 	},
 }
 
+# Export for backward compatibility with cli.py
+INIT_TEMPLATES = FALLBACK_TEMPLATES
+
 # Rich console for styled output
 console = Console()
+
+# GitHub template repository URL (for runtime fetching)
+TEMPLATE_REPO_URL = 'https://raw.githubusercontent.com/browser-use/template-library/main'
+
+
+def _fetch_template_list() -> dict[str, dict[str, str]] | None:
+	"""
+	Fetch template list from GitHub templates.json.
+
+	Returns template dict if successful, None if failed.
+	"""
+	try:
+		url = f'{TEMPLATE_REPO_URL}/templates.json'
+		with request.urlopen(url, timeout=5) as response:
+			data = response.read().decode('utf-8')
+			return json.loads(data)
+	except (URLError, TimeoutError, json.JSONDecodeError, Exception):
+		return None
+
+
+def _get_template_list() -> dict[str, dict[str, str]]:
+	"""
+	Get template list - tries GitHub first, falls back to hardcoded.
+	"""
+	templates = _fetch_template_list()
+	if templates is not None:
+		return templates
+	return FALLBACK_TEMPLATES
+
+
+def _fetch_from_github(file_path: str) -> str | None:
+	"""
+	Fetch template file from GitHub.
+
+	Returns file content if successful, None if failed.
+	"""
+	try:
+		url = f'{TEMPLATE_REPO_URL}/{file_path}'
+		with request.urlopen(url, timeout=5) as response:
+			return response.read().decode('utf-8')
+	except (URLError, TimeoutError, Exception):
+		return None
+
+
+def _fetch_binary_from_github(file_path: str) -> bytes | None:
+	"""
+	Fetch binary file from GitHub.
+
+	Returns file content if successful, None if failed.
+	"""
+	try:
+		url = f'{TEMPLATE_REPO_URL}/{file_path}'
+		with request.urlopen(url, timeout=5) as response:
+			return response.read()
+	except (URLError, TimeoutError, Exception):
+		return None
+
+
+def _get_template_content(file_path: str) -> str:
+	"""
+	Get template file content from GitHub.
+
+	Raises exception if fetch fails.
+	"""
+	content = _fetch_from_github(file_path)
+
+	if content is not None:
+		return content
+
+	raise FileNotFoundError(f'Could not fetch template from GitHub: {file_path}')
+
 
 # InquirerPy style for template selection (browser-use orange theme)
 inquirer_style = InquirerPyStyle(
@@ -80,7 +157,7 @@ def _write_init_file(output_path: Path, content: str, force: bool = False) -> bo
 @click.option(
 	'--template',
 	'-t',
-	type=click.Choice(['default', 'advanced', 'tools', 'shopping', 'job-application'], case_sensitive=False),
+	type=str,
 	help='Template to use',
 )
 @click.option(
@@ -130,6 +207,9 @@ def main(
 	# List available templates
 	uvx browser-use init --list
 	"""
+
+	# Fetch template list at runtime
+	INIT_TEMPLATES = _get_template_list()
 
 	# Handle --list flag
 	if list_templates:
@@ -207,12 +287,10 @@ def main(
 	else:
 		output_path = template_dir / 'main.py'
 
-	# Read template file
+	# Read template file (tries GitHub first, falls back to bundled)
 	try:
-		templates_dir = Path(__file__).parent / 'cli_templates'
 		template_file = INIT_TEMPLATES[template]['file']
-		template_path = templates_dir / template_file
-		content = template_path.read_text(encoding='utf-8')
+		content = _get_template_content(template_file)
 	except Exception as e:
 		console.print(f'[red]✗[/red] Error reading template: {e}')
 		sys.exit(1)
@@ -223,11 +301,9 @@ def main(
 
 		# Generate additional files for shopping template
 		if template == 'shopping':
-			templates_dir = Path(__file__).parent / 'cli_templates'
-
 			# Generate launch_chrome_debug.py
 			launcher_path = output_path.parent / 'launch_chrome_debug.py'
-			launcher_content = (templates_dir / 'launch_chrome_debug.py').read_text(encoding='utf-8')
+			launcher_content = _get_template_content('shopping/launch_chrome_debug.py')
 			if _write_init_file(launcher_path, launcher_content, force):
 				console.print(f'[green]✓[/green] Created [cyan]{launcher_path.name}[/cyan]')
 				# Make executable on Unix systems
@@ -238,69 +314,68 @@ def main(
 
 			# Generate pyproject.toml
 			pyproject_path = output_path.parent / 'pyproject.toml'
-			pyproject_content = (templates_dir / 'pyproject_toml.template').read_text(encoding='utf-8')
+			pyproject_content = _get_template_content('shopping/pyproject.toml.template')
 			if _write_init_file(pyproject_path, pyproject_content, force):
 				console.print(f'[green]✓[/green] Created [cyan]{pyproject_path.name}[/cyan]')
 
 			# Generate .gitignore
 			gitignore_path = output_path.parent / '.gitignore'
-			gitignore_content = (templates_dir / 'gitignore.template').read_text(encoding='utf-8')
+			gitignore_content = _get_template_content('gitignore.template')
 			if _write_init_file(gitignore_path, gitignore_content, force):
 				console.print(f'[green]✓[/green] Created [cyan]{gitignore_path.name}[/cyan]')
 
 			# Generate .env.example
 			env_example_path = output_path.parent / '.env.example'
-			env_example_content = (templates_dir / 'env_example.template').read_text(encoding='utf-8')
+			env_example_content = _get_template_content('shopping/.env.example.template')
 			if _write_init_file(env_example_path, env_example_content, force):
 				console.print(f'[green]✓[/green] Created [cyan]{env_example_path.name}[/cyan]')
 
 			# Generate README.md
 			readme_path = output_path.parent / 'README.md'
-			readme_content = (templates_dir / 'readme_shopping.md').read_text(encoding='utf-8')
+			readme_content = _get_template_content('shopping/README.md')
 			if _write_init_file(readme_path, readme_content, force):
 				console.print(f'[green]✓[/green] Created [cyan]{readme_path.name}[/cyan]')
 
 		elif template == 'job-application':
-			templates_dir = Path(__file__).parent / 'cli_templates'
-
 			# Generate pyproject.toml
 			pyproject_path = output_path.parent / 'pyproject.toml'
-			pyproject_content = (templates_dir / 'pyproject_toml_job.template').read_text(encoding='utf-8')
+			pyproject_content = _get_template_content('job-application/pyproject.toml.template')
 			if _write_init_file(pyproject_path, pyproject_content, force):
 				console.print(f'[green]✓[/green] Created [cyan]{pyproject_path.name}[/cyan]')
 
 			# Generate .gitignore
 			gitignore_path = output_path.parent / '.gitignore'
-			gitignore_content = (templates_dir / 'gitignore.template').read_text(encoding='utf-8')
+			gitignore_content = _get_template_content('gitignore.template')
 			if _write_init_file(gitignore_path, gitignore_content, force):
 				console.print(f'[green]✓[/green] Created [cyan]{gitignore_path.name}[/cyan]')
 
 			# Generate .env.example
 			env_example_path = output_path.parent / '.env.example'
-			env_example_content = (templates_dir / 'env_example_job.template').read_text(encoding='utf-8')
+			env_example_content = _get_template_content('job-application/.env.example.template')
 			if _write_init_file(env_example_path, env_example_content, force):
 				console.print(f'[green]✓[/green] Created [cyan]{env_example_path.name}[/cyan]')
 
 			# Generate README.md
 			readme_path = output_path.parent / 'README.md'
-			readme_content = (templates_dir / 'readme_job.md').read_text(encoding='utf-8')
+			readme_content = _get_template_content('job-application/README.md')
 			if _write_init_file(readme_path, readme_content, force):
 				console.print(f'[green]✓[/green] Created [cyan]{readme_path.name}[/cyan]')
 
 			# Copy applicant_data.json
 			applicant_data_path = output_path.parent / 'applicant_data.json'
-			applicant_data_content = (templates_dir / 'applicant_data_job.json').read_text(encoding='utf-8')
+			applicant_data_content = _get_template_content('job-application/applicant_data.json')
 			if _write_init_file(applicant_data_path, applicant_data_content, force):
 				console.print(f'[green]✓[/green] Created [cyan]{applicant_data_path.name}[/cyan]')
 
-			# Copy example resume PDF
-			import shutil
-
-			resume_src = templates_dir / 'example_resume_job.pdf'
+			# Copy example resume PDF (binary file - fetch from GitHub)
 			resume_dst = output_path.parent / 'example_resume.pdf'
 			if not resume_dst.exists() or force:
-				shutil.copy2(resume_src, resume_dst)
-				console.print(f'[green]✓[/green] Created [cyan]{resume_dst.name}[/cyan]')
+				resume_content = _fetch_binary_from_github('job-application/example_resume.pdf')
+				if resume_content:
+					resume_dst.write_bytes(resume_content)
+					console.print(f'[green]✓[/green] Created [cyan]{resume_dst.name}[/cyan]')
+				else:
+					console.print(f'[yellow]⚠[/yellow]  Could not fetch [cyan]{resume_dst.name}[/cyan] from GitHub')
 
 		# Create a nice panel for next steps
 		next_steps = Text()
