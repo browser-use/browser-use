@@ -12,34 +12,20 @@ To get started with Browser Use you need to install the package and create an `.
 
 ## 1. Installing Browser-Use
 
-<Tabs>
-<Tab title="uv">
+
 ```bash create environment
+pip install uv
 uv venv --python 3.12
 ```
 ```bash activate environment
 source .venv/bin/activate
+# On Windows use `.venv\Scripts\activate`
 ```
 ```bash install browser-use & chromium
 uv pip install browser-use
 uvx browser-use install
 ```
-</Tab>
-<Tab title="pip">
-```bash create environment with python >= 3.11
-python3.12 -m venv .venv
-```
-```bash activate environment
-source .venv/bin/activate
-```
-```bash install browser-use & chromium
-pip install browser-use
-browser-use install
-```
-</Tab>
-</Tabs>
 
-<Info>On Windows, use `.venv\Scripts\activate` to activate the environment.</Info>
 
 ## 2. Choose your favorite LLM
 Create a `.env` file and add your API key. 

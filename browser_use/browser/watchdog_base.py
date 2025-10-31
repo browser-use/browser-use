@@ -131,19 +131,22 @@ class BaseWatchdog(BaseModel):
 
 					# attempt to repair potentially crashed CDP session
 					try:
-						target_id_to_restore = None
 						if browser_session.agent_focus and browser_session.agent_focus.target_id:
-							# Common issue with CDP, recreate session with new socket to recover
+							# With event-driven sessions, Chrome will send detach/attach events
+							# SessionManager handles pool cleanup automatically
 							target_id_to_restore = browser_session.agent_focus.target_id
 							browser_session.logger.debug(
-								f'🚌 {watchdog_and_handler_str} ⚠️ Recreating session to try and recover crashed CDP session\n\t{browser_session.agent_focus}'
+								f'🚌 {watchdog_and_handler_str} ⚠️ Session error detected, waiting for CDP events to sync\n\t{browser_session.agent_focus}'
 							)
-							del browser_session._cdp_session_pool[browser_session.agent_focus.target_id]
+
+							# Wait for new attach event to restore the session
+							# This will raise ValueError if target doesn't re-attach
 							browser_session.agent_focus = await browser_session.get_or_create_cdp_session(
-								target_id=target_id_to_restore, new_socket=True
+								target_id=target_id_to_restore, focus=True
 							)
 						else:
-							await browser_session.get_or_create_cdp_session(target_id=None, new_socket=True, focus=True)
+							# Try to get any available session
+							await browser_session.get_or_create_cdp_session(target_id=None, focus=True)
 					except Exception as sub_error:
 						if 'ConnectionClosedError' in str(type(sub_error)) or 'ConnectionError' in str(type(sub_error)):
 							browser_session.logger.error(
@@ -155,6 +158,7 @@ class BaseWatchdog(BaseModel):
 								f'🚌 {watchdog_and_handler_str} ❌ CDP connected but failed to re-create CDP session after error "{type(original_error).__name__}: {original_error}" in {actual_handler.__name__}({event.event_type}#{event.event_id[-4:]}): due to {type(sub_error).__name__}: {sub_error}\n'
 							)
 
+					# Always re-raise the original error with its traceback preserved
 					raise
 
 			return unique_handler
@@ -253,4 +257,4 @@ class BaseWatchdog(BaseModel):
 		except Exception as e:
 			from browser_use.utils import logger
 
-			logger.error(f'⚠️ Error during BrowserSession {self.__class__.__name__} gargabe collection __del__(): {type(e)}: {e}')
+			logger.error(f'⚠️ Error during BrowserSession {self.__class__.__name__} garbage collection __del__(): {type(e)}: {e}')
