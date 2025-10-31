@@ -557,6 +557,7 @@ class BrowserUseServer:
 			self.llm = ChatOpenAI(
 				model=llm_config.get('model', 'gpt-4o-mini'),
 				api_key=api_key,
+				base_url=llm_config.get('base_url', None),
 				temperature=llm_config.get('temperature', 0.7),
 				# max_tokens=llm_config.get('max_tokens'),
 			)
@@ -600,6 +601,9 @@ class BrowserUseServer:
 			if not api_key:
 				return 'Error: OPENAI_API_KEY not set in config or environment'
 
+			# Get OpenAI compatible base url
+			base_url = llm_config.get('base_url') or os.getenv('OPENAI_BASE_URL')
+
 			# Override model if provided in tool call
 			if model != llm_config.get('model', 'gpt-4o'):
 				llm_model = model
@@ -609,6 +613,7 @@ class BrowserUseServer:
 			llm = ChatOpenAI(
 				model=llm_model,
 				api_key=api_key,
+				base_url=base_url,
 				temperature=llm_config.get('temperature', 0.7),
 			)
 
