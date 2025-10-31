@@ -557,7 +557,7 @@ class BrowserUseServer:
 			self.llm = ChatOpenAI(
 				model=llm_config.get('model', 'gpt-4o-mini'),
 				api_key=api_key,
-			base_url=llm_config.get('base_url') or os.getenv('OPENAI_BASE_URL'),
+				base_url=llm_config.get('base_url') or os.getenv('OPENAI_BASE_URL'),
 				temperature=llm_config.get('temperature', 0.7),
 				# max_tokens=llm_config.get('max_tokens'),
 			)
