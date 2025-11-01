@@ -157,7 +157,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Check if session is alive before attempting any operations
 			if not self.browser_session.agent_focus or not self.browser_session.agent_focus.target_id:
 				error_msg = 'Cannot execute click: browser session is corrupted (target_id=None). Session may have crashed.'
-				self.logger.error(f'⚠️ {error_msg}')
+				self.logger.error(f'{error_msg}')
 				raise BrowserError(error_msg)
 
 			# Use the provided node
@@ -168,11 +168,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Check if element is a file input (should not be clicked)
 			if self.browser_session.is_file_input(element_node):
 				msg = f'Index {index_for_logging} - has an element which opens file upload dialog. To upload files please use a specific function to upload files'
-				self.logger.info(msg)
-				raise BrowserError(
-					message=msg,
-					long_term_memory=msg,
-				)
+				self.logger.info(f'{msg}')
+				# Return validation error instead of raising to avoid ERROR logs
+				return {'validation_error': msg}
 
 			# Detect print-related elements and handle them specially
 			is_print_element = self._is_print_related_element(element_node)
@@ -195,6 +193,11 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Perform the actual click using internal implementation
 			click_metadata = await self._click_element_node_impl(element_node)
 			download_path = None  # moved to downloads_watchdog.py
+
+			# Check for validation errors - return them without raising to avoid ERROR logs
+			if isinstance(click_metadata, dict) and 'validation_error' in click_metadata:
+				self.logger.info(f'{click_metadata["validation_error"]}')
+				return click_metadata
 
 			# Build success message
 			if download_path:
@@ -430,18 +433,13 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			if tag_name == 'select':
 				msg = f'Cannot click on <select> elements. Use dropdown_options(index={element_node.backend_node_id}) action instead.'
-				self.logger.warning(msg)
-				raise BrowserError(
-					message=msg,
-					long_term_memory=msg,
-				)
+				# Return error dict instead of raising to avoid ERROR logs
+				return {'validation_error': msg}
 
 			if tag_name == 'input' and element_type == 'file':
 				msg = f'Cannot click on file input element (index={element_node.backend_node_id}). File uploads must be handled using upload_file_to_element action.'
-				raise BrowserError(
-					message=msg,
-					long_term_memory=msg,
-				)
+				# Return error dict instead of raising to avoid ERROR logs
+				return {'validation_error': msg}
 
 			# Get CDP client
 			cdp_session = await self.browser_session.cdp_client_for_node(element_node)
@@ -914,27 +912,54 @@ class DefaultActionWatchdog(BaseWatchdog):
 	async def _clear_text_field(self, object_id: str, cdp_session) -> bool:
 		"""Clear text field using multiple strategies, starting with the most reliable."""
 		try:
-			# Strategy 1: Direct JavaScript value setting (most reliable for modern web apps)
+			# Strategy 1: Direct JavaScript value/content setting (handles both inputs and contenteditable)
 			self.logger.debug('🧹 Clearing text field using JavaScript value setting')
 
-			await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+			clear_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
 				params={
 					'functionDeclaration': """
 						function() {
-							// Try to select all text first (only works on text-like inputs)
-							// This handles cases where cursor is in the middle of text
-							try {
-								this.select();
-							} catch (e) {
-								// Some input types (date, color, number, etc.) don't support select()
-								// That's fine, we'll just clear the value directly
+							// Check if it's a contenteditable element
+							const hasContentEditable = this.getAttribute('contenteditable') === 'true' ||
+													this.getAttribute('contenteditable') === '' ||
+													this.isContentEditable === true;
+
+							if (hasContentEditable) {
+								// For contenteditable elements, clear all content
+								while (this.firstChild) {
+									this.removeChild(this.firstChild);
+								}
+								this.textContent = "";
+								this.innerHTML = "";
+
+								// Focus and position cursor at the beginning
+								this.focus();
+								const selection = window.getSelection();
+								const range = document.createRange();
+								range.setStart(this, 0);
+								range.setEnd(this, 0);
+								selection.removeAllRanges();
+								selection.addRange(range);
+
+								// Dispatch events
+								this.dispatchEvent(new Event("input", { bubbles: true }));
+								this.dispatchEvent(new Event("change", { bubbles: true }));
+
+								return {cleared: true, method: 'contenteditable', finalText: this.textContent};
+							} else if (this.value !== undefined) {
+								// For regular inputs with value property
+								try {
+									this.select();
+								} catch (e) {
+									// ignore
+								}
+								this.value = "";
+								this.dispatchEvent(new Event("input", { bubbles: true }));
+								this.dispatchEvent(new Event("change", { bubbles: true }));
+								return {cleared: true, method: 'value', finalText: this.value};
+							} else {
+								return {cleared: false, method: 'none', error: 'Not a supported input type'};
 							}
-							// Set value to empty
-							this.value = "";
-							// Dispatch events to notify frameworks like React
-							this.dispatchEvent(new Event("input", { bubbles: true }));
-							this.dispatchEvent(new Event("change", { bubbles: true }));
-							return this.value;
 						}
 					""",
 					'objectId': object_id,
@@ -943,25 +968,25 @@ class DefaultActionWatchdog(BaseWatchdog):
 				session_id=cdp_session.session_id,
 			)
 
-			# Verify clearing worked by checking the value
-			verify_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
-				params={
-					'functionDeclaration': 'function() { return this.value; }',
-					'objectId': object_id,
-					'returnByValue': True,
-				},
-				session_id=cdp_session.session_id,
-			)
+			# Check the clear result
+			clear_info = clear_result.get('result', {}).get('value', {})
+			self.logger.debug(f'Clear result: {clear_info}')
 
-			current_value = verify_result.get('result', {}).get('value', '')
-			if not current_value:
-				self.logger.debug('✅ Text field cleared successfully using JavaScript')
-				return True
+			if clear_info.get('cleared'):
+				final_text = clear_info.get('finalText', '')
+				if not final_text or not final_text.strip():
+					self.logger.debug(f'✅ Text field cleared successfully using {clear_info.get("method")}')
+					return True
+				else:
+					self.logger.debug(f'⚠️ JavaScript clear partially failed, field still contains: "{final_text}"')
+					return False
 			else:
-				self.logger.debug(f'⚠️ JavaScript clear partially failed, field still contains: "{current_value}"')
+				self.logger.debug(f'❌ JavaScript clear failed: {clear_info.get("error", "Unknown error")}')
+				return False
 
 		except Exception as e:
-			self.logger.debug(f'JavaScript clear failed: {e}')
+			self.logger.debug(f'JavaScript clear failed with exception: {e}')
+			return False
 
 		# Strategy 2: Triple-click + Delete (fallback for stubborn fields)
 		try:
@@ -1137,14 +1162,155 @@ class DefaultActionWatchdog(BaseWatchdog):
 				self.logger.debug(f'Click focus failed: {e}')
 
 		# Both strategies failed
-		self.logger.warning('⚠️ All focus strategies failed')
+		self.logger.debug('Focus strategies failed, will attempt typing anyway')
 		return False
+
+	def _requires_direct_value_assignment(self, element_node: EnhancedDOMTreeNode) -> bool:
+		"""
+		Check if an element requires direct value assignment instead of character-by-character typing.
+
+		Certain input types have compound components, custom plugins, or special requirements
+		that make character-by-character typing unreliable. These need direct .value assignment:
+
+		Native HTML5:
+		- date, time, datetime-local: Have spinbutton components (ISO format required)
+		- month, week: Similar compound structure
+		- color: Expects hex format #RRGGBB
+		- range: Needs numeric value within min/max
+
+		jQuery/Bootstrap Datepickers:
+		- Detected by class names or data attributes
+		- Often expect specific date formats (MM/DD/YYYY, DD/MM/YYYY, etc.)
+
+		Note: We use direct assignment because:
+		1. Typing triggers intermediate validation that might reject partial values
+		2. Compound components (like date spinbuttons) don't work with sequential typing
+		3. It's much faster and more reliable
+		4. We dispatch proper input/change events afterward to trigger listeners
+		"""
+		if not element_node.tag_name or not element_node.attributes:
+			return False
+
+		tag_name = element_node.tag_name.lower()
+
+		# Check for native HTML5 inputs that need direct assignment
+		if tag_name == 'input':
+			input_type = element_node.attributes.get('type', '').lower()
+
+			# Native HTML5 inputs with compound components or strict formats
+			if input_type in {'date', 'time', 'datetime-local', 'month', 'week', 'color', 'range'}:
+				return True
+
+			# Detect jQuery/Bootstrap datepickers (text inputs with datepicker plugins)
+			if input_type in {'text', ''}:
+				# Check for common datepicker indicators
+				class_attr = element_node.attributes.get('class', '').lower()
+				if any(
+					indicator in class_attr
+					for indicator in ['datepicker', 'daterangepicker', 'datetimepicker', 'bootstrap-datepicker']
+				):
+					return True
+
+				# Check for data attributes indicating datepickers
+				if any(attr in element_node.attributes for attr in ['data-datepicker', 'data-date-format', 'data-provide']):
+					return True
+
+		return False
+
+	async def _set_value_directly(self, element_node: EnhancedDOMTreeNode, text: str, object_id: str, cdp_session) -> None:
+		"""
+		Set element value directly using JavaScript for inputs that don't support typing.
+
+		This is used for:
+		- Date/time inputs where character-by-character typing doesn't work
+		- jQuery datepickers that need direct value assignment
+		- Color/range inputs that need specific formats
+		- Any input with custom plugins that intercept typing
+
+		After setting the value, we dispatch comprehensive events to ensure all frameworks
+		and plugins recognize the change (React, Vue, Angular, jQuery, etc.)
+		"""
+		try:
+			# Set the value using JavaScript with comprehensive event dispatching
+			# callFunctionOn expects a function body (not a self-invoking function)
+			set_value_js = f"""
+			function() {{
+				// Store old value for comparison
+				const oldValue = this.value;
+
+				// REACT-COMPATIBLE VALUE SETTING:
+				// React uses Object.getOwnPropertyDescriptor to track input changes
+				// We need to use the native setter to bypass React's tracking and then trigger events
+				const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+					window.HTMLInputElement.prototype,
+					'value'
+				).set;
+
+				// Set the value using the native setter (bypasses React's control)
+				nativeInputValueSetter.call(this, {json.dumps(text)});
+
+				// Dispatch comprehensive events to ensure all frameworks detect the change
+				// Order matters: focus -> input -> change -> blur (mimics user interaction)
+
+				// 1. Focus event (in case element isn't focused)
+				this.dispatchEvent(new FocusEvent('focus', {{ bubbles: true }}));
+
+				// 2. Input event (CRITICAL for React onChange)
+				// React listens to 'input' events on the document and checks for value changes
+				const inputEvent = new Event('input', {{ bubbles: true, cancelable: true }});
+				this.dispatchEvent(inputEvent);
+
+				// 3. Change event (for form handling, traditional listeners)
+				const changeEvent = new Event('change', {{ bubbles: true, cancelable: true }});
+				this.dispatchEvent(changeEvent);
+
+				// 4. Blur event (triggers final validation in some libraries)
+				this.dispatchEvent(new FocusEvent('blur', {{ bubbles: true }}));
+
+				// 5. jQuery-specific events (if jQuery is present)
+				if (typeof jQuery !== 'undefined' && jQuery.fn) {{
+					try {{
+						jQuery(this).trigger('change');
+						// Trigger datepicker-specific events if it's a datepicker
+						if (jQuery(this).data('datepicker')) {{
+							jQuery(this).datepicker('update');
+						}}
+					}} catch (e) {{
+						// jQuery not available or error, continue anyway
+					}}
+				}}
+
+				return this.value;
+			}}
+			"""
+
+			result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'objectId': object_id,
+					'functionDeclaration': set_value_js,
+					'returnByValue': True,
+				},
+				session_id=cdp_session.session_id,
+			)
+
+			# Verify the value was set correctly
+			if 'result' in result and 'value' in result['result']:
+				actual_value = result['result']['value']
+				self.logger.debug(f'✅ Value set directly to: "{actual_value}"')
+			else:
+				self.logger.warning('⚠️ Could not verify value was set correctly')
+
+		except Exception as e:
+			self.logger.error(f'❌ Failed to set value directly: {e}')
+			raise
 
 	async def _input_text_element_node_impl(
 		self, element_node: EnhancedDOMTreeNode, text: str, clear: bool = True, is_sensitive: bool = False
 	) -> dict | None:
 		"""
 		Input text into an element using pure CDP with improved focus fallbacks.
+
+		For date/time inputs, uses direct value assignment instead of typing.
 		"""
 
 		try:
@@ -1170,9 +1336,15 @@ class DefaultActionWatchdog(BaseWatchdog):
 				)
 				await asyncio.sleep(0.01)
 			except Exception as e:
-				self.logger.warning(
-					f'⚠️ Failed to focus the page {cdp_session} and scroll element {element_node} into view before typing in text: {type(e).__name__}: {e}'
-				)
+				# Node detached errors are common with shadow DOM and dynamic content
+				# The element can still be interacted with even if scrolling fails
+				error_str = str(e)
+				if 'Node is detached from document' in error_str or 'detached from document' in error_str:
+					self.logger.debug(
+						f'Element node temporarily detached during scroll (common with shadow DOM), continuing: {element_node}'
+					)
+				else:
+					self.logger.debug(f'Failed to scroll element {element_node} into view before typing: {type(e).__name__}: {e}')
 
 			# Get object ID for the element
 			result = await cdp_client.send.DOM.resolveNode(
@@ -1212,13 +1384,26 @@ class DefaultActionWatchdog(BaseWatchdog):
 				backend_node_id=backend_node_id, object_id=object_id, cdp_session=cdp_session, input_coordinates=input_coordinates
 			)
 
-			# Step 2: Clear existing text if requested
+			# Step 2: Check if this element requires direct value assignment (date/time inputs)
+			requires_direct_assignment = self._requires_direct_value_assignment(element_node)
+
+			if requires_direct_assignment:
+				# Date/time inputs: use direct value assignment instead of typing
+				self.logger.debug(
+					f'🎯 Element type={element_node.attributes.get("type")} requires direct value assignment, setting value directly'
+				)
+				await self._set_value_directly(element_node, text, object_id, cdp_session)
+
+				# Return input coordinates for metadata
+				return input_coordinates
+
+			# Step 3: Clear existing text if requested (only for regular inputs that support typing)
 			if clear:
 				cleared_successfully = await self._clear_text_field(object_id=object_id, cdp_session=cdp_session)
 				if not cleared_successfully:
 					self.logger.warning('⚠️ Text field clearing failed, typing may append to existing text')
 
-			# Step 3: Type the text character by character using proper human-like key events
+			# Step 4: Type the text character by character using proper human-like key events
 			# This emulates exactly how a human would type, which modern websites expect
 			if is_sensitive:
 				# Note: sensitive_key_name is not passed to this low-level method,
@@ -2275,22 +2460,24 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 								// Match against both text and value (case-insensitive)
 								if (optionTextLower === targetTextLower || optionValueLower === targetTextLower) {
+									// Focus the element FIRST (important for Svelte/Vue/React and other reactive frameworks)
+									// This simulates the user focusing on the dropdown before changing it
+									element.focus();
+
+									// Then set the value
 									element.value = option.value;
 									option.selected = true;
 
-									// Focus the element first (important for Vue.js and reactive frameworks)
-									element.focus();
-
-									// Trigger all necessary events for Vue.js and other reactive frameworks
-									// 1. input event - critical for Vue's v-model
-									const inputEvent = new Event('input', { bubbles: true });
+									// Trigger all necessary events for reactive frameworks
+									// 1. input event - critical for Vue's v-model and Svelte's bind:value
+									const inputEvent = new Event('input', { bubbles: true, cancelable: true });
 									element.dispatchEvent(inputEvent);
 
-									// 2. Trigger change events
-									const changeEvent = new Event('change', { bubbles: true });
+									// 2. change event - traditional form validation and framework reactivity
+									const changeEvent = new Event('change', { bubbles: true, cancelable: true });
 									element.dispatchEvent(changeEvent);
 
-									// 3. blur event - helps with validation
+									// 3. blur event - completes the interaction, triggers validation
 									element.blur();
 
 									return {

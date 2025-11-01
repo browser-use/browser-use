@@ -1,14 +1,14 @@
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24"">
   <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/774a46d5-27a0-490c-b7d0-e65fcbbfa358">
-  <img alt="Shows a black Browser Use Logo in light color mode and a white one in dark color mode." src="https://github.com/user-attachments/assets/774a46d5-27a0-490c-b7d0-e65fcbbfa358"  width="full">
+  <img alt="Shows a black Browser Use Logo in light color mode and a white one in dark color mode." src="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24"  width="full">
 </picture>
 
 <div align="center">
     <picture>
     <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/9955dda9-ede3-4971-8ee0-91cbc3850125"">
     <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/6797d09b-8ac3-4cb9-ba07-b289e080765a">
-    <img alt="The AI browser agent." src="https://github.com/user-attachments/assets/6797d09b-8ac3-4cb9-ba07-b289e080765a"  width="400">
+    <img alt="The AI browser agent." src="https://github.com/user-attachments/assets/9955dda9-ede3-4971-8ee0-91cbc3850125"  width="400">
     </picture>
 </div>
 
@@ -94,6 +94,29 @@ if __name__ == "__main__":
 ```
 
 Check out the [library docs](https://docs.browser-use.com) and the [cloud docs](https://docs.cloud.browser-use.com) for more!
+
+<br/>
+
+# 🔥 Production with Sandboxes
+
+**The easiest way to run Browser-Use in production.** We handle agents, browsers, persistence, auth, cookies, and LLMs. The agent runs right next to the browser for minimal latency.
+
+```python
+from browser_use import Browser, sandbox, ChatBrowserUse
+from browser_use.agent.service import Agent
+
+@sandbox(
+    cloud_profile_id='your-profile-id',      # Your saved cookies/auth
+    cloud_proxy_country_code='us',           # Bypass captchas, cloudflare, geo-restrictions
+)
+async def production_task(browser: Browser):
+    agent = Agent(task="Your task", browser=browser, llm=ChatBrowserUse())
+    await agent.run()
+
+await production_task()
+```
+
+See [Going to Production](https://docs.browser-use.com/production) to sync your cookies to the cloud.
 
 <br/>
 

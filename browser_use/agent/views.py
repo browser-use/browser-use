@@ -442,10 +442,7 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		}
 
 	@classmethod
-	def load_from_file(cls, filepath: str | Path, output_model: type[AgentOutput]) -> AgentHistoryList:
-		"""Load history from JSON file"""
-		with open(filepath, encoding='utf-8') as f:
-			data = json.load(f)
+	def load_from_dict(cls, data: dict[str, Any], output_model: type[AgentOutput]) -> AgentHistoryList:
 		# loop through history and validate output_model actions to enrich with custom actions
 		for h in data['history']:
 			if h['model_output']:
@@ -455,8 +452,16 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 					h['model_output'] = None
 			if 'interacted_element' not in h['state']:
 				h['state']['interacted_element'] = None
+
 		history = cls.model_validate(data)
 		return history
+
+	@classmethod
+	def load_from_file(cls, filepath: str | Path, output_model: type[AgentOutput]) -> AgentHistoryList:
+		"""Load history from JSON file"""
+		with open(filepath, encoding='utf-8') as f:
+			data = json.load(f)
+		return cls.load_from_dict(data, output_model)
 
 	def last_action(self) -> None | dict:
 		"""Last action in history"""
@@ -649,6 +654,22 @@ class AgentError:
 			return f'{AgentError.VALIDATION_ERROR}\nDetails: {str(error)}'
 		if isinstance(error, RateLimitError):
 			return AgentError.RATE_LIMIT_ERROR
+
+		# Handle LLM response validation errors from llm_use
+		error_str = str(error)
+		if 'LLM response missing required fields' in error_str or 'Expected format: AgentOutput' in error_str:
+			# Extract the main error message without the huge stacktrace
+			lines = error_str.split('\n')
+			main_error = lines[0] if lines else error_str
+
+			# Provide a clearer error message
+			helpful_msg = f'{main_error}\n\nThe previous response had an invalid output structure. Please stick to the required output format. \n\n'
+
+			if include_trace:
+				helpful_msg += f'\n\nFull stacktrace:\n{traceback.format_exc()}'
+
+			return helpful_msg
+
 		if include_trace:
 			return f'{str(error)}\nStacktrace:\n{traceback.format_exc()}'
 		return f'{str(error)}'

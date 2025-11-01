@@ -169,3 +169,27 @@ if __name__ == '__main__':
 </CodeGroup>
 
 <Note> Custom browsers can be configured in one line. Check out <a href = "customize/browser/basics">browsers</a> for more. </Note>
+
+## 4. Going to Production
+
+Sandboxes are the **easiest way to run Browser-Use in production**. We handle agents, browsers, persistence, auth, cookies, and LLMs. It's also the **fastest way to deploy** - the agent runs right next to the browser, so latency is minimal.
+
+<Warning>
+Sandboxes are in **beta**.
+</Warning>
+
+To run in production with authentication, just add `@sandbox` to your function:
+
+```python
+from browser_use import Browser, sandbox, ChatBrowserUse
+from browser_use.agent.service import Agent
+
+@sandbox(cloud_profile_id='your-profile-id')
+async def production_task(browser: Browser):
+    agent = Agent(task="Your authenticated task", browser=browser, llm=ChatBrowserUse())
+    await agent.run()
+
+await production_task()
+```
+
+See [Going to Production](/production) for how to sync your cookies to the cloud.
