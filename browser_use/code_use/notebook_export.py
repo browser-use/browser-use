@@ -50,12 +50,21 @@ def export_to_ipynb(agent: CodeAgent, output_path: str | Path) -> Path:
 	# Add setup cell at the beginning with proper type hints
 	setup_code = """import asyncio
 import json
+import tempfile
+import shutil
+from pathlib import Path
 from typing import Any
 from browser_use import BrowserSession
+from browser_use.browser.profile import BrowserProfile
 from browser_use.code_use import create_namespace
 
-# Initialize browser and namespace
-browser = BrowserSession()
+# Create temporary user directory for browser isolation (cookies, cache, etc.)
+# Note: Files created by your script (e.g., JSON files) will be saved in the current working directory
+temp_user_dir = Path(tempfile.mkdtemp(prefix='browser-use-script-'))
+
+# Initialize browser with temporary user directory
+profile = BrowserProfile(user_data_dir=str(temp_user_dir))
+browser = BrowserSession(browser_profile=profile)
 await browser.start()
 
 # Create namespace with all browser control functions
@@ -166,6 +175,25 @@ print("Available functions: navigate, click, input, evaluate, search, extract, d
 
 		notebook.cells.append(notebook_cell)
 
+	# Add cleanup cell at the end
+	cleanup_code = """# Clean up browser and temporary directory
+await browser.stop()
+
+# Remove temporary user directory
+try:
+    shutil.rmtree(temp_user_dir, ignore_errors=True)
+except Exception:
+    pass"""
+
+	cleanup_cell = {
+		'cell_type': 'code',
+		'metadata': {},
+		'source': cleanup_code.split('\n'),
+		'execution_count': None,
+		'outputs': [],
+	}
+	notebook.cells.append(cleanup_cell)
+
 	# Write to file
 	output_path.parent.mkdir(parents=True, exist_ok=True)
 	with open(output_path, 'w', encoding='utf-8') as f:
@@ -197,34 +225,59 @@ def session_to_python_script(agent: CodeAgent) -> str:
 	lines.append('# Generated from browser-use code-use session\n')
 	lines.append('import asyncio\n')
 	lines.append('import json\n')
+	lines.append('import tempfile\n')
+	lines.append('import shutil\n')
+	lines.append('from pathlib import Path\n')
 	lines.append('from browser_use import BrowserSession\n')
+	lines.append('from browser_use.browser.profile import BrowserProfile\n')
 	lines.append('from browser_use.code_use import create_namespace\n\n')
 
 	lines.append('async def main():\n')
-	lines.append('\t# Initialize browser and namespace\n')
-	lines.append('\tbrowser = BrowserSession()\n')
+	lines.append('\t# Create temporary user directory for browser isolation\n')
+	lines.append("\ttemp_user_dir = Path(tempfile.mkdtemp(prefix='browser-use-script-'))\n")
+	lines.append('\t# Clean up on exit\n')
+	lines.append('\t\n')
+	lines.append('\t# Initialize browser with temporary user directory\n')
+	lines.append('\tprofile = BrowserProfile(user_data_dir=str(temp_user_dir))\n')
+	lines.append('\tbrowser = BrowserSession(browser_profile=profile)\n')
 	lines.append('\tawait browser.start()\n\n')
 	lines.append('\t# Create namespace with all browser control functions\n')
 	lines.append('\tnamespace = create_namespace(browser)\n\n')
 	lines.append('\t# Extract functions from namespace for direct access\n')
-	lines.append('\tnavigate = namespace["navigate"]\n')
-	lines.append('\tclick = namespace["click"]\n')
-	lines.append('\tinput_text = namespace["input"]\n')
-	lines.append('\tevaluate = namespace["evaluate"]\n')
-	lines.append('\tsearch = namespace["search"]\n')
-	lines.append('\textract = namespace["extract"]\n')
-	lines.append('\tscroll = namespace["scroll"]\n')
-	lines.append('\tdone = namespace["done"]\n')
-	lines.append('\tgo_back = namespace["go_back"]\n')
-	lines.append('\twait = namespace["wait"]\n')
-	lines.append('\tscreenshot = namespace["screenshot"]\n')
-	lines.append('\tfind_text = namespace["find_text"]\n')
-	lines.append('\tswitch_tab = namespace["switch"]\n')
-	lines.append('\tclose_tab = namespace["close"]\n')
-	lines.append('\tdropdown_options = namespace["dropdown_options"]\n')
-	lines.append('\tselect_dropdown = namespace["select_dropdown"]\n')
-	lines.append('\tupload_file = namespace["upload_file"]\n')
-	lines.append('\tsend_keys = namespace["send_keys"]\n\n')
+	lines.append('\t# Only extract functions that actually exist in the namespace\n')
+	# List of functions to try to extract (in order of preference)
+	function_map = {
+		'navigate': 'navigate',
+		'click': 'click',
+		'input_text': 'input',  # input is renamed to input_text in namespace
+		'evaluate': 'evaluate',
+		'scroll': 'scroll',
+		'done': 'done',
+		'go_back': 'go_back',
+		'wait': 'wait',
+		'switch_tab': 'switch',
+		'close_tab': 'close',
+		'dropdown_options': 'dropdown_options',
+		'select_dropdown': 'select_dropdown',
+		'upload_file': 'upload_file',
+		'send_keys': 'send_keys',
+		# These may not be available (excluded in CodeAgentTools):
+		'search': 'search',
+		'extract': 'extract',
+		'screenshot': 'screenshot',
+		'find_text': 'find_text',
+	}
+
+	for local_name, namespace_key in function_map.items():
+		# Only include if it exists in the namespace
+		# We'll check this at runtime in the generated script
+		if namespace_key in ['input']:
+			# Special case: input is renamed to input_text
+			lines.append(f'\t{local_name} = namespace.get("input_text") or namespace.get("input")\n')
+		else:
+			lines.append(f'\t{local_name} = namespace.get("{namespace_key}")\n')
+
+	lines.append('\n')
 
 	# Add JavaScript code blocks as variables FIRST
 	if hasattr(agent, 'namespace') and agent.namespace:
@@ -270,6 +323,11 @@ def session_to_python_script(agent: CodeAgent) -> str:
 			lines.append('\n')
 
 	lines.append('\tawait browser.stop()\n\n')
+	lines.append('\t# Clean up temporary user directory\n')
+	lines.append('\ttry:\n')
+	lines.append('\t\tshutil.rmtree(temp_user_dir, ignore_errors=True)\n')
+	lines.append('\texcept Exception:\n')
+	lines.append('\t\tpass\n\n')
 	lines.append("if __name__ == '__main__':\n")
 	lines.append('\tasyncio.run(main())\n')
 
