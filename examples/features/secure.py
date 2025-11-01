@@ -69,11 +69,11 @@ browser_profile = BrowserProfile(allowed_domains=['*google.com', 'browser-use.co
 # Sensitive data (optional) - {key: sensitive_information} - we filter out the sensitive_information from any input to the LLM, it will only work with placeholder.
 # By default we pass screenshots to the LLM which can contain your information. Set use_vision=False to disable this.
 # If you trust your LLM endpoint, you don't need to worry about this.
-sensitive_data: dict[str, str | dict[str, str]] = {'company_name': 'browser-use'}
+sensitive_data = {'company_name': 'browser-use'}
 
 
 # Create Agent
-agent = Agent(task=task, llm=llm, browser_profile=browser_profile, sensitive_data=sensitive_data)
+agent = Agent(task=task, llm=llm, browser_profile=browser_profile, sensitive_data=sensitive_data)  # type: ignore
 
 
 async def main():

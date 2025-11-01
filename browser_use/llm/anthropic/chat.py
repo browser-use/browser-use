@@ -5,12 +5,12 @@ from typing import Any, TypeVar, overload
 
 import httpx
 from anthropic import (
-	NOT_GIVEN,
 	APIConnectionError,
 	APIStatusError,
 	AsyncAnthropic,
 	NotGiven,
 	RateLimitError,
+	omit,
 )
 from anthropic.types import CacheControlEphemeralParam, Message, ToolParam
 from anthropic.types.model_param import ModelParam
@@ -141,7 +141,7 @@ class ChatAnthropic(BaseChatModel):
 				response = await self.get_client().messages.create(
 					model=self.model,
 					messages=anthropic_messages,
-					system=system_prompt or NOT_GIVEN,
+					system=system_prompt or omit,
 					**self._get_client_params_for_invoke(),
 				)
 
@@ -166,6 +166,7 @@ class ChatAnthropic(BaseChatModel):
 				return ChatInvokeCompletion(
 					completion=response_text,
 					usage=usage,
+					stop_reason=response.stop_reason,
 				)
 
 			else:
@@ -192,7 +193,7 @@ class ChatAnthropic(BaseChatModel):
 					model=self.model,
 					messages=anthropic_messages,
 					tools=[tool],
-					system=system_prompt or NOT_GIVEN,
+					system=system_prompt or omit,
 					tool_choice=tool_choice,
 					**self._get_client_params_for_invoke(),
 				)
@@ -212,7 +213,11 @@ class ChatAnthropic(BaseChatModel):
 					if hasattr(content_block, 'type') and content_block.type == 'tool_use':
 						# Parse the tool input as the structured output
 						try:
-							return ChatInvokeCompletion(completion=output_format.model_validate(content_block.input), usage=usage)
+							return ChatInvokeCompletion(
+								completion=output_format.model_validate(content_block.input),
+								usage=usage,
+								stop_reason=response.stop_reason,
+							)
 						except Exception as e:
 							# If validation fails, try to parse it as JSON first
 							if isinstance(content_block.input, str):
@@ -220,6 +225,7 @@ class ChatAnthropic(BaseChatModel):
 								return ChatInvokeCompletion(
 									completion=output_format.model_validate(data),
 									usage=usage,
+									stop_reason=response.stop_reason,
 								)
 							raise e
 

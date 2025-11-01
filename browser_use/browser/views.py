@@ -66,6 +66,27 @@ class PageInfo(BaseModel):
 
 
 @dataclass
+class NetworkRequest:
+	"""Information about a pending network request"""
+
+	url: str
+	method: str = 'GET'
+	loading_duration_ms: float = 0.0  # How long this request has been loading (ms since request started, max 10s)
+	resource_type: str | None = None  # e.g., 'Document', 'Stylesheet', 'Image', 'Script', 'XHR', 'Fetch'
+
+
+@dataclass
+class PaginationButton:
+	"""Information about a pagination button detected on the page"""
+
+	button_type: str  # 'next', 'prev', 'first', 'last', 'page_number'
+	backend_node_id: int  # Backend node ID for clicking
+	text: str  # Button text/label
+	selector: str  # XPath or other selector to locate the element
+	is_disabled: bool = False  # Whether the button appears disabled
+
+
+@dataclass
 class BrowserStateSummary:
 	"""The summary of the browser's current state designed for an LLM to process"""
 
@@ -84,6 +105,9 @@ class BrowserStateSummary:
 	browser_errors: list[str] = field(default_factory=list)
 	is_pdf_viewer: bool = False  # Whether the current page is a PDF viewer
 	recent_events: str | None = None  # Text summary of recent browser events
+	pending_network_requests: list[NetworkRequest] = field(default_factory=list)  # Currently loading network requests
+	pagination_buttons: list[PaginationButton] = field(default_factory=list)  # Detected pagination buttons
+	closed_popup_messages: list[str] = field(default_factory=list)  # Messages from auto-closed JavaScript dialogs
 
 
 @dataclass
@@ -126,17 +150,42 @@ class BrowserStateHistory:
 
 
 class BrowserError(Exception):
-	"""Base class for all browser errors"""
+	"""Browser error with structured memory for LLM context management.
+
+	This exception class provides separate memory contexts for browser actions:
+	- short_term_memory: Immediate context shown once to the LLM for the next action
+	- long_term_memory: Persistent error information stored across steps
+	"""
 
 	message: str
+	short_term_memory: str | None = None
+	long_term_memory: str | None = None
 	details: dict[str, Any] | None = None
 	while_handling_event: BaseEvent[Any] | None = None
 
-	def __init__(self, message: str, details: dict[str, Any] | None = None, event: BaseEvent[Any] | None = None):
+	def __init__(
+		self,
+		message: str,
+		short_term_memory: str | None = None,
+		long_term_memory: str | None = None,
+		details: dict[str, Any] | None = None,
+		event: BaseEvent[Any] | None = None,
+	):
+		"""Initialize a BrowserError with structured memory contexts.
+
+		Args:
+			message: Technical error message for logging and debugging
+			short_term_memory: Context shown once to LLM (e.g., available actions, options)
+			long_term_memory: Persistent error info stored in agent memory
+			details: Additional metadata for debugging
+			event: The browser event that triggered this error
+		"""
 		self.message = message
-		super().__init__(message)
+		self.short_term_memory = short_term_memory
+		self.long_term_memory = long_term_memory
 		self.details = details
 		self.while_handling_event = event
+		super().__init__(message)
 
 	def __str__(self) -> str:
 		if self.details:

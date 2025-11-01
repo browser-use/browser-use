@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import platform
+import re
 import signal
 import time
 from collections.abc import Callable, Coroutine
@@ -12,9 +13,13 @@ from sys import stderr
 from typing import Any, ParamSpec, TypeVar
 from urllib.parse import urlparse
 
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Pre-compiled regex for URL detection - used in URL shortening
+URL_PATTERN = re.compile(r'https?://[^\s<>"\']+|www\.[^\s<>"\']+|[^\s<>"\']+\.[a-z]{2,}(?:/[^\s<>"\']*)?', re.IGNORECASE)
 
 
 logger = logging.getLogger(__name__)
@@ -572,6 +577,24 @@ def get_browser_use_version() -> str:
 	except Exception as e:
 		logger.debug(f'Error detecting browser-use version: {type(e).__name__}: {e}')
 		return 'unknown'
+
+
+async def check_latest_browser_use_version() -> str | None:
+	"""Check the latest version of browser-use from PyPI asynchronously.
+
+	Returns:
+		The latest version string if successful, None if failed
+	"""
+	try:
+		async with httpx.AsyncClient(timeout=3.0) as client:
+			response = await client.get('https://pypi.org/pypi/browser-use/json')
+			if response.status_code == 200:
+				data = response.json()
+				return data['info']['version']
+	except Exception:
+		# Silently fail - we don't want to break agent startup due to network issues
+		pass
+	return None
 
 
 @cache

@@ -1,4 +1,10 @@
 name: lint
+
+# Cancel in-progress runs when a new commit is pushed to the same branch/PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches:
@@ -30,7 +36,7 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --dev --all-extras  # install extras for examples to avoid pyright missing imports errors
-      - run: uv run pre-commit run --all-files --show-diff-on-failure
+      - run: uv run --no-sync pre-commit run --all-files --show-diff-on-failure
 
   lint-typecheck:
     name: type-checker
@@ -41,4 +47,4 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --dev --all-extras  # install extras for examples to avoid pyright missing imports errors-
-      - run: uv run pyright
+      - run: uv run --no-sync pyright

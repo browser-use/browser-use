@@ -23,9 +23,12 @@ from browser_use.dom.views import (
 	SerializedDOMState,
 	TargetAllTrees,
 )
+from browser_use.observability import observe_debug
 
 if TYPE_CHECKING:
 	from browser_use.browser.session import BrowserSession
+
+# Note: iframe limits are now configurable via BrowserProfile.max_iframes and BrowserProfile.max_iframe_depth
 
 
 class DomService:
@@ -40,11 +43,20 @@ class DomService:
 	logger: logging.Logger
 
 	def __init__(
-		self, browser_session: 'BrowserSession', logger: logging.Logger | None = None, cross_origin_iframes: bool = False
+		self,
+		browser_session: 'BrowserSession',
+		logger: logging.Logger | None = None,
+		cross_origin_iframes: bool = False,
+		paint_order_filtering: bool = True,
+		max_iframes: int = 100,
+		max_iframe_depth: int = 5,
 	):
 		self.browser_session = browser_session
 		self.logger = logger or browser_session.logger
 		self.cross_origin_iframes = cross_origin_iframes
+		self.paint_order_filtering = paint_order_filtering
+		self.max_iframes = max_iframes
+		self.max_iframe_depth = max_iframe_depth
 
 	async def __aenter__(self):
 		return self
@@ -119,12 +131,13 @@ class DomService:
 			name=ax_node.get('name', {}).get('value', None),
 			description=ax_node.get('description', {}).get('value', None),
 			properties=properties,
+			child_ids=ax_node.get('childIds', []) if ax_node.get('childIds') else None,
 		)
 		return enhanced_ax_node
 
 	async def _get_viewport_ratio(self, target_id: TargetID) -> float:
 		"""Get viewport dimensions, device pixel ratio, and scroll position using CDP."""
-		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=True)
+		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
 
 		try:
 			# Get the layout metrics which includes the visual viewport
@@ -187,7 +200,7 @@ class DomService:
 		for frame in reversed(html_frames):
 			if (
 				frame.node_type == NodeType.ELEMENT_NODE
-				and frame.node_name.upper() == 'IFRAME'
+				and (frame.node_name.upper() == 'IFRAME' or frame.node_name.upper() == 'FRAME')
 				and frame.snapshot_node
 				and frame.snapshot_node.bounds
 			):
@@ -223,8 +236,8 @@ class DomService:
 				frame_intersects = (
 					adjusted_x < viewport_right
 					and adjusted_x + current_bounds.width > viewport_left
-					and adjusted_y < viewport_bottom
-					and adjusted_y + current_bounds.height > viewport_top
+					and adjusted_y < viewport_bottom + 1000
+					and adjusted_y + current_bounds.height > viewport_top - 1000
 				)
 
 				if not frame_intersects:
@@ -407,16 +420,24 @@ class DomService:
 		end = time.time()
 		cdp_timing = {'cdp_calls_total': end - start}
 
-		# DEBUG: Log snapshot info
+		# DEBUG: Log snapshot info and limit documents to prevent explosion
 		if snapshot and 'documents' in snapshot:
+			original_doc_count = len(snapshot['documents'])
+			# Limit to max_iframes documents to prevent iframe explosion
+			if original_doc_count > self.max_iframes:
+				self.logger.warning(
+					f'⚠️ Limiting processing of {original_doc_count} iframes on page to only first {self.max_iframes} to prevent crashes!'
+				)
+				snapshot['documents'] = snapshot['documents'][: self.max_iframes]
+
 			total_nodes = sum(len(doc.get('nodes', [])) for doc in snapshot['documents'])
-			self.logger.debug(
-				f'🔍 DEBUG: Snapshot contains {len(snapshot["documents"])} documents with {total_nodes} total nodes'
-			)
+			self.logger.debug(f'🔍 DEBUG: Snapshot contains {len(snapshot["documents"])} frames with {total_nodes} total nodes')
 			# Log iframe-specific info
 			for doc_idx, doc in enumerate(snapshot['documents']):
 				if doc_idx > 0:  # Not the main document
-					self.logger.debug(f'🔍 DEBUG: Document {doc_idx} has {len(doc.get("nodes", []))} nodes')
+					self.logger.debug(
+						f'🔍 DEBUG: Iframe #{doc_idx} {doc.get("frameId", "no-frame-id")} {doc.get("url", "no-url")} has {len(doc.get("nodes", []))} nodes'
+					)
 
 		return TargetAllTrees(
 			snapshot=snapshot,
@@ -426,11 +447,13 @@ class DomService:
 			cdp_timing=cdp_timing,
 		)
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='get_dom_tree')
 	async def get_dom_tree(
 		self,
 		target_id: TargetID,
 		initial_html_frames: list[EnhancedDOMTreeNode] | None = None,
 		initial_total_frame_offset: DOMRect | None = None,
+		iframe_depth: int = 0,
 	) -> EnhancedDOMTreeNode:
 		"""Get the DOM tree for a specific target.
 
@@ -438,6 +461,7 @@ class DomService:
 			target_id: Target ID of the page to get the DOM tree for.
 			initial_html_frames: List of HTML frame nodes encountered so far
 			initial_total_frame_offset: Accumulated coordinate offset
+			iframe_depth: Current depth of iframe nesting to prevent infinite recursion
 		"""
 
 		trees = await self._get_all_trees(target_id)
@@ -536,7 +560,6 @@ class DomService:
 				snapshot_node=snapshot_data,
 				is_visible=None,
 				absolute_position=absolute_position,
-				element_index=None,
 			)
 
 			enhanced_dom_tree_node_lookup[node['nodeId']] = dom_tree_node
@@ -561,7 +584,11 @@ class DomService:
 					)
 
 			# Calculate new iframe offset for content documents, accounting for iframe scroll
-			if node['nodeName'].upper() == 'IFRAME' and snapshot_data and snapshot_data.bounds:
+			if (
+				(node['nodeName'].upper() == 'IFRAME' or node['nodeName'].upper() == 'FRAME')
+				and snapshot_data
+				and snapshot_data.bounds
+			):
 				if snapshot_data.bounds:
 					updated_html_frames.append(dom_tree_node)
 
@@ -585,7 +612,16 @@ class DomService:
 
 			if 'children' in node and node['children']:
 				dom_tree_node.children_nodes = []
+				# Build set of shadow root node IDs to filter them out from children
+				shadow_root_node_ids = set()
+				if 'shadowRoots' in node and node['shadowRoots']:
+					for shadow_root in node['shadowRoots']:
+						shadow_root_node_ids.add(shadow_root['nodeId'])
+
 				for child in node['children']:
+					# Skip shadow roots - they should only be in shadow_roots list
+					if child['nodeId'] in shadow_root_node_ids:
+						continue
 					dom_tree_node.children_nodes.append(
 						await _construct_enhanced_node(child, updated_html_frames, total_frame_offset)
 					)
@@ -617,33 +653,67 @@ class DomService:
 				# TODO: hacky way to disable cross origin iframes for now
 				self.cross_origin_iframes and node['nodeName'].upper() == 'IFRAME' and node.get('contentDocument', None) is None
 			):  # None meaning there is no content
-				# Use get_all_frames to find the iframe's target
-				frame_id = node.get('frameId', None)
-				if frame_id:
-					all_frames, _ = await self.browser_session.get_all_frames()
-					frame_info = all_frames.get(frame_id)
-					iframe_document_target = None
-					if frame_info and frame_info.get('frameTargetId'):
-						# Get the target info for this iframe
-						targets = await self.browser_session.cdp_client.send.Target.getTargets()
-						iframe_document_target = next(
-							(t for t in targets['targetInfos'] if t['targetId'] == frame_info['frameTargetId']), None
-						)
-				else:
-					iframe_document_target = None
-				# if target actually exists in one of the frames, just recursively build the dom tree for it
-				if iframe_document_target:
-					self.logger.debug(f'Getting content document for iframe {node.get("frameId", None)}')
-					content_document = await self.get_dom_tree(
-						target_id=iframe_document_target.get('targetId'),
-						# TODO: experiment with this values -> not sure whether the whole cross origin iframe should be ALWAYS included as soon as some part of it is visible or not.
-						# Current config: if the cross origin iframe is AT ALL visible, then just include everything inside of it!
-						# initial_html_frames=updated_html_frames,
-						initial_total_frame_offset=total_frame_offset,
+				# Check iframe depth to prevent infinite recursion
+				if iframe_depth >= self.max_iframe_depth:
+					self.logger.debug(
+						f'Skipping iframe at depth {iframe_depth} to prevent infinite recursion (max depth: {self.max_iframe_depth})'
 					)
+				else:
+					# Check if iframe is visible and large enough (>= 50px in both dimensions)
+					should_process_iframe = False
 
-					dom_tree_node.content_document = content_document
-					dom_tree_node.content_document.parent_node = dom_tree_node
+					# First check if the iframe element itself is visible
+					if dom_tree_node.is_visible:
+						# Check iframe dimensions
+						if dom_tree_node.snapshot_node and dom_tree_node.snapshot_node.bounds:
+							bounds = dom_tree_node.snapshot_node.bounds
+							width = bounds.width
+							height = bounds.height
+
+							# Only process if iframe is at least 50px in both dimensions
+							if width >= 50 and height >= 50:
+								should_process_iframe = True
+								self.logger.debug(f'Processing cross-origin iframe: visible=True, width={width}, height={height}')
+							else:
+								self.logger.debug(
+									f'Skipping small cross-origin iframe: width={width}, height={height} (needs >= 50px)'
+								)
+						else:
+							self.logger.debug('Skipping cross-origin iframe: no bounds available')
+					else:
+						self.logger.debug('Skipping invisible cross-origin iframe')
+
+					if should_process_iframe:
+						# Use get_all_frames to find the iframe's target
+						frame_id = node.get('frameId', None)
+						if frame_id:
+							all_frames, _ = await self.browser_session.get_all_frames()
+							frame_info = all_frames.get(frame_id)
+							iframe_document_target = None
+							if frame_info and frame_info.get('frameTargetId'):
+								# Get the target info for this iframe
+								targets = await self.browser_session.cdp_client.send.Target.getTargets()
+								iframe_document_target = next(
+									(t for t in targets['targetInfos'] if t['targetId'] == frame_info['frameTargetId']), None
+								)
+						else:
+							iframe_document_target = None
+						# if target actually exists in one of the frames, just recursively build the dom tree for it
+						if iframe_document_target:
+							self.logger.debug(
+								f'Getting content document for iframe {node.get("frameId", None)} at depth {iframe_depth + 1}'
+							)
+							content_document = await self.get_dom_tree(
+								target_id=iframe_document_target.get('targetId'),
+								# TODO: experiment with this values -> not sure whether the whole cross origin iframe should be ALWAYS included as soon as some part of it is visible or not.
+								# Current config: if the cross origin iframe is AT ALL visible, then just include everything inside of it!
+								# initial_html_frames=updated_html_frames,
+								initial_total_frame_offset=total_frame_offset,
+								iframe_depth=iframe_depth + 1,
+							)
+
+							dom_tree_node.content_document = content_document
+							dom_tree_node.content_document.parent_node = dom_tree_node
 
 			return dom_tree_node
 
@@ -651,6 +721,7 @@ class DomService:
 
 		return enhanced_dom_tree_node
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='get_serialized_dom_tree')
 	async def get_serialized_dom_tree(
 		self, previous_cached_state: SerializedDOMState | None = None
 	) -> tuple[SerializedDOMState, EnhancedDOMTreeNode, dict[str, float]]:
@@ -666,7 +737,7 @@ class DomService:
 
 		start = time.time()
 		serialized_dom_state, serializer_timing = DOMTreeSerializer(
-			enhanced_dom_tree, previous_cached_state
+			enhanced_dom_tree, previous_cached_state, paint_order_filtering=self.paint_order_filtering
 		).serialize_accessible_elements()
 
 		end = time.time()
@@ -676,3 +747,79 @@ class DomService:
 		all_timing = {**serializer_timing, **serialize_total_timing}
 
 		return serialized_dom_state, enhanced_dom_tree, all_timing
+
+	@staticmethod
+	def detect_pagination_buttons(selector_map: dict[int, EnhancedDOMTreeNode]) -> list[dict[str, str | int | bool]]:
+		"""Detect pagination buttons from the selector map.
+
+		Args:
+			selector_map: Map of element indices to EnhancedDOMTreeNode
+
+		Returns:
+			List of pagination button information dicts with:
+			- button_type: 'next', 'prev', 'first', 'last', 'page_number'
+			- backend_node_id: Backend node ID for clicking
+			- text: Button text/label
+			- selector: XPath selector
+			- is_disabled: Whether the button appears disabled
+		"""
+		pagination_buttons: list[dict[str, str | int | bool]] = []
+
+		# Common pagination patterns to look for
+		next_patterns = ['next', '>', '»', '→', 'siguiente', 'suivant', 'weiter', 'volgende']
+		prev_patterns = ['prev', 'previous', '<', '«', '←', 'anterior', 'précédent', 'zurück', 'vorige']
+		first_patterns = ['first', '⇤', '«', 'primera', 'première', 'erste', 'eerste']
+		last_patterns = ['last', '⇥', '»', 'última', 'dernier', 'letzte', 'laatste']
+
+		for index, node in selector_map.items():
+			# Skip non-clickable elements
+			if not node.snapshot_node or not node.snapshot_node.is_clickable:
+				continue
+
+			# Get element text and attributes
+			text = node.get_all_children_text().lower().strip()
+			aria_label = node.attributes.get('aria-label', '').lower()
+			title = node.attributes.get('title', '').lower()
+			class_name = node.attributes.get('class', '').lower()
+			role = node.attributes.get('role', '').lower()
+
+			# Combine all text sources for pattern matching
+			all_text = f'{text} {aria_label} {title} {class_name}'.strip()
+
+			# Check if it's disabled
+			is_disabled = (
+				node.attributes.get('disabled') == 'true'
+				or node.attributes.get('aria-disabled') == 'true'
+				or 'disabled' in class_name
+			)
+
+			button_type: str | None = None
+
+			# Check for next button
+			if any(pattern in all_text for pattern in next_patterns):
+				button_type = 'next'
+			# Check for previous button
+			elif any(pattern in all_text for pattern in prev_patterns):
+				button_type = 'prev'
+			# Check for first button
+			elif any(pattern in all_text for pattern in first_patterns):
+				button_type = 'first'
+			# Check for last button
+			elif any(pattern in all_text for pattern in last_patterns):
+				button_type = 'last'
+			# Check for numeric page buttons (single or double digit)
+			elif text.isdigit() and len(text) <= 2 and role in ['button', 'link', '']:
+				button_type = 'page_number'
+
+			if button_type:
+				pagination_buttons.append(
+					{
+						'button_type': button_type,
+						'backend_node_id': index,
+						'text': node.get_all_children_text().strip() or aria_label or title,
+						'selector': node.xpath,
+						'is_disabled': is_disabled,
+					}
+				)
+
+		return pagination_buttons

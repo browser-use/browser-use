@@ -18,6 +18,7 @@ from browser_use.browser.events import (
 	BrowserStopEvent,
 )
 from browser_use.browser.watchdog_base import BaseWatchdog
+from browser_use.observability import observe_debug
 
 if TYPE_CHECKING:
 	pass
@@ -42,6 +43,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 	_temp_dirs_to_cleanup: list[Path] = PrivateAttr(default_factory=list)
 	_original_user_data_dir: str | None = PrivateAttr(default=None)
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='browser_launch_event')
 	async def on_BrowserLaunchEvent(self, event: BrowserLaunchEvent) -> BrowserLaunchResult:
 		"""Launch a local browser process."""
 
@@ -85,6 +87,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 			# Dispatch BrowserKillEvent without awaiting so it gets processed after all BrowserStopEvent handlers
 			self.event_bus.dispatch(BrowserKillEvent())
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='launch_browser_process')
 	async def _launch_browser(self, max_retries: int = 3) -> tuple[psutil.Process, str]:
 		"""Launch browser process and return (process, cdp_url).
 
@@ -135,6 +138,9 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 				# Launch browser subprocess directly
 				self.logger.debug(f'[LocalBrowserWatchdog] 🚀 Launching browser subprocess with {len(launch_args)} args...')
+				self.logger.debug(
+					f'[LocalBrowserWatchdog] 📂 user_data_dir={profile.user_data_dir}, profile_directory={profile.profile_directory}'
+				)
 				subprocess = await asyncio.create_subprocess_exec(
 					browser_path,
 					*launch_args,
@@ -308,14 +314,16 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 	async def _install_browser_with_playwright(self) -> str:
 		"""Get browser executable path from playwright in a subprocess to avoid thread issues."""
+		import platform
+
+		# Build command - only use --with-deps on Linux (it fails on Windows/macOS)
+		cmd = ['uvx', 'playwright', 'install', 'chrome']
+		if platform.system() == 'Linux':
+			cmd.append('--with-deps')
 
 		# Run in subprocess with timeout
 		process = await asyncio.create_subprocess_exec(
-			'uvx',
-			'playwright',
-			'install',
-			'chrome',
-			'--with-deps',
+			*cmd,
 			stdout=asyncio.subprocess.PIPE,
 			stderr=asyncio.subprocess.PIPE,
 		)
@@ -327,7 +335,7 @@ class LocalBrowserWatchdog(BaseWatchdog):
 			if browser_path:
 				return browser_path
 			self.logger.error(f'[LocalBrowserWatchdog] ❌ Playwright local browser installation error: \n{stdout}\n{stderr}')
-			raise RuntimeError('No local browser path found after: uvx playwright install chrome --with-deps')
+			raise RuntimeError('No local browser path found after: uvx playwright install chrome')
 		except TimeoutError:
 			# Kill the subprocess if it times out
 			process.kill()

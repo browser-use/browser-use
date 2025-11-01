@@ -1,7 +1,7 @@
 """
 Runs all agent tasks in parallel (up to 10 at a time) using separate subprocesses.
 Each task gets its own Python process, preventing browser session interference.
-Does not fail on partial failures (always exits 0).
+Fails with exit code 1 if 0% of tasks pass.
 """
 
 import argparse
@@ -13,15 +13,14 @@ import os
 import sys
 import warnings
 
-import aiofiles
+import anyio
 import yaml
+from dotenv import load_dotenv
 from pydantic import BaseModel
 
-from browser_use.agent.service import Agent
-from browser_use.agent.views import AgentHistoryList
-from browser_use.browser.profile import BrowserProfile
-from browser_use.browser.session import BrowserSession
-from browser_use.llm import ChatOpenAI
+load_dotenv()
+from browser_use import Agent, AgentHistoryList, BrowserProfile, BrowserSession, ChatBrowserUse
+from browser_use.llm.google.chat import ChatGoogle
 from browser_use.llm.messages import UserMessage
 
 # --- CONFIG ---
@@ -51,8 +50,7 @@ async def run_single_task(task_file):
 		warnings.filterwarnings('ignore')
 
 		print('[DEBUG] Loading task file...', file=sys.stderr)
-		async with aiofiles.open(task_file, 'r') as f:
-			content = await f.read()
+		content = await anyio.Path(task_file).read_text()
 		task_data = yaml.safe_load(content)
 		task = task_data['task']
 		judge_context = task_data.get('judge_context', ['The agent must solve the task'])
@@ -60,9 +58,28 @@ async def run_single_task(task_file):
 
 		print(f'[DEBUG] Task: {task[:100]}...', file=sys.stderr)
 		print(f'[DEBUG] Max steps: {max_steps}', file=sys.stderr)
+		api_key = os.getenv('BROWSER_USE_API_KEY')
+		if not api_key:
+			print('[SKIP] BROWSER_USE_API_KEY is not set - skipping task evaluation', file=sys.stderr)
+			return {
+				'file': os.path.basename(task_file),
+				'success': True,  # Mark as success so it doesn't fail CI
+				'explanation': 'Skipped - API key not available (fork PR or missing secret)',
+			}
 
-		agent_llm = ChatOpenAI(model='gpt-4.1-mini')
-		judge_llm = ChatOpenAI(model='gpt-4.1-mini')
+		agent_llm = ChatBrowserUse(api_key=api_key)
+
+		# Check if Google API key is available for judge LLM
+		google_api_key = os.getenv('GOOGLE_API_KEY')
+		if not google_api_key:
+			print('[SKIP] GOOGLE_API_KEY is not set - skipping task evaluation', file=sys.stderr)
+			return {
+				'file': os.path.basename(task_file),
+				'success': True,  # Mark as success so it doesn't fail CI
+				'explanation': 'Skipped - Google API key not available (fork PR or missing secret)',
+			}
+
+		judge_llm = ChatGoogle(model='gemini-flash-lite-latest')
 		print('[DEBUG] LLMs initialized', file=sys.stderr)
 
 		# Each subprocess gets its own profile and session
@@ -71,7 +88,6 @@ async def run_single_task(task_file):
 			headless=True,
 			user_data_dir=None,
 			chromium_sandbox=False,  # Disable sandbox for CI environment (GitHub Actions)
-			stealth=True,  #
 		)
 		session = BrowserSession(browser_profile=profile)
 		print('[DEBUG] Browser session created', file=sys.stderr)
@@ -349,3 +365,8 @@ if __name__ == '__main__':
 		# Parent process mode: run all tasks in parallel subprocesses
 		passed, total = asyncio.run(main())
 		# Results already printed by main() function
+
+		# Fail if 0% pass rate (all tasks failed)
+		if total > 0 and passed == 0:
+			print('\n❌ CRITICAL: 0% pass rate - all tasks failed!')
+			sys.exit(1)

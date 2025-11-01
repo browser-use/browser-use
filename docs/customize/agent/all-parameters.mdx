@@ -8,12 +8,12 @@ mode: "wide"
 ## Available Parameters
 
 ### Core Settings
-- `tools`: Registry of [our tools](https://github.com/browser-use/browser-use/blob/main/browser_use/tools/service.py) the agent can call. [Example for custom tools](https://github.com/browser-use/browser-use/tree/main/examples/custom-functions)
+- `tools`: Registry of <a href = "../tools/available">tools</a> the agent can call. <a href = "../tools/basics">Example</a>
 - `browser`: Browser object where you can specify the browser settings.
 - `output_model_schema`: Pydantic model class for structured output validation. [Example](https://github.com/browser-use/browser-use/blob/main/examples/features/custom_output.py)
 
 ### Vision & Processing
-- `use_vision` (default: `True`): Enable/disable vision capabilities for processing screenshots
+- `use_vision` (default: `"auto"`): Vision mode - `"auto"` includes screenshot tool but only uses vision when requested, `True` always includes screenshots, `False` never includes screenshots and excludes screenshot tool
 - `vision_detail_level` (default: `'auto'`): Screenshot detail level - `'low'`, `'high'`, or `'auto'`
 - `page_extraction_llm`: Separate LLM model for page content extraction. You can choose a small & fast model because it only needs to extract text from the page (default: same as `llm`)
 
@@ -21,6 +21,7 @@ mode: "wide"
 - `initial_actions`: List of actions to run before the main task without LLM. [Example](https://github.com/browser-use/browser-use/blob/main/examples/features/initial_actions.py)
 - `max_actions_per_step` (default: `10`): Maximum actions per step, e.g. for form filling the agent can output 10 fields at once. We execute the actions until the page changes.
 - `max_failures` (default: `3`): Maximum retries for steps with errors
+- `final_response_after_failure` (default: `True`): If True, attempt to force one final model call with intermediate output after max_failures is reached
 - `use_thinking` (default: `True`): Controls whether the agent uses its internal "thinking" field for explicit reasoning steps.
 - `flash_mode` (default: `False`): Fast mode that skips evaluation, next goal and thinking and only uses memory. If `flash_mode` is enabled, it overrides `use_thinking` and disables the thinking process entirely. [Example](https://github.com/browser-use/browser-use/blob/main/examples/getting_started/05_fast_agent.py)
 

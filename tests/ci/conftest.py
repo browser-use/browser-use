@@ -190,7 +190,6 @@ def cloud_sync(httpserver: HTTPServer):
 	# Create CloudSync with test server URL
 	cloud_sync = CloudSync(
 		base_url=test_http_server_url,
-		enable_auth=False,  # Disable auth for most tests, they can override this if needed
 	)
 
 	return cloud_sync
@@ -204,12 +203,11 @@ def mock_llm():
 
 @pytest.fixture(scope='function')
 def agent_with_cloud(browser_session, mock_llm, cloud_sync):
-	"""Create agent with cloud sync enabled (using real CloudSync)."""
+	"""Create agent (cloud_sync parameter removed)."""
 	agent = Agent(
 		task='Test task',
 		llm=mock_llm,
 		browser_session=browser_session,
-		cloud_sync=cloud_sync,
 	)
 	return agent
 

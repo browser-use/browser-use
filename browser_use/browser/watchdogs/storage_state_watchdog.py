@@ -12,6 +12,7 @@ from pydantic import Field, PrivateAttr
 
 from browser_use.browser.events import (
 	BrowserConnectedEvent,
+	BrowserStopEvent,
 	LoadStorageStateEvent,
 	SaveStorageStateEvent,
 	StorageStateLoadedEvent,
@@ -26,6 +27,7 @@ class StorageStateWatchdog(BaseWatchdog):
 	# Event contracts
 	LISTENS_TO: ClassVar[list[type[BaseEvent]]] = [
 		BrowserConnectedEvent,
+		BrowserStopEvent,
 		SaveStorageStateEvent,
 		LoadStorageStateEvent,
 	]
@@ -51,7 +53,12 @@ class StorageStateWatchdog(BaseWatchdog):
 		await self._start_monitoring()
 
 		# Automatically load storage state after browser start
-		self.event_bus.dispatch(LoadStorageStateEvent())
+		await self.event_bus.dispatch(LoadStorageStateEvent())
+
+	async def on_BrowserStopEvent(self, event: BrowserStopEvent) -> None:
+		"""Stop monitoring when browser stops."""
+		self.logger.debug('[StorageStateWatchdog] Stopping storage_state monitoring')
+		await self._stop_monitoring()
 
 	async def on_SaveStorageStateEvent(self, event: SaveStorageStateEvent) -> None:
 		"""Handle storage state save request."""
@@ -158,7 +165,7 @@ class StorageStateWatchdog(BaseWatchdog):
 		"""Save browser storage state to file."""
 		async with self._save_lock:
 			# Check if CDP client is available
-			assert await self.browser_session.get_or_create_cdp_session(target_id=None, new_socket=False)
+			assert await self.browser_session.get_or_create_cdp_session(target_id=None)
 
 			save_path = path or self.browser_session.browser_profile.storage_state
 			if not save_path:

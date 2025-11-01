@@ -8,6 +8,11 @@
 
 name: publish
 
+# Cancel in-progress runs when a new commit is pushed to the same branch/PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 on:
   release:
     types: [published]     # publish full release to PyPI when a release is created on Github
@@ -76,7 +81,7 @@ jobs:
           activate-environment: true
       - run: uv sync
 
-      - run: uv run ruff check --no-fix --select PLE # quick check for syntax errors to avoid waiting time doing the rest of the build
+      - run: uv run --no-sync ruff check --no-fix --select PLE # quick check for syntax errors to avoid waiting time doing the rest of the build
       - run: uv build
 
       # - name: Detect installed Playwright version

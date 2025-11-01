@@ -48,6 +48,7 @@ class ChatOpenRouter(BaseChatModel):
 	default_query: Mapping[str, object] | None = None
 	http_client: httpx.AsyncClient | None = None
 	_strict_response_validation: bool = False
+	extra_body: dict[str, Any] | None = None
 
 	# Static
 	@property
@@ -148,6 +149,7 @@ class ChatOpenRouter(BaseChatModel):
 					top_p=self.top_p,
 					seed=self.seed,
 					extra_headers=extra_headers,
+					**(self.extra_body or {}),
 				)
 
 				usage = self._get_usage(response)
@@ -178,6 +180,7 @@ class ChatOpenRouter(BaseChatModel):
 						type='json_schema',
 					),
 					extra_headers=extra_headers,
+					**(self.extra_body or {}),
 				)
 
 				if response.choices[0].message.content is None:

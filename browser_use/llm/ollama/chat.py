@@ -1,8 +1,10 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, TypeVar, overload
 
 import httpx
 from ollama import AsyncClient as OllamaAsyncClient
+from ollama import Options
 from pydantic import BaseModel
 
 from browser_use.llm.base import BaseChatModel
@@ -30,6 +32,7 @@ class ChatOllama(BaseChatModel):
 	host: str | None = None
 	timeout: float | httpx.Timeout | None = None
 	client_params: dict[str, Any] | None = None
+	ollama_options: Mapping[str, Any] | Options | None = None
 
 	# Static
 	@property
@@ -70,6 +73,7 @@ class ChatOllama(BaseChatModel):
 				response = await self.get_client().chat(
 					model=self.model,
 					messages=ollama_messages,
+					options=self.ollama_options,
 				)
 
 				return ChatInvokeCompletion(completion=response.message.content or '', usage=None)
@@ -80,6 +84,7 @@ class ChatOllama(BaseChatModel):
 					model=self.model,
 					messages=ollama_messages,
 					format=schema,
+					options=self.ollama_options,
 				)
 
 				completion = response.message.content or ''

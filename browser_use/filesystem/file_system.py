@@ -1,4 +1,5 @@
 import asyncio
+import os
 import re
 import shutil
 from abc import ABC, abstractmethod
@@ -6,8 +7,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from markdown_pdf import MarkdownPdf, Section
 from pydantic import BaseModel, Field
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
 INVALID_FILENAME_ERROR_MESSAGE = 'Error: Invalid filename format. Must be alphanumeric with supported extension.'
 DEFAULT_FILE_SYSTEM_PATH = 'browseruse_agent_data'
@@ -110,6 +113,14 @@ class CsvFile(BaseFile):
 		return 'csv'
 
 
+class JsonlFile(BaseFile):
+	"""JSONL (JSON Lines) file implementation"""
+
+	@property
+	def extension(self) -> str:
+		return 'jsonl'
+
+
 class PdfFile(BaseFile):
 	"""PDF file implementation"""
 
@@ -120,9 +131,32 @@ class PdfFile(BaseFile):
 	def sync_to_disk_sync(self, path: Path) -> None:
 		file_path = path / self.full_name
 		try:
-			md_pdf = MarkdownPdf()
-			md_pdf.add_section(Section(self.content))
-			md_pdf.save(file_path)
+			# Create PDF document
+			doc = SimpleDocTemplate(str(file_path), pagesize=letter)
+			styles = getSampleStyleSheet()
+			story = []
+
+			# Convert markdown content to simple text and add to PDF
+			# For basic implementation, we'll treat content as plain text
+			# This avoids the AGPL license issue while maintaining functionality
+			content_lines = self.content.split('\n')
+
+			for line in content_lines:
+				if line.strip():
+					# Handle basic markdown headers
+					if line.startswith('# '):
+						para = Paragraph(line[2:], styles['Title'])
+					elif line.startswith('## '):
+						para = Paragraph(line[3:], styles['Heading1'])
+					elif line.startswith('### '):
+						para = Paragraph(line[4:], styles['Heading2'])
+					else:
+						para = Paragraph(line, styles['Normal'])
+					story.append(para)
+				else:
+					story.append(Spacer(1, 6))
+
+			doc.build(story)
 		except Exception as e:
 			raise FileSystemError(f"Error: Could not write to file '{self.full_name}'. {str(e)}")
 
@@ -158,6 +192,7 @@ class FileSystem:
 			'md': MarkdownFile,
 			'txt': TxtFile,
 			'json': JsonFile,
+			'jsonl': JsonlFile,
 			'csv': CsvFile,
 			'pdf': PdfFile,
 		}
@@ -193,8 +228,9 @@ class FileSystem:
 		"""Check if filename matches the required pattern: name.extension"""
 		# Build extensions pattern from _file_types
 		extensions = '|'.join(self._file_types.keys())
-		pattern = rf'^[a-zA-Z0-9_\-]+\.({extensions})$'
-		return bool(re.match(pattern, file_name))
+		pattern = rf'^[a-zA-Z0-9_\-\u4e00-\u9fff]+\.({extensions})$'
+		file_name_base = os.path.basename(file_name)
+		return bool(re.match(pattern, file_name_base))
 
 	def _parse_filename(self, filename: str) -> tuple[str, str]:
 		"""Parse filename into name and extension. Always check _is_valid_filename first."""
@@ -236,7 +272,7 @@ class FileSystem:
 					_, extension = self._parse_filename(full_filename)
 				except Exception:
 					return f'Error: Invalid filename format {full_filename}. Must be alphanumeric with a supported extension.'
-				if extension in ['md', 'txt', 'json', 'csv']:
+				if extension in ['md', 'txt', 'json', 'jsonl', 'csv']:
 					import anyio
 
 					async with await anyio.open_file(full_filename, 'r') as f:
@@ -247,7 +283,7 @@ class FileSystem:
 
 					reader = pypdf.PdfReader(full_filename)
 					num_pages = len(reader.pages)
-					MAX_PDF_PAGES = 10
+					MAX_PDF_PAGES = 20
 					extra_pages = num_pages - MAX_PDF_PAGES
 					extracted_text = ''
 					for page in reader.pages[:MAX_PDF_PAGES]:
@@ -351,7 +387,7 @@ class FileSystem:
 		await file_obj.write(content, self.data_dir)
 		self.files[extracted_filename] = file_obj
 		self.extracted_content_count += 1
-		return f'Extracted content saved to file {extracted_filename} successfully.'
+		return extracted_filename
 
 	def describe(self) -> str:
 		"""List all files with their content information using file-specific display methods"""
@@ -464,6 +500,8 @@ class FileSystem:
 				file_obj = TxtFile(**file_info)
 			elif file_type == 'JsonFile':
 				file_obj = JsonFile(**file_info)
+			elif file_type == 'JsonlFile':
+				file_obj = JsonlFile(**file_info)
 			elif file_type == 'CsvFile':
 				file_obj = CsvFile(**file_info)
 			elif file_type == 'PdfFile':

@@ -8,6 +8,7 @@ We officially support the following LLMs:
 - Groq
 - Ollama
 - DeepSeek
+- Cerebras
 
 ## Migrating from LangChain
 

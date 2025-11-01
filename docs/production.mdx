@@ -1,0 +1,42 @@
+---
+title: "Going to Production"
+description: "Deploy with authentication"
+icon: "rocket-launch"
+---
+
+Deploy with saved authentication: test locally → sync cookies → use cloud profile.
+
+## 1. Test Locally
+
+```python
+browser = Browser(
+    executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    user_data_dir='~/Library/Application Support/Google/Chrome',
+    profile_directory='Default',
+)
+agent = Agent(task="your task", browser=browser, llm=ChatBrowserUse())
+await agent.run()
+```
+
+<Warning>Close Chrome completely before running.</Warning>
+
+## 2. Sync to Cloud
+
+Create profile at [cloud.browser-use.com/dashboard/settings?tab=profiles](https://cloud.browser-use.com/dashboard/settings?tab=profiles)
+
+```bash
+export BROWSER_USE_API_KEY=your_key && curl -fsSL https://browser-use.com/profile.sh | sh
+```
+
+Log into your accounts in the browser that opens. You'll get a `profile_id`.
+
+## 3. Use in Production
+
+```python
+@sandbox(cloud_profile_id='your-profile-id')
+async def task(browser: Browser):
+    agent = Agent(task="authenticated task", browser=browser, llm=ChatBrowserUse())
+    await agent.run()
+```
+
+Done - your cloud browser is already logged in.

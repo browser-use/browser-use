@@ -9,7 +9,7 @@ import logging
 import os
 import sys
 
-import aiofiles
+import anyio
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -83,8 +83,7 @@ async def main():
 	# Create test files if they don't exist
 	for file_path in available_file_paths:
 		if not os.path.exists(file_path):
-			async with aiofiles.open(file_path, 'w') as f:
-				await f.write('Test file content for upload example')
+			await anyio.Path(file_path).write_text('Test file content for upload example')
 
 	# Create the agent with file upload capability
 	agent = Agent(

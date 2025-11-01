@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-import aiofiles
+import anyio
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -123,8 +123,7 @@ class GmailService:
 					self.creds = flow.run_local_server(port=8080, open_browser=True)
 
 				# Save tokens for next time
-				async with aiofiles.open(self.token_file, 'w') as token:
-					await token.write(self.creds.to_json())
+				await anyio.Path(self.token_file).write_text(self.creds.to_json())
 				logger.info(f'💾 Tokens saved to {self.token_file}')
 
 			# Build Gmail service
