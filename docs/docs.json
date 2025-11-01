@@ -1,0 +1,324 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "aspen",
+  "name": "Browser Use",
+  "colors": {
+    "primary": "#FE750E",
+    "light": "#FFF7ED",
+    "dark": "#C2410C"
+  },
+  "favicon": "/favicon.ico",
+  "contextual": {
+    "options": [
+      "copy",
+      "view"
+    ]
+  },
+  "fonts": {
+    "family": "Geist"
+  },
+  "integrations": {
+    "posthog": {
+      "apiKey": "phc_F8JMNjW1i2KbGUTaW1unnDdLSPCoyc52SGRU0JecaUh"
+    }
+  },
+  "redirects": [
+    {
+      "source": "/customize/supported-models",
+      "destination": "/supported-models"
+    },
+    {
+      "source": "/customize/agent/supported-models",
+      "destination": "/supported-models"
+    },
+    {
+      "source": "/customize/agent-settings",
+      "destination": "/customize/agent/all-parameters"
+    },
+    {
+      "source": "/customize/browser-settings",
+      "destination": "/customize/browser/all-parameters"
+    },
+    {
+      "source": "/customize/custom-functions",
+      "destination": "/customize/tools/add"
+    },
+    {
+      "source": "/customize/system-prompt",
+      "destination": "/customize/agent/all-parameters#system-messages"
+    },
+    {
+      "source": "/development/evaluations",
+      "destination": "/development/setup/contribution-guide"
+    },
+    {
+      "source": "/cli",
+      "destination": "/quickstart"
+    },
+    {
+      "source": "/development/local-setup",
+      "destination": "/development/setup/local-setup"
+    },
+    {
+      "source": "/development/contribution-guide",
+      "destination": "/development/setup/contribution-guide"
+    },
+    {
+      "source": "/development/telemetry",
+      "destination": "/development/monitoring/telemetry"
+    },
+    {
+      "source": "/development/observability",
+      "destination": "/development/monitoring/observability"
+    },
+    {
+      "source": "/development/hooks",
+      "destination": "/customize/hooks"
+    },
+    {
+      "source": "/customize/mcp-server",
+      "destination": "/customize/integrations/mcp-server"
+    },
+    {
+      "source": "/customize/examples/chain-agents",
+      "destination": "/customize/examples/follow-up-tasks"
+    },
+    {
+      "source": "/customize/examples/fast-agent",
+      "destination": "/examples/templates/fast-agent"
+    },
+    {
+      "source": "/customize/examples/follow-up-tasks",
+      "destination": "/examples/templates/follow-up-tasks"
+    },
+    {
+      "source": "/customize/examples/parallel-browser",
+      "destination": "/examples/templates/parallel-browser"
+    },
+    {
+      "source": "/customize/examples/playwright-integration",
+      "destination": "/examples/templates/playwright-integration"
+    },
+    {
+      "source": "/customize/examples/sensitive-data",
+      "destination": "/examples/templates/sensitive-data"
+    },
+    {
+      "source": "/customize/examples/secure",
+      "destination": "/examples/templates/secure"
+    },
+    {
+      "source": "/customize/examples/more-examples",
+      "destination": "/examples/templates/more-examples"
+    },
+    {
+      "source": "/customize/examples/ad-use",
+      "destination": "/examples/apps/ad-use"
+    },
+    {
+      "source": "/customize/examples/vibetest-use",
+      "destination": "/examples/apps/vibetest-use"
+    },
+    {
+      "source": "/customize/examples/prompting-guide",
+      "destination": "/customize/agent/prompting-guide"
+    },
+    {
+      "source": "/api-reference/browser-profiles/get-browser-profile",
+      "destination": "https://docs.cloud.browser-use.com/api-reference/v-2-api-current/profiles/get-profile-profiles-profile-id-get"
+    },
+    {
+      "source": "/cloud/v2/quickstart",
+      "destination": "https://docs.cloud.browser-use.com/get-started/quickstart"
+    },
+    {
+      "source": "/cloud/v1/*",
+      "destination": "https://docs.cloud.browser-use.com"
+    }
+  ],
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get Started",
+        "pages": [
+          "introduction",
+          "quickstart",
+          "quickstart_llm",
+          "supported-models"
+        ]
+      },
+      {
+        "group": "Customize",
+        "pages": [
+          {
+            "group": "Agent",
+            "icon": "robot",
+            "isDefaultOpen": true,
+            "pages": [
+              "customize/agent/basics",
+              "customize/agent/prompting-guide",
+              "customize/agent/output-format",
+              "customize/agent/all-parameters"
+            ]
+          },
+          {
+            "group": "Code Agent",
+            "icon": "code",
+            "isDefaultOpen": false,
+            "pages": [
+              "customize/code-agent/basics",
+              "customize/code-agent/exporting",
+              "customize/code-agent/all-parameters",
+              "customize/code-agent/example-products"
+            ]
+          },
+          {
+            "group": "Browser",
+            "icon": "window",
+            "isDefaultOpen": false,
+            "pages": [
+              "customize/browser/basics",
+              "customize/browser/real-browser",
+              "customize/browser/remote",
+              "customize/browser/all-parameters"
+            ]
+          },
+          {
+            "group": "Tools",
+            "icon": "wrench",
+            "isDefaultOpen": false,
+            "pages": [
+              "customize/tools/basics",
+              "customize/tools/available",
+              "customize/tools/add",
+              "customize/tools/remove",
+              "customize/tools/response"
+            ]
+          },
+          {
+            "group": "Actor",
+            "icon": "terminal",
+            "isDefaultOpen": false,
+            "pages": [
+              "customize/actor/basics",
+              "customize/actor/examples",
+              "customize/actor/all-parameters"
+            ]
+          },
+          {
+            "group": "Integration",
+            "icon": "plug",
+            "isDefaultOpen": false,
+            "pages": [
+              "customize/integrations/docs-mcp",
+              "customize/integrations/mcp-server"
+            ]
+          }
+        ]
+      },
+      {
+        "group": "Examples",
+        "pages": [
+          {
+            "group": "Templates",
+            "icon": "folder",
+            "pages": [
+              "examples/templates/fast-agent",
+              "examples/templates/follow-up-tasks",
+              "examples/templates/parallel-browser",
+              "examples/templates/playwright-integration",
+              "examples/templates/sensitive-data",
+              "examples/templates/secure",
+              "examples/templates/more-examples"
+            ]
+          },
+          {
+            "group": "Apps",
+            "icon": "box-open",
+            "pages": [
+              "examples/apps/ad-use",
+              "examples/apps/vibetest-use",
+              "examples/apps/news-use",
+              "examples/apps/msg-use"
+            ]
+          }
+        ]
+      },
+      {
+        "group": "Development",
+        "pages": [
+          {
+            "group": "Contribution",
+            "icon": "github",
+            "isDefaultOpen": true,
+            "pages": [
+              "development/setup/local-setup",
+              "development/setup/contribution-guide"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "icon": "gear",
+            "isDefaultOpen": false,
+            "pages": [
+              "customize/hooks"
+            ]
+          },
+          {
+            "group": "Monitoring",
+            "icon": "chart-mixed",
+            "isDefaultOpen": false,
+            "pages": [
+              "development/monitoring/observability",
+              "development/monitoring/openlit",
+              "development/monitoring/telemetry",
+              "development/monitoring/costs"
+            ]
+          },
+          "development/get-help"
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "api": {
+    "playground": {
+      "display": "interactive"
+    },
+    "examples": {
+      "languages": [
+        "javascript",
+        "curl",
+        "python"
+      ],
+      "required": true
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Github",
+        "href": "https://github.com/browser-use/browser-use"
+      },
+      {
+        "label": "Discord",
+        "href": "https://link.browser-use.com/discord"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Browser Use Cloud",
+      "href": "https://cloud.browser-use.com"
+    }
+  },
+  "footer": {
+    "socials": {
+      "x": "https://x.com/browser_use",
+      "github": "https://github.com/browser-use/browser-use",
+      "linkedin": "https://linkedin.com/company/browser-use"
+    }
+  }
+}

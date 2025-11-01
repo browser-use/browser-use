@@ -1,0 +1,137 @@
+---
+title: "Human Quickstart"
+description: ""
+icon: "rocket"
+---
+
+To get started with Browser Use you need to install the package and create an `.env` file with your API key.
+
+<Note icon="key" color="#FFC107" iconType="regular">
+`ChatBrowserUse` offers the [fastest and most cost-effective models](https://browser-use.com/posts/speed-matters/), completing tasks 3-5x faster. Get started with $10 of [free LLM credits](https://cloud.browser-use.com/new-api-key).
+</Note>
+
+## 1. Installing Browser-Use
+
+
+```bash create environment
+pip install uv
+uv venv --python 3.12
+```
+```bash activate environment
+source .venv/bin/activate
+# On Windows use `.venv\Scripts\activate`
+```
+```bash install browser-use & chromium
+uv pip install browser-use
+uvx browser-use install
+```
+
+
+## 2. Choose your favorite LLM
+Create a `.env` file and add your API key. 
+
+<Callout icon="key" iconType="regular">
+We recommend using ChatBrowserUse which is optimized for browser automation tasks (highest accuracy + fastest speed + lowest token cost). Don't have one? We give you **$10** to try it out [here](https://cloud.browser-use.com/new-api-key).
+</Callout>
+
+```bash .env
+touch .env
+```
+
+<Info>On Windows, use `echo. > .env`</Info>
+
+Then add your API key to the file.
+
+<CodeGroup>
+```bash Browser Use
+# add your key to .env file
+BROWSER_USE_API_KEY=
+# Get 10$ of free credits at https://cloud.browser-use.com/new-api-key
+```
+```bash Google
+# add your key to .env file
+GOOGLE_API_KEY=
+# Get your free Gemini API key from https://aistudio.google.com/app/u/1/apikey?pli=1.
+```
+```bash OpenAI
+# add your key to .env file
+OPENAI_API_KEY=
+```
+```bash Anthropic
+# add your key to .env file
+ANTHROPIC_API_KEY=
+```
+</CodeGroup>
+
+See [Supported Models](/supported-models) for more.
+
+## 3. Run your first agent
+
+<CodeGroup>
+```python Browser Use
+from browser_use import Agent, ChatBrowserUse
+from dotenv import load_dotenv
+import asyncio
+
+load_dotenv()
+
+async def main():
+    llm = ChatBrowserUse()
+    task = "Find the number 1 post on Show HN"
+    agent = Agent(task=task, llm=llm)
+    await agent.run()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+```python Google
+from browser_use import Agent, ChatGoogle
+from dotenv import load_dotenv
+import asyncio
+
+load_dotenv()
+
+async def main():
+    llm = ChatGoogle(model="gemini-flash-latest")
+    task = "Find the number 1 post on Show HN"
+    agent = Agent(task=task, llm=llm)
+    await agent.run()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+```python OpenAI
+from browser_use import Agent, ChatOpenAI
+from dotenv import load_dotenv
+import asyncio
+
+load_dotenv()
+
+async def main():
+    llm = ChatOpenAI(model="gpt-4.1-mini")
+    task = "Find the number 1 post on Show HN"
+    agent = Agent(task=task, llm=llm)
+    await agent.run()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+```python Anthropic
+from browser_use import Agent, ChatAnthropic
+from dotenv import load_dotenv
+import asyncio
+
+load_dotenv()
+
+async def main():
+    llm = ChatAnthropic(model='claude-sonnet-4-0', temperature=0.0)
+    task = "Find the number 1 post on Show HN"
+    agent = Agent(task=task, llm=llm)
+    await agent.run()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+</CodeGroup>
+
+<Note> Custom browsers can be configured in one line. Check out <a href = "customize/browser/basics">browsers</a> for more. </Note>

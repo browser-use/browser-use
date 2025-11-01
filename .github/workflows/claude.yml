@@ -1,0 +1,150 @@
+name: Claude Code
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  claude:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      id-token: write
+      discussions: write
+      issues: write
+    env:
+      IS_SANDBOX: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          activate-environment: true
+
+      - run: uv sync --dev --all-extras
+
+      - name: Detect installed Playwright version
+        run: echo "PLAYWRIGHT_VERSION=$(uv pip list --format json | jq -r '.[] | select(.name == "playwright") | .version')" >> $GITHUB_ENV
+
+      # - name: Cache chrome binaries
+      #   uses: actions/cache@v4
+      #   with:
+      #     path: |
+      #       /tmp/google-chrome-stable_current_amd64.deb
+      #    key: ${{ runner.os }}-${{ runner.arch }}-chrome-stable
+
+      # - name: Install Chrome stable binary
+      #   run: |
+      #     sudo apt-get update -qq \
+      #     && sudo curl -o "/tmp/google-chrome-stable_current_amd64.deb" --no-clobber "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb" \
+      #     && sudo apt-get install -y "/tmp/google-chrome-stable_current_amd64.deb" -f
+      # - run: patchright install chrome --with-deps
+      # - run: playwright install chrome --with-deps
+
+      - name: Cache chromium binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ env.PLAYWRIGHT_VERSION }}-chromium
+
+      - run: playwright install chromium --with-deps
+      # - run: patchright install chromium --with-deps
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model: "claude-opus-4-20250514"
+          fallback_model: "claude-3-5-sonnet-20241022"
+          custom_instructions: |
+            when making any significant changes, start by adding one or two new failing test functions to the most relevant file you can find in tests/ci/*.py, then work on your changes until you get the tests passing.
+            make sure all lint errors are fixed before committing: `uv run pre-commit --all-files`, you can also use mcp tools to check Github CI status.
+            make sure to run the whole test file at the end to make sure no other tests in that file started failing due to your changes: `uv run pytest/ci/test_....py`.
+            if any significant features were added or removed, or any public-facing parameters/signatures changed, make sure to look through docs/*.mdx and examples/**.py and fix any relevant areas that might need to be updated.
+          branch_prefix: "claude-"
+          additional_permissions: |
+            actions: read
+          claude_env: |
+            IN_DOCKER: 'true'
+            BROWSER_USE_CLOUD_SYNC: 'false'
+            ANONYMIZED_TELEMETRY: 'false'
+            BROWSER_USE_LOGGING_LEVEL: 'DEBUG'
+            OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+            PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+            ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+            GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+            GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          settings: |
+            {
+              "permissions": {
+                "allow": [
+                  "Bash(git:*)",
+                  "Bash(uv:*)",
+                  "Bash(uv run pytest:*)",
+                  "Bash(uv run ruff:*)",
+                  "Bash(uv run pyright:*)",
+                  "Bash(uv run pre-commit:*)",
+                  "Bash(uv pip:*)",
+                  "Bash(uv add:*)",
+                  "Bash(uv sync --all-extras --dev)",
+                  "Bash(.venv/bin/*:*)",
+                  "Bash(.venv/bin/python:*)",
+                  "Bash(sed:*)",
+                  "Bash(rg:*)",
+                  "Bash(jq:*)",
+                  "Bash(find:*)",
+                  "Bash(grep:*)",
+                  "Bash(python:*)",
+                  "Bash(chmod:*)",
+                  "Bash(rm:*)",
+                  "Bash(playwright:*)",
+                  "Bash(uv run playwright:*)",
+                  "Bash(./bin/lint.sh)",
+                  "Bash(./bin/test.sh)",
+                  "WebFetch(*)",
+                  "WebSearch(*)"
+                ],
+                "additionalDirectories": ["/home/runner/work"]
+              }
+            }
+          allowed_tools: |
+            Bash(git:*)
+            Bash(uv:*)
+            Bash(uv run pytest:*)
+            Bash(uv run ruff:*)
+            Bash(uv run pyright:*)
+            Bash(uv run pre-commit:*)
+            Bash(uv pip:*)
+            Bash(uv add:*)
+            Bash(uv sync --all-extras --dev)
+            Bash(.venv/bin/*:*)
+            Bash(.venv/bin/python:*)
+            Bash(sed:*)
+            Bash(rg:*)
+            Bash(jq:*)
+            Bash(find:*)
+            Bash(grep:*)
+            Bash(python:*)
+            Bash(chmod:*)
+            Bash(rm:*)
+            Bash(playwright:*)
+            Bash(uv run playwright:*)
+            Bash(./bin/lint.sh)
+            Bash(./bin/test.sh)
+            WebFetch(*)
+            WebSearch(*)

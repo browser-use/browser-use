@@ -1,0 +1,77 @@
+name: 👾 Library Bug Report
+description: Report a bug in the browser-use Python library
+labels: ["bug", "triage"]
+title: "Bug: ..."
+body:
+  # - type: markdown
+  #   attributes:
+  #     value: |
+  #       Thanks for taking the time to fill out this bug report! Please fill out the form below to help us reproduce and fix the issue.
+
+
+  - type: input
+    id: version
+    attributes:
+      label: Browser Use Version
+      description: |
+        What exact version of `browser-use` are you using? (Run `uv pip show browser-use` or `git log -n 1`)
+        **DO NOT WRITE `latest release` or `main` or a very old version or we will close your issue!**
+      placeholder: "e.g. 0.4.45 or 62760baaefd"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description, Steps to Reproduce, Screenshots
+      description: A clear and concise description of what the bug is + steps taken, drag screenshots in showing any error messages and relevant pages.
+      placeholder: |
+        1. Installed browser-use library by running: `uv pip install browser-use`
+        2. Installed the browser by running: `playwright install chromium --with-deps`
+        3. Ran the code below with the following prompt: `go to example.com and do xyz...`
+        4. Agent crashed and showed the following error: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: code
+    attributes:
+      label: Failing Python Code
+      description: Include the exact python code you ran that encountered the issue, redact any sensitive URLs and API keys.
+      render: python
+      placeholder: |
+        from dotenv import load_dotenv
+        load_dotenv()  # tip: always load_dotenv() before other imports
+        from browser_use import Agent, BrowserSession, Tools
+        from browser_use.llm import ChatOpenAI
+
+        agent = Agent(
+            task='...',
+            llm=ChatOpenAI(model="gpt-4.1-mini"),
+            browser_session=BrowserSession(headless=False),
+        )
+        ...
+
+  - type: input
+    id: model
+    attributes:
+      label: LLM Model
+      description: Which LLM model are you using? (Optional)
+      placeholder: "e.g. ChatBrowserUse, gpt-4.1-mini, gemini-flash-latest, etc."
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating System & Browser Versions
+      description: What operating system and browser are you using? (Optional)
+      placeholder: "e.g. Ubuntu 24.04 + playwright chromium v136, Windows 11 + Chrome.exe v133, macOS ..."
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Full DEBUG Log Output
+      description: Please copy and paste the log output. Make sure to set `BROWSER_USE_LOG_LEVEL=DEBUG` in your `.env` or shell environment.
+      render: shell
+      placeholder: |
+        $ python /app/browser-use/examples/browser/real_browser.py
+        DEBUG    [browser] 🌎  Initializing new browser

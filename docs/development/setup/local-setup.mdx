@@ -1,0 +1,49 @@
+---
+title: "Local Setup"
+description: "We're excited to have you join our community of contributors. "
+icon: "laptop-code"
+mode: "wide"
+---
+
+## Welcome to Browser Use Development!
+
+```bash
+git clone https://github.com/browser-use/browser-use
+cd browser-use
+uv sync --all-extras --dev
+# or pip install -U git+https://github.com/browser-use/browser-use.git@main
+```
+
+## Configuration
+
+Set up your environment variables:
+
+```bash
+# Copy the example environment file
+cp .env.example .env
+
+# set logging level
+# BROWSER_USE_LOGGING_LEVEL=debug
+```
+
+
+## Helper Scripts 
+For common development tasks
+```bash
+# Complete setup script - installs uv, creates a venv, and installs dependencies
+./bin/setup.sh
+
+# Run all pre-commit hooks (formatting, linting, type checking)
+./bin/lint.sh
+
+# Run the core test suite that's executed in CI
+./bin/test.sh
+```
+
+
+
+## Run examples
+
+```bash
+uv run examples/simple.py
+```

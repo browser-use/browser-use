@@ -1,0 +1,5 @@
+name: Find pip install command for browser-use
+task: Find the pip installation command for the browser-use repo
+judge_context:
+  - The output must include the command ('pip install browser-use') 
+max_steps: 10

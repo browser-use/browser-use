@@ -1,0 +1,337 @@
+name: test
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write  # Allow writing comments on PRs
+  issues: write         # Allow writing comments on issues
+  statuses: write       # Allow writing statuses on PRs
+  discussions: write
+
+# Cancel in-progress runs when a new commit is pushed to the same branch/PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - main
+      - stable
+      - 'releases/**'
+    tags:
+      - '*'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  setup-chromium:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Get week number for cache key
+        id: week
+        run: echo "number=$(date +%Y-W%U)" >> $GITHUB_OUTPUT
+
+      - name: Cache chromium binaries
+        id: cache-chromium
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-chromium-${{ steps.week.outputs.number }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-chromium-
+
+      - name: Install Chromium if not cached
+        if: steps.cache-chromium.outputs.cache-hit != 'true'
+        run: uvx playwright install chromium --with-deps --no-shell
+
+  find_tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5  # Prevent hanging
+    outputs:
+      TEST_FILENAMES: ${{ steps.lsgrep.outputs.TEST_FILENAMES }}
+      # ["test_browser", "test_tools", "test_browser_session", "test_tab_management", ...]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Force fresh checkout to avoid any caching issues
+          fetch-depth: 1
+      - id: lsgrep
+        run: |
+          echo "🔍 Discovering test files at $(date)"
+          echo "Git commit: $(git rev-parse HEAD)"
+          echo "Git branch: $(git branch --show-current)"
+          echo ""
+
+          TEST_FILENAMES="$(find tests/ci -name 'test_*.py' -type f | sed 's|^tests/ci/||' | sed 's|\.py$||' | jq -R -s -c 'split("\n")[:-1]')"
+          echo "TEST_FILENAMES=${TEST_FILENAMES}" >> "$GITHUB_OUTPUT"
+          echo "📋 Test matrix: $TEST_FILENAMES"
+        # https://code.dblock.org/2021/09/03/generating-task-matrix-by-looping-over-repo-files-with-github-actions.html
+      - name: Check that at least one test file is found
+        run: |
+          if [ -z "${{ steps.lsgrep.outputs.TEST_FILENAMES }}" ]; then
+            echo "Failed to find any test_*.py files in tests/ci/ folder!" > /dev/stderr
+            exit 1
+          fi
+
+  tests:
+    needs: [setup-chromium, find_tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 4  # Reduced timeout - tests should complete quickly or retry
+    env:
+      IN_DOCKER: 'True'
+      ANONYMIZED_TELEMETRY: 'false'
+      BROWSER_USE_LOGGING_LEVEL: 'DEBUG'
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      AZURE_OPENAI_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
+      AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+      BROWSER_USE_API_KEY: ${{ secrets.BROWSER_USE_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+    strategy:
+      matrix:
+        test_filename: ${{ fromJson(needs.find_tests.outputs.TEST_FILENAMES || '["FAILED_TO_DISCOVER_TESTS"]') }}
+        # autodiscovers all the files in tests/ci/test_*.py
+        # - test_browser
+        # - test_tools
+        # - test_browser_session
+        # - test_tab_management
+        # ... and more
+    name: ${{ matrix.test_filename }}
+    steps:
+      - name: Check that the previous step managed to find some test files for us to run
+        run: |
+          if [[ "${{ matrix.test_filename }}" == "FAILED_TO_DISCOVER_TESTS" ]]; then
+            echo "Failed get list of test files in tests/ci/test_*.py from find_tests job" > /dev/stderr
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          activate-environment: true
+
+      - name: Cache uv packages and venv
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/uv
+            .venv
+          key: ${{ runner.os }}-uv-venv-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-venv-
+
+      - run: uv sync --dev --all-extras
+
+      - name: Get week number for cache key
+        id: week
+        run: echo "number=$(date +%Y-W%U)" >> $GITHUB_OUTPUT
+
+      - name: Cache chromium binaries
+        id: cache-chromium
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-chromium-${{ steps.week.outputs.number }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-chromium-
+
+      - name: Install Chromium browser if not cached
+        if: steps.cache-chromium.outputs.cache-hit != 'true'
+        run: uvx playwright install chromium --with-deps --no-shell
+
+      - name: Cache browser-use extensions
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.config/browseruse/extensions
+          key: ${{ runner.os }}-browseruse-extensions-${{ hashFiles('browser_use/browser/profile.py') }}
+          restore-keys: |
+            ${{ runner.os }}-browseruse-extensions-
+
+      - name: Check if test file exists
+        id: check-file
+        run: |
+          TEST_FILE="tests/ci/${{ matrix.test_filename }}.py"
+          if [ -f "$TEST_FILE" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Test file found: $TEST_FILE"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "❌ Test file not found: $TEST_FILE"
+            echo "This file may have been renamed or removed. Current test files:"
+            find tests/ci -name 'test_*.py' -type f | sed 's|tests/ci/||' | sed 's|\.py$||' | sort
+          fi
+
+      - name: Run test with retry
+        if: steps.check-file.outputs.exists == 'true'
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 4
+          max_attempts: 1
+          retry_on: error
+          command: pytest "tests/ci/${{ matrix.test_filename }}.py"
+
+  evaluate-tasks:
+    needs: setup-chromium
+    runs-on: ubuntu-latest
+    timeout-minutes: 8  # Allow more time for agent eval
+    env:
+      IN_DOCKER: 'true'
+      BROWSER_USE_CLOUD_SYNC: 'false'
+      ANONYMIZED_TELEMETRY: 'false'
+      BROWSER_USE_LOGGING_LEVEL: 'DEBUG'
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      BROWSER_USE_API_KEY: ${{ secrets.BROWSER_USE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          activate-environment: true
+
+      - name: Cache uv packages and venv
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/uv
+            .venv
+          key: ${{ runner.os }}-uv-venv-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-venv-
+
+      - run: uv sync --dev --all-extras
+
+      - name: Get week number for cache key
+        id: week
+        run: echo "number=$(date +%Y-W%U)" >> $GITHUB_OUTPUT
+
+      - name: Cache chromium binaries
+        id: cache-chromium
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-chromium-${{ steps.week.outputs.number }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-chromium-
+
+      - name: Install Chromium browser if not cached
+        if: steps.cache-chromium.outputs.cache-hit != 'true'
+        run: uvx playwright install chromium --with-deps --no-shell
+
+      - name: Cache browser-use extensions
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.config/browseruse/extensions
+          key: ${{ runner.os }}-browseruse-extensions-${{ hashFiles('browser_use/browser/profile.py') }}
+          restore-keys: |
+            ${{ runner.os }}-browseruse-extensions-
+
+      - name: Run agent tasks evaluation and capture score
+        id: eval
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 4
+          max_attempts: 1
+          retry_on: error
+          command: |
+            python tests/ci/evaluate_tasks.py > result.txt
+            cat result.txt
+            echo "PASSED=$(grep '^PASSED=' result.txt | cut -d= -f2)" >> $GITHUB_ENV
+            echo "TOTAL=$(grep '^TOTAL=' result.txt | cut -d= -f2)" >> $GITHUB_ENV
+            echo "DETAILED_RESULTS=$(grep '^DETAILED_RESULTS=' result.txt | cut -d= -f2-)" >> $GITHUB_ENV
+
+      - name: Print agent evaluation summary
+        run: |
+          echo "Agent tasks passed: $PASSED / $TOTAL"
+
+      - name: Write agent evaluation summary to workflow overview
+        run: |
+          if [ "$PASSED" = "$TOTAL" ]; then
+            COLOR="green"
+          else
+            COLOR="yellow"
+          fi
+          echo "<h2>Agent Tasks Score: <span style='color:$COLOR;'>$PASSED/$TOTAL</span></h2>" >> $GITHUB_STEP_SUMMARY
+
+      - name: Comment PR with agent evaluation results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          script: |
+            const passed = parseInt(process.env.PASSED);
+            const total = parseInt(process.env.TOTAL);
+            const detailedResults = JSON.parse(process.env.DETAILED_RESULTS);
+            const score = `${passed}/${total}`;
+            const percentage = Math.round((passed / total) * 100);
+
+            // Fail the workflow if 0% pass rate
+            if (percentage === 0) {
+              core.setFailed(`Evaluation failed: 0% pass rate (${passed}/${total})`);
+            }
+
+            // Create detailed table
+            let tableRows = '';
+            detailedResults.forEach(result => {
+              const emoji = result.success ? '✅' : '❌';
+              const status = result.success ? 'Pass' : 'Fail';
+              tableRows += `| ${result.task} | ${emoji} ${status} | ${result.reason} |\n`;
+            });
+
+            const comment = `## Agent Task Evaluation Results: ${score} (${percentage}%)
+
+            <details>
+            <summary>View detailed results</summary>
+
+            | Task | Result | Reason |
+            |------|--------|--------|
+            ${tableRows}
+
+            Check the [evaluate-tasks job](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for detailed task execution logs.
+            </details>`;
+
+            // Find existing comment to update or create new one
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('Agent Task Evaluation Results')
+            );
+
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: comment
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            }

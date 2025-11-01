@@ -1,0 +1,67 @@
+---
+title: "Remote Browser"
+description: ""
+icon: "cloud"
+mode: "wide"
+---
+
+
+### Browser-Use Cloud Browser or CDP URL
+
+The easiest way to use a cloud browser is with the built-in Browser-Use cloud service:
+
+```python
+from browser_use import Agent, Browser, ChatOpenAI
+
+# Use Browser-Use cloud browser service
+browser = Browser(
+    use_cloud=True,  # Automatically provisions a cloud browser
+    # cdp_url="http://remote-server:9222" # Get a CDP URL from our hosted cloud browsers https://docs.cloud.browser-use.com/concepts/browser
+)
+
+agent = Agent(
+    task="Your task here",
+    llm=ChatOpenAI(model='gpt-4.1-mini'),
+    browser=browser,
+)
+```
+
+**Prerequisites:**
+1. Get an API key from [cloud.browser-use.com](https://cloud.browser-use.com/new-api-key)
+2. Set BROWSER_USE_API_KEY environment variable
+
+**Benefits:**
+- ✅ No local browser setup required
+- ✅ Scalable and fast cloud infrastructure
+- ✅ Automatic provisioning and teardown
+- ✅ Built-in authentication handling
+- ✅ Optimized for browser automation
+
+### Third-Party Cloud Browsers
+You can pass in a CDP URL from any remote browser
+
+
+### Proxy Connection
+
+```python
+
+from browser_use import Agent, Browser, ChatBrowserUse
+from browser_use.browser import ProxySettings
+
+browser = Browser(
+        headless=False,
+        proxy=ProxySettings(
+            server="http://proxy-server:8080",
+            username="proxy-user",
+            password="proxy-pass"
+        )
+        cdp_url="http://remote-server:9222"
+)
+
+
+agent = Agent(
+    task="Your task here",
+    llm=ChatBrowserUse(),
+    browser=browser,
+)
+```
