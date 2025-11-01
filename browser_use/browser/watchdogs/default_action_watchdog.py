@@ -729,58 +729,76 @@ class DefaultActionWatchdog(BaseWatchdog):
 				# Handle newline characters as Enter key
 				if char == '\n':
 					# Send proper Enter key sequence
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'keyDown',
-							'key': 'Enter',
-							'code': 'Enter',
-							'windowsVirtualKeyCode': 13,
-						},
-						session_id=cdp_session.session_id,
+					await asyncio.wait_for(
+						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'keyDown',
+								'key': 'Enter',
+								'code': 'Enter',
+								'windowsVirtualKeyCode': 13,
+							},
+							session_id=cdp_session.session_id,
+						),
+						timeout=3.0,
 					)
 					# Send char event with carriage return
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'char',
-							'text': '\r',
-						},
-						session_id=cdp_session.session_id,
+					await asyncio.wait_for(
+						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'char',
+								'text': '\r',
+							},
+							session_id=cdp_session.session_id,
+						),
+						timeout=3.0,
 					)
 					# Send keyup
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'keyUp',
-							'key': 'Enter',
-							'code': 'Enter',
-							'windowsVirtualKeyCode': 13,
-						},
-						session_id=cdp_session.session_id,
+					await asyncio.wait_for(
+						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'keyUp',
+								'key': 'Enter',
+								'code': 'Enter',
+								'windowsVirtualKeyCode': 13,
+							},
+							session_id=cdp_session.session_id,
+						),
+						timeout=3.0,
 					)
 				else:
 					# Handle regular characters
 					# Send keydown
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'keyDown',
-							'key': char,
-						},
-						session_id=cdp_session.session_id,
+					await asyncio.wait_for(
+						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'keyDown',
+								'key': char,
+							},
+							session_id=cdp_session.session_id,
+						),
+						timeout=3.0,
 					)
 					# Send char for actual text input
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'char',
-							'text': char,
-						},
-						session_id=cdp_session.session_id,
+					await asyncio.wait_for(
+						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'char',
+								'text': char,
+							},
+							session_id=cdp_session.session_id,
+						),
+						timeout=3.0,
 					)
 					# Send keyup
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'keyUp',
-							'key': char,
-						},
-						session_id=cdp_session.session_id,
+					await asyncio.wait_for(
+						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'keyUp',
+								'key': char,
+							},
+							session_id=cdp_session.session_id,
+						),
+						timeout=3.0,
 					)
 				# Add 18ms delay between keystrokes
 				await asyncio.sleep(0.018)
@@ -1030,21 +1048,27 @@ class DefaultActionWatchdog(BaseWatchdog):
 				)
 
 				# Delete selected text
-				await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-					params={
-						'type': 'keyDown',
-						'key': 'Delete',
-						'code': 'Delete',
-					},
-					session_id=cdp_session.session_id,
+				await asyncio.wait_for(
+					cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+						params={
+							'type': 'keyDown',
+							'key': 'Delete',
+							'code': 'Delete',
+						},
+						session_id=cdp_session.session_id,
+					),
+					timeout=3.0,
 				)
-				await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-					params={
-						'type': 'keyUp',
-						'key': 'Delete',
-						'code': 'Delete',
-					},
-					session_id=cdp_session.session_id,
+				await asyncio.wait_for(
+					cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+						params={
+							'type': 'keyUp',
+							'key': 'Delete',
+							'code': 'Delete',
+						},
+						session_id=cdp_session.session_id,
+					),
+					timeout=3.0,
 				)
 
 				self.logger.debug('✅ Text field cleared using triple-click + Delete')
@@ -1064,41 +1088,53 @@ class DefaultActionWatchdog(BaseWatchdog):
 			self.logger.debug(f'🧹 Last resort: Clearing using {modifier_name}+A + Backspace')
 
 			# Select all text (Ctrl/Cmd+A)
-			await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-				params={
-					'type': 'keyDown',
-					'key': 'a',
-					'code': 'KeyA',
-					'modifiers': select_all_modifier,
-				},
-				session_id=cdp_session.session_id,
+			await asyncio.wait_for(
+				cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+					params={
+						'type': 'keyDown',
+						'key': 'a',
+						'code': 'KeyA',
+						'modifiers': select_all_modifier,
+					},
+					session_id=cdp_session.session_id,
+				),
+				timeout=3.0,
 			)
-			await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-				params={
-					'type': 'keyUp',
-					'key': 'a',
-					'code': 'KeyA',
-					'modifiers': select_all_modifier,
-				},
-				session_id=cdp_session.session_id,
+			await asyncio.wait_for(
+				cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+					params={
+						'type': 'keyUp',
+						'key': 'a',
+						'code': 'KeyA',
+						'modifiers': select_all_modifier,
+					},
+					session_id=cdp_session.session_id,
+				),
+				timeout=3.0,
 			)
 
 			# Delete selected text (Backspace)
-			await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-				params={
-					'type': 'keyDown',
-					'key': 'Backspace',
-					'code': 'Backspace',
-				},
-				session_id=cdp_session.session_id,
+			await asyncio.wait_for(
+				cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+					params={
+						'type': 'keyDown',
+						'key': 'Backspace',
+						'code': 'Backspace',
+					},
+					session_id=cdp_session.session_id,
+				),
+				timeout=3.0,
 			)
-			await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-				params={
-					'type': 'keyUp',
-					'key': 'Backspace',
-					'code': 'Backspace',
-				},
-				session_id=cdp_session.session_id,
+			await asyncio.wait_for(
+				cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+					params={
+						'type': 'keyUp',
+						'key': 'Backspace',
+						'code': 'Backspace',
+					},
+					session_id=cdp_session.session_id,
+				),
+				timeout=3.0,
 			)
 
 			self.logger.debug('✅ Text field cleared using keyboard shortcuts')
@@ -1416,38 +1452,47 @@ class DefaultActionWatchdog(BaseWatchdog):
 				# Handle newline characters as Enter key
 				if char == '\n':
 					# Send proper Enter key sequence
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'keyDown',
-							'key': 'Enter',
-							'code': 'Enter',
-							'windowsVirtualKeyCode': 13,
-						},
-						session_id=cdp_session.session_id,
+					await asyncio.wait_for(
+						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'keyDown',
+								'key': 'Enter',
+								'code': 'Enter',
+								'windowsVirtualKeyCode': 13,
+							},
+							session_id=cdp_session.session_id,
+						),
+						timeout=3.0,
 					)
 
 					# Small delay to emulate human typing speed
 					await asyncio.sleep(0.001)
 
 					# Send char event with carriage return
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'char',
-							'text': '\r',
-							'key': 'Enter',
-						},
-						session_id=cdp_session.session_id,
+					await asyncio.wait_for(
+						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'char',
+								'text': '\r',
+								'key': 'Enter',
+							},
+							session_id=cdp_session.session_id,
+						),
+						timeout=3.0,
 					)
 
 					# Send keyUp event
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'keyUp',
-							'key': 'Enter',
-							'code': 'Enter',
-							'windowsVirtualKeyCode': 13,
-						},
-						session_id=cdp_session.session_id,
+					await asyncio.wait_for(
+						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'keyUp',
+								'key': 'Enter',
+								'code': 'Enter',
+								'windowsVirtualKeyCode': 13,
+							},
+							session_id=cdp_session.session_id,
+						),
+						timeout=3.0,
 					)
 				else:
 					# Handle regular characters
@@ -1458,40 +1503,49 @@ class DefaultActionWatchdog(BaseWatchdog):
 					# self.logger.debug(f'🎯 Typing character {i + 1}/{len(text)}: "{char}" (base_key: {base_key}, code: {key_code}, modifiers: {modifiers}, vk: {vk_code})')
 
 					# Step 1: Send keyDown event (NO text parameter)
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'keyDown',
-							'key': base_key,
-							'code': key_code,
-							'modifiers': modifiers,
-							'windowsVirtualKeyCode': vk_code,
-						},
-						session_id=cdp_session.session_id,
+					await asyncio.wait_for(
+						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'keyDown',
+								'key': base_key,
+								'code': key_code,
+								'modifiers': modifiers,
+								'windowsVirtualKeyCode': vk_code,
+							},
+							session_id=cdp_session.session_id,
+						),
+						timeout=3.0,
 					)
 
 					# Small delay to emulate human typing speed
 					await asyncio.sleep(0.005)
 
 					# Step 2: Send char event (WITH text parameter) - this is crucial for text input
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'char',
-							'text': char,
-							'key': char,
-						},
-						session_id=cdp_session.session_id,
+					await asyncio.wait_for(
+						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'char',
+								'text': char,
+								'key': char,
+							},
+							session_id=cdp_session.session_id,
+						),
+						timeout=3.0,
 					)
 
 					# Step 3: Send keyUp event (NO text parameter)
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'keyUp',
-							'key': base_key,
-							'code': key_code,
-							'modifiers': modifiers,
-							'windowsVirtualKeyCode': vk_code,
-						},
-						session_id=cdp_session.session_id,
+					await asyncio.wait_for(
+						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'keyUp',
+								'key': base_key,
+								'code': key_code,
+								'modifiers': modifiers,
+								'windowsVirtualKeyCode': vk_code,
+							},
+							session_id=cdp_session.session_id,
+						),
+						timeout=3.0,
 					)
 
 				# Small delay between characters to look human (realistic typing speed)
@@ -1884,7 +1938,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 			params['modifiers'] = modifiers
 		if vk_code is not None:
 			params['windowsVirtualKeyCode'] = vk_code
-		await cdp_session.cdp_client.send.Input.dispatchKeyEvent(params=params, session_id=cdp_session.session_id)
+		await asyncio.wait_for(
+			cdp_session.cdp_client.send.Input.dispatchKeyEvent(params=params, session_id=cdp_session.session_id),
+			timeout=3.0,
+		)
 
 	async def on_SendKeysEvent(self, event: SendKeysEvent) -> None:
 		"""Handle send keys request with CDP."""
@@ -1997,13 +2054,16 @@ class DefaultActionWatchdog(BaseWatchdog):
 					await self._dispatch_key_event(cdp_session, 'keyDown', normalized_keys)
 					# For Enter key, also dispatch a char event to trigger keypress listeners
 					if normalized_keys == 'Enter':
-						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-							params={
-								'type': 'char',
-								'text': '\r',
-								'key': 'Enter',
-							},
-							session_id=cdp_session.session_id,
+						await asyncio.wait_for(
+							cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+								params={
+									'type': 'char',
+									'text': '\r',
+									'key': 'Enter',
+								},
+								session_id=cdp_session.session_id,
+							),
+							timeout=3.0,
 						)
 					await self._dispatch_key_event(cdp_session, 'keyUp', normalized_keys)
 				else:
@@ -2021,37 +2081,46 @@ class DefaultActionWatchdog(BaseWatchdog):
 						key_code = self._get_key_code_for_char(base_key)
 
 						# Send keyDown
-						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-							params={
-								'type': 'keyDown',
-								'key': base_key,
-								'code': key_code,
-								'modifiers': modifiers,
-								'windowsVirtualKeyCode': vk_code,
-							},
-							session_id=cdp_session.session_id,
+						await asyncio.wait_for(
+							cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+								params={
+									'type': 'keyDown',
+									'key': base_key,
+									'code': key_code,
+									'modifiers': modifiers,
+									'windowsVirtualKeyCode': vk_code,
+								},
+								session_id=cdp_session.session_id,
+							),
+							timeout=3.0,
 						)
 
 						# Send char event with text - this is what makes text appear in input fields
-						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-							params={
-								'type': 'char',
-								'text': char,
-								'key': char,
-							},
-							session_id=cdp_session.session_id,
+						await asyncio.wait_for(
+							cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+								params={
+									'type': 'char',
+									'text': char,
+									'key': char,
+								},
+								session_id=cdp_session.session_id,
+							),
+							timeout=3.0,
 						)
 
 						# Send keyUp
-						await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-							params={
-								'type': 'keyUp',
-								'key': base_key,
-								'code': key_code,
-								'modifiers': modifiers,
-								'windowsVirtualKeyCode': vk_code,
-							},
-							session_id=cdp_session.session_id,
+						await asyncio.wait_for(
+							cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+								params={
+									'type': 'keyUp',
+									'key': base_key,
+									'code': key_code,
+									'modifiers': modifiers,
+									'windowsVirtualKeyCode': vk_code,
+								},
+								session_id=cdp_session.session_id,
+							),
+							timeout=3.0,
 						)
 
 						# Small delay between characters (18ms like _type_to_page)
