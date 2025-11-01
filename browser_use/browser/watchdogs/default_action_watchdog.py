@@ -742,7 +742,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 							),
 							timeout=3.0,
 						)
-					except asyncio.TimeoutError:
+					except TimeoutError:
 						self.logger.warning('⏱️ CDP keyDown event timed out for Enter key')
 					# Send char event with carriage return
 					try:
@@ -756,7 +756,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 							),
 							timeout=3.0,
 						)
-					except asyncio.TimeoutError:
+					except TimeoutError:
 						self.logger.warning('⏱️ CDP char event timed out for Enter key')
 					# Send keyup
 					try:
@@ -772,7 +772,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 							),
 							timeout=3.0,
 						)
-					except asyncio.TimeoutError:
+					except TimeoutError:
 						self.logger.warning('⏱️ CDP keyUp event timed out for Enter key')
 				else:
 					# Handle regular characters
@@ -788,7 +788,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 							),
 							timeout=3.0,
 						)
-					except asyncio.TimeoutError:
+					except TimeoutError:
 						self.logger.warning(f'⏱️ CDP keyDown event timed out for character: {char!r}')
 					# Send char for actual text input
 					try:
@@ -802,7 +802,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 							),
 							timeout=3.0,
 						)
-					except asyncio.TimeoutError:
+					except TimeoutError:
 						self.logger.warning(f'⏱️ CDP char event timed out for character: {char!r}')
 					# Send keyup
 					try:
@@ -816,7 +816,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 							),
 							timeout=3.0,
 						)
-					except asyncio.TimeoutError:
+					except TimeoutError:
 						self.logger.warning(f'⏱️ CDP keyUp event timed out for character: {char!r}')
 				# Add 18ms delay between keystrokes
 				await asyncio.sleep(0.018)
