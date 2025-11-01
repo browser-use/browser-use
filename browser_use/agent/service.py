@@ -1317,10 +1317,30 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.logger.info('Failed because of CAPTCHA? For better browser stealth, try:')
 				self.logger.info(f'   agent = Agent(task="{task_preview}...", browser=Browser(use_cloud=True))')
 
-			# General failure message
-			self.logger.info('')
-			self.logger.info('Did the Agent not work as expected? Let us fix this!')
-			self.logger.info('   Open a short issue on GitHub: https://github.com/browser-use/browser-use/issues')
+			# Export bug report and generate GitHub issue URL
+			try:
+				bug_report_dir = self.export_bug_report()
+				github_url = self.generate_github_issue_url(bug_report_dir)
+				
+				# General failure message with export info
+				self.logger.info('')
+				self.logger.info('Did the Agent not work as expected? Let us fix this!')
+				self.logger.info('')
+				self.logger.info('📦 Bug report automatically exported with logs and task details')
+				self.logger.info(f'   Location: {_log_pretty_path(bug_report_dir)}')
+				self.logger.info('')
+				self.logger.info('🐛 Open a GitHub issue with pre-filled information:')
+				self.logger.info(f'   {github_url}')
+				self.logger.info('')
+				self.logger.info('   Or run in Python:')
+				self.logger.info('   import webbrowser')
+				self.logger.info(f"   webbrowser.open('{github_url}')")
+			except Exception as e:
+				# Fallback to simple message if export fails
+				self.logger.debug(f'Failed to export bug report: {e}')
+				self.logger.info('')
+				self.logger.info('Did the Agent not work as expected? Let us fix this!')
+				self.logger.info('   Open a short issue on GitHub: https://github.com/browser-use/browser-use/issues')
 
 	def _log_agent_event(self, max_steps: int, agent_run_error: str | None = None) -> None:
 		"""Sent the agent event for this run to telemetry"""
@@ -2091,6 +2111,133 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if not file_path:
 			file_path = 'AgentHistory.json'
 		self.history.save_to_file(file_path, sensitive_data=self.sensitive_data)
+
+	def export_bug_report(self, output_dir: str | Path | None = None) -> Path:
+		"""Export a comprehensive bug report bundle including task, history, and logs.
+		
+		Args:
+			output_dir: Directory to save the bug report. Defaults to a timestamped directory.
+			
+		Returns:
+			Path to the directory containing the bug report
+		"""
+		import json
+		import tempfile
+		from datetime import datetime
+		
+		if output_dir is None:
+			timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+			output_dir = Path(tempfile.gettempdir()) / f'browser_use_bug_report_{timestamp}'
+		else:
+			output_dir = Path(output_dir)
+		
+		output_dir.mkdir(parents=True, exist_ok=True)
+		
+		# Save history
+		history_file = output_dir / 'history.json'
+		self.save_history(history_file)
+		
+		# Save task and metadata
+		metadata = {
+			'task': self.task,
+			'task_id': self.task_id,
+			'session_id': self.session_id,
+			'version': self.version,
+			'source': self.source,
+			'model': self.llm.model,
+			'provider': self.llm.provider,
+			'steps': self.state.n_steps,
+			'consecutive_failures': self.state.consecutive_failures,
+			'is_successful': self.history.is_successful(),
+			'final_result': self.history.final_result(),
+			'urls_visited': self.history.urls(),
+			'errors': self.history.errors(),
+		}
+		
+		metadata_file = output_dir / 'metadata.json'
+		with open(metadata_file, 'w', encoding='utf-8') as f:
+			json.dump(metadata, f, indent=2, default=str)
+		
+		self.logger.info(f'📦 Bug report exported to: {_log_pretty_path(output_dir)}')
+		return output_dir
+
+	def generate_github_issue_url(self, bug_report_dir: Path | None = None) -> str:
+		"""Generate a pre-filled GitHub issue URL for reporting problems.
+		
+		Args:
+			bug_report_dir: Optional path to exported bug report directory to include in description.
+			
+		Returns:
+			URL string that can be opened in a browser
+		"""
+		from urllib.parse import quote
+		
+		# Generate title
+		title = f"Agent failed: {self.task[:60]}"
+		if len(self.task) > 60:
+			title += '...'
+		
+		# Generate body with relevant information
+		body_parts = [
+			"**Task**",
+			f"```\n{self.task}\n```",
+			"",
+			"**Environment**",
+			f"- browser-use version: `{self.version}`",
+			f"- Model: `{self.llm.model}`",
+			f"- Provider: `{self.llm.provider}`",
+			f"- Steps taken: {self.state.n_steps}",
+			f"- Final status: {'✅ Success' if self.history.is_successful() else '❌ Failed'}",
+			"",
+		]
+		
+		# Add error information if available
+		errors = self.history.errors()
+		if errors:
+			body_parts.extend([
+				"**Errors**",
+				"```",
+			])
+			for error in errors[:3]:  # Limit to first 3 errors
+				body_parts.append(error[:200])  # Truncate long errors
+			if len(errors) > 3:
+				body_parts.append(f"... and {len(errors) - 3} more errors")
+			body_parts.extend([
+				"```",
+				"",
+			])
+		
+		# Add final result
+		final_result = self.history.final_result()
+		if final_result:
+			body_parts.extend([
+				"**Final Result**",
+				f"```\n{final_result[:300]}\n```",
+				"",
+			])
+		
+		# Add bug report location if provided
+		if bug_report_dir:
+			body_parts.extend([
+				"**Bug Report Exported**",
+				f"Full logs and history available at: `{bug_report_dir}`",
+				"",
+			])
+		
+		body_parts.extend([
+			"**Additional Context**",
+			"<!-- Please add any additional context about the problem here -->",
+			"",
+		])
+		
+		body = "\n".join(body_parts)
+		
+		# URL encode and construct GitHub issue URL
+		base_url = "https://github.com/browser-use/browser-use/issues/new"
+		encoded_title = quote(title)
+		encoded_body = quote(body)
+		
+		return f"{base_url}?title={encoded_title}&body={encoded_body}"
 
 	def pause(self) -> None:
 		"""Pause the agent before the next step"""
