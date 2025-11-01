@@ -314,11 +314,55 @@ def session_to_python_script(agent: CodeAgent) -> str:
 		if cell.cell_type == CellType.CODE:
 			lines.append(f'\t# Cell {i + 1}\n')
 
-			# Indent each line of source
+			# Normalize indentation: detect base indentation, remove it, then re-indent consistently with tabs
 			source_lines = cell.source.split('\n')
+
+			# Convert everything to spaces first to find minimum indentation
+			normalized_lines = []
+			min_indent = None
 			for line in source_lines:
-				if line.strip():  # Only add non-empty lines
-					lines.append(f'\t{line}\n')
+				# Convert tabs to spaces (assuming 4 spaces per tab, matching ruff config)
+				normalized = line.expandtabs(4)
+				normalized_lines.append(normalized)
+
+				# Only count indentation for non-empty lines
+				if normalized.strip():
+					leading_spaces = len(normalized) - len(normalized.lstrip())
+					if min_indent is None or leading_spaces < min_indent:
+						min_indent = leading_spaces
+
+			# Remove base indentation and re-indent with tabs (matching ruff config)
+			# If no indentation found (all empty lines), min_indent will be None
+			if min_indent is not None and min_indent > 0:
+				for line in normalized_lines:
+					if line.strip():  # Non-empty line
+						if len(line) >= min_indent:
+							unindented = line[min_indent:]
+							# Calculate how many tabs to use based on remaining indentation
+							# Each 4 spaces = 1 tab (matching ruff config)
+							remaining_spaces = len(unindented) - len(unindented.lstrip())
+							num_tabs = remaining_spaces // 4
+							remaining_indent = '\t' * num_tabs
+							content = unindented.lstrip()
+							lines.append(f'\t{remaining_indent}{content}\n')
+						else:
+							lines.append(f'\t{line}\n')
+					else:
+						# Preserve empty lines
+						lines.append('\n')
+			else:
+				# No base indentation to remove, just add function-level tab
+				# But still convert any remaining spaces to tabs
+				for line in normalized_lines:
+					if line.strip():
+						# Convert leading spaces to tabs (4 spaces = 1 tab)
+						leading_spaces = len(line) - len(line.lstrip())
+						num_tabs = leading_spaces // 4
+						tab_indent = '\t' * num_tabs
+						content = line.lstrip()
+						lines.append(f'\t{tab_indent}{content}\n')
+					else:
+						lines.append('\n')
 
 			lines.append('\n')
 
