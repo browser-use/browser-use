@@ -554,29 +554,47 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Type the text character by character to the focused element
 			for char in text:
 				# Send keydown
-				await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-					params={
-						'type': 'keyDown',
-						'key': char,
-					},
-					session_id=cdp_session.session_id,
-				)
+				try:
+					await asyncio.wait_for(
+						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'keyDown',
+								'key': char,
+							},
+							session_id=cdp_session.session_id,
+						),
+						timeout=1.0,  # 1 second timeout for keyDown
+					)
+				except TimeoutError:
+					self.logger.debug(f'⏱️ KeyDown timed out for character: {char}, continuing...')
 				# Send char for actual text input
-				await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-					params={
-						'type': 'char',
-						'text': char,
-					},
-					session_id=cdp_session.session_id,
-				)
+				try:
+					await asyncio.wait_for(
+						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'char',
+								'text': char,
+							},
+							session_id=cdp_session.session_id,
+						),
+						timeout=1.0,  # 1 second timeout for char
+					)
+				except TimeoutError:
+					self.logger.debug(f'⏱️ Char timed out for character: {char}, continuing...')
 				# Send keyup
-				await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-					params={
-						'type': 'keyUp',
-						'key': char,
-					},
-					session_id=cdp_session.session_id,
-				)
+				try:
+					await asyncio.wait_for(
+						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'keyUp',
+								'key': char,
+							},
+							session_id=cdp_session.session_id,
+						),
+						timeout=1.0,  # 1 second timeout for keyUp
+					)
+				except TimeoutError:
+					self.logger.debug(f'⏱️ KeyUp timed out for character: {char}, continuing...')
 				# Add 18ms delay between keystrokes
 				await asyncio.sleep(0.018)
 
@@ -811,30 +829,48 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Type the text character by character
 			for char in text:
 				# Send keydown (without text to avoid duplication)
-				await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-					params={
-						'type': 'keyDown',
-						'key': char,
-					},
-					session_id=cdp_session.session_id,
-				)
+				try:
+					await asyncio.wait_for(
+						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'keyDown',
+								'key': char,
+							},
+							session_id=cdp_session.session_id,
+						),
+						timeout=1.0,  # 1 second timeout for keyDown
+					)
+				except TimeoutError:
+					self.logger.debug(f'⏱️ KeyDown timed out for character: {char}, continuing...')
 				# Send char (for actual text input)
-				await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-					params={
-						'type': 'char',
-						'text': char,
-						'key': char,
-					},
-					session_id=cdp_session.session_id,
-				)
+				try:
+					await asyncio.wait_for(
+						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'char',
+								'text': char,
+								'key': char,
+							},
+							session_id=cdp_session.session_id,
+						),
+						timeout=1.0,  # 1 second timeout for char
+					)
+				except TimeoutError:
+					self.logger.debug(f'⏱️ Char timed out for character: {char}, continuing...')
 				# Send keyup (without text to avoid duplication)
-				await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-					params={
-						'type': 'keyUp',
-						'key': char,
-					},
-					session_id=cdp_session.session_id,
-				)
+				try:
+					await asyncio.wait_for(
+						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+							params={
+								'type': 'keyUp',
+								'key': char,
+							},
+							session_id=cdp_session.session_id,
+						),
+						timeout=1.0,  # 1 second timeout for keyUp
+					)
+				except TimeoutError:
+					self.logger.debug(f'⏱️ KeyUp timed out for character: {char}, continuing...')
 				# Small delay between characters
 				await asyncio.sleep(0.01)
 
