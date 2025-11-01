@@ -729,77 +729,95 @@ class DefaultActionWatchdog(BaseWatchdog):
 				# Handle newline characters as Enter key
 				if char == '\n':
 					# Send proper Enter key sequence
-					await asyncio.wait_for(
-						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-							params={
-								'type': 'keyDown',
-								'key': 'Enter',
-								'code': 'Enter',
-								'windowsVirtualKeyCode': 13,
-							},
-							session_id=cdp_session.session_id,
-						),
-						timeout=3.0,
-					)
+					try:
+						await asyncio.wait_for(
+							cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+								params={
+									'type': 'keyDown',
+									'key': 'Enter',
+									'code': 'Enter',
+									'windowsVirtualKeyCode': 13,
+								},
+								session_id=cdp_session.session_id,
+							),
+							timeout=3.0,
+						)
+					except asyncio.TimeoutError:
+						self.logger.warning('⏱️ CDP keyDown event timed out for Enter key')
 					# Send char event with carriage return
-					await asyncio.wait_for(
-						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-							params={
-								'type': 'char',
-								'text': '\r',
-							},
-							session_id=cdp_session.session_id,
-						),
-						timeout=3.0,
-					)
+					try:
+						await asyncio.wait_for(
+							cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+								params={
+									'type': 'char',
+									'text': '\r',
+								},
+								session_id=cdp_session.session_id,
+							),
+							timeout=3.0,
+						)
+					except asyncio.TimeoutError:
+						self.logger.warning('⏱️ CDP char event timed out for Enter key')
 					# Send keyup
-					await asyncio.wait_for(
-						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-							params={
-								'type': 'keyUp',
-								'key': 'Enter',
-								'code': 'Enter',
-								'windowsVirtualKeyCode': 13,
-							},
-							session_id=cdp_session.session_id,
-						),
-						timeout=3.0,
-					)
+					try:
+						await asyncio.wait_for(
+							cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+								params={
+									'type': 'keyUp',
+									'key': 'Enter',
+									'code': 'Enter',
+									'windowsVirtualKeyCode': 13,
+								},
+								session_id=cdp_session.session_id,
+							),
+							timeout=3.0,
+						)
+					except asyncio.TimeoutError:
+						self.logger.warning('⏱️ CDP keyUp event timed out for Enter key')
 				else:
 					# Handle regular characters
 					# Send keydown
-					await asyncio.wait_for(
-						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-							params={
-								'type': 'keyDown',
-								'key': char,
-							},
-							session_id=cdp_session.session_id,
-						),
-						timeout=3.0,
-					)
+					try:
+						await asyncio.wait_for(
+							cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+								params={
+									'type': 'keyDown',
+									'key': char,
+								},
+								session_id=cdp_session.session_id,
+							),
+							timeout=3.0,
+						)
+					except asyncio.TimeoutError:
+						self.logger.warning(f'⏱️ CDP keyDown event timed out for character: {char!r}')
 					# Send char for actual text input
-					await asyncio.wait_for(
-						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-							params={
-								'type': 'char',
-								'text': char,
-							},
-							session_id=cdp_session.session_id,
-						),
-						timeout=3.0,
-					)
+					try:
+						await asyncio.wait_for(
+							cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+								params={
+									'type': 'char',
+									'text': char,
+								},
+								session_id=cdp_session.session_id,
+							),
+							timeout=3.0,
+						)
+					except asyncio.TimeoutError:
+						self.logger.warning(f'⏱️ CDP char event timed out for character: {char!r}')
 					# Send keyup
-					await asyncio.wait_for(
-						cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-							params={
-								'type': 'keyUp',
-								'key': char,
-							},
-							session_id=cdp_session.session_id,
-						),
-						timeout=3.0,
-					)
+					try:
+						await asyncio.wait_for(
+							cdp_session.cdp_client.send.Input.dispatchKeyEvent(
+								params={
+									'type': 'keyUp',
+									'key': char,
+								},
+								session_id=cdp_session.session_id,
+							),
+							timeout=3.0,
+						)
+					except asyncio.TimeoutError:
+						self.logger.warning(f'⏱️ CDP keyUp event timed out for character: {char!r}')
 				# Add 18ms delay between keystrokes
 				await asyncio.sleep(0.018)
 
