@@ -195,18 +195,19 @@ For other LLM providers, see our [supported models documentation](https://docs.b
 Yes! You can add custom tools to extend the agent's capabilities:
 
 ```python
-from browser_use.tools import Tool
+from browser_use import Tools
 
-@Tool()
+tools = Tools()
+
+@tools.action(description='Description of what this tool does.')
 def custom_tool(param: str) -> str:
-    """Description of what this tool does."""
     return f"Result: {param}"
 
 agent = Agent(
     task="Your task",
     llm=llm,
     browser=browser,
-    use_custom_tools=[custom_tool],
+    tools=tools,
 )
 ```
 

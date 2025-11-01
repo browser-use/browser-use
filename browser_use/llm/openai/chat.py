@@ -12,7 +12,7 @@ from openai.types.shared_params.response_format_json_schema import JSONSchema, R
 from pydantic import BaseModel
 
 from browser_use.llm.base import BaseChatModel
-from browser_use.llm.exceptions import ModelProviderError
+from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.openai.serializer import OpenAIMessageSerializer
 from browser_use.llm.schema import SchemaOptimizer
@@ -244,32 +244,13 @@ class ChatOpenAI(BaseChatModel):
 				)
 
 		except RateLimitError as e:
-			error_message = e.response.json().get('error', {})
-			error_message = (
-				error_message.get('message', 'Unknown model error') if isinstance(error_message, dict) else error_message
-			)
-			raise ModelProviderError(
-				message=error_message,
-				status_code=e.response.status_code,
-				model=self.name,
-			) from e
+			raise ModelRateLimitError(message=e.message, model=self.name) from e
 
 		except APIConnectionError as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e
 
 		except APIStatusError as e:
-			try:
-				error_message = e.response.json().get('error', {})
-			except Exception:
-				error_message = e.response.text
-			error_message = (
-				error_message.get('message', 'Unknown model error') if isinstance(error_message, dict) else error_message
-			)
-			raise ModelProviderError(
-				message=error_message,
-				status_code=e.response.status_code,
-				model=self.name,
-			) from e
+			raise ModelProviderError(message=e.message, status_code=e.status_code, model=self.name) from e
 
 		except Exception as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e
