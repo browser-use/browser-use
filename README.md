@@ -128,10 +128,8 @@ See [Going to Production](https://docs.browser-use.com/production) to sync your 
 uvx browser-use init --template default
 ```
 
-This creates a `browser_use_default.py` file with a working example. Available templates:
-- `default` - Minimal setup to get started quickly
-- `advanced` - All configuration options with detailed comments
-- `tools` - Examples of custom tools and extending the agent
+This creates a `browser_use_default.py` file with a working example.
+See all our templates with `uvx browser-use init --list`
 
 You can also specify a custom output path:
 ```bash
