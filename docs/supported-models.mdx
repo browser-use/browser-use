@@ -268,6 +268,51 @@ Authentication methods supported:
 - `INSTANCE_PRINCIPAL`: Uses instance principal authentication
 - `RESOURCE_PRINCIPAL`: Uses resource principal authentication
 
+## n1n.ai [example](https://github.com/browser-use/browser-use/blob/main/examples/models/n1n.py)
+
+n1n.ai provides access to 400+ LLM models through a unified OpenAI-compatible API. This makes it easy to switch between different models (OpenAI, Anthropic, Gemini, Llama, and many more) without managing multiple API keys.
+
+**Benefits:**
+- Single API key for 400+ models
+- Competitive pricing (some models up to 1/10 of official price)
+- Unified billing
+- Easy model switching
+
+```python
+from browser_use import Agent, ChatN1n
+
+# Initialize the model
+llm = ChatN1n(
+    model='gpt-4o',  # or any model available through n1n.ai
+    api_key='your-api-key'  # or set N1N_API_KEY env var
+)
+
+# Create agent with the model
+agent = Agent(
+    task="Your task here",
+    llm=llm
+)
+```
+
+You can also use the factory function:
+
+```python
+from browser_use.llm.models import get_llm_by_name
+
+# Uses N1N_API_KEY from environment
+llm = get_llm_by_name('n1n_gpt-4o')
+llm = get_llm_by_name('n1n_claude-3-5-sonnet')
+llm = get_llm_by_name('n1n_gemini-2.0-flash-exp')
+```
+
+Required environment variables:
+
+```bash .env
+N1N_API_KEY=
+```
+
+Get your API key from the [n1n.ai Dashboard](https://n1n.ai/console). Visit [n1n.ai](https://n1n.ai/) for more information and [docs.n1n.ai](https://docs.n1n.ai/) for API documentation.
+
 ## Ollama
 
 1. Install Ollama: https://github.com/ollama/ollama
@@ -351,3 +396,4 @@ We support all other models that can be called via OpenAI compatible API. We are
 - [DeepSeek](https://github.com/browser-use/browser-use/blob/main/examples/models/deepseek-chat.py)
 - [Novita](https://github.com/browser-use/browser-use/blob/main/examples/models/novita.py)
 - [OpenRouter](https://github.com/browser-use/browser-use/blob/main/examples/models/openrouter.py)
+- [n1n.ai](https://github.com/browser-use/browser-use/blob/main/examples/models/n1n.py)
