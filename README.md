@@ -1,14 +1,14 @@
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24"">
   <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/774a46d5-27a0-490c-b7d0-e65fcbbfa358">
-  <img alt="Shows a black Browser Use Logo in light color mode and a white one in dark color mode." src="https://github.com/user-attachments/assets/774a46d5-27a0-490c-b7d0-e65fcbbfa358"  width="full">
+  <img alt="Shows a black Browser Use Logo in light color mode and a white one in dark color mode." src="https://github.com/user-attachments/assets/2ccdb752-22fb-41c7-8948-857fc1ad7e24"  width="full">
 </picture>
 
 <div align="center">
     <picture>
     <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/9955dda9-ede3-4971-8ee0-91cbc3850125"">
     <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/6797d09b-8ac3-4cb9-ba07-b289e080765a">
-    <img alt="The AI browser agent." src="https://github.com/user-attachments/assets/6797d09b-8ac3-4cb9-ba07-b289e080765a"  width="400">
+    <img alt="The AI browser agent." src="https://github.com/user-attachments/assets/9955dda9-ede3-4971-8ee0-91cbc3850125"  width="400">
     </picture>
 </div>
 
@@ -97,6 +97,28 @@ Check out the [library docs](https://docs.browser-use.com) and the [cloud docs](
 
 <br/>
 
+# 🔥 Deploy on Sandboxes
+
+We handle agents, browsers, persistence, auth, cookies, and LLMs. The agent runs right next to the browser for minimal latency.
+
+```python
+from browser_use import Browser, sandbox, ChatBrowserUse
+from browser_use.agent.service import Agent
+import asyncio
+
+@sandbox()
+async def my_task(browser: Browser):
+    agent = Agent(task="Find the top HN post", browser=browser, llm=ChatBrowserUse())
+    await agent.run()
+
+# Just call it like any async function
+asyncio.run(my_task())
+```
+
+See [Going to Production](https://docs.browser-use.com/production) for more details.
+
+<br/>
+
 # 🚀 Template Quickstart
 
 **Want to get started even faster?** Generate a ready-to-run template:
@@ -172,18 +194,19 @@ For other LLM providers, see our [supported models documentation](https://docs.b
 Yes! You can add custom tools to extend the agent's capabilities:
 
 ```python
-from browser_use.tools import Tool
+from browser_use import Tools
 
-@Tool()
+tools = Tools()
+
+@tools.action(description='Description of what this tool does.')
 def custom_tool(param: str) -> str:
-    """Description of what this tool does."""
     return f"Result: {param}"
 
 agent = Agent(
     task="Your task",
     llm=llm,
     browser=browser,
-    use_custom_tools=[custom_tool],
+    tools=tools,
 )
 ```
 

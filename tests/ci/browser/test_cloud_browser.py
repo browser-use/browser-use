@@ -6,13 +6,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from browser_use.browser.cloud import (
+from browser_use.browser.cloud.cloud import (
 	CloudBrowserAuthError,
 	CloudBrowserClient,
 	CloudBrowserError,
-	get_cloud_browser_cdp_url,
-	stop_cloud_browser_session,
 )
+from browser_use.browser.cloud.views import CreateBrowserRequest
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
 from browser_use.sync.auth import CloudAuthConfig
@@ -73,7 +72,7 @@ class TestCloudBrowserClient:
 			client = CloudBrowserClient()
 			client.client = mock_client
 
-			result = await client.create_browser()
+			result = await client.create_browser(CreateBrowserRequest())
 
 			assert result.id == 'test-browser-id'
 			assert result.status == 'active'
@@ -94,7 +93,7 @@ class TestCloudBrowserClient:
 		client = CloudBrowserClient()
 
 		with pytest.raises(CloudBrowserAuthError) as exc_info:
-			await client.create_browser()
+			await client.create_browser(CreateBrowserRequest())
 
 		assert 'BROWSER_USE_API_KEY environment variable' in str(exc_info.value)
 
@@ -117,7 +116,7 @@ class TestCloudBrowserClient:
 			client.client = mock_client
 
 			with pytest.raises(CloudBrowserAuthError) as exc_info:
-				await client.create_browser()
+				await client.create_browser(CreateBrowserRequest())
 
 			assert 'Authentication failed' in str(exc_info.value)
 
@@ -151,7 +150,7 @@ class TestCloudBrowserClient:
 			client = CloudBrowserClient()
 			client.client = mock_client
 
-			result = await client.create_browser()
+			result = await client.create_browser(CreateBrowserRequest())
 
 			assert result.id == 'test-browser-id'
 			assert result.status == 'active'
@@ -237,8 +236,9 @@ class TestBrowserSessionCloudIntegration:
 	async def test_cloud_browser_profile_property(self):
 		"""Test that cloud_browser property works correctly."""
 
+		# Just test the profile and session properties without connecting
 		profile = BrowserProfile(use_cloud=True)
-		session = BrowserSession(browser_profile=profile)
+		session = BrowserSession(browser_profile=profile, cdp_url='ws://mock-url')  # Provide CDP URL to avoid connection
 
 		assert session.cloud_browser is True
 		assert session.browser_profile.use_cloud is True
@@ -254,96 +254,6 @@ class TestBrowserSessionCloudIntegration:
 		assert profile.use_cloud is True
 
 		# Test that BrowserSession respects cloud_browser setting
-		session = BrowserSession(browser_profile=profile)
+		# Provide CDP URL to avoid actual connection attempts
+		session = BrowserSession(browser_profile=profile, cdp_url='ws://mock-url')
 		assert session.cloud_browser is True
-
-		# Test that get_cloud_browser_cdp_url works with mocked API
-		with patch('browser_use.browser.cloud.get_cloud_browser_cdp_url') as mock_get_cdp_url:
-			mock_get_cdp_url.return_value = 'wss://test.proxy.daytona.works'
-
-			cdp_url = await mock_get_cdp_url()
-			assert cdp_url == 'wss://test.proxy.daytona.works'
-			mock_get_cdp_url.assert_called_once()
-
-
-async def test_get_cloud_browser_cdp_url_function(mock_auth_config, monkeypatch):
-	"""Test the get_cloud_browser_cdp_url convenience function."""
-
-	# Clear environment variable so test uses mock_auth_config
-	monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
-
-	mock_response_data = {
-		'id': 'test-browser-id',
-		'status': 'active',
-		'liveUrl': 'https://live.browser-use.com?wss=test',
-		'cdpUrl': 'wss://test.proxy.daytona.works',
-		'timeoutAt': '2025-09-17T04:35:36.049892',
-		'startedAt': '2025-09-17T03:35:36.049974',
-		'finishedAt': None,
-	}
-
-	with patch('httpx.AsyncClient') as mock_client_class:
-		mock_response = AsyncMock()
-		mock_response.status_code = 201
-		mock_response.is_success = True
-		mock_response.json = lambda: mock_response_data
-
-		mock_client = AsyncMock()
-		mock_client.post.return_value = mock_response
-		mock_client_class.return_value = mock_client
-
-		cdp_url = await get_cloud_browser_cdp_url()
-
-		assert cdp_url == 'wss://test.proxy.daytona.works'
-
-
-async def test_cloud_browser_auth_error_no_fallback(temp_config_dir, monkeypatch):
-	"""Test that cloud browser throws error when auth fails (no fallback)."""
-
-	# Clear environment variable and don't create auth config to trigger auth error
-	monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
-
-	# Don't create auth config to trigger auth error
-	profile = BrowserProfile(use_cloud=True)
-
-	# Verify that the cloud browser client raises the expected error
-	with pytest.raises(CloudBrowserAuthError) as exc_info:
-		await get_cloud_browser_cdp_url()
-
-	assert 'BROWSER_USE_API_KEY environment variable' in str(exc_info.value)
-
-	# Verify profile state unchanged (no fallback)
-	assert profile.use_cloud is True
-	assert profile.is_local is False
-
-
-async def test_stop_cloud_browser_session_function(mock_auth_config, monkeypatch):
-	"""Test the stop_cloud_browser_session convenience function."""
-
-	# Clear environment variable so test uses mock_auth_config
-	monkeypatch.delenv('BROWSER_USE_API_KEY', raising=False)
-
-	mock_response_data = {
-		'id': 'test-browser-id',
-		'status': 'stopped',
-		'liveUrl': 'https://live.browser-use.com?wss=test',
-		'cdpUrl': 'wss://test.proxy.daytona.works',
-		'timeoutAt': '2025-09-17T04:35:36.049892',
-		'startedAt': '2025-09-17T03:35:36.049974',
-		'finishedAt': '2025-09-17T04:35:36.049892',
-	}
-
-	with patch('httpx.AsyncClient') as mock_client_class:
-		mock_response = AsyncMock()
-		mock_response.status_code = 200
-		mock_response.is_success = True
-		mock_response.json = lambda: mock_response_data
-
-		mock_client = AsyncMock()
-		mock_client.patch.return_value = mock_response
-		mock_client_class.return_value = mock_client
-
-		result = await stop_cloud_browser_session('test-browser-id')
-
-		assert result.id == 'test-browser-id'
-		assert result.status == 'stopped'

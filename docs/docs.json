@@ -144,7 +144,8 @@
           "introduction",
           "quickstart",
           "quickstart_llm",
-          "supported-models"
+          "supported-models",
+          "production"
         ]
       },
       {
@@ -212,6 +213,16 @@
             "pages": [
               "customize/integrations/docs-mcp",
               "customize/integrations/mcp-server"
+            ]
+          },
+          {
+            "group": "Sandbox",
+            "icon": "box",
+            "isDefaultOpen": false,
+            "pages": [
+              "customize/sandbox/quickstart",
+              "customize/sandbox/events",
+              "customize/sandbox/all-parameters"
             ]
           }
         ]

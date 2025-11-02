@@ -12,7 +12,7 @@ from openai.types.shared_params.response_format_json_schema import JSONSchema, R
 from pydantic import BaseModel
 
 from browser_use.llm.base import BaseChatModel
-from browser_use.llm.exceptions import ModelProviderError
+from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
 from browser_use.llm.openai.serializer import OpenAIMessageSerializer
 from browser_use.llm.schema import SchemaOptimizer
@@ -41,6 +41,7 @@ class ChatOpenAI(BaseChatModel):
 	service_tier: Literal['auto', 'default', 'flex', 'priority', 'scale'] | None = None
 	top_p: float | None = None
 	add_schema_to_system_prompt: bool = False  # Add JSON schema to system prompt instead of using response_format
+	dont_force_structured_output: bool = False  # If True, the model will not be forced to output a structured output
 
 	# Client initialization parameters
 	api_key: str | None = None
@@ -218,13 +219,20 @@ class ChatOpenAI(BaseChatModel):
 							ChatCompletionContentPartTextParam(text=schema_text, type='text')
 						]
 
-				# Return structured response
-				response = await self.get_client().chat.completions.create(
-					model=self.model,
-					messages=openai_messages,
-					response_format=ResponseFormatJSONSchema(json_schema=response_format, type='json_schema'),
-					**model_params,
-				)
+				if self.dont_force_structured_output:
+					response = await self.get_client().chat.completions.create(
+						model=self.model,
+						messages=openai_messages,
+						**model_params,
+					)
+				else:
+					# Return structured response
+					response = await self.get_client().chat.completions.create(
+						model=self.model,
+						messages=openai_messages,
+						response_format=ResponseFormatJSONSchema(json_schema=response_format, type='json_schema'),
+						**model_params,
+					)
 
 				if response.choices[0].message.content is None:
 					raise ModelProviderError(
@@ -244,32 +252,13 @@ class ChatOpenAI(BaseChatModel):
 				)
 
 		except RateLimitError as e:
-			error_message = e.response.json().get('error', {})
-			error_message = (
-				error_message.get('message', 'Unknown model error') if isinstance(error_message, dict) else error_message
-			)
-			raise ModelProviderError(
-				message=error_message,
-				status_code=e.response.status_code,
-				model=self.name,
-			) from e
+			raise ModelRateLimitError(message=e.message, model=self.name) from e
 
 		except APIConnectionError as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e
 
 		except APIStatusError as e:
-			try:
-				error_message = e.response.json().get('error', {})
-			except Exception:
-				error_message = e.response.text
-			error_message = (
-				error_message.get('message', 'Unknown model error') if isinstance(error_message, dict) else error_message
-			)
-			raise ModelProviderError(
-				message=error_message,
-				status_code=e.response.status_code,
-				model=self.name,
-			) from e
+			raise ModelProviderError(message=e.message, status_code=e.status_code, model=self.name) from e
 
 		except Exception as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e

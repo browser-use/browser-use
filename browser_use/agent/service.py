@@ -7,7 +7,6 @@ import re
 import tempfile
 import time
 from collections.abc import Awaitable, Callable
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Generic, Literal, TypeVar
 from urllib.parse import urlparse
@@ -33,6 +32,7 @@ from pydantic import BaseModel, ValidationError
 from uuid_extensions import uuid7str
 
 from browser_use import Browser, BrowserProfile, BrowserSession
+from browser_use.agent.judge import construct_judge_messages
 
 # Lazy import for gif to avoid heavy agent.views import at startup
 # from browser_use.agent.gif import create_history_gif
@@ -51,6 +51,7 @@ from browser_use.agent.views import (
 	AgentStepInfo,
 	AgentStructuredOutput,
 	BrowserStateHistory,
+	JudgementResult,
 	StepMetadata,
 )
 from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
@@ -68,7 +69,6 @@ from browser_use.utils import (
 	_log_pretty_path,
 	check_latest_browser_use_version,
 	get_browser_use_version,
-	get_git_info,
 	time_execution_async,
 	time_execution_sync,
 )
@@ -164,6 +164,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		flash_mode: bool = False,
 		max_history_items: int | None = None,
 		page_extraction_llm: BaseChatModel | None = None,
+		use_judge: bool = True,
+		judge_llm: BaseChatModel | None = None,
 		injected_agent_state: AgentState | None = None,
 		source: str | None = None,
 		file_system_path: str | None = None,
@@ -199,6 +201,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
+		if judge_llm is None:
+			judge_llm = llm
 		if available_file_paths is None:
 			available_file_paths = []
 
@@ -241,6 +245,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Core components
 		self.task = self._enhance_task_with_schema(task, output_model_schema)
 		self.llm = llm
+		self.judge_llm = judge_llm
 		self.directly_open_url = directly_open_url
 		self.include_recent_events = include_recent_events
 		self._url_shortening_limit = _url_shortening_limit
@@ -282,12 +287,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			llm_timeout=llm_timeout,
 			step_timeout=step_timeout,
 			final_response_after_failure=final_response_after_failure,
+			use_judge=use_judge,
 		)
 
 		# Token cost service
 		self.token_cost_service = TokenCost(include_cost=calculate_cost)
 		self.token_cost_service.register_llm(llm)
 		self.token_cost_service.register_llm(page_extraction_llm)
+		self.token_cost_service.register_llm(judge_llm)
 
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
@@ -905,6 +912,38 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self._message_manager._add_context_message(UserMessage(content=msg))
 			self.AgentOutput = self.DoneAgentOutput
 
+	async def _judge_trace(self) -> JudgementResult | None:
+		"""Judge the trace of the agent"""
+		task = self.task
+		final_result = self.history.final_result() or ''
+		agent_steps = self.history.agent_steps()
+		screenshot_paths = [p for p in self.history.screenshot_paths() if p is not None]
+
+		# Construct input messages for judge evaluation
+		input_messages = construct_judge_messages(
+			task=task,
+			final_result=final_result,
+			agent_steps=agent_steps,
+			screenshot_paths=screenshot_paths,
+			max_images=10,
+		)
+
+		# Call LLM with JudgementResult as output format
+		kwargs: dict = {'output_format': JudgementResult}
+
+		# Only pass request_type for ChatBrowserUse (other providers don't support it)
+		if self.judge_llm.provider == 'browser-use':
+			kwargs['request_type'] = 'judge'
+
+		try:
+			response = await self.judge_llm.ainvoke(input_messages, **kwargs)
+			judgement: JudgementResult = response.completion  # type: ignore[assignment]
+			return judgement
+		except Exception as e:
+			self.logger.error(f'Judge trace failed: {e}')
+			# Return a default judgement on failure
+			return None
+
 	async def _get_model_output_with_retry(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get model output with retry logic for empty actions"""
 		model_output = await self.get_model_output(input_messages)
@@ -1345,6 +1384,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		final_res = self.history.final_result()
 		final_result_str = json.dumps(final_res) if final_res is not None else None
 
+		# Extract judgement data if available
+		judgement_data = self.history.judgement()
+		judge_verdict = judgement_data.get('verdict') if judgement_data else None
+		judge_reasoning = judgement_data.get('reasoning') if judgement_data else None
+		judge_failure_reason = judgement_data.get('failure_reason') if judgement_data else None
+
 		self.telemetry.capture(
 			AgentTelemetryEvent(
 				task=self.task,
@@ -1371,6 +1416,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				success=self.history.is_successful(),
 				final_result_response=final_result_str,
 				error_message=agent_run_error,
+				judge_verdict=judge_verdict,
+				judge_reasoning=judge_reasoning,
+				judge_failure_reason=judge_failure_reason,
 			)
 		)
 
@@ -1689,7 +1737,22 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				is_done = await self._execute_step(step, max_steps, step_info, on_step_start, on_step_end)
 
 				if is_done:
-					# Task completed
+					# Agent has marked the task as done
+					if self.settings.use_judge:
+						judgement = await self._judge_trace()
+						# Modify the last action result (that should have is_done=True) to include the judgement
+						if self.history.history[-1].result[-1].is_done:
+							self.history.history[-1].result[-1].judgement = judgement
+							# Log the judgement verdict
+							if judgement:
+								verdict_color = '\033[32m' if judgement.verdict else '\033[31m'
+								verdict_text = '✅ PASS' if judgement.verdict else '❌ FAIL'
+								judge_log = f'\n⚖️  {verdict_color}Judge Verdict: {verdict_text}\033[0m\n'
+								if judgement.failure_reason:
+									judge_log += f'   Failure: {judgement.failure_reason}\n'
+								judge_log += f'   {judgement.reasoning}\n'
+								self.logger.info(judge_log)
+
 					break
 			else:
 				agent_run_error = 'Failed to complete task in maximum steps'
@@ -2204,82 +2267,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
 		else:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.DoneActionModel)
-
-	def get_trace_object(self) -> dict[str, Any]:
-		"""Get the trace and trace_details objects for the agent"""
-
-		def extract_task_website(task_text: str) -> str | None:
-			url_pattern = r'https?://[^\s<>"\']+|www\.[^\s<>"\']+|[^\s<>"\']+\.[a-z]{2,}(?:/[^\s<>"\']*)?'
-			match = re.search(url_pattern, task_text, re.IGNORECASE)
-			return match.group(0) if match else None
-
-		def _get_complete_history_without_screenshots(history_data: dict[str, Any]) -> str:
-			if 'history' in history_data:
-				for item in history_data['history']:
-					if 'state' in item and 'screenshot' in item['state']:
-						item['state']['screenshot'] = None
-
-			return json.dumps(history_data)
-
-		# Generate autogenerated fields
-		trace_id = uuid7str()
-		timestamp = datetime.now().isoformat()
-
-		# Only declare variables that are used multiple times
-		structured_output = self.history.structured_output
-		structured_output_json = json.dumps(structured_output.model_dump()) if structured_output else None
-		final_result = self.history.final_result()
-		git_info = get_git_info()
-		action_history = self.history.action_history()
-		action_errors = self.history.errors()
-		urls = self.history.urls()
-		usage = self.history.usage
-
-		return {
-			'trace': {
-				# Autogenerated fields
-				'trace_id': trace_id,
-				'timestamp': timestamp,
-				'browser_use_version': get_browser_use_version(),
-				'git_info': json.dumps(git_info) if git_info else None,
-				# Direct agent properties
-				'model': self.llm.model,
-				'settings': json.dumps(self.settings.model_dump()) if self.settings else None,
-				'task_id': self.task_id,
-				'task_truncated': self.task[:20000] if len(self.task) > 20000 else self.task,
-				'task_website': extract_task_website(self.task),
-				# AgentHistoryList methods
-				'structured_output_truncated': (
-					structured_output_json[:20000]
-					if structured_output_json and len(structured_output_json) > 20000
-					else structured_output_json
-				),
-				'action_history_truncated': json.dumps(action_history) if action_history else None,
-				'action_errors': json.dumps(action_errors) if action_errors else None,
-				'urls': json.dumps(urls) if urls else None,
-				'final_result_response_truncated': (
-					final_result[:20000] if final_result and len(final_result) > 20000 else final_result
-				),
-				'self_report_completed': 1 if self.history.is_done() else 0,
-				'self_report_success': 1 if self.history.is_successful() else 0,
-				'duration': self.history.total_duration_seconds(),
-				'steps_taken': self.history.number_of_steps(),
-				'usage': json.dumps(usage.model_dump()) if usage else None,
-			},
-			'trace_details': {
-				# Autogenerated fields (ensure same as trace)
-				'trace_id': trace_id,
-				'timestamp': timestamp,
-				# Direct agent properties
-				'task': self.task,
-				# AgentHistoryList methods
-				'structured_output': structured_output_json,
-				'final_result_response': final_result,
-				'complete_history': _get_complete_history_without_screenshots(
-					self.history.model_dump(sensitive_data=self.sensitive_data)
-				),
-			},
-		}
 
 	async def authenticate_cloud_sync(self, show_instructions: bool = True) -> bool:
 		"""
