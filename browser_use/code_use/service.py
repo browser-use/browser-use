@@ -602,6 +602,9 @@ class CodeAgent:
 		# Include browser state as separate message if available (not accumulated in history)
 		messages_to_send = self._llm_messages.copy()
 
+		# Capture browser state for validation before clearing
+		browser_state_for_validation = self._last_browser_state_text
+
 		if self._last_browser_state_text:
 			# Create message with optional screenshot
 			if self.use_vision and self._last_screenshot:
