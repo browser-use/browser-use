@@ -85,15 +85,22 @@ class GoogleMessageSerializer:
 				system_text = '\n\n'.join(system_parts)
 				if isinstance(message.content, str):
 					message_parts.append(Part.from_text(text=f'{system_text}\n\n{message.content}'))
-				else:
-					message_parts.append(Part.from_text(text=f'{system_text}\n\n{getattr(message, "text", "")}'))
+				elif message.content is not None:
+					first_text_inserted = False
 					for part in message.content or []:
-						if part.type == 'image_url':
+						if part.type == 'text' and not first_text_inserted:
+							# Prepend system text only before the first text part
+							message_parts.append(Part.from_text(text=f'{system_text}\n\n{part.text}'))
+							first_text_inserted = True
+						elif part.type == 'text':
+							message_parts.append(Part.from_text(text=part.text))
+						elif part.type == 'image_url':
 							image_part = GoogleMessageSerializer._serialize_image(part)
 							message_parts.append(image_part)
+						elif part.type == 'refusal':
+							message_parts.append(Part.from_text(text=f'[Refusal] {part.refusal}'))
 
 				system_parts = []
-
 			else:
 				# Extract content and create parts normally
 				if isinstance(message.content, str):
