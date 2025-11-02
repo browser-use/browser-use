@@ -97,11 +97,11 @@ class GoogleMessageSerializer:
 							message_parts.append(Part.from_text(text=system_text))
 							first_insert_done = True
 
-						if part.type == "text":
+						if part.type == 'text':
 							message_parts.append(Part.from_text(text=part.text))
-						elif part.type == "refusal":
+						elif part.type == 'refusal':
 							message_parts.append(Part.from_text(text=f'[Refusal] {part.refusal}'))
-						elif part.type == "image_url":
+						elif part.type == 'image_url':
 							image_part = GoogleMessageSerializer._serialize_image(part)
 							message_parts.append(image_part)
 
