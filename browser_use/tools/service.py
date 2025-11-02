@@ -1253,7 +1253,6 @@ Validated Code (after quote fixing):
 		self,
 		action: ActionModel,
 		browser_session: BrowserSession,
-		#
 		page_extraction_llm: BaseChatModel | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		available_file_paths: list[str] | None = None,

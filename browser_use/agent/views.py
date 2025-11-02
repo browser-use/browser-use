@@ -45,6 +45,7 @@ class AgentSettings(BaseModel):
 	max_actions_per_step: int = 4
 	use_thinking: bool = True
 	flash_mode: bool = False  # If enabled, disables evaluation_previous_goal and next_goal, and sets use_thinking = False
+	use_judge: bool = True
 	max_history_items: int | None = None
 
 	page_extraction_llm: BaseChatModel | None = None
@@ -87,12 +88,23 @@ class AgentStepInfo:
 		return self.step_number >= self.max_steps - 1
 
 
+class JudgementResult(BaseModel):
+	"""LLM judgement of agent trace"""
+
+	reasoning: str | None = Field(default=None, description='Explanation of the judgement')
+	verdict: bool = Field(description='Whether the trace was successful or not')
+	failure_reason: str | None = Field(default=None, description='If the trace was not successful, the reason why')
+
+
 class ActionResult(BaseModel):
 	"""Result of executing an action"""
 
 	# For done action
 	is_done: bool | None = False
 	success: bool | None = None
+
+	# For trace judgement
+	judgement: JudgementResult | None = None
 
 	# Error handling - always include in long term memory
 	error: str | None = None
@@ -504,6 +516,29 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 		"""Check if the agent has any non-None errors"""
 		return any(error is not None for error in self.errors())
 
+	def judgement(self) -> dict | None:
+		"""Get the judgement result as a dictionary if it exists"""
+		if self.history and len(self.history[-1].result) > 0:
+			last_result = self.history[-1].result[-1]
+			if last_result.judgement:
+				return last_result.judgement.model_dump()
+		return None
+
+	def is_judged(self) -> bool:
+		"""Check if the agent trace has been judged"""
+		if self.history and len(self.history[-1].result) > 0:
+			last_result = self.history[-1].result[-1]
+			return last_result.judgement is not None
+		return False
+
+	def is_validated(self) -> bool | None:
+		"""Check if the judge validated the agent execution (verdict is True). Returns None if not judged yet."""
+		if self.history and len(self.history[-1].result) > 0:
+			last_result = self.history[-1].result[-1]
+			if last_result.judgement:
+				return last_result.judgement.verdict
+		return None
+
 	def urls(self) -> list[str | None]:
 		"""Get all unique URLs from history"""
 		return [h.state.url if h.state.url is not None else None for h in self.history]
@@ -623,6 +658,36 @@ class AgentHistoryList(BaseModel, Generic[AgentStructuredOutput]):
 	def number_of_steps(self) -> int:
 		"""Get the number of steps in the history"""
 		return len(self.history)
+
+	def agent_steps(self) -> list[str]:
+		"""Format agent history as readable step descriptions for judge evaluation."""
+		steps = []
+
+		# Iterate through history items (each is an AgentHistory)
+		for i, h in enumerate(self.history):
+			step_text = f'Step {i + 1}:\n'
+
+			# Get actions from model_output
+			if h.model_output and h.model_output.action:
+				# Use existing model_dump to get action dicts
+				actions_list = [action.model_dump(exclude_none=True) for action in h.model_output.action]
+				action_json = json.dumps(actions_list, indent=1)
+				step_text += f'Actions: {action_json}\n'
+
+			# Get results (already a list[ActionResult] in h.result)
+			if h.result:
+				for j, result in enumerate(h.result):
+					if result.extracted_content:
+						content = str(result.extracted_content)
+						step_text += f'Result {j + 1}: {content}\n'
+
+					if result.error:
+						error = str(result.error)
+						step_text += f'Error {j + 1}: {error}\n'
+
+			steps.append(step_text)
+
+		return steps
 
 	@property
 	def structured_output(self) -> AgentStructuredOutput | None:
