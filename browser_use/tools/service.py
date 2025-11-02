@@ -256,6 +256,18 @@ class Tools(Generic[Context]):
 				# Get description of clicked element
 				element_desc = get_click_description(node)
 
+				# Check if this is a checkbox/radio for special handling
+				is_checkbox_or_radio = (
+					node.tag_name == 'input' and node.attributes.get('type') in ['checkbox', 'radio']
+				) or node.attributes.get('role') == 'checkbox'
+
+				# Get initial state for checkboxes/radios
+				initial_state = None
+				if is_checkbox_or_radio:
+					from browser_use.tools.utils import get_checkbox_state_description
+
+					initial_state = get_checkbox_state_description(node)
+
 				# Highlight the element being clicked (truly non-blocking)
 				asyncio.create_task(browser_session.highlight_interaction_element(node))
 
@@ -279,14 +291,46 @@ class Tools(Generic[Context]):
 							)
 					return ActionResult(error=error_msg)
 
+				# Verify checkbox/radio state after click
+				state_info = ''
+				if is_checkbox_or_radio:
+					try:
+						from browser_use.tools.utils import get_checkbox_state_description, verify_checkbox_state_via_cdp
+
+						# Try to get the new state via CDP
+						final_state = await verify_checkbox_state_via_cdp(node, browser_session)
+
+						if final_state is not None:
+							final_state_str = 'checked' if final_state else 'unchecked'
+							if initial_state and initial_state != final_state_str:
+								state_info = f' (changed from {initial_state} to {final_state_str})'
+								logger.info(f'✓ Checkbox state verified: {state_info}')
+							else:
+								state_info = f' (now {final_state_str})'
+
+						# Invalidate cached browser state so next snapshot is fresh
+						# This ensures the agent sees the updated checkbox state
+						browser_session._cached_browser_state_summary = None
+						logger.debug('Cleared cached browser state after checkbox click')
+
+					except Exception as e:
+						logger.debug(f'Could not verify checkbox state: {e}')
+						# Continue anyway, state verification is not critical
+
 				# Build memory with element info
-				memory = f'Clicked {element_desc}'
+				memory = f'Clicked {element_desc}{state_info}'
 				logger.info(f'🖱️ {memory}')
+
+				# Include click coordinates and state info in metadata
+				metadata = click_metadata if isinstance(click_metadata, dict) else {}
+				if state_info:
+					metadata['state_change'] = state_info.strip()
 
 				# Include click coordinates in metadata if available
 				return ActionResult(
 					extracted_content=memory,
-					metadata=click_metadata if isinstance(click_metadata, dict) else None,
+					long_term_memory=memory,  # Store in memory for better agent awareness
+					metadata=metadata if metadata else None,
 				)
 			except BrowserError as e:
 				return handle_browser_error(e)
