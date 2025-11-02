@@ -8,7 +8,7 @@ from browser_use.code_use.notebook_export import (
 	session_to_typescript_script,
 )
 from browser_use.code_use.service import CodeAgent
-from browser_use.code_use.validator import CodeValidator, ValidationIssue, ValidationResult
+from browser_use.code_use.validator import CodeValidator, ExecutionResult, SandboxExecutor, ValidationIssue, ValidationResult
 from browser_use.code_use.views import CodeCell, ExecutionStatus, NotebookSession
 
 __all__ = [
@@ -21,6 +21,8 @@ __all__ = [
 	'CodeValidator',
 	'ValidationIssue',
 	'ValidationResult',
+	'SandboxExecutor',
+	'ExecutionResult',
 	'CodeCell',
 	'ExecutionStatus',
 	'NotebookSession',
