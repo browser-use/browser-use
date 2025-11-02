@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from browser_use.code_use.service import CodeAgent
+from browser_use.llm.base import BaseChatModel
 
 from .views import CellType, NotebookExport
 
@@ -174,13 +175,14 @@ print("Available functions: navigate, click, input, evaluate, search, extract, d
 	return output_path
 
 
-def session_to_python_script(agent: CodeAgent) -> str:
+async def session_to_python_script(agent: CodeAgent, validator_llm: BaseChatModel | None = None) -> str:
 	"""
 	Convert a CodeAgent session to a Python script.
 	Now includes JavaScript code blocks that were stored in the namespace.
 
 	Args:
 		agent: The CodeAgent instance to convert
+		validator_llm: Optional LLM for code validation/improvement (uses agent's LLM if None)
 
 	Returns:
 		Python script as a string
@@ -188,7 +190,7 @@ def session_to_python_script(agent: CodeAgent) -> str:
 	Example:
 		```python
 	        await agent.run()
-	        script = session_to_python_script(agent)
+	        script = await session_to_python_script(agent)
 	        print(script)
 		```
 	"""
@@ -257,12 +259,42 @@ def session_to_python_script(agent: CodeAgent) -> str:
 					lines.append(f'\t# JavaScript Code Block: {var_name}\n')
 					lines.append(f'\t{var_name} = """{var_value}"""\n\n')
 
+	# Validate and improve code if validator LLM is provided
+	validator = None
+	if validator_llm:
+		from browser_use.code_use.validator import CodeValidator
+
+		validator = CodeValidator(validator_llm)
+
 	for i, cell in enumerate(agent.session.cells):
 		if cell.cell_type == CellType.CODE:
 			lines.append(f'\t# Cell {i + 1}\n')
 
+			cell_code = cell.source
+
+			# Validate and improve code if validator available
+			if validator and cell_code.strip():
+				try:
+					# Validate code (async)
+					validated_code, validation_result = await validator.validate_code(
+						cell_code, context={'cell_number': i + 1}, strict=False
+					)
+					if validation_result.improved_code:
+						cell_code = validation_result.improved_code
+						# Log issues found
+						if validation_result.issues:
+							import logging
+
+							logger = logging.getLogger(__name__)
+							for issue in validation_result.issues:
+								logger.debug(f'Cell {i + 1} validation: [{issue.severity}] {issue.message}')
+				except Exception as e:
+					import logging
+
+					logging.getLogger(__name__).warning(f'Code validation failed for cell {i + 1}: {e}')
+
 			# Indent each line of source
-			source_lines = cell.source.split('\n')
+			source_lines = cell_code.split('\n')
 			for line in source_lines:
 				if line.strip():  # Only add non-empty lines
 					lines.append(f'\t{line}\n')
@@ -274,3 +306,137 @@ def session_to_python_script(agent: CodeAgent) -> str:
 	lines.append('\tasyncio.run(main())\n')
 
 	return ''.join(lines)
+
+
+async def session_to_playwright_script(agent: CodeAgent, validator_llm: BaseChatModel | None = None) -> str:
+	"""
+	Convert a CodeAgent session to a Playwright script.
+
+	Args:
+		agent: The CodeAgent instance to convert
+		validator_llm: Optional LLM for code conversion (uses agent's LLM if None)
+
+	Returns:
+		Playwright script as a string
+
+	Example:
+		```python
+	        await agent.run()
+	        script = await session_to_playwright_script(agent)
+	        print(script)
+		```
+	"""
+	from browser_use.code_use.validator import CodeValidator
+
+	# Use provided LLM or agent's LLM
+	conversion_llm = validator_llm or agent.llm
+	validator = CodeValidator(conversion_llm)
+
+	# Collect all code from cells
+	all_code_lines = []
+
+	# Add setup code
+	all_code_lines.append('# Playwright setup\n')
+	all_code_lines.append('import asyncio\n')
+	all_code_lines.append('from playwright.async_api import async_playwright\n\n')
+	all_code_lines.append('async def main():\n')
+	all_code_lines.append('    async with async_playwright() as p:\n')
+	all_code_lines.append('        browser = await p.chromium.launch()\n')
+	all_code_lines.append('        page = await browser.new_page()\n\n')
+
+	# Convert each code cell
+	for i, cell in enumerate(agent.session.cells):
+		if cell.cell_type == CellType.CODE and cell.source.strip():
+			cell_code = cell.source
+			# Indent for async context
+			indented_code = '\n'.join('    ' + line if line.strip() else line for line in cell_code.split('\n'))
+
+			try:
+				# Convert this cell's code to Playwright
+				context = {
+					'cell_number': i + 1,
+					'previous_cells': len([c for c in agent.session.cells[:i] if c.cell_type == CellType.CODE]),
+				}
+				converted = await validator.convert_code(cell_code, target_format='playwright', context=context)
+				# Ensure proper indentation
+				indented_converted = '\n'.join('        ' + line if line.strip() else line for line in converted.split('\n'))
+				all_code_lines.append(f'        # Cell {i + 1} (converted)\n')
+				all_code_lines.append(indented_converted)
+				all_code_lines.append('\n\n')
+			except Exception as e:
+				# Fallback: add original code with comment
+				all_code_lines.append(f'        # Cell {i + 1} - Conversion failed: {e}\n')
+				all_code_lines.append('        # Original code:\n')
+				for line in indented_code.split('\n'):
+					all_code_lines.append(f'        # {line}\n')
+				all_code_lines.append('\n')
+
+	all_code_lines.append('        await browser.close()\n\n')
+	all_code_lines.append("if __name__ == '__main__':\n")
+	all_code_lines.append('    asyncio.run(main())\n')
+
+	return ''.join(all_code_lines)
+
+
+async def session_to_typescript_script(agent: CodeAgent, validator_llm: BaseChatModel | None = None) -> str:
+	"""
+	Convert a CodeAgent session to a TypeScript script.
+
+	Args:
+		agent: The CodeAgent instance to convert
+		validator_llm: Optional LLM for code conversion (uses agent's LLM if None)
+
+	Returns:
+		TypeScript script as a string
+
+	Example:
+		```python
+	        await agent.run()
+	        script = await session_to_typescript_script(agent)
+	        print(script)
+		```
+	"""
+	from browser_use.code_use.validator import CodeValidator
+
+	# Use provided LLM or agent's LLM
+	conversion_llm = validator_llm or agent.llm
+	validator = CodeValidator(conversion_llm)
+
+	# Collect all code from cells
+	all_code_lines = []
+
+	# Add setup code
+	all_code_lines.append('// TypeScript Playwright script\n')
+	all_code_lines.append('import { chromium } from "playwright";\n\n')
+	all_code_lines.append('async function main() {\n')
+	all_code_lines.append('    const browser = await chromium.launch();\n')
+	all_code_lines.append('    const page = await browser.newPage();\n\n')
+
+	# Convert each code cell
+	for i, cell in enumerate(agent.session.cells):
+		if cell.cell_type == CellType.CODE and cell.source.strip():
+			cell_code = cell.source
+
+			try:
+				# Convert this cell's code to TypeScript
+				context = {
+					'cell_number': i + 1,
+					'previous_cells': len([c for c in agent.session.cells[:i] if c.cell_type == CellType.CODE]),
+				}
+				converted = await validator.convert_code(cell_code, target_format='typescript', context=context)
+				# Ensure proper indentation
+				indented_converted = '\n'.join('    ' + line if line.strip() else line for line in converted.split('\n'))
+				all_code_lines.append(f'    // Cell {i + 1} (converted)\n')
+				all_code_lines.append(indented_converted)
+				all_code_lines.append('\n\n')
+			except Exception as e:
+				# Fallback: add original code with comment
+				all_code_lines.append(f'    // Cell {i + 1} - Conversion failed: {e}\n')
+				all_code_lines.append('    // Original Python code could not be converted\n')
+				all_code_lines.append('\n')
+
+	all_code_lines.append('    await browser.close();\n')
+	all_code_lines.append('}\n\n')
+	all_code_lines.append('main().catch(console.error);\n')
+
+	return ''.join(all_code_lines)
