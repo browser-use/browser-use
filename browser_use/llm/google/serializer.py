@@ -83,22 +83,31 @@ class GoogleMessageSerializer:
 			# If this is the first user message and we have system parts, prepend them
 			if include_system_in_user and system_parts and role == 'user' and not formatted_messages:
 				system_text = '\n\n'.join(system_parts)
+
 				if isinstance(message.content, str):
+					# Simple string content — prepend system text
 					message_parts.append(Part.from_text(text=f'{system_text}\n\n{message.content}'))
-				elif message.content is not None:
-					first_text_inserted = False
-					for part in message.content or []:
-						if part.type == 'text' and not first_text_inserted:
-							# Prepend system text only before the first text part
-							message_parts.append(Part.from_text(text=f'{system_text}\n\n{part.text}'))
-							first_text_inserted = True
-						elif part.type == 'text':
+
+				elif message.content:
+					# List of content parts
+					first_insert_done = False
+					for part in message.content:
+						# Insert system text before the first part, even if it's an image
+						if not first_insert_done:
+							message_parts.append(Part.from_text(text=system_text))
+							first_insert_done = True
+
+						if part.type == "text":
 							message_parts.append(Part.from_text(text=part.text))
-						elif part.type == 'image_url':
+						elif part.type == "refusal":
+							message_parts.append(Part.from_text(text=f'[Refusal] {part.refusal}'))
+						elif part.type == "image_url":
 							image_part = GoogleMessageSerializer._serialize_image(part)
 							message_parts.append(image_part)
-						elif part.type == 'refusal':
-							message_parts.append(Part.from_text(text=f'[Refusal] {part.refusal}'))
+
+				else:
+					# Message has no content at all → still include system text
+					message_parts.append(Part.from_text(text=system_text))
 
 				system_parts = []
 			else:
