@@ -457,7 +457,8 @@ Output the COMPLETE code - no shortcuts, no summaries, no partial output."""
 							summary = f'✅ {summary}'
 				else:
 					if 'failed' not in summary.lower() and 'error' not in summary.lower():
-						summary = f'❌ Syntax error: {execution_result.error[:100]}'
+						error_msg = execution_result.error[:100] if execution_result.error else 'Unknown error'
+						summary = f'❌ Syntax error: {error_msg}'
 
 			result = ValidationResult(
 				is_valid=is_valid,

@@ -66,4 +66,3 @@ Example template:
 - Properties like `document.title`, `document.URL`, etc. may be `undefined` during page load
 - Using `querySelector` ensures you're reading directly from the DOM tree
 - This is especially important immediately after `navigate()` calls
-

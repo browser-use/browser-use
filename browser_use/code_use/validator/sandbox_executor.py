@@ -21,7 +21,7 @@ class ExecutionResult:
 		stderr: str = '',
 		return_code: int = 0,
 		duration: float = 0.0,
-		files_created: list[str] = None,
+		files_created: list[str] | None = None,
 		error: str | None = None,
 	):
 		self.success = success
@@ -88,8 +88,8 @@ class SandboxExecutor:
 		Returns:
 			ExecutionResult with execution details
 		"""
-		import time
 		import tempfile
+		import time
 
 		start_time = time.time()
 
@@ -129,7 +129,7 @@ class SandboxExecutor:
 
 				try:
 					stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
-				except asyncio.TimeoutError:
+				except TimeoutError:
 					process.kill()
 					await process.wait()
 					return ExecutionResult(
@@ -159,9 +159,9 @@ class SandboxExecutor:
 					success=success,
 					stdout=stdout_text,
 					stderr=stderr_text,
-					return_code=return_code,
+					return_code=return_code if return_code is not None else 1,
 					duration=duration,
-					files_created=files_created,
+					files_created=files_created if files_created is not None else [],
 					error=stderr_text if not success else None,
 				)
 

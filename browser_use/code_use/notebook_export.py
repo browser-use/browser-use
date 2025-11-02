@@ -198,7 +198,7 @@ async def session_to_python_script(
 	agent: CodeAgent,
 	validator_llm: BaseChatModel | None = None,
 	apply_improvements: bool = False,
-) -> str | tuple[str, str]:
+) -> str | tuple[str, str | None]:
 	"""
 	Convert a CodeAgent session to a Python script.
 	Now includes JavaScript code blocks that were stored in the namespace.
