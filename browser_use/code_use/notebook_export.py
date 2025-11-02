@@ -342,7 +342,7 @@ def session_to_python_script(agent: CodeAgent) -> str:
 							# Each 4 spaces = 1 tab (matching ruff config)
 							remaining_spaces = len(unindented) - len(unindented.lstrip())
 							num_tabs = remaining_spaces // 4
-							remaining_indent = '\t' * num_tabs
+                            remaining_indent = '\t' * num_tabs + ' ' * (remaining_spaces % 4)
 							content = unindented.lstrip()
 							lines.append(f'\t{remaining_indent}{content}\n')
 						else:
