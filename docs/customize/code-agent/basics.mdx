@@ -112,7 +112,7 @@ await agent.run()
 notebook_path = export_to_ipynb(agent, "my_automation.ipynb")
 
 # Export to Python script
-script = session_to_python_script(agent)
+script = await session_to_python_script(agent)
 with open("my_automation.py", "w") as f:
     f.write(script)
 ```
