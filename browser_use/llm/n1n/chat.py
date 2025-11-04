@@ -188,8 +188,8 @@ class ChatN1n(BaseChatModel):
 
 			if self.reasoning_models and any(str(m).lower() in str(self.model).lower() for m in self.reasoning_models):
 				model_params['reasoning_effort'] = self.reasoning_effort
-				del model_params['temperature']
-				del model_params['frequency_penalty']
+				model_params.pop('temperature', None)
+				model_params.pop('frequency_penalty', None)
 
 			if output_format is None:
 				# Return string response
