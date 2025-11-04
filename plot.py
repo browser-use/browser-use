@@ -140,8 +140,8 @@ for p1, p2 in pareto_points:
 	plt.plot(x, y, 'k--', linewidth=1, alpha=0.5, zorder=1)
 
 # Styling
-plt.xlabel('Tasks Completed Per Hour', fontsize=12, color='white')
-plt.ylabel('Accuracy', fontsize=12, color='white')
+plt.xlabel('Tasks Completed Per Hour', fontsize=14, color='white', fontweight='bold')
+plt.ylabel('Accuracy', fontsize=14, color='white', fontweight='bold')
 plt.title('Performance on WebBench-200', fontsize=14, color='white', pad=20)
 
 # Set axis limits
@@ -158,6 +158,12 @@ plt.legend(loc='lower left', ncol=2, framealpha=0.9, facecolor='black', edgecolo
 ax.tick_params(colors='white', which='both')
 for spine in ax.spines.values():
 	spine.set_color('white')
+
+# Make tick labels bold
+for label in ax.get_xticklabels():
+	label.set_fontweight('bold')
+for label in ax.get_yticklabels():
+	label.set_fontweight('bold')
 
 plt.tight_layout()
 plt.savefig('webbench_performance.png', dpi=300, facecolor='black')
