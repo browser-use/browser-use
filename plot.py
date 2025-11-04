@@ -7,39 +7,10 @@ data_raw = {
 	'GPT-5-mini': {'time_seconds': 164, 'score': 79.0, 'company': 'OpenAI', 'cost_per_task': 4.9},
 	'Claude Sonnet 4.5': {'time_seconds': 186, 'score': 86.4, 'company': 'Anthropic', 'cost_per_task': 39.2},
 	'GPT-4.1-mini': {'time_seconds': 105, 'score': 72.8, 'company': 'OpenAI', 'cost_per_task': 4.8},
-	'BU 1.0': {'time_seconds': 33.4, 'score': 82.0, 'company': 'Browser-Use', 'cost_per_task': 1.6},
+	'BU 1.0': {'time_seconds': 33.4, 'score': 82.0, 'company': 'Browser-Use', 'cost_per_task': 1.9},
 	'GPT-4o': {'time_seconds': 123, 'score': 71.8, 'company': 'OpenAI', 'cost_per_task': 39.2},
 	'Gemini-Flash-Latest': {'time_seconds': 97, 'score': 80.2, 'company': 'Google', 'cost_per_task': 5.5},
 }
-
-# bu local 15,495,235 total tokens
-# 14,991,649 input * 0.5 = 7,495,824.5
-# 503,586 output * 3 = 1,510,758
-# 7,495,824.5 + 1,510,758 = 9,006,582.5
-# 9,006,582.5 / 198 = 45,487.7899
-
-# bu local option 2 15,495,235 total tokens
-# 14,991,649 input  - 5,200,000 cached = 9,791,649 input
-#
-# 9,791,649 * 0.2 = 1,958,329.8
-# 5200000 * 0.02 = 104,000
-# 1,958,329.8 + 104,000 = 2,062,329.8
-# 503,586 output * 2 = 1,007,172
-
-# 2,062,329.8 + 1,007,172 = 3,069,501.8
-# 3,069,501.8 / 198 = 15,497.483838383838
-
-
-# 15.000.000 / 198 = 75,757.57575757576
-# 75,757.57575757576 / 13 = 5,827.505827505827
-# 2000 * 200 = 400,000
-# 400,000 * 13 = 5,200,000
-
-
-# gemini-latest flash
-# 23,747,279
-# 21,330,751 input
-# 2,416,528 output
 
 
 # Convert to tasks per hour (speed)

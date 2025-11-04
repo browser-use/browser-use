@@ -7,7 +7,7 @@ data_raw = {
 	'GPT-5-mini': {'time_seconds': 164, 'score': 79.0, 'company': 'OpenAI', 'cost_per_task': 4.9},
 	'Claude Sonnet 4.5': {'time_seconds': 186, 'score': 86.4, 'company': 'Anthropic', 'cost_per_task': 39.2},
 	'GPT-4.1-mini': {'time_seconds': 105, 'score': 72.8, 'company': 'OpenAI', 'cost_per_task': 4.8},
-	'BU 1.0': {'time_seconds': 33.4, 'score': 82.0, 'company': 'Browser-Use', 'cost_per_task': 1.6},
+	'BU 1.0': {'time_seconds': 33.4, 'score': 82.0, 'company': 'Browser-Use', 'cost_per_task': 1.9},
 	'GPT-4o': {'time_seconds': 123, 'score': 71.8, 'company': 'OpenAI', 'cost_per_task': 39.2},
 	'Gemini-Flash-Latest': {'time_seconds': 97, 'score': 80.2, 'company': 'Google', 'cost_per_task': 5.5},
 }

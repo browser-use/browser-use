@@ -3,7 +3,7 @@ import numpy as np
 
 # Data for BU 1.0 and GPT-4o
 data = {
-	'BU 1.0': {'time_seconds': 33.4, 'score': 82.0, 'cost_per_task': 1.6},
+	'BU 1.0': {'time_seconds': 33.4, 'score': 82.0, 'cost_per_task': 1.9},
 	'GPT-4o': {'time_seconds': 123, 'score': 71.8, 'cost_per_task': 39.2},
 }
 
@@ -14,13 +14,13 @@ time_per_task = [data[m]['time_seconds'] for m in models]
 cost_per_task = [data[m]['cost_per_task'] for m in models]
 
 # Calculate ratios (relative to GPT-4o as baseline)
-accuracy_ratio = accuracy[0] / accuracy[1]  # higher is better
-time_speedup = time_per_task[1] / time_per_task[0]  # how much faster
-cost_savings = cost_per_task[1] / cost_per_task[0]  # how much cheaper
+accuracy_ratio = accuracy[1] / accuracy[0]  # BU vs GPT-4o
+time_speedup = time_per_task[0] / time_per_task[1]  # how much faster
+cost_savings = cost_per_task[0] / cost_per_task[1]  # how much cheaper
 
 # Colors
 bu_color = '#2ecc71'  # bright green
-gpt_color = '#3498db'  # bright blue
+gpt_color = '#808080'  # grey
 
 # Create figure with dark background
 fig, axes = plt.subplots(1, 3, figsize=(13, 6))
@@ -33,7 +33,7 @@ x = np.arange(2)
 # === PLOT 1: Accuracy ===
 ax1 = axes[0]
 ax1.set_facecolor('black')
-bars1 = ax1.bar(x, accuracy, bar_width, color=[bu_color, gpt_color], edgecolor='white', linewidth=1.5, alpha=0.85)
+bars1 = ax1.bar(x, accuracy, bar_width, color=[gpt_color, bu_color], edgecolor='white', linewidth=1.5, alpha=0.85)
 ax1.set_title('Accuracy on WebBench', fontsize=16, color='white', fontweight='bold', pad=15)
 ax1.set_xticks(x)
 ax1.set_xticklabels(models, fontsize=12, color='white', fontweight='bold')
@@ -58,7 +58,7 @@ for i, (bar, val) in enumerate(zip(bars1, accuracy)):
 # === PLOT 2: Time per Task (Speed) ===
 ax2 = axes[1]
 ax2.set_facecolor('black')
-bars2 = ax2.bar(x, time_per_task, bar_width, color=[bu_color, gpt_color], edgecolor='white', linewidth=1.5, alpha=0.85)
+bars2 = ax2.bar(x, time_per_task, bar_width, color=[gpt_color, bu_color], edgecolor='white', linewidth=1.5, alpha=0.85)
 ax2.set_title('Avg Time per Task', fontsize=16, color='white', fontweight='bold', pad=15)
 ax2.set_xticks(x)
 ax2.set_xticklabels(models, fontsize=12, color='white', fontweight='bold')
@@ -79,7 +79,7 @@ for i, (bar, val) in enumerate(zip(bars2, time_per_task)):
 		fontsize=11,
 		fontweight='bold',
 	)
-	if i == 0:  # BU 1.0
+	if i == 1:  # BU 1.0
 		ax2.text(
 			bar.get_x() + bar.get_width() / 2,
 			height + 10,
@@ -94,7 +94,7 @@ for i, (bar, val) in enumerate(zip(bars2, time_per_task)):
 # === PLOT 3: Cost per Task ===
 ax3 = axes[2]
 ax3.set_facecolor('black')
-bars3 = ax3.bar(x, cost_per_task, bar_width, color=[bu_color, gpt_color], edgecolor='white', linewidth=1.5, alpha=0.85)
+bars3 = ax3.bar(x, cost_per_task, bar_width, color=[gpt_color, bu_color], edgecolor='white', linewidth=1.5, alpha=0.85)
 ax3.set_title('Avg Cost per Task', fontsize=16, color='white', fontweight='bold', pad=15)
 ax3.set_xticks(x)
 ax3.set_xticklabels(models, fontsize=12, color='white', fontweight='bold')
@@ -115,7 +115,7 @@ for i, (bar, val) in enumerate(zip(bars3, cost_per_task)):
 		fontsize=11,
 		fontweight='bold',
 	)
-	if i == 0:  # BU 1.0
+	if i == 1:  # BU 1.0
 		ax3.text(
 			bar.get_x() + bar.get_width() / 2,
 			height + 3.5,
@@ -136,10 +136,11 @@ for ax in axes:
 	for label in ax.get_yticklabels():
 		label.set_fontweight('bold')
 
-# Add main title
+# Add main title and subtitle
 fig.suptitle('Evolution of Browser use in 2025', fontsize=22, color='white', fontweight='bold', y=0.98)
+fig.text(0.5, 0.89, 'Why you should switch from GPT-4o to BU 1.0', ha='center', fontsize=14, color='white', style='italic')
 
-plt.tight_layout(rect=(0, 0, 1, 0.96))
+plt.tight_layout(rect=(0, 0, 1, 0.90))
 plt.savefig('webbench_bu_vs_gpt4o.png', dpi=300, facecolor='black')
 plt.close()
 
