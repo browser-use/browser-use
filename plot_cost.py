@@ -113,7 +113,7 @@ for p1, p2 in pareto_points:
 	plt.plot(x, y, 'k--', linewidth=1, alpha=0.5, zorder=1)
 
 # Styling
-plt.xlabel('Succesful tasks Completed with $1', fontsize=14, color='white', fontweight='bold')
+plt.xlabel('Tasks completed with $1', fontsize=14, color='white', fontweight='bold')
 plt.ylabel('Accuracy', fontsize=14, color='white', fontweight='bold')
 plt.title('Performance on WebBench-200', fontsize=14, color='white', pad=20)
 
