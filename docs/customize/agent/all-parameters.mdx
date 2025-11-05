@@ -25,9 +25,11 @@ mode: "wide"
 - `use_thinking` (default: `True`): Controls whether the agent uses its internal "thinking" field for explicit reasoning steps.
 - `flash_mode` (default: `False`): Fast mode that skips evaluation, next goal and thinking and only uses memory. If `flash_mode` is enabled, it overrides `use_thinking` and disables the thinking process entirely. [Example](https://github.com/browser-use/browser-use/blob/main/examples/getting_started/05_fast_agent.py)
 
-### System Messages
-- `override_system_message`: Completely replace the default system prompt. 
+### Message Management
+- `override_system_message`: Completely replace the default system prompt.
 - `extend_system_message`: Add additional instructions to the default system prompt. [Example](https://github.com/browser-use/browser-use/blob/main/examples/features/custom_system_prompt.py)
+- `summarize_every_n_steps` (default: `25`): Summarize the conversation history every N steps. Creates overlapping summaries while keeping recent steps raw. [Example](https://github.com/browser-use/browser-use/blob/main/examples/features/conversation_summarization.py)
+- `summarize_keep_last_n_steps` (default: `5`): Number of most recent steps to keep unsummarized when creating summaries. Ensures the agent always has access to recent context.
 
 ### File & Data Management
 - `save_conversation_path`: Path to save complete conversation history

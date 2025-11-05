@@ -39,6 +39,7 @@ from browser_use.agent.judge import construct_judge_messages
 from browser_use.agent.message_manager.service import (
 	MessageManager,
 )
+from browser_use.agent.message_manager.views import HistoryItem
 from browser_use.agent.prompts import SystemPrompt
 from browser_use.agent.views import (
 	ActionResult,
@@ -180,6 +181,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		include_recent_events: bool = False,
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 		final_response_after_failure: bool = True,
+		summarize_every_n_steps: int | None = 10,
+		summarize_keep_last_n_steps: int = 5,
 		_url_shortening_limit: int = 25,
 		**kwargs,
 	):
@@ -249,6 +252,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.directly_open_url = directly_open_url
 		self.include_recent_events = include_recent_events
 		self._url_shortening_limit = _url_shortening_limit
+		self.summarize_every_n_steps = summarize_every_n_steps
+		self.summarize_keep_last_n_steps = summarize_keep_last_n_steps
+		self._steps_since_last_summary = 0
+		self._summary_count = 0
+		self._last_summary_end_step = 0  # Track where the last summary ended
 		if tools is not None:
 			self.tools = tools
 		elif controller is not None:
@@ -887,6 +895,117 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Increment step counter after step is fully completed
 		self.state.n_steps += 1
+
+		# Check if we need to summarize history
+		if self.summarize_every_n_steps is not None:
+			self._steps_since_last_summary += 1
+			if self._steps_since_last_summary >= self.summarize_every_n_steps:
+				await self._summarize_history()
+				self._steps_since_last_summary = 0
+				self._summary_count += 1
+
+	async def _summarize_history(self) -> None:
+		"""Summarize the agent's conversation history to prevent context overflow
+
+		New behavior:
+		- Summarizes steps from last_summary_end to (current_step - keep_last)
+		- Keeps the last N steps unsummarized for recency
+		- Creates overlapping summaries for context continuity
+		"""
+		from browser_use.llm.messages import SystemMessage, UserMessage
+
+		# Get the current agent history items
+		history_items = self._message_manager.state.agent_history_items
+
+		if len(history_items) <= 1:
+			self.logger.debug('Not enough history to summarize, skipping')
+			return
+
+		current_step = self.state.n_steps
+		keep_last = self.summarize_keep_last_n_steps
+
+		# Calculate the range to summarize
+		# We summarize from last_summary_end to (current_step - keep_last)
+		# For overlap, start 1 step before the last summary end (except for the first summary)
+		if self._last_summary_end_step > 0:
+			summarize_from_step = self._last_summary_end_step - 1  # Create 1-step overlap
+		else:
+			summarize_from_step = 0  # First summary starts from beginning
+		summarize_to_step = current_step - keep_last
+
+		if summarize_to_step <= summarize_from_step:
+			self.logger.debug(f'Not enough new steps to summarize (current={current_step}, keep_last={keep_last}), skipping')
+			return
+
+		# Separate items into: initialization, previous summaries, items to summarize, items to keep raw
+		initialization_items = []
+		previous_summaries = []
+		items_to_summarize = []
+		items_to_keep_raw = []
+
+		for item in history_items:
+			# Keep initialization (items without step_number)
+			if item.step_number is None:
+				initialization_items.append(item)
+			# Keep previous summaries
+			elif item.system_message and item.system_message.startswith('<summary_'):
+				previous_summaries.append(item)
+			# Determine if this item should be summarized or kept raw
+			elif item.step_number is not None:
+				if summarize_from_step < item.step_number <= summarize_to_step:
+					items_to_summarize.append(item)
+				elif item.step_number > summarize_to_step:
+					items_to_keep_raw.append(item)
+				# Items with step_number <= summarize_from_step are already summarized, skip them
+
+		if len(items_to_summarize) == 0:
+			self.logger.debug('No new items to summarize, skipping')
+			return
+
+		# Build the history text from items to summarize
+		history_text = '\n\n'.join([item.to_string() for item in items_to_summarize])
+
+		# Create summarization prompt
+		summarization_prompt = f"""Task: {self.task}
+
+Here is the conversation history from step {summarize_from_step + 1} to step {summarize_to_step} ({len(items_to_summarize)} steps):
+
+{history_text}
+
+"""
+
+		# Call LLM to get summary
+		try:
+			messages = [
+				SystemMessage(
+					content="You are conversation history summarizer to save tokens while keeping everything important for the task. Be concise and keep what's important to accomplish the task. This summary will replace the specified history steps to compact the history. The most recent steps and the task will stay in memory as raw steps. Describe what happened at each step consise. You have to include facts or findings from previous steps if they will be relevant for further steps or the final response.  Speak in the same persona as the agent, e.g. I did this -> I did this."
+				),
+				UserMessage(content=summarization_prompt),
+			]
+
+			response = await self.llm.ainvoke(messages)
+			summary_text = response.completion if hasattr(response, 'completion') else str(response)
+
+			# Create new summary item
+			summary_item = HistoryItem(
+				system_message=f'<summary_{self._summary_count}>\nSteps {summarize_from_step + 1}-{summarize_to_step}:\n{summary_text}\n</summary_{self._summary_count}>'
+			)
+
+			# Update the last summary end step for next time
+			self._last_summary_end_step = summarize_to_step
+
+			# Replace history with: initialization + previous summaries + new summary + raw items to keep
+			self._message_manager.state.agent_history_items = (
+				initialization_items + previous_summaries + [summary_item] + items_to_keep_raw
+			)
+
+			self.logger.info(
+				f'✅ History summarized: steps {summarize_from_step + 1}-{summarize_to_step} ({len(items_to_summarize)} items) condensed into summary block #{self._summary_count + 1}, keeping last {len(items_to_keep_raw)} steps raw'
+			)
+
+		except Exception as e:
+			self.logger.error(f'Failed to summarize history: {e}')
+			# Don't fail the agent run if summarization fails, just log and continue
 
 	async def _force_done_after_last_step(self, step_info: AgentStepInfo | None = None) -> None:
 		"""Handle special processing for the last step"""
