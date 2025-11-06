@@ -12,7 +12,9 @@
     </picture>
 </div>
 
-</br>
+<div align="center">
+<img src="https://media.browser-use.tools/badges/package" height="48" alt="Browser-Use Package Download Statistics">
+</div>
 
 ---
 

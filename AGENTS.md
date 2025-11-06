@@ -1,3 +1,4 @@
+# AGENTS.md Version 1
 <guidelines>
 Browser-Use is an AI agent that autonomously interacts with the web. It takes a user-defined task, navigates web pages using Chromium via CDP, processes HTML, and repeatedly queries a language model to decide the next action—until the task is completed.
 

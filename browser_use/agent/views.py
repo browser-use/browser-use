@@ -112,6 +112,9 @@ class ActionResult(BaseModel):
 	# Files
 	attachments: list[str] | None = None  # Files to display in the done message
 
+	# Images (base64 encoded) - separate from text content for efficient handling
+	images: list[dict[str, Any]] | None = None  # [{"name": "file.jpg", "data": "base64_string"}]
+
 	# Always include in long term memory
 	long_term_memory: str | None = None  # Memory of this action
 

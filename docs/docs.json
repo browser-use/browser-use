@@ -4,8 +4,14 @@
   "name": "Browser Use",
   "colors": {
     "primary": "#FE750E",
-    "light": "#FFF7ED",
-    "dark": "#C2410C"
+    "light": "#FE750E",
+    "dark": "#FE750E"
+  },
+  "background": {
+    "color": {
+      "light": "#FFFFFF",
+      "dark": "#09090B"
+    }
   },
   "favicon": "/favicon.ico",
   "contextual": {

@@ -28,7 +28,7 @@ from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import AgentTelemetryEvent
 from browser_use.tokens.service import TokenCost
 from browser_use.tokens.views import UsageSummary
-from browser_use.tools.service import Tools
+from browser_use.tools.service import CodeAgentTools, Tools
 from browser_use.utils import get_browser_use_version
 
 from .formatting import format_browser_state_for_llm
@@ -129,7 +129,7 @@ class CodeAgent:
 		self.task = task
 		self.llm = llm
 		self.browser_session = browser_session
-		self.tools = tools or Tools()
+		self.tools = tools or CodeAgentTools()
 		self.page_extraction_llm = page_extraction_llm
 		self.file_system = file_system if file_system is not None else FileSystem(base_dir='./')
 		self.available_file_paths = available_file_paths or []

@@ -46,6 +46,7 @@ dependencies = [
     "pillow>=11.2.1",
     "cloudpickle>=3.1.1",
     "markdownify>=1.2.0",
+    "python-docx>=1.2.0",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
