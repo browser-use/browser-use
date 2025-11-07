@@ -184,6 +184,7 @@ class MessageManager:
 		step_number = step_info.step_number if step_info else None
 
 		self.state.read_state_description = ''
+		self.state.read_state_images = []  # Clear images from previous step
 
 		action_results = ''
 		result_len = len(result)
@@ -196,6 +197,11 @@ class MessageManager:
 				)
 				read_state_idx += 1
 				logger.debug(f'Added extracted_content to read_state_description: {action_result.extracted_content}')
+
+			# Store images for one-time inclusion in the next message
+			if action_result.images:
+				self.state.read_state_images.extend(action_result.images)
+				logger.debug(f'Added {len(action_result.images)} image(s) to read_state_images')
 
 			if action_result.long_term_memory:
 				action_results += f'{action_result.long_term_memory}\n'
@@ -354,6 +360,7 @@ class MessageManager:
 			vision_detail_level=self.vision_detail_level,
 			include_recent_events=self.include_recent_events,
 			sample_images=self.sample_images,
+			read_state_images=self.state.read_state_images,
 		).get_user_message(effective_use_vision)
 
 		# Store state message text for history

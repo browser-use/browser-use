@@ -122,6 +122,28 @@ def construct_judge_messages(
 - The agent made up content that is not in the screenshot or the page state
 - The agent calls done action before completing all key points of the task
 
+**IMPOSSIBLE TASK DETECTION:**
+Set `impossible_task` to true when the task fundamentally could not be completed due to:
+- Vague or ambiguous task instructions that cannot be reasonably interpreted
+- Website genuinely broken or non-functional (be conservative - temporary issues don't count)
+- Required links/pages truly inaccessible (404, 403, etc.)
+- Task requires authentication/login but no credentials were provided
+- Task asks for functionality that doesn't exist on the target site
+- Other insurmountable external obstacles beyond the agent's control
+
+Do NOT mark as impossible if:
+- Agent made poor decisions but task was achievable
+- Temporary page loading issues that could be retried
+- Agent didn't try the right approach
+- Website works but agent struggled with it
+
+**CAPTCHA DETECTION:**
+Set `reached_captcha` to true if:
+- Screenshots show captcha challenges (reCAPTCHA, hCaptcha, etc.)
+- Agent reports being blocked by bot detection
+- Error messages indicate captcha/verification requirements
+- Any evidence the agent encountered anti-bot measures during execution
+
 **IMPORTANT EVALUATION NOTES:**
 - **evaluate for action** - For each key step of the trace, double check whether the action that the agent tried to performed actually happened. If the required action did not actually occur, the verdict should be false.
 - **screenshot is not entire content** - The agent has the entire DOM content, but the screenshot is only part of the content. If the agent extracts information from the page, but you do not see it in the screenshot, you can assume this information is there.
@@ -136,9 +158,11 @@ def construct_judge_messages(
 Respond with EXACTLY this JSON structure (no additional text before or after):
 
 {{
-	"reasoning": "Breakdown of user task into key points. Detailed analysis covering: what went well, what didn't work, trajectory quality assessment, tool usage evaluation, output quality review, and overall user satisfaction prediction",
+	"reasoning": "Breakdown of user task into key points. Detailed analysis covering: what went well, what didn't work, trajectory quality assessment, tool usage evaluation, output quality review, and overall user satisfaction prediction.",
 	"verdict": true or false,
-	"failure_reason": "If verdict is false, provide the key reason why the task was not completed successfully. If verdict is true, use an empty string."
+	"failure_reason": "A brief explanation of key reasons why the task was not completed successfully in case of failure. If verdict is true, use an empty string. Keep it concise and easy to read.",
+	"impossible_task": true or false,
+	"reached_captcha": true or false
 }}
 </response_format>
 """

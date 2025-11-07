@@ -10,30 +10,15 @@ from typing import Any
 # Format matches LiteLLM's model_prices_and_context_window.json structure
 CUSTOM_MODEL_PRICING: dict[str, dict[str, Any]] = {
 	'bu-1-0': {
-		'input_cost_per_token': 0.50 / 1_000_000,  # $0.50 per 1M tokens
-		'output_cost_per_token': 3.00 / 1_000_000,  # $3.00 per 1M tokens
-		'cache_read_input_token_cost': 0.10 / 1_000_000,  # $0.10 per 1M tokens
+		'input_cost_per_token': 0.2 / 1_000_000,  # $0.50 per 1M tokens
+		'output_cost_per_token': 2.00 / 1_000_000,  # $3.00 per 1M tokens
+		'cache_read_input_token_cost': 0.02 / 1_000_000,  # $0.10 per 1M tokens
 		'cache_creation_input_token_cost': None,  # Not specified
 		'max_tokens': None,  # Not specified
 		'max_input_tokens': None,  # Not specified
 		'max_output_tokens': None,  # Not specified
-	},
-	'bu-latest': {
-		'input_cost_per_token': 0.50 / 1_000_000,  # $0.50 per 1M tokens
-		'output_cost_per_token': 3.00 / 1_000_000,  # $3.00 per 1M tokens
-		'cache_read_input_token_cost': 0.10 / 1_000_000,  # $0.10 per 1M tokens
-		'cache_creation_input_token_cost': None,  # Not specified
-		'max_tokens': None,  # Not specified
-		'max_input_tokens': None,  # Not specified
-		'max_output_tokens': None,  # Not specified
-	},
-	'smart': {
-		'input_cost_per_token': 0.50 / 1_000_000,  # $0.50 per 1M tokens
-		'output_cost_per_token': 3.00 / 1_000_000,  # $3.00 per 1M tokens
-		'cache_read_input_token_cost': 0.10 / 1_000_000,  # $0.10 per 1M tokens
-		'cache_creation_input_token_cost': None,  # Not specified
-		'max_tokens': None,  # Not specified
-		'max_input_tokens': None,  # Not specified
-		'max_output_tokens': None,  # Not specified
-	},
+	}
 }
+CUSTOM_MODEL_PRICING['bu-latest'] = CUSTOM_MODEL_PRICING['bu-1-0']
+
+CUSTOM_MODEL_PRICING['smart'] = CUSTOM_MODEL_PRICING['bu-1-0']

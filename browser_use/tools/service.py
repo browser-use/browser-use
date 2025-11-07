@@ -976,16 +976,22 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			return ActionResult(extracted_content=result, long_term_memory=result)
 
 		@self.registry.action(
-			'Read the complete content of a file. Use this to view file contents before editing or to retrieve data from files.'
+			'Read the complete content of a file. Use this to view file contents before editing or to retrieve data from files. Supports text files (txt, md, json, csv, jsonl), documents (pdf, docx), and images (jpg, png).'
 		)
 		async def read_file(file_name: str, available_file_paths: list[str], file_system: FileSystem):
 			if available_file_paths and file_name in available_file_paths:
-				result = await file_system.read_file(file_name, external_file=True)
+				structured_result = await file_system.read_file_structured(file_name, external_file=True)
 			else:
-				result = await file_system.read_file(file_name)
+				structured_result = await file_system.read_file_structured(file_name)
+
+			result = structured_result['message']
+			images = structured_result.get('images')
 
 			MAX_MEMORY_SIZE = 1000
-			if len(result) > MAX_MEMORY_SIZE:
+			# For images, create a shorter memory message
+			if images:
+				memory = f'Read image file {file_name}'
+			elif len(result) > MAX_MEMORY_SIZE:
 				lines = result.splitlines()
 				display = ''
 				lines_count = 0
@@ -1003,6 +1009,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			return ActionResult(
 				extracted_content=result,
 				long_term_memory=memory,
+				images=images,
 				include_extracted_content_only_once=True,
 			)
 

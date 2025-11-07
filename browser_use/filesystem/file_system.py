@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import os
 import re
 import shutil
@@ -165,6 +166,46 @@ class PdfFile(BaseFile):
 			await asyncio.get_event_loop().run_in_executor(executor, lambda: self.sync_to_disk_sync(path))
 
 
+class DocxFile(BaseFile):
+	"""DOCX file implementation"""
+
+	@property
+	def extension(self) -> str:
+		return 'docx'
+
+	def sync_to_disk_sync(self, path: Path) -> None:
+		file_path = path / self.full_name
+		try:
+			from docx import Document
+
+			doc = Document()
+
+			# Convert content to DOCX paragraphs
+			content_lines = self.content.split('\n')
+
+			for line in content_lines:
+				if line.strip():
+					# Handle basic markdown headers
+					if line.startswith('# '):
+						doc.add_heading(line[2:], level=1)
+					elif line.startswith('## '):
+						doc.add_heading(line[3:], level=2)
+					elif line.startswith('### '):
+						doc.add_heading(line[4:], level=3)
+					else:
+						doc.add_paragraph(line)
+				else:
+					doc.add_paragraph()  # Empty paragraph for spacing
+
+			doc.save(str(file_path))
+		except Exception as e:
+			raise FileSystemError(f"Error: Could not write to file '{self.full_name}'. {str(e)}")
+
+	async def sync_to_disk(self, path: Path) -> None:
+		with ThreadPoolExecutor() as executor:
+			await asyncio.get_event_loop().run_in_executor(executor, lambda: self.sync_to_disk_sync(path))
+
+
 class FileSystemState(BaseModel):
 	"""Serializable state of the file system"""
 
@@ -195,6 +236,7 @@ class FileSystem:
 			'jsonl': JsonlFile,
 			'csv': CsvFile,
 			'pdf': PdfFile,
+			'docx': DocxFile,
 		}
 
 		self.files = {}
@@ -264,20 +306,42 @@ class FileSystem:
 
 		return file_obj.read()
 
-	async def read_file(self, full_filename: str, external_file: bool = False) -> str:
-		"""Read file content using file-specific read method and return appropriate message to LLM"""
+	async def read_file_structured(self, full_filename: str, external_file: bool = False) -> dict[str, Any]:
+		"""Read file and return structured data including images if applicable.
+
+		Returns:
+			dict with keys:
+				- 'message': str - The message to display
+				- 'images': list[dict] | None - Image data if file is an image: [{"name": str, "data": base64_str}]
+		"""
+		result: dict[str, Any] = {'message': '', 'images': None}
+
 		if external_file:
 			try:
 				try:
 					_, extension = self._parse_filename(full_filename)
 				except Exception:
-					return f'Error: Invalid filename format {full_filename}. Must be alphanumeric with a supported extension.'
+					result['message'] = (
+						f'Error: Invalid filename format {full_filename}. Must be alphanumeric with a supported extension.'
+					)
+					return result
+
 				if extension in ['md', 'txt', 'json', 'jsonl', 'csv']:
 					import anyio
 
 					async with await anyio.open_file(full_filename, 'r') as f:
 						content = await f.read()
-						return f'Read from file {full_filename}.\n<content>\n{content}\n</content>'
+						result['message'] = f'Read from file {full_filename}.\n<content>\n{content}\n</content>'
+						return result
+
+				elif extension == 'docx':
+					from docx import Document
+
+					doc = Document(full_filename)
+					content = '\n'.join([para.text for para in doc.paragraphs])
+					result['message'] = f'Read from file {full_filename}.\n<content>\n{content}\n</content>'
+					return result
+
 				elif extension == 'pdf':
 					import pypdf
 
@@ -289,30 +353,66 @@ class FileSystem:
 					for page in reader.pages[:MAX_PDF_PAGES]:
 						extracted_text += page.extract_text()
 					extra_pages_text = f'{extra_pages} more pages...' if extra_pages > 0 else ''
-					return f'Read from file {full_filename}.\n<content>\n{extracted_text}\n{extra_pages_text}</content>'
-				else:
-					return f'Error: Cannot read file {full_filename} as {extension} extension is not supported.'
-			except FileNotFoundError:
-				return f"Error: File '{full_filename}' not found."
-			except PermissionError:
-				return f"Error: Permission denied to read file '{full_filename}'."
-			except Exception as e:
-				return f"Error: Could not read file '{full_filename}'."
+					result['message'] = (
+						f'Read from file {full_filename}.\n<content>\n{extracted_text}\n{extra_pages_text}</content>'
+					)
+					return result
 
+				elif extension in ['jpg', 'jpeg', 'png']:
+					import anyio
+
+					# Read image file and convert to base64
+					async with await anyio.open_file(full_filename, 'rb') as f:
+						img_data = await f.read()
+
+					base64_str = base64.b64encode(img_data).decode('utf-8')
+
+					result['message'] = f'Read image file {full_filename}.'
+					result['images'] = [{'name': os.path.basename(full_filename), 'data': base64_str}]
+					return result
+
+				else:
+					result['message'] = f'Error: Cannot read file {full_filename} as {extension} extension is not supported.'
+					return result
+
+			except FileNotFoundError:
+				result['message'] = f"Error: File '{full_filename}' not found."
+				return result
+			except PermissionError:
+				result['message'] = f"Error: Permission denied to read file '{full_filename}'."
+				return result
+			except Exception as e:
+				result['message'] = f"Error: Could not read file '{full_filename}'. {str(e)}"
+				return result
+
+		# For internal files, only non-image types are supported
 		if not self._is_valid_filename(full_filename):
-			return INVALID_FILENAME_ERROR_MESSAGE
+			result['message'] = INVALID_FILENAME_ERROR_MESSAGE
+			return result
 
 		file_obj = self.get_file(full_filename)
 		if not file_obj:
-			return f"File '{full_filename}' not found."
+			result['message'] = f"File '{full_filename}' not found."
+			return result
 
 		try:
 			content = file_obj.read()
-			return f'Read from file {full_filename}.\n<content>\n{content}\n</content>'
+			result['message'] = f'Read from file {full_filename}.\n<content>\n{content}\n</content>'
+			return result
 		except FileSystemError as e:
-			return str(e)
-		except Exception:
-			return f"Error: Could not read file '{full_filename}'."
+			result['message'] = str(e)
+			return result
+		except Exception as e:
+			result['message'] = f"Error: Could not read file '{full_filename}'. {str(e)}"
+			return result
+
+	async def read_file(self, full_filename: str, external_file: bool = False) -> str:
+		"""Read file content using file-specific read method and return appropriate message to LLM.
+
+		Note: For image files, use read_file_structured() to get image data.
+		"""
+		result = await self.read_file_structured(full_filename, external_file)
+		return result['message']
 
 	async def write_file(self, full_filename: str, content: str) -> str:
 		"""Write content to file using file-specific write method"""
@@ -506,6 +606,8 @@ class FileSystem:
 				file_obj = CsvFile(**file_info)
 			elif file_type == 'PdfFile':
 				file_obj = PdfFile(**file_info)
+			elif file_type == 'DocxFile':
+				file_obj = DocxFile(**file_info)
 			else:
 				# Skip unknown file types
 				continue
