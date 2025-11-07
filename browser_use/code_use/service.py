@@ -614,8 +614,8 @@ class CodeAgent:
 				content_parts.append(
 					ContentPartImageParam(
 						image_url=ImageURL(
-							url=f'data:image/jpeg;base64,{self._last_screenshot}',
-							media_type='image/jpeg',
+							url=f'data:image/png;base64,{self._last_screenshot}',
+							media_type='image/png',
 							detail='auto',
 						),
 					)

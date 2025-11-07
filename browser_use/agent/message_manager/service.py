@@ -292,7 +292,7 @@ class MessageManager:
 		model_output: AgentOutput | None = None,
 		result: list[ActionResult] | None = None,
 		step_info: AgentStepInfo | None = None,
-		use_vision: bool | Literal['auto'] = 'auto',
+		use_vision: bool | Literal['auto'] = True,
 		page_filtered_actions: str | None = None,
 		sensitive_data=None,
 		available_file_paths: list[str] | None = None,  # Always pass current available_file_paths

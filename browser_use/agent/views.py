@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 class AgentSettings(BaseModel):
 	"""Configuration options for the Agent"""
 
-	use_vision: bool | Literal['auto'] = 'auto'
+	use_vision: bool | Literal['auto'] = True
 	vision_detail_level: Literal['auto', 'low', 'high'] = 'auto'
 	save_conversation_path: str | Path | None = None
 	save_conversation_path_encoding: str | None = 'utf-8'
@@ -93,7 +93,18 @@ class JudgementResult(BaseModel):
 
 	reasoning: str | None = Field(default=None, description='Explanation of the judgement')
 	verdict: bool = Field(description='Whether the trace was successful or not')
-	failure_reason: str | None = Field(default=None, description='If the trace was not successful, the reason why')
+	failure_reason: str | None = Field(
+		default=None,
+		description='A brief explanation of key reasons why the task was not completed successfully in case of failure. If verdict is true, use an empty string. Keep it concise and easy to read.',
+	)
+	impossible_task: bool = Field(
+		default=False,
+		description='True if the task was impossible to complete due to vague instructions, broken website, inaccessible links, missing login credentials, or other insurmountable obstacles',
+	)
+	reached_captcha: bool = Field(
+		default=False,
+		description='True if the agent encountered captcha challenges during task execution',
+	)
 
 
 class ActionResult(BaseModel):
