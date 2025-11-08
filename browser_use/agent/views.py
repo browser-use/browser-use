@@ -6,6 +6,8 @@ import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generic, Literal
+from typing import Optional, List
+
 
 from openai import RateLimitError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model, model_validator
@@ -179,10 +181,11 @@ class AgentOutput(BaseModel):
 	evaluation_previous_goal: str | None = None
 	memory: str | None = None
 	next_goal: str | None = None
-	action: list[ActionModel] = Field(
-		...,
-		json_schema_extra={'min_items': 1},  # Ensure at least one action is provided
-	)
+	action: Optional[List[ActionModel]] = Field(
+        default_factory=list,  # if not provided, defaults to an empty list
+        json_schema_extra={'min_items': 0},  # allow zero actions
+    )
+	
 
 	@classmethod
 	def model_json_schema(cls, **kwargs):
@@ -752,3 +755,5 @@ class AgentError:
 		if include_trace:
 			return f'{str(error)}\nStacktrace:\n{traceback.format_exc()}'
 		return f'{str(error)}'
+
+AgentState.model_rebuild()
