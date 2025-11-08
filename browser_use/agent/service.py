@@ -162,6 +162,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_actions_per_step: int = 10,
 		use_thinking: bool = True,
 		flash_mode: bool = False,
+		demo_mode: bool | None = None,
 		max_history_items: int | None = None,
 		page_extraction_llm: BaseChatModel | None = None,
 		use_judge: bool = True,
@@ -227,17 +228,31 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.task_id: str = self.id
 		self.session_id: str = uuid7str()
 
-		browser_profile = browser_profile or DEFAULT_BROWSER_PROFILE
+		base_profile = browser_profile or DEFAULT_BROWSER_PROFILE
+		if base_profile is DEFAULT_BROWSER_PROFILE:
+			base_profile = base_profile.model_copy()
+		if demo_mode is not None and base_profile.demo_mode != demo_mode:
+			base_profile = base_profile.model_copy(update={'demo_mode': demo_mode})
+		browser_profile = base_profile
 
 		# Handle browser vs browser_session parameter (browser takes precedence)
 		if browser and browser_session:
 			raise ValueError('Cannot specify both "browser" and "browser_session" parameters. Use "browser" for the cleaner API.')
 		browser_session = browser or browser_session
 
+		if browser_session is not None and demo_mode is not None and browser_session.browser_profile.demo_mode != demo_mode:
+			browser_session.browser_profile = browser_session.browser_profile.model_copy(update={'demo_mode': demo_mode})
+
 		self.browser_session = browser_session or BrowserSession(
 			browser_profile=browser_profile,
 			id=uuid7str()[:-4] + self.id[-4:],  # re-use the same 4-char suffix so they show up together in logs
 		)
+
+		self._demo_mode_enabled: bool = bool(self.browser_profile.demo_mode) if self.browser_session else False
+		if self._demo_mode_enabled and getattr(self.browser_profile, 'headless', False):
+			self.logger.warning(
+				'Demo mode is enabled but the browser is headless=True; set headless=False to view the in-browser panel.'
+			)
 
 		# Initialize available file paths as direct attribute
 		self.available_file_paths = available_file_paths
@@ -835,6 +850,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		else:
 			self.logger.error(f'{prefix}{error_msg}')
 
+		await self._demo_mode_log(f'Step error: {error_msg}', 'error', {'step': self.state.n_steps})
 		self.state.last_result = [ActionResult(error=error_msg)]
 		return None
 
@@ -861,7 +877,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			)
 
 		# Log step completion summary
-		self._log_step_completion_summary(self.step_start_time, self.state.last_result)
+		summary_message = self._log_step_completion_summary(self.step_start_time, self.state.last_result)
+		if summary_message:
+			await self._demo_mode_log(summary_message, 'info', {'step': self.state.n_steps})
 
 		# Save file system state after step completion
 		self.save_file_system_state()
@@ -1278,6 +1296,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			if not (hasattr(self.state, 'paused') and (self.state.paused or self.state.stopped)):
 				log_response(parsed, self.tools.registry.registry, self.logger)
+				await self._broadcast_model_state(parsed)
 
 			self._log_next_action_summary(parsed)
 			return parsed
@@ -1349,10 +1368,47 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			param_str = f'({", ".join(param_summary)})' if param_summary else ''
 			action_details.append(f'{action_name}{param_str}')
 
-	def _log_step_completion_summary(self, step_start_time: float, result: list[ActionResult]) -> None:
+	def _prepare_demo_message(self, message: str, limit: int = 600) -> str:
+		# Previously truncated long entries; keep full text for better context in demo panel
+		return message.strip()
+
+	async def _demo_mode_log(self, message: str, level: str = 'info', metadata: dict[str, Any] | None = None) -> None:
+		if not self._demo_mode_enabled or not message or self.browser_session is None:
+			return
+		try:
+			await self.browser_session.send_demo_mode_log(
+				message=self._prepare_demo_message(message),
+				level=level,
+				metadata=metadata or {},
+			)
+		except Exception as exc:
+			self.logger.debug(f'[DemoMode] Failed to send overlay log: {exc}')
+
+	async def _broadcast_model_state(self, parsed: 'AgentOutput') -> None:
+		if not self._demo_mode_enabled:
+			return
+
+		state = parsed.current_state
+		step_meta = {'step': self.state.n_steps}
+
+		if state.thinking:
+			await self._demo_mode_log(state.thinking, 'thought', step_meta)
+
+		if state.evaluation_previous_goal:
+			eval_text = state.evaluation_previous_goal
+			level = 'success' if 'success' in eval_text.lower() else 'warning' if 'failure' in eval_text.lower() else 'info'
+			await self._demo_mode_log(eval_text, level, step_meta)
+
+		if state.memory:
+			await self._demo_mode_log(f'Memory: {state.memory}', 'info', step_meta)
+
+		if state.next_goal:
+			await self._demo_mode_log(f'Next goal: {state.next_goal}', 'info', step_meta)
+
+	def _log_step_completion_summary(self, step_start_time: float, result: list[ActionResult]) -> str | None:
 		"""Log step completion summary with action count, timing, and success/failure stats"""
 		if not result:
-			return
+			return None
 
 		step_duration = time.time() - step_start_time
 		action_count = len(result)
@@ -1367,9 +1423,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		status_parts = [part for part in [success_indicator, failure_indicator] if part]
 		status_str = ' | '.join(status_parts) if status_parts else '✅ 0'
 
-		self.logger.debug(
-			f'📍 Step {self.state.n_steps}: Ran {action_count} action{"" if action_count == 1 else "s"} in {step_duration:.2f}s: {status_str}'
+		message = (
+			f'📍 Step {self.state.n_steps}: Ran {action_count} action{"" if action_count == 1 else "s"} '
+			f'in {step_duration:.2f}s: {status_str}'
 		)
+		self.logger.debug(message)
+		return message
 
 	def _log_final_outcome_messages(self) -> None:
 		"""Log helpful messages to user based on agent run outcome"""
@@ -1646,6 +1705,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if on_step_start is not None:
 			await on_step_start(self)
 
+		await self._demo_mode_log(
+			f'Starting step {step + 1}/{max_steps}',
+			'info',
+			{'step': step + 1, 'total_steps': max_steps},
+		)
+
 		self.logger.debug(f'🚶 Starting step {step + 1}/{max_steps}...')
 
 		try:
@@ -1658,6 +1723,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Handle step timeout gracefully
 			error_msg = f'Step {step + 1} timed out after 180 seconds'
 			self.logger.error(f'⏰ {error_msg}')
+			await self._demo_mode_log(error_msg, 'error', {'step': step + 1})
 			self.state.consecutive_failures += 1
 			self.state.last_result = [ActionResult(error=error_msg)]
 
@@ -1690,6 +1756,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		loop = asyncio.get_event_loop()
 		agent_run_error: str | None = None  # Initialize error tracking variable
 		self._force_exit_telemetry_logged = False  # ADDED: Flag for custom telemetry on force exit
+		should_delay_close = False
 
 		# Set up the  signal handler with callbacks specific to this agent
 		from browser_use.utils import SignalHandler
@@ -1738,6 +1805,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self._log_first_step_startup()
 			# Start browser session and attach watchdogs
 			await self.browser_session.start()
+			if self._demo_mode_enabled:
+				await self._demo_mode_log(f'Started task: {self.task}', 'info', {'tag': 'task'})
+				await self._demo_mode_log(
+					'Demo mode active - follow the side panel for live thoughts and actions.',
+					'info',
+					{'tag': 'status'},
+				)
 
 			# Normally there was no try catch here but the callback can raise an InterruptedError
 			try:
@@ -1776,6 +1850,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					# Agent has marked the task as done
 					if self.settings.use_judge:
 						await self._judge_and_log()
+
+					if self._demo_mode_enabled and self.history.history:
+						final_result_text = self.history.final_result() or 'Task completed'
+						await self._demo_mode_log(f'Final Result: {final_result_text}', 'success', {'tag': 'task'})
+
+					should_delay_close = True
 					break
 			else:
 				agent_run_error = 'Failed to complete task in maximum steps'
@@ -1820,6 +1900,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			raise e
 
 		finally:
+			if should_delay_close and self._demo_mode_enabled and agent_run_error is None:
+				await asyncio.sleep(30)
+			if agent_run_error:
+				await self._demo_mode_log(f'Agent stopped: {agent_run_error}', 'error', {'tag': 'run'})
 			# Log token usage summary
 			await self.token_cost_service.log_usage_summary()
 
@@ -1911,7 +1995,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				action_name = next(iter(action_data.keys())) if action_data else 'unknown'
 
 				# Log action before execution
-				self._log_action(action, action_name, i + 1, total_actions)
+				await self._log_action(action, action_name, i + 1, total_actions)
 
 				time_start = time.time()
 
@@ -1927,6 +2011,21 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				time_end = time.time()
 				time_elapsed = time_end - time_start
 
+				if result.error:
+					await self._demo_mode_log(
+						f'Action "{action_name}" failed: {result.error}',
+						'error',
+						{'action': action_name, 'step': self.state.n_steps},
+					)
+				elif result.is_done:
+					completion_text = result.long_term_memory or result.extracted_content or 'Task marked as done.'
+					level = 'success' if result.success is not False else 'warning'
+					await self._demo_mode_log(
+						completion_text,
+						level,
+						{'action': action_name, 'step': self.state.n_steps},
+					)
+
 				results.append(result)
 
 				if results[-1].is_done or results[-1].error or i == total_actions - 1:
@@ -1935,11 +2034,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			except Exception as e:
 				# Handle any exceptions during action execution
 				self.logger.error(f'❌ Executing action {i + 1} failed -> {type(e).__name__}: {e}')
+				await self._demo_mode_log(
+					f'Action "{action_name}" raised {type(e).__name__}: {e}',
+					'error',
+					{'action': action_name, 'step': self.state.n_steps},
+				)
 				raise e
 
 		return results
 
-	def _log_action(self, action, action_name: str, action_num: int, total_actions: int) -> None:
+	async def _log_action(self, action, action_name: str, action_num: int, total_actions: int) -> None:
 		"""Log the action before execution with colored formatting"""
 		# Color definitions
 		blue = '\033[34m'  # Action name
@@ -1949,8 +2053,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Format action number and name
 		if total_actions > 1:
 			action_header = f'▶️  [{action_num}/{total_actions}] {blue}{action_name}{reset}:'
+			plain_header = f'▶️  [{action_num}/{total_actions}] {action_name}:'
 		else:
 			action_header = f'▶️   {blue}{action_name}{reset}:'
+			plain_header = f'▶️  {action_name}:'
 
 		# Get action parameters
 		action_data = action.model_dump(exclude_unset=True)
@@ -1958,6 +2064,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Build parameter parts with colored formatting
 		param_parts = []
+		plain_param_parts = []
 
 		if params and isinstance(params, dict):
 			for param_name, value in params.items():
@@ -1970,6 +2077,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					display_value = value
 
 				param_parts.append(f'{magenta}{param_name}{reset}: {display_value}')
+				plain_param_parts.append(f'{param_name}: {display_value}')
 
 		# Join all parts
 		if param_parts:
@@ -1978,12 +2086,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		else:
 			self.logger.info(f'  {action_header}')
 
+		if self._demo_mode_enabled:
+			panel_message = plain_header
+			if plain_param_parts:
+				panel_message = f'{panel_message} {", ".join(plain_param_parts)}'
+			await self._demo_mode_log(panel_message.strip(), 'action', {'action': action_name, 'step': self.state.n_steps})
+
 	async def log_completion(self) -> None:
 		"""Log the completion of the task"""
 		# self._task_end_time = time.time()
 		# self._task_duration = self._task_end_time - self._task_start_time TODO: this is not working when using take_step
 		if self.history.is_successful():
 			self.logger.info('✅ Task completed successfully')
+			await self._demo_mode_log('Task completed successfully', 'success', {'tag': 'task'})
 
 	async def rerun_history(
 		self,

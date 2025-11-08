@@ -1,5 +1,6 @@
 # @file purpose: Serializes enhanced DOM trees to string format for LLM consumption
 
+import logging
 from typing import Any
 
 from browser_use.dom.serializer.clickable_elements import ClickableElementDetector
@@ -14,6 +15,8 @@ from browser_use.dom.views import (
 	SerializedDOMState,
 	SimplifiedNode,
 )
+
+logger = logging.getLogger(__name__)
 
 DISABLED_ELEMENTS = {'style', 'script', 'head', 'meta', 'link', 'title'}
 
@@ -63,6 +66,7 @@ class DOMTreeSerializer:
 		enable_bbox_filtering: bool = True,
 		containment_threshold: float | None = None,
 		paint_order_filtering: bool = True,
+		session_id: str | None = None,
 	):
 		self.root_node = root_node
 		self._interactive_counter = 1
@@ -77,6 +81,8 @@ class DOMTreeSerializer:
 		self.containment_threshold = containment_threshold or self.DEFAULT_CONTAINMENT_THRESHOLD
 		# Paint order filtering configuration
 		self.paint_order_filtering = paint_order_filtering
+		# Session ID for session-specific exclude attribute
+		self.session_id = session_id
 
 	def _safe_parse_number(self, value_str: str, default: float) -> float:
 		"""Parse string to float, handling negatives and decimals."""
@@ -460,6 +466,27 @@ class DOMTreeSerializer:
 
 			# Skip SVG child elements entirely (path, rect, g, circle, etc.)
 			if node.node_name.lower() in SVG_ELEMENTS:
+				return None
+
+			attributes = node.attributes or {}
+			# Check for session-specific exclude attribute first, then fall back to legacy attribute
+			exclude_attr = None
+			attr_type = None
+			if self.session_id:
+				session_specific_attr = f'data-browser-use-exclude-{self.session_id}'
+				exclude_attr = attributes.get(session_specific_attr)
+				if exclude_attr:
+					attr_type = 'session-specific'
+					logger.debug(
+						f'Checking exclude attribute for session {self.session_id}: found {session_specific_attr}={exclude_attr}'
+					)
+			# Fall back to legacy attribute if session-specific not found
+			if not exclude_attr:
+				exclude_attr = attributes.get('data-browser-use-exclude')
+				if exclude_attr:
+					attr_type = 'legacy'
+			if isinstance(exclude_attr, str) and exclude_attr.lower() == 'true':
+				logger.debug(f'Excluding element with tag {node.node_name} due to {attr_type or "unknown"} exclude attribute')
 				return None
 
 			if node.node_name == 'IFRAME' or node.node_name == 'FRAME':

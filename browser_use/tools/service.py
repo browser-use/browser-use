@@ -1452,11 +1452,7 @@ class CodeAgentTools(Tools[Context]):
 		async def done(params: DoneAction, file_system: FileSystem):
 			user_message = params.text
 
-			len_text = len(params.text)
-			len_max_memory = 100
-			memory = f'Task completed: {params.success} - {params.text[:len_max_memory]}'
-			if len_text > len_max_memory:
-				memory += f' - {len_text - len_max_memory} more characters'
+			memory = f'Task completed: {params.success} - {params.text}'
 
 			attachments = []
 			if params.files_to_display:

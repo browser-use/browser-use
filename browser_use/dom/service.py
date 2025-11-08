@@ -735,9 +735,11 @@ class DomService:
 		assert self.browser_session.current_target_id is not None
 		enhanced_dom_tree = await self.get_dom_tree(target_id=self.browser_session.current_target_id)
 
+		session_id = self.browser_session.id
+		self.logger.debug(f'Serializing DOM tree with session ID: {session_id}')
 		start = time.time()
 		serialized_dom_state, serializer_timing = DOMTreeSerializer(
-			enhanced_dom_tree, previous_cached_state, paint_order_filtering=self.paint_order_filtering
+			enhanced_dom_tree, previous_cached_state, paint_order_filtering=self.paint_order_filtering, session_id=session_id
 		).serialize_accessible_elements()
 
 		end = time.time()

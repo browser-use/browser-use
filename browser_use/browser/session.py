@@ -48,6 +48,7 @@ from browser_use.utils import _log_pretty_url, is_new_tab_page
 
 if TYPE_CHECKING:
 	from browser_use.actor.page import Page
+	from browser_use.browser.demo_mode import DemoMode
 
 DEFAULT_BROWSER_PROFILE = BrowserProfile()
 
@@ -448,6 +449,17 @@ class BrowserSession(BaseModel):
 		"""Whether to use cloud browser service from browser profile."""
 		return self.browser_profile.use_cloud
 
+	@property
+	def demo_mode(self) -> 'DemoMode | None':
+		"""Lazy init demo mode helper when enabled."""
+		if not self.browser_profile.demo_mode:
+			return None
+		if self._demo_mode is None:
+			from browser_use.browser.demo_mode import DemoMode
+
+			self._demo_mode = DemoMode(self)
+		return self._demo_mode
+
 	# Main shared event bus for all browser session + all watchdogs
 	event_bus: EventBus = Field(default_factory=EventBus)
 
@@ -477,6 +489,7 @@ class BrowserSession(BaseModel):
 	_recording_watchdog: Any | None = PrivateAttr(default=None)
 
 	_cloud_browser_client: CloudBrowserClient = PrivateAttr(default_factory=lambda: CloudBrowserClient())
+	_demo_mode: 'DemoMode | None' = PrivateAttr(default=None)
 
 	_logger: Any = PrivateAttr(default=None)
 
@@ -546,6 +559,9 @@ class BrowserSession(BaseModel):
 		self._screenshot_watchdog = None
 		self._permissions_watchdog = None
 		self._recording_watchdog = None
+		if self._demo_mode:
+			self._demo_mode.reset()
+			self._demo_mode = None
 
 	def model_post_init(self, __context) -> None:
 		"""Register event handlers after model initialization."""
@@ -674,8 +690,23 @@ class BrowserSession(BaseModel):
 
 				# Notify that browser is connected (single place)
 				self.event_bus.dispatch(BrowserConnectedEvent(cdp_url=self.cdp_url))
+
+				if self.browser_profile.demo_mode:
+					try:
+						demo = self.demo_mode
+						if demo:
+							await demo.ensure_ready()
+					except Exception as exc:
+						self.logger.warning(f'[DemoMode] Failed to inject demo overlay: {exc}')
 			else:
 				self.logger.debug('Already connected to CDP, skipping reconnection')
+				if self.browser_profile.demo_mode:
+					try:
+						demo = self.demo_mode
+						if demo:
+							await demo.ensure_ready()
+					except Exception as exc:
+						self.logger.warning(f'[DemoMode] Failed to inject demo overlay: {exc}')
 
 			# Return the CDP URL for other components
 			return {'cdp_url': self.cdp_url}
@@ -2491,6 +2522,18 @@ class BrowserSession(BaseModel):
 
 		except Exception as e:
 			self.logger.debug(f'[BrowserSession] Error closing extension options pages: {e}')
+
+	async def send_demo_mode_log(self, message: str, level: str = 'info', metadata: dict[str, Any] | None = None) -> None:
+		"""Send a message to the in-browser demo panel if enabled."""
+		if not self.browser_profile.demo_mode:
+			return
+		demo = self.demo_mode
+		if not demo:
+			return
+		try:
+			await demo.send_log(message=message, level=level, metadata=metadata or {})
+		except Exception as exc:
+			self.logger.debug(f'[DemoMode] Failed to send log: {exc}')
 
 	@property
 	def downloaded_files(self) -> list[str]:

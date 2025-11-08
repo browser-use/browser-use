@@ -1,5 +1,6 @@
 """Page class for page-level operations."""
 
+import logging
 from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import BaseModel
@@ -8,6 +9,8 @@ from browser_use.actor.utils import get_key_info
 from browser_use.dom.serializer.serializer import DOMTreeSerializer
 from browser_use.dom.service import DomService
 from browser_use.llm.messages import SystemMessage, UserMessage
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -407,8 +410,10 @@ class Page:
 
 		enhanced_dom_tree = await dom_service.get_dom_tree(target_id=self._target_id)
 
+		session_id = self._browser_session.id
+		logger.debug(f'Getting page state with session ID: {session_id}')
 		serialized_dom_state, _ = DOMTreeSerializer(
-			enhanced_dom_tree, None, paint_order_filtering=True
+			enhanced_dom_tree, None, paint_order_filtering=True, session_id=session_id
 		).serialize_accessible_elements()
 
 		llm_representation = serialized_dom_state.llm_representation()

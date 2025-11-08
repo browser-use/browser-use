@@ -74,6 +74,7 @@ class CodeAgent:
 		max_validations: int = 0,
 		use_vision: bool = True,
 		calculate_cost: bool = False,
+		demo_mode: bool | None = None,
 		**kwargs,
 	):
 		"""
@@ -94,6 +95,7 @@ class CodeAgent:
 			max_validations: Maximum number of times to run the validator agent (default: 0)
 			use_vision: Whether to include screenshots in LLM messages (default: True)
 			calculate_cost: Whether to calculate token costs (default: False)
+			demo_mode: Enable the in-browser demo panel for live logging (default: False)
 			llm: Optional ChatBrowserUse LLM instance (will create default if not provided)
 			**kwargs: Additional keyword arguments for compatibility (ignored)
 		"""
@@ -124,11 +126,24 @@ class CodeAgent:
 		tools = controller or tools
 
 		# Store browser_profile for creating browser session if needed
-		self._browser_profile_for_init = BrowserProfile() if browser_session is None else None
+		self._demo_mode_enabled = False
+		if browser_session is None:
+			profile_kwargs: dict[str, Any] = {}
+			if demo_mode is not None:
+				profile_kwargs['demo_mode'] = demo_mode
+			self._browser_profile_for_init = BrowserProfile(**profile_kwargs)
+		else:
+			self._browser_profile_for_init = None
 
 		self.task = task
 		self.llm = llm
 		self.browser_session = browser_session
+		if self.browser_session:
+			if demo_mode is not None and self.browser_session.browser_profile.demo_mode != demo_mode:
+				self.browser_session.browser_profile = self.browser_session.browser_profile.model_copy(
+					update={'demo_mode': demo_mode}
+				)
+			self._demo_mode_enabled = bool(self.browser_session.browser_profile.demo_mode)
 		self.tools = tools or CodeAgentTools()
 		self.page_extraction_llm = page_extraction_llm
 		self.file_system = file_system if file_system is not None else FileSystem(base_dir='./')
@@ -199,6 +214,13 @@ class CodeAgent:
 			self.browser_session = BrowserSession(browser_profile=self._browser_profile_for_init)
 			await self.browser_session.start()
 
+		if self.browser_session:
+			self._demo_mode_enabled = bool(self.browser_session.browser_profile.demo_mode)
+			if self._demo_mode_enabled and getattr(self.browser_session.browser_profile, 'headless', False):
+				logger.warning('Demo mode is enabled but the browser is headless=True; set headless=False to view the panel.')
+			if self._demo_mode_enabled:
+				await self._demo_mode_log(f'Started CodeAgent task: {self.task}', 'info', {'tag': 'task'})
+
 		# Initialize DOM service with cross-origin iframe support enabled
 		self.dom_service = DomService(
 			browser_session=self.browser_session,
@@ -220,6 +242,7 @@ class CodeAgent:
 
 		# Track agent run error for telemetry
 		agent_run_error: str | None = None
+		should_delay_close = False
 
 		# Extract URL from task and navigate if found
 		initial_url = extract_url_from_task(self.task)
@@ -267,6 +290,7 @@ class CodeAgent:
 		# Main execution loop
 		for step in range(self.max_steps):
 			logger.info(f'\n\n\n\n\n\n\nStep {step + 1}/{self.max_steps}')
+			await self._demo_mode_log(f'Starting step {step + 1}/{self.max_steps}', 'info', {'step': step + 1})
 
 			# Start timing this step
 			self._step_start_time = datetime.datetime.now().timestamp()
@@ -395,6 +419,11 @@ class CodeAgent:
 						logger.error(
 							f'Terminating: {self.max_failures} consecutive errors reached. The agent is unable to make progress.'
 						)
+						await self._demo_mode_log(
+							f'Terminating after {self.max_failures} consecutive errors without progress.',
+							'error',
+							{'step': step + 1},
+						)
 						# Add termination message to complete history before breaking
 						await self._add_step_to_complete_history(
 							model_output_code=code,
@@ -503,6 +532,13 @@ class CodeAgent:
 					logger.info('Task completed successfully')
 					if final_result:
 						logger.info(f'Final result: {final_result}')
+					if self._demo_mode_enabled:
+						await self._demo_mode_log(
+							f'Final Result: {final_result or "Task completed"}',
+							'success',
+							{'tag': 'task'},
+						)
+					should_delay_close = True
 					break
 				# If validation rejected done(), continue to next iteration
 				# The feedback message has already been added to _llm_messages
@@ -519,6 +555,11 @@ class CodeAgent:
 		else:
 			# Loop completed without break - max_steps reached
 			logger.warning(f'Maximum steps ({self.max_steps}) reached without task completion')
+			await self._demo_mode_log(
+				f'Maximum steps ({self.max_steps}) reached without completing the task.',
+				'error',
+				{'tag': 'task'},
+			)
 
 		# If task is not done, capture the last step's output as partial result
 		if not self._is_task_done() and self.complete_history:
@@ -560,6 +601,8 @@ class CodeAgent:
 				last_result.success = False
 
 			logger.info(f'\nPartial result captured from last step:\n{partial_result}')
+			if self._demo_mode_enabled:
+				await self._demo_mode_log(f'Partial result:\n{partial_result}', 'error', {'tag': 'task'})
 
 		# Log final summary if task was completed
 		if self._is_task_done():
@@ -574,8 +617,17 @@ class CodeAgent:
 			if attachments:
 				logger.info(f'\nFiles Attached:\n{chr(10).join(attachments)}')
 			logger.info('=' * 60 + '\n')
+			if self._demo_mode_enabled and not should_delay_close:
+				await self._demo_mode_log(
+					f'Final Result: {final_result or "Task completed"}',
+					'success',
+					{'tag': 'task'},
+				)
+				should_delay_close = True
 
 		# Auto-close browser if keep_alive is False
+		if should_delay_close and self._demo_mode_enabled:
+			await asyncio.sleep(3)
 		await self.close()
 
 		# Store usage summary for history property
@@ -1154,6 +1206,42 @@ __code_exec_coro__ = __code_exec__()
 		)
 
 		self.complete_history.append(history_entry)
+		await self._demo_mode_log_step(history_entry)
+
+	async def _demo_mode_log(self, message: str, level: str = 'info', metadata: dict[str, Any] | None = None) -> None:
+		if not (self._demo_mode_enabled and message and self.browser_session):
+			return
+		try:
+			await self.browser_session.send_demo_mode_log(
+				message=message,
+				level=level,
+				metadata=metadata or {},
+			)
+		except Exception as exc:
+			logger.debug(f'[DemoMode] Failed to send log: {exc}')
+
+	async def _demo_mode_log_step(self, history_entry: CodeAgentHistory) -> None:
+		if not self._demo_mode_enabled:
+			return
+		step_number = len(self.complete_history)
+		result = history_entry.result[0] if history_entry.result else None
+		if not result:
+			return
+		level = 'error' if result.error else 'success' if result.success else 'info'
+		message_parts = [f'Step {step_number}:']
+		if result.error:
+			message_parts.append(f'Error: {result.error}')
+		if result.extracted_content:
+			message_parts.append(result.extracted_content)
+		elif result.success:
+			message_parts.append('Marked done.')
+		else:
+			message_parts.append('Executed.')
+		await self._demo_mode_log(
+			' '.join(message_parts).strip(),
+			level,
+			{'step': step_number, 'url': history_entry.state.url if history_entry.state else None},
+		)
 
 	def _log_agent_event(self, max_steps: int, agent_run_error: str | None = None) -> None:
 		"""Send the agent event for this run to telemetry."""
