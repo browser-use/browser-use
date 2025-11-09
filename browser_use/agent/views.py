@@ -180,10 +180,11 @@ class AgentOutput(BaseModel):
 	evaluation_previous_goal: str | None = None
 	memory: str | None = None
 	next_goal: str | None = None
-	action: List[ActionModel] = Field(
-    default_factory=list,
-    json_schema_extra={'min_items': 0},
-)
+	
+     action: List[ActionModel] = Field(
+        ...,
+        json_schema_extra={'min_items': 1},  # Ensure at least one action is provided
+	 )
 
 	
 
