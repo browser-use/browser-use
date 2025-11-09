@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Generic, Literal
 from typing import Optional, List
 
-
 from openai import RateLimitError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model, model_validator
 from typing_extensions import TypeVar
@@ -181,10 +180,11 @@ class AgentOutput(BaseModel):
 	evaluation_previous_goal: str | None = None
 	memory: str | None = None
 	next_goal: str | None = None
-	action: Optional[List[ActionModel]] = Field(
-        default_factory=list,  # if not provided, defaults to an empty list
-        json_schema_extra={'min_items': 0},  # allow zero actions
-    )
+	action: List[ActionModel] = Field(
+    default_factory=list,
+    json_schema_extra={'min_items': 0},
+)
+
 	
 
 	@classmethod
