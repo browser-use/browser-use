@@ -39,7 +39,19 @@ dev = [
     "hatch>=1.13.0",
     "build>=1.2.2",
     "pytest>=8.3.3",
-    "pytest-asyncio>=0.24.0"
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=4.1.0",
+    "pytest-xdist>=3.5.0",
+    "mypy>=1.8.0",
+    "types-requests>=2.31.0",
+    "ruff>=0.3.0",
+    "pre-commit>=3.6.0",
+    "bandit[toml]>=1.7.5",
+    "safety>=3.0.0",
+    "radon>=6.0.1",
+    "xenon>=0.9.0",
+    "interrogate>=1.5.0",
+    "isort>=5.13.0"
 ]
 
 [tool.ruff]
@@ -51,6 +63,42 @@ fix = true
 quote-style = "single"
 indent-style = "tab"
 docstring-code-format = true
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_optional = false
+ignore_missing_imports = true
+
+[tool.bandit]
+exclude_dirs = ["tests", "examples"]
+skips = ["B101", "B601"]
+
+[tool.isort]
+profile = "black"
+line_length = 130
+multi_line_output = 3
+include_trailing_comma = true
+
+[tool.interrogate]
+ignore-init-method = true
+ignore-init-module = false
+ignore-magic = true
+ignore-semiprivate = true
+ignore-private = true
+ignore-property-decorators = true
+ignore-module = true
+fail-under = 50
+exclude = ["tests", "examples"]
+verbose = 1
 
 [build-system]
 requires = ["hatchling"]

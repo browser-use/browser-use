@@ -1,0 +1,141 @@
+name: Performance Issue
+description: Report performance problems or optimization opportunities
+title: "[Performance]: "
+labels: ["performance", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a performance issue! This helps us make browser-use faster and more efficient.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Performance Issue Description
+      description: Describe the performance problem you're experiencing
+      placeholder: "Example: Agent takes 5+ minutes to complete a simple task that should take 30 seconds"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: issue-type
+    attributes:
+      label: Issue Type
+      description: What kind of performance issue is this?
+      options:
+        - Slow execution time
+        - High memory usage
+        - High CPU usage
+        - Token usage / API costs
+        - Browser crash or freeze
+        - Network issues
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: metrics
+    attributes:
+      label: Performance Metrics
+      description: Provide any metrics you've observed
+      placeholder: |
+        - Execution time: 5m 30s (expected: <1m)
+        - Token count: 1.2M tokens (cost: $XX)
+        - Memory usage: 4GB peak
+        - CPU usage: 100% sustained
+    validations:
+      required: false
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction Code
+      description: Minimal code to reproduce the performance issue
+      render: python
+      placeholder: |
+        from browser_use import Agent
+        from langchain_openai import ChatOpenAI
+
+        agent = Agent(
+            task="your task here",
+            llm=ChatOpenAI(model="gpt-4o"),
+        )
+        result = await agent.run()
+    validations:
+      required: true
+
+  - type: textarea
+    id: task-description
+    attributes:
+      label: Task Description
+      description: What task was the agent performing when you noticed the performance issue?
+    validations:
+      required: true
+
+  - type: input
+    id: browser-use-version
+    attributes:
+      label: browser-use Version
+      description: Which version of browser-use are you using?
+      placeholder: "0.1.37"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: llm-model
+    attributes:
+      label: LLM Model
+      description: Which LLM model are you using?
+      options:
+        - GPT-4
+        - GPT-4o
+        - GPT-4o-mini
+        - GPT-3.5-turbo
+        - Claude 3 Opus
+        - Claude 3 Sonnet
+        - Claude 3 Haiku
+        - Gemini Pro
+        - Gemini Flash
+        - Local model (Ollama)
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: system-info
+    attributes:
+      label: System Information
+      description: Your system configuration
+      placeholder: |
+        - OS: Ubuntu 22.04 / macOS 14 / Windows 11
+        - Python version: 3.11.5
+        - RAM: 16GB
+        - CPU: Intel i7 / Apple M1 / etc.
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other context about the performance issue
+      placeholder: |
+        - This happens consistently / intermittently
+        - It started after version X
+        - Profiling data attached
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Checklist
+      options:
+        - label: I have searched for existing issues
+          required: true
+        - label: I have provided minimal reproduction code
+          required: true
+        - label: I have included version information
+          required: true

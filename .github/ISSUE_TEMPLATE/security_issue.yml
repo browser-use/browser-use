@@ -1,0 +1,115 @@
+name: Security Vulnerability
+description: Report a security vulnerability (Please use SECURITY.md for sensitive issues)
+title: "[Security]: "
+labels: ["security", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## ⚠️ IMPORTANT: Reporting Security Issues
+
+        **For sensitive security vulnerabilities that could be exploited**, please follow our [Security Policy](../SECURITY.md) and report them privately.
+
+        This public issue template is for:
+        - Non-critical security improvements
+        - Security-related feature requests
+        - Public discussions about security best practices
+
+  - type: checkboxes
+    id: severity-check
+    attributes:
+      label: Severity Check
+      description: Please confirm this is not a critical vulnerability
+      options:
+        - label: This is NOT a critical security vulnerability that could be actively exploited
+          required: true
+        - label: I have read the SECURITY.md policy
+          required: true
+
+  - type: dropdown
+    id: issue-type
+    attributes:
+      label: Security Issue Type
+      options:
+        - Dependency vulnerability (non-critical)
+        - Security best practice improvement
+        - Authentication/Authorization enhancement
+        - Data privacy concern
+        - Credential management
+        - Input validation improvement
+        - Security documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Issue Description
+      description: Describe the security concern or improvement
+      placeholder: Provide details about the security issue or enhancement
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Potential Impact
+      description: What is the potential impact of this issue?
+      placeholder: |
+        - Who could be affected?
+        - What data or systems are at risk?
+        - What is the likelihood of exploitation?
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-behavior
+    attributes:
+      label: Current Behavior
+      description: How does the system currently behave?
+    validations:
+      required: false
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution
+      description: How do you suggest we address this?
+    validations:
+      required: false
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Links to relevant documentation, CVEs, or security advisories
+      placeholder: |
+        - CVE-XXXX-XXXXX
+        - OWASP reference
+        - Related GitHub issues
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Affected Version(s)
+      description: Which version(s) are affected?
+      placeholder: "0.1.37"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Checklist
+      options:
+        - label: This is NOT a critical vulnerability (otherwise use SECURITY.md)
+          required: true
+        - label: I have searched for existing security issues
+          required: true
+        - label: I have provided impact assessment
+          required: true
