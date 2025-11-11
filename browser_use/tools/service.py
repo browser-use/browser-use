@@ -101,6 +101,84 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 	raise e
 
 
+async def retry_action_with_backoff(
+	action_func,
+	max_retries: int = 2,
+	backoff_ms: int = 500,
+	action_description: str = 'action',
+) -> ActionResult:
+	"""
+	Retry an action with exponential backoff on transient failures.
+
+	Args:
+		action_func: Async function that returns ActionResult
+		max_retries: Maximum number of retry attempts (default: 2)
+		backoff_ms: Initial backoff time in milliseconds (default: 500)
+		action_description: Description for logging
+
+	Returns:
+		ActionResult from successful execution or final failed attempt
+	"""
+	last_result = None
+
+	for attempt in range(max_retries + 1):
+		try:
+			result = await action_func()
+
+			# Check if result has a transient error that's retryable
+			if result.error:
+				# Check for retryable error patterns
+				error_lower = result.error.lower()
+				is_retryable = any(
+					pattern in error_lower
+					for pattern in [
+						'not available',
+						'page may have changed',
+						'network',
+						'timeout',
+						'connection',
+						'stale',
+						'temporarily',
+					]
+				)
+
+				if is_retryable and attempt < max_retries:
+					wait_time = backoff_ms * (2**attempt) / 1000
+					logger.debug(f'🔄 Retry {attempt + 1}/{max_retries} for {action_description} after {wait_time}s')
+					await asyncio.sleep(wait_time)
+					last_result = result
+					continue
+
+			# Success or non-retryable error
+			return result
+
+		except BrowserError as e:
+			# Check for retryable browser errors
+			error_msg = str(e).lower()
+			is_retryable = any(
+				pattern in error_msg
+				for pattern in ['network', 'timeout', 'connection', 'stale', 'temporarily', 'unavailable']
+			)
+
+			if is_retryable and attempt < max_retries:
+				wait_time = backoff_ms * (2**attempt) / 1000
+				logger.debug(f'🔄 Retry {attempt + 1}/{max_retries} for {action_description} after {wait_time}s: {e}')
+				await asyncio.sleep(wait_time)
+				last_result = ActionResult(error=str(e))
+				continue
+			else:
+				# Non-retryable or out of retries
+				return handle_browser_error(e)
+
+		except Exception as e:
+			# Unexpected error - don't retry
+			logger.debug(f'❌ Unexpected error in {action_description}: {type(e).__name__}: {e}')
+			return ActionResult(error=f'Failed to {action_description}: {str(e)}')
+
+	# All retries exhausted - return last result
+	return last_result or ActionResult(error=f'{action_description} failed after {max_retries} retries')
+
+
 class Tools(Generic[Context]):
 	def __init__(
 		self,
@@ -246,48 +324,68 @@ class Tools(Generic[Context]):
 					'Cannot click on element with index 0. If there are no interactive elements use wait(), refresh(), etc. to troubleshoot'
 				)
 
-				# Look up the node from the selector map
-				node = await browser_session.get_element_by_index(params.index)
-				if node is None:
-					msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
-					logger.warning(f'⚠️ {msg}')
-					return ActionResult(extracted_content=msg)
+				# Define the click action that will be retried
+				async def _perform_click() -> ActionResult:
+					# Look up the node from the selector map
+					node = await browser_session.get_element_by_index(params.index)
+					if node is None:
+						msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+						logger.warning(f'⚠️ {msg}')
+						return ActionResult(error=msg)
 
-				# Get description of clicked element
-				element_desc = get_click_description(node)
+					# Check if element is ready for interaction
+					if hasattr(browser_session, 'dom_service') and browser_session.dom_service:
+						is_ready, error_msg = browser_session.dom_service.is_element_ready_for_interaction(node, 'click')
+						if not is_ready:
+							logger.debug(f'Element {params.index} not ready: {error_msg}')
+							# Wait briefly and check again
+							await asyncio.sleep(0.5)
+							is_ready, error_msg = browser_session.dom_service.is_element_ready_for_interaction(node, 'click')
+							if not is_ready:
+								return ActionResult(error=f'Element not ready for clicking: {error_msg}')
 
-				# Highlight the element being clicked (truly non-blocking)
-				asyncio.create_task(browser_session.highlight_interaction_element(node))
+					# Get description of clicked element
+					element_desc = get_click_description(node)
 
-				event = browser_session.event_bus.dispatch(ClickElementEvent(node=node))
-				await event
-				# Wait for handler to complete and get any exception or metadata
-				click_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
+					# Highlight the element being clicked (truly non-blocking)
+					asyncio.create_task(browser_session.highlight_interaction_element(node))
 
-				# Check if result contains validation error (e.g., trying to click <select> or file input)
-				if isinstance(click_metadata, dict) and 'validation_error' in click_metadata:
-					error_msg = click_metadata['validation_error']
-					# If it's a select element, try to get dropdown options as a helpful shortcut
-					if 'Cannot click on <select> elements.' in error_msg:
-						try:
-							return await dropdown_options(
-								params=GetDropdownOptionsAction(index=params.index), browser_session=browser_session
-							)
-						except Exception as dropdown_error:
-							logger.debug(
-								f'Failed to get dropdown options as shortcut during click on dropdown: {type(dropdown_error).__name__}: {dropdown_error}'
-							)
-					return ActionResult(error=error_msg)
+					event = browser_session.event_bus.dispatch(ClickElementEvent(node=node))
+					await event
+					# Wait for handler to complete and get any exception or metadata
+					click_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
 
-				# Build memory with element info
-				memory = f'Clicked {element_desc}'
-				logger.info(f'🖱️ {memory}')
+					# Check if result contains validation error (e.g., trying to click <select> or file input)
+					if isinstance(click_metadata, dict) and 'validation_error' in click_metadata:
+						error_msg = click_metadata['validation_error']
+						# If it's a select element, try to get dropdown options as a helpful shortcut
+						if 'Cannot click on <select> elements.' in error_msg:
+							try:
+								return await dropdown_options(
+									params=GetDropdownOptionsAction(index=params.index), browser_session=browser_session
+								)
+							except Exception as dropdown_error:
+								logger.debug(
+									f'Failed to get dropdown options as shortcut during click on dropdown: {type(dropdown_error).__name__}: {dropdown_error}'
+								)
+						return ActionResult(error=error_msg)
 
-				# Include click coordinates in metadata if available
-				return ActionResult(
-					extracted_content=memory,
-					metadata=click_metadata if isinstance(click_metadata, dict) else None,
-				)
+					# Invalidate cache after click (may trigger DOM changes)
+					browser_session.invalidate_selector_map_cache('after click action')
+
+					# Build memory with element info
+					memory = f'Clicked {element_desc}'
+					logger.info(f'🖱️ {memory}')
+
+					# Include click coordinates in metadata if available
+					return ActionResult(
+						extracted_content=memory,
+						metadata=click_metadata if isinstance(click_metadata, dict) else None,
+					)
+
+				# Execute click with retry logic
+				return await retry_action_with_backoff(_perform_click, max_retries=2, action_description='click element')
+
 			except BrowserError as e:
 				return handle_browser_error(e)
 			except Exception as e:
@@ -304,62 +402,85 @@ class Tools(Generic[Context]):
 			has_sensitive_data: bool = False,
 			sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		):
-			# Look up the node from the selector map
-			node = await browser_session.get_element_by_index(params.index)
-			if node is None:
-				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
-				logger.warning(f'⚠️ {msg}')
-				return ActionResult(extracted_content=msg)
+			# Define the input action that will be retried
+			async def _perform_input() -> ActionResult:
+				# Look up the node from the selector map
+				node = await browser_session.get_element_by_index(params.index)
+				if node is None:
+					msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+					logger.warning(f'⚠️ {msg}')
+					return ActionResult(error=msg)
 
-			# Highlight the element being typed into (truly non-blocking)
-			asyncio.create_task(browser_session.highlight_interaction_element(node))
+				# Check if element is ready for interaction
+				if hasattr(browser_session, 'dom_service') and browser_session.dom_service:
+					is_ready, error_msg = browser_session.dom_service.is_element_ready_for_interaction(node, 'input')
+					if not is_ready:
+						logger.debug(f'Input element {params.index} not ready: {error_msg}')
+						# Wait briefly and check again
+						await asyncio.sleep(0.5)
+						is_ready, error_msg = browser_session.dom_service.is_element_ready_for_interaction(node, 'input')
+						if not is_ready:
+							return ActionResult(error=f'Input field not ready: {error_msg}')
 
-			# Dispatch type text event with node
-			try:
-				# Detect which sensitive key is being used
-				sensitive_key_name = None
-				if has_sensitive_data and sensitive_data:
-					sensitive_key_name = _detect_sensitive_key_name(params.text, sensitive_data)
+				# Highlight the element being typed into (truly non-blocking)
+				asyncio.create_task(browser_session.highlight_interaction_element(node))
 
-				event = browser_session.event_bus.dispatch(
-					TypeTextEvent(
-						node=node,
-						text=params.text,
-						clear=params.clear,
-						is_sensitive=has_sensitive_data,
-						sensitive_key_name=sensitive_key_name,
+				# Dispatch type text event with node
+				try:
+					# Detect which sensitive key is being used
+					sensitive_key_name = None
+					if has_sensitive_data and sensitive_data:
+						sensitive_key_name = _detect_sensitive_key_name(params.text, sensitive_data)
+
+					event = browser_session.event_bus.dispatch(
+						TypeTextEvent(
+							node=node,
+							text=params.text,
+							clear=params.clear,
+							is_sensitive=has_sensitive_data,
+							sensitive_key_name=sensitive_key_name,
+						)
 					)
-				)
-				await event
-				input_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
+					await event
+					input_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
 
-				# Create message with sensitive data handling
-				if has_sensitive_data:
-					if sensitive_key_name:
-						msg = f'Typed {sensitive_key_name}'
-						log_msg = f'Typed <{sensitive_key_name}>'
+					# Wait for post-interaction settle time (CSS transitions, async validation)
+					settle_time = browser_session.browser_profile.post_interaction_settle_time
+					await asyncio.sleep(settle_time)
+
+					# Invalidate cache after input (may trigger validation UI changes)
+					browser_session.invalidate_selector_map_cache('after input action')
+
+					# Create message with sensitive data handling
+					if has_sensitive_data:
+						if sensitive_key_name:
+							msg = f'Typed {sensitive_key_name}'
+							log_msg = f'Typed <{sensitive_key_name}>'
+						else:
+							msg = 'Typed sensitive data'
+							log_msg = 'Typed <sensitive>'
 					else:
-						msg = 'Typed sensitive data'
-						log_msg = 'Typed <sensitive>'
-				else:
-					msg = f"Typed '{params.text}'"
-					log_msg = f"Typed '{params.text}'"
+						msg = f"Typed '{params.text}'"
+						log_msg = f"Typed '{params.text}'"
 
-				logger.debug(log_msg)
+					logger.debug(log_msg)
 
-				# Include input coordinates in metadata if available
-				return ActionResult(
-					extracted_content=msg,
-					long_term_memory=msg,
-					metadata=input_metadata if isinstance(input_metadata, dict) else None,
-				)
-			except BrowserError as e:
-				return handle_browser_error(e)
-			except Exception as e:
-				# Log the full error for debugging
-				logger.error(f'Failed to dispatch TypeTextEvent: {type(e).__name__}: {e}')
-				error_msg = f'Failed to type text into element {params.index}: {e}'
-				return ActionResult(error=error_msg)
+					# Include input coordinates in metadata if available
+					return ActionResult(
+						extracted_content=msg,
+						long_term_memory=msg,
+						metadata=input_metadata if isinstance(input_metadata, dict) else None,
+					)
+				except BrowserError as e:
+					return handle_browser_error(e)
+				except Exception as e:
+					# Log the full error for debugging
+					logger.error(f'Failed to dispatch TypeTextEvent: {type(e).__name__}: {e}')
+					error_msg = f'Failed to type text into element {params.index}: {e}'
+					return ActionResult(error=error_msg)
+
+			# Execute input with retry logic
+			return await retry_action_with_backoff(_perform_input, max_retries=2, action_description='input text')
 
 		@self.registry.action(
 			'',

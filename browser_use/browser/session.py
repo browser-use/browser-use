@@ -1861,6 +1861,25 @@ class BrowserSession(BaseModel):
 		"""
 		self._cached_selector_map = selector_map
 
+	def invalidate_selector_map_cache(self, reason: str = '') -> None:
+		"""
+		Force cache invalidation when DOM may have changed.
+
+		Call this after interactions that could trigger page re-renders:
+		- Form submissions
+		- Button clicks that modify DOM
+		- Navigation events
+		- Tab switches
+
+		Args:
+			reason: Optional description for logging
+		"""
+		if self._cached_selector_map:
+			self.logger.debug(f'🔄 Invalidating selector map cache: {reason}')
+			self._cached_selector_map.clear()
+		if self._cached_browser_state_summary and self._cached_browser_state_summary.dom_state:
+			self._cached_browser_state_summary.dom_state.selector_map.clear()
+
 	# Alias for backwards compatibility
 	async def get_element_by_index(self, index: int) -> EnhancedDOMTreeNode | None:
 		"""Alias for get_dom_element_by_index for backwards compatibility."""

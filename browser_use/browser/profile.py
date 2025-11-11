@@ -626,6 +626,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	wait_for_network_idle_page_load_time: float = Field(default=0.5, description='Time to wait for network idle.')
 
 	wait_between_actions: float = Field(default=0.1, description='Time to wait between actions.')
+	post_interaction_settle_time: float = Field(
+		default=0.5,
+		description='Time to wait after form field interactions for CSS transitions and async validation to complete.',
+	)
 
 	# --- UI/viewport/DOM ---
 	highlight_elements: bool = Field(default=True, description='Highlight interactive elements on the page.')
