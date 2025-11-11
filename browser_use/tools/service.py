@@ -101,6 +101,53 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 	raise e
 
 
+def _is_element_ready_for_interaction(node: EnhancedDOMTreeNode, interaction_type: str) -> tuple[bool, str | None]:
+	"""
+	Check if element is ready for interaction to prevent common failures.
+
+	Args:
+		node: The DOM node to check
+		interaction_type: Type of interaction ('click', 'input', 'select')
+
+	Returns:
+		(is_ready, error_message): Tuple indicating readiness and optional error
+	"""
+	# Check if element is disabled
+	is_disabled = (
+		node.attributes.get('disabled') == 'true'
+		or node.attributes.get('aria-disabled') == 'true'
+		or 'disabled' in node.attributes.get('class', '').lower()
+	)
+	if is_disabled:
+		return False, f'Element {node.tag_name or "node"} is disabled'
+
+	# Check readonly for input fields
+	if interaction_type == 'input':
+		is_readonly = node.attributes.get('readonly') == 'true' or node.attributes.get('aria-readonly') == 'true'
+		if is_readonly:
+			return False, 'Input field is readonly'
+
+	# Check visibility
+	if not node.is_visible:
+		return False, 'Element is not visible'
+
+	# Check for loading indicators in class names
+	classes = node.attributes.get('class', '').lower()
+	if 'loading' in classes or 'spinner' in classes:
+		return False, 'Element appears to be in loading state'
+
+	# Check aria-busy attribute
+	if node.attributes.get('aria-busy') == 'true':
+		return False, 'Element is busy (aria-busy=true)'
+
+	# For input fields, check if they have proper bounds
+	if interaction_type == 'input' and node.snapshot_node:
+		if not node.snapshot_node.bounds or (node.snapshot_node.bounds.width < 1 or node.snapshot_node.bounds.height < 1):
+			return False, 'Input field has invalid dimensions'
+
+	return True, None
+
+
 async def retry_action_with_backoff(
 	action_func,
 	max_retries: int = 2,
@@ -156,8 +203,7 @@ async def retry_action_with_backoff(
 			# Check for retryable browser errors
 			error_msg = str(e).lower()
 			is_retryable = any(
-				pattern in error_msg
-				for pattern in ['network', 'timeout', 'connection', 'stale', 'temporarily', 'unavailable']
+				pattern in error_msg for pattern in ['network', 'timeout', 'connection', 'stale', 'temporarily', 'unavailable']
 			)
 
 			if is_retryable and attempt < max_retries:
@@ -334,15 +380,14 @@ class Tools(Generic[Context]):
 						return ActionResult(error=msg)
 
 					# Check if element is ready for interaction
-					if hasattr(browser_session, 'dom_service') and browser_session.dom_service:
-						is_ready, error_msg = browser_session.dom_service.is_element_ready_for_interaction(node, 'click')
+					is_ready, error_msg = _is_element_ready_for_interaction(node, 'click')
+					if not is_ready:
+						logger.debug(f'Element {params.index} not ready: {error_msg}')
+						# Wait briefly and check again
+						await asyncio.sleep(0.5)
+						is_ready, error_msg = _is_element_ready_for_interaction(node, 'click')
 						if not is_ready:
-							logger.debug(f'Element {params.index} not ready: {error_msg}')
-							# Wait briefly and check again
-							await asyncio.sleep(0.5)
-							is_ready, error_msg = browser_session.dom_service.is_element_ready_for_interaction(node, 'click')
-							if not is_ready:
-								return ActionResult(error=f'Element not ready for clicking: {error_msg}')
+							return ActionResult(error=f'Element not ready for clicking: {error_msg}')
 
 					# Get description of clicked element
 					element_desc = get_click_description(node)
@@ -412,15 +457,14 @@ class Tools(Generic[Context]):
 					return ActionResult(error=msg)
 
 				# Check if element is ready for interaction
-				if hasattr(browser_session, 'dom_service') and browser_session.dom_service:
-					is_ready, error_msg = browser_session.dom_service.is_element_ready_for_interaction(node, 'input')
+				is_ready, error_msg = _is_element_ready_for_interaction(node, 'input')
+				if not is_ready:
+					logger.debug(f'Input element {params.index} not ready: {error_msg}')
+					# Wait briefly and check again
+					await asyncio.sleep(0.5)
+					is_ready, error_msg = _is_element_ready_for_interaction(node, 'input')
 					if not is_ready:
-						logger.debug(f'Input element {params.index} not ready: {error_msg}')
-						# Wait briefly and check again
-						await asyncio.sleep(0.5)
-						is_ready, error_msg = browser_session.dom_service.is_element_ready_for_interaction(node, 'input')
-						if not is_ready:
-							return ActionResult(error=f'Input field not ready: {error_msg}')
+						return ActionResult(error=f'Input field not ready: {error_msg}')
 
 				# Highlight the element being typed into (truly non-blocking)
 				asyncio.create_task(browser_session.highlight_interaction_element(node))

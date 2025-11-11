@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from cdp_use.cdp.accessibility.commands import GetFullAXTreeReturns
 from cdp_use.cdp.accessibility.types import AXNode
@@ -837,7 +837,6 @@ class DomService:
 		Returns:
 			(is_ready, error_message): Tuple indicating readiness and optional error
 		"""
-		from typing import Literal
 
 		# Check if element is disabled
 		is_disabled = (
@@ -846,32 +845,30 @@ class DomService:
 			or 'disabled' in node.attributes.get('class', '').lower()
 		)
 		if is_disabled:
-			return False, f"Element {node.tag_name or 'node'} is disabled"
+			return False, f'Element {node.tag_name or "node"} is disabled'
 
 		# Check readonly for input fields
 		if interaction_type == 'input':
 			is_readonly = node.attributes.get('readonly') == 'true' or node.attributes.get('aria-readonly') == 'true'
 			if is_readonly:
-				return False, "Input field is readonly"
+				return False, 'Input field is readonly'
 
 		# Check visibility
 		if not node.is_visible:
-			return False, "Element is not visible"
+			return False, 'Element is not visible'
 
 		# Check for loading indicators in class names
 		classes = node.attributes.get('class', '').lower()
 		if 'loading' in classes or 'spinner' in classes:
-			return False, "Element appears to be in loading state"
+			return False, 'Element appears to be in loading state'
 
 		# Check aria-busy attribute
 		if node.attributes.get('aria-busy') == 'true':
-			return False, "Element is busy (aria-busy=true)"
+			return False, 'Element is busy (aria-busy=true)'
 
 		# For input fields, check if they have proper bounds
 		if interaction_type == 'input' and node.snapshot_node:
-			if not node.snapshot_node.bounds or (
-				node.snapshot_node.bounds.width < 1 or node.snapshot_node.bounds.height < 1
-			):
-				return False, "Input field has invalid dimensions"
+			if not node.snapshot_node.bounds or (node.snapshot_node.bounds.width < 1 or node.snapshot_node.bounds.height < 1):
+				return False, 'Input field has invalid dimensions'
 
 		return True, None

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: ASYNC230
 """
 Test script for finding and documenting promo code application process on any website.
 
@@ -12,6 +13,7 @@ Output:
 	- Creates a timestamped folder in ./promo_code_tests/
 	- Saves guide, thoughts, and screenshots to the folder
 """
+
 import asyncio
 import json
 import sys
@@ -30,7 +32,10 @@ async def test_promo_code_application(website: str):
 	"""
 	# Create output directory
 	timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-	output_dir = Path('./promo_code_tests') / f'{timestamp}_{website.replace("https://", "").replace("http://", "").replace("/", "_")[:50]}'
+	output_dir = (
+		Path('./promo_code_tests')
+		/ f'{timestamp}_{website.replace("https://", "").replace("http://", "").replace("/", "_")[:50]}'
+	)
 	output_dir.mkdir(parents=True, exist_ok=True)
 
 	print(f'\n🔍 Testing promo code application on: {website}')
@@ -135,12 +140,12 @@ Be specific and include details like button names, field labels, etc."""
 			f.write(f'Agent Reasoning for {website}\n')
 			f.write('=' * 60 + '\n\n')
 			for entry in agent_history:
-				f.write(f"\nStep {entry['step']}:\n")
+				f.write(f'\nStep {entry["step"]}:\n')
 				f.write('-' * 40 + '\n')
 				if entry.get('thinking'):
-					f.write(f"Thinking: {entry['thinking']}\n\n")
+					f.write(f'Thinking: {entry["thinking"]}\n\n')
 				if entry.get('action'):
-					f.write(f"Action: {entry['action']}\n")
+					f.write(f'Action: {entry["action"]}\n')
 				f.write('\n')
 		print(f'✅ Formatted thoughts saved to: {thoughts_txt_path}')
 
@@ -168,21 +173,21 @@ Be specific and include details like button names, field labels, etc."""
 		# Create summary file
 		summary_path = output_dir / 'summary.txt'
 		with open(summary_path, 'w') as f:
-			f.write(f'Promo Code Test Summary\n')
+			f.write('Promo Code Test Summary\n')
 			f.write('=' * 60 + '\n\n')
 			f.write(f'Website: {website}\n')
 			f.write(f'Timestamp: {timestamp}\n')
 			f.write(f'Total Steps: {len(agent_history)}\n')
 			f.write(f'Screenshots: {screenshot_count}\n')
-			f.write(f'\nOutput Files:\n')
-			f.write(f'  - guide.txt: Step-by-step guide for applying promo code\n')
-			f.write(f'  - thoughts.txt: Agent reasoning for each step\n')
-			f.write(f'  - thoughts.json: Structured agent history data\n')
-			f.write(f'  - screenshot_step_N.png: Screenshots from each step\n')
+			f.write('\nOutput Files:\n')
+			f.write('  - guide.txt: Step-by-step guide for applying promo code\n')
+			f.write('  - thoughts.txt: Agent reasoning for each step\n')
+			f.write('  - thoughts.json: Structured agent history data\n')
+			f.write('  - screenshot_step_N.png: Screenshots from each step\n')
 		print(f'✅ Summary saved to: {summary_path}')
 
 		print(f'\n✅ All outputs saved to: {output_dir}')
-		print(f'\n📋 Quick view:')
+		print('\n📋 Quick view:')
 		print(f'   Guide:    cat {guide_path}')
 		print(f'   Thoughts: cat {thoughts_txt_path}')
 		print(f'   Summary:  cat {summary_path}')
@@ -194,7 +199,7 @@ Be specific and include details like button names, field labels, etc."""
 		# Save error info
 		error_path = output_dir / 'error.txt'
 		with open(error_path, 'w') as f:
-			f.write(f'Error occurred during promo code test\n')
+			f.write('Error occurred during promo code test\n')
 			f.write('=' * 60 + '\n\n')
 			f.write(f'Website: {website}\n')
 			f.write(f'Error: {str(e)}\n\n')
