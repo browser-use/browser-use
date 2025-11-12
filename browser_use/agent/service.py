@@ -165,6 +165,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_history_items: int | None = None,
 		page_extraction_llm: BaseChatModel | None = None,
 		use_judge: bool = True,
+		ground_truth: str | None = None,
 		judge_llm: BaseChatModel | None = None,
 		injected_agent_state: AgentState | None = None,
 		source: str | None = None,
@@ -306,6 +307,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			step_timeout=step_timeout,
 			final_response_after_failure=final_response_after_failure,
 			use_judge=use_judge,
+			ground_truth=ground_truth,
 		)
 
 		# Token cost service
@@ -960,6 +962,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			agent_steps=agent_steps,
 			screenshot_paths=screenshot_paths,
 			max_images=10,
+			ground_truth=self.settings.ground_truth,
 		)
 
 		# Call LLM with JudgementResult as output format
@@ -1604,6 +1607,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			'deb',
 			'rpm',
 			'iso',
+			# GitHub/Project paths
+			'polynomial',
 		}
 
 		excluded_words = {

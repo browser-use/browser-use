@@ -13,7 +13,7 @@
 </div>
 
 <div align="center">
-<img src="https://media.browser-use.tools/badges/package" height="48" alt="Browser-Use Package Download Statistics">
+<a href="https://cloud.browser-use.com"><img src="https://media.browser-use.tools/badges/package" height="48" alt="Browser-Use Package Download Statistics"></a>
 </div>
 
 ---

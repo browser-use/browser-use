@@ -46,6 +46,7 @@ class AgentSettings(BaseModel):
 	use_thinking: bool = True
 	flash_mode: bool = False  # If enabled, disables evaluation_previous_goal and next_goal, and sets use_thinking = False
 	use_judge: bool = True
+	ground_truth: str | None = None  # Ground truth answer or criteria for judge validation
 	max_history_items: int | None = None
 
 	page_extraction_llm: BaseChatModel | None = None

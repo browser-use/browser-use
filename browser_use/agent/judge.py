@@ -45,6 +45,7 @@ def construct_judge_messages(
 	agent_steps: list[str],
 	screenshot_paths: list[str],
 	max_images: int = 10,
+	ground_truth: str | None = None,
 ) -> list[BaseMessage]:
 	"""
 	Construct messages for judge evaluation of agent trace.
@@ -55,6 +56,7 @@ def construct_judge_messages(
 		agent_steps: List of formatted agent step descriptions
 		screenshot_paths: List of screenshot file paths
 		max_images: Maximum number of screenshots to include
+		ground_truth: Optional ground truth answer or criteria that must be satisfied for success
 
 	Returns:
 		List of messages for LLM judge evaluation
@@ -81,10 +83,23 @@ def construct_judge_messages(
 				)
 			)
 
-	# System prompt for judge
-	system_prompt = """You are an expert judge evaluating browser automation agent performance.
+	# System prompt for judge - conditionally add ground truth section
+	ground_truth_section = ''
+	if ground_truth:
+		ground_truth_section = """
+**GROUND TRUTH VALIDATION (HIGHEST PRIORITY):**
+The <ground_truth> section contains verified correct information for this task. This can be:
+- **Evaluation criteria**: Specific conditions that must be met (e.g., "The success popup should show up", "Must extract exactly 5 items")
+- **Factual answers**: The correct answer to a question or information retrieval task (e.g. "10/11/24", "Paris")
+- **Expected outcomes**: What should happen after task completion (e.g., "Google Doc must be created", "File should be downloaded")
+
+The ground truth takes ABSOLUTE precedence over all other evaluation criteria. If the ground truth is not satisfied by the agent's execution and final response, the verdict MUST be false.
+"""
+
+	system_prompt = f"""You are an expert judge evaluating browser automation agent performance.
 
 <evaluation_framework>
+{ground_truth_section}
 **PRIMARY EVALUATION CRITERIA (in order of importance):**
 1. **Task Satisfaction (Most Important)**: Did the agent accomplish what the user asked for? Break down the task into the key criteria and evaluate if the agent all of them. Focus on user intent and final outcome.
 2. **Output Quality**: Is the final result in the correct format and complete? Does it match exactly what was requested?
@@ -167,11 +182,20 @@ Respond with EXACTLY this JSON structure (no additional text before or after):
 </response_format>
 """
 
+	# Build user prompt with conditional ground truth section
+	ground_truth_prompt = ''
+	if ground_truth:
+		ground_truth_prompt = f"""
+<ground_truth>
+{ground_truth}
+</ground_truth>
+"""
+
 	user_prompt = f"""
 <task>
 {task_truncated or 'No task provided'}
 </task>
-
+{ground_truth_prompt}
 <agent_trajectory>
 {steps_text_truncated or 'No agent trajectory provided'}
 </agent_trajectory>
