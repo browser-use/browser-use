@@ -359,13 +359,14 @@ class LocalBrowserWatchdog(BaseWatchdog):
 			port = s.getsockname()[1]
 		return port
 
-	@staticmethod
-	async def _wait_for_cdp_url(port: int, timeout: float = 30) -> str:
+	# @staticmethod
+	async def _wait_for_cdp_url(self, port: int, timeout: float = 30) -> str:
 		import aiohttp
 
 		loop = asyncio.get_running_loop()
 		deadline = loop.time() + timeout
 		session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2))
+		self.logger.debug(f'aiohttp Session created for waiting for CDP URL on port {port}...: {session}')
 
 		try:
 			while loop.time() < deadline:
