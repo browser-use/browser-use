@@ -275,4 +275,7 @@ class ChatOpenAI(BaseChatModel):
 		except Exception as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e
 		finally:
-			await client.close()
+			# Only close the client if we created it (i.e., we didn't provide http_client)
+			# If the caller provided http_client, they own it and should manage its lifecycle
+			if self.http_client is None:
+				await client.close()
