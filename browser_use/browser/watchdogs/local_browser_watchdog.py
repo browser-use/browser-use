@@ -365,10 +365,8 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		import aiohttp
 
 		start_time = asyncio.get_event_loop().time()
-		session: aiohttp.ClientSession | None = None
 
-		try:
-			session = aiohttp.ClientSession()
+		async with aiohttp.ClientSession() as session:
 			while asyncio.get_event_loop().time() - start_time < timeout:
 				try:
 					async with session.get(f'http://localhost:{port}/json/version') as resp:
@@ -383,9 +381,6 @@ class LocalBrowserWatchdog(BaseWatchdog):
 					await asyncio.sleep(0.1)
 
 			raise TimeoutError(f'Browser did not start within {timeout} seconds')
-		finally:
-			if session:
-				await session.close()
 
 	@staticmethod
 	async def _cleanup_process(process: psutil.Process) -> None:
