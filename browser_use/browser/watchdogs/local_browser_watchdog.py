@@ -365,10 +365,12 @@ class LocalBrowserWatchdog(BaseWatchdog):
 		import aiohttp
 
 		start_time = asyncio.get_event_loop().time()
+		session: aiohttp.ClientSession | None = None
 
-		while asyncio.get_event_loop().time() - start_time < timeout:
-			try:
-				async with aiohttp.ClientSession() as session:
+		try:
+			session = aiohttp.ClientSession()
+			while asyncio.get_event_loop().time() - start_time < timeout:
+				try:
 					async with session.get(f'http://localhost:{port}/json/version') as resp:
 						if resp.status == 200:
 							# Chrome is ready
@@ -376,11 +378,14 @@ class LocalBrowserWatchdog(BaseWatchdog):
 						else:
 							# Chrome is starting up and returning 502/500 errors
 							await asyncio.sleep(0.1)
-			except Exception:
-				# Connection error - Chrome might not be ready yet
-				await asyncio.sleep(0.1)
+				except Exception:
+					# Connection error - Chrome might not be ready yet
+					await asyncio.sleep(0.1)
 
-		raise TimeoutError(f'Browser did not start within {timeout} seconds')
+			raise TimeoutError(f'Browser did not start within {timeout} seconds')
+		finally:
+			if session:
+				await session.close()
 
 	@staticmethod
 	async def _cleanup_process(process: psutil.Process) -> None:
