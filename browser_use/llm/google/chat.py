@@ -237,12 +237,14 @@ class ChatGoogle(BaseChatModel):
 			start_time = time.time()
 			self.logger.debug(f'🚀 Starting API call to {self.model}')
 
+			aioClient = self.get_client().aio
+
 			try:
 				if output_format is None:
 					# Return string response
 					self.logger.debug('📄 Requesting text response')
 
-					response = await self.get_client().aio.models.generate_content(
+					response = await aioClient.models.generate_content(
 						model=self.model,
 						contents=contents,  # type: ignore
 						config=config,
@@ -276,7 +278,7 @@ class ChatGoogle(BaseChatModel):
 						gemini_schema = self._fix_gemini_schema(optimized_schema)
 						config['response_schema'] = gemini_schema
 
-						response = await self.get_client().aio.models.generate_content(
+						response = await aioClient.models.generate_content(
 							model=self.model,
 							contents=contents,
 							config=config,
@@ -360,7 +362,7 @@ class ChatGoogle(BaseChatModel):
 						if fallback_system:
 							fallback_config['system_instruction'] = fallback_system
 
-						response = await self.get_client().aio.models.generate_content(
+						response = await aioClient.models.generate_content(
 							model=self.model,
 							contents=fallback_contents,  # type: ignore
 							config=fallback_config,
@@ -410,6 +412,8 @@ class ChatGoogle(BaseChatModel):
 				self.logger.error(f'💥 API call failed after {elapsed:.2f}s: {type(e).__name__}: {e}')
 				# Re-raise the exception
 				raise
+			finally:
+				await aioClient.aclose()
 
 		# Retry logic for certain errors
 		assert self.max_retries >= 1, 'max_retries must be at least 1'
