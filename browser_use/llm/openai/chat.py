@@ -167,6 +167,8 @@ class ChatOpenAI(BaseChatModel):
 
 		openai_messages = OpenAIMessageSerializer.serialize_messages(messages)
 
+		client = self.get_client()
+
 		try:
 			model_params: dict[str, Any] = {}
 
@@ -195,7 +197,7 @@ class ChatOpenAI(BaseChatModel):
 
 			if output_format is None:
 				# Return string response
-				response = await self.get_client().chat.completions.create(
+				response = await client.chat.completions.create(
 					model=self.model,
 					messages=openai_messages,
 					**model_params,
@@ -230,14 +232,14 @@ class ChatOpenAI(BaseChatModel):
 						]
 
 				if self.dont_force_structured_output:
-					response = await self.get_client().chat.completions.create(
+					response = await client.chat.completions.create(
 						model=self.model,
 						messages=openai_messages,
 						**model_params,
 					)
 				else:
 					# Return structured response
-					response = await self.get_client().chat.completions.create(
+					response = await client.chat.completions.create(
 						model=self.model,
 						messages=openai_messages,
 						response_format=ResponseFormatJSONSchema(json_schema=response_format, type='json_schema'),
@@ -272,3 +274,5 @@ class ChatOpenAI(BaseChatModel):
 
 		except Exception as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e
+		finally:
+			await client.close()
