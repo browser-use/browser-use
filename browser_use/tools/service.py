@@ -330,7 +330,7 @@ class Tools(Generic[Context]):
 					# Return error in ActionResult instead of re-raising
 					return ActionResult(error=f'Navigation failed: {str(e)}')
 
-		@self.registry.action('', param_model=NoParamsAction)
+		@self.registry.action('Go back', param_model=NoParamsAction)
 		async def go_back(_: NoParamsAction, browser_session: BrowserSession):
 			try:
 				event = browser_session.event_bus.dispatch(GoBackEvent())
@@ -344,27 +344,74 @@ class Tools(Generic[Context]):
 				error_msg = f'Failed to go back: {str(e)}'
 				return ActionResult(error=error_msg)
 
-		@self.registry.action('')
+		@self.registry.action('Wait for x seconds.')
 		async def wait(seconds: int = 3):
 			# Cap wait time at maximum 30 seconds
 			# Reduce the wait time by 3 seconds to account for the llm call which takes at least 3 seconds
 			# So if the model decides to wait for 5 seconds, the llm call took at least 3 seconds, so we only need to wait for 2 seconds
 			# Note by Mert: the above doesnt make sense because we do the LLM call right after this or this could be followed by another action after which we would like to wait
 			# so I revert this.
-			actual_seconds = min(max(seconds - 3, 0), 30)
+			actual_seconds = min(max(seconds - 1, 0), 30)
 			memory = f'Waited for {seconds} seconds'
 			logger.info(f'🕒 waited for {seconds} second{"" if seconds == 1 else "s"}')
 			await asyncio.sleep(actual_seconds)
 			return ActionResult(extracted_content=memory, long_term_memory=memory)
 
-		# Element Interaction Actions
+		# Helper function for coordinate conversion
+		def _convert_llm_coordinates_to_viewport(llm_x: int, llm_y: int, browser_session: BrowserSession) -> tuple[int, int]:
+			"""Convert coordinates from LLM screenshot size to original viewport size."""
+			if browser_session.llm_screenshot_size and browser_session._original_viewport_size:
+				original_width, original_height = browser_session._original_viewport_size
+				llm_width, llm_height = browser_session.llm_screenshot_size
 
-		@self.registry.action(
-			'',
-			param_model=ClickElementAction,
-		)
-		async def click(params: ClickElementAction, browser_session: BrowserSession):
-			# Dispatch click event with node
+				# Convert coordinates using fractions
+				actual_x = int((llm_x / llm_width) * original_width)
+				actual_y = int((llm_y / llm_height) * original_height)
+
+				logger.info(
+					f'🔄 Converting coordinates: LLM ({llm_x}, {llm_y}) @ {llm_width}x{llm_height} '
+					f'→ Viewport ({actual_x}, {actual_y}) @ {original_width}x{original_height}'
+				)
+				return actual_x, actual_y
+			return llm_x, llm_y
+
+		# Element Interaction Actions
+		async def _click_by_coordinate(params: ClickElementAction, browser_session: BrowserSession) -> ActionResult:
+			# Ensure coordinates are provided (type safety)
+			if params.coordinate_x is None or params.coordinate_y is None:
+				return ActionResult(error='Both coordinate_x and coordinate_y must be provided')
+
+			try:
+				# Convert coordinates from LLM size to original viewport size if resizing was used
+				actual_x, actual_y = _convert_llm_coordinates_to_viewport(
+					params.coordinate_x, params.coordinate_y, browser_session
+				)
+
+				# Highlight the coordinate being clicked (truly non-blocking)
+				asyncio.create_task(browser_session.highlight_coordinate_click(actual_x, actual_y))
+
+				# Use Actor (page.mouse.click) for coordinate-based clicking
+				page = await browser_session.get_current_page()
+				if page is None:
+					return ActionResult(error='No active page found')
+
+				mouse = await page.mouse
+				await mouse.click(actual_x, actual_y)
+
+				memory = f'Clicked on coordinate {actual_x}, {actual_y}'
+				msg = f'🖱️ {memory}'
+				logger.info(msg)
+
+				return ActionResult(
+					extracted_content=memory,
+					metadata={'click_x': actual_x, 'click_y': actual_y},
+				)
+			except Exception as e:
+				error_msg = f'Failed to click at coordinates ({params.coordinate_x}, {params.coordinate_y}).'
+				return ActionResult(error=error_msg)
+
+		async def _click_by_index(params: ClickElementAction, browser_session: BrowserSession) -> ActionResult:
+			assert params.index is not None
 			try:
 				assert params.index != 0, (
 					'Cannot click on element with index 0. If there are no interactive elements use wait(), refresh(), etc. to troubleshoot'
@@ -438,7 +485,23 @@ class Tools(Generic[Context]):
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			'',
+			'Click element by index or coordinates. Prefer index over coordinates when possible. Either provide coordinates or index.',
+			param_model=ClickElementAction,
+		)
+		async def click(params: ClickElementAction, browser_session: BrowserSession):
+			# Validate that either index or coordinates are provided
+			if params.index is None and (params.coordinate_x is None or params.coordinate_y is None):
+				return ActionResult(error='Must provide either index or both coordinate_x and coordinate_y')
+
+			# Try index-based clicking first if index is provided
+			if params.index is not None:
+				return await _click_by_index(params, browser_session)
+			# Coordinate-based clicking when index is not provided
+			else:
+				return await _click_by_coordinate(params, browser_session)
+
+		@self.registry.action(
+			'Input text into element with index.',
 			param_model=InputTextAction,
 		)
 		async def input(
@@ -738,13 +801,9 @@ class Tools(Generic[Context]):
 					long_term_memory=memory,
 				)
 
-		# Content Actions
-
-		# TODO: Refactor to use events instead of direct page access
-		# This action is temporarily disabled as it needs refactoring to use events
-
 		@self.registry.action(
-			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Use start_from_char if truncated. If fails, use find_text instead.""",
+			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Use start_from_char if previous extraction was truncated to extract data further down the page.""",
+			param_model=ExtractAction,
 		)
 		async def extract(
 			params: ExtractAction,

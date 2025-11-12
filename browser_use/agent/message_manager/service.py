@@ -110,6 +110,7 @@ class MessageManager:
 		include_tool_call_examples: bool = False,
 		include_recent_events: bool = False,
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
+		llm_screenshot_size: tuple[int, int] | None = None,
 	):
 		self.task = task
 		self.state = state
@@ -122,6 +123,7 @@ class MessageManager:
 		self.include_tool_call_examples = include_tool_call_examples
 		self.include_recent_events = include_recent_events
 		self.sample_images = sample_images
+		self.llm_screenshot_size = llm_screenshot_size
 
 		assert max_history_items is None or max_history_items > 5, 'max_history_items must be None or greater than 5'
 
@@ -361,6 +363,7 @@ class MessageManager:
 			include_recent_events=self.include_recent_events,
 			sample_images=self.sample_images,
 			read_state_images=self.state.read_state_images,
+			llm_screenshot_size=self.llm_screenshot_size,
 		).get_user_message(effective_use_vision)
 
 		# Store state message text for history

@@ -432,6 +432,15 @@ class BrowserSession(BaseModel):
 		description='BrowserProfile() options to use for the session, otherwise a default profile will be used',
 	)
 
+	# LLM screenshot resizing configuration
+	llm_screenshot_size: tuple[int, int] | None = Field(
+		default=None,
+		description='Target size (width, height) to resize screenshots before sending to LLM. Coordinates from LLM will be scaled back to original viewport size.',
+	)
+
+	# Cache of original viewport size for coordinate conversion (set when browser state is captured)
+	_original_viewport_size: tuple[int, int] | None = PrivateAttr(default=None)
+
 	# Convenience properties for common browser settings
 	@property
 	def cdp_url(self) -> str | None:
@@ -892,6 +901,9 @@ class BrowserSession(BaseModel):
 				viewport_height = self.browser_profile.viewport.height
 				device_scale_factor = self.browser_profile.device_scale_factor or 1.0
 
+				self.logger.info(
+					f'Setting viewport to {viewport_width}x{viewport_height} with device scale factor {device_scale_factor} whereas original device scale factor was {self.browser_profile.device_scale_factor}'
+				)
 				# Use the helper method with the new tab's target_id
 				await self._cdp_set_viewport(viewport_width, viewport_height, device_scale_factor, target_id=event.target_id)
 
@@ -2296,6 +2308,115 @@ class BrowserSession(BaseModel):
 		except Exception as e:
 			# Don't fail the action if highlighting fails
 			self.logger.debug(f'Failed to highlight interaction element: {e}')
+
+	async def highlight_coordinate_click(self, x: int, y: int) -> None:
+		"""Temporarily highlight a coordinate click position for user visibility.
+
+		This creates a visual highlight at the specified coordinates showing where
+		the click action occurred. The highlight automatically fades after the configured duration.
+
+		Args:
+			x: Horizontal coordinate relative to viewport left edge
+			y: Vertical coordinate relative to viewport top edge
+		"""
+		if not self.browser_profile.highlight_elements:
+			return
+
+		try:
+			import json
+
+			cdp_session = await self.get_or_create_cdp_session()
+
+			color = self.browser_profile.interaction_highlight_color
+			duration_ms = int(self.browser_profile.interaction_highlight_duration * 1000)
+
+			# Create animated crosshair and circle at the click coordinates
+			script = f"""
+			(function() {{
+				const x = {x};
+				const y = {y};
+				const color = {json.dumps(color)};
+				const duration = {duration_ms};
+
+				// Get current scroll position
+				const scrollX = window.pageXOffset || document.documentElement.scrollLeft || 0;
+				const scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
+
+				// Create container
+				const container = document.createElement('div');
+				container.setAttribute('data-browser-use-coordinate-highlight', 'true');
+				container.style.cssText = `
+					position: absolute;
+					left: ${{x + scrollX}}px;
+					top: ${{y + scrollY}}px;
+					width: 0;
+					height: 0;
+					pointer-events: none;
+					z-index: 2147483647;
+				`;
+
+				// Create outer circle
+				const outerCircle = document.createElement('div');
+				outerCircle.style.cssText = `
+					position: absolute;
+					left: -15px;
+					top: -15px;
+					width: 30px;
+					height: 30px;
+					border: 3px solid ${{color}};
+					border-radius: 50%;
+					opacity: 0;
+					transform: scale(0.3);
+					transition: all 0.2s ease-out;
+				`;
+				container.appendChild(outerCircle);
+
+				// Create center dot
+				const centerDot = document.createElement('div');
+				centerDot.style.cssText = `
+					position: absolute;
+					left: -4px;
+					top: -4px;
+					width: 8px;
+					height: 8px;
+					background: ${{color}};
+					border-radius: 50%;
+					opacity: 0;
+					transform: scale(0);
+					transition: all 0.15s ease-out;
+				`;
+				container.appendChild(centerDot);
+
+				document.body.appendChild(container);
+
+				// Animate in
+				setTimeout(() => {{
+					outerCircle.style.opacity = '0.8';
+					outerCircle.style.transform = 'scale(1)';
+					centerDot.style.opacity = '1';
+					centerDot.style.transform = 'scale(1)';
+				}}, 10);
+
+				// Animate out and remove
+				setTimeout(() => {{
+					outerCircle.style.opacity = '0';
+					outerCircle.style.transform = 'scale(1.5)';
+					centerDot.style.opacity = '0';
+					setTimeout(() => container.remove(), 300);
+				}}, duration);
+
+				return {{ created: true }};
+			}})();
+			"""
+
+			# Fire and forget - don't wait for completion
+			await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': script, 'returnByValue': True}, session_id=cdp_session.session_id
+			)
+
+		except Exception as e:
+			# Don't fail the action if highlighting fails
+			self.logger.debug(f'Failed to highlight coordinate click: {e}')
 
 	async def add_highlights(self, selector_map: dict[int, 'EnhancedDOMTreeNode']) -> None:
 		"""Add visual highlights to the browser DOM for user visibility."""

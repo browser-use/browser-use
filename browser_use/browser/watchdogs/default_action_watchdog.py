@@ -513,7 +513,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					# Navigation is handled by BrowserSession via events
 					return None
 				except Exception as js_e:
-					self.logger.error(f'CDP JavaScript click also failed: {js_e}')
+					self.logger.warning(f'CDP JavaScript click also failed: {js_e}')
 					if 'No node with given id found' in str(js_e):
 						raise Exception('Element with given id not found')
 					else:
@@ -676,7 +676,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 					return None
 				except Exception as js_e:
-					self.logger.error(f'CDP JavaScript click also failed: {js_e}')
+					self.logger.warning(f'CDP JavaScript click also failed: {js_e}')
 					raise Exception(f'Failed to click element: {e}')
 			finally:
 				# Always re-focus back to original top-level page session context in case click opened a new tab/popup/window/dialog/etc.

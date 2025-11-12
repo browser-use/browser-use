@@ -165,6 +165,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		max_history_items: int | None = None,
 		page_extraction_llm: BaseChatModel | None = None,
 		use_judge: bool = True,
+		ground_truth: str | None = None,
 		judge_llm: BaseChatModel | None = None,
 		injected_agent_state: AgentState | None = None,
 		source: str | None = None,
@@ -180,9 +181,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		include_recent_events: bool = False,
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 		final_response_after_failure: bool = True,
+		llm_screenshot_size: tuple[int, int] | None = None,
 		_url_shortening_limit: int = 25,
 		**kwargs,
 	):
+		# Validate llm_screenshot_size
+		if llm_screenshot_size is not None:
+			if not isinstance(llm_screenshot_size, tuple) or len(llm_screenshot_size) != 2:
+				raise ValueError('llm_screenshot_size must be a tuple of (width, height)')
+			width, height = llm_screenshot_size
+			if not isinstance(width, int) or not isinstance(height, int):
+				raise ValueError('llm_screenshot_size dimensions must be integers')
+			if width < 100 or height < 100:
+				raise ValueError('llm_screenshot_size dimensions must be at least 100 pixels')
+			self.logger.info(f'🖼️  LLM screenshot resizing enabled: {width}x{height}')
 		if llm is None:
 			default_llm_name = CONFIG.DEFAULT_LLM
 			if default_llm_name:
@@ -198,6 +210,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# set flashmode = True if llm is ChatBrowserUse
 		if llm.provider == 'browser-use':
 			flash_mode = True
+
+		# Auto-configure llm_screenshot_size for Claude Sonnet models
+		if llm_screenshot_size is None:
+			model_name = getattr(llm, 'model', '')
+			if isinstance(model_name, str) and model_name.startswith('claude-sonnet'):
+				llm_screenshot_size = (1400, 850)
+				logger.info('🖼️  Auto-configured LLM screenshot size for Claude Sonnet: 1400x850')
 
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
@@ -254,8 +273,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		elif controller is not None:
 			self.tools = controller
 		else:
-			# Exclude screenshot tool when use_vision=False
-			exclude_actions = ['screenshot'] if use_vision is False else []
+			# Exclude screenshot tool when use_vision is not auto
+			exclude_actions = ['screenshot'] if use_vision != 'auto' else []
 			self.tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text)
 
 		# Structured output
@@ -288,6 +307,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			step_timeout=step_timeout,
 			final_response_after_failure=final_response_after_failure,
 			use_judge=use_judge,
+			ground_truth=ground_truth,
 		)
 
 		# Token cost service
@@ -349,6 +369,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			f'{" +file_system" if self.file_system else ""}'
 		)
 
+		# Store llm_screenshot_size in browser_session so tools can access it
+		self.browser_session.llm_screenshot_size = llm_screenshot_size
+
+		# Check if LLM is ChatAnthropic instance
+		from browser_use.llm.anthropic.chat import ChatAnthropic
+
+		is_anthropic = isinstance(self.llm, ChatAnthropic)
+
 		# Initialize message manager with state
 		# Initial system prompt with all actions - will be updated during each step
 		self._message_manager = MessageManager(
@@ -359,6 +387,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				extend_system_message=extend_system_message,
 				use_thinking=self.settings.use_thinking,
 				flash_mode=self.settings.flash_mode,
+				is_anthropic=is_anthropic,
 			).get_system_message(),
 			file_system=self.file_system,
 			state=self.state.message_manager_state,
@@ -371,6 +400,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			include_tool_call_examples=self.settings.include_tool_call_examples,
 			include_recent_events=self.include_recent_events,
 			sample_images=self.sample_images,
+			llm_screenshot_size=llm_screenshot_size,
 		)
 
 		if self.sensitive_data:
@@ -379,7 +409,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			# If no allowed_domains are configured, show a security warning
 			if not self.browser_profile.allowed_domains:
-				self.logger.error(
+				self.logger.warning(
 					'⚠️ Agent(sensitive_data=••••••••) was provided but Browser(allowed_domains=[...]) is not locked down! ⚠️\n'
 					'          ☠️ If the agent visits a malicious website and encounters a prompt-injection attack, your sensitive_data may be exposed!\n\n'
 					'   \n'
@@ -538,10 +568,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.file_system = FileSystem.from_state(self.state.file_system_state)
 				# The parent directory of base_dir is the original file_system_path
 				self.file_system_path = str(self.file_system.base_dir)
-				logger.debug(f'💾 File system restored from state to: {self.file_system_path}')
+				self.logger.debug(f'💾 File system restored from state to: {self.file_system_path}')
 				return
 			except Exception as e:
-				logger.error(f'💾 Failed to restore file system from state: {e}')
+				self.logger.error(f'💾 Failed to restore file system from state: {e}')
 				raise e
 
 		# Initialize new file system
@@ -554,13 +584,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.file_system = FileSystem(self.agent_directory)
 				self.file_system_path = str(self.agent_directory)
 		except Exception as e:
-			logger.error(f'💾 Failed to initialize file system: {e}.')
+			self.logger.error(f'💾 Failed to initialize file system: {e}.')
 			raise e
 
 		# Save file system state to agent state
 		self.state.file_system_state = self.file_system.get_state()
 
-		logger.debug(f'💾 File system path: {self.file_system_path}')
+		self.logger.debug(f'💾 File system path: {self.file_system_path}')
 
 	def _set_screenshot_service(self) -> None:
 		"""Initialize screenshot service using agent directory"""
@@ -568,9 +598,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			from browser_use.screenshots.service import ScreenshotService
 
 			self.screenshot_service = ScreenshotService(self.agent_directory)
-			logger.debug(f'📸 Screenshot service initialized in: {self.agent_directory}/screenshots')
+			self.logger.debug(f'📸 Screenshot service initialized in: {self.agent_directory}/screenshots')
 		except Exception as e:
-			logger.error(f'📸 Failed to initialize screenshot service: {e}.')
+			self.logger.error(f'📸 Failed to initialize screenshot service: {e}.')
 			raise e
 
 	def save_file_system_state(self) -> None:
@@ -578,7 +608,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if self.file_system:
 			self.state.file_system_state = self.file_system.get_state()
 		else:
-			logger.error('💾 File system is not set up. Cannot save state.')
+			self.logger.error('💾 File system is not set up. Cannot save state.')
 			raise ValueError('File system is not set up. Cannot save state.')
 
 	def _set_browser_use_version_and_source(self, source_override: str | None = None) -> None:
@@ -825,15 +855,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Handle all other exceptions
 		include_trace = self.logger.isEnabledFor(logging.DEBUG)
 		error_msg = AgentError.format_error(error, include_trace=include_trace)
-		prefix = f'❌ Result failed {self.state.consecutive_failures + 1}/{self.settings.max_failures + int(self.settings.final_response_after_failure)} times:\n '
+		max_total_failures = self.settings.max_failures + int(self.settings.final_response_after_failure)
+		prefix = f'❌ Result failed {self.state.consecutive_failures + 1}/{max_total_failures} times: '
 		self.state.consecutive_failures += 1
+
+		# Use WARNING for partial failures, ERROR only when max failures reached
+		is_final_failure = self.state.consecutive_failures >= max_total_failures
+		log_level = logging.ERROR if is_final_failure else logging.WARNING
 
 		if 'Could not parse response' in error_msg or 'tool_use_failed' in error_msg:
 			# give model a hint how output should look like
-			logger.error(f'Model: {self.llm.model} failed')
-			logger.error(f'{prefix}{error_msg}')
+			self.logger.log(log_level, f'Model: {self.llm.model} failed')
+			self.logger.log(log_level, f'{prefix}{error_msg}')
 		else:
-			self.logger.error(f'{prefix}{error_msg}')
+			self.logger.log(log_level, f'{prefix}{error_msg}')
 
 		self.state.last_result = [ActionResult(error=error_msg)]
 		return None
@@ -927,6 +962,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			agent_steps=agent_steps,
 			screenshot_paths=screenshot_paths,
 			max_images=10,
+			ground_truth=self.settings.ground_truth,
 		)
 
 		# Call LLM with JudgementResult as output format
@@ -1571,6 +1607,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			'deb',
 			'rpm',
 			'iso',
+			# GitHub/Project paths
+			'polynomial',
 		}
 
 		excluded_words = {
