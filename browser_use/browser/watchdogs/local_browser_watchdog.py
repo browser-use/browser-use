@@ -361,26 +361,28 @@ class LocalBrowserWatchdog(BaseWatchdog):
 
 	@staticmethod
 	async def _wait_for_cdp_url(port: int, timeout: float = 30) -> str:
-		"""Wait for the browser to start and return the CDP URL."""
 		import aiohttp
 
-		start_time = asyncio.get_event_loop().time()
+		loop = asyncio.get_running_loop()
+		deadline = loop.time() + timeout
+		session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2))
 
-		async with aiohttp.ClientSession() as session:
-			while asyncio.get_event_loop().time() - start_time < timeout:
+		try:
+			while loop.time() < deadline:
 				try:
-					async with session.get(f'http://localhost:{port}/json/version') as resp:
+					resp = await session.get(f'http://localhost:{port}/json/version')
+					async with resp:
 						if resp.status == 200:
-							# Chrome is ready
 							return f'http://localhost:{port}/'
-						else:
-							# Chrome is starting up and returning 502/500 errors
-							await asyncio.sleep(0.1)
-				except Exception:
-					# Connection error - Chrome might not be ready yet
-					await asyncio.sleep(0.1)
-
+				except asyncio.CancelledError:
+					# do not swallow — let it propagate so finally runs and closes the session
+					raise
+				except (aiohttp.ClientError, TimeoutError, OSError, ConnectionError):
+					pass
+				await asyncio.sleep(0.1)
 			raise TimeoutError(f'Browser did not start within {timeout} seconds')
+		finally:
+			await session.close()
 
 	@staticmethod
 	async def _cleanup_process(process: psutil.Process) -> None:
