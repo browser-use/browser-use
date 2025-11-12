@@ -135,10 +135,12 @@ class ChatAnthropic(BaseChatModel):
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		anthropic_messages, system_prompt = AnthropicMessageSerializer.serialize_messages(messages)
 
+		client = self.get_client()
+
 		try:
 			if output_format is None:
 				# Normal completion without structured output
-				response = await self.get_client().messages.create(
+				response = await client.messages.create(
 					model=self.model,
 					messages=anthropic_messages,
 					system=system_prompt or omit,
@@ -189,7 +191,7 @@ class ChatAnthropic(BaseChatModel):
 				# Force the model to use this tool
 				tool_choice = ToolChoiceToolParam(type='tool', name=tool_name)
 
-				response = await self.get_client().messages.create(
+				response = await client.messages.create(
 					model=self.model,
 					messages=anthropic_messages,
 					tools=[tool],
@@ -240,3 +242,5 @@ class ChatAnthropic(BaseChatModel):
 			raise ModelProviderError(message=e.message, status_code=e.status_code, model=self.name) from e
 		except Exception as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e
+		finally:
+			await client.close()
