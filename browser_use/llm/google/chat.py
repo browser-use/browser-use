@@ -540,3 +540,6 @@ class ChatGoogle(BaseChatModel):
 			return obj
 
 		return clean_schema(schema)
+
+	async def aclose_client(self) -> None:
+		await self.get_client().aio.aclose()

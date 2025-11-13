@@ -242,3 +242,6 @@ class ChatAnthropic(BaseChatModel):
 			raise ModelProviderError(message=e.message, status_code=e.status_code, model=self.name) from e
 		except Exception as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e
+
+	async def aclose_client(self) -> None:
+		await self.get_client().close()

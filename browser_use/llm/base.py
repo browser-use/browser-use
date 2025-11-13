@@ -55,3 +55,5 @@ class BaseChatModel(Protocol):
 
 		# Return a schema that accepts any object for Protocol types
 		return core_schema.any_schema()
+
+	async def aclose_client(self) -> None: ...

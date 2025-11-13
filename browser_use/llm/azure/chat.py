@@ -89,3 +89,6 @@ class ChatAzureOpenAI(ChatOpenAILike):
 		self.client = AsyncAzureOpenAIClient(**_client_params)
 
 		return self.client
+
+	async def aclose_client(self) -> None:
+		await self.get_client().close()
