@@ -19,7 +19,7 @@ time_speedup = time_per_task[0] / time_per_task[1]  # how much faster
 cost_savings = cost_per_task[0] / cost_per_task[1]  # how much cheaper
 
 # Colors
-bu_color = '#2ecc71'  # bright green
+bu_color = '#ff8c00'  # orange
 gpt_color = '#808080'  # grey
 
 # Create figure with dark background
@@ -54,6 +54,17 @@ for i, (bar, val) in enumerate(zip(bars1, accuracy)):
 		fontsize=11,
 		fontweight='bold',
 	)
+	if i == 1:  # BU 1.0
+		ax1.text(
+			bar.get_x() + bar.get_width() / 2,
+			height + 2.5,
+			'10.2% better',
+			ha='center',
+			va='bottom',
+			color='#ff8c00',
+			fontsize=13,
+			fontweight='bold',
+		)
 
 # === PLOT 2: Time per Task (Speed) ===
 ax2 = axes[1]
@@ -82,11 +93,11 @@ for i, (bar, val) in enumerate(zip(bars2, time_per_task)):
 	if i == 1:  # BU 1.0
 		ax2.text(
 			bar.get_x() + bar.get_width() / 2,
-			height + 10,
+			height + 15,
 			f'{time_speedup:.1f}x faster',
 			ha='center',
 			va='bottom',
-			color='#2ecc71',
+			color='#ff8c00',
 			fontsize=13,
 			fontweight='bold',
 		)
@@ -118,11 +129,11 @@ for i, (bar, val) in enumerate(zip(bars3, cost_per_task)):
 	if i == 1:  # BU 1.0
 		ax3.text(
 			bar.get_x() + bar.get_width() / 2,
-			height + 3.5,
+			height + 6,
 			f'{cost_savings:.0f}x cheaper',
 			ha='center',
 			va='bottom',
-			color='#2ecc71',
+			color='#ff8c00',
 			fontsize=13,
 			fontweight='bold',
 		)
@@ -136,11 +147,10 @@ for ax in axes:
 	for label in ax.get_yticklabels():
 		label.set_fontweight('bold')
 
-# Add main title and subtitle
-fig.suptitle('Evolution of Browser use in 2025', fontsize=22, color='white', fontweight='bold', y=0.98)
-fig.text(0.5, 0.89, 'Why you should switch from GPT-4o to BU 1.0', ha='center', fontsize=14, color='white', style='italic')
+# Add main title
+fig.suptitle('Evolution of Browser Use in 2025', fontsize=22, color='white', fontweight='bold', y=0.96)
 
-plt.tight_layout(rect=(0, 0, 1, 0.90))
+plt.tight_layout(rect=(0, 0, 1, 0.92))
 plt.savefig('webbench_bu_vs_gpt4o.png', dpi=300, facecolor='black')
 plt.close()
 
