@@ -57,6 +57,14 @@ class ChatOllama(BaseChatModel):
 	def name(self) -> str:
 		return self.model
 
+	def __repr__(self) -> str:
+		"""Safe repr that doesn't expose sensitive data"""
+		return f'ChatOllama(model={self.model!r}, host={self.host!r})'
+
+	def __str__(self) -> str:
+		"""Safe str that doesn't expose sensitive data"""
+		return f'ChatOllama(model={self.model}, host={self.host})'
+
 	@overload
 	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> ChatInvokeCompletion[str]: ...
 

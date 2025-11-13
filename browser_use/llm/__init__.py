@@ -14,6 +14,7 @@ from browser_use.llm.messages import (
 	SystemMessage,
 	UserMessage,
 )
+from browser_use.llm.sanitization import sanitize_api_key, sanitize_dict, sanitize_string
 from browser_use.llm.messages import (
 	ContentPartImageParam as ContentImage,
 )
@@ -137,6 +138,10 @@ __all__ = [
 	'ContentText',
 	'ContentRefusal',
 	'ContentImage',
+	# Sanitization utilities
+	'sanitize_api_key',
+	'sanitize_dict',
+	'sanitize_string',
 	# Chat models
 	'BaseChatModel',
 	'ChatOpenAI',

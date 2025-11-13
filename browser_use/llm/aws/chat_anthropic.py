@@ -63,6 +63,16 @@ class ChatAnthropicBedrock(ChatAWSBedrock):
 	def provider(self) -> str:
 		return 'anthropic_bedrock'
 
+	def __repr__(self) -> str:
+		"""Safe repr that doesn't expose AWS credentials"""
+		from browser_use.llm.sanitization import sanitize_api_key
+		return f'ChatAnthropicBedrock(model={self.model!r}, aws_access_key={sanitize_api_key(self.aws_access_key)!r})'
+
+	def __str__(self) -> str:
+		"""Safe str that doesn't expose AWS credentials"""
+		from browser_use.llm.sanitization import sanitize_api_key
+		return f'ChatAnthropicBedrock(model={self.model}, aws_access_key={sanitize_api_key(self.aws_access_key)})'
+
 	def _get_client_params(self) -> dict[str, Any]:
 		"""Prepare client parameters dictionary for Bedrock."""
 		client_params: dict[str, Any] = {}

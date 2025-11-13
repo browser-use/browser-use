@@ -148,6 +148,16 @@ class ChatGoogle(BaseChatModel):
 	def name(self) -> str:
 		return str(self.model)
 
+	def __repr__(self) -> str:
+		"""Safe repr that doesn't expose API keys"""
+		from browser_use.llm.sanitization import sanitize_api_key
+		return f'ChatGoogle(model={self.model!r}, api_key={sanitize_api_key(self.api_key)!r})'
+
+	def __str__(self) -> str:
+		"""Safe str that doesn't expose API keys"""
+		from browser_use.llm.sanitization import sanitize_api_key
+		return f'ChatGoogle(model={self.model}, api_key={sanitize_api_key(self.api_key)})'
+
 	def _get_stop_reason(self, response: types.GenerateContentResponse) -> str | None:
 		"""Extract stop_reason from Google response."""
 		if hasattr(response, 'candidates') and response.candidates:

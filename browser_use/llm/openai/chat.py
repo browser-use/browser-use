@@ -120,6 +120,16 @@ class ChatOpenAI(BaseChatModel):
 	def name(self) -> str:
 		return str(self.model)
 
+	def __repr__(self) -> str:
+		"""Safe repr that doesn't expose API keys"""
+		from browser_use.llm.sanitization import sanitize_api_key
+		return f'ChatOpenAI(model={self.model!r}, api_key={sanitize_api_key(self.api_key)!r})'
+
+	def __str__(self) -> str:
+		"""Safe str that doesn't expose API keys"""
+		from browser_use.llm.sanitization import sanitize_api_key
+		return f'ChatOpenAI(model={self.model}, api_key={sanitize_api_key(self.api_key)})'
+
 	def _get_usage(self, response: ChatCompletion) -> ChatInvokeUsage | None:
 		if response.usage is not None:
 			completion_tokens = response.usage.completion_tokens

@@ -11,8 +11,12 @@ class ModelProviderError(ModelError):
 		status_code: int = 502,
 		model: str | None = None,
 	):
-		super().__init__(message)
-		self.message = message
+		from browser_use.llm.sanitization import sanitize_string
+		
+		# Sanitize the message to remove any API keys
+		sanitized_message = sanitize_string(message)
+		super().__init__(sanitized_message)
+		self.message = sanitized_message
 		self.status_code = status_code
 		self.model = model
 
@@ -26,4 +30,5 @@ class ModelRateLimitError(ModelProviderError):
 		status_code: int = 429,
 		model: str | None = None,
 	):
+		# ModelProviderError will sanitize the message
 		super().__init__(message, status_code, model)

@@ -99,6 +99,16 @@ class ChatAWSBedrock(BaseChatModel):
 	def name(self) -> str:
 		return str(self.model)
 
+	def __repr__(self) -> str:
+		"""Safe repr that doesn't expose AWS credentials"""
+		from browser_use.llm.sanitization import sanitize_api_key
+		return f'ChatAWSBedrock(model={self.model!r}, aws_access_key_id={sanitize_api_key(self.aws_access_key_id)!r})'
+
+	def __str__(self) -> str:
+		"""Safe str that doesn't expose AWS credentials"""
+		from browser_use.llm.sanitization import sanitize_api_key
+		return f'ChatAWSBedrock(model={self.model}, aws_access_key_id={sanitize_api_key(self.aws_access_key_id)})'
+
 	def _get_inference_config(self) -> dict[str, Any]:
 		"""Get the inference configuration for the request."""
 		config = {}
