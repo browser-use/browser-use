@@ -287,3 +287,9 @@ class ChatAWSBedrock(BaseChatModel):
 				raise ModelProviderError(message=error_message, model=self.name) from e
 		except Exception as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e
+
+	async def aclose_client(self) -> None:
+		pass
+		"""
+		No client to close for AWS Bedrock.
+		"""

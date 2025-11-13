@@ -95,3 +95,9 @@ class ChatOllama(BaseChatModel):
 
 		except Exception as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e
+
+	async def aclose_client(self) -> None:
+		pass
+		"""
+		No client to close for Ollama.
+		"""

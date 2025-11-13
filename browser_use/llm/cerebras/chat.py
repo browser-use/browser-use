@@ -191,3 +191,6 @@ Your response must be valid JSON only, no other text.
 				raise ModelProviderError(str(e), model=self.name) from e
 
 		raise ModelProviderError('No valid ainvoke execution path for Cerebras LLM', model=self.name)
+
+	async def aclose_client(self) -> None:
+		await self._client().close()

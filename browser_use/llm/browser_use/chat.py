@@ -199,3 +199,9 @@ class ChatBrowserUse(BaseChatModel):
 			'role': msg_dict['role'],
 			'content': msg_dict['content'],
 		}
+
+	async def aclose_client(self) -> None:
+		"""
+		No client to close for browser-use.
+		"""
+		pass

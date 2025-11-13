@@ -193,3 +193,9 @@ class ChatLangchain(BaseChatModel):
 				message=f'LangChain model error: {str(e)}',
 				model=self.name,
 			) from e
+
+	async def aclose_client(self) -> None:
+		pass
+		"""
+		No client to close for LangChain.
+		"""

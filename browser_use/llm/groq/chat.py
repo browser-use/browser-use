@@ -227,3 +227,6 @@ class ChatGroq(BaseChatModel):
 			),
 			service_tier=self.service_tier,
 		)
+
+	async def aclose_client(self) -> None:
+		await self.get_client().close()

@@ -441,3 +441,9 @@ IMPORTANT:
 				status_code=500,
 				model=self.name,
 			) from e
+
+	async def aclose_client(self) -> None:
+		pass
+		"""
+		No client to close for OCI Raw.
+		"""

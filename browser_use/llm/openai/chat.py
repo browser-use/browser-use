@@ -272,3 +272,6 @@ class ChatOpenAI(BaseChatModel):
 
 		except Exception as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e
+
+	async def aclose_client(self) -> None:
+		await self.get_client().close()

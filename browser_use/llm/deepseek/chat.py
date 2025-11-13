@@ -210,3 +210,6 @@ class ChatDeepSeek(BaseChatModel):
 				raise ModelProviderError(str(e), model=self.name) from e
 
 		raise ModelProviderError('No valid ainvoke execution path for DeepSeek LLM', model=self.name)
+
+	async def aclose_client(self) -> None:
+		await self._client().close()
