@@ -43,6 +43,9 @@ def _patched_del(self):
 base_subprocess.BaseSubprocessTransport.__del__ = _patched_del
 
 
+# Import sanitize function directly (not lazy - it's lightweight and commonly needed)
+from browser_use.utils import sanitize_sensitive_data
+
 # Type stubs for lazy imports - fixes linter warnings
 if TYPE_CHECKING:
 	from browser_use.agent.prompts import SystemPrompt
@@ -154,4 +157,6 @@ __all__ = [
 	'models',
 	# Sandbox execution
 	'sandbox',
+	# Utility functions
+	'sanitize_sensitive_data',
 ]
