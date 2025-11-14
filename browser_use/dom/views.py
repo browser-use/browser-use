@@ -391,6 +391,12 @@ class EnhancedDOMTreeNode:
 
 	uuid: str = field(default_factory=uuid7str)
 
+	is_inert: bool = False
+	"""
+	Whether this node or any ancestor has inert or aria-hidden='true'.
+	Computed during tree construction for O(1) lookup.
+	"""
+
 	@property
 	def parent(self) -> 'EnhancedDOMTreeNode | None':
 		return self.parent_node

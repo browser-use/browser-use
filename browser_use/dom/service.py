@@ -569,6 +569,22 @@ class DomService:
 					node['parentId']
 				]  # parents should always be in the lookup
 
+			# Propagate is_inert from parent or check current node
+			if dom_tree_node.parent_node and dom_tree_node.parent_node.is_inert:
+				# Parent is inert, so this node is too
+				dom_tree_node.is_inert = True
+			elif attributes:
+				# Check if current node has inert or aria-hidden='true'
+				if 'inert' in attributes:
+					dom_tree_node.is_inert = True
+				else:
+					aria_hidden = attributes.get('aria-hidden')
+					if isinstance(aria_hidden, str):
+						if aria_hidden.strip().lower() in {'true', '1'}:
+							dom_tree_node.is_inert = True
+					elif aria_hidden:
+						dom_tree_node.is_inert = True
+
 			# Check if this is an HTML frame node and add it to the list
 			updated_html_frames = html_frames.copy()
 			if node['nodeType'] == NodeType.ELEMENT_NODE.value and node['nodeName'] == 'HTML' and node.get('frameId') is not None:
