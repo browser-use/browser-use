@@ -39,6 +39,7 @@ from .utils import detect_token_limit_issue, extract_code_blocks, extract_url_fr
 from .views import (
 	CellType,
 	CodeAgentHistory,
+	CodeAgentHistoryList,
 	CodeAgentModelOutput,
 	CodeAgentResult,
 	CodeAgentState,
@@ -652,6 +653,10 @@ class CodeAgent:
 			self._log_agent_event(max_steps=self.max_steps, agent_run_error=agent_run_error)
 		except Exception as log_e:
 			logger.error(f'Failed to log telemetry event: {log_e}', exc_info=True)
+
+		# Store history data in session for history property
+		self.session._complete_history = self.complete_history
+		self.session._usage_summary = self.usage_summary
 
 		return self.session
 
@@ -1405,71 +1410,13 @@ __code_exec_coro__ = __code_exec__()
 		return MockMessageManager(self._llm_messages)
 
 	@property
-	def history(self) -> Any:
+	def history(self) -> CodeAgentHistoryList:
 		"""
 		Compatibility property for eval system.
-		Returns a mock AgentHistoryList object with history attribute containing complete_history.
+		Returns a CodeAgentHistoryList object with history attribute containing complete_history.
 		This is what the eval system expects when it does: agent_history = agent.history
 		"""
-
-		class DictToObject:
-			"""Convert dict to object with attribute access for eval compatibility."""
-
-			def __init__(self, data: dict[str, Any]) -> None:
-				for key, value in data.items():
-					if isinstance(value, dict):
-						setattr(self, key, DictToObject(value))
-					elif isinstance(value, list):
-						setattr(self, key, [DictToObject(item) if isinstance(item, dict) else item for item in value])
-					else:
-						setattr(self, key, value)
-
-			def __getattr__(self, name: str) -> None:
-				"""Provide safe attribute access with defaults for missing attributes."""
-				# Return None for missing attributes instead of raising AttributeError
-				# This handles cases where eval system checks attributes that CodeAgent doesn't set
-				return None
-
-			def model_dump(self) -> dict[str, Any]:
-				"""Support model_dump() calls from eval system."""
-				result = {}
-				for key, value in self.__dict__.items():
-					if isinstance(value, DictToObject):
-						result[key] = value.model_dump()
-					elif isinstance(value, list):
-						result[key] = [item.model_dump() if isinstance(item, DictToObject) else item for item in value]
-					else:
-						result[key] = value
-				return result
-
-			def get_screenshot(self) -> str | None:
-				"""Support get_screenshot() calls for state objects."""
-				# Load screenshot from disk and return as base64 string (matching BrowserStateHistory implementation)
-				if not hasattr(self, 'screenshot_path') or not self.screenshot_path:
-					return None
-
-				import base64
-				from pathlib import Path
-
-				path_obj = Path(self.screenshot_path)
-				if not path_obj.exists():
-					return None
-
-				try:
-					with open(path_obj, 'rb') as f:
-						screenshot_data = f.read()
-					return base64.b64encode(screenshot_data).decode('utf-8')
-				except Exception:
-					return None
-
-		class MockAgentHistoryList:
-			def __init__(self, complete_history: list[CodeAgentHistory], usage_summary: UsageSummary | None) -> None:
-				# Convert each CodeAgentHistory to dict, then to object with attribute access
-				self.history = [DictToObject(item.model_dump()) for item in complete_history]
-				# Use the provided usage summary
-				self.usage = usage_summary
-
-		return MockAgentHistoryList(self.complete_history, self.usage_summary)
+		return CodeAgentHistoryList(self.complete_history, self.usage_summary)
 
 	async def close(self) -> None:
 		"""Close the browser session."""
