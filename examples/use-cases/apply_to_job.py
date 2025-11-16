@@ -87,8 +87,8 @@ async def apply_to_rochester_regional_health(info: dict, resume_path: str):
             7) use input_text action to fill out the following:
                 - "Today's date"
             8) CLICK THE SUBMIT BUTTON AND CHECK FOR A SUCCESS SCREEN. Once there is a success screen, complete your end task of writing final_result and outputting it.
-    - Before you start, create a step-by-step plan to complete the entire task. make sure the delegate a step for each field to be filled out.
-    *** IMPORTANT ***:
+    - Before you start, create a step-by-step plan to complete the entire task. Make sure to delegate a step for each field to be filled out.
+    *** IMPORTANT ***: 
         - You are not done until you have filled out every field of the form.
         - When you have completed the entire form, press the submit button to submit the application and use the done action once you have confirmed that the application is submitted
         - PLACE AN EMPHASIS ON STEP 4, the click action. That section should be filled out.
