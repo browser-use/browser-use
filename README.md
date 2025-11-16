@@ -13,7 +13,7 @@
 </div>
 
 <div align="center">
-<img src="https://media.browser-use.tools/badges/package" height="48" alt="Browser-Use Package Download Statistics">
+<a href="https://cloud.browser-use.com"><img src="https://media.browser-use.tools/badges/package" height="48" alt="Browser-Use Package Download Statistics"></a>
 </div>
 
 ---
@@ -183,8 +183,8 @@ We optimized **ChatBrowserUse()** specifically for browser automation tasks. On 
 
 **Pricing (per 1M tokens):**
 - Input tokens: $0.20
+- Cached input tokens: $0.02
 - Output tokens: $2.00
-- Cached tokens: $0.02
 
 For other LLM providers, see our [supported models documentation](https://docs.browser-use.com/supported-models).
 </details>

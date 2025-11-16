@@ -155,7 +155,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 		"""Handle click request with CDP."""
 		try:
 			# Check if session is alive before attempting any operations
-			if not self.browser_session.agent_focus or not self.browser_session.agent_focus.target_id:
+			if not self.browser_session.agent_focus_target_id:
 				error_msg = 'Cannot execute click: browser session is corrupted (target_id=None). Session may have crashed.'
 				self.logger.error(f'{error_msg}')
 				raise BrowserError(error_msg)
@@ -163,7 +163,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Use the provided node
 			element_node = event.node
 			index_for_logging = element_node.backend_node_id or 'unknown'
-			starting_target_id = self.browser_session.agent_focus.target_id
+			starting_target_id = self.browser_session.agent_focus_target_id
 
 			# Check if element is a file input (should not be clicked)
 			if self.browser_session.is_file_input(element_node):
@@ -277,7 +277,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 	async def on_ScrollEvent(self, event: ScrollEvent) -> None:
 		"""Handle scroll request with CDP."""
 		# Check if we have a current target for scrolling
-		if not self.browser_session.agent_focus:
+		if not self.browser_session.agent_focus_target_id:
 			error_msg = 'No active target for scrolling'
 			raise BrowserError(error_msg)
 
@@ -513,7 +513,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					# Navigation is handled by BrowserSession via events
 					return None
 				except Exception as js_e:
-					self.logger.error(f'CDP JavaScript click also failed: {js_e}')
+					self.logger.warning(f'CDP JavaScript click also failed: {js_e}')
 					if 'No node with given id found' in str(js_e):
 						raise Exception('Element with given id not found')
 					else:
@@ -676,7 +676,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 					return None
 				except Exception as js_e:
-					self.logger.error(f'CDP JavaScript click also failed: {js_e}')
+					self.logger.warning(f'CDP JavaScript click also failed: {js_e}')
 					raise Exception(f'Failed to click element: {e}')
 			finally:
 				# Always re-focus back to original top-level page session context in case click opened a new tab/popup/window/dialog/etc.
@@ -1630,10 +1630,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 			True if successful, False if failed
 		"""
 		try:
-			# Get CDP client and session
-			assert self.browser_session.agent_focus is not None, 'CDP session not initialized - browser may not be connected yet'
-			cdp_client = self.browser_session.agent_focus.cdp_client
-			session_id = self.browser_session.agent_focus.session_id
+			# Get focused CDP session using public API (validates and waits for recovery if needed)
+			cdp_session = await self.browser_session.get_or_create_cdp_session()
+			cdp_client = cdp_session.cdp_client
+			session_id = cdp_session.session_id
 
 			# Get viewport dimensions
 			layout_metrics = await cdp_client.send.Page.getLayoutMetrics(session_id=session_id)
@@ -1761,14 +1761,12 @@ class DefaultActionWatchdog(BaseWatchdog):
 		if element_node.frame_id:
 			# Element is in an iframe, need to get session for that frame
 			try:
-				# Get all targets
-				targets = await self.browser_session.cdp_client.send.Target.getTargets()
+				all_targets = self.browser_session.session_manager.get_all_targets()
 
 				# Find the target for this frame
-				for target in targets['targetInfos']:
-					if target['type'] == 'iframe' and element_node.frame_id in str(target.get('targetId', '')):
+				for target_id, target in all_targets.items():
+					if target.target_type == 'iframe' and element_node.frame_id in str(target_id):
 						# Create temporary session for iframe target without switching focus
-						target_id = target['targetId']
 						temp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
 						return temp_session.session_id
 
@@ -1777,9 +1775,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 			except Exception as e:
 				self.logger.debug(f'Error getting frame session: {e}, using main session')
 
-		# Use main target session
-		assert self.browser_session.agent_focus is not None, 'CDP session not initialized - browser may not be connected yet'
-		return self.browser_session.agent_focus.session_id
+		# Use main target session - get_or_create_cdp_session validates focus automatically
+		cdp_session = await self.browser_session.get_or_create_cdp_session()
+		return cdp_session.session_id
 
 	async def on_GoBackEvent(self, event: GoBackEvent) -> None:
 		"""Handle navigate back request with CDP."""
@@ -2101,11 +2099,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 		# TODO: handle looking for text inside cross-origin iframes as well
 
-		# Get CDP client and session
-		cdp_client = self.browser_session.cdp_client
-		if self.browser_session.agent_focus is None:
-			raise BrowserError('CDP session not initialized - browser may not be connected yet')
-		session_id = self.browser_session.agent_focus.session_id
+		# Get focused CDP session using public API (validates and waits for recovery if needed)
+		cdp_session = await self.browser_session.get_or_create_cdp_session()
+		cdp_client = cdp_session.cdp_client
+		session_id = cdp_session.session_id
 
 		# Enable DOM
 		await cdp_client.send.DOM.enable(session_id=session_id)
