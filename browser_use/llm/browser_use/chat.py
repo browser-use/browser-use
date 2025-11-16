@@ -103,11 +103,17 @@ class ChatBrowserUse(BaseChatModel):
 		Returns:
 			ChatInvokeCompletion with structured response and usage info
 		"""
+		# Get ANONYMIZED_TELEMETRY setting from config
+		from browser_use.config import CONFIG
+
+		anonymized_telemetry = CONFIG.ANONYMIZED_TELEMETRY
+
 		# Prepare request payload
 		payload = {
 			'messages': [self._serialize_message(msg) for msg in messages],
 			'fast': self.fast,
 			'request_type': request_type,
+			'anonymized_telemetry': anonymized_telemetry,
 		}
 
 		# Add output format schema if provided

@@ -2,7 +2,7 @@
 name = "browser-use"
 description = "Make websites accessible for AI agents"
 authors = [{ name = "Gregor Zunic" }]
-version = "0.9.5"
+version = "0.9.6"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 classifiers = [
@@ -30,9 +30,9 @@ dependencies = [
     "typing-extensions>=4.12.2",
     "uuid7>=0.1.0",
     "authlib>=1.6.0",
-    "google-genai>=1.29.0,<2.0.0",
-    "openai>=1.99.2,<2.0.0",
-    "anthropic>=0.68.1,<1.0.0",
+    "google-genai>=1.50.0,<2.0.0",
+    "openai>=2.7.2,<3.0.0",
+    "anthropic>=0.72.1,<1.0.0",
     "groq>=0.30.0",
     "ollama>=0.5.1",
     "google-api-python-client>=2.174.0",
@@ -41,11 +41,12 @@ dependencies = [
     "mcp>=1.10.1",
     "pypdf>=5.7.0",
     "reportlab>=4.0.0",
-    "cdp-use>=1.4.0",
+    "cdp-use>=1.4.4",
     "pyotp>=2.9.0",
     "pillow>=11.2.1",
     "cloudpickle>=3.1.1",
     "markdownify>=1.2.0",
+    "python-docx>=1.2.0",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -58,26 +59,11 @@ dependencies = [
 # textual: used for terminal UI
 
 [project.optional-dependencies]
-cli = [
-    "textual>=3.2.0",
-]
-code = [
-    "matplotlib>=3.9.0",
-    "numpy>=2.3.2",
-    "pandas>=2.2.0",
-    "tabulate>=0.9.0",
-
-]
-aws = [
-    "boto3>=1.38.45"
-]
-oci = [
-    "oci>=2.126.4",
-]
-video = [
-    "imageio[ffmpeg]>=2.37.0",
-    "numpy>=2.3.2",
-]
+cli = ["textual>=3.2.0"]
+code = ["matplotlib>=3.9.0", "numpy>=2.3.2", "pandas>=2.2.0", "tabulate>=0.9.0"]
+aws = ["boto3>=1.38.45"]
+oci = ["oci>=2.126.4"]
+video = ["imageio[ffmpeg]>=2.37.0", "numpy>=2.3.2"]
 examples = [
     "agentmail==0.0.59",
     # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py
@@ -91,14 +77,10 @@ eval = [
     "lmnr[all]==0.7.17",
     "anyio>=4.9.0",
     "psutil>=7.0.0",
-    "datamodel-code-generator>=0.26.0"
+    "datamodel-code-generator>=0.26.0",
 ]
-cli-oci = [
-    "browser-use[cli,oci]",
-]
-all = [
-    "browser-use[cli,examples,aws,oci]",
-]
+cli-oci = ["browser-use[cli,oci]"]
+all = ["browser-use[cli,examples,aws,oci]"]
 
 # will prefer to use local source code checked out in ../../browser-use (if present) instead of pypi browser-use package
 # [tool.uv.sources]
@@ -127,7 +109,15 @@ fix = true
 
 [tool.ruff.lint]
 select = ["ASYNC", "E", "F", "FAST", "I", "PLE"]
-ignore = ["ASYNC109", "E101", "E402", "E501", "F841", "E731", "W291"]  # TODO: determine if adding timeouts to all the unbounded async functions is needed / worth-it so we can un-ignore ASYNC109
+ignore = [
+    "ASYNC109",
+    "E101",
+    "E402",
+    "E501",
+    "F841",
+    "E731",
+    "W291",
+] # TODO: determine if adding timeouts to all the unbounded async functions is needed / worth-it so we can un-ignore ASYNC109
 unfixable = ["E101", "E402", "E501", "F841", "E731"]
 
 [tool.ruff.format]
@@ -140,9 +130,31 @@ skip-magic-trailing-comma = false
 
 [tool.pyright]
 typeCheckingMode = "basic"
-exclude = [".venv/", ".git/", "__pycache__/", "./test_*.py", "./debug_*.py", "private_example/", "debug/*", "tests/scripts/*", "tests/old/*", "browser_use/dom/playground/*", "examples/use-cases/onepassword.py", "browser_use/llm/oci_raw/*", "browser_use/llm/tests/test_chat_models.py", "browser_use/llm/tests/test_single_step.py", "product_extraction.py", "discover/", "list/"]
+include = ["browser_use", "examples", "tests"]
+exclude = [
+    ".venv/",
+    ".venv*/",
+    ".git/",
+    "__pycache__/",
+    "**/site-packages/",
+    "./test_*.py",
+    "./debug_*.py",
+    "private_example/",
+    "debug/*",
+    "tests/scripts/*",
+    "tests/old/*",
+    "browser_use/dom/playground/*",
+    "examples/use-cases/onepassword.py",
+    "browser_use/llm/oci_raw/*",
+    "browser_use/llm/tests/test_chat_models.py",
+    "browser_use/llm/tests/test_single_step.py",
+    "product_extraction.py",
+    "discover/",
+    "list/",
+]
 venvPath = "."
 venv = ".venv"
+reportMissingTypeStubs = false
 
 
 [tool.hatch.build]
@@ -153,6 +165,7 @@ include = [
     "browser_use/agent/system_prompt.md",
     "browser_use/agent/system_prompt_no_thinking.md",
     "browser_use/agent/system_prompt_flash.md",
+    "browser_use/agent/system_prompt_flash_anthropic.md",
     "browser_use/code_use/system_prompt.md",
     "browser_use/cli_templates/*.py",
     "browser_use/py.typed",
@@ -172,9 +185,7 @@ markers = [
     "unit: marks tests as unit tests",
     "asyncio: mark tests as async tests",
 ]
-testpaths = [
-    "tests"
-]
+testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 addopts = "-svx --strict-markers --tb=short --dist=loadscope"
 log_cli = true
@@ -218,5 +229,5 @@ dev-dependencies = [
     "lmnr[all]==0.7.17",
     # "pytest-playwright-asyncio>=0.7.0",  # not actually needed I think
     "pytest-timeout>=2.4.0",
-    "pydantic_settings>=2.10.1"
+    "pydantic_settings>=2.10.1",
 ]

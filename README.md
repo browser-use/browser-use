@@ -12,7 +12,9 @@
     </picture>
 </div>
 
-</br>
+<div align="center">
+<a href="https://cloud.browser-use.com"><img src="https://media.browser-use.tools/badges/package" height="48" alt="Browser-Use Package Download Statistics"></a>
+</div>
 
 ---
 
@@ -156,7 +158,7 @@ https://github.com/user-attachments/assets/a6813fa7-4a7c-40a6-b4aa-382bf88b1850
 [Example code ↗](https://github.com/browser-use/browser-use/blob/main/examples/use-cases/buy_groceries.py)
 
 
-### 💻 Personal-Assistant. 
+### 💻 Personal-Assistant.
 #### Task = "Help me find parts for a custom PC."
 
 https://github.com/user-attachments/assets/ac34f75c-057a-43ef-ad06-5b2c9d42bf06
@@ -180,9 +182,9 @@ https://github.com/user-attachments/assets/ac34f75c-057a-43ef-ad06-5b2c9d42bf06
 We optimized **ChatBrowserUse()** specifically for browser automation tasks. On avg it completes tasks 3-5x faster than other models with SOTA accuracy.
 
 **Pricing (per 1M tokens):**
-- Input tokens: $0.50
-- Output tokens: $3.00  
-- Cached tokens: $0.10
+- Input tokens: $0.20
+- Cached input tokens: $0.02
+- Output tokens: $2.00
 
 For other LLM providers, see our [supported models documentation](https://docs.browser-use.com/supported-models).
 </details>
@@ -251,7 +253,7 @@ For production use cases, use our [Browser Use Cloud API](https://cloud.browser-
 <br/>
 
 <div align="center">
-  
+
 **Tell your computer what to do, and it gets it done.**
 
 <img src="https://github.com/user-attachments/assets/06fa3078-8461-4560-b434-445510c1766f" width="400"/>

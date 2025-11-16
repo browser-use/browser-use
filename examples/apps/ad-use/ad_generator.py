@@ -7,6 +7,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from browser_use.utils import create_task_with_error_handling
+
 
 def setup_environment(debug: bool):
 	if not debug:
@@ -85,7 +87,9 @@ Return ONLY the key brand info, not page structure details.""",
 			screenshot_path = self.output_dir / f'landing_page_{timestamp}.png'
 			await agent_instance.browser_session.take_screenshot(path=str(screenshot_path), full_page=False)
 
-		screenshot_task = asyncio.create_task(screenshot_callback(agent))
+		screenshot_task = create_task_with_error_handling(
+			screenshot_callback(agent), name='screenshot_callback', suppress_exceptions=True
+		)
 		history = await agent.run()
 		try:
 			await screenshot_task
@@ -373,7 +377,7 @@ async def create_multiple_ads(url: str, debug: bool = False, mode: str = 'instag
 
 	tasks = []
 	for i in range(count):
-		task = asyncio.create_task(generate_single_ad(page_data, mode, i + 1))
+		task = create_task_with_error_handling(generate_single_ad(page_data, mode, i + 1), name=f'generate_ad_{i + 1}')
 		tasks.append(task)
 
 	results = await asyncio.gather(*tasks, return_exceptions=True)

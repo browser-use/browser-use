@@ -333,14 +333,12 @@ class Registry(Generic[Context]):
 			if sensitive_data:
 				# Get current URL if browser_session is provided
 				current_url = None
-				if browser_session and browser_session.current_target_id:
+				if browser_session and browser_session.agent_focus_target_id:
 					try:
-						# Get current page info using CDP
-						targets = await browser_session.cdp_client.send.Target.getTargets()
-						for target in targets.get('targetInfos', []):
-							if target.get('targetId') == browser_session.current_target_id:
-								current_url = target.get('url')
-								break
+						# Get current page info from session_manager
+						target = browser_session.session_manager.get_target(browser_session.agent_focus_target_id)
+						if target:
+							current_url = target.url
 					except Exception:
 						pass
 				validated_params = self._replace_sensitive_data(validated_params, sensitive_data, current_url)

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Literal, Optional
 from browser_use.dom.views import NodeType, SimplifiedNode
 from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam, ImageURL, SystemMessage, UserMessage
 from browser_use.observability import observe_debug
-from browser_use.utils import is_new_tab_page
+from browser_use.utils import is_new_tab_page, sanitize_surrogates
 
 if TYPE_CHECKING:
 	from browser_use.agent.views import AgentStepInfo
@@ -16,15 +16,17 @@ if TYPE_CHECKING:
 class SystemPrompt:
 	def __init__(
 		self,
-		max_actions_per_step: int = 10,
+		max_actions_per_step: int = 4,
 		override_system_message: str | None = None,
 		extend_system_message: str | None = None,
 		use_thinking: bool = True,
 		flash_mode: bool = False,
+		is_anthropic: bool = False,
 	):
 		self.max_actions_per_step = max_actions_per_step
 		self.use_thinking = use_thinking
 		self.flash_mode = flash_mode
+		self.is_anthropic = is_anthropic
 		prompt = ''
 		if override_system_message is not None:
 			prompt = override_system_message
@@ -40,8 +42,10 @@ class SystemPrompt:
 	def _load_prompt_template(self) -> None:
 		"""Load the prompt template from the markdown file."""
 		try:
-			# Choose the appropriate template based on flash_mode and use_thinking settings
-			if self.flash_mode:
+			# Choose the appropriate template based on flash_mode, use_thinking, and is_anthropic
+			if self.flash_mode and self.is_anthropic:
+				template_filename = 'system_prompt_flash_anthropic.md'
+			elif self.flash_mode:
 				template_filename = 'system_prompt_flash.md'
 			elif self.use_thinking:
 				template_filename = 'system_prompt.md'
@@ -84,6 +88,8 @@ class AgentMessagePrompt:
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		include_recent_events: bool = False,
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
+		read_state_images: list[dict] | None = None,
+		llm_screenshot_size: tuple[int, int] | None = None,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
@@ -100,6 +106,8 @@ class AgentMessagePrompt:
 		self.vision_detail_level = vision_detail_level
 		self.include_recent_events = include_recent_events
 		self.sample_images = sample_images or []
+		self.read_state_images = read_state_images or []
+		self.llm_screenshot_size = llm_screenshot_size
 		assert self.browser_state
 
 	def _extract_page_statistics(self) -> dict[str, int]:
@@ -316,6 +324,34 @@ Available tabs:
 			agent_state += f'<available_file_paths>{available_file_paths_text}\nUse with absolute paths</available_file_paths>\n'
 		return agent_state
 
+	def _resize_screenshot(self, screenshot_b64: str) -> str:
+		"""Resize screenshot to llm_screenshot_size if configured."""
+		if not self.llm_screenshot_size:
+			return screenshot_b64
+
+		try:
+			import base64
+			import logging
+			from io import BytesIO
+
+			from PIL import Image
+
+			img = Image.open(BytesIO(base64.b64decode(screenshot_b64)))
+			if img.size == self.llm_screenshot_size:
+				return screenshot_b64
+
+			logging.getLogger(__name__).info(
+				f'🔄 Resizing screenshot from {img.size[0]}x{img.size[1]} to {self.llm_screenshot_size[0]}x{self.llm_screenshot_size[1]} for LLM'
+			)
+
+			img_resized = img.resize(self.llm_screenshot_size, Image.Resampling.LANCZOS)
+			buffer = BytesIO()
+			img_resized.save(buffer, format='PNG')
+			return base64.b64encode(buffer.getvalue()).decode('utf-8')
+		except Exception as e:
+			logging.getLogger(__name__).warning(f'Failed to resize screenshot: {e}, using original')
+			return screenshot_b64
+
 	@observe_debug(ignore_input=True, ignore_output=True, name='get_user_message')
 	def get_user_message(self, use_vision: bool = True) -> UserMessage:
 		"""Get complete state as a single cached message"""
@@ -346,7 +382,13 @@ Available tabs:
 			state_description += self.page_filtered_actions + '\n'
 			state_description += '</page_specific_actions>\n'
 
-		if use_vision is True and self.screenshots:
+		# Sanitize surrogates from all text content
+		state_description = sanitize_surrogates(state_description)
+
+		# Check if we have images to include (from read_file action)
+		has_images = bool(self.read_state_images)
+
+		if (use_vision is True and self.screenshots) or has_images:
 			# Start with text description
 			content_parts: list[ContentPartTextParam | ContentPartImageParam] = [ContentPartTextParam(text=state_description)]
 
@@ -364,12 +406,43 @@ Available tabs:
 				# Add label as text content
 				content_parts.append(ContentPartTextParam(text=label))
 
+				# Resize screenshot if llm_screenshot_size is configured
+				processed_screenshot = self._resize_screenshot(screenshot)
+
 				# Add the screenshot
 				content_parts.append(
 					ContentPartImageParam(
 						image_url=ImageURL(
-							url=f'data:image/jpeg;base64,{screenshot}',
-							media_type='image/jpeg',
+							url=f'data:image/png;base64,{processed_screenshot}',
+							media_type='image/png',
+							detail=self.vision_detail_level,
+						),
+					)
+				)
+
+			# Add read_state images (from read_file action) before screenshots
+			for img_data in self.read_state_images:
+				img_name = img_data.get('name', 'unknown')
+				img_base64 = img_data.get('data', '')
+
+				if not img_base64:
+					continue
+
+				# Detect image format from name
+				if img_name.lower().endswith('.png'):
+					media_type = 'image/png'
+				else:
+					media_type = 'image/jpeg'
+
+				# Add label
+				content_parts.append(ContentPartTextParam(text=f'Image from file: {img_name}'))
+
+				# Add the image
+				content_parts.append(
+					ContentPartImageParam(
+						image_url=ImageURL(
+							url=f'data:{media_type};base64,{img_base64}',
+							media_type=media_type,
 							detail=self.vision_detail_level,
 						),
 					)

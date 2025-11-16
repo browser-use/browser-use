@@ -50,6 +50,7 @@ class ChatAnthropic(BaseChatModel):
 	max_retries: int = 10
 	default_headers: Mapping[str, str] | None = None
 	default_query: Mapping[str, object] | None = None
+	http_client: httpx.AsyncClient | None = None
 
 	# Static
 	@property
@@ -67,6 +68,7 @@ class ChatAnthropic(BaseChatModel):
 			'max_retries': self.max_retries,
 			'default_headers': self.default_headers,
 			'default_query': self.default_query,
+			'http_client': self.http_client,
 		}
 
 		# Create client_params dict with non-None values and non-NotGiven values

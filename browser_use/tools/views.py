@@ -35,7 +35,9 @@ GoToUrlAction = NavigateAction
 
 
 class ClickElementAction(BaseModel):
-	index: int = Field(ge=1, description='from browser_state. All interactive elements work except <select> or file inputs.')
+	index: int | None = Field(default=None, ge=1, description='Element index from browser_state')
+	coordinate_x: int | None = Field(default=None, description='Horizontal coordinate relative to viewport left edge')
+	coordinate_y: int | None = Field(default=None, description='Vertical coordinate relative to viewport top edge')
 	# expect_download: bool = Field(default=False, description='set True if expecting a download, False otherwise')  # moved to downloads_watchdog.py
 	# click_count: int = 1  # TODO
 
@@ -81,10 +83,6 @@ class SendKeysAction(BaseModel):
 class UploadFileAction(BaseModel):
 	index: int
 	path: str
-
-
-class ExtractPageContentAction(BaseModel):
-	value: str
 
 
 class NoParamsAction(BaseModel):

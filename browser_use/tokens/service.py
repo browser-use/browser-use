@@ -5,7 +5,6 @@ Fetches pricing data from LiteLLM repository and caches it for 1 day.
 Automatically tracks token usage when LLMs are registered and invoked.
 """
 
-import asyncio
 import logging
 import os
 from datetime import datetime, timedelta
@@ -29,6 +28,7 @@ from browser_use.tokens.views import (
 	TokenUsageEntry,
 	UsageSummary,
 )
+from browser_use.utils import create_task_with_error_handling
 
 load_dotenv()
 
@@ -347,7 +347,9 @@ class TokenCost:
 
 				logger.debug(f'Token cost service: {usage}')
 
-				asyncio.create_task(token_cost_service._log_usage(llm.model, usage))
+				create_task_with_error_handling(
+					token_cost_service._log_usage(llm.model, usage), name='log_token_usage', suppress_exceptions=True
+				)
 
 			# else:
 			# 	await token_cost_service._log_non_usage_llm(llm)
