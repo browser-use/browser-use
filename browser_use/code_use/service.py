@@ -2,6 +2,8 @@
 
 import asyncio
 import datetime
+import html
+import json
 import logging
 import re
 import traceback
@@ -35,6 +37,7 @@ from .formatting import format_browser_state_for_llm
 from .namespace import EvaluateError, create_namespace
 from .utils import detect_token_limit_issue, extract_code_blocks, extract_url_from_task, truncate_message_content
 from .views import (
+	CellType,
 	CodeAgentHistory,
 	CodeAgentModelOutput,
 	CodeAgentResult,
@@ -74,6 +77,7 @@ class CodeAgent:
 		max_validations: int = 0,
 		use_vision: bool = True,
 		calculate_cost: bool = False,
+		demo_mode: bool | None = None,
 		**kwargs,
 	):
 		"""
@@ -94,6 +98,7 @@ class CodeAgent:
 			max_validations: Maximum number of times to run the validator agent (default: 0)
 			use_vision: Whether to include screenshots in LLM messages (default: True)
 			calculate_cost: Whether to calculate token costs (default: False)
+			demo_mode: Enable the in-browser demo panel for live logging (default: False)
 			llm: Optional ChatBrowserUse LLM instance (will create default if not provided)
 			**kwargs: Additional keyword arguments for compatibility (ignored)
 		"""
@@ -124,11 +129,24 @@ class CodeAgent:
 		tools = controller or tools
 
 		# Store browser_profile for creating browser session if needed
-		self._browser_profile_for_init = BrowserProfile() if browser_session is None else None
+		self._demo_mode_enabled = False
+		if browser_session is None:
+			profile_kwargs: dict[str, Any] = {}
+			if demo_mode is not None:
+				profile_kwargs['demo_mode'] = demo_mode
+			self._browser_profile_for_init = BrowserProfile(**profile_kwargs)
+		else:
+			self._browser_profile_for_init = None
 
 		self.task = task
 		self.llm = llm
 		self.browser_session = browser_session
+		if self.browser_session:
+			if demo_mode is not None and self.browser_session.browser_profile.demo_mode != demo_mode:
+				self.browser_session.browser_profile = self.browser_session.browser_profile.model_copy(
+					update={'demo_mode': demo_mode}
+				)
+			self._demo_mode_enabled = bool(self.browser_session.browser_profile.demo_mode)
 		self.tools = tools or CodeAgentTools()
 		self.page_extraction_llm = page_extraction_llm
 		self.file_system = file_system if file_system is not None else FileSystem(base_dir='./')
@@ -151,6 +169,7 @@ class CodeAgent:
 		self._last_llm_usage: Any | None = None  # Track last LLM call usage stats
 		self._step_start_time = 0.0  # Track step start time for duration calculation
 		self.usage_summary: UsageSummary | None = None  # Track usage summary across run for history property
+		self._sample_output_added = False  # Track whether preview cell already created
 
 		# Initialize screenshot service for eval tracking
 		self.id = uuid7str()
@@ -199,6 +218,13 @@ class CodeAgent:
 			self.browser_session = BrowserSession(browser_profile=self._browser_profile_for_init)
 			await self.browser_session.start()
 
+		if self.browser_session:
+			self._demo_mode_enabled = bool(self.browser_session.browser_profile.demo_mode)
+			if self._demo_mode_enabled and getattr(self.browser_session.browser_profile, 'headless', False):
+				logger.warning('Demo mode is enabled but the browser is headless=True; set headless=False to view the panel.')
+			if self._demo_mode_enabled:
+				await self._demo_mode_log(f'Started CodeAgent task: {self.task}', 'info', {'tag': 'task'})
+
 		# Initialize DOM service with cross-origin iframe support enabled
 		self.dom_service = DomService(
 			browser_session=self.browser_session,
@@ -220,6 +246,7 @@ class CodeAgent:
 
 		# Track agent run error for telemetry
 		agent_run_error: str | None = None
+		should_delay_close = False
 
 		# Extract URL from task and navigate if found
 		initial_url = extract_url_from_task(self.task)
@@ -267,6 +294,7 @@ class CodeAgent:
 		# Main execution loop
 		for step in range(self.max_steps):
 			logger.info(f'\n\n\n\n\n\n\nStep {step + 1}/{self.max_steps}')
+			await self._demo_mode_log(f'Starting step {step + 1}/{self.max_steps}', 'info', {'step': step + 1})
 
 			# Start timing this step
 			self._step_start_time = datetime.datetime.now().timestamp()
@@ -316,12 +344,17 @@ class CodeAgent:
 
 				# Get code from LLM (this also adds to self._llm_messages)
 				try:
-					code, full_llm_response = await self._get_code_from_llm()
+					code, full_llm_response = await self._get_code_from_llm(step_number=step + 1)
 				except Exception as llm_error:
 					# LLM call failed - count as consecutive error and retry
 					self._consecutive_errors += 1
 					logger.warning(
 						f'LLM call failed (consecutive errors: {self._consecutive_errors}/{self.max_failures}), retrying: {llm_error}'
+					)
+					await self._demo_mode_log(
+						f'LLM call failed: {llm_error}',
+						'error',
+						{'step': step + 1},
 					)
 
 					# Check if we've hit the consecutive error limit
@@ -394,6 +427,11 @@ class CodeAgent:
 					if self._consecutive_errors >= self.max_failures:
 						logger.error(
 							f'Terminating: {self.max_failures} consecutive errors reached. The agent is unable to make progress.'
+						)
+						await self._demo_mode_log(
+							f'Terminating after {self.max_failures} consecutive errors without progress.',
+							'error',
+							{'step': step + 1},
 						)
 						# Add termination message to complete history before breaking
 						await self._add_step_to_complete_history(
@@ -503,6 +541,14 @@ class CodeAgent:
 					logger.info('Task completed successfully')
 					if final_result:
 						logger.info(f'Final result: {final_result}')
+						self._add_sample_output_cell(final_result)
+					if self._demo_mode_enabled:
+						await self._demo_mode_log(
+							f'Final Result: {final_result or "Task completed"}',
+							'success',
+							{'tag': 'task'},
+						)
+					should_delay_close = True
 					break
 				# If validation rejected done(), continue to next iteration
 				# The feedback message has already been added to _llm_messages
@@ -519,6 +565,11 @@ class CodeAgent:
 		else:
 			# Loop completed without break - max_steps reached
 			logger.warning(f'Maximum steps ({self.max_steps}) reached without task completion')
+			await self._demo_mode_log(
+				f'Maximum steps ({self.max_steps}) reached without completing the task.',
+				'error',
+				{'tag': 'task'},
+			)
 
 		# If task is not done, capture the last step's output as partial result
 		if not self._is_task_done() and self.complete_history:
@@ -560,6 +611,8 @@ class CodeAgent:
 				last_result.success = False
 
 			logger.info(f'\nPartial result captured from last step:\n{partial_result}')
+			if self._demo_mode_enabled:
+				await self._demo_mode_log(f'Partial result:\n{partial_result}', 'error', {'tag': 'task'})
 
 		# Log final summary if task was completed
 		if self._is_task_done():
@@ -569,13 +622,23 @@ class CodeAgent:
 			final_result: str | None = self.namespace.get('_task_result')  # type: ignore[assignment]
 			if final_result:
 				logger.info(f'\nFinal Output:\n{final_result}')
+				self._add_sample_output_cell(final_result)
 
 			attachments: list[str] | None = self.namespace.get('_task_attachments')  # type: ignore[assignment]
 			if attachments:
 				logger.info(f'\nFiles Attached:\n{chr(10).join(attachments)}')
 			logger.info('=' * 60 + '\n')
+			if self._demo_mode_enabled and not should_delay_close:
+				await self._demo_mode_log(
+					f'Final Result: {final_result or "Task completed"}',
+					'success',
+					{'tag': 'task'},
+				)
+				should_delay_close = True
 
 		# Auto-close browser if keep_alive is False
+		if should_delay_close and self._demo_mode_enabled:
+			await asyncio.sleep(30)
 		await self.close()
 
 		# Store usage summary for history property
@@ -592,7 +655,7 @@ class CodeAgent:
 
 		return self.session
 
-	async def _get_code_from_llm(self) -> tuple[str, str]:
+	async def _get_code_from_llm(self, step_number: int | None = None) -> tuple[str, str]:
 		"""Get Python code from the LLM.
 
 		Returns:
@@ -614,8 +677,8 @@ class CodeAgent:
 				content_parts.append(
 					ContentPartImageParam(
 						image_url=ImageURL(
-							url=f'data:image/jpeg;base64,{self._last_screenshot}',
-							media_type='image/jpeg',
+							url=f'data:image/png;base64,{self._last_screenshot}',
+							media_type='image/png',
 							detail='auto',
 						),
 					)
@@ -638,6 +701,11 @@ class CodeAgent:
 
 		# Log the LLM's raw output for debugging
 		logger.info(f'LLM Response:\n{response.completion}')
+		await self._demo_mode_log(
+			f'LLM Response:\n{response.completion}',
+			'thought',
+			{'step': step_number} if step_number else None,
+		)
 
 		# Check for token limit or repetition issues
 		max_tokens = getattr(self.llm, 'max_tokens', None)
@@ -1154,6 +1222,87 @@ __code_exec_coro__ = __code_exec__()
 		)
 
 		self.complete_history.append(history_entry)
+		await self._demo_mode_log_step(history_entry)
+
+	async def _demo_mode_log(self, message: str, level: str = 'info', metadata: dict[str, Any] | None = None) -> None:
+		if not (self._demo_mode_enabled and message and self.browser_session):
+			return
+		try:
+			await self.browser_session.send_demo_mode_log(
+				message=message,
+				level=level,
+				metadata=metadata or {},
+			)
+		except Exception as exc:
+			logger.debug(f'[DemoMode] Failed to send log: {exc}')
+
+	async def _demo_mode_log_step(self, history_entry: CodeAgentHistory) -> None:
+		if not self._demo_mode_enabled:
+			return
+		step_number = len(self.complete_history)
+		result = history_entry.result[0] if history_entry.result else None
+		if not result:
+			return
+		level = 'error' if result.error else 'success' if result.success else 'info'
+		message_parts = [f'Step {step_number}:']
+		if result.error:
+			message_parts.append(f'Error: {result.error}')
+		if result.extracted_content:
+			message_parts.append(result.extracted_content)
+		elif result.success:
+			message_parts.append('Marked done.')
+		else:
+			message_parts.append('Executed.')
+		await self._demo_mode_log(
+			' '.join(message_parts).strip(),
+			level,
+			{'step': step_number, 'url': history_entry.state.url if history_entry.state else None},
+		)
+
+	def _add_sample_output_cell(self, final_result: Any | None) -> None:
+		if self._sample_output_added or final_result is None:
+			return
+
+		sample_content: str | None = None
+
+		def _extract_sample(data: Any) -> Any | None:
+			if isinstance(data, list) and data:
+				return data[0]
+			if isinstance(data, dict) and data:
+				first_key = next(iter(data))
+				return {first_key: data[first_key]}
+			return data if isinstance(data, (str, int, float, bool)) else None
+
+		data: Any | None = None
+		if isinstance(final_result, str):
+			try:
+				data = json.loads(final_result)
+			except Exception:
+				sample_content = final_result.strip()
+		elif isinstance(final_result, (list, dict)):
+			data = final_result
+
+		if data is not None:
+			sample = _extract_sample(data)
+			if isinstance(sample, (dict, list)):
+				try:
+					sample_content = json.dumps(sample, indent=2, ensure_ascii=False)
+				except Exception:
+					sample_content = str(sample)
+			elif sample is not None:
+				sample_content = str(sample)
+
+		if not sample_content:
+			return
+
+		sample_cell = self.session.add_cell(source='# Sample output preview')
+		sample_cell.cell_type = CellType.MARKDOWN
+		sample_cell.status = ExecutionStatus.SUCCESS
+		sample_cell.execution_count = None
+		escaped = html.escape(sample_content)
+		sample_cell.output = f'<pre>{escaped}</pre>'
+
+		self._sample_output_added = True
 
 	def _log_agent_event(self, max_steps: int, agent_run_error: str | None = None) -> None:
 		"""Send the agent event for this run to telemetry."""

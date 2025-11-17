@@ -161,7 +161,7 @@ class TestToolsIntegration:
 		assert 'Waited for' in result.extracted_content or 'Waiting for' in result.extracted_content
 
 		# Verify that approximately 1 second has passed (allowing some margin)
-		assert end_time - start_time <= 0.5  # We wait 3-3 seconds for LLM call
+		assert end_time - start_time <= 2.5  # We wait 3-1 seconds for LLM call
 
 		# longer wait
 		# Record start time
@@ -178,7 +178,7 @@ class TestToolsIntegration:
 		assert result.extracted_content is not None
 		assert 'Waited for' in result.extracted_content or 'Waiting for' in result.extracted_content
 
-		assert 1.5 <= end_time - start_time <= 2.5  # We wait 5-3 seconds for LLM call
+		assert 3.5 <= end_time - start_time <= 4.5  # We wait 5-1 seconds for LLM call
 
 	async def test_go_back_action(self, tools, browser_session, base_url):
 		"""Test that go_back action navigates to the previous page."""
@@ -333,7 +333,7 @@ class TestToolsIntegration:
 		await tools.navigate(url=f'{base_url}/dropdown1', new_tab=False, browser_session=browser_session)
 
 		# Wait for the page to load using CDP
-		cdp_session = browser_session.agent_focus
+		cdp_session = await browser_session.get_or_create_cdp_session()
 		assert cdp_session is not None, 'CDP session not initialized'
 
 		# Wait for page load by checking document ready state
@@ -445,7 +445,7 @@ class TestToolsIntegration:
 		await tools.navigate(url=f'{base_url}/dropdown2', new_tab=False, browser_session=browser_session)
 
 		# Wait for the page to load using CDP
-		cdp_session = browser_session.agent_focus
+		cdp_session = await browser_session.get_or_create_cdp_session()
 		assert cdp_session is not None, 'CDP session not initialized'
 
 		# Wait for page load by checking document ready state

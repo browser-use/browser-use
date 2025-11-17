@@ -6,6 +6,7 @@ browser-use templates without requiring heavy TUI dependencies.
 """
 
 import json
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -13,8 +14,8 @@ from urllib import request
 from urllib.error import URLError
 
 import click
+from InquirerPy import inquirer
 from InquirerPy.base.control import Choice
-from InquirerPy.prompts.list import ListPrompt
 from InquirerPy.utils import InquirerPyStyle
 from rich.console import Console
 from rich.panel import Panel
@@ -112,6 +113,60 @@ inquirer_style = InquirerPyStyle(
 )
 
 
+def _get_terminal_width() -> int:
+	"""Get current terminal width in columns."""
+	return shutil.get_terminal_size().columns
+
+
+def _format_choice(name: str, metadata: dict[str, Any], width: int, is_default: bool = False) -> str:
+	"""
+	Format a template choice with responsive display based on terminal width.
+
+	Styling:
+	- Featured templates get [FEATURED] prefix
+	- Author name included when width allows (except for default templates)
+	- Everything turns orange when highlighted (InquirerPy's built-in behavior)
+
+	Args:
+		name: Template name
+		metadata: Template metadata (description, featured, author)
+		width: Terminal width in columns
+		is_default: Whether this is a default template (default, advanced, tools)
+
+	Returns:
+		Formatted choice string
+	"""
+	is_featured = metadata.get('featured', False)
+	description = metadata.get('description', '')
+	author_name = metadata.get('author', {}).get('name', '') if isinstance(metadata.get('author'), dict) else ''
+
+	# Build the choice string based on terminal width
+	if width > 100:
+		# Wide: show everything including author (except for default templates)
+		if is_featured:
+			if author_name:
+				return f'[FEATURED] {name} by {author_name} - {description}'
+			else:
+				return f'[FEATURED] {name} - {description}'
+		else:
+			# Non-featured templates
+			if author_name and not is_default:
+				return f'{name} by {author_name} - {description}'
+			else:
+				return f'{name} - {description}'
+
+	elif width > 60:
+		# Medium: show name and description, no author
+		if is_featured:
+			return f'[FEATURED] {name} - {description}'
+		else:
+			return f'{name} - {description}'
+
+	else:
+		# Narrow: show name only
+		return name
+
+
 def _write_init_file(output_path: Path, content: str, force: bool = False) -> bool:
 	"""Write content to a file, with safety checks."""
 	# Check if file already exists
@@ -205,46 +260,63 @@ def main(
 
 	# Interactive template selection if not provided
 	if not template:
-		# Create choices with numbered display
-		template_list = list(INIT_TEMPLATES.keys())
-		choices = [
-			Choice(
-				name=f'{i}. {name:12} - {info["description"]}',
-				value=name,
-			)
-			for i, (name, info) in enumerate(INIT_TEMPLATES.items(), 1)
+		# Get terminal width for responsive formatting
+		width = _get_terminal_width()
+
+		# Separate default and featured templates
+		default_template_names = ['default', 'advanced', 'tools']
+		featured_templates = [(name, info) for name, info in INIT_TEMPLATES.items() if info.get('featured', False)]
+		other_templates = [
+			(name, info)
+			for name, info in INIT_TEMPLATES.items()
+			if name not in default_template_names and not info.get('featured', False)
 		]
 
-		# Create the prompt
-		prompt = ListPrompt(
-			message='Select a template:',
+		# Sort by last_modified_date (most recent first)
+		def get_last_modified(item):
+			name, info = item
+			date_str = (
+				info.get('author', {}).get('last_modified_date', '1970-01-01')
+				if isinstance(info.get('author'), dict)
+				else '1970-01-01'
+			)
+			return date_str
+
+		# Sort default templates by last modified
+		default_templates = [(name, INIT_TEMPLATES[name]) for name in default_template_names if name in INIT_TEMPLATES]
+		default_templates.sort(key=get_last_modified, reverse=True)
+
+		# Sort featured and other templates by last modified
+		featured_templates.sort(key=get_last_modified, reverse=True)
+		other_templates.sort(key=get_last_modified, reverse=True)
+
+		# Build choices in order: defaults first, then featured, then others
+		choices = []
+
+		# Add default templates
+		for i, (name, info) in enumerate(default_templates):
+			formatted = _format_choice(name, info, width, is_default=True)
+			choices.append(Choice(name=formatted, value=name))
+
+		# Add featured templates
+		for i, (name, info) in enumerate(featured_templates):
+			formatted = _format_choice(name, info, width, is_default=False)
+			choices.append(Choice(name=formatted, value=name))
+
+		# Add other templates (if any)
+		for name, info in other_templates:
+			formatted = _format_choice(name, info, width, is_default=False)
+			choices.append(Choice(name=formatted, value=name))
+
+		# Use fuzzy prompt for search functionality
+		# Use getattr to avoid static analysis complaining about non-exported names
+		_fuzzy = getattr(inquirer, 'fuzzy')
+		template = _fuzzy(
+			message='Select a template (type to search):',
 			choices=choices,
-			default='default',
 			style=inquirer_style,
-		)
-
-		# Register custom keybindings for instant selection with number keys
-		@prompt.register_kb('1')
-		def _(event):
-			event.app.exit(result=template_list[0])
-
-		@prompt.register_kb('2')
-		def _(event):
-			event.app.exit(result=template_list[1])
-
-		@prompt.register_kb('3')
-		def _(event):
-			event.app.exit(result=template_list[2])
-
-		@prompt.register_kb('4')
-		def _(event):
-			event.app.exit(result=template_list[3])
-
-		@prompt.register_kb('5')
-		def _(event):
-			event.app.exit(result=template_list[4])
-
-		template = prompt.execute()
+			max_height='70%',
+		).execute()
 
 		# Handle user cancellation (Ctrl+C)
 		if template is None:

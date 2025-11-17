@@ -19,7 +19,7 @@ mode: "wide"
 
 ### Actions & Behavior
 - `initial_actions`: List of actions to run before the main task without LLM. [Example](https://github.com/browser-use/browser-use/blob/main/examples/features/initial_actions.py)
-- `max_actions_per_step` (default: `10`): Maximum actions per step, e.g. for form filling the agent can output 10 fields at once. We execute the actions until the page changes.
+- `max_actions_per_step` (default: `4`): Maximum actions per step, e.g. for form filling the agent can output 4 fields at once. We execute the actions until the page changes.
 - `max_failures` (default: `3`): Maximum retries for steps with errors
 - `final_response_after_failure` (default: `True`): If True, attempt to force one final model call with intermediate output after max_failures is reached
 - `use_thinking` (default: `True`): Controls whether the agent uses its internal "thinking" field for explicit reasoning steps.

@@ -150,7 +150,7 @@ except ImportError:
 	sys.exit(1)
 
 from browser_use.telemetry import MCPServerTelemetryEvent, ProductTelemetry
-from browser_use.utils import get_browser_use_version
+from browser_use.utils import create_task_with_error_handling, get_browser_use_version
 
 
 def get_parent_process_cmdline() -> str | None:
@@ -1059,7 +1059,7 @@ class BrowserUseServer:
 					logger.error(f'Error in cleanup task: {e}')
 					await asyncio.sleep(120)
 
-		self._cleanup_task = asyncio.create_task(cleanup_loop())
+		self._cleanup_task = create_task_with_error_handling(cleanup_loop(), name='mcp_cleanup_loop', suppress_exceptions=True)
 
 	async def run(self):
 		"""Run the MCP server."""
