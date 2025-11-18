@@ -1,45 +1,56 @@
 #!/bin/bash
 # Brev Launchable Setup Script
-# Sets up NVIDIA Nemotron Nano 12B v2 VL with vLLM for browser-use
+# NVIDIA Nemotron Nano 12B v2 VL + browser-use
 set -e
 
+# Detect Brev user
+detect_brev_user() {
+    if [ -n "$SUDO_USER" ]; then
+        echo "$SUDO_USER"
+    elif [ -f /home/ubuntu/.brev/lifecycle.log ]; then
+        echo "ubuntu"
+    elif [ -f /home/nvidia/.brev/lifecycle.log ]; then
+        echo "nvidia"
+    elif [ -d /home/ubuntu ]; then
+        echo "ubuntu"
+    elif [ -d /home/nvidia ]; then
+        echo "nvidia"
+    else
+        echo "ubuntu"
+    fi
+}
+
+USER=$(detect_brev_user)
+HOME="/home/$USER"
+export USER HOME
+
 echo "=================================================="
-echo "🚀 Setting up NVIDIA Nemotron + browser-use demo"
+echo "🚀 NVIDIA Nemotron + browser-use Setup"
 echo "=================================================="
+echo "👤 User: $USER"
+echo "🏠 Home: $HOME"
+echo ""
 
 # Update system
-echo "📦 Updating system packages..."
-sudo apt-get update -qq
-
-# Install Python 3.11 if needed
-echo "🐍 Setting up Python environment..."
-if ! command -v python3.11 &> /dev/null; then
-    sudo add-apt-repository ppa:deadsnakes/ppa -y
-    sudo apt-get update -qq
-    sudo apt-get install -y python3.11 python3.11-venv python3.11-dev
-fi
-
-# Create virtual environment
-echo "📁 Creating virtual environment..."
-python3.11 -m venv /home/ubuntu/venv
-source /home/ubuntu/venv/bin/activate
-
-# Upgrade pip
-pip install --upgrade pip setuptools wheel
+echo "📦 Updating packages..."
+apt-get update -qq
 
 # Install vLLM
 echo "⚡ Installing vLLM..."
-pip install vllm
+pip install --quiet vllm
 
-# Install browser-use and dependencies
+# Install browser-use
 echo "🌐 Installing browser-use..."
-pip install browser-use playwright
-playwright install chromium
-playwright install-deps chromium
+pip install --quiet browser-use playwright
+su - $USER -c "playwright install chromium"
+su - $USER -c "playwright install-deps chromium"
 
-# Create example script
-echo "📝 Creating example script..."
-cat > /home/ubuntu/test_nemotron.py << 'EOF'
+# Create examples directory
+EXAMPLES_DIR="$HOME/nemotron-browser-use"
+mkdir -p "$EXAMPLES_DIR"
+
+# Create test script
+cat > "$EXAMPLES_DIR/test_browser.py" << 'EOF'
 """
 Test browser-use with local Nemotron Nano 12B v2 VL
 """
@@ -48,41 +59,37 @@ from browser_use import Agent
 from browser_use.llm.openai.chat import ChatOpenAI
 
 async def main():
-    print("🤖 Testing browser-use with local Nemotron model...")
+    print("🤖 Testing browser-use with Nemotron...")
 
-    # Connect to local vLLM server
     llm = ChatOpenAI(
         model="nvidia/nemotron-nano-12b-v2-vl",
         base_url="http://localhost:8000/v1",
-        api_key="dummy",  # vLLM doesn't need real API key
+        api_key="dummy",
         temperature=0.7,
-        max_tokens=1024,
     )
 
     agent = Agent(
-        task="Go to github.com and find the browser-use repository stars count",
+        task="Go to github.com/browser-use/browser-use and find the star count",
         llm=llm,
     )
 
     result = await agent.run()
     print("\n" + "="*80)
-    print("Result:", result)
+    print("✅ Result:", result)
     print("="*80)
 
 if __name__ == "__main__":
     asyncio.run(main())
 EOF
 
-# Create vLLM startup script
-echo "🔧 Creating vLLM startup script..."
-cat > /home/ubuntu/start_vllm.sh << 'EOF'
+# Create vLLM starter script
+cat > "$EXAMPLES_DIR/start_vllm.sh" << 'EOF'
 #!/bin/bash
-# Start vLLM server with Nemotron Nano 12B v2 VL
-source /home/ubuntu/venv/bin/activate
-
-echo "🚀 Starting vLLM server with Nemotron Nano 12B v2 VL..."
+echo "🚀 Starting vLLM server..."
 echo "📍 Model: nvidia/nemotron-nano-12b-v2-vl"
 echo "🌐 API: http://localhost:8000/v1"
+echo ""
+echo "⏳ This will take 2-3 minutes to load the model..."
 echo ""
 
 vllm serve nvidia/nemotron-nano-12b-v2-vl \
@@ -92,64 +99,38 @@ vllm serve nvidia/nemotron-nano-12b-v2-vl \
     --trust-remote-code
 EOF
 
-chmod +x /home/ubuntu/start_vllm.sh
-
-# Create systemd service for vLLM (optional - runs on boot)
-echo "⚙️  Creating vLLM systemd service..."
-sudo tee /etc/systemd/system/vllm.service > /dev/null << EOF
-[Unit]
-Description=vLLM Inference Server - Nemotron Nano 12B v2 VL
-After=network.target
-
-[Service]
-Type=simple
-User=ubuntu
-WorkingDirectory=/home/ubuntu
-ExecStart=/home/ubuntu/start_vllm.sh
-Restart=on-failure
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
+chmod +x "$EXAMPLES_DIR/start_vllm.sh"
 
 # Create README
-echo "📄 Creating README..."
-cat > /home/ubuntu/README.md << 'EOF'
+cat > "$EXAMPLES_DIR/README.md" << 'EOF'
 # NVIDIA Nemotron + browser-use Demo
 
-This Launchable runs a fully self-hosted browser automation demo using:
-- **Model**: NVIDIA Nemotron Nano 12B v2 VL (with vision support)
-- **Inference**: vLLM (OpenAI-compatible API)
-- **Framework**: browser-use
+Fully self-hosted browser automation using NVIDIA Nemotron Nano 12B v2 VL.
 
 ## Quick Start
 
-### 1. Start vLLM Server (if not already running)
+### 1. Start vLLM Server
 
 ```bash
-source /home/ubuntu/venv/bin/activate
+cd ~/nemotron-browser-use
 ./start_vllm.sh
 ```
 
 Wait 2-3 minutes for the model to load. You'll see:
 ```
-INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000
 ```
 
-### 2. Run the Example
+### 2. Test Browser Automation
 
 In a new terminal:
 
 ```bash
-source /home/ubuntu/venv/bin/activate
-python test_nemotron.py
+cd ~/nemotron-browser-use
+python test_browser.py
 ```
 
-### 3. Check vLLM API
+### 3. Verify API
 
 ```bash
 curl http://localhost:8000/v1/models
@@ -158,44 +139,16 @@ curl http://localhost:8000/v1/models
 ## Architecture
 
 ```
-┌─────────────────────────────────┐
-│  This Brev GPU Instance         │
-│                                 │
-│  ┌──────────────────────────┐  │
-│  │ vLLM Server :8000        │  │
-│  │ - Nemotron Nano 12B VL   │  │
-│  └──────────────────────────┘  │
-│            ↓ localhost          │
-│  ┌──────────────────────────┐  │
-│  │ browser-use Agent        │  │
-│  └──────────────────────────┘  │
-└─────────────────────────────────┘
+┌──────────────────────────┐
+│  vLLM :8000              │
+│  ↓ localhost             │
+│  browser-use Agent       │
+└──────────────────────────┘
 ```
-
-## Run vLLM as System Service (Auto-start)
-
-To make vLLM start automatically on boot:
-
-```bash
-sudo systemctl enable vllm
-sudo systemctl start vllm
-
-# Check status
-sudo systemctl status vllm
-
-# View logs
-sudo journalctl -u vllm -f
-```
-
-## GPU Requirements
-
-- **Minimum**: A100 40GB
-- **Recommended**: A100 80GB or H100
-- **VRAM**: ~24GB for the model
 
 ## Custom Tasks
 
-Edit `test_nemotron.py` and change the task:
+Edit `test_browser.py` and change the task:
 
 ```python
 agent = Agent(
@@ -204,41 +157,28 @@ agent = Agent(
 )
 ```
 
-## Troubleshooting
+## Requirements
 
-**vLLM not starting:**
-```bash
-# Check GPU
-nvidia-smi
-
-# Check logs
-sudo journalctl -u vllm -n 50
-```
-
-**Out of memory:**
-- Reduce `--gpu-memory-utilization` to 0.8 or 0.7
-- Reduce `--max-model-len` to 4096
-
-**Connection refused:**
-- Wait 2-3 minutes for model to load
-- Check vLLM is running: `ps aux | grep vllm`
+- GPU: A100 40GB minimum
+- VRAM: ~24GB for model
 EOF
+
+# Set ownership
+chown -R $USER:$USER "$EXAMPLES_DIR"
 
 echo ""
 echo "=================================================="
 echo "✅ Setup complete!"
 echo "=================================================="
 echo ""
-echo "📝 Next steps:"
-echo "  1. Start vLLM server:"
-echo "     source /home/ubuntu/venv/bin/activate"
-echo "     ./start_vllm.sh"
+echo "📁 Examples: $EXAMPLES_DIR"
 echo ""
-echo "  2. Wait 2-3 minutes for model to load"
+echo "🚀 Quick start:"
+echo "   cd $EXAMPLES_DIR"
+echo "   ./start_vllm.sh"
 echo ""
-echo "  3. Run example (in new terminal):"
-echo "     source /home/ubuntu/venv/bin/activate"
-echo "     python test_nemotron.py"
+echo "⏳ Wait 2-3 min for model to load, then in new terminal:"
+echo "   python test_browser.py"
 echo ""
-echo "📖 See README.md for more details"
+echo "📖 See README.md for details"
 echo "=================================================="
