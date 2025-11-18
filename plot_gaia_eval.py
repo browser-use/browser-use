@@ -3,7 +3,6 @@ import numpy as np
 
 # GAIA-Verified Browser Use Eval results
 data = {
-	'GPT-o3': {'score': 50.0, 'company': 'OpenAI'},
 	'GPT-5.1 Thinking': {'score': 52.5, 'company': 'OpenAI'},
 	'Claude Sonnet 4.5 Thinking': {'score': 54.6, 'company': 'Anthropic'},
 	'Gemini 3.0 Pro': {'score': 68.2, 'company': 'Google'},
