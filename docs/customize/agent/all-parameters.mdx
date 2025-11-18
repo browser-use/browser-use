@@ -34,6 +34,7 @@ mode: "wide"
 - `save_conversation_path_encoding` (default: `'utf-8'`): Encoding for saved conversations
 - `available_file_paths`: List of file paths the agent can access
 - `sensitive_data`: Dictionary of sensitive data to handle carefully. [Example](https://github.com/browser-use/browser-use/blob/main/examples/features/sensitive_data.py)
+- `redact_logs` (default: `False`): Redact sensitive information from all logger outputs including task, URLs, LLM responses, action parameters, and CDP URLs. Useful for protecting sensitive data in production logs
 
 ### Visual Output
 - `generate_gif` (default: `False`): Generate GIF of agent actions. Set to `True` or string path

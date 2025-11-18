@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -59,6 +60,79 @@ def addLoggingLevel(levelName, levelNum, methodName=None):
 	setattr(logging, levelName, levelNum)
 	setattr(logging.getLoggerClass(), methodName, logForLevel)
 	setattr(logging, methodName, logToRoot)
+
+
+class LogRedactionFilter(logging.Filter):
+	"""Filter that redacts sensitive information from log messages"""
+
+	def __init__(self, task: str | None = None, cdp_url: str | None = None, name: str = ''):
+		super().__init__(name)
+		self.task = task
+		self.cdp_url = cdp_url
+		# URL pattern for matching http/https URLs
+		self.url_pattern = re.compile(r'https?://[^\s<>"\']+')
+
+	def filter(self, record: logging.LogRecord) -> bool:
+		"""Redact sensitive information from the log record"""
+		try:
+			# Redact the message
+			if isinstance(record.msg, str):
+				record.msg = self._redact_string(record.msg)
+
+			# Redact args if present
+			if record.args:
+				if isinstance(record.args, dict):
+					record.args = {k: self._redact_value(v) for k, v in record.args.items()}
+				elif isinstance(record.args, tuple):
+					record.args = tuple(self._redact_value(arg) for arg in record.args)
+		except Exception:
+			# If redaction fails, still allow the log through but with minimal info
+			record.msg = '[REDACTED - error during redaction]'
+			record.args = ()
+
+		return True
+
+	def _redact_value(self, value):
+		"""Redact a single value (handles strings and other types)"""
+		if isinstance(value, str):
+			return self._redact_string(value)
+		return value
+
+	def _redact_string(self, text: str) -> str:
+		"""Redact sensitive information from a string"""
+		# Redact task if it appears in the text
+		if self.task and self.task in text:
+			text = text.replace(self.task, '[REDACTED_TASK]')
+
+		# Redact CDP URL if it appears in the text
+		if self.cdp_url and self.cdp_url in text:
+			text = text.replace(self.cdp_url, '[REDACTED_CDP_URL]')
+
+		# Redact all URLs (http/https)
+		text = self.url_pattern.sub('[REDACTED_URL]', text)
+
+		# Redact any JSON-like structures that might contain sensitive data
+		# Look for model outputs, action parameters, etc.
+		text = self._redact_json_content(text)
+
+		return text
+
+	def _redact_json_content(self, text: str) -> str:
+		"""Redact potentially sensitive JSON content"""
+		# Redact text fields in JSON that might contain user input
+		# Pattern: "text": "..." or 'text': '...'
+		text = re.sub(r'(["\']text["\']\s*:\s*["\'])([^"\']*?)(["\'])', r'\1[REDACTED]\3', text)
+
+		# Redact query fields in JSON
+		text = re.sub(r'(["\']query["\']\s*:\s*["\'])([^"\']*?)(["\'])', r'\1[REDACTED]\3', text)
+
+		# Redact content fields in JSON
+		text = re.sub(r'(["\']content["\']\s*:\s*["\'])([^"\']*?)(["\'])', r'\1[REDACTED]\3', text)
+
+		# Redact value fields in JSON (for input actions)
+		text = re.sub(r'(["\']value["\']\s*:\s*["\'])([^"\']*?)(["\'])', r'\1[REDACTED]\3', text)
+
+		return text
 
 
 def setup_logging(stream=None, log_level=None, force_setup=False, debug_log_file=None, info_log_file=None):

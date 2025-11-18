@@ -135,6 +135,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Initial agent run parameters
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
+		redact_logs: bool = False,
 		# Cloud Callbacks
 		register_new_step_callback: (
 			Callable[['BrowserStateSummary', 'AgentOutput', int], None]  # Sync callback
@@ -246,6 +247,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.id = task_id or uuid7str()
 		self.task_id: str = self.id
 		self.session_id: str = uuid7str()
+		self.redact_logs = redact_logs
 
 		base_profile = browser_profile or DEFAULT_BROWSER_PROFILE
 		if base_profile is DEFAULT_BROWSER_PROFILE:
@@ -266,6 +268,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			browser_profile=browser_profile,
 			id=uuid7str()[:-4] + self.id[-4:],  # re-use the same 4-char suffix so they show up together in logs
 		)
+
+		# Apply log redaction filter if enabled
+		if self.redact_logs:
+			from browser_use.logging_config import LogRedactionFilter
+
+			cdp_url = self.browser_session.cdp_url if self.browser_session else None
+			redaction_filter = LogRedactionFilter(task=task, cdp_url=cdp_url)
+			# Apply filter to the agent's logger - it will be created lazily via the property
+			# We need to store the filter to apply it when logger is accessed
+			self._redaction_filter = redaction_filter
+		else:
+			self._redaction_filter = None
 
 		self._demo_mode_enabled: bool = bool(self.browser_profile.demo_mode) if self.browser_session else False
 		if self._demo_mode_enabled and getattr(self.browser_profile, 'headless', False):
@@ -524,7 +538,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			if self.browser_session and self.browser_session.agent_focus_target_id
 			else '--'
 		)
-		return logging.getLogger(f'browser_use.Agent🅰 {self.task_id[-4:]} ⇢ 🅑 {_browser_session_id[-4:]} 🅣 {_current_target_id}')
+		logger_instance = logging.getLogger(f'browser_use.Agent🅰 {self.task_id[-4:]} ⇢ 🅑 {_browser_session_id[-4:]} 🅣 {_current_target_id}')
+
+		# Apply redaction filter if enabled and not already applied
+		if self._redaction_filter is not None:
+			# Check if filter is already applied to avoid duplicates
+			if not any(isinstance(f, type(self._redaction_filter)) for f in logger_instance.filters):
+				logger_instance.addFilter(self._redaction_filter)
+
+		return logger_instance
 
 	@property
 	def browser_profile(self) -> BrowserProfile:
@@ -1516,6 +1538,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		final_res = self.history.final_result()
 		final_result_str = json.dumps(final_res) if final_res is not None else None
 
+		# Redact sensitive data in telemetry if redact_logs is enabled
+		task_for_telemetry = '[REDACTED_TASK]' if self.redact_logs else self.task
+		cdp_hostname = None
+		if not self.redact_logs and self.browser_session and self.browser_session.cdp_url:
+			cdp_hostname = urlparse(self.browser_session.cdp_url).hostname
+		urls_for_telemetry = ['[REDACTED_URL]'] * len(self.history.urls()) if self.redact_logs else self.history.urls()
+		final_result_for_telemetry = '[REDACTED]' if self.redact_logs and final_result_str else final_result_str
+
 		# Extract judgement data if available
 		judgement_data = self.history.judgement()
 		judge_verdict = judgement_data.get('verdict') if judgement_data else None
@@ -1524,7 +1554,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self.telemetry.capture(
 			AgentTelemetryEvent(
-				task=self.task,
+				task=task_for_telemetry,
 				model=self.llm.model,
 				model_provider=self.llm.provider,
 				max_steps=max_steps,
@@ -1532,13 +1562,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				use_vision=self.settings.use_vision,
 				version=self.version,
 				source=self.source,
-				cdp_url=urlparse(self.browser_session.cdp_url).hostname
-				if self.browser_session and self.browser_session.cdp_url
-				else None,
+				cdp_url=cdp_hostname,
 				agent_type=None,  # Regular Agent (not code-use)
 				action_errors=self.history.errors(),
 				action_history=action_history_data,
-				urls_visited=self.history.urls(),
+				urls_visited=urls_for_telemetry,
 				steps=self.state.n_steps,
 				total_input_tokens=token_summary.prompt_tokens,
 				total_output_tokens=token_summary.completion_tokens,
@@ -1546,7 +1574,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				total_tokens=token_summary.total_tokens,
 				total_duration_seconds=self.history.total_duration_seconds(),
 				success=self.history.is_successful(),
-				final_result_response=final_result_str,
+				final_result_response=final_result_for_telemetry,
 				error_message=agent_run_error,
 				judge_verdict=judge_verdict,
 				judge_reasoning=judge_reasoning,
