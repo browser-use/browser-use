@@ -17,7 +17,7 @@
 #########################################################################################
 
 
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 LABEL name="browseruse" \
     maintainer="Nick Sweeting <dockerfile@browser-use.com>" \
@@ -153,26 +153,20 @@ RUN --mount=type=cache,target=/root/.cache,sharing=locked,id=cache-$TARGETARCH$T
      && python --version \
     ) | tee -a /VERSION.txt
 
-# Install playwright using pip (with version from pyproject.toml)
-RUN --mount=type=cache,target=/root/.cache,sharing=locked,id=cache-$TARGETARCH$TARGETVARIANT \
-     echo "[+] Installing playwright via pip using version from pyproject.toml..." \
-     && ( \
-        uv pip install "$(grep -oP 'p....right>=([0-9.])+' pyproject.toml)" \
-        && which playwright \
-        && playwright --version \
-        && echo -e '\n\n' \
-     ) | tee -a /VERSION.txt
-
-# Install Chromium using playwright
+# Install Chromium browser directly from system packages
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked,id=apt-$TARGETARCH$TARGETVARIANT \
-    --mount=type=cache,target=/root/.cache,sharing=locked,id=cache-$TARGETARCH$TARGETVARIANT \
-    echo "[+] Installing chromium apt pkgs and binary to /root/.cache/ms-playwright..." \
+    echo "[+] Installing chromium browser from system packages..." \
     && apt-get update -qq \
-    && playwright install --with-deps --no-shell chromium \
+    && apt-get install -y --no-install-recommends \
+        chromium \
+        fonts-unifont \
+        fonts-liberation \
+        fonts-dejavu-core \
+        fonts-freefont-ttf \
+        fonts-noto-core \
     && rm -rf /var/lib/apt/lists/* \
-    && export CHROME_BINARY="$(python -c 'from playwright.sync_api import sync_playwright; print(sync_playwright().start().chromium.executable_path)')" \
-    && ln -s "$CHROME_BINARY" /usr/bin/chromium-browser \
-    && ln -s "$CHROME_BINARY" /app/chromium-browser \
+    && ln -s /usr/bin/chromium /usr/bin/chromium-browser \
+    && ln -s /usr/bin/chromium /app/chromium-browser \
     && mkdir -p "/home/${BROWSERUSE_USER}/.config/chromium/Crash Reports/pending/" \
     && chown -R "$BROWSERUSE_USER:$BROWSERUSE_USER" "/home/${BROWSERUSE_USER}/.config" \
     && ( \
@@ -195,8 +189,7 @@ RUN --mount=type=cache,target=/root/.cache,sharing=locked,id=cache-$TARGETARCH$T
      echo "[+] Installing browser-use pip library from source..." \
      && ( \
         uv sync --all-extras --locked --no-dev \
-        && which browser-use \
-        && browser-use --version 2>&1 \
+        && python -c "import browser_use; print('browser-use installed successfully')" \
         && echo -e '\n\n' \
      ) | tee -a /VERSION.txt
 

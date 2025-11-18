@@ -1,0 +1,54 @@
+---
+title: "All Parameters"
+description: "Complete reference for all agent configuration options"
+icon: "sliders"
+mode: "wide"
+---
+
+## Available Parameters
+
+### Core Settings
+- `tools`: Registry of <a href = "../tools/available">tools</a> the agent can call. <a href = "../tools/basics">Example</a>
+- `browser`: Browser object where you can specify the browser settings.
+- `output_model_schema`: Pydantic model class for structured output validation. [Example](https://github.com/browser-use/browser-use/blob/main/examples/features/custom_output.py)
+
+### Vision & Processing
+- `use_vision` (default: `"auto"`): Vision mode - `"auto"` includes screenshot tool but only uses vision when requested, `True` always includes screenshots, `False` never includes screenshots and excludes screenshot tool
+- `vision_detail_level` (default: `'auto'`): Screenshot detail level - `'low'`, `'high'`, or `'auto'`
+- `page_extraction_llm`: Separate LLM model for page content extraction. You can choose a small & fast model because it only needs to extract text from the page (default: same as `llm`)
+
+### Actions & Behavior
+- `initial_actions`: List of actions to run before the main task without LLM. [Example](https://github.com/browser-use/browser-use/blob/main/examples/features/initial_actions.py)
+- `max_actions_per_step` (default: `4`): Maximum actions per step, e.g. for form filling the agent can output 4 fields at once. We execute the actions until the page changes.
+- `max_failures` (default: `3`): Maximum retries for steps with errors
+- `final_response_after_failure` (default: `True`): If True, attempt to force one final model call with intermediate output after max_failures is reached
+- `use_thinking` (default: `True`): Controls whether the agent uses its internal "thinking" field for explicit reasoning steps.
+- `flash_mode` (default: `False`): Fast mode that skips evaluation, next goal and thinking and only uses memory. If `flash_mode` is enabled, it overrides `use_thinking` and disables the thinking process entirely. [Example](https://github.com/browser-use/browser-use/blob/main/examples/getting_started/05_fast_agent.py)
+
+### System Messages
+- `override_system_message`: Completely replace the default system prompt. 
+- `extend_system_message`: Add additional instructions to the default system prompt. [Example](https://github.com/browser-use/browser-use/blob/main/examples/features/custom_system_prompt.py)
+
+### File & Data Management
+- `save_conversation_path`: Path to save complete conversation history
+- `save_conversation_path_encoding` (default: `'utf-8'`): Encoding for saved conversations
+- `available_file_paths`: List of file paths the agent can access
+- `sensitive_data`: Dictionary of sensitive data to handle carefully. [Example](https://github.com/browser-use/browser-use/blob/main/examples/features/sensitive_data.py)
+
+### Visual Output
+- `generate_gif` (default: `False`): Generate GIF of agent actions. Set to `True` or string path
+- `include_attributes`: List of HTML attributes to include in page analysis
+
+### Performance & Limits
+- `max_history_items`: Maximum number of last steps to keep in the LLM memory. If `None`, we keep all steps. 
+- `llm_timeout` (default: `90`): Timeout in seconds for LLM calls
+- `step_timeout` (default: `120`): Timeout in seconds for each step
+- `directly_open_url` (default: `True`): If we detect a url in the task, we directly open it.
+
+### Advanced Options
+- `calculate_cost` (default: `False`): Calculate and track API costs
+- `display_files_in_done_text` (default: `True`): Show file information in completion messages
+
+### Backwards Compatibility
+- `controller`: Alias for `tools` for backwards compatibility.
+- `browser_session`: Alias for `browser` for backwards compatibility.

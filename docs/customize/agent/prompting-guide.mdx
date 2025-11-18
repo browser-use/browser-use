@@ -1,0 +1,92 @@
+---
+title: "Prompting Guide"
+description: "Tips and tricks "
+icon: "lightbulb"
+---
+
+Prompting can drastically improve performance and solve existing limitations of the library.
+
+### 1. Be Specific vs Open-Ended
+
+**✅ Specific (Recommended)**
+```python
+task = """
+1. Go to https://quotes.toscrape.com/
+2. Use extract action with the query "first 3 quotes with their authors"
+3. Save results to quotes.csv using write_file action
+4. Do a google search for the first quote and find when it was written
+"""
+```
+
+**❌ Open-Ended**
+```python
+task = "Go to web and make money"
+```
+
+### 2. Name Actions Directly
+
+When you know exactly what the agent should do, reference actions by name:
+
+```python
+task = """
+1. Use search action to find "Python tutorials"
+2. Use click to open first result in a new tab
+3. Use scroll action to scroll down 2 pages
+4. Use extract to extract the names of the first 5 items
+5. Wait for 2 seconds if the page is not loaded, refresh it and wait 10 sec
+6. Use send_keys action with "Tab Tab ArrowDown Enter"
+"""
+```
+
+See [Available Tools](/customize/tools/available) for the complete list of actions.
+
+
+### 3. Handle interaction problems via keyboard navigation
+
+Sometimes buttons can't be clicked (you found a bug in the library - open an issue). 
+Good news - often you can work around it with keyboard navigation!
+
+```python
+task = """
+If the submit button cannot be clicked:
+1. Use send_keys action with "Tab Tab Enter" to navigate and activate
+2. Or use send_keys with "ArrowDown ArrowDown Enter" for form submission
+"""
+```
+
+
+
+
+### 4. Custom Actions Integration
+
+```python
+# When you have custom actions
+@controller.action("Get 2FA code from authenticator app")
+async def get_2fa_code():
+    # Your implementation
+    pass
+
+task = """
+Login with 2FA:
+1. Enter username/password
+2. When prompted for 2FA, use get_2fa_code action
+3. NEVER try to extract 2FA codes from the page manually
+4. ALWAYS use the get_2fa_code action for authentication codes
+"""
+```
+
+### 5. Error Recovery
+
+```python
+task = """
+Robust data extraction:
+1. Go to openai.com to find their CEO
+2. If navigation fails due to anti-bot protection:
+   - Use google search to find the CEO
+3. If page times out, use go_back and try alternative approach
+"""
+```
+
+
+
+The key to effective prompting is being specific about actions.

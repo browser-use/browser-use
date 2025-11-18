@@ -1,11 +1,12 @@
 name: 📚 Documentation Issue
 description: Report an issue in the browser-use documentation
 labels: ["documentation"]
+title: "Documentation: ..."
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to improve our documentation! Please fill out the form below to help us understand the issue.
+        Thanks for taking the time to improve our documentation! Please fill out the form below to help us fix the issue quickly.
 
   - type: dropdown
     id: type
@@ -26,7 +27,7 @@ body:
     attributes:
       label: Documentation Page
       description: Which page or section of the documentation is this about?
-      placeholder: "e.g., https://docs.browser-use.com/getting-started or Installation Guide"
+      placeholder: "e.g. https://docs.browser-use.com/customize/browser-settings > Context Configuration > headless"
     validations:
       required: true
 
@@ -34,8 +35,8 @@ body:
     id: description
     attributes:
       label: Issue Description
-      description: Describe what's wrong or missing in the documentation
-      placeholder: The documentation should...
+      description: "Describe what's wrong or missing in the documentation"
+      placeholder: e.g. Docs should clarify whether BrowserSession(no_viewport=False) is supported when running in BrowserSession(headless=False) mode...
     validations:
       required: true
 
@@ -45,11 +46,10 @@ body:
       label: Suggested Changes
       description: If you have specific suggestions for how to improve the documentation, please share them
       placeholder: |
-        The documentation could be improved by...
-
-        Example:
-        ```python
-        # Your suggested code example or text here
+        e.g. The documentation could be improved by adding one more line here:
+        ```diff
+        Use `BrowserSession(headless=False)` to open the browser window (aka headful mode).
+        + Viewports are not supported when headful, if `headless=False` it will force `no_viewport=True`.
         ```
     validations:
-      required: true
+      required: false

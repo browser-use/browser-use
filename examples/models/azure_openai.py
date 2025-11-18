@@ -14,36 +14,31 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_openai import AzureChatOpenAI
 
 from browser_use import Agent
+from browser_use.llm import ChatAzureOpenAI
 
-# Retrieve Azure-specific environment variables
-azure_openai_api_key = os.getenv('AZURE_OPENAI_KEY')
-azure_openai_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
-
-if not azure_openai_api_key or not azure_openai_endpoint:
-	raise ValueError('AZURE_OPENAI_KEY or AZURE_OPENAI_ENDPOINT is not set')
-
-# Initialize the Azure OpenAI client
-llm = AzureChatOpenAI(
-	model_name='gpt-4o',
-	openai_api_key=azure_openai_api_key,
-	azure_endpoint=azure_openai_endpoint,  # Corrected to use azure_endpoint instead of openai_api_base
-	deployment_name='gpt-4o',  # Use deployment_name for Azure models
-	api_version='2024-08-01-preview',  # Explicitly set the API version here
+# Make sure your deployment exists, double check the region and model name
+api_key = os.getenv('AZURE_OPENAI_KEY')
+azure_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
+llm = ChatAzureOpenAI(
+	model='gpt-4.1-mini',
+	api_key=api_key,
+	azure_endpoint=azure_endpoint,
 )
 
+TASK = """
+Go to google.com/travel/flights and find the cheapest flight from New York to Paris on 2025-10-15
+"""
+
 agent = Agent(
-	task='Go to amazon.com, search for laptop, sort by best rating, and give me the price of the first result',
+	task=TASK,
 	llm=llm,
-	enable_memory=True,
 )
 
 
 async def main():
 	await agent.run(max_steps=10)
-	input('Press Enter to continue...')
 
 
 asyncio.run(main())

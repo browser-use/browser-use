@@ -7,12 +7,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import discord
-from discord.ext import commands
-from langchain_core.language_models.chat_models import BaseChatModel
+import discord  # type: ignore
+from discord.ext import commands  # type: ignore
 
-from browser_use import BrowserConfig
-from browser_use.agent.service import Agent, Browser
+from browser_use.agent.service import Agent
+from browser_use.browser import BrowserProfile, BrowserSession
+from browser_use.llm import BaseChatModel
 
 
 class DiscordBot(commands.Bot):
@@ -26,12 +26,12 @@ class DiscordBot(commands.Bot):
 	    llm (BaseChatModel): Language model instance to use for task processing
 	    prefix (str, optional): Command prefix for triggering browser tasks. Defaults to "$bu"
 	    ack (bool, optional): Whether to acknowledge task receipt with a message. Defaults to False
-	    browser_config (BrowserConfig, optional): Browser configuration settings.
+	    browser_profile (BrowserProfile, optional): Browser profile settings.
 	        Defaults to headless mode
 
 	Usage:
 	    ```python
-	    from langchain_openai import ChatOpenAI
+	    from browser_use import ChatOpenAI
 
 	    llm = ChatOpenAI()
 	    bot = DiscordBot(llm=llm, prefix='$bu', ack=True)
@@ -48,15 +48,15 @@ class DiscordBot(commands.Bot):
 		llm: BaseChatModel,
 		prefix: str = '$bu',
 		ack: bool = False,
-		browser_config: BrowserConfig = BrowserConfig(headless=True),
+		browser_profile: BrowserProfile = BrowserProfile(headless=True),
 	):
 		self.llm = llm
 		self.prefix = prefix.strip()
 		self.ack = ack
-		self.browser_config = browser_config
+		self.browser_profile = browser_profile
 
 		# Define intents.
-		intents = discord.Intents.default()
+		intents = discord.Intents.default()  # type: ignore
 		intents.message_content = True  # Enable message content intent
 		intents.members = True  # Enable members intent for user info
 
@@ -106,8 +106,8 @@ class DiscordBot(commands.Bot):
 
 	async def run_agent(self, task: str) -> str:
 		try:
-			browser = Browser(config=self.browser_config)
-			agent = Agent(task=(task), llm=self.llm, browser=browser)
+			browser_session = BrowserSession(browser_profile=self.browser_profile)
+			agent = Agent(task=(task), llm=self.llm, browser_session=browser_session)
 			result = await agent.run()
 
 			agent_message = None

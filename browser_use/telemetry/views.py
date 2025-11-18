@@ -1,7 +1,9 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, Literal
+
+from browser_use.config import is_running_in_docker
 
 
 @dataclass
@@ -13,19 +15,10 @@ class BaseTelemetryEvent(ABC):
 
 	@property
 	def properties(self) -> dict[str, Any]:
-		return {k: v for k, v in asdict(self).items() if k != 'name'}
-
-
-@dataclass
-class RegisteredFunction:
-	name: str
-	params: dict[str, Any]
-
-
-@dataclass
-class ControllerRegisteredFunctionsTelemetryEvent(BaseTelemetryEvent):
-	registered_functions: list[RegisteredFunction]
-	name: str = 'controller_registered_functions'
+		props = {k: v for k, v in asdict(self).items() if k != 'name'}
+		# Add Docker context if running in Docker
+		props['is_docker'] = is_running_in_docker()
+		return props
 
 
 @dataclass
@@ -34,13 +27,13 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	task: str
 	model: str
 	model_provider: str
-	planner_llm: str | None
 	max_steps: int
 	max_actions_per_step: int
-	use_vision: bool
-	use_validation: bool
+	use_vision: bool | Literal['auto']
 	version: str
 	source: str
+	cdp_url: str | None
+	agent_type: str | None  # 'code' for CodeAgent, None for regular Agent
 	# step details
 	action_errors: Sequence[str | None]
 	action_history: Sequence[list[dict] | None]
@@ -48,9 +41,61 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	# end details
 	steps: int
 	total_input_tokens: int
+	total_output_tokens: int
+	prompt_cached_tokens: int
+	total_tokens: int
 	total_duration_seconds: float
 	success: bool | None
 	final_result_response: str | None
 	error_message: str | None
+	# judge details
+	judge_verdict: bool | None = None
+	judge_reasoning: str | None = None
+	judge_failure_reason: str | None = None
 
 	name: str = 'agent_event'
+
+
+@dataclass
+class MCPClientTelemetryEvent(BaseTelemetryEvent):
+	"""Telemetry event for MCP client usage"""
+
+	server_name: str
+	command: str
+	tools_discovered: int
+	version: str
+	action: str  # 'connect', 'disconnect', 'tool_call'
+	tool_name: str | None = None
+	duration_seconds: float | None = None
+	error_message: str | None = None
+
+	name: str = 'mcp_client_event'
+
+
+@dataclass
+class MCPServerTelemetryEvent(BaseTelemetryEvent):
+	"""Telemetry event for MCP server usage"""
+
+	version: str
+	action: str  # 'start', 'stop', 'tool_call'
+	tool_name: str | None = None
+	duration_seconds: float | None = None
+	error_message: str | None = None
+	parent_process_cmdline: str | None = None
+
+	name: str = 'mcp_server_event'
+
+
+@dataclass
+class CLITelemetryEvent(BaseTelemetryEvent):
+	"""Telemetry event for CLI usage"""
+
+	version: str
+	action: str  # 'start', 'message_sent', 'task_completed', 'error'
+	mode: str  # 'interactive', 'oneshot', 'mcp_server'
+	model: str | None = None
+	model_provider: str | None = None
+	duration_seconds: float | None = None
+	error_message: str | None = None
+
+	name: str = 'cli_event'

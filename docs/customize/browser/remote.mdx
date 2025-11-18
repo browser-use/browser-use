@@ -1,0 +1,85 @@
+---
+title: "Remote Browser"
+description: ""
+icon: "cloud"
+mode: "wide"
+---
+
+
+### Browser-Use Cloud Browser or CDP URL
+
+The easiest way to use a cloud browser is with the built-in Browser-Use cloud service:
+
+```python
+from browser_use import Agent, Browser, ChatBrowserUse
+
+# Simple: Use Browser-Use cloud browser service
+browser = Browser(
+    use_cloud=True,  # Automatically provisions a cloud browser
+)
+
+# Advanced: Configure cloud browser parameters
+# Using this settings can bypass any captcha protection on any website
+browser = Browser(
+    cloud_profile_id='your-profile-id',  # Optional: specific browser profile
+    cloud_proxy_country_code='us',  # Optional: proxy location (us, uk, fr, it, jp, au, de, fi, ca, in)
+    cloud_timeout=30,  # Optional: session timeout in minutes (MAX free: 15min, paid: 240min)
+)
+
+# Or use a CDP URL from any cloud browser provider
+browser = Browser(
+    cdp_url="http://remote-server:9222"  # Get a CDP URL from any provider
+)
+
+agent = Agent(
+    task="Your task here",
+    llm=ChatBrowserUse(),
+    browser=browser,
+)
+```
+
+**Prerequisites:**
+1. Get an API key from [cloud.browser-use.com](https://cloud.browser-use.com/new-api-key)
+2. Set BROWSER_USE_API_KEY environment variable
+
+**Cloud Browser Parameters:**
+- `cloud_profile_id`: UUID of a browser profile (optional, uses default if not specified)
+- `cloud_proxy_country_code`: Country code for proxy location - supports: us, uk, fr, it, jp, au, de, fi, ca, in
+- `cloud_timeout`: Session timeout in minutes (free users: max 15 min, paid users: max 240 min)
+
+**Benefits:**
+- ✅ No local browser setup required
+- ✅ Scalable and fast cloud infrastructure
+- ✅ Automatic provisioning and teardown
+- ✅ Built-in authentication handling
+- ✅ Optimized for browser automation
+- ✅ Global proxy support for geo-restricted content
+
+### Third-Party Cloud Browsers
+You can pass in a CDP URL from any remote browser
+
+
+### Proxy Connection
+
+```python
+
+from browser_use import Agent, Browser, ChatBrowserUse
+from browser_use.browser import ProxySettings
+
+browser = Browser(
+    headless=False,
+    proxy=ProxySettings(
+        server="http://proxy-server:8080",
+        username="proxy-user",
+        password="proxy-pass"
+    ),
+    cdp_url="http://remote-server:9222"
+)
+
+
+agent = Agent(
+    task="Your task here",
+    llm=ChatBrowserUse(),
+    browser=browser,
+)
+```

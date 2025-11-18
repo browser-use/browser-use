@@ -1,9 +1,9 @@
 blank_issues_enabled: false  # Set to true if you want to allow blank issues
 contact_links:
-  - name: 🤔 Quickstart Guide
+  - name: 🔢 Quickstart Guide
     url: https://docs.browser-use.com/quickstart
     about: Most common issues can be resolved by following our quickstart guide
-  - name: 🤔 Questions and Help
+  - name: 💬 Questions and Help
     url: https://link.browser-use.com/discord
     about: Please ask questions in our Discord community
   - name: 📖 Documentation

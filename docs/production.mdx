@@ -1,0 +1,66 @@
+---
+title: "Going to Production"
+description: "Deploy your local Browser-Use code to production with `@sandbox` wrapper, and scale to millions of agents"
+icon: "rocket-launch"
+---
+
+## 1. Basic Deployment
+
+Wrap your existing local code with `@sandbox()`:
+
+```python
+from browser_use import Browser, sandbox, ChatBrowserUse
+from browser_use.agent.service import Agent
+import asyncio
+
+@sandbox()
+async def my_task(browser: Browser):
+    agent = Agent(task="Find the top HN post", browser=browser, llm=ChatBrowserUse())
+    await agent.run()
+
+# Just call it like any async function
+asyncio.run(my_task())
+```
+
+
+That's it - your code now runs in production at scale. We handle agents, browsers, persistence, and LLMs.
+
+## 2. Add Proxies for Stealth
+
+Use country-specific proxies to bypass captchas, Cloudflare, and geo-restrictions:
+
+```python
+@sandbox(cloud_proxy_country_code='us')  # Route through US proxy
+async def stealth_task(browser: Browser):
+    agent = Agent(task="Your task", browser=browser, llm=ChatBrowserUse())
+    await agent.run()
+```
+
+## 3. Sync Local Cookies to Cloud
+
+To use your local authentication in production:
+
+**First**, create an API key at [cloud.browser-use.com/new-api-key](https://cloud.browser-use.com/new-api-key) or follow the instruction on [Cloud - Profiles](https://cloud.browser-use.com/dashboard/settings?tab=profiles)
+
+**Then**, sync your local cookies:
+
+```bash
+export BROWSER_USE_API_KEY=your_key && curl -fsSL https://browser-use.com/profile.sh | sh
+```
+
+This opens a browser where you log into your accounts. You'll get a `profile_id`.
+
+**Finally**, use it in production:
+
+```python
+@sandbox(cloud_profile_id='your-profile-id')
+async def authenticated_task(browser: Browser):
+    agent = Agent(task="Your authenticated task", browser=browser, llm=ChatBrowserUse())
+    await agent.run()
+```
+
+Your cloud browser is already logged in!
+
+---
+
+For more sandbox parameters and events, see [Sandbox Quickstart](/customize/sandbox/quickstart).

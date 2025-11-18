@@ -2,20 +2,46 @@ import asyncio
 import logging
 import os
 import platform
+import re
 import signal
 import time
 from collections.abc import Callable, Coroutine
-from functools import wraps
+from fnmatch import fnmatch
+from functools import cache, wraps
+from pathlib import Path
 from sys import stderr
 from typing import Any, ParamSpec, TypeVar
+from urllib.parse import urlparse
+
+import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Pre-compiled regex for URL detection - used in URL shortening
+URL_PATTERN = re.compile(r'https?://[^\s<>"\']+|www\.[^\s<>"\']+|[^\s<>"\']+\.[a-z]{2,}(?:/[^\s<>"\']*)?', re.IGNORECASE)
+
 
 logger = logging.getLogger(__name__)
+
+# Import error types - these may need to be adjusted based on actual import paths
+try:
+	from openai import BadRequestError as OpenAIBadRequestError
+except ImportError:
+	OpenAIBadRequestError = None
+
+try:
+	from groq import BadRequestError as GroqBadRequestError  # type: ignore[import-not-found]
+except ImportError:
+	GroqBadRequestError = None
+
 
 # Global flag to prevent duplicate exit messages
 _exiting = False
 
 # Define generic type variables for return type and parameters
 R = TypeVar('R')
+T = TypeVar('T')
 P = ParamSpec('P')
 
 
@@ -39,7 +65,7 @@ class SignalHandler:
 		resume_callback: Callable[[], None] | None = None,
 		custom_exit_callback: Callable[[], None] | None = None,
 		exit_on_second_int: bool = True,
-		interruptible_task_patterns: list[str] = None,
+		interruptible_task_patterns: list[str] | None = None,
 	):
 		"""
 		Initialize the signal handler.
@@ -161,6 +187,10 @@ class SignalHandler:
 		print('\r', end='', flush=True, file=stderr)
 		print('\r', end='', flush=True)
 
+		# these ^^ attempts dont work as far as we can tell
+		# we still dont know what causes the broken input, if you know how to fix it, please let us know
+		print('(tip: press [Enter] once to fix escape codes appearing after chrome exit)', file=stderr)
+
 		os._exit(0)
 
 	def sigint_handler(self) -> None:
@@ -186,7 +216,7 @@ class SignalHandler:
 				self._handle_second_ctrl_c()
 
 		# Mark that Ctrl+C was pressed
-		self.loop.ctrl_c_pressed = True
+		setattr(self.loop, 'ctrl_c_pressed', True)
 
 		# Cancel current tasks that should be interruptible - this is crucial for immediate pausing
 		self._cancel_interruptible_tasks()
@@ -292,9 +322,9 @@ class SignalHandler:
 		"""Reset state after resuming."""
 		# Clear the flags
 		if hasattr(self.loop, 'ctrl_c_pressed'):
-			self.loop.ctrl_c_pressed = False
+			setattr(self.loop, 'ctrl_c_pressed', False)
 		if hasattr(self.loop, 'waiting_for_input'):
-			self.loop.waiting_for_input = False
+			setattr(self.loop, 'waiting_for_input', False)
 
 
 def time_execution_sync(additional_text: str = '') -> Callable[[Callable[P, R]], Callable[P, R]]:
@@ -304,7 +334,18 @@ def time_execution_sync(additional_text: str = '') -> Callable[[Callable[P, R]],
 			start_time = time.time()
 			result = func(*args, **kwargs)
 			execution_time = time.time() - start_time
-			logger.debug(f'{additional_text} Execution time: {execution_time:.2f} seconds')
+			# Only log if execution takes more than 0.25 seconds
+			if execution_time > 0.25:
+				self_has_logger = args and getattr(args[0], 'logger', None)
+				if self_has_logger:
+					logger = getattr(args[0], 'logger')
+				elif 'agent' in kwargs:
+					logger = getattr(kwargs['agent'], 'logger')
+				elif 'browser_session' in kwargs:
+					logger = getattr(kwargs['browser_session'], 'logger')
+				else:
+					logger = logging.getLogger(__name__)
+				logger.debug(f'⏳ {additional_text.strip("-")}() took {execution_time:.2f}s')
 			return result
 
 		return wrapper
@@ -321,7 +362,19 @@ def time_execution_async(
 			start_time = time.time()
 			result = await func(*args, **kwargs)
 			execution_time = time.time() - start_time
-			logger.debug(f'{additional_text} Execution time: {execution_time:.2f} seconds')
+			# Only log if execution takes more than 0.25 seconds to avoid spamming the logs
+			# you can lower this threshold locally when you're doing dev work to performance optimize stuff
+			if execution_time > 0.25:
+				self_has_logger = args and getattr(args[0], 'logger', None)
+				if self_has_logger:
+					logger = getattr(args[0], 'logger')
+				elif 'agent' in kwargs:
+					logger = getattr(kwargs['agent'], 'logger')
+				elif 'browser_session' in kwargs:
+					logger = getattr(kwargs['browser_session'], 'logger')
+				else:
+					logger = logging.getLogger(__name__)
+				logger.debug(f'⏳ {additional_text.strip("-")}() took {execution_time:.2f}s')
 			return result
 
 		return wrapper
@@ -343,3 +396,355 @@ def singleton(cls):
 def check_env_variables(keys: list[str], any_or_all=all) -> bool:
 	"""Check if all required environment variables are set"""
 	return any_or_all(os.getenv(key, '').strip() for key in keys)
+
+
+def is_unsafe_pattern(pattern: str) -> bool:
+	"""
+	Check if a domain pattern has complex wildcards that could match too many domains.
+
+	Args:
+		pattern: The domain pattern to check
+
+	Returns:
+		bool: True if the pattern has unsafe wildcards, False otherwise
+	"""
+	# Extract domain part if there's a scheme
+	if '://' in pattern:
+		_, pattern = pattern.split('://', 1)
+
+	# Remove safe patterns (*.domain and domain.*)
+	bare_domain = pattern.replace('.*', '').replace('*.', '')
+
+	# If there are still wildcards, it's potentially unsafe
+	return '*' in bare_domain
+
+
+def is_new_tab_page(url: str) -> bool:
+	"""
+	Check if a URL is a new tab page (about:blank, chrome://new-tab-page, or chrome://newtab).
+
+	Args:
+		url: The URL to check
+
+	Returns:
+		bool: True if the URL is a new tab page, False otherwise
+	"""
+	return url in ('about:blank', 'chrome://new-tab-page/', 'chrome://new-tab-page', 'chrome://newtab/', 'chrome://newtab')
+
+
+def match_url_with_domain_pattern(url: str, domain_pattern: str, log_warnings: bool = False) -> bool:
+	"""
+	Check if a URL matches a domain pattern. SECURITY CRITICAL.
+
+	Supports optional glob patterns and schemes:
+	- *.example.com will match sub.example.com and example.com
+	- *google.com will match google.com, agoogle.com, and www.google.com
+	- http*://example.com will match http://example.com, https://example.com
+	- chrome-extension://* will match chrome-extension://aaaaaaaaaaaa and chrome-extension://bbbbbbbbbbbbb
+
+	When no scheme is specified, https is used by default for security.
+	For example, 'example.com' will match 'https://example.com' but not 'http://example.com'.
+
+	Note: New tab pages (about:blank, chrome://new-tab-page) must be handled at the callsite, not inside this function.
+
+	Args:
+		url: The URL to check
+		domain_pattern: Domain pattern to match against
+		log_warnings: Whether to log warnings about unsafe patterns
+
+	Returns:
+		bool: True if the URL matches the pattern, False otherwise
+	"""
+	try:
+		# Note: new tab pages should be handled at the callsite, not here
+		if is_new_tab_page(url):
+			return False
+
+		parsed_url = urlparse(url)
+
+		# Extract only the hostname and scheme components
+		scheme = parsed_url.scheme.lower() if parsed_url.scheme else ''
+		domain = parsed_url.hostname.lower() if parsed_url.hostname else ''
+
+		if not scheme or not domain:
+			return False
+
+		# Normalize the domain pattern
+		domain_pattern = domain_pattern.lower()
+
+		# Handle pattern with scheme
+		if '://' in domain_pattern:
+			pattern_scheme, pattern_domain = domain_pattern.split('://', 1)
+		else:
+			pattern_scheme = 'https'  # Default to matching only https for security
+			pattern_domain = domain_pattern
+
+		# Handle port in pattern (we strip ports from patterns since we already
+		# extracted only the hostname from the URL)
+		if ':' in pattern_domain and not pattern_domain.startswith(':'):
+			pattern_domain = pattern_domain.split(':', 1)[0]
+
+		# If scheme doesn't match, return False
+		if not fnmatch(scheme, pattern_scheme):
+			return False
+
+		# Check for exact match
+		if pattern_domain == '*' or domain == pattern_domain:
+			return True
+
+		# Handle glob patterns
+		if '*' in pattern_domain:
+			# Check for unsafe glob patterns
+			# First, check for patterns like *.*.domain which are unsafe
+			if pattern_domain.count('*.') > 1 or pattern_domain.count('.*') > 1:
+				if log_warnings:
+					logger = logging.getLogger(__name__)
+					logger.error(f'⛔️ Multiple wildcards in pattern=[{domain_pattern}] are not supported')
+				return False  # Don't match unsafe patterns
+
+			# Check for wildcards in TLD part (example.*)
+			if pattern_domain.endswith('.*'):
+				if log_warnings:
+					logger = logging.getLogger(__name__)
+					logger.error(f'⛔️ Wildcard TLDs like in pattern=[{domain_pattern}] are not supported for security')
+				return False  # Don't match unsafe patterns
+
+			# Then check for embedded wildcards
+			bare_domain = pattern_domain.replace('*.', '')
+			if '*' in bare_domain:
+				if log_warnings:
+					logger = logging.getLogger(__name__)
+					logger.error(f'⛔️ Only *.domain style patterns are supported, ignoring pattern=[{domain_pattern}]')
+				return False  # Don't match unsafe patterns
+
+			# Special handling so that *.google.com also matches bare google.com
+			if pattern_domain.startswith('*.'):
+				parent_domain = pattern_domain[2:]
+				if domain == parent_domain or fnmatch(domain, parent_domain):
+					return True
+
+			# Normal case: match domain against pattern
+			if fnmatch(domain, pattern_domain):
+				return True
+
+		return False
+	except Exception as e:
+		logger = logging.getLogger(__name__)
+		logger.error(f'⛔️ Error matching URL {url} with pattern {domain_pattern}: {type(e).__name__}: {e}')
+		return False
+
+
+def merge_dicts(a: dict, b: dict, path: tuple[str, ...] = ()):
+	for key in b:
+		if key in a:
+			if isinstance(a[key], dict) and isinstance(b[key], dict):
+				merge_dicts(a[key], b[key], path + (str(key),))
+			elif isinstance(a[key], list) and isinstance(b[key], list):
+				a[key] = a[key] + b[key]
+			elif a[key] != b[key]:
+				raise Exception('Conflict at ' + '.'.join(path + (str(key),)))
+		else:
+			a[key] = b[key]
+	return a
+
+
+@cache
+def get_browser_use_version() -> str:
+	"""Get the browser-use package version using the same logic as Agent._set_browser_use_version_and_source"""
+	try:
+		package_root = Path(__file__).parent.parent
+		pyproject_path = package_root / 'pyproject.toml'
+
+		# Try to read version from pyproject.toml
+		if pyproject_path.exists():
+			import re
+
+			with open(pyproject_path, encoding='utf-8') as f:
+				content = f.read()
+				match = re.search(r'version\s*=\s*["\']([^"\']+)["\']', content)
+				if match:
+					version = f'{match.group(1)}'
+					os.environ['LIBRARY_VERSION'] = version  # used by bubus event_schema so all Event schemas include versioning
+					return version
+
+		# If pyproject.toml doesn't exist, try getting version from pip
+		from importlib.metadata import version as get_version
+
+		version = str(get_version('browser-use'))
+		os.environ['LIBRARY_VERSION'] = version
+		return version
+
+	except Exception as e:
+		logger.debug(f'Error detecting browser-use version: {type(e).__name__}: {e}')
+		return 'unknown'
+
+
+async def check_latest_browser_use_version() -> str | None:
+	"""Check the latest version of browser-use from PyPI asynchronously.
+
+	Returns:
+		The latest version string if successful, None if failed
+	"""
+	try:
+		async with httpx.AsyncClient(timeout=3.0) as client:
+			response = await client.get('https://pypi.org/pypi/browser-use/json')
+			if response.status_code == 200:
+				data = response.json()
+				return data['info']['version']
+	except Exception:
+		# Silently fail - we don't want to break agent startup due to network issues
+		pass
+	return None
+
+
+@cache
+def get_git_info() -> dict[str, str] | None:
+	"""Get git information if installed from git repository"""
+	try:
+		import subprocess
+
+		package_root = Path(__file__).parent.parent
+		git_dir = package_root / '.git'
+		if not git_dir.exists():
+			return None
+
+		# Get git commit hash
+		commit_hash = (
+			subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=package_root, stderr=subprocess.DEVNULL).decode().strip()
+		)
+
+		# Get git branch
+		branch = (
+			subprocess.check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=package_root, stderr=subprocess.DEVNULL)
+			.decode()
+			.strip()
+		)
+
+		# Get remote URL
+		remote_url = (
+			subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], cwd=package_root, stderr=subprocess.DEVNULL)
+			.decode()
+			.strip()
+		)
+
+		# Get commit timestamp
+		commit_timestamp = (
+			subprocess.check_output(['git', 'show', '-s', '--format=%ci', 'HEAD'], cwd=package_root, stderr=subprocess.DEVNULL)
+			.decode()
+			.strip()
+		)
+
+		return {'commit_hash': commit_hash, 'branch': branch, 'remote_url': remote_url, 'commit_timestamp': commit_timestamp}
+	except Exception as e:
+		logger.debug(f'Error getting git info: {type(e).__name__}: {e}')
+		return None
+
+
+def _log_pretty_path(path: str | Path | None) -> str:
+	"""Pretty-print a path, shorten home dir to ~ and cwd to ."""
+
+	if not path or not str(path).strip():
+		return ''  # always falsy in -> falsy out so it can be used in ternaries
+
+	# dont print anything thats not a path
+	if not isinstance(path, (str, Path)):
+		# no other types are safe to just str(path) and log to terminal unless we know what they are
+		# e.g. what if we get storage_date=dict | Path and the dict version could contain real cookies
+		return f'<{type(path).__name__}>'
+
+	# replace home dir and cwd with ~ and .
+	pretty_path = str(path).replace(str(Path.home()), '~').replace(str(Path.cwd().resolve()), '.')
+
+	# wrap in quotes if it contains spaces
+	if pretty_path.strip() and ' ' in pretty_path:
+		pretty_path = f'"{pretty_path}"'
+
+	return pretty_path
+
+
+def _log_pretty_url(s: str, max_len: int | None = 22) -> str:
+	"""Truncate/pretty-print a URL with a maximum length, removing the protocol and www. prefix"""
+	s = s.replace('https://', '').replace('http://', '').replace('www.', '')
+	if max_len is not None and len(s) > max_len:
+		return s[:max_len] + '…'
+	return s
+
+
+def create_task_with_error_handling(
+	coro: Coroutine[Any, Any, T],
+	*,
+	name: str | None = None,
+	logger_instance: logging.Logger | None = None,
+	suppress_exceptions: bool = False,
+) -> asyncio.Task[T]:
+	"""
+	Create an asyncio task with proper exception handling to prevent "Task exception was never retrieved" warnings.
+
+	Args:
+		coro: The coroutine to wrap in a task
+		name: Optional name for the task (useful for debugging)
+		logger_instance: Optional logger instance to use. If None, uses module logger.
+		suppress_exceptions: If True, logs exceptions at ERROR level. If False, logs at WARNING level
+			and exceptions remain retrievable via task.exception() if the caller awaits the task.
+			Default False.
+
+	Returns:
+		asyncio.Task: The created task with exception handling callback
+
+	Example:
+		# Fire-and-forget with suppressed exceptions
+		create_task_with_error_handling(some_async_function(), name="my_task", suppress_exceptions=True)
+
+		# Task with retrievable exceptions (if you plan to await it)
+		task = create_task_with_error_handling(critical_function(), name="critical")
+		result = await task  # Will raise the exception if one occurred
+	"""
+	task = asyncio.create_task(coro, name=name)
+	log = logger_instance or logger
+
+	def _handle_task_exception(t: asyncio.Task[T]) -> None:
+		"""Callback to handle task exceptions"""
+		exc_to_raise = None
+		try:
+			# This will raise if the task had an exception
+			exc = t.exception()
+			if exc is not None:
+				task_name = t.get_name() if hasattr(t, 'get_name') else 'unnamed'
+				if suppress_exceptions:
+					log.error(f'Exception in background task [{task_name}]: {type(exc).__name__}: {exc}', exc_info=exc)
+				else:
+					# Log at warning level then mark for re-raising
+					log.warning(
+						f'Exception in background task [{task_name}]: {type(exc).__name__}: {exc}',
+						exc_info=exc,
+					)
+					exc_to_raise = exc
+		except asyncio.CancelledError:
+			# Task was cancelled, this is normal behavior
+			pass
+		except Exception as e:
+			# Catch any other exception during exception handling (e.g., t.exception() itself failing)
+			task_name = t.get_name() if hasattr(t, 'get_name') else 'unnamed'
+			log.error(f'Error handling exception in task [{task_name}]: {type(e).__name__}: {e}')
+
+		# Re-raise outside the try-except block so it propagates to the event loop
+		if exc_to_raise is not None:
+			raise exc_to_raise
+
+	task.add_done_callback(_handle_task_exception)
+	return task
+
+
+def sanitize_surrogates(text: str) -> str:
+	"""Remove surrogate characters that can't be encoded in UTF-8.
+
+	Surrogate pairs (U+D800 to U+DFFF) are invalid in UTF-8 when unpaired.
+	These often appear in DOM content from mathematical symbols or emojis.
+
+	Args:
+		text: The text to sanitize
+
+	Returns:
+		Text with surrogate characters removed
+	"""
+	return text.encode('utf-8', errors='ignore').decode('utf-8')

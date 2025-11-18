@@ -1,0 +1,191 @@
+---
+title: "Browser Automation MCP"
+description: "Expose browser-use capabilities via Model Context Protocol for AI assistants like Claude Desktop"
+icon: "server"
+mode: "wide"
+---
+
+## Overview
+
+The MCP (Model Context Protocol) Server allows you to expose browser-use's browser automation capabilities to AI assistants like Claude Desktop, Cline, and other MCP-compatible clients. This enables AI assistants to perform web automation tasks directly through browser-use.
+
+## Quick Start
+
+### Start MCP Server
+
+```bash
+uvx browser-use --mcp
+```
+
+The server will start in stdio mode, ready to accept MCP connections.
+
+## Claude Desktop Integration
+
+The most common use case is integrating with Claude Desktop. Add this configuration to your Claude Desktop config file:
+
+### macOS
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "uvx",
+      "args": ["browser-use", "--mcp"],
+      "env": {
+        "OPENAI_API_KEY": "your-openai-api-key-here"
+      }
+    }
+  }
+}
+```
+
+### Windows
+Edit `%APPDATA%\Claude\claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "uvx",
+      "args": ["browser-use", "--mcp"],
+      "env": {
+        "OPENAI_API_KEY": "your-openai-api-key-here"
+      }
+    }
+  }
+}
+```
+
+### Environment Variables
+
+You can configure browser-use through environment variables:
+
+- `OPENAI_API_KEY` - Your OpenAI API key (required)
+- `ANTHROPIC_API_KEY` - Your Anthropic API key (alternative to OpenAI)
+- `BROWSER_USE_HEADLESS` - Set to `false` to show browser window
+- `BROWSER_USE_DISABLE_SECURITY` - Set to `true` to disable browser security features
+
+## Available Tools
+
+The MCP server exposes these browser automation tools:
+
+### Autonomous Agent Tools
+- **`retry_with_browser_use_agent`** - Run a complete browser automation task with an AI agent (use as last resort when direct control fails)
+
+### Direct Browser Control
+- **`browser_navigate`** - Navigate to a URL
+- **`browser_click`** - Click on an element by index
+- **`browser_type`** - Type text into an element
+- **`browser_get_state`** - Get current page state and interactive elements
+- **`browser_scroll`** - Scroll the page
+- **`browser_go_back`** - Go back in browser history
+
+### Tab Management
+- **`browser_list_tabs`** - List all open browser tabs
+- **`browser_switch_tab`** - Switch to a specific tab
+- **`browser_close_tab`** - Close a tab
+
+### Content Extraction
+- **`browser_extract_content`** - Extract structured content from the current page
+
+### Session Management
+- **`browser_list_sessions`** - List all active browser sessions with details
+- **`browser_close_session`** - Close a specific browser session by ID
+- **`browser_close_all`** - Close all active browser sessions
+
+## Example Usage
+
+Once configured with Claude Desktop, you can ask Claude to perform browser automation tasks:
+
+```
+"Please navigate to example.com and take a screenshot"
+
+"Search for 'browser automation' on Google and summarize the first 3 results"
+
+"Go to GitHub, find the browser-use repository, and tell me about the latest release"
+```
+
+Claude will use the MCP server to execute these tasks through browser-use.
+
+## Programmatic Usage
+
+You can also connect to the MCP server programmatically:
+
+```python
+import asyncio
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+async def use_browser_mcp():
+    # Connect to browser-use MCP server
+    server_params = StdioServerParameters(
+        command="uvx", 
+        args=["browser-use", "--mcp"]
+    )
+    
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            
+            # Navigate to a website
+            result = await session.call_tool(
+                "browser_navigate", 
+                arguments={"url": "https://example.com"}
+            )
+            print(result.content[0].text)
+            
+            # Get page state
+            result = await session.call_tool(
+                "browser_get_state", 
+                arguments={"include_screenshot": True}
+            )
+            print("Page state retrieved!")
+
+asyncio.run(use_browser_mcp())
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**"MCP SDK is required" Error**
+```bash
+uv pip install 'browser-use'
+```
+
+**Browser doesn't start**
+- Check that you have Chrome/Chromium installed
+- Try setting `BROWSER_USE_HEADLESS=false` to see browser window
+- Ensure no other browser instances are using the same profile
+
+**API Key Issues**
+- Verify your `OPENAI_API_KEY` is set correctly
+- Check API key permissions and billing status
+- Try using `ANTHROPIC_API_KEY` as an alternative
+
+**Connection Issues in Claude Desktop**
+- Restart Claude Desktop after config changes
+- Check the config file syntax is valid JSON
+- Verify the file path is correct for your OS
+
+### Debug Mode
+
+Enable debug logging by setting:
+```bash
+export BROWSER_USE_LOG_LEVEL=DEBUG
+uvx browser-use --mcp
+```
+
+## Security Considerations
+
+- The MCP server has access to your browser and file system
+- Only connect trusted MCP clients
+- Be cautious with sensitive websites and data
+- Consider running in a sandboxed environment for untrusted automation
+
+## Next Steps
+
+- Explore the [examples directory](https://github.com/browser-use/browser-use/tree/main/examples/mcp) for more usage patterns
+- Check out [MCP documentation](https://modelcontextprotocol.io/) to learn more about the protocol
+- Join our [Discord](https://link.browser-use.com/discord) for support and discussions
