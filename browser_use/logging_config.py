@@ -109,6 +109,22 @@ def setup_logging(stream=None, log_level=None, force_setup=False, debug_log_file
 					parts = record.name.split('.')
 					if len(parts) >= 2:
 						record.name = parts[-1]
+
+			# Sanitize sensitive data from log messages
+			from browser_use.utils import sanitize_sensitive_data
+
+			if record.msg and isinstance(record.msg, str):
+				record.msg = sanitize_sensitive_data(record.msg)
+			# Also sanitize args if they exist
+			if record.args:
+				sanitized_args = []
+				for arg in record.args:
+					if isinstance(arg, str):
+						sanitized_args.append(sanitize_sensitive_data(arg))
+					else:
+						sanitized_args.append(arg)
+				record.args = tuple(sanitized_args)
+
 			return super().format(record)
 
 	# Setup single handler for all loggers

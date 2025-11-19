@@ -670,6 +670,41 @@ def _log_pretty_url(s: str, max_len: int | None = 22) -> str:
 	return s
 
 
+def sanitize_sensitive_data(text: str) -> str:
+	"""
+	Sanitize sensitive data from text (error messages, logs, etc).
+	Redacts API keys, tokens, passwords, and other sensitive information.
+
+	Args:
+		text: The text to sanitize
+
+	Returns:
+		Sanitized text with sensitive data redacted
+	"""
+	if not text:
+		return text
+
+	# Pattern for common API key formats
+	# Matches: api_key, apikey, token, password, secret, authorization, etc.
+	patterns = [
+		# API keys in various formats (e.g., 'api_key': 'sk-...')
+		# This must come first to catch keys with field names
+		(r"(['\"]?(?:api[_-]?key|apikey|token|password|secret|auth(?:orization)?)['\"]?\s*[:=]\s*['\"]?)([a-zA-Z0-9_\-]{8,})(['\"]?)", r'\1[REDACTED]\3'),
+		# Bearer tokens
+		(r'(Bearer\s+)([a-zA-Z0-9_\-\.]{20,})', r'\1[REDACTED]'),
+		# Keys in URL query params (e.g., ?api_key=xxx or &token=xxx)
+		(r'([?&](?:api[_-]?key|apikey|token|password|secret|auth)=)([a-zA-Z0-9_\-]{8,})', r'\1[REDACTED]'),
+		# Common API key prefixes: sk-, pk-, rk-, csk-, etc.
+		(r'\b([a-z]{1,4}sk-[a-zA-Z0-9_\-]{20,})', r'[REDACTED]'),
+	]
+
+	sanitized = text
+	for pattern, replacement in patterns:
+		sanitized = re.sub(pattern, replacement, sanitized)
+
+	return sanitized
+
+
 def create_task_with_error_handling(
 	coro: Coroutine[Any, Any, T],
 	*,
@@ -710,12 +745,13 @@ def create_task_with_error_handling(
 			exc = t.exception()
 			if exc is not None:
 				task_name = t.get_name() if hasattr(t, 'get_name') else 'unnamed'
+				sanitized_msg = sanitize_sensitive_data(str(exc))
 				if suppress_exceptions:
-					log.error(f'Exception in background task [{task_name}]: {type(exc).__name__}: {exc}', exc_info=exc)
+					log.error(f'Exception in background task [{task_name}]: {type(exc).__name__}: {sanitized_msg}', exc_info=exc)
 				else:
 					# Log at warning level then mark for re-raising
 					log.warning(
-						f'Exception in background task [{task_name}]: {type(exc).__name__}: {exc}',
+						f'Exception in background task [{task_name}]: {type(exc).__name__}: {sanitized_msg}',
 						exc_info=exc,
 					)
 					exc_to_raise = exc
@@ -725,7 +761,8 @@ def create_task_with_error_handling(
 		except Exception as e:
 			# Catch any other exception during exception handling (e.g., t.exception() itself failing)
 			task_name = t.get_name() if hasattr(t, 'get_name') else 'unnamed'
-			log.error(f'Error handling exception in task [{task_name}]: {type(e).__name__}: {e}')
+			sanitized_msg = sanitize_sensitive_data(str(e))
+			log.error(f'Error handling exception in task [{task_name}]: {type(e).__name__}: {sanitized_msg}')
 
 		# Re-raise outside the try-except block so it propagates to the event loop
 		if exc_to_raise is not None:

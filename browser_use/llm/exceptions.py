@@ -1,3 +1,6 @@
+from browser_use.utils import sanitize_sensitive_data
+
+
 class ModelError(Exception):
 	pass
 
@@ -11,8 +14,9 @@ class ModelProviderError(ModelError):
 		status_code: int = 502,
 		model: str | None = None,
 	):
-		super().__init__(message)
-		self.message = message
+		sanitized_message = sanitize_sensitive_data(message)
+		super().__init__(sanitized_message)
+		self.message = sanitized_message
 		self.status_code = status_code
 		self.model = model
 

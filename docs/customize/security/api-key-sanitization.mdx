@@ -1,0 +1,126 @@
+---
+title: 'API Key Sanitization'
+description: 'Automatic sanitization of sensitive data in logs and error messages'
+---
+
+# API Key Sanitization
+
+Browser Use automatically sanitizes sensitive data (API keys, tokens, passwords, secrets) from error messages and logs to prevent accidental exposure.
+
+## Overview
+
+When errors occur or logs are generated, any sensitive data is automatically replaced with `[REDACTED]` to prevent:
+- Accidental exposure in shared logs
+- Security breaches if logs are leaked
+- API key theft from error messages
+- Credential exposure in support tickets
+
+## What Gets Sanitized
+
+The sanitization system detects and redacts:
+
+### API Keys
+- OpenAI format: `sk-proj-...`, `sk-...`
+- Cerebras format: `csk-...`
+- Generic API keys: `api_key='...'`, `apikey: "..."`
+
+### Tokens
+- Bearer tokens: `Bearer eyJ...`
+- Access tokens: `token='...'`
+- GitHub tokens: `ghp_...`
+
+### Passwords & Secrets
+- Password fields: `password='...'`
+- Secret keys: `secret: "..."`
+- Authorization headers
+
+### URL Parameters
+- Query string keys: `?api_key=...`, `&token=...`
+
+### Prefixed Keys
+- Keys with common prefixes like `sk-`, `pk-`, `csk-`, etc.
+
+## Automatic Sanitization
+
+Sanitization happens automatically in:
+
+1. **Exception Messages** - All custom exceptions sanitize their messages
+2. **Log Output** - All log messages are sanitized before display
+3. **Error Responses** - API error responses are sanitized
+
+```python
+from browser_use import Agent, ChatOpenAI
+
+# If an error occurs with your API key, it will be automatically sanitized
+agent = Agent(
+    task="Your task",
+    llm=ChatOpenAI(api_key="sk-proj-SENSITIVE_KEY_HERE")
+)
+
+# Any errors will show: api_key='[REDACTED]' instead of the real key
+```
+
+## Manual Sanitization
+
+You can also manually sanitize text:
+
+```python
+from browser_use import sanitize_sensitive_data
+
+# Sanitize any text
+error_msg = "API error: api_key='sk-proj-abc123' is invalid"
+safe_msg = sanitize_sensitive_data(error_msg)
+print(safe_msg)  # "API error: api_key='[REDACTED]' is invalid"
+```
+
+## Example
+
+```python
+from browser_use import sanitize_sensitive_data
+from browser_use.llm.exceptions import ModelProviderError
+
+# Example 1: Manual sanitization
+error = "Authentication failed: token='ghp_1234567890abcdefghijklmnop'"
+safe = sanitize_sensitive_data(error)
+print(safe)  # "Authentication failed: token='[REDACTED]'"
+
+# Example 2: Automatic in exceptions
+try:
+    raise ModelProviderError(
+        message="Invalid API key: sk-proj-abc123def456",
+        status_code=401
+    )
+except ModelProviderError as e:
+    print(e)  # "Invalid API key: [REDACTED]"
+```
+
+## Security Best Practices
+
+While sanitization helps prevent accidental exposure:
+
+1. **Never log API keys intentionally** - Use environment variables
+2. **Rotate compromised keys immediately** - If a key is exposed, rotate it
+3. **Use minimal permissions** - Limit API key permissions to what's needed
+4. **Monitor usage** - Watch for unusual API usage patterns
+5. **Use secrets management** - Consider using AWS Secrets Manager, HashiCorp Vault, etc.
+
+## Implementation Details
+
+The sanitization uses regex patterns to detect and replace sensitive data:
+- Preserves context (field names, structure)
+- Replaces only the sensitive value with `[REDACTED]`
+- Handles various quote styles and formats
+- Works with JSON, Python dicts, URLs, and plain text
+
+## Limitations
+
+- **Not foolproof** - Novel formats may not be detected
+- **Performance** - Adds minimal overhead to logging
+- **False positives** - Very long strings may be redacted even if not sensitive
+- **Already exposed data** - Cannot sanitize data already sent to external services
+
+## See Also
+
+- [Example: API Key Sanitization](/examples/features/sanitize_api_keys.py)
+- [Security Best Practices](#)
+- [Error Handling](#)
