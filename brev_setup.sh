@@ -62,7 +62,7 @@ async def main():
     print("🤖 Testing browser-use with Nemotron...")
 
     llm = ChatOpenAI(
-        model="nvidia/nemotron-nano-12b-v2-vl",
+        model="nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16",
         base_url="http://localhost:8000/v1",
         api_key="dummy",
         temperature=0.7,
@@ -86,13 +86,13 @@ EOF
 cat > "$EXAMPLES_DIR/start_vllm.sh" << 'EOF'
 #!/bin/bash
 echo "🚀 Starting vLLM server..."
-echo "📍 Model: nvidia/nemotron-nano-12b-v2-vl"
+echo "📍 Model: nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16"
 echo "🌐 API: http://localhost:8000/v1"
 echo ""
 echo "⏳ This will take 2-3 minutes to load the model..."
 echo ""
 
-vllm serve nvidia/nemotron-nano-12b-v2-vl \
+vllm serve nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16 \
     --port 8000 \
     --gpu-memory-utilization 0.9 \
     --max-model-len 8192 \
@@ -159,8 +159,9 @@ agent = Agent(
 
 ## Requirements
 
-- GPU: A100 40GB minimum
-- VRAM: ~24GB for model
+- GPU: A100 80GB (recommended) or A100 40GB (tight fit)
+- VRAM: ~24GB for BF16 model
+- Model: NVIDIA-Nemotron-Nano-12B-v2-VL-BF16 (full precision)
 EOF
 
 # Set ownership
