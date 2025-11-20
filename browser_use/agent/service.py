@@ -1751,6 +1751,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self,
 		step: int,
 		max_steps: int,
+		step_timeout: int,
 		step_info: AgentStepInfo,
 		on_step_start: AgentHookFunc | None = None,
 		on_step_end: AgentHookFunc | None = None,
@@ -1775,7 +1776,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		try:
 			await asyncio.wait_for(
 				self.step(step_info),
-				timeout=180,  # 3 minute timeout
+				timeout=step_timeout,
 			)
 			self.logger.debug(f'✅ Completed step {step + 1}/{max_steps}')
 		except TimeoutError:
@@ -1911,8 +1912,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					break
 
 				step_info = AgentStepInfo(step_number=current_step, max_steps=max_steps)
-				is_done = await self._execute_step(current_step, max_steps, step_info, on_step_start, on_step_end)
-
+				is_done = await self._execute_step(
+					current_step, max_steps, self.settings.step_timeout, step_info, on_step_start, on_step_end
+				)
 				if is_done:
 					# Agent has marked the task as done
 					if self._demo_mode_enabled and self.history.history:
