@@ -13,16 +13,14 @@ To get started with Browser Use you need to install the package and create an `.
 ## 1. Installing Browser-Use
 
 
-```bash create environment
-pip install uv
-uv venv --python 3.12
+```bash create environment with uv (Python>=3.11)
+uv init
 ```
-```bash activate environment
-source .venv/bin/activate
-# On Windows use `.venv\Scripts\activate`
+```bash install browser-use package
+uv add browser-use
+uv sync
 ```
-```bash install browser-use & chromium
-uv pip install browser-use
+```bash install Chromium browser
 uvx browser-use install
 ```
 
@@ -69,67 +67,103 @@ See [Supported Models](/supported-models) for more.
 
 <CodeGroup>
 ```python Browser Use
-from browser_use import Agent, ChatBrowserUse
+from browser_use import Agent, Browser, ChatBrowserUse
 from dotenv import load_dotenv
 import asyncio
 
 load_dotenv()
 
 async def main():
+    browser = Browser(use_cloud=False)
+
     llm = ChatBrowserUse()
-    task = "Find the number 1 post on Show HN"
-    agent = Agent(task=task, llm=llm)
+
+    task = 'Find the number of stars of the browser-use repository on GitHub'
+    
+    agent = Agent(
+        browser=browser,
+        task=task,
+        llm=llm,
+    )
+
     await agent.run()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     asyncio.run(main())
 ```
 ```python Google
-from browser_use import Agent, ChatGoogle
+from browser_use import Agent, Browser, ChatGoogle
 from dotenv import load_dotenv
 import asyncio
 
 load_dotenv()
 
 async def main():
+    browser = Browser(use_cloud=False)
+    
     llm = ChatGoogle(model="gemini-flash-latest")
-    task = "Find the number 1 post on Show HN"
-    agent = Agent(task=task, llm=llm)
+
+    task = 'Find the number of stars of the browser-use repository on GitHub'
+    
+    agent = Agent(
+        browser=browser,
+        task=task,
+        llm=llm,
+    )
+
     await agent.run()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     asyncio.run(main())
 ```
 ```python OpenAI
-from browser_use import Agent, ChatOpenAI
+from browser_use import Agent, Browser, ChatOpenAI
 from dotenv import load_dotenv
 import asyncio
 
 load_dotenv()
 
 async def main():
-    llm = ChatOpenAI(model="gpt-4.1-mini")
-    task = "Find the number 1 post on Show HN"
-    agent = Agent(task=task, llm=llm)
+    browser = Browser(use_cloud=False)
+    
+    llm = ChatOpenAI(model="o3")
+    
+    task = 'Find the number of stars of the browser-use repository on GitHub'
+    
+    agent = Agent(
+        browser=browser,
+        task=task,
+        llm=llm,
+    )
+    
     await agent.run()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     asyncio.run(main())
 ```
 ```python Anthropic
-from browser_use import Agent, ChatAnthropic
+from browser_use import Agent, Browser, ChatAnthropic
 from dotenv import load_dotenv
 import asyncio
 
 load_dotenv()
 
 async def main():
+    browser = Browser(use_cloud=False)
+
     llm = ChatAnthropic(model='claude-sonnet-4-0', temperature=0.0)
-    task = "Find the number 1 post on Show HN"
-    agent = Agent(task=task, llm=llm)
+    
+    task = 'Find the number of stars of the browser-use repository on GitHub'
+    
+    agent = Agent(
+        browser=browser,
+        task=task,
+        llm=llm,
+    )
+
     await agent.run()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     asyncio.run(main())
 ```
 </CodeGroup>
