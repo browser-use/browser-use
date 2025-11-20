@@ -52,6 +52,8 @@ class AgentTelemetryEvent(BaseTelemetryEvent):
 	judge_verdict: bool | None = None
 	judge_reasoning: str | None = None
 	judge_failure_reason: str | None = None
+	judge_reached_captcha: bool | None = None
+	judge_impossible_task: bool | None = None
 
 	name: str = 'agent_event'
 

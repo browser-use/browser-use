@@ -51,6 +51,7 @@ from browser_use.agent.views import (
 	AgentStepInfo,
 	AgentStructuredOutput,
 	BrowserStateHistory,
+	DetectedVariable,
 	JudgementResult,
 	StepMetadata,
 )
@@ -215,7 +216,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Auto-configure llm_screenshot_size for Claude Sonnet models
 		if llm_screenshot_size is None:
 			model_name = getattr(llm, 'model', '')
-			if isinstance(model_name, str) and model_name.startswith('claude-sonnet'):
+			if isinstance(model_name, str) and (model_name.startswith('claude-sonnet') or 'browser-use' in model_name):
 				llm_screenshot_size = (1400, 850)
 				logger.info('🖼️  Auto-configured LLM screenshot size for Claude Sonnet: 1400x850')
 
@@ -233,6 +234,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				"""Determine timeout based on model name"""
 				model_name = getattr(llm_model, 'model', '').lower()
 				if 'gemini' in model_name:
+					if '3-pro' in model_name:
+						return 90
 					return 45
 				elif 'groq' in model_name:
 					return 30
@@ -897,10 +900,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			return
 
 		if browser_state_summary:
+			step_interval = None
+			if len(self.history.history) > 0:
+				last_history_item = self.history.history[-1]
+
+				if last_history_item.metadata:
+					previous_end_time = last_history_item.metadata.step_end_time
+					step_interval = max(0, self.step_start_time - previous_end_time)
 			metadata = StepMetadata(
 				step_number=self.state.n_steps,
 				step_start_time=self.step_start_time,
 				step_end_time=step_end_time,
+				step_interval=step_interval,
 			)
 
 			# Use _make_history_item like main branch
@@ -1521,6 +1532,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		judge_verdict = judgement_data.get('verdict') if judgement_data else None
 		judge_reasoning = judgement_data.get('reasoning') if judgement_data else None
 		judge_failure_reason = judgement_data.get('failure_reason') if judgement_data else None
+		judge_reached_captcha = judgement_data.get('reached_captcha') if judgement_data else None
+		judge_impossible_task = judgement_data.get('impossible_task') if judgement_data else None
 
 		self.telemetry.capture(
 			AgentTelemetryEvent(
@@ -1551,6 +1564,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				judge_verdict=judge_verdict,
 				judge_reasoning=judge_reasoning,
 				judge_failure_reason=judge_failure_reason,
+				judge_reached_captcha=judge_reached_captcha,
+				judge_impossible_task=judge_impossible_task,
 			)
 		)
 
@@ -1869,11 +1884,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			except Exception as e:
 				raise e
 
-			self.logger.debug(f'🔄 Starting main execution loop with max {max_steps} steps...')
-			for step in range(max_steps):
+			self.logger.debug(
+				f'🔄 Starting main execution loop with max {max_steps} steps (currently at step {self.state.n_steps})...'
+			)
+			while self.state.n_steps <= max_steps:
+				current_step = self.state.n_steps - 1  # Convert to 0-indexed for step_info
+
 				# Use the consolidated pause state management
 				if self.state.paused:
-					self.logger.debug(f'⏸️ Step {step}: Agent paused, waiting to resume...')
+					self.logger.debug(f'⏸️ Step {self.state.n_steps}: Agent paused, waiting to resume...')
 					await self._external_pause_event.wait()
 					signal_handler.reset()
 
@@ -1891,8 +1910,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					agent_run_error = 'Agent stopped programmatically'
 					break
 
-				step_info = AgentStepInfo(step_number=step, max_steps=max_steps)
-				is_done = await self._execute_step(step, max_steps, step_info, on_step_start, on_step_end)
+				step_info = AgentStepInfo(step_number=current_step, max_steps=max_steps)
+				is_done = await self._execute_step(current_step, max_steps, step_info, on_step_start, on_step_end)
 
 				if is_done:
 					# Agent has marked the task as done
@@ -2187,10 +2206,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				results.append(ActionResult(error='No action to replay'))
 				continue
 
+			if history_item.metadata and history_item.metadata.step_interval is not None:
+				step_delay = history_item.metadata.step_interval
+			else:
+				step_delay = delay_between_actions
+
 			retry_count = 0
 			while retry_count < max_retries:
 				try:
-					result = await self._execute_history_step(history_item, delay_between_actions)
+					result = await self._execute_history_step(history_item, step_delay)
 					results.extend(result)
 					break
 
@@ -2236,11 +2260,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					action=self.initial_actions,
 				)
 
-			metadata = StepMetadata(
-				step_number=0,
-				step_start_time=time.time(),
-				step_end_time=time.time(),
-			)
+			metadata = StepMetadata(step_number=0, step_start_time=time.time(), step_end_time=time.time(), step_interval=None)
 
 			# Create minimal browser state history for initial actions
 			state_history = BrowserStateHistory(
@@ -2265,6 +2285,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def _execute_history_step(self, history_item: AgentHistory, delay: float) -> list[ActionResult]:
 		"""Execute a single step from history with element validation"""
 		assert self.browser_session is not None, 'BrowserSession is not set up'
+
+		await asyncio.sleep(delay)
 		state = await self.browser_session.get_browser_state_summary(include_screenshot=False)
 		if not state or not history_item.model_output:
 			raise ValueError('Invalid state or model output')
@@ -2281,8 +2303,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				raise ValueError(f'Could not find matching element {i} in current page')
 
 		result = await self.multi_act(updated_actions)
-
-		await asyncio.sleep(delay)
 		return result
 
 	async def _update_action_indices(
@@ -2477,3 +2497,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		import asyncio
 
 		return asyncio.run(self.run(max_steps=max_steps, on_step_start=on_step_start, on_step_end=on_step_end))
+
+	def detect_variables(self) -> dict[str, DetectedVariable]:
+		"""Detect variables in current agent history"""
+		from browser_use.agent.variable_detector import detect_variables_in_history
+
+		return detect_variables_in_history(self.history)

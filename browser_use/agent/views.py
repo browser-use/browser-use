@@ -159,6 +159,7 @@ class StepMetadata(BaseModel):
 	step_start_time: float
 	step_end_time: float
 	step_number: int
+	step_interval: float | None = None
 
 	@property
 	def duration_seconds(self) -> float:
@@ -753,3 +754,18 @@ class AgentError:
 		if include_trace:
 			return f'{str(error)}\nStacktrace:\n{traceback.format_exc()}'
 		return f'{str(error)}'
+
+
+class DetectedVariable(BaseModel):
+	"""A detected variable in agent history"""
+
+	name: str
+	original_value: str
+	type: str = 'string'
+	format: str | None = None
+
+
+class VariableMetadata(BaseModel):
+	"""Metadata about detected variables in history"""
+
+	detected_variables: dict[str, DetectedVariable] = Field(default_factory=dict)

@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from browser_use import Agent
-from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.browser_use.chat import ChatBrowserUse
 
 # task from GAIA
 task = """
@@ -27,7 +27,7 @@ Round your result to the nearest 1000 hours and do not use any comma separators 
 
 
 async def main():
-	llm = ChatGoogle(model='gemini-2.5-flash', temperature=1.0)
+	llm = ChatBrowserUse(base_url='http://localhost:8080')
 	agent = Agent(
 		task=task,
 		llm=llm,
@@ -36,6 +36,11 @@ async def main():
 		ground_truth='16',  # The TRUE answer is 17 but we put 16 to demonstrate judge can detect when the answer is wrong.
 	)
 	history = await agent.run()
+
+	# Get the judgement result
+	if history.is_judged():
+		judgement = history.judgement()
+		print(f'Agent history judgement: {judgement}')
 
 
 if __name__ == '__main__':
