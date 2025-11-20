@@ -40,6 +40,16 @@ class ChatAzureOpenAI(ChatOpenAILike):
 	def provider(self) -> str:
 		return 'azure'
 
+	def __repr__(self) -> str:
+		"""Safe repr that doesn't expose API keys"""
+		from browser_use.llm.sanitization import sanitize_api_key
+		return f'ChatAzureOpenAI(model={self.model!r}, api_key={sanitize_api_key(self.api_key)!r})'
+
+	def __str__(self) -> str:
+		"""Safe str that doesn't expose API keys"""
+		from browser_use.llm.sanitization import sanitize_api_key
+		return f'ChatAzureOpenAI(model={self.model}, api_key={sanitize_api_key(self.api_key)})'
+
 	def _get_client_params(self) -> dict[str, Any]:
 		_client_params: dict[str, Any] = {}
 

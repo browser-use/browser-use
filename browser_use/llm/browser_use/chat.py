@@ -78,6 +78,16 @@ class ChatBrowserUse(BaseChatModel):
 	def name(self) -> str:
 		return self.model
 
+	def __repr__(self) -> str:
+		"""Safe repr that doesn't expose API keys"""
+		from browser_use.llm.sanitization import sanitize_api_key
+		return f'ChatBrowserUse(model={self.model!r}, api_key={sanitize_api_key(self.api_key)!r})'
+
+	def __str__(self) -> str:
+		"""Safe str that doesn't expose API keys"""
+		from browser_use.llm.sanitization import sanitize_api_key
+		return f'ChatBrowserUse(model={self.model}, api_key={sanitize_api_key(self.api_key)})'
+
 	@overload
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: None = None, request_type: str = 'browser_agent'

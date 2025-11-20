@@ -98,6 +98,14 @@ class ChatOCIRaw(BaseChatModel):
 	def model(self) -> str:
 		return self.model_id
 
+	def __repr__(self) -> str:
+		"""Safe repr that doesn't expose sensitive data"""
+		return f'ChatOCIRaw(model_id={self.model_id!r}, provider={self.provider!r}, compartment_id=***)'
+
+	def __str__(self) -> str:
+		"""Safe str that doesn't expose sensitive data"""
+		return f'ChatOCIRaw(model_id={self.model_id}, provider={self.provider}, compartment_id=***)'
+
 	@property
 	def model_name(self) -> str:
 		# Override for telemetry - return shorter name (max 100 chars)
