@@ -706,6 +706,51 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if self.state.paused:
 			raise InterruptedError
 
+	def _is_stuck_in_failure_loop(self) -> bool:
+		"""Detect if agent is repeating the same failure pattern.
+
+		This prevents infinite loops when the agent encounters the same error repeatedly
+		(e.g., "empty page", "element not found", etc.)
+
+		Returns:
+			True if stuck in a failure loop, False otherwise
+		"""
+		# Need at least 3 recent steps to detect a pattern
+		if len(self.history.history) < 3:
+			return False
+
+		# Get last 3 steps' errors
+		recent_errors = []
+		for h in self.history.history[-3:]:
+			if h.result and len(h.result) > 0 and h.result[-1].error:
+				recent_errors.append(str(h.result[-1].error).lower())
+
+		# If we don't have 3 errors, not stuck yet
+		if len(recent_errors) < 3:
+			return False
+
+		# Check for repeated error patterns
+		error_patterns = [
+			'empty',
+			'not available',
+			'not found',
+			'failed',
+			'timeout',
+			'cdp',
+		]
+
+		for pattern in error_patterns:
+			if all(pattern in error for error in recent_errors):
+				self.logger.warning(f'🔄 Detected failure loop: all recent errors contain "{pattern}"')
+				return True
+
+		# Check if all errors are identical
+		if len(set(recent_errors)) == 1:
+			self.logger.warning('🔄 Detected failure loop: identical errors repeated 3 times')
+			return True
+
+		return False
+
 	@observe(name='agent.step', ignore_output=True, ignore_input=True)
 	@time_execution_async('--step')
 	async def step(self, step_info: AgentStepInfo | None = None) -> None:
@@ -861,16 +906,28 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	async def _handle_step_error(self, error: Exception) -> None:
 		"""Handle all types of errors that can occur during a step"""
 
-		# Handle InterruptedError specially
+		# Handle InterruptedError - don't log as failure
 		if isinstance(error, InterruptedError):
 			error_msg = 'The agent was interrupted mid-step' + (f' - {str(error)}' if str(error) else '')
-			# NOTE: This is not an error, it's a normal part of the execution when the user interrupts the agent
 			self.logger.warning(f'{error_msg}')
 			return
 
 		# Handle all other exceptions
 		include_trace = self.logger.isEnabledFor(logging.DEBUG)
 		error_msg = AgentError.format_error(error, include_trace=include_trace)
+
+		# NEW: Detect CDP/browser errors that indicate serious problems
+		is_cdp_error = False
+		error_str = str(error)
+		error_type = type(error).__name__
+
+		if any(indicator in error_str for indicator in ['CDP', 'cdp', 'Frame with the given frameId']):
+			is_cdp_error = True
+			self.logger.error(f'🌐 Browser CDP error encountered: {error_type}')
+		elif error_type in ['TimeoutError', 'RuntimeError'] and 'CDP' in error_str:
+			is_cdp_error = True
+			self.logger.error(f'🌐 Browser timeout/runtime error: {error_type}')
+
 		max_total_failures = self.settings.max_failures + int(self.settings.final_response_after_failure)
 		prefix = f'❌ Result failed {self.state.consecutive_failures + 1}/{max_total_failures} times: '
 		self.state.consecutive_failures += 1
@@ -878,6 +935,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Use WARNING for partial failures, ERROR only when max failures reached
 		is_final_failure = self.state.consecutive_failures >= max_total_failures
 		log_level = logging.ERROR if is_final_failure else logging.WARNING
+
+		# Add extra context for CDP errors
+		if is_cdp_error:
+			self.logger.warning('⚠️  CDP/Browser errors can cause infinite loops - consider stopping if repeated')
 
 		if 'Could not parse response' in error_msg or 'tool_use_failed' in error_msg:
 			# give model a hint how output should look like
@@ -1869,11 +1930,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			except Exception as e:
 				raise e
 
-			self.logger.debug(f'🔄 Starting main execution loop with max {max_steps} steps...')
-			for step in range(max_steps):
+			self.logger.debug(
+				f'🔄 Starting main execution loop with max {max_steps} steps (currently at step {self.state.n_steps})...'
+			)
+			while self.state.n_steps <= max_steps:
+				current_step = self.state.n_steps - 1  # Convert to 0-indexed for step_info
+
 				# Use the consolidated pause state management
 				if self.state.paused:
-					self.logger.debug(f'⏸️ Step {step}: Agent paused, waiting to resume...')
+					self.logger.debug(f'⏸️ Step {self.state.n_steps}: Agent paused, waiting to resume...')
 					await self._external_pause_event.wait()
 					signal_handler.reset()
 
@@ -1891,8 +1956,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					agent_run_error = 'Agent stopped programmatically'
 					break
 
-				step_info = AgentStepInfo(step_number=step, max_steps=max_steps)
-				is_done = await self._execute_step(step, max_steps, step_info, on_step_start, on_step_end)
+				# NEW: Check if stuck in failure loop
+				if self.state.n_steps > 1 and self._is_stuck_in_failure_loop():
+					self.logger.error('🔄 Agent stuck in failure loop - forcing exit')
+					agent_run_error = 'Agent stuck repeating the same failures'
+					break
+
+				step_info = AgentStepInfo(step_number=current_step, max_steps=max_steps)
+				is_done = await self._execute_step(current_step, max_steps, step_info, on_step_start, on_step_end)
 
 				if is_done:
 					# Agent has marked the task as done
