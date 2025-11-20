@@ -153,6 +153,16 @@ class ActionResult(BaseModel):
 		return self
 
 
+class RerunSummaryAction(BaseModel):
+	"""AI-generated summary for rerun completion"""
+
+	summary: str = Field(description='Summary of what happened during the rerun')
+	success: bool = Field(description='Whether the rerun completed successfully based on visual inspection')
+	completion_status: Literal['complete', 'partial', 'failed'] = Field(
+		description='Status of rerun completion: complete (all steps succeeded), partial (some steps succeeded), failed (task did not complete)'
+	)
+
+
 class StepMetadata(BaseModel):
 	"""Metadata for a single step including timing and token information"""
 

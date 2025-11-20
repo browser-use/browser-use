@@ -906,7 +906,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 				if last_history_item.metadata:
 					previous_end_time = last_history_item.metadata.step_end_time
-					step_interval = max(0, self.step_start_time - previous_end_time)
+					previous_start_time = last_history_item.metadata.step_start_time
+					step_interval = max(0, previous_end_time - previous_start_time)
 			metadata = StepMetadata(
 				step_number=self.state.n_steps,
 				step_start_time=self.step_start_time,
@@ -2164,12 +2165,104 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.info('✅ Task completed successfully')
 			await self._demo_mode_log('Task completed successfully', 'success', {'tag': 'task'})
 
+	async def _generate_rerun_summary(
+		self, original_task: str, results: list[ActionResult], summary_llm: BaseChatModel | None = None
+	) -> ActionResult:
+		"""Generate AI summary of rerun completion using screenshot and last step info"""
+		from browser_use.agent.views import RerunSummaryAction
+
+		# Get current screenshot
+		screenshot_b64 = None
+		try:
+			screenshot = await self.browser_session.take_screenshot(full_page=False)
+			if screenshot:
+				import base64
+
+				screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
+		except Exception as e:
+			self.logger.warning(f'Failed to capture screenshot for rerun summary: {e}')
+
+		# Build summary prompt and message
+		error_count = sum(1 for r in results if r.error)
+		success_count = len(results) - error_count
+
+		from browser_use.agent.prompts import get_rerun_summary_message, get_rerun_summary_prompt
+
+		prompt = get_rerun_summary_prompt(
+			original_task=original_task,
+			total_steps=len(results),
+			success_count=success_count,
+			error_count=error_count,
+		)
+
+		# Use provided LLM, agent's LLM, or fall back to OpenAI with structured output
+		try:
+			# Determine which LLM to use
+			if summary_llm is None:
+				# Try to use the agent's LLM first
+				summary_llm = self.llm
+				self.logger.debug('Using agent LLM for rerun summary')
+			else:
+				self.logger.debug(f'Using provided LLM for rerun summary: {summary_llm.model}')
+
+			# Build message with prompt and optional screenshot
+			from browser_use.llm.messages import BaseMessage
+
+			message = get_rerun_summary_message(prompt, screenshot_b64)
+			messages: list[BaseMessage] = [message]  # type: ignore[list-item]
+
+			# Try calling with structured output first
+			self.logger.debug(f'Calling LLM for rerun summary with {len(messages)} message(s)')
+			try:
+				kwargs: dict = {'output_format': RerunSummaryAction}
+				response = await summary_llm.ainvoke(messages, **kwargs)
+				summary: RerunSummaryAction = response.completion  # type: ignore[assignment]
+				self.logger.debug(f'LLM response type: {type(summary)}')
+				self.logger.debug(f'LLM response: {summary}')
+			except Exception as structured_error:
+				# If structured output fails (e.g., Browser-Use LLM doesn't support it for this type),
+				# fall back to text response without parsing
+				self.logger.debug(f'Structured output failed: {structured_error}, falling back to text response')
+
+				response = await summary_llm.ainvoke(messages, None)
+				response_text = response.completion
+				self.logger.debug(f'LLM text response: {response_text}')
+
+				# Use the text response directly as the summary
+				summary = RerunSummaryAction(
+					summary=response_text if isinstance(response_text, str) else str(response_text),
+					success=error_count == 0,
+					completion_status='complete' if error_count == 0 else ('partial' if success_count > 0 else 'failed'),
+				)
+
+			self.logger.info(f'📊 Rerun Summary: {summary.summary}')
+			self.logger.info(f'📊 Status: {summary.completion_status} (success={summary.success})')
+
+			return ActionResult(
+				is_done=True,
+				success=summary.success,
+				extracted_content=summary.summary,
+				long_term_memory=f'Rerun completed with status: {summary.completion_status}. {summary.summary[:100]}',
+			)
+
+		except Exception as e:
+			self.logger.warning(f'Failed to generate AI summary: {e.__class__.__name__}: {e}')
+			self.logger.debug('Full error traceback:', exc_info=True)
+			# Fallback to simple summary
+			return ActionResult(
+				is_done=True,
+				success=error_count == 0,
+				extracted_content=f'Rerun completed: {success_count}/{len(results)} steps succeeded',
+				long_term_memory=f'Rerun completed: {success_count} steps succeeded, {error_count} errors',
+			)
+
 	async def rerun_history(
 		self,
 		history: AgentHistoryList,
 		max_retries: int = 3,
 		skip_failures: bool = True,
 		delay_between_actions: float = 2.0,
+		summary_llm: BaseChatModel | None = None,
 	) -> list[ActionResult]:
 		"""
 		Rerun a saved history of actions with error handling and retry logic.
@@ -2179,9 +2272,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		                max_retries: Maximum number of retries per action
 		                skip_failures: Whether to skip failed actions or stop execution
 		                delay_between_actions: Delay between actions in seconds
+		                summary_llm: Optional LLM to use for generating the final summary. If not provided, uses the agent's LLM
 
 		Returns:
-		                List of action results
+		                List of action results (including AI summary as the final result)
 		"""
 		# Skip cloud sync session events for rerunning (we're replaying, not starting new)
 		self.state.session_initialized = True
@@ -2195,7 +2289,25 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			goal = history_item.model_output.current_state.next_goal if history_item.model_output else ''
 			step_num = history_item.metadata.step_number if history_item.metadata else i
 			step_name = 'Initial actions' if step_num == 0 else f'Step {step_num}'
-			self.logger.info(f'Replaying {step_name} ({i + 1}/{len(history.history)}): {goal}')
+
+			# Determine step delay
+			if history_item.metadata and history_item.metadata.step_interval is not None:
+				step_delay = history_item.metadata.step_interval
+				# Format delay nicely - show ms for values < 1s, otherwise show seconds
+				if step_delay < 1.0:
+					delay_str = f'{step_delay * 1000:.0f}ms'
+				else:
+					delay_str = f'{step_delay:.1f}s'
+				delay_source = f'using saved step_interval={delay_str}'
+			else:
+				step_delay = delay_between_actions
+				if step_delay < 1.0:
+					delay_str = f'{step_delay * 1000:.0f}ms'
+				else:
+					delay_str = f'{step_delay:.1f}s'
+				delay_source = f'using default delay={delay_str}'
+
+			self.logger.info(f'Replaying {step_name} ({i + 1}/{len(history.history)}) [{delay_source}]: {goal}')
 
 			if (
 				not history_item.model_output
@@ -2205,11 +2317,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.logger.warning(f'{step_name}: No action to replay, skipping')
 				results.append(ActionResult(error='No action to replay'))
 				continue
-
-			if history_item.metadata and history_item.metadata.step_interval is not None:
-				step_delay = history_item.metadata.step_interval
-			else:
-				step_delay = delay_between_actions
 
 			retry_count = 0
 			while retry_count < max_retries:
@@ -2229,6 +2336,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					else:
 						self.logger.warning(f'{step_name} failed (attempt {retry_count}/{max_retries}), retrying...')
 						await asyncio.sleep(delay_between_actions)
+
+		# Generate AI summary of rerun completion
+		self.logger.info('🤖 Generating AI summary of rerun completion...')
+		summary_result = await self._generate_rerun_summary(self.task, results, summary_llm)
+		results.append(summary_result)
 
 		await self.close()
 		return results
@@ -2339,17 +2451,28 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		return action
 
-	async def load_and_rerun(self, history_file: str | Path | None = None, **kwargs) -> list[ActionResult]:
+	async def load_and_rerun(
+		self,
+		history_file: str | Path | None = None,
+		variables: dict[str, str] | None = None,
+		**kwargs,
+	) -> list[ActionResult]:
 		"""
-		Load history from file and rerun it.
+		Load history from file and rerun it, optionally substituting variables.
 
 		Args:
-		                history_file: Path to the history file
-		                **kwargs: Additional arguments passed to rerun_history
+			history_file: Path to the history file
+			variables: Optional dict mapping variable names to new values (e.g. {'email': 'new@example.com'})
+			**kwargs: Additional arguments passed to rerun_history
 		"""
 		if not history_file:
 			history_file = 'AgentHistory.json'
 		history = AgentHistoryList.load_from_file(history_file, self.AgentOutput)
+
+		# Substitute variables if provided
+		if variables:
+			history = self._substitute_variables_in_history(history, variables)
+
 		return await self.rerun_history(history, **kwargs)
 
 	def save_history(self, file_path: str | Path | None = None) -> None:
@@ -2499,7 +2622,91 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		return asyncio.run(self.run(max_steps=max_steps, on_step_start=on_step_start, on_step_end=on_step_end))
 
 	def detect_variables(self) -> dict[str, DetectedVariable]:
-		"""Detect variables in current agent history"""
+		"""Detect reusable variables in agent history"""
 		from browser_use.agent.variable_detector import detect_variables_in_history
 
 		return detect_variables_in_history(self.history)
+
+	def _substitute_variables_in_history(self, history: AgentHistoryList, variables: dict[str, str]) -> AgentHistoryList:
+		"""Substitute variables in history with new values for rerunning with different data"""
+		from browser_use.agent.variable_detector import detect_variables_in_history
+
+		# Detect variables in the history
+		detected_vars = detect_variables_in_history(history)
+
+		# Build a mapping of original values to new values
+		value_replacements: dict[str, str] = {}
+		for var_name, new_value in variables.items():
+			if var_name in detected_vars:
+				old_value = detected_vars[var_name].original_value
+				value_replacements[old_value] = new_value
+			else:
+				self.logger.warning(f'Variable "{var_name}" not found in history, skipping substitution')
+
+		if not value_replacements:
+			self.logger.info('No variables to substitute')
+			return history
+
+		# Create a deep copy of history to avoid modifying the original
+		import copy
+
+		modified_history = copy.deepcopy(history)
+
+		# Substitute values in all actions
+		substitution_count = 0
+		for history_item in modified_history.history:
+			if not history_item.model_output or not history_item.model_output.action:
+				continue
+
+			for action in history_item.model_output.action:
+				# Handle both Pydantic models and dicts
+				if hasattr(action, 'model_dump'):
+					action_dict = action.model_dump()
+				elif isinstance(action, dict):
+					action_dict = action
+				else:
+					action_dict = vars(action) if hasattr(action, '__dict__') else {}
+
+				# Substitute in all string fields
+				substitution_count += self._substitute_in_dict(action_dict, value_replacements)
+
+				# Update the action with modified values
+				if hasattr(action, 'model_dump'):
+					# For Pydantic RootModel, we need to recreate from the modified dict
+					if hasattr(action, 'root'):
+						# This is a RootModel - recreate it from the modified dict
+						new_action = type(action).model_validate(action_dict)
+						# Replace the root field in-place using object.__setattr__ to bypass Pydantic's immutability
+						object.__setattr__(action, 'root', getattr(new_action, 'root'))
+					else:
+						# Regular Pydantic model - update fields in-place
+						for key, val in action_dict.items():
+							if hasattr(action, key):
+								setattr(action, key, val)
+				elif isinstance(action, dict):
+					action.update(action_dict)
+
+		self.logger.info(f'Substituted {substitution_count} value(s) in {len(value_replacements)} variable type(s) in history')
+		return modified_history
+
+	def _substitute_in_dict(self, data: dict, replacements: dict[str, str]) -> int:
+		"""Recursively substitute values in a dictionary, returns count of substitutions made"""
+		count = 0
+		for key, value in data.items():
+			if isinstance(value, str):
+				# Replace if exact match
+				if value in replacements:
+					data[key] = replacements[value]
+					count += 1
+			elif isinstance(value, dict):
+				# Recurse into nested dicts
+				count += self._substitute_in_dict(value, replacements)
+			elif isinstance(value, list):
+				# Handle lists
+				for i, item in enumerate(value):
+					if isinstance(item, str) and item in replacements:
+						value[i] = replacements[item]
+						count += 1
+					elif isinstance(item, dict):
+						count += self._substitute_in_dict(item, replacements)
+		return count
