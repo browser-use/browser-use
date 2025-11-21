@@ -73,6 +73,32 @@ NOVITA_API_KEY=
 
 For other settings, models, and more, check out the [documentation 📕](https://docs.browser-use.com).
 
+## 💰 Cost Optimization
+
+For production deployments with high volumes, we recommend **Claude Haiku 4.5** for optimal cost efficiency:
+
+```python
+from langchain_anthropic import ChatAnthropic
+
+agent = Agent(
+    task="Your task here",
+    llm=ChatAnthropic(model_name="claude-haiku-4-5-20251001"),
+)
+```
+
+**Why Haiku 4.5?**
+- **3x cheaper** than Sonnet 4.5 ($1 input / $5 output per million tokens)
+- **4-5x faster** responses
+- **Similar coding performance** to Claude Sonnet 4
+- **Perfect for**: High-volume automation, cost-sensitive deployments, production workloads
+
+**Additional cost-saving tips:**
+- Use [Prompt Caching](https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching) for 90% discount on repeated system prompts
+- Consider [Message Batches API](https://docs.anthropic.com/en/api/creating-message-batches) for 50% discount on non-urgent tasks
+- Combined savings: Up to 95% cost reduction for cached + batched workflows
+
+For cost-sensitive production deployments, Haiku 4.5 with prompt caching can reduce costs to as low as **$0.50-$1.00/month** for typical automation workloads.
+
 ### Test with UI
 
 You can test browser-use using its [Web UI](https://github.com/browser-use/web-ui) or [Desktop App](https://github.com/browser-use/desktop).

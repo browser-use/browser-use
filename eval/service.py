@@ -318,6 +318,11 @@ SUPPORTED_MODELS = {
 		'model_name': 'claude-opus-4-20250514',
 		'api_key_env': 'ANTHROPIC_API_KEY',
 	},
+	'claude-haiku-4.5': {
+		'provider': 'anthropic',
+		'model_name': 'claude-haiku-4-5-20251001',
+		'api_key_env': 'ANTHROPIC_API_KEY',
+	},
 	# Deepseek (via OpenAI Compatible API)
 	'deepseek-reasoner': {
 		'provider': 'openai_compatible',

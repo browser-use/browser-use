@@ -691,7 +691,7 @@ class Agent(Generic[Context]):
 
 		# Anthropic models
 		elif self.chat_model_library in ['ChatAnthropic', 'AnthropicChat']:
-			if any(m in model_lower for m in ['claude-3', 'claude-2']):
+			if any(m in model_lower for m in ['claude-3', 'claude-2', 'claude-4', 'claude-haiku', 'claude-sonnet', 'claude-opus']):
 				return 'tools'
 
 		# Models known to not support tools
