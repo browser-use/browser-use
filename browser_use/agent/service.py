@@ -218,7 +218,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Auto-configure llm_screenshot_size for Claude Sonnet models
 		if llm_screenshot_size is None:
 			model_name = getattr(llm, 'model', '')
-			if isinstance(model_name, str) and (model_name.startswith('claude-sonnet') or 'browser-use' in model_name):
+			if isinstance(model_name, str) and model_name.startswith('claude-sonnet'):
 				llm_screenshot_size = (1400, 850)
 				logger.info('🖼️  Auto-configured LLM screenshot size for Claude Sonnet: 1400x850')
 
