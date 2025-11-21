@@ -22,7 +22,18 @@ if errorlevel 1 (
 echo ✓ Python is installed!
 
 echo.
-echo Step 2: Installing browser-use...
+echo Step 2: Installing playwright...
+pip install playwright
+if errorlevel 1 (
+    echo.
+    echo ERROR: Failed to install playwright
+    pause
+    exit /b 1
+)
+echo ✓ playwright installed!
+
+echo.
+echo Step 3: Installing browser-use...
 pip install browser-use
 if errorlevel 1 (
     echo.
@@ -33,25 +44,25 @@ if errorlevel 1 (
 echo ✓ browser-use installed!
 
 echo.
-echo Step 3: Installing browser (Chromium)...
+echo Step 4: Installing browser (Chromium)...
 echo This may take a few minutes and download ~150MB...
-playwright install chromium
+python -m playwright install chromium
 if errorlevel 1 (
     echo.
-    echo WARNING: Chromium install had issues, trying alternative method...
-    python -m playwright install chromium
-    if errorlevel 1 (
-        echo.
-        echo ERROR: Failed to install Chromium
-        echo You can try manually: python -m playwright install chromium
-        pause
-        exit /b 1
-    )
+    echo ERROR: Failed to install Chromium
+    echo.
+    echo Try this manually:
+    echo 1. Open Command Prompt as administrator
+    echo 2. Type: python -m playwright install chromium
+    echo 3. Wait for it to finish
+    echo.
+    pause
+    exit /b 1
 )
 echo ✓ Chromium installed!
 
 echo.
-echo Step 4: Installing CLI interface...
+echo Step 5: Installing CLI interface...
 pip install "browser-use[cli]"
 if errorlevel 1 (
     echo WARNING: CLI installation had issues
