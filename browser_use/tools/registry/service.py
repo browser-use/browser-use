@@ -306,6 +306,22 @@ class Registry(Generic[Context]):
 
 		return decorator
 
+	def unregister_action(self, action_name: str) -> bool:
+		"""
+		Unregister an action from the registry.
+
+		Args:
+		    action_name: Name of the action to unregister
+
+		Returns:
+		    True if action was unregistered, False if it didn't exist
+		"""
+		if action_name in self.registry.actions:
+			del self.registry.actions[action_name]
+			logger.debug(f'Unregistered action: {action_name}')
+			return True
+		return False
+
 	@observe_debug(ignore_input=True, ignore_output=True, name='execute_action')
 	@time_execution_async('--execute_action')
 	async def execute_action(

@@ -133,6 +133,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		browser: Browser | None = None,  # Alias for browser_session
 		tools: Tools[Context] | None = None,
 		controller: Tools[Context] | None = None,  # Alias for tools
+		# Blueprint integration
+		blueprint_service: Any | None = None,  # BlueprintService instance for dynamic actions
 		# Initial agent run parameters
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		initial_actions: list[dict[str, dict[str, Any]]] | None = None,
@@ -299,6 +301,23 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.output_model_schema = output_model_schema
 		if self.output_model_schema is not None:
 			self.tools.use_structured_output_action(self.output_model_schema)
+
+		# Blueprint service integration
+		self.blueprint_service = blueprint_service
+		if self.blueprint_service is None:
+			try:
+				from browser_use.blueprints.service import BlueprintService
+
+				self.blueprint_service = BlueprintService()
+				self.logger.debug('📘 Blueprint service initialized')
+			except ValueError as e:
+				# API key not set - blueprint service disabled
+				self.logger.debug(f'Blueprint service not available: {e}')
+				self.blueprint_service = None
+			except Exception as e:
+				# Other initialization errors
+				self.logger.debug(f'Failed to initialize blueprint service: {e}')
+				self.blueprint_service = None
 
 		self.sensitive_data = sensitive_data
 
@@ -760,6 +779,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self._log_step_context(browser_state_summary)
 		await self._check_stop_or_pause()
+
+		# Update blueprints for current domain
+		if self.blueprint_service:
+			try:
+				await self.blueprint_service.update_blueprints_for_url(browser_state_summary.url, self.tools)
+				self.logger.debug('📘 Blueprints updated for current domain')
+			except Exception as e:
+				self.logger.debug(f'Failed to update blueprints: {e}')
 
 		# Update action models with page-specific actions
 		self.logger.debug(f'📝 Step {self.state.n_steps}: Updating action models...')
