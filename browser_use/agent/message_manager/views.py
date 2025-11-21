@@ -32,7 +32,7 @@ class HistoryItem(BaseModel):
 
 	def to_string(self) -> str:
 		"""Get string representation of the history item"""
-		step_str = 'step' if self.step_number is not None else 'step_unknown'
+		step_str = f'step_{self.step_number}' if self.step_number is not None else 'step_unknown'
 
 		if self.error:
 			return f"""<{step_str}>

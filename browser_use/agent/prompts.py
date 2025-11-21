@@ -22,11 +22,13 @@ class SystemPrompt:
 		use_thinking: bool = True,
 		flash_mode: bool = False,
 		is_anthropic: bool = False,
+		use_anthropic_agent_prompt: bool = False,
 	):
 		self.max_actions_per_step = max_actions_per_step
 		self.use_thinking = use_thinking
 		self.flash_mode = flash_mode
 		self.is_anthropic = is_anthropic
+		self.use_anthropic_agent_prompt = use_anthropic_agent_prompt
 		prompt = ''
 		if override_system_message is not None:
 			prompt = override_system_message
@@ -42,8 +44,10 @@ class SystemPrompt:
 	def _load_prompt_template(self) -> None:
 		"""Load the prompt template from the markdown file."""
 		try:
-			# Choose the appropriate template based on flash_mode, use_thinking, and is_anthropic
-			if self.flash_mode and self.is_anthropic:
+			# Choose the appropriate template based on flags
+			if self.use_anthropic_agent_prompt:
+				template_filename = 'system_prompt_anthropic_agent.md'
+			elif self.flash_mode and self.is_anthropic:
 				template_filename = 'system_prompt_flash_anthropic.md'
 			elif self.flash_mode:
 				template_filename = 'system_prompt_flash.md'
@@ -293,27 +297,31 @@ Available tabs:
 
 	def _get_agent_state_description(self) -> str:
 		if self.step_info:
-			step_info_description = f'Step{self.step_info.step_number + 1} maximum:{self.step_info.max_steps}\n'
+			step_info_description = f'Step {self.step_info.step_number + 1}, Max Steps: {self.step_info.max_steps}\n'
 		else:
 			step_info_description = ''
 
 		time_str = datetime.now().strftime('%Y-%m-%d')
 		step_info_description += f'Today:{time_str}'
 
+		_file_system_description = self.file_system.describe() if self.file_system else ''
+		if not len(_file_system_description):
+			_file_system_description = ''
+		else:
+			_file_system_description = f'<file_system>\n{_file_system_description}\n</file_system>\n'
+
 		_todo_contents = self.file_system.get_todo_contents() if self.file_system else ''
 		if not len(_todo_contents):
-			_todo_contents = '[empty todo.md, fill it when applicable]'
+			_todo_contents = ''
+		else:
+			_todo_contents = f'<todo_contents>\n{_todo_contents}\n</todo_contents>\n'
 
 		agent_state = f"""
 <user_request>
 {self.task}
 </user_request>
-<file_system>
-{self.file_system.describe() if self.file_system else 'No file system available'}
-</file_system>
-<todo_contents>
+{_file_system_description}
 {_todo_contents}
-</todo_contents>
 """
 		if self.sensitive_data:
 			agent_state += f'<sensitive_data>{self.sensitive_data}</sensitive_data>\n'
@@ -371,7 +379,15 @@ Available tabs:
 			+ '\n</agent_history>\n\n'
 		)
 		state_description += '<agent_state>\n' + self._get_agent_state_description().strip('\n') + '\n</agent_state>\n'
-		state_description += '<browser_state>\n' + self._get_browser_state_description().strip('\n') + '\n</browser_state>\n'
+
+		# Only include browser_state if DOM tree was built (selector_map exists and has elements)
+		has_dom_tree = (
+			self.browser_state.dom_state
+			and self.browser_state.dom_state.selector_map
+			and len(self.browser_state.dom_state.selector_map) > 0
+		)
+		if has_dom_tree:
+			state_description += '<browser_state>\n' + self._get_browser_state_description().strip('\n') + '\n</browser_state>\n'
 		# Only add read_state if it has content
 		read_state_description = self.read_state_description.strip('\n').strip() if self.read_state_description else ''
 		if read_state_description:

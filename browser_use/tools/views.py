@@ -35,17 +35,16 @@ GoToUrlAction = NavigateAction
 
 
 class ClickElementAction(BaseModel):
-	index: int | None = Field(default=None, ge=1, description='Element index from browser_state')
-	coordinate_x: int | None = Field(default=None, description='Horizontal coordinate relative to viewport left edge')
-	coordinate_y: int | None = Field(default=None, description='Vertical coordinate relative to viewport top edge')
+	coordinate_x: int = Field(description='Horizontal coordinate relative to viewport left edge')
+	coordinate_y: int = Field(description='Vertical coordinate relative to viewport top edge')
 	# expect_download: bool = Field(default=False, description='set True if expecting a download, False otherwise')  # moved to downloads_watchdog.py
 	# click_count: int = 1  # TODO
 
 
 class InputTextAction(BaseModel):
-	index: int = Field(ge=0, description='from browser_state')
+	coordinate_x: int = Field(description='Horizontal coordinate relative to viewport left edge')
+	coordinate_y: int = Field(description='Vertical coordinate relative to viewport top edge')
 	text: str
-	clear: bool = Field(default=True, description='1=clear, 0=append')
 
 
 class DoneAction(BaseModel):
@@ -71,9 +70,10 @@ class CloseTabAction(BaseModel):
 
 
 class ScrollAction(BaseModel):
-	down: bool = Field(default=True, description='down=True=scroll down, down=False scroll up')
-	pages: float = Field(default=1.0, description='0.5=half page, 1=full page, 10=to bottom/top')
-	index: int | None = Field(default=None, description='Optional element index to scroll within specific container')
+	coordinate_x: int = Field(description='Horizontal coordinate relative to viewport left edge')
+	coordinate_y: int = Field(description='Vertical coordinate relative to viewport top edge')
+	scroll_x: int = Field(default=0, description='Horizontal scroll amount in pixels (positive=right, negative=left)')
+	scroll_y: int = Field(description='Vertical scroll amount in pixels (positive=down, negative=up)')
 
 
 class SendKeysAction(BaseModel):
@@ -81,7 +81,8 @@ class SendKeysAction(BaseModel):
 
 
 class UploadFileAction(BaseModel):
-	index: int
+	coordinate_x: int = Field(description='Horizontal coordinate relative to viewport left edge')
+	coordinate_y: int = Field(description='Vertical coordinate relative to viewport top edge')
 	path: str
 
 
@@ -90,9 +91,11 @@ class NoParamsAction(BaseModel):
 
 
 class GetDropdownOptionsAction(BaseModel):
-	index: int
+	coordinate_x: int = Field(description='Horizontal coordinate relative to viewport left edge')
+	coordinate_y: int = Field(description='Vertical coordinate relative to viewport top edge')
 
 
 class SelectDropdownOptionAction(BaseModel):
-	index: int
+	coordinate_x: int = Field(description='Horizontal coordinate relative to viewport left edge')
+	coordinate_y: int = Field(description='Vertical coordinate relative to viewport top edge')
 	text: str = Field(description='exact text/value')

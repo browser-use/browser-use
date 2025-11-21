@@ -33,7 +33,6 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
-from browser_use.tools.utils import get_click_description
 from browser_use.tools.views import (
 	ClickElementAction,
 	CloseTabAction,
@@ -233,7 +232,108 @@ class Tools(Generic[Context]):
 			await asyncio.sleep(actual_seconds)
 			return ActionResult(extracted_content=memory, long_term_memory=memory)
 
-		# Helper function for coordinate conversion
+		# Helper function to find file input near element using CDP traversal
+		async def _find_file_input_near_element(
+			node: EnhancedDOMTreeNode, browser_session: BrowserSession
+		) -> EnhancedDOMTreeNode | None:
+			"""Find file input near element using CDP DOM traversal.
+
+			Searches in order:
+			1. Children of the clicked element
+			2. Siblings (parent's children)
+			3. Entire page (fallback)
+
+			Returns minimal EnhancedDOMTreeNode with backend_node_id, or None if not found.
+			"""
+			from browser_use.dom.views import NodeType
+
+			page = await browser_session.get_current_page()
+			if page is None:
+				return None
+
+			try:
+				session_id = await page._ensure_session()
+				found_file_input_node_id = None
+
+				# Get node info to access nodeId and parentId
+				describe_result = await browser_session.cdp_client.send.DOM.describeNode(
+					params={'backendNodeId': node.backend_node_id}, session_id=session_id
+				)
+				node_id = describe_result['node']['nodeId']
+				parent_id = describe_result['node'].get('parentId')
+
+				# Strategy 1: Check children of clicked element
+				try:
+					result = await browser_session.cdp_client.send.DOM.querySelectorAll(
+						params={'nodeId': node_id, 'selector': 'input[type="file"]'}, session_id=session_id
+					)
+					if result['nodeIds']:
+						found_file_input_node_id = result['nodeIds'][0]
+						logger.info('Found file input in children of clicked element')
+				except Exception as e:
+					logger.debug(f'No file input in children: {e}')
+
+				# Strategy 2: Check siblings (query parent's children)
+				if not found_file_input_node_id and parent_id:
+					try:
+						result = await browser_session.cdp_client.send.DOM.querySelectorAll(
+							params={'nodeId': parent_id, 'selector': 'input[type="file"]'}, session_id=session_id
+						)
+						if result['nodeIds']:
+							found_file_input_node_id = result['nodeIds'][0]
+							logger.info('Found file input in siblings of clicked element')
+					except Exception as e:
+						logger.debug(f'No file input in siblings: {e}')
+
+				# Strategy 3: Fallback to page-wide search
+				if not found_file_input_node_id:
+					logger.info('No file input found nearby, searching entire page...')
+					file_inputs = await page.get_elements_by_css_selector('input[type="file"]')
+					if file_inputs:
+						element_info = await file_inputs[0].get_basic_info()
+						found_file_input_node_id = element_info['nodeId']
+						logger.info('Found file input on page (fallback)')
+					else:
+						logger.warning('No file input found on the page')
+						return None
+
+				# Get backend node ID for the found file input
+				if found_file_input_node_id is not None:
+					describe_result = await browser_session.cdp_client.send.DOM.describeNode(
+						params={'nodeId': found_file_input_node_id}, session_id=session_id
+					)
+					file_input_backend_node_id = describe_result['node']['backendNodeId']
+				else:
+					return None
+
+				# Create minimal node for the file input
+				return EnhancedDOMTreeNode(
+					node_id=found_file_input_node_id,
+					backend_node_id=file_input_backend_node_id,
+					node_type=NodeType.ELEMENT_NODE,
+					node_name='INPUT',
+					node_value='',
+					attributes={'type': 'file'},
+					is_scrollable=None,
+					frame_id=node.frame_id,
+					session_id=session_id,
+					target_id=browser_session.agent_focus_target_id or '',
+					content_document=None,
+					shadow_root_type=None,
+					shadow_roots=None,
+					parent_node=None,
+					children_nodes=None,
+					ax_node=None,
+					snapshot_node=None,
+					is_visible=None,
+					absolute_position=None,
+				)
+
+			except Exception as e:
+				logger.error(f'Failed to find file input: {e}')
+				return None
+
+		# Helper functions for coordinate and scroll delta conversion
 		def _convert_llm_coordinates_to_viewport(llm_x: int, llm_y: int, browser_session: BrowserSession) -> tuple[int, int]:
 			"""Convert coordinates from LLM screenshot size to original viewport size."""
 			if browser_session.llm_screenshot_size and browser_session._original_viewport_size:
@@ -250,6 +350,25 @@ class Tools(Generic[Context]):
 				)
 				return actual_x, actual_y
 			return llm_x, llm_y
+
+		def _convert_llm_scroll_deltas_to_viewport(
+			llm_scroll_x: int, llm_scroll_y: int, browser_session: BrowserSession
+		) -> tuple[int, int]:
+			"""Convert scroll deltas from LLM screenshot size to original viewport size."""
+			if browser_session.llm_screenshot_size and browser_session._original_viewport_size:
+				original_width, original_height = browser_session._original_viewport_size
+				llm_width, llm_height = browser_session.llm_screenshot_size
+
+				# Scale scroll deltas using the same ratio as coordinates
+				actual_scroll_x = int((llm_scroll_x / llm_width) * original_width)
+				actual_scroll_y = int((llm_scroll_y / llm_height) * original_height)
+
+				logger.info(
+					f'🔄 Scaling scroll deltas: LLM ({llm_scroll_x}, {llm_scroll_y}) @ {llm_width}x{llm_height} '
+					f'→ Viewport ({actual_scroll_x}, {actual_scroll_y}) @ {original_width}x{original_height}'
+				)
+				return actual_scroll_x, actual_scroll_y
+			return llm_scroll_x, llm_scroll_y
 
 		# Element Interaction Actions
 		async def _click_by_coordinate(params: ClickElementAction, browser_session: BrowserSession) -> ActionResult:
@@ -286,81 +405,75 @@ class Tools(Generic[Context]):
 				error_msg = f'Failed to click at coordinates ({params.coordinate_x}, {params.coordinate_y}).'
 				return ActionResult(error=error_msg)
 
-		async def _click_by_index(params: ClickElementAction, browser_session: BrowserSession) -> ActionResult:
-			assert params.index is not None
-			try:
-				assert params.index != 0, (
-					'Cannot click on element with index 0. If there are no interactive elements use wait(), refresh(), etc. to troubleshoot'
-				)
+		# async def _click_by_index(index: int, browser_session: BrowserSession) -> ActionResult:
+		# 	try:
+		# 		assert index != 0, (
+		# 			'Cannot click on element with index 0. If there are no interactive elements use wait(), refresh(), etc. to troubleshoot'
+		# 		)
+		# 		# Look up the node from the selector map
+		# 		node = await browser_session.get_element_by_index(index)
+		# 		if node is None:
+		# 			msg = f'Element index {index} not available - page may have changed. Try refreshing browser state.'
+		# 			logger.warning(f'⚠️ {msg}')
+		# 			return ActionResult(extracted_content=msg)
 
-				# Look up the node from the selector map
-				node = await browser_session.get_element_by_index(params.index)
-				if node is None:
-					msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
-					logger.warning(f'⚠️ {msg}')
-					return ActionResult(extracted_content=msg)
+		# 		# Get description of clicked element
+		# 		element_desc = get_click_description(node)
 
-				# Get description of clicked element
-				element_desc = get_click_description(node)
+		# 		# Highlight the element being clicked (truly non-blocking)
+		# 		create_task_with_error_handling(
+		# 			browser_session.highlight_interaction_element(node), name='highlight_click_element', suppress_exceptions=True
+		# 		)
 
-				# Highlight the element being clicked (truly non-blocking)
-				create_task_with_error_handling(
-					browser_session.highlight_interaction_element(node), name='highlight_click_element', suppress_exceptions=True
-				)
+		# 		event = browser_session.event_bus.dispatch(ClickElementEvent(node=node))
+		# 		await event
+		# 		# Wait for handler to complete and get any exception or metadata
+		# 		click_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
 
-				event = browser_session.event_bus.dispatch(ClickElementEvent(node=node))
-				await event
-				# Wait for handler to complete and get any exception or metadata
-				click_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
+		# 		# Check if result contains validation error (e.g., trying to click <select> or file input)
+		# 		if isinstance(click_metadata, dict) and 'validation_error' in click_metadata:
+		# 			error_msg = click_metadata['validation_error']
+		# 			# If it's a select element, try to get dropdown options as a helpful shortcut
+		# 			if 'Cannot click on <select> elements.' in error_msg:
+		# 				try:
+		# 					# Get element center coordinates from its bounding box
+		# 					if node.absolute_position:
+		# 						center_x = int(node.absolute_position.x + node.absolute_position.width / 2)
+		# 						center_y = int(node.absolute_position.y + node.absolute_position.height / 2)
+		# 						return await dropdown_options(
+		# 							params=GetDropdownOptionsAction(coordinate_x=center_x, coordinate_y=center_y),
+		# 							browser_session=browser_session
+		# 						)
+		# 				except Exception as dropdown_error:
+		# 					logger.debug(
+		# 						f'Failed to get dropdown options as shortcut during click on dropdown: {type(dropdown_error).__name__}: {dropdown_error}'
+		# 					)
+		# 			return ActionResult(error=error_msg)
 
-				# Check if result contains validation error (e.g., trying to click <select> or file input)
-				if isinstance(click_metadata, dict) and 'validation_error' in click_metadata:
-					error_msg = click_metadata['validation_error']
-					# If it's a select element, try to get dropdown options as a helpful shortcut
-					if 'Cannot click on <select> elements.' in error_msg:
-						try:
-							return await dropdown_options(
-								params=GetDropdownOptionsAction(index=params.index), browser_session=browser_session
-							)
-						except Exception as dropdown_error:
-							logger.debug(
-								f'Failed to get dropdown options as shortcut during click on dropdown: {type(dropdown_error).__name__}: {dropdown_error}'
-							)
-					return ActionResult(error=error_msg)
+		# 		# Build memory with element info
+		# 		memory = f'Clicked {element_desc}'
+		# 		logger.info(f'🖱️ {memory}')
 
-				# Build memory with element info
-				memory = f'Clicked {element_desc}'
-				logger.info(f'🖱️ {memory}')
-
-				# Include click coordinates in metadata if available
-				return ActionResult(
-					extracted_content=memory,
-					metadata=click_metadata if isinstance(click_metadata, dict) else None,
-				)
-			except BrowserError as e:
-				return handle_browser_error(e)
-			except Exception as e:
-				error_msg = f'Failed to click element {params.index}: {str(e)}'
-				return ActionResult(error=error_msg)
+		# 		# Include click coordinates in metadata if available
+		# 		return ActionResult(
+		# 			extracted_content=memory,
+		# 			metadata=click_metadata if isinstance(click_metadata, dict) else None,
+		# 		)
+		# 	except BrowserError as e:
+		# 		return handle_browser_error(e)
+		# 	except Exception as e:
+		# 		error_msg = f'Failed to click element {index}: {str(e)}'
+		# 		return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			'Click element by index or coordinates. Prefer index over coordinates when possible. Either provide coordinates or index.',
+			'Click on coordinates in the viewport.',
 			param_model=ClickElementAction,
 		)
 		async def click(params: ClickElementAction, browser_session: BrowserSession):
-			# Validate that either index or coordinates are provided
-			if params.index is None and (params.coordinate_x is None or params.coordinate_y is None):
-				return ActionResult(error='Must provide either index or both coordinate_x and coordinate_y')
-
-			# Try index-based clicking first if index is provided
-			if params.index is not None:
-				return await _click_by_index(params, browser_session)
-			# Coordinate-based clicking when index is not provided
-			else:
-				return await _click_by_coordinate(params, browser_session)
+			return await _click_by_coordinate(params, browser_session)
 
 		@self.registry.action(
-			'Input text into element with index.',
+			'Input text at coordinates by clicking then typing.',
 			param_model=InputTextAction,
 		)
 		async def input(
@@ -369,67 +482,64 @@ class Tools(Generic[Context]):
 			has_sensitive_data: bool = False,
 			sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		):
-			# Look up the node from the selector map
-			node = await browser_session.get_element_by_index(params.index)
-			if node is None:
-				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
-				logger.warning(f'⚠️ {msg}')
-				return ActionResult(extracted_content=msg)
-
-			# Highlight the element being typed into (truly non-blocking)
-			create_task_with_error_handling(
-				browser_session.highlight_interaction_element(node), name='highlight_type_element', suppress_exceptions=True
-			)
-
-			# Dispatch type text event with node
 			try:
+				# Convert coordinates from LLM size to original viewport size if resizing was used
+				actual_x, actual_y = _convert_llm_coordinates_to_viewport(
+					params.coordinate_x, params.coordinate_y, browser_session
+				)
+
+				# Highlight the coordinate being clicked (truly non-blocking)
+				asyncio.create_task(browser_session.highlight_coordinate_click(actual_x, actual_y))
+
+				# Get the page
+				page = await browser_session.get_current_page()
+				if page is None:
+					return ActionResult(error='No active page found')
+
+				# Step 1: Click at the coordinates to focus the input
+				mouse = await page.mouse
+				await mouse.click(actual_x, actual_y)
+
+				# Small delay to ensure focus
+				await asyncio.sleep(0.05)
+
+				# Step 2: Type the text using SendKeysEvent
 				# Detect which sensitive key is being used
 				sensitive_key_name = None
 				if has_sensitive_data and sensitive_data:
 					sensitive_key_name = _detect_sensitive_key_name(params.text, sensitive_data)
 
-				event = browser_session.event_bus.dispatch(
-					TypeTextEvent(
-						node=node,
-						text=params.text,
-						clear=params.clear,
-						is_sensitive=has_sensitive_data,
-						sensitive_key_name=sensitive_key_name,
-					)
-				)
+				# Use SendKeysEvent to type the text
+				event = browser_session.event_bus.dispatch(SendKeysEvent(keys=params.text))
 				await event
-				input_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
+				await event.event_result(raise_if_any=True, raise_if_none=False)
 
 				# Create message with sensitive data handling
 				if has_sensitive_data:
 					if sensitive_key_name:
-						msg = f'Typed {sensitive_key_name}'
-						log_msg = f'Typed <{sensitive_key_name}>'
+						msg = f'Typed {sensitive_key_name} at coordinates ({params.coordinate_x}, {params.coordinate_y})'
+						log_msg = f'⌨️ Typed <{sensitive_key_name}> at ({params.coordinate_x}, {params.coordinate_y})'
 					else:
-						msg = 'Typed sensitive data'
-						log_msg = 'Typed <sensitive>'
+						msg = f'Typed sensitive data at coordinates ({params.coordinate_x}, {params.coordinate_y})'
+						log_msg = f'⌨️ Typed <sensitive> at ({params.coordinate_x}, {params.coordinate_y})'
 				else:
-					msg = f"Typed '{params.text}'"
-					log_msg = f"Typed '{params.text}'"
+					msg = f"Typed '{params.text}' at coordinates ({params.coordinate_x}, {params.coordinate_y})"
+					log_msg = f"⌨️ Typed '{params.text}' at ({params.coordinate_x}, {params.coordinate_y})"
 
-				logger.debug(log_msg)
+				logger.info(log_msg)
 
-				# Include input coordinates in metadata if available
 				return ActionResult(
 					extracted_content=msg,
 					long_term_memory=msg,
-					metadata=input_metadata if isinstance(input_metadata, dict) else None,
+					metadata={'input_x': actual_x, 'input_y': actual_y},
 				)
-			except BrowserError as e:
-				return handle_browser_error(e)
 			except Exception as e:
-				# Log the full error for debugging
-				logger.error(f'Failed to dispatch TypeTextEvent: {type(e).__name__}: {e}')
-				error_msg = f'Failed to type text into element {params.index}: {e}'
+				error_msg = f'Failed to type text at coordinates ({params.coordinate_x}, {params.coordinate_y}): {str(e)}'
+				logger.error(f'❌ {error_msg}')
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			'',
+			'Upload a file to a file input element at coordinates.',
 			param_model=UploadFileAction,
 		)
 		async def upload_file(
@@ -449,7 +559,9 @@ class Tools(Generic[Context]):
 						if file_obj:
 							# File is managed by FileSystem, construct the full path
 							file_system_path = str(file_system.get_dir() / params.path)
-							params = UploadFileAction(index=params.index, path=file_system_path)
+							params = UploadFileAction(
+								coordinate_x=params.coordinate_x, coordinate_y=params.coordinate_y, path=file_system_path
+							)
 						else:
 							# If browser is remote, allow passing a remote-accessible absolute path
 							if not browser_session.is_local:
@@ -472,122 +584,49 @@ class Tools(Generic[Context]):
 					msg = f'File {params.path} does not exist'
 					return ActionResult(error=msg)
 
-			# Get the selector map to find the node
-			selector_map = await browser_session.get_selector_map()
-			if params.index not in selector_map:
-				msg = f'Element with index {params.index} does not exist.'
+			# Convert coordinates from LLM size to viewport size
+			actual_x, actual_y = _convert_llm_coordinates_to_viewport(params.coordinate_x, params.coordinate_y, browser_session)
+
+			# Get element at coordinates first
+			node = await browser_session.get_dom_element_at_coordinates(actual_x, actual_y)
+			if node is None:
+				msg = f'No element found at coordinates ({params.coordinate_x}, {params.coordinate_y})'
+				logger.warning(f'⚠️ {msg}')
 				return ActionResult(error=msg)
 
-			node = selector_map[params.index]
-
-			# Helper function to find file input near the selected element
-			def find_file_input_near_element(
-				node: EnhancedDOMTreeNode, max_height: int = 3, max_descendant_depth: int = 3
-			) -> EnhancedDOMTreeNode | None:
-				"""Find the closest file input to the selected element."""
-
-				def find_file_input_in_descendants(n: EnhancedDOMTreeNode, depth: int) -> EnhancedDOMTreeNode | None:
-					if depth < 0:
-						return None
-					if browser_session.is_file_input(n):
-						return n
-					for child in n.children_nodes or []:
-						result = find_file_input_in_descendants(child, depth - 1)
-						if result:
-							return result
-					return None
-
-				current = node
-				for _ in range(max_height + 1):
-					# Check the current node itself
-					if browser_session.is_file_input(current):
-						return current
-					# Check all descendants of the current node
-					result = find_file_input_in_descendants(current, max_descendant_depth)
-					if result:
-						return result
-					# Check all siblings and their descendants
-					if current.parent_node:
-						for sibling in current.parent_node.children_nodes or []:
-							if sibling is current:
-								continue
-							if browser_session.is_file_input(sibling):
-								return sibling
-							result = find_file_input_in_descendants(sibling, max_descendant_depth)
-							if result:
-								return result
-					current = current.parent_node
-					if not current:
-						break
-				return None
-
-			# Try to find a file input element near the selected element
-			file_input_node = find_file_input_near_element(node)
-
-			# Highlight the file input element if found (truly non-blocking)
-			if file_input_node:
-				create_task_with_error_handling(
-					browser_session.highlight_interaction_element(file_input_node),
-					name='highlight_file_input',
-					suppress_exceptions=True,
-				)
-
-			# If not found near the selected element, fallback to finding the closest file input to current scroll position
-			if file_input_node is None:
+			# Check if the element at coordinates is already a file input
+			if browser_session.is_file_input(node):
+				logger.info('Element at coordinates is a file input - using it directly')
+				file_input_node = node
+			else:
+				# Element at coordinates is not a file input - traverse DOM to find nearby file input
 				logger.info(
-					f'No file upload element found near index {params.index}, searching for closest file input to scroll position'
+					f'Element at coordinates is <{node.node_name}>, searching for nearby file input using CDP traversal...'
 				)
 
-				# Get current scroll position
-				cdp_session = await browser_session.get_or_create_cdp_session()
-				try:
-					scroll_info = await cdp_session.cdp_client.send.Runtime.evaluate(
-						params={'expression': 'window.scrollY || window.pageYOffset || 0'}, session_id=cdp_session.session_id
-					)
-					current_scroll_y = scroll_info.get('result', {}).get('value', 0)
-				except Exception:
-					current_scroll_y = 0
+				file_input_node = await _find_file_input_near_element(node, browser_session)
+				if file_input_node is None:
+					msg = 'No file input found on the page'
+					logger.warning(f'⚠️ {msg}')
+					return ActionResult(error=msg)
 
-				# Find all file inputs in the selector map and pick the closest one to scroll position
-				closest_file_input = None
-				min_distance = float('inf')
-
-				for idx, element in selector_map.items():
-					if browser_session.is_file_input(element):
-						# Get element's Y position
-						if element.absolute_position:
-							element_y = element.absolute_position.y
-							distance = abs(element_y - current_scroll_y)
-							if distance < min_distance:
-								min_distance = distance
-								closest_file_input = element
-
-				if closest_file_input:
-					file_input_node = closest_file_input
-					logger.info(f'Found file input closest to scroll position (distance: {min_distance}px)')
-
-					# Highlight the fallback file input element (truly non-blocking)
-					create_task_with_error_handling(
-						browser_session.highlight_interaction_element(file_input_node),
-						name='highlight_file_input_fallback',
-						suppress_exceptions=True,
-					)
-				else:
-					msg = 'No file upload element found on the page'
-					logger.error(msg)
-					raise BrowserError(msg)
-					# TODO: figure out why this fails sometimes + add fallback hail mary, just look for any file input on page
+			# Highlight the file input element (truly non-blocking)
+			create_task_with_error_handling(
+				browser_session.highlight_interaction_element(file_input_node),
+				name='highlight_file_input',
+				suppress_exceptions=True,
+			)
 
 			# Dispatch upload file event with the file input node
 			try:
 				event = browser_session.event_bus.dispatch(UploadFileEvent(node=file_input_node, file_path=params.path))
 				await event
 				await event.event_result(raise_if_any=True, raise_if_none=False)
-				msg = f'Successfully uploaded file to index {params.index}'
+				msg = f'Successfully uploaded file at coordinates ({params.coordinate_x}, {params.coordinate_y})'
 				logger.info(f'📁 {msg}')
 				return ActionResult(
 					extracted_content=msg,
-					long_term_memory=f'Uploaded file {params.path} to element {params.index}',
+					long_term_memory=f'Uploaded file {params.path} to element at ({params.coordinate_x}, {params.coordinate_y})',
 				)
 			except Exception as e:
 				logger.error(f'Failed to upload file: {e}')
@@ -780,108 +819,51 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				raise RuntimeError(str(e))
 
 		@self.registry.action(
-			"""Scroll by pages. REQUIRED: down=True/False (True=scroll down, False=scroll up, default=True). Optional: pages=0.5-10.0 (default 1.0). Use index for scroll containers (dropdowns/custom UI). High pages (10) reaches bottom. Multi-page scrolls sequentially. Viewport-based height, fallback 1000px/page.""",
+			"""Scroll at specific coordinates by pixels. Provide coordinate_x, coordinate_y (position to scroll at), scroll_x (horizontal pixels, default 0), and scroll_y (vertical pixels, positive=down, negative=up). Example: scroll 500px down at position (400, 300).""",
 			param_model=ScrollAction,
 		)
 		async def scroll(params: ScrollAction, browser_session: BrowserSession):
 			try:
-				# Look up the node from the selector map if index is provided
-				# Special case: index 0 means scroll the whole page (root/body element)
-				node = None
-				if params.index is not None and params.index != 0:
-					node = await browser_session.get_element_by_index(params.index)
-					if node is None:
-						# Element does not exist
-						msg = f'Element index {params.index} not found in browser state'
-						return ActionResult(error=msg)
+				# Convert coordinates from LLM size to original viewport size if resizing was used
+				actual_x, actual_y = _convert_llm_coordinates_to_viewport(
+					params.coordinate_x, params.coordinate_y, browser_session
+				)
 
-				direction = 'down' if params.down else 'up'
-				target = f'element {params.index}' if params.index is not None and params.index != 0 else ''
+				# Scale scroll deltas proportionally if resizing was used
+				actual_scroll_x, actual_scroll_y = _convert_llm_scroll_deltas_to_viewport(
+					params.scroll_x, params.scroll_y, browser_session
+				)
 
-				# Get actual viewport height for more accurate scrolling
-				try:
-					cdp_session = await browser_session.get_or_create_cdp_session()
-					metrics = await cdp_session.cdp_client.send.Page.getLayoutMetrics(session_id=cdp_session.session_id)
+				# Highlight the scroll coordinate (truly non-blocking)
+				asyncio.create_task(browser_session.highlight_coordinate_click(actual_x, actual_y))
 
-					# Use cssVisualViewport for the most accurate representation
-					css_viewport = metrics.get('cssVisualViewport', {})
-					css_layout_viewport = metrics.get('cssLayoutViewport', {})
+				# Use Mouse.scroll for coordinate-based scrolling
+				page = await browser_session.get_current_page()
+				if page is None:
+					return ActionResult(error='No active page found')
 
-					# Get viewport height, prioritizing cssVisualViewport
-					viewport_height = int(css_viewport.get('clientHeight') or css_layout_viewport.get('clientHeight', 1000))
+				mouse = await page.mouse
+				await mouse.scroll(x=actual_x, y=actual_y, delta_x=actual_scroll_x, delta_y=actual_scroll_y)
 
-					logger.debug(f'Detected viewport height: {viewport_height}px')
-				except Exception as e:
-					viewport_height = 1000  # Fallback to 1000px
-					logger.debug(f'Failed to get viewport height, using fallback 1000px: {e}')
+				# Build descriptive memory using original LLM values for consistency
+				direction_parts = []
+				if params.scroll_y > 0:
+					direction_parts.append(f'{params.scroll_y}px down')
+				elif params.scroll_y < 0:
+					direction_parts.append(f'{abs(params.scroll_y)}px up')
+				if params.scroll_x > 0:
+					direction_parts.append(f'{params.scroll_x}px right')
+				elif params.scroll_x < 0:
+					direction_parts.append(f'{abs(params.scroll_x)}px left')
 
-				# For multiple pages (>=1.0), scroll one page at a time to ensure each scroll completes
-				if params.pages >= 1.0:
-					import asyncio
-
-					num_full_pages = int(params.pages)
-					remaining_fraction = params.pages - num_full_pages
-
-					completed_scrolls = 0
-
-					# Scroll one page at a time
-					for i in range(num_full_pages):
-						try:
-							pixels = viewport_height  # Use actual viewport height
-							if not params.down:
-								pixels = -pixels
-
-							event = browser_session.event_bus.dispatch(
-								ScrollEvent(direction=direction, amount=abs(pixels), node=node)
-							)
-							await event
-							await event.event_result(raise_if_any=True, raise_if_none=False)
-							completed_scrolls += 1
-
-							# Small delay to ensure scroll completes before next one
-							await asyncio.sleep(0.3)
-
-						except Exception as e:
-							logger.warning(f'Scroll {i + 1}/{num_full_pages} failed: {e}')
-							# Continue with remaining scrolls even if one fails
-
-					# Handle fractional page if present
-					if remaining_fraction > 0:
-						try:
-							pixels = int(remaining_fraction * viewport_height)
-							if not params.down:
-								pixels = -pixels
-
-							event = browser_session.event_bus.dispatch(
-								ScrollEvent(direction=direction, amount=abs(pixels), node=node)
-							)
-							await event
-							await event.event_result(raise_if_any=True, raise_if_none=False)
-							completed_scrolls += remaining_fraction
-
-						except Exception as e:
-							logger.warning(f'Fractional scroll failed: {e}')
-
-					if params.pages == 1.0:
-						long_term_memory = f'Scrolled {direction} {target} {viewport_height}px'.replace('  ', ' ')
-					else:
-						long_term_memory = f'Scrolled {direction} {target} {completed_scrolls:.1f} pages'.replace('  ', ' ')
-				else:
-					# For fractional pages <1.0, do single scroll
-					pixels = int(params.pages * viewport_height)
-					event = browser_session.event_bus.dispatch(
-						ScrollEvent(direction='down' if params.down else 'up', amount=pixels, node=node)
-					)
-					await event
-					await event.event_result(raise_if_any=True, raise_if_none=False)
-					long_term_memory = f'Scrolled {direction} {target} {params.pages} pages'.replace('  ', ' ')
-
-				msg = f'🔍 {long_term_memory}'
+				direction_str = ' and '.join(direction_parts) if direction_parts else '0px'
+				memory = f'Scrolled {direction_str} at coordinate ({params.coordinate_x}, {params.coordinate_y})'
+				msg = f'🔍 {memory}'
 				logger.info(msg)
-				return ActionResult(extracted_content=msg, long_term_memory=long_term_memory)
+				return ActionResult(extracted_content=msg, long_term_memory=memory)
 			except Exception as e:
-				logger.error(f'Failed to dispatch ScrollEvent: {type(e).__name__}: {e}')
-				error_msg = 'Failed to execute scroll action.'
+				logger.error(f'Failed to scroll: {type(e).__name__}: {e}')
+				error_msg = f'Failed to execute scroll action: {str(e)}'
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
@@ -943,20 +925,22 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		# Dropdown Actions
 
 		@self.registry.action(
-			'',
+			'Get all options from a dropdown at coordinates.',
 			param_model=GetDropdownOptionsAction,
 		)
 		async def dropdown_options(params: GetDropdownOptionsAction, browser_session: BrowserSession):
 			"""Get all options from a native dropdown or ARIA menu"""
-			# Look up the node from the selector map
-			node = await browser_session.get_element_by_index(params.index)
+			# Convert coordinates from LLM size to viewport size
+			actual_x, actual_y = _convert_llm_coordinates_to_viewport(params.coordinate_x, params.coordinate_y, browser_session)
+
+			# Get element at coordinates (no DOM tree needed!)
+			node = await browser_session.get_dom_element_at_coordinates(actual_x, actual_y)
 			if node is None:
-				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+				msg = f'No element found at coordinates ({params.coordinate_x}, {params.coordinate_y})'
 				logger.warning(f'⚠️ {msg}')
 				return ActionResult(extracted_content=msg)
 
 			# Dispatch GetDropdownOptionsEvent to the event handler
-
 			event = browser_session.event_bus.dispatch(GetDropdownOptionsEvent(node=node))
 			dropdown_data = await event.event_result(timeout=3.0, raise_if_none=True, raise_if_any=True)
 
@@ -971,15 +955,18 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			)
 
 		@self.registry.action(
-			'Set the option of a <select> element.',
+			'Set the option of a dropdown element at coordinates.',
 			param_model=SelectDropdownOptionAction,
 		)
 		async def select_dropdown(params: SelectDropdownOptionAction, browser_session: BrowserSession):
 			"""Select dropdown option by the text of the option you want to select"""
-			# Look up the node from the selector map
-			node = await browser_session.get_element_by_index(params.index)
+			# Convert coordinates from LLM size to viewport size
+			actual_x, actual_y = _convert_llm_coordinates_to_viewport(params.coordinate_x, params.coordinate_y, browser_session)
+
+			# Get element at coordinates (no DOM tree needed!)
+			node = await browser_session.get_dom_element_at_coordinates(actual_x, actual_y)
 			if node is None:
-				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+				msg = f'No element found at coordinates ({params.coordinate_x}, {params.coordinate_y})'
 				logger.warning(f'⚠️ {msg}')
 				return ActionResult(extracted_content=msg)
 
@@ -999,7 +986,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				return ActionResult(
 					extracted_content=msg,
 					include_in_memory=True,
-					long_term_memory=f"Selected dropdown option '{params.text}' at index {params.index}",
+					long_term_memory=f"Selected dropdown option '{params.text}' at coordinates ({params.coordinate_x}, {params.coordinate_y})",
 				)
 			else:
 				# Handle structured error response
@@ -1455,306 +1442,3 @@ Validated Code (after quote fixing):
 
 # Alias for backwards compatibility
 Controller = Tools
-
-
-class CodeAgentTools(Tools[Context]):
-	"""Specialized Tools for CodeAgent agent optimized for Python-based browser automation.
-
-	Includes:
-	- All browser interaction tools (click, input, scroll, navigate, etc.)
-	- JavaScript evaluation
-	- Tab management (switch, close)
-	- Navigation actions (go_back)
-	- Upload file support
-	- Dropdown interactions
-
-	Excludes (optimized for code-use mode):
-	- extract: Use Python + evaluate() instead
-	- find_text: Use Python string operations
-	- screenshot: Not needed in code-use mode
-	- search: Use navigate() directly
-	- File system actions (write_file, read_file, replace_file): Use Python file operations instead
-	"""
-
-	def __init__(
-		self,
-		exclude_actions: list[str] | None = None,
-		output_model: type[T] | None = None,
-		display_files_in_done_text: bool = True,
-	):
-		# Default exclusions for CodeAgent agent
-		if exclude_actions is None:
-			exclude_actions = [
-				# 'scroll',  # Keep for code-use
-				'extract',  # Exclude - use Python + evaluate()
-				'find_text',  # Exclude - use Python string ops
-				# 'select_dropdown',  # Keep for code-use
-				# 'dropdown_options',  # Keep for code-use
-				'screenshot',  # Exclude - not needed
-				'search',  # Exclude - use navigate() directly
-				# 'click',  # Keep for code-use
-				# 'input',  # Keep for code-use
-				# 'switch',  # Keep for code-use
-				# 'send_keys',  # Keep for code-use
-				# 'close',  # Keep for code-use
-				# 'go_back',  # Keep for code-use
-				# 'upload_file',  # Keep for code-use
-				# Exclude file system actions - CodeAgent should use Python file operations
-				'write_file',
-				'read_file',
-				'replace_file',
-			]
-
-		super().__init__(
-			exclude_actions=exclude_actions,
-			output_model=output_model,
-			display_files_in_done_text=display_files_in_done_text,
-		)
-
-		# Override done action for CodeAgent with enhanced file handling
-		self._register_code_use_done_action(output_model, display_files_in_done_text)
-
-	def _register_code_use_done_action(self, output_model: type[T] | None, display_files_in_done_text: bool = True):
-		"""Register enhanced done action for CodeAgent that can read files from disk."""
-		if output_model is not None:
-			# Structured output done - use parent's implementation
-			return
-
-		# Override the done action with enhanced version
-		@self.registry.action(
-			'Complete task.',
-			param_model=DoneAction,
-		)
-		async def done(params: DoneAction, file_system: FileSystem):
-			user_message = params.text
-
-			len_text = len(params.text)
-			len_max_memory = 100
-			memory = f'Task completed: {params.success} - {params.text[:len_max_memory]}'
-			if len_text > len_max_memory:
-				memory += f' - {len_text - len_max_memory} more characters'
-
-			attachments = []
-			if params.files_to_display:
-				if self.display_files_in_done_text:
-					file_msg = ''
-					for file_name in params.files_to_display:
-						file_content = file_system.display_file(file_name)
-						if file_content:
-							file_msg += f'\n\n{file_name}:\n{file_content}'
-							attachments.append(file_name)
-						elif os.path.exists(file_name):
-							# File exists on disk but not in FileSystem - just add to attachments
-							attachments.append(file_name)
-					if file_msg:
-						user_message += '\n\nAttachments:'
-						user_message += file_msg
-					else:
-						logger.warning('Agent wanted to display files but none were found')
-				else:
-					for file_name in params.files_to_display:
-						file_content = file_system.display_file(file_name)
-						if file_content:
-							attachments.append(file_name)
-						elif os.path.exists(file_name):
-							attachments.append(file_name)
-
-			# Convert relative paths to absolute paths - handle both FileSystem-managed and regular files
-			resolved_attachments = []
-			for file_name in attachments:
-				if os.path.isabs(file_name):
-					# Already absolute
-					resolved_attachments.append(file_name)
-				elif file_system.get_file(file_name):
-					# Managed by FileSystem
-					resolved_attachments.append(str(file_system.get_dir() / file_name))
-				elif os.path.exists(file_name):
-					# Regular file in current directory
-					resolved_attachments.append(os.path.abspath(file_name))
-				else:
-					# File doesn't exist, but include the path anyway for error visibility
-					resolved_attachments.append(str(file_system.get_dir() / file_name))
-			attachments = resolved_attachments
-
-			return ActionResult(
-				is_done=True,
-				success=params.success,
-				extracted_content=user_message,
-				long_term_memory=memory,
-				attachments=attachments,
-			)
-
-		# Override upload_file for code agent with relaxed path validation
-		@self.registry.action(
-			'Upload a file to a file input element. For code-use mode, any file accessible from the current directory can be uploaded.',
-			param_model=UploadFileAction,
-		)
-		async def upload_file(
-			params: UploadFileAction,
-			browser_session: BrowserSession,
-			available_file_paths: list[str],
-			file_system: FileSystem,
-		):
-			# Path validation logic for code-use mode:
-			# 1. If available_file_paths provided (security mode), enforce it as a whitelist
-			# 2. If no whitelist, for local browsers just check file exists
-			# 3. For remote browsers, allow any path (assume it exists remotely)
-
-			# If whitelist provided, validate path is in it
-			if available_file_paths:
-				if params.path not in available_file_paths:
-					# Also check if it's a recently downloaded file
-					downloaded_files = browser_session.downloaded_files
-					if params.path not in downloaded_files:
-						# Finally, check if it's a file in the FileSystem service (if provided)
-						if file_system is not None and file_system.get_dir():
-							# Check if the file is actually managed by the FileSystem service
-							# The path should be just the filename for FileSystem files
-							file_obj = file_system.get_file(params.path)
-							if file_obj:
-								# File is managed by FileSystem, construct the full path
-								file_system_path = str(file_system.get_dir() / params.path)
-								params = UploadFileAction(index=params.index, path=file_system_path)
-							else:
-								# If browser is remote, allow passing a remote-accessible absolute path
-								if not browser_session.is_local:
-									pass
-								else:
-									msg = f'File path {params.path} is not available. To fix: add this file path to the available_file_paths parameter when creating the Agent. Example: Agent(task="...", llm=llm, browser=browser, available_file_paths=["{params.path}"])'
-									logger.error(f'❌ {msg}')
-									return ActionResult(error=msg)
-						else:
-							# If browser is remote, allow passing a remote-accessible absolute path
-							if not browser_session.is_local:
-								pass
-							else:
-								msg = f'File path {params.path} is not available. To fix: add this file path to the available_file_paths parameter when creating the Agent. Example: Agent(task="...", llm=llm, browser=browser, available_file_paths=["{params.path}"])'
-								logger.error(f'❌ {msg}')
-								return ActionResult(error=msg)
-
-			# For local browsers, ensure the file exists on the local filesystem
-			if browser_session.is_local:
-				if not os.path.exists(params.path):
-					msg = f'File {params.path} does not exist'
-					return ActionResult(error=msg)
-
-			# Get the selector map to find the node
-			selector_map = await browser_session.get_selector_map()
-			if params.index not in selector_map:
-				msg = f'Element with index {params.index} does not exist.'
-				return ActionResult(error=msg)
-
-			node = selector_map[params.index]
-
-			# Helper function to find file input near the selected element
-			def find_file_input_near_element(
-				node: EnhancedDOMTreeNode, max_height: int = 3, max_descendant_depth: int = 3
-			) -> EnhancedDOMTreeNode | None:
-				"""Find the closest file input to the selected element."""
-
-				def find_file_input_in_descendants(n: EnhancedDOMTreeNode, depth: int) -> EnhancedDOMTreeNode | None:
-					if depth < 0:
-						return None
-					if browser_session.is_file_input(n):
-						return n
-					for child in n.children_nodes or []:
-						result = find_file_input_in_descendants(child, depth - 1)
-						if result:
-							return result
-					return None
-
-				current = node
-				for _ in range(max_height + 1):
-					# Check the current node itself
-					if browser_session.is_file_input(current):
-						return current
-					# Check all descendants of the current node
-					result = find_file_input_in_descendants(current, max_descendant_depth)
-					if result:
-						return result
-					# Check all siblings and their descendants
-					if current.parent_node:
-						for sibling in current.parent_node.children_nodes or []:
-							if sibling is current:
-								continue
-							if browser_session.is_file_input(sibling):
-								return sibling
-							result = find_file_input_in_descendants(sibling, max_descendant_depth)
-							if result:
-								return result
-					current = current.parent_node
-					if not current:
-						break
-				return None
-
-			# Try to find a file input element near the selected element
-			file_input_node = find_file_input_near_element(node)
-
-			# Highlight the file input element if found (truly non-blocking)
-			if file_input_node:
-				create_task_with_error_handling(
-					browser_session.highlight_interaction_element(file_input_node),
-					name='highlight_file_input',
-					suppress_exceptions=True,
-				)
-
-			# If not found near the selected element, fallback to finding the closest file input to current scroll position
-			if file_input_node is None:
-				logger.info(
-					f'No file upload element found near index {params.index}, searching for closest file input to scroll position'
-				)
-
-				# Get current scroll position
-				cdp_session = await browser_session.get_or_create_cdp_session()
-				try:
-					scroll_info = await cdp_session.cdp_client.send.Runtime.evaluate(
-						params={'expression': 'window.scrollY || window.pageYOffset || 0'}, session_id=cdp_session.session_id
-					)
-					current_scroll_y = scroll_info.get('result', {}).get('value', 0)
-				except Exception:
-					current_scroll_y = 0
-
-				# Find all file inputs in the selector map and pick the closest one to scroll position
-				closest_file_input = None
-				min_distance = float('inf')
-
-				for idx, element in selector_map.items():
-					if browser_session.is_file_input(element):
-						# Get element's Y position
-						if element.absolute_position:
-							element_y = element.absolute_position.y
-							distance = abs(element_y - current_scroll_y)
-							if distance < min_distance:
-								min_distance = distance
-								closest_file_input = element
-
-				if closest_file_input:
-					file_input_node = closest_file_input
-					logger.info(f'Found file input closest to scroll position (distance: {min_distance}px)')
-
-					# Highlight the fallback file input element (truly non-blocking)
-					create_task_with_error_handling(
-						browser_session.highlight_interaction_element(file_input_node),
-						name='highlight_file_input_fallback',
-						suppress_exceptions=True,
-					)
-				else:
-					msg = 'No file upload element found on the page'
-					logger.error(msg)
-					raise BrowserError(msg)
-					# TODO: figure out why this fails sometimes + add fallback hail mary, just look for any file input on page
-
-			# Dispatch upload file event with the file input node
-			try:
-				event = browser_session.event_bus.dispatch(UploadFileEvent(node=file_input_node, file_path=params.path))
-				await event
-				await event.event_result(raise_if_any=True, raise_if_none=False)
-				msg = f'Successfully uploaded file to index {params.index}'
-				logger.info(f'📁 {msg}')
-				return ActionResult(
-					extracted_content=msg,
-					long_term_memory=f'Uploaded file {params.path} to element {params.index}',
-				)
-			except Exception as e:
-				logger.error(f'Failed to upload file: {e}')
-				raise BrowserError(f'Failed to upload file: {e}')

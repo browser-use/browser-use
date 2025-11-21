@@ -162,7 +162,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		include_attributes: list[str] | None = None,
 		max_actions_per_step: int = 4,
 		use_thinking: bool = True,
-		flash_mode: bool = False,
+		flash_mode: bool = True,
+		use_anthropic_agent_prompt: bool = True,
 		demo_mode: bool | None = None,
 		max_history_items: int | None = None,
 		page_extraction_llm: BaseChatModel | None = None,
@@ -406,6 +407,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				use_thinking=self.settings.use_thinking,
 				flash_mode=self.settings.flash_mode,
 				is_anthropic=is_anthropic,
+				use_anthropic_agent_prompt=use_anthropic_agent_prompt,
 			).get_system_message(),
 			file_system=self.file_system,
 			state=self.state.message_manager_state,
@@ -745,10 +747,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self.logger.debug(f'🌐 Step {self.state.n_steps}: Getting browser state...')
 		# Always take screenshots for all steps
-		self.logger.debug('📸 Requesting browser state with include_screenshot=True')
+		self.logger.debug('📸 Requesting browser state with include_screenshot=True, include_dom_tree=False')
 		browser_state_summary = await self.browser_session.get_browser_state_summary(
 			include_screenshot=True,  # always capture even if use_vision=False so that cloud sync is useful (it's fast now anyway)
 			include_recent_events=self.include_recent_events,
+			include_dom_tree=False,  # Skip expensive DOM tree building - we use coordinate-based actions
 		)
 		if browser_state_summary.screenshot:
 			self.logger.debug(f'📸 Got browser state WITH screenshot, length: {len(browser_state_summary.screenshot)}')
@@ -1126,7 +1129,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Create and store history item"""
 
 		if model_output:
-			interacted_elements = AgentHistory.get_interacted_element(model_output, browser_state_summary.dom_state.selector_map)
+			# Handle case where DOM tree wasn't built (selector_map is empty)
+			selector_map = (
+				browser_state_summary.dom_state.selector_map
+				if (browser_state_summary.dom_state and browser_state_summary.dom_state.selector_map)
+				else {}
+			)
+			interacted_elements = AgentHistory.get_interacted_element(model_output, selector_map)
 		else:
 			interacted_elements = [None]
 
@@ -1378,10 +1387,17 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Log step context information"""
 		url = browser_state_summary.url if browser_state_summary else ''
 		url_short = url[:50] + '...' if len(url) > 50 else url
-		interactive_count = len(browser_state_summary.dom_state.selector_map) if browser_state_summary else 0
+		interactive_count = (
+			len(browser_state_summary.dom_state.selector_map)
+			if (browser_state_summary and browser_state_summary.dom_state and browser_state_summary.dom_state.selector_map)
+			else 0
+		)
 		self.logger.info('\n')
 		self.logger.info(f'📍 Step {self.state.n_steps}:')
-		self.logger.debug(f'Evaluating page with {interactive_count} interactive elements on: {url_short}')
+		if interactive_count > 0:
+			self.logger.debug(f'Evaluating page with {interactive_count} interactive elements on: {url_short}')
+		else:
+			self.logger.debug(f'Evaluating page on: {url_short}')
 
 	def _log_next_action_summary(self, parsed: 'AgentOutput') -> None:
 		"""Log a comprehensive summary of the next action(s)"""
@@ -2399,7 +2415,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		assert self.browser_session is not None, 'BrowserSession is not set up'
 
 		await asyncio.sleep(delay)
-		state = await self.browser_session.get_browser_state_summary(include_screenshot=False)
+		state = await self.browser_session.get_browser_state_summary(include_screenshot=False, include_dom_tree=False)
 		if not state or not history_item.model_output:
 			raise ValueError('Invalid state or model output')
 		updated_actions = []
