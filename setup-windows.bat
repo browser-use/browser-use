@@ -34,18 +34,29 @@ echo ✓ browser-use installed!
 
 echo.
 echo Step 3: Installing browser (Chromium)...
-playwright install chromium --with-deps --no-shell
+echo This may take a few minutes and download ~150MB...
+playwright install chromium
 if errorlevel 1 (
     echo.
-    echo ERROR: Failed to install Chromium
-    pause
-    exit /b 1
+    echo WARNING: Chromium install had issues, trying alternative method...
+    python -m playwright install chromium
+    if errorlevel 1 (
+        echo.
+        echo ERROR: Failed to install Chromium
+        echo You can try manually: python -m playwright install chromium
+        pause
+        exit /b 1
+    )
 )
 echo ✓ Chromium installed!
 
 echo.
 echo Step 4: Installing CLI interface...
-pip install browser-use[cli]
+pip install "browser-use[cli]"
+if errorlevel 1 (
+    echo WARNING: CLI installation had issues
+    echo You can still use Python scripts, just not the web UI
+)
 echo ✓ CLI installed!
 
 echo.
