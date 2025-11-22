@@ -94,5 +94,7 @@ class MessageManagerState(BaseModel):
 	read_state_description: str = ''
 	# Images to include in the next state message (cleared after each step)
 	read_state_images: list[dict[str, Any]] = Field(default_factory=list)
+	# Track action names for the last 3 steps (for summary at prompt bottom)
+	recent_step_actions: list[list[str]] = Field(default_factory=list)
 
 	model_config = ConfigDict(arbitrary_types_allowed=True)

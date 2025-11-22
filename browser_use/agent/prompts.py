@@ -386,10 +386,9 @@ Available tabs:
 
 		# Add last action summary at the bottom if available
 		if self.last_action_summary:
-			state_description += '\n<last_action>\n'
-			state_description += 'This was your last action:\n'
+			state_description += '\n<last_actions>\n'
 			state_description += self.last_action_summary + '\n'
-			state_description += '</last_action>\n'
+			state_description += '</last_actions>\n'
 
 		# Sanitize surrogates from all text content
 		state_description = sanitize_surrogates(state_description)

@@ -286,44 +286,76 @@ class MessageManager:
 
 		return ''
 
-	def _get_last_action_summary(self, model_output: AgentOutput | None = None) -> str | None:
-		"""Generate a brief summary of the last action for display at prompt bottom"""
+	def _get_last_action_summary(self, model_output: AgentOutput | None = None, result: list[ActionResult] | None = None) -> str | None:
+		"""Generate summary of last action with JSON and results for display at prompt bottom"""
+		import json
+		
 		if not model_output or not model_output.action:
 			return None
 
-		# Get the last action(s)
+		# Get the last 3 steps of actions from history
+		last_3_steps_actions = []
+		for history_item in self.state.agent_history_items[-3:]:
+			if history_item.step_number is not None and history_item.step_number > 0:
+				# Extract action names from history item if available
+				# We need to look at the stored model output for this - but we don't have it stored
+				# So we'll track actions separately
+				pass
+		
+		# Get last 3 steps from our new tracking list
+		if hasattr(self.state, 'recent_step_actions'):
+			for step_actions in self.state.recent_step_actions[-3:]:
+				last_3_steps_actions.extend(step_actions)
+		
+		# Build the summary
+		summary_parts = []
+		
+		# Part 1: Last 3 steps actions overview
+		if last_3_steps_actions:
+			action_names = ', '.join(last_3_steps_actions)
+			summary_parts.append(f'Your actions in the last 3 steps were: {action_names}')
+		else:
+			summary_parts.append('Your actions in the last 3 steps were: [none yet]')
+		
+		summary_parts.append('Try to avoid loops and repetition. If the current approach is repeatedly failing, try another way.')
+		
+		# Part 2: Last action as JSON
 		actions = model_output.action if isinstance(model_output.action, list) else [model_output.action]
-		if not actions:
-			return None
-
-		# Format actions briefly
-		action_strs = []
+		action_json_list = []
 		for action in actions:
-			if not action:
-				continue
-			# Format: action_name(param1=value1, param2=value2)
-			if hasattr(action, 'model_dump'):
+			if action and hasattr(action, 'model_dump'):
 				action_dict = action.model_dump()
-				action_name = action_dict.get('name', 'unknown')
-				# Get only the most important params, exclude metadata
-				params = {k: v for k, v in action_dict.items() if k not in ['name', 'metadata', 'get_element_tree'] and v is not None}
-				if params:
-					# Truncate long values
-					truncated_params = {}
-					for k, v in params.items():
-						if isinstance(v, str) and len(v) > 50:
-							truncated_params[k] = v[:50] + '...'
-						else:
-							truncated_params[k] = v
-					param_str = ', '.join(f'{k}={v!r}' for k, v in truncated_params.items())
-					action_strs.append(f'{action_name}({param_str})')
-				else:
-					action_strs.append(f'{action_name}()')
-
-		if not action_strs:
-			return None
-
-		return ', '.join(action_strs)
+				# Remove metadata and get_element_tree for cleaner output
+				action_dict.pop('metadata', None)
+				action_dict.pop('get_element_tree', None)
+				action_json_list.append(action_dict)
+		
+		if action_json_list:
+			summary_parts.append('Your last action:')
+			summary_parts.append(json.dumps(action_json_list if len(action_json_list) > 1 else action_json_list[0], indent=2))
+		
+		# Part 3: Action results
+		if result:
+			result_parts = []
+			for action_result in result:
+				if action_result.error:
+					result_parts.append(f'Error: {action_result.error}')
+				elif action_result.extracted_content:
+					# Truncate long extracted content
+					content = action_result.extracted_content
+					if len(content) > 300:
+						content = content[:300] + '...'
+					result_parts.append(content)
+				elif action_result.long_term_memory:
+					result_parts.append(action_result.long_term_memory)
+			
+			if result_parts:
+				summary_parts.append('Result:')
+				summary_parts.append('\n'.join(result_parts))
+			else:
+				summary_parts.append('Result: [success]')
+		
+		return '\n'.join(summary_parts)
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='create_state_messages')
 	@time_execution_sync('--create_state_messages')
@@ -384,8 +416,27 @@ class MessageManager:
 		# Use vision in the user message if screenshots are included
 		effective_use_vision = len(screenshots) > 0
 
+		# Track actions for the last 3 steps summary
+		if model_output and model_output.action:
+			if not hasattr(self.state, 'recent_step_actions'):
+				self.state.recent_step_actions = []
+			
+			# Extract action names from this step
+			actions = model_output.action if isinstance(model_output.action, list) else [model_output.action]
+			step_action_names = []
+			for action in actions:
+				if action and hasattr(action, 'model_dump'):
+					action_dict = action.model_dump()
+					action_name = action_dict.get('name', 'unknown')
+					step_action_names.append(action_name)
+			
+			# Add to recent actions and keep only last 3 steps
+			self.state.recent_step_actions.append(step_action_names)
+			if len(self.state.recent_step_actions) > 3:
+				self.state.recent_step_actions = self.state.recent_step_actions[-3:]
+
 		# Generate last action summary
-		last_action_summary = self._get_last_action_summary(model_output)
+		last_action_summary = self._get_last_action_summary(model_output, result)
 
 		# Create single state message with all content
 		assert browser_state_summary
