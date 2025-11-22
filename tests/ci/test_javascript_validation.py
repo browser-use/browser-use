@@ -21,7 +21,7 @@ class TestJavaScriptValidation:
 			f'Parenthesis count mismatch. Original: {original.count(")")}, Fixed: {fixed.count(")")}'
 		)
 		# Should convert to template literal
-		assert "`div[role='button'][pressed]`" in fixed or "`div[role='button'][pressed]`" in fixed
+		assert "`div[role='button'][pressed]`" in fixed
 		# Should be valid JavaScript (no syntax errors)
 		assert fixed.count('(') == fixed.count(')'), f'Unbalanced parentheses in: {fixed}'
 
