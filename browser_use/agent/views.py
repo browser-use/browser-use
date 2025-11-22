@@ -42,7 +42,7 @@ class AgentSettings(BaseModel):
 	override_system_message: str | None = None
 	extend_system_message: str | None = None
 	include_attributes: list[str] | None = DEFAULT_INCLUDE_ATTRIBUTES
-	max_actions_per_step: int = 4
+	max_actions_per_step: int = 3
 	use_thinking: bool = True
 	flash_mode: bool = False  # If enabled, disables evaluation_previous_goal and next_goal, and sets use_thinking = False
 	use_judge: bool = True

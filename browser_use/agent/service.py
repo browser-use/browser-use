@@ -160,7 +160,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		generate_gif: bool | str = False,
 		available_file_paths: list[str] | None = None,
 		include_attributes: list[str] | None = None,
-		max_actions_per_step: int = 4,
+		max_actions_per_step: int = 3,
 		use_thinking: bool = True,
 		flash_mode: bool = True,
 		use_anthropic_agent_prompt: bool = True,
@@ -1792,12 +1792,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		try:
 			await asyncio.wait_for(
 				self.step(step_info),
-				timeout=180,  # 3 minute timeout
+				timeout=self.settings.step_timeout,
 			)
 			self.logger.debug(f'✅ Completed step {step + 1}/{max_steps}')
 		except TimeoutError:
 			# Handle step timeout gracefully
-			error_msg = f'Step {step + 1} timed out after 180 seconds'
+			error_msg = f'Step {step + 1} timed out after {self.settings.step_timeout} seconds'
 			self.logger.error(f'⏰ {error_msg}')
 			await self._demo_mode_log(error_msg, 'error', {'step': step + 1})
 			self.state.consecutive_failures += 1

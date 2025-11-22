@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 class SystemPrompt:
 	def __init__(
 		self,
-		max_actions_per_step: int = 4,
+		max_actions_per_step: int = 3,
 		override_system_message: str | None = None,
 		extend_system_message: str | None = None,
 		use_thinking: bool = True,
