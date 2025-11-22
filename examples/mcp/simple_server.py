@@ -9,7 +9,7 @@ Prerequisites:
    pip install 'browser-use[cli]'
 
 2. Start the browser-use MCP server in a separate terminal:
-   uvx browser-use --mcp
+   uvx 'browser-use[cli]' --mcp
 
 3. Run this client example:
    python simple_server.py
