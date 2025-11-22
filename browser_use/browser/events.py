@@ -2,7 +2,7 @@
 
 import inspect
 import os
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from bubus import BaseEvent
 from bubus.models import T_EventResultType
@@ -133,7 +133,7 @@ class ClickElementEvent(ElementSelectedEvent[dict[str, Any] | None]):
 	event_timeout: float | None = _get_timeout('TIMEOUT_ClickElementEvent', 15.0)  # seconds
 
 
-class ClickCoordinateEvent(BaseEvent[dict[str, Any] | None]):
+class ClickCoordinateEvent(BaseEvent[Optional[dict[str, Any]]]):
 	"""Click at specific coordinates."""
 
 	coordinate_x: int
