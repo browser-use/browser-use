@@ -286,6 +286,45 @@ class MessageManager:
 
 		return ''
 
+	def _get_last_action_summary(self, model_output: AgentOutput | None = None) -> str | None:
+		"""Generate a brief summary of the last action for display at prompt bottom"""
+		if not model_output or not model_output.action:
+			return None
+
+		# Get the last action(s)
+		actions = model_output.action if isinstance(model_output.action, list) else [model_output.action]
+		if not actions:
+			return None
+
+		# Format actions briefly
+		action_strs = []
+		for action in actions:
+			if not action:
+				continue
+			# Format: action_name(param1=value1, param2=value2)
+			if hasattr(action, 'model_dump'):
+				action_dict = action.model_dump()
+				action_name = action_dict.get('name', 'unknown')
+				# Get only the most important params, exclude metadata
+				params = {k: v for k, v in action_dict.items() if k not in ['name', 'metadata', 'get_element_tree'] and v is not None}
+				if params:
+					# Truncate long values
+					truncated_params = {}
+					for k, v in params.items():
+						if isinstance(v, str) and len(v) > 50:
+							truncated_params[k] = v[:50] + '...'
+						else:
+							truncated_params[k] = v
+					param_str = ', '.join(f'{k}={v!r}' for k, v in truncated_params.items())
+					action_strs.append(f'{action_name}({param_str})')
+				else:
+					action_strs.append(f'{action_name}()')
+
+		if not action_strs:
+			return None
+
+		return ', '.join(action_strs)
+
 	@observe_debug(ignore_input=True, ignore_output=True, name='create_state_messages')
 	@time_execution_sync('--create_state_messages')
 	def create_state_messages(
@@ -345,6 +384,9 @@ class MessageManager:
 		# Use vision in the user message if screenshots are included
 		effective_use_vision = len(screenshots) > 0
 
+		# Generate last action summary
+		last_action_summary = self._get_last_action_summary(model_output)
+
 		# Create single state message with all content
 		assert browser_state_summary
 		state_message = AgentMessagePrompt(
@@ -364,6 +406,7 @@ class MessageManager:
 			sample_images=self.sample_images,
 			read_state_images=self.state.read_state_images,
 			llm_screenshot_size=self.llm_screenshot_size,
+			last_action_summary=last_action_summary,
 		).get_user_message(effective_use_vision)
 
 		# Store state message text for history

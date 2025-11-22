@@ -90,6 +90,7 @@ class AgentMessagePrompt:
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 		read_state_images: list[dict] | None = None,
 		llm_screenshot_size: tuple[int, int] | None = None,
+		last_action_summary: str | None = None,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
@@ -108,6 +109,7 @@ class AgentMessagePrompt:
 		self.sample_images = sample_images or []
 		self.read_state_images = read_state_images or []
 		self.llm_screenshot_size = llm_screenshot_size
+		self.last_action_summary = last_action_summary
 		assert self.browser_state
 
 	def _extract_page_statistics(self) -> dict[str, int]:
@@ -381,6 +383,13 @@ Available tabs:
 			state_description += '<page_specific_actions>\n'
 			state_description += self.page_filtered_actions + '\n'
 			state_description += '</page_specific_actions>\n'
+
+		# Add last action summary at the bottom if available
+		if self.last_action_summary:
+			state_description += '\n<last_action>\n'
+			state_description += 'This was your last action:\n'
+			state_description += self.last_action_summary + '\n'
+			state_description += '</last_action>\n'
 
 		# Sanitize surrogates from all text content
 		state_description = sanitize_surrogates(state_description)
