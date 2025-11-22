@@ -398,7 +398,7 @@ Available tabs:
 				f'Your last {len(last_3_names)} action{"s" if len(last_3_names) > 1 else ""} were: {", ".join(last_3_names)}\n'
 			)
 			last_actions_text += (
-				'Try to avoid loops and repetition. If the current approach is repeatedly failing, try another way.\n\n'
+				'Try to avoid loops and repetition. If the current approach is repeatedly failing, try another way.\n'
 			)
 
 			# Add last action JSON if available
@@ -409,11 +409,31 @@ Available tabs:
 				last_action_json = last_action.model_dump(exclude_none=True)
 				last_actions_text += f'Your last action:\n{json.dumps(last_action_json, indent=2)}\n'
 
-				# Add result long term memory if available
+				# Add result following the same logic as in agent history
 				if self.last_result and len(self.last_result) > 0:
 					last_result_item = self.last_result[-1]
+					result_text = ''
+
+					# Same logic as _update_agent_history_description
 					if last_result_item.long_term_memory:
-						last_actions_text += f'\nResult: {last_result_item.long_term_memory}\n'
+						result_text = last_result_item.long_term_memory
+					elif last_result_item.extracted_content and not last_result_item.include_extracted_content_only_once:
+						result_text = last_result_item.extracted_content
+
+					if last_result_item.error:
+						if len(last_result_item.error) > 200:
+							error_text = last_result_item.error[:100] + '......' + last_result_item.error[-100:]
+						else:
+							error_text = last_result_item.error
+						if result_text:
+							result_text += f'\n{error_text}'
+						else:
+							result_text = error_text
+
+					if result_text:
+						last_actions_text += f'Result:\n{result_text}\n'
+
+				last_actions_text += 'In case this is a browser action, verify from the screenshot and browser state whether the action was successful.\n'
 
 			last_actions_text += '</last_actions>\n'
 			state_description += last_actions_text
