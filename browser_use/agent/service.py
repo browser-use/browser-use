@@ -296,6 +296,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			exclude_actions = ['screenshot'] if use_vision != 'auto' else []
 			self.tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text)
 
+		# Enforce screenshot exclusion when use_vision != 'auto', even if user passed custom tools
+		if use_vision != 'auto':
+			self.tools.exclude_action('screenshot')
+
 		# Structured output
 		self.output_model_schema = output_model_schema
 		if self.output_model_schema is not None:
