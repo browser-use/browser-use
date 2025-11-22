@@ -340,6 +340,42 @@ Required environment variables:
 MODELSCOPE_API_KEY=
 ```
 
+### Vercel AI Gateway [example](https://github.com/browser-use/browser-use/blob/main/examples/models/vercel_ai_gateway.py)
+
+Vercel AI Gateway provides an OpenAI-compatible API endpoint that acts as a proxy to various AI providers, with features like rate limiting, caching, and monitoring.
+
+To see all available models, visit: https://ai-gateway.vercel.sh/v1/models
+
+```python
+from browser_use import Agent, ChatVercel
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+# Get API key (https://vercel.com/ai-gateway)
+api_key = os.getenv('VERCEL_API_KEY')
+if not api_key:
+    raise ValueError('VERCEL_API_KEY is not set')
+
+# Use Vercel AI Gateway
+llm = ChatVercel(
+    model='openai/gpt-4o',
+    api_key=api_key,
+)
+
+agent = Agent(
+    task="Your task here",
+    llm=llm
+)
+```
+
+Required environment variables:
+
+```bash .env
+VERCEL_API_KEY=
+```
+
 ## Other models (DeepSeek, Novita, X...)
 
 We support all other models that can be called via OpenAI compatible API. We are open to PRs for more providers.
