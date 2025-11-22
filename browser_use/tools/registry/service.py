@@ -67,6 +67,7 @@ class Registry(Generic[Context]):
 			'page_extraction_llm': BaseChatModel,
 			'available_file_paths': list,
 			'has_sensitive_data': bool,
+			'sensitive_data': None,  # Complex union type dict[str, str | dict[str, str]] | None - skip validation
 			'file_system': FileSystem,
 		}
 
@@ -335,18 +336,27 @@ class Registry(Generic[Context]):
 		available_file_paths: list[str] | None = None,
 	) -> Any:
 		"""Execute a registered action with simplified parameter handling"""
+		logger.debug(f'🔍 [EXECUTE DEBUG] Starting execute_action for: {action_name}')
+		logger.debug(f'🔍 [EXECUTE DEBUG] Params: {params}')
+
 		if action_name not in self.registry.actions:
 			raise ValueError(f'Action {action_name} not found')
 
 		action = self.registry.actions[action_name]
+		logger.debug(f'🔍 [EXECUTE DEBUG] Action found, param_model type: {action.param_model.__name__}')
+
 		try:
 			# Create the validated Pydantic model
 			try:
+				logger.debug('🔍 [EXECUTE DEBUG] Validating params with param_model...')
 				validated_params = action.param_model(**params)
+				logger.debug(f'🔍 [EXECUTE DEBUG] Params validated successfully: {type(validated_params).__name__}')
 			except Exception as e:
+				logger.debug(f'🔍 [EXECUTE DEBUG] Param validation failed: {type(e).__name__}: {e}')
 				raise ValueError(f'Invalid parameters {params} for action {action_name}: {type(e)}: {e}') from e
 
 			if sensitive_data:
+				logger.debug('🔍 [EXECUTE DEBUG] Processing sensitive data...')
 				# Get current URL if browser_session is provided
 				current_url = None
 				if browser_session and browser_session.agent_focus_target_id:
@@ -358,8 +368,10 @@ class Registry(Generic[Context]):
 					except Exception:
 						pass
 				validated_params = self._replace_sensitive_data(validated_params, sensitive_data, current_url)
+				logger.debug('🔍 [EXECUTE DEBUG] Sensitive data processed')
 
 			# Build special context dict
+			logger.debug('🔍 [EXECUTE DEBUG] Building special context...')
 			special_context = {
 				'browser_session': browser_session,
 				'page_extraction_llm': page_extraction_llm,
@@ -383,14 +395,22 @@ class Registry(Generic[Context]):
 				# Add cdp_client
 				special_context['cdp_client'] = browser_session.cdp_client
 
+			logger.debug('🔍 [EXECUTE DEBUG] Special context built, calling action.function...')
 			# All functions are now normalized to accept kwargs only
 			# Call with params and unpacked special context
 			try:
-				return await action.function(params=validated_params, **special_context)
+				result = await action.function(params=validated_params, **special_context)
+				logger.debug(f'🔍 [EXECUTE DEBUG] Action function returned: {type(result).__name__}')
+				return result
 			except Exception as e:
+				logger.debug(f'🔍 [EXECUTE DEBUG] Action function raised exception: {type(e).__name__}: {e}')
+				import traceback
+
+				logger.debug(f'🔍 [EXECUTE DEBUG] Full traceback:\n{traceback.format_exc()}')
 				raise
 
 		except ValueError as e:
+			logger.debug(f'🔍 [EXECUTE DEBUG] ValueError in execute_action: {e}')
 			# Preserve ValueError messages from validation
 			if 'requires browser_session but none provided' in str(e) or 'requires page_extraction_llm but none provided' in str(
 				e
@@ -399,8 +419,13 @@ class Registry(Generic[Context]):
 			else:
 				raise RuntimeError(f'Error executing action {action_name}: {str(e)}') from e
 		except TimeoutError as e:
+			logger.debug(f'🔍 [EXECUTE DEBUG] TimeoutError in execute_action: {e}')
 			raise RuntimeError(f'Error executing action {action_name} due to timeout.') from e
 		except Exception as e:
+			logger.debug(f'🔍 [EXECUTE DEBUG] Exception in execute_action: {type(e).__name__}: {e}')
+			import traceback
+
+			logger.debug(f'🔍 [EXECUTE DEBUG] Full traceback:\n{traceback.format_exc()}')
 			raise RuntimeError(f'Error executing action {action_name}: {str(e)}') from e
 
 	def _log_sensitive_data_usage(self, placeholders_used: set[str], current_url: str | None) -> None:

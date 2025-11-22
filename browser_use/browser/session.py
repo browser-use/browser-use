@@ -47,6 +47,7 @@ from browser_use.observability import observe_debug
 from browser_use.utils import _log_pretty_url, create_task_with_error_handling, is_new_tab_page
 
 if TYPE_CHECKING:
+	from browser_use.actor.element import Element
 	from browser_use.actor.page import Page
 	from browser_use.browser.demo_mode import DemoMode
 
@@ -1279,6 +1280,7 @@ class BrowserSession(BaseModel):
 		include_screenshot: bool = True,
 		cached: bool = False,
 		include_recent_events: bool = False,
+		include_dom_tree: bool = True,
 	) -> BrowserStateSummary:
 		if cached and self._cached_browser_state_summary is not None and self._cached_browser_state_summary.dom_state:
 			# Don't use cached state if it has 0 interactive elements
@@ -1300,7 +1302,7 @@ class BrowserSession(BaseModel):
 			BrowserStateRequestEvent,
 			self.event_bus.dispatch(
 				BrowserStateRequestEvent(
-					include_dom=True,
+					include_dom=include_dom_tree,
 					include_screenshot=include_screenshot,
 					include_recent_events=include_recent_events,
 				)
@@ -1913,6 +1915,121 @@ class BrowserSession(BaseModel):
 		"""Alias for get_dom_element_by_index for backwards compatibility."""
 		return await self.get_dom_element_by_index(index)
 
+	async def get_element_at_coordinates(self, x: int, y: int) -> 'Element | None':
+		"""Get element at given coordinates using CDP DOM.getNodeForLocation.
+
+		Args:
+			x: X coordinate relative to viewport
+			y: Y coordinate relative to viewport
+
+		Returns:
+			Element at the coordinates, or None if no element found
+
+		Raises:
+			RuntimeError: If no current page/session is available
+		"""
+		from browser_use.actor.element import Element
+
+		# Get current page to access CDP session
+		page = await self.get_current_page()
+		if page is None:
+			raise RuntimeError('No active page found')
+
+		# Get session ID for CDP call
+		session_id = await page._ensure_session()
+
+		try:
+			# Call CDP DOM.getNodeForLocation
+			result = await self.cdp_client.send.DOM.getNodeForLocation(
+				params={
+					'x': x,
+					'y': y,
+					'includeUserAgentShadowDOM': False,
+					'ignorePointerEventsNone': False,
+				},
+				session_id=session_id,
+			)
+
+			# Extract backend node ID from result
+			backend_node_id = result.get('backendNodeId')
+			if backend_node_id is None:
+				self.logger.debug(f'No element found at coordinates ({x}, {y})')
+				return None
+
+			# Create and return Element
+			return Element(self, backend_node_id, session_id)
+
+		except Exception as e:
+			self.logger.warning(f'Failed to get element at coordinates ({x}, {y}): {e}')
+			return None
+
+	async def get_dom_element_at_coordinates(self, x: int, y: int) -> EnhancedDOMTreeNode | None:
+		"""Get DOM element at coordinates as EnhancedDOMTreeNode (minimal, for backwards compatibility).
+
+		This creates a minimal EnhancedDOMTreeNode with only backend_node_id populated.
+		No extra CDP calls - just DOM.getNodeForLocation.
+
+		Args:
+			x: X coordinate relative to viewport
+			y: Y coordinate relative to viewport
+
+		Returns:
+			Minimal EnhancedDOMTreeNode at the coordinates, or None if no element found
+		"""
+		from browser_use.dom.views import NodeType
+
+		# Get current page to access CDP session
+		page = await self.get_current_page()
+		if page is None:
+			raise RuntimeError('No active page found')
+
+		# Get session ID for CDP call
+		session_id = await page._ensure_session()
+
+		try:
+			# Call CDP DOM.getNodeForLocation - single CDP call
+			result = await self.cdp_client.send.DOM.getNodeForLocation(
+				params={
+					'x': x,
+					'y': y,
+					'includeUserAgentShadowDOM': False,
+					'ignorePointerEventsNone': False,
+				},
+				session_id=session_id,
+			)
+
+			backend_node_id = result.get('backendNodeId')
+			if backend_node_id is None:
+				self.logger.debug(f'No element found at coordinates ({x}, {y})')
+				return None
+
+			# Create minimal EnhancedDOMTreeNode with only backend_node_id
+			return EnhancedDOMTreeNode(
+				node_id=result.get('nodeId', 0),
+				backend_node_id=backend_node_id,
+				node_type=NodeType.ELEMENT_NODE,  # Assume element
+				node_name='',  # Unknown - will be fetched by event handler if needed
+				node_value='',
+				attributes={},
+				is_scrollable=None,
+				frame_id=result.get('frameId'),
+				session_id=session_id,
+				target_id=self.agent_focus_target_id or '',
+				content_document=None,
+				shadow_root_type=None,
+				shadow_roots=None,
+				parent_node=None,
+				children_nodes=None,
+				ax_node=None,
+				snapshot_node=None,
+				is_visible=None,
+				absolute_position=None,
+			)
+
+		except Exception as e:
+			self.logger.warning(f'Failed to get DOM element at coordinates ({x}, {y}): {e}')
+			return None
+
 	async def get_target_id_from_tab_id(self, tab_id: str) -> TargetID:
 		"""Get the full-length TargetID from the truncated 4-char tab_id using SessionManager."""
 		if not self.session_manager:
@@ -2398,21 +2515,23 @@ class BrowserSession(BaseModel):
 
 				document.body.appendChild(container);
 
-				// Animate in
-				setTimeout(() => {{
-					outerCircle.style.opacity = '0.8';
-					outerCircle.style.transform = 'scale(1)';
-					centerDot.style.opacity = '1';
-					centerDot.style.transform = 'scale(1)';
-				}}, 10);
+			// Animate in
+			setTimeout(() => {{
+				outerCircle.style.opacity = '0.8';
+				outerCircle.style.transform = 'scale(1)';
+				centerDot.style.opacity = '1';
+				centerDot.style.transform = 'scale(1)';
+			}}, 10);
 
-				// Animate out and remove
-				setTimeout(() => {{
-					outerCircle.style.opacity = '0';
-					outerCircle.style.transform = 'scale(1.5)';
-					centerDot.style.opacity = '0';
-					setTimeout(() => container.remove(), 300);
-				}}, duration);
+			// Animate out and remove - slower fade out for stickier effect
+			setTimeout(() => {{
+				outerCircle.style.transition = 'all 0.6s ease-out';
+				centerDot.style.transition = 'all 0.6s ease-out';
+				outerCircle.style.opacity = '0';
+				outerCircle.style.transform = 'scale(1.5)';
+				centerDot.style.opacity = '0';
+				setTimeout(() => container.remove(), 600);
+			}}, duration);
 
 				return {{ created: true }};
 			}})();

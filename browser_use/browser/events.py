@@ -133,6 +133,17 @@ class ClickElementEvent(ElementSelectedEvent[dict[str, Any] | None]):
 	event_timeout: float | None = _get_timeout('TIMEOUT_ClickElementEvent', 15.0)  # seconds
 
 
+class ClickCoordinateEvent(BaseEvent[dict]):
+	"""Click at specific coordinates."""
+
+	coordinate_x: int
+	coordinate_y: int
+	button: Literal['left', 'right', 'middle'] = 'left'
+	force: bool = False  # If True, skip safety checks (file input, print, select)
+
+	event_timeout: float | None = _get_timeout('TIMEOUT_ClickCoordinateEvent', 15.0)  # seconds
+
+
 class TypeTextEvent(ElementSelectedEvent[dict | None]):
 	"""Type text into an element."""
 
@@ -153,6 +164,17 @@ class ScrollEvent(ElementSelectedEvent[None]):
 	node: 'EnhancedDOMTreeNode | None' = None  # None means scroll page
 
 	event_timeout: float | None = _get_timeout('TIMEOUT_ScrollEvent', 8.0)  # seconds
+
+
+class ScrollAtCoordinateEvent(BaseEvent[None]):
+	"""Scroll at specific coordinates using mouse wheel."""
+
+	coordinate_x: int
+	coordinate_y: int
+	scroll_x: int = 0  # deltaX (positive=right, negative=left)
+	scroll_y: int = 0  # deltaY (positive=down, negative=up)
+
+	event_timeout: float | None = _get_timeout('TIMEOUT_ScrollAtCoordinateEvent', 8.0)  # seconds
 
 
 class SwitchTabEvent(BaseEvent[TargetID]):

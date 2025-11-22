@@ -7,11 +7,13 @@ from cdp_use.cdp.input.commands import DispatchKeyEventParameters
 
 from browser_use.actor.utils import get_key_info
 from browser_use.browser.events import (
+	ClickCoordinateEvent,
 	ClickElementEvent,
 	GetDropdownOptionsEvent,
 	GoBackEvent,
 	GoForwardEvent,
 	RefreshEvent,
+	ScrollAtCoordinateEvent,
 	ScrollEvent,
 	ScrollToTextEvent,
 	SelectDropdownOptionEvent,
@@ -212,6 +214,63 @@ class DefaultActionWatchdog(BaseWatchdog):
 		except Exception as e:
 			raise
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='click_coordinate_event')
+	async def on_ClickCoordinateEvent(self, event: 'ClickCoordinateEvent') -> dict | None:
+		"""Handle click at coordinates with CDP."""
+		try:
+			# Check if session is alive before attempting any operations
+			if not self.browser_session.agent_focus_target_id:
+				error_msg = 'Cannot execute click: browser session is corrupted (target_id=None). Session may have crashed.'
+				self.logger.error(f'{error_msg}')
+				raise BrowserError(error_msg)
+
+			# If force=True, skip safety checks and click directly
+			if event.force:
+				self.logger.debug(f'Force clicking at coordinates ({event.coordinate_x}, {event.coordinate_y})')
+				return await self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=True)
+
+			# Get element at coordinates for safety checks
+			element_node = await self.browser_session.get_dom_element_at_coordinates(event.coordinate_x, event.coordinate_y)
+			if element_node is None:
+				# No element found, click directly
+				self.logger.debug(
+					f'No element found at coordinates ({event.coordinate_x}, {event.coordinate_y}), proceeding with click anyway'
+				)
+				return await self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False)
+
+			# Safety check: file input
+			if self.browser_session.is_file_input(element_node):
+				msg = f'Cannot click at ({event.coordinate_x}, {event.coordinate_y}) - element is a file input. To upload files please use upload_file action'
+				self.logger.info(f'{msg}')
+				return {'validation_error': msg}
+
+			# Safety check: select element
+			tag_name = element_node.tag_name.lower() if element_node.tag_name else ''
+			if tag_name == 'select':
+				msg = f'Cannot click at ({event.coordinate_x}, {event.coordinate_y}) - element is a <select>. Use dropdown_options action instead.'
+				self.logger.info(f'{msg}')
+				return {'validation_error': msg}
+
+			# Safety check: print-related elements
+			is_print_element = self._is_print_related_element(element_node)
+			if is_print_element:
+				self.logger.info(
+					f'🖨️ Detected print button at ({event.coordinate_x}, {event.coordinate_y}), generating PDF directly instead of opening dialog...'
+				)
+				click_metadata = await self._handle_print_button_click(element_node)
+				if click_metadata and click_metadata.get('pdf_generated'):
+					msg = f'Generated PDF: {click_metadata.get("path")}'
+					self.logger.info(f'💾 {msg}')
+					return click_metadata
+				else:
+					self.logger.warning('⚠️ PDF generation failed, falling back to regular click')
+
+			# All safety checks passed, click at coordinates
+			return await self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False)
+
+		except Exception:
+			raise
+
 	async def on_TypeTextEvent(self, event: TypeTextEvent) -> dict | None:
 		"""Handle text input request with CDP."""
 		try:
@@ -321,6 +380,46 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Log success
 			self.logger.debug(f'📜 Scrolled {event.direction} by {event.amount} pixels')
+			return None
+		except Exception as e:
+			raise
+
+	async def on_ScrollAtCoordinateEvent(self, event: ScrollAtCoordinateEvent) -> None:
+		"""Handle scroll at specific coordinates using CDP synthesizeScrollGesture."""
+		# Check if we have a current target for scrolling
+		if not self.browser_session.agent_focus_target_id:
+			error_msg = 'No active target for scrolling'
+			raise BrowserError(error_msg)
+
+		try:
+			# Get focused CDP session
+			cdp_session = await self.browser_session.get_or_create_cdp_session()
+			cdp_client = cdp_session.cdp_client
+			session_id = cdp_session.session_id
+
+			# Convert scroll deltas to gesture distances
+			# Note: synthesizeScrollGesture uses opposite directions:
+			# - positive yDistance = scroll UP (opposite of mouseWheel deltaY)
+			# - positive xDistance = scroll LEFT (opposite of mouseWheel deltaX)
+			# So we negate the values to maintain the same behavior as before
+			params: dict[str, float] = {
+				'x': float(event.coordinate_x),
+				'y': float(event.coordinate_y),
+			}
+			if event.scroll_x != 0:
+				params['xDistance'] = float(-event.scroll_x)
+			if event.scroll_y != 0:
+				params['yDistance'] = float(-event.scroll_y)
+
+			# Synthesize scroll gesture at the specified coordinates
+			await cdp_client.send.Input.synthesizeScrollGesture(
+				params=params,  # type: ignore[arg-type]
+				session_id=session_id,
+			)
+
+			self.logger.debug(
+				f'📄 Scrolled at ({event.coordinate_x}, {event.coordinate_y}) by deltaX={event.scroll_x}, deltaY={event.scroll_y}'
+			)
 			return None
 		except Exception as e:
 			raise
@@ -713,6 +812,86 @@ class DefaultActionWatchdog(BaseWatchdog):
 			raise BrowserError(
 				message=f'Failed to click element: {e}',
 				long_term_memory=error_detail,
+			)
+
+	async def _click_on_coordinate(self, coordinate_x: int, coordinate_y: int, force: bool = False) -> dict | None:
+		"""
+		Click directly at coordinates using CDP Input.dispatchMouseEvent.
+
+		Args:
+			coordinate_x: X coordinate in viewport
+			coordinate_y: Y coordinate in viewport
+			force: If True, skip all safety checks (used when force=True in event)
+
+		Returns:
+			Dict with click coordinates or None
+		"""
+		try:
+			# Get CDP session
+			cdp_session = await self.browser_session.get_or_create_cdp_session()
+			session_id = cdp_session.session_id
+
+			self.logger.debug(f'👆 Moving mouse to ({coordinate_x}, {coordinate_y})...')
+
+			# Move mouse to coordinates
+			await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+				params={
+					'type': 'mouseMoved',
+					'x': coordinate_x,
+					'y': coordinate_y,
+				},
+				session_id=session_id,
+			)
+			await asyncio.sleep(0.05)
+
+			# Mouse down
+			self.logger.debug(f'👆🏾 Clicking at ({coordinate_x}, {coordinate_y})...')
+			try:
+				await asyncio.wait_for(
+					cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+						params={
+							'type': 'mousePressed',
+							'x': coordinate_x,
+							'y': coordinate_y,
+							'button': 'left',
+							'clickCount': 1,
+						},
+						session_id=session_id,
+					),
+					timeout=3.0,
+				)
+				await asyncio.sleep(0.05)
+			except TimeoutError:
+				self.logger.debug('⏱️ Mouse down timed out (likely due to dialog), continuing...')
+
+			# Mouse up
+			try:
+				await asyncio.wait_for(
+					cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+						params={
+							'type': 'mouseReleased',
+							'x': coordinate_x,
+							'y': coordinate_y,
+							'button': 'left',
+							'clickCount': 1,
+						},
+						session_id=session_id,
+					),
+					timeout=5.0,
+				)
+			except TimeoutError:
+				self.logger.debug('⏱️ Mouse up timed out (possibly due to lag or dialog popup), continuing...')
+
+			self.logger.debug(f'🖱️ Clicked successfully at ({coordinate_x}, {coordinate_y})')
+
+			# Return coordinates as metadata
+			return {'click_x': coordinate_x, 'click_y': coordinate_y}
+
+		except Exception as e:
+			self.logger.error(f'Failed to click at coordinates ({coordinate_x}, {coordinate_y}): {type(e).__name__}: {e}')
+			raise BrowserError(
+				message=f'Failed to click at coordinates: {e}',
+				long_term_memory=f'Failed to click at coordinates ({coordinate_x}, {coordinate_y}). The coordinates may be outside viewport or the page may have changed.',
 			)
 
 	async def _type_to_page(self, text: str):
