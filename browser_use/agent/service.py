@@ -837,10 +837,20 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Check for new downloads after executing actions
 		await self._check_and_update_downloads('after executing actions')
 
-		# check for action errors  and len more than 1
-		if self.state.last_result and len(self.state.last_result) == 1 and self.state.last_result[-1].error:
+		# Determine if this step should count as a failure based on action errors or evaluation
+		has_action_error = bool(self.state.last_result and any(r.error for r in self.state.last_result))
+		eval_failed = False
+		if self.state.last_model_output is not None:
+			eval_text = (self.state.last_model_output.current_state.evaluation_previous_goal or '').lower()
+			if 'verdict' in eval_text and ('failure' in eval_text or 'fail' in eval_text):
+				eval_failed = True
+
+		if has_action_error or eval_failed:
 			self.state.consecutive_failures += 1
-			self.logger.debug(f'🔄 Step {self.state.n_steps}: Consecutive failures: {self.state.consecutive_failures}')
+			self.logger.debug(
+				f'🔄 Step {self.state.n_steps}: Consecutive failures: {self.state.consecutive_failures} '
+				f'(action_error={has_action_error}, eval_failed={eval_failed})'
+			)
 			return
 
 		if self.state.consecutive_failures > 0:
