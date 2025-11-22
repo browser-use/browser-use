@@ -231,9 +231,11 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Get element at coordinates for safety checks
 			element_node = await self.browser_session.get_dom_element_at_coordinates(event.coordinate_x, event.coordinate_y)
 			if element_node is None:
-				msg = f'No element found at coordinates ({event.coordinate_x}, {event.coordinate_y})'
-				self.logger.warning(f'⚠️ {msg}')
-				raise BrowserError(msg)
+				# No element found, click directly
+				self.logger.debug(
+					f'No element found at coordinates ({event.coordinate_x}, {event.coordinate_y}), proceeding with click anyway'
+				)
+				return await self._click_on_coordinate(event.coordinate_x, event.coordinate_y, force=False)
 
 			# Safety check: file input
 			if self.browser_session.is_file_input(element_node):
