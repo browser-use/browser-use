@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 class SystemPrompt:
 	def __init__(
 		self,
-		max_actions_per_step: int = 4,
+		max_actions_per_step: int = 3,
 		override_system_message: str | None = None,
 		extend_system_message: str | None = None,
 		use_thinking: bool = True,
@@ -451,3 +451,50 @@ Available tabs:
 			return UserMessage(content=content_parts, cache=True)
 
 		return UserMessage(content=state_description, cache=True)
+
+
+def get_rerun_summary_prompt(original_task: str, total_steps: int, success_count: int, error_count: int) -> str:
+	return f'''You are analyzing the completion of a rerun task. Based on the screenshot and execution info, provide a summary.
+
+Original task: {original_task}
+
+Execution statistics:
+- Total steps: {total_steps}
+- Successful steps: {success_count}
+- Failed steps: {error_count}
+
+Analyze the screenshot to determine:
+1. Whether the task completed successfully
+2. What the final state shows
+3. Overall completion status (complete/partial/failed)
+
+Respond with:
+- summary: A clear, concise summary of what happened during the rerun
+- success: Whether the task completed successfully (true/false)
+- completion_status: One of "complete", "partial", or "failed"'''
+
+
+def get_rerun_summary_message(prompt: str, screenshot_b64: str | None = None) -> UserMessage:
+	"""
+	Build a UserMessage for rerun summary generation.
+
+	Args:
+		prompt: The prompt text
+		screenshot_b64: Optional base64-encoded screenshot
+
+	Returns:
+		UserMessage with prompt and optional screenshot
+	"""
+	if screenshot_b64:
+		# With screenshot: use multi-part content
+		content_parts: list[ContentPartTextParam | ContentPartImageParam] = [
+			ContentPartTextParam(type='text', text=prompt),
+			ContentPartImageParam(
+				type='image_url',
+				image_url=ImageURL(url=f'data:image/png;base64,{screenshot_b64}'),
+			),
+		]
+		return UserMessage(content=content_parts)
+	else:
+		# Without screenshot: use simple string content
+		return UserMessage(content=prompt)
