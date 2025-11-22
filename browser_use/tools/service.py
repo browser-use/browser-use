@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from browser_use.agent.views import ActionModel, ActionResult
 from browser_use.browser import BrowserSession
 from browser_use.browser.events import (
+	ClickCoordinateEvent,
 	ClickElementEvent,
 	CloseTabEvent,
 	GetDropdownOptionsEvent,
@@ -385,22 +386,29 @@ class Tools(Generic[Context]):
 				# Highlight the coordinate being clicked (truly non-blocking)
 				asyncio.create_task(browser_session.highlight_coordinate_click(actual_x, actual_y))
 
-				# Use Actor (page.mouse.click) for coordinate-based clicking
-				page = await browser_session.get_current_page()
-				if page is None:
-					return ActionResult(error='No active page found')
+				# Dispatch ClickCoordinateEvent - handler will check for safety and click
+				# Pass force parameter from params (defaults to False for safety)
+				event = browser_session.event_bus.dispatch(
+					ClickCoordinateEvent(coordinate_x=actual_x, coordinate_y=actual_y, force=params.force)
+				)
+				await event
+				click_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
 
-				mouse = await page.mouse
-				await mouse.click(actual_x, actual_y)
+				# Check for validation errors (only happens when force=False)
+				if isinstance(click_metadata, dict) and 'validation_error' in click_metadata:
+					return ActionResult(error=click_metadata['validation_error'])
 
-				memory = f'Clicked on coordinate {params.coordinate_x}, {params.coordinate_y}'
+				force_msg = ' (forced)' if params.force else ''
+				memory = f'Clicked on coordinate {params.coordinate_x}, {params.coordinate_y}{force_msg}'
 				msg = f'🖱️ {memory}'
 				logger.info(msg)
 
 				return ActionResult(
 					extracted_content=memory,
-					metadata={'click_x': actual_x, 'click_y': actual_y},
+					metadata=click_metadata if isinstance(click_metadata, dict) else {'click_x': actual_x, 'click_y': actual_y},
 				)
+			except BrowserError as e:
+				return handle_browser_error(e)
 			except Exception as e:
 				error_msg = f'Failed to click at coordinates ({params.coordinate_x}, {params.coordinate_y}).'
 				return ActionResult(error=error_msg)
@@ -466,7 +474,7 @@ class Tools(Generic[Context]):
 		# 		return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			'Click on coordinates in the viewport.',
+			'Click on coordinates in the viewport. By default (force=False), performs safety checks: prevents clicking file inputs (use upload_file instead), print buttons (auto-generates PDF), and select dropdowns (use dropdown_options instead). Set force=True to bypass these checks - NOT RECOMMENDED unless absolutely necessary.',
 			param_model=ClickElementAction,
 		)
 		async def click(params: ClickElementAction, browser_session: BrowserSession):
@@ -491,17 +499,13 @@ class Tools(Generic[Context]):
 				# Highlight the coordinate being clicked (truly non-blocking)
 				asyncio.create_task(browser_session.highlight_coordinate_click(actual_x, actual_y))
 
-				# Get the page
-				page = await browser_session.get_current_page()
-				if page is None:
-					return ActionResult(error='No active page found')
-
 				# Step 1: Click at the coordinates to focus the input
-				mouse = await page.mouse
-				await mouse.click(actual_x, actual_y)
-
-				# Small delay to ensure focus
-				await asyncio.sleep(0.05)
+				# Use force=True to bypass safety checks - we just want to focus for typing
+				click_event = browser_session.event_bus.dispatch(
+					ClickCoordinateEvent(coordinate_x=actual_x, coordinate_y=actual_y, force=True)
+				)
+				await click_event
+				await click_event.event_result(raise_if_any=True, raise_if_none=False)
 
 				# Step 2: Type the text using SendKeysEvent
 				# Detect which sensitive key is being used
@@ -837,13 +841,19 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				# Highlight the scroll coordinate (truly non-blocking)
 				asyncio.create_task(browser_session.highlight_coordinate_click(actual_x, actual_y))
 
-				# Use Mouse.scroll for coordinate-based scrolling
-				page = await browser_session.get_current_page()
-				if page is None:
-					return ActionResult(error='No active page found')
+				# Use CDP Input.dispatchMouseEvent with mouseWheel for scrolling
+				cdp_session = await browser_session.get_or_create_cdp_session()
 
-				mouse = await page.mouse
-				await mouse.scroll(x=actual_x, y=actual_y, delta_x=actual_scroll_x, delta_y=actual_scroll_y)
+				await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+					params={
+						'type': 'mouseWheel',
+						'x': actual_x,
+						'y': actual_y,
+						'deltaX': actual_scroll_x,
+						'deltaY': actual_scroll_y,
+					},
+					session_id=cdp_session.session_id,
+				)
 
 				# Build descriptive memory using original LLM values for consistency
 				direction_parts = []

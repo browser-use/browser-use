@@ -133,6 +133,17 @@ class ClickElementEvent(ElementSelectedEvent[dict[str, Any] | None]):
 	event_timeout: float | None = _get_timeout('TIMEOUT_ClickElementEvent', 15.0)  # seconds
 
 
+class ClickCoordinateEvent(BaseEvent[dict[str, Any] | None]):
+	"""Click at specific coordinates."""
+
+	coordinate_x: int
+	coordinate_y: int
+	button: Literal['left', 'right', 'middle'] = 'left'
+	force: bool = False  # If True, skip safety checks (file input, print, select)
+
+	event_timeout: float | None = _get_timeout('TIMEOUT_ClickCoordinateEvent', 15.0)  # seconds
+
+
 class TypeTextEvent(ElementSelectedEvent[dict | None]):
 	"""Type text into an element."""
 

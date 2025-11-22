@@ -37,6 +37,10 @@ GoToUrlAction = NavigateAction
 class ClickElementAction(BaseModel):
 	coordinate_x: int = Field(description='Horizontal coordinate relative to viewport left edge')
 	coordinate_y: int = Field(description='Vertical coordinate relative to viewport top edge')
+	force: bool = Field(
+		default=False,
+		description='Set to True to bypass safety checks (file inputs, print dialogs, select elements). NOT RECOMMENDED - only use if you are certain the element is safe to click.',
+	)
 	# expect_download: bool = Field(default=False, description='set True if expecting a download, False otherwise')  # moved to downloads_watchdog.py
 	# click_count: int = 1  # TODO
 
