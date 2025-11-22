@@ -217,6 +217,11 @@ class CodeAgent:
 			assert self._browser_profile_for_init is not None
 			self.browser_session = BrowserSession(browser_profile=self._browser_profile_for_init)
 			await self.browser_session.start()
+		else:
+			# If browser_session was provided, ensure it's started (attaches watchdogs)
+			# Check if watchdogs are already attached to avoid duplicate calls
+			if not getattr(self.browser_session, '_watchdogs_attached', False):
+				await self.browser_session.start()
 
 		if self.browser_session:
 			self._demo_mode_enabled = bool(self.browser_session.browser_profile.demo_mode)

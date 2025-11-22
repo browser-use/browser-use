@@ -9,6 +9,7 @@ Connect your existing Chrome browser to preserve authentication.
 ## Basic Example
 
 ```python
+import asyncio
 from browser_use import Agent, Browser, ChatOpenAI
 
 # Connect to your existing Chrome browser
@@ -25,6 +26,9 @@ agent = Agent(
 )
 async def main():
 	await agent.run()
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 > **Note:** You need to fully close chrome before running this example. Also, Google blocks this approach currently so we use DuckDuckGo instead.
