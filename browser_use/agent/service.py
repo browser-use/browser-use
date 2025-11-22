@@ -178,7 +178,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		include_tool_call_examples: bool = False,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		llm_timeout: int | None = None,
-		step_timeout: int = 120,
+		step_timeout: int = 180,
 		directly_open_url: bool = True,
 		include_recent_events: bool = False,
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
