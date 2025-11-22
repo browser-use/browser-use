@@ -410,7 +410,8 @@ class Tools(Generic[Context]):
 			except BrowserError as e:
 				return handle_browser_error(e)
 			except Exception as e:
-				error_msg = f'Failed to click at coordinates ({params.coordinate_x}, {params.coordinate_y}).'
+				# want to see the error
+				error_msg = f'Failed to click at coordinates ({params.coordinate_x}, {params.coordinate_y}): {str(e)}'
 				return ActionResult(error=error_msg)
 
 		# async def _click_by_index(index: int, browser_session: BrowserSession) -> ActionResult:

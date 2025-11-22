@@ -51,6 +51,7 @@ class Registry(Generic[Context]):
 			'page_extraction_llm': BaseChatModel,
 			'available_file_paths': list,
 			'has_sensitive_data': bool,
+			'sensitive_data': None,  # Complex union type dict[str, str | dict[str, str]] | None - skip validation
 			'file_system': FileSystem,
 		}
 
