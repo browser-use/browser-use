@@ -20,6 +20,7 @@ from browser_use.browser.events import (
 	GetDropdownOptionsEvent,
 	GoBackEvent,
 	NavigateToUrlEvent,
+	ScrollAtCoordinateEvent,
 	ScrollEvent,
 	ScrollToTextEvent,
 	SendKeysEvent,
@@ -60,6 +61,7 @@ logger = logging.getLogger(__name__)
 ClickElementEvent.model_rebuild()
 TypeTextEvent.model_rebuild()
 ScrollEvent.model_rebuild()
+ScrollAtCoordinateEvent.model_rebuild()
 UploadFileEvent.model_rebuild()
 
 Context = TypeVar('Context')
@@ -862,19 +864,17 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				# Highlight the scroll coordinate (truly non-blocking)
 				asyncio.create_task(browser_session.highlight_coordinate_click(actual_x, actual_y))
 
-				# Use CDP Input.dispatchMouseEvent with mouseWheel for scrolling
-				cdp_session = await browser_session.get_or_create_cdp_session()
-
-				await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
-					params={
-						'type': 'mouseWheel',
-						'x': actual_x,
-						'y': actual_y,
-						'deltaX': actual_scroll_x,
-						'deltaY': actual_scroll_y,
-					},
-					session_id=cdp_session.session_id,
+				# Dispatch ScrollAtCoordinateEvent
+				event = browser_session.event_bus.dispatch(
+					ScrollAtCoordinateEvent(
+						coordinate_x=actual_x,
+						coordinate_y=actual_y,
+						scroll_x=actual_scroll_x,
+						scroll_y=actual_scroll_y,
+					)
 				)
+				await event
+				await event.event_result(raise_if_any=True, raise_if_none=False)
 
 				# Build descriptive memory using original LLM values for consistency
 				direction_parts = []

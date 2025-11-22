@@ -166,6 +166,17 @@ class ScrollEvent(ElementSelectedEvent[None]):
 	event_timeout: float | None = _get_timeout('TIMEOUT_ScrollEvent', 8.0)  # seconds
 
 
+class ScrollAtCoordinateEvent(BaseEvent[None]):
+	"""Scroll at specific coordinates using mouse wheel."""
+
+	coordinate_x: int
+	coordinate_y: int
+	scroll_x: int = 0  # deltaX (positive=right, negative=left)
+	scroll_y: int = 0  # deltaY (positive=down, negative=up)
+
+	event_timeout: float | None = _get_timeout('TIMEOUT_ScrollAtCoordinateEvent', 8.0)  # seconds
+
+
 class SwitchTabEvent(BaseEvent[TargetID]):
 	"""Switch to a different tab."""
 
