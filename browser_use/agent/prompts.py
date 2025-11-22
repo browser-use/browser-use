@@ -1,4 +1,5 @@
 import importlib.resources
+import json
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal, Optional
 
@@ -90,6 +91,8 @@ class AgentMessagePrompt:
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 		read_state_images: list[dict] | None = None,
 		llm_screenshot_size: tuple[int, int] | None = None,
+		model_output: Any | None = None,
+		result: list[Any] | None = None,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
@@ -108,6 +111,8 @@ class AgentMessagePrompt:
 		self.sample_images = sample_images or []
 		self.read_state_images = read_state_images or []
 		self.llm_screenshot_size = llm_screenshot_size
+		self.model_output = model_output
+		self.result = result or []
 		assert self.browser_state
 
 	def _extract_page_statistics(self) -> dict[str, int]:
@@ -178,6 +183,65 @@ class AgentMessagePrompt:
 
 		traverse_node(self.browser_state.dom_state._root)
 		return stats
+
+	def _get_last_actions_description(self) -> str:
+		"""Build description of the last step actions and results"""
+		if not self.model_output or not self.model_output.action:
+			return ''
+
+		# Get executed actions (only those that ran before page change)
+		executed_actions = []
+		for idx, action in enumerate(self.model_output.action):
+			# Stop counting if we have a result but the rest weren't executed
+			if idx < len(self.result):
+				executed_actions.append(action)
+			else:
+				break
+
+		if not executed_actions:
+			return ''
+
+		# Get action names (last 3)
+		action_names = []
+		for action in executed_actions:
+			action_dict = action.model_dump(exclude_none=True) if hasattr(action, 'model_dump') else {}
+			# Get the action name (first key in the dict)
+			if action_dict:
+				action_name = list(action_dict.keys())[0]
+				action_names.append(action_name)
+
+		num_to_show = min(3, len(action_names))
+		recent_actions = action_names[-num_to_show:]
+
+		# Build the description
+		description = '<last_actions>\n'
+		if len(recent_actions) > 1:
+			description += f"Your last {len(recent_actions)} actions were: {', '.join(recent_actions)}\n"
+		description += 'Try to avoid loops and repetition. If the current approach is repeatedly failing, try another way.\n\n'
+
+		# Add last action details
+		last_action = executed_actions[-1]
+		last_action_dict = last_action.model_dump(exclude_none=True) if hasattr(last_action, 'model_dump') else {}
+		description += f'Your last action:\n{json.dumps(last_action_dict, indent=2)}\n\n'
+
+		# Add result
+		if self.result and len(self.result) > 0:
+			last_result = self.result[-1]
+			result_parts = []
+			if hasattr(last_result, 'extracted_content') and last_result.extracted_content:
+				result_parts.append(f'Extracted: {last_result.extracted_content}')
+			if hasattr(last_result, 'long_term_memory') and last_result.long_term_memory:
+				result_parts.append(f'Memory: {last_result.long_term_memory}')
+			if hasattr(last_result, 'error') and last_result.error:
+				result_parts.append(f'Error: {last_result.error}')
+
+			if result_parts:
+				description += 'Result:\n' + '\n'.join(result_parts) + '\n'
+			else:
+				description += 'Result: Action executed successfully\n'
+
+		description += '</last_actions>'
+		return description
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='_get_browser_state_description')
 	def _get_browser_state_description(self) -> str:
@@ -381,6 +445,11 @@ Available tabs:
 			state_description += '<page_specific_actions>\n'
 			state_description += self.page_filtered_actions + '\n'
 			state_description += '</page_specific_actions>\n'
+
+		# Add last actions at the bottom
+		last_actions_description = self._get_last_actions_description()
+		if last_actions_description:
+			state_description += '\n' + last_actions_description + '\n'
 
 		# Sanitize surrogates from all text content
 		state_description = sanitize_surrogates(state_description)

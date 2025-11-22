@@ -364,6 +364,8 @@ class MessageManager:
 			sample_images=self.sample_images,
 			read_state_images=self.state.read_state_images,
 			llm_screenshot_size=self.llm_screenshot_size,
+			model_output=model_output,
+			result=result,
 		).get_user_message(effective_use_vision)
 
 		# Store state message text for history
