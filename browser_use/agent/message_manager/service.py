@@ -298,6 +298,7 @@ class MessageManager:
 		page_filtered_actions: str | None = None,
 		sensitive_data=None,
 		available_file_paths: list[str] | None = None,  # Always pass current available_file_paths
+		executed_action_names: list[str] | None = None,
 	) -> None:
 		"""Create single state message with all content"""
 
@@ -364,6 +365,9 @@ class MessageManager:
 			sample_images=self.sample_images,
 			read_state_images=self.state.read_state_images,
 			llm_screenshot_size=self.llm_screenshot_size,
+			executed_action_names=executed_action_names,
+			last_model_output=model_output,
+			last_result=result,
 		).get_user_message(effective_use_vision)
 
 		# Store state message text for history
