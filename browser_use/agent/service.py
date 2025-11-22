@@ -782,6 +782,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			step_info=step_info,
 			use_vision=self.settings.use_vision,
 			page_filtered_actions=page_filtered_actions if page_filtered_actions else None,
+			executed_action_names=self.state.executed_action_names,
 			sensitive_data=self.sensitive_data,
 			available_file_paths=self.available_file_paths,  # Always pass current available_file_paths
 		)
@@ -2096,6 +2097,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					)
 
 				results.append(result)
+
+				# Track executed action names
+				self.state.executed_action_names.append(action_name)
 
 				if results[-1].is_done or results[-1].error or i == total_actions - 1:
 					break

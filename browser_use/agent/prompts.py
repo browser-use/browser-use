@@ -8,7 +8,7 @@ from browser_use.observability import observe_debug
 from browser_use.utils import is_new_tab_page, sanitize_surrogates
 
 if TYPE_CHECKING:
-	from browser_use.agent.views import AgentStepInfo
+	from browser_use.agent.views import ActionResult, AgentOutput, AgentStepInfo
 	from browser_use.browser.views import BrowserStateSummary
 	from browser_use.filesystem.file_system import FileSystem
 
@@ -90,6 +90,9 @@ class AgentMessagePrompt:
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 		read_state_images: list[dict] | None = None,
 		llm_screenshot_size: tuple[int, int] | None = None,
+		executed_action_names: list[str] | None = None,
+		last_model_output: 'AgentOutput | None' = None,
+		last_result: 'list[ActionResult] | None' = None,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
@@ -108,6 +111,9 @@ class AgentMessagePrompt:
 		self.sample_images = sample_images or []
 		self.read_state_images = read_state_images or []
 		self.llm_screenshot_size = llm_screenshot_size
+		self.executed_action_names = executed_action_names or []
+		self.last_model_output = last_model_output
+		self.last_result = last_result or []
 		assert self.browser_state
 
 	def _extract_page_statistics(self) -> dict[str, int]:
@@ -381,6 +387,36 @@ Available tabs:
 			state_description += '<page_specific_actions>\n'
 			state_description += self.page_filtered_actions + '\n'
 			state_description += '</page_specific_actions>\n'
+
+		# Add last actions section at the bottom
+		if self.executed_action_names and len(self.executed_action_names) > 0:
+			last_actions_text = '<last_actions>\n'
+
+			# Get last 3 executed action names
+			last_3_names = self.executed_action_names[-3:]
+			last_actions_text += (
+				f'Your last {len(last_3_names)} action{"s" if len(last_3_names) > 1 else ""} were: {", ".join(last_3_names)}\n'
+			)
+			last_actions_text += (
+				'Try to avoid loops and repetition. If the current approach is repeatedly failing, try another way.\n\n'
+			)
+
+			# Add last action JSON if available
+			if self.last_model_output and self.last_model_output.action:
+				import json
+
+				last_action = self.last_model_output.action[-1]
+				last_action_json = last_action.model_dump(exclude_none=True)
+				last_actions_text += f'Your last action:\n{json.dumps(last_action_json, indent=2)}\n'
+
+				# Add result long term memory if available
+				if self.last_result and len(self.last_result) > 0:
+					last_result_item = self.last_result[-1]
+					if last_result_item.long_term_memory:
+						last_actions_text += f'\nResult: {last_result_item.long_term_memory}\n'
+
+			last_actions_text += '</last_actions>\n'
+			state_description += last_actions_text
 
 		# Sanitize surrogates from all text content
 		state_description = sanitize_surrogates(state_description)

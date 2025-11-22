@@ -68,6 +68,7 @@ class AgentState(BaseModel):
 	last_result: list[ActionResult] | None = None
 	last_plan: str | None = None
 	last_model_output: AgentOutput | None = None
+	executed_action_names: list[str] = Field(default_factory=list)  # Track executed action names across steps
 
 	# Pause/resume state (kept serialisable for checkpointing)
 	paused: bool = False
