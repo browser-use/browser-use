@@ -67,13 +67,13 @@ from browser_use import Agent, Browser, ChatBrowserUse
 from browser_use.browser import ProxySettings
 
 browser = Browser(
-        headless=False,
-        proxy=ProxySettings(
-            server="http://proxy-server:8080",
-            username="proxy-user",
-            password="proxy-pass"
-        )
-        cdp_url="http://remote-server:9222"
+    headless=False,
+    proxy=ProxySettings(
+        server="http://proxy-server:8080",
+        username="proxy-user",
+        password="proxy-pass"
+    ),
+    cdp_url="http://remote-server:9222"
 )
 
 

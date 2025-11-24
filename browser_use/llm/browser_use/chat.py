@@ -79,14 +79,18 @@ class ChatBrowserUse(BaseChatModel):
 		return self.model
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> ChatInvokeCompletion[str]: ...
+	async def ainvoke(
+		self, messages: list[BaseMessage], output_format: None = None, request_type: str = 'browser_agent'
+	) -> ChatInvokeCompletion[str]: ...
 
 	@overload
-	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T]) -> ChatInvokeCompletion[T]: ...
+	async def ainvoke(
+		self, messages: list[BaseMessage], output_format: type[T], request_type: str = 'browser_agent'
+	) -> ChatInvokeCompletion[T]: ...
 
 	@observe(name='chat_browser_use_ainvoke')
 	async def ainvoke(
-		self, messages: list[BaseMessage], output_format: type[T] | None = None
+		self, messages: list[BaseMessage], output_format: type[T] | None = None, request_type: str = 'browser_agent'
 	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		"""
 		Send request to browser-use cloud API.
@@ -94,14 +98,22 @@ class ChatBrowserUse(BaseChatModel):
 		Args:
 			messages: List of messages to send
 			output_format: Expected output format (Pydantic model)
+			request_type: Type of request - 'browser_agent' or 'judge'
 
 		Returns:
 			ChatInvokeCompletion with structured response and usage info
 		"""
+		# Get ANONYMIZED_TELEMETRY setting from config
+		from browser_use.config import CONFIG
+
+		anonymized_telemetry = CONFIG.ANONYMIZED_TELEMETRY
+
 		# Prepare request payload
 		payload = {
 			'messages': [self._serialize_message(msg) for msg in messages],
 			'fast': self.fast,
+			'request_type': request_type,
+			'anonymized_telemetry': anonymized_telemetry,
 		}
 
 		# Add output format schema if provided

@@ -668,3 +668,83 @@ def _log_pretty_url(s: str, max_len: int | None = 22) -> str:
 	if max_len is not None and len(s) > max_len:
 		return s[:max_len] + '…'
 	return s
+
+
+def create_task_with_error_handling(
+	coro: Coroutine[Any, Any, T],
+	*,
+	name: str | None = None,
+	logger_instance: logging.Logger | None = None,
+	suppress_exceptions: bool = False,
+) -> asyncio.Task[T]:
+	"""
+	Create an asyncio task with proper exception handling to prevent "Task exception was never retrieved" warnings.
+
+	Args:
+		coro: The coroutine to wrap in a task
+		name: Optional name for the task (useful for debugging)
+		logger_instance: Optional logger instance to use. If None, uses module logger.
+		suppress_exceptions: If True, logs exceptions at ERROR level. If False, logs at WARNING level
+			and exceptions remain retrievable via task.exception() if the caller awaits the task.
+			Default False.
+
+	Returns:
+		asyncio.Task: The created task with exception handling callback
+
+	Example:
+		# Fire-and-forget with suppressed exceptions
+		create_task_with_error_handling(some_async_function(), name="my_task", suppress_exceptions=True)
+
+		# Task with retrievable exceptions (if you plan to await it)
+		task = create_task_with_error_handling(critical_function(), name="critical")
+		result = await task  # Will raise the exception if one occurred
+	"""
+	task = asyncio.create_task(coro, name=name)
+	log = logger_instance or logger
+
+	def _handle_task_exception(t: asyncio.Task[T]) -> None:
+		"""Callback to handle task exceptions"""
+		exc_to_raise = None
+		try:
+			# This will raise if the task had an exception
+			exc = t.exception()
+			if exc is not None:
+				task_name = t.get_name() if hasattr(t, 'get_name') else 'unnamed'
+				if suppress_exceptions:
+					log.error(f'Exception in background task [{task_name}]: {type(exc).__name__}: {exc}', exc_info=exc)
+				else:
+					# Log at warning level then mark for re-raising
+					log.warning(
+						f'Exception in background task [{task_name}]: {type(exc).__name__}: {exc}',
+						exc_info=exc,
+					)
+					exc_to_raise = exc
+		except asyncio.CancelledError:
+			# Task was cancelled, this is normal behavior
+			pass
+		except Exception as e:
+			# Catch any other exception during exception handling (e.g., t.exception() itself failing)
+			task_name = t.get_name() if hasattr(t, 'get_name') else 'unnamed'
+			log.error(f'Error handling exception in task [{task_name}]: {type(e).__name__}: {e}')
+
+		# Re-raise outside the try-except block so it propagates to the event loop
+		if exc_to_raise is not None:
+			raise exc_to_raise
+
+	task.add_done_callback(_handle_task_exception)
+	return task
+
+
+def sanitize_surrogates(text: str) -> str:
+	"""Remove surrogate characters that can't be encoded in UTF-8.
+
+	Surrogate pairs (U+D800 to U+DFFF) are invalid in UTF-8 when unpaired.
+	These often appear in DOM content from mathematical symbols or emojis.
+
+	Args:
+		text: The text to sanitize
+
+	Returns:
+		Text with surrogate characters removed
+	"""
+	return text.encode('utf-8', errors='ignore').decode('utf-8')
