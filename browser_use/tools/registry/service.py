@@ -392,7 +392,6 @@ class Registry(Generic[Context]):
 				result = await action.function(params=validated_params, **special_context)
 				return result
 			except Exception as e:
-				import traceback
 
 				raise
 
@@ -407,7 +406,6 @@ class Registry(Generic[Context]):
 		except TimeoutError as e:
 			raise RuntimeError(f'Error executing action {action_name} due to timeout.') from e
 		except Exception as e:
-			import traceback
 
 			raise RuntimeError(f'Error executing action {action_name}: {str(e)}') from e
 

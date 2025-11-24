@@ -414,7 +414,6 @@ class Tools(Generic[Context]):
 				return handle_browser_error(e)
 			except Exception as e:
 				# want to see the error
-				import traceback
 
 				error_msg = f'Failed to click at coordinates ({params.coordinate_x}, {params.coordinate_y}): {str(e)}'
 				return ActionResult(error=error_msg)
@@ -1407,7 +1406,6 @@ Validated Code (after quote fixing):
 						result = ActionResult(error=f'{action_name} was not executed due to timeout.')
 					except Exception as e:
 						# Log the original exception with traceback for observability
-						import traceback
 
 						logger.error(f"Action '{action_name}' failed with error: {str(e)}")
 						result = ActionResult(error=str(e))
