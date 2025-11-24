@@ -42,7 +42,7 @@ class AgentSettings(BaseModel):
 	override_system_message: str | None = None
 	extend_system_message: str | None = None
 	include_attributes: list[str] | None = DEFAULT_INCLUDE_ATTRIBUTES
-	max_actions_per_step: int = 4
+	max_actions_per_step: int = 3
 	use_thinking: bool = True
 	flash_mode: bool = False  # If enabled, disables evaluation_previous_goal and next_goal, and sets use_thinking = False
 	use_judge: bool = True
@@ -151,6 +151,16 @@ class ActionResult(BaseModel):
 				'Use success=False only for actions that fail.'
 			)
 		return self
+
+
+class RerunSummaryAction(BaseModel):
+	"""AI-generated summary for rerun completion"""
+
+	summary: str = Field(description='Summary of what happened during the rerun')
+	success: bool = Field(description='Whether the rerun completed successfully based on visual inspection')
+	completion_status: Literal['complete', 'partial', 'failed'] = Field(
+		description='Status of rerun completion: complete (all steps succeeded), partial (some steps succeeded), failed (task did not complete)'
+	)
 
 
 class StepMetadata(BaseModel):

@@ -1523,7 +1523,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 		try:
 			# Execute JavaScript to trigger comprehensive event sequence
 			framework_events_script = """
-			(function() {
+			function() {
 				// Find the target element (available as 'this' when using objectId)
 				const element = this;
 				if (!element) return false;
@@ -1600,7 +1600,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				}
 
 				return success;
-			})();
+			}
 			"""
 
 			# Execute the framework events script
@@ -1614,6 +1614,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 			)
 
 			success = result.get('result', {}).get('value', False)
+			if success:
+				self.logger.debug('✅ Framework events triggered successfully')
+			else:
+				self.logger.warning('⚠️ Failed to trigger framework events')
 
 		except Exception as e:
 			self.logger.warning(f'⚠️ Failed to trigger framework events: {type(e).__name__}: {e}')
@@ -1621,7 +1625,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 	async def _scroll_with_cdp_gesture(self, pixels: int) -> bool:
 		"""
-		Scroll using CDP Input.dispatchMouseEvent to simulate mouse wheel.
+		Scroll using CDP Input.synthesizeScrollGesture to simulate realistic scroll gesture.
 
 		Args:
 			pixels: Number of pixels to scroll (positive = down, negative = up)
@@ -1635,35 +1639,41 @@ class DefaultActionWatchdog(BaseWatchdog):
 			cdp_client = cdp_session.cdp_client
 			session_id = cdp_session.session_id
 
-			# Get viewport dimensions
-			layout_metrics = await cdp_client.send.Page.getLayoutMetrics(session_id=session_id)
-			viewport_width = layout_metrics['layoutViewport']['clientWidth']
-			viewport_height = layout_metrics['layoutViewport']['clientHeight']
+			# Get viewport dimensions from cached value if available
+			if self.browser_session._original_viewport_size:
+				viewport_width, viewport_height = self.browser_session._original_viewport_size
+			else:
+				# Fallback: query layout metrics
+				layout_metrics = await cdp_client.send.Page.getLayoutMetrics(session_id=session_id)
+				viewport_width = layout_metrics['layoutViewport']['clientWidth']
+				viewport_height = layout_metrics['layoutViewport']['clientHeight']
 
 			# Calculate center of viewport
 			center_x = viewport_width / 2
 			center_y = viewport_height / 2
 
-			# For mouse wheel, positive deltaY scrolls down, negative scrolls up
-			delta_y = pixels
+			# For scroll gesture, positive yDistance scrolls up, negative scrolls down
+			# (opposite of mouseWheel deltaY convention)
+			y_distance = -pixels
 
-			# Dispatch mouse wheel event
-			await cdp_client.send.Input.dispatchMouseEvent(
+			# Synthesize scroll gesture with faster speed
+			await cdp_client.send.Input.synthesizeScrollGesture(
 				params={
-					'type': 'mouseWheel',
 					'x': center_x,
 					'y': center_y,
-					'deltaX': 0,
-					'deltaY': delta_y,
+					'xDistance': 0,
+					'yDistance': y_distance,
+					'speed': 1200,  # pixels per second (faster than default 800)
 				},
 				session_id=session_id,
 			)
 
-			self.logger.debug(f'📄 Scrolled via CDP mouse wheel: {pixels}px')
+			self.logger.debug(f'📄 Scrolled via CDP gesture: {pixels}px')
 			return True
 
 		except Exception as e:
-			self.logger.warning(f'❌ Scrolling via CDP failed: {type(e).__name__}: {e}')
+			# Not critical - JavaScript fallback will handle scrolling
+			self.logger.debug(f'CDP gesture scroll failed ({type(e).__name__}: {e}), falling back to JS')
 			return False
 
 	async def _scroll_element_container(self, element_node, pixels: int) -> bool:
