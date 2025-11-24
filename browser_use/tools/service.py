@@ -376,63 +376,45 @@ class Tools(Generic[Context]):
 		# Element Interaction Actions
 		async def _click_by_coordinate(params: ClickElementAction, browser_session: BrowserSession) -> ActionResult:
 			# Ensure coordinates are provided (type safety)
-			logger.debug(
-				f'🔍 [CLICK DEBUG] Starting click at ({params.coordinate_x}, {params.coordinate_y}), force={params.force}'
-			)
 			if params.coordinate_x is None or params.coordinate_y is None:
 				return ActionResult(error='Both coordinate_x and coordinate_y must be provided')
 
 			try:
 				# Convert coordinates from LLM size to original viewport size if resizing was used
-				logger.debug('🔍 [CLICK DEBUG] Converting coordinates...')
 				actual_x, actual_y = _convert_llm_coordinates_to_viewport(
 					params.coordinate_x, params.coordinate_y, browser_session
 				)
-				logger.debug(f'🔍 [CLICK DEBUG] Converted to actual coordinates: ({actual_x}, {actual_y})')
 
 				# Highlight the coordinate being clicked (truly non-blocking)
-				logger.debug('🔍 [CLICK DEBUG] Creating highlight task...')
 				asyncio.create_task(browser_session.highlight_coordinate_click(actual_x, actual_y))
 
 				# Dispatch ClickCoordinateEvent - handler will check for safety and click
 				# Pass force parameter from params (defaults to False for safety)
-				logger.debug('🔍 [CLICK DEBUG] Dispatching ClickCoordinateEvent...')
 				event = browser_session.event_bus.dispatch(
 					ClickCoordinateEvent(coordinate_x=actual_x, coordinate_y=actual_y, force=params.force)
 				)
-				logger.debug('🔍 [CLICK DEBUG] Event dispatched, awaiting event...')
 				await event
-				logger.debug('🔍 [CLICK DEBUG] Event completed, getting result...')
 				click_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
-				logger.debug(f'🔍 [CLICK DEBUG] Got click_metadata: {type(click_metadata).__name__}')
 
 				# Check for validation errors (only happens when force=False)
 				if isinstance(click_metadata, dict) and 'validation_error' in click_metadata:
-					logger.debug(f'🔍 [CLICK DEBUG] Validation error found: {click_metadata["validation_error"]}')
 					return ActionResult(error=click_metadata['validation_error'])
 
-				logger.debug('🔍 [CLICK DEBUG] Building success message...')
 				force_msg = ' (forced)' if params.force else ''
 				memory = f'Clicked on coordinate {params.coordinate_x}, {params.coordinate_y}{force_msg}'
 				msg = f'🖱️ {memory}'
 				logger.info(msg)
 
-				logger.debug('🔍 [CLICK DEBUG] Creating ActionResult...')
 				result = ActionResult(
 					extracted_content=memory,
 					metadata=click_metadata if isinstance(click_metadata, dict) else {'click_x': actual_x, 'click_y': actual_y},
 				)
-				logger.debug('🔍 [CLICK DEBUG] ActionResult created successfully')
 				return result
 			except BrowserError as e:
-				logger.debug(f'🔍 [CLICK DEBUG] BrowserError caught: {type(e).__name__}: {e}')
 				return handle_browser_error(e)
 			except Exception as e:
 				# want to see the error
-				import traceback
 
-				logger.debug(f'🔍 [CLICK DEBUG] Exception caught: {type(e).__name__}: {e}')
-				logger.debug(f'🔍 [CLICK DEBUG] Full traceback:\n{traceback.format_exc()}')
 				error_msg = f'Failed to click at coordinates ({params.coordinate_x}, {params.coordinate_y}): {str(e)}'
 				return ActionResult(error=error_msg)
 
@@ -1386,12 +1368,9 @@ Validated Code (after quote fixing):
 		file_system: FileSystem | None = None,
 	) -> ActionResult:
 		"""Execute an action"""
-		logger.debug(f'🔍 [ACT DEBUG] Starting act with action type: {type(action).__name__}')
-		logger.debug(f'🔍 [ACT DEBUG] Action model dump: {action.model_dump(exclude_unset=True)}')
 
 		for action_name, params in action.model_dump(exclude_unset=True).items():
 			if params is not None:
-				logger.debug(f'🔍 [ACT DEBUG] Processing action: {action_name} with params type: {type(params).__name__}')
 				# Use Laminar span if available, otherwise use no-op context manager
 				if Laminar is not None:
 					span_context = Laminar.start_as_current_span(
@@ -1410,7 +1389,6 @@ Validated Code (after quote fixing):
 
 				with span_context:
 					try:
-						logger.debug(f'🔍 [ACT DEBUG] Calling registry.execute_action for {action_name}...')
 						result = await self.registry.execute_action(
 							action_name=action_name,
 							params=params,
@@ -1420,21 +1398,15 @@ Validated Code (after quote fixing):
 							sensitive_data=sensitive_data,
 							available_file_paths=available_file_paths,
 						)
-						logger.debug(f'🔍 [ACT DEBUG] registry.execute_action returned: {type(result).__name__}')
 					except BrowserError as e:
-						logger.debug(f'🔍 [ACT DEBUG] BrowserError caught in act: {type(e).__name__}: {e}')
 						logger.error(f'❌ Action {action_name} failed with BrowserError: {str(e)}')
 						result = handle_browser_error(e)
 					except TimeoutError as e:
-						logger.debug(f'🔍 [ACT DEBUG] TimeoutError caught in act: {type(e).__name__}: {e}')
 						logger.error(f'❌ Action {action_name} failed with TimeoutError: {str(e)}')
 						result = ActionResult(error=f'{action_name} was not executed due to timeout.')
 					except Exception as e:
 						# Log the original exception with traceback for observability
-						logger.debug(f'🔍 [ACT DEBUG] Exception caught in act: {type(e).__name__}: {e}')
-						import traceback
 
-						logger.debug(f'🔍 [ACT DEBUG] Full traceback:\n{traceback.format_exc()}')
 						logger.error(f"Action '{action_name}' failed with error: {str(e)}")
 						result = ActionResult(error=str(e))
 
