@@ -1,5 +1,4 @@
 import asyncio
-import enum
 import json
 import logging
 import os
@@ -1282,12 +1281,8 @@ Validated Code (after quote fixing):
 			)
 			async def done(params: StructuredOutputAction):
 				# Exclude success from the output JSON since it's an internal parameter
-				output_dict = params.data.model_dump()
-
-				# Enums are not serializable, convert to string
-				for key, value in output_dict.items():
-					if isinstance(value, enum.Enum):
-						output_dict[key] = value.value
+				# Use mode='json' to properly serialize enums at all nesting levels
+				output_dict = params.data.model_dump(mode='json')
 
 				return ActionResult(
 					is_done=True,

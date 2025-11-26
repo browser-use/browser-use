@@ -57,9 +57,9 @@ class SchemaOptimizer:
 						if value:  # Only include non-empty descriptions
 							optimized[key] = value
 
-					# Handle type field
+					# Handle type field - must recursively process in case value contains $ref
 					elif key == 'type':
-						optimized[key] = value
+						optimized[key] = value if not isinstance(value, (dict, list)) else optimize_schema(value, defs_lookup)
 
 					# FLATTEN: Resolve $ref by inlining the actual definition
 					elif key == '$ref' and defs_lookup:
