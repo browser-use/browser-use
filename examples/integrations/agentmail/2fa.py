@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from browser_use import Agent, Browser, models
+from browser_use import Agent, Browser, ChatBrowserUse
 from examples.integrations.agentmail.email_tools import EmailTools
 
 TASK = """
@@ -28,7 +28,7 @@ async def main():
 	tools = EmailTools(email_client=email_client, inbox=inbox)
 
 	# Initialize the LLM for browser-use agent
-	llm = models.azure_gpt_4_1_mini
+	llm = ChatBrowserUse()
 
 	# Set your local browser path
 	browser = Browser(executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')

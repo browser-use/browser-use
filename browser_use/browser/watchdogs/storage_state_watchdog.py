@@ -19,6 +19,7 @@ from browser_use.browser.events import (
 	StorageStateSavedEvent,
 )
 from browser_use.browser.watchdog_base import BaseWatchdog
+from browser_use.utils import create_task_with_error_handling
 
 
 class StorageStateWatchdog(BaseWatchdog):
@@ -91,7 +92,9 @@ class StorageStateWatchdog(BaseWatchdog):
 
 		assert self.browser_session.cdp_client is not None
 
-		self._monitoring_task = asyncio.create_task(self._monitor_storage_changes())
+		self._monitoring_task = create_task_with_error_handling(
+			self._monitor_storage_changes(), name='monitor_storage_changes', logger_instance=self.logger, suppress_exceptions=True
+		)
 		# self.logger'[StorageStateWatchdog] Started storage monitoring task')
 
 	async def _stop_monitoring(self) -> None:
@@ -165,7 +168,7 @@ class StorageStateWatchdog(BaseWatchdog):
 		"""Save browser storage state to file."""
 		async with self._save_lock:
 			# Check if CDP client is available
-			assert await self.browser_session.get_or_create_cdp_session(target_id=None, new_socket=False)
+			assert await self.browser_session.get_or_create_cdp_session(target_id=None)
 
 			save_path = path or self.browser_session.browser_profile.storage_state
 			if not save_path:

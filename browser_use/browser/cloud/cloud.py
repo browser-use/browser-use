@@ -9,35 +9,11 @@ import logging
 import os
 
 import httpx
-from pydantic import BaseModel, Field
 
+from browser_use.browser.cloud.views import CloudBrowserAuthError, CloudBrowserError, CloudBrowserResponse, CreateBrowserRequest
 from browser_use.sync.auth import CloudAuthConfig
 
 logger = logging.getLogger(__name__)
-
-
-class CloudBrowserResponse(BaseModel):
-	"""Response from cloud browser API."""
-
-	id: str
-	status: str
-	liveUrl: str = Field(alias='liveUrl')
-	cdpUrl: str = Field(alias='cdpUrl')
-	timeoutAt: str = Field(alias='timeoutAt')
-	startedAt: str = Field(alias='startedAt')
-	finishedAt: str | None = Field(alias='finishedAt', default=None)
-
-
-class CloudBrowserError(Exception):
-	"""Exception raised when cloud browser operations fail."""
-
-	pass
-
-
-class CloudBrowserAuthError(CloudBrowserError):
-	"""Exception raised when cloud browser authentication fails."""
-
-	pass
 
 
 class CloudBrowserClient:
@@ -48,15 +24,16 @@ class CloudBrowserClient:
 		self.client = httpx.AsyncClient(timeout=30.0)
 		self.current_session_id: str | None = None
 
-	async def create_browser(self) -> CloudBrowserResponse:
-		"""Create a new cloud browser instance.
+	async def create_browser(
+		self, request: CreateBrowserRequest, extra_headers: dict[str, str] | None = None
+	) -> CloudBrowserResponse:
+		"""Create a new cloud browser instance. For full docs refer to https://docs.cloud.browser-use.com/api-reference/v-2-api-current/browsers/create-browser-session-browsers-post
+
+		Args:
+			request: CreateBrowserRequest object containing browser creation parameters
 
 		Returns:
 			CloudBrowserResponse: Contains CDP URL and other browser info
-
-		Raises:
-			CloudBrowserAuthError: If authentication fails
-			CloudBrowserError: If browser creation fails
 		"""
 		url = f'{self.api_base_url}/api/v2/browsers'
 
@@ -76,10 +53,10 @@ class CloudBrowserClient:
 				'No authentication token found. Please set BROWSER_USE_API_KEY environment variable to authenticate with the cloud service. You can also create an API key at https://cloud.browser-use.com/new-api-key'
 			)
 
-		headers = {'X-Browser-Use-API-Key': api_token, 'Content-Type': 'application/json'}
+		headers = {'X-Browser-Use-API-Key': api_token, 'Content-Type': 'application/json', **(extra_headers or {})}
 
-		# Empty request body as per API specification
-		request_body = {}
+		# Convert request to dictionary and exclude unset fields
+		request_body = request.model_dump(exclude_unset=True)
 
 		try:
 			logger.info('🌤️ Creating cloud browser instance...')
@@ -124,7 +101,9 @@ class CloudBrowserClient:
 				raise
 			raise CloudBrowserError(f'Unexpected error creating cloud browser: {e}')
 
-	async def stop_browser(self, session_id: str | None = None) -> CloudBrowserResponse:
+	async def stop_browser(
+		self, session_id: str | None = None, extra_headers: dict[str, str] | None = None
+	) -> CloudBrowserResponse:
 		"""Stop a cloud browser session.
 
 		Args:
@@ -161,7 +140,7 @@ class CloudBrowserClient:
 				'No authentication token found. Please set BROWSER_USE_API_KEY environment variable to authenticate with the cloud service. You can also create an API key at https://cloud.browser-use.com/new-api-key'
 			)
 
-		headers = {'X-Browser-Use-API-Key': api_token, 'Content-Type': 'application/json'}
+		headers = {'X-Browser-Use-API-Key': api_token, 'Content-Type': 'application/json', **(extra_headers or {})}
 
 		request_body = {'action': 'stop'}
 
@@ -222,66 +201,3 @@ class CloudBrowserClient:
 				logger.debug(f'Failed to stop cloud browser session during cleanup: {e}')
 
 		await self.client.aclose()
-
-
-# Global client instance
-_cloud_client: CloudBrowserClient | None = None
-
-
-async def get_cloud_browser_cdp_url() -> str:
-	"""Get a CDP URL for a new cloud browser instance.
-
-	Returns:
-		str: CDP URL for connecting to the cloud browser
-
-	Raises:
-		CloudBrowserAuthError: If authentication fails
-		CloudBrowserError: If browser creation fails
-	"""
-	global _cloud_client
-
-	if _cloud_client is None:
-		_cloud_client = CloudBrowserClient()
-
-	try:
-		browser_response = await _cloud_client.create_browser()
-		return browser_response.cdpUrl
-	except Exception:
-		# Clean up client on error
-		if _cloud_client:
-			await _cloud_client.close()
-			_cloud_client = None
-		raise
-
-
-async def stop_cloud_browser_session(session_id: str | None = None) -> CloudBrowserResponse:
-	"""Stop a cloud browser session.
-
-	Args:
-		session_id: Session ID to stop. If None, uses current session from global client.
-
-	Returns:
-		CloudBrowserResponse: Updated browser info with stopped status
-
-	Raises:
-		CloudBrowserAuthError: If authentication fails
-		CloudBrowserError: If stopping fails
-	"""
-	global _cloud_client
-
-	if _cloud_client is None:
-		_cloud_client = CloudBrowserClient()
-
-	try:
-		return await _cloud_client.stop_browser(session_id)
-	except Exception:
-		# Don't clean up client on stop errors - session might still be valid
-		raise
-
-
-async def cleanup_cloud_client():
-	"""Clean up the global cloud client."""
-	global _cloud_client
-	if _cloud_client:
-		await _cloud_client.close()
-		_cloud_client = None

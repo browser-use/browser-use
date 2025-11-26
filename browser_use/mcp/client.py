@@ -33,7 +33,7 @@ from browser_use.agent.views import ActionResult
 from browser_use.telemetry import MCPClientTelemetryEvent, ProductTelemetry
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.service import Tools
-from browser_use.utils import get_browser_use_version
+from browser_use.utils import create_task_with_error_handling, get_browser_use_version
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,9 @@ class MCPClient:
 			server_params = StdioServerParameters(command=self.command, args=self.args, env=self.env)
 
 			# Start stdio client in background task
-			self._stdio_task = asyncio.create_task(self._run_stdio_client(server_params))
+			self._stdio_task = create_task_with_error_handling(
+				self._run_stdio_client(server_params), name='mcp_stdio_client', suppress_exceptions=True
+			)
 
 			# Wait for connection to be established
 			retries = 0

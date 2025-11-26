@@ -679,7 +679,7 @@ class Element:
 		except Exception:
 			return None
 
-	async def screenshot(self, format: str = 'jpeg', quality: int | None = None) -> str:
+	async def screenshot(self, format: str = 'png', quality: int | None = None) -> str:
 		"""Take a screenshot of this element and return base64 encoded image.
 
 		Args:

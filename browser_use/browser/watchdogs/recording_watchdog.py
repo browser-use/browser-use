@@ -12,6 +12,7 @@ from browser_use.browser.events import BrowserConnectedEvent, BrowserStopEvent
 from browser_use.browser.profile import ViewportSize
 from browser_use.browser.video_recorder import VideoRecorderService
 from browser_use.browser.watchdog_base import BaseWatchdog
+from browser_use.utils import create_task_with_error_handling
 
 
 class RecordingWatchdog(BaseWatchdog):
@@ -97,10 +98,16 @@ class RecordingWatchdog(BaseWatchdog):
 		"""
 		Synchronous handler for incoming screencast frames.
 		"""
+
 		if not self._recorder:
 			return
 		self._recorder.add_frame(event['data'])
-		asyncio.create_task(self._ack_screencast_frame(event, session_id))
+		create_task_with_error_handling(
+			self._ack_screencast_frame(event, session_id),
+			name='ack_screencast_frame',
+			logger_instance=self.logger,
+			suppress_exceptions=True,
+		)
 
 	async def _ack_screencast_frame(self, event: ScreencastFrameEvent, session_id: str | None) -> None:
 		"""
