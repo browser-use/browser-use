@@ -491,7 +491,7 @@ class DOMWatchdog(BaseWatchdog):
 			self.browser_session._cached_browser_state_summary = browser_state
 
 			# Cache viewport size for coordinate conversion (if llm_screenshot_size is enabled)
-			if self.browser_session.llm_screenshot_size and page_info:
+			if page_info:
 				self.browser_session._original_viewport_size = (page_info.viewport_width, page_info.viewport_height)
 
 			self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ COMPLETED - Returning browser state')

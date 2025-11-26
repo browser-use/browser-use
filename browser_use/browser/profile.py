@@ -595,6 +595,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		default=False,
 		description='Enable demo mode side panel that streams agent logs directly inside the browser window (requires headless=False).',
 	)
+	demo_mode_display: Literal['full', 'last'] = Field(
+		default='last',
+		description="Display mode for demo panel: 'full' shows complete log panel, 'last' shows only latest action and memory in bottom-right corner",
+	)
 	cookie_whitelist_domains: list[str] = Field(
 		default_factory=lambda: ['nature.com', 'qatarairways.com'],
 		description='List of domains to whitelist in the "I still don\'t care about cookies" extension, preventing automatic cookie banner handling on these sites.',
