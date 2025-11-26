@@ -4,8 +4,14 @@
   "name": "Browser Use",
   "colors": {
     "primary": "#FE750E",
-    "light": "#FFF7ED",
-    "dark": "#C2410C"
+    "light": "#FE750E",
+    "dark": "#FE750E"
+  },
+  "background": {
+    "color": {
+      "light": "#FFFFFF",
+      "dark": "#09090B"
+    }
   },
   "favicon": "/favicon.ico",
   "contextual": {
@@ -144,7 +150,8 @@
           "introduction",
           "quickstart",
           "quickstart_llm",
-          "supported-models"
+          "supported-models",
+          "production"
         ]
       },
       {
@@ -159,6 +166,17 @@
               "customize/agent/prompting-guide",
               "customize/agent/output-format",
               "customize/agent/all-parameters"
+            ]
+          },
+          {
+            "group": "Code Agent",
+            "icon": "code",
+            "isDefaultOpen": false,
+            "pages": [
+              "customize/code-agent/basics",
+              "customize/code-agent/exporting",
+              "customize/code-agent/all-parameters",
+              "customize/code-agent/example-products"
             ]
           },
           {
@@ -201,6 +219,16 @@
             "pages": [
               "customize/integrations/docs-mcp",
               "customize/integrations/mcp-server"
+            ]
+          },
+          {
+            "group": "Sandbox",
+            "icon": "box",
+            "isDefaultOpen": false,
+            "pages": [
+              "customize/sandbox/quickstart",
+              "customize/sandbox/events",
+              "customize/sandbox/all-parameters"
             ]
           }
         ]
@@ -259,6 +287,7 @@
             "isDefaultOpen": false,
             "pages": [
               "development/monitoring/observability",
+              "development/monitoring/openlit",
               "development/monitoring/telemetry",
               "development/monitoring/costs"
             ]

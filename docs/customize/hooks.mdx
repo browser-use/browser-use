@@ -91,8 +91,7 @@ When working with agent hooks, you have access to the entire `Agent` instance. H
 
 - `agent.task` lets you see what the main task is, `agent.add_new_task(...)` lets you queue up a new one
 - `agent.tools` give access to the `Tools()` object and `Registry()` containing the available actions
-  - `agent.tools.registry.execute_action('click_element_by_index', {'index': 123}, browser_session=agent.browser_session)`
-- `agent.context` lets you access any user-provided context object passed in to `Agent(context=...)`
+  - `agent.tools.registry.execute_action('click', {'index': 123}, browser_session=agent.browser_session)`
 - `agent.sensitive_data` contains the sensitive data dict, which can be updated in-place to add/remove/modify items
 - `agent.settings` contains all the configuration options passed to the `Agent(...)` at init time
 - `agent.llm` gives direct access to the main LLM object (e.g. `ChatOpenAI`)
@@ -104,7 +103,7 @@ When working with agent hooks, you have access to the entire `Agent` instance. H
   - `agent.history.extracted_content()`: Content extracted from web pages
   - `agent.history.urls()`: URLs visited by the agent
 - `agent.browser_session` gives direct access to the `BrowserSession` and CDP interface
-  - `agent.browser_session.agent_focus`: Get the current CDP session the agent is focused on
+  - `agent.browser_session.agent_focus_target_id`: Get the current target ID the agent is focused on
   - `agent.browser_session.get_or_create_cdp_session()`: Get the current CDP session for browser interaction
   - `agent.browser_session.get_tabs()`: Get all tabs currently open
   - `agent.browser_session.get_current_page_url()`: Get the URL of the current active tab

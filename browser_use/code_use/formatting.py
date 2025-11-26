@@ -173,9 +173,7 @@ async def format_browser_state_for_llm(
 		else:
 			dom_html = '[Start of page]\n' + dom_html
 
-		if pages_below > 0:
-			dom_html += f'\n... {pages_below:.1f} pages below '
-		else:
+		if pages_below <= 0:
 			dom_html += '\n[End of page]'
 
 	# Truncate DOM if too long and notify LLM

@@ -252,9 +252,8 @@ class SecurityWatchdog(BaseWatchdog):
 					if scheme in ['http', 'https']:
 						return True
 			elif pattern.endswith('/*'):
-				# Pattern like brave://* should match any brave:// URL
-				prefix = pattern[:-1]  # Remove the * at the end
-				if url.startswith(prefix):
+				# Pattern like brave://* or http*://example.com/*
+				if fnmatch.fnmatch(url, pattern):
 					return True
 			else:
 				# Use fnmatch for other glob patterns

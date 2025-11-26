@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 import anyio
 from bubus import BaseEvent
 from cdp_use.cdp.browser import DownloadProgressEvent, DownloadWillBeginEvent
+from cdp_use.cdp.network import ResponseReceivedEvent
 from cdp_use.cdp.target import SessionID, TargetID
 from pydantic import PrivateAttr
 
@@ -24,6 +25,7 @@ from browser_use.browser.events import (
 	TabCreatedEvent,
 )
 from browser_use.browser.watchdog_base import BaseWatchdog
+from browser_use.utils import create_task_with_error_handling
 
 if TYPE_CHECKING:
 	pass
@@ -57,6 +59,9 @@ class DownloadsWatchdog(BaseWatchdog):
 	_cdp_downloads_info: dict[str, dict[str, Any]] = PrivateAttr(default_factory=dict)  # Map guid -> info
 	_use_js_fetch_for_local: bool = PrivateAttr(default=False)  # Guard JS fetch path for local regular downloads
 	_session_pdf_urls: dict[str, str] = PrivateAttr(default_factory=dict)  # URL -> path for PDFs downloaded this session
+	_network_monitored_targets: set[str] = PrivateAttr(default_factory=set)  # Track targets with network monitoring enabled
+	_detected_downloads: set[str] = PrivateAttr(default_factory=set)  # Track detected download URLs to avoid duplicates
+	_network_callback_registered: bool = PrivateAttr(default=False)  # Track if global network callback is registered
 
 	async def on_BrowserLaunchEvent(self, event: BrowserLaunchEvent) -> None:
 		self.logger.debug(f'[DownloadsWatchdog] Received BrowserLaunchEvent, EventBus ID: {id(self.event_bus)}')
@@ -86,15 +91,26 @@ class DownloadsWatchdog(BaseWatchdog):
 
 	async def on_BrowserStateRequestEvent(self, event: BrowserStateRequestEvent) -> None:
 		"""Handle browser state request events."""
-		cdp_session = self.browser_session.agent_focus
-		if not cdp_session:
-			return
+		# Use public API - automatically validates and waits for recovery if needed
+		self.logger.debug(f'[DownloadsWatchdog] on_BrowserStateRequestEvent started, event_id={event.event_id[-4:]}')
+		try:
+			cdp_session = await self.browser_session.get_or_create_cdp_session()
+		except ValueError:
+			self.logger.warning(f'[DownloadsWatchdog] No valid focus, skipping BrowserStateRequestEvent {event.event_id[-4:]}')
+			return  # No valid focus, skip
 
+		self.logger.debug(
+			f'[DownloadsWatchdog] About to call get_current_page_url(), target_id={cdp_session.target_id[-4:] if cdp_session.target_id else "None"}'
+		)
 		url = await self.browser_session.get_current_page_url()
+		self.logger.debug(f'[DownloadsWatchdog] Got URL: {url[:80] if url else "None"}')
+
 		if not url:
+			self.logger.warning(f'[DownloadsWatchdog] No URL found for BrowserStateRequestEvent {event.event_id[-4:]}')
 			return
 
 		target_id = cdp_session.target_id
+		self.logger.debug(f'[DownloadsWatchdog] About to dispatch NavigationCompleteEvent for target {target_id[-4:]}')
 		self.event_bus.dispatch(
 			NavigationCompleteEvent(
 				event_type='NavigationCompleteEvent',
@@ -103,6 +119,7 @@ class DownloadsWatchdog(BaseWatchdog):
 				event_parent_id=event.event_id,
 			)
 		)
+		self.logger.debug('[DownloadsWatchdog] Successfully completed BrowserStateRequestEvent')
 
 	async def on_BrowserStoppedEvent(self, event: BrowserStoppedEvent) -> None:
 		"""Clean up when browser stops."""
@@ -125,6 +142,9 @@ class DownloadsWatchdog(BaseWatchdog):
 		self._active_downloads.clear()
 		self._pdf_viewer_cache.clear()
 		self._session_pdf_urls.clear()
+		self._network_monitored_targets.clear()
+		self._detected_downloads.clear()
+		self._network_callback_registered = False
 
 	async def on_NavigationCompleteEvent(self, event: NavigationCompleteEvent) -> None:
 		"""Check for PDFs after navigation completes."""
@@ -145,6 +165,7 @@ class DownloadsWatchdog(BaseWatchdog):
 		self.logger.debug(f'[DownloadsWatchdog] Got target_id={target_id} for tab #{event.target_id[-4:]}')
 
 		is_pdf = await self.check_for_pdf_viewer(target_id)
+
 		if is_pdf:
 			self.logger.debug(f'[DownloadsWatchdog] 📄 PDF detected at {event.url}, triggering auto-download...')
 			download_path = await self.trigger_pdf_download(target_id)
@@ -159,7 +180,7 @@ class DownloadsWatchdog(BaseWatchdog):
 		"""Set up download monitoring for a specific target."""
 
 		# Define CDP event handlers outside of try to avoid indentation/scope issues
-		async def download_will_begin_handler(event: DownloadWillBeginEvent, session_id: SessionID | None):
+		def download_will_begin_handler(event: DownloadWillBeginEvent, session_id: SessionID | None) -> None:
 			self.logger.debug(f'[DownloadsWatchdog] Download will begin: {event}')
 			# Cache info for later completion event handling (esp. remote browsers)
 			guid = event.get('guid', '')
@@ -174,12 +195,17 @@ class DownloadsWatchdog(BaseWatchdog):
 			except (AssertionError, KeyError):
 				pass
 			# Create and track the task
-			task = asyncio.create_task(self._handle_cdp_download(event, target_id, session_id))
+			task = create_task_with_error_handling(
+				self._handle_cdp_download(event, target_id, session_id),
+				name='handle_cdp_download',
+				logger_instance=self.logger,
+				suppress_exceptions=True,
+			)
 			self._cdp_event_tasks.add(task)
 			# Remove from set when done
 			task.add_done_callback(lambda t: self._cdp_event_tasks.discard(t))
 
-		async def download_progress_handler(event: DownloadProgressEvent, session_id: SessionID | None):
+		def download_progress_handler(event: DownloadProgressEvent, session_id: SessionID | None) -> None:
 			# Check if download is complete
 			if event.get('state') == 'completed':
 				file_path = event.get('filePath')
@@ -271,6 +297,337 @@ class DownloadsWatchdog(BaseWatchdog):
 
 		except Exception as e:
 			self.logger.warning(f'[DownloadsWatchdog] Failed to set up CDP download listener for target {target_id}: {e}')
+
+		# Set up network monitoring for this target (catches ALL download variants)
+		await self._setup_network_monitoring(target_id)
+
+	async def _setup_network_monitoring(self, target_id: TargetID) -> None:
+		"""Set up network monitoring to detect PDFs and downloads from ALL sources.
+
+		This catches:
+		- Direct PDF navigation
+		- PDFs in iframes
+		- PDFs with embed/object tags
+		- JavaScript-triggered downloads
+		- Any Content-Disposition: attachment headers
+		"""
+		# Skip if already monitoring this target
+		if target_id in self._network_monitored_targets:
+			self.logger.debug(f'[DownloadsWatchdog] Network monitoring already enabled for target {target_id[-4:]}')
+			return
+
+		# Check if auto-download is enabled
+		if not self._is_auto_download_enabled():
+			self.logger.debug('[DownloadsWatchdog] Auto-download disabled, skipping network monitoring')
+			return
+
+		try:
+			cdp_client = self.browser_session.cdp_client
+
+			# Register the global callback once
+			if not self._network_callback_registered:
+
+				def on_response_received(event: ResponseReceivedEvent, session_id: str | None) -> None:
+					"""Handle Network.responseReceived event to detect downloadable content.
+
+					This callback is registered globally and uses session_id to determine the correct target.
+					"""
+					try:
+						# Check if session_manager exists (may be None during browser shutdown)
+						if not self.browser_session.session_manager:
+							self.logger.warning('[DownloadsWatchdog] Session manager not found, skipping network monitoring')
+							return
+
+						# Look up target_id from session_id
+						event_target_id = self.browser_session.session_manager.get_target_id_from_session_id(session_id)
+						if not event_target_id:
+							# Session not in pool - might be a stale session or not yet tracked
+							return
+
+						# Only process events for targets we're monitoring
+						if event_target_id not in self._network_monitored_targets:
+							return
+
+						response = event.get('response', {})
+						url = response.get('url', '')
+						content_type = response.get('mimeType', '').lower()
+						headers = response.get('headers', {})
+
+						# Skip non-HTTP URLs (data:, about:, chrome-extension:, etc.)
+						if not url.startswith('http'):
+							return
+
+						# Check if it's a PDF
+						is_pdf = 'application/pdf' in content_type
+
+						# Check if it's marked as download via Content-Disposition header
+						content_disposition = headers.get('content-disposition', '').lower()
+						is_download_attachment = 'attachment' in content_disposition
+
+						# Filter out image/video/audio files even if marked as attachment
+						# These are likely resources, not intentional downloads
+						unwanted_content_types = [
+							'image/',
+							'video/',
+							'audio/',
+							'text/css',
+							'text/javascript',
+							'application/javascript',
+							'application/x-javascript',
+							'text/html',
+							'application/json',
+							'font/',
+							'application/font',
+							'application/x-font',
+						]
+						is_unwanted_type = any(content_type.startswith(prefix) for prefix in unwanted_content_types)
+						if is_unwanted_type:
+							return
+
+						# Check URL extension to filter out obvious images/resources
+						url_lower = url.lower().split('?')[0]  # Remove query params
+						unwanted_extensions = [
+							'.jpg',
+							'.jpeg',
+							'.png',
+							'.gif',
+							'.webp',
+							'.svg',
+							'.ico',
+							'.css',
+							'.js',
+							'.woff',
+							'.woff2',
+							'.ttf',
+							'.eot',
+							'.mp4',
+							'.webm',
+							'.mp3',
+							'.wav',
+							'.ogg',
+						]
+						if any(url_lower.endswith(ext) for ext in unwanted_extensions):
+							return
+
+						# Only process if it's a PDF or download
+						if not (is_pdf or is_download_attachment):
+							return
+
+						# Check if we've already processed this URL in this session
+						if url in self._detected_downloads:
+							self.logger.debug(f'[DownloadsWatchdog] Already detected download: {url[:80]}...')
+							return
+
+						# Mark as detected to avoid duplicates
+						self._detected_downloads.add(url)
+
+						# Extract filename from Content-Disposition if available
+						suggested_filename = None
+						if 'filename=' in content_disposition:
+							# Parse filename from Content-Disposition header
+							import re
+
+							filename_match = re.search(r'filename[^;=\n]*=(([\'"]).*?\2|[^;\n]*)', content_disposition)
+							if filename_match:
+								suggested_filename = filename_match.group(1).strip('\'"')
+
+						self.logger.info(f'[DownloadsWatchdog] 🔍 Detected downloadable content via network: {url[:80]}...')
+						self.logger.debug(
+							f'[DownloadsWatchdog]   Content-Type: {content_type}, Is PDF: {is_pdf}, Is Attachment: {is_download_attachment}'
+						)
+
+						# Trigger download asynchronously in background (don't block event handler)
+						async def download_in_background():
+							try:
+								download_path = await self.download_file_from_url(
+									url=url,
+									target_id=event_target_id,  # Use target_id from session_id lookup
+									content_type=content_type,
+									suggested_filename=suggested_filename,
+								)
+
+								if download_path:
+									self.logger.info(f'[DownloadsWatchdog] ✅ Successfully downloaded: {download_path}')
+								else:
+									self.logger.warning(f'[DownloadsWatchdog] ⚠️  Failed to download: {url[:80]}...')
+							except Exception as e:
+								self.logger.error(f'[DownloadsWatchdog] Error downloading in background: {type(e).__name__}: {e}')
+
+						# Create background task
+						task = create_task_with_error_handling(
+							download_in_background(),
+							name='download_in_background',
+							logger_instance=self.logger,
+							suppress_exceptions=True,
+						)
+						self._cdp_event_tasks.add(task)
+						task.add_done_callback(lambda t: self._cdp_event_tasks.discard(t))
+
+					except Exception as e:
+						self.logger.error(f'[DownloadsWatchdog] Error in network response handler: {type(e).__name__}: {e}')
+
+				# Register the callback globally (once)
+				cdp_client.register.Network.responseReceived(on_response_received)
+				self._network_callback_registered = True
+				self.logger.debug('[DownloadsWatchdog] ✅ Registered global network response callback')
+
+			# Get or create CDP session for this target
+			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
+
+			# Enable Network domain to monitor HTTP responses (per-target/per-session)
+			await cdp_client.send.Network.enable(session_id=cdp_session.session_id)
+			self.logger.debug(f'[DownloadsWatchdog] Enabled Network domain for target {target_id[-4:]}')
+
+			# Mark this target as monitored
+			self._network_monitored_targets.add(target_id)
+			self.logger.debug(f'[DownloadsWatchdog] ✅ Network monitoring enabled for target {target_id[-4:]}')
+
+		except Exception as e:
+			self.logger.warning(f'[DownloadsWatchdog] Failed to set up network monitoring for target {target_id}: {e}')
+
+	async def download_file_from_url(
+		self, url: str, target_id: TargetID, content_type: str | None = None, suggested_filename: str | None = None
+	) -> str | None:
+		"""Generic method to download any file from a URL.
+
+		Args:
+			url: The URL to download
+			target_id: The target ID for CDP session
+			content_type: Optional content type (e.g., 'application/pdf')
+			suggested_filename: Optional filename from Content-Disposition header
+
+		Returns:
+			Path to downloaded file, or None if download failed
+		"""
+		if not self.browser_session.browser_profile.downloads_path:
+			self.logger.warning('[DownloadsWatchdog] No downloads path configured')
+			return None
+
+		# Check if already downloaded in this session
+		if url in self._session_pdf_urls:
+			existing_path = self._session_pdf_urls[url]
+			self.logger.debug(f'[DownloadsWatchdog] File already downloaded in session: {existing_path}')
+			return existing_path
+
+		try:
+			# Get or create CDP session for this target
+			temp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
+
+			# Determine filename
+			if suggested_filename:
+				filename = suggested_filename
+			else:
+				# Extract from URL
+				filename = os.path.basename(url.split('?')[0])  # Remove query params
+				if not filename or '.' not in filename:
+					# Fallback: use content type to determine extension
+					if content_type and 'pdf' in content_type:
+						filename = 'document.pdf'
+					else:
+						filename = 'download'
+
+			# Ensure downloads directory exists
+			downloads_dir = str(self.browser_session.browser_profile.downloads_path)
+			os.makedirs(downloads_dir, exist_ok=True)
+
+			# Generate unique filename if file exists
+			final_filename = filename
+			existing_files = os.listdir(downloads_dir)
+			if filename in existing_files:
+				base, ext = os.path.splitext(filename)
+				counter = 1
+				while f'{base} ({counter}){ext}' in existing_files:
+					counter += 1
+				final_filename = f'{base} ({counter}){ext}'
+				self.logger.debug(f'[DownloadsWatchdog] File exists, using: {final_filename}')
+
+			self.logger.debug(f'[DownloadsWatchdog] Downloading from: {url[:100]}...')
+
+			# Download using JavaScript fetch to leverage browser cache
+			escaped_url = json.dumps(url)
+
+			result = await asyncio.wait_for(
+				temp_session.cdp_client.send.Runtime.evaluate(
+					params={
+						'expression': f"""
+				(async () => {{
+					try {{
+						const response = await fetch({escaped_url}, {{
+							cache: 'force-cache'
+						}});
+						if (!response.ok) {{
+							throw new Error(`HTTP error! status: ${{response.status}}`);
+						}}
+						const blob = await response.blob();
+						const arrayBuffer = await blob.arrayBuffer();
+						const uint8Array = new Uint8Array(arrayBuffer);
+
+						return {{
+							data: Array.from(uint8Array),
+							responseSize: uint8Array.length
+						}};
+					}} catch (error) {{
+						throw new Error(`Fetch failed: ${{error.message}}`);
+					}}
+				}})()
+				""",
+						'awaitPromise': True,
+						'returnByValue': True,
+					},
+					session_id=temp_session.session_id,
+				),
+				timeout=15.0,  # 15 second timeout
+			)
+
+			download_result = result.get('result', {}).get('value', {})
+
+			if download_result and download_result.get('data') and len(download_result['data']) > 0:
+				download_path = os.path.join(downloads_dir, final_filename)
+
+				# Save the file asynchronously
+				async with await anyio.open_file(download_path, 'wb') as f:
+					await f.write(bytes(download_result['data']))
+
+				# Verify file was written successfully
+				if os.path.exists(download_path):
+					actual_size = os.path.getsize(download_path)
+					self.logger.debug(f'[DownloadsWatchdog] File written: {download_path} ({actual_size} bytes)')
+
+					# Determine file type
+					file_ext = Path(final_filename).suffix.lower().lstrip('.')
+					mime_type = content_type or f'application/{file_ext}'
+
+					# Store URL->path mapping for this session
+					self._session_pdf_urls[url] = download_path
+
+					# Emit file downloaded event
+					self.logger.debug(f'[DownloadsWatchdog] Dispatching FileDownloadedEvent for {final_filename}')
+					self.event_bus.dispatch(
+						FileDownloadedEvent(
+							url=url,
+							path=download_path,
+							file_name=final_filename,
+							file_size=actual_size,
+							file_type=file_ext if file_ext else None,
+							mime_type=mime_type,
+							auto_download=True,
+						)
+					)
+
+					return download_path
+				else:
+					self.logger.error(f'[DownloadsWatchdog] Failed to write file: {download_path}')
+					return None
+			else:
+				self.logger.warning(f'[DownloadsWatchdog] No data received when downloading from {url}')
+				return None
+
+		except TimeoutError:
+			self.logger.warning(f'[DownloadsWatchdog] Download timed out: {url[:80]}...')
+			return None
+		except Exception as e:
+			self.logger.warning(f'[DownloadsWatchdog] Download failed: {type(e).__name__}: {e}')
+			return None
 
 	def _track_download(self, file_path: str) -> None:
 		"""Track a completed download and dispatch the appropriate event.
@@ -615,15 +972,19 @@ class DownloadsWatchdog(BaseWatchdog):
 		"""
 		self.logger.debug(f'[DownloadsWatchdog] Checking if target {target_id} is PDF viewer...')
 
-		# Get target info to get URL
-		cdp_client = self.browser_session.cdp_client
-		targets = await cdp_client.send.Target.getTargets()
-		target_info = next((t for t in targets['targetInfos'] if t['targetId'] == target_id), None)
-		if not target_info:
-			self.logger.warning(f'[DownloadsWatchdog] No target info found for {target_id}')
+		# Use safe API - focus=False to avoid changing focus during PDF check
+		try:
+			session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
+		except ValueError as e:
+			self.logger.warning(f'[DownloadsWatchdog] No session found for {target_id}: {e}')
 			return False
 
-		page_url = target_info.get('url', '')
+		# Get URL from target
+		target = self.browser_session.session_manager.get_target(target_id)
+		if not target:
+			self.logger.warning(f'[DownloadsWatchdog] No target found for {target_id}')
+			return False
+		page_url = target.url
 
 		# Check cache first
 		if page_url in self._pdf_viewer_cache:
@@ -638,15 +999,6 @@ class DownloadsWatchdog(BaseWatchdog):
 				self.logger.debug(f'[DownloadsWatchdog] PDF detected via URL pattern: {page_url}')
 				self._pdf_viewer_cache[page_url] = True
 				return True
-
-			# Method 2: Check network response headers via CDP (safer than JavaScript)
-			header_is_pdf = await self._check_network_headers_for_pdf(target_id)
-			if header_is_pdf:
-				self.logger.debug(f'[DownloadsWatchdog] PDF detected via network headers: {page_url}')
-				self._pdf_viewer_cache[page_url] = True
-				return True
-
-			# Method 3: Check Chrome's PDF viewer specific URLs
 			chrome_pdf_viewer = self._is_chrome_pdf_viewer_url(page_url)
 			if chrome_pdf_viewer:
 				self.logger.debug(f'[DownloadsWatchdog] Chrome PDF viewer detected: {page_url}')

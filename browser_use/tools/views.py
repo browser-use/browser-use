@@ -4,6 +4,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 # Action Input Models
+class ExtractAction(BaseModel):
+	query: str
+	extract_links: bool = Field(
+		default=False, description='Set True to true if the query requires links, else false to safe tokens'
+	)
+	start_from_char: int = Field(
+		default=0, description='Use this for long markdowns to start from a specific character (not index in browser_state)'
+	)
+
+
 class SearchAction(BaseModel):
 	query: str
 	engine: str = Field(
@@ -25,7 +35,10 @@ GoToUrlAction = NavigateAction
 
 
 class ClickElementAction(BaseModel):
-	index: int = Field(ge=1, description='from browser_state')
+	index: int | None = Field(default=None, ge=1, description='Element index from browser_state')
+	coordinate_x: int | None = Field(default=None, description='Horizontal coordinate relative to viewport left edge')
+	coordinate_y: int | None = Field(default=None, description='Vertical coordinate relative to viewport top edge')
+	force: bool = Field(default=False, description='If True, skip safety checks (file input, print, select)')
 	# expect_download: bool = Field(default=False, description='set True if expecting a download, False otherwise')  # moved to downloads_watchdog.py
 	# click_count: int = 1  # TODO
 
@@ -37,7 +50,7 @@ class InputTextAction(BaseModel):
 
 
 class DoneAction(BaseModel):
-	text: str = Field(description='summary for user')
+	text: str = Field(description='Final user message in the format the user requested')
 	success: bool = Field(default=True, description='True if user_request completed successfully')
 	files_to_display: list[str] | None = Field(default=[])
 
@@ -46,8 +59,8 @@ T = TypeVar('T', bound=BaseModel)
 
 
 class StructuredOutputAction(BaseModel, Generic[T]):
-	success: bool = Field(default=True, description='1=done')
-	data: T
+	success: bool = Field(default=True, description='True if user_request completed successfully')
+	data: T = Field(description='The actual output data matching the requested schema')
 
 
 class SwitchTabAction(BaseModel):
@@ -59,7 +72,7 @@ class CloseTabAction(BaseModel):
 
 
 class ScrollAction(BaseModel):
-	down: bool = Field(description='down=True=scroll down, down=False scroll up')
+	down: bool = Field(default=True, description='down=True=scroll down, down=False scroll up')
 	pages: float = Field(default=1.0, description='0.5=half page, 1=full page, 10=to bottom/top')
 	index: int | None = Field(default=None, description='Optional element index to scroll within specific container')
 
@@ -71,10 +84,6 @@ class SendKeysAction(BaseModel):
 class UploadFileAction(BaseModel):
 	index: int
 	path: str
-
-
-class ExtractPageContentAction(BaseModel):
-	value: str
 
 
 class NoParamsAction(BaseModel):

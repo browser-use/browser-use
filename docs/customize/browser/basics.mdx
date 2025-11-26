@@ -8,7 +8,7 @@ icon: "play"
 ---
 
 ```python
-from browser_use import Agent, Browser, ChatOpenAI
+from browser_use import Agent, Browser, ChatBrowserUse
 
 browser = Browser(
 	headless=False,  # Show browser window
@@ -18,7 +18,7 @@ browser = Browser(
 agent = Agent(
 	task='Search for Browser Use',
 	browser=browser,
-	llm=ChatOpenAI(model='gpt-4.1-mini'),
+	llm=ChatBrowserUse(),
 )
 
 

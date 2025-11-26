@@ -1,8 +1,9 @@
 import asyncio
 import json
 import logging
+import random
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
 
 from google import genai
@@ -60,6 +61,10 @@ class ChatGoogle(BaseChatModel):
 		http_options: HTTP options for the client
 		include_system_in_user: If True, system messages are included in the first user message
 		supports_structured_output: If True, uses native JSON mode; if False, uses prompt-based fallback
+		max_retries: Number of retries for retryable errors (default: 5)
+		retryable_status_codes: List of HTTP status codes to retry on (default: [429, 500, 502, 503, 504])
+		retry_base_delay: Base delay in seconds for exponential backoff (default: 1.0)
+		retry_max_delay: Maximum delay in seconds between retries (default: 60.0)
 
 	Example:
 		from google.genai import types
@@ -68,7 +73,11 @@ class ChatGoogle(BaseChatModel):
 			model='gemini-2.0-flash-exp',
 			config={
 				'tools': [types.Tool(code_execution=types.ToolCodeExecution())]
-			}
+			},
+			max_retries=5,
+			retryable_status_codes=[429, 500, 502, 503, 504],
+			retry_base_delay=1.0,
+			retry_max_delay=60.0,
 		)
 	"""
 
@@ -82,6 +91,10 @@ class ChatGoogle(BaseChatModel):
 	config: types.GenerateContentConfigDict | None = None
 	include_system_in_user: bool = False
 	supports_structured_output: bool = True  # New flag
+	max_retries: int = 5  # Number of retries for retryable errors
+	retryable_status_codes: list[int] = field(default_factory=lambda: [429, 500, 502, 503, 504])  # Status codes to retry on
+	retry_base_delay: float = 1.0  # Base delay in seconds for exponential backoff
+	retry_max_delay: float = 60.0  # Maximum delay in seconds between retries
 
 	# Client initialization parameters
 	api_key: str | None = None
@@ -402,52 +415,64 @@ class ChatGoogle(BaseChatModel):
 				# Re-raise the exception
 				raise
 
-		try:
-			# Let Google client handle retries internally with proper connection management
-			self.logger.debug(f'🔄 Making API call to {self.model} (using built-in retry)')
-			return await _make_api_call()
+		# Retry logic for certain errors with exponential backoff
+		assert self.max_retries >= 1, 'max_retries must be at least 1'
 
-		except Exception as e:
-			# Handle specific Google API errors with enhanced diagnostics
-			error_message = str(e)
-			status_code: int | None = None
-
-			# Enhanced timeout error handling
-			if 'timeout' in error_message.lower() or 'cancelled' in error_message.lower():
-				if isinstance(e, asyncio.CancelledError) or 'CancelledError' in str(type(e)):
-					enhanced_message = 'Gemini API request was cancelled (likely timeout). '
-					enhanced_message += 'This suggests the API is taking too long to respond. '
-					enhanced_message += (
-						'Consider: 1) Reducing input size, 2) Using a different model, 3) Checking network connectivity.'
+		for attempt in range(self.max_retries):
+			try:
+				return await _make_api_call()
+			except ModelProviderError as e:
+				# Retry if status code is in retryable list and we have attempts left
+				if e.status_code in self.retryable_status_codes and attempt < self.max_retries - 1:
+					# Exponential backoff with jitter: base_delay * 2^attempt + random jitter
+					delay = min(self.retry_base_delay * (2**attempt), self.retry_max_delay)
+					jitter = random.uniform(0, delay * 0.1)  # 10% jitter
+					total_delay = delay + jitter
+					self.logger.warning(
+						f'⚠️ Got {e.status_code} error, retrying in {total_delay:.1f}s... (attempt {attempt + 1}/{self.max_retries})'
 					)
-					error_message = enhanced_message
-					status_code = 504  # Gateway timeout
-					self.logger.error(f'🕐 Timeout diagnosis: Model: {self.model}')
-				else:
-					status_code = 408  # Request timeout
-			# Check if this is a rate limit error
-			elif any(
-				indicator in error_message.lower()
-				for indicator in ['rate limit', 'resource exhausted', 'quota exceeded', 'too many requests', '429']
-			):
-				status_code = 429
-			elif any(
-				indicator in error_message.lower()
-				for indicator in ['service unavailable', 'internal server error', 'bad gateway', '503', '502', '500']
-			):
-				status_code = 503
+					await asyncio.sleep(total_delay)
+					continue
+				# Otherwise raise
+				raise
+			except Exception as e:
+				# For non-ModelProviderError, wrap and raise
+				error_message = str(e)
+				status_code: int | None = None
 
-			# Try to extract status code if available
-			if hasattr(e, 'response'):
-				response_obj = getattr(e, 'response', None)
-				if response_obj and hasattr(response_obj, 'status_code'):
-					status_code = getattr(response_obj, 'status_code', None)
+				# Try to extract status code if available
+				if hasattr(e, 'response'):
+					response_obj = getattr(e, 'response', None)
+					if response_obj and hasattr(response_obj, 'status_code'):
+						status_code = getattr(response_obj, 'status_code', None)
 
-			raise ModelProviderError(
-				message=error_message,
-				status_code=status_code or 502,  # Use default if None
-				model=self.name,
-			) from e
+				# Enhanced timeout error handling
+				if 'timeout' in error_message.lower() or 'cancelled' in error_message.lower():
+					if isinstance(e, asyncio.CancelledError) or 'CancelledError' in str(type(e)):
+						error_message = 'Gemini API request was cancelled (likely timeout). Consider: 1) Reducing input size, 2) Using a different model, 3) Checking network connectivity.'
+						status_code = 504
+					else:
+						status_code = 408
+				elif any(indicator in error_message.lower() for indicator in ['forbidden', '403']):
+					status_code = 403
+				elif any(
+					indicator in error_message.lower()
+					for indicator in ['rate limit', 'resource exhausted', 'quota exceeded', 'too many requests', '429']
+				):
+					status_code = 429
+				elif any(
+					indicator in error_message.lower()
+					for indicator in ['service unavailable', 'internal server error', 'bad gateway', '503', '502', '500']
+				):
+					status_code = 503
+
+				raise ModelProviderError(
+					message=error_message,
+					status_code=status_code or 502,
+					model=self.name,
+				) from e
+
+		raise RuntimeError('Retry loop completed without return or exception')
 
 	def _fix_gemini_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
 		"""
@@ -485,13 +510,16 @@ class ChatGoogle(BaseChatModel):
 			schema = resolve_refs(schema)
 
 		# Remove unsupported properties
-		def clean_schema(obj: Any) -> Any:
+		def clean_schema(obj: Any, parent_key: str | None = None) -> Any:
 			if isinstance(obj, dict):
 				# Remove unsupported properties
 				cleaned = {}
 				for key, value in obj.items():
-					if key not in ['additionalProperties', 'title', 'default']:
-						cleaned_value = clean_schema(value)
+					# Only strip 'title' when it's a JSON Schema metadata field (not inside 'properties')
+					# 'title' as a metadata field appears at schema level, not as a property name
+					is_metadata_title = key == 'title' and parent_key != 'properties'
+					if key not in ['additionalProperties', 'default'] and not is_metadata_title:
+						cleaned_value = clean_schema(value, parent_key=key)
 						# Handle empty object properties - Gemini doesn't allow empty OBJECT types
 						if (
 							key == 'properties'
@@ -515,13 +543,9 @@ class ChatGoogle(BaseChatModel):
 				):
 					cleaned['properties'] = {'_placeholder': {'type': 'string'}}
 
-				# Also remove 'title' from the required list if it exists
-				if 'required' in cleaned and isinstance(cleaned.get('required'), list):
-					cleaned['required'] = [p for p in cleaned['required'] if p != 'title']
-
 				return cleaned
 			elif isinstance(obj, list):
-				return [clean_schema(item) for item in obj]
+				return [clean_schema(item, parent_key=parent_key) for item in obj]
 			return obj
 
 		return clean_schema(schema)

@@ -18,12 +18,13 @@ browser = Browser(
 )
 
 
+# NOTE: You have to close all Chrome browsers before running this example so that we can launch chrome in debug mode.
 async def main():
 	# save storage state
 	agent = Agent(
 		llm=ChatGoogle(model='gemini-flash-latest'),
 		# Google blocks this approach, so we use a different search engine
-		task='go to amazon.com and buy pens to draw on the whiteboard',
+		task='go to amazon.com and search for pens to draw on whiteboards',
 		browser=browser,
 	)
 	await agent.run()
