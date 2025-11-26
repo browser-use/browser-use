@@ -553,12 +553,16 @@ class BrowserUseServer:
 
 		# Initialize LLM from config
 		llm_config = get_default_llm(self.config)
+		base_url = llm_config.get('base_url', None)
+		kwargs = {}
+		if base_url:
+			kwargs['base_url'] = base_url
 		if api_key := llm_config.get('api_key'):
 			self.llm = ChatOpenAI(
-				model=llm_config.get('model', 'gpt-4o-mini'),
+				model=llm_config.get('model', 'gpt-o4-mini'),
 				api_key=api_key,
 				temperature=llm_config.get('temperature', 0.7),
-				# max_tokens=llm_config.get('max_tokens'),
+				**kwargs,
 			)
 
 		# Initialize FileSystem for extraction actions
@@ -606,10 +610,15 @@ class BrowserUseServer:
 			else:
 				llm_model = llm_config.get('model', 'gpt-4o')
 
+			base_url = llm_config.get('base_url', None)
+			kwargs = {}
+			if base_url:
+				kwargs['base_url'] = base_url
 			llm = ChatOpenAI(
 				model=llm_model,
 				api_key=api_key,
 				temperature=llm_config.get('temperature', 0.7),
+				**kwargs,
 			)
 
 		# Get profile config and merge with tool parameters

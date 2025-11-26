@@ -1364,11 +1364,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.logger.debug(f'🤖 Browser-Use Library Version {self.version} ({self.source})')
 
 		# Check for latest version and log upgrade message if needed
-		latest_version = await check_latest_browser_use_version()
-		if latest_version and latest_version != self.version:
-			self.logger.info(
-				f'📦 Newer version available: {latest_version} (current: {self.version}). Upgrade with: uv add browser-use=={latest_version}'
-			)
+		if CONFIG.BROWSER_USE_VERSION_CHECK:
+			latest_version = await check_latest_browser_use_version()
+			if latest_version and latest_version != self.version:
+				self.logger.info(
+					f'📦 Newer version available: {latest_version} (current: {self.version}). Upgrade with: uv add browser-use=={latest_version}'
+				)
 
 	def _log_first_step_startup(self) -> None:
 		"""Log startup message only on the first step"""
